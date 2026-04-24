@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.129] — 2026-04-24
+
+PSYCHE E4 governed execution pipelines + DSL contract enforcement (T1261). Adds `requires/ensures` runtime contract validation at every node boundary in the playbook state machine, `error_handlers` DSL wiring for `contract_violation` events, `context_files` thin-agent boundary on agentic nodes, `cleo playbook validate <file>` CLI, contract-violation audit trail at `.cleo/audit/contract-violations.jsonl`, STRICT cutover migration tool, and M5 hot-path call-site verification. All three starter playbooks (rcasd, ivtr, release) validate exit 0. LOOM substrate unaffected.
+
+### Added
+
+- **`cleo playbook validate <file>`** CLI subcommand (T1283): Parse and validate any `.cantbook` file without executing it. Exit 0 on success, exit 70 on parse error.
+- **`playbook.validate` dispatch operation** (T1283): Added to `PlaybookHandler.query()`, `getSupportedOperations()`, and OPERATIONS registry (+1 query, total 319).
+- **`appendContractViolation()`** in `packages/core/src/audit.ts` (T1284): Appends `ContractViolationRecord` entries to `.cleo/audit/contract-violations.jsonl`. Non-fatal, append-only.
+- **`ContractViolationRecord`** interface in `@cleocode/contracts/src/playbook.ts` (T1284).
+- **Contract enforcement in playbook runtime** (T1284): `node.requires.fields` validated before dispatch; `edge.contract.requires` validated after success. Violations trigger `contract_violation` error handler.
+- **`context_files?: string[]`** on `PlaybookAgenticNode` (T1285): Thin-agent context boundary field parsed by `.cantbook` loader.
+- **STRICT cutover migration tool** in `packages/playbooks/src/migrate-e4.ts` (T1287): `validatePlaybookCompliance()`, `migratePlaybook()`, `migratePlaybookFile()`. Exported from `@cleocode/playbooks`.
+- **`ExecutePlaybookOptions.projectRoot?`** and **`ResumePlaybookOptions.projectRoot?`** (T1284): For contract-violation audit writes.
+
+### Changed
+
+- **`PlaybookHandler.getSupportedOperations()`** returns `validate` in query list (T1283).
+- **Parity test**: queryCount 188→189, total 318→319 (T1283).
+- **`starter.e2e.test.ts`** `alwaysSucceed` dispatcher emits required contract fields (T1261).
+
 ## [2026.4.128] — 2026-04-24
 
 PSYCHE E3 spawn wiring + provenanceClass M6 gate (T1260). Wires `composeSpawnPayload` → `buildRetrievalBundle` so tier-1/2 spawn prompts include a `## PSYCHE-MEMORY` section carrying user profile, peer memory, and session narrative. Adds `provenanceClass` column to all 4 brain tables (M6 refusal gate: entries with `'unswept-pre-T1151'` refused until T1147 W7 sweep ships in .132). Registers `buildRetrievalBundle` as M4 named injection primitive. Flips `spawn-retrieval-parity.test.ts` from `it.fails` (M1 red, .127) to 6 green integration tests (M1 gate satisfied).

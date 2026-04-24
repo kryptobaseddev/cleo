@@ -5795,6 +5795,33 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── playbook.validate (T1261 PSYCHE E4) ──────────────────────────────────
+  {
+    gateway: 'query',
+    domain: 'playbook',
+    operation: 'validate',
+    description:
+      'playbook.validate (query) — parse and validate a .cantbook file without executing it; exit 0 on success, exit 70 on parse error',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'file',
+        type: 'string' as const,
+        required: false,
+        description: 'Absolute or relative path to the .cantbook file',
+        cli: { positional: true },
+      },
+      {
+        name: 'name',
+        type: 'string' as const,
+        required: false,
+        description: 'Playbook name (resolved through the standard search path)',
+      },
+    ],
+  },
   // ── orchestrate.{approve,reject,pending} HITL gate decisions (T935) ──────
   {
     gateway: 'mutate',

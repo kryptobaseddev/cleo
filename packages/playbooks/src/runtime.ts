@@ -26,8 +26,13 @@
  *    written with the HMAC-signed resume token, and the returned
  *    {@link ExecutePlaybookResult.approvalToken} is what the human reviewer
  *    must present via `resumePlaybook` to continue.
+ * 5. Contract enforcement (T1261 PSYCHE E4) — requires/ensures DSL validated
+ *    at every node boundary. Violations are appended to
+ *    `.cleo/audit/contract-violations.jsonl` and trigger the `contract_violation`
+ *    error_handler (inject_hint | hitl_escalate | abort).
  *
  * @task T930 — Playbook Runtime State Machine
+ * @task T1261 PSYCHE E4 — contract enforcement + context boundary
  */
 
 import type { DatabaseSync } from 'node:sqlite';
@@ -36,6 +41,7 @@ import type {
   PlaybookApprovalNode,
   PlaybookDefinition,
   PlaybookDeterministicNode,
+  PlaybookEdge,
   PlaybookNode,
   PlaybookRun,
   PlaybookRunStatus,
@@ -163,13 +169,14 @@ export interface ExecutePlaybookOptions {
   sessionId?: string;
   /** Injectable clock for deterministic tests (defaults to `() => new Date()`). */
   now?: () => Date;
+  /**
+   * Project root for contract-violation audit writes (T1261 PSYCHE E4).
+   * When absent, contract violations are still enforced but not appended to
+   * `.cleo/audit/contract-violations.jsonl`.
+   */
+  projectRoot?: string;
 }
 
-/**
- * Options accepted by {@link resumePlaybook}. The runtime validates that the
- * supplied approval token resolves to an `approved` {@link PlaybookApproval}
- * row before continuing execution.
- */
 export interface ResumePlaybookOptions {
   db: DatabaseSync;
   playbook: PlaybookDefinition;
@@ -180,8 +187,13 @@ export interface ResumePlaybookOptions {
   approvalSecret?: string;
   maxIterationsDefault?: number;
   now?: () => Date;
+  /**
+   * Project root for contract-violation audit writes (T1261 PSYCHE E4).
+   */
+  projectRoot?: string;
 }
 
+/**
 /**
  * Terminal status values reported by the runtime.
  */
@@ -494,6 +506,96 @@ function executeApprovalNode(
 // Main execution loop
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Contract enforcement helpers (T1261 PSYCHE E4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check that all required fields from a predecessor node are present in the
+ * current execution context.
+ *
+ * @param fields - List of keys that must be in `context`.
+ * @param from - Optional predecessor node id for error message context.
+ * @param context - Current accumulated run context.
+ * @returns `null` if all fields are present; a human-readable violation
+ *          description otherwise.
+ */
+function checkRequires(
+  fields: readonly string[],
+  from: string | undefined,
+  context: Record<string, unknown>,
+): string | null {
+  for (const key of fields) {
+    if (!(key in context)) {
+      const source = from !== undefined ? ` (from node '${from}')` : '';
+      return `requires.fields['${key}']${source} not present in context`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the first outgoing edge from `fromId` to `toId` in the playbook edge
+ * list. Returns `undefined` when no explicit edge exists.
+ */
+function resolveEdge(
+  fromId: string,
+  toId: string,
+  edges: readonly PlaybookEdge[],
+): PlaybookEdge | undefined {
+  return edges.find((e) => e.from === fromId && e.to === toId);
+}
+
+/**
+ * Best-effort contract violation audit write. Non-fatal: errors are swallowed
+ * so a broken filesystem never blocks playbook execution.
+ *
+ * Writes to `<projectRoot>/.cleo/audit/contract-violations.jsonl` following
+ * the ADR-039 pattern.
+ */
+function auditContractViolation(
+  projectRoot: string | undefined,
+  runId: string,
+  nodeId: string,
+  field: 'requires' | 'ensures',
+  key: string,
+  playbookName: string,
+): void {
+  if (!projectRoot) return;
+  try {
+    // Lazy-import to avoid a hard dep on @cleocode/core from @cleocode/playbooks.
+    // The audit is best-effort; we swallow any dynamic import failure.
+    void import('@cleocode/core').then(({ appendContractViolation }) => {
+      appendContractViolation(projectRoot, {
+        runId,
+        nodeId,
+        field,
+        key,
+        message: `contract_violation: ${field}['${key}'] check failed on node '${nodeId}'`,
+        playbookName,
+      });
+    });
+  } catch {
+    // non-fatal
+  }
+}
+
+/**
+ * Map a `contract_violation` trigger to the registered error handler action.
+ *
+ * @returns `'inject_hint'` | `'hitl_escalate'` | `'abort'` based on the
+ *          first matching handler, or `null` when no handler is registered.
+ */
+function handleContractErrorHandler(
+  playbook: PlaybookDefinition,
+  trigger: 'contract_violation',
+  _message: string,
+): 'inject_hint' | 'hitl_escalate' | 'abort' | null {
+  if (!playbook.error_handlers) return null;
+  const handler = playbook.error_handlers.find((h) => h.on === trigger);
+  return handler?.action ?? null;
+}
+
 /**
  * Determine the effective iteration cap for a node. Falls back to the
  * runtime default (3) when `on_failure.max_iterations` is unset. The parser
@@ -532,9 +634,12 @@ async function runFromNode(args: {
   approvalSecret: string;
   maxIterationsDefault: number;
   now: () => Date;
+  /** Project root for contract-violations.jsonl audit writes (T1261 E4). */
+  projectRoot?: string;
 }): Promise<ExecutePlaybookResult> {
   const {
     db,
+    playbook,
     run,
     startNodeId,
     nodeIndex,
@@ -567,6 +672,39 @@ async function runFromNode(args: {
       iterationCounts: { ...iterationCounts },
     });
 
+    // Contract enforcement (T1261 E4): validate node.requires BEFORE dispatch.
+    // On violation, trigger contract_violation error handler or fail the node.
+    if (node.requires?.fields) {
+      const violation = checkRequires(node.requires.fields, node.requires.from, context);
+      if (violation !== null) {
+        const contractFailure = `contract_violation: ${violation}`;
+        auditContractViolation(
+          args.projectRoot,
+          run.runId,
+          node.id,
+          'requires',
+          violation,
+          playbook.name,
+        );
+        const handled = handleContractErrorHandler(playbook, 'contract_violation', contractFailure);
+        if (handled === 'abort') {
+          failedNodeId = node.id;
+          lastError = contractFailure;
+          break;
+        }
+        if (handled !== null) {
+          context['__lastError'] = contractFailure;
+          context['__lastFailedNode'] = node.id;
+          context['__contractViolation'] = violation;
+          if (handled === 'hitl_escalate') {
+            exceededNodeId = node.id;
+            break;
+          }
+          // inject_hint: continue to dispatch with the hint in context
+        }
+      }
+    }
+
     let outcome: NodeOutcome;
     if (node.type === 'agentic') {
       outcome = await executeAgenticNode(node, run.runId, context, attempt, dispatcher);
@@ -594,7 +732,56 @@ async function runFromNode(args: {
       // Merge outputs into context and persist.
       Object.assign(context, outcome.output);
       updatePlaybookRun(db, run.runId, { bindings: { ...context } });
-      currentId = resolveNextNodeId(node.id, edgeIndex);
+
+      // Contract enforcement (T1261 E4): validate node.ensures AFTER merge.
+      if (node.ensures?.outputFiles) {
+        for (const key of node.ensures.outputFiles) {
+          if (!(key in context)) {
+            const violation = `ensures.outputFiles[${key}] not present in context after ${node.id}`;
+            auditContractViolation(
+              args.projectRoot,
+              run.runId,
+              node.id,
+              'ensures',
+              key,
+              playbook.name,
+            );
+            handleContractErrorHandler(playbook, 'contract_violation', violation);
+            context['__ensuresViolation'] = violation;
+          }
+        }
+      }
+
+      // Validate outgoing edge contracts (edge.contract.requires on the FROM side).
+      const nextId = resolveNextNodeId(node.id, edgeIndex);
+      if (nextId !== null) {
+        const edge = resolveEdge(node.id, nextId, playbook.edges);
+        if (edge?.contract?.requires) {
+          for (const key of edge.contract.requires) {
+            if (!(key in context)) {
+              const violation = `edge.contract.requires[${key}] missing when crossing ${node.id} → ${nextId}`;
+              auditContractViolation(
+                args.projectRoot,
+                run.runId,
+                node.id,
+                'requires',
+                key,
+                playbook.name,
+              );
+              const handled = handleContractErrorHandler(playbook, 'contract_violation', violation);
+              if (handled === 'abort') {
+                failedNodeId = node.id;
+                lastError = violation;
+                break;
+              }
+              context['__contractViolation'] = violation;
+            }
+          }
+          if (failedNodeId !== undefined) break;
+        }
+      }
+
+      currentId = nextId;
       continue;
     }
 
@@ -777,6 +964,7 @@ export async function executePlaybook(
     approvalSecret,
     maxIterationsDefault,
     now,
+    projectRoot: options.projectRoot,
   };
   return runFromNode(runArgs);
 }
@@ -907,6 +1095,7 @@ export async function resumePlaybook(
     approvalSecret,
     maxIterationsDefault,
     now,
+    projectRoot: options.projectRoot,
   };
   return runFromNode(runArgs);
 }

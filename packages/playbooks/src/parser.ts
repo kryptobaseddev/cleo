@@ -17,12 +17,14 @@
  *   - every edge.from + edge.to MUST reference a known node id
  *   - nodes form a DAG when combined with edges (no cycles)
  *   - agentic nodes MUST have skill OR agent (at least one)
+ *   - agentic nodes MAY have context_files (thin-agent boundary, T1261 E4)
  *   - deterministic nodes MUST have command + args
  *   - approval nodes MUST have prompt
  *   - depends[] entries MUST be valid node ids
  *   - iteration_cap (max_iterations) MUST be 0..10 (hard limit)
  *
  * @task T889 / T904 / W4-7
+ * @task T1261 PSYCHE E4 — context_files thin-agent boundary
  */
 
 import { createHash } from 'node:crypto';
@@ -332,6 +334,8 @@ function parseAgenticNode(
     inputs = acc;
   }
 
+  const context_files = parseStringArray(raw.context_files, `nodes[${index}].context_files`);
+
   return {
     ...base,
     type: 'agentic',
@@ -339,6 +343,7 @@ function parseAgenticNode(
     agent,
     role,
     inputs,
+    ...(context_files !== undefined ? { context_files } : {}),
   };
 }
 

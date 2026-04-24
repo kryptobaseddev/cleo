@@ -337,7 +337,7 @@ function toRunEnvelope(result: ExecutePlaybookResult): PlaybookRunEnvelope {
  */
 export class PlaybookHandler implements DomainHandler {
   /**
-   * Query gateway — `status` and `list`.
+   * Query gateway — `status`, `list`, and `validate`.
    */
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
@@ -347,6 +347,8 @@ export class PlaybookHandler implements DomainHandler {
           return this.handleStatus(params, startTime);
         case 'list':
           return this.handleList(params, startTime);
+        case 'validate':
+          return this.handleValidate(params, startTime);
         default:
           return errorResult(
             'query',
@@ -393,7 +395,7 @@ export class PlaybookHandler implements DomainHandler {
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list'],
+      query: ['status', 'list', 'validate'],
       mutate: ['run', 'resume'],
     };
   }
@@ -468,6 +470,114 @@ export class PlaybookHandler implements DomainHandler {
     };
   }
 
+  /**
+   * Validate a `.cantbook` file at an absolute path or a playbook name.
+   *
+   * Accepts either:
+   *  - `file` — absolute or relative path to a `.cantbook` file on disk.
+   *  - `name` — playbook name resolved through the standard search path.
+   *
+   * Returns a LAFS envelope with `valid: true` on success, or an error
+   * envelope with `E_PLAYBOOK_PARSE` and the field/message on failure.
+   * Exit code 70 is passed through from {@link PlaybookParseError}.
+   *
+   * @task T1261 PSYCHE E4
+   */
+  private async handleValidate(
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    const file = params?.file as string | undefined;
+    const name = params?.name as string | undefined;
+
+    if (!file && !name) {
+      return errorResult(
+        'query',
+        'playbook',
+        'validate',
+        'E_INVALID_INPUT',
+        'Either file (path) or name (playbook name) is required',
+        startTime,
+      );
+    }
+
+    let source: string;
+    let sourcePath: string;
+
+    if (file) {
+      // Absolute or relative file path.
+      const { existsSync, readFileSync } = await import('node:fs');
+      const { resolve: resolvePath } = await import('node:path');
+      const resolved = resolvePath(file);
+      if (!existsSync(resolved)) {
+        return errorResult(
+          'query',
+          'playbook',
+          'validate',
+          'E_NOT_FOUND',
+          `playbook file not found: ${resolved}`,
+          startTime,
+        );
+      }
+      sourcePath = resolved;
+      source = readFileSync(resolved, 'utf8');
+    } else {
+      // Resolve by name through the standard search path.
+      const loaded = loadPlaybookByName(name!);
+      if (loaded === null) {
+        return errorResult(
+          'query',
+          'playbook',
+          'validate',
+          'E_NOT_FOUND',
+          `playbook "${name}" not found in any search path`,
+          startTime,
+        );
+      }
+      sourcePath = loaded.sourcePath;
+      source = loaded.source;
+    }
+
+    try {
+      const { definition, sourceHash } = parsePlaybook(source);
+      return {
+        meta: dispatchMeta('query', 'playbook', 'validate', startTime),
+        success: true,
+        data: {
+          valid: true,
+          sourcePath,
+          sourceHash,
+          name: definition.name,
+          version: definition.version,
+          nodeCount: definition.nodes.length,
+          edgeCount: definition.edges.length,
+          hasRequires: definition.nodes.some((n) => n.requires !== undefined),
+          hasEnsures: definition.nodes.some((n) => n.ensures !== undefined),
+          hasErrorHandlers: (definition.error_handlers?.length ?? 0) > 0,
+        },
+      };
+    } catch (err) {
+      if (err instanceof PlaybookParseError) {
+        return errorResult(
+          'query',
+          'playbook',
+          'validate',
+          err.code,
+          `${err.message}${err.field ? ` [field=${err.field}]` : ''}`,
+          startTime,
+        );
+      }
+      return errorResult(
+        'query',
+        'playbook',
+        'validate',
+        'E_PLAYBOOK_PARSE',
+        err instanceof Error ? err.message : String(err),
+        startTime,
+      );
+    }
+  }
+
   private async handleRun(
     params: Record<string, unknown> | undefined,
     startTime: number,
@@ -539,12 +649,14 @@ export class PlaybookHandler implements DomainHandler {
     const dispatcher = await buildDefaultDispatcher();
     let result: ExecutePlaybookResult;
     try {
+      const { getProjectRoot } = await import('@cleocode/core/internal');
       const opts: Parameters<typeof executePlaybook>[0] = {
         db,
         playbook: parsed.definition,
         playbookHash: parsed.sourceHash,
         initialContext,
         dispatcher,
+        projectRoot: getProjectRoot(),
       };
       if (__playbookRuntimeOverrides.approvalSecret !== undefined) {
         opts.approvalSecret = __playbookRuntimeOverrides.approvalSecret;

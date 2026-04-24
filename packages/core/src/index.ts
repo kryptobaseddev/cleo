@@ -157,7 +157,7 @@ export { createDataAccessor, getAccessor } from './store/data-accessor.js';
 // ---------------------------------------------------------------------------
 
 // Audit
-export { queryAudit } from './audit.js';
+export { appendContractViolation, CONTRACT_VIOLATIONS_FILE, queryAudit } from './audit.js';
 export { pruneAuditLog } from './audit-prune.js';
 // Config
 export {
