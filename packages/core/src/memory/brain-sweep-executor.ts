@@ -3,7 +3,7 @@
  *
  * T1147 Wave 7: BRAIN noise sweep executor.
  *
- * Applies the actions staged in `brain_v2_candidate` (produced by W7-3
+ * Applies the actions staged in `brain_observations_staging` (produced by W7-3
  * `detectNoiseCandidates`) to the live brain tables, inside a single
  * SQLite transaction. The transaction is fenced by a Sentient self-healing
  * gate (Option A): the existing `killSwitch` field in `.cleo/sentient-state.json`
@@ -38,7 +38,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
-import { brainBackfillRuns, brainV2Candidate } from '../store/memory-schema.js';
+import { brainBackfillRuns, brainObservationsStaging } from '../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 
 // ---------------------------------------------------------------------------
@@ -162,17 +162,17 @@ function restoreSweepGate(projectRoot: string, originalKillSwitch: boolean): voi
 // ---------------------------------------------------------------------------
 
 /**
- * Applies the sweep actions from `brain_v2_candidate` to the live brain tables.
+ * Applies the sweep actions from `brain_observations_staging` to the live brain tables.
  *
  * The execution flow:
  * 1. Verify the run exists in `brain_backfill_runs` with status `staged`.
- * 2. Load all `brain_v2_candidate` rows for this run.
+ * 2. Load all `brain_observations_staging` rows for this run.
  * 3. Enable the self-healing gate (killSwitch → true).
  * 4. Set `PRAGMA busy_timeout = 10000` via the native DB handle.
  * 5. Open a single SQLite transaction:
  *    a. For `purge` rows: `UPDATE <table> SET invalid_at = ?, provenance_class = 'noise-purged'`.
  *    b. For `keep`/`reclassify`/`promote` rows: `UPDATE <table> SET provenance_class = 'swept-clean' [, quality_score = ?]`.
- *    c. Mark each candidate as `applied` or `skipped` in `brain_v2_candidate`.
+ *    c. Mark each candidate as `applied` or `skipped` in `brain_observations_staging`.
  *    d. Update `brain_backfill_runs.status = 'approved'` + `approved_at` + `approved_by`.
  * 6. Commit tx → restore sweep gate.
  * 7. On any error → rollback tx (implicit via exception) → restore sweep gate.
@@ -236,9 +236,12 @@ export async function executeSweep(options: SweepExecutorOptions): Promise<Sweep
 
   const candidates = await db
     .select()
-    .from(brainV2Candidate)
+    .from(brainObservationsStaging)
     .where(
-      and(eq(brainV2Candidate.sweepRunId, runId), eq(brainV2Candidate.validationStatus, 'pending')),
+      and(
+        eq(brainObservationsStaging.sweepRunId, runId),
+        eq(brainObservationsStaging.validationStatus, 'pending'),
+      ),
     )
     .all();
 
@@ -349,7 +352,7 @@ export async function executeSweep(options: SweepExecutorOptions): Promise<Sweep
         const placeholders = batch.map(() => '?').join(',');
         nativeDb
           .prepare(
-            `UPDATE brain_v2_candidate SET validation_status = 'applied' WHERE id IN (${placeholders})`,
+            `UPDATE brain_observations_staging SET validation_status = 'applied' WHERE id IN (${placeholders})`,
           )
           .run(...batch);
       }
@@ -440,10 +443,13 @@ export async function rollbackSweep(projectRoot: string, runId: string): Promise
 
   // Mark all pending candidates as skipped
   await db
-    .update(brainV2Candidate)
+    .update(brainObservationsStaging)
     .set({ validationStatus: 'skipped' })
     .where(
-      and(eq(brainV2Candidate.sweepRunId, runId), eq(brainV2Candidate.validationStatus, 'pending')),
+      and(
+        eq(brainObservationsStaging.sweepRunId, runId),
+        eq(brainObservationsStaging.validationStatus, 'pending'),
+      ),
     )
     .run();
 

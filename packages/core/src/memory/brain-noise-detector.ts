@@ -9,7 +9,7 @@
  * - `verified = 0` (not owner-verified)
  * - `invalid_at IS NULL` (not already superseded)
  *
- * Produces `brain_v2_candidate` staging rows anchored to a `brain_backfill_runs`
+ * Produces `brain_observations_staging` rows anchored to a `brain_backfill_runs`
  * row of kind `noise-sweep-2440`. The 100-entry stratified sample is written to
  * `.cleo/agent-outputs/T1147-sweep-validation-<runId>.json` for autonomous validation.
  *
@@ -25,9 +25,9 @@ import {
   brainDecisions,
   brainLearnings,
   brainObservations,
+  brainObservationsStaging,
   brainPatterns,
-  brainV2Candidate,
-  type NewBrainV2CandidateRow,
+  type NewBrainObservationsStagingRow,
 } from '../store/memory-schema.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
 
@@ -62,7 +62,7 @@ export interface DetectNoiseCandidatesResult {
   counts: NoiseCandidateCounts;
   /** Absolute path to the 100-entry stratified sample JSON file. */
   sampleFilePath: string;
-  /** Whether this was a dry-run (no rows inserted into brain_v2_candidate). */
+  /** Whether this was a dry-run (no rows inserted into brain_observations_staging). */
   dryRun: boolean;
 }
 
@@ -86,7 +86,7 @@ function genRunId(): string {
 
 /** Generate a candidate ID. */
 function genCandidateId(): string {
-  return `bvc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return `bos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 /** Returns a Fisher-Yates shuffled copy of arr, limited to `n` elements. */
@@ -106,13 +106,13 @@ function sampleN<T>(arr: T[], n: number): T[] {
 
 /**
  * Detects noise candidates across all four brain content tables and writes
- * staging rows to `brain_v2_candidate`.
+ * staging rows to `brain_observations_staging`.
  *
  * The function:
  * 1. Opens `brain.db` for the given `projectRoot`.
  * 2. Queries each brain table for rows matching noise criteria.
  * 3. Inserts one `brain_backfill_runs` row (`kind='noise-sweep-2440'`, `status='staged'`).
- * 4. Inserts `brain_v2_candidate` rows for each noise candidate.
+ * 4. Inserts `brain_observations_staging` rows for each noise candidate.
  * 5. Extracts a 100-entry proportional stratified sample and writes it to
  *    `.cleo/agent-outputs/T1147-sweep-validation-<runId>.json`.
  *
@@ -307,8 +307,8 @@ export async function detectNoiseCandidates(
       })
       .run();
 
-    // Batch-insert brain_v2_candidate rows.
-    const candidateRows: NewBrainV2CandidateRow[] = [];
+    // Batch-insert brain_observations_staging rows.
+    const candidateRows: NewBrainObservationsStagingRow[] = [];
 
     const buildCandidates = (
       rows: Array<{ id: string; [key: string]: unknown }>,
@@ -340,7 +340,7 @@ export async function detectNoiseCandidates(
     for (let i = 0; i < candidateRows.length; i += BATCH_SIZE) {
       const batch = candidateRows.slice(i, i + BATCH_SIZE);
       if (batch.length > 0) {
-        await db.insert(brainV2Candidate).values(batch).run();
+        await db.insert(brainObservationsStaging).values(batch).run();
       }
     }
   }
@@ -354,7 +354,7 @@ export async function detectNoiseCandidates(
 }
 
 /**
- * Returns a 100-entry stratified sample from `brain_v2_candidate` for a given
+ * Returns a 100-entry stratified sample from `brain_observations_staging` for a given
  * sweep run. Useful for re-sampling without re-running the full detector.
  *
  * @param projectRoot - Absolute path to the project root.
@@ -368,12 +368,12 @@ export async function sampleNoiseCandidates(
 
   const rows = await db
     .select({
-      sourceTable: brainV2Candidate.sourceTable,
-      sourceId: brainV2Candidate.sourceId,
-      newProvenanceClass: brainV2Candidate.newProvenanceClass,
+      sourceTable: brainObservationsStaging.sourceTable,
+      sourceId: brainObservationsStaging.sourceId,
+      newProvenanceClass: brainObservationsStaging.newProvenanceClass,
     })
-    .from(brainV2Candidate)
-    .where(eq(brainV2Candidate.sweepRunId, runId))
+    .from(brainObservationsStaging)
+    .where(eq(brainObservationsStaging.sweepRunId, runId))
     .all();
 
   return sampleN(
