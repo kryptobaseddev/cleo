@@ -47,7 +47,10 @@ export {
 } from './providers/claude-code/index.js';
 export type { McpServerMap, McpStdioConfig, SessionEntry } from './providers/claude-sdk/index.js';
 export {
+  ClaudeSDKAdapter,
+  ClaudeSDKInstallProvider,
   ClaudeSDKSpawnProvider,
+  createAdapter as createClaudeSDKAdapter,
   DEFAULT_TOOLS,
   getServers,
   resolveTools,

@@ -267,6 +267,19 @@ describe('ClaudeSDKSpawnProvider', () => {
   });
 });
 
+describe('ClaudeSDKAdapter', () => {
+  it('exports a default CLEOProviderAdapter-compatible class', async () => {
+    const mod = await import('../index.js');
+    const adapter = new mod.default();
+
+    expect(adapter.id).toBe('claude-sdk');
+    expect(adapter.name).toBe('Claude SDK (Vercel AI SDK)');
+    expect(adapter.version).toBe('2.0.0');
+    expect(adapter.capabilities.supportsSpawn).toBe(true);
+    expect(adapter.spawn).toBeInstanceOf(mod.ClaudeSDKSpawnProvider);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // SessionStore unit tests
 // ---------------------------------------------------------------------------
