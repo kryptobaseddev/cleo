@@ -17,15 +17,16 @@
  * generic `cleo-subagent` fallback and emit a meta warning so callers can
  * surface the degradation in telemetry / spawn manifests.
  *
- * The five default personas are:
- *  - `cleo-prime`    — orchestrator, coordinates multi-agent workflows
- *  - `cleo-dev`      — lead, general-purpose development
- *  - `cleo-rust-lead`— lead, Rust crate work
- *  - `cleo-db-lead`  — lead, database / schema work
- *  - `cleo-historian`— lead, canon / documentation work
+ * The five canonical role personas (ADR-055 D032 clean-forward, T1258 E1):
+ *  - `project-orchestrator`  — coordinates multi-agent workflows
+ *  - `project-dev-lead`      — general-purpose development lead
+ *  - `project-code-worker`   — implementation / code execution worker
+ *  - `project-docs-worker`   — documentation / canon worker
+ *  - `project-security-worker` — security-focused worker
  *
  * @module orchestration/classify
  * @task T891 CANT persona wiring
+ * @task T1258 E1 canonical naming refactor
  * @epic T889
  */
 
@@ -57,15 +58,20 @@ export const CLASSIFY_FALLBACK_AGENT_ID = 'cleo-subagent';
  * Classification result returned by {@link classifyTask}.
  */
 export interface ClassifyResult {
-  /** Resolved agent id (e.g. `cleo-dev`, `cleo-rust-lead`, `cleo-subagent`). */
+  /**
+   * Resolved canonical agent id.
+   *
+   * One of: `project-orchestrator`, `project-dev-lead`, `project-code-worker`,
+   * `project-docs-worker`, `project-security-worker`, or `cleo-subagent`.
+   */
   agentId: string;
   /**
    * Intended spawn role. Derived from the agent's default role but clamped to
    * the registry taxonomy so callers can feed it directly into
    * {@link ComposeSpawnPayloadOptions.role}.
    *
-   * - `orchestrator` — only `cleo-prime` + explicit orchestrator labels
-   * - `lead`         — specialist lead agents (rust-lead, db-lead, historian, dev)
+   * - `orchestrator` — only `project-orchestrator` + explicit orchestrator labels
+   * - `lead`         — specialist lead agents (dev-lead)
    * - `worker`       — generic subagent or explicitly worker-labelled tasks
    */
   role: 'orchestrator' | 'lead' | 'worker';
@@ -116,57 +122,56 @@ interface ClassifierRule {
 }
 
 /**
- * Ordered list of persona rules.
+ * Ordered list of persona rules using canonical ADR-055 D032 agent identifiers.
  *
  * Evaluation stops at the first rule that clears the confidence floor.
  * Rules are ordered from most-specific (label-exact) to least-specific
  * (structural heuristic).
+ *
+ * @see T1258 E1 canonical naming refactor
  */
 const CLASSIFIER_RULES: readonly ClassifierRule[] = [
-  // ── cleo-prime (orchestrator) ────────────────────────────────────────────
+  // ── project-orchestrator ─────────────────────────────────────────────────
   {
-    agentId: 'cleo-prime',
+    agentId: 'project-orchestrator',
     role: 'orchestrator',
     baseConfidence: 0.9,
-    labelKeywords: ['orchestrate', 'orchestrator', 'multi-agent', 'cleo-prime'],
-    titleKeywords: ['orchestrate', 'orchestration', 'multi-agent', 'cleo-prime'],
+    labelKeywords: ['orchestrate', 'orchestrator', 'multi-agent', 'project-orchestrator'],
+    titleKeywords: ['orchestrate', 'orchestration', 'multi-agent'],
     structuralBoost: (task) => (task.type === 'epic' ? 0.1 : 0),
   },
 
-  // ── cleo-rust-lead (Rust specialist) ─────────────────────────────────────
+  // ── project-security-worker (security-focused tasks) ─────────────────────
   {
-    agentId: 'cleo-rust-lead',
-    role: 'lead',
+    agentId: 'project-security-worker',
+    role: 'worker',
     baseConfidence: 0.85,
-    labelKeywords: ['rust', 'crate', 'cleo-rust-lead', 'cant-core', 'cant-napi', 'cant-lsp'],
-    titleKeywords: ['rust', 'crate', 'cargo', 'napi', '.rs', 'cant-core', 'cant-lsp'],
-    descKeywords: ['rust crate', 'cargo', 'napi-rs'],
-  },
-
-  // ── cleo-db-lead (database / schema specialist) ───────────────────────────
-  {
-    agentId: 'cleo-db-lead',
-    role: 'lead',
-    baseConfidence: 0.85,
-    labelKeywords: ['database', 'schema', 'migration', 'drizzle', 'sqlite', 'db', 'cleo-db-lead'],
-    titleKeywords: [
-      'schema',
-      'migration',
-      'drizzle',
-      'sqlite',
-      'database',
-      'db-lead',
-      'data model',
+    labelKeywords: [
+      'security',
+      'audit',
+      'vulnerability',
+      'cve',
+      'pentest',
+      'project-security-worker',
     ],
-    descKeywords: ['schema', 'migration', 'drizzle', 'sqlite'],
+    titleKeywords: ['security', 'vulnerability', 'audit', 'cve', 'pentest', 'owasp'],
+    descKeywords: ['security', 'vulnerability', 'audit', 'cve'],
   },
 
-  // ── cleo-historian (canon / docs specialist) ─────────────────────────────
+  // ── project-docs-worker (documentation / canon) ──────────────────────────
   {
-    agentId: 'cleo-historian',
-    role: 'lead',
+    agentId: 'project-docs-worker',
+    role: 'worker',
     baseConfidence: 0.8,
-    labelKeywords: ['canon', 'docs', 'documentation', 'adr', 'historian', 'spec'],
+    labelKeywords: [
+      'canon',
+      'docs',
+      'documentation',
+      'adr',
+      'historian',
+      'spec',
+      'project-docs-worker',
+    ],
     titleKeywords: [
       'adr',
       'document',
@@ -180,9 +185,9 @@ const CLASSIFIER_RULES: readonly ClassifierRule[] = [
     descKeywords: ['adr', 'document', 'specification', 'canon'],
   },
 
-  // ── cleo-dev (general development) ───────────────────────────────────────
+  // ── project-dev-lead (general development lead) ───────────────────────────
   {
-    agentId: 'cleo-dev',
+    agentId: 'project-dev-lead',
     role: 'lead',
     baseConfidence: 0.7,
     labelKeywords: [
@@ -193,12 +198,26 @@ const CLASSIFIER_RULES: readonly ClassifierRule[] = [
       'bug',
       'fix',
       'refactor',
-      'cleo-dev',
+      'project-dev-lead',
     ],
     titleKeywords: ['implement', 'add', 'fix', 'refactor', 'build', 'create', 'update', 'wir'],
     structuralBoost: (task) => {
       if (task.role === 'bug') return 0.15;
       if (task.type === 'task' || task.type === 'subtask') return 0.05;
+      return 0;
+    },
+  },
+
+  // ── project-code-worker (implementation / execution) ─────────────────────
+  {
+    agentId: 'project-code-worker',
+    role: 'worker',
+    baseConfidence: 0.65,
+    labelKeywords: ['worker', 'code-worker', 'project-code-worker', 'implementation', 'coding'],
+    titleKeywords: ['implement', 'code', 'write', 'build'],
+    structuralBoost: (task) => {
+      if (task.size === 'small') return 0.1;
+      if (task.type === 'subtask') return 0.1;
       return 0;
     },
   },
@@ -261,7 +280,7 @@ function scoreRule(rule: ClassifierRule, task: Task): number {
   // Keyword signals (labels, title, desc) must fire for the rule to apply.
   // Structural boost is additive — it only adds to a score that already has
   // keyword evidence. It CANNOT trigger routing on its own because type='task'
-  // is the default for all tasks and would make cleo-dev match everything.
+  // is the default for all tasks and would make project-dev-lead match everything.
   const keywordSignalSum = labelScore + titleScore + descScore;
   if (keywordSignalSum === 0) return 0;
 
@@ -301,6 +320,7 @@ function scoreRule(rule: ClassifierRule, task: Task): number {
  * ```
  *
  * @task T891
+ * @task T1258 E1 canonical naming refactor
  */
 export function classifyTask(task: Task): ClassifyResult {
   let bestScore = 0;

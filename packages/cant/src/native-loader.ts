@@ -377,20 +377,21 @@ export function cantExecutePipelineNative(
  * surface (plus `meta/agent-architect.cant`, the meta-agent, which the loader
  * does not currently walk — tracked as follow-up for a loader extension).
  *
- * Note: filenames under `seed-agents/` carry a `-generic` suffix
- * (`orchestrator-generic.cant` etc.), but the agent IDs DECLARED inside each
- * template (via `agent <name>:`) are `project-*`. This list reflects the
+ * Note: filenames under `seed-agents/` use canonical role names
+ * (`orchestrator.cant`, `dev-lead.cant`, etc. — T1258 E1 clean-forward),
+ * and the agent IDs DECLARED inside each template (via `agent <name>:`) are
+ * `project-*`. This list reflects the
  * declared agent IDs the loader surfaces, not the filename stems.
  *
- * Declaration order: universal base first, then the four generic role
- * templates. Used by the regression test and as documentation of the expected
- * registry contents. Any persona on this list MUST be resolvable from the
- * canonical seed-agents path (either `cleo-subagent.cant` at package root or
- * `seed-agents/<filename>.cant`).
+ * Declaration order: universal base first, then the five canonical role
+ * templates (T1258 E1: orchestrator, dev-lead, code-worker, docs-worker,
+ * security-worker). Used by the regression test and as documentation of the
+ * expected registry contents. Any persona on this list MUST be resolvable
+ * from the canonical seed-agents path (either `cleo-subagent.cant` at package
+ * root or `seed-agents/<filename>.cant`).
  *
  * @task T1257
- * @see {@link CLEOCODE_DOGFOOD_PERSONAS} for classifier-produced IDs that live
- *      in this repo's `.cleo/cant/agents/` and are NOT shipped.
+ * @task T1258 E1 canonical naming refactor — security-worker added
  */
 export const SEED_PERSONA_IDS = [
   'cleo-subagent',
@@ -398,6 +399,7 @@ export const SEED_PERSONA_IDS = [
   'project-dev-lead',
   'project-code-worker',
   'project-docs-worker',
+  'project-security-worker',
 ] as const;
 
 /** Type-safe union of the ship-surface persona IDs. */

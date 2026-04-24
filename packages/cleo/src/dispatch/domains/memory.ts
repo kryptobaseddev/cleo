@@ -400,6 +400,26 @@ export class MemoryHandler implements DomainHandler {
           );
         }
 
+        // T1262 — brain noise detector (read-only, E1-parallel per council verdict)
+        case 'doctor': {
+          const { scanBrainNoise } = await import('@cleocode/core/memory/brain-doctor.js');
+          const result = await scanBrainNoise(projectRoot);
+          const assertClean = params?.['assert-clean'] as boolean | undefined;
+          if (assertClean && !result.isClean) {
+            return errorResult(
+              'query',
+              'memory',
+              operation,
+              'E_BRAIN_NOISE_DETECTED',
+              `Brain noise detected: ${result.findings.length} pattern(s) across ${result.totalScanned} entries. ` +
+                result.findings.map((f) => `${f.pattern}(${f.count})`).join(', ') +
+                '. Run `cleo memory doctor` for details. Fix noise before enabling Sentient v1 (M7 gate).',
+              startTime,
+            );
+          }
+          return wrapResult(result, 'query', 'memory', operation, startTime);
+        }
+
         // T791 — LLM extraction backend status
         case 'llm-status': {
           const resolvedSource = resolveAnthropicApiKeySource();
@@ -1447,15 +1467,27 @@ export class MemoryHandler implements DomainHandler {
           }
 
           // Caller identity: no agent param = terminal invocation (owner). Agents must
-          // pass --agent <name>; only 'cleo-prime' and 'owner' are permitted.
+          // pass --agent <name>; only canonical orchestrator identities and 'owner' are
+          // permitted to promote entries to verified=true.
+          //
+          // Live-data migration shim (T1258 E1): 'cleo-prime' is accepted alongside
+          // 'project-orchestrator' for backward compatibility with persisted agent
+          // session records that pre-date the ADR-055 D032 canonical naming refactor.
+          // New agents MUST use 'project-orchestrator'. 'cleo-prime' acceptance may be
+          // removed in a future clean-forward pass once all persisted sessions are expired.
+          const VERIFY_PERMITTED_IDENTITIES = new Set([
+            'owner',
+            'project-orchestrator',
+            'cleo-prime', // legacy alias — see migration shim note above
+          ]);
           const callerAgent = params?.agent as string | undefined;
-          if (callerAgent && callerAgent !== 'cleo-prime' && callerAgent !== 'owner') {
+          if (callerAgent && !VERIFY_PERMITTED_IDENTITIES.has(callerAgent)) {
             return errorResult(
               'mutate',
               'memory',
               operation,
               'E_FORBIDDEN',
-              `verify requires agent identity 'cleo-prime' or 'owner'; got '${callerAgent}'`,
+              `verify requires agent identity 'project-orchestrator' or 'owner'; got '${callerAgent}'`,
               startTime,
             );
           }
@@ -1735,6 +1767,8 @@ export class MemoryHandler implements DomainHandler {
         'code.links',
         'code.memories-for-code',
         'code.for-memory',
+        // T1262 — brain noise detector (E1-parallel, read-only)
+        'doctor',
         // T791 — LLM extraction backend status
         'llm-status',
         // T792 — pending verification queue

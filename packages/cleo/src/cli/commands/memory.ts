@@ -1682,6 +1682,41 @@ const importCommand = defineCommand({
 });
 
 /**
+ * cleo memory doctor — read-only brain noise detector (T1262 E1-parallel).
+ *
+ * Scans `.cleo/brain.db` for known noise patterns without modifying any data.
+ * Pass `--assert-clean` to exit non-zero when noise is detected (M7 gate).
+ */
+const doctorCommand = defineCommand({
+  meta: {
+    name: 'doctor',
+    description:
+      'Read-only brain noise scan: detects duplicate-content, missing-type, missing-provenance, ' +
+      'orphan-edge, low-confidence, and stale-unverified patterns. ' +
+      'Use --assert-clean as the M7 entry gate before enabling Sentient v1 (`cleo sentient propose enable`).',
+  },
+  args: {
+    'assert-clean': {
+      type: 'boolean',
+      description: 'Exit non-zero when any noise patterns are detected (M7 gate for Sentient v1)',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+  },
+  async run({ args }: { args: { 'assert-clean'?: boolean; json?: boolean } }) {
+    await dispatchFromCli(
+      'query',
+      'memory',
+      'doctor',
+      { 'assert-clean': args['assert-clean'] },
+      { command: 'memory-doctor', operation: 'memory.doctor' },
+    );
+  },
+});
+
+/**
  * cleo memory llm-status — report LLM backend resolution status (T791).
  *
  * Shows which source resolved the Anthropic API key and extraction readiness.
@@ -2786,6 +2821,7 @@ export const memoryCommand = defineCommand({
     reflect: reflectCommand,
     'dedup-scan': dedupScanCommand,
     import: importCommand,
+    doctor: doctorCommand,
     'llm-status': llmStatusCommand,
     verify: verifyCommand,
     'pending-verify': pendingVerifyCommand,

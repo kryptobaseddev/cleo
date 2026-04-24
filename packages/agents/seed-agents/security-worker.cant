@@ -1,0 +1,60 @@
+---
+kind: agent
+version: "1"
+---
+
+# Generic Security-Worker Template — security review and vulnerability analysis.
+#
+# This is a TEMPLATE. Fill in the mustache-style {{placeholders}} for your
+# project before installing. Placeholders are replaced at install time by
+# `cleo init --install-seed-agents --var key=value` (see VARIABLES.md below).
+#
+# Variables:
+#   {{tech_stack}}      — e.g. "TypeScript/Node.js", "Rust/Cargo"
+#   {{project_domain}}  — e.g. "API authentication", "document processing"
+#
+# Performs security reviews, vulnerability scans, dependency audits, and
+# OWASP-aligned threat modelling. Read-only by default; escalates findings
+# to the dev-lead for remediation.
+
+agent project-security-worker:
+  role: worker
+  parent: project-dev-lead
+  tier: mid
+  description: "Security worker for {{project_domain}} ({{tech_stack}}). Reviews code for vulnerabilities, audits dependencies, performs OWASP threat modelling, and produces findings reports. Read-only — escalates remediation tasks to dev-lead."
+  consult-when: "Security review requested, dependency audit needed, OWASP assessment, or when code introduces authentication/authorization/network/crypto surface"
+
+  context_sources:
+    - source: decisions
+      query: "security decisions and threat model"
+      max_entries: 5
+    - source: patterns
+      query: "security patterns and known vulnerabilities"
+      max_entries: 3
+  on_overflow: escalate_tier
+
+  mental_model:
+    scope: project
+    max_tokens: 800
+    on_load:
+      validate: true
+
+  permissions:
+    files:
+      read: ["**/*"]
+
+  skills:
+    - ct-cleo
+    - ct-task-executor
+
+  tools:
+    core: [Read, Grep, Glob]
+    reporting: [report_to_orchestrator]
+
+  on SessionStart:
+    session "Review security context and identify high-risk surface areas"
+      context: [active-tasks, memory-bridge]
+
+  on TaskAssigned:
+    if **the task involves authentication, crypto, or network surface**:
+      session "Perform OWASP-aligned review of the assigned scope and produce a findings report"

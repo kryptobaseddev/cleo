@@ -2658,6 +2658,27 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
+  // T1262 — memory-doctor read-only noise detector (E1-parallel per council verdict)
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'doctor',
+    description:
+      'memory.doctor (query) — read-only brain noise scan: detects duplicate-content, missing-type, missing-provenance, orphan-edge, low-confidence, stale-unverified patterns. Used as M7 assert-clean gate for Sentient v1 activation.',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'assert-clean',
+        type: 'boolean',
+        required: false,
+        description:
+          'If true, exit non-zero when any noise patterns are detected (M7 gate for Sentient v1).',
+      },
+    ],
+  },
   // T791 — LLM extraction backend status
   {
     gateway: 'query',
@@ -2863,13 +2884,14 @@ export const OPERATIONS: OperationDef[] = [
       { name: 'agent', type: 'string', required: false, description: 'Agent provenance' },
     ],
   },
-  // T792 — promote entry to verified=true (owner/cleo-prime only)
+  // T792 — promote entry to verified=true (project-orchestrator or owner only)
+  // T1258 E1 migration shim: 'cleo-prime' accepted as legacy alias for 'project-orchestrator'
   {
     gateway: 'mutate',
     domain: 'memory',
     operation: 'verify',
     description:
-      'memory.verify (mutate) — flip verified=1 on a brain entry; requires cleo-prime or owner identity',
+      'memory.verify (mutate) — flip verified=1 on a brain entry; requires project-orchestrator or owner identity',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -2880,7 +2902,8 @@ export const OPERATIONS: OperationDef[] = [
         name: 'agent',
         type: 'string',
         required: false,
-        description: "Caller identity ('cleo-prime' or 'owner'). Omit for terminal invocation.",
+        description:
+          "Caller identity ('project-orchestrator' or 'owner'). Legacy alias 'cleo-prime' accepted per T1258 E1 migration shim. Omit for terminal invocation.",
       },
     ],
   },

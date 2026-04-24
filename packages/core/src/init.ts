@@ -75,10 +75,10 @@ export interface InitOptions {
    * Install the canonical ship-surface seed agents into the project's
    * `.cleo/cant/agents/` directory. Default: false (operator opts in).
    *
-   * Per ADR-055 D032, `@cleocode/agents` ships the universal protocol base
-   * (`cleo-subagent.cant`) plus four generic `{{var}}` role templates under
-   * `seed-agents/` (orchestrator-generic, dev-lead-generic,
-   * code-worker-generic, docs-worker-generic). Existing project files are
+   * Per ADR-055 D032 (T1258 E1 canonical naming refactor), `@cleocode/agents`
+   * ships the universal protocol base (`cleo-subagent.cant`) plus five
+   * canonical role templates under `seed-agents/` (orchestrator, dev-lead,
+   * code-worker, docs-worker, security-worker). Existing project files are
    * never overwritten — operators are free to delete or fork any seed.
    */
   installSeedAgents?: boolean;
