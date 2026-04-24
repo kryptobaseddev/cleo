@@ -17,6 +17,7 @@
 import { join } from 'node:path';
 import { getProjectRoot } from '@cleocode/core';
 import type { DispatchResponse, DomainHandler } from '../types.js';
+import type { EngineResult } from './_base.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 /** The label that marks Tier-2 proposals. */
@@ -417,10 +418,7 @@ export class SentientHandler implements DomainHandler {
    *
    * @task T1148 W8-7
    */
-  private async setTier2Enabled(
-    projectRoot: string,
-    enabled: boolean,
-  ): Promise<{ success: boolean; data?: unknown; error?: unknown }> {
+  private async setTier2Enabled(projectRoot: string, enabled: boolean): Promise<EngineResult> {
     // M7 gate: assert memory is clean before enabling Tier-2 (ADR council 2026-04-24).
     if (enabled) {
       try {
