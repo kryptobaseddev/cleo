@@ -35,6 +35,8 @@
  * @task T1261 PSYCHE E4 — contract enforcement + context boundary
  */
 
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   PlaybookAgenticNode,
@@ -563,18 +565,21 @@ function auditContractViolation(
 ): void {
   if (!projectRoot) return;
   try {
-    // Lazy-import to avoid a hard dep on @cleocode/core from @cleocode/playbooks.
-    // The audit is best-effort; we swallow any dynamic import failure.
-    void import('@cleocode/core').then(({ appendContractViolation }) => {
-      appendContractViolation(projectRoot, {
-        runId,
-        nodeId,
-        field,
-        key,
-        message: `contract_violation: ${field}['${key}'] check failed on node '${nodeId}'`,
-        playbookName,
-      });
+    // Write directly via node:fs to avoid importing @cleocode/core from
+    // @cleocode/playbooks (avoids circular TS project reference issues).
+    // Follows the same ADR-039 append-only NDJSON pattern as audit.ts.
+    const filePath = join(projectRoot, '.cleo', 'audit', 'contract-violations.jsonl');
+    mkdirSync(dirname(filePath), { recursive: true });
+    const entry = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      runId,
+      nodeId,
+      field,
+      key,
+      message: `contract_violation: ${field}['${key}'] check failed on node '${nodeId}'`,
+      playbookName,
     });
+    appendFileSync(filePath, `${entry}\n`, { encoding: 'utf-8' });
   } catch {
     // non-fatal
   }
