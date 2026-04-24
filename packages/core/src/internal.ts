@@ -48,9 +48,9 @@ export { importFromPackage, importTasksPackage } from './admin/import-tasks.js';
 // ADRs
 export { findAdrs } from './adrs/find.js';
 export { listAdrs, showAdr, syncAdrsToDb, validateAllAdrs } from './adrs/index.js';
+export { reconstructLineage } from './audit/reconstruct.js';
 // Audit
 export type { AuditEntry } from './audit.js';
-export { reconstructLineage } from './audit/reconstruct.js';
 // Backfill
 export type { BackfillOptions, BackfillResult, BackfillTaskChange } from './backfill/index.js';
 export { backfillTasks, generateAcFromDescription } from './backfill/index.js';
