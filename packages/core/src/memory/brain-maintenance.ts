@@ -19,6 +19,7 @@
  * @what Combined maintenance runner with CLI command and progress reporting
  */
 
+import { runDeriverBatch } from '../deriver/consumer.js';
 import { reconcileOrphanedRefs } from '../store/cross-db-cleanup.js';
 import { applyTemporalDecay, consolidateMemories, runTierPromotion } from './brain-lifecycle.js';
 import { populateEmbeddings } from './brain-retrieval.js';
@@ -77,6 +78,16 @@ export interface BrainMaintenanceTierPromotionResult {
   promoted: number;
   /** Number of stale short-tier entries soft-evicted. */
   evicted: number;
+}
+
+/** Deriver batch step result (T1145). */
+export interface BrainMaintenanceDeriverResult {
+  /** Number of items successfully derived (completed). */
+  processed: number;
+  /** Number of items that failed or were re-queued. */
+  failed: number;
+  /** Number of stale in_progress items re-queued before the batch. */
+  staleRequeued: number;
 }
 
 /**
@@ -140,6 +151,8 @@ export interface BrainMaintenanceResult {
   embeddings: BrainMaintenanceEmbeddingsResult;
   /** Results from the Step 9f prune sweep (T995). */
   pruneSweep: PruneSweepResult;
+  /** Results from the deriver batch step (T1145). */
+  deriver: BrainMaintenanceDeriverResult;
   /** Total wall-clock duration of the maintenance run in milliseconds. */
   duration: number;
 }
@@ -168,6 +181,8 @@ export interface BrainMaintenanceOptions {
    * Default: false.
    */
   pruneSweepDryRun?: boolean;
+  /** Skip the deriver batch step (T1145). Default: false. */
+  skipDeriver?: boolean;
   /**
    * Progress callback invoked before each step starts and after
    * completion of each sub-item.
@@ -367,6 +382,7 @@ export async function runBrainMaintenance(
     skipEmbeddings = false,
     skipPruneSweep = false,
     pruneSweepDryRun = false,
+    skipDeriver = false,
     onProgress,
   } = options ?? {};
 
@@ -391,6 +407,11 @@ export async function runBrainMaintenance(
     wouldDelete: 0,
     dryRun: pruneSweepDryRun,
     byTable: {},
+  };
+  const deriverResult: BrainMaintenanceDeriverResult = {
+    processed: 0,
+    failed: 0,
+    staleRequeued: 0,
   };
 
   // Step 1: Temporal decay
@@ -460,6 +481,21 @@ export async function runBrainMaintenance(
     }
   }
 
+  // Step 6: Deriver batch — process pending derivation work items (T1145)
+  // Best-effort — errors must not abort the maintenance run.
+  if (!skipDeriver) {
+    try {
+      onProgress?.('deriver', 0, 1);
+      const raw = await runDeriverBatch(projectRoot);
+      deriverResult.processed = raw.processed;
+      deriverResult.failed = raw.failed;
+      deriverResult.staleRequeued = raw.staleRequeued;
+      onProgress?.('deriver', 1, 1);
+    } catch (err) {
+      console.warn('[maintenance] Deriver batch step failed:', err);
+    }
+  }
+
   return {
     decay: decayResult,
     consolidation: consolidationResult,
@@ -467,6 +503,7 @@ export async function runBrainMaintenance(
     tierPromotion: tierPromotionResult,
     embeddings: embeddingsResult,
     pruneSweep: pruneSweepResult,
+    deriver: deriverResult,
     duration: Date.now() - startTime,
   };
 }

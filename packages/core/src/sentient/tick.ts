@@ -176,6 +176,14 @@ export interface TickOptions {
     projectRoot: string,
     opts?: { volumeThreshold?: number; inline?: boolean },
   ) => Promise<{ triggered: boolean; tier: string | null; skippedReason?: string }>;
+  /**
+   * When set to `false`, skips the deriver batch trigger in `safeRunTick`.
+   * Useful in tests that don't need the deriver path loaded.
+   * Default: true (deriver batch fires when queue has pending items).
+   *
+   * @task T1145
+   */
+  runDeriverBatch?: boolean;
 }
 
 /** Result of a spawn invocation. */
@@ -657,6 +665,28 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
   await maybeTriggerDream(options.projectRoot, options, pickedTask).catch(() => {
     // Dream errors must never propagate to the tick caller.
   });
+
+  // Deriver batch: process pending deriver queue items each tick (T1145).
+  // Lazy-imported to keep test surface small — tests that don't exercise
+  // the deriver path never load the deriver module.
+  // Best-effort: deriver errors must never affect tick outcome.
+  if (options.runDeriverBatch !== false) {
+    Promise.resolve()
+      .then(async () => {
+        try {
+          const { hasQueuePending } = await import('../deriver/status.js');
+          if (hasQueuePending()) {
+            const { runDeriverBatch: _runDeriverBatch } = await import('../deriver/consumer.js');
+            await _runDeriverBatch(options.projectRoot);
+          }
+        } catch {
+          // Deriver is best-effort: log nothing, never block.
+        }
+      })
+      .catch(() => {
+        // Ignore.
+      });
+  }
 
   // Worktree prune: run every WORKTREE_PRUNE_INTERVAL_TICKS ticks (T1161).
   _worktreePruneTickCount += 1;
