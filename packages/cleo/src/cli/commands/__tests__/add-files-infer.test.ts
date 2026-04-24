@@ -38,6 +38,13 @@ vi.mock('../../infer-files-via-gitnexus.js', () => ({
   inferFilesViaGitNexus: (...args: unknown[]) => mockInferFilesViaGitNexus(...args),
 }));
 
+// Mock session-engine to prevent T1329 parent-inference side effects in these tests
+vi.mock('../../../dispatch/engines/session-engine.js', () => ({
+  taskCurrentGet: vi
+    .fn()
+    .mockResolvedValue({ success: true, data: { currentTask: null, currentPhase: null } }),
+}));
+
 // Mock stderr
 const mockStderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
