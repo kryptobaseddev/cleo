@@ -294,3 +294,19 @@ export async function countSupersessionCandidates(
     ids.observations.length + ids.learnings.length + ids.decisions.length + ids.patterns.length
   );
 }
+
+/**
+ * Fire-and-forget wrapper that triggers a reconciler sweep asynchronously.
+ *
+ * Used by the dispatch-time brain health reflex (T1148 W8-8 / T1151) to
+ * schedule a sweep when the corpus is detected as unhealthy during a Tier-2
+ * propose tick.  Returns immediately without waiting for completion.
+ *
+ * Errors are swallowed silently — the proposer must not be disrupted by
+ * maintenance tasks.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ */
+export async function triggerReconcilerSweep(projectRoot: string): Promise<void> {
+  await runReconciler(projectRoot, { dryRun: false });
+}

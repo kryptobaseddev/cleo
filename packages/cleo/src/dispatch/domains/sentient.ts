@@ -410,11 +410,42 @@ export class SentientHandler implements DomainHandler {
 
   /**
    * Enable or disable Tier-2 proposal generation.
+   *
+   * When `enabled=true`, enforces the M7 gate (T-COUNCIL-RECONCILIATION-2026-04-24):
+   * `cleo memory doctor --assert-clean` must pass before Tier-2 is activated.
+   * Returns `E_M7_GATE_FAILED` if the brain corpus is not clean.
+   *
+   * @task T1148 W8-7
    */
   private async setTier2Enabled(
     projectRoot: string,
     enabled: boolean,
-  ): Promise<{ success: boolean; data?: unknown }> {
+  ): Promise<{ success: boolean; data?: unknown; error?: unknown }> {
+    // M7 gate: assert memory is clean before enabling Tier-2 (ADR council 2026-04-24).
+    if (enabled) {
+      try {
+        const { scanBrainNoise } = await import('@cleocode/core/memory/brain-doctor.js');
+        const doctorResult = await scanBrainNoise(projectRoot);
+        if (!doctorResult.isClean) {
+          return {
+            success: false,
+            error: {
+              code: 'E_M7_GATE_FAILED',
+              message:
+                `M7 gate blocked: brain corpus has ${doctorResult.findings.length} noise pattern(s) ` +
+                `across ${doctorResult.totalScanned} entries. ` +
+                `Run \`cleo memory doctor\` for details, then \`cleo memory sweep --approve\` to clean before enabling Sentient v1.`,
+              details: { findings: doctorResult.findings, totalScanned: doctorResult.totalScanned },
+            },
+          };
+        }
+      } catch {
+        // If doctor is unavailable (e.g. brain.db not yet initialised), allow
+        // enablement so fresh installs are not blocked.  The gate fires only
+        // when the corpus is known-dirty.
+      }
+    }
+
     const { patchSentientState } = await import('@cleocode/core/sentient/state.js');
     const { SENTIENT_STATE_FILE } = await import('@cleocode/core/sentient/daemon.js');
 

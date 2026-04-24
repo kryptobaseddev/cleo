@@ -1203,6 +1203,37 @@ export interface RetrievalTokenCounts {
  * @task T1090
  * @epic T1083
  */
+/**
+ * Structured identity card for a CANT peer agent (Wave 8 — T1148).
+ *
+ * Mirrors `SigilCard` from `packages/core/src/nexus/sigil.ts` but lives in
+ * contracts so consumers do not need a direct dependency on `@cleocode/core`.
+ */
+export interface SigilCard {
+  /** Stable peer identifier — matches `peer_id` on brain tables. */
+  peerId: string;
+  /** Absolute or relative path to the CANT agent file (.cant). Null if unset. */
+  cantFile: string | null;
+  /** Human-readable display name, e.g. "cleo-prime". */
+  displayName: string;
+  /** Short role description, e.g. "orchestrator". */
+  role: string;
+  /**
+   * System-prompt fragment to inject into spawn payloads.
+   * Null when no fragment is set.
+   */
+  systemPromptFragment: string | null;
+  /**
+   * JSON-encoded capability flags, e.g.
+   * `{"tier":1,"spawnRights":true,"thinAgentMode":false}`.
+   */
+  capabilityFlags: string | null;
+  /** ISO 8601 creation timestamp. */
+  createdAt: string;
+  /** ISO 8601 last-updated timestamp. */
+  updatedAt: string;
+}
+
 export interface RetrievalBundle {
   /**
    * Cold pass — identity + stable context.
@@ -1210,10 +1241,13 @@ export interface RetrievalBundle {
    * `userProfile` contains the user's known preferences and traits at
    * >= 0.5 confidence.  `peerInstructions` is a brief instruction string
    * derived from the peer's CANT definition (empty string when unavailable).
+   * `sigilCard` is the structured peer-card identity from Wave 8 (T1148);
+   * null when no sigil has been registered for this peer.
    */
   cold: {
     userProfile: import('./nexus-user-profile.js').UserProfileTrait[];
     peerInstructions: string;
+    sigilCard: SigilCard | null;
   };
 
   /**
