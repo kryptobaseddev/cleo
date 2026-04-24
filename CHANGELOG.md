@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.140] — 2026-04-24 — T1386 PSYCHE LLM Layer Port (real implementation)
+
+### Headline
+
+Port Honcho's production-grade LLM abstraction (`src/llm/`, 3851 LOC Python) to `packages/core/src/llm/` as TypeScript. Ships `cleoLlmCall()` as the new unified LLM entrypoint with Anthropic, OpenAI, and Gemini backends, tool-loop orchestration, structured output with 3-tier JSON repair fallback, prompt caching, and 52 new unit tests. T1256 was retroactively closed — this is the actual port. 15 child tasks (T1387-T1401) decomposition executed per T1386 explorer map. 4 new npm deps: openai, @google/generative-ai, p-retry, jsonrepair. Orthogonal to existing llm-backend-resolver.ts (Vercel AI SDK path stays).
+
+---
+
 ## [2026.4.139] — 2026-04-24 — T1402 rename + verification-council fix-forward
 
 ### Headline
