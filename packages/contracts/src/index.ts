@@ -234,6 +234,7 @@ export type {
 export type { AdapterManifest, DetectionPattern } from './discovery.js';
 // === Error Utilities ===
 export {
+  ClassifierUnregisteredAgentError,
   createErrorResult,
   createSuccessResult,
   formatError,
