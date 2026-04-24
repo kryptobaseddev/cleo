@@ -1115,6 +1115,12 @@ export interface RetrievalObservation {
   narrative: string;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
+  /**
+   * Provenance class for the M6 refusal gate (T1260 PSYCHE E3).
+   * Entries with `'unswept-pre-T1151'` are filtered by buildRetrievalBundle
+   * until the T1147 W7 sweep stamps them as clean.
+   */
+  provenanceClass?: string;
 }
 
 /**
@@ -1127,6 +1133,12 @@ export interface RetrievalLearning {
   insight: string;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
+  /**
+   * Provenance class for the M6 refusal gate (T1260 PSYCHE E3).
+   * Entries with `'unswept-pre-T1151'` are filtered by buildRetrievalBundle
+   * until the T1147 W7 sweep stamps them as clean.
+   */
+  provenanceClass?: string;
 }
 
 /**
@@ -1139,6 +1151,12 @@ export interface RetrievalPattern {
   pattern: string;
   /** ISO 8601 extraction timestamp. */
   extractedAt: string;
+  /**
+   * Provenance class for the M6 refusal gate (T1260 PSYCHE E3).
+   * Entries with `'unswept-pre-T1151'` are filtered by buildRetrievalBundle
+   * until the T1147 W7 sweep stamps them as clean.
+   */
+  provenanceClass?: string;
 }
 
 /**
@@ -1151,6 +1169,12 @@ export interface RetrievalDecision {
   decision: string;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
+  /**
+   * Provenance class for the M6 refusal gate (T1260 PSYCHE E3).
+   * Entries with `'unswept-pre-T1151'` are filtered by buildRetrievalBundle
+   * until the T1147 W7 sweep stamps them as clean.
+   */
+  provenanceClass?: string;
 }
 
 /**

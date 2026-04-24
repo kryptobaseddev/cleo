@@ -116,6 +116,18 @@ export interface ComposeSpawnPayloadOptions {
    */
   sessionId?: string | null;
   /**
+   * CANT peer identifier for the spawned agent (T1260 PSYCHE E3).
+   *
+   * Used as the `peerId` parameter when calling `buildRetrievalBundle` to
+   * fetch peer-scoped memory. Defaults to `'global'` when not provided.
+   *
+   * Callers that know the target agent's CANT peer id should supply it here
+   * for accurate peer memory scoping.
+   *
+   * @task T1260 PSYCHE E3
+   */
+  peerId?: string;
+  /**
    * Resolved tool allowlist for the agent. When present, the composer runs
    * {@link enforceThinAgent} against it as a dispatch-time defense-in-depth
    * check. Workers carrying spawn-capable tools (`Agent`, `Task`) are
@@ -205,6 +217,20 @@ export interface SpawnPayload {
    * (Claude, GPT-4, Gemini) that accepts a system-prompt string.
    */
   prompt: string;
+  /**
+   * Memory retrieval bundle assembled by `buildRetrievalBundle` (T1260 PSYCHE E3).
+   *
+   * Present when `options.sessionId` was provided and `buildRetrievalBundle`
+   * succeeded. May have empty arrays until T1147 W7 sweep (.132) promotes
+   * legacy entries from `'unswept-pre-T1151'` to `'swept-clean'`.
+   * Callers MUST NOT crash when this is `undefined` or when arrays are empty.
+   *
+   * Registered as the M4 injection primitive — reusable by hooks, CANT, CONDUIT,
+   * and Sentient proposer via the canonical import path.
+   *
+   * @task T1260 PSYCHE E3
+   */
+  retrievalBundle?: import('@cleocode/contracts').RetrievalBundle;
   /** Traceability / accounting metadata. */
   meta: SpawnPayloadMeta;
 }
@@ -466,6 +492,27 @@ export async function composeSpawnPayload(
     };
   }
 
+  // 6c. PSYCHE-MEMORY wiring (T1260 E3 — M4 injection primitive).
+  //     Build the retrieval bundle for tier-1/2 prompts when a sessionId is
+  //     available. Best-effort: errors are silently swallowed so a broken brain.db
+  //     never blocks spawn. The bundle may be empty until T1147 W7 (.132) sweeps.
+  let retrievalBundle: import('@cleocode/contracts').RetrievalBundle | undefined;
+  if (tier >= 1 && options.sessionId) {
+    try {
+      const { buildRetrievalBundle } = await import('../memory/brain-retrieval.js');
+      retrievalBundle = await buildRetrievalBundle(
+        {
+          peerId: options.peerId ?? 'global',
+          sessionId: options.sessionId,
+          passMask: { cold: true, warm: true, hot: true },
+        },
+        projectRoot,
+      );
+    } catch {
+      // best-effort — brain.db may not be initialised; proceed without memory
+    }
+  }
+
   // 7. Build the prompt via the T882 engine. The engine is now the internal
   //    assembler; callers that previously imported buildSpawnPrompt directly
   //    continue to work unchanged.
@@ -482,6 +529,7 @@ export async function composeSpawnPayload(
     worktreePath: options.worktreePath,
     worktreeBranch: options.worktreeBranch,
     conduitSubscription: options.conduitSubscription,
+    retrievalBundle,
   });
 
   // 8. Assemble the traceability envelope. `dedupSavedChars` only counts
@@ -519,6 +567,7 @@ export async function composeSpawnPayload(
     resolvedAgent,
     atomicity,
     prompt: promptResult.prompt,
+    ...(retrievalBundle !== undefined ? { retrievalBundle } : {}),
     meta,
   };
 }

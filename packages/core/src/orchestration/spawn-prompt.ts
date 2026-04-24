@@ -230,6 +230,19 @@ export interface BuildSpawnPromptInput {
    * @task T1252 CONDUIT A2A
    */
   conduitSubscription?: ConduitSubscriptionConfig;
+  /**
+   * Memory retrieval bundle from `buildRetrievalBundle`.
+   *
+   * When provided and `tier >= 1`, a `## PSYCHE-MEMORY` section is injected
+   * into the spawn prompt (between CONDUIT and File Paths blocks), carrying
+   * the user profile, peer memory, and session narrative slices.
+   *
+   * This is the M4 injection primitive and M1 parity requirement (T1260 PSYCHE E3).
+   * Best-effort: callers should not crash if the bundle is empty.
+   *
+   * @task T1260 PSYCHE E3
+   */
+  retrievalBundle?: import('@cleocode/contracts').RetrievalBundle;
 }
 
 /**
@@ -1041,6 +1054,114 @@ function buildAntiPatternBlock(): string {
   ].join('\n');
 }
 
+/**
+ * Build the PSYCHE-MEMORY section for tier-1/2 prompts (T1260 PSYCHE E3).
+ *
+ * Serializes the retrieval bundle into a compact markdown section that gives
+ * the spawned agent its user profile, peer memory, and session context.
+ * Mirrors the `computeBriefing` path in `briefing.ts` (M1 parity).
+ *
+ * Called only when `tier >= 1` and `retrievalBundle` is set.
+ * Callers MUST NOT crash if the bundle is empty (all arrays may be empty
+ * until T1147 W7 sweep ships in .132).
+ *
+ * @param bundle - The retrieval bundle from `buildRetrievalBundle`.
+ * @returns Markdown string for the `## PSYCHE-MEMORY` section.
+ *
+ * @task T1260 PSYCHE E3
+ */
+function buildPsycheMemoryBlock(bundle: import('@cleocode/contracts').RetrievalBundle): string {
+  const lines: string[] = ['## PSYCHE-MEMORY'];
+  lines.push('');
+  lines.push(
+    `> Token budget used: ${bundle.tokenCounts.total} (cold=${bundle.tokenCounts.cold}, warm=${bundle.tokenCounts.warm}, hot=${bundle.tokenCounts.hot})`,
+  );
+
+  // -- Cold: user profile --
+  if (bundle.cold.userProfile.length > 0) {
+    lines.push('');
+    lines.push('### User Profile');
+    for (const trait of bundle.cold.userProfile) {
+      lines.push(`- **${trait.traitKey}**: ${trait.traitValue}`);
+    }
+  }
+
+  if (bundle.cold.peerInstructions) {
+    lines.push('');
+    lines.push('### Peer Instructions');
+    lines.push(bundle.cold.peerInstructions);
+  }
+
+  // -- Warm: peer memory --
+  if (bundle.warm.decisions.length > 0) {
+    lines.push('');
+    lines.push('### Key Decisions');
+    for (const d of bundle.warm.decisions) {
+      lines.push(`- [${d.id}] ${d.decision}`);
+    }
+  }
+
+  if (bundle.warm.peerPatterns.length > 0) {
+    lines.push('');
+    lines.push('### Patterns');
+    for (const p of bundle.warm.peerPatterns) {
+      lines.push(`- [${p.id}] ${p.pattern}`);
+    }
+  }
+
+  if (bundle.warm.peerLearnings.length > 0) {
+    lines.push('');
+    lines.push('### Learnings');
+    for (const l of bundle.warm.peerLearnings) {
+      lines.push(`- [${l.id}] ${l.insight}`);
+    }
+  }
+
+  // -- Hot: session state --
+  if (bundle.hot.sessionNarrative) {
+    lines.push('');
+    lines.push('### Session Narrative');
+    lines.push(bundle.hot.sessionNarrative);
+  }
+
+  if (bundle.hot.recentObservations.length > 0) {
+    lines.push('');
+    lines.push('### Recent Observations');
+    for (const o of bundle.hot.recentObservations) {
+      lines.push(`- [${o.id}] ${o.title}`);
+    }
+  }
+
+  if (bundle.hot.activeTasks.length > 0) {
+    lines.push('');
+    lines.push('### Active Tasks');
+    for (const t of bundle.hot.activeTasks) {
+      lines.push(`- ${t.id}: ${t.title} (${t.status})`);
+    }
+  }
+
+  // Empty bundle notice (expected until T1147 W7 sweep ships in .132)
+  const hasContent =
+    bundle.cold.userProfile.length > 0 ||
+    bundle.cold.peerInstructions ||
+    bundle.warm.decisions.length > 0 ||
+    bundle.warm.peerPatterns.length > 0 ||
+    bundle.warm.peerLearnings.length > 0 ||
+    bundle.hot.sessionNarrative ||
+    bundle.hot.recentObservations.length > 0 ||
+    bundle.hot.activeTasks.length > 0;
+
+  if (!hasContent) {
+    lines.push('');
+    lines.push(
+      '> No memory context available. All entries are pending the T1147 W7 sweep (.132) ' +
+        "to promote from 'unswept-pre-T1151' to 'swept-clean'. Proceed without memory context.",
+    );
+  }
+
+  return lines.join('\n');
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -1131,6 +1252,12 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // orchestrator has configured A2A wave coordination for this task.
   if (tier >= 1 && input.conduitSubscription) {
     authoredSections.push(buildConduitSubscriptionBlock(input.conduitSubscription));
+  }
+  // PSYCHE-MEMORY (T1260 E3) — only emitted for tier 1/2 when the retrieval
+  // bundle is present. The bundle may be empty until T1147 W7 (.132) sweeps
+  // legacy entries; callers must not crash on an empty bundle.
+  if (tier >= 1 && input.retrievalBundle) {
+    authoredSections.push(buildPsycheMemoryBlock(input.retrievalBundle));
   }
   authoredSections.push(buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir));
   authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));
