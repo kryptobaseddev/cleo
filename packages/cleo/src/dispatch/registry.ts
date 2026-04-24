@@ -5027,6 +5027,46 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
+  // T1386 — nexus.sigil — peer-card identity (PSYCHE Wave 8 follow-up)
+  // ---------------------------------------------------------------------------
+
+  // Query: list every sigil currently stored in nexus.db
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'sigil.list',
+    description:
+      'nexus.sigil.list (query) — list every sigil currently stored in nexus.db, optionally filtered by role',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'role',
+        type: 'string',
+        required: false,
+        description:
+          'Filter by role (e.g. "orchestrator", "lead", "worker", "specialist", "subagent")',
+      },
+    ],
+  },
+
+  // Mutate: populate sigils from canonical CANT agents
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'sigil.sync',
+    description:
+      'nexus.sigil.sync (mutate) — populate the sigils table with one row per canonical CANT agent (cleo-subagent + 5 seed roles + 2 meta agents). Idempotent.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
+
+  // ---------------------------------------------------------------------------
   // sticky — Ephemeral notes for quick capture (T5282)
   // ---------------------------------------------------------------------------
 

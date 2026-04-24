@@ -5202,6 +5202,63 @@ const coldSymbolsCommand = defineCommand({
  * @task T1013
  * @epic T1006
  */
+// ── T1386: sigil sync + list ─────────────────────────────────────────
+
+/** cleo nexus sigil sync — populate sigils table from canonical CANT agents */
+const sigilSyncCommand = defineCommand({
+  meta: {
+    name: 'sync',
+    description:
+      'Populate the nexus.db sigils table with one row per canonical CANT agent (cleo-subagent + 5 seed roles + 2 meta agents). Idempotent.',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON (LAFS envelope format)',
+    },
+  },
+  async run() {
+    await dispatchFromCli('mutate', 'nexus', 'sigil.sync', {}, { command: 'nexus' });
+  },
+});
+
+/** cleo nexus sigil list — list every sigil currently stored in nexus.db */
+const sigilListCommand = defineCommand({
+  meta: {
+    name: 'list',
+    description: 'List every sigil currently stored in nexus.db, optionally filtered by role.',
+  },
+  args: {
+    role: {
+      type: 'string',
+      description:
+        'Filter by role (e.g. "orchestrator", "lead", "worker", "specialist", "subagent")',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'nexus',
+      'sigil.list',
+      { role: args.role as string | undefined },
+      { command: 'nexus' },
+    );
+  },
+});
+
+/** cleo nexus sigil — group alias for `sync` and `list`. */
+const sigilCommand = defineCommand({
+  meta: {
+    name: 'sigil',
+    description:
+      'Sigil (peer-card) operations — sync from canonical CANT agents, list current rows',
+  },
+  subCommands: {
+    sync: sigilSyncCommand,
+    list: sigilListCommand,
+  },
+});
+
 const topEntriesCommand = defineCommand({
   meta: {
     name: 'top-entries',
@@ -5298,6 +5355,8 @@ export const nexusCommand = defineCommand({
     'cold-symbols': coldSymbolsCommand,
     // T1013 / T1006 — top-weighted symbols by nexus_relations.weight
     'top-entries': topEntriesCommand,
+    // T1386 — sigil sync + list (canonical CANT agent peer cards)
+    sigil: sigilCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

@@ -1000,6 +1000,8 @@ describe('NexusHandler', () => {
         // T1076 PSYCHE Wave 1 — NEXUS user_profile query ops
         'profile.view',
         'profile.get',
+        // T1386 — sigil list (peer-card identity)
+        'sigil.list',
       ]);
       expect(ops.mutate).toEqual([
         'share.snapshot.export',
@@ -1021,6 +1023,8 @@ describe('NexusHandler', () => {
         'profile.reinforce',
         'profile.upsert',
         'profile.supersede',
+        // T1386 — sigil sync (canonical CANT agent peer cards)
+        'sigil.sync',
       ]);
     });
   });
