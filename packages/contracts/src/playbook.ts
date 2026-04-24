@@ -3,6 +3,7 @@
  * Aligns with CLEO `.cantbook` YAML schema.
  *
  * @task T889 / T904 / W4-6
+ * @task T1261 PSYCHE E4 — context_files thin-agent boundary, ContractViolationRecord
  */
 
 export type PlaybookNodeType = 'agentic' | 'deterministic' | 'approval';
@@ -51,6 +52,12 @@ export interface PlaybookAgenticNode extends PlaybookNodeBase {
   agent?: string;
   role?: 'orchestrator' | 'lead' | 'worker';
   inputs?: Record<string, string>;
+  /**
+   * Thin-agent context boundary — when present, the spawned agent is
+   * restricted to only the listed file paths (relative to project root).
+   * Enforced at spawn time by composeSpawnPayload (T1261 PSYCHE E4).
+   */
+  context_files?: string[];
 }
 
 export interface PlaybookDeterministicNode extends PlaybookNodeBase {
@@ -121,4 +128,30 @@ export interface PlaybookApproval {
   reason?: string;
   status: PlaybookApprovalStatus;
   autoPassed: boolean;
+}
+
+/**
+ * Audit record written to `.cleo/audit/contract-violations.jsonl` whenever
+ * a playbook contract is violated at a node edge boundary.
+ *
+ * Conforms to the ADR-039 LAFS envelope pattern — each line is standalone
+ * JSON that can be streamed without a wrapper array.
+ *
+ * @task T1261 PSYCHE E4
+ */
+export interface ContractViolationRecord {
+  /** ISO-8601 UTC timestamp of the violation. */
+  timestamp: string;
+  /** Playbook run identifier from `playbook_runs.run_id`. */
+  runId: string;
+  /** Node id where the violation was detected. */
+  nodeId: string;
+  /** Edge field that violated the contract (`requires` or `ensures`). */
+  field: 'requires' | 'ensures';
+  /** Name of the missing or failed key. */
+  key: string;
+  /** Human-readable description of what was expected vs received. */
+  message: string;
+  /** Playbook name for human diagnostics. */
+  playbookName: string;
 }
