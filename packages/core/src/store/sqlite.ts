@@ -24,9 +24,35 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
-const { DatabaseSync } = _require('node:sqlite') as {
-  DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
-};
+
+/**
+ * Lazy-loaded node:sqlite DatabaseSync constructor.
+ * Moved from module-scope destructuring to function-scope to break a TDZ
+ * circular-import cycle: agent-resolver → dispatch-trace → extraction-gate
+ * → graph-auto-populate → memory-sqlite → sqlite.ts (T1325/T1331).
+ *
+ * The module-scope `const { DatabaseSync } = _require(...)` was executed
+ * before the module finished initializing when Vitest eagerly traced the
+ * dynamic `import('../memory/dispatch-trace.js')` in agent-resolver.ts,
+ * causing a TDZ ReferenceError. Deferring the require() call to first use
+ * avoids the re-entrant initialization.
+ */
+let _DatabaseSyncCtor:
+  | (new (
+      ...args: ConstructorParameters<typeof _DatabaseSyncType>
+    ) => DatabaseSync)
+  | null = null;
+function getDbSyncConstructor(): new (
+  ...args: ConstructorParameters<typeof _DatabaseSyncType>
+) => DatabaseSync {
+  if (_DatabaseSyncCtor === null) {
+    const mod = _require('node:sqlite') as {
+      DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
+    };
+    _DatabaseSyncCtor = mod.DatabaseSync;
+  }
+  return _DatabaseSyncCtor;
+}
 
 import { dirname, join, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
@@ -62,7 +88,8 @@ export function openNativeDatabase(
     allowExtension?: boolean;
   },
 ): DatabaseSync {
-  const db = new DatabaseSync(path, {
+  const DatabaseSyncCtor = getDbSyncConstructor();
+  const db = new DatabaseSyncCtor(path, {
     enableForeignKeyConstraints: true,
     readOnly: options?.readonly ?? false,
     timeout: options?.timeout ?? 5000,
@@ -201,7 +228,8 @@ async function autoRecoverFromBackup(
     const newestBackup = backups[0]!;
 
     // Open backup read-only to verify it has data
-    const backupDb = new DatabaseSync(newestBackup.path, { readOnly: true });
+    const DatabaseSyncCtor = getDbSyncConstructor();
+    const backupDb = new DatabaseSyncCtor(newestBackup.path, { readOnly: true });
     let backupTaskCount = 0;
     try {
       const backupCount = backupDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as
