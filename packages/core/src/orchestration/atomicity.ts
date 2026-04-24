@@ -18,7 +18,7 @@ import { ExitCode } from '@cleocode/contracts';
 
 /**
  * Maximum number of files a worker-role task may declare before it must be
- * split into subtasks or promoted to a lead role.
+ * split into subtasks with each child owning at most this many files.
  */
 export const MAX_WORKER_FILES = 3;
 
@@ -129,8 +129,8 @@ export function checkAtomicity(input: AtomicityInput): AtomicityResult {
     return {
       allowed: false,
       code: 'E_ATOMICITY_VIOLATION',
-      message: `Worker role for task ${input.taskId} declares ${files.length} files (max ${MAX_WORKER_FILES}). Split into subtasks or promote to lead.`,
-      fixHint: `Split task ${input.taskId} into ${splitCount} subtasks with cleo add --parent ${input.taskId}`,
+      message: `Task ${input.taskId} declares ${files.length} files (max ${MAX_WORKER_FILES} per atomic scope). Split into subtasks — each child owns ≤${MAX_WORKER_FILES} files.`,
+      fixHint: `Split task ${input.taskId} into ${splitCount} subtasks. Example:\ncleo add "Subtask 1: files a,b,c" --parent ${input.taskId} --files "path/a.ts,path/b.ts,path/c.ts" --acceptance "Acceptance criteria here"\ncleo add "Subtask 2: files d,e,f" --parent ${input.taskId} --files "path/d.ts,path/e.ts,path/f.ts" --acceptance "Acceptance criteria here"`,
       meta: { fileCount: files.length, hasScope: true },
     };
   }
