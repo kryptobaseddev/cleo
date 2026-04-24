@@ -237,12 +237,12 @@ export const addCommand = defineCommand({
     if (!params['parent'] && params['type'] !== 'epic') {
       try {
         const projectRoot = getProjectRoot();
-        const { getActiveSession } = await import('../../dispatch/engines/session-engine.js');
-        const session = await getActiveSession(projectRoot);
-        if (session?.taskWork?.taskId) {
-          params['parent'] = session.taskWork.taskId;
+        const { taskCurrentGet } = await import('../../dispatch/engines/session-engine.js');
+        const currentResult = await taskCurrentGet(projectRoot);
+        if (currentResult.success && currentResult.data?.currentTask) {
+          params['parent'] = currentResult.data.currentTask;
           process.stderr.write(
-            `[cleo add] inferred --parent from current task: ${session.taskWork.taskId}\n`,
+            `[cleo add] inferred --parent from current task: ${currentResult.data.currentTask}\n`,
           );
         }
       } catch {

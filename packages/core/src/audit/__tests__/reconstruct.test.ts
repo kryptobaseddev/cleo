@@ -30,7 +30,11 @@ import { reconstructLineage } from '../reconstruct.js';
  */
 const REPO_ROOT = new URL('../../../../..', import.meta.url).pathname.replace(/\/$/, '');
 
-describe('reconstructLineage — T991 anchor case', () => {
+// These describe blocks require a full git clone with complete history (T991/T994-T999
+// commits and tag v2026.4.98). CI uses a shallow checkout that lacks this history,
+// so they are skipped in CI and run locally only. Do NOT delete — they are valid
+// integration tests against the real git ledger.
+describe.skipIf(process.env['CI'] === 'true')('reconstructLineage — T991 anchor case', () => {
   let result: ReconstructResult;
 
   beforeAll(async () => {
@@ -155,20 +159,25 @@ describe('reconstructLineage — result shape contract', () => {
   }, 120_000);
 });
 
-describe('reconstructLineage — child task cross-check (T994 individual)', () => {
-  let result: ReconstructResult;
+// Skipped in CI (shallow checkout lacks T994 commit history and v2026.4.98 tag).
+// Runs locally with a full clone.
+describe.skipIf(process.env['CI'] === 'true')(
+  'reconstructLineage — child task cross-check (T994 individual)',
+  () => {
+    let result: ReconstructResult;
 
-  beforeAll(async () => {
-    result = await reconstructLineage('T994', REPO_ROOT);
-  }, 120_000);
+    beforeAll(async () => {
+      result = await reconstructLineage('T994', REPO_ROOT);
+    }, 120_000);
 
-  it('T994 has a direct commit with "T994"', () => {
-    const hit = result.directCommits.find((c) => c.subject.includes('T994'));
-    expect(hit).toBeDefined();
-  });
+    it('T994 has a direct commit with "T994"', () => {
+      const hit = result.directCommits.find((c) => c.subject.includes('T994'));
+      expect(hit).toBeDefined();
+    });
 
-  it('T994 is contained in v2026.4.98', () => {
-    const tagNames = result.releaseTags.map((t) => t.tag);
-    expect(tagNames).toContain('v2026.4.98');
-  });
-});
+    it('T994 is contained in v2026.4.98', () => {
+      const tagNames = result.releaseTags.map((t) => t.tag);
+      expect(tagNames).toContain('v2026.4.98');
+    });
+  },
+);
