@@ -1,7 +1,7 @@
 /**
  * Gemini provider backend.
  *
- * Ported from Honcho src/llm/backends/gemini.py (577 LOC).
+ * Ported from PSYCHE src/llm/backends/gemini.py (577 LOC).
  *
  * Uses @google/generative-ai SDK. Key differences from OpenAI/Anthropic:
  * - Messages converted from OpenAI/Anthropic format to Gemini "parts" format

@@ -1,7 +1,7 @@
 /**
  * Low-level request assembly: flatten a ModelConfig into backend calls.
  *
- * Ported from Honcho src/llm/request_builder.py. Does NOT own: retry,
+ * Ported from PSYCHE src/llm/request_builder.py. Does NOT own: retry,
  * fallback, tool loop, provider selection. Those live in api.ts, tool-loop.ts,
  * runtime.ts.
  *

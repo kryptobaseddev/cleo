@@ -1,7 +1,7 @@
 /**
  * Agentic/tool orchestration — the multi-iteration tool execution loop.
  *
- * Ported from Honcho src/llm/tool_loop.py (491 LOC). Uses p-retry for
+ * Ported from PSYCHE src/llm/tool_loop.py (491 LOC). Uses p-retry for
  * exponential backoff. Tool calls are SEQUENTIAL (not parallel) per spec.
  *
  * Key invariants:

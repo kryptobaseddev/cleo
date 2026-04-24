@@ -2,7 +2,7 @@
  * LLM operations contract types for the CLEO LLM abstraction layer.
  *
  * These are the wire-format types for the new `cleoLlmCall()` API surface
- * ported from Honcho's llm/ layer. They live in contracts so that packages
+ * ported from PSYCHE's llm/ layer. They live in contracts so that packages
  * outside core can reference them without importing the full SDK.
  *
  * @task T1399 (T1386-W13)
