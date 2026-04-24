@@ -15,6 +15,8 @@
  */
 
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { MemoryItemType } from '../policies/memory-policy.js';
 import { MemoryPolicy } from '../policies/memory-policy.js';
@@ -24,6 +26,16 @@ import type { ProviderMatrixRow } from '../registry/provider-matrix.js';
 import { ProviderMatrix } from '../registry/provider-matrix.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Options used when CleoOS shells out to the `cleo` CLI for smoke checks.
+ */
+export interface SmokeExecOptions {
+  /** Working directory used for the child `cleo` process. */
+  cwd: string;
+  /** Environment passed to the child `cleo` process. */
+  env: NodeJS.ProcessEnv;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -103,6 +115,21 @@ function probeMemoryPolicy(): Array<{ type: MemoryItemType; store: boolean; reas
 }
 
 /**
+ * Return true when a directory looks like the owner project root, not just a
+ * stale nested runtime directory.
+ *
+ * @param dir - Directory to inspect.
+ * @returns Whether the directory has a project-root marker.
+ */
+function hasProjectRootMarker(dir: string): boolean {
+  return (
+    existsSync(join(dir, '.git')) ||
+    existsSync(join(dir, 'AGENTS.md')) ||
+    existsSync(join(dir, 'pnpm-workspace.yaml'))
+  );
+}
+
+/**
  * Detect whether the `cleo` binary is available on `PATH`.
  *
  * @returns `true` when `which cleo` exits with code 0.
@@ -117,6 +144,52 @@ async function isCleoAvailable(): Promise<boolean> {
 }
 
 /**
+ * Walk upward from a start directory to find the nearest CLEO project root.
+ *
+ * @param startDir - Directory to begin searching from.
+ * @returns The nearest marked `.cleo` ancestor, nearest `.cleo` fallback, or `startDir`.
+ */
+export function resolveSmokeProjectRoot(startDir = process.cwd()): string {
+  let current = startDir;
+  let fallback: string | null = null;
+  while (true) {
+    if (existsSync(join(current, '.cleo'))) {
+      fallback ??= current;
+      if (hasProjectRootMarker(current)) {
+        return current;
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return fallback ?? startDir;
+    }
+    current = parent;
+  }
+}
+
+/**
+ * Resolve child-process options for provider smoke checks.
+ *
+ * `pnpm --filter <pkg> exec ...` can change `process.cwd()` and even
+ * `CLEO_ROOT` to the package directory. Prefer the best explicit candidate,
+ * then normalize it through a `.cleo` ancestor walk so doctor checks run
+ * against the user/project root instead of the cleo-os package root.
+ *
+ * @returns Child-process options for `cleo admin smoke`.
+ */
+export function resolveSmokeExecOptions(): SmokeExecOptions {
+  const rootCandidate = process.env['CLEO_ROOT'] ?? process.env['INIT_CWD'] ?? process.cwd();
+  const cwd = resolveSmokeProjectRoot(rootCandidate);
+  return {
+    cwd,
+    env: {
+      ...process.env,
+      CLEO_ROOT: cwd,
+    },
+  };
+}
+
+/**
  * Run `cleo admin smoke --provider <id>` for a single installed provider.
  *
  * @param providerId - Canonical provider ID to smoke-test.
@@ -124,7 +197,11 @@ async function isCleoAvailable(): Promise<boolean> {
  */
 async function runProviderSmoke(providerId: string): Promise<SmokeResult> {
   try {
-    await execFileAsync('cleo', ['admin', 'smoke', '--provider', providerId]);
+    await execFileAsync(
+      'cleo',
+      ['admin', 'smoke', '--provider', providerId],
+      resolveSmokeExecOptions(),
+    );
     return { providerId, passed: true, message: 'PASS' };
   } catch (err) {
     const message = err instanceof Error ? (err.message.split('\n')[0] ?? 'FAIL') : 'FAIL';
