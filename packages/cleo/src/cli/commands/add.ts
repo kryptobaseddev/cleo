@@ -11,6 +11,7 @@
 import { getProjectRoot } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { inferFilesViaGitNexus } from '../infer-files-via-gitnexus.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
@@ -85,6 +86,10 @@ export const addCommand = defineCommand({
     files: {
       type: 'string',
       description: 'Comma-separated file paths',
+    },
+    'files-infer': {
+      type: 'boolean',
+      description: 'Infer touched files from task title and description using GitNexus',
     },
     acceptance: {
       type: 'string',
@@ -173,7 +178,22 @@ export const addCommand = defineCommand({
       params['description'] = args.desc;
     }
     if (args.labels) params['labels'] = (args.labels as string).split(',').map((s) => s.trim());
-    if (args.files) params['files'] = (args.files as string).split(',').map((s) => s.trim());
+
+    // Handle file inference: if --files-infer is set and --files is not provided,
+    // invoke GitNexus to suggest touched files (T1330)
+    if (args['files-infer'] && !args.files) {
+      const inferredFiles = inferFilesViaGitNexus(args.title, args.description ?? args.desc);
+      if (inferredFiles.length > 0) {
+        params['files'] = inferredFiles;
+      } else {
+        // Warn if inference returned no results
+        process.stderr.write(
+          '⚠ No files inferred by GitNexus. Use --files to specify files explicitly, or leave empty for atomicity check at spawn time.\n',
+        );
+      }
+    } else if (args.files) {
+      params['files'] = (args.files as string).split(',').map((s) => s.trim());
+    }
     if (args.acceptance) {
       const raw = args.acceptance as string;
       // Support JSON array format: --acceptance '["c1","c2","c3"]' (T090)
