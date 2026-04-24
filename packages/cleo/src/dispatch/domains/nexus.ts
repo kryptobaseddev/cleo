@@ -54,6 +54,8 @@ import {
   nexusShareSnapshotImport,
   nexusShareStatus,
   nexusShowProject,
+  nexusSigilList,
+  nexusSigilSync,
   nexusStatus,
   nexusSyncProject,
   nexusTaskFootprint,
@@ -497,6 +499,12 @@ export class NexusHandler implements DomainHandler {
           return wrapResult(result, 'query', 'nexus', operation, startTime);
         }
 
+        case 'sigil.list': {
+          const role = params?.role as string | undefined;
+          const result = await nexusSigilList(role);
+          return wrapResult(result, 'query', 'nexus', operation, startTime);
+        }
+
         default:
           return unsupportedOp('query', 'nexus', operation, startTime);
       }
@@ -744,6 +752,11 @@ export class NexusHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'nexus', operation, startTime);
         }
 
+        case 'sigil.sync': {
+          const result = await nexusSigilSync();
+          return wrapResult(result, 'mutate', 'nexus', operation, startTime);
+        }
+
         default:
           return unsupportedOp('mutate', 'nexus', operation, startTime);
       }
@@ -799,6 +812,8 @@ export class NexusHandler implements DomainHandler {
         // T1080 — user-profile query verbs
         'profile.view',
         'profile.get',
+        // T1386 — sigil list (peer-card identity)
+        'sigil.list',
       ],
       mutate: [
         'share.snapshot.export',
@@ -820,6 +835,8 @@ export class NexusHandler implements DomainHandler {
         'profile.reinforce',
         'profile.upsert',
         'profile.supersede',
+        // T1386 — sigil sync (canonical CANT agent peer cards)
+        'sigil.sync',
       ],
     };
   }

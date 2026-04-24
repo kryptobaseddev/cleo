@@ -1216,6 +1216,16 @@ export {
 } from './nexus/nexus-bridge.js';
 // Nexus — readRegistry (exported as nexusReadRegistry to avoid name clash with skills readRegistry)
 export { readRegistry as nexusReadRegistry } from './nexus/registry.js';
+// Nexus — sigil (peer-card) SDK (T1148 Wave 8)
+export type { SigilCard, SigilInput } from './nexus/sigil.js';
+export { getSigil, listSigils, upsertSigil } from './nexus/sigil.js';
+// Nexus — sigil sync (T1386): populate sigils from canonical CANT agents
+export type { CanonicalCantFiles, SigilSyncResult } from './nexus/sigil-sync.js';
+export {
+  parseSigilFromCant,
+  resolveCanonicalCantFiles,
+  syncCanonicalSigils,
+} from './nexus/sigil-sync.js';
 export type {
   ExportUserProfileResult,
   ImportUserProfileResult,
