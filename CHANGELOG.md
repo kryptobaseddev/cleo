@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.134] — 2026-04-24 — T1216 AUDIT CLOSURE
+
+T1216 False-Completion Forensic Audit — **epic CLOSED after 2026-04-24 Council REFACTOR verdict**. T1222 engine fix (ADR-051 NULL-verification rejection) shipped as the blocking predecessor, then 12 per-epic audits produced high-confidence verdicts under a Council-mandated 4-outcome taxonomy. Report at `docs/audits/2026-04-22-false-completion-audit.md`.
+
+### Verdict tally
+
+- **verified-complete (8)**: T569, T870, T876, T882, T910, T949, T962, T1000
+- **verified-incomplete (3)**: T820, T988, T1013 — remediation queue in report
+- **schema-artifact-not-work-defect (1)**: T991 — flagship case. 16 child-task commits (T994–T999) shipped in v2026.4.98; `cleo list --parent T991` returns 0 (DB parent-child link broken but work shipped)
+- **inconclusive (0)**
+
+### Council verdict
+
+- **Artifact**: `.cleo/agent-outputs/T-COUNCIL-T1216-AUDIT-2026-04-24/council-verdict.md` — 5-advisor REFACTOR verdict (high confidence)
+- **Structural amendments adopted**:
+  1. T1222 promoted from peer acceptance item to blocking predecessor (shipped first)
+  2. Verdict taxonomy expanded from binary to 4 outcomes; `git log` + release tags declared first-class evidence co-equal with `tasks.verification_json`
+  3. 176-row backfill split to sibling epic T1321
+  4. Audit charter carved out — gate state only, no re-litigation of v2026.4.133 spine (O-dfb7f334, O-5e7540d6)
+
+### Added
+
+- **`packages/cleo/src/dispatch/engines/task-engine.ts`** (T1222): NULL-verification rejection branch in `taskCompleteStrict` returning `E_EVIDENCE_MISSING`; `modified_by` (from `CLEO_AGENT_ID` or `session.agent_id`) + `session_id` (from `getActiveSession()`) population in `taskComplete`. Epics are exempted (auto-completed). CLEO-VALID-26 + CLEO-VALID-27 closed.
+- **`packages/cleo/src/dispatch/engines/__tests__/task-engine.test.ts`** (T1222): 3 new test blocks covering NULL-rejection + modified_by/session_id population; 7/7 pass.
+- **`docs/audits/2026-04-22-false-completion-audit.md`** (T1223): 385-line forensic audit report — executive summary, Council reference, per-epic verdict table, detailed findings per audit, root-cause analysis, CLEO engine fix summary, remediation queue, sibling tasks filed, BRAIN observations cross-reference.
+- **`.cleo/agent-outputs/T1216-audits/*-verdict.md`**: 12 per-epic verdict markdowns (T569, T820, T870, T876, T882, T910, T949, T962, T988, T991, T1000, T1013) with YAML frontmatter.
+- **`.cleo/agent-outputs/T-COUNCIL-T1216-AUDIT-2026-04-24/council-verdict.md`**: Full 5-advisor Council deliberation + Chairman verdict (structurally validated by `scripts/validate.py`).
+- **T1321** (sibling epic): "Backfill 176 audit-column-gap tasks — modified_by/session_id NULL cohort" — split from T1216 per Council.
+- **T1322**: "`cleo audit reconstruct` — SDK primitive for git-log + release-tag lineage reconstruction" (Expansionist opportunity — git DAG as completion-integrity ledger; `.jsonl` emit deferred per First Principles peer note).
+- **T1327** (sideband): atomicity error message fix — remove phantom "promote to lead" hint, expand fixHint with concrete CLI example.
+
+### Changed
+
+- **T1216 acceptance criteria**: updated to Council-mandated 4-outcome taxonomy, first-class git-log evidence channel, explicit spine carve-out. 176-row backfill moved out-of-scope.
+
+### Meta
+
+- **12 parallel audit subagents** (haiku) + 3 team-lead subagents (sonnet: T1222, T1322, T1223) dispatched under ct-orchestrator via ADR-055 worktree-by-default. Orchestration session `ses_20260424162519_00fe71`.
+- **Quality gates (repo-wide)**: `pnpm biome ci .` clean; `pnpm run build` green; `pnpm run test` 1868/1871 pass (1 pre-existing flake unrelated to T1222 — sqlite-warning-suppress passes in isolation).
+- **Known follow-ons**: T820, T988, T1013 reopen per remediation queue; T991 DB parent-child link repair; T1321 + T1322 complete in later release.
+
 ## [2026.4.133] — 2026-04-24 — APRIL TERMINUS
 
 T1148 Wave 8 Sigil/Peer-Card Identity Layer + T1151 Sentient v1 Dispatch-Time Reflex + M7 Entry Gate + MCP Adapter Proof. **April terminus: 8-slot PSYCHE spine complete (.126→.133).** W8-1 adds `sigils` table to `nexus.db` (Drizzle migration `20260424140538_t1148-add-sigils-table`). W8-2 adds sigil SDK (`getSigil`, `upsertSigil`, `listSigils`). W8-3 enriches `fetchIdentity()` with real sigil lookup. W8-4 updates `RetrievalBundle` contract with `sigilCard`. W8-7 wires M7 gate — `cleo sentient propose enable` returns `E_M7_GATE_FAILED` if brain corpus is dirty. W8-8 (T1151) inserts dispatch-time health reflex in `safeRunProposeTick()` — fire-and-forget reconciler trigger. W8-9: new `@cleocode/mcp-adapter` package, external MCP stdio server with 3 sentient tools. W8-10: sigil card in spawn prompts via PSYCHE-MEMORY block. W8-11: hierarchy.ts confirmed deleted.
