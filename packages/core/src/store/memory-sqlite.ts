@@ -321,6 +321,17 @@ function runBrainMigrations(
     nativeDb.exec(`CREATE INDEX IF NOT EXISTS ${idxName} ON ${table} (peer_id, peer_scope)`);
   }
 
+  // T1260: PSYCHE E3 — provenance_class on all four brain memory tables (M6 refusal gate).
+  // Drizzle migration 20260424000001_t1260-provenance-class handles fresh installs.
+  // ensureColumns here is the safety-net for installs where the journal reconciler
+  // already marked prior migrations applied before this column was added, or where
+  // the test runner uses a module-cached DB from before the migration ran.
+  const provenanceColumn = [{ name: 'provenance_class', ddl: "text DEFAULT 'unswept-pre-T1151'" }];
+  ensureColumns(nativeDb, 'brain_decisions', provenanceColumn, 'brain');
+  ensureColumns(nativeDb, 'brain_patterns', provenanceColumn, 'brain');
+  ensureColumns(nativeDb, 'brain_learnings', provenanceColumn, 'brain');
+  ensureColumns(nativeDb, 'brain_observations', provenanceColumn, 'brain');
+
   // T1001: brain_promotion_log — typed promotion audit trail.
   // One row per observation evaluated (and promoted) by promoteObservationsToTyped().
   nativeDb.exec(

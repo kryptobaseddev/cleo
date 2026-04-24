@@ -1,67 +1,346 @@
 /**
- * M1 spawn-retrieval-parity AcceptanceGate (T1259 E2 scaffold — EXPECTED RED).
+ * M1 spawn-retrieval-parity gate — T1260 PSYCHE E3 (GREEN).
  *
- * Documents the structural gap between the briefing-path and spawn-path:
- *   - `buildRetrievalBundle` is called in `computeBriefing` (briefing.ts:212)
- *   - `composeSpawnPayload` (spawn.ts:360) does NOT call `buildRetrievalBundle`
- *   - Spawn payloads therefore lack the `retrievalBundle` field
+ * Verifies that `composeSpawnPayload` at tier-1 produces a spawn prompt
+ * containing a `## PSYCHE-MEMORY` section (structural parity with briefing.ts
+ * which already uses `buildRetrievalBundle`), and that the returned
+ * `SpawnPayload.retrievalBundle` has the same structural shape as the bundle
+ * returned by a direct `buildRetrievalBundle` call.
  *
- * T1259 (E2) files this test as a RED gate (it.fails → vitest treats failure as pass).
- * T1260 (E3) wires `composeSpawnPayload → buildRetrievalBundle` and promotes this
- * to a full green integration assertion.
+ * Promoted from `it.fails` scaffold (T1259 E2, v2026.4.127) to full green
+ * integration tests after T1260 E3 (.128) wired composeSpawnPayload →
+ * buildRetrievalBundle.
  *
- * Council binding: M1 MUST NOT be passed green at E2 time (slot .127).
- * Removing `it.fails()` before T1260 ships is a Council violation.
- *
- * @see packages/core/src/orchestration/spawn.ts — composeSpawnPayload (not yet wired)
+ * @see packages/core/src/orchestration/spawn.ts — composeSpawnPayload (now wired)
  * @see packages/core/src/memory/brain-retrieval.ts:1918 — buildRetrievalBundle
- * @see packages/core/src/sessions/briefing.ts:212 — briefing-path (already wired)
- * @task T1259-W7 v2026.4.127 E2 M1 scaffold
- * @task T1260 v2026.4.128 E3 M1 flip GREEN
+ * @see packages/core/src/sessions/briefing.ts:212 — briefing-path (structural benchmark)
+ * @task T1260 v2026.4.128 E3 M1 GREEN
  */
 
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import type { Task } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// M1 Gap documentation test
+// Fixtures — mirror spawn.test.ts harness
 // ---------------------------------------------------------------------------
 
-describe('M1 spawn-retrieval-parity — E2 scaffold (expected red, flips green in E3)', () => {
-  /**
-   * M1 binding gate: SpawnPayload MUST carry a `retrievalBundle` field.
-   *
-   * The current SpawnPayload interface (spawn.ts:188-210) does not define
-   * `retrievalBundle`. `composeSpawnPayload` does not call `buildRetrievalBundle`.
-   * This is the gap T1260 (E3) must close.
-   *
-   * `it.fails()` marks this as an expected failure. Vitest will:
-   *   - PASS the test run when this assertion fails (expected behavior at E2)
-   *   - FAIL the test run when this assertion passes (signals E3 is landed and
-   *     this scaffold must be replaced with a full green assertion)
-   *
-   * NOTE: This test does not invoke composeSpawnPayload directly to avoid
-   * the full signaldock.db setup overhead. It instead inspects the SpawnPayload
-   * type surface — sufficient to document the gap and fail correctly.
-   * T1260 will replace with a full integration test.
-   */
-  it.fails('SpawnPayload type includes retrievalBundle field (M1 — wired in E3)', () => {
-    // Construct a minimal object representing what composeSpawnPayload currently returns.
-    // It does NOT include retrievalBundle — this assertion must fail until E3 wires it.
-    const currentSpawnPayloadShape: Record<string, unknown> = {
-      taskId: 'T9999',
-      agentId: 'project-orchestrator',
-      role: 'worker',
-      tier: 0,
-      harnessHint: 'generic',
-      resolvedAgent: {},
-      atomicity: { allowed: true },
-      prompt: 'test prompt',
-      meta: {},
-      // retrievalBundle is intentionally ABSENT — this is the gap M1 documents
+const FIXTURE_WORKER_CANT = `---
+kind: agent
+version: 1
+---
+
+agent fixture-worker:
+  role: worker
+  parent: cleo-prime
+  description: "Worker fixture for parity test."
+  prompt: "You are fixture-worker."
+  skills: ["ct-cleo"]
+`;
+
+interface TmpEnv {
+  cleoHome: string;
+  projectRoot: string;
+  dbPath: string;
+  globalCantDir: string;
+  openDb: () => DatabaseSync;
+  cleanup: () => void;
+}
+
+async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
+  const base = mkdtempSync(join(tmpdir(), `cleo-parity-${suffix}-`));
+  const cleoHome = join(base, 'cleo-home');
+  const projectRoot = join(base, 'project');
+  const globalCantDir = join(base, 'global-cant-agents');
+  const projectCantDir = join(projectRoot, '.cleo', 'cant', 'agents');
+
+  mkdirSync(cleoHome, { recursive: true });
+  mkdirSync(projectCantDir, { recursive: true });
+  mkdirSync(globalCantDir, { recursive: true });
+
+  writeFileSync(join(cleoHome, 'machine-key'), Buffer.alloc(32, 0xab), { mode: 0o600 });
+  writeFileSync(join(cleoHome, 'global-salt'), Buffer.alloc(32, 0xcd), { mode: 0o600 });
+
+  vi.doMock('../../paths.js', async () => {
+    const actual = await vi.importActual<typeof import('../../paths.js')>('../../paths.js');
+    return {
+      ...actual,
+      getCleoHome: () => cleoHome,
+      getCleoGlobalAgentsDir: () => globalCantDir,
     };
+  });
 
-    // This assertion WILL fail because retrievalBundle is not in SpawnPayload.
-    // T1260 adds retrievalBundle to SpawnPayload + wires buildRetrievalBundle call.
-    expect(currentSpawnPayloadShape.retrievalBundle).toBeDefined();
+  const { ensureGlobalSignaldockDb, _resetGlobalSignaldockDb_TESTING_ONLY } = await import(
+    '../../store/signaldock-sqlite.js'
+  );
+  _resetGlobalSignaldockDb_TESTING_ONLY();
+  await ensureGlobalSignaldockDb();
+
+  const dbPath = join(cleoHome, 'signaldock.db');
+
+  // Seed the skills catalog so junction writes succeed.
+  const seedDb = new DatabaseSync(dbPath);
+  seedDb.exec('PRAGMA foreign_keys = ON');
+  const nowTs = Math.floor(Date.now() / 1000);
+  seedDb
+    .prepare(
+      `INSERT OR IGNORE INTO skills (id, slug, name, description, category, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run('skill-ct-cleo', 'ct-cleo', 'CT CLEO', 'CLEO task protocol', 'core', nowTs);
+  seedDb.close();
+
+  // Install fixture agent CANT
+  writeFileSync(join(globalCantDir, 'fixture-worker.cant'), FIXTURE_WORKER_CANT, 'utf8');
+
+  const openDb = (): DatabaseSync => {
+    const d = new DatabaseSync(dbPath);
+    d.exec('PRAGMA foreign_keys = ON');
+    d.exec('PRAGMA journal_mode = WAL');
+    return d;
+  };
+  const cleanup = (): void => {
+    _resetGlobalSignaldockDb_TESTING_ONLY();
+    rmSync(base, { recursive: true, force: true });
+  };
+  return {
+    cleoHome,
+    projectRoot,
+    dbPath,
+    globalCantDir,
+    openDb,
+    cleanup,
+  };
+}
+
+const FIXTURE_TASK: Task = {
+  id: 'T9999',
+  title: 'Parity fixture task',
+  description: 'Task for spawn-retrieval-parity test',
+  status: 'pending',
+  priority: 'medium',
+  type: 'task',
+  parentId: null,
+  acceptance: ['parity test passes'],
+  size: 'small',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  completedAt: null,
+  cancelledAt: null,
+  position: 0,
+  positionVersion: 0,
+};
+
+// Minimal RetrievalBundle mock shape matching the @cleocode/contracts interface
+const MOCK_EMPTY_BUNDLE = {
+  cold: { userProfile: [], peerInstructions: '' },
+  warm: { peerLearnings: [], peerPatterns: [], decisions: [] },
+  hot: { sessionNarrative: '', recentObservations: [], activeTasks: [] },
+  tokenCounts: { cold: 0, warm: 0, hot: 0, total: 0 },
+} as const;
+
+const MOCK_POPULATED_BUNDLE = {
+  cold: { userProfile: [], peerInstructions: 'Prefer concise responses.' },
+  warm: {
+    peerLearnings: [
+      {
+        id: 'L-001',
+        insight: 'Use pnpm not npm',
+        createdAt: '2026-04-24T00:00:00Z',
+        provenanceClass: 'swept-clean',
+      },
+    ],
+    peerPatterns: [],
+    decisions: [
+      {
+        id: 'D-001',
+        decision: 'TypeScript strict mode',
+        createdAt: '2026-04-24T00:00:00Z',
+        provenanceClass: 'swept-clean',
+      },
+    ],
+  },
+  hot: {
+    sessionNarrative: 'Working on PSYCHE E3 spawn wiring.',
+    recentObservations: [],
+    activeTasks: [],
+  },
+  tokenCounts: { cold: 5, warm: 25, hot: 12, total: 42 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Tests — GREEN (T1260 E3)
+// ---------------------------------------------------------------------------
+
+describe('M1 spawn-retrieval-parity — E3 GREEN (T1260)', () => {
+  let env: TmpEnv;
+  let db: DatabaseSync;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    env = await makeTmpEnv('m1');
+    db = env.openDb();
+  });
+
+  afterEach(() => {
+    try {
+      db.close();
+    } catch {
+      // already closed
+    }
+    env.cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('SpawnPayload type includes retrievalBundle field (M1 — wired in E3)', async () => {
+    // This test was `it.fails` in T1259 E2 (.127). It passes green now that
+    // T1260 E3 wires composeSpawnPayload → buildRetrievalBundle.
+    vi.doMock('../../memory/brain-retrieval.js', async () => {
+      const actual = await vi.importActual<typeof import('../../memory/brain-retrieval.js')>(
+        '../../memory/brain-retrieval.js',
+      );
+      return { ...actual, buildRetrievalBundle: vi.fn().mockResolvedValue(MOCK_EMPTY_BUNDLE) };
+    });
+
+    const { composeSpawnPayload } = await import('../spawn.js');
+    const payload = await composeSpawnPayload(db, FIXTURE_TASK, {
+      tier: 1,
+      sessionId: 'ses_parity_test',
+      peerId: 'global',
+      projectRoot: env.projectRoot,
+      agentId: 'fixture-worker',
+      skipAtomicityCheck: true,
+    });
+
+    // The SpawnPayload MUST carry retrievalBundle (M1 gate)
+    expect(payload.retrievalBundle).toBeDefined();
+  });
+
+  it('tier-1 spawn prompt contains ## PSYCHE-MEMORY section', async () => {
+    vi.doMock('../../memory/brain-retrieval.js', async () => {
+      const actual = await vi.importActual<typeof import('../../memory/brain-retrieval.js')>(
+        '../../memory/brain-retrieval.js',
+      );
+      return { ...actual, buildRetrievalBundle: vi.fn().mockResolvedValue(MOCK_EMPTY_BUNDLE) };
+    });
+
+    const { composeSpawnPayload } = await import('../spawn.js');
+    const payload = await composeSpawnPayload(db, FIXTURE_TASK, {
+      tier: 1,
+      sessionId: 'ses_parity_test',
+      peerId: 'global',
+      projectRoot: env.projectRoot,
+      agentId: 'fixture-worker',
+      skipAtomicityCheck: true,
+    });
+
+    expect(payload.prompt).toContain('## PSYCHE-MEMORY');
+  });
+
+  it('retrievalBundle shape matches buildRetrievalBundle contract (structural parity with briefing.ts)', async () => {
+    vi.doMock('../../memory/brain-retrieval.js', async () => {
+      const actual = await vi.importActual<typeof import('../../memory/brain-retrieval.js')>(
+        '../../memory/brain-retrieval.js',
+      );
+      return { ...actual, buildRetrievalBundle: vi.fn().mockResolvedValue(MOCK_POPULATED_BUNDLE) };
+    });
+
+    const { composeSpawnPayload } = await import('../spawn.js');
+    const payload = await composeSpawnPayload(db, FIXTURE_TASK, {
+      tier: 1,
+      sessionId: 'ses_parity_test',
+      peerId: 'global',
+      projectRoot: env.projectRoot,
+      agentId: 'fixture-worker',
+      skipAtomicityCheck: true,
+    });
+
+    expect(payload.retrievalBundle).toBeDefined();
+    const bundle = payload.retrievalBundle!;
+
+    // cold pass shape — same as briefing.ts path
+    expect(Object.keys(bundle.cold)).toEqual(
+      expect.arrayContaining(['userProfile', 'peerInstructions']),
+    );
+    // warm pass shape — same as briefing.ts path
+    expect(Object.keys(bundle.warm)).toEqual(
+      expect.arrayContaining(['peerLearnings', 'peerPatterns', 'decisions']),
+    );
+    // hot pass shape — same as briefing.ts path
+    expect(Object.keys(bundle.hot)).toEqual(
+      expect.arrayContaining(['sessionNarrative', 'recentObservations', 'activeTasks']),
+    );
+    // tokenCounts — same as briefing.ts path
+    expect(Object.keys(bundle.tokenCounts)).toEqual(
+      expect.arrayContaining(['cold', 'warm', 'hot', 'total']),
+    );
+
+    // verify content propagated correctly
+    expect(bundle.cold.peerInstructions).toBe('Prefer concise responses.');
+    expect(bundle.warm.peerLearnings).toHaveLength(1);
+    expect(bundle.warm.decisions).toHaveLength(1);
+    expect(bundle.hot.sessionNarrative).toBe('Working on PSYCHE E3 spawn wiring.');
+    expect(bundle.tokenCounts.total).toBe(42);
+  });
+
+  it('tier-1 PSYCHE-MEMORY section contains peer instructions when bundle has content', async () => {
+    vi.doMock('../../memory/brain-retrieval.js', async () => {
+      const actual = await vi.importActual<typeof import('../../memory/brain-retrieval.js')>(
+        '../../memory/brain-retrieval.js',
+      );
+      return { ...actual, buildRetrievalBundle: vi.fn().mockResolvedValue(MOCK_POPULATED_BUNDLE) };
+    });
+
+    const { composeSpawnPayload } = await import('../spawn.js');
+    const payload = await composeSpawnPayload(db, FIXTURE_TASK, {
+      tier: 1,
+      sessionId: 'ses_parity_test',
+      projectRoot: env.projectRoot,
+      agentId: 'fixture-worker',
+      skipAtomicityCheck: true,
+    });
+
+    expect(payload.prompt).toContain('## PSYCHE-MEMORY');
+    expect(payload.prompt).toContain('Prefer concise responses.');
+    expect(payload.prompt).toContain('Working on PSYCHE E3 spawn wiring.');
+  });
+
+  it('tier-0 prompt does NOT contain PSYCHE-MEMORY section', async () => {
+    vi.doMock('../../memory/brain-retrieval.js', async () => {
+      const actual = await vi.importActual<typeof import('../../memory/brain-retrieval.js')>(
+        '../../memory/brain-retrieval.js',
+      );
+      return { ...actual, buildRetrievalBundle: vi.fn().mockResolvedValue(MOCK_POPULATED_BUNDLE) };
+    });
+
+    const { composeSpawnPayload } = await import('../spawn.js');
+    const payload = await composeSpawnPayload(db, FIXTURE_TASK, {
+      tier: 0,
+      sessionId: 'ses_parity_test',
+      projectRoot: env.projectRoot,
+      agentId: 'fixture-worker',
+      skipAtomicityCheck: true,
+    });
+
+    // Tier-0 is minimal — no PSYCHE-MEMORY
+    expect(payload.prompt).not.toContain('## PSYCHE-MEMORY');
+  });
+
+  it('degrades gracefully when sessionId absent — no PSYCHE-MEMORY and no crash', async () => {
+    const { composeSpawnPayload } = await import('../spawn.js');
+    const payload = await composeSpawnPayload(db, FIXTURE_TASK, {
+      tier: 1,
+      // sessionId intentionally absent
+      projectRoot: env.projectRoot,
+      agentId: 'fixture-worker',
+      skipAtomicityCheck: true,
+    });
+
+    // No sessionId → no retrieval bundle → no PSYCHE-MEMORY section
+    expect(payload.retrievalBundle).toBeUndefined();
+    expect(payload.prompt).not.toContain('## PSYCHE-MEMORY');
   });
 });
