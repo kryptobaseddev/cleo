@@ -16,9 +16,24 @@
  * @see ADR-052 — SDK consolidation decision
  */
 
+import { ClaudeSDKAdapter } from './adapter.js';
+
+export { ClaudeSDKAdapter } from './adapter.js';
+export { ClaudeSDKInstallProvider } from './install.js';
 export type { McpServerMap, McpStdioConfig } from './mcp-registry.js';
 export { getServers } from './mcp-registry.js';
 export type { SessionEntry } from './session-store.js';
 export { SessionStore } from './session-store.js';
 export { ClaudeSDKSpawnProvider } from './spawn.js';
 export { DEFAULT_TOOLS, resolveTools } from './tool-bridge.js';
+
+export default ClaudeSDKAdapter;
+
+/**
+ * Create a Claude SDK adapter instance for dynamic adapter loading.
+ *
+ * @returns A fresh {@link ClaudeSDKAdapter}.
+ */
+export function createAdapter(): ClaudeSDKAdapter {
+  return new ClaudeSDKAdapter();
+}
