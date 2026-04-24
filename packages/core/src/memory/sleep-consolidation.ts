@@ -135,6 +135,22 @@ export interface GenerateInsightsResult {
   insightsStored: number;
 }
 
+/** Wave 6 Dreamer upgrade result (T1146). */
+export interface DreamerUpgradeResult {
+  /** Number of observations with surprisal scores computed. */
+  surprisalScored: number;
+  /** Number of tree nodes written to brain_memory_trees. */
+  treeNodesWritten: number;
+  /** Number of brain_observations assigned to tree leaves. */
+  treeObsAssigned: number;
+  /** Total new BRAIN entries created by specialists. */
+  specialistsCreated: number;
+  /** Number of specialists that ran successfully. */
+  specialistsRan: number;
+  /** Number of specialists skipped (no LLM, no observations, etc.). */
+  specialistsSkipped: number;
+}
+
 /** Aggregated result from the full sleep consolidation run. */
 export interface SleepConsolidationResult {
   /** Whether the run was enabled and fully attempted. */
@@ -147,6 +163,8 @@ export interface SleepConsolidationResult {
   strengthenPatterns: StrengthenPatternsResult;
   /** Step 4: generate cross-cutting insights. */
   generateInsights: GenerateInsightsResult;
+  /** Steps 5-7: Wave 6 dreamer upgrade (T1146 — surprisal + tree + specialists). */
+  dreamerUpgrade?: DreamerUpgradeResult;
 }
 
 // ============================================================================
@@ -930,6 +948,146 @@ export async function runSleepConsolidation(
   } catch (err) {
     console.warn('[sleep-consolidation] Step 4 (generate insights) failed:', err);
   }
+
+  // Steps 5-7: Wave 6 Dreamer Upgrade — Bayesian surprisal + RPTree + specialists
+  // Lazy-imported to keep test surface small and avoid breaking existing mocks.
+  // Errors in any step are swallowed — dreamer upgrade must never abort consolidation.
+  try {
+    const dreamerResult = await runDreamerUpgrade(projectRoot);
+    result.dreamerUpgrade = dreamerResult;
+  } catch (err) {
+    console.warn('[sleep-consolidation] Wave 6 dreamer upgrade failed:', err);
+  }
+
+  return result;
+}
+
+// ============================================================================
+// Wave 6: Dreamer Upgrade — Steps 5-7
+// ============================================================================
+
+/**
+ * Internal row type for fetching recent observations with embeddings.
+ */
+interface RawObsWithEmbedding {
+  id: string;
+  type: string;
+  title: string | null;
+  narrative: string | null;
+  project: string | null;
+  peer_id: string;
+  source_session_id: string | null;
+  embedding: Buffer | null;
+  created_at: string | null;
+}
+
+/**
+ * Run the Wave 6 dreamer upgrade:
+ *   Step 5: Compute Bayesian surprisal scores for recent observations
+ *   Step 6: Build RPTree from high-surprisal observations
+ *   Step 7: Dispatch consolidation specialists in surprisal-priority order
+ *
+ * Gracefully degrades when:
+ *   - No embeddings available → returns neutral scores, skips tree/specialists
+ *   - No LLM backend → specialists no-op silently
+ *   - Any step errors → logged, not thrown
+ *
+ * @param projectRoot - Project root for DB resolution.
+ * @returns DreamerUpgradeResult with counts from each step.
+ *
+ * @task T1146
+ */
+async function runDreamerUpgrade(_projectRoot: string): Promise<DreamerUpgradeResult> {
+  const result: DreamerUpgradeResult = {
+    surprisalScored: 0,
+    treeNodesWritten: 0,
+    treeObsAssigned: 0,
+    specialistsCreated: 0,
+    specialistsRan: 0,
+    specialistsSkipped: 0,
+  };
+
+  // Lazy import to preserve vi.mock('../sleep-consolidation.js') test surface
+  const [{ computeSurprisalBatch }, { buildSurprisalTree }, { dispatchSpecialists }] =
+    await Promise.all([
+      import('./surprisal.js'),
+      import('./surprisal-tree.js'),
+      import('./specialists.js'),
+    ]);
+
+  const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
+  const nativeDb = getBrainNativeDb();
+
+  if (!nativeDb) {
+    console.warn('[dreamer-upgrade] No database available; skipping all steps.');
+    return result;
+  }
+
+  // Fetch recent observations (up to 100) with their embeddings
+  const rawObs = nativeDb
+    .prepare(
+      `SELECT o.id, o.type, o.title, o.narrative, o.project, o.peer_id,
+              o.source_session_id, e.embedding, o.created_at
+       FROM brain_observations o
+       LEFT JOIN brain_embeddings e ON e.observation_id = o.id
+       WHERE o.level IS NULL OR o.level = 'explicit'
+       ORDER BY o.created_at DESC
+       LIMIT 100`,
+    )
+    .all() as unknown as RawObsWithEmbedding[];
+
+  if (rawObs.length === 0) {
+    return result;
+  }
+
+  // Step 5: Surprisal scoring
+  const observationsForSurprisal = rawObs.map((r) => {
+    let embedding: number[] | null = null;
+    if (r.embedding instanceof Uint8Array || Buffer.isBuffer(r.embedding)) {
+      const buf = r.embedding as Buffer;
+      embedding = Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4));
+    }
+    return { id: r.id, embedding };
+  });
+
+  const surprisalResults = computeSurprisalBatch(observationsForSurprisal, { db: nativeDb });
+  result.surprisalScored = surprisalResults.length;
+
+  // Step 6: RPTree from observations that have embeddings
+  const obsWithEmbeddings = rawObs
+    .filter((r) => r.embedding instanceof Uint8Array || Buffer.isBuffer(r.embedding))
+    .map((r) => {
+      const buf = r.embedding as Buffer;
+      return {
+        id: r.id,
+        embedding: Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4)),
+      };
+    });
+
+  if (obsWithEmbeddings.length >= 2) {
+    const treeResult = buildSurprisalTree(obsWithEmbeddings, { db: nativeDb });
+    result.treeNodesWritten = treeResult.nodesWritten;
+    result.treeObsAssigned = treeResult.obsAssigned;
+  }
+
+  // Step 7: Dispatch specialists
+  const specialistObs = rawObs.map((r) => ({
+    id: r.id,
+    type: String(r.type ?? ''),
+    title: r.title != null ? String(r.title) : null,
+    narrative: r.narrative != null ? String(r.narrative) : null,
+    project: r.project != null ? String(r.project) : null,
+    peerId: String(r.peer_id ?? 'global'),
+    sourceSessionId: r.source_session_id != null ? String(r.source_session_id) : null,
+  }));
+
+  const specialistResults = await dispatchSpecialists(specialistObs, surprisalResults, {
+    db: nativeDb,
+  });
+
+  result.specialistsCreated = specialistResults.totalCreated;
+  result.specialistsRan = specialistResults.specialists.filter((s) => !s.skipped).length;
+  result.specialistsSkipped = specialistResults.totalSkipped;
 
   return result;
 }

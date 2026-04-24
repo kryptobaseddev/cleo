@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.131] — 2026-04-24
+
+T1145 Wave 5 Deriver Queue + T1146 Wave 6 Dreamer Upgrade (combined slot .131). Wave 5 adds a durable SQLite-WAL background derivation queue (`deriver_queue` table) with claim/complete/fail/stale-recovery semantics, integrated into the sentient tick and brain maintenance. Derived observations carry `level='inductive'` and `provenanceClass='deriver-synthesized'` (M6 gate). Wave 6 upgrades the Dreamer with Bayesian surprisal scoring (`computeSurprisalScore`), RPTree hierarchical clustering (`brain_memory_trees` table), and 6 consolidation specialists (Deduction, Induction, UserPreference, Decision, CodePattern, TaskOutcome). All specialists degrade silently when no LLM backend is available. `runSleepConsolidation` extended with Steps 5-7 (surprisal → tree → specialists). 39 new tests.
+
+### Added
+
+- **`packages/core/src/deriver/`** (T1145): `enqueue.ts`, `queue-manager.ts`, `status.ts`, `deriver.ts`, `consumer.ts`, `index.ts` — durable background derivation queue with SQLite WAL exclusive transactions.
+- **`packages/core/migrations/drizzle-brain/20260424000002_t1145-add-deriver-queue/`** (T1145): `deriver_queue` table with status/priority/stale-recovery indexes.
+- **`packages/core/migrations/drizzle-brain/20260424000003_t1145-extend-brain-observations/`** (T1145): `source_ids`, `times_derived`, `level`, `tree_id` columns on `brain_observations`.
+- **`packages/core/migrations/drizzle-brain/20260424000004_t1146-add-brain-memory-trees/`** (T1146): `brain_memory_trees` table for RPTree hierarchical clustering.
+- **`packages/core/src/memory/surprisal.ts`** (T1146): `computeSurprisalScore()` / `computeSurprisalBatch()` — Bayesian surprisal with temporal decay, graceful degrade to 0.5 neutral.
+- **`packages/core/src/memory/surprisal-tree.ts`** (T1146): `buildSurprisalTree()` — RPTree builder that persists to `brain_memory_trees` and updates `brain_observations.tree_id`.
+- **`packages/core/src/memory/specialists.ts`** (T1146): `BaseSpecialist` interface + 6 implementations + `dispatchSpecialists()` orchestrator.
+- **19 new tests** in `packages/core/src/deriver/__tests__/deriver-queue.test.ts` (T1145).
+- **20 new tests** in `packages/core/src/memory/__tests__/specialists.test.ts` (T1146).
+
+### Changed
+
+- **`packages/core/src/store/memory-schema.ts`**: Added `deriverQueue`, `brainMemoryTrees` tables; extended `brainObservations` with `sourceIds`, `timesDerived`, `level`, `treeId` columns.
+- **`packages/core/src/store/memory-sqlite.ts`**: `runBrainMigrations` extended with `ensureColumns` for T1145 deriver lineage columns, deriver_queue table, and brain_memory_trees table (safety-net for test DBs and existing installs).
+- **`packages/core/src/memory/brain-maintenance.ts`**: Added `BrainMaintenanceDeriverResult`, `skipDeriver` option; Step 6 calls `runDeriverBatch()` (best-effort).
+- **`packages/core/src/memory/sleep-consolidation.ts`**: Added `DreamerUpgradeResult` to `SleepConsolidationResult`; Steps 5-7 `runDreamerUpgrade()` calls surprisal → tree → specialists.
+- **`packages/core/src/sentient/tick.ts`**: `safeRunTick` fires `runDeriverBatch` when queue has pending items; `runDeriverBatch?: boolean` option added to `TickOptions`.
+
 ## [2026.4.130] — 2026-04-24
 
 PSYCHE E6 session-journal substrate + T1262 CLI/hook absorption (T1263). Adds `.cleo/session-journals/YYYY-MM-DD.jsonl` append-only JSONL log written at session start and end. Session-end hook (priority 2, synchronous await) embeds `scanBrainNoise` doctor summary in each `session_end` entry. Retention policy: hot 7d verbatim, warm 8-30d (session_end only), archive 31-90d deleted, purge >90d deleted. `cleo init` surfaces up to 5 recent journal entries in `sessionContext.recentJournals` for meta-agent consumption. Journal directory excluded from git via `.cleo/.gitignore`. 17 new tests.
