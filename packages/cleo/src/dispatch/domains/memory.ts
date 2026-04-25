@@ -18,6 +18,7 @@ import {
   getBrainNativeDb,
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
+  typedAll,
 } from '@cleocode/core/internal';
 import {
   approveBackfillRun,
@@ -1257,34 +1258,34 @@ export class MemoryHandler implements DomainHandler {
 
             let stdpWeights: EdgeRow[] = [];
             try {
-              const edgeRows = nativeDb
-                .prepare(
+              // T1434: use centralized `typedAll<T>` helper (packages/core
+              // store/typed-query.ts) so the `unknown` step required by
+              // node:sqlite's untyped `.all()` return is captured in one
+              // place rather than scattered across dispatch code.
+              const stmt = nativeDb.prepare(
+                `SELECT from_id, to_id, edge_type, weight,
+                        COALESCE(reinforcement_count, 0) AS reinforcement_count,
+                        last_reinforced_at
+                 FROM brain_page_edges
+                 WHERE (from_id = ? OR to_id = ?)
+                   AND plasticity_class IN ('hebbian', 'stdp')
+                 ORDER BY weight DESC
+                 LIMIT 20`,
+              );
+              stdpWeights = typedAll<EdgeRow>(stmt, entryId, entryId);
+            } catch {
+              // plasticity_class column may not exist — fall back to unfiltered weight query
+              try {
+                const stmt = nativeDb.prepare(
                   `SELECT from_id, to_id, edge_type, weight,
                           COALESCE(reinforcement_count, 0) AS reinforcement_count,
                           last_reinforced_at
                    FROM brain_page_edges
-                   WHERE (from_id = ? OR to_id = ?)
-                     AND plasticity_class IN ('hebbian', 'stdp')
+                   WHERE from_id = ? OR to_id = ?
                    ORDER BY weight DESC
                    LIMIT 20`,
-                )
-                .all(entryId, entryId) as EdgeRow[];
-              stdpWeights = edgeRows;
-            } catch {
-              // plasticity_class column may not exist — fall back to unfiltered weight query
-              try {
-                const edgeRows = nativeDb
-                  .prepare(
-                    `SELECT from_id, to_id, edge_type, weight,
-                            COALESCE(reinforcement_count, 0) AS reinforcement_count,
-                            last_reinforced_at
-                     FROM brain_page_edges
-                     WHERE from_id = ? OR to_id = ?
-                     ORDER BY weight DESC
-                     LIMIT 20`,
-                  )
-                  .all(entryId, entryId) as EdgeRow[];
-                stdpWeights = edgeRows;
+                );
+                stdpWeights = typedAll<EdgeRow>(stmt, entryId, entryId);
               } catch {
                 // brain_page_edges unavailable — degrade gracefully
               }

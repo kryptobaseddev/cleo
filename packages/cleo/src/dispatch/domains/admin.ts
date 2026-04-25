@@ -1275,7 +1275,9 @@ export class AdminHandler implements DomainHandler {
       // 'adr.sync' validation mode returns success:false with data on failure
       // The original handler preserved this semantics; we replicate it here.
       if (operation === 'adr.sync') {
-        const data = envelope.data as
+        // T1434: LafsEnvelope is a discriminated union — `data` only exists
+        // on the success arm. Narrow before reading.
+        const data = (envelope.success ? envelope.data : undefined) as
           | {
               valid?: boolean;
               errors?: unknown[];
