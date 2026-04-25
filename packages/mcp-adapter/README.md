@@ -2,7 +2,9 @@
 
 External-only MCP (Model Context Protocol) adapter that exposes CLEO sentient operations as MCP tools for consumption by external LLM clients and tools.
 
-> **Important**: This adapter is EXTERNAL-ONLY. It communicates with CLEO exclusively via CLI subprocess calls and does NOT import or wire into internal CLEO packages. MCP was removed from internal CLEO dispatch on 2026-04-04 by project decision — see project memory for context.
+> **Canon (DO NOT violate)**: CLEO is CLI-only internally. This adapter is EXTERNAL-ONLY — an export bridge that lets other tools (Claude Desktop, external MCP clients) consume a narrow slice of CLEO via MCP. It communicates with CLEO exclusively via `cleo` CLI subprocess calls. It does NOT import internal CLEO packages and is NOT part of CLEO's dispatch surface.
+>
+> **Do NOT** add MCP to internal CLEO dispatch. Do NOT import from `@cleocode/core` or any internal dispatch layer here. Do NOT add new tools by reaching into internal APIs — new tools MUST be exposed as `cleo` CLI verbs first, then mapped here as subprocess calls. MCP was removed from internal CLEO on 2026-04-04; this adapter exists as a deliberate external-consumption exception, not as a reintroduction.
 
 ## What it exposes
 
