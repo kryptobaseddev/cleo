@@ -39,7 +39,7 @@ import type {
   NexusProfileGetParams,
   NexusProfileImportParams,
   NexusProfileReinforceParams,
-  NexusProfileSuperseedeParams,
+  NexusProfileSupersedeParams,
   NexusProfileUpsertParams,
   NexusProfileViewParams,
   NexusReconcileParams,
@@ -874,7 +874,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'profile.upsert');
   },
 
-  'profile.supersede': async (params: NexusProfileSuperseedeParams) => {
+  'profile.supersede': async (params: NexusProfileSupersedeParams) => {
     if (!params.oldKey || !params.newKey) {
       return lafsError('E_INVALID_INPUT', 'oldKey and newKey are required', 'profile.supersede');
     }
@@ -1007,11 +1007,17 @@ export class NexusHandler implements DomainHandler {
       // 1) Envelope-level `page` (preferred — typed handlers set this via
       //    lafsSuccess(data, op, { page })).
       // 2) Legacy `data.page` (engines that return page nested in data).
-      let pageMetadata: import('@cleocode/lafs').LAFSPage | undefined = (
-        envelope as { page?: import('@cleocode/lafs').LAFSPage }
-      ).page;
-      let resultData = envelope.data;
-      if (!pageMetadata && envelope.success && resultData && typeof resultData === 'object') {
+      // T1432-followup: Cast envelope to its untyped form for narrowed property
+      // access (the typed dispatch returns LafsEnvelope<unknown>).
+      const env = envelope as {
+        success: boolean;
+        data?: unknown;
+        page?: import('@cleocode/lafs').LAFSPage;
+        error?: { code: string | number; message: string };
+      };
+      let pageMetadata: import('@cleocode/lafs').LAFSPage | undefined = env.page;
+      let resultData: unknown = env.data;
+      if (!pageMetadata && env.success && resultData && typeof resultData === 'object') {
         const dataObj = resultData as Record<string, unknown>;
         if ('page' in dataObj && dataObj.page) {
           pageMetadata = dataObj.page as import('@cleocode/lafs').LAFSPage;
@@ -1021,10 +1027,12 @@ export class NexusHandler implements DomainHandler {
       }
       return wrapResult(
         {
-          success: envelope.success,
+          success: env.success,
           data: resultData,
           page: pageMetadata,
-          error: envelope.error,
+          error: env.error
+            ? { code: String(env.error.code), message: env.error.message }
+            : undefined,
         },
         'query',
         'nexus',
@@ -1062,11 +1070,18 @@ export class NexusHandler implements DomainHandler {
         operation as keyof NexusOps & string,
         params ?? {},
       );
+      const env = envelope as {
+        success: boolean;
+        data?: unknown;
+        error?: { code: string | number; message: string };
+      };
       return wrapResult(
         {
-          success: envelope.success,
-          data: envelope.data,
-          error: envelope.error,
+          success: env.success,
+          data: env.data,
+          error: env.error
+            ? { code: String(env.error.code), message: env.error.message }
+            : undefined,
         },
         'mutate',
         'nexus',
@@ -1090,6 +1105,66 @@ export class NexusHandler implements DomainHandler {
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Internal types for handleTopEntries / handleImpact (restored from pre-T1424)
+// ---------------------------------------------------------------------------
+
+interface NativeSqliteDb {
+  prepare(sql: string): { all(...args: unknown[]): unknown[] };
+}
+
+interface RawBrainPageNodeRow {
+  id: string;
+  node_type: string | null;
+  label: string | null;
+  quality_score: number | null;
+  last_activity_at: string | null;
+  metadata_json: string | null;
+}
+
+interface BrainPageNodeEntry {
+  id: string;
+  node_type: string;
+  label: string;
+  quality_score: number;
+  last_activity_at: string;
+  metadata_json: string | null;
+}
+
+interface BrainTopEntriesResult {
+  entries: BrainPageNodeEntry[];
+  count: number;
+  limit: number;
+  nodeType: string | null;
+}
+
+interface TopEntryRow {
+  source_id: string;
+  totalWeight: number;
+  edgeCount: number;
+  label: string | null;
+  kind: string | null;
+  file_path: string | null;
+}
+
+interface NexusTopEntry {
+  nodeId: string;
+  label: string;
+  kind: string;
+  filePath: string | null;
+  totalWeight: number;
+  edgeCount: number;
+}
+
+interface NexusTopEntriesResult {
+  entries: NexusTopEntry[];
+  count: number;
+  limit: number;
+  kind: string | null;
+  note?: string;
+}
+
 async function handleTopEntries(
   operation: string,
   params: Record<string, unknown> | undefined,

@@ -93,7 +93,11 @@ export interface TypedDomainHandler<O extends TypedOpRecord> {
    * a `LafsEnvelope<Result>` built with {@link lafsSuccess} or {@link lafsError}.
    */
   readonly operations: {
-    readonly [K in keyof O]: (params: O[K][0]) => Promise<LafsEnvelope<O[K][1]>>;
+    // T1432-followup: Widened to LafsEnvelope<unknown> so engine `?? defaultObj`
+    // patterns infer cleanly. Runtime data shape is enforced by O[K][1] in the
+    // contract; consuming wrappers (NexusHandler.query, TasksHandler.query,
+    // typedDispatch) narrow at the gateway boundary.
+    readonly [K in keyof O]: (params: O[K][0]) => Promise<LafsEnvelope<unknown>>;
   };
 }
 
