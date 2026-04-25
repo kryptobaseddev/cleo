@@ -3,31 +3,30 @@
  *
  * @task T4782
  * @epic T4654
+ * @task T1450 — normalized (projectRoot, params) signature
  */
 
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, type SessionRecordAssumptionParams } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
 import type { AssumptionRecord } from './types.js';
 
-export interface RecordAssumptionParams {
-  sessionId?: string;
-  taskId?: string;
-  assumption: string;
-  confidence: 'high' | 'medium' | 'low';
-}
+/** @deprecated Use SessionRecordAssumptionParams from @cleocode/contracts. */
+export type RecordAssumptionParams = SessionRecordAssumptionParams;
 
 /**
  * Record an assumption made during a session.
+ * Normalized Core signature: (projectRoot, params) → Result.
  * Appends to .cleo/audit/assumptions.jsonl (creates dir if needed).
  * Throws if required params are missing or invalid.
+ * @task T1450
  */
 export async function recordAssumption(
   projectRoot: string,
-  params: RecordAssumptionParams,
+  params: SessionRecordAssumptionParams,
 ): Promise<Omit<AssumptionRecord, 'validatedAt'> & { timestamp: string }> {
   if (!params?.assumption) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'assumption is required');

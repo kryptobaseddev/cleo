@@ -3,9 +3,10 @@
  *
  * @task T4782
  * @epic T4654
+ * @task T1450 — normalized (projectRoot, params) signature
  */
 
-import type { Session, Task, TaskWorkState } from '@cleocode/contracts';
+import type { Session, SessionContextDriftParams, Task, TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
@@ -39,12 +40,14 @@ function collectDescendantIds(parentId: string, tasks: Task[]): Set<string> {
 
 /**
  * Compute context drift score for the current session.
+ * Normalized Core signature: (projectRoot, params) → Result.
  * Compares session progress against original scope by counting
  * completed vs total tasks in scope, and detecting out-of-scope work.
+ * @task T1450
  */
 export async function getContextDrift(
   projectRoot: string,
-  params?: { sessionId?: string },
+  params: SessionContextDriftParams,
 ): Promise<ContextDriftResult> {
   const accessor = await getAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
@@ -57,7 +60,7 @@ export async function getContextDrift(
   // Find the active session (or specified session)
   let session: Session | undefined;
 
-  if (params?.sessionId) {
+  if (params.sessionId) {
     const sessions = await accessor.loadSessions();
     session = sessions.find((s) => s.id === params.sessionId);
     if (!session) {
