@@ -17,7 +17,12 @@
  * @epic T4914
  */
 
-import type { RetrievalBundle, Task, TaskWorkState } from '@cleocode/contracts';
+import type {
+  RetrievalBundle,
+  SessionBriefingShowParams,
+  Task,
+  TaskWorkState,
+} from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
@@ -124,18 +129,8 @@ export interface SessionBriefing {
 /**
  * Options for computing session briefing.
  */
-export interface BriefingOptions {
-  /** Maximum number of next tasks to include (default: 5) */
-  maxNextTasks?: number;
-  /** Maximum number of bugs to include (default: 10) */
-  maxBugs?: number;
-  /** Maximum number of blocked tasks to include (default: 10) */
-  maxBlocked?: number;
-  /** Maximum number of active epics to include (default: 5) */
-  maxEpics?: number;
-  /** Scope filter: 'global' or 'epic:T###' */
-  scope?: string;
-}
+/** @deprecated Use SessionBriefingShowParams from @cleocode/contracts. */
+export type BriefingOptions = SessionBriefingShowParams;
 
 const PRIORITY_SCORE: Record<string, number> = {
   critical: 100,
@@ -146,11 +141,13 @@ const PRIORITY_SCORE: Record<string, number> = {
 
 /**
  * Compute the complete session briefing.
+ * Normalized Core signature: (projectRoot, params) → Result.
  * Aggregates data from all 6+ sources.
+ * @task T1450
  */
 export async function computeBriefing(
   projectRoot: string,
-  options: BriefingOptions = {},
+  params: SessionBriefingShowParams = {},
 ): Promise<SessionBriefing> {
   const accessor = await getAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
@@ -162,7 +159,7 @@ export async function computeBriefing(
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
   // Determine scope
-  const scopeFilter = await parseScope(options.scope, accessor);
+  const scopeFilter = await parseScope(params.scope, accessor);
 
   // Compute in-scope task IDs (undefined = all tasks in scope)
   const scopeTaskIds = getScopeTaskIdSet(scopeFilter, tasks);
@@ -175,25 +172,25 @@ export async function computeBriefing(
 
   // 3. Next tasks (leverage-scored)
   const nextTasks = computeNextTasks(tasks, taskMap, focus, {
-    maxTasks: options.maxNextTasks ?? 5,
+    maxTasks: params.maxNextTasks ?? 5,
     scopeTaskIds,
   });
 
   // 4. Open bugs
   const openBugs = computeOpenBugs(tasks, taskMap, {
-    maxBugs: options.maxBugs ?? 10,
+    maxBugs: params.maxBugs ?? 10,
     scopeTaskIds,
   });
 
   // 5. Blocked tasks
   const blockedTasks = computeBlockedTasks(tasks, taskMap, {
-    maxBlocked: options.maxBlocked ?? 10,
+    maxBlocked: params.maxBlocked ?? 10,
     scopeTaskIds,
   });
 
   // 6. Active epics
   const activeEpics = computeActiveEpics(tasks, taskMap, {
-    maxEpics: options.maxEpics ?? 5,
+    maxEpics: params.maxEpics ?? 5,
     scopeTaskIds,
   });
 

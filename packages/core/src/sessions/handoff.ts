@@ -15,7 +15,7 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { Session, Task } from '@cleocode/contracts';
+import type { Session, SessionHandoffShowParams, Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
@@ -512,4 +512,25 @@ async function computeChainPosition(
   } catch {
     return { position: 1, length: 1 };
   }
+}
+
+/**
+ * Normalized Core entry point for session.handoff.show dispatch op.
+ * Converts the wire-format scope string to the internal scope object,
+ * then delegates to getLastHandoff.
+ * @task T1450
+ */
+export async function sessionHandoffShow(
+  projectRoot: string,
+  params: SessionHandoffShowParams,
+): Promise<{ sessionId: string; handoff: HandoffData } | null> {
+  let scope: { type: string; epicId?: string } | undefined;
+  if (params.scope) {
+    if (params.scope === 'global') {
+      scope = { type: 'global' };
+    } else if (params.scope.startsWith('epic:')) {
+      scope = { type: 'epic', epicId: params.scope.replace('epic:', '') };
+    }
+  }
+  return getLastHandoff(projectRoot, scope);
 }

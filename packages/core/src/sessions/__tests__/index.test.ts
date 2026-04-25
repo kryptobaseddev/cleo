@@ -61,15 +61,12 @@ describe('sessions index memory bridge wiring', { timeout: 60_000 }, () => {
   });
 
   it('calls bridgeSessionToMemory with derived end-session payload', async () => {
-    const started = await startSession(
-      {
-        name: 'Bridge wiring test',
-        scope: 'epic:T5417',
-      },
-      tempDir,
-    );
+    const started = await startSession(tempDir, {
+      name: 'Bridge wiring test',
+      scope: 'epic:T5417',
+    });
 
-    const ended = await endSession({}, tempDir);
+    const ended = await endSession(tempDir, {});
 
     expect(ended.id).toBe(started.id);
     expect(ended.status).toBe('ended');
@@ -87,15 +84,12 @@ describe('sessions index memory bridge wiring', { timeout: 60_000 }, () => {
   it('keeps session end successful when bridge rejects', async () => {
     mocks.bridgeSessionToMemory.mockRejectedValue(new Error('bridge unavailable'));
 
-    const started = await startSession(
-      {
-        name: 'Bridge failure resilience',
-        scope: 'global',
-      },
-      tempDir,
-    );
+    const started = await startSession(tempDir, {
+      name: 'Bridge failure resilience',
+      scope: 'global',
+    });
 
-    await expect(endSession({}, tempDir)).resolves.toEqual(
+    await expect(endSession(tempDir, {})).resolves.toEqual(
       expect.objectContaining({
         id: started.id,
         status: 'ended',
