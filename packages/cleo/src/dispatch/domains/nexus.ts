@@ -15,110 +15,59 @@
  * @task T1424 — typed-dispatch narrowing (T988 follow-on)
  */
 
-import {
-  getLogger,
-  getProjectRoot,
-  type NexusPermissionLevel,
-} from '@cleocode/core/internal';
 import type {
   NexusAugmentParams,
-  NexusAugmentResult,
   NexusBlockersShowParams,
-  NexusBlockersShowResult,
   NexusBrainAnchorsParams,
-  NexusBrainAnchorsResult,
   NexusConduitScanParams,
-  NexusConduitScanResult,
   NexusContractsLinkTasksParams,
-  NexusContractsLinkTasksResult,
   NexusContractsShowParams,
-  NexusContractsShowResult,
   NexusContractsSyncParams,
-  NexusContractsSyncResult,
   NexusDepsParams,
-  NexusDepsResult,
   NexusDiscoverParams,
-  NexusDiscoverResult,
   NexusFullContextParams,
-  NexusFullContextResult,
   NexusGraphParams,
-  NexusGraphResult,
   NexusImpactFullParams,
-  NexusImpactFullResult,
   NexusImpactParams,
-  NexusImpactResult,
   NexusInitParams,
-  NexusInitResult,
   NexusListParams,
-  NexusListResult,
   NexusOps,
   NexusOrphansListParams,
-  NexusOrphansListResult,
   NexusPathShowParams,
-  NexusPathShowResult,
   NexusPermissionSetParams,
-  NexusPermissionSetResult,
   NexusProfileExportParams,
-  NexusProfileExportResult,
   NexusProfileGetParams,
-  NexusProfileGetResult,
   NexusProfileImportParams,
-  NexusProfileImportResult,
   NexusProfileReinforceParams,
-  NexusProfileReinforceResult,
   NexusProfileSuperseedeParams,
-  NexusProfileSuperseedeResult,
   NexusProfileUpsertParams,
-  NexusProfileUpsertResult,
   NexusProfileViewParams,
-  NexusProfileViewResult,
   NexusReconcileParams,
-  NexusReconcileResult,
   NexusRegisterParams,
-  NexusRegisterResult,
   NexusResolveParams,
-  NexusResolveResult,
   NexusRouteMapParams,
-  NexusRouteMapResult,
   NexusSearchCodeParams,
-  NexusSearchCodeResult,
   NexusSearchParams,
-  NexusSearchResult,
   NexusShapeCheckParams,
-  NexusShapeCheckResult,
   NexusShareSnapshotExportParams,
-  NexusShareSnapshotExportResult,
   NexusShareSnapshotImportParams,
-  NexusShareSnapshotImportResult,
   NexusShareStatusParams,
-  NexusShareStatusResult,
   NexusShowParams,
-  NexusShowResult,
   NexusSigilListParams,
-  NexusSigilListResult,
   NexusSigilSyncParams,
-  NexusSigilSyncResult,
   NexusStatusParams,
-  NexusStatusResult,
   NexusSyncParams,
-  NexusSyncResult,
   NexusTaskFootprintParams,
-  NexusTaskFootprintResult,
   NexusTaskSymbolsParams,
-  NexusTaskSymbolsResult,
   NexusTopEntriesParams,
-  NexusTopEntriesResult,
   NexusTransferParams,
   NexusTransferPreviewParams,
-  NexusTransferPreviewResult,
-  NexusTransferResult,
   NexusUnregisterParams,
-  NexusUnregisterResult,
   NexusWhyParams,
-  NexusWhyResult,
   NexusWikiParams,
-  NexusWikiResult,
 } from '@cleocode/contracts';
+import { getLogger, getProjectRoot, type NexusPermissionLevel } from '@cleocode/core/internal';
+import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import {
   nexusAugment,
   nexusBlockers,
@@ -169,7 +118,6 @@ import {
 } from '../engines/nexus-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 
 // ---------------------------------------------------------------------------
 // Typed inner handler (T1424 — Wave D typed-dispatch migration)
@@ -499,8 +447,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   'route-map': async (params: NexusRouteMapParams) => {
     const projectRoot = getProjectRoot();
     const projectId =
-      params.projectId ??
-      Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+      params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
     const result = await nexusRouteMap(projectId, projectRoot);
     if (!result.success) {
       return lafsError(
@@ -518,8 +465,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     }
     const projectRoot = getProjectRoot();
     const projectId =
-      params.projectId ??
-      Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+      params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
     const result = await nexusShapeCheck(params.routeSymbol, projectId, projectRoot);
     if (!result.success) {
       return lafsError(
@@ -566,11 +512,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   'contracts-show': async (params: NexusContractsShowParams) => {
     if (!params.projectA || !params.projectB) {
-      return lafsError(
-        'E_INVALID_INPUT',
-        'projectA and projectB are required',
-        'contracts-show',
-      );
+      return lafsError('E_INVALID_INPUT', 'projectA and projectB are required', 'contracts-show');
     }
     const projectRoot = getProjectRoot();
     const result = await nexusContractsShow(params.projectA, params.projectB, projectRoot);
@@ -798,9 +740,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   'contracts-sync': async (params: NexusContractsSyncParams) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
-    const projectId =
-      params.projectId ??
-      Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const result = await nexusContractsSync(projectId, repoPath);
     if (!result.success) {
       return lafsError(
@@ -815,9 +755,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   'contracts-link-tasks': async (params: NexusContractsLinkTasksParams) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
-    const projectId =
-      params.projectId ??
-      Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const result = await nexusContractsLinkTasks(projectId, repoPath);
     if (!result.success) {
       return lafsError(
@@ -902,11 +840,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   'profile.supersede': async (params: NexusProfileSuperseedeParams) => {
     if (!params.oldKey || !params.newKey) {
-      return lafsError(
-        'E_INVALID_INPUT',
-        'oldKey and newKey are required',
-        'profile.supersede',
-      );
+      return lafsError('E_INVALID_INPUT', 'oldKey and newKey are required', 'profile.supersede');
     }
     const result = await nexusProfileSupersede(params.oldKey, params.newKey);
     if (!result.success) {

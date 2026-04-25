@@ -358,7 +358,7 @@ function envelopeToEngineResult(envelope: {
 // ---------------------------------------------------------------------------
 
 /** Resolve agent credential from the registry. */
-async function resolveCredential(agentId?: string) {
+async function _resolveCredential(agentId?: string) {
   const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
   await getDb(); // Ensure DB initialized before registry access
   const registry = new AgentRegistryAccessor(process.cwd());

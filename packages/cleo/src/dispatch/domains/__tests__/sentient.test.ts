@@ -7,9 +7,9 @@
  * @task T1421 — Sentient domain typed narrowing (Wave D follow-on)
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { DispatchResponse } from '../types.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { SentientHandler } from '../sentient.js';
+import type { DispatchResponse } from '../types.js';
 
 describe('SentientHandler — typed narrowing', () => {
   let handler: SentientHandler;

@@ -141,7 +141,13 @@ function main() {
 
     if (currentParentId === undefined) {
       console.error(`  [ERROR] ${taskId}: could not fetch current state — skipping`);
-      results.push({ taskId, previousParentId: null, skipped: false, success: false, error: 'fetch failed' });
+      results.push({
+        taskId,
+        previousParentId: null,
+        skipped: false,
+        success: false,
+        error: 'fetch failed',
+      });
       failed++;
       continue;
     }
@@ -168,9 +174,7 @@ function main() {
     const updateResult = callCleo(['update', taskId, '--parent', PARENT_EPIC_ID]);
 
     if (updateResult?.success) {
-      console.log(
-        `  [OK]    ${taskId}: parentId ${currentParentId ?? 'null'} → ${PARENT_EPIC_ID}`,
-      );
+      console.log(`  [OK]    ${taskId}: parentId ${currentParentId ?? 'null'} → ${PARENT_EPIC_ID}`);
       results.push({ taskId, previousParentId: currentParentId, skipped: false, success: true });
       repaired++;
     } else {
@@ -202,7 +206,14 @@ function main() {
     // Verify final state.
     console.log('Verifying post-repair state via cleo list --parent T991 --status archived...');
     // Children are archived tasks; the default list excludes archived, so pass --status archived.
-    const listResult = callCleo(['list', '--parent', PARENT_EPIC_ID, '--status', 'archived', '--json']);
+    const listResult = callCleo([
+      'list',
+      '--parent',
+      PARENT_EPIC_ID,
+      '--status',
+      'archived',
+      '--json',
+    ]);
     if (listResult?.success) {
       const items = listResult.data?.tasks ?? listResult.data ?? [];
       const count = Array.isArray(items) ? items.length : 0;

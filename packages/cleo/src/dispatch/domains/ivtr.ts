@@ -35,9 +35,9 @@ import {
   resolvePhasePrompt,
   startIvtr,
 } from '@cleocode/core/internal';
+import { releaseIvtrAutoSuggest } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, wrapResult } from './_base.js';
-import { releaseIvtrAutoSuggest } from '../lib/engine.js';
 
 const log = getLogger('domain:ivtr');
 

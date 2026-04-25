@@ -24,7 +24,7 @@ const originalEmitWarning = process.emitWarning;
   ...args: unknown[]
 ): void {
   const message = typeof warning === 'string' ? warning : (warning as Error | undefined)?.message;
-  if (message && message.includes(SQLITE_EXPERIMENTAL_MSG)) {
+  if (message?.includes(SQLITE_EXPERIMENTAL_MSG)) {
     return;
   }
   // biome-ignore lint/suspicious/noExplicitAny: forwarding to original emitWarning overloads
