@@ -4,6 +4,75 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.142] — 2026-04-25 — T1216 REMEDIATION QUEUE CLOSURE
+
+Full remediation of the T1216 false-completion audit findings that were left as tech debt at v2026.4.134. Six parallel workstreams under epic T1415, plus three pre-cherry-picked maintenance commits. Council 2026-04-24 verdicts honored end-to-end.
+
+### Three pre-existing commits in this release window
+
+- **f82fd7c93** — `refactor(T1414)`: trim CLEO-INJECTION.md from 289 → 264 lines via paragraph rewrap (zero content loss; threshold preserved).
+- **d44c7669c** — `test(brain-stdp)`: re-skip flaky T695-1 perf canary (revert T1113 collateral damage; 25-line block-comment regression history).
+- **4392833d6** — `test(task-sweeper-wired)`: same T1113 collateral on task-sweeper-wired.test.ts — same restore-skip pattern, same documentation.
+
+### T1216 remediation queue (epic T1415)
+
+**Engine fixes + new SDKs:**
+
+- **T1416** (T820 follow-on) — RELEASE-03 IVTR gate check + RELEASE-07 IVTR→release auto-suggest. New `ReleaseHandler` dispatch domain at `packages/cleo/src/dispatch/domains/release.ts`. `release.gate` rejects publish with `E_IVTR_INCOMPLETE` if any IVTR loop is mid-phase; `--force` bypass available. `releaseIvtrAutoSuggest()` engine fn emits `cleo release ship` hint when sibling tasks reach `released`. 28 new tests; 1927 passing.
+
+- **T1419** (T991 DB repair) — `packages/cleo/src/migrations/2026-04-25-t991-parent-link-repair.ts` + `scripts/repair-t991-parent-links.mjs`. Repaired T992-T999 parent-child links to T991. Pre-repair: 0 children visible; post-repair: 8 children (archived) confirmed via `cleo list --parent T991 --status archived`. Idempotent.
+
+- **T1321** (176-row backfill) — `packages/cleo/src/backfill/audit-columns.ts` + `docs/migrations/2026-04-25-audit-columns-backfill.md`. Live run: **1,147 tasks processed** (the actual NULL cohort was much larger than originally counted). 437 inferred `modified_by` from git Co-Authored-By trailers; 710 marked `unknown-pre-adr-051`. Backup taken pre-run; 0 NULL `modified_by` remaining post-run.
+
+**T988 dispatch typed-narrowing — 7 domain migrations:**
+
+| Domain | Cast reduction | Worker | Pattern |
+|---|---|---|---|
+| `sentient` | 11 → 3 (73%) | T1421 | `defineTypedHandler<SentientOps>` + 16 new tests |
+| `conduit` | 26 → 6 (77%) | T1422 | typed handler + 36 integration tests |
+| `check` | 76 → 15 (80%) | T1423 | `CheckOps` union (21 ops) |
+| `nexus` | 76 → 3 (96%) | T1424 | `NexusOps` (48 ops) + 71 contract types added |
+| `tasks` | 115 → 2 (98%) | T1425 | `TasksOps` + 30+ dispatch param types |
+| `admin` | 116 → 3 (97%) | T1426 | `AdminHandlerOps` (43 ops) + 1905 tests pass |
+| `memory` | 136 → 20 (85%) | T1427 | partial completion as scoped |
+
+**Total cast reduction across 7 domains:** 556 → 52 (90.6% across all migrated handlers). All workers used the T975 session.ts exemplar pattern.
+
+**Documentation:**
+
+- **T1418** (T1013 follow-on) — `docs/release/dep-pruning.md` (235 lines) + `docs/adr/ADR-051-override-patterns.md` (286 lines). Real-world override case studies extracted from `.cleo/audit/force-bypass.jsonl`.
+
+**Task DB:**
+
+- **T1402** close-out — schema rename `brain_v2_candidate` → `brain_observations_staging` was shipped in v2026.4.139 (`932fad3d4`) but task record was stuck at `status=pending`. Retroactively closed with v2026.4.139 ship evidence per ADR-051.
+
+### Resolved alongside (per pre-flight resolution list)
+
+1. ✅ `packages/contracts/src/operations/nexus.ts` — duplicate type declarations removed; profile types imported from canonical `nexus-user-profile.ts` (was: 5 duplicate type declarations + 629 uncommitted lines blocking biome ci).
+2. ✅ `packages/adapters/src/providers/claude-code/__tests__/adapter.test.ts` — fixture present at `commands/orchestrator.md`; 32/32 tests passing.
+3. ✅ `packages/core/src/lib/validate-ops.ts` TS7006 — file no longer present (removed/relocated upstream).
+4. ✅ `packages/core/src/lib/verification.ts` TS2307 — file no longer present (removed/relocated upstream).
+5. ⏭️ Brain-stdp T682-3 + perf-safety asserts — deferred to a deflake follow-up sibling task (same flakiness class as T695-1).
+
+### Quality gates
+
+- `pnpm biome ci .` — clean (1928 files; 4 warnings, 1 info — all in archived files).
+- `pnpm run build` — green (all 18 packages).
+- `pnpm version:check` — version sync verified across root + workspace.
+
+### Orchestration metrics
+
+- Epic `T1415` opened with 6 child workstreams; 11 parallel subagents dispatched (4 sonnet, 7 haiku) under ct-orchestrator with ADR-055 worktree-by-default isolation.
+- Cherry-pick rationalization: 11 worker branches + 1 contract-type follow-up + 1 biome polish = 13 commits cherry-picked on top of the 6 inherited maintenance commits in the v2026.4.141 → v2026.4.142 window.
+- Orchestration session `ses_20260425030201_bace5d`.
+
+### Known follow-ons (filed)
+
+- **T1417** (T988 epic) — partial-complete domains; remaining cast cleanup ~52 of original ~556 + 4 unmigrated domains can ship in subsequent releases.
+- **Brain-stdp deflake** — T682-3 + 2 perf-safety asserts class-fixed alongside T695-1.
+- **T990** (Studio UI/UX redesign) — still pending; major next initiative.
+- **T942** (Sentient CLEO Architecture Redesign) — still pending; meta-epic.
+
 ## [2026.4.141] — 2026-04-24 — terminology scrub (ADR-055 D032)
 
 ### Headline
