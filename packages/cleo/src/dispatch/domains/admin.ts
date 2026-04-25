@@ -10,60 +10,16 @@
  * All operations delegate to native engine functions from system-engine,
  * config-engine, and init-engine.
  *
- * Param extraction is type-safe via TypedDomainHandler<AdminHandlerOps>
- * (T1426 — Wave D typed-dispatch migration). Zero `as any` / `as X` param
- * casts.
+ * Param extraction is type-safe via OpsFromCore<typeof coreOps> inference
+ * (T1435 Wave 1 — dispatch refactor). Zero per-op *Params/*Result imports
+ * from @cleocode/contracts. Wire formats only.
  *
- * @epic T4820
- * @task T5671
- * @task T1426 — typed-dispatch migration
+ * @epic T1435 — dispatch refactor (eliminate drift)
+ * @task T1437 — admin domain refactor
+ * @task T1426 — typed-dispatch migration (Wave D foundation)
  */
 
-import type {
-  AdminAdrFindParams,
-  AdminAdrShowParams,
-  AdminAdrSyncParams,
-  AdminBackupListParams,
-  AdminBackupMutateParams,
-  AdminCleanupParams,
-  AdminConfigPresetsParams,
-  AdminConfigSetParams,
-  AdminConfigSetPresetParams,
-  AdminConfigShowParams,
-  AdminContextInjectParams,
-  AdminContextParams,
-  AdminContextPullParams,
-  AdminDashParams,
-  AdminDetectParams,
-  AdminExportParams,
-  AdminHandlerOps,
-  AdminHealthMutateParams,
-  AdminHealthQueryParams,
-  AdminHelpParams,
-  AdminHooksMatrixParams,
-  AdminImportParams,
-  AdminInitParams,
-  AdminInjectGenerateParams,
-  AdminInstallGlobalParams,
-  AdminJobCancelParams,
-  AdminJobStatusParams,
-  AdminLogParams,
-  AdminMapMutateParams,
-  AdminMapQueryParams,
-  AdminMigrateParams,
-  AdminPathsParams,
-  AdminRoadmapParams,
-  AdminRuntimeParams,
-  AdminSafestopParams,
-  AdminScaffoldHubParams,
-  AdminSequenceParams,
-  AdminSmokeParams,
-  AdminSmokeProviderParams,
-  AdminStatsParams,
-  AdminTokenMutateParams,
-  AdminTokenQueryParams,
-  AdminVersionParams,
-} from '@cleocode/contracts';
+import type { LafsEnvelope } from '@cleocode/contracts';
 import {
   clearTokenUsage,
   computeHelp,
@@ -90,7 +46,14 @@ import {
   validateAllAdrs,
   writeSnapshot,
 } from '@cleocode/core/internal';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  OpsFromCore,
+  typedDispatch,
+} from '../adapters/typed.js';
+import * as adminEngine from '../engines/admin-engine.js';
 import {
   backupRestore,
   configGet,
@@ -128,19 +91,76 @@ import { getListParams, handleErrorResult, unsupportedOp, wrapResult } from './_
 import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
-// Typed inner handler (Wave D · T1426)
+// Core operations registry (T1435 Wave 1 · OpsFromCore inference)
+//
+// Maps operation names to admin-engine wrapper functions. The type inference
+// via OpsFromCore<typeof coreOps> eliminates per-op Params/Result imports,
+// making dispatch/contracts drift structurally impossible.
+// ---------------------------------------------------------------------------
+
+const coreOps = {
+  // Query operations
+  version: adminEngine.adminVersion,
+  health: adminEngine.adminHealth,
+  'config.show': adminEngine.adminConfigShow,
+  'config.presets': adminEngine.adminConfigPresets,
+  stats: adminEngine.adminStats,
+  context: adminEngine.adminContext,
+  'context.pull': adminEngine.adminContextPull,
+  runtime: adminEngine.adminRuntime,
+  paths: adminEngine.adminPaths,
+  job: adminEngine.adminJob,
+  dash: adminEngine.adminDash,
+  log: adminEngine.adminLog,
+  sequence: adminEngine.adminSequence,
+  help: adminEngine.adminHelp,
+  'adr.find': adminEngine.adminAdrFind,
+  'adr.show': adminEngine.adminAdrShow,
+  token: adminEngine.adminToken,
+  backup: adminEngine.adminBackup,
+  export: adminEngine.adminExport,
+  map: adminEngine.adminMap,
+  roadmap: adminEngine.adminRoadmap,
+  smoke: adminEngine.adminSmoke,
+  'smoke.provider': adminEngine.adminSmokeProvider,
+  'hooks.matrix': adminEngine.adminHooksMatrix,
+  // Mutate operations
+  init: adminEngine.adminInit,
+  'scaffold-hub': adminEngine.adminScaffoldHub,
+  'health.mutate': adminEngine.adminHealthMutate,
+  'config.set': adminEngine.adminConfigSet,
+  'config.set-preset': adminEngine.adminConfigSetPreset,
+  'backup.mutate': adminEngine.adminBackupMutate,
+  migrate: adminEngine.adminMigrate,
+  cleanup: adminEngine.adminCleanup,
+  'job.cancel': adminEngine.adminJobCancel,
+  safestop: adminEngine.adminSafestop,
+  'inject.generate': adminEngine.adminInjectGenerate,
+  'adr.sync': adminEngine.adminAdrSync,
+  import: adminEngine.adminImport,
+  detect: adminEngine.adminDetect,
+  'token.mutate': adminEngine.adminTokenMutate,
+  'context.inject': adminEngine.adminContextInject,
+  'map.mutate': adminEngine.adminMapMutate,
+  'install.global': adminEngine.adminInstallGlobal,
+} as const;
+
+type AdminOps = OpsFromCore<typeof coreOps>;
+
+// ---------------------------------------------------------------------------
+// Typed inner handler (Wave D · T1426, Wave 1 T1435 · OpsFromCore)
 //
 // The typed handler holds all per-op logic with fully-narrowed params.
 // The outer DomainHandler class delegates to it so the registry sees the
 // expected query/mutate interface while every param access is type-safe.
 // ---------------------------------------------------------------------------
 
-const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
+const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   // -------------------------------------------------------------------------
   // Query ops
   // -------------------------------------------------------------------------
 
-  version: async (_params: AdminVersionParams) => {
+  version: async (_params) => {
     const projectRoot = getProjectRoot();
     const result = await getVersion(projectRoot);
     if (!result.success) {
@@ -153,7 +173,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data ?? { version: '' }, 'version');
   },
 
-  health: async (params: AdminHealthQueryParams) => {
+  health: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.mode === 'diagnose') {
       const result = await systemDoctor(projectRoot);
@@ -183,7 +203,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     );
   },
 
-  'config.show': async (params: AdminConfigShowParams) => {
+  'config.show': async (params) => {
     const projectRoot = getProjectRoot();
     const result = await configGet(projectRoot, params.key);
     if (!result.success) {
@@ -196,7 +216,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data ?? {}, 'config.show');
   },
 
-  'config.presets': async (_params: AdminConfigPresetsParams) => {
+  'config.presets': async (_params) => {
     const result = configListPresets();
     if (!result.success) {
       return lafsError(
@@ -208,7 +228,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data ?? { presets: [] }, 'config.presets');
   },
 
-  stats: async (params: AdminStatsParams) => {
+  stats: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await systemStats(projectRoot, { period: params.period });
     if (!result.success) {
@@ -221,7 +241,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'stats');
   },
 
-  context: async (params: AdminContextParams) => {
+  context: async (params) => {
     const projectRoot = getProjectRoot();
     // Pass undefined when no session filter is provided to match engine expectations.
     const sessionFilter = params.session !== undefined ? { session: params.session } : undefined;
@@ -236,7 +256,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'context');
   },
 
-  'context.pull': async (params: AdminContextPullParams) => {
+  'context.pull': async (params) => {
     const projectRoot = getProjectRoot();
     const taskId = params.taskId;
     try {
@@ -298,7 +318,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     }
   },
 
-  runtime: async (params: AdminRuntimeParams) => {
+  runtime: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await systemRuntime(projectRoot, { detailed: params.detailed });
     if (!result.success) {
@@ -311,7 +331,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'runtime');
   },
 
-  paths: async (_params: AdminPathsParams) => {
+  paths: async (_params) => {
     const projectRoot = getProjectRoot();
     const result = await systemPaths(projectRoot);
     if (!result.success) {
@@ -324,7 +344,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'paths');
   },
 
-  job: async (params: AdminJobStatusParams) => {
+  job: async (params) => {
     const { getJobManager } = await import('../lib/job-manager-accessor.js');
     const action = params.action ?? 'status';
 
@@ -372,7 +392,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(job, 'job');
   },
 
-  dash: async (params: AdminDashParams) => {
+  dash: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await systemDash(projectRoot, {
       blockedTasksLimit: params.blockedTasksLimit,
@@ -387,7 +407,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'dash');
   },
 
-  log: async (params: AdminLogParams) => {
+  log: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await systemLog(projectRoot, {
       operation: params.operation,
@@ -407,7 +427,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'log');
   },
 
-  sequence: async (params: AdminSequenceParams) => {
+  sequence: async (params) => {
     const projectRoot = getProjectRoot();
     const action = params.action;
     if (action && action !== 'show' && action !== 'check') {
@@ -424,14 +444,14 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'sequence');
   },
 
-  help: async (params: AdminHelpParams) => {
+  help: async (params) => {
     const tier = params.tier ?? 0;
     const verbose = params.verbose === true;
     const helpResult = computeHelp(OPERATIONS, tier, verbose);
     return lafsSuccess(helpResult, 'help');
   },
 
-  'adr.find': async (params: AdminAdrFindParams) => {
+  'adr.find': async (params) => {
     const projectRoot = getProjectRoot();
     if (params.query) {
       const result = await findAdrs(projectRoot, params.query, {
@@ -458,7 +478,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     );
   },
 
-  'adr.show': async (params: AdminAdrShowParams) => {
+  'adr.show': async (params) => {
     const projectRoot = getProjectRoot();
     const adr = await showAdr(projectRoot, params.adrId);
     if (!adr) {
@@ -467,7 +487,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(adr, 'adr.show');
   },
 
-  token: async (params: AdminTokenQueryParams) => {
+  token: async (params) => {
     const projectRoot = getProjectRoot();
     const action = params.action ?? 'summary';
 
@@ -535,7 +555,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result, 'token');
   },
 
-  backup: async (_params: AdminBackupListParams) => {
+  backup: async (_params) => {
     const projectRoot = getProjectRoot();
     const result = systemListBackups(projectRoot);
     if (!result.success || !result.data) {
@@ -549,7 +569,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess({ backups, count: backups.length }, 'backup');
   },
 
-  export: async (params: AdminExportParams) => {
+  export: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.scope === 'snapshot') {
       const snapshot = await exportSnapshot(projectRoot);
@@ -589,7 +609,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result, 'export');
   },
 
-  map: async (params: AdminMapQueryParams) => {
+  map: async (params) => {
     const projectRoot = getProjectRoot();
     const { mapCodebase } = await import('../engines/codebase-map-engine.js');
     const result = await mapCodebase(projectRoot, {
@@ -606,7 +626,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'map');
   },
 
-  roadmap: async (params: AdminRoadmapParams) => {
+  roadmap: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await systemRoadmap(projectRoot, {
       includeHistory: params.includeHistory,
@@ -622,7 +642,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'roadmap');
   },
 
-  smoke: async (_params: AdminSmokeParams) => {
+  smoke: async (_params) => {
     const result = await systemSmoke();
     if (!result.success) {
       return lafsError(
@@ -634,7 +654,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'smoke');
   },
 
-  'smoke.provider': async (params: AdminSmokeProviderParams) => {
+  'smoke.provider': async (params) => {
     const { smokeProvider } = await import('./admin/smoke-provider.js');
     const result = await smokeProvider(params.provider);
     if (!result.success) {
@@ -647,7 +667,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'smoke.provider');
   },
 
-  'hooks.matrix': async (params: AdminHooksMatrixParams) => {
+  'hooks.matrix': async (params) => {
     const result = await systemHooksMatrix({
       providerIds: params.providerIds,
       detectProvider: params.detectProvider !== false,
@@ -666,7 +686,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
   // Mutate ops
   // -------------------------------------------------------------------------
 
-  init: async (params: AdminInitParams) => {
+  init: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await initProject(projectRoot, {
       projectName: params.projectName,
@@ -683,7 +703,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'init');
   },
 
-  'scaffold-hub': async (_params: AdminScaffoldHubParams) => {
+  'scaffold-hub': async (_params) => {
     const result = await systemScaffoldHub();
     if (!result.success) {
       return lafsError(
@@ -695,7 +715,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'scaffold-hub');
   },
 
-  'health.mutate': async (params: AdminHealthMutateParams) => {
+  'health.mutate': async (params) => {
     const projectRoot = getProjectRoot();
     if (params.mode === 'diagnose') {
       const result = await systemDoctor(projectRoot);
@@ -723,7 +743,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'health.mutate');
   },
 
-  'config.set': async (params: AdminConfigSetParams) => {
+  'config.set': async (params) => {
     const projectRoot = getProjectRoot();
     // Runtime guard: key is declared required in the contract but the dispatcher
     // may pass an empty object when the caller omits it; validate defensively.
@@ -741,7 +761,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'config.set');
   },
 
-  'config.set-preset': async (params: AdminConfigSetPresetParams) => {
+  'config.set-preset': async (params) => {
     const projectRoot = getProjectRoot();
     const result = await configSetPreset(projectRoot, params.preset);
     if (!result.success) {
@@ -754,7 +774,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'config.set-preset');
   },
 
-  'backup.mutate': async (params: AdminBackupMutateParams) => {
+  'backup.mutate': async (params) => {
     const projectRoot = getProjectRoot();
     const action = params.action;
 
@@ -810,7 +830,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'backup.mutate');
   },
 
-  migrate: async (params: AdminMigrateParams) => {
+  migrate: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await systemMigrate(projectRoot, {
       target: params.target,
@@ -826,7 +846,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'migrate');
   },
 
-  cleanup: async (params: AdminCleanupParams) => {
+  cleanup: async (params) => {
     const projectRoot = getProjectRoot();
     // Runtime guard: target is declared required in the contract but the
     // dispatcher may pass an empty object when the caller omits it.
@@ -848,7 +868,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'cleanup');
   },
 
-  'job.cancel': async (params: AdminJobCancelParams) => {
+  'job.cancel': async (params) => {
     const { getJobManager } = await import('../lib/job-manager-accessor.js');
     const mgr = getJobManager();
     if (!mgr) {
@@ -865,7 +885,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess({ jobId: params.jobId, cancelled: true }, 'job.cancel');
   },
 
-  safestop: async (params: AdminSafestopParams) => {
+  safestop: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await systemSafestop(projectRoot, {
       reason: params.reason,
@@ -884,7 +904,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'safestop');
   },
 
-  'inject.generate': async (_params: AdminInjectGenerateParams) => {
+  'inject.generate': async (_params) => {
     const projectRoot = getProjectRoot();
     const result = await systemInjectGenerate(projectRoot);
     if (!result.success) {
@@ -897,7 +917,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'inject.generate');
   },
 
-  'adr.sync': async (params: AdminAdrSyncParams) => {
+  'adr.sync': async (params) => {
     const projectRoot = getProjectRoot();
     if (params.validate) {
       const result = await validateAllAdrs(projectRoot);
@@ -907,7 +927,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result, 'adr.sync');
   },
 
-  import: async (params: AdminImportParams) => {
+  import: async (params) => {
     const projectRoot = getProjectRoot();
     const file = params.file;
 
@@ -967,7 +987,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result, 'import');
   },
 
-  detect: async (_params: AdminDetectParams) => {
+  detect: async (_params) => {
     const projectRoot = getProjectRoot();
     const { ensureProjectContext, ensureContributorMcp: ensureContributorDev } = await import(
       '@cleocode/core/internal'
@@ -977,7 +997,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess({ context: contextResult, devChannel: devResult }, 'detect');
   },
 
-  'token.mutate': async (params: AdminTokenMutateParams) => {
+  'token.mutate': async (params) => {
     const projectRoot = getProjectRoot();
     const action = params.action ?? 'record';
 
@@ -1030,7 +1050,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result, 'token.mutate');
   },
 
-  'context.inject': async (params: AdminContextInjectParams) => {
+  'context.inject': async (params) => {
     const projectRoot = getProjectRoot();
     const result = sessionContextInject(
       params.protocolType,
@@ -1050,7 +1070,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'context.inject');
   },
 
-  'map.mutate': async (params: AdminMapMutateParams) => {
+  'map.mutate': async (params) => {
     const projectRoot = getProjectRoot();
     const { mapCodebase } = await import('../engines/codebase-map-engine.js');
     const result = await mapCodebase(projectRoot, {
@@ -1067,7 +1087,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     return lafsSuccess(result.data, 'map.mutate');
   },
 
-  'install.global': async (_params: AdminInstallGlobalParams) => {
+  'install.global': async (_params) => {
     const { ensureGlobalScaffold, ensureGlobalTemplates } = await import('@cleocode/core/internal');
     const scaffoldResult = await ensureGlobalScaffold();
     const templateResult = await ensureGlobalTemplates();
@@ -1167,20 +1187,20 @@ const MUTATE_OPS = new Set<string>([
 // Some operations have the same name in both query and mutate gateways (e.g.
 // "health", "backup", "map", "token"). The typed handler uses distinct keys
 // for the mutate variants (e.g. "health.mutate", "backup.mutate",
-// "map.mutate", "token.mutate") to avoid key collisions in AdminHandlerOps.
+// "map.mutate", "token.mutate") to avoid key collisions in AdminOps.
 // These maps translate the incoming operation name to the correct handler key.
 // ---------------------------------------------------------------------------
 
-/** Query gateway: operation name → AdminHandlerOps key. Defaults to identity. */
-function queryKey(operation: string): keyof AdminHandlerOps & string {
+/** Query gateway: operation name → AdminOps key. Defaults to identity. */
+function queryKey(operation: string): keyof AdminOps & string {
   // All query ops map directly (no suffix needed for query side)
-  return operation as keyof AdminHandlerOps & string;
+  return operation as keyof AdminOps & string;
 }
 
-/** Mutate gateway: operation name → AdminHandlerOps key. */
-function mutateKey(operation: string): keyof AdminHandlerOps & string {
+/** Mutate gateway: operation name → AdminOps key. */
+function mutateKey(operation: string): keyof AdminOps & string {
   // Ops that share a name with their query counterpart use a ".mutate" suffix
-  // in the typed handler so AdminHandlerOps has distinct keys for each.
+  // in the typed handler so AdminOps has distinct keys for each.
   switch (operation) {
     case 'health':
       return 'health.mutate';
@@ -1191,7 +1211,7 @@ function mutateKey(operation: string): keyof AdminHandlerOps & string {
     case 'token':
       return 'token.mutate';
     default:
-      return operation as keyof AdminHandlerOps & string;
+      return operation as keyof AdminOps & string;
   }
 }
 
@@ -1203,7 +1223,7 @@ function mutateKey(operation: string): keyof AdminHandlerOps & string {
  * Domain handler for the `admin` domain.
  *
  * Delegates all per-op logic to the typed inner handler
- * `_adminTypedHandler` (a `TypedDomainHandler<AdminHandlerOps>`). This
+ * `_adminTypedHandler` (a `TypedDomainHandler<AdminOps>`). This
  * satisfies the registry's `DomainHandler` interface while keeping every
  * param access fully type-safe via the T1426 Wave D adapter.
  */
