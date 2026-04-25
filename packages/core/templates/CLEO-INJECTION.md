@@ -260,6 +260,26 @@ Pull context on demand — don't pre-load everything:
 | Code context | `cleo nexus context <symbol>` |
 | Impact analysis | `cleo nexus impact <symbol>` |
 
+### Decision Lookup (D0xx ID Overload Warning)
+
+Decision IDs (D0xx, AGT-*) are **NOT globally unique**. The same ID can mean
+different things in different documents (e.g., D032 in ADR-055 vs
+PORT-AND-RENAME-SYNTHESIS). Always verify the source document.
+
+**Lookup hierarchy** (check in order):
+
+1. **CLEO Memory formal decisions**: `cleo memory decision-find --query <term>`
+   (structured decisions with rationale/confidence; often empty for D0xx)
+2. **CLEO Memory observations**: `cleo memory find <term>`
+   (decisions captured as O-* observations during sessions)
+3. **ADR files** (canonical source): `grep -r "D0xx" docs/adr/`
+   (ground truth for architectural decisions, tracks superseded-by)
+4. **Agent outputs** (planning context): `grep -r "D0xx" .cleo/agent-outputs/`
+   (session-scoped decision tables with migration impact)
+
+**When found**: Note the source document, check outcome status
+(pending/accepted/superseded), and fetch sibling decisions from the same epic.
+
 Budget: 3 JIT calls per task phase. More = task is underspecified.
 
 ## Escalation
