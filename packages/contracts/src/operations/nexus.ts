@@ -19,7 +19,6 @@
  * @see packages/cleo/src/dispatch/domains/nexus.ts
  */
 
-import type { LAFSPage } from '../lafs.js';
 // Profile types are now canonical in nexus-user-profile.ts (T1424 dedup)
 import type {
   NexusProfileExportParams,
@@ -289,8 +288,6 @@ export interface NexusListResult {
   total: number;
   /** Filtered count (post-limit). */
   filtered: number;
-  /** Pagination descriptor. */
-  page: LAFSPage;
 }
 
 // --------------------------------------------------------------------------
@@ -433,8 +430,6 @@ export interface NexusOrphansListResult {
   total: number;
   /** Filtered count. */
   filtered: number;
-  /** Pagination descriptor. */
-  page: LAFSPage;
 }
 
 // --------------------------------------------------------------------------

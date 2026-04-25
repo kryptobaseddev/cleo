@@ -169,7 +169,16 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         'list',
       );
     }
-    return lafsSuccess(result.data, 'list');
+    const envelope = lafsSuccess(result.data, 'list');
+    // Attach page metadata if present in engine result
+    if (result.page) {
+      return {
+        success: true as const,
+        data: result.data,
+        page: result.page,
+      };
+    }
+    return envelope;
   },
 
   find: async (params: TasksFindParams) => {
@@ -762,10 +771,16 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 function envelopeToEngineResult(envelope: {
   readonly success: boolean;
   readonly data?: unknown;
+  readonly page?: import('@cleocode/lafs').LAFSPage;
   readonly error?: { readonly code: number | string; readonly message: string };
-}): { success: boolean; data?: unknown; error?: { code: string; message: string } } {
+}): {
+  success: boolean;
+  data?: unknown;
+  page?: import('@cleocode/lafs').LAFSPage;
+  error?: { code: string; message: string };
+} {
   if (envelope.success) {
-    return { success: true, data: envelope.data };
+    return { success: true, data: envelope.data, page: envelope.page };
   }
   return {
     success: false,
