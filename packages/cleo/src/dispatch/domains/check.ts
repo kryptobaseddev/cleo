@@ -10,34 +10,17 @@
  *
  * Uses typed-handler pattern (Wave D · T975) for compile-time param narrowing.
  * Zero `as any`/`as unknown as X` casts for param extraction (T1423).
+ * Per-op *Params/*Result type imports removed; types inferred from CheckOps (T1438).
  *
  * @epic T4820
  * @task T1423 — typed narrowing for check domain
+ * @task T1438 — OpsFromCore refactor for check dispatch
  */
 
 import type {
   CheckOps,
   EvidenceAtom,
   GateEvidence,
-  ValidateArchiveStatsParams,
-  ValidateCanonParams,
-  ValidateChainParams,
-  ValidateCoherenceParams,
-  ValidateComplianceRecordParams,
-  ValidateComplianceSummaryParams,
-  ValidateComplianceSyncParams,
-  ValidateGateParams,
-  ValidateGradeListParams,
-  ValidateGradeParams,
-  ValidateManifestParams,
-  ValidateOutputParams,
-  ValidateProtocolParams,
-  ValidateSchemaParams,
-  ValidateTaskParams,
-  ValidateTestRunParams,
-  ValidateTestStatusParams,
-  ValidateVerifyExplainParams,
-  ValidateWorkflowComplianceParams,
 } from '@cleocode/contracts';
 import {
   getLogger,
@@ -81,7 +64,7 @@ import { handleErrorResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
-// Typed inner handler (Wave D · T1423)
+// Typed inner handler (Wave D · T1423, T1438 — OpsFromCore refactor)
 //
 // The typed handler holds all per-op logic with fully-narrowed params.
 // The outer DomainHandler class delegates to it so the registry sees the
@@ -93,7 +76,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   // Query ops
   // -----------------------------------------------------------------------
 
-  schema: async (params: ValidateSchemaParams) => {
+  schema: async (params) => {
     const projectRoot = getProjectRoot();
     if (!params.type) {
       return lafsError('E_INVALID_INPUT', 'type is required', 'schema');
@@ -109,7 +92,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(result.data ?? { valid: false, violations: [] }, 'schema');
   },
 
-  task: async (params: ValidateTaskParams) => {
+  task: async (params) => {
     const projectRoot = getProjectRoot();
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'task');
@@ -128,7 +111,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
-  manifest: async (_params: ValidateManifestParams) => {
+  manifest: async (_params) => {
     const projectRoot = getProjectRoot();
     const result = validateManifestOp(projectRoot);
     if (!result.success) {
@@ -141,7 +124,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(result.data ?? { valid: false, entry: {}, violations: [] }, 'manifest');
   },
 
-  output: async (params: ValidateOutputParams) => {
+  output: async (params) => {
     const projectRoot = getProjectRoot();
     if (!params.filePath) {
       return lafsError('E_INVALID_INPUT', 'filePath is required', 'output');
@@ -160,7 +143,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
-  'compliance.summary': async (params: ValidateComplianceSummaryParams) => {
+  'compliance.summary': async (params) => {
     const projectRoot = getProjectRoot();
 
     if (params?.detail) {
@@ -197,7 +180,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(enrichedData, 'compliance.summary');
   },
 
-  test: async (params: ValidateTestStatusParams) => {
+  test: async (params) => {
     const projectRoot = getProjectRoot();
 
     if (params?.format === 'coverage') {
@@ -230,7 +213,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
-  coherence: async (_params: ValidateCoherenceParams) => {
+  coherence: async (_params) => {
     const projectRoot = getProjectRoot();
     const result = await validateCoherenceCheck(projectRoot);
     if (!result.success) {
@@ -243,7 +226,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(result.data ?? { passed: false, issues: [], warnings: [] }, 'coherence');
   },
 
-  protocol: async (params: ValidateProtocolParams) => {
+  protocol: async (params) => {
     const projectRoot = getProjectRoot();
     const protocolType = params.protocolType;
     const mode = params.mode ?? 'task';
@@ -490,7 +473,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     }
   },
 
-  'gate.status': async (params: ValidateGateParams) => {
+  'gate.status': async (params) => {
     const projectRoot = getProjectRoot();
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'gate.status');
@@ -510,7 +493,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
-  'verify.explain': async (params: ValidateVerifyExplainParams) => {
+  'verify.explain': async (params) => {
     const projectRoot = getProjectRoot();
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'verify.explain');
@@ -728,7 +711,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
-  'archive.stats': async (params: ValidateArchiveStatsParams) => {
+  'archive.stats': async (params) => {
     const projectRoot = getProjectRoot();
     const result = await systemArchiveStats(projectRoot, {
       period: params?.period,
@@ -746,7 +729,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(result.data ?? {}, 'archive.stats');
   },
 
-  'chain.validate': async (params: ValidateChainParams) => {
+  'chain.validate': async (params) => {
     if (!params.chain) {
       return lafsError('E_INVALID_INPUT', 'chain is required', 'chain.validate');
     }
@@ -757,7 +740,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(chainResult, 'chain.validate');
   },
 
-  grade: async (params: ValidateGradeParams) => {
+  grade: async (params) => {
     const projectRoot = getProjectRoot();
     const { gradeSession } = await import('@cleocode/core/internal');
     if (!params.sessionId) {
@@ -767,7 +750,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(gradeResult, 'grade');
   },
 
-  'grade.list': async (params: ValidateGradeListParams) => {
+  'grade.list': async (params) => {
     const projectRoot = getProjectRoot();
     const { readGrades } = await import('@cleocode/core/internal');
     const allGrades = await readGrades(undefined, projectRoot);
@@ -785,14 +768,14 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
-  canon: async (_params: ValidateCanonParams) => {
+  canon: async (_params) => {
     const projectRoot = getProjectRoot();
     const { runCanonCheck } = await import('./check/canon.js');
     const result = runCanonCheck({ projectRoot });
     return lafsSuccess(result, 'canon');
   },
 
-  'workflow.compliance': async (params: ValidateWorkflowComplianceParams) => {
+  'workflow.compliance': async (params) => {
     const projectRoot = getProjectRoot();
     const result = await getWorkflowComplianceReport({
       since: params.since,
@@ -805,7 +788,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   // Mutate ops
   // -----------------------------------------------------------------------
 
-  'compliance.record': async (params: ValidateComplianceRecordParams) => {
+  'compliance.record': async (params) => {
     const projectRoot = getProjectRoot();
     if (!params.taskId || !params.result) {
       return lafsError('E_INVALID_INPUT', 'taskId and result are required', 'compliance.record');
@@ -830,7 +813,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
-  'test.run': async (params: ValidateTestRunParams) => {
+  'test.run': async (params) => {
     const projectRoot = getProjectRoot();
     const result = validateTestRun(
       { scope: params.scope, pattern: params.pattern, parallel: params.parallel },
@@ -870,7 +853,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     );
   },
 
-  'compliance.sync': async (params: ValidateComplianceSyncParams) => {
+  'compliance.sync': async (params) => {
     const projectRoot = getProjectRoot();
     const { syncComplianceMetrics } = await import('@cleocode/core/internal');
     const result = await syncComplianceMetrics({
@@ -880,7 +863,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(result, 'compliance.sync');
   },
 
-  'gate.set': async (params: ValidateGateParams) => {
+  'gate.set': async (params) => {
     const projectRoot = getProjectRoot();
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'gate.set');
