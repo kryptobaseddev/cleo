@@ -403,7 +403,7 @@ async function runMigrationDataImport(
               updatedAt: task.updatedAt,
               completedAt: task.completedAt,
               archivedAt: task.archivedAt ?? task.completedAt ?? new Date().toISOString(),
-              archiveReason: task.archiveReason ?? 'migrated',
+              archiveReason: task.archiveReason ?? 'completed-unverified',
               cycleTimeDays: task.cycleTimeDays,
             })
             .onConflictDoNothing()
@@ -739,7 +739,7 @@ export async function migrateJsonToSqlite(
               updatedAt: task.updatedAt,
               completedAt: task.completedAt,
               archivedAt: task.archivedAt ?? task.completedAt ?? new Date().toISOString(),
-              archiveReason: task.archiveReason ?? 'migrated',
+              archiveReason: task.archiveReason ?? 'completed-unverified',
               cycleTimeDays: task.cycleTimeDays,
             })
             .onConflictDoNothing()

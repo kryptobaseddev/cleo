@@ -85,7 +85,8 @@ const TEST_ARCHIVED = [
     createdAt: '2025-12-01T00:00:00.000Z',
     completedAt: '2025-12-15T00:00:00.000Z',
     archivedAt: '2025-12-20T00:00:00.000Z',
-    archiveReason: 'completed',
+    // T1408 6-value enum (was 'completed' which is no longer valid).
+    archiveReason: 'completed-unverified',
     cycleTimeDays: 14,
   },
 ];

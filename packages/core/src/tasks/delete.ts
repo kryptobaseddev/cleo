@@ -120,11 +120,14 @@ export async function deleteTask(
       }
     }
 
-    // Archive each deleted task
+    // Archive each deleted task.
+    // T1434 follow-up: T1408 CHECK constraint restricts archive_reason to a
+    // 6-value enum (no 'deleted'). Map delete-flow archives to 'cancelled'
+    // — semantically equivalent and within the enum.
     for (const id of idsToDelete) {
       await tx.archiveSingleTask(id, {
         archivedAt: now,
-        archiveReason: 'deleted',
+        archiveReason: 'cancelled',
       });
     }
 

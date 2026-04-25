@@ -147,7 +147,8 @@ describe('upsertTask — orphan parent handling', () => {
       },
       {
         archivedAt: '2025-06-01T00:00:00Z',
-        archiveReason: 'completed',
+        // T1408 6-value enum (was 'completed' which is no longer valid).
+        archiveReason: 'completed-unverified',
       },
       true, // allowOrphanParent: bulk/archive mode silently nulls (T5034)
     );

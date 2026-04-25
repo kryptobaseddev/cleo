@@ -202,7 +202,15 @@ export async function findTasks(query: string, limit: number = 20, cwd?: string)
   return rows.map(rowToTask);
 }
 
-/** Archive a task (sets status to 'archived' with metadata). */
+/**
+ * Archive a task (sets status to 'archived' with metadata).
+ *
+ * T1434 follow-up: T1408 introduced a CHECK constraint that limits
+ * `archive_reason` to the 6-value enum (verified, reconciled, superseded,
+ * shadowed, cancelled, completed-unverified). The default and any caller-
+ * supplied reason MUST be one of those values; anything else is normalized
+ * to `'completed-unverified'` to preserve forward compat.
+ */
 export async function archiveTask(taskId: string, reason?: string, cwd?: string): Promise<boolean> {
   const db = await getDb(cwd);
   const task = await getTask(taskId, cwd);
@@ -213,11 +221,28 @@ export async function archiveTask(taskId: string, reason?: string, cwd?: string)
     ? Math.floor((Date.now() - new Date(task.createdAt).getTime()) / (1000 * 60 * 60 * 24))
     : null;
 
+  // Normalize any caller-supplied legacy reason ('completed', 'deleted',
+  // arbitrary strings) into the T1408 enum. NULL stays NULL via undefined.
+  const normalizedReason = (() => {
+    if (!reason) return 'completed-unverified';
+    const valid = new Set([
+      'verified',
+      'reconciled',
+      'superseded',
+      'shadowed',
+      'cancelled',
+      'completed-unverified',
+    ]);
+    if (valid.has(reason)) return reason;
+    if (reason === 'deleted') return 'cancelled';
+    return 'completed-unverified';
+  })();
+
   db.update(schema.tasks)
     .set({
       status: 'archived',
       archivedAt: now,
-      archiveReason: reason ?? 'completed',
+      archiveReason: normalizedReason,
       cycleTimeDays: cycleTime,
       updatedAt: now,
     })
