@@ -58,7 +58,17 @@ import {
   memoryTimeline,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import {
+  errorResult,
+  handleErrorResult,
+  paramBool,
+  paramNumber,
+  paramString,
+  paramStringArray,
+  paramStringRequired,
+  unsupportedOp,
+  wrapResult,
+} from './_base.js';
 
 // ---------------------------------------------------------------------------
 // Memory Handler Class
@@ -78,7 +88,7 @@ export class MemoryHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'find': {
-          const query = params?.query as string;
+          const query = paramStringRequired(params, 'query');
           if (!query) {
             return errorResult(
               'query',
@@ -92,12 +102,12 @@ export class MemoryHandler implements DomainHandler {
           const result = await memoryFind(
             {
               query,
-              limit: params?.limit as number | undefined,
-              tables: params?.tables as string[] | undefined,
-              dateStart: params?.dateStart as string | undefined,
-              dateEnd: params?.dateEnd as string | undefined,
+              limit: paramNumber(params, 'limit'),
+              tables: paramStringArray(params, 'tables'),
+              dateStart: paramString(params, 'dateStart'),
+              dateEnd: paramString(params, 'dateEnd'),
               // T418: optional agent filter for per-agent mental model retrieval
-              agent: params?.agent as string | undefined,
+              agent: paramString(params, 'agent'),
             },
             projectRoot,
           );
@@ -105,7 +115,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'timeline': {
-          const anchor = params?.anchor as string;
+          const anchor = paramStringRequired(params, 'anchor');
           if (!anchor) {
             return errorResult(
               'query',
@@ -119,8 +129,8 @@ export class MemoryHandler implements DomainHandler {
           const result = await memoryTimeline(
             {
               anchor,
-              depthBefore: params?.depthBefore as number | undefined,
-              depthAfter: params?.depthAfter as number | undefined,
+              depthBefore: paramNumber(params, 'depthBefore'),
+              depthAfter: paramNumber(params, 'depthAfter'),
             },
             projectRoot,
           );
@@ -128,8 +138,8 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'fetch': {
-          const ids = params?.ids as string[] | undefined;
-          if (!ids || !Array.isArray(ids) || ids.length === 0) {
+          const ids = paramStringArray(params, 'ids');
+          if (!ids || ids.length === 0) {
             return errorResult(
               'query',
               'memory',
@@ -146,9 +156,9 @@ export class MemoryHandler implements DomainHandler {
         case 'decision.find': {
           const result = await memoryDecisionFind(
             {
-              query: params?.query as string | undefined,
-              taskId: params?.taskId as string | undefined,
-              limit: params?.limit as number | undefined,
+              query: paramString(params, 'query'),
+              taskId: paramString(params, 'taskId'),
+              limit: paramNumber(params, 'limit'),
             },
             projectRoot,
           );
@@ -156,13 +166,19 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'pattern.find': {
+          const patternType = paramString(params, 'type') as
+            | Parameters<typeof memoryPatternFind>[0]['type']
+            | undefined;
+          const patternImpact = paramString(params, 'impact') as
+            | Parameters<typeof memoryPatternFind>[0]['impact']
+            | undefined;
           const result = await memoryPatternFind(
             {
-              type: params?.type as Parameters<typeof memoryPatternFind>[0]['type'],
-              impact: params?.impact as Parameters<typeof memoryPatternFind>[0]['impact'],
-              query: params?.query as string | undefined,
-              minFrequency: params?.minFrequency as number | undefined,
-              limit: params?.limit as number | undefined,
+              type: patternType,
+              impact: patternImpact,
+              query: paramString(params, 'query'),
+              minFrequency: paramNumber(params, 'minFrequency'),
+              limit: paramNumber(params, 'limit'),
             },
             projectRoot,
           );
@@ -172,11 +188,11 @@ export class MemoryHandler implements DomainHandler {
         case 'learning.find': {
           const result = await memoryLearningFind(
             {
-              query: params?.query as string | undefined,
-              minConfidence: params?.minConfidence as number | undefined,
-              actionableOnly: params?.actionableOnly as boolean | undefined,
-              applicableType: params?.applicableType as string | undefined,
-              limit: params?.limit as number | undefined,
+              query: paramString(params, 'query'),
+              minConfidence: paramNumber(params, 'minConfidence'),
+              actionableOnly: paramBool(params, 'actionableOnly'),
+              applicableType: paramString(params, 'applicableType'),
+              limit: paramNumber(params, 'limit'),
             },
             projectRoot,
           );
@@ -184,7 +200,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'graph.show': {
-          const nodeId = params?.nodeId as string;
+          const nodeId = paramStringRequired(params, 'nodeId');
           if (!nodeId) {
             return errorResult(
               'query',
@@ -200,7 +216,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'graph.neighbors': {
-          const nodeId = params?.nodeId as string;
+          const nodeId = paramStringRequired(params, 'nodeId');
           if (!nodeId) {
             return errorResult(
               'query',
@@ -212,14 +228,14 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           const result = await memoryGraphNeighbors(
-            { nodeId, edgeType: params?.edgeType as string | undefined },
+            { nodeId, edgeType: paramString(params, 'edgeType') },
             projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'graph.trace': {
-          const nodeId = params?.nodeId as string;
+          const nodeId = paramStringRequired(params, 'nodeId');
           if (!nodeId) {
             return errorResult(
               'query',
@@ -231,14 +247,14 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           const result = await memoryGraphTrace(
-            { nodeId, maxDepth: params?.maxDepth as number | undefined },
+            { nodeId, maxDepth: paramNumber(params, 'maxDepth') },
             projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'graph.related': {
-          const nodeId = params?.nodeId as string;
+          const nodeId = paramStringRequired(params, 'nodeId');
           if (!nodeId) {
             return errorResult(
               'query',
@@ -250,14 +266,14 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           const result = await memoryGraphRelated(
-            { nodeId, edgeType: params?.edgeType as string | undefined },
+            { nodeId, edgeType: paramString(params, 'edgeType') },
             projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'graph.context': {
-          const nodeId = params?.nodeId as string;
+          const nodeId = paramStringRequired(params, 'nodeId');
           if (!nodeId) {
             return errorResult(
               'query',
@@ -278,7 +294,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'reason.why': {
-          const taskId = params?.taskId as string;
+          const taskId = paramStringRequired(params, 'taskId');
           if (!taskId) {
             return errorResult(
               'query',
@@ -294,7 +310,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'reason.similar': {
-          const entryId = params?.entryId as string;
+          const entryId = paramStringRequired(params, 'entryId');
           if (!entryId) {
             return errorResult(
               'query',
@@ -306,14 +322,14 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           const result = await memoryReasonSimilar(
-            { entryId, limit: params?.limit as number | undefined },
+            { entryId, limit: paramNumber(params, 'limit') },
             projectRoot,
           );
           return wrapResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'search.hybrid': {
-          const query = params?.query as string;
+          const query = paramStringRequired(params, 'query');
           if (!query) {
             return errorResult(
               'query',
@@ -327,10 +343,10 @@ export class MemoryHandler implements DomainHandler {
           const result = await memorySearchHybrid(
             {
               query,
-              ftsWeight: params?.ftsWeight as number | undefined,
-              vecWeight: params?.vecWeight as number | undefined,
-              graphWeight: params?.graphWeight as number | undefined,
-              limit: params?.limit as number | undefined,
+              ftsWeight: paramNumber(params, 'ftsWeight'),
+              vecWeight: paramNumber(params, 'vecWeight'),
+              graphWeight: paramNumber(params, 'graphWeight'),
+              limit: paramNumber(params, 'limit'),
             },
             projectRoot,
           );
@@ -355,7 +371,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'code.memories-for-code': {
-          const symbol = params?.symbol as string;
+          const symbol = paramStringRequired(params, 'symbol');
           if (!symbol) {
             return errorResult(
               'query',
@@ -378,7 +394,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'code.for-memory': {
-          const memoryId = params?.memoryId as string;
+          const memoryId = paramStringRequired(params, 'memoryId');
           if (!memoryId) {
             return errorResult(
               'query',
@@ -404,7 +420,7 @@ export class MemoryHandler implements DomainHandler {
         case 'doctor': {
           const { scanBrainNoise } = await import('@cleocode/core/memory/brain-doctor.js');
           const result = await scanBrainNoise(projectRoot);
-          const assertClean = params?.['assert-clean'] as boolean | undefined;
+          const assertClean = paramBool(params, 'assert-clean');
           if (assertClean) {
             // T1147 W7: also check for pending brain_observations_staging rows (staged sweep not approved).
             // Legacy-DB compatibility: falls back to 'brain_v2_candidate' if the pre-T1402 name is still live.
@@ -472,9 +488,9 @@ export class MemoryHandler implements DomainHandler {
         // T1147 W7 — BRAIN noise sweep (shadow-write envelope, self-healing gate)
         case 'sweep': {
           const dryRun = params?.['dry-run'] === true || params?.dryRun === true;
-          const approveRunId = params?.approve as string | undefined;
+          const approveRunId = paramString(params, 'approve');
           const statusQuery = params?.status === true;
-          const rollbackRunId = params?.rollback as string | undefined;
+          const rollbackRunId = paramString(params, 'rollback');
 
           if (statusQuery) {
             // List all noise-sweep-2440 runs in brain_backfill_runs
@@ -628,8 +644,8 @@ export class MemoryHandler implements DomainHandler {
 
         // T792 — surface unverified-but-highly-cited entries as verification queue
         case 'pending-verify': {
-          const minCitations = (params?.minCitations as number | undefined) ?? 5;
-          const limitVal = (params?.limit as number | undefined) ?? 50;
+          const minCitations = paramNumber(params, 'minCitations') ?? 5;
+          const limitVal = paramNumber(params, 'limit') ?? 50;
 
           try {
             await getBrainDb(projectRoot);
@@ -727,7 +743,7 @@ export class MemoryHandler implements DomainHandler {
 
         // T1006 — summarized top-N observations as session briefing digest
         case 'digest': {
-          const limitVal = (params?.limit as number | undefined) ?? 10;
+          const limitVal = paramNumber(params, 'limit') ?? 10;
 
           try {
             await getBrainDb(projectRoot);
@@ -815,11 +831,11 @@ export class MemoryHandler implements DomainHandler {
 
         // T1006 — tail recent observations with optional filters
         case 'recent': {
-          const limitVal = (params?.limit as number | undefined) ?? 20;
-          const sinceParam = params?.since as string | undefined;
-          const typeFilter = params?.type as string | undefined;
-          const sessionFilter = params?.session as string | undefined;
-          const tierFilter = params?.tier as string | undefined;
+          const limitVal = paramNumber(params, 'limit') ?? 20;
+          const sinceParam = paramString(params, 'since');
+          const typeFilter = paramString(params, 'type');
+          const sessionFilter = paramString(params, 'session');
+          const tierFilter = paramString(params, 'tier');
 
           try {
             await getBrainDb(projectRoot);
@@ -940,7 +956,7 @@ export class MemoryHandler implements DomainHandler {
 
         // T1006 — read diary-typed observations
         case 'diary': {
-          const limitVal = (params?.limit as number | undefined) ?? 20;
+          const limitVal = paramNumber(params, 'limit') ?? 20;
 
           try {
             await getBrainDb(projectRoot);
@@ -1017,8 +1033,8 @@ export class MemoryHandler implements DomainHandler {
         // Returns the latest N observations created after an optional cursor.
         // Clients call this in a loop, advancing the cursor with the returned `nextCursor`.
         case 'watch': {
-          const cursorParam = params?.cursor as string | undefined;
-          const limitVal = (params?.limit as number | undefined) ?? 10;
+          const cursorParam = paramString(params, 'cursor');
+          const limitVal = paramNumber(params, 'limit') ?? 10;
 
           try {
             await getBrainDb(projectRoot);
@@ -1105,8 +1121,8 @@ export class MemoryHandler implements DomainHandler {
         // T1003 — list staged backfill runs (pending/approved/rolled-back)
         case 'backfill.list': {
           try {
-            const status = params?.status as string | undefined;
-            const limit = params?.limit as number | undefined;
+            const status = paramString(params, 'status');
+            const limit = paramNumber(params, 'limit');
             const runs = await listBackfillRuns(projectRoot, { status, limit });
             return wrapResult(
               {
@@ -1141,7 +1157,7 @@ export class MemoryHandler implements DomainHandler {
 
         // T997 — read-only view over STDP weights + retrieval log + citation data
         case 'promote-explain': {
-          const entryId = params?.id as string;
+          const entryId = paramStringRequired(params, 'id');
           if (!entryId) {
             return errorResult(
               'query',
@@ -1252,7 +1268,7 @@ export class MemoryHandler implements DomainHandler {
                    ORDER BY weight DESC
                    LIMIT 20`,
                 )
-                .all(entryId, entryId) as unknown as EdgeRow[];
+                .all(entryId, entryId) as EdgeRow[];
               stdpWeights = edgeRows;
             } catch {
               // plasticity_class column may not exist — fall back to unfiltered weight query
@@ -1267,7 +1283,7 @@ export class MemoryHandler implements DomainHandler {
                      ORDER BY weight DESC
                      LIMIT 20`,
                   )
-                  .all(entryId, entryId) as unknown as EdgeRow[];
+                  .all(entryId, entryId) as EdgeRow[];
                 stdpWeights = edgeRows;
               } catch {
                 // brain_page_edges unavailable — degrade gracefully
@@ -1407,7 +1423,7 @@ export class MemoryHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'observe': {
-          const text = params?.text as string;
+          const text = paramStringRequired(params, 'text');
           if (!text) {
             return errorResult(
               'mutate',
@@ -1419,12 +1435,13 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           // T799: parse optional attachment refs (comma-separated sha256 list or JSON array)
-          const rawAttach = params?.attach as string | string[] | undefined;
           let attachmentRefs: string[] | undefined;
-          if (Array.isArray(rawAttach)) {
-            attachmentRefs = rawAttach.filter((r) => typeof r === 'string' && r.length > 0);
-          } else if (typeof rawAttach === 'string' && rawAttach.trim()) {
-            attachmentRefs = rawAttach
+          const attachArr = paramStringArray(params, 'attach');
+          const attachStr = paramString(params, 'attach');
+          if (attachArr !== undefined) {
+            attachmentRefs = attachArr.filter((r) => r.length > 0);
+          } else if (attachStr?.trim()) {
+            attachmentRefs = attachStr
               .split(',')
               .map((r) => r.trim())
               .filter(Boolean);
@@ -1433,13 +1450,13 @@ export class MemoryHandler implements DomainHandler {
           const result = await memoryObserve(
             {
               text,
-              title: params?.title as string | undefined,
-              type: params?.type as string | undefined,
-              project: params?.project as string | undefined,
-              sourceSessionId: params?.sourceSessionId as string | undefined,
-              sourceType: params?.sourceType as string | undefined,
+              title: paramString(params, 'title'),
+              type: paramString(params, 'type'),
+              project: paramString(params, 'project'),
+              sourceSessionId: paramString(params, 'sourceSessionId'),
+              sourceType: paramString(params, 'sourceType'),
               // T417: optional agent provenance for mental model observations
-              agent: params?.agent as string | undefined,
+              agent: paramString(params, 'agent'),
               // T799: optional attachment refs
               attachmentRefs,
             },
@@ -1449,8 +1466,8 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'decision.store': {
-          const decision = params?.decision as string;
-          const rationale = params?.rationale as string;
+          const decision = paramStringRequired(params, 'decision');
+          const rationale = paramStringRequired(params, 'rationale');
           if (!decision || !rationale) {
             return errorResult(
               'mutate',
@@ -1465,9 +1482,9 @@ export class MemoryHandler implements DomainHandler {
             {
               decision,
               rationale,
-              alternatives: params?.alternatives as string[] | undefined,
-              taskId: params?.taskId as string | undefined,
-              sessionId: params?.sessionId as string | undefined,
+              alternatives: paramStringArray(params, 'alternatives'),
+              taskId: paramString(params, 'taskId'),
+              sessionId: paramString(params, 'sessionId'),
             },
             projectRoot,
           );
@@ -1475,8 +1492,8 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'pattern.store': {
-          const patternText = params?.pattern as string;
-          const context = params?.context as string;
+          const patternText = paramStringRequired(params, 'pattern');
+          const context = paramStringRequired(params, 'context');
           if (!patternText || !context) {
             return errorResult(
               'mutate',
@@ -1487,17 +1504,22 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
+          const storePatternType = paramString(params, 'type') as
+            | Parameters<typeof memoryPatternStore>[0]['type']
+            | undefined;
+          const storePatternImpact = paramString(params, 'impact') as
+            | Parameters<typeof memoryPatternStore>[0]['impact']
+            | undefined;
           const result = await memoryPatternStore(
             {
-              type:
-                (params?.type as Parameters<typeof memoryPatternStore>[0]['type']) || 'workflow',
+              type: storePatternType || 'workflow',
               pattern: patternText,
               context,
-              impact: params?.impact as Parameters<typeof memoryPatternStore>[0]['impact'],
-              antiPattern: params?.antiPattern as string | undefined,
-              mitigation: params?.mitigation as string | undefined,
-              examples: params?.examples as string[] | undefined,
-              successRate: params?.successRate as number | undefined,
+              impact: storePatternImpact,
+              antiPattern: paramString(params, 'antiPattern'),
+              mitigation: paramString(params, 'mitigation'),
+              examples: paramStringArray(params, 'examples'),
+              successRate: paramNumber(params, 'successRate'),
             },
             projectRoot,
           );
@@ -1505,8 +1527,8 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'learning.store': {
-          const insight = params?.insight as string;
-          const source = params?.source as string;
+          const insight = paramStringRequired(params, 'insight');
+          const source = paramStringRequired(params, 'source');
           if (!insight || !source) {
             return errorResult(
               'mutate',
@@ -1521,10 +1543,10 @@ export class MemoryHandler implements DomainHandler {
             {
               insight,
               source,
-              confidence: (params?.confidence as number) ?? 0.5,
-              actionable: params?.actionable as boolean | undefined,
-              application: params?.application as string | undefined,
-              applicableTypes: params?.applicableTypes as string[] | undefined,
+              confidence: paramNumber(params, 'confidence') ?? 0.5,
+              actionable: paramBool(params, 'actionable'),
+              application: paramString(params, 'application'),
+              applicableTypes: paramStringArray(params, 'applicableTypes'),
             },
             projectRoot,
           );
@@ -1532,8 +1554,8 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'link': {
-          const taskId = params?.taskId as string;
-          const entryId = params?.entryId as string;
+          const taskId = paramStringRequired(params, 'taskId');
+          const entryId = paramStringRequired(params, 'entryId');
           if (!taskId || !entryId) {
             return errorResult(
               'mutate',
@@ -1551,14 +1573,14 @@ export class MemoryHandler implements DomainHandler {
         case 'graph.add': {
           const result = await memoryGraphAdd(
             {
-              nodeId: params?.nodeId as string | undefined,
-              nodeType: params?.nodeType as string | undefined,
-              label: params?.label as string | undefined,
-              metadataJson: params?.metadataJson as string | undefined,
-              fromId: params?.fromId as string | undefined,
-              toId: params?.toId as string | undefined,
-              edgeType: params?.edgeType as string | undefined,
-              weight: params?.weight as number | undefined,
+              nodeId: paramString(params, 'nodeId'),
+              nodeType: paramString(params, 'nodeType'),
+              label: paramString(params, 'label'),
+              metadataJson: paramString(params, 'metadataJson'),
+              fromId: paramString(params, 'fromId'),
+              toId: paramString(params, 'toId'),
+              edgeType: paramString(params, 'edgeType'),
+              weight: paramNumber(params, 'weight'),
             },
             projectRoot,
           );
@@ -1568,10 +1590,10 @@ export class MemoryHandler implements DomainHandler {
         case 'graph.remove': {
           const result = await memoryGraphRemove(
             {
-              nodeId: params?.nodeId as string | undefined,
-              fromId: params?.fromId as string | undefined,
-              toId: params?.toId as string | undefined,
-              edgeType: params?.edgeType as string | undefined,
+              nodeId: paramString(params, 'nodeId'),
+              fromId: paramString(params, 'fromId'),
+              toId: paramString(params, 'toId'),
+              edgeType: paramString(params, 'edgeType'),
             },
             projectRoot,
           );
@@ -1579,8 +1601,8 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'code.link': {
-          const memoryId = params?.memoryId as string;
-          const codeSymbol = params?.codeSymbol as string;
+          const memoryId = paramStringRequired(params, 'memoryId');
+          const codeSymbol = paramStringRequired(params, 'codeSymbol');
           if (!memoryId || !codeSymbol) {
             return errorResult(
               'mutate',
@@ -1616,7 +1638,7 @@ export class MemoryHandler implements DomainHandler {
 
         // T792 — promote an agent observation to verified=true (owner/cleo-prime only)
         case 'verify': {
-          const entryId = params?.id as string;
+          const entryId = paramStringRequired(params, 'id');
           if (!entryId) {
             return errorResult(
               'mutate',
@@ -1642,7 +1664,7 @@ export class MemoryHandler implements DomainHandler {
             'project-orchestrator',
             'cleo-prime', // legacy alias — see migration shim note above
           ]);
-          const callerAgent = params?.agent as string | undefined;
+          const callerAgent = paramString(params, 'agent');
           if (callerAgent && !VERIFY_PERMITTED_IDENTITIES.has(callerAgent)) {
             return errorResult(
               'mutate',
@@ -1739,7 +1761,7 @@ export class MemoryHandler implements DomainHandler {
 
         // T1006 — write a diary-typed observation (thin wrapper over observe)
         case 'diary.write': {
-          const text = params?.text as string;
+          const text = paramStringRequired(params, 'text');
           if (!text) {
             return errorResult(
               'mutate',
@@ -1753,10 +1775,10 @@ export class MemoryHandler implements DomainHandler {
           const result = await memoryObserve(
             {
               text,
-              title: params?.title as string | undefined,
+              title: paramString(params, 'title'),
               type: 'diary',
-              sourceSessionId: params?.sourceSessionId as string | undefined,
-              agent: params?.agent as string | undefined,
+              sourceSessionId: paramString(params, 'sourceSessionId'),
+              agent: paramString(params, 'agent'),
             },
             projectRoot,
           );
@@ -1785,9 +1807,9 @@ export class MemoryHandler implements DomainHandler {
         // T1003 — stage a new graph backfill run (rows held pending approval)
         case 'backfill.run': {
           try {
-            const source = params?.source as string | undefined;
-            const kind = params?.kind as string | undefined;
-            const targetTable = params?.targetTable as string | undefined;
+            const source = paramString(params, 'source');
+            const kind = paramString(params, 'kind');
+            const targetTable = paramString(params, 'targetTable');
             const result = await stagedBackfillRun(projectRoot, { source, kind, targetTable });
             return wrapResult(
               {
@@ -1813,7 +1835,7 @@ export class MemoryHandler implements DomainHandler {
 
         // T1003 — approve a staged backfill run (commits rows to live tables)
         case 'backfill.approve': {
-          const runId = params?.runId as string | undefined;
+          const runId = paramString(params, 'runId');
           if (!runId) {
             return errorResult(
               'mutate',
@@ -1825,7 +1847,7 @@ export class MemoryHandler implements DomainHandler {
             );
           }
           try {
-            const approvedBy = params?.approvedBy as string | undefined;
+            const approvedBy = paramString(params, 'approvedBy');
             const result = await approveBackfillRun(projectRoot, runId, approvedBy);
             return wrapResult(
               {
@@ -1852,7 +1874,7 @@ export class MemoryHandler implements DomainHandler {
 
         // T1003 — rollback a backfill run (removes staged/committed rows)
         case 'backfill.rollback': {
-          const runId = params?.runId as string | undefined;
+          const runId = paramString(params, 'runId');
           if (!runId) {
             return errorResult(
               'mutate',

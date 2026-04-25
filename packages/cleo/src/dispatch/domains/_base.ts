@@ -6,6 +6,7 @@
  * Handlers call these instead of re-implementing wrapEngineResult, errorResponse, etc.
  *
  * @epic T5671
+ * @task T1427 — typed param narrowing helpers (Wave D · T962)
  */
 
 import type { ProblemDetails } from '@cleocode/core';
@@ -108,6 +109,95 @@ export function getListParams(params?: Record<string, unknown>): {
   const offset =
     typeof params?.offset === 'number' && params.offset > 0 ? params.offset : undefined;
   return { limit, offset };
+}
+
+// ---------------------------------------------------------------------------
+// Param narrowing helpers (T1427 — typed-dispatch cast reduction)
+//
+// Replace `params?.x as string` call-site casts with these typed extractors.
+// Each function narrows from `unknown` using a runtime typeof / Array.isArray
+// check so the TypeScript compiler accepts the result without a cast at the
+// handler call site.
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a string param from a raw `Record<string, unknown>` params dict.
+ *
+ * @param params - Raw params object (may be undefined).
+ * @param key    - Param key to extract.
+ * @returns The string value, or `undefined` when absent or not a string.
+ */
+export function paramString(
+  params: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const v = params?.[key];
+  return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * Extract a required string param. Returns an empty string when missing so the
+ * caller's `if (!value)` guard still fires naturally.
+ *
+ * @param params - Raw params object (may be undefined).
+ * @param key    - Param key to extract.
+ * @returns The string value, or `''` when absent or not a string.
+ */
+export function paramStringRequired(
+  params: Record<string, unknown> | undefined,
+  key: string,
+): string {
+  const v = params?.[key];
+  return typeof v === 'string' ? v : '';
+}
+
+/**
+ * Extract a number param from a raw `Record<string, unknown>` params dict.
+ *
+ * @param params - Raw params object (may be undefined).
+ * @param key    - Param key to extract.
+ * @returns The number value, or `undefined` when absent or not a number.
+ */
+export function paramNumber(
+  params: Record<string, unknown> | undefined,
+  key: string,
+): number | undefined {
+  const v = params?.[key];
+  return typeof v === 'number' ? v : undefined;
+}
+
+/**
+ * Extract a boolean param from a raw `Record<string, unknown>` params dict.
+ *
+ * @param params - Raw params object (may be undefined).
+ * @param key    - Param key to extract.
+ * @returns The boolean value, or `undefined` when absent or not a boolean.
+ */
+export function paramBool(
+  params: Record<string, unknown> | undefined,
+  key: string,
+): boolean | undefined {
+  const v = params?.[key];
+  return typeof v === 'boolean' ? v : undefined;
+}
+
+/**
+ * Extract a string-array param from a raw `Record<string, unknown>` params dict.
+ *
+ * @param params - Raw params object (may be undefined).
+ * @param key    - Param key to extract.
+ * @returns The string array, or `undefined` when absent or not an array.
+ *
+ * @remarks
+ * Items are assumed to be strings; non-string array elements are filtered out.
+ */
+export function paramStringArray(
+  params: Record<string, unknown> | undefined,
+  key: string,
+): string[] | undefined {
+  const v = params?.[key];
+  if (!Array.isArray(v)) return undefined;
+  return v.filter((item): item is string => typeof item === 'string');
 }
 
 /**
