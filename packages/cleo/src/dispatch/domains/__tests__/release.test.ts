@@ -53,9 +53,7 @@ const gatePassedResult = {
     forcedBypass: false,
     blocked: [],
     unchecked: [],
-    tasks: [
-      { taskId: TASK_ID, currentPhase: 'released', blocking: false },
-    ],
+    tasks: [{ taskId: TASK_ID, currentPhase: 'released', blocking: false }],
     summary: `IVTR gate passed for epic ${EPIC_ID}. All 1 task(s) are in released phase.`,
   },
 };

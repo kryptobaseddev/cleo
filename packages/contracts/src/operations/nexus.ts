@@ -20,6 +20,23 @@
  */
 
 import type { LAFSPage } from '../lafs.js';
+// Profile types are now canonical in nexus-user-profile.ts (T1424 dedup)
+import type {
+  NexusProfileExportParams,
+  NexusProfileExportResult,
+  NexusProfileGetParams,
+  NexusProfileGetResult,
+  NexusProfileImportParams,
+  NexusProfileImportResult,
+  NexusProfileReinforceParams,
+  NexusProfileReinforceResult,
+  NexusProfileSupersedeParams,
+  NexusProfileSupersedeResult,
+  NexusProfileUpsertParams,
+  NexusProfileUpsertResult,
+  NexusProfileViewParams,
+  NexusProfileViewResult,
+} from './nexus-user-profile.js';
 
 // ============================================================================
 // Shared Nexus wire-format types
@@ -840,76 +857,6 @@ export interface NexusTaskSymbolsParams {
 /** Result of `nexus.task-symbols`. */
 export type NexusTaskSymbolsResult = unknown;
 
-/** Parameters for `nexus.profile.view`. */
-export interface NexusProfileViewParams {
-  /** Min confidence threshold (optional). */
-  minConfidence?: number;
-  /** Include superseded entries (optional). */
-  includeSuperseded?: boolean;
-}
-/** Result of `nexus.profile.view`. */
-export type NexusProfileViewResult = unknown;
-
-/** Parameters for `nexus.profile.get`. */
-export interface NexusProfileGetParams {
-  /** Trait key (required). */
-  traitKey: string;
-}
-/** Result of `nexus.profile.get`. */
-export type NexusProfileGetResult = unknown;
-
-/** Parameters for `nexus.profile.import`. */
-export interface NexusProfileImportParams {
-  /** File path (optional). */
-  path?: string;
-}
-/** Result of `nexus.profile.import`. */
-export type NexusProfileImportResult = unknown;
-
-/** Parameters for `nexus.profile.export`. */
-export interface NexusProfileExportParams {
-  /** File path (optional). */
-  path?: string;
-}
-/** Result of `nexus.profile.export`. */
-export type NexusProfileExportResult = unknown;
-
-/** Parameters for `nexus.profile.reinforce`. */
-export interface NexusProfileReinforceParams {
-  /** Trait key (required). */
-  traitKey: string;
-  /** Source (optional). */
-  source?: string;
-}
-/** Result of `nexus.profile.reinforce`. */
-export type NexusProfileReinforceResult = unknown;
-
-/** A user profile trait. */
-export interface UserProfileTrait {
-  /** Trait key. */
-  traitKey: string;
-  /** Trait value. */
-  traitValue: unknown;
-}
-
-/** Parameters for `nexus.profile.upsert`. */
-export interface NexusProfileUpsertParams {
-  /** Trait to upsert. */
-  trait: UserProfileTrait;
-}
-/** Result of `nexus.profile.upsert`. */
-export type NexusProfileUpsertResult = unknown;
-
-/** Parameters for `nexus.profile.supersede`. */
-export interface NexusProfileSuperseedeParams {
-  /** Old key (required). */
-  oldKey: string;
-  /** New key (required). */
-  newKey: string;
-}
-/** Result of `nexus.profile.supersede`. */
-export type NexusProfileSuperseedeResult = unknown;
-
 /** Parameters for `nexus.sigil.list`. */
 export interface NexusSigilListParams {
   /** Role filter (optional). */
@@ -975,10 +922,7 @@ export type NexusOps = {
   readonly search: readonly [NexusSearchParams, NexusSearchResult];
   readonly augment: readonly [NexusAugmentParams, NexusAugmentResult];
   readonly 'share.status': readonly [NexusShareStatusParams, NexusShareStatusResult];
-  readonly 'transfer.preview': readonly [
-    NexusTransferPreviewParams,
-    NexusTransferPreviewResult,
-  ];
+  readonly 'transfer.preview': readonly [NexusTransferPreviewParams, NexusTransferPreviewResult];
   readonly 'top-entries': readonly [NexusTopEntriesParams, NexusTopEntriesResult];
   readonly impact: readonly [NexusImpactParams, NexusImpactResult];
   readonly 'full-context': readonly [NexusFullContextParams, NexusFullContextResult];
@@ -998,322 +942,7 @@ export type NexusOps = {
   readonly 'profile.export': readonly [NexusProfileExportParams, NexusProfileExportResult];
   readonly 'profile.reinforce': readonly [NexusProfileReinforceParams, NexusProfileReinforceResult];
   readonly 'profile.upsert': readonly [NexusProfileUpsertParams, NexusProfileUpsertResult];
-  readonly 'profile.supersede': readonly [NexusProfileSuperseedeParams, NexusProfileSuperseedeResult];
-  readonly 'sigil.list': readonly [NexusSigilListParams, NexusSigilListResult];
-  readonly 'sigil.sync': readonly [NexusSigilSyncParams, NexusSigilSyncResult];
-  readonly init: readonly [NexusInitParams, NexusInitResult];
-  readonly register: readonly [NexusRegisterParams, NexusRegisterResult];
-  readonly unregister: readonly [NexusUnregisterParams, NexusUnregisterResult];
-  readonly sync: readonly [NexusSyncParams, NexusSyncResult];
-  readonly 'permission.set': readonly [NexusPermissionSetParams, NexusPermissionSetResult];
-  readonly reconcile: readonly [NexusReconcileParams, NexusReconcileResult];
-  readonly 'share.snapshot.export': readonly [
-    NexusShareSnapshotExportParams,
-    NexusShareSnapshotExportResult,
-  ];
-  readonly 'share.snapshot.import': readonly [
-    NexusShareSnapshotImportParams,
-    NexusShareSnapshotImportResult,
-  ];
-  readonly transfer: readonly [NexusTransferParams, NexusTransferResult];
-  readonly 'contracts-sync': readonly [NexusContractsSyncParams, NexusContractsSyncResult];
-  readonly 'contracts-link-tasks': readonly [
-    NexusContractsLinkTasksParams,
-    NexusContractsLinkTasksResult,
-  ];
-  readonly 'conduit-scan': readonly [NexusConduitScanParams, NexusConduitScanResult];
-};
-
-// --------------------------------------------------------------------------
-// Additional operations (T1424 — typed narrowing)
-// --------------------------------------------------------------------------
-
-/** Parameters for `nexus.augment`. */
-export interface NexusAugmentParams {
-  /** Search pattern (required). */
-  pattern: string;
-  /** Max results (default 5). */
-  limit?: number;
-}
-/** Result of `nexus.augment`. */
-export type NexusAugmentResult = unknown;
-
-/** Parameters for `nexus.top-entries`. */
-export interface NexusTopEntriesParams {
-  /** Optional kind filter. */
-  kind?: string;
-}
-/** Result of `nexus.top-entries`. */
-export type NexusTopEntriesResult = unknown;
-
-/** Parameters for `nexus.impact`. */
-export interface NexusImpactParams {
-  /** Symbol name (required). */
-  symbol: string;
-  /** Include "why" reasons (optional). */
-  why?: boolean;
-}
-/** Result of `nexus.impact`. */
-export type NexusImpactResult = unknown;
-
-/** Parameters for `nexus.full-context`. */
-export interface NexusFullContextParams {
-  /** Symbol name (required). */
-  symbol: string;
-}
-/** Result of `nexus.full-context`. */
-export type NexusFullContextResult = unknown;
-
-/** Parameters for `nexus.task-footprint`. */
-export interface NexusTaskFootprintParams {
-  /** Task ID (required). */
-  taskId: string;
-}
-/** Result of `nexus.task-footprint`. */
-export type NexusTaskFootprintResult = unknown;
-
-/** Parameters for `nexus.brain-anchors`. */
-export interface NexusBrainAnchorsParams {
-  /** Entry ID (required). */
-  entryId: string;
-}
-/** Result of `nexus.brain-anchors`. */
-export type NexusBrainAnchorsResult = unknown;
-
-/** Parameters for `nexus.why`. */
-export interface NexusWhyParams {
-  /** Symbol name (required). */
-  symbol: string;
-}
-/** Result of `nexus.why`. */
-export type NexusWhyResult = unknown;
-
-/** Parameters for `nexus.impact-full`. */
-export interface NexusImpactFullParams {
-  /** Symbol name (required). */
-  symbol: string;
-}
-/** Result of `nexus.impact-full`. */
-export type NexusImpactFullResult = unknown;
-
-/** Parameters for `nexus.route-map`. */
-export interface NexusRouteMapParams {
-  /** Project ID (optional, auto-generated from projectRoot). */
-  projectId?: string;
-}
-/** Result of `nexus.route-map`. */
-export type NexusRouteMapResult = unknown;
-
-/** Parameters for `nexus.shape-check`. */
-export interface NexusShapeCheckParams {
-  /** Route symbol (required). */
-  routeSymbol: string;
-  /** Project ID (optional, auto-generated from projectRoot). */
-  projectId?: string;
-}
-/** Result of `nexus.shape-check`. */
-export type NexusShapeCheckResult = unknown;
-
-/** Parameters for `nexus.search-code`. */
-export interface NexusSearchCodeParams {
-  /** Search pattern (required). */
-  pattern: string;
-  /** Max results (default 10). */
-  limit?: number;
-}
-/** Result of `nexus.search-code`. */
-export type NexusSearchCodeResult = unknown;
-
-/** Parameters for `nexus.wiki`. */
-export interface NexusWikiParams {
-  /** Output directory (optional). */
-  outputDir?: string;
-  /** Community filter (optional). */
-  communityFilter?: string;
-  /** Incremental mode (optional). */
-  incremental?: boolean;
-}
-/** Result of `nexus.wiki`. */
-export type NexusWikiResult = unknown;
-
-/** Parameters for `nexus.contracts-show`. */
-export interface NexusContractsShowParams {
-  /** Project A identifier (required). */
-  projectA: string;
-  /** Project B identifier (required). */
-  projectB: string;
-}
-/** Result of `nexus.contracts-show`. */
-export type NexusContractsShowResult = unknown;
-
-/** Parameters for `nexus.task-symbols`. */
-export interface NexusTaskSymbolsParams {
-  /** Task ID (required). */
-  taskId: string;
-}
-/** Result of `nexus.task-symbols`. */
-export type NexusTaskSymbolsResult = unknown;
-
-/** Parameters for `nexus.profile.view`. */
-export interface NexusProfileViewParams {
-  /** Min confidence threshold (optional). */
-  minConfidence?: number;
-  /** Include superseded entries (optional). */
-  includeSuperseded?: boolean;
-}
-/** Result of `nexus.profile.view`. */
-export type NexusProfileViewResult = unknown;
-
-/** Parameters for `nexus.profile.get`. */
-export interface NexusProfileGetParams {
-  /** Trait key (required). */
-  traitKey: string;
-}
-/** Result of `nexus.profile.get`. */
-export type NexusProfileGetResult = unknown;
-
-/** Parameters for `nexus.profile.import`. */
-export interface NexusProfileImportParams {
-  /** File path (optional). */
-  path?: string;
-}
-/** Result of `nexus.profile.import`. */
-export type NexusProfileImportResult = unknown;
-
-/** Parameters for `nexus.profile.export`. */
-export interface NexusProfileExportParams {
-  /** File path (optional). */
-  path?: string;
-}
-/** Result of `nexus.profile.export`. */
-export type NexusProfileExportResult = unknown;
-
-/** Parameters for `nexus.profile.reinforce`. */
-export interface NexusProfileReinforceParams {
-  /** Trait key (required). */
-  traitKey: string;
-  /** Source (optional). */
-  source?: string;
-}
-/** Result of `nexus.profile.reinforce`. */
-export type NexusProfileReinforceResult = unknown;
-
-/** A user profile trait. */
-export interface UserProfileTrait {
-  /** Trait key. */
-  traitKey: string;
-  /** Trait value. */
-  traitValue: unknown;
-}
-
-/** Parameters for `nexus.profile.upsert`. */
-export interface NexusProfileUpsertParams {
-  /** Trait to upsert. */
-  trait: UserProfileTrait;
-}
-/** Result of `nexus.profile.upsert`. */
-export type NexusProfileUpsertResult = unknown;
-
-/** Parameters for `nexus.profile.supersede`. */
-export interface NexusProfileSuperseedeParams {
-  /** Old key (required). */
-  oldKey: string;
-  /** New key (required). */
-  newKey: string;
-}
-/** Result of `nexus.profile.supersede`. */
-export type NexusProfileSuperseedeResult = unknown;
-
-/** Parameters for `nexus.sigil.list`. */
-export interface NexusSigilListParams {
-  /** Role filter (optional). */
-  role?: string;
-}
-/** Result of `nexus.sigil.list`. */
-export type NexusSigilListResult = unknown;
-
-/** Parameters for `nexus.sigil.sync` — none. */
-export type NexusSigilSyncParams = Record<string, never>;
-/** Result of `nexus.sigil.sync`. */
-export type NexusSigilSyncResult = unknown;
-
-/** Parameters for `nexus.conduit-scan`. */
-export type NexusConduitScanParams = Record<string, never>;
-/** Result of `nexus.conduit-scan`. */
-export type NexusConduitScanResult = unknown;
-
-/** Parameters for `nexus.contracts-sync`. */
-export interface NexusContractsSyncParams {
-  /** Repository path (optional). */
-  repoPath?: string;
-  /** Project ID (optional). */
-  projectId?: string;
-}
-/** Result of `nexus.contracts-sync`. */
-export type NexusContractsSyncResult = unknown;
-
-/** Parameters for `nexus.contracts-link-tasks`. */
-export interface NexusContractsLinkTasksParams {
-  /** Repository path (optional). */
-  repoPath?: string;
-  /** Project ID (optional). */
-  projectId?: string;
-}
-/** Result of `nexus.contracts-link-tasks`. */
-export type NexusContractsLinkTasksResult = unknown;
-
-// ============================================================================
-// Typed Operations Union (T1424 — Wave D typed-dispatch migration)
-// ============================================================================
-
-/**
- * All Nexus domain operations mapped to their [Params, Result] tuples.
- *
- * This type enables {@link TypedDomainHandler} to provide compile-time safety
- * for every nexus operation, eliminating the ~62 type casts in the legacy
- * handler pattern (see T988 audit).
- *
- * @see packages/cleo/src/dispatch/domains/nexus.ts
- * @task T1424 — Nexus domain typed narrowing
- */
-export type NexusOps = {
-  readonly status: readonly [NexusStatusParams, NexusStatusResult];
-  readonly list: readonly [NexusListParams, NexusListResult];
-  readonly show: readonly [NexusShowParams, NexusShowResult];
-  readonly resolve: readonly [NexusResolveParams, NexusResolveResult];
-  readonly deps: readonly [NexusDepsParams, NexusDepsResult];
-  readonly graph: readonly [NexusGraphParams, NexusGraphResult];
-  readonly 'path.show': readonly [NexusPathShowParams, NexusPathShowResult];
-  readonly 'blockers.show': readonly [NexusBlockersShowParams, NexusBlockersShowResult];
-  readonly 'orphans.list': readonly [NexusOrphansListParams, NexusOrphansListResult];
-  readonly discover: readonly [NexusDiscoverParams, NexusDiscoverResult];
-  readonly search: readonly [NexusSearchParams, NexusSearchResult];
-  readonly augment: readonly [NexusAugmentParams, NexusAugmentResult];
-  readonly 'share.status': readonly [NexusShareStatusParams, NexusShareStatusResult];
-  readonly 'transfer.preview': readonly [
-    NexusTransferPreviewParams,
-    NexusTransferPreviewResult,
-  ];
-  readonly 'top-entries': readonly [NexusTopEntriesParams, NexusTopEntriesResult];
-  readonly impact: readonly [NexusImpactParams, NexusImpactResult];
-  readonly 'full-context': readonly [NexusFullContextParams, NexusFullContextResult];
-  readonly 'task-footprint': readonly [NexusTaskFootprintParams, NexusTaskFootprintResult];
-  readonly 'brain-anchors': readonly [NexusBrainAnchorsParams, NexusBrainAnchorsResult];
-  readonly why: readonly [NexusWhyParams, NexusWhyResult];
-  readonly 'impact-full': readonly [NexusImpactFullParams, NexusImpactFullResult];
-  readonly 'route-map': readonly [NexusRouteMapParams, NexusRouteMapResult];
-  readonly 'shape-check': readonly [NexusShapeCheckParams, NexusShapeCheckResult];
-  readonly 'search-code': readonly [NexusSearchCodeParams, NexusSearchCodeResult];
-  readonly wiki: readonly [NexusWikiParams, NexusWikiResult];
-  readonly 'contracts-show': readonly [NexusContractsShowParams, NexusContractsShowResult];
-  readonly 'task-symbols': readonly [NexusTaskSymbolsParams, NexusTaskSymbolsResult];
-  readonly 'profile.view': readonly [NexusProfileViewParams, NexusProfileViewResult];
-  readonly 'profile.get': readonly [NexusProfileGetParams, NexusProfileGetResult];
-  readonly 'profile.import': readonly [NexusProfileImportParams, NexusProfileImportResult];
-  readonly 'profile.export': readonly [NexusProfileExportParams, NexusProfileExportResult];
-  readonly 'profile.reinforce': readonly [NexusProfileReinforceParams, NexusProfileReinforceResult];
-  readonly 'profile.upsert': readonly [NexusProfileUpsertParams, NexusProfileUpsertResult];
-  readonly 'profile.supersede': readonly [NexusProfileSuperseedeParams, NexusProfileSuperseedeResult];
+  readonly 'profile.supersede': readonly [NexusProfileSupersedeParams, NexusProfileSupersedeResult];
   readonly 'sigil.list': readonly [NexusSigilListParams, NexusSigilListResult];
   readonly 'sigil.sync': readonly [NexusSigilSyncParams, NexusSigilSyncResult];
   readonly init: readonly [NexusInitParams, NexusInitResult];

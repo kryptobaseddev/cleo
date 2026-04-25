@@ -25,9 +25,9 @@
  */
 
 import { getLogger, getProjectRoot } from '@cleocode/core/internal';
+import { releaseGateCheck, releaseIvtrAutoSuggest } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, wrapResult } from './_base.js';
-import { releaseGateCheck, releaseIvtrAutoSuggest } from '../lib/engine.js';
 
 const log = getLogger('domain:release');
 

@@ -209,14 +209,10 @@ export async function releaseGateCheck(
         ` Run \`cleo orchestrate ivtr <taskId> --release\` for each blocking task, or pass --force to bypass.`;
 
     if (!passed) {
-      return engineError(
-        'E_IVTR_INCOMPLETE',
-        summary,
-        {
-          fix: `cleo orchestrate ivtr ${blocked[0]} --release`,
-          details: { blocked, unchecked, epicId, tasks },
-        },
-      );
+      return engineError('E_IVTR_INCOMPLETE', summary, {
+        fix: `cleo orchestrate ivtr ${blocked[0]} --release`,
+        details: { blocked, unchecked, epicId, tasks },
+      });
     }
 
     return {
@@ -291,7 +287,11 @@ export async function releaseIvtrAutoSuggest(
     // Find the parent epic for this task.
     const accessor = await getAccessor(cwd);
     const taskResult = await accessor.queryTasks({ id: taskId });
-    const taskRecord = ((taskResult?.tasks as Array<{ id: string; parentId?: string; type?: string }>) ?? [])[0];
+    const taskRecord = ((taskResult?.tasks as Array<{
+      id: string;
+      parentId?: string;
+      type?: string;
+    }>) ?? [])[0];
 
     if (!taskRecord) {
       return engineError('E_NOT_FOUND', `Task ${taskId} not found`);
