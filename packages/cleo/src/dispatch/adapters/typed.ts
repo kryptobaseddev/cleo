@@ -47,6 +47,105 @@ import type { LafsEnvelope, LafsError, LafsSuccess } from '@cleocode/contracts';
 // ---------------------------------------------------------------------------
 
 /**
+ * Infer a `TypedOpRecord` from a Core function registry.
+ *
+ * Transforms a map of Core functions into a typed operation record by extracting
+ * parameter and return types. The inference rule:
+ *
+ * - **Params**: `Parameters<F>[0]` — the first argument type of the function.
+ *   If the function takes no arguments, infers to `Record<string, never>`
+ *   (representing a no-op/void-arg operation).
+ *
+ * - **Result**: `Awaited<ReturnType<F>>` — the resolved type of the function's
+ *   return value. If the function returns a `Promise<T>`, unwraps to `T`.
+ *   If synchronous, returns the value as-is. This ensures both async and
+ *   sync Core functions produce a consistent result type.
+ *
+ * **Overload Resolution**: TypeScript's `Parameters<F>` and `ReturnType<F>`
+ * pick the LAST overload of an overloaded function signature. If a Core function
+ * defines multiple overloads, the inferred types correspond to the final overload.
+ * This is a known limitation; prefer single-signature Core functions when possible,
+ * or manually wire the operation record if overloads have materially different
+ * parameter/result shapes.
+ *
+ * **Escape Hatch**: If `OpsFromCore<C>` inference doesn't fit your needs,
+ * you may still hand-write a `TypedOpRecord` — this helper is opt-in and
+ * coexists with manual declaration. Both approaches satisfy the same
+ * `TypedOpRecord` contract.
+ *
+ * @typeParam C - A record (often `typeof someModule`) mapping operation names
+ *   to Core functions. Each value must be a function matching
+ *   `(...args: any[]) => any`.
+ *
+ * @returns A `TypedOpRecord` (map of operation names to `[Params, Result]`
+ *   tuples) suitable for passing to {@link defineTypedHandler}.
+ *
+ * @example
+ * ```ts
+ * // Core module defines:
+ * export async function nexusList(params: NexusListParams): Promise<NexusListResult> { ... }
+ * export async function nexusRegister(params: NexusRegisterParams): Promise<NexusRegisterResult> { ... }
+ *
+ * // Dispatch adapter creates:
+ * import * as nexusCore from '@cleocode/core/nexus';
+ *
+ * const coreOps = {
+ *   'nexus.list':     nexusCore.nexusList,
+ *   'nexus.register': nexusCore.nexusRegister,
+ * } as const;
+ *
+ * type NexusOps = OpsFromCore<typeof coreOps>;
+ * // Equivalent to:
+ * // type NexusOps = {
+ * //   'nexus.list':     [NexusListParams, NexusListResult];
+ * //   'nexus.register': [NexusRegisterParams, NexusRegisterResult];
+ * // };
+ *
+ * const handler = defineTypedHandler<NexusOps>('nexus', {
+ *   'nexus.list': async (params) => { ... },
+ *   'nexus.register': async (params) => { ... },
+ * });
+ * ```
+ *
+ * **Zero-Argument (Void-Arg) Functions**:
+ * ```ts
+ * // If Core defines:
+ * export async function sessionStatus(): Promise<SessionStatusResult> { ... }
+ *
+ * // Then:
+ * const coreOps = { 'session.status': sessionStatus } as const;
+ * type SessionOps = OpsFromCore<typeof coreOps>;
+ * // type SessionOps = {
+ * //   'session.status': [Record<string, never>, SessionStatusResult];
+ * // };
+ *
+ * // Inside the handler, the params arg is still typed:
+ * const handler = defineTypedHandler<SessionOps>('session', {
+ *   'session.status': async (_params: Record<string, never>) => {
+ *     // _params is empty; safe to ignore.
+ *     return lafsSuccess({ ... }, 'session.status');
+ *   },
+ * });
+ * ```
+ *
+ * @see {@link TypedOpRecord}
+ * @see {@link defineTypedHandler}
+ * @task T1436 — Wave 0 of T1435 dispatch refactor (eliminate dispatch-vs-contracts drift)
+ *
+ * **Note on the `any` constraint**: The `(...args: any[]) => any` constraint is REQUIRED
+ * for TypeScript to allow generic inference of `Parameters<C[K]>[0]` and `ReturnType<C[K]>`
+ * without widening to `unknown`. Tightening this constraint would break the inference.
+ * This is a mandatory boundary in the type-system design.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: mandatory for TS inference
+export type OpsFromCore<C extends Record<string, (...args: any[]) => any>> = {
+  [K in keyof C]: [
+    Parameters<C[K]>[0] extends undefined ? Record<string, never> : Parameters<C[K]>[0],
+    Awaited<ReturnType<C[K]>>,
+  ];
+};
+
+/**
  * Shape of a typed-op record.
  *
  * Each key in the record is an operation name, and each value is a tuple of
