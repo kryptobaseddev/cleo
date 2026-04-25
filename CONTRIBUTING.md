@@ -88,3 +88,61 @@ changes.
 
 To skip hook setup in CI or for an unsupported environment, simply do not run
 `hooks:install` — git will fall back to its built-in hooks (or none).
+
+## Post-tag reconciliation hook
+
+`scripts/hooks/post-tag.sh` runs the registry-driven post-release invariants
+gate (T1411 / ADR-056 D5) for a release tag. It invokes
+`cleo reconcile release --tag <tag>`, which:
+
+1. Reads the tag annotation and every commit between the previous tag and the
+   target tag.
+2. Extracts every `T\d+` task ID from those messages.
+3. For each task ID:
+   - If verification gates have all passed, stamp `status='done'`,
+     `archive_reason='verified'`, and `release='<tag>'`.
+   - If verification is null or incomplete, create a follow-up task
+     `T-RECONCILE-FOLLOWUP-<tag>-<idx>` linked to the original.
+4. Appends every mutation to `.cleo/audit/reconcile.jsonl`.
+
+### When it runs
+
+Git does not provide a native `post-tag` hook (the only tag-related hook is
+`pre-push`, which fires *before* a push), so this script is invoked manually
+or by CI runners that detect newly-created tags. Recommended patterns:
+
+```bash
+# Manual invocation immediately after `git tag`
+scripts/hooks/post-tag.sh v2026.4.145
+
+# CI runner that fans out from a tag-trigger event
+- run: scripts/hooks/post-tag.sh "${{ github.ref_name }}"
+```
+
+### Exit codes
+
+The hook forwards the CLI exit code:
+
+- `0` — clean reconcile, no follow-ups.
+- `1` — at least one invariant raised an error (operator MUST investigate).
+- `2` — one or more unreconciled tasks; follow-up tasks were created.
+
+### Dry run
+
+```bash
+cleo reconcile release --tag v2026.4.145 --dry-run
+```
+
+Dry-run mode reads the tag and commit range, extracts task IDs, and prints
+what would happen, but writes nothing to `tasks.db` or
+`.cleo/audit/reconcile.jsonl`. Useful for validating the cited task list
+before tagging.
+
+### JSON output
+
+```bash
+cleo reconcile release --tag v2026.4.145 --json
+```
+
+Emits the raw aggregated `InvariantReport` for downstream tooling (release
+gates, dashboards).
