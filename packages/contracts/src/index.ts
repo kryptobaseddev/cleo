@@ -1085,6 +1085,18 @@ export type {
   ReconcileResult,
   SyncDirection,
 } from './task-sync.js';
+export type { ArchiveReasonValue } from './tasks/archive.js';
+// === Archive Reason Enum (T1409 — typed z.enum + tombstone guard) ===
+export {
+  ARCHIVE_REASON_TOMBSTONE,
+  ARCHIVE_REASON_TOMBSTONE_ENV,
+  ARCHIVE_REASON_VALUES,
+  ArchiveReason,
+  ArchiveReasonSchema,
+  ArchiveReasonTombstoneError,
+  assertArchiveReason,
+  isArchiveTombstoneAllowed,
+} from './tasks/archive.js';
 // === Tessera Types ===
 export type {
   TesseraInstantiationInput,
