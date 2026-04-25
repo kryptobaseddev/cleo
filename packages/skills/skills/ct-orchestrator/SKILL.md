@@ -80,7 +80,7 @@ When the harness has access to tiered models, prefer this assignment. If only on
 |------|----------------|-----------|
 | Orchestrator (you) | opus | Strategic coordination, HITL interface |
 | Team Leads | sonnet | Architecture, specs, validation, complex reasoning |
-| Workers | haiku | Implementation, testing, focused file-level changes |
+| Workers | sonnet | Implementation, testing, focused file-level changes |
 
 ## Spawning Subagents
 
@@ -105,7 +105,7 @@ Returns: resolved prompt with base protocol + conditional protocol + task contex
 Agent({
   description: "Worker: [task title]",
   subagent_type: "cleo-subagent",
-  model: "haiku",
+  model: "sonnet",
   prompt: "<resolved prompt from step 1>"
 })
 ```
