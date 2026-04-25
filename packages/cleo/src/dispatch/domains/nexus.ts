@@ -87,6 +87,7 @@ import {
   nexusDiscover,
   nexusFullContext,
   nexusGraph,
+  nexusImpact,
   nexusImpactFull,
   nexusInitialize,
   nexusListProjects,
@@ -116,6 +117,7 @@ import {
   nexusSyncProject,
   nexusTaskFootprint,
   nexusTaskSymbols,
+  nexusTopEntries,
   nexusTransferExecute,
   nexusTransferPreview,
   nexusUnregisterProject,
@@ -366,8 +368,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'transfer.preview');
   },
 
-  'top-entries': async (_params: NexusTopEntriesParams) => {
-    const result = await nexusGraph();
+  'top-entries': async (params: NexusTopEntriesParams) => {
+    const result = await nexusTopEntries({
+      limit: params?.limit,
+      kind: params?.kind,
+      nodeType: params?.nodeType,
+    });
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -382,8 +388,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     if (!params.symbol) {
       return lafsError('E_INVALID_INPUT', 'symbol is required', 'impact');
     }
-    const projectRoot = getProjectRoot();
-    const result = await nexusImpactFull(params.symbol, projectRoot);
+    const result = await nexusImpact(params.symbol, params.projectId, params.why);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),

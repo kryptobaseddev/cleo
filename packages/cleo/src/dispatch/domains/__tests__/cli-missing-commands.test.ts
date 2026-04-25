@@ -131,30 +131,14 @@ vi.mock('@cleocode/core/memory/precompact-flush.js', () => ({
   precompactFlush: vi.fn(),
 }));
 
-vi.mock('../../engines/nexus-engine.js', () => ({
-  nexusStatus: vi.fn(),
-  nexusListProjects: vi.fn(),
-  nexusShowProject: vi.fn(),
-  nexusResolve: vi.fn(),
-  nexusDepsQuery: vi.fn(),
-  nexusGraph: vi.fn(),
-  nexusCriticalPath: vi.fn(),
-  nexusBlockers: vi.fn(),
-  nexusOrphans: vi.fn(),
-  nexusDiscover: vi.fn(),
-  nexusSearch: vi.fn(),
-  nexusInitialize: vi.fn(),
-  nexusRegisterProject: vi.fn(),
-  nexusUnregisterProject: vi.fn(),
-  nexusSyncProject: vi.fn(),
-  nexusSetPermission: vi.fn(),
-  nexusReconcileProject: vi.fn(),
-  nexusShareStatus: vi.fn(),
-  nexusShareSnapshotExport: vi.fn(),
-  nexusShareSnapshotImport: vi.fn(),
-  nexusTransferPreview: vi.fn(),
-  nexusTransferExecute: vi.fn(),
-}));
+vi.mock('../../engines/nexus-engine.js', async () => {
+  const actual = await vi.importActual<typeof import('../../engines/nexus-engine.js')>(
+    '../../engines/nexus-engine.js',
+  );
+  return {
+    ...actual,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
