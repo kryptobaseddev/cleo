@@ -59,17 +59,35 @@ describe('T1138 — sqlite ExperimentalWarning suppression', () => {
     // Verify: stdout contains the version (sanity check that the command ran).
     expect(stdout.trim()).toMatch(/\d+\.\d+\.\d+/);
 
-    // Note on warning suppression:
-    // The process.emit filter is correctly installed in the CLI bootstrap (index.ts)
-    // and will catch and suppress any warnings emitted via process.emit('warning', ...).
-    // However, due to ES module import hoisting in the esbuild bundle, the static
-    // import of node:sqlite in drizzle-orm's bundled code occurs before the filter
-    // can intercept it. Complete suppression would require build-time changes
-    // (esbuild banner injection). The filter code is correct and functional for
-    // any subsequent warnings or dynamically-imported code.
+    // T1431 CARVE-OUT: SQLite warning suppression for CLI consumers
     //
-    // This test passes if the CLI runs successfully (exit code 0) and produces
-    // expected output, demonstrating that the warning doesn't cause a runtime error.
+    // The suppression filter in @cleocode/core/suppress-sqlite-warning.ts works
+    // correctly for programmatic consumers (T1406 scope). However, complete
+    // suppression for CLI invocations is NOT achievable with esbuild's banner
+    // approach because Node.js emits the ExperimentalWarning during the ESM
+    // module resolution phase (before ANY code can execute).
+    //
+    // Execution order in the compiled bundle:
+    // 1. Node.js starts loading the ESM module
+    // 2. Node.js hoists all `import` statements (including imports from
+    //    @cleocode/core that transitively depend on node:sqlite)
+    // 3. Node.js resolves and loads those imports → emits ExperimentalWarning
+    // 4. esbuild banner code executes (too late to intercept the warning)
+    // 5. User code executes
+    //
+    // Complete suppression would require:
+    // - Using a Node.js loader hook (--loader flag), OR
+    // - Refactoring the entire CLI to use dynamic imports, OR
+    // - Setting NODE_OPTIONS="--no-warnings=ExperimentalWarning"
+    //
+    // This test verifies that:
+    // 1. The CLI runs successfully (exit code 0)
+    // 2. The warning doesn't cause a runtime error
+    // 3. Normal output is produced (version number)
+    //
+    // The warning WILL appear in stderr, but it does not break the CLI.
+    // Users can suppress it themselves if needed by setting the NODE_OPTIONS
+    // environment variable.
   });
 
   it('CLI invocation preserves other Node warnings (if any fire)', () => {
