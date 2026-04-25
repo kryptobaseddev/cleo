@@ -47,7 +47,7 @@ beforeEach(async () => {
   closeDb();
 
   // Seed a test task so FK references don't fail
-  const { createTask } = await import('../../store/task-store.js');
+  const { createTask } = await import('../../store/tasks-sqlite.js');
   await createTask(
     {
       id: 'T999',

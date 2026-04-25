@@ -198,7 +198,7 @@ async function createTestProject(
 
   // Seed tasks into SQLite via the task store
   const { getDb } = await import('../../../core/src/store/sqlite.js');
-  const { createTask } = await import('../../../core/src/store/task-store.js');
+  const { createTask } = await import('../../../core/src/store/tasks-sqlite.js');
   await getDb(testDir);
 
   const tasks = (tasksJson as { tasks: Array<Record<string, unknown>> }).tasks ?? [];

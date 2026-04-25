@@ -288,7 +288,7 @@ export async function createStoreProvider(
  * @task T4647
  */
 async function createSqliteProvider(cwd?: string): Promise<StoreProvider> {
-  const sqliteStore = await import('./task-store.js');
+  const sqliteStore = await import('./tasks-sqlite.js');
   const sessionStore = await import('./session-store.js');
   const { closeDb } = await import('./sqlite.js');
   const domainOps = await createDomainOps(cwd);

@@ -47,7 +47,7 @@ describe('Safety Performance', () => {
 
   describe('Single Task Operations', () => {
     it('should create task within <200ms including safety', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { safeCreateTask } = await import('../data-safety.js');
 
       // Warmup: initialize DB
@@ -81,7 +81,7 @@ describe('Safety Performance', () => {
     });
 
     it('should verify task write within <100ms', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { verifyTaskWrite } = await import('../data-safety.js');
 
       await createTask({
@@ -101,7 +101,7 @@ describe('Safety Performance', () => {
     });
 
     it('should check collision within <50ms', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { checkTaskExists } = await import('../data-safety.js');
 
       await createTask({
@@ -123,7 +123,7 @@ describe('Safety Performance', () => {
 
   describe('Bulk Operations', () => {
     it('should create 50 tasks within <10000ms', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
 
       const start = performance.now();
 
@@ -149,7 +149,7 @@ describe('Safety Performance', () => {
     });
 
     it('should verify 50 tasks within <3000ms', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { verifyTaskWrite } = await import('../data-safety.js');
 
       // Create 50 tasks first

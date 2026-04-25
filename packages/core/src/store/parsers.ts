@@ -1,7 +1,7 @@
 /**
  * Shared JSON parsing helpers for SQLite store modules.
  *
- * Eliminates duplication across sqlite-data-accessor.ts, task-store.ts,
+ * Eliminates duplication across sqlite-data-accessor.ts, tasks-sqlite.ts,
  * and session-store.ts.
  */
 

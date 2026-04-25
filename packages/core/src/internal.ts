@@ -700,7 +700,6 @@ export {
   vacuumIntoBackupAll,
   vacuumIntoGlobalBackup,
 } from './store/sqlite-backup.js';
-export { createTask, getTask } from './store/task-store.js';
 export {
   auditLog,
   externalTaskLinks,
@@ -709,6 +708,7 @@ export {
   taskDependencies,
   tasks,
 } from './store/tasks-schema.js';
+export { createTask, getTask } from './store/tasks-sqlite.js';
 export { AuditLogInsertSchema } from './store/validation-schemas.js';
 export type {
   AnalyzeArchiveOptions,

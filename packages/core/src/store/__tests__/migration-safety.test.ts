@@ -483,7 +483,7 @@ describe('Migration Safety Integration Tests', () => {
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       await migrateJsonToSqlite();
 
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const task = await getTask('T001');
 
       expect(task).not.toBeNull();
@@ -523,7 +523,7 @@ describe('Migration Safety Integration Tests', () => {
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       await migrateJsonToSqlite();
 
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
 
       const t1 = await getTask('T001');
       const t2 = await getTask('T002');
@@ -973,7 +973,7 @@ describe('Migration Safety Integration Tests', () => {
 
       expect(result.success).toBe(true);
 
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const t2 = await getTask('T002');
       const t3 = await getTask('T003');
 
@@ -1003,7 +1003,7 @@ describe('Migration Safety Integration Tests', () => {
       expect(result.success).toBe(true);
       expect(result.tasksImported).toBe(1);
 
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const task = await getTask('T001');
 
       expect(task).not.toBeNull();

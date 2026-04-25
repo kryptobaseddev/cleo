@@ -155,7 +155,7 @@ describe('Migration integration', () => {
       expect(result.errors).toHaveLength(0);
 
       // Verify data in SQLite matches source
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
 
       const t1 = await getTask('T001');
       expect(t1).not.toBeNull();
@@ -190,7 +190,7 @@ describe('Migration integration', () => {
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       await migrateJsonToSqlite();
 
-      const { getChildren } = await import('../task-store.js');
+      const { getChildren } = await import('../tasks-sqlite.js');
       const children = await getChildren('T001');
       expect(children).toHaveLength(1);
       expect(children[0]!.id).toBe('T002');
