@@ -4,6 +4,57 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.145] — 2026-04-25 — Type Check green: 104 TS errors eliminated + T1408/T1409 archive-reason follow-through
+
+Closes the v2026.4.144 release-CI failure (104 TypeScript errors at the `Type Check` step) and integrates parallel-agent T1408/T1409 archive-reason work that landed mid-flight, restoring the full quality gate (`pnpm exec tsc -b`, `pnpm biome ci`, `pnpm run build`, `pnpm exec vitest run`) to green.
+
+### Closed in this release
+
+- **T1434** Eliminate 104 TS errors + ship v2026.4.145 fully green (parent task — this release).
+
+### TypeScript error breakdown (104 → 0)
+
+Per-domain dispatch handler error counts at start of session:
+
+- `packages/cleo/src/dispatch/domains/nexus.ts`: 44 errors — missing exports for `NexusOps` and 39 `NexusXxxParams`/`Result` types.
+- `packages/cleo/src/dispatch/domains/check.ts`: 23 errors — missing `CheckOps` export, 19 `ValidateXxxParams` types, 1 `_projectRoot` unused, 2 `DispatchResponse` shape mismatches, 1 missing `'test.coverage'` op.
+- `packages/cleo/src/dispatch/domains/conduit.ts`: 19 errors — 9 missing `ConduitXxxParams`/`Ops` exports, 2 envelope-shape mismatches with `LafsEnvelope`, 7 `'this' implicitly any` (stray `this.resolveCredential` calls in standalone async functions), 1 unused `_resolveCredential`.
+- `packages/cleo/src/dispatch/domains/sentient.ts`: 13 errors — 11 missing `SentientOps`/`AllowlistXxxParams`/`ProposeXxxParams` exports, 2 `LafsEnvelope` generic mismatches.
+- `packages/cleo/src/dispatch/domains/memory.ts`: 2 errors — `Record<string, SQLOutputValue>[]` to `EdgeRow[]` ts2352 casts.
+- `packages/cleo/src/dispatch/domains/admin.ts`: 2 errors — missing `AdminRuntimeParams` import and `LafsEnvelope` discriminated-union narrowing.
+- `packages/cleo/src/dispatch/engines/release-engine.ts`: 1 error — `id` not on `TaskQueryFilters`.
+
+### What changed
+
+- **`packages/contracts/src/index.ts`**: re-exported 162+ operation types at top-level so dispatch handlers can `import` them from `@cleocode/contracts` without the `ops.*` namespace hop. Includes ALL of `ConduitOps`/`NexusOps`/`SentientOps`/`CheckOps`, every `NexusXxxParams`/`Result`, every `ValidateXxxParams`/`Result`, every `Allowlist*`/`Propose*` shape, plus `AdminRuntimeParams`/`Result`.
+- **`packages/contracts/src/operations/nexus-user-profile.ts`**: extended `NexusProfileViewParams` with `includeSuperseded?: boolean` to match the engine signature.
+- **`packages/cleo/src/dispatch/engines/nexus-engine.ts` (`nexusProfileUpsert`)**: accept the dispatch wire-format `Pick<UserProfileTrait, ...>` and fill in engine-managed fields (`firstObservedAt`, `lastReinforcedAt`, `reinforcementCount`, `supersededBy`).
+- **`packages/cleo/src/dispatch/engines/release-engine.ts` (`releaseIvtrAutoSuggest`)**: switched from `queryTasks({ id })` (no `id` filter on `TaskQueryFilters`) to `loadTasks([taskId])` — the accessor's by-id loader.
+- **`packages/cleo/src/dispatch/domains/admin.ts`**: imported `AdminRuntimeParams`; narrowed `LafsEnvelope` discriminated union via `envelope.success` before reading `envelope.data` (line 1278 — the adr.sync mode).
+- **`packages/cleo/src/dispatch/domains/conduit.ts`**: replaced 7 stray `this.resolveCredential(agentId)` calls (which would have crashed at runtime) with `_resolveCredential(agentId)`; widened `envelopeToEngineResult` to accept LAFS `code: string | number` and stringify on the boundary.
+- **`packages/cleo/src/dispatch/domains/sentient.ts`**: same envelope shape fix as conduit.
+- **`packages/cleo/src/dispatch/domains/check.ts`**: dropped unused `_projectRoot` in `chain.validate`; added `'test.coverage'` typed op (CheckOps declares it; legacy `test` op routed by `params.format` is preserved); used `operation as keyof CheckOps & string` instead of `as any`; normalized LAFS error code to DispatchError code.
+- **`packages/cleo/src/dispatch/domains/memory.ts`**: replaced ad-hoc `as EdgeRow[]` casts with the canonical `typedAll<T>` helper from `@cleocode/core/store/typed-query.ts`. Re-exported `typedAll`/`typedGet` from `@cleocode/core/internal`.
+
+### T1408/T1409 archive-reason follow-through
+
+Parallel-agent work landed mid-session: T1408 added a 6-value CHECK constraint to `tasks.archive_reason` (`'verified'`|`'reconciled'`|`'superseded'`|`'shadowed'`|`'cancelled'`|`'completed-unverified'`), and T1409 promoted the values into a typed Zod enum at the contracts layer (`packages/contracts/src/tasks/archive.ts`). T1408 didn't update runtime call-sites or test fixtures, breaking 14 tests. This release closes the gap:
+
+- **Runtime**: `tasks-sqlite.ts archiveTask` normalizes legacy reasons; `migration-sqlite.ts` replaces `'migrated'` fallback with `'completed-unverified'`; `delete.ts` maps deletes to `'cancelled'`; `archive.ts deriveArchiveReason` maps verified-done to `'verified'`; `transfer.ts` cross-project transfers map source tasks to `'superseded'`.
+- **Tests**: 5 fixture files updated to use enum values (`'completed'`/`'deleted'`/`'Manual cleanup'` → enum). `archive.test.ts` expectation updated.
+- **Contracts portability fix**: `isArchiveTombstoneAllowed()` in `contracts/tasks/archive.ts` uses `(globalThis as any)?.process?.env` instead of bare `process` so the zero-runtime-deps contracts package remains portable across Node, browser, Deno, and edge runtimes.
+
+### Test deflakes
+
+- **`sqlite-warning-suppress.test.ts`**: bumped `spawnSync` timeout 5s → 30s. CLI cold bootstrap takes ~6s on Node 24+ which raced the prior timeout under parallel-test load and produced empty stdout (T1431 carve-out, now robust under parallel run).
+- **`performance-safety.test.ts`**: bumped bulk-50-creates threshold 20s → 45s. Observed runtime under parallel-test load (4+ vitest workers + post-T1408 CHECK eval per row) is ~26s; 45s leaves headroom while still catching real regressions.
+- **`backup-pack.test.ts` (cleanup)**: added settle-grace + persistent-only assertion. Sibling vitest workers running `packBundle` concurrently can transiently leave `cleo-pack-*` dirs in `os.tmpdir()` between pre-snapshot and post-snapshot; we now re-scan after a 50ms grace and only fail on staging dirs that persist past their owner's call boundary.
+- **`reconstruct.test.ts`**: documented `RECONSTRUCT_TIMEOUT_MS` rationale (git log over full history takes ~40s baseline; under parallel test load, the 60s default `testTimeout` can race).
+
+### Lesson
+
+Type Check is a hard CI gate — missing contract exports MUST be re-exported at the top level of `@cleocode/contracts` (not just under the `ops.*` namespace) when dispatch handlers depend on them. Future typed-narrowing waves (Wave D-style migrations) MUST run `pnpm exec tsc -b --pretty false` and `pnpm biome ci .` against the full repo before tagging — pre-tag verification at the per-package level misses cross-package symbol resolution.
+
 ## [2026.4.144] — 2026-04-25 — Tag-integrity fix-forward for v2026.4.143
 
 Re-ships v2026.4.143 scope as a properly-tagged release. The `v2026.4.143` tag was created on commit `6b66e7f14` before the CHANGELOG section landed, so the Release workflow's `Verify CHANGELOG section` step rejected it (CI failed at tag-push time). The fix-forward CHANGELOG commit (`ff286f5e1`) and the typed-narrowing TS error reduction (`51ff74664`) landed afterwards, and a manual `workflow_dispatch` Release on `ff286f5e1` succeeded — but the `v2026.4.143` git tag was never moved. Per project rule "Never reuse tags", v2026.4.144 supersedes v2026.4.143 with a tag that points at a fully-green commit.
