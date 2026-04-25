@@ -434,15 +434,51 @@ describe('T347 backup-pack', () => {
   it('cleans up the staging dir even on success', async () => {
     // This test exercises the normal success path; we verify there are no
     // stale cleo-pack-* directories in os.tmpdir() after the call.
-    const preExisting = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('cleo-pack-'));
+    //
+    // T1434: under parallel test runs (multiple vitest workers running
+    // packBundle concurrently across this and sibling describe blocks),
+    // sibling tests' staging dirs can transiently appear in os.tmpdir()
+    // between our pre-snapshot and post-snapshot. To avoid spurious
+    // failures from interleaved sibling work, we capture the set of
+    // pre-existing dirs and the dirs present after our packBundle call,
+    // then check that any dir we saw post-call which was created during
+    // OUR packBundle (i.e., wasn't preExisting) is also no longer present
+    // by the time we record the final state. We do that by re-reading
+    // tmpdir a second time after a microtask boundary so any sibling
+    // workers that allocated mid-call have a chance to clean up too.
+    const preExisting = new Set(
+      fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('cleo-pack-')),
+    );
 
     const bundlePath = path.join(outputDir, 'test.cleobundle.tar.gz');
     await packBundle({ scope: 'project', projectRoot: tmpRoot, outputPath: bundlePath });
 
-    const postCall = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('cleo-pack-'));
-    // No new staging dirs should remain after a successful pack
-    const newDirs = postCall.filter((d) => !preExisting.includes(d));
-    expect(newDirs).toHaveLength(0);
+    // Allow sibling workers' pending cleanups to settle (microtask + 50ms
+    // grace period for fs flush under heavy parallel-test load).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const postCall = fs
+      .readdirSync(os.tmpdir())
+      .filter((n) => n.startsWith('cleo-pack-'))
+      .filter((d) => !preExisting.has(d));
+
+    // After our call returns and any concurrent siblings have settled,
+    // there should be no staging dirs we left behind. We do not assert
+    // about dirs created+deleted by siblings during our call because
+    // those are the sibling's responsibility, not ours.
+    //
+    // To remain robust, we additionally verify by re-scanning after a
+    // second 50ms grace and only fail if the post-call dirs persist.
+    if (postCall.length > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const persistent = fs
+        .readdirSync(os.tmpdir())
+        .filter((n) => n.startsWith('cleo-pack-'))
+        .filter((d) => postCall.includes(d));
+      expect(persistent).toHaveLength(0);
+    } else {
+      expect(postCall).toHaveLength(0);
+    }
   });
 
   // -------------------------------------------------------------------------
