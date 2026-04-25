@@ -747,10 +747,12 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   },
 
   'chain.validate': async (params: ValidateChainParams) => {
-    const _projectRoot = getProjectRoot();
     if (!params.chain) {
       return lafsError('E_INVALID_INPUT', 'chain is required', 'chain.validate');
     }
+    // chain.validate is a pure-function check (no project state); no
+    // project root needed. Other check ops bind getProjectRoot() — see
+    // sibling handlers above.
     const chainResult = validateChain(params.chain);
     return lafsSuccess(chainResult, 'chain.validate');
   },
@@ -844,6 +846,27 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(
       result.data ?? { status: { total: 0, passed: 0, failed: 0, skipped: 0, passRate: 0 } },
       'test.run',
+    );
+  },
+
+  'test.coverage': async (_params) => {
+    // T1434: surface the dedicated test.coverage typed op declared in
+    // CheckOps. The legacy `test` op routes by `params.format === 'coverage'`
+    // and remains for backward compat with existing CLI surface; new typed
+    // callers SHOULD prefer `test.coverage` which targets `validateTestCoverage`
+    // directly.
+    const projectRoot = getProjectRoot();
+    const result = validateTestCoverage(projectRoot);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'test.coverage',
+      );
+    }
+    return lafsSuccess(
+      result.data ?? { lineCoverage: 0, branchCoverage: 0, functionCoverage: 0, threshold: 0 },
+      'test.coverage',
     );
   },
 

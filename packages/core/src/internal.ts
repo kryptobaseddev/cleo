@@ -1328,6 +1328,9 @@ export { GateStatus, VerificationGate } from './validation/operation-verificatio
 export { detectProjectType } from './store/project-detect.js';
 export { closeAllDatabases, closeDb, resetDbState } from './store/sqlite.js';
 export { createSqliteDataAccessor } from './store/sqlite-data-accessor.js';
+// T1434 — Typed sqlite query helpers exported for dispatch consumers that
+// need to centralize the `as unknown as T[]` cast across node:sqlite calls.
+export { typedAll, typedGet } from './store/typed-query.js';
 // Validation — doctor checks (used by cleo init tests)
 export { checkRootGitignore } from './validation/doctor/checks.js';
 
