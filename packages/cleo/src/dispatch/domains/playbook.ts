@@ -61,6 +61,25 @@ import { errorResult, getListParams, handleErrorResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
+// Custom error type for operation-specific error codes
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrapper for operation errors that preserves the LAFS error code.
+ *
+ * @internal
+ */
+class PlaybookOperationError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PlaybookOperationError';
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Injection overrides (tests)
 // ---------------------------------------------------------------------------
 
@@ -109,16 +128,6 @@ interface PlaybookRunEnvelope {
   failedNodeId?: string;
   exceededNodeId?: string;
   errorContext?: string;
-}
-
-/** List-envelope shape returned by `playbook.list`. */
-interface PlaybookListEnvelope {
-  /** Ordered from newest to oldest; pagination applied client-side. */
-  runs: PlaybookRun[];
-  count: number;
-  total: number;
-  /** Effective status filter (after `active|completed|pending` translation). */
-  statusFilter?: PlaybookRunStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +330,337 @@ function toRunEnvelope(result: ExecutePlaybookResult): PlaybookRunEnvelope {
 }
 
 // ---------------------------------------------------------------------------
+// OpsFromCore type inference (T1435 Wave 1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrapper functions that expose playbook operations with proper param/result signatures.
+ *
+ * These functions serve as the source of truth for `OpsFromCore` inference.
+ * The handler delegates to these after extracting and validating params from
+ * the untyped dispatch registry.
+ *
+ * @internal
+ */
+async function playbookStatus(params: { runId: string }): Promise<PlaybookRun | null> {
+  const db = await acquireDb();
+  return getPlaybookRun(db, params.runId);
+}
+
+async function playbookList(params: {
+  status?: string;
+  epicId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{
+  runs: PlaybookRun[];
+  count: number;
+  total: number;
+  statusFilter?: PlaybookRunStatus;
+}> {
+  const statusFilter = normalizeListStatus(params?.status);
+  const epicId = params?.epicId;
+  const { limit, offset } = { limit: params?.limit, offset: params?.offset };
+
+  const db = await acquireDb();
+  const opts: Parameters<typeof listPlaybookRunsState>[1] = {};
+  if (statusFilter !== undefined) opts.status = statusFilter;
+  if (epicId !== undefined) opts.epicId = epicId;
+  if (typeof limit === 'number') opts.limit = limit;
+  const runs = listPlaybookRunsState(db, opts);
+
+  // Offset is applied after fetch since listPlaybookRuns only supports LIMIT.
+  const paged = typeof offset === 'number' ? runs.slice(offset) : runs;
+
+  const result: {
+    runs: PlaybookRun[];
+    count: number;
+    total: number;
+    statusFilter?: PlaybookRunStatus;
+  } = {
+    runs: paged,
+    count: paged.length,
+    total: runs.length,
+  };
+  if (statusFilter !== undefined) result.statusFilter = statusFilter;
+  return result;
+}
+
+async function playbookValidate(params: { file?: string; name?: string }): Promise<{
+  valid: boolean;
+  sourcePath: string;
+  sourceHash: string;
+  name: string;
+  version: string;
+  nodeCount: number;
+  edgeCount: number;
+  hasRequires: boolean;
+  hasEnsures: boolean;
+  hasErrorHandlers: boolean;
+}> {
+  const file = params?.file;
+  const name = params?.name;
+
+  if (!file && !name) {
+    throw new PlaybookOperationError(
+      'E_INVALID_INPUT',
+      'Either file (path) or name (playbook name) is required',
+    );
+  }
+
+  let source: string;
+  let sourcePath: string;
+
+  if (file) {
+    // Absolute or relative file path.
+    const { resolve: resolvePath } = await import('node:path');
+    const resolved = resolvePath(file);
+    if (!existsSync(resolved)) {
+      throw new PlaybookOperationError('E_NOT_FOUND', `playbook file not found: ${resolved}`);
+    }
+    sourcePath = resolved;
+    source = readFileSync(resolved, 'utf8');
+  } else {
+    // Resolve by name through the standard search path.
+    const loaded = loadPlaybookByName(name!);
+    if (loaded === null) {
+      throw new PlaybookOperationError(
+        'E_NOT_FOUND',
+        `playbook "${name}" not found in any search path`,
+      );
+    }
+    sourcePath = loaded.sourcePath;
+    source = loaded.source;
+  }
+
+  try {
+    const { definition, sourceHash } = parsePlaybook(source);
+    return {
+      valid: true,
+      sourcePath,
+      sourceHash,
+      name: definition.name,
+      version: definition.version,
+      nodeCount: definition.nodes.length,
+      edgeCount: definition.edges.length,
+      hasRequires: definition.nodes.some((n) => n.requires !== undefined),
+      hasEnsures: definition.nodes.some((n) => n.ensures !== undefined),
+      hasErrorHandlers: (definition.error_handlers?.length ?? 0) > 0,
+    };
+  } catch (err) {
+    if (err instanceof PlaybookParseError) {
+      throw new PlaybookOperationError(
+        err.code,
+        `${err.message}${err.field ? ` [field=${err.field}]` : ''}`,
+      );
+    }
+    throw err;
+  }
+}
+
+async function playbookRun(params: {
+  name: string;
+  context?: Record<string, unknown> | string;
+}): Promise<{
+  runId: string;
+  terminalStatus: ExecutePlaybookResult['terminalStatus'];
+  finalContext: Record<string, unknown>;
+  approvalToken?: string;
+  failedNodeId?: string;
+  exceededNodeId?: string;
+  errorContext?: string;
+  playbookName: string;
+  playbookSource: string;
+}> {
+  const name = params?.name;
+  if (!name) {
+    throw new PlaybookOperationError('E_INVALID_INPUT', 'name is required');
+  }
+  let initialContext: Record<string, unknown>;
+  try {
+    initialContext = parseContextJson(params?.context);
+  } catch (err) {
+    throw new PlaybookOperationError(
+      'E_INVALID_INPUT',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  const loaded = loadPlaybookByName(name);
+  if (loaded === null) {
+    throw new PlaybookOperationError(
+      'E_NOT_FOUND',
+      `playbook "${name}" not found in any search path`,
+    );
+  }
+
+  // Parse + validate .cantbook via the canonical parser so syntax errors
+  // surface before a DB row is ever written.
+  let parsed: ReturnType<typeof parsePlaybook>;
+  try {
+    parsed = parsePlaybook(loaded.source);
+  } catch (err) {
+    if (err instanceof PlaybookParseError) {
+      throw new PlaybookOperationError(
+        err.code,
+        `${err.message}${err.field ? ` [field=${err.field}]` : ''}`,
+      );
+    }
+    throw err;
+  }
+
+  const db = await acquireDb();
+  const dispatcher = await buildDefaultDispatcher();
+  let result: ExecutePlaybookResult;
+  try {
+    const { getProjectRoot } = await import('@cleocode/core/internal');
+    const opts: Parameters<typeof executePlaybook>[0] = {
+      db,
+      playbook: parsed.definition,
+      playbookHash: parsed.sourceHash,
+      initialContext,
+      dispatcher,
+      projectRoot: getProjectRoot(),
+    };
+    if (__playbookRuntimeOverrides.approvalSecret !== undefined) {
+      opts.approvalSecret = __playbookRuntimeOverrides.approvalSecret;
+    }
+    const epicIdRaw = initialContext['epicId'];
+    if (typeof epicIdRaw === 'string') opts.epicId = epicIdRaw;
+    const sessionIdRaw = initialContext['sessionId'];
+    if (typeof sessionIdRaw === 'string') opts.sessionId = sessionIdRaw;
+    result = await executePlaybook(opts);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = message.startsWith(E_PLAYBOOK_RUNTIME_INVALID)
+      ? E_PLAYBOOK_RUNTIME_INVALID
+      : 'E_PLAYBOOK_RUNTIME';
+    throw new PlaybookOperationError(code, message);
+  }
+
+  return {
+    ...toRunEnvelope(result),
+    playbookName: parsed.definition.name,
+    playbookSource: loaded.sourcePath,
+  };
+}
+
+async function playbookResume(params: { runId: string }): Promise<{
+  runId: string;
+  terminalStatus: ExecutePlaybookResult['terminalStatus'];
+  finalContext: Record<string, unknown>;
+  approvalToken?: string;
+  failedNodeId?: string;
+  exceededNodeId?: string;
+  errorContext?: string;
+}> {
+  const runId = params?.runId;
+  if (!runId) {
+    throw new PlaybookOperationError('E_INVALID_INPUT', 'runId is required');
+  }
+  const db = await acquireDb();
+  const run = getPlaybookRun(db, runId);
+  if (run === null) {
+    throw new PlaybookOperationError('E_NOT_FOUND', `playbook run ${runId} not found`);
+  }
+
+  // The approval token lookup doubles as the "gate still pending?" guard.
+  // Locate the most recent approval row for this run via the token stored
+  // on the run's most recent approval; fall back to re-loading by runId
+  // when no approval has been issued yet.
+  const approvals = loadApprovalsForRun(db, runId);
+  if (approvals.length === 0) {
+    throw new PlaybookOperationError(
+      'E_APPROVAL_NOT_FOUND',
+      `run ${runId} has no approval gates — nothing to resume`,
+    );
+  }
+  // Newest approval first — sorted ascending by requested_at so pick tail.
+  const latest = approvals[approvals.length - 1] as PlaybookApproval;
+  if (latest.status === 'pending') {
+    throw new PlaybookOperationError(
+      'E_APPROVAL_PENDING',
+      `gate ${latest.approvalId} for run ${runId} is still pending — approve before resuming`,
+    );
+  }
+  if (latest.status === 'rejected') {
+    throw new PlaybookOperationError(
+      'E_APPROVAL_REJECTED',
+      `gate ${latest.approvalId} was rejected${latest.reason ? ` (${latest.reason})` : ''}`,
+    );
+  }
+
+  // Gate is approved — need the original playbook source to resume. The run
+  // row carries `playbook_name` but not the source; re-resolve from the
+  // on-disk search path so the hash is re-validated on every resume.
+  const loaded = loadPlaybookByName(run.playbookName);
+  if (loaded === null) {
+    throw new PlaybookOperationError(
+      'E_NOT_FOUND',
+      `playbook "${run.playbookName}" not found — cannot resume run ${runId}`,
+    );
+  }
+  let parsed: ReturnType<typeof parsePlaybook>;
+  try {
+    parsed = parsePlaybook(loaded.source);
+  } catch (err) {
+    throw new PlaybookOperationError(
+      'E_PLAYBOOK_PARSE',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  if (parsed.sourceHash !== run.playbookHash) {
+    throw new PlaybookOperationError(
+      'E_PLAYBOOK_HASH_MISMATCH',
+      `playbook "${run.playbookName}" source changed since run started (hash drift)`,
+    );
+  }
+
+  const dispatcher = await buildDefaultDispatcher();
+  try {
+    const opts: Parameters<typeof resumePlaybook>[0] = {
+      db,
+      playbook: parsed.definition,
+      approvalToken: latest.token,
+      dispatcher,
+    };
+    if (__playbookRuntimeOverrides.approvalSecret !== undefined) {
+      opts.approvalSecret = __playbookRuntimeOverrides.approvalSecret;
+    }
+    const result = await resumePlaybook(opts);
+    return toRunEnvelope(result);
+  } catch (err) {
+    if (err instanceof PlaybookOperationError) {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.startsWith(E_PLAYBOOK_RESUME_BLOCKED)) {
+      throw new PlaybookOperationError(E_PLAYBOOK_RESUME_BLOCKED, message);
+    }
+    throw new PlaybookOperationError('E_PLAYBOOK_RUNTIME', message);
+  }
+}
+
+/**
+ * Core operations registry for type inference.
+ *
+ * Maps operation names to their corresponding Core-level functions.
+ * Used with `OpsFromCore<typeof coreOps>` to infer typed params/results.
+ *
+ * @internal
+ */
+const coreOps = {
+  status: playbookStatus,
+  list: playbookList,
+  validate: playbookValidate,
+  run: playbookRun,
+  resume: playbookResume,
+} as const;
+
+// Inferred typed operation registry (via OpsFromCore<typeof coreOps>).
+// The type is not explicitly used in this file but is available for external consumers.
+
+// ---------------------------------------------------------------------------
 // PlaybookHandler
 // ---------------------------------------------------------------------------
 
@@ -408,66 +748,63 @@ export class PlaybookHandler implements DomainHandler {
     params: Record<string, unknown> | undefined,
     startTime: number,
   ): Promise<DispatchResponse> {
-    const runId = params?.runId as string | undefined;
-    if (!runId) {
-      return errorResult(
-        'query',
-        'playbook',
-        'status',
-        'E_INVALID_INPUT',
-        'runId is required',
-        startTime,
-      );
+    try {
+      const runId = params?.runId as string | undefined;
+      if (!runId) {
+        return errorResult(
+          'query',
+          'playbook',
+          'status',
+          'E_INVALID_INPUT',
+          'runId is required',
+          startTime,
+        );
+      }
+      const run = await playbookStatus({ runId });
+      if (run === null) {
+        return errorResult(
+          'query',
+          'playbook',
+          'status',
+          'E_NOT_FOUND',
+          `playbook run ${runId} not found`,
+          startTime,
+        );
+      }
+      return {
+        meta: dispatchMeta('query', 'playbook', 'status', startTime),
+        success: true,
+        data: run,
+      };
+    } catch (err) {
+      return handleErrorResult('query', 'playbook', 'status', err, startTime);
     }
-    const db = await acquireDb();
-    const run = getPlaybookRun(db, runId);
-    if (run === null) {
-      return errorResult(
-        'query',
-        'playbook',
-        'status',
-        'E_NOT_FOUND',
-        `playbook run ${runId} not found`,
-        startTime,
-      );
-    }
-    return {
-      meta: dispatchMeta('query', 'playbook', 'status', startTime),
-      success: true,
-      data: run,
-    };
   }
 
   private async handleList(
     params: Record<string, unknown> | undefined,
     startTime: number,
   ): Promise<DispatchResponse> {
-    const statusFilter = normalizeListStatus(params?.status);
-    const epicId = typeof params?.epicId === 'string' ? params.epicId : undefined;
-    const { limit, offset } = getListParams(params);
+    try {
+      const statusRaw = params?.status;
+      const epicId = typeof params?.epicId === 'string' ? params.epicId : undefined;
+      const { limit, offset } = getListParams(params);
 
-    const db = await acquireDb();
-    const opts: Parameters<typeof listPlaybookRunsState>[1] = {};
-    if (statusFilter !== undefined) opts.status = statusFilter;
-    if (epicId !== undefined) opts.epicId = epicId;
-    if (typeof limit === 'number') opts.limit = limit;
-    const runs = listPlaybookRunsState(db, opts);
+      const result = await playbookList({
+        status: typeof statusRaw === 'string' ? statusRaw : undefined,
+        epicId,
+        limit,
+        offset,
+      });
 
-    // Offset is applied after fetch since listPlaybookRuns only supports LIMIT.
-    const paged = typeof offset === 'number' ? runs.slice(offset) : runs;
-
-    const envelope: PlaybookListEnvelope = {
-      runs: paged,
-      count: paged.length,
-      total: runs.length,
-    };
-    if (statusFilter !== undefined) envelope.statusFilter = statusFilter;
-
-    return {
-      meta: dispatchMeta('query', 'playbook', 'list', startTime),
-      success: true,
-      data: envelope,
-    };
+      return {
+        meta: dispatchMeta('query', 'playbook', 'list', startTime),
+        success: true,
+        data: result,
+      };
+    } catch (err) {
+      return handleErrorResult('query', 'playbook', 'list', err, startTime);
+    }
   }
 
   /**
@@ -487,76 +824,31 @@ export class PlaybookHandler implements DomainHandler {
     params: Record<string, unknown> | undefined,
     startTime: number,
   ): Promise<DispatchResponse> {
-    const file = params?.file as string | undefined;
-    const name = params?.name as string | undefined;
-
-    if (!file && !name) {
-      return errorResult(
-        'query',
-        'playbook',
-        'validate',
-        'E_INVALID_INPUT',
-        'Either file (path) or name (playbook name) is required',
-        startTime,
-      );
-    }
-
-    let source: string;
-    let sourcePath: string;
-
-    if (file) {
-      // Absolute or relative file path.
-      const { existsSync, readFileSync } = await import('node:fs');
-      const { resolve: resolvePath } = await import('node:path');
-      const resolved = resolvePath(file);
-      if (!existsSync(resolved)) {
-        return errorResult(
-          'query',
-          'playbook',
-          'validate',
-          'E_NOT_FOUND',
-          `playbook file not found: ${resolved}`,
-          startTime,
-        );
-      }
-      sourcePath = resolved;
-      source = readFileSync(resolved, 'utf8');
-    } else {
-      // Resolve by name through the standard search path.
-      const loaded = loadPlaybookByName(name!);
-      if (loaded === null) {
-        return errorResult(
-          'query',
-          'playbook',
-          'validate',
-          'E_NOT_FOUND',
-          `playbook "${name}" not found in any search path`,
-          startTime,
-        );
-      }
-      sourcePath = loaded.sourcePath;
-      source = loaded.source;
-    }
-
     try {
-      const { definition, sourceHash } = parsePlaybook(source);
+      const file = params?.file as string | undefined;
+      const name = params?.name as string | undefined;
+
+      if (!file && !name) {
+        return errorResult(
+          'query',
+          'playbook',
+          'validate',
+          'E_INVALID_INPUT',
+          'Either file (path) or name (playbook name) is required',
+          startTime,
+        );
+      }
+
+      const result = await playbookValidate({ file, name });
       return {
         meta: dispatchMeta('query', 'playbook', 'validate', startTime),
         success: true,
-        data: {
-          valid: true,
-          sourcePath,
-          sourceHash,
-          name: definition.name,
-          version: definition.version,
-          nodeCount: definition.nodes.length,
-          edgeCount: definition.edges.length,
-          hasRequires: definition.nodes.some((n) => n.requires !== undefined),
-          hasEnsures: definition.nodes.some((n) => n.ensures !== undefined),
-          hasErrorHandlers: (definition.error_handlers?.length ?? 0) > 0,
-        },
+        data: result,
       };
     } catch (err) {
+      if (err instanceof PlaybookOperationError) {
+        return errorResult('query', 'playbook', 'validate', err.code, err.message, startTime);
+      }
       if (err instanceof PlaybookParseError) {
         return errorResult(
           'query',
@@ -567,14 +859,7 @@ export class PlaybookHandler implements DomainHandler {
           startTime,
         );
       }
-      return errorResult(
-        'query',
-        'playbook',
-        'validate',
-        'E_PLAYBOOK_PARSE',
-        err instanceof Error ? err.message : String(err),
-        startTime,
-      );
+      return handleErrorResult('query', 'playbook', 'validate', err, startTime);
     }
   }
 
@@ -582,243 +867,81 @@ export class PlaybookHandler implements DomainHandler {
     params: Record<string, unknown> | undefined,
     startTime: number,
   ): Promise<DispatchResponse> {
-    const name = params?.name as string | undefined;
-    if (!name) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'run',
-        'E_INVALID_INPUT',
-        'name is required',
-        startTime,
-      );
-    }
-    let initialContext: Record<string, unknown>;
     try {
-      initialContext = parseContextJson(params?.context);
-    } catch (err) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'run',
-        'E_INVALID_INPUT',
-        err instanceof Error ? err.message : String(err),
-        startTime,
-      );
-    }
-
-    const loaded = loadPlaybookByName(name);
-    if (loaded === null) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'run',
-        'E_NOT_FOUND',
-        `playbook "${name}" not found in any search path`,
-        startTime,
-      );
-    }
-
-    // Parse + validate .cantbook via the canonical parser so syntax errors
-    // surface before a DB row is ever written.
-    let parsed: ReturnType<typeof parsePlaybook>;
-    try {
-      parsed = parsePlaybook(loaded.source);
-    } catch (err) {
-      if (err instanceof PlaybookParseError) {
+      const name = params?.name as string | undefined;
+      if (!name) {
         return errorResult(
           'mutate',
           'playbook',
           'run',
-          err.code,
-          `${err.message}${err.field ? ` [field=${err.field}]` : ''}`,
+          'E_INVALID_INPUT',
+          'name is required',
           startTime,
         );
       }
-      return errorResult(
-        'mutate',
-        'playbook',
-        'run',
-        'E_PLAYBOOK_PARSE',
-        err instanceof Error ? err.message : String(err),
-        startTime,
-      );
-    }
-
-    const db = await acquireDb();
-    const dispatcher = await buildDefaultDispatcher();
-    let result: ExecutePlaybookResult;
-    try {
-      const { getProjectRoot } = await import('@cleocode/core/internal');
-      const opts: Parameters<typeof executePlaybook>[0] = {
-        db,
-        playbook: parsed.definition,
-        playbookHash: parsed.sourceHash,
-        initialContext,
-        dispatcher,
-        projectRoot: getProjectRoot(),
-      };
-      if (__playbookRuntimeOverrides.approvalSecret !== undefined) {
-        opts.approvalSecret = __playbookRuntimeOverrides.approvalSecret;
+      let context: Record<string, unknown> | string | undefined;
+      try {
+        context = params?.context;
+        if (context && typeof context === 'string') {
+          context = parseContextJson(context);
+        }
+      } catch (err) {
+        return errorResult(
+          'mutate',
+          'playbook',
+          'run',
+          'E_INVALID_INPUT',
+          err instanceof Error ? err.message : String(err),
+          startTime,
+        );
       }
-      const epicIdRaw = initialContext['epicId'];
-      if (typeof epicIdRaw === 'string') opts.epicId = epicIdRaw;
-      const sessionIdRaw = initialContext['sessionId'];
-      if (typeof sessionIdRaw === 'string') opts.sessionId = sessionIdRaw;
-      result = await executePlaybook(opts);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const code = message.startsWith(E_PLAYBOOK_RUNTIME_INVALID)
-        ? E_PLAYBOOK_RUNTIME_INVALID
-        : 'E_PLAYBOOK_RUNTIME';
-      return errorResult('mutate', 'playbook', 'run', code, message, startTime);
-    }
 
-    return {
-      meta: dispatchMeta('mutate', 'playbook', 'run', startTime),
-      success: true,
-      data: {
-        ...toRunEnvelope(result),
-        playbookName: parsed.definition.name,
-        playbookSource: loaded.sourcePath,
-      },
-    };
+      const result = await playbookRun({
+        name,
+        context: context as Record<string, unknown> | string | undefined,
+      });
+
+      return {
+        meta: dispatchMeta('mutate', 'playbook', 'run', startTime),
+        success: true,
+        data: result,
+      };
+    } catch (err) {
+      if (err instanceof PlaybookOperationError) {
+        return errorResult('mutate', 'playbook', 'run', err.code, err.message, startTime);
+      }
+      return handleErrorResult('mutate', 'playbook', 'run', err, startTime);
+    }
   }
 
   private async handleResume(
     params: Record<string, unknown> | undefined,
     startTime: number,
   ): Promise<DispatchResponse> {
-    const runId = params?.runId as string | undefined;
-    if (!runId) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_INVALID_INPUT',
-        'runId is required',
-        startTime,
-      );
-    }
-    const db = await acquireDb();
-    const run = getPlaybookRun(db, runId);
-    if (run === null) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_NOT_FOUND',
-        `playbook run ${runId} not found`,
-        startTime,
-      );
-    }
-
-    // The approval token lookup doubles as the "gate still pending?" guard.
-    // Locate the most recent approval row for this run via the token stored
-    // on the run's most recent approval; fall back to re-loading by runId
-    // when no approval has been issued yet.
-    const approvals = loadApprovalsForRun(db, runId);
-    if (approvals.length === 0) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_APPROVAL_NOT_FOUND',
-        `run ${runId} has no approval gates — nothing to resume`,
-        startTime,
-      );
-    }
-    // Newest approval first — sorted ascending by requested_at so pick tail.
-    const latest = approvals[approvals.length - 1] as PlaybookApproval;
-    if (latest.status === 'pending') {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_APPROVAL_PENDING',
-        `gate ${latest.approvalId} for run ${runId} is still pending — approve before resuming`,
-        startTime,
-      );
-    }
-    if (latest.status === 'rejected') {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_APPROVAL_REJECTED',
-        `gate ${latest.approvalId} was rejected${latest.reason ? ` (${latest.reason})` : ''}`,
-        startTime,
-      );
-    }
-
-    // Gate is approved — need the original playbook source to resume. The run
-    // row carries `playbook_name` but not the source; re-resolve from the
-    // on-disk search path so the hash is re-validated on every resume.
-    const loaded = loadPlaybookByName(run.playbookName);
-    if (loaded === null) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_NOT_FOUND',
-        `playbook "${run.playbookName}" not found — cannot resume run ${runId}`,
-        startTime,
-      );
-    }
-    let parsed: ReturnType<typeof parsePlaybook>;
     try {
-      parsed = parsePlaybook(loaded.source);
-    } catch (err) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_PLAYBOOK_PARSE',
-        err instanceof Error ? err.message : String(err),
-        startTime,
-      );
-    }
-    if (parsed.sourceHash !== run.playbookHash) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_PLAYBOOK_HASH_MISMATCH',
-        `playbook "${run.playbookName}" source changed since run started (hash drift)`,
-        startTime,
-      );
-    }
-
-    const dispatcher = await buildDefaultDispatcher();
-    try {
-      const opts: Parameters<typeof resumePlaybook>[0] = {
-        db,
-        playbook: parsed.definition,
-        approvalToken: latest.token,
-        dispatcher,
-      };
-      if (__playbookRuntimeOverrides.approvalSecret !== undefined) {
-        opts.approvalSecret = __playbookRuntimeOverrides.approvalSecret;
-      }
-      const result = await resumePlaybook(opts);
-      return {
-        meta: dispatchMeta('mutate', 'playbook', 'resume', startTime),
-        success: true,
-        data: toRunEnvelope(result),
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.startsWith(E_PLAYBOOK_RESUME_BLOCKED)) {
+      const runId = params?.runId as string | undefined;
+      if (!runId) {
         return errorResult(
           'mutate',
           'playbook',
           'resume',
-          E_PLAYBOOK_RESUME_BLOCKED,
-          message,
+          'E_INVALID_INPUT',
+          'runId is required',
           startTime,
         );
       }
-      return errorResult('mutate', 'playbook', 'resume', 'E_PLAYBOOK_RUNTIME', message, startTime);
+
+      const result = await playbookResume({ runId });
+      return {
+        meta: dispatchMeta('mutate', 'playbook', 'resume', startTime),
+        success: true,
+        data: result,
+      };
+    } catch (err) {
+      if (err instanceof PlaybookOperationError) {
+        return errorResult('mutate', 'playbook', 'resume', err.code, err.message, startTime);
+      }
+      return handleErrorResult('mutate', 'playbook', 'resume', err, startTime);
     }
   }
 }
