@@ -10,51 +10,24 @@
  * Query operations delegate to task-engine; start/stop/current delegate
  * to session-engine (which hosts task-work functions).
  *
- * Param extraction is type-safe via TypedDomainHandler<TasksOps> (T1425 —
- * typed-dispatch migration). Zero `as X` param casts at call sites.
+ * Operations are inferred from Core function signatures via OpsFromCore
+ * (T1435 — dispatch refactor Wave 1). Zero per-op *Params/*Result type
+ * imports from @cleocode/contracts; Core function signatures are the
+ * single source of truth for Params/Result shapes.
  *
- * @epic T4820
- * @task T4818
+ * @epic T1435
+ * @task T1445 — tasks domain refactor
  * @task T1425 — typed-dispatch migration
  */
 
-import type {
-  TasksAddParams,
-  TasksAnalyzeQueryParams,
-  TasksArchiveQueryParams,
-  TasksBlockersQueryParams,
-  TasksCancelParams,
-  TasksClaimParams,
-  TasksCompleteQueryParams,
-  TasksComplexityEstimateParams,
-  TasksCurrentParams,
-  TasksDeleteQueryParams,
-  TasksDependsParams,
-  TasksFindParams,
-  TasksHistoryParams,
-  TasksImpactParams,
-  TasksLabelListParams,
-  TasksListParams,
-  TasksNextQueryParams,
-  TasksOps,
-  TasksPlanParams,
-  TasksRelatesAddParams,
-  TasksRelatesParams,
-  TasksReorderQueryParams,
-  TasksReparentQueryParams,
-  TasksRestoreParams,
-  TasksShowParams,
-  TasksStartQueryParams,
-  TasksStopQueryParams,
-  TasksSyncLinksParams,
-  TasksSyncLinksRemoveParams,
-  TasksSyncReconcileParams,
-  TasksTreeDispatchParams,
-  TasksUnclaimParams,
-  TasksUpdateQueryParams,
-} from '@cleocode/contracts';
 import { getLogger, getProjectRoot } from '@cleocode/core';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+} from '../adapters/typed.js';
 import {
   taskAnalyze,
   taskArchive,
@@ -101,6 +74,67 @@ import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
+// Core operations registry (T1435 — source of truth for Params/Result)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map of task operations to their Core implementations.
+ *
+ * Each operation maps to the Core function that implements it. The mapping
+ * uses operation names as dispatch keys (no domain prefix). Core function
+ * signatures are the single source of truth for parameter and result types
+ * via the OpsFromCore inference below.
+ *
+ * @task T1445 — tasks domain refactor (Wave 1 of T1435)
+ */
+const coreOps = {
+  // Query operations
+  show: taskShow,
+  list: taskList,
+  find: taskFind,
+  tree: taskTree,
+  blockers: taskBlockers,
+  depends: taskDepends,
+  analyze: taskAnalyze,
+  impact: taskImpact,
+  next: taskNext,
+  plan: taskPlan,
+  relates: taskRelates,
+  'complexity.estimate': taskComplexityEstimate,
+  history: taskHistory,
+  current: taskCurrentGet,
+  'label.list': taskLabelList,
+  'sync.links': taskSyncLinks,
+  // Mutate operations
+  add: taskCreate,
+  update: taskUpdate,
+  complete: taskCompleteStrict,
+  cancel: taskCancel,
+  delete: taskDelete,
+  archive: taskArchive,
+  restore: taskRestore,
+  reparent: taskReparent,
+  reorder: taskReorder,
+  'relates.add': taskRelatesAdd,
+  start: taskStart,
+  stop: taskStop,
+  'sync.reconcile': taskSyncReconcile,
+  'sync.links.remove': taskSyncLinksRemove,
+  claim: taskClaim,
+  unclaim: taskUnclaim,
+} as const;
+
+/**
+ * Typed operation record for the tasks domain.
+ *
+ * Inferred from Core function signatures via OpsFromCore<typeof coreOps>.
+ * Each entry maps an operation name to its [Params, Result] tuple.
+ *
+ * @task T1445 — tasks domain refactor (Wave 1 of T1435)
+ */
+type TasksOps = OpsFromCore<typeof coreOps>;
+
+// ---------------------------------------------------------------------------
 // Typed inner handler (T1425 — typed-dispatch migration)
 //
 // The typed handler holds all per-op logic with fully-narrowed params.
@@ -113,7 +147,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
   // Query ops
   // -------------------------------------------------------------------------
 
-  show: async (params: TasksShowParams) => {
+  show: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.ivtrHistory) {
       const result = await taskShowIvtrHistory(projectRoot, params.taskId);
@@ -148,7 +182,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'show');
   },
 
-  list: async (params: TasksListParams) => {
+  list: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskList(projectRoot, {
       parent: params.parent,
@@ -181,7 +215,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return envelope;
   },
 
-  find: async (params: TasksFindParams) => {
+  find: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskFind(projectRoot, params.query, params.limit, {
       id: params.id,
@@ -204,7 +238,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'find');
   },
 
-  tree: async (params: TasksTreeDispatchParams) => {
+  tree: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskTree(projectRoot, params.taskId, params.withBlockers);
     if (!result.success) {
@@ -217,7 +251,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'tree');
   },
 
-  blockers: async (params: TasksBlockersQueryParams) => {
+  blockers: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskBlockers(projectRoot, params);
     if (!result.success) {
@@ -230,7 +264,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'blockers');
   },
 
-  depends: async (params: TasksDependsParams) => {
+  depends: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.action === 'overview') {
       const result = await taskDepsOverview(projectRoot);
@@ -272,7 +306,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'depends');
   },
 
-  analyze: async (params: TasksAnalyzeQueryParams) => {
+  analyze: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskAnalyze(projectRoot, params.taskId, { tierLimit: params.tierLimit });
     if (!result.success) {
@@ -285,7 +319,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'analyze');
   },
 
-  impact: async (params: TasksImpactParams) => {
+  impact: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskImpact(projectRoot, params.change, params.matchLimit);
     if (!result.success) {
@@ -298,7 +332,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'impact');
   },
 
-  next: async (params: TasksNextQueryParams) => {
+  next: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskNext(projectRoot, params);
     if (!result.success) {
@@ -311,7 +345,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'next');
   },
 
-  plan: async (_params: TasksPlanParams) => {
+  plan: async (_params) => {
     const projectRoot = getProjectRoot();
     const result = await taskPlan(projectRoot);
     if (!result.success) {
@@ -324,7 +358,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'plan');
   },
 
-  relates: async (params: TasksRelatesParams) => {
+  relates: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.mode) {
       const result = await taskRelatesFind(projectRoot, params.taskId, {
@@ -351,7 +385,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'relates');
   },
 
-  'complexity.estimate': async (params: TasksComplexityEstimateParams) => {
+  'complexity.estimate': async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskComplexityEstimate(projectRoot, { taskId: params.taskId });
     if (!result.success) {
@@ -364,7 +398,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'complexity.estimate');
   },
 
-  history: async (params: TasksHistoryParams) => {
+  history: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.taskId) {
       const result = await taskHistory(projectRoot, params.taskId, params.limit);
@@ -388,7 +422,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'history');
   },
 
-  current: async (_params: TasksCurrentParams) => {
+  current: async (_params) => {
     const projectRoot = getProjectRoot();
     const result = await taskCurrentGet(projectRoot);
     if (!result.success) {
@@ -401,7 +435,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'current');
   },
 
-  'label.list': async (_params: TasksLabelListParams) => {
+  'label.list': async (_params) => {
     const projectRoot = getProjectRoot();
     const result = await taskLabelList(projectRoot);
     if (!result.success) {
@@ -414,7 +448,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'label.list');
   },
 
-  'sync.links': async (params: TasksSyncLinksParams) => {
+  'sync.links': async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskSyncLinks(projectRoot, params);
     if (!result.success) {
@@ -431,7 +465,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
   // Mutate ops
   // -------------------------------------------------------------------------
 
-  add: async (params: TasksAddParams) => {
+  add: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskCreate(projectRoot, {
       title: params.title,
@@ -463,7 +497,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'add');
   },
 
-  update: async (params: TasksUpdateQueryParams) => {
+  update: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskUpdate(projectRoot, params.taskId, {
       title: params.title,
@@ -496,7 +530,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'update');
   },
 
-  complete: async (params: TasksCompleteQueryParams) => {
+  complete: async (params) => {
     const projectRoot = getProjectRoot();
     // T833 / ADR-051 Decision 3: --force has been removed. Any caller
     // passing `force` gets a structured rejection pointing to the ADR.
@@ -527,7 +561,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'complete');
   },
 
-  cancel: async (params: TasksCancelParams) => {
+  cancel: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskCancel(projectRoot, params.taskId, params.reason);
     if (!result.success) {
@@ -540,7 +574,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'cancel');
   },
 
-  delete: async (params: TasksDeleteQueryParams) => {
+  delete: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskDelete(projectRoot, params.taskId, params.force);
     if (!result.success) {
@@ -553,7 +587,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'delete');
   },
 
-  archive: async (params: TasksArchiveQueryParams) => {
+  archive: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskArchive(projectRoot, params.taskId, params.before, {
       taskIds: params.taskIds,
@@ -570,7 +604,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'archive');
   },
 
-  restore: async (params: TasksRestoreParams) => {
+  restore: async (params) => {
     const projectRoot = getProjectRoot();
     // Consolidated: from param routes to reopen/unarchive logic (T5615/T5671)
     if (params.from === 'done') {
@@ -615,7 +649,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'restore');
   },
 
-  reparent: async (params: TasksReparentQueryParams) => {
+  reparent: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskReparent(projectRoot, params.taskId, params.newParentId ?? null);
     if (!result.success) {
@@ -628,7 +662,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'reparent');
   },
 
-  reorder: async (params: TasksReorderQueryParams) => {
+  reorder: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskReorder(projectRoot, params.taskId, params.position);
     if (!result.success) {
@@ -641,7 +675,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'reorder');
   },
 
-  'relates.add': async (params: TasksRelatesAddParams) => {
+  'relates.add': async (params) => {
     const projectRoot = getProjectRoot();
     // Accept both targetId and relatedId for compatibility (T5149)
     const relatedId = params.relatedId ?? params.targetId;
@@ -665,7 +699,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'relates.add');
   },
 
-  start: async (params: TasksStartQueryParams) => {
+  start: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskStart(projectRoot, params.taskId);
     if (!result.success) {
@@ -678,7 +712,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'start');
   },
 
-  stop: async (_params: TasksStopQueryParams) => {
+  stop: async (_params) => {
     const projectRoot = getProjectRoot();
     const result = await taskStop(projectRoot);
     if (!result.success) {
@@ -691,7 +725,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'stop');
   },
 
-  'sync.reconcile': async (params: TasksSyncReconcileParams) => {
+  'sync.reconcile': async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskSyncReconcile(projectRoot, {
       providerId: params.providerId,
@@ -711,7 +745,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'sync.reconcile');
   },
 
-  'sync.links.remove': async (params: TasksSyncLinksRemoveParams) => {
+  'sync.links.remove': async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskSyncLinksRemove(projectRoot, params.providerId);
     if (!result.success) {
@@ -724,7 +758,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'sync.links.remove');
   },
 
-  claim: async (params: TasksClaimParams) => {
+  claim: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskClaim(projectRoot, params.taskId, params.agentId);
     if (!result.success) {
@@ -737,7 +771,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return lafsSuccess(result.data, 'claim');
   },
 
-  unclaim: async (params: TasksUnclaimParams) => {
+  unclaim: async (params) => {
     const projectRoot = getProjectRoot();
     const result = await taskUnclaim(projectRoot, params.taskId);
     if (!result.success) {
