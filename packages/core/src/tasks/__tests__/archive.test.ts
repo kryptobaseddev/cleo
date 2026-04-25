@@ -220,4 +220,98 @@ describe('archiveTasks', () => {
     const archive = await accessor.loadArchive();
     expect(archive!.archivedTasks).toHaveLength(2);
   });
+
+  // ---------------------------------------------------------------------------
+  // Truth-grade archiveReason discrimination (Council 2026-04-24 Contrarian gate)
+  // T-ARCHIVE-FIX — supersedes FINDING #28. Archive writes MUST reflect observable
+  // closure quality, not "anything non-cancelled = completed". See tsdoc on
+  // deriveArchiveReason() in archive.ts for the full truth-grade taxonomy.
+  // ---------------------------------------------------------------------------
+
+  it('stamps archiveReason="completed-unverified" when status=done but verification is missing', async () => {
+    // loadArchive() flattens archive metadata onto the task; see sqlite-data-accessor.ts.
+    type ArchivedTaskWithReason = import('@cleocode/contracts').Task & {
+      archiveReason?: string;
+    };
+
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Done but unverified',
+        status: 'done',
+        priority: 'medium',
+        createdAt: '2025-01-01T00:00:00Z',
+        completedAt: '2025-01-02T00:00:00Z',
+        // verification intentionally omitted — simulates tasks archived by
+        // bulk cleanup or legacy code paths that never ran `cleo verify`.
+        verification: null,
+      },
+    ]);
+
+    const result = await archiveTasks({ taskIds: ['T001'] }, env.tempDir, accessor);
+    expect(result.archived).toContain('T001');
+
+    const archive = await accessor.loadArchive();
+    expect(archive!.archivedTasks).toHaveLength(1);
+    const archived = archive!.archivedTasks[0] as ArchivedTaskWithReason;
+    expect(archived.archiveReason).toBe('completed-unverified');
+  });
+
+  it('stamps archiveReason="completed" when status=done and verification.passed=true', async () => {
+    // loadArchive() flattens archive metadata onto the task; see sqlite-data-accessor.ts.
+    type ArchivedTaskWithReason = import('@cleocode/contracts').Task & {
+      archiveReason?: string;
+    };
+
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Done and verified',
+        status: 'done',
+        priority: 'medium',
+        createdAt: '2025-01-01T00:00:00Z',
+        completedAt: '2025-01-02T00:00:00Z',
+        verification: {
+          passed: true,
+          round: 1,
+          gates: {},
+          lastAgent: null,
+          lastUpdated: '2025-01-02T00:00:00Z',
+          failureLog: [],
+        },
+      },
+    ]);
+
+    const result = await archiveTasks({ taskIds: ['T001'] }, env.tempDir, accessor);
+    expect(result.archived).toContain('T001');
+
+    const archive = await accessor.loadArchive();
+    const archived = archive!.archivedTasks[0] as ArchivedTaskWithReason;
+    expect(archived.archiveReason).toBe('completed');
+  });
+
+  it('stamps archiveReason="cancelled" when status=cancelled regardless of verification', async () => {
+    // loadArchive() flattens archive metadata onto the task; see sqlite-data-accessor.ts.
+    type ArchivedTaskWithReason = import('@cleocode/contracts').Task & {
+      archiveReason?: string;
+    };
+
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Cancelled',
+        status: 'cancelled',
+        priority: 'medium',
+        createdAt: '2025-01-01T00:00:00Z',
+        cancelledAt: '2025-01-02T00:00:00Z',
+      },
+    ]);
+
+    const result = await archiveTasks({ taskIds: ['T001'] }, env.tempDir, accessor);
+    expect(result.archived).toContain('T001');
+
+    const archive = await accessor.loadArchive();
+    const archived = archive!.archivedTasks[0] as ArchivedTaskWithReason;
+    expect(archived.archiveReason).toBe('cancelled');
+  });
 });
