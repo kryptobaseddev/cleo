@@ -14,6 +14,8 @@
  * const cleo = await Cleo.init('./my-project', { store: myCustomAccessor });
  */
 
+import './lib/suppress-sqlite-warning.js';
+
 import path from 'node:path';
 import type {
   AdminAPI,
