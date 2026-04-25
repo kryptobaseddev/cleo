@@ -953,9 +953,7 @@ export class CheckHandler implements DomainHandler {
           : {
               error: {
                 code:
-                  envelope.error?.code !== undefined
-                    ? String(envelope.error.code)
-                    : 'E_INTERNAL',
+                  envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
                 message: envelope.error?.message ?? 'Unknown error',
               },
             }),
@@ -988,9 +986,7 @@ export class CheckHandler implements DomainHandler {
           : {
               error: {
                 code:
-                  envelope.error?.code !== undefined
-                    ? String(envelope.error.code)
-                    : 'E_INTERNAL',
+                  envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
                 message: envelope.error?.message ?? 'Unknown error',
               },
             }),

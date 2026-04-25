@@ -186,32 +186,6 @@ export type {
   ConduitTopicSubscribeOptions,
   ConduitUnsubscribe,
 } from './conduit.js';
-// === Conduit Operation Types (T1422 — typed-dispatch migration) ===
-// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
-// Note: ConduitSendResult from operations/conduit.ts is intentionally NOT re-exported
-// here because conduit.ts (transport-layer) already exports a ConduitSendResult of a
-// different shape. Consumers needing the operation-result variant should import via
-// `import type { ConduitOps } from '@cleocode/contracts'` and reference `ConduitOps['send'][1]`.
-export type {
-  ConduitInboxMessage,
-  ConduitListenParams,
-  ConduitListenResult,
-  ConduitOps,
-  ConduitPeekParams,
-  ConduitPeekResult,
-  ConduitPublishParams,
-  ConduitPublishResult,
-  ConduitSendParams,
-  ConduitStartParams,
-  ConduitStartResult,
-  ConduitStatusParams,
-  ConduitStatusResult,
-  ConduitStopParams,
-  ConduitStopResult,
-  ConduitSubscribeParams,
-  ConduitSubscribeResult,
-  ConduitTransportKind,
-} from './operations/conduit.js';
 // === Configuration Types ===
 export type {
   BackupConfig,
@@ -517,6 +491,32 @@ export type {
   AdminTokenQueryParams,
   AdminVersionParams,
 } from './operations/admin.js';
+// === Conduit Operation Types (T1422 — typed-dispatch migration) ===
+// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
+// Note: ConduitSendResult from operations/conduit.ts is intentionally NOT re-exported
+// here because conduit.ts (transport-layer) already exports a ConduitSendResult of a
+// different shape. Consumers needing the operation-result variant should import via
+// `import type { ConduitOps } from '@cleocode/contracts'` and reference `ConduitOps['send'][1]`.
+export type {
+  ConduitInboxMessage,
+  ConduitListenParams,
+  ConduitListenResult,
+  ConduitOps,
+  ConduitPeekParams,
+  ConduitPeekResult,
+  ConduitPublishParams,
+  ConduitPublishResult,
+  ConduitSendParams,
+  ConduitStartParams,
+  ConduitStartResult,
+  ConduitStatusParams,
+  ConduitStatusResult,
+  ConduitStopParams,
+  ConduitStopResult,
+  ConduitSubscribeParams,
+  ConduitSubscribeResult,
+  ConduitTransportKind,
+} from './operations/conduit.js';
 // Dialectic Evaluator operation types (T1087 Wave 3)
 export type {
   ApplyInsightsParams,
@@ -541,26 +541,6 @@ export type {
   RetrievalTokenCounts,
   SigilCard,
 } from './operations/memory.js';
-// === NEXUS User Profile Types (T1076 PSYCHE Wave 1) ===
-// Re-exported at top level so @cleocode/core/nexus and CLI dispatch can
-// import without the `ops.` namespace hop.
-export type {
-  NexusProfileExportParams,
-  NexusProfileExportResult,
-  NexusProfileGetParams,
-  NexusProfileGetResult,
-  NexusProfileImportParams,
-  NexusProfileImportResult,
-  NexusProfileReinforceParams,
-  NexusProfileReinforceResult,
-  NexusProfileSupersedeParams,
-  NexusProfileSupersedeResult,
-  NexusProfileUpsertParams,
-  NexusProfileUpsertResult,
-  NexusProfileViewParams,
-  NexusProfileViewResult,
-  UserProfileTrait,
-} from './operations/nexus-user-profile.js';
 // === NEXUS Operation Types (T1424 — typed-dispatch migration, Wave D) ===
 // Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
 export type {
@@ -668,6 +648,26 @@ export type {
   NexusWhyResult,
   NexusWikiParams,
 } from './operations/nexus.js';
+// === NEXUS User Profile Types (T1076 PSYCHE Wave 1) ===
+// Re-exported at top level so @cleocode/core/nexus and CLI dispatch can
+// import without the `ops.` namespace hop.
+export type {
+  NexusProfileExportParams,
+  NexusProfileExportResult,
+  NexusProfileGetParams,
+  NexusProfileGetResult,
+  NexusProfileImportParams,
+  NexusProfileImportResult,
+  NexusProfileReinforceParams,
+  NexusProfileReinforceResult,
+  NexusProfileSupersedeParams,
+  NexusProfileSupersedeResult,
+  NexusProfileUpsertParams,
+  NexusProfileUpsertResult,
+  NexusProfileViewParams,
+  NexusProfileViewResult,
+  UserProfileTrait,
+} from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type { BrainState } from './operations/orchestrate.js';
 // ParamDef contract — re-exported at top level (SSoT for all operation param descriptors)
@@ -679,6 +679,32 @@ export type {
   ParamType,
 } from './operations/params.js';
 export { paramsToCittyArgs } from './operations/params.js';
+// === Sentient Operation Types (T1421 — typed-dispatch migration, Wave D) ===
+// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
+export type {
+  AllowlistAddParams,
+  AllowlistAddResult,
+  AllowlistListParams,
+  AllowlistListResult,
+  AllowlistRemoveParams,
+  AllowlistRemoveResult,
+  Proposal,
+  ProposeAcceptParams,
+  ProposeAcceptResult,
+  ProposeDiffParams,
+  ProposeDiffResult,
+  ProposeDisableParams,
+  ProposeDisableResult,
+  ProposeEnableParams,
+  ProposeEnableResult,
+  ProposeListParams,
+  ProposeListResult,
+  ProposeRejectParams,
+  ProposeRejectResult,
+  ProposeRunParams,
+  ProposeRunResult,
+  SentientOps,
+} from './operations/sentient.js';
 // Session operation param/result types — re-exported at top level for typed-dispatch consumers
 // (T975 Wave D · ADR-051 migration)
 export type {
@@ -782,6 +808,57 @@ export type {
   TasksUpdateQueryParams,
   TasksUpdateQueryResult,
 } from './operations/tasks.js';
+// === Validate / Check Operation Types (T982 + T1430 — typed-dispatch surface) ===
+// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
+export type {
+  CheckOps,
+  ComplianceMetrics,
+  ValidateArchiveStatsParams,
+  ValidateArchiveStatsResult,
+  ValidateCanonParams,
+  ValidateCanonResult,
+  ValidateChainParams,
+  ValidateChainResult,
+  ValidateCoherenceParams,
+  ValidateCoherenceResult,
+  ValidateComplianceRecordParams,
+  ValidateComplianceRecordResult,
+  ValidateComplianceSummaryParams,
+  ValidateComplianceSummaryResult,
+  ValidateComplianceSyncParams,
+  ValidateComplianceSyncResult,
+  ValidateComplianceViolationsParams,
+  ValidateComplianceViolationsResult,
+  ValidateGateParams,
+  ValidateGateResult,
+  ValidateGradeListParams,
+  ValidateGradeListResult,
+  ValidateGradeParams,
+  ValidateGradeResult,
+  ValidateManifestParams,
+  ValidateManifestResult,
+  ValidateOutputParams,
+  ValidateOutputResult,
+  ValidateProtocolBaseParams,
+  ValidateProtocolParams,
+  ValidateProtocolResult,
+  ValidateSchemaParams,
+  ValidateSchemaResult,
+  ValidateTaskParams,
+  ValidateTaskResult,
+  ValidateTestCoverageParams,
+  ValidateTestCoverageResult,
+  ValidateTestRunParams,
+  ValidateTestRunResult,
+  ValidateTestStatusParams,
+  ValidateTestStatusResult,
+  ValidateVerifyExplainParams,
+  ValidateVerifyExplainResult,
+  ValidateWorkflowComplianceParams,
+  ValidateWorkflowComplianceResult,
+  ValidationSeverity,
+  ValidationViolation,
+} from './operations/validate.js';
 // T1238 Variable substitution — re-exported at top level so SDK consumers can
 // import resolver contracts without the `ops.` namespace hop.
 export type {
@@ -868,83 +945,6 @@ export type {
   ProposedTaskMeta,
   Tier2Stats,
 } from './sentient.js';
-// === Sentient Operation Types (T1421 — typed-dispatch migration, Wave D) ===
-// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
-export type {
-  AllowlistAddParams,
-  AllowlistAddResult,
-  AllowlistListParams,
-  AllowlistListResult,
-  AllowlistRemoveParams,
-  AllowlistRemoveResult,
-  Proposal,
-  ProposeAcceptParams,
-  ProposeAcceptResult,
-  ProposeDiffParams,
-  ProposeDiffResult,
-  ProposeDisableParams,
-  ProposeDisableResult,
-  ProposeEnableParams,
-  ProposeEnableResult,
-  ProposeListParams,
-  ProposeListResult,
-  ProposeRejectParams,
-  ProposeRejectResult,
-  ProposeRunParams,
-  ProposeRunResult,
-  SentientOps,
-} from './operations/sentient.js';
-// === Validate / Check Operation Types (T982 + T1430 — typed-dispatch surface) ===
-// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
-export type {
-  CheckOps,
-  ComplianceMetrics,
-  ValidateArchiveStatsParams,
-  ValidateArchiveStatsResult,
-  ValidateCanonParams,
-  ValidateCanonResult,
-  ValidateChainParams,
-  ValidateChainResult,
-  ValidateCoherenceParams,
-  ValidateCoherenceResult,
-  ValidateComplianceRecordParams,
-  ValidateComplianceRecordResult,
-  ValidateComplianceSummaryParams,
-  ValidateComplianceSummaryResult,
-  ValidateComplianceSyncParams,
-  ValidateComplianceSyncResult,
-  ValidateComplianceViolationsParams,
-  ValidateComplianceViolationsResult,
-  ValidateGateParams,
-  ValidateGateResult,
-  ValidateGradeListParams,
-  ValidateGradeListResult,
-  ValidateGradeParams,
-  ValidateGradeResult,
-  ValidateManifestParams,
-  ValidateManifestResult,
-  ValidateOutputParams,
-  ValidateOutputResult,
-  ValidateProtocolBaseParams,
-  ValidateProtocolParams,
-  ValidateProtocolResult,
-  ValidateSchemaParams,
-  ValidateSchemaResult,
-  ValidateTaskParams,
-  ValidateTaskResult,
-  ValidateTestCoverageParams,
-  ValidateTestCoverageResult,
-  ValidateTestRunParams,
-  ValidateTestRunResult,
-  ValidateTestStatusParams,
-  ValidateTestStatusResult,
-  ValidateVerifyExplainParams,
-  ValidateVerifyExplainResult,
-  ValidateWorkflowComplianceParams,
-  ValidateWorkflowComplianceResult,
-  ValidationSeverity,
-  ValidationViolation,
-} from './operations/validate.js';
 // === Session Start Result ===
 export type {
   Session,
