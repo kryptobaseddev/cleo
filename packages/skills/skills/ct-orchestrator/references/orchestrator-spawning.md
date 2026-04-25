@@ -35,7 +35,7 @@ The `spawn` command returns:
 Agent({
   description: "Worker: Implement auth module (T1586)",
   subagent_type: "cleo-subagent",
-  model: "haiku",           // preferred, not required
+  model: "sonnet",           // preferred, not required
   prompt: "<resolved prompt from step 1>"
 })
 ```

@@ -36,7 +36,7 @@ Agent({
 Agent({
   description: "Worker: [task title] (T####)",
   subagent_type: "cleo-subagent",
-  model: "haiku",
+  model: "sonnet",
   prompt: "<resolved prompt from cleo orchestrate spawn T####>"
 })
 ```
@@ -47,7 +47,7 @@ Agent({
 Agent({
   description: "Explorer: [research topic] (T####)",
   subagent_type: "cleo-subagent",
-  model: "haiku",
+  model: "sonnet",
   prompt: "<resolved prompt from cleo orchestrate spawn T####>"
 })
 ```
@@ -59,14 +59,14 @@ Agent({
 Agent({
   description: "Worker: Task A (T1001)",
   subagent_type: "cleo-subagent",
-  model: "haiku",
+  model: "sonnet",
   run_in_background: true,
   prompt: "<prompt A>"
 })
 Agent({
   description: "Worker: Task B (T1002)",
   subagent_type: "cleo-subagent",
-  model: "haiku",
+  model: "sonnet",
   run_in_background: true,
   prompt: "<prompt B>"
 })
@@ -78,8 +78,8 @@ Agent({
 |------|-------|-----------|
 | Orchestrator (you) | opus | Strategic coordination, HITL interface |
 | Team Leads | sonnet | Architecture, specs, validation |
-| Workers | haiku | Implementation, testing, focused changes |
-| Explorers | haiku | Quick research, codebase reads |
+| Workers | sonnet | Implementation, testing, focused changes |
+| Explorers | sonnet | Quick research, codebase reads |
 
 Model assignment is an **optimization** — if a model tier is unavailable, use whatever is available. Never block on model selection.
 
