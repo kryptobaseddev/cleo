@@ -285,13 +285,12 @@ export async function releaseIvtrAutoSuggest(
 
   try {
     // Find the parent epic for this task.
+    // T1434: switched from `queryTasks({ id })` (no `id` filter on
+    // TaskQueryFilters) to `loadTasks([taskId])` — the accessor's
+    // by-id loader. Same semantic, type-correct.
     const accessor = await getAccessor(cwd);
-    const taskResult = await accessor.queryTasks({ id: taskId });
-    const taskRecord = ((taskResult?.tasks as Array<{
-      id: string;
-      parentId?: string;
-      type?: string;
-    }>) ?? [])[0];
+    const tasks = await accessor.loadTasks([taskId]);
+    const taskRecord = tasks[0];
 
     if (!taskRecord) {
       return engineError('E_NOT_FOUND', `Task ${taskId} not found`);
