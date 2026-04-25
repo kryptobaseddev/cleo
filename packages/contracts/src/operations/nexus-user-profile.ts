@@ -71,6 +71,13 @@ export interface UserProfileTrait {
 export interface NexusProfileViewParams {
   /** Only return traits with confidence >= this value. Default: 0.0 (all). */
   minConfidence?: number;
+  /**
+   * When true, include traits whose `validUntil` has elapsed (superseded entries).
+   * Default `false` — view returns only currently-valid traits.
+   *
+   * @task T1080
+   */
+  includeSuperseded?: boolean;
 }
 
 /** Result of `nexus.profile.view`. */
