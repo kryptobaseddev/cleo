@@ -6,12 +6,18 @@
  *
  * @epic T4820
  * @task T4815
+ * @task T1441 — Re-exports chain operations for consistent source-of-truth
  */
 
 export type { Session as SessionRecord } from '@cleocode/contracts';
+// Chain operations (re-exported from @cleocode/core/internal for consistency)
 // Pipeline manifest functions (moved from memory domain in T5241)
 export {
+  addChain,
+  advanceInstance,
+  createInstance,
   filterEntries as filterManifestEntries,
+  listChains,
   type ManifestEntry as ResearchManifestEntry,
   pipelineManifestAppend,
   pipelineManifestArchive,
@@ -21,6 +27,7 @@ export {
   pipelineManifestShow,
   pipelineManifestStats,
   readManifestEntries,
+  showChain,
 } from '@cleocode/core/internal';
 // Codebase map engine
 export { mapCodebase } from '../engines/codebase-map-engine.js';

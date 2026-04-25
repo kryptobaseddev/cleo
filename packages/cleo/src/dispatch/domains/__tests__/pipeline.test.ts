@@ -35,6 +35,11 @@ vi.mock('@cleocode/core/internal', () => ({
 }));
 
 vi.mock('../../lib/engine.js', () => ({
+  addChain: vi.fn(),
+  advanceInstance: vi.fn(),
+  createInstance: vi.fn(),
+  listChains: vi.fn(),
+  showChain: vi.fn(),
   lifecycleStatus: vi.fn(),
   lifecycleHistory: vi.fn(),
   lifecycleCheck: vi.fn(),
@@ -44,10 +49,12 @@ vi.mock('../../lib/engine.js', () => ({
   lifecycleGatePass: vi.fn(),
   lifecycleGateFail: vi.fn(),
   releaseRollback: vi.fn(),
+  releaseRollbackFull: vi.fn(),
   releaseShip: vi.fn(),
   releaseList: vi.fn(),
   releaseShow: vi.fn(),
   releaseCancel: vi.fn(),
+  releaseChangelogSince: vi.fn(),
   phaseList: vi.fn(),
   phaseShow: vi.fn(),
   phaseSet: vi.fn(),
@@ -64,8 +71,14 @@ vi.mock('../../lib/engine.js', () => ({
   pipelineManifestArchive: vi.fn(),
 }));
 
-import { addChain, createInstance, listChains, showChain } from '@cleocode/core/internal';
-import { phaseList, releaseList } from '../../lib/engine.js';
+import {
+  addChain,
+  createInstance,
+  listChains,
+  phaseList,
+  releaseList,
+  showChain,
+} from '../../lib/engine.js';
 import { PipelineHandler } from '../pipeline.js';
 
 describe('PipelineHandler chain operations', () => {

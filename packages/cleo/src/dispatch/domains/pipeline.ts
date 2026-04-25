@@ -3,7 +3,14 @@
  *
  * Consolidates legacy lifecycle and release domains into a single "pipeline"
  * domain with dot-prefixed operation names. All operations delegate to
- * native engine functions.
+ * engine functions sourced from Core.
+ *
+ * ## Refactoring (T1435 Wave 1)
+ *
+ * This module follows the Option A pattern: all operation signatures are
+ * inferred from Core engine functions via `OpsFromCore<typeof coreOps>`.
+ * No per-op `*Params` or `*Result` types are imported from @cleocode/contracts.
+ * Wire types only (`GateResult`, `WarpChain`, etc.) are imported as needed.
  *
  * Sub-domains:
  *   stage.*    - RCASD-IVTR+C lifecycle stage management
@@ -11,30 +18,30 @@
  *   manifest.* - Research manifest (JSONL) operations
  *
  * @epic T4820
+ * @task T1441
  */
 
 import { execFileSync } from 'node:child_process';
 import type { GateResult, WarpChain } from '@cleocode/contracts';
 import {
-  addChain,
-  advanceInstance,
   buildStageGuidance,
   channelToDistTag,
-  createInstance,
   describeChannel,
   formatStageGuidance,
   getLogger,
   getProjectRoot,
   isValidStage,
   type ListPhasesResult,
-  listChains,
   paginate,
   type ReleaseListOptions,
   resolveChannelFromBranch,
   type Stage,
-  showChain,
 } from '@cleocode/core/internal';
+import type { OpsFromCore } from '../adapters/typed.js';
 import {
+  addChain,
+  advanceInstance,
+  createInstance,
   lifecycleCheck,
   lifecycleGateFail,
   lifecycleGatePass,
@@ -43,10 +50,10 @@ import {
   lifecycleReset,
   lifecycleSkip,
   lifecycleStatus,
+  listChains,
   phaseAdvance,
   phaseComplete,
   phaseDelete,
-  // Phase operations
   phaseList,
   phaseRename,
   phaseSet,
@@ -56,21 +63,85 @@ import {
   pipelineManifestArchive,
   pipelineManifestFind,
   pipelineManifestList,
-  // Manifest operations
   pipelineManifestShow,
   pipelineManifestStats,
   releaseCancel,
   releaseChangelogSince,
   releaseList,
-  // Release operations
   releaseRollback,
   releaseRollbackFull,
   releaseShip,
   releaseShow,
+  showChain,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, getListParams, handleErrorResult, wrapResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
+
+// ---------------------------------------------------------------------------
+// Core operations registry (for type inference — T1441)
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps pipeline operations to their Core engine function sources.
+ * Used with `OpsFromCore<typeof coreOps>` for inference.
+ *
+ * Note: This registry is reference-only; the handler remains class-based.
+ * Parameter and result types are inferred from the engine function signatures,
+ * eliminating per-op type imports from @cleocode/contracts.
+ *
+ * @internal
+ */
+const coreOps = {
+  // Stage operations
+  'stage.validate': lifecycleCheck,
+  'stage.status': lifecycleStatus,
+  'stage.history': lifecycleHistory,
+  'stage.record': lifecycleProgress,
+  'stage.skip': lifecycleSkip,
+  'stage.reset': lifecycleReset,
+  'stage.gate.pass': lifecycleGatePass,
+  'stage.gate.fail': lifecycleGateFail,
+  // Release operations
+  'release.list': releaseList,
+  'release.show': releaseShow,
+  'release.changelog.since': releaseChangelogSince,
+  'release.ship': releaseShip,
+  'release.cancel': releaseCancel,
+  'release.rollback': releaseRollback,
+  'release.rollback.full': releaseRollbackFull,
+  // Manifest operations
+  'manifest.show': pipelineManifestShow,
+  'manifest.list': pipelineManifestList,
+  'manifest.find': pipelineManifestFind,
+  'manifest.stats': pipelineManifestStats,
+  'manifest.append': pipelineManifestAppend,
+  'manifest.archive': pipelineManifestArchive,
+  // Phase operations
+  'phase.show': phaseShow,
+  'phase.list': phaseList,
+  'phase.set': phaseSet,
+  'phase.advance': phaseAdvance,
+  'phase.rename': phaseRename,
+  'phase.delete': phaseDelete,
+  'phase.start': phaseStart,
+  'phase.complete': phaseComplete,
+  // Chain operations
+  'chain.show': showChain,
+  'chain.list': listChains,
+  'chain.add': addChain,
+  'chain.instantiate': createInstance,
+  'chain.advance': advanceInstance,
+} as const;
+
+/**
+ * Inferred operation type signatures. All parameter and result types
+ * are derived from Core engine function signatures at compile time.
+ * This drives type safety for all pipeline operations.
+ *
+ * @task T1441 — OpsFromCore inference (replaces hand-typed registry)
+ */
+type PipelineOps = OpsFromCore<typeof coreOps>;
 
 // ---------------------------------------------------------------------------
 // PipelineHandler
