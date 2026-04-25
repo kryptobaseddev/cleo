@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.149] — 2026-04-25 — Worker model: haiku → sonnet across orchestrator instructions
+
+The orchestrator playbooks instructed every spawned Worker and Explorer subagent to run on `model: "haiku"`. Memory observation `spawn-capability-gap-2026-04-25` documented the failure mode: haiku has a capability ceiling for complex multi-file refactors and was empirically observed to falsely report "Implementation complete" without running quality gates (T1450 PROOF). This release standardizes Workers and Explorers on `sonnet` everywhere the assignment was hard-coded, matching the precedent already set by `cleo-subagent.cant` (`model: sonnet`) and `docs/guides/LEAD-VS-WORKER-ROLES.md` (worker example uses `sonnet`).
+
+### Files updated (5 files, 12 occurrences)
+
+- `.claude/commands/orchestrator.md` — Worker spawn example, Explorer spawn example, two parallel-spawn examples, and Model Assignment table rows for Workers and Explorers.
+- `packages/adapters/src/providers/claude-code/commands/orchestrator.md` — canonical mirror of the above (same 5 changes).
+- `packages/skills/skills/ct-orchestrator/SKILL.md` — Worker spawn example and Model Assignment table row.
+- `packages/skills/skills/ct-orchestrator/references/orchestrator-spawning.md` — Worker spawn example.
+- `packages/agents/meta/agent-architect.cant` — meta-agent instruction "haiku as fallback" → "sonnet as fallback" so newly synthesized worker agents do not regress.
+
+### Out of scope (intentionally unchanged)
+
+- BRAIN memory extraction stack (`packages/core/src/memory/*`, `packages/contracts/src/config.ts`, `packages/core/src/deriver/deriver.ts`) — `claude-haiku-4-5-20251001` is the cost-bounded extraction backend, not a worker assignment.
+- `cant-router` LLM tier system (`packages/cant/src/composer.ts`, `crates/cant-router/*`) — low/mid/high prompt-routing tiers are a separate concern from agent spawning.
+- Generic tier docs (`docs/guides/CREATING-CUSTOM-AGENTS.md`, `docs/guides/CANT-REFERENCE.md`, `docs/guides/SUBAGENT-INJECTION-PIPELINE.md`, `docs/plans/CLEO-ULTRAPLAN.md`) — these describe `haiku` as an available tier, not as the worker default.
+- Prefill-capability detection in `packages/core/src/llm/backends/anthropic.ts`.
+
 ## [2026.4.148] — 2026-04-25 — CI fix: parity test dynamic instead of hardcoded op count
 
 The v2026.4.147 push-CI failed on `parity.test.ts > registry has the expected operation count` because adding 3 new conduit topic ops bumped the total from 322 to 325 but the hardcoded assertion (`expect(OPERATIONS.length).toBe(322)`) still expected the old number. The Release workflow itself passed (npm publish succeeded for v2026.4.147), but the push-CI was red.
