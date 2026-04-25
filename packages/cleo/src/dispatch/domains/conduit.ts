@@ -340,7 +340,7 @@ export class ConduitHandler implements DomainHandler {
 function envelopeToEngineResult(envelope: {
   readonly success: boolean;
   readonly data?: unknown;
-  readonly error?: { readonly code: string; readonly message: string };
+  readonly error?: { readonly code: string | number; readonly message: string };
 }): { success: boolean; data?: unknown; error?: { code: string; message: string } } {
   if (envelope.success) {
     return { success: true, data: envelope.data };
@@ -348,7 +348,7 @@ function envelopeToEngineResult(envelope: {
   return {
     success: false,
     error: {
-      code: envelope.error?.code ?? 'E_INTERNAL',
+      code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
       message: envelope.error?.message ?? 'Unknown error',
     },
   };
@@ -374,7 +374,7 @@ async function _resolveCredential(agentId?: string) {
 
 /** Get connection status and unread count. Uses LocalTransport when conduit.db is available. */
 async function getStatusImpl(agentId?: string) {
-  const credential = await this.resolveCredential(agentId);
+  const credential = await _resolveCredential(agentId);
   const pollerRunning = activePoller !== null && activeAgentId === credential.agentId;
 
   // Check local conduit.db unread count when available
@@ -444,7 +444,7 @@ async function getStatusImpl(agentId?: string) {
 
 /** One-shot peek for messages. Uses LocalTransport when conduit.db is available. */
 async function peekImpl(agentId?: string, limit?: number) {
-  const credential = await this.resolveCredential(agentId);
+  const credential = await _resolveCredential(agentId);
 
   // Prefer LocalTransport when conduit.db is present — no network round-trip needed.
   const { LocalTransport } = await import('@cleocode/core/conduit');
@@ -538,7 +538,7 @@ async function startPollingImpl(
     };
   }
 
-  const credential = await this.resolveCredential(agentId);
+  const credential = await _resolveCredential(agentId);
   const { AgentPoller } = await import('@cleocode/runtime');
   const { LocalTransport } = await import('@cleocode/core/conduit');
 
@@ -628,7 +628,7 @@ async function subscribeTopicImpl(
       error: { code: 'E_ARGS', message: 'Must specify "topicName"' },
     };
   }
-  const credential = await this.resolveCredential(agentId);
+  const credential = await _resolveCredential(agentId);
   const { LocalTransport } = await import('@cleocode/core/conduit');
   if (!LocalTransport.isAvailable(process.cwd())) {
     return {
@@ -688,7 +688,7 @@ async function publishToTopicImpl(
       error: { code: 'E_ARGS', message: 'Must specify "content"' },
     };
   }
-  const credential = await this.resolveCredential(agentId);
+  const credential = await _resolveCredential(agentId);
   const { LocalTransport } = await import('@cleocode/core/conduit');
   if (!LocalTransport.isAvailable(process.cwd())) {
     return {
@@ -744,7 +744,7 @@ async function listenTopicImpl(
     };
   }
   const startMs = Date.now();
-  const credential = await this.resolveCredential(agentId);
+  const credential = await _resolveCredential(agentId);
   const { LocalTransport } = await import('@cleocode/core/conduit');
   if (!LocalTransport.isAvailable(process.cwd())) {
     return {
@@ -798,7 +798,7 @@ async function sendMessageImpl(
     };
   }
 
-  const credential = await this.resolveCredential(agentId);
+  const credential = await _resolveCredential(agentId);
 
   // Prefer LocalTransport when conduit.db is present — message written directly
   // to the SQLite store without network, available for immediate local polling.

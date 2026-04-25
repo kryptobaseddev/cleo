@@ -53,6 +53,7 @@ import type {
   AdminMigrateParams,
   AdminPathsParams,
   AdminRoadmapParams,
+  AdminRuntimeParams,
   AdminSafestopParams,
   AdminScaffoldHubParams,
   AdminSequenceParams,

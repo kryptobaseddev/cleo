@@ -203,22 +203,24 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
 // wrapResult. Similar to session.ts pattern (T975).
 // ---------------------------------------------------------------------------
 
-interface LafsEnvelope {
-  readonly success: boolean;
-  readonly data?: unknown;
-  readonly error?: { readonly code: string; readonly message: string };
-}
-
 /**
  * Convert a LAFS envelope into the minimal EngineResult shape expected by
  * {@link wrapResult}.
+ *
+ * T1434: accept the canonical LafsEnvelope shape from contracts where
+ * `error.code` is `string | number`. The dispatch wire format requires a
+ * string `code`; stringify on the boundary.
  *
  * @param envelope - The LAFS envelope returned by the typed op function.
  * @returns An object compatible with the `EngineResult` type in `_base.ts`.
  *
  * @internal
  */
-function envelopeToEngineResult(envelope: LafsEnvelope): {
+function envelopeToEngineResult(envelope: {
+  readonly success: boolean;
+  readonly data?: unknown;
+  readonly error?: { readonly code: string | number; readonly message: string };
+}): {
   success: boolean;
   data?: unknown;
   error?: { code: string; message: string };
@@ -229,7 +231,7 @@ function envelopeToEngineResult(envelope: LafsEnvelope): {
   return {
     success: false,
     error: {
-      code: envelope.error?.code ?? 'E_INTERNAL',
+      code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
       message: envelope.error?.message ?? 'Unknown error',
     },
   };
