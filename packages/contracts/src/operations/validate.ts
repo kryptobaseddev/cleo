@@ -330,34 +330,19 @@ export type CheckOps = {
     ValidateComplianceRecordParams,
     ValidateComplianceRecordResult,
   ];
-  readonly 'compliance.sync': readonly [
-    ValidateComplianceSyncParams,
-    ValidateComplianceSyncResult,
-  ];
-  readonly 'test': readonly [ValidateTestStatusParams, ValidateTestStatusResult];
+  readonly 'compliance.sync': readonly [ValidateComplianceSyncParams, ValidateComplianceSyncResult];
+  readonly test: readonly [ValidateTestStatusParams, ValidateTestStatusResult];
   readonly 'test.run': readonly [ValidateTestRunParams, ValidateTestRunResult];
-  readonly 'test.coverage': readonly [
-    ValidateTestCoverageParams,
-    ValidateTestCoverageResult,
-  ];
+  readonly 'test.coverage': readonly [ValidateTestCoverageParams, ValidateTestCoverageResult];
   readonly coherence: readonly [ValidateCoherenceParams, ValidateCoherenceResult];
   readonly 'gate.status': readonly [ValidateGateParams, ValidateGateResult];
   readonly 'gate.set': readonly [ValidateGateParams, ValidateGateResult];
-  readonly 'verify.explain': readonly [
-    ValidateVerifyExplainParams,
-    ValidateVerifyExplainResult,
-  ];
-  readonly 'archive.stats': readonly [
-    ValidateArchiveStatsParams,
-    ValidateArchiveStatsResult,
-  ];
-  readonly 'chain.validate': readonly [
-    ValidateChainParams,
-    ValidateChainResult,
-  ];
-  readonly 'grade': readonly [ValidateGradeParams, ValidateGradeResult];
+  readonly 'verify.explain': readonly [ValidateVerifyExplainParams, ValidateVerifyExplainResult];
+  readonly 'archive.stats': readonly [ValidateArchiveStatsParams, ValidateArchiveStatsResult];
+  readonly 'chain.validate': readonly [ValidateChainParams, ValidateChainResult];
+  readonly grade: readonly [ValidateGradeParams, ValidateGradeResult];
   readonly 'grade.list': readonly [ValidateGradeListParams, ValidateGradeListResult];
-  readonly 'canon': readonly [ValidateCanonParams, ValidateCanonResult];
+  readonly canon: readonly [ValidateCanonParams, ValidateCanonResult];
   readonly 'workflow.compliance': readonly [
     ValidateWorkflowComplianceParams,
     ValidateWorkflowComplianceResult,

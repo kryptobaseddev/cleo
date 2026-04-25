@@ -747,7 +747,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   },
 
   'chain.validate': async (params: ValidateChainParams) => {
-    const projectRoot = getProjectRoot();
+    const _projectRoot = getProjectRoot();
     if (!params.chain) {
       return lafsError('E_INVALID_INPUT', 'chain is required', 'chain.validate');
     }

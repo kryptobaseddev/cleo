@@ -25,8 +25,8 @@ import type {
   TasksBlockersQueryParams,
   TasksCancelParams,
   TasksClaimParams,
-  TasksComplexityEstimateParams,
   TasksCompleteQueryParams,
+  TasksComplexityEstimateParams,
   TasksCurrentParams,
   TasksDeleteQueryParams,
   TasksDependsParams,
@@ -40,8 +40,8 @@ import type {
   TasksPlanParams,
   TasksRelatesAddParams,
   TasksRelatesParams,
-  TasksReparentQueryParams,
   TasksReorderQueryParams,
+  TasksReparentQueryParams,
   TasksRestoreParams,
   TasksShowParams,
   TasksStartQueryParams,
@@ -54,6 +54,7 @@ import type {
   TasksUpdateQueryParams,
 } from '@cleocode/contracts';
 import { getLogger, getProjectRoot } from '@cleocode/core';
+import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import {
   taskAnalyze,
   taskArchive,
@@ -97,7 +98,6 @@ import {
   taskWorkHistory,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
@@ -608,11 +608,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   reparent: async (params: TasksReparentQueryParams) => {
     const projectRoot = getProjectRoot();
-    const result = await taskReparent(
-      projectRoot,
-      params.taskId,
-      params.newParentId ?? null,
-    );
+    const result = await taskReparent(projectRoot, params.taskId, params.newParentId ?? null);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),

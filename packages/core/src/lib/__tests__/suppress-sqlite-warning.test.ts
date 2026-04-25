@@ -23,7 +23,7 @@ describe('suppress-sqlite-warning', () => {
     ): void {
       const message =
         typeof warning === 'string' ? warning : (warning as Error | undefined)?.message;
-      if (message && message.includes(SQLITE_EXPERIMENTAL_MSG)) {
+      if (message?.includes(SQLITE_EXPERIMENTAL_MSG)) {
         return;
       }
       spy.apply(this, [warning, ...args]);
@@ -52,7 +52,7 @@ describe('suppress-sqlite-warning', () => {
     ): void {
       const message =
         typeof warning === 'string' ? warning : (warning as Error | undefined)?.message;
-      if (message && message.includes(SQLITE_EXPERIMENTAL_MSG)) {
+      if (message?.includes(SQLITE_EXPERIMENTAL_MSG)) {
         return;
       }
       spy.apply(this, [warning, ...args]);
