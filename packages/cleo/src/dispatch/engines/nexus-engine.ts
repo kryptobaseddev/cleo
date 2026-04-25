@@ -1521,16 +1521,35 @@ export async function nexusProfileReinforce(
 /**
  * Create or update a user-profile trait.
  *
- * @param trait - Trait to upsert (required).
+ * Accepts the wire-format `Pick<UserProfileTrait, ...>` from the dispatch
+ * surface (`NexusProfileUpsertParams.trait`) and fills in engine-managed
+ * fields (`firstObservedAt`, `lastReinforcedAt`, `reinforcementCount`,
+ * `supersededBy`) with safe defaults. The persistence layer
+ * (`upsertUserProfileTrait`) preserves the original `firstObservedAt` for
+ * existing rows, so callers SHOULD not override it.
+ *
+ * @param trait - Wire-format trait (required) — only user-supplied fields.
  * @task T1080
+ * @task T1434 — accept Pick subset to match `NexusProfileUpsertParams.trait`
  */
 export async function nexusProfileUpsert(
-  trait: UserProfileTrait,
+  trait: Pick<
+    UserProfileTrait,
+    'traitKey' | 'traitValue' | 'confidence' | 'source' | 'derivedFromMessageId'
+  >,
 ): Promise<EngineResult<NexusProfileUpsertResult>> {
   try {
     const nexusDb = await getNexusDb();
     const existing = await getUserProfileTrait(nexusDb, trait.traitKey);
-    await upsertUserProfileTrait(nexusDb, trait);
+    const now = new Date().toISOString();
+    const fullTrait: UserProfileTrait = {
+      ...trait,
+      firstObservedAt: existing?.firstObservedAt ?? now,
+      lastReinforcedAt: now,
+      reinforcementCount: existing ? existing.reinforcementCount + 1 : 1,
+      supersededBy: existing?.supersededBy ?? null,
+    };
+    await upsertUserProfileTrait(nexusDb, fullTrait);
     return engineSuccess({ created: existing === null });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));

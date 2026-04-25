@@ -938,11 +938,27 @@ export class CheckHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
     try {
-      const envelope = await typedDispatch(_checkTypedHandler, operation as any, params ?? {});
+      const envelope = await typedDispatch(
+        _checkTypedHandler,
+        operation as keyof CheckOps & string,
+        params ?? {},
+      );
+      // T1434: normalize the LAFS error shape (`code: string | number`)
+      // to the DispatchError shape (`code: string`).
       return {
         meta: dispatchMeta('query', 'check', operation, startTime),
         success: envelope.success,
-        ...(envelope.success ? { data: envelope.data } : { error: envelope.error }),
+        ...(envelope.success
+          ? { data: envelope.data as unknown }
+          : {
+              error: {
+                code:
+                  envelope.error?.code !== undefined
+                    ? String(envelope.error.code)
+                    : 'E_INTERNAL',
+                message: envelope.error?.message ?? 'Unknown error',
+              },
+            }),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -957,11 +973,27 @@ export class CheckHandler implements DomainHandler {
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
     try {
-      const envelope = await typedDispatch(_checkTypedHandler, operation as any, params ?? {});
+      const envelope = await typedDispatch(
+        _checkTypedHandler,
+        operation as keyof CheckOps & string,
+        params ?? {},
+      );
+      // T1434: normalize the LAFS error shape (`code: string | number`)
+      // to the DispatchError shape (`code: string`).
       return {
         meta: dispatchMeta('mutate', 'check', operation, startTime),
         success: envelope.success,
-        ...(envelope.success ? { data: envelope.data } : { error: envelope.error }),
+        ...(envelope.success
+          ? { data: envelope.data as unknown }
+          : {
+              error: {
+                code:
+                  envelope.error?.code !== undefined
+                    ? String(envelope.error.code)
+                    : 'E_INTERNAL',
+                message: envelope.error?.message ?? 'Unknown error',
+              },
+            }),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
