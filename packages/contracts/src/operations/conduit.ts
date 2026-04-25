@@ -1,8 +1,16 @@
 /**
- * Conduit Domain Operations (5 operations)
+ * Conduit Domain Operations (8 operations: 3 query, 5 mutate)
  *
- * Query operations: 2
- * Mutate operations: 3
+ * Query operations: 3
+ *   - conduit.status   — connection status + unread count
+ *   - conduit.peek     — one-shot poll for messages
+ *   - conduit.listen   — one-shot poll for topic messages (A2A, T1252)
+ * Mutate operations: 5
+ *   - conduit.start    — start continuous polling
+ *   - conduit.stop     — stop polling
+ *   - conduit.send     — send a message
+ *   - conduit.subscribe — subscribe agent to a topic (A2A, T1252)
+ *   - conduit.publish  — publish message to a topic (A2A, T1252)
  *
  * CONDUIT is the agent-to-agent messaging subsystem. The protocol wraps a
  * pluggable Transport (HTTP to cloud SignalDock, LocalTransport over
@@ -16,12 +24,14 @@
  *
  * Registry note (T964 — supersedes ADR-042 Decision 1): the dispatcher
  * registers these operations under `domain: 'conduit'` with short operation
- * names (`status`, `peek`, `start`, `stop`, `send`). The public/HTTP identifier
- * `conduit.<op>` remains the stable wire-format surface and what these
- * contracts describe; CLI and HTTP adapters map between the two forms.
+ * names (`status`, `peek`, `start`, `stop`, `send`, `subscribe`, `publish`,
+ * `listen`). The public/HTTP identifier `conduit.<op>` remains the stable
+ * wire-format surface and what these contracts describe; CLI and HTTP adapters
+ * map between the two forms.
  *
  * @task T910 — Orchestration Coherence v4 (contract surface completion)
  * @task T964 — CONDUIT promotion to canonical domain #15
+ * @task T1422 — Typed-dispatch migration (Wave D, T975 follow-on)
  * @see packages/cleo/src/dispatch/domains/conduit.ts
  * @see packages/contracts/src/conduit.ts
  */
@@ -297,3 +307,29 @@ export interface ConduitListenResult {
   /** Duration of the listen call in milliseconds. */
   listenedForMs: number;
 }
+
+// ============================================================================
+// Typed Operation Record (T1422 — Wave D typed-dispatch)
+// ============================================================================
+
+/**
+ * Typed operation record for the conduit domain.
+ *
+ * Each key is an operation name, and each value is a tuple of
+ * `[Params, Result]` types. Used by the typed dispatch adapter
+ * (`packages/cleo/src/dispatch/adapters/typed.ts`) to provide
+ * compile-time narrowing on all conduit handler params.
+ *
+ * @task T1422 — Typed-dispatch migration (T975 follow-on)
+ * @see packages/cleo/src/dispatch/domains/conduit.ts (ConduitHandler)
+ */
+export type ConduitOps = {
+  status: [ConduitStatusParams, ConduitStatusResult];
+  peek: [ConduitPeekParams, ConduitPeekResult];
+  listen: [ConduitListenParams, ConduitListenResult];
+  start: [ConduitStartParams, ConduitStartResult];
+  stop: [ConduitStopParams, ConduitStopResult];
+  send: [ConduitSendParams, ConduitSendResult];
+  subscribe: [ConduitSubscribeParams, ConduitSubscribeResult];
+  publish: [ConduitPublishParams, ConduitPublishResult];
+};
