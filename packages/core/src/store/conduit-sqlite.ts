@@ -2,25 +2,30 @@
  * SQLite store for conduit.db — project-tier messaging and agent-ref database.
  *
  * Creates and manages .cleo/conduit.db using node:sqlite directly.
- * Applies the full conduit.db DDL (from spec §2.1) to bootstrap all
- * project-local messaging tables and the project_agent_refs override table.
+ *
+ * Schema definitions live in `conduit-schema.ts` (Drizzle ORM table objects).
+ * On open, the legacy DDL bootstrap (`applyConduitSchema`, retained as a
+ * `CREATE TABLE IF NOT EXISTS` fallback that also handles the FTS5 virtual
+ * table + triggers which Drizzle cannot model) creates any missing tables,
+ * then the canonical `migration-manager.ts` runner reconciles the Drizzle
+ * journal and applies any pending migrations from
+ * `packages/core/migrations/drizzle-conduit/`. This brings conduit.db into
+ * the same SSoT pattern as tasks/brain/nexus/signaldock/telemetry.
  *
  * Architecture (ADR-037):
  *   conduit.db   — project-scoped (this module) — messaging, delivery, attachments,
  *                  project_agent_refs
  *   signaldock.db — global-scoped (T346) — agents, capabilities, cloud-sync tables
  *
- * CRUD accessors for project_agent_refs land in T353.
- * Cross-DB join accessor changes land in T355.
- * Migration executor from signaldock.db → conduit.db lands in T358.
- *
  * @task T344
+ * @task T1407
  * @epic T310
  * @why ADR-037 splits single signaldock.db into project-tier conduit.db
- *      (this module) and global-tier signaldock.db (T346). This module owns
- *      the project-tier path helper, initializer, schema DDL, and health check.
- * @what Path helper, database initializer, schema applier, health check, and
- *       native DB accessor for project-local tables. No CRUD, no migrations.
+ *      (this module) and global-tier signaldock.db (T346). T1407 unifies
+ *      conduit.db under the canonical Drizzle migration runner.
+ * @what Path helper, database initializer, Drizzle migration runner wiring,
+ *       legacy schema applier (bootstrap + FTS5 fallback), health check,
+ *       and native DB accessor.
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
@@ -31,6 +36,10 @@ import { dirname, join } from 'node:path';
 // Use createRequire as the runtime loader; keep type-only import for annotations.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { ProjectAgentRef } from '@cleocode/contracts';
+import { drizzle } from 'drizzle-orm/node-sqlite';
+import * as conduitSchema from './conduit-schema.js';
+import { migrateSanitized, reconcileJournal } from './migration-manager.js';
+import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -41,7 +50,13 @@ const { DatabaseSync } = _require('node:sqlite') as {
 /** Database file name within .cleo/ directory. */
 export const CONDUIT_DB_FILENAME = 'conduit.db';
 
-/** Schema version for conduit.db — updated when DDL changes. */
+/**
+ * Schema version for conduit.db.
+ *
+ * Bumped only when the Drizzle schema changes. T1407 refactor preserved the
+ * 2026.4.23 schema verbatim (DDL representation only — no semantic changes),
+ * so the version remains pinned at the post-T1252 A2A topics value.
+ */
 export const CONDUIT_SCHEMA_VERSION = '2026.4.23';
 
 // ---------------------------------------------------------------------------
@@ -369,16 +384,84 @@ export function getConduitDbPath(projectRoot: string): string {
 /**
  * Applies the conduit.db schema idempotently using CREATE TABLE IF NOT EXISTS.
  *
+ * Used as a bootstrap path for fresh conduit.db files BEFORE the Drizzle
+ * migration runner takes over. The DDL is `CREATE TABLE IF NOT EXISTS` /
+ * `CREATE INDEX IF NOT EXISTS` / `CREATE TRIGGER IF NOT EXISTS` /
+ * `CREATE VIRTUAL TABLE IF NOT EXISTS` for full idempotency, so calling this
+ * on an already-populated DB is a no-op.
+ *
+ * Two reasons this raw-SQL applier is retained alongside the Drizzle
+ * runner (T1407):
+ *
+ * 1. **FTS5 + triggers** — drizzle-orm sqlite-core does not model FTS5
+ *    virtual tables or AFTER INSERT/DELETE/UPDATE triggers. The
+ *    `messages_fts` virtual table and its 3 triggers can only live in
+ *    raw SQL. They MUST be present after init for full-text message
+ *    search to work.
+ *
+ * 2. **Comment-only baseline migration** — the Drizzle baseline marker at
+ *    `packages/core/migrations/drizzle-conduit/20260425000000_initial-conduit/migration.sql`
+ *    is intentionally comment-only (T1165 Hybrid Path A+ pattern) so that
+ *    existing conduit.db files in the wild detect the schema via
+ *    `reconcileJournal()` and mark the baseline applied without re-running
+ *    DDL. Fresh DBs therefore need a separate bootstrap path — that is
+ *    this function.
+ *
  * Exposed for the migration executor (T358) which needs to apply the schema
  * to a newly created conduit.db during the signaldock.db → conduit.db
  * migration. Also called internally by `ensureConduitDb` on every open.
  *
  * @task T344
+ * @task T1407
  * @epic T310
  * @param db - An open node:sqlite DatabaseSync instance.
  */
 export function applyConduitSchema(db: DatabaseSync): void {
   db.exec(CONDUIT_SCHEMA_SQL);
+}
+
+/**
+ * Resolve the absolute path to the drizzle-conduit migrations folder inside
+ * `@cleocode/core`, using ESM-native module resolution (T1177 pattern).
+ *
+ * @task T1407
+ * @epic T310
+ */
+export function resolveConduitMigrationsFolder(): string {
+  return resolveCorePackageMigrationsFolder('drizzle-conduit');
+}
+
+/**
+ * Run Drizzle migrations to reconcile and update conduit.db.
+ *
+ * Uses `reconcileJournal()` + `migrateSanitized()` from migration-manager.ts —
+ * the canonical SSoT for SQLite migration semantics shared with tasks/brain/
+ * nexus/signaldock/telemetry.
+ *
+ * Reconciliation handles:
+ *   - Scenario 1: existing DB with schema present but no `__drizzle_migrations`
+ *     table → bootstrap baseline as applied.
+ *   - Scenario 3: comment-only baseline marker on a populated DB → marked
+ *     applied immediately without running DDL.
+ *   - Scenario 4: backfill `name` on null journal entries (Drizzle v1 beta).
+ *
+ * The existence sentinel is `conversations` — the first table created by
+ * `applyConduitSchema()` (always present on any conduit.db that has been
+ * through a successful init).
+ *
+ * @task T1407
+ * @epic T310
+ */
+function runConduitMigrations(nativeDb: DatabaseSync): void {
+  const migrationsFolder = resolveConduitMigrationsFolder();
+
+  // Reconcile the Drizzle journal first so existing DBs don't try to re-run
+  // the comment-only baseline marker (Scenario 3 marks it applied immediately
+  // when the schema already matches).
+  reconcileJournal(nativeDb, migrationsFolder, 'conversations', 'conduit');
+
+  const db = drizzle({ client: nativeDb, schema: conduitSchema });
+  migrateSanitized(db, { migrationsFolder });
 }
 
 /**
@@ -388,9 +471,14 @@ export function applyConduitSchema(db: DatabaseSync): void {
  *   1. Creates `<projectRoot>/.cleo/` directory if missing.
  *   2. Opens (or creates) the SQLite file.
  *   3. Sets WAL mode and enables foreign keys.
- *   4. Applies all DDL via `applyConduitSchema` (idempotent).
- *   5. Records `schema_version` in `_conduit_meta`.
- *   6. Records the initial migration in `_conduit_migrations`.
+ *   4. Bootstraps schema via `applyConduitSchema` (idempotent CREATE
+ *      TABLE/INDEX/TRIGGER/VIRTUAL TABLE IF NOT EXISTS — the only path
+ *      that creates the FTS5 virtual table + triggers Drizzle cannot
+ *      model).
+ *   5. Runs Drizzle migration reconciliation + apply pending migrations
+ *      via `runConduitMigrations()` (canonical migration-manager.ts SSoT).
+ *   6. Records `schema_version` in `_conduit_meta` (legacy, retained for
+ *      backwards compatibility with pre-T1407 health checks).
  *   7. Stores the open handle in the module singleton.
  *
  * On subsequent calls the existing singleton is returned immediately if the
@@ -400,6 +488,7 @@ export function applyConduitSchema(db: DatabaseSync): void {
  * Caller MUST call `closeConduitDb()` when done to release the handle.
  *
  * @task T344
+ * @task T1407
  * @epic T310
  * @param projectRoot - Absolute path to the project root directory.
  * @returns Object with `action` (`'created'` | `'exists'`) and `path`.
@@ -445,22 +534,23 @@ export function ensureConduitDb(projectRoot: string): {
     }
   })();
 
-  // Apply schema (idempotent — all statements use IF NOT EXISTS).
+  // Bootstrap schema (idempotent — all statements use IF NOT EXISTS). For fresh
+  // DBs this creates every conduit table, the FTS5 virtual table, and its 3
+  // triggers. For populated DBs this is a no-op.
   applyConduitSchema(db);
 
-  // Record schema version and initial migration.
+  // Run Drizzle migration reconciliation + apply any pending migrations
+  // (T1407 unification — canonical migration-manager.ts runner).
+  runConduitMigrations(db);
+
+  // Record schema version in the legacy `_conduit_meta` table for backwards-
+  // compatible health-check consumers (checkConduitDbHealth and any external
+  // tooling that grepped the meta table prior to T1407). The Drizzle journal
+  // (`__drizzle_migrations`) is now the canonical migration source-of-truth.
   db.exec(
     `INSERT OR REPLACE INTO _conduit_meta (key, value, updated_at)
      VALUES ('schema_version', '${CONDUIT_SCHEMA_VERSION}', strftime('%s', 'now'))`,
   );
-  db.prepare(
-    `INSERT OR IGNORE INTO _conduit_migrations (name, applied_at)
-     VALUES (?, strftime('%s', 'now'))`,
-  ).run('2026-04-12-000000_initial_conduit');
-  db.prepare(
-    `INSERT OR IGNORE INTO _conduit_migrations (name, applied_at)
-     VALUES (?, strftime('%s', 'now'))`,
-  ).run('2026-04-23-000000_t1252_a2a_topics');
 
   _conduitNativeDb = db;
   _conduitDbPath = dbPath;
