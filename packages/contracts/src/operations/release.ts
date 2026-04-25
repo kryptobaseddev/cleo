@@ -182,3 +182,90 @@ export interface ReleaseRollbackResult {
   /** Rollback reason. @task T963 */
   reason: string;
 }
+
+// ── RELEASE-03: IVTR gate check ──────────────────────────────────────────────
+
+/**
+ * Parameters for `release.gate` — checks all IVTR loops in a release epic
+ * have reached the `released` phase before allowing `release.ship`.
+ *
+ * @task T820 RELEASE-03
+ * @task T1416
+ */
+export interface ReleaseGateCheckParams {
+  /** Epic ID whose child tasks should be inspected. */
+  epicId: string;
+  /**
+   * Bypass the IVTR gate — requires explicit owner confirmation.
+   * When true, the gate check is skipped and a loud warning is emitted.
+   */
+  force?: boolean;
+}
+
+/** A single task's IVTR phase status as reported by `release.gate`. */
+export interface IvtrTaskStatus {
+  /** Task ID. */
+  taskId: string;
+  /**
+   * Current IVTR phase, or `null` when no IVTR loop has been started for
+   * this task (task is "unchecked").
+   */
+  currentPhase: 'implement' | 'validate' | 'test' | 'released' | null;
+  /** Whether the task blocks release (`true` = blocking). */
+  blocking: boolean;
+}
+
+/**
+ * Result of `release.gate`.
+ *
+ * @task T820 RELEASE-03
+ * @task T1416
+ */
+export interface ReleaseGateCheckResult {
+  /** Epic ID that was inspected. */
+  epicId: string;
+  /** Whether the gate passed — all tasks are released or unchecked. */
+  passed: boolean;
+  /** Whether the gate was bypassed via `--force`. */
+  forcedBypass: boolean;
+  /** Task IDs whose IVTR state is not `released` (blocking). */
+  blocked: string[];
+  /**
+   * Task IDs with no IVTR state (non-blocking; docs / chore tasks often
+   * have no IVTR loop).
+   */
+  unchecked: string[];
+  /** Full per-task status breakdown. */
+  tasks: IvtrTaskStatus[];
+  /**
+   * Human-readable summary suitable for CLI output and operator review.
+   * Present on both pass and fail.
+   */
+  summary: string;
+}
+
+// ── RELEASE-07: IVTR → release auto-suggest ──────────────────────────────────
+
+/**
+ * Result emitted by `release.ivtr-suggest` — the hint produced when an IVTR
+ * loop transitions to `released` and all tasks in the parent epic are now
+ * in the `released` phase.
+ *
+ * @task T820 RELEASE-07
+ * @task T1416
+ */
+export interface IvtrAutoSuggestResult {
+  /** Task ID that just reached the `released` phase. */
+  taskId: string;
+  /** Parent epic ID, if the task belongs to one. */
+  epicId: string | null;
+  /** Whether every task in the epic has reached `released`. */
+  epicFullyReleased: boolean;
+  /**
+   * Suggested next CLI command. Non-null only when `epicFullyReleased` is
+   * true. Points the operator toward `cleo release ship`.
+   */
+  suggestedCommand: string | null;
+  /** Human-readable message for operator guidance. */
+  message: string;
+}

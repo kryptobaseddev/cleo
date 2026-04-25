@@ -37,6 +37,7 @@ import {
 } from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, wrapResult } from './_base.js';
+import { releaseIvtrAutoSuggest } from '../lib/engine.js';
 
 const log = getLogger('domain:ivtr');
 
@@ -349,6 +350,36 @@ export class IvtrHandler implements DomainHandler {
             );
           }
 
+          // T820 RELEASE-07: Check whether all sibling tasks in the parent epic
+          // are now released. If so, emit a `cleo release ship` auto-suggestion
+          // so the operator is guided to the next step without manual discovery.
+          let autoSuggest: {
+            epicId: string | null;
+            epicFullyReleased: boolean;
+            suggestedCommand: string | null;
+            message: string;
+          } | null = null;
+
+          try {
+            const suggestResult = await releaseIvtrAutoSuggest(taskId, cwd);
+            if (suggestResult.success && suggestResult.data) {
+              const d = suggestResult.data as {
+                epicId: string | null;
+                epicFullyReleased: boolean;
+                suggestedCommand: string | null;
+                message: string;
+              };
+              autoSuggest = {
+                epicId: d.epicId,
+                epicFullyReleased: d.epicFullyReleased,
+                suggestedCommand: d.suggestedCommand,
+                message: d.message,
+              };
+            }
+          } catch {
+            // Auto-suggest is best-effort; never block the release on its failure.
+          }
+
           return wrapResult(
             {
               success: true,
@@ -356,10 +387,7 @@ export class IvtrHandler implements DomainHandler {
                 taskId,
                 released: true,
                 message: `Task ${taskId} has been released. All IVTR phases passed. Status set to done.`,
-                // T820 RELEASE-07: Wire into release pipeline
-                nextStep:
-                  `All I+V+T evidence complete for ${taskId}. ` +
-                  `When ALL tasks in the epic are released, run: cleo release ship <version> --epic <epicId>`,
+                ...(autoSuggest ? { autoSuggest } : {}),
               },
             },
             'mutate',
