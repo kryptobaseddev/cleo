@@ -2,7 +2,7 @@
  * Shared database helper functions for SQLite store modules.
  *
  * Consolidates upsert and dependency patterns used across
- * sqlite-data-accessor.ts, task-store.ts, and session-store.ts.
+ * sqlite-data-accessor.ts, tasks-sqlite.ts, and session-store.ts.
  *
  * @epic T4454
  */

@@ -27,7 +27,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
   };
 }
 
-describe('SQLite task-store', () => {
+describe('SQLite tasks-sqlite', () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-taskstore-'));
     const cleoDir = join(tempDir, '.cleo');
@@ -60,7 +60,7 @@ describe('SQLite task-store', () => {
 
   describe('createTask', () => {
     it('creates a task and retrieves it', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
       const task = makeTask({ id: 'T001', title: 'First task', description: 'A test task' });
 
       const created = await createTask(task);
@@ -76,7 +76,7 @@ describe('SQLite task-store', () => {
     });
 
     it('persists labels, notes, and acceptance as JSON', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
       const task = makeTask({
         id: 'T002',
         labels: ['bug', 'urgent'],
@@ -93,7 +93,7 @@ describe('SQLite task-store', () => {
     });
 
     it('creates task with dependencies', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
 
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002', depends: ['T001'] }));
@@ -103,7 +103,7 @@ describe('SQLite task-store', () => {
     });
 
     it('creates task with provenance', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
       // Insert FK parent session before creating a task that references it
       const { createSession } = await import('../session-store.js');
       await createSession({
@@ -132,7 +132,7 @@ describe('SQLite task-store', () => {
     });
 
     it('preserves all task fields through roundtrip', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
       const now = new Date().toISOString();
       const task = makeTask({
         id: 'T004',
@@ -169,13 +169,13 @@ describe('SQLite task-store', () => {
 
   describe('getTask', () => {
     it('returns null for non-existent task', async () => {
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const result = await getTask('T999');
       expect(result).toBeNull();
     });
 
     it('loads dependencies with task', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002' }));
       await createTask(makeTask({ id: 'T003', depends: ['T001', 'T002'] }));
@@ -191,7 +191,7 @@ describe('SQLite task-store', () => {
 
   describe('updateTask', () => {
     it('updates title and description', async () => {
-      const { createTask, updateTask, getTask } = await import('../task-store.js');
+      const { createTask, updateTask, getTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', title: 'Old title' }));
 
       const updated = await updateTask('T001', {
@@ -206,7 +206,7 @@ describe('SQLite task-store', () => {
     });
 
     it('updates status', async () => {
-      const { createTask, updateTask } = await import('../task-store.js');
+      const { createTask, updateTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
 
       const updated = await updateTask('T001', { status: 'active' });
@@ -214,7 +214,7 @@ describe('SQLite task-store', () => {
     });
 
     it('updates priority', async () => {
-      const { createTask, updateTask } = await import('../task-store.js');
+      const { createTask, updateTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
 
       const updated = await updateTask('T001', { priority: 'critical' });
@@ -222,7 +222,7 @@ describe('SQLite task-store', () => {
     });
 
     it('updates labels', async () => {
-      const { createTask, updateTask } = await import('../task-store.js');
+      const { createTask, updateTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', labels: ['old'] }));
 
       const updated = await updateTask('T001', { labels: ['new', 'updated'] });
@@ -230,7 +230,7 @@ describe('SQLite task-store', () => {
     });
 
     it('updates dependencies', async () => {
-      const { createTask, updateTask, getTask } = await import('../task-store.js');
+      const { createTask, updateTask, getTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002' }));
       await createTask(makeTask({ id: 'T003', depends: ['T001'] }));
@@ -241,13 +241,13 @@ describe('SQLite task-store', () => {
     });
 
     it('returns null for non-existent task', async () => {
-      const { updateTask } = await import('../task-store.js');
+      const { updateTask } = await import('../tasks-sqlite.js');
       const result = await updateTask('T999', { title: 'Nope' });
       expect(result).toBeNull();
     });
 
     it('sets updatedAt timestamp', async () => {
-      const { createTask, updateTask } = await import('../task-store.js');
+      const { createTask, updateTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
 
       const before = new Date().toISOString();
@@ -261,7 +261,7 @@ describe('SQLite task-store', () => {
 
   describe('deleteTask', () => {
     it('deletes an existing task', async () => {
-      const { createTask, deleteTask, getTask } = await import('../task-store.js');
+      const { createTask, deleteTask, getTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
 
       const deleted = await deleteTask('T001');
@@ -272,7 +272,7 @@ describe('SQLite task-store', () => {
     });
 
     it('returns false for non-existent task', async () => {
-      const { deleteTask } = await import('../task-store.js');
+      const { deleteTask } = await import('../tasks-sqlite.js');
       const result = await deleteTask('T999');
       expect(result).toBe(false);
     });
@@ -282,7 +282,7 @@ describe('SQLite task-store', () => {
 
   describe('listTasks', () => {
     it('lists all non-archived tasks', async () => {
-      const { createTask, listTasks } = await import('../task-store.js');
+      const { createTask, listTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002', status: 'active' }));
 
@@ -291,7 +291,7 @@ describe('SQLite task-store', () => {
     });
 
     it('excludes archived tasks by default', async () => {
-      const { createTask, archiveTask, listTasks } = await import('../task-store.js');
+      const { createTask, archiveTask, listTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', status: 'done' }));
       await createTask(makeTask({ id: 'T002' }));
 
@@ -303,7 +303,7 @@ describe('SQLite task-store', () => {
     });
 
     it('filters by status', async () => {
-      const { createTask, listTasks } = await import('../task-store.js');
+      const { createTask, listTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', status: 'pending' }));
       await createTask(makeTask({ id: 'T002', status: 'active' }));
       await createTask(makeTask({ id: 'T003', status: 'pending' }));
@@ -314,7 +314,7 @@ describe('SQLite task-store', () => {
     });
 
     it('filters by parentId', async () => {
-      const { createTask, listTasks } = await import('../task-store.js');
+      const { createTask, listTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', type: 'epic' }));
       await createTask(makeTask({ id: 'T002', parentId: 'T001' }));
       await createTask(makeTask({ id: 'T003', parentId: 'T001' }));
@@ -326,7 +326,7 @@ describe('SQLite task-store', () => {
     });
 
     it('filters by null parentId (root tasks)', async () => {
-      const { createTask, listTasks } = await import('../task-store.js');
+      const { createTask, listTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002', parentId: 'T001' }));
 
@@ -336,7 +336,7 @@ describe('SQLite task-store', () => {
     });
 
     it('filters by type', async () => {
-      const { createTask, listTasks } = await import('../task-store.js');
+      const { createTask, listTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', type: 'epic' }));
       await createTask(makeTask({ id: 'T002', type: 'task' }));
 
@@ -346,7 +346,7 @@ describe('SQLite task-store', () => {
     });
 
     it('filters by phase', async () => {
-      const { createTask, listTasks } = await import('../task-store.js');
+      const { createTask, listTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', phase: 'design' }));
       await createTask(makeTask({ id: 'T002', phase: 'implementation' }));
 
@@ -356,7 +356,7 @@ describe('SQLite task-store', () => {
     });
 
     it('respects limit parameter', async () => {
-      const { createTask, listTasks } = await import('../task-store.js');
+      const { createTask, listTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002' }));
       await createTask(makeTask({ id: 'T003' }));
@@ -366,7 +366,7 @@ describe('SQLite task-store', () => {
     });
 
     it('loads dependencies for listed tasks', async () => {
-      const { createTask, listTasks } = await import('../task-store.js');
+      const { createTask, listTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002', depends: ['T001'] }));
 
@@ -380,7 +380,7 @@ describe('SQLite task-store', () => {
 
   describe('findTasks', () => {
     it('finds tasks by title substring', async () => {
-      const { createTask, findTasks } = await import('../task-store.js');
+      const { createTask, findTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', title: 'Fix authentication bug' }));
       await createTask(makeTask({ id: 'T002', title: 'Add login feature' }));
 
@@ -390,7 +390,7 @@ describe('SQLite task-store', () => {
     });
 
     it('finds tasks by ID substring', async () => {
-      const { createTask, findTasks } = await import('../task-store.js');
+      const { createTask, findTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002' }));
 
@@ -400,7 +400,7 @@ describe('SQLite task-store', () => {
     });
 
     it('finds tasks by description substring', async () => {
-      const { createTask, findTasks } = await import('../task-store.js');
+      const { createTask, findTasks } = await import('../tasks-sqlite.js');
       await createTask(
         makeTask({
           id: 'T001',
@@ -414,7 +414,7 @@ describe('SQLite task-store', () => {
     });
 
     it('excludes archived tasks', async () => {
-      const { createTask, archiveTask, findTasks } = await import('../task-store.js');
+      const { createTask, archiveTask, findTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', title: 'Archived task', status: 'done' }));
       await archiveTask('T001');
 
@@ -423,7 +423,7 @@ describe('SQLite task-store', () => {
     });
 
     it('respects limit parameter', async () => {
-      const { createTask, findTasks } = await import('../task-store.js');
+      const { createTask, findTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', title: 'Test alpha' }));
       await createTask(makeTask({ id: 'T002', title: 'Test beta' }));
       await createTask(makeTask({ id: 'T003', title: 'Test gamma' }));
@@ -437,7 +437,7 @@ describe('SQLite task-store', () => {
 
   describe('archiveTask', () => {
     it('archives an existing task', async () => {
-      const { createTask, archiveTask, getTask } = await import('../task-store.js');
+      const { createTask, archiveTask, getTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', status: 'done' }));
 
       const result = await archiveTask('T001');
@@ -458,7 +458,7 @@ describe('SQLite task-store', () => {
     });
 
     it('sets archive reason', async () => {
-      const { createTask, archiveTask } = await import('../task-store.js');
+      const { createTask, archiveTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', status: 'done' }));
 
       await archiveTask('T001', 'Manual cleanup');
@@ -476,7 +476,7 @@ describe('SQLite task-store', () => {
     });
 
     it('calculates cycle time in days', async () => {
-      const { createTask, archiveTask } = await import('../task-store.js');
+      const { createTask, archiveTask } = await import('../tasks-sqlite.js');
       const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
       await createTask(makeTask({ id: 'T001', status: 'done', createdAt: threeDaysAgo }));
 
@@ -496,7 +496,7 @@ describe('SQLite task-store', () => {
     });
 
     it('returns false for non-existent task', async () => {
-      const { archiveTask } = await import('../task-store.js');
+      const { archiveTask } = await import('../tasks-sqlite.js');
       const result = await archiveTask('T999');
       expect(result).toBe(false);
     });
@@ -506,7 +506,7 @@ describe('SQLite task-store', () => {
 
   describe('dependency operations', () => {
     it('addDependency creates a dependency link', async () => {
-      const { createTask, addDependency, getTask } = await import('../task-store.js');
+      const { createTask, addDependency, getTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002' }));
 
@@ -517,7 +517,7 @@ describe('SQLite task-store', () => {
 
     it('removeDependency removes a dependency link', async () => {
       const { createTask, addDependency, removeDependency, getTask } = await import(
-        '../task-store.js'
+        '../tasks-sqlite.js'
       );
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002', depends: ['T001'] }));
@@ -529,7 +529,7 @@ describe('SQLite task-store', () => {
     });
 
     it('addDependency is idempotent', async () => {
-      const { createTask, addDependency, getTask } = await import('../task-store.js');
+      const { createTask, addDependency, getTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002' }));
 
@@ -545,7 +545,7 @@ describe('SQLite task-store', () => {
 
   describe('relation operations', () => {
     it('addRelation creates a relation', async () => {
-      const { createTask, addRelation, getRelations } = await import('../task-store.js');
+      const { createTask, addRelation, getRelations } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002' }));
 
@@ -558,7 +558,7 @@ describe('SQLite task-store', () => {
     });
 
     it('addRelation supports different relation types', async () => {
-      const { createTask, addRelation, getRelations } = await import('../task-store.js');
+      const { createTask, addRelation, getRelations } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002' }));
       await createTask(makeTask({ id: 'T003' }));
@@ -575,7 +575,7 @@ describe('SQLite task-store', () => {
 
   describe('graph operations', () => {
     it('getChildren returns direct children', async () => {
-      const { createTask, getChildren } = await import('../task-store.js');
+      const { createTask, getChildren } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', type: 'epic' }));
       await createTask(makeTask({ id: 'T002', parentId: 'T001' }));
       await createTask(makeTask({ id: 'T003', parentId: 'T001' }));
@@ -587,7 +587,7 @@ describe('SQLite task-store', () => {
     });
 
     it('getSubtree returns full descendant tree', async () => {
-      const { createTask, getSubtree } = await import('../task-store.js');
+      const { createTask, getSubtree } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', type: 'epic' }));
       await createTask(makeTask({ id: 'T002', parentId: 'T001', type: 'task' }));
       await createTask(makeTask({ id: 'T003', parentId: 'T002', type: 'subtask' }));
@@ -599,7 +599,7 @@ describe('SQLite task-store', () => {
     });
 
     it('getBlockerChain returns recursive blocker IDs', async () => {
-      const { createTask, getBlockerChain } = await import('../task-store.js');
+      const { createTask, getBlockerChain } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002', depends: ['T001'] }));
       await createTask(makeTask({ id: 'T003', depends: ['T002'] }));
@@ -610,7 +610,7 @@ describe('SQLite task-store', () => {
     });
 
     it('countByStatus returns status counts', async () => {
-      const { createTask, countByStatus } = await import('../task-store.js');
+      const { createTask, countByStatus } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', status: 'pending' }));
       await createTask(makeTask({ id: 'T002', status: 'pending' }));
       await createTask(makeTask({ id: 'T003', status: 'active' }));
@@ -623,7 +623,7 @@ describe('SQLite task-store', () => {
     });
 
     it('countTasks returns total non-archived count', async () => {
-      const { createTask, archiveTask, countTasks } = await import('../task-store.js');
+      const { createTask, archiveTask, countTasks } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
       await createTask(makeTask({ id: 'T002' }));
       await createTask(makeTask({ id: 'T003', status: 'done' }));

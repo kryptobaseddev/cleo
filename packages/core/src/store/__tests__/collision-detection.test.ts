@@ -49,7 +49,7 @@ describe('Collision Detection', () => {
     });
 
     it('should detect existing task ID in strict mode', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { checkTaskExists } = await import('../data-safety.js');
 
       // Create a task first
@@ -69,7 +69,7 @@ describe('Collision Detection', () => {
     });
 
     it('should return true for existing task in non-strict mode', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { checkTaskExists } = await import('../data-safety.js');
 
       await createTask({
@@ -86,7 +86,7 @@ describe('Collision Detection', () => {
     });
 
     it('should not detect collision when detection is disabled', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { checkTaskExists } = await import('../data-safety.js');
 
       await createTask({
@@ -104,7 +104,7 @@ describe('Collision Detection', () => {
     });
 
     it('should include existing task details in error context', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { checkTaskExists, SafetyError } = await import('../data-safety.js');
 
       await createTask({
@@ -144,7 +144,7 @@ describe('Collision Detection', () => {
     });
 
     it('should detect collision from rapid create-then-check', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { checkTaskExists } = await import('../data-safety.js');
 
       // Create task, then immediately check
@@ -165,7 +165,7 @@ describe('Collision Detection', () => {
 
   describe('Namespace Isolation', () => {
     it('should detect collision in active tasks', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { checkTaskExists } = await import('../data-safety.js');
 
       await createTask({
@@ -182,7 +182,7 @@ describe('Collision Detection', () => {
     });
 
     it('should detect collision in done tasks', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { checkTaskExists } = await import('../data-safety.js');
 
       await createTask({

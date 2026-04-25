@@ -74,7 +74,7 @@ describe('Sequence Validation', () => {
 
     it('should repair when sequence is behind task IDs', async () => {
       const { validateAndRepairSequence } = await import('../data-safety.js');
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
 
       // Create tasks to advance the database
       await createTask({

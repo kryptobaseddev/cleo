@@ -217,7 +217,7 @@ describe('JSON to SQLite migration', () => {
       await migrateJsonToSqlite();
 
       // Verify dependencies in SQLite
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const task = await getTask('T002');
       expect(task!.depends).toContain('T001');
     });
@@ -262,7 +262,7 @@ describe('JSON to SQLite migration', () => {
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       await migrateJsonToSqlite();
 
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const task = await getTask('T001');
 
       expect(task!.title).toBe('Full task');
@@ -323,7 +323,7 @@ describe('JSON to SQLite migration', () => {
       expect(result.tasksImported).toBe(2);
       expect(result.errors).toHaveLength(0);
 
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const task1 = await getTask('T001');
       const task2 = await getTask('T002');
 
@@ -359,7 +359,7 @@ describe('JSON to SQLite migration', () => {
       expect(result2.warnings.some((w) => w.includes('already contains migrated data'))).toBe(true);
 
       // Should still have only 1 task
-      const { countTasks } = await import('../task-store.js');
+      const { countTasks } = await import('../tasks-sqlite.js');
       const count = await countTasks();
       expect(count).toBe(1);
     });
@@ -406,7 +406,7 @@ describe('JSON to SQLite migration', () => {
       expect(result.tasksImported).toBe(2);
       expect(result.errors).toHaveLength(0);
 
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const parent = await getTask('T001');
       const child = await getTask('T002');
       expect(parent).not.toBeNull();
@@ -462,7 +462,7 @@ describe('JSON to SQLite migration', () => {
       expect(result.tasksImported).toBe(3);
       expect(result.errors).toHaveLength(0);
 
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const root = await getTask('T001');
       const child = await getTask('T002');
       const grandchild = await getTask('T003');
