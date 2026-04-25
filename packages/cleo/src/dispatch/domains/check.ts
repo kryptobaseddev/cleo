@@ -163,7 +163,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   'compliance.summary': async (params: ValidateComplianceSummaryParams) => {
     const projectRoot = getProjectRoot();
 
-    if (params.detail) {
+    if (params?.detail) {
       const result = validateComplianceViolations(params.limit, projectRoot);
       if (!result.success) {
         return lafsError(
@@ -200,7 +200,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   test: async (params: ValidateTestStatusParams) => {
     const projectRoot = getProjectRoot();
 
-    if (params.format === 'coverage') {
+    if (params?.format === 'coverage') {
       const result = validateTestCoverage(projectRoot);
       if (!result.success) {
         return lafsError(
@@ -731,10 +731,10 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   'archive.stats': async (params: ValidateArchiveStatsParams) => {
     const projectRoot = getProjectRoot();
     const result = await systemArchiveStats(projectRoot, {
-      period: params.period,
-      report: params.report as any,
-      since: params.since,
-      until: params.until,
+      period: params?.period,
+      report: params?.report as any,
+      since: params?.since,
+      until: params?.until,
     });
     if (!result.success) {
       return lafsError(

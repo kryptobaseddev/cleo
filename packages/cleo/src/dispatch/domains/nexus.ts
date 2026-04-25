@@ -526,7 +526,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   wiki: async (params: NexusWikiParams) => {
     const projectRoot = getProjectRoot();
     const outputDir = params.outputDir ?? `${projectRoot}/.cleo/wiki`;
-    const result = await nexusWiki(projectRoot, outputDir, {
+    // Argument order: (outputDir, projectRoot, options) — matches engine signature
+    const result = await nexusWiki(outputDir, projectRoot, {
       communityFilter: params.communityFilter,
       incremental: params.incremental,
     });
@@ -997,11 +998,23 @@ export class NexusHandler implements DomainHandler {
         operation as keyof NexusOps & string,
         params ?? {},
       );
+      // Extract page from data if present (for paginated responses like list/orphans.list)
+      let pageMetadata: import('@cleocode/lafs').LAFSPage | undefined;
+      let resultData = envelope.data;
+      if (envelope.success && resultData && typeof resultData === 'object') {
+        const dataObj = resultData as Record<string, unknown>;
+        if ('page' in dataObj && dataObj.page) {
+          pageMetadata = dataObj.page as import('@cleocode/lafs').LAFSPage;
+          // Remove page from data object
+          const { page: _removed, ...cleanData } = dataObj;
+          resultData = cleanData;
+        }
+      }
       return wrapResult(
         {
           success: envelope.success,
-          data: envelope.data,
-          page: (envelope as { page?: unknown }).page,
+          data: resultData,
+          page: pageMetadata,
           error: envelope.error,
         },
         'query',
