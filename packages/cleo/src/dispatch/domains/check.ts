@@ -915,7 +915,7 @@ export class CheckHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
     try {
-      const envelope = await typedDispatch(_checkTypedHandler, operation as any, params);
+      const envelope = await typedDispatch(_checkTypedHandler, operation as any, params ?? {});
       return {
         meta: dispatchMeta('query', 'check', operation, startTime),
         success: envelope.success,
@@ -934,7 +934,7 @@ export class CheckHandler implements DomainHandler {
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
     try {
-      const envelope = await typedDispatch(_checkTypedHandler, operation as any, params);
+      const envelope = await typedDispatch(_checkTypedHandler, operation as any, params ?? {});
       return {
         meta: dispatchMeta('mutate', 'check', operation, startTime),
         success: envelope.success,

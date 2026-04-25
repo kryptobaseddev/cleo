@@ -40,6 +40,7 @@ export * as codebaseMap from './codebase-map/index.js';
 export * as compliance from './compliance/index.js';
 export * as conduit from './conduit/index.js';
 export * as context from './context/index.js';
+export * as harness from './harness/index.js';
 export * as coreHooks from './hooks/index.js';
 export * as identity from './identity/index.js';
 export * as inject from './inject/index.js';

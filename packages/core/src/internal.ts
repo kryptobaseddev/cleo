@@ -105,6 +105,13 @@ export {
 // Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
 export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';
 export { exportDocument } from './docs/export-document.js';
+// Harness
+export type {
+  HarnessSpawnCapability,
+  HarnessSpawnProviderSelection,
+  HarnessSpawnProviderSelectionResult,
+} from './harness/index.js';
+export { selectHarnessSpawnProvider } from './harness/index.js';
 export type { PayloadValidationResult } from './hooks/payload-schemas.js';
 export { validatePayload } from './hooks/payload-schemas.js';
 // Hooks

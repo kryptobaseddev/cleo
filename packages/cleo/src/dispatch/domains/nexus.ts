@@ -1003,14 +1003,18 @@ export class NexusHandler implements DomainHandler {
         operation as keyof NexusOps & string,
         params ?? {},
       );
-      // Extract page from data if present (for paginated responses like list/orphans.list)
-      let pageMetadata: import('@cleocode/lafs').LAFSPage | undefined;
+      // Extract page metadata. Two sources are supported:
+      // 1) Envelope-level `page` (preferred — typed handlers set this via
+      //    lafsSuccess(data, op, { page })).
+      // 2) Legacy `data.page` (engines that return page nested in data).
+      let pageMetadata: import('@cleocode/lafs').LAFSPage | undefined = (
+        envelope as { page?: import('@cleocode/lafs').LAFSPage }
+      ).page;
       let resultData = envelope.data;
-      if (envelope.success && resultData && typeof resultData === 'object') {
+      if (!pageMetadata && envelope.success && resultData && typeof resultData === 'object') {
         const dataObj = resultData as Record<string, unknown>;
         if ('page' in dataObj && dataObj.page) {
           pageMetadata = dataObj.page as import('@cleocode/lafs').LAFSPage;
-          // Remove page from data object
           const { page: _removed, ...cleanData } = dataObj;
           resultData = cleanData;
         }

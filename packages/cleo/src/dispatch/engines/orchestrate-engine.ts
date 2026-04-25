@@ -19,7 +19,6 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import type { Provider } from '@cleocode/caamp';
 import type {
   AgentSpawnCapability,
   AgentTier,
@@ -55,11 +54,13 @@ import {
   orchestrationGetReadyTasks as getReadyTasks,
   getSkillContent,
   getUnblockOpportunities,
+  type HarnessSpawnCapability,
   recordStageProgress,
   resolveAgent,
   resolveEffectiveTier,
   resolveProjectRoot,
   type SpawnPayload,
+  selectHarnessSpawnProvider,
   startParallelExecution,
   validateSpawnReadiness,
 } from '@cleocode/core/internal';
@@ -428,101 +429,10 @@ export async function orchestrateValidate(
  * @task T5236
  */
 export async function orchestrateSpawnSelectProvider(
-  capabilities: Array<
-    | 'supportsSubagents'
-    | 'supportsProgrammaticSpawn'
-    | 'supportsInterAgentComms'
-    | 'supportsParallelSpawn'
-  >,
+  capabilities: HarnessSpawnCapability[],
   _projectRoot?: string,
 ): Promise<EngineResult> {
-  if (!capabilities || capabilities.length === 0) {
-    return engineError('E_INVALID_INPUT', 'At least one capability is required');
-  }
-
-  try {
-    const { initializeDefaultAdapters, spawnRegistry } = await import('@cleocode/core/internal');
-    const { getAllProviders, getProvidersBySpawnCapability, providerSupportsById } = await import(
-      '@cleocode/caamp'
-    );
-
-    await initializeDefaultAdapters();
-
-    // Get providers matching all required capabilities
-    let matchingProviders: Provider[] = [];
-
-    if (capabilities.length === 1) {
-      // Single capability - use direct filter
-      matchingProviders = getProvidersBySpawnCapability(capabilities[0]);
-    } else {
-      // Multiple capabilities - find intersection
-      const providerSets = capabilities.map(
-        (cap) => new Set(getProvidersBySpawnCapability(cap).map((p: Provider) => p.id)),
-      );
-
-      // Find intersection of all provider IDs
-      const allProviders = await spawnRegistry.listSpawnCapable();
-      const intersection = allProviders
-        .filter((adapter) => providerSets.every((set) => set.has(adapter.providerId)))
-        .map((adapter) => getAllProviders().find((p: Provider) => p.id === adapter.providerId))
-        .filter((provider): provider is Provider => provider !== undefined);
-
-      matchingProviders = intersection;
-    }
-
-    if (matchingProviders.length === 0) {
-      return {
-        success: false,
-        error: {
-          code: 'E_SPAWN_NO_PROVIDER',
-          message: `No provider found with all required capabilities: ${capabilities.join(', ')}`,
-          exitCode: 60,
-        },
-      };
-    }
-
-    // Get first registered adapter for the matching providers
-    const adapter = matchingProviders
-      .map((p: { id: string }) => spawnRegistry.getForProvider(p.id))
-      .find((a: unknown): a is CLEOSpawnAdapter => a !== undefined);
-
-    if (!adapter) {
-      return {
-        success: false,
-        error: {
-          code: 'E_SPAWN_NO_ADAPTER',
-          message: 'No spawn adapter registered for matching providers',
-          exitCode: 60,
-        },
-      };
-    }
-
-    // Verify adapter can actually spawn
-    const canSpawn = await adapter.canSpawn();
-    if (!canSpawn) {
-      return {
-        success: false,
-        error: {
-          code: 'E_SPAWN_ADAPTER_UNAVAILABLE',
-          message: `Selected adapter '${adapter.id}' cannot spawn in current environment`,
-          exitCode: 63,
-        },
-      };
-    }
-
-    return {
-      success: true,
-      data: {
-        providerId: adapter.providerId,
-        adapterId: adapter.id,
-        capabilities: capabilities.filter((cap) =>
-          providerSupportsById(adapter.providerId, `spawn.${cap}`),
-        ),
-      },
-    };
-  } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message);
-  }
+  return selectHarnessSpawnProvider(capabilities);
 }
 
 /**
