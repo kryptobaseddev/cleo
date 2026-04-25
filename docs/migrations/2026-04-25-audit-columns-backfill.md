@@ -20,16 +20,22 @@ SDK to backfill the audit columns for the NULL cohort.
 
 ---
 
-## Scope
+## Scope (Actual Run Results)
 
 | Metric | Value |
 |--------|-------|
-| Total tasks in scope (done + archived, NULL modified_by) | 1,123 |
-| Estimated successfully backfilled | ~966 (86%) |
-| Estimated gaps (no git evidence) | ~157 (14%) |
+| Total tasks in scope (done + archived, NULL modified_by) | 1,147 |
+| Done tasks backfilled | 8 (0 null remaining) |
+| Archived tasks backfilled | 1,115 (0 null remaining) |
+| Successfully inferred from git evidence | 437 (38%) |
+| Gaps (no git evidence — fell back to unknown-pre-adr-051) | 710 (62%) |
+| Post-run: done tasks with null modifiedBy | 0 |
+| Post-run: archived tasks with null modifiedBy | 0 |
 
 Note: The original task estimate of 176 was written before bulk archiving of
-historical tasks expanded the NULL cohort to 1,123.
+historical tasks expanded the NULL cohort to 1,147. The high gap rate (62%) reflects
+tasks created in early project history (T001–T500) before the git convention of
+tagging task IDs in commit messages was enforced.
 
 ---
 
@@ -48,27 +54,30 @@ For each eligible task (status IN ('done', 'archived') AND modified_by IS NULL):
 
 ---
 
-## Agent Distribution (sample of 50 tasks)
+## Agent Distribution (Actual Run)
 
-| Agent | Count (sample) | Estimated total |
-|-------|---------------|-----------------|
-| Claude Opus 4.6 (1M context) | 20 | ~452 |
-| Claude Opus 4.7 (1M context) | 11 | ~248 |
-| Claude Sonnet 4.6 | 6 | ~136 |
-| Claude Opus 4.5 | 4 | ~90 |
-| kryptobaseddev (human) | 2 | ~45 |
-| unknown-pre-adr-051 (gap) | 7 | ~157 |
+| Agent | Count |
+|-------|-------|
+| unknown-pre-adr-051 (gap) | 710 |
+| Claude Sonnet 4.6 | 122 |
+| Claude Opus 4.6 (1M context) | 115 |
+| Claude Opus 4.7 (1M context) | 99 |
+| Claude Opus 4.5 | 44 |
+| cleo | 24 |
+| kryptobaseddev (human) | 21 |
+| Claude | 3 |
 
 ---
 
-## Gap Tasks (sample)
+## Gap Tasks
 
 Gap tasks are those where no git commit directly references the task ID.
 They receive `modified_by = "unknown-pre-adr-051"` as a sentinel value so the
 NULL cohort is eliminated and the gap is documented.
 
-Sample gap task IDs from the 50-task validation run:
-`W1T1`, `T680`, `T1280`, `T808`, `T1142`, `T218`, `T334`
+Sample gap task IDs from the full run (first 20):
+`T107`, `T108`, `T109`, `T110`, `T111`, `T112`, `T113`, `T114`, `T115`, `T116`,
+`T117`, `T118`, `T119`, `T803`, `T202`, `T203`, `T801`, `T811`, `T812`, `T1341`
 
 Common reasons for gaps:
 - Test/fixture tasks created without git commits (e.g. `W1T1`, `W1T2`)
