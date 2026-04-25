@@ -117,6 +117,253 @@ async function checkIvtrGates(
 }
 
 /**
+ * release.gate — Standalone IVTR phase gate check (RELEASE-03).
+ *
+ * Inspects all child tasks of the given epic and verifies that every task
+ * whose IVTR loop has been started has reached the `released` phase. Tasks
+ * without an IVTR loop (docs, chores) are reported as `unchecked` but are
+ * NOT blocking.
+ *
+ * The `--force` flag bypasses the gate with a loud warning (owner-level
+ * override only).
+ *
+ * @param epicId      - Epic whose child tasks are inspected.
+ * @param force       - Bypass gate; emits owner-level warning.
+ * @param projectRoot - Optional working directory.
+ * @returns EngineResult with {@link ReleaseGateCheckResult} on success.
+ *
+ * @task T820 RELEASE-03
+ * @task T1416
+ */
+export async function releaseGateCheck(
+  epicId: string,
+  force: boolean,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!epicId) {
+    return engineError('E_INVALID_INPUT', 'epicId is required');
+  }
+
+  const cwd = projectRoot ?? resolveProjectRoot();
+
+  // Bypass: loud warning, return pass with forcedBypass flag.
+  if (force) {
+    const warning =
+      `IVTR gate check BYPASSED via --force for epic ${epicId}. ` +
+      'This is an owner-level override. All tasks should have reached IVTR released phase before shipping.';
+    console.warn(`  ! ${warning}`);
+    return {
+      success: true,
+      data: {
+        epicId,
+        passed: true,
+        forcedBypass: true,
+        blocked: [],
+        unchecked: [],
+        tasks: [],
+        summary: warning,
+      },
+    };
+  }
+
+  try {
+    // Load epic child tasks.
+    let epicTaskIds: string[] = [];
+    try {
+      const accessor = await getAccessor(cwd);
+      const epicResult = await accessor.queryTasks({ parentId: epicId });
+      epicTaskIds = ((epicResult?.tasks as Array<{ id: string; type?: string }>) ?? [])
+        .filter((t) => t.type !== 'epic')
+        .map((t) => t.id);
+    } catch {
+      // If task loading fails, treat as no tasks (project may not have them).
+    }
+
+    if (epicTaskIds.length === 0) {
+      return {
+        success: true,
+        data: {
+          epicId,
+          passed: true,
+          forcedBypass: false,
+          blocked: [],
+          unchecked: [],
+          tasks: [],
+          summary: `Epic ${epicId} has no child tasks to check.`,
+        },
+      };
+    }
+
+    const { blocked, unchecked } = await checkIvtrGates(epicTaskIds, projectRoot);
+    const released = epicTaskIds.filter((id) => !blocked.includes(id) && !unchecked.includes(id));
+    const passed = blocked.length === 0;
+
+    // Build per-task status array.
+    const tasks = await buildTaskStatusList(epicTaskIds, projectRoot);
+
+    const summary = passed
+      ? unchecked.length > 0
+        ? `IVTR gate passed for epic ${epicId}. ${released.length} task(s) released, ${unchecked.length} unchecked (non-blocking).`
+        : `IVTR gate passed for epic ${epicId}. All ${released.length} task(s) are in released phase.`
+      : `IVTR gate FAILED for epic ${epicId}. ${blocked.length} task(s) not yet released: ${blocked.join(', ')}.` +
+        ` Run \`cleo orchestrate ivtr <taskId> --release\` for each blocking task, or pass --force to bypass.`;
+
+    if (!passed) {
+      return engineError(
+        'E_IVTR_INCOMPLETE',
+        summary,
+        {
+          fix: `cleo orchestrate ivtr ${blocked[0]} --release`,
+          details: { blocked, unchecked, epicId, tasks },
+        },
+      );
+    }
+
+    return {
+      success: true,
+      data: {
+        epicId,
+        passed,
+        forcedBypass: false,
+        blocked,
+        unchecked,
+        tasks,
+        summary,
+      },
+    };
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message ?? String(err));
+  }
+}
+
+/**
+ * Build a per-task IVTR status list for the given task IDs.
+ *
+ * Each entry carries the task ID, current IVTR phase (or null), and whether
+ * the task is blocking release.
+ */
+async function buildTaskStatusList(
+  taskIds: string[],
+  projectRoot?: string,
+): Promise<Array<{ taskId: string; currentPhase: string | null; blocking: boolean }>> {
+  const result: Array<{ taskId: string; currentPhase: string | null; blocking: boolean }> = [];
+  for (const taskId of taskIds) {
+    try {
+      const state = await getIvtrState(taskId, { cwd: projectRoot });
+      if (state === null) {
+        result.push({ taskId, currentPhase: null, blocking: false });
+      } else {
+        const blocking = state.currentPhase !== 'released';
+        result.push({ taskId, currentPhase: state.currentPhase, blocking });
+      }
+    } catch {
+      result.push({ taskId, currentPhase: null, blocking: false });
+    }
+  }
+  return result;
+}
+
+/**
+ * release.ivtr-suggest — IVTR → release auto-suggest (RELEASE-07).
+ *
+ * Called after an IVTR loop transitions to `released` for a given task.
+ * Checks whether all sibling tasks in the parent epic are also released. If
+ * so, emits a `suggestedCommand` pointing the operator toward `release ship`.
+ *
+ * @param taskId      - Task that just reached the `released` phase.
+ * @param projectRoot - Optional working directory.
+ * @returns EngineResult with {@link IvtrAutoSuggestResult} data.
+ *
+ * @task T820 RELEASE-07
+ * @task T1416
+ */
+export async function releaseIvtrAutoSuggest(
+  taskId: string,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!taskId) {
+    return engineError('E_INVALID_INPUT', 'taskId is required');
+  }
+
+  const cwd = projectRoot ?? resolveProjectRoot();
+
+  try {
+    // Find the parent epic for this task.
+    const accessor = await getAccessor(cwd);
+    const taskResult = await accessor.queryTasks({ id: taskId });
+    const taskRecord = ((taskResult?.tasks as Array<{ id: string; parentId?: string; type?: string }>) ?? [])[0];
+
+    if (!taskRecord) {
+      return engineError('E_NOT_FOUND', `Task ${taskId} not found`);
+    }
+
+    const epicId = taskRecord.parentId ?? null;
+
+    if (!epicId) {
+      // No parent epic — standalone task, no suggest possible.
+      return {
+        success: true,
+        data: {
+          taskId,
+          epicId: null,
+          epicFullyReleased: false,
+          suggestedCommand: null,
+          message: `Task ${taskId} has no parent epic. No release suggestion available.`,
+        },
+      };
+    }
+
+    // Load all sibling tasks in the epic.
+    const epicResult = await accessor.queryTasks({ parentId: epicId });
+    const siblings = ((epicResult?.tasks as Array<{ id: string; type?: string }>) ?? []).filter(
+      (t) => t.type !== 'epic',
+    );
+    const siblingIds = siblings.map((t) => t.id);
+
+    if (siblingIds.length === 0) {
+      return {
+        success: true,
+        data: {
+          taskId,
+          epicId,
+          epicFullyReleased: false,
+          suggestedCommand: null,
+          message: `Epic ${epicId} has no child tasks.`,
+        },
+      };
+    }
+
+    // Check IVTR state for all siblings.
+    const { blocked, unchecked } = await checkIvtrGates(siblingIds, projectRoot);
+    const epicFullyReleased = blocked.length === 0 && unchecked.length === 0;
+
+    const suggestedCommand = epicFullyReleased
+      ? `cleo release ship <version> --epic ${epicId}`
+      : null;
+
+    const stillBlocked = blocked.length + unchecked.length;
+    const message = epicFullyReleased
+      ? `All ${siblingIds.length} task(s) in epic ${epicId} have reached IVTR released phase. ` +
+        `Next step: run \`${suggestedCommand}\` to publish the release.`
+      : `Task ${taskId} released. ${stillBlocked} sibling task(s) in epic ${epicId} still pending IVTR release ` +
+        `(blocked: ${blocked.length}, unchecked: ${unchecked.length}).`;
+
+    return {
+      success: true,
+      data: {
+        taskId,
+        epicId,
+        epicFullyReleased,
+        suggestedCommand,
+        message,
+      },
+    };
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message ?? String(err));
+  }
+}
+
+/**
  * release.prepare - Prepare a release
  * @task T4788
  */

@@ -20,6 +20,7 @@ import { NexusHandler } from './nexus.js';
 import { OrchestrateHandler } from './orchestrate.js';
 import { PipelineHandler } from './pipeline.js';
 import { PlaybookHandler } from './playbook.js';
+import { ReleaseHandler } from './release.js';
 import { SentientHandler } from './sentient.js';
 import { SessionHandler } from './session.js';
 import { StickyHandler } from './sticky.js';
@@ -38,6 +39,7 @@ export {
   OrchestrateHandler,
   PipelineHandler,
   PlaybookHandler,
+  ReleaseHandler,
   SentientHandler,
   SessionHandler,
   StickyHandler,
@@ -72,5 +74,7 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('conduit', new ConduitHandler());
   // T1008: sentient domain — Tier-2 proposal queue management.
   handlers.set('sentient', new SentientHandler());
+  // T1416: release domain — IVTR gate check (RELEASE-03) + auto-suggest (RELEASE-07).
+  handlers.set('release', new ReleaseHandler());
   return handlers;
 }
