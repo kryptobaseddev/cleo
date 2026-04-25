@@ -3,10 +3,16 @@
  * CLEO CLI - Main entry point
  *
  * Native citty command dispatch — all commands use defineCommand.
+ *
+ * T1138: SQLite warning suppression for CLI consumers is handled by the
+ * esbuild banner, which patches process.emitWarning before ESM imports are
+ * hoisted. See build.mjs for the banner configuration. The import from
+ * @cleocode/core/internal below will trigger the warning's emission, but
+ * the banner will have already patched process.emitWarning to suppress it.
  */
 
 // ---------------------------------------------------------------------------
-// Node version guard — MUST run before any import that touches node:sqlite.
+// Node version guard — runs before any @cleocode/core imports.
 // CLEO requires Node >= 24 because packages/core/src/store/llmtxt-blob-adapter.ts
 // imports node:sqlite (DatabaseSync), which only became stable in Node 24.
 // On Node 20/22 this throws ERR_UNKNOWN_BUILTIN_MODULE at module load — a
