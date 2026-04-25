@@ -18,6 +18,8 @@
  * @package @cleocode/core
  */
 
+import './lib/suppress-sqlite-warning.js';
+
 // ---------------------------------------------------------------------------
 // Re-export ALL contracts types (consumers get types from @cleocode/core)
 // ---------------------------------------------------------------------------
