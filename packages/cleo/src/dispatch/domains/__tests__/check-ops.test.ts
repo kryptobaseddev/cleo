@@ -59,15 +59,46 @@ describe('CheckHandler Operations', () => {
     vi.clearAllMocks();
     handler = new CheckHandler();
 
-    // Default mock implementations to return success
-    vi.mocked(validateComplianceSummary).mockReturnValue({ success: true, data: {} } as any);
-    vi.mocked(validateComplianceViolations).mockReturnValue({ success: true, data: {} } as any);
-    vi.mocked(validateTestStatus).mockReturnValue({ success: true, data: {} } as any);
-    vi.mocked(validateTestCoverage).mockReturnValue({ success: true, data: {} } as any);
-    vi.mocked(validateCoherenceCheck).mockResolvedValue({ success: true, data: {} } as any);
-    vi.mocked(validateProtocol).mockResolvedValue({ success: true, data: {} } as any);
-    vi.mocked(validateProtocolConsensus).mockResolvedValue({ success: true, data: {} } as any);
-    vi.mocked(validateGateVerify).mockResolvedValue({ success: true, data: {} } as any);
+    // Default mock implementations to return success with proper structure
+    vi.mocked(validateComplianceSummary).mockReturnValue({
+      success: true,
+      data: { total: 0, passed: 0, failed: 0, score: 0, byProtocol: {}, bySeverity: {} },
+    } as any);
+    vi.mocked(validateComplianceViolations).mockReturnValue({
+      success: true,
+      data: { violations: [], total: 0 },
+    } as any);
+    vi.mocked(validateTestStatus).mockReturnValue({
+      success: true,
+      data: { total: 0, passed: 0, failed: 0, skipped: 0, passRate: 0 },
+    } as any);
+    vi.mocked(validateTestCoverage).mockReturnValue({
+      success: true,
+      data: {
+        lineCoverage: 100,
+        branchCoverage: 100,
+        functionCoverage: 100,
+        statementCoverage: 100,
+        threshold: 80,
+        meetsThreshold: true,
+      },
+    } as any);
+    vi.mocked(validateCoherenceCheck).mockResolvedValue({
+      success: true,
+      data: { passed: true, issues: [], warnings: [] },
+    } as any);
+    vi.mocked(validateProtocol).mockResolvedValue({
+      success: true,
+      data: { taskId: '', protocol: '', passed: false, score: 0, violations: [], requirements: {} },
+    } as any);
+    vi.mocked(validateProtocolConsensus).mockResolvedValue({
+      success: true,
+      data: { taskId: '', protocol: '', passed: false, score: 0, violations: [], requirements: {} },
+    } as any);
+    vi.mocked(validateGateVerify).mockResolvedValue({
+      success: true,
+      data: { taskId: '', gates: {}, passed: false, round: 0 },
+    } as any);
     vi.mocked(systemArchiveStats).mockResolvedValue({ success: true, data: {} } as any);
   });
 
