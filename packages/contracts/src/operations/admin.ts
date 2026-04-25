@@ -2085,3 +2085,91 @@ export type AdminOps =
       params: AdminInstallGlobalParams;
       result: AdminInstallGlobalResult;
     };
+
+// ============================================================================
+// AdminHandlerOps — TypedOpRecord for TypedDomainHandler<AdminHandlerOps>
+//
+// Maps each handler-level operation name (without the "admin." prefix used in
+// AdminOps) to a `[Params, Result]` tuple.  This is the format consumed by
+// `defineTypedHandler` and `typedDispatch` in the dispatch adapter.
+//
+// Operations that support multiple result shapes (e.g. `admin.job` returns
+// either a status record or a list) use a union result type — callers narrow
+// on the `action` param they supplied.
+//
+// @task T1426 — typed-narrowing migration for admin domain
+// @see AdminOps (discriminated-union form, kept for facade / external callers)
+// ============================================================================
+
+/**
+ * TypedOpRecord for the `admin` domain handler.
+ *
+ * Each entry maps the bare operation name (as dispatched by the handler
+ * switch, without the `admin.` domain prefix) to `[Params, Result]`.
+ *
+ * @task T1426 — Wave D typed-dispatch migration for admin domain
+ */
+export type AdminHandlerOps = {
+  // ---- Query ops ----
+  readonly version: readonly [AdminVersionParams, AdminVersionResult];
+  readonly health: readonly [AdminHealthQueryParams, AdminHealthQueryResult | AdminDoctorResult];
+  readonly 'config.show': readonly [AdminConfigShowParams, AdminConfigShowResult];
+  readonly 'config.presets': readonly [AdminConfigPresetsParams, AdminConfigPresetsResult];
+  readonly stats: readonly [AdminStatsParams, AdminStatsResult];
+  readonly context: readonly [AdminContextParams, AdminContextResult];
+  readonly 'context.pull': readonly [AdminContextPullParams, AdminContextPullResult];
+  readonly runtime: readonly [AdminRuntimeParams, AdminRuntimeResult];
+  readonly paths: readonly [AdminPathsParams, AdminPathsResult];
+  readonly job: readonly [AdminJobStatusParams, AdminJobStatusResult | AdminJobListResult];
+  readonly dash: readonly [AdminDashParams, AdminDashResult];
+  readonly log: readonly [AdminLogParams, AdminLogResult];
+  readonly sequence: readonly [AdminSequenceParams, AdminSequenceResult];
+  readonly help: readonly [AdminHelpParams, AdminHelpResult];
+  readonly token: readonly [
+    AdminTokenQueryParams,
+    AdminTokenSummaryResult | AdminTokenListResult | AdminTokenShowResult,
+  ];
+  readonly 'adr.find': readonly [AdminAdrFindParams, AdminAdrFindResult];
+  readonly 'adr.show': readonly [AdminAdrShowParams, AdminAdrShowResult];
+  readonly backup: readonly [AdminBackupListParams, AdminBackupListResult];
+  readonly export: readonly [
+    AdminExportParams,
+    AdminExportStandardResult | AdminExportSnapshotResult | AdminExportTasksPackageResult,
+  ];
+  readonly map: readonly [AdminMapQueryParams, AdminMapResult];
+  readonly roadmap: readonly [AdminRoadmapParams, AdminRoadmapResult];
+  readonly smoke: readonly [AdminSmokeParams, AdminSmokeResult];
+  readonly 'smoke.provider': readonly [AdminSmokeProviderParams, AdminSmokeProviderResult];
+  readonly 'hooks.matrix': readonly [AdminHooksMatrixParams, AdminHooksMatrixResult];
+  // ---- Mutate ops ----
+  readonly init: readonly [AdminInitParams, AdminInitResult];
+  readonly 'scaffold-hub': readonly [AdminScaffoldHubParams, AdminScaffoldHubResult];
+  readonly 'health.mutate': readonly [
+    AdminHealthMutateParams,
+    AdminHealthRepairResult | AdminDoctorResult,
+  ];
+  readonly 'config.set': readonly [AdminConfigSetParams, AdminConfigSetResult];
+  readonly 'config.set-preset': readonly [AdminConfigSetPresetParams, AdminConfigSetPresetResult];
+  readonly 'backup.mutate': readonly [
+    AdminBackupMutateParams,
+    AdminBackupCreateResult | AdminBackupRestoreByIdResult | AdminBackupRestoreFileResult,
+  ];
+  readonly migrate: readonly [AdminMigrateParams, AdminMigrateResult];
+  readonly cleanup: readonly [AdminCleanupParams, AdminCleanupResult];
+  readonly 'job.cancel': readonly [AdminJobCancelParams, AdminJobCancelResult];
+  readonly safestop: readonly [AdminSafestopParams, AdminSafestopResult];
+  readonly 'inject.generate': readonly [AdminInjectGenerateParams, AdminInjectGenerateResult];
+  readonly 'adr.sync': readonly [AdminAdrSyncParams, AdminAdrSyncResult | AdminAdrValidateResult];
+  readonly import: readonly [
+    AdminImportParams,
+    AdminImportStandardResult | AdminImportSnapshotResult | AdminImportTasksPackageResult,
+  ];
+  readonly detect: readonly [AdminDetectParams, AdminDetectResult];
+  readonly 'token.mutate': readonly [
+    AdminTokenMutateParams,
+    AdminTokenRecordResult | AdminTokenDeleteResult | AdminTokenClearResult,
+  ];
+  readonly 'context.inject': readonly [AdminContextInjectParams, AdminContextInjectResult];
+  readonly 'map.mutate': readonly [AdminMapMutateParams, AdminMapMutateResult];
+  readonly 'install.global': readonly [AdminInstallGlobalParams, AdminInstallGlobalResult];
+};
