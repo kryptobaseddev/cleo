@@ -458,10 +458,14 @@ describe('SQLite tasks-sqlite', () => {
     });
 
     it('sets archive reason', async () => {
+      // T1434 follow-up: post-T1408, archive_reason is constrained to a
+      // 6-value enum. Free-form strings ('Manual cleanup') are normalized
+      // to 'completed-unverified' by archiveTask. Pass an enum value to
+      // exercise pass-through behavior.
       const { createTask, archiveTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001', status: 'done' }));
 
-      await archiveTask('T001', 'Manual cleanup');
+      await archiveTask('T001', 'verified');
 
       const { getDb } = await import('../sqlite.js');
       const { eq } = await import('drizzle-orm');
@@ -472,7 +476,7 @@ describe('SQLite tasks-sqlite', () => {
         .from(taskSchema)
         .where(eq(taskSchema.id, 'T001'))
         .all();
-      expect(rows[0]!.archiveReason).toBe('Manual cleanup');
+      expect(rows[0]!.archiveReason).toBe('verified');
     });
 
     it('calculates cycle time in days', async () => {

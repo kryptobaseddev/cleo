@@ -257,7 +257,7 @@ describe('archiveTasks', () => {
     expect(archived.archiveReason).toBe('completed-unverified');
   });
 
-  it('stamps archiveReason="completed" when status=done and verification.passed=true', async () => {
+  it('stamps archiveReason="verified" when status=done and verification.passed=true', async () => {
     // loadArchive() flattens archive metadata onto the task; see sqlite-data-accessor.ts.
     type ArchivedTaskWithReason = import('@cleocode/contracts').Task & {
       archiveReason?: string;
@@ -287,7 +287,9 @@ describe('archiveTasks', () => {
 
     const archive = await accessor.loadArchive();
     const archived = archive!.archivedTasks[0] as ArchivedTaskWithReason;
-    expect(archived.archiveReason).toBe('completed');
+    // T1408 6-value enum: 'verified' replaces legacy 'completed' for
+    // status=done + verification.passed=true.
+    expect(archived.archiveReason).toBe('verified');
   });
 
   it('stamps archiveReason="cancelled" when status=cancelled regardless of verification', async () => {
