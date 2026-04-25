@@ -17,6 +17,7 @@ export * from './orchestrate.js';
 export * from './params.js';
 export * from './release.js';
 export * from './research.js';
+export * from './sentient.js';
 export * from './session.js';
 export * from './skills.js';
 export * from './system.js';
