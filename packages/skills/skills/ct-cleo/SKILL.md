@@ -104,6 +104,23 @@ I need to save or recall information across sessions
 │   └── cleo memory decision store "decision" --rationale "..." --task TXXX  [tier 1]
 │       └── Recall: cleo memory decision find "query"  [tier 1]
 │
+├── Look up an architectural decision (D0xx or other ID)
+│   └── STEP 1: cleo memory decision-find --query <id> --json  [tier 1]
+│       ├── Found → verify source document and outcome status
+│       └── NOT FOUND → STEP 2
+│   └── STEP 2: cleo memory find <id> --json  [tier 1]
+│       ├── Found as observation/pattern → note O-* ID and context
+│       └── NOT FOUND → STEP 3
+│   └── STEP 3: grep -r "<id>" docs/adr/  [tier 1]
+│       ├── Found in ADR → read full ADR for canonical definition
+│       │   └── Check superseded-by / supersedes relationships
+│       └── NOT FOUND → STEP 4
+│   └── STEP 4: grep -r "<id>" .cleo/agent-outputs/  [tier 1]
+│       ├── Found in planning doc → note session scope and migration impact
+│       └── NOT FOUND → decision may not be recorded; flag to owner
+│   ⚠️ ID OVERLOAD: Same ID can exist in multiple docs with different meanings.
+│      Always cite the source document, not just the ID.
+│
 └── Associate a memory entry with a task (research linking protocol)
     └── cleo memory link {memoryId} {taskId}  [tier 1]
 ```
