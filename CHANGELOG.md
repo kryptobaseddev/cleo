@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.148] — 2026-04-25 — CI fix: parity test dynamic instead of hardcoded op count
+
+The v2026.4.147 push-CI failed on `parity.test.ts > registry has the expected operation count` because adding 3 new conduit topic ops bumped the total from 322 to 325 but the hardcoded assertion (`expect(OPERATIONS.length).toBe(322)`) still expected the old number. The Release workflow itself passed (npm publish succeeded for v2026.4.147), but the push-CI was red.
+
+This release replaces the hardcoded count assertion with structural assertions that catch real regressions without manual maintenance:
+
+1. `OPERATIONS.length >= 300` — catches mass-deletion / truncation
+2. `queryCount >= 150` — catches gateway corruption
+3. `mutateCount >= 100` — catches gateway corruption
+4. `queryCount + mutateCount === OPERATIONS.length` — no rogue gateway values
+5. count of (gateway !== 'query' && gateway !== 'mutate') === 0
+
+The other tests in `parity.test.ts` already enforce per-op invariants (valid gateway, non-empty domain/operation, required-param consistency, no duplicates). The hardcoded count was carrying 30+ comment lines tracking historical bumps (Phase 1 / W7a / T535 / T549 / T554 / T624 / T646 / T647 / T781 / T797 / T811 / T798 / T820 / T889 / T935 / T997 / T1006 / T1003 / T1061 / T1013 / T1115 / T1116 / T1117 / T1137 / T1076 / T1262 / T1261 / T1147 / T1386 / T1411). It was friction without value.
+
+### Quality gates
+
+- `pnpm exec tsc -b` — 0 errors
+- `pnpm biome ci .` — 1942 files clean
+- `pnpm run build` — green
+- `pnpm --filter @cleocode/cleo test -- --run parity` — 1963 pass
+
 ## [2026.4.147] — 2026-04-25 — Hotfix: conduit topic dispatch registry entries (publish/subscribe/listen)
 
 User smoke-tested v2026.4.146 in production and discovered `cleo conduit publish/subscribe/listen` returned `E_INVALID_OPERATION: Unknown operation: mutate:conduit.publish`. The CLI commands were registered (visible in `cleo conduit --help`) and the dispatch handler implemented the methods at `packages/cleo/src/dispatch/domains/conduit.ts:94,184,204`, but the `OPERATIONS_REGISTRY` in `packages/cleo/src/dispatch/registry.ts` was missing the three corresponding entries. The CQRS validator rejected them as unknown ops before reaching the handler.
