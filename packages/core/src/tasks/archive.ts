@@ -9,6 +9,47 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
 
+/**
+ * Truth-grade `archiveReason` values stamped by the bulk-archive path.
+ *
+ * Council 2026-04-24 Contrarian gate (FINDING #28 · supersedes the legacy
+ * `cancelled ? 'cancelled' : 'completed'` coin-flip) — the archive write MUST
+ * reflect observable closure quality, NOT "anything non-cancelled = completed".
+ *
+ * Semantics:
+ *  - `completed`            — task reached `status='done'` AND verification
+ *                             gates passed (`task.verification.passed === true`).
+ *                             This is the only grade that implies a trustworthy
+ *                             completion audit trail.
+ *  - `completed-unverified` — task reached `status='done'` BUT verification was
+ *                             never run, is incomplete, or failed. Archive row
+ *                             is a tombstone: the closure happened, but its
+ *                             quality is unknown. Future operators MUST NOT
+ *                             count these toward completion metrics without
+ *                             explicit opt-in.
+ *  - `cancelled`            — task reached `status='cancelled'` (verification
+ *                             is irrelevant for cancellations).
+ *  - `archived`             — fall-through catch-all. Should not happen on the
+ *                             normal path (candidates are pre-filtered to done
+ *                             or cancelled) but is safe to stamp if reached.
+ *
+ * The string literal `'completed-unverified'` is a migration tombstone — a
+ * follow-up epic (T-RECONCILE-INVARIANT) will promote these to a typed
+ * `ArchiveReason` enum (`verified | reconciled | superseded | shadowed |
+ * cancelled`). Downstream consumers (stats/index.ts, archive-analytics.ts,
+ * archive-stats.ts) that already group by `archiveReason` will see the new
+ * literal as its own bucket, which is the intended behaviour.
+ *
+ * @see packages/core/src/tasks/__tests__/archive.test.ts — discriminator tests
+ */
+function deriveArchiveReason(task: Task): string {
+  if (task.status === 'cancelled') return 'cancelled';
+  if (task.status === 'done') {
+    return task.verification?.passed === true ? 'completed' : 'completed-unverified';
+  }
+  return 'archived';
+}
+
 /** Options for archiving tasks. */
 export interface ArchiveTasksOptions {
   /** Only archive tasks completed before this date (ISO string). */
@@ -110,7 +151,7 @@ export async function archiveTasks(
   for (const t of tasksToArchive) {
     await acc.archiveSingleTask(t.id, {
       archivedAt: now,
-      archiveReason: t.status === 'cancelled' ? 'cancelled' : 'completed',
+      archiveReason: deriveArchiveReason(t),
     });
   }
 
