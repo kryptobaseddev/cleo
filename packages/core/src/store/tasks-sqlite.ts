@@ -8,7 +8,14 @@
  * @task W1-T3
  */
 
-import type { Task, TaskStatus, TaskType } from '@cleocode/contracts';
+import {
+  ARCHIVE_REASON_TOMBSTONE,
+  ArchiveReasonTombstoneError,
+  isArchiveTombstoneAllowed,
+  type Task,
+  type TaskStatus,
+  type TaskType,
+} from '@cleocode/contracts';
 import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { rowToTask, taskToRow } from './converters.js';
 import { cleanupBrainRefsOnTaskDelete } from './cross-db-cleanup.js';
@@ -223,19 +230,28 @@ export async function archiveTask(taskId: string, reason?: string, cwd?: string)
 
   // Normalize any caller-supplied legacy reason ('completed', 'deleted',
   // arbitrary strings) into the T1408 enum. NULL stays NULL via undefined.
+  //
+  // T1409: enforce the tombstone guard. Direct callers MAY NOT write the
+  // tombstone value `'completed-unverified'` unless the migration-backfill
+  // env flag is set. The fallback when no reason is supplied still maps to
+  // the tombstone (since DB CHECK requires one of the 6 enum values), but
+  // explicit caller-supplied tombstones from non-migration code are rejected.
   const normalizedReason = (() => {
-    if (!reason) return 'completed-unverified';
+    if (!reason) return ARCHIVE_REASON_TOMBSTONE;
     const valid = new Set([
       'verified',
       'reconciled',
       'superseded',
       'shadowed',
       'cancelled',
-      'completed-unverified',
+      ARCHIVE_REASON_TOMBSTONE,
     ]);
+    if (reason === ARCHIVE_REASON_TOMBSTONE && !isArchiveTombstoneAllowed()) {
+      throw new ArchiveReasonTombstoneError(taskId);
+    }
     if (valid.has(reason)) return reason;
     if (reason === 'deleted') return 'cancelled';
-    return 'completed-unverified';
+    return ARCHIVE_REASON_TOMBSTONE;
   })();
 
   db.update(schema.tasks)

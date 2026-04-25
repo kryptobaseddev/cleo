@@ -21,6 +21,11 @@ import type { ReconstructResult } from '@cleocode/contracts';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { reconstructLineage } from '../reconstruct.js';
 
+// T1434: this file shells out to `git log` over the full repo history
+// (~40s baseline). Under the default 60s testTimeout + parallel-worker
+// CPU contention the per-test timeout can race; lift it explicitly.
+const RECONSTRUCT_TIMEOUT_MS = 180_000;
+
 /**
  * Absolute path to the repository root — resolved via import.meta.url.
  *
