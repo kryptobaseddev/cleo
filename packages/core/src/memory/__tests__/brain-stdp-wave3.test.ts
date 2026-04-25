@@ -336,7 +336,32 @@ describe('T695 — session-bucket pair grouping (real SQLite)', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it('T695-1: session-bucket O(n²) guard — ratio-based complexity proof (N=50 vs N=200)', async () => {
+  // Skipped: this is a shared-CI-flaky perf canary, not a behavioral contract.
+  //
+  // The O(n²) complexity guard was originally landed in commit ed81d9fc1 (STDP Wave 3,
+  // T690/T695/T694). The ratio threshold (< 8× slowdown for 4× input) is machine-dependent
+  // and was observed to spike to 10.65× on contended CI, which is why T1093
+  // (commit 9e4db6fb6) marked it `.skip` with a "re-enable once de-flaked" TODO.
+  //
+  // That skip was then accidentally reverted by T1113 (commit 5abf9f486 —
+  // "fix(T1113): add ./code/unfold and ./code/search to @cleocode/nexus exports"),
+  // whose scope was nexus package.json exports. The stdp-wave3 skip-revert was
+  // collateral damage (likely a bad rebase / stale working-copy). Reverting the
+  // revert preserves T1093's de-flake decision.
+  //
+  // Behavioral coverage for T695 session-bucketing is fully provided by T695-2
+  // (within-session pairs always fire), T695-3 (cross-session within window fires),
+  // and T695-4 (cross-session beyond window does NOT fire). The complexity
+  // assertion is orthogonal to correctness.
+  //
+  // This test also does 6 real DB open/migrate/populate cycles + 6 pipeline runs
+  // inside a single `it()` body; under parallel vitest workers on shared CPU this
+  // can exceed the 60 s test timeout for non-algorithmic reasons (GC, I/O contention).
+  //
+  // TODO(T1093-followup): re-enable only after (a) rewriting the trials out-of-band
+  // (separate perf suite, sequential run) AND (b) adopting an absolute-time budget
+  // keyed to single-run cost rather than a ratio.
+  it.skip('T695-1: session-bucket O(n²) guard — ratio-based complexity proof (N=50 vs N=200)', async () => {
     // Complexity proof: if the algorithm is O(n²), scaling input 4× causes ~16× slowdown.
     // If the algorithm is O(n log n) or better, scaling 4× causes ≤ ~5× slowdown.
     // We assert ratio < 8 — this disallows quadratic and is machine-independent.
