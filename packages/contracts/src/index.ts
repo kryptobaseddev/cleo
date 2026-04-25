@@ -492,29 +492,11 @@ export type {
   AdminVersionParams,
 } from './operations/admin.js';
 // === Conduit Operation Types (T1422 — typed-dispatch migration) ===
-// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
-// Note: ConduitSendResult from operations/conduit.ts is intentionally NOT re-exported
-// here because conduit.ts (transport-layer) already exports a ConduitSendResult of a
-// different shape. Consumers needing the operation-result variant should import via
-// `import type { ConduitOps } from '@cleocode/contracts'` and reference `ConduitOps['send'][1]`.
+// Re-exported at top level (wire-format types only).
+// Note: Per-op *Params/*Result types removed as of T1435 Wave 1 (OpsFromCore inference).
+// The dispatch domain infers operation types from Core signatures, eliminating drift.
 export type {
   ConduitInboxMessage,
-  ConduitListenParams,
-  ConduitListenResult,
-  ConduitOps,
-  ConduitPeekParams,
-  ConduitPeekResult,
-  ConduitPublishParams,
-  ConduitPublishResult,
-  ConduitSendParams,
-  ConduitStartParams,
-  ConduitStartResult,
-  ConduitStatusParams,
-  ConduitStatusResult,
-  ConduitStopParams,
-  ConduitStopResult,
-  ConduitSubscribeParams,
-  ConduitSubscribeResult,
   ConduitTransportKind,
 } from './operations/conduit.js';
 // Dialectic Evaluator operation types (T1087 Wave 3)
