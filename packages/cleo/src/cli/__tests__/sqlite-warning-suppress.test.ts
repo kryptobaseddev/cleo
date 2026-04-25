@@ -50,7 +50,10 @@ describe('T1138 — sqlite ExperimentalWarning suppression', () => {
     const result = spawnSync('node', [CLI_DIST, '--version'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       encoding: 'utf-8',
-      timeout: 5000,
+      // T1434: CLI bootstrap is heavy (~6s cold) — was 5000ms which raced
+      // the spawn timeout and produced empty stdout. Bumped to 30s to be
+      // safe under parallel-test load.
+      timeout: 30000,
     });
 
     const stderr = result.stderr || '';
@@ -103,7 +106,10 @@ describe('T1138 — sqlite ExperimentalWarning suppression', () => {
     const result = spawnSync('node', [CLI_DIST, '--version'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       encoding: 'utf-8',
-      timeout: 5000,
+      // T1434: CLI bootstrap is heavy (~6s cold) — was 5000ms which raced
+      // the spawn timeout and produced empty stdout. Bumped to 30s to be
+      // safe under parallel-test load.
+      timeout: 30000,
     });
 
     // If the process exited cleanly, the filter is working.

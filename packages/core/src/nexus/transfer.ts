@@ -442,9 +442,14 @@ async function executeTransferInternal(params: TransferParams): Promise<Transfer
     for (const entry of entries) {
       if (importResult.idRemap[entry.sourceId]) {
         try {
+          // T1434 follow-up: T1408 CHECK constraint restricts archive_reason
+          // to a 6-value enum. Free-form transfer notes are no longer valid;
+          // map cross-project transfers to 'superseded' (semantically the
+          // best fit — the source task is replaced by the target). Provenance
+          // text moves to the manifest entry below.
           await sourceAccessor.archiveSingleTask(entry.sourceId, {
             archivedAt: new Date().toISOString(),
-            archiveReason: `Transferred to ${targetProject.name} as ${entry.targetId}`,
+            archiveReason: 'superseded',
           });
           archived++;
         } catch (err) {

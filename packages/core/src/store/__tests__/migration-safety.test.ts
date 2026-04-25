@@ -909,7 +909,8 @@ describe('Migration Safety Integration Tests', () => {
       const archivedTask = {
         ...createFullTask('T100', { status: 'done' }),
         archivedAt: '2026-01-15T00:00:00.000Z',
-        archiveReason: 'completed',
+        // T1408 6-value enum (was 'completed' which is no longer valid).
+        archiveReason: 'completed-unverified',
         cycleTimeDays: 14,
       };
 

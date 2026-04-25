@@ -43,11 +43,16 @@ import { safeAppendLog } from '../store/data-safety-central.js';
  * @see packages/core/src/tasks/__tests__/archive.test.ts — discriminator tests
  */
 function deriveArchiveReason(task: Task): string {
+  // T1434 follow-up: T1408 6-value enum mapping. Was returning 'completed'
+  // for verified-done; the enum has 'verified' for that case.
+  // 'archived' (legacy fallback for non-done/non-cancelled) is mapped to
+  // 'completed-unverified' to remain enum-compliant; downstream callers
+  // should use status guards to avoid hitting this fallback.
   if (task.status === 'cancelled') return 'cancelled';
   if (task.status === 'done') {
-    return task.verification?.passed === true ? 'completed' : 'completed-unverified';
+    return task.verification?.passed === true ? 'verified' : 'completed-unverified';
   }
-  return 'archived';
+  return 'completed-unverified';
 }
 
 /** Options for archiving tasks. */
