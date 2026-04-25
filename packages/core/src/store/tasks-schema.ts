@@ -173,6 +173,45 @@ export const TASK_RELATION_TYPES = [
 /** Lifecycle transition types matching DB CHECK constraint on lifecycle_transitions.transition_type. */
 export const LIFECYCLE_TRANSITION_TYPES = ['automatic', 'manual', 'forced'] as const;
 
+/**
+ * Truth-grade archive reason values enforced by a SQLite CHECK constraint on
+ * `tasks.archive_reason` (see migration
+ * `20260424000000_t1408-archive-reason-enum`).
+ *
+ * Council 2026-04-24 (FINDING #28 + T1407 follow-through) replaced the legacy
+ * unconstrained TEXT column with this 6-value enum. Rows that pre-dated the
+ * migration with non-conforming values (`completed`, `deleted`, etc.) were
+ * normalized to `'completed-unverified'` before the CHECK was applied, so
+ * EVERY existing row satisfies one of these literals (or is `NULL`).
+ *
+ * Semantics:
+ *   - `verified`             — closure passed all gates with audit-grade evidence.
+ *   - `reconciled`           — closure derived by reconciliation against an
+ *                              external source of truth (e.g. external task tracker).
+ *   - `superseded`           — closure because another task subsumes the work.
+ *   - `shadowed`             — closure because the task was experiment- or
+ *                              proposal-shadowed by a newer plan.
+ *   - `cancelled`            — closure via explicit cancellation
+ *                              (`status='cancelled'`).
+ *   - `completed-unverified` — closure happened but verification was skipped,
+ *                              incomplete, or failed; metrics MUST NOT count
+ *                              these as quality completions without opt-in.
+ *
+ * @task T1408
+ * @epic T1407
+ */
+export const ARCHIVE_REASONS = [
+  'verified',
+  'reconciled',
+  'superseded',
+  'shadowed',
+  'cancelled',
+  'completed-unverified',
+] as const;
+
+/** Union type for {@link ARCHIVE_REASONS}. */
+export type ArchiveReason = (typeof ARCHIVE_REASONS)[number];
+
 /** External task link types matching DB constraint on external_task_links.link_type. */
 export const EXTERNAL_LINK_TYPES = ['created', 'matched', 'manual', 'transferred'] as const;
 
@@ -242,6 +281,24 @@ export const tasks = sqliteTable(
 
     // Archive metadata (populated when status = 'archived')
     archivedAt: text('archived_at'),
+    /**
+     * Truth-grade archive reason. SQL-layer storage remains TEXT; the
+     * 6-value enum (see {@link ARCHIVE_REASONS} / {@link ArchiveReason}) is
+     * enforced by a CHECK constraint applied in migration
+     * `20260424000000_t1408-archive-reason-enum`.
+     *
+     * The drizzle `text()` builder is intentionally left UN-narrowed
+     * (no `$type<ArchiveReason>()`) for now: legacy call-sites in
+     * `task-store.ts`, `sqlite-data-accessor.ts`, `delete.ts`, and the
+     * JSON-to-SQLite migration ingest paths still pass historical strings
+     * (`'completed'`, `'deleted'`, `'migrated'`) that the CHECK rejects.
+     * Tightening the TS type here would break the build before those call
+     * sites are updated; that promotion is tracked as a separate follow-up.
+     * Until then, prefer the {@link ArchiveReason} alias for newly authored
+     * code.
+     *
+     * @task T1408
+     */
     archiveReason: text('archive_reason'),
     cycleTimeDays: integer('cycle_time_days'),
 
