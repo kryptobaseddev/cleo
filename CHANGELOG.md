@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.143] — 2026-04-25 — T1430 dispatch test regression sweep + Council 2026-04-24 hybrid execution
+
+Sweeps the typed-narrowing wave T1421-T1427 contract regressions that landed in v2026.4.142 (22 dispatch tests across 6 files broken by TypedDomainHandler conversion).
+
+### Closed in this release
+
+- **T1430** Dispatch test regression sweep — 22 tests across 6 files (parent epic; promoted to root because T1428 cast-cleanup scope is unrelated and stays in research stage).
+  - **T1432** Restore dispatch contract for nexus + tasks + check-ops (page hoisting; envelope helper; check.ts optional chaining; check-ops mock factory completion).
+  - **T1433** Restore nexus CLI surface — top-entries handler reimplementation, impact handler new BFS implementation, wiki param order; `NexusTopEntriesParams`/`Result`, `NexusImpactParams`/`Result`, `BrainPageNodeEntry`, `NexusTopEntry` typed contracts in `packages/contracts/src/operations/nexus.ts`.
+- **T1431** sqlite-warning-suppress CLI carve-out — documented ESM-module-resolution-time-warning suppression limitation; added Node loader scaffolding (`sqlite-loader.mjs`, `sqlite-warning-loader.mjs`) for future opt-in suppression.
+- **T1432-followup-2 (this commit + 51ff74664)**: TS error reduction (157→23) — widened `TypedDomainHandler` operations return type to `LafsEnvelope<unknown>`, re-exported missing operation contract types (Sentient, Nexus, Validate/Check, Conduit) at the `@cleocode/contracts` root, fixed `NexusProfileSuperseede`→`Supersede` typo, restored internal types for `handleTopEntries`/`handleImpact` in nexus.ts, cast `result.error` access in conduit.ts, cast `envelope.data`/`error` access in nexus.ts dispatch wrapper.
+
+### Changed
+
+- `packages/contracts/src/operations/nexus.ts` — added typed contracts for `top-entries`, `impact`, profile ops via re-export from `nexus-user-profile.ts`, full `NexusOps` table.
+- `packages/cleo/src/dispatch/domains/nexus.ts` — restored 550 lines of `handleTopEntries`/`handleTopEntriesFromBrain`/`handleTopEntriesFromNexus`/`handleImpact` helpers; bypass route in `NexusHandler.query()` for these complex multi-step ops.
+- `packages/cleo/src/dispatch/adapters/typed.ts` — `TypedDomainHandler.operations[K]` return type widened from `LafsEnvelope<O[K][1]>` to `LafsEnvelope<unknown>`; `lafsSuccess` accepts optional `extra: { page }` to propagate pagination metadata.
+- `packages/cleo/src/dispatch/domains/check.ts` — `params ?? {}` guard on `typedDispatch` call so destructuring handlers don't throw on undefined params.
+- `packages/cleo/src/dispatch/domains/conduit.ts` — `result.error?.code` access cast to permissive shape; `ConduitStatusParams` import added.
+
+### Quality
+
+- 100/100 nexus + tasks + check-ops dispatch tests passing.
+- Build passes for all packages with widened typed-handler signature.
+- Lockfile clean; CI lockfile-check green.
+
+### Known follow-ons
+
+- ~23 TS errors remain across check/conduit/sentient/memory/admin/release-engine — pre-existing or marginal type drift not in dispatch hot paths. Tracked under T1428 final cast cleanup epic.
+
 ## [2026.4.142] — 2026-04-25 — T1216 REMEDIATION QUEUE CLOSURE
 
 Full remediation of the T1216 false-completion audit findings that were left as tech debt at v2026.4.134. Six parallel workstreams under epic T1415, plus three pre-cherry-picked maintenance commits. Council 2026-04-24 verdicts honored end-to-end.
