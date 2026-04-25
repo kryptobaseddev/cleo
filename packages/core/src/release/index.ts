@@ -64,7 +64,26 @@ export {
 // Release guards
 export type { DoubleListingResult, EpicCompletenessResult } from './guards.js';
 export { checkDoubleListing, checkEpicCompleteness } from './guards.js';
-
+// Post-release invariants registry (ADR-056 D5 / T1411)
+export type {
+  InvariantReport,
+  InvariantResult,
+  InvariantRunOptions,
+  InvariantSeverity,
+  ReconcileAction,
+  ReconcileAuditRow,
+  RegisteredInvariant,
+} from './invariants/index.js';
+export {
+  ARCHIVE_REASON_INVARIANT_ID,
+  clearInvariants,
+  extractTaskIds,
+  getInvariants,
+  RECONCILE_AUDIT_FILE,
+  registerArchiveReasonInvariant,
+  registerInvariant,
+  runInvariants,
+} from './invariants/index.js';
 // Release configuration
 export type {
   ChannelConfig,
@@ -86,7 +105,6 @@ export {
   loadReleaseConfig,
   validateReleaseConfig,
 } from './release-config.js';
-
 // Release manifest operations
 export type {
   PushPolicy,
