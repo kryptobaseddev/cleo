@@ -167,6 +167,14 @@ describe('Import Graph Verification (T4796)', () => {
     expect(content).toContain('prepareSpawn');
   });
 
+  it('orchestrate.spawn.select delegates provider selection to core harness', async () => {
+    const dispatchEngineDir = join(process.cwd(), 'packages', 'cleo', 'src', 'dispatch', 'engines');
+    const content = await readFile(join(dispatchEngineDir, 'orchestrate-engine.ts'), 'utf-8');
+
+    expect(content).toContain('selectHarnessSpawnProvider');
+    expect(content).not.toContain('getProvidersBySpawnCapability');
+  });
+
   // research-engine.ts has been consolidated into core/memory/engine-compat.ts
 });
 

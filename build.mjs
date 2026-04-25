@@ -54,6 +54,7 @@ const SUBPATH_DIRS = [
   'nexus',
   'lifecycle',
   'conduit',
+  'harness',
   'store',
   'system',
   'agents',

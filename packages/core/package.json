@@ -71,6 +71,11 @@
       "import": "./dist/gc/index.js",
       "require": "./dist/gc/index.js"
     },
+    "./harness": {
+      "types": "./dist/harness/index.d.ts",
+      "import": "./dist/harness/index.js",
+      "require": "./dist/harness/index.js"
+    },
     "./nexus/api-extractors": {
       "types": "./dist/nexus/api-extractors/index.d.ts",
       "import": "./dist/nexus/api-extractors/index.js",
@@ -131,6 +136,11 @@
       "import": "./dist/gc/*.js",
       "require": "./dist/gc/*.js"
     },
+    "./harness/*": {
+      "types": "./dist/harness/*.d.ts",
+      "import": "./dist/harness/*.js",
+      "require": "./dist/harness/*.js"
+    },
     "./system/*": {
       "types": "./dist/system/*.d.ts",
       "import": "./dist/system/*.js",
@@ -185,6 +195,11 @@
       "types": "./dist/gc/*.d.ts",
       "import": "./dist/gc/*.js",
       "require": "./dist/gc/*.js"
+    },
+    "./harness/*.js": {
+      "types": "./dist/harness/*.d.ts",
+      "import": "./dist/harness/*.js",
+      "require": "./dist/harness/*.js"
     },
     "./lifecycle/*.js": {
       "types": "./dist/lifecycle/*.d.ts",
