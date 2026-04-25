@@ -24,8 +24,10 @@ import {
   exportSnapshot,
   exportUserProfile,
   formatAugmentResults,
+  getBrainNativeDb,
   getDefaultSnapshotPath,
   getNexusDb,
+  getNexusNativeDb,
   getSharingStatus,
   getUserProfileTrait,
   importSnapshot,
@@ -204,6 +206,360 @@ export async function nexusCriticalPath(): Promise<
   try {
     const path = await criticalPath();
     return engineSuccess(path);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Analyze impact of changing a symbol.
+ *
+ * Runs BFS from the target symbol to find all symbols that would be affected
+ * by changes to it, optionally with detailed reasons (caller count, edge strength, depth).
+ *
+ * @task T1013
+ */
+export async function nexusImpact(
+  symbol: string,
+  projectId?: string,
+  why?: boolean,
+): Promise<
+  EngineResult<{
+    targetNodeId: string | null;
+    why: boolean;
+    affected: Array<{ nodeId: string; label: string; kind: string; reasons: string[] }>;
+    riskLevel: string;
+  }>
+> {
+  try {
+    await getNexusDb();
+    const db = getNexusNativeDb();
+
+    if (!db) {
+      return engineSuccess({
+        targetNodeId: null,
+        why: why ?? false,
+        affected: [],
+        riskLevel: 'NONE',
+      });
+    }
+
+    // Get all nodes for the project
+    const allNodes = db
+      .prepare(
+        `SELECT id, label, kind, file_path, name, project_id
+           FROM nexus_nodes
+          WHERE project_id = ?
+            AND kind NOT IN ('community','process','file','folder')`,
+      )
+      .all(projectId || '') as Array<{
+      id: string;
+      label: string | null;
+      kind: string | null;
+      file_path: string | null;
+      name: string | null;
+      project_id: string;
+    }>;
+
+    const lowerSymbol = symbol.toLowerCase();
+    const candidates = allNodes.filter((n) => {
+      const haystack = (n.name ?? n.label ?? '').toLowerCase();
+      return haystack.length > 0 && haystack.includes(lowerSymbol);
+    });
+
+    // Prefer exact matches, then shortest labels
+    candidates.sort((a, b) => {
+      const an = (a.name ?? a.label ?? '').toLowerCase();
+      const bn = (b.name ?? b.label ?? '').toLowerCase();
+      const exactA = an === lowerSymbol ? 0 : 1;
+      const exactB = bn === lowerSymbol ? 0 : 1;
+      if (exactA !== exactB) return exactA - exactB;
+      return an.length - bn.length;
+    });
+
+    const target = candidates[0];
+    if (!target) {
+      return engineSuccess({
+        targetNodeId: null,
+        why: why ?? false,
+        affected: [],
+        riskLevel: 'NONE',
+      });
+    }
+
+    // Get all relations
+    const allRelations = db
+      .prepare(
+        `SELECT source_id, target_id, type, weight
+           FROM nexus_relations
+          WHERE project_id = ?
+            AND type IN ('calls','imports','accesses')`,
+      )
+      .all(projectId || '') as Array<{
+      source_id: string;
+      target_id: string;
+      type: string;
+      weight: number | null;
+    }>;
+
+    // Build reverse adjacency map (targetId -> list of sources)
+    const reverseAdj = new Map<string, typeof allRelations>();
+    for (const rel of allRelations) {
+      const list = reverseAdj.get(rel.target_id);
+      if (list) {
+        list.push(rel);
+      } else {
+        reverseAdj.set(rel.target_id, [rel]);
+      }
+    }
+
+    // Incoming count for reason generation
+    const incomingCount = new Map<string, number>();
+    for (const rel of allRelations) {
+      incomingCount.set(rel.target_id, (incomingCount.get(rel.target_id) ?? 0) + 1);
+    }
+
+    // Node lookup
+    const nodeById = new Map<string, (typeof allNodes)[0]>();
+    for (const n of allNodes) {
+      nodeById.set(n.id, n);
+    }
+
+    // BFS from target
+    const visited = new Set<string>([target.id]);
+    const queue: Array<{ id: string; depth: number }> = [{ id: target.id, depth: 0 }];
+    const affected: Array<{ nodeId: string; label: string; kind: string; reasons: string[] }> = [];
+
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) break;
+      if (item.depth >= 3) continue; // maxDepth = 3
+
+      const callers = reverseAdj.get(item.id) ?? [];
+      for (const edge of callers) {
+        if (visited.has(edge.source_id)) continue;
+        visited.add(edge.source_id);
+        const depth = item.depth + 1;
+        const callerNode = nodeById.get(edge.source_id);
+        const reasons: string[] = [];
+
+        if (why) {
+          const calls = incomingCount.get(edge.source_id) ?? 0;
+          if (calls > 0) {
+            reasons.push(`called by ${calls} place${calls === 1 ? '' : 's'}`);
+          }
+          if (edge.weight != null && edge.weight > 0) {
+            reasons.push(`strength=${edge.weight.toFixed(3)} via ${edge.type}`);
+          } else {
+            reasons.push(`edge type ${edge.type} (weight=0 — no plasticity yet)`);
+          }
+          reasons.push(`depth=${depth} hop from target ${target.label ?? target.id}`);
+        }
+
+        affected.push({
+          nodeId: edge.source_id,
+          label: callerNode?.label ?? edge.source_id,
+          kind: callerNode?.kind ?? 'unknown',
+          reasons,
+        });
+
+        queue.push({ id: edge.source_id, depth });
+      }
+    }
+
+    // Determine risk level
+    let riskLevel = 'NONE';
+    if (affected.length > 0) {
+      if (affected.length > 10) {
+        riskLevel = 'CRITICAL';
+      } else if (affected.length > 5) {
+        riskLevel = 'HIGH';
+      } else if (affected.length > 2) {
+        riskLevel = 'MEDIUM';
+      } else {
+        riskLevel = 'LOW';
+      }
+    }
+
+    return engineSuccess({
+      targetNodeId: target.id,
+      why: why ?? false,
+      affected,
+      riskLevel,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Query highest-weight symbols/nodes from nexus plasticity or brain page nodes.
+ *
+ * Prioritizes brain.db page_nodes (quality_score) over nexus_relations (aggregate weight).
+ * Supports optional --kind (nexus) or --nodeType (brain) filter.
+ * Returns graceful empty result with note when neither DB is available.
+ *
+ * @task T1006
+ * @task T1013
+ */
+export async function nexusTopEntries(params?: {
+  limit?: number;
+  kind?: string;
+  nodeType?: string;
+}): Promise<
+  EngineResult<{
+    entries: unknown[];
+    count: number;
+    limit: number;
+    kind?: string | null;
+    nodeType?: string | null;
+    note?: string;
+  }>
+> {
+  try {
+    const limit =
+      typeof params?.limit === 'number' && Number.isFinite(params.limit) && params.limit > 0
+        ? Math.floor(params.limit)
+        : 20;
+
+    // Brain.db path takes priority: query brain_page_nodes by quality_score.
+    const brainDb = getBrainNativeDb();
+    if (brainDb !== null && brainDb !== undefined) {
+      try {
+        const nodeType = params?.nodeType ? String(params.nodeType) : null;
+        const sql =
+          nodeType === null
+            ? `SELECT id, node_type, label, quality_score, last_activity_at, metadata_json
+                 FROM brain_page_nodes
+                ORDER BY quality_score DESC
+                LIMIT ?`
+            : `SELECT id, node_type, label, quality_score, last_activity_at, metadata_json
+                 FROM brain_page_nodes
+                WHERE node_type = ?
+                ORDER BY quality_score DESC
+                LIMIT ?`;
+        const bindArgs: (string | number)[] = nodeType === null ? [limit] : [nodeType, limit];
+        const rows = brainDb.prepare(sql).all(...bindArgs) as Array<{
+          id: string;
+          node_type: string | null;
+          label: string | null;
+          quality_score: number | null;
+          last_activity_at: string | null;
+          metadata_json: string | null;
+        }>;
+
+        const entries = rows.map((r) => ({
+          id: r.id,
+          node_type: r.node_type ?? 'unknown',
+          label: r.label ?? r.id,
+          quality_score: r.quality_score ?? 0,
+          last_activity_at: r.last_activity_at ?? '',
+          metadata_json: r.metadata_json ?? null,
+        }));
+
+        return engineSuccess({
+          entries,
+          count: entries.length,
+          limit,
+          nodeType,
+        });
+      } catch {
+        // brain_page_nodes table not yet created — fall through to nexus
+      }
+    }
+
+    // Nexus.db fallback: check if a nexus.db connection is already open.
+    // We intentionally do NOT call getNexusDb() here — that would create a new
+    // DB even when the caller has not initialised the registry, masking the
+    // "unavailable" state that tests expect.
+    const nexusDb = getNexusNativeDb();
+
+    if (!nexusDb) {
+      // Both DBs unavailable → return graceful empty result with a note
+      return engineSuccess({
+        entries: [],
+        count: 0,
+        limit,
+        kind: params?.kind ? String(params.kind) : null,
+        note: 'Neither brain.db nor nexus.db is available. Run "cleo nexus init" to initialize.',
+      });
+    }
+
+    try {
+      const kind = params?.kind ? String(params.kind) : null;
+      const sql =
+        kind === null
+          ? `SELECT r.source_id,
+                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                    COUNT(*)                   AS edgeCount,
+                    n.label,
+                    n.kind,
+                    n.file_path
+               FROM nexus_relations r
+               LEFT JOIN nexus_nodes n ON n.id = r.source_id
+              GROUP BY r.source_id
+              ORDER BY totalWeight DESC, edgeCount DESC
+              LIMIT ?`
+          : `SELECT r.source_id,
+                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                    COUNT(*)                   AS edgeCount,
+                    n.label,
+                    n.kind,
+                    n.file_path
+               FROM nexus_relations r
+               LEFT JOIN nexus_nodes n ON n.id = r.source_id
+              WHERE n.kind = ?
+              GROUP BY r.source_id
+              ORDER BY totalWeight DESC, edgeCount DESC
+              LIMIT ?`;
+      const bindArgs: (string | number)[] = kind === null ? [limit] : [kind, limit];
+      const rows = nexusDb.prepare(sql).all(...bindArgs) as Array<{
+        source_id: string;
+        totalWeight: number;
+        edgeCount: number;
+        label: string | null;
+        kind: string | null;
+        file_path: string | null;
+      }>;
+
+      const entries = rows.map((r) => ({
+        nodeId: r.source_id,
+        label: r.label ?? r.source_id,
+        kind: r.kind ?? 'unknown',
+        filePath: r.file_path ?? null,
+        totalWeight: r.totalWeight,
+        edgeCount: r.edgeCount,
+      }));
+
+      const result: {
+        entries: unknown[];
+        count: number;
+        limit: number;
+        kind?: string | null;
+        note?: string;
+      } = {
+        entries,
+        count: entries.length,
+        limit,
+        kind,
+      };
+
+      if (entries.length === 0) {
+        result.note =
+          'No high-impact sources detected yet. Code plasticity will accumulate as the system indexes and analyzes dependencies.';
+      }
+
+      return engineSuccess(result);
+    } catch {
+      // nexus_relations / nexus_nodes tables not present — treat as empty.
+      return engineSuccess({
+        entries: [],
+        count: 0,
+        limit,
+        kind: params?.kind ? String(params.kind) : null,
+        note: 'Nexus registry not yet initialized. Run "cleo nexus init" to start.',
+      });
+    }
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }

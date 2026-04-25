@@ -738,21 +738,64 @@ export type NexusAugmentResult = unknown;
 
 /** Parameters for `nexus.top-entries`. */
 export interface NexusTopEntriesParams {
-  /** Optional kind filter. */
+  /** Max results (default 20). */
+  limit?: number;
+  /** Optional kind filter (nexus.db sources). */
   kind?: string;
+  /** Optional nodeType filter (brain.db page_nodes). */
+  nodeType?: string;
+}
+/** Entry from brain.db. */
+export interface BrainPageNodeEntry {
+  id: string;
+  node_type: string;
+  label: string;
+  quality_score: number;
+  last_activity_at: string;
+  metadata_json: string | null;
+}
+/** Entry from nexus.db. */
+export interface NexusTopEntry {
+  nodeId: string;
+  label: string;
+  kind: string;
+  filePath: string | null;
+  totalWeight: number;
+  edgeCount: number;
 }
 /** Result of `nexus.top-entries`. */
-export type NexusTopEntriesResult = unknown;
+export interface NexusTopEntriesResult {
+  entries: BrainPageNodeEntry[] | NexusTopEntry[];
+  count: number;
+  limit: number;
+  kind?: string | null;
+  nodeType?: string | null;
+  note?: string;
+}
 
 /** Parameters for `nexus.impact`. */
 export interface NexusImpactParams {
   /** Symbol name (required). */
   symbol: string;
+  /** Project ID (optional, defaults to current). */
+  projectId?: string;
   /** Include "why" reasons (optional). */
   why?: boolean;
 }
+/** Affected symbol in impact result. */
+export interface NexusImpactAffectedNode {
+  nodeId: string;
+  label: string;
+  kind: string;
+  reasons: string[];
+}
 /** Result of `nexus.impact`. */
-export type NexusImpactResult = unknown;
+export interface NexusImpactResult {
+  targetNodeId: string | null;
+  why: boolean;
+  riskLevel: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  affected: NexusImpactAffectedNode[];
+}
 
 /** Parameters for `nexus.full-context`. */
 export interface NexusFullContextParams {
