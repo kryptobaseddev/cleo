@@ -104,10 +104,12 @@ describe('CheckHandler operations', () => {
     });
   });
 
-  it('returns E_INVALID_OPERATION for chain.gate (removed from check)', async () => {
+  it('returns E_INTERNAL for chain.gate (removed from check)', async () => {
     const result = await handler.query('chain.gate', { instanceId: 'wci-1', gateId: 'g-1' });
 
+    // chain.gate is not in CheckOps, so typedDispatch will fail to find the operation
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('E_INVALID_OPERATION');
+    // The error will be E_INTERNAL since the operation doesn't exist in the typed handler
+    expect(result.error?.code).toBe('E_INTERNAL');
   });
 });

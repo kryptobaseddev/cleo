@@ -303,3 +303,64 @@ export interface ValidateComplianceSyncParams {
   force?: boolean;
 }
 export type ValidateComplianceSyncResult = Record<string, unknown>;
+
+// ---------------------------------------------------------------------------
+// Typed operation record (Wave D adapter — T975)
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed operation record for the check domain.
+ *
+ * Maps each operation name (as dispatched by the registry — no domain prefix)
+ * to its `[Params, Result]` tuple. Used by `TypedDomainHandler<CheckOps>`
+ * in the dispatch layer to provide compile-time narrowing of params.
+ *
+ * @task T1423 — check typed narrowing (T975 follow-on)
+ */
+export type CheckOps = {
+  readonly schema: readonly [ValidateSchemaParams, ValidateSchemaResult];
+  readonly task: readonly [ValidateTaskParams, ValidateTaskResult];
+  readonly manifest: readonly [ValidateManifestParams, ValidateManifestResult];
+  readonly output: readonly [ValidateOutputParams, ValidateOutputResult];
+  readonly 'compliance.summary': readonly [
+    ValidateComplianceSummaryParams,
+    ValidateComplianceSummaryResult,
+  ];
+  readonly 'compliance.record': readonly [
+    ValidateComplianceRecordParams,
+    ValidateComplianceRecordResult,
+  ];
+  readonly 'compliance.sync': readonly [
+    ValidateComplianceSyncParams,
+    ValidateComplianceSyncResult,
+  ];
+  readonly 'test': readonly [ValidateTestStatusParams, ValidateTestStatusResult];
+  readonly 'test.run': readonly [ValidateTestRunParams, ValidateTestRunResult];
+  readonly 'test.coverage': readonly [
+    ValidateTestCoverageParams,
+    ValidateTestCoverageResult,
+  ];
+  readonly coherence: readonly [ValidateCoherenceParams, ValidateCoherenceResult];
+  readonly 'gate.status': readonly [ValidateGateParams, ValidateGateResult];
+  readonly 'gate.set': readonly [ValidateGateParams, ValidateGateResult];
+  readonly 'verify.explain': readonly [
+    ValidateVerifyExplainParams,
+    ValidateVerifyExplainResult,
+  ];
+  readonly 'archive.stats': readonly [
+    ValidateArchiveStatsParams,
+    ValidateArchiveStatsResult,
+  ];
+  readonly 'chain.validate': readonly [
+    ValidateChainParams,
+    ValidateChainResult,
+  ];
+  readonly 'grade': readonly [ValidateGradeParams, ValidateGradeResult];
+  readonly 'grade.list': readonly [ValidateGradeListParams, ValidateGradeListResult];
+  readonly 'canon': readonly [ValidateCanonParams, ValidateCanonResult];
+  readonly 'workflow.compliance': readonly [
+    ValidateWorkflowComplianceParams,
+    ValidateWorkflowComplianceResult,
+  ];
+  readonly protocol: readonly [ValidateProtocolParams, ValidateProtocolResult];
+};
