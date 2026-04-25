@@ -39,6 +39,8 @@ import {
 
 /** Expected project-local messaging + tracking table names in conduit.db. */
 const EXPECTED_TABLES = [
+  // Drizzle migration journal (T1407 — added by reconcileJournal/migrateSanitized).
+  '__drizzle_migrations',
   '_conduit_meta',
   '_conduit_migrations',
   'attachment_approvals',
@@ -281,16 +283,14 @@ describe('conduit-sqlite', () => {
     expect(meta?.value).toBe(CONDUIT_SCHEMA_VERSION);
   });
 
-  // migration row recorded in _conduit_migrations
-  it('ensureConduitDb records initial migration in _conduit_migrations', () => {
+  // migration row recorded in __drizzle_migrations (T1407 — Drizzle journal SSoT)
+  it('ensureConduitDb records initial baseline in __drizzle_migrations', () => {
     ensureConduitDb(tmpRoot);
     const db = getConduitNativeDb()!;
     const mig = db
-      .prepare(
-        "SELECT name FROM _conduit_migrations WHERE name = '2026-04-12-000000_initial_conduit'",
-      )
-      .get() as { name: string } | undefined;
-    expect(mig?.name).toBe('2026-04-12-000000_initial_conduit');
+      .prepare('SELECT name FROM "__drizzle_migrations" WHERE name = ?')
+      .get('20260425000000_initial-conduit') as { name: string } | undefined;
+    expect(mig?.name).toBe('20260425000000_initial-conduit');
   });
 
   // checkConduitDbHealth — db absent
