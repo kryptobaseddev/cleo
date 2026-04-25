@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.147] — 2026-04-25 — Hotfix: conduit topic dispatch registry entries (publish/subscribe/listen)
+
+User smoke-tested v2026.4.146 in production and discovered `cleo conduit publish/subscribe/listen` returned `E_INVALID_OPERATION: Unknown operation: mutate:conduit.publish`. The CLI commands were registered (visible in `cleo conduit --help`) and the dispatch handler implemented the methods at `packages/cleo/src/dispatch/domains/conduit.ts:94,184,204`, but the `OPERATIONS_REGISTRY` in `packages/cleo/src/dispatch/registry.ts` was missing the three corresponding entries. The CQRS validator rejected them as unknown ops before reaching the handler.
+
+This hotfix adds the missing `conduit.publish` (mutate), `conduit.subscribe` (mutate), and `conduit.listen` (query) entries with their canonical param schemas. Verified end-to-end against a live publish→subscribe→listen flow:
+
+```
+$ cleo conduit publish --topic test-fix --payload '{"hello":"world"}'
+{"success":true,"data":{"messageId":"278ed11b-...","from":"cleo-prime","topicName":"test-fix","transport":"local","publishedAt":"..."}}
+
+$ cleo conduit listen --topic test-fix --agent cleo-prime --max 5
+{"success":true,"data":{"topicName":"test-fix","messages":[{"id":"278ed11b-...","from":"cleo-prime","content":"{\"hello\":\"world\"}","conversationId":"test-fix","timestamp":"..."}],"listenedForMs":11}}
+```
+
+All three round-trip cleanly. The conduit-schema split (T1407-followup commit `7300e3eed`) and migration-runner unification from v2026.4.145 are independently verified — only the dispatch routing was missing.
+
+### Quality gates (verified before release)
+
+- `pnpm exec tsc -b` — 0 errors
+- `pnpm biome ci .` — 1942 files, 2 pre-existing warnings, 1 info; no errors
+- `pnpm run build` — green
+- Live conduit topic publish/subscribe/listen flow against `.cleo/conduit.db` — green
+
 ## [2026.4.146] — 2026-04-25 — T1411 release-completion invariants gate (Council 2026-04-24 Expansionist promoted scope)
 
 Lands the registry-driven `cleo reconcile release` post-release invariants gate. ADR-056 (D5) promoted T1411's scope from a single-purpose archiveReason hook to a **generic post-release invariant registry** where archiveReason reconciliation is customer #1 — Council Expansionist's sharpest single point. The same mechanism retires the entire class of drift bugs that ADR-054's six migration-manager patches paid for ad-hoc.
