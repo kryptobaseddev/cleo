@@ -62,8 +62,7 @@ Version: 2.6.0 | CLI-only dispatch | `cleo <command> [args]`
 | LLM status | `cleo memory llm-status` | 50 |
 | Ground-truth promote | `cleo memory verify <id>` (owner only) | 50 |
 
-Memory context: run `cleo memory digest --brief` for live project memory summary (default mode).
-Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@.cleo/memory-bridge.md` injection.
+Memory context: `cleo memory digest --brief` gives a live project memory summary (default mode). Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@.cleo/memory-bridge.md` injection.
 
 ## Orchestration (for epics ≥ 5 tasks)
 
@@ -81,32 +80,19 @@ Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@
 
 ## Worktree-by-Default (T1140 · ADR-055)
 
-Every `cleo orchestrate spawn` automatically provisions a git worktree for the
-agent under `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/` (D029
-canonical layout via env-paths). The spawn prompt contains a
-`## Worktree Setup (REQUIRED)` section that:
+Every `cleo orchestrate spawn` automatically provisions a git worktree for the agent under `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/` (D029 canonical layout via env-paths). The spawn prompt contains a `## Worktree Setup (REQUIRED)` section that:
 
 - Names the worktree path and branch (`task/<taskId>`).
 - States the context-isolation constraint: "authorized only within `<path>`".
 - Provides `FIRST ACTION: cd <path>` so the agent initializes its cwd.
 
-Agents MUST `cd` to the worktree path as their first action. All reads,
-writes, and git operations MUST occur inside the worktree boundary. A git shim
-on the PATH blocks forbidden operations (checkout, switch, force-push, etc.).
+Agents MUST `cd` to the worktree path as their first action. All reads, writes, and git operations MUST occur inside the worktree boundary. A git shim on the PATH blocks forbidden operations (checkout, switch, force-push, etc.).
 
-The orchestrator cherry-picks commits from the worktree branch back to main
-after the agent completes — agents NEVER merge directly.
-
-To skip provisioning (e.g. for meta-tasks that only run CLI commands), pass
-`--no-worktree`. The opt-out is always logged to the audit log.
+The orchestrator cherry-picks commits from the worktree branch back to main after the agent completes — agents NEVER merge directly. To skip provisioning (e.g. for meta-tasks that only run CLI commands), pass `--no-worktree`. The opt-out is always logged to the audit log.
 
 ## Playbook Domain (v2026.4.93 · T910 Orchestration Coherence v4)
 
-`.cantbook` playbooks encode multi-stage agent flows (research → spec → impl →
-review, release with HITL gate, etc.) as YAML. The playbook runtime is a
-deterministic state machine with HMAC-signed resume tokens for HITL gates —
-see `docs/architecture/orchestration-flow.md` for the 6-layer pipeline and
-`docs/adr/ADR-053-playbook-runtime.md` for the state-machine decision.
+`.cantbook` playbooks encode multi-stage agent flows (research → spec → impl → review, release with HITL gate, etc.) as YAML. The playbook runtime is a deterministic state machine with HMAC-signed resume tokens for HITL gates — see `docs/architecture/orchestration-flow.md` (6-layer pipeline) and `docs/adr/ADR-053-playbook-runtime.md` (state-machine decision).
 
 | Goal | Command |
 |------|---------|
@@ -114,8 +100,7 @@ see `docs/architecture/orchestration-flow.md` for the 6-layer pipeline and
 | Inspect run state | `cleo playbook status <runId>` |
 | Resume after HITL approval | `cleo playbook resume <runId>` |
 
-Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`,
-`ivtr.cantbook`, `release.cantbook`.
+Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantbook`, `release.cantbook`.
 
 ## Documents & Attachments
 
@@ -145,9 +130,7 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 
 ## Pre-Complete Gate Ritual (ADR-051 — evidence required)
 
-MANDATORY before every `cleo complete <id>`. Every gate write MUST be backed by
-programmatic evidence that CLEO validates against git, the filesystem, or the
-toolchain. `cleo verify --all` alone is REJECTED with `E_EVIDENCE_MISSING`.
+MANDATORY before every `cleo complete <id>`. Every gate write MUST be backed by programmatic evidence that CLEO validates against git, the filesystem, or the toolchain. `cleo verify --all` alone is REJECTED with `E_EVIDENCE_MISSING`.
 
 ### 1. Capture evidence for each gate
 
@@ -182,8 +165,7 @@ cleo verify T### --gate cleanupDone --evidence "note:removed dead branches"
 cleo complete T###
 ```
 
-On complete, CLEO re-validates every hard atom (commit reachable, file sha256
-match, test-run hash match). Tampering → `E_EVIDENCE_STALE`, re-verify required.
+On complete, CLEO re-validates every hard atom (commit reachable, file sha256 match, test-run hash match). Tampering → `E_EVIDENCE_STALE`, re-verify required.
 
 ### 3. Record learnings
 
@@ -212,9 +194,7 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ## Spawn Prompt Contents (what subagents receive) — T882 / v2.6.0
 
-`cleo orchestrate spawn <taskId>` returns a fully-resolved, self-contained
-prompt. Subagents never re-resolve protocol content; everything required is
-embedded. Three tiers control content depth:
+`cleo orchestrate spawn <taskId>` returns a fully-resolved, self-contained prompt. Subagents never re-resolve protocol content; everything required is embedded. Three tiers control content depth:
 
 | Tier | Contents |
 |------|----------|
@@ -230,8 +210,7 @@ cleo orchestrate spawn T1234            # tier 1 (default)
 cleo orchestrate spawn T1234 --tier 2   # full (autonomous workers)
 ```
 
-Every spawn prompt contains these required sections — orchestrators can
-programmatically assert their presence before dispatching a subagent:
+Every spawn prompt contains these required sections — orchestrators can programmatically assert their presence before dispatching a subagent:
 
 - `## Task Identity`
 - `## File Paths (absolute — do not guess)`
@@ -262,9 +241,7 @@ Pull context on demand — don't pre-load everything:
 
 ### Decision Lookup (D0xx ID Overload Warning)
 
-Decision IDs (D0xx, AGT-*) are **NOT globally unique**. The same ID can mean
-different things in different documents (e.g., D032 in ADR-055 vs
-PORT-AND-RENAME-SYNTHESIS). Always verify the source document.
+Decision IDs (D0xx, AGT-*) are **NOT globally unique**. The same ID can mean different things in different documents (e.g., D032 in ADR-055 vs PORT-AND-RENAME-SYNTHESIS). Always verify the source document.
 
 **Lookup hierarchy** (check in order):
 
@@ -277,8 +254,7 @@ PORT-AND-RENAME-SYNTHESIS). Always verify the source document.
 4. **Agent outputs** (planning context): `grep -r "D0xx" .cleo/agent-outputs/`
    (session-scoped decision tables with migration impact)
 
-**When found**: Note the source document, check outcome status
-(pending/accepted/superseded), and fetch sibling decisions from the same epic.
+**When found**: Note the source document, check outcome status (pending/accepted/superseded), and fetch sibling decisions from the same epic.
 
 Budget: 3 JIT calls per task phase. More = task is underspecified.
 
