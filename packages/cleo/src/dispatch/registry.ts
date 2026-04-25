@@ -5445,6 +5445,96 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  {
+    gateway: 'mutate' as const,
+    domain: 'conduit',
+    operation: 'publish',
+    description: 'conduit.publish (mutate) — publish message to a topic (A2A, T1252)',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['topicName', 'payload'],
+    params: [
+      {
+        name: 'topicName',
+        type: 'string' as const,
+        required: true,
+        description: 'Topic to publish to',
+      },
+      {
+        name: 'payload',
+        type: 'string' as const,
+        required: true,
+        description: 'Message payload (JSON-stringified object)',
+      },
+      {
+        name: 'agentId',
+        type: 'string' as const,
+        required: false,
+        description: 'Publish as this agent (defaults to active agent)',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'conduit',
+    operation: 'subscribe',
+    description: 'conduit.subscribe (mutate) — subscribe agent to a topic (A2A, T1252)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['topicName'],
+    params: [
+      {
+        name: 'topicName',
+        type: 'string' as const,
+        required: true,
+        description: 'Topic to subscribe to',
+      },
+      {
+        name: 'agentId',
+        type: 'string' as const,
+        required: false,
+        description: 'Agent to subscribe (defaults to active agent)',
+      },
+      {
+        name: 'filter',
+        type: 'string' as const,
+        required: false,
+        description: 'Optional filter expression (JSON-stringified) for subscription',
+      },
+    ],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'conduit',
+    operation: 'listen',
+    description: 'conduit.listen (query) — one-shot poll for topic messages (A2A, T1252)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['topicName'],
+    params: [
+      {
+        name: 'topicName',
+        type: 'string' as const,
+        required: true,
+        description: 'Topic to poll',
+      },
+      {
+        name: 'agentId',
+        type: 'string' as const,
+        required: false,
+        description: 'Agent to poll as (defaults to active agent)',
+      },
+      {
+        name: 'max',
+        type: 'number' as const,
+        required: false,
+        description: 'Max messages to return (default: 20)',
+      },
+    ],
+  },
 
   // ===========================================================================
   // intelligence — Predictive Quality Intelligence (query-only)
