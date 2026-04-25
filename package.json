@@ -38,7 +38,11 @@
     "test:install-scenarios": "node scripts/wave3-install-scenarios.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
     "version:bump": "node scripts/version-all.mjs",
-    "cleo:dev": "node --disable-warning=ExperimentalWarning packages/cleo/dist/cli/index.js"
+    "cleo:dev": "node --disable-warning=ExperimentalWarning packages/cleo/dist/cli/index.js",
+    "hooks:install": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "commit-msg": "node scripts/hooks/commit-msg-release-lint.mjs \"$1\""
   },
   "pnpm": {
     "supportedArchitectures": {
@@ -87,6 +91,7 @@
     "@types/node": "^22.19.11",
     "drizzle-kit": "1.0.0-beta.19-d95b7a4",
     "esbuild": "^0.28.0",
+    "simple-git-hooks": "^2.13.1",
     "svelte": "^5.28.1",
     "typescript": "6.0.2",
     "vite": "^8.0.8",
