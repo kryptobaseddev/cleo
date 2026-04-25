@@ -20,27 +20,181 @@
  */
 
 import { join } from 'node:path';
-import type {
-  AllowlistAddParams,
-  AllowlistListParams,
-  AllowlistRemoveParams,
-  ProposeAcceptParams,
-  ProposeDiffParams,
-  ProposeDisableParams,
-  ProposeEnableParams,
-  ProposeListParams,
-  ProposeRejectParams,
-  ProposeRunParams,
-  SentientOps,
-} from '@cleocode/contracts';
+import type { LafsEnvelope } from '@cleocode/contracts';
 import { getProjectRoot } from '@cleocode/core';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
+import { defineTypedHandler, lafsSuccess, typedDispatch, OpsFromCore } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import type { EngineResult } from './_base.js';
 import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 /** The label that marks Tier-2 proposals. */
 const TIER2_LABEL = 'sentient-tier2';
+
+// ---------------------------------------------------------------------------
+// Core-style wrapper functions (T1435 Wave 1 — OpsFromCore inference)
+//
+// These functions match Core signatures and are used to infer operation types
+// via OpsFromCore<typeof coreOps>. Parameters and results are automatically
+// extracted from the function signatures, eliminating per-op type imports
+// from @cleocode/contracts in this dispatch file.
+//
+// @task T1435 Wave 1 — sentient dispatch refactor
+// ---------------------------------------------------------------------------
+
+/**
+ * List all proposals with status='proposed' and the TIER2_LABEL.
+ * Returns proposals sorted by weight descending.
+ */
+async function proposeListOp(params: {
+  limit?: number;
+}): Promise<{ proposals: Array<{ id: string; title: string; description: string; status: string; priority?: string; labels: string[]; createdAt: string; meta?: Record<string, unknown> | null }>; total: number }> {
+  const projectRoot = getProjectRoot();
+  const result = await listProposals(projectRoot, params);
+  if (!result.success) {
+    throw new Error(result.error?.message ?? 'Failed to list proposals');
+  }
+  const data = result.data as { proposals: Array<{ id: string; title: string; description: string; status: string; priority?: string; labels: string[]; createdAt: string; meta?: Record<string, unknown> | null }>; total: number } | undefined;
+  return data ?? { proposals: [], total: 0 };
+}
+
+/**
+ * Show what a proposal would change (Tier-3 stub).
+ */
+async function proposeDiffOp(params: { id: string }): Promise<{ id: string; diff: null; message: string }> {
+  return {
+    id: params.id,
+    diff: null,
+    message:
+      'Content diff is a Tier-3 feature (blocked on T992+T993+T995). ' +
+      'This proposal is a task-creation suggestion; no diff is available.',
+  };
+}
+
+/**
+ * Accept a proposal: transition proposed → pending.
+ */
+async function proposeAcceptOp(params: { id: string }): Promise<{ id: string; status: string; acceptedAt: string }> {
+  const projectRoot = getProjectRoot();
+  const result = await acceptProposal(projectRoot, params.id);
+  if (!result.success) {
+    throw new Error(result.error?.message ?? 'Failed to accept proposal');
+  }
+  const data = result.data as { id: string; status: string; acceptedAt: string } | undefined;
+  return data ?? { id: '', status: '', acceptedAt: '' };
+}
+
+/**
+ * Reject a proposal: transition proposed → cancelled.
+ */
+async function proposeRejectOp(params: { id: string; reason?: string }): Promise<{ id: string; status: string; rejectedAt: string; reason: string }> {
+  const projectRoot = getProjectRoot();
+  const reason = params.reason ?? 'rejected by owner';
+  const result = await rejectProposal(projectRoot, params.id, reason);
+  if (!result.success) {
+    throw new Error(result.error?.message ?? 'Failed to reject proposal');
+  }
+  const data = result.data as { id: string; status: string; rejectedAt: string; reason: string } | undefined;
+  return data ?? { id: '', status: '', rejectedAt: '', reason: '' };
+}
+
+/**
+ * Manually trigger a single propose tick in-process.
+ */
+async function proposeRunOp(_params: Record<string, never>): Promise<{ outcome: unknown }> {
+  const projectRoot = getProjectRoot();
+  const result = await runProposeTick(projectRoot);
+  if (!result.success) {
+    throw new Error(result.error?.message ?? 'Failed to run propose tick');
+  }
+  const data = result.data as { outcome: unknown } | undefined;
+  return data ?? { outcome: null };
+}
+
+/**
+ * Enable Tier-2 proposals.
+ */
+async function proposeEnableOp(_params: Record<string, never>): Promise<{ tier2Enabled: boolean; message: string }> {
+  const projectRoot = getProjectRoot();
+  const result = await setTier2Enabled(projectRoot, true);
+  if (!result.success) {
+    throw new Error(result.error?.message ?? 'Failed to enable Tier-2');
+  }
+  const data = result.data as { tier2Enabled: boolean; message: string } | undefined;
+  return data ?? { tier2Enabled: false, message: '' };
+}
+
+/**
+ * Disable Tier-2 proposals.
+ */
+async function proposeDisableOp(_params: Record<string, never>): Promise<{ tier2Enabled: boolean; message: string }> {
+  const projectRoot = getProjectRoot();
+  const result = await setTier2Enabled(projectRoot, false);
+  if (!result.success) {
+    throw new Error(result.error?.message ?? 'Failed to disable Tier-2');
+  }
+  const data = result.data as { tier2Enabled: boolean; message: string } | undefined;
+  return data ?? { tier2Enabled: false, message: '' };
+}
+
+/**
+ * List the current owner pubkey allowlist.
+ */
+async function allowlistListOp(_params: Record<string, never>): Promise<{ ownerPubkeys: string[]; count: number }> {
+  const projectRoot = getProjectRoot();
+  const result = await listAllowlist(projectRoot);
+  if (!result.success) {
+    throw new Error(result.error?.message ?? 'Failed to list allowlist');
+  }
+  const data = result.data as { ownerPubkeys: string[]; count: number } | undefined;
+  return data ?? { ownerPubkeys: [], count: 0 };
+}
+
+/**
+ * Add a base64-encoded pubkey to the owner allowlist.
+ */
+async function allowlistAddOp(params: { pubkey: string }): Promise<{ added: string }> {
+  const projectRoot = getProjectRoot();
+  const result = await addAllowlistKey(projectRoot, params.pubkey);
+  if (!result.success) {
+    throw new Error(result.error?.message ?? 'Failed to add pubkey');
+  }
+  const data = result.data as { added: string } | undefined;
+  return data ?? { added: '' };
+}
+
+/**
+ * Remove a base64-encoded pubkey from the owner allowlist.
+ */
+async function allowlistRemoveOp(params: { pubkey: string }): Promise<{ removed: string }> {
+  const projectRoot = getProjectRoot();
+  const result = await removeAllowlistKey(projectRoot, params.pubkey);
+  if (!result.success) {
+    throw new Error(result.error?.message ?? 'Failed to remove pubkey');
+  }
+  const data = result.data as { removed: string } | undefined;
+  return data ?? { removed: '' };
+}
+
+/**
+ * Core operations registry — maps operation names to wrapper functions.
+ * Used to infer SentientOps via OpsFromCore<typeof coreOps>.
+ * This eliminates per-op type imports from @cleocode/contracts.
+ */
+const coreOps = {
+  'propose.list': proposeListOp,
+  'propose.diff': proposeDiffOp,
+  'propose.accept': proposeAcceptOp,
+  'propose.reject': proposeRejectOp,
+  'propose.run': proposeRunOp,
+  'propose.enable': proposeEnableOp,
+  'propose.disable': proposeDisableOp,
+  'allowlist.list': allowlistListOp,
+  'allowlist.add': allowlistAddOp,
+  'allowlist.remove': allowlistRemoveOp,
+} as const;
+
+/** Inferred operation types from Core function signatures. */
+type SentientOps = OpsFromCore<typeof coreOps>;
 
 // ---------------------------------------------------------------------------
 // Typed inner handler (Wave D · T1421)
@@ -55,172 +209,78 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
   // Query ops
   // -------------------------------------------------------------------------
 
-  'propose.list': async (params: ProposeListParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await listProposals(projectRoot, params);
-    if (!result.success) {
-      return lafsError(
-        result.error?.code ?? 'E_INTERNAL',
-        result.error?.message ?? 'Unknown error',
-        'propose.list',
-      );
-    }
-    return lafsSuccess(result.data ?? { proposals: [], total: 0 }, 'propose.list');
+  'propose.list': async (params) => {
+    const data = await proposeListOp(params);
+    return lafsSuccess(data, 'propose.list');
   },
 
-  'propose.diff': async (params: ProposeDiffParams) => {
-    // Tier-3 stub — diff is only meaningful for content-change proposals.
-    // Register the verb now; content is Tier-3 scope.
-    return lafsSuccess(
-      {
-        id: params.id,
-        diff: null,
-        message:
-          'Content diff is a Tier-3 feature (blocked on T992+T993+T995). ' +
-          'This proposal is a task-creation suggestion; no diff is available.',
-      },
-      'propose.diff',
-    );
+  'propose.diff': async (params) => {
+    const data = await proposeDiffOp(params);
+    return lafsSuccess(data, 'propose.diff');
   },
 
-  'allowlist.list': async (_params: AllowlistListParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await listAllowlist(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        result.error?.code ?? 'E_INTERNAL',
-        result.error?.message ?? 'Unknown error',
-        'allowlist.list',
-      );
-    }
-    return lafsSuccess(result.data ?? { ownerPubkeys: [], count: 0 }, 'allowlist.list');
+  'allowlist.list': async (params) => {
+    const data = await allowlistListOp(params);
+    return lafsSuccess(data, 'allowlist.list');
   },
 
   // -------------------------------------------------------------------------
   // Mutate ops
   // -------------------------------------------------------------------------
 
-  'propose.accept': async (params: ProposeAcceptParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await acceptProposal(projectRoot, params.id);
-    if (!result.success) {
-      return lafsError(
-        result.error?.code ?? 'E_INTERNAL',
-        result.error?.message ?? 'Unknown error',
-        'propose.accept',
-      );
-    }
-    return lafsSuccess(result.data ?? { id: '', status: '', acceptedAt: '' }, 'propose.accept');
+  'propose.accept': async (params) => {
+    const data = await proposeAcceptOp(params);
+    return lafsSuccess(data, 'propose.accept');
   },
 
-  'propose.reject': async (params: ProposeRejectParams) => {
-    const projectRoot = getProjectRoot();
-    const reason = params.reason ?? 'rejected by owner';
-    const result = await rejectProposal(projectRoot, params.id, reason);
-    if (!result.success) {
-      return lafsError(
-        result.error?.code ?? 'E_INTERNAL',
-        result.error?.message ?? 'Unknown error',
-        'propose.reject',
-      );
-    }
-    return lafsSuccess(
-      result.data ?? { id: '', status: '', rejectedAt: '', reason: '' },
-      'propose.reject',
-    );
+  'propose.reject': async (params) => {
+    const data = await proposeRejectOp(params);
+    return lafsSuccess(data, 'propose.reject');
   },
 
-  'propose.run': async (_params: ProposeRunParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await runProposeTick(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        result.error?.code ?? 'E_INTERNAL',
-        result.error?.message ?? 'Unknown error',
-        'propose.run',
-      );
-    }
-    return lafsSuccess(result.data ?? { outcome: null }, 'propose.run');
+  'propose.run': async (params) => {
+    const data = await proposeRunOp(params);
+    return lafsSuccess(data, 'propose.run');
   },
 
-  'propose.enable': async (_params: ProposeEnableParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await setTier2Enabled(projectRoot, true);
-    if (!result.success) {
-      return lafsError(
-        result.error?.code ?? 'E_INTERNAL',
-        result.error?.message ?? 'Unknown error',
-        'propose.enable',
-      );
-    }
-    return lafsSuccess(result.data ?? { tier2Enabled: false, message: '' }, 'propose.enable');
+  'propose.enable': async (params) => {
+    const data = await proposeEnableOp(params);
+    return lafsSuccess(data, 'propose.enable');
   },
 
-  'propose.disable': async (_params: ProposeDisableParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await setTier2Enabled(projectRoot, false);
-    if (!result.success) {
-      return lafsError(
-        result.error?.code ?? 'E_INTERNAL',
-        result.error?.message ?? 'Unknown error',
-        'propose.disable',
-      );
-    }
-    return lafsSuccess(result.data ?? { tier2Enabled: true, message: '' }, 'propose.disable');
+  'propose.disable': async (params) => {
+    const data = await proposeDisableOp(params);
+    return lafsSuccess(data, 'propose.disable');
   },
 
-  'allowlist.add': async (params: AllowlistAddParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await addAllowlistKey(projectRoot, params.pubkey);
-    if (!result.success) {
-      return lafsError(
-        result.error?.code ?? 'E_INTERNAL',
-        result.error?.message ?? 'Unknown error',
-        'allowlist.add',
-      );
-    }
-    return lafsSuccess(result.data ?? { added: '' }, 'allowlist.add');
+  'allowlist.add': async (params) => {
+    const data = await allowlistAddOp(params);
+    return lafsSuccess(data, 'allowlist.add');
   },
 
-  'allowlist.remove': async (params: AllowlistRemoveParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await removeAllowlistKey(projectRoot, params.pubkey);
-    if (!result.success) {
-      return lafsError(
-        result.error?.code ?? 'E_INTERNAL',
-        result.error?.message ?? 'Unknown error',
-        'allowlist.remove',
-      );
-    }
-    return lafsSuccess(result.data ?? { removed: '' }, 'allowlist.remove');
+  'allowlist.remove': async (params) => {
+    const data = await allowlistRemoveOp(params);
+    return lafsSuccess(data, 'allowlist.remove');
   },
 });
 
 // ---------------------------------------------------------------------------
 // Envelope-to-EngineResult adapter
 //
-// Converts a LafsEnvelope into the minimal EngineResult shape accepted by
-// wrapResult. Similar to session.ts pattern (T975).
+// Converts a LafsEnvelope (from lafsSuccess/lafsError) into the minimal
+// EngineResult shape accepted by wrapResult.
 // ---------------------------------------------------------------------------
 
 /**
  * Convert a LAFS envelope into the minimal EngineResult shape expected by
  * {@link wrapResult}.
  *
- * T1434: accept the canonical LafsEnvelope shape from contracts where
- * `error.code` is `string | number`. The dispatch wire format requires a
- * string `code`; stringify on the boundary.
- *
  * @param envelope - The LAFS envelope returned by the typed op function.
  * @returns An object compatible with the `EngineResult` type in `_base.ts`.
  *
  * @internal
  */
-function envelopeToEngineResult(envelope: {
-  readonly success: boolean;
-  readonly data?: unknown;
-  readonly error?: { readonly code: string | number; readonly message: string };
-}): {
+function envelopeToEngineResult(envelope: LafsEnvelope): {
   success: boolean;
   data?: unknown;
   error?: { code: string; message: string };
@@ -373,7 +433,7 @@ export class SentientHandler implements DomainHandler {
  */
 async function listProposals(
   projectRoot: string,
-  params: ProposeListParams,
+  params: { limit?: number },
 ): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
   const { getDb } = await import('@cleocode/core/internal');
   const { tasks } = await import('@cleocode/core/store/tasks-schema');
