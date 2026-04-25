@@ -139,9 +139,13 @@ const coreOps = {
  * are derived from Core engine function signatures at compile time.
  * This drives type safety for all pipeline operations.
  *
+ * This type is exported (re-exported) for documentation purposes and type
+ * narrowing in consuming code. It serves as a compile-time check that all
+ * operations in `coreOps` have properly-inferred types.
+ *
  * @task T1441 — OpsFromCore inference (replaces hand-typed registry)
  */
-type PipelineOps = OpsFromCore<typeof coreOps>;
+export type PipelineOps = OpsFromCore<typeof coreOps>;
 
 // ---------------------------------------------------------------------------
 // PipelineHandler
