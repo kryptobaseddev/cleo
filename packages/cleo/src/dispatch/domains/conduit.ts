@@ -30,6 +30,7 @@ import type {
   ConduitPublishParams,
   ConduitSendParams,
   ConduitStartParams,
+  ConduitStatusParams,
   ConduitStopParams,
   ConduitSubscribeParams,
 } from '@cleocode/contracts';
@@ -59,8 +60,8 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
       const result = await getStatusImpl(params.agentId);
       if (!result.success) {
         return lafsError(
-          result.error?.code ?? 'E_CONDUIT',
-          result.error?.message ?? 'Unknown error',
+          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
+          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
           'status',
         );
       }
@@ -79,8 +80,8 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
       const result = await peekImpl(params.agentId, params.limit);
       if (!result.success) {
         return lafsError(
-          result.error?.code ?? 'E_CONDUIT',
-          result.error?.message ?? 'Unknown error',
+          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
+          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
           'peek',
         );
       }
@@ -100,8 +101,8 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
       );
       if (!result.success) {
         return lafsError(
-          result.error?.code ?? 'E_CONDUIT',
-          result.error?.message ?? 'Unknown error',
+          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
+          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
           'listen',
         );
       }
@@ -128,8 +129,8 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
       );
       if (!result.success) {
         return lafsError(
-          result.error?.code ?? 'E_CONDUIT',
-          result.error?.message ?? 'Unknown error',
+          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
+          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
           'start',
         );
       }
@@ -148,8 +149,8 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
       const result = stopPollingImpl();
       if (!result.success) {
         return lafsError(
-          result.error?.code ?? 'E_CONDUIT',
-          result.error?.message ?? 'Unknown error',
+          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
+          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
           'stop',
         );
       }
@@ -169,8 +170,8 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
       );
       if (!result.success) {
         return lafsError(
-          result.error?.code ?? 'E_CONDUIT',
-          result.error?.message ?? 'Unknown error',
+          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
+          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
           'send',
         );
       }
@@ -185,8 +186,8 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
       const result = await subscribeTopicImpl(params.topicName, params.agentId, params.filter);
       if (!result.success) {
         return lafsError(
-          result.error?.code ?? 'E_CONDUIT',
-          result.error?.message ?? 'Unknown error',
+          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
+          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
           'subscribe',
         );
       }
@@ -211,8 +212,8 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
       );
       if (!result.success) {
         return lafsError(
-          result.error?.code ?? 'E_CONDUIT',
-          result.error?.message ?? 'Unknown error',
+          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
+          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
           'publish',
         );
       }
