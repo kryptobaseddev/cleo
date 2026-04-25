@@ -6,7 +6,7 @@
  * while storage is backed by the relational database.
  *
  * Uses existing sqlite.ts engine (node:sqlite / drizzle-orm) and
- * task-store.ts / session-store.ts for row-level operations.
+ * tasks-sqlite.ts / session-store.ts for row-level operations.
  *
  * @epic T4454
  */

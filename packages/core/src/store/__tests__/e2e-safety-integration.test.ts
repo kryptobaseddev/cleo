@@ -53,7 +53,7 @@ describe('E2E Safety Integration', () => {
 
   describe('Full Task Lifecycle with Safety', () => {
     it('should create → read → update → complete → delete with full safety', async () => {
-      const { createTask, getTask, updateTask, deleteTask } = await import('../task-store.js');
+      const { createTask, getTask, updateTask, deleteTask } = await import('../tasks-sqlite.js');
       const { getSafetyStats, resetSafetyStats } = await import('../data-safety-central.js');
 
       // Sequence file needed for safety wrapper
@@ -99,7 +99,7 @@ describe('E2E Safety Integration', () => {
     });
 
     it('should handle task with all optional fields', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
 
       const task = await createTask({
         id: 'T001',
@@ -166,7 +166,7 @@ describe('E2E Safety Integration', () => {
 
   describe('Collision Prevention E2E', () => {
     it('should prevent duplicate task creation through safeCreateTask', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { safeCreateTask } = await import('../data-safety.js');
 
       // Create first task
@@ -197,7 +197,7 @@ describe('E2E Safety Integration', () => {
       ).rejects.toThrow('collision');
 
       // Original task should still exist unchanged
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const original = await getTask('T001');
       expect(original!.title).toBe('Original');
     });
@@ -205,7 +205,7 @@ describe('E2E Safety Integration', () => {
 
   describe('Write Verification E2E', () => {
     it('should verify data persists after write through safety layer', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { verifyTaskWrite, safeCreateTask } = await import('../data-safety.js');
 
       const taskData = {
@@ -245,7 +245,7 @@ describe('E2E Safety Integration', () => {
 
   describe('Bulk Operations E2E', () => {
     it('should handle 100 task creates without data loss', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
 
       const taskIds: string[] = [];
       for (let i = 1; i <= 100; i++) {
@@ -271,7 +271,7 @@ describe('E2E Safety Integration', () => {
     });
 
     it('should handle concurrent reads safely', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
 
       // Create 10 tasks
       for (let i = 1; i <= 10; i++) {
@@ -339,7 +339,7 @@ describe('E2E Safety Integration', () => {
       expect(result.tasksImported).toBe(2);
 
       // Verify tasks in SQLite
-      const { getTask } = await import('../task-store.js');
+      const { getTask } = await import('../tasks-sqlite.js');
       const t1 = await getTask('T001');
       const t2 = await getTask('T002');
 

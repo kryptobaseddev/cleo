@@ -41,7 +41,7 @@ describe('Write Verification', () => {
 
   describe('verifyTaskWrite', () => {
     it('should verify a successfully written task', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { verifyTaskWrite } = await import('../data-safety.js');
 
       await createTask({
@@ -73,7 +73,7 @@ describe('Write Verification', () => {
     });
 
     it('should verify expected data fields match', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { verifyTaskWrite } = await import('../data-safety.js');
 
       await createTask({
@@ -133,7 +133,7 @@ describe('Write Verification', () => {
 
   describe('safeCreateTask', () => {
     it('should create task with full safety pipeline', async () => {
-      const { createTask, getTask } = await import('../task-store.js');
+      const { createTask, getTask } = await import('../tasks-sqlite.js');
       const { safeCreateTask } = await import('../data-safety.js');
 
       const taskData = {
@@ -159,7 +159,7 @@ describe('Write Verification', () => {
     });
 
     it('should detect collision during safe create', async () => {
-      const { createTask } = await import('../task-store.js');
+      const { createTask } = await import('../tasks-sqlite.js');
       const { safeCreateTask } = await import('../data-safety.js');
 
       const taskData = {
@@ -188,7 +188,7 @@ describe('Write Verification', () => {
 
   describe('safeUpdateTask', () => {
     it('should update task with write verification', async () => {
-      const { createTask, getTask, updateTask } = await import('../task-store.js');
+      const { createTask, getTask, updateTask } = await import('../tasks-sqlite.js');
       const { safeUpdateTask } = await import('../data-safety.js');
 
       await createTask({
@@ -216,7 +216,7 @@ describe('Write Verification', () => {
 
   describe('safeDeleteTask', () => {
     it('should delete task with verification', async () => {
-      const { createTask, deleteTask, getTask } = await import('../task-store.js');
+      const { createTask, deleteTask, getTask } = await import('../tasks-sqlite.js');
       const { safeDeleteTask } = await import('../data-safety.js');
 
       await createTask({

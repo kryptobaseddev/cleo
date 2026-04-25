@@ -817,7 +817,7 @@ export async function exportToJson(cwd?: string): Promise<{
   archived: Task[];
   sessions: Session[];
 }> {
-  const { listTasks } = await import('./task-store.js');
+  const { listTasks } = await import('./tasks-sqlite.js');
   const { listSessions } = await import('./session-store.js');
   const { eq } = await import('drizzle-orm');
 
