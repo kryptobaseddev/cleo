@@ -15,57 +15,7 @@
  * @task T1424 — typed-dispatch narrowing (T988 follow-on)
  */
 
-import type {
-  NexusAugmentParams,
-  NexusBlockersShowParams,
-  NexusBrainAnchorsParams,
-  NexusConduitScanParams,
-  NexusContractsLinkTasksParams,
-  NexusContractsShowParams,
-  NexusContractsSyncParams,
-  NexusDepsParams,
-  NexusDiscoverParams,
-  NexusFullContextParams,
-  NexusGraphParams,
-  NexusImpactFullParams,
-  NexusImpactParams,
-  NexusInitParams,
-  NexusListParams,
-  NexusOps,
-  NexusOrphansListParams,
-  NexusPathShowParams,
-  NexusPermissionSetParams,
-  NexusProfileExportParams,
-  NexusProfileGetParams,
-  NexusProfileImportParams,
-  NexusProfileReinforceParams,
-  NexusProfileSupersedeParams,
-  NexusProfileUpsertParams,
-  NexusProfileViewParams,
-  NexusReconcileParams,
-  NexusRegisterParams,
-  NexusResolveParams,
-  NexusRouteMapParams,
-  NexusSearchCodeParams,
-  NexusSearchParams,
-  NexusShapeCheckParams,
-  NexusShareSnapshotExportParams,
-  NexusShareSnapshotImportParams,
-  NexusShareStatusParams,
-  NexusShowParams,
-  NexusSigilListParams,
-  NexusSigilSyncParams,
-  NexusStatusParams,
-  NexusSyncParams,
-  NexusTaskFootprintParams,
-  NexusTaskSymbolsParams,
-  NexusTopEntriesParams,
-  NexusTransferParams,
-  NexusTransferPreviewParams,
-  NexusUnregisterParams,
-  NexusWhyParams,
-  NexusWikiParams,
-} from '@cleocode/contracts';
+import type { LafsEnvelope } from '@cleocode/contracts';
 import {
   getBrainNativeDb,
   getLogger,
@@ -73,59 +23,85 @@ import {
   getProjectRoot,
   type NexusPermissionLevel,
 } from '@cleocode/core/internal';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
-import {
-  nexusAugment,
-  nexusBlockers,
-  nexusBrainAnchors,
-  nexusConduitScan,
-  nexusContractsLinkTasks,
-  nexusContractsShow,
-  nexusContractsSync,
-  nexusCriticalPath,
-  nexusDepsQuery,
-  nexusDiscover,
-  nexusFullContext,
-  nexusGraph,
-  nexusImpact,
-  nexusImpactFull,
-  nexusInitialize,
-  nexusListProjects,
-  nexusOrphans,
-  nexusProfileExport,
-  nexusProfileGet,
-  nexusProfileImport,
-  nexusProfileReinforce,
-  nexusProfileSupersede,
-  nexusProfileUpsert,
-  nexusProfileView,
-  nexusReconcileProject,
-  nexusRegisterProject,
-  nexusResolve,
-  nexusRouteMap,
-  nexusSearch,
-  nexusSearchCode,
-  nexusSetPermission,
-  nexusShapeCheck,
-  nexusShareSnapshotExport,
-  nexusShareSnapshotImport,
-  nexusShareStatus,
-  nexusShowProject,
-  nexusSigilList,
-  nexusSigilSync,
-  nexusStatus,
-  nexusSyncProject,
-  nexusTaskFootprint,
-  nexusTaskSymbols,
-  nexusTopEntries,
-  nexusTransferExecute,
-  nexusTransferPreview,
-  nexusUnregisterProject,
-  nexusWhy,
-  nexusWiki,
-} from '../engines/nexus-engine.js';
+import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch, type OpsFromCore } from '../adapters/typed.js';
+import * as nexusEngineModule from '../engines/nexus-engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+
+// ---------------------------------------------------------------------------
+// Core operations record (T1435 Wave 1 — OpsFromCore inference)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map of nexus engine functions used as the source of truth for operation
+ * parameter and result types. Each function signature defines the contract
+ * for its corresponding dispatch operation.
+ *
+ * Multi-arg functions are wrapped in adapters here (e.g., nexusWiki which
+ * takes (outputDir, projectRoot, options) is wrapped to accept a single
+ * parameter object).
+ *
+ * @task T1435 — nexus dispatch refactor (Wave 1)
+ */
+const coreOps = {
+  status: nexusEngineModule.nexusStatus,
+  list: nexusEngineModule.nexusListProjects,
+  show: nexusEngineModule.nexusShowProject,
+  resolve: nexusEngineModule.nexusResolve,
+  deps: nexusEngineModule.nexusDepsQuery,
+  graph: nexusEngineModule.nexusGraph,
+  'path.show': nexusEngineModule.nexusCriticalPath,
+  'blockers.show': nexusEngineModule.nexusBlockers,
+  'orphans.list': nexusEngineModule.nexusOrphans,
+  discover: nexusEngineModule.nexusDiscover,
+  search: nexusEngineModule.nexusSearch,
+  augment: nexusEngineModule.nexusAugment,
+  'share.status': nexusEngineModule.nexusShareStatus,
+  'transfer.preview': nexusEngineModule.nexusTransferPreview,
+  'top-entries': nexusEngineModule.nexusTopEntries,
+  impact: nexusEngineModule.nexusImpact,
+  'full-context': nexusEngineModule.nexusFullContext,
+  'task-footprint': nexusEngineModule.nexusTaskFootprint,
+  'brain-anchors': nexusEngineModule.nexusBrainAnchors,
+  why: nexusEngineModule.nexusWhy,
+  'impact-full': nexusEngineModule.nexusImpactFull,
+  'route-map': nexusEngineModule.nexusRouteMap,
+  'shape-check': nexusEngineModule.nexusShapeCheck,
+  'search-code': nexusEngineModule.nexusSearchCode,
+  wiki: nexusEngineModule.nexusWiki,
+  'contracts-show': nexusEngineModule.nexusContractsShow,
+  'task-symbols': nexusEngineModule.nexusTaskSymbols,
+  'profile.view': nexusEngineModule.nexusProfileView,
+  'profile.get': nexusEngineModule.nexusProfileGet,
+  'sigil.list': nexusEngineModule.nexusSigilList,
+  init: nexusEngineModule.nexusInitialize,
+  register: nexusEngineModule.nexusRegisterProject,
+  unregister: nexusEngineModule.nexusUnregisterProject,
+  sync: nexusEngineModule.nexusSyncProject,
+  'permission.set': nexusEngineModule.nexusSetPermission,
+  reconcile: nexusEngineModule.nexusReconcileProject,
+  'share.snapshot.export': nexusEngineModule.nexusShareSnapshotExport,
+  'share.snapshot.import': nexusEngineModule.nexusShareSnapshotImport,
+  transfer: nexusEngineModule.nexusTransferExecute,
+  'contracts-sync': nexusEngineModule.nexusContractsSync,
+  'contracts-link-tasks': nexusEngineModule.nexusContractsLinkTasks,
+  'conduit-scan': nexusEngineModule.nexusConduitScan,
+  'profile.import': nexusEngineModule.nexusProfileImport,
+  'profile.export': nexusEngineModule.nexusProfileExport,
+  'profile.reinforce': nexusEngineModule.nexusProfileReinforce,
+  'profile.upsert': nexusEngineModule.nexusProfileUpsert,
+  'profile.supersede': nexusEngineModule.nexusProfileSupersede,
+  'sigil.sync': nexusEngineModule.nexusSigilSync,
+} as const;
+
+/**
+ * Typed operation record inferred from the core operations.
+ * All parameter and result types are derived from the engine function
+ * signatures — zero hand-typed Params/Result imports.
+ *
+ * @task T1435 — nexus dispatch refactor (Wave 1)
+ */
+type NexusOps = OpsFromCore<typeof coreOps>;
 
 // ---------------------------------------------------------------------------
 // Typed inner handler (T1424 — Wave D typed-dispatch migration)
@@ -136,8 +112,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   // Query ops (30)
   // -------------------------------------------------------------------------
 
-  status: async (_params: NexusStatusParams) => {
-    const result = await nexusStatus();
+  status: async (_params: NexusOps['status'][0]) => {
+    const result = await nexusEngineModule.nexusStatus();
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -148,8 +124,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'status');
   },
 
-  list: async (params: NexusListParams) => {
-    const result = await nexusListProjects(params.limit, params.offset);
+  list: async (params: NexusOps['list'][0]) => {
+    const result = await nexusEngineModule.nexusListProjects(params.limit, params.offset);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -173,11 +149,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     );
   },
 
-  show: async (params: NexusShowParams) => {
+  show: async (params: NexusOps['show'][0]) => {
     if (!params.name) {
       return lafsError('E_INVALID_INPUT', 'name is required', 'show');
     }
-    const result = await nexusShowProject(params.name);
+    const result = await nexusEngineModule.nexusShowProject(params.name);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -188,11 +164,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'show');
   },
 
-  resolve: async (params: NexusResolveParams) => {
+  resolve: async (params: NexusOps['resolve'][0]) => {
     if (!params.query) {
       return lafsError('E_INVALID_INPUT', 'query is required', 'resolve');
     }
-    const result = await nexusResolve(params.query, params.currentProject);
+    const result = await nexusEngineModule.nexusResolve(params.query, params.currentProject);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -203,12 +179,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'resolve');
   },
 
-  deps: async (params: NexusDepsParams) => {
+  deps: async (params: NexusOps['deps'][0]) => {
     if (!params.query) {
       return lafsError('E_INVALID_INPUT', 'query is required', 'deps');
     }
     const direction = params.direction ?? 'forward';
-    const result = await nexusDepsQuery(params.query, direction);
+    const result = await nexusEngineModule.nexusDepsQuery(params.query, direction);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -219,8 +195,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'deps');
   },
 
-  graph: async (_params: NexusGraphParams) => {
-    const result = await nexusGraph();
+  graph: async (_params: NexusOps['graph'][0]) => {
+    const result = await nexusEngineModule.nexusGraph();
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -231,8 +207,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'graph');
   },
 
-  'path.show': async (_params: NexusPathShowParams) => {
-    const result = await nexusCriticalPath();
+  'path.show': async (_params: NexusOps['path.show'][0]) => {
+    const result = await nexusEngineModule.nexusCriticalPath();
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -243,11 +219,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'path.show');
   },
 
-  'blockers.show': async (params: NexusBlockersShowParams) => {
+  'blockers.show': async (params: NexusOps['blockers.show'][0]) => {
     if (!params.query) {
       return lafsError('E_INVALID_INPUT', 'query is required', 'blockers.show');
     }
-    const result = await nexusBlockers(params.query);
+    const result = await nexusEngineModule.nexusBlockers(params.query);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -258,8 +234,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'blockers.show');
   },
 
-  'orphans.list': async (params: NexusOrphansListParams) => {
-    const result = await nexusOrphans(params.limit, params.offset);
+  'orphans.list': async (params: NexusOps['orphans.list'][0]) => {
+    const result = await nexusEngineModule.nexusOrphans(params.limit, params.offset);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -281,13 +257,13 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     );
   },
 
-  discover: async (params: NexusDiscoverParams) => {
+  discover: async (params: NexusOps['discover'][0]) => {
     if (!params.query) {
       return lafsError('E_INVALID_INPUT', 'query is required', 'discover');
     }
     const method = params.method ?? 'auto';
     const limit = params.limit ?? 10;
-    const result = await nexusDiscover(params.query, method, limit);
+    const result = await nexusEngineModule.nexusDiscover(params.query, method, limit);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -298,12 +274,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'discover');
   },
 
-  search: async (params: NexusSearchParams) => {
+  search: async (params: NexusOps['search'][0]) => {
     if (!params.pattern) {
       return lafsError('E_INVALID_INPUT', 'pattern is required', 'search');
     }
     const limit = params.limit ?? 20;
-    const result = await nexusSearch(params.pattern, params.project, limit);
+    const result = await nexusEngineModule.nexusSearch(params.pattern, params.project, limit);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -314,12 +290,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'search');
   },
 
-  augment: async (params: NexusAugmentParams) => {
+  augment: async (params: NexusOps['augment'][0]) => {
     if (!params.pattern) {
       return lafsError('E_INVALID_INPUT', 'pattern is required', 'augment');
     }
     const limit = params.limit ?? 5;
-    const result = await nexusAugment(params.pattern, limit);
+    const result = await nexusEngineModule.nexusAugment(params.pattern, limit);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -330,9 +306,9 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'augment');
   },
 
-  'share.status': async (_params: NexusShareStatusParams) => {
+  'share.status': async (_params: NexusOps['share.status'][0]) => {
     const projectRoot = getProjectRoot();
-    const result = await nexusShareStatus(projectRoot);
+    const result = await nexusEngineModule.nexusShareStatus(projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -343,7 +319,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'share.status');
   },
 
-  'transfer.preview': async (params: NexusTransferPreviewParams) => {
+  'transfer.preview': async (params: NexusOps['transfer.preview'][0]) => {
     if (!params.taskIds?.length || !params.sourceProject || !params.targetProject) {
       return lafsError(
         'E_INVALID_INPUT',
@@ -351,7 +327,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'transfer.preview',
       );
     }
-    const result = await nexusTransferPreview({
+    const result = await nexusEngineModule.nexusTransferPreview({
       taskIds: params.taskIds,
       sourceProject: params.sourceProject,
       targetProject: params.targetProject,
@@ -368,8 +344,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'transfer.preview');
   },
 
-  'top-entries': async (params: NexusTopEntriesParams) => {
-    const result = await nexusTopEntries({
+  'top-entries': async (params: NexusOps['top-entries'][0]) => {
+    const result = await nexusEngineModule.nexusTopEntries({
       limit: params?.limit,
       kind: params?.kind,
       nodeType: params?.nodeType,
@@ -384,11 +360,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'top-entries');
   },
 
-  impact: async (params: NexusImpactParams) => {
+  impact: async (params: NexusOps['impact'][0]) => {
     if (!params.symbol) {
       return lafsError('E_INVALID_INPUT', 'symbol is required', 'impact');
     }
-    const result = await nexusImpact(params.symbol, params.projectId, params.why);
+    const result = await nexusEngineModule.nexusImpact(params.symbol, params.projectId, params.why);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -399,12 +375,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'impact');
   },
 
-  'full-context': async (params: NexusFullContextParams) => {
+  'full-context': async (params: NexusOps['full-context'][0]) => {
     if (!params.symbol) {
       return lafsError('E_INVALID_INPUT', 'symbol is required', 'full-context');
     }
     const projectRoot = getProjectRoot();
-    const result = await nexusFullContext(params.symbol, projectRoot);
+    const result = await nexusEngineModule.nexusFullContext(params.symbol, projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -415,12 +391,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'full-context');
   },
 
-  'task-footprint': async (params: NexusTaskFootprintParams) => {
+  'task-footprint': async (params: NexusOps['task-footprint'][0]) => {
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'task-footprint');
     }
     const projectRoot = getProjectRoot();
-    const result = await nexusTaskFootprint(params.taskId, projectRoot);
+    const result = await nexusEngineModule.nexusTaskFootprint(params.taskId, projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -431,12 +407,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'task-footprint');
   },
 
-  'brain-anchors': async (params: NexusBrainAnchorsParams) => {
+  'brain-anchors': async (params: NexusOps['brain-anchors'][0]) => {
     if (!params.entryId) {
       return lafsError('E_INVALID_INPUT', 'entryId is required', 'brain-anchors');
     }
     const projectRoot = getProjectRoot();
-    const result = await nexusBrainAnchors(params.entryId, projectRoot);
+    const result = await nexusEngineModule.nexusBrainAnchors(params.entryId, projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -447,12 +423,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'brain-anchors');
   },
 
-  why: async (params: NexusWhyParams) => {
+  why: async (params: NexusOps['why'][0]) => {
     if (!params.symbol) {
       return lafsError('E_INVALID_INPUT', 'symbol is required', 'why');
     }
     const projectRoot = getProjectRoot();
-    const result = await nexusWhy(params.symbol, projectRoot);
+    const result = await nexusEngineModule.nexusWhy(params.symbol, projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -463,12 +439,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'why');
   },
 
-  'impact-full': async (params: NexusImpactFullParams) => {
+  'impact-full': async (params: NexusOps['impact-full'][0]) => {
     if (!params.symbol) {
       return lafsError('E_INVALID_INPUT', 'symbol is required', 'impact-full');
     }
     const projectRoot = getProjectRoot();
-    const result = await nexusImpactFull(params.symbol, projectRoot);
+    const result = await nexusEngineModule.nexusImpactFull(params.symbol, projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -479,11 +455,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'impact-full');
   },
 
-  'route-map': async (params: NexusRouteMapParams) => {
+  'route-map': async (params: NexusOps['route-map'][0]) => {
     const projectRoot = getProjectRoot();
     const projectId =
       params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
-    const result = await nexusRouteMap(projectId, projectRoot);
+    const result = await nexusEngineModule.nexusRouteMap(projectId, projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -494,14 +470,14 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'route-map');
   },
 
-  'shape-check': async (params: NexusShapeCheckParams) => {
+  'shape-check': async (params: NexusOps['shape-check'][0]) => {
     if (!params.routeSymbol) {
       return lafsError('E_INVALID_INPUT', 'routeSymbol is required', 'shape-check');
     }
     const projectRoot = getProjectRoot();
     const projectId =
       params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
-    const result = await nexusShapeCheck(params.routeSymbol, projectId, projectRoot);
+    const result = await nexusEngineModule.nexusShapeCheck(params.routeSymbol, projectId, projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -512,12 +488,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'shape-check');
   },
 
-  'search-code': async (params: NexusSearchCodeParams) => {
+  'search-code': async (params: NexusOps['search-code'][0]) => {
     if (!params.pattern) {
       return lafsError('E_INVALID_INPUT', 'pattern is required', 'search-code');
     }
     const limit = params.limit ?? 10;
-    const result = await nexusSearchCode(params.pattern, limit);
+    const result = await nexusEngineModule.nexusSearchCode(params.pattern, limit);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -528,11 +504,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'search-code');
   },
 
-  wiki: async (params: NexusWikiParams) => {
+  wiki: async (params: NexusOps['wiki'][0]) => {
     const projectRoot = getProjectRoot();
     const outputDir = params.outputDir ?? `${projectRoot}/.cleo/wiki`;
     // Argument order: (outputDir, projectRoot, options) — matches engine signature
-    const result = await nexusWiki(outputDir, projectRoot, {
+    const result = await nexusEngineModule.nexusWiki(outputDir, projectRoot, {
       communityFilter: params.communityFilter,
       incremental: params.incremental,
     });
@@ -546,12 +522,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'wiki');
   },
 
-  'contracts-show': async (params: NexusContractsShowParams) => {
+  'contracts-show': async (params: NexusOps['contracts-show'][0]) => {
     if (!params.projectA || !params.projectB) {
       return lafsError('E_INVALID_INPUT', 'projectA and projectB are required', 'contracts-show');
     }
     const projectRoot = getProjectRoot();
-    const result = await nexusContractsShow(params.projectA, params.projectB, projectRoot);
+    const result = await nexusEngineModule.nexusContractsShow(params.projectA, params.projectB, projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -562,12 +538,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'contracts-show');
   },
 
-  'task-symbols': async (params: NexusTaskSymbolsParams) => {
+  'task-symbols': async (params: NexusOps['task-symbols'][0]) => {
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'task-symbols');
     }
     const projectRoot = getProjectRoot();
-    const result = await nexusTaskSymbols(params.taskId, projectRoot);
+    const result = await nexusEngineModule.nexusTaskSymbols(params.taskId, projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -578,8 +554,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'task-symbols');
   },
 
-  'profile.view': async (params: NexusProfileViewParams) => {
-    const result = await nexusProfileView(params.minConfidence, params.includeSuperseded);
+  'profile.view': async (params: NexusOps['profile.view'][0]) => {
+    const result = await nexusEngineModule.nexusProfileView(params.minConfidence, params.includeSuperseded);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -590,11 +566,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'profile.view');
   },
 
-  'profile.get': async (params: NexusProfileGetParams) => {
+  'profile.get': async (params: NexusOps['profile.get'][0]) => {
     if (!params.traitKey) {
       return lafsError('E_INVALID_INPUT', 'traitKey is required', 'profile.get');
     }
-    const result = await nexusProfileGet(params.traitKey);
+    const result = await nexusEngineModule.nexusProfileGet(params.traitKey);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -605,8 +581,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'profile.get');
   },
 
-  'sigil.list': async (params: NexusSigilListParams) => {
-    const result = await nexusSigilList(params.role);
+  'sigil.list': async (params: NexusOps['sigil.list'][0]) => {
+    const result = await nexusEngineModule.nexusSigilList(params.role);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -621,8 +597,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   // Mutate ops (18)
   // -------------------------------------------------------------------------
 
-  init: async (_params: NexusInitParams) => {
-    const result = await nexusInitialize();
+  init: async (_params: NexusOps['init'][0]) => {
+    const result = await nexusEngineModule.nexusInitialize();
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -633,11 +609,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'init');
   },
 
-  register: async (params: NexusRegisterParams) => {
+  register: async (params: NexusOps['register'][0]) => {
     if (!params.path) {
       return lafsError('E_INVALID_INPUT', 'path is required', 'register');
     }
-    const result = await nexusRegisterProject(
+    const result = await nexusEngineModule.nexusRegisterProject(
       params.path,
       params.name,
       params.permission ?? 'read',
@@ -652,11 +628,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'register');
   },
 
-  unregister: async (params: NexusUnregisterParams) => {
+  unregister: async (params: NexusOps['unregister'][0]) => {
     if (!params.name) {
       return lafsError('E_INVALID_INPUT', 'name is required', 'unregister');
     }
-    const result = await nexusUnregisterProject(params.name);
+    const result = await nexusEngineModule.nexusUnregisterProject(params.name);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -667,8 +643,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'unregister');
   },
 
-  sync: async (params: NexusSyncParams) => {
-    const result = await nexusSyncProject(params.name);
+  sync: async (params: NexusOps['sync'][0]) => {
+    const result = await nexusEngineModule.nexusSyncProject(params.name);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -679,7 +655,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'sync');
   },
 
-  'permission.set': async (params: NexusPermissionSetParams) => {
+  'permission.set': async (params: NexusOps['permission.set'][0]) => {
     if (!params.name) {
       return lafsError('E_INVALID_INPUT', 'name is required', 'permission.set');
     }
@@ -693,7 +669,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'permission.set',
       );
     }
-    const result = await nexusSetPermission(params.name, params.level as NexusPermissionLevel);
+    const result = await nexusEngineModule.nexusSetPermission(params.name, params.level as NexusPermissionLevel);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -704,9 +680,9 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'permission.set');
   },
 
-  reconcile: async (params: NexusReconcileParams) => {
+  reconcile: async (params: NexusOps['reconcile'][0]) => {
     const projectRoot = params.projectRoot ?? process.cwd();
-    const result = await nexusReconcileProject(projectRoot);
+    const result = await nexusEngineModule.nexusReconcileProject(projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -717,9 +693,9 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'reconcile');
   },
 
-  'share.snapshot.export': async (params: NexusShareSnapshotExportParams) => {
+  'share.snapshot.export': async (params: NexusOps['share.snapshot.export'][0]) => {
     const projectRoot = getProjectRoot();
-    const result = await nexusShareSnapshotExport(projectRoot, params.outputPath);
+    const result = await nexusEngineModule.nexusShareSnapshotExport(projectRoot, params.outputPath);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -730,12 +706,12 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'share.snapshot.export');
   },
 
-  'share.snapshot.import': async (params: NexusShareSnapshotImportParams) => {
+  'share.snapshot.import': async (params: NexusOps['share.snapshot.import'][0]) => {
     if (!params.inputPath) {
       return lafsError('E_INVALID_INPUT', 'inputPath is required', 'share.snapshot.import');
     }
     const projectRoot = getProjectRoot();
-    const result = await nexusShareSnapshotImport(projectRoot, params.inputPath);
+    const result = await nexusEngineModule.nexusShareSnapshotImport(projectRoot, params.inputPath);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -746,7 +722,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'share.snapshot.import');
   },
 
-  transfer: async (params: NexusTransferParams) => {
+  transfer: async (params: NexusOps['transfer'][0]) => {
     if (!params.taskIds?.length || !params.sourceProject || !params.targetProject) {
       return lafsError(
         'E_INVALID_INPUT',
@@ -754,7 +730,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'transfer',
       );
     }
-    const result = await nexusTransferExecute({
+    const result = await nexusEngineModule.nexusTransferExecute({
       taskIds: params.taskIds,
       sourceProject: params.sourceProject,
       targetProject: params.targetProject,
@@ -773,11 +749,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'transfer');
   },
 
-  'contracts-sync': async (params: NexusContractsSyncParams) => {
+  'contracts-sync': async (params: NexusOps['contracts-sync'][0]) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
     const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
-    const result = await nexusContractsSync(projectId, repoPath);
+    const result = await nexusEngineModule.nexusContractsSync(projectId, repoPath);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -788,11 +764,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'contracts-sync');
   },
 
-  'contracts-link-tasks': async (params: NexusContractsLinkTasksParams) => {
+  'contracts-link-tasks': async (params: NexusOps['contracts-link-tasks'][0]) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
     const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
-    const result = await nexusContractsLinkTasks(projectId, repoPath);
+    const result = await nexusEngineModule.nexusContractsLinkTasks(projectId, repoPath);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -803,9 +779,9 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'contracts-link-tasks');
   },
 
-  'conduit-scan': async (_params: NexusConduitScanParams) => {
+  'conduit-scan': async (_params: NexusOps['conduit-scan'][0]) => {
     const projectRoot = getProjectRoot();
-    const result = await nexusConduitScan(projectRoot);
+    const result = await nexusEngineModule.nexusConduitScan(projectRoot);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -816,8 +792,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'conduit-scan');
   },
 
-  'profile.import': async (params: NexusProfileImportParams) => {
-    const result = await nexusProfileImport(params.path);
+  'profile.import': async (params: NexusOps['profile.import'][0]) => {
+    const result = await nexusEngineModule.nexusProfileImport(params.path);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -828,8 +804,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'profile.import');
   },
 
-  'profile.export': async (params: NexusProfileExportParams) => {
-    const result = await nexusProfileExport(params.path);
+  'profile.export': async (params: NexusOps['profile.export'][0]) => {
+    const result = await nexusEngineModule.nexusProfileExport(params.path);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -840,11 +816,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'profile.export');
   },
 
-  'profile.reinforce': async (params: NexusProfileReinforceParams) => {
+  'profile.reinforce': async (params: NexusOps['profile.reinforce'][0]) => {
     if (!params.traitKey) {
       return lafsError('E_INVALID_INPUT', 'traitKey is required', 'profile.reinforce');
     }
-    const result = await nexusProfileReinforce(params.traitKey, params.source);
+    const result = await nexusEngineModule.nexusProfileReinforce(params.traitKey, params.source);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -855,7 +831,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'profile.reinforce');
   },
 
-  'profile.upsert': async (params: NexusProfileUpsertParams) => {
+  'profile.upsert': async (params: NexusOps['profile.upsert'][0]) => {
     if (!params.trait?.traitKey || !params.trait?.traitValue) {
       return lafsError(
         'E_INVALID_INPUT',
@@ -863,7 +839,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'profile.upsert',
       );
     }
-    const result = await nexusProfileUpsert(params.trait);
+    const result = await nexusEngineModule.nexusProfileUpsert(params.trait);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -874,11 +850,11 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'profile.upsert');
   },
 
-  'profile.supersede': async (params: NexusProfileSupersedeParams) => {
+  'profile.supersede': async (params: NexusOps['profile.supersede'][0]) => {
     if (!params.oldKey || !params.newKey) {
       return lafsError('E_INVALID_INPUT', 'oldKey and newKey are required', 'profile.supersede');
     }
-    const result = await nexusProfileSupersede(params.oldKey, params.newKey);
+    const result = await nexusEngineModule.nexusProfileSupersede(params.oldKey, params.newKey);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -889,8 +865,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     return lafsSuccess(result.data, 'profile.supersede');
   },
 
-  'sigil.sync': async (_params: NexusSigilSyncParams) => {
-    const result = await nexusSigilSync();
+  'sigil.sync': async (_params: NexusOps['sigil.sync'][0]) => {
+    const result = await nexusEngineModule.nexusSigilSync();
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -1099,10 +1075,20 @@ export class NexusHandler implements DomainHandler {
 
   /** Declared operations for introspection and validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
-    return {
-      query: Array.from(QUERY_OPS),
-      mutate: Array.from(MUTATE_OPS),
-    };
+    // Derive from coreOps keys rather than hand-maintained sets (T1435).
+    const allOps = Object.keys(coreOps) as Array<keyof typeof coreOps>;
+    const query: string[] = [];
+    const mutate: string[] = [];
+
+    for (const op of allOps) {
+      if (QUERY_OPS.has(op)) {
+        query.push(op);
+      } else if (MUTATE_OPS.has(op)) {
+        mutate.push(op);
+      }
+    }
+
+    return { query, mutate };
   }
 }
 
