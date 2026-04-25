@@ -228,10 +228,15 @@ function generateRequestId(): string {
  * return lafsSuccess({ sessionId: 'ses_…', scope: 'global' }, 'session.start');
  * ```
  */
-export function lafsSuccess<T>(data: T, _operation: string): LafsSuccess<T> {
+export function lafsSuccess<T>(
+  data: T,
+  _operation: string,
+  extra?: { page?: import('@cleocode/contracts').LAFSPage },
+): LafsSuccess<T> & { page?: import('@cleocode/contracts').LAFSPage } {
   return {
     success: true,
     data,
+    ...(extra?.page ? { page: extra.page } : {}),
   };
 }
 
