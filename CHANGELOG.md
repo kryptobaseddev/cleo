@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.146] — 2026-04-25 — T1411 release-completion invariants gate (Council 2026-04-24 Expansionist promoted scope)
+
+Lands the registry-driven `cleo reconcile release` post-release invariants gate. ADR-056 (D5) promoted T1411's scope from a single-purpose archiveReason hook to a **generic post-release invariant registry** where archiveReason reconciliation is customer #1 — Council Expansionist's sharpest single point. The same mechanism retires the entire class of drift bugs that ADR-054's six migration-manager patches paid for ad-hoc.
+
+### Closed in this release
+
+- **T1411** registry-driven `cleo reconcile release` post-release invariants gate (PROMOTED scope per ADR-056 D5).
+
+### What changed
+
+- **`packages/core/src/release/invariants/registry.ts`** (NEW, 209 LOC): `RegisteredInvariant` type, `registerInvariant(spec)`, `getInvariants()`, and `runInvariants(tag, options)` — the registry API. Side-effect import of `./archive-reason-invariant.js` from `./index.ts` registers the first customer at module load.
+- **`packages/core/src/release/invariants/archive-reason-invariant.ts`** (NEW, 399 LOC): the first customer. Parses the tag annotation (`git tag <tag> -l --format='%(contents)'`) plus every commit between the previous tag and the target tag for `T\d+` task IDs (subject + body). For each found `Txxx`:
+  - Pending task with `verification_json` populated and gates passing → stamps `status=done`, `archive_reason=verified`, `release=<tag>` in one transaction.
+  - Pending task with `verification_json=null` → creates `T-RECONCILE-FOLLOWUP-<tag>-<idx>` child task linked to the unreconciled task ID.
+  - Tombstone safety: NEVER writes `completed-unverified` (only the T1408 backfill migration may produce that value); attempting to do so throws `ArchiveReasonTombstoneError`.
+- **`packages/core/src/release/invariants/index.ts`** (NEW, 46 LOC): barrel export + side-effect registration.
+- **`packages/core/src/release/invariants/__tests__/archive-reason-invariant.test.ts`** (NEW, 447 LOC): 7 cases covering all-verified, mixed, no-T-IDs, dry-run, audit-log idempotency, tombstone rejection, and multi-tag delta parsing.
+- **`packages/cleo/src/cli/commands/reconcile.ts`** (NEW, 106 LOC): `cleo reconcile release --tag <tag> [--dry-run]` CLI subcommand. Emits LAFS-envelope output. Exit 0 on clean reconcile, 1 on errors, 2 on unreconciled tasks remaining (operator decides follow-up).
+- **`packages/cleo/src/cli/commands/__tests__/reconcile.test.ts`** (NEW, 228 LOC): integration tests against fixture repo with 3 tag scenarios (all-verified, mixed, all-unverified).
+- **`scripts/hooks/post-tag.sh`** (NEW, 56 LOC): git post-tag hook that invokes the CLI for every annotated tag push. Idempotent on re-run.
+- **`packages/core/src/release/index.ts`**: barrel updated to re-export the invariant registry surface.
+- **`packages/cleo/src/cli/index.ts`**: `reconcile` command registered.
+- **`CONTRIBUTING.md`**: post-tag hook installation instructions added alongside the T1410 commit-msg hook.
+- **Audit log**: every mutation appends one JSONL row to `.cleo/audit/reconcile.jsonl` as `{tag, taskId, action, reason, timestamp}`. Reconciliation is fully auditable.
+
+### Self-test artifact (pre-release)
+
+The implementing worker dry-ran the reconciler against the previously-shipped `v2026.4.145` tag: **20 task IDs found in the tag delta, 13 already-closed (no action), 7 unreconciled (would create follow-up tasks in non-dry-run mode).** This is exactly the invariant gate's intended behavior — surfacing the unreconciled cohort instead of letting it silently drift.
+
+### Quality gates (verified before release)
+
+- `pnpm exec tsc -b` — exit 0 (zero TypeScript errors)
+- `pnpm biome ci .` — exit 0 (1942 files checked, 2 pre-existing warnings, 1 info; no errors)
+- `pnpm run build` — exit 0 (full dependency graph)
+- `pnpm run test` — **690 test files, 11482 tests pass, 17 skipped, 33 todo, ZERO failures**
+
+### Cross-references
+
+- ADR-056 (this session): DB SSoT, naming convention, release-completion invariant — the canonical decision record for D1–D6.
+- T1407 (parent epic): self-enforcing release-completion invariant.
+- T1408: archive_reason TEXT → 6-value enum + CHECK constraint (DB layer).
+- T1409: ArchiveReason z.enum + tombstone subsystem in `@cleocode/contracts` (contract layer).
+- T1410: commit-msg lint requiring T-IDs in release commits (upstream convention this hook depends on).
+- Council 2026-04-24 verdict: `.cleo/council-runs/20260425T033945Z-57a941ca/verdict.md` — the canonical mandate this release closes out.
+
+
+
 ## [2026.4.145] — 2026-04-25 — Type Check green: 104 TS errors eliminated + T1408/T1409 archive-reason follow-through
 
 Closes the v2026.4.144 release-CI failure (104 TypeScript errors at the `Type Check` step) and integrates parallel-agent T1408/T1409 archive-reason work that landed mid-flight, restoring the full quality gate (`pnpm exec tsc -b`, `pnpm biome ci`, `pnpm run build`, `pnpm exec vitest run`) to green.
