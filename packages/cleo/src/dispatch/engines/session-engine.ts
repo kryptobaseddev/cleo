@@ -196,8 +196,7 @@ export async function sessionFind(
   params?: FindSessionsParams,
 ): Promise<EngineResult<MinimalSessionRecord[]>> {
   try {
-    const accessor = await getAccessor(projectRoot);
-    const result = await findSessions(accessor, params);
+    const result = await findSessions(projectRoot, params);
     return { success: true, data: result };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
@@ -227,7 +226,7 @@ export async function sessionShow(
   sessionId: string,
 ): Promise<EngineResult<Session>> {
   try {
-    const result = await showSession(projectRoot, sessionId);
+    const result = await showSession(projectRoot, { sessionId });
     return { success: true, data: result };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Session not initialized');
@@ -831,7 +830,7 @@ export async function sessionSuspend(
   reason?: string,
 ): Promise<EngineResult<Session>> {
   try {
-    const result = await suspendSession(projectRoot, sessionId, reason);
+    const result = await suspendSession(projectRoot, { sessionId, reason });
     return { success: true, data: result };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to end session');
@@ -926,7 +925,7 @@ export async function sessionDecisionLog(
   params?: { sessionId?: string; taskId?: string },
 ): Promise<EngineResult<DecisionRecord[]>> {
   try {
-    const result = await getDecisionLog(projectRoot, params);
+    const result = await getDecisionLog(projectRoot, params ?? {});
     return { success: true, data: result };
   } catch {
     return { success: true, data: [] };
@@ -950,7 +949,7 @@ export async function sessionContextDrift(
   }>
 > {
   try {
-    const result = await getContextDrift(projectRoot, params);
+    const result = await getContextDrift(projectRoot, params ?? {});
     return { success: true, data: result };
   } catch (err: unknown) {
     return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to read decision log');

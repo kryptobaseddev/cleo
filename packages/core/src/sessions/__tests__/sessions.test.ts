@@ -60,13 +60,10 @@ describe('Session lifecycle', () => {
   });
 
   it('starts a new session', async () => {
-    const session = await startSession(
-      {
-        name: 'Test session',
-        scope: 'epic:T001',
-      },
-      tempDir,
-    );
+    const session = await startSession(tempDir, {
+      name: 'Test session',
+      scope: 'epic:T001',
+    });
 
     expect(session.id).toMatch(/^session-/);
     expect(session.name).toBe('Test session');
@@ -76,27 +73,24 @@ describe('Session lifecycle', () => {
 
   it('shows session status', async () => {
     // No session yet
-    const noSession = await sessionStatus(tempDir);
+    const noSession = await sessionStatus(tempDir, {});
     expect(noSession).toBeNull();
 
     // Start one
-    await startSession({ name: 'Test', scope: 'global' }, tempDir);
+    await startSession(tempDir, { name: 'Test', scope: 'global' });
 
-    const active = await sessionStatus(tempDir);
+    const active = await sessionStatus(tempDir, {});
     expect(active).not.toBeNull();
     expect(active!.status).toBe('active');
   });
 
   it('ends a session', async () => {
-    const started = await startSession(
-      {
-        name: 'Ending session',
-        scope: 'global',
-      },
-      tempDir,
-    );
+    const started = await startSession(tempDir, {
+      name: 'Ending session',
+      scope: 'global',
+    });
 
-    const ended = await endSession({ note: 'Done for now' }, tempDir);
+    const ended = await endSession(tempDir, { note: 'Done for now' });
     expect(ended.id).toBe(started.id);
     expect(ended.status).toBe('ended');
     expect(ended.endedAt).toBeDefined();
@@ -104,49 +98,49 @@ describe('Session lifecycle', () => {
   });
 
   it('throws when ending non-existent session', async () => {
-    await expect(endSession({}, tempDir)).rejects.toThrow('No active session');
+    await expect(endSession(tempDir, {})).rejects.toThrow('No active session');
   });
 
   it('prevents duplicate scope sessions', async () => {
-    await startSession({ name: 'First', scope: 'epic:T001' }, tempDir);
+    await startSession(tempDir, { name: 'First', scope: 'epic:T001' });
 
-    await expect(startSession({ name: 'Second', scope: 'epic:T001' }, tempDir)).rejects.toThrow(
+    await expect(startSession(tempDir, { name: 'Second', scope: 'epic:T001' })).rejects.toThrow(
       'Active session already exists',
     );
   });
 
   it('allows different scope sessions', async () => {
-    await startSession({ name: 'Epic 1', scope: 'epic:T001' }, tempDir);
-    const s2 = await startSession({ name: 'Epic 2', scope: 'epic:T002' }, tempDir);
+    await startSession(tempDir, { name: 'Epic 1', scope: 'epic:T001' });
+    const s2 = await startSession(tempDir, { name: 'Epic 2', scope: 'epic:T002' });
     expect(s2.status).toBe('active');
   });
 
   it('resumes an ended session', async () => {
-    const started = await startSession({ name: 'Resumable', scope: 'global' }, tempDir);
-    await endSession({}, tempDir);
+    const started = await startSession(tempDir, { name: 'Resumable', scope: 'global' });
+    await endSession(tempDir, {});
 
-    const resumed = await resumeSession(started.id, tempDir);
+    const resumed = await resumeSession(tempDir, { sessionId: started.id });
     expect(resumed.status).toBe('active');
   });
 
   it('lists sessions', async () => {
-    await startSession({ name: 'Session 1', scope: 'global' }, tempDir);
-    await endSession({}, tempDir);
-    await startSession({ name: 'Session 2', scope: 'epic:T001' }, tempDir);
+    await startSession(tempDir, { name: 'Session 1', scope: 'global' });
+    await endSession(tempDir, {});
+    await startSession(tempDir, { name: 'Session 2', scope: 'epic:T001' });
 
-    const all = await listSessions({}, tempDir);
+    const all = await listSessions(tempDir, {});
     expect(all).toHaveLength(2);
 
-    const activeOnly = await listSessions({ status: 'active' }, tempDir);
+    const activeOnly = await listSessions(tempDir, { status: 'active' });
     expect(activeOnly).toHaveLength(1);
     expect(activeOnly[0]!.name).toBe('Session 2');
   });
 
   it('garbage collects old sessions', async () => {
     // Start and end a session (simulating an old one is harder, so we test the API)
-    await startSession({ name: 'Recent', scope: 'global' }, tempDir);
+    await startSession(tempDir, { name: 'Recent', scope: 'global' });
 
-    const result = await gcSessions(24, tempDir);
+    const result = await gcSessions(tempDir, { maxAgeDays: 24 });
     expect(result.orphaned).toHaveLength(0); // Recent session not orphaned
   });
 });

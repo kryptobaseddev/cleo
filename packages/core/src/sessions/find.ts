@@ -6,12 +6,13 @@
  * startedAt, and scope.
  *
  * @task T5119
+ * @task T1450 — normalized (projectRoot, params) signature
  */
 
-import type { Session, SessionScope } from '@cleocode/contracts';
+import type { Session, SessionFindParams, SessionScope } from '@cleocode/contracts';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { sessionListItemNext } from '../mvi-helpers.js';
-import type { DataAccessor } from '../store/data-accessor.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 /** Minimal session record returned by findSessions(). */
 export interface MinimalSessionRecord {
@@ -24,28 +25,26 @@ export interface MinimalSessionRecord {
   _next?: NextDirectives;
 }
 
-/** Parameters for findSessions(). */
-export interface FindSessionsParams {
-  status?: string;
-  scope?: string;
-  query?: string;
-  limit?: number;
-}
+/**
+ * @deprecated Use SessionFindParams from @cleocode/contracts instead.
+ * Kept for backward compatibility with engine/cleo.ts callers.
+ */
+export type FindSessionsParams = SessionFindParams;
 
 /**
  * Find sessions with minimal field projection.
+ * Normalized Core signature: (projectRoot, params) → Result.
  *
- * Loads all sessions, applies filters, then projects to minimal fields.
- * This is cheaper for agents that only need discovery-level data.
- *
- * @param accessor - DataAccessor for loading sessions
+ * @param projectRoot - Absolute path to the project root
  * @param params - Optional filters (status, scope, query, limit)
  * @returns Array of minimal session records
+ * @task T1450
  */
 export async function findSessions(
-  accessor: DataAccessor,
-  params?: FindSessionsParams,
+  projectRoot: string,
+  params?: SessionFindParams,
 ): Promise<MinimalSessionRecord[]> {
+  const accessor = await getAccessor(projectRoot);
   let sessions: Session[] = await accessor.loadSessions();
 
   // Filter by status

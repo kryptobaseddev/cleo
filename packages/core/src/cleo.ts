@@ -274,34 +274,28 @@ export class Cleo {
   // === Sessions ===
   get sessions(): SessionsAPI {
     const root = this.projectRoot;
-    const store = this._store ?? undefined;
     return {
-      start: (p) =>
-        startSession(
-          { name: p.name, scope: p.scope, agent: p.agent, startTask: p.startTask },
-          root,
-          store,
-        ),
-      end: (p) => endSession({ note: p?.note }, root, store),
-      status: () => sessionStatus(root, store),
-      resume: (id) => resumeSession(id, root, store),
-      list: (p) => listSessions({ status: p?.status, limit: p?.limit }, root, store),
-      find: async (p) =>
-        findSessions(store ?? (await getAccessor(root)), {
+      start: (p) => startSession(root, { name: p.name, scope: p.scope, startTask: p.startTask }),
+      end: (p) => endSession(root, { note: p?.note }),
+      status: () => sessionStatus(root, {}),
+      resume: (id) => resumeSession(root, { sessionId: id }),
+      list: (p) => listSessions(root, { status: p?.status, limit: p?.limit }),
+      find: (p) =>
+        findSessions(root, {
           status: p?.status,
           scope: p?.scope,
           query: p?.query,
           limit: p?.limit,
         }),
-      show: (id) => showSession(root, id),
-      suspend: (id, reason) => suspendSession(root, id, reason),
+      show: (id) => showSession(root, { sessionId: id }),
+      suspend: (id, reason) => suspendSession(root, { sessionId: id, reason }),
       briefing: (p) => computeBriefing(root, { maxNextTasks: p?.maxNextTasks, scope: p?.scope }),
       handoff: (id, opts) =>
         computeHandoff(root, { sessionId: id, note: opts?.note, nextAction: opts?.nextAction }),
       gc: (hours) => gcSessions(hours, root, store),
       recordDecision: (p) => recordDecision(root, p),
       recordAssumption: (p) => recordAssumption(root, p),
-      contextDrift: (p) => getContextDrift(root, p),
+      contextDrift: (p) => getContextDrift(root, p ?? {}),
       decisionLog: (p) => getDecisionLog(root, { sessionId: p?.sessionId, taskId: p?.taskId }),
       lastHandoff: (scope) => getLastHandoff(root, scope),
       serialize: (p) =>

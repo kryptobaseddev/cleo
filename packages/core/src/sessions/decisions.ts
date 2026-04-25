@@ -3,36 +3,35 @@
  *
  * @task T4782
  * @epic T4654
+ * @task T1450 — normalized (projectRoot, params) signature
  */
 
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import {
+  ExitCode,
+  type SessionDecisionLogParams,
+  type SessionRecordDecisionParams,
+} from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DecisionRecord } from './types.js';
 
-export interface RecordDecisionParams {
-  sessionId: string;
-  taskId: string;
-  decision: string;
-  rationale: string;
-  alternatives?: string[];
-}
-
-export interface DecisionLogParams {
-  sessionId?: string;
-  taskId?: string;
-}
+/** @deprecated Use SessionRecordDecisionParams from @cleocode/contracts. */
+export type RecordDecisionParams = SessionRecordDecisionParams;
+/** @deprecated Use SessionDecisionLogParams from @cleocode/contracts. */
+export type DecisionLogParams = SessionDecisionLogParams;
 
 /**
  * Record a decision to the audit trail.
+ * Normalized Core signature: (projectRoot, params) → Result.
  * Appends a JSON line to `.cleo/audit/decisions.jsonl`.
  * Throws if required params are missing.
+ * @task T1450
  */
 export async function recordDecision(
   projectRoot: string,
-  params: RecordDecisionParams,
+  params: SessionRecordDecisionParams,
 ): Promise<DecisionRecord> {
   if (!params.sessionId || !params.taskId || !params.decision || !params.rationale) {
     throw new CleoError(
@@ -65,10 +64,12 @@ export async function recordDecision(
 
 /**
  * Read the decision log, optionally filtered by sessionId and/or taskId.
+ * Normalized Core signature: (projectRoot, params) → Result.
+ * @task T1450
  */
 export async function getDecisionLog(
   projectRoot: string,
-  params?: DecisionLogParams,
+  params: SessionDecisionLogParams,
 ): Promise<DecisionRecord[]> {
   const decisionPath = join(projectRoot, '.cleo', 'audit', 'decisions.jsonl');
 
@@ -88,11 +89,11 @@ export async function getDecisionLog(
     }
   }
 
-  if (params?.sessionId) {
+  if (params.sessionId) {
     entries = entries.filter((e) => e.sessionId === params.sessionId);
   }
 
-  if (params?.taskId) {
+  if (params.taskId) {
     entries = entries.filter((e) => e.taskId === params.taskId);
   }
 

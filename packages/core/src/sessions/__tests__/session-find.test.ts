@@ -7,9 +7,15 @@
  */
 
 import type { Session } from '@cleocode/contracts';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { findSessions } from '../find.js';
+
+vi.mock('../../store/data-accessor.js', () => ({
+  getAccessor: vi.fn(),
+}));
+
+import { getAccessor } from '../../store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -35,6 +41,8 @@ function mockAccessor(sessions: Session[]): DataAccessor {
 // ---------------------------------------------------------------------------
 // T5119: findSessions — lightweight discovery
 // ---------------------------------------------------------------------------
+
+const MOCK_ROOT = '/mock-root';
 
 describe('findSessions (T5119)', () => {
   const sessions: Session[] = [
@@ -68,9 +76,12 @@ describe('findSessions (T5119)', () => {
     }),
   ];
 
+  beforeEach(() => {
+    vi.mocked(getAccessor).mockResolvedValue(mockAccessor(sessions));
+  });
+
   it('returns minimal fields only', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor);
+    const result = await findSessions(MOCK_ROOT);
 
     expect(result.length).toBe(4);
 
@@ -88,8 +99,8 @@ describe('findSessions (T5119)', () => {
       handoffJson: '{}',
       tasksCompleted: ['T100'],
     });
-    const accessor = mockAccessor([richSession]);
-    const result = await findSessions(accessor);
+    vi.mocked(getAccessor).mockResolvedValue(mockAccessor([richSession]));
+    const result = await findSessions(MOCK_ROOT);
 
     expect(result).toHaveLength(1);
     const record = result[0] as unknown as Record<string, unknown>;
@@ -100,78 +111,69 @@ describe('findSessions (T5119)', () => {
   });
 
   it('filters by status', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor, { status: 'active' });
+    const result = await findSessions(MOCK_ROOT, { status: 'active' });
 
     expect(result).toHaveLength(2);
     expect(result.every((r) => r.status === 'active')).toBe(true);
   });
 
   it('filters by scope string', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor, { scope: 'epic:T001' });
+    const result = await findSessions(MOCK_ROOT, { scope: 'epic:T001' });
 
     expect(result).toHaveLength(2);
     expect(result.map((r) => r.id).sort()).toEqual(['session-1', 'session-4']);
   });
 
   it('filters by scope type only (no ID)', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor, { scope: 'global' });
+    const result = await findSessions(MOCK_ROOT, { scope: 'global' });
 
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe('session-3');
   });
 
   it('filters by query (fuzzy name match)', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor, { query: 'search-me' });
+    const result = await findSessions(MOCK_ROOT, { query: 'search-me' });
 
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe('session-4');
   });
 
   it('filters by query (id match)', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor, { query: 'session-2' });
+    const result = await findSessions(MOCK_ROOT, { query: 'session-2' });
 
     expect(result).toHaveLength(1);
     expect(result[0]!.name).toBe('Beta');
   });
 
   it('applies limit', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor, { limit: 2 });
+    const result = await findSessions(MOCK_ROOT, { limit: 2 });
 
     expect(result).toHaveLength(2);
   });
 
   it('sorts by startedAt descending (most recent first)', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor);
+    const result = await findSessions(MOCK_ROOT);
 
     expect(result[0]!.id).toBe('session-4'); // Jan 4
     expect(result[3]!.id).toBe('session-1'); // Jan 1
   });
 
   it('combines filters: status + scope', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor, { status: 'active', scope: 'epic:T001' });
+    const result = await findSessions(MOCK_ROOT, { status: 'active', scope: 'epic:T001' });
 
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe('session-1');
   });
 
   it('returns empty array when no sessions match', async () => {
-    const accessor = mockAccessor(sessions);
-    const result = await findSessions(accessor, { status: 'archived' });
+    const result = await findSessions(MOCK_ROOT, { status: 'archived' });
 
     expect(result).toEqual([]);
   });
 
   it('returns empty array when accessor has no sessions', async () => {
-    const accessor = mockAccessor([]);
-    const result = await findSessions(accessor);
+    vi.mocked(getAccessor).mockResolvedValue(mockAccessor([]));
+    const result = await findSessions(MOCK_ROOT);
 
     expect(result).toEqual([]);
   });
@@ -205,17 +207,15 @@ describe('sessionList budget enforcement (T5120, T5121)', () => {
 
     // We test via the actual function — since it needs getAccessor,
     // we verify behavior by checking the returned _meta fields.
-    // For a proper unit test, we'd need to mock getAccessor.
-    // Instead, let's verify the core findSessions limit behavior
-    // and trust the engine integration.
+    // We mock getAccessor to return a mock accessor with test sessions.
     const sessions15 = makeSessions(15);
-    const accessor = mockAccessor(sessions15);
+    vi.mocked(getAccessor).mockResolvedValue(mockAccessor(sessions15));
 
     // Test findSessions with limit
-    const limited = await findSessions(accessor, { limit: 10 });
+    const limited = await findSessions(MOCK_ROOT, { limit: 10 });
     expect(limited).toHaveLength(10);
 
-    const unlimited = await findSessions(accessor);
+    const unlimited = await findSessions(MOCK_ROOT);
     expect(unlimited).toHaveLength(15);
   });
 

@@ -2,11 +2,20 @@
  * Session management operations.
  * @task T4463
  * @epic T4454
+ * @task T1450 — Contracts-driven refactor
  */
 
 import { randomBytes } from 'node:crypto';
 import type { Session, SessionScope } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import {
+  ExitCode,
+  type SessionEndParams,
+  type SessionGcParams,
+  type SessionListParams,
+  type SessionResumeParams,
+  type SessionStartParams,
+  type SessionStatusParams,
+} from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { sessionListItemNext, sessionStartNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -32,32 +41,6 @@ import '../hooks/handlers/index.js';
  * @task T947
  */
 const AGENT_SESSION_HANDLES = new Map<string, AgentSessionHandle>();
-
-/** Options for starting a session. */
-export interface StartSessionOptions {
-  name: string;
-  scope: string; // e.g. "epic:T001" or "global"
-  autoStart?: boolean;
-  startTask?: string;
-  focus?: string;
-  agent?: string;
-  /** Enable full query+mutation audit logging for this session (behavioral grading). */
-  grade?: boolean;
-  /** Provider adapter ID active for this session (T5240). */
-  providerId?: string;
-}
-
-/** Options for ending a session. */
-export interface EndSessionOptions {
-  sessionId?: string;
-  note?: string;
-}
-
-/** Options for listing sessions. */
-export interface ListSessionsOptions {
-  status?: string;
-  limit?: number;
-}
 
 /**
  * Parse a scope string into a SessionScope.
@@ -87,6 +70,7 @@ function generateSessionId(): string {
 
 /**
  * Read sessions from accessor or JSON file.
+ * Internal helper — not exposed via dispatch contracts.
  * @task T4463
  */
 export async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
@@ -96,6 +80,7 @@ export async function readSessions(cwd?: string, accessor?: DataAccessor): Promi
 
 /**
  * Save sessions via accessor or JSON file.
+ * Internal helper — not exposed via dispatch contracts.
  * @task T4463
  */
 export async function saveSessions(
@@ -109,15 +94,16 @@ export async function saveSessions(
 
 /**
  * Start a new session.
- * @task T4463
+ * Normalized Core signature: (projectRoot, params) → Result.
+ * @task T1450
  */
 export async function startSession(
-  options: StartSessionOptions,
-  cwd?: string,
-  accessor?: DataAccessor,
+  projectRoot: string,
+  params: SessionStartParams,
 ): Promise<Session> {
-  const scope = parseScope(options.scope);
-  const sessions = await readSessions(cwd, accessor);
+  const accessor = await getAccessor(projectRoot);
+  const scope = parseScope(params.scope);
+  const sessions = await readSessions(projectRoot, accessor);
 
   // Check for conflicting active sessions
   const activeSessions = sessions.filter((s: Session) => s.status === 'active');
@@ -125,7 +111,7 @@ export async function startSession(
     if (active.scope.type === scope.type && active.scope.epicId === scope.epicId) {
       throw new CleoError(
         ExitCode.SCOPE_CONFLICT,
-        `Active session already exists for scope ${options.scope}: ${active.id}`,
+        `Active session already exists for scope ${params.scope}: ${active.id}`,
         {
           fix: `Resume with 'cleo session resume ${active.id}' or end it first`,
           alternatives: [
@@ -149,23 +135,21 @@ export async function startSession(
 
   const session: Session = {
     id: generateSessionId(),
-    name: options.name,
+    name: params.name ?? `session-${Date.now()}`,
     status: 'active',
     scope,
     taskWork: {
-      taskId: options.startTask ?? null,
-      setAt: options.startTask ? new Date().toISOString() : null,
+      taskId: params.startTask ?? null,
+      setAt: params.startTask ? new Date().toISOString() : null,
     },
     startedAt: new Date().toISOString(),
-    agent: options.agent ?? undefined,
     notes: [],
     tasksCompleted: [],
     tasksCreated: [],
-    providerId: options.providerId ?? detectedProviderId ?? null,
   };
 
   // If grade mode enabled, mark session and set env vars for audit middleware
-  if (options.grade) {
+  if (params.grade) {
     session.notes = ['[grade-mode:enabled]', ...(session.notes ?? [])];
     process.env.CLEO_SESSION_GRADE = 'true';
     process.env.CLEO_SESSION_ID = session.id;
@@ -173,8 +157,7 @@ export async function startSession(
   }
 
   sessions.push(session);
-  const acc = accessor ?? (await getAccessor(cwd));
-  await acc.upsertSingleSession(session);
+  await accessor.upsertSingleSession(session);
 
   // T947 Step 2: open a corresponding llmtxt AgentSession for audit
   // receipts. Best-effort — peer-dep absence yields `null` and leaves
@@ -186,8 +169,8 @@ export async function startSession(
   try {
     const handle = await openAgentSession({
       sessionId: session.id,
-      agentId: options.agent ?? process.env.CLEO_AGENT_ID ?? 'cleo',
-      projectRoot: cwd ?? process.cwd(),
+      agentId: process.env.CLEO_AGENT_ID ?? 'cleo',
+      projectRoot,
       label: `session:${session.name}`,
     });
     if (handle !== null) {
@@ -198,12 +181,12 @@ export async function startSession(
   }
 
   // Best-effort adapter activation based on detected provider (T5240)
-  if (session.providerId) {
+  if (detectedProviderId) {
     import('../adapters/index.js')
       .then(({ AdapterManager }) => {
-        const mgr = AdapterManager.getInstance(cwd ?? process.cwd());
+        const mgr = AdapterManager.getInstance(projectRoot);
         mgr.discover();
-        return mgr.activate(session.providerId!);
+        return mgr.activate(detectedProviderId!);
       })
       .catch(() => {
         /* Adapter activation is best-effort */
@@ -213,13 +196,12 @@ export async function startSession(
   // Dispatch SessionStart hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
   hooks
-    .dispatch('SessionStart', cwd ?? process.cwd(), {
+    .dispatch('SessionStart', projectRoot, {
       timestamp: new Date().toISOString(),
       sessionId: session.id,
-      name: options.name,
+      name: params.name ?? session.name,
       scope,
-      agent: options.agent,
-      providerId: session.providerId ?? undefined,
+      providerId: detectedProviderId ?? undefined,
     })
     .catch(() => {
       /* Hooks are best-effort */
@@ -230,15 +212,15 @@ export async function startSession(
     .then(async ({ appendSessionJournalEntry }) => {
       const { SESSION_JOURNAL_SCHEMA_VERSION } = await import('@cleocode/contracts');
       const agentIdentifier =
-        options.agent ?? process.env.CLEO_AGENT_ID ?? process.env.CLAUDE_CODE_AGENT_ID ?? undefined;
-      await appendSessionJournalEntry(cwd ?? process.cwd(), {
+        process.env.CLEO_AGENT_ID ?? process.env.CLAUDE_CODE_AGENT_ID ?? undefined;
+      await appendSessionJournalEntry(projectRoot, {
         schemaVersion: SESSION_JOURNAL_SCHEMA_VERSION,
         timestamp: new Date().toISOString(),
         sessionId: session.id,
         eventType: 'session_start',
         agentIdentifier,
-        providerId: session.providerId ?? undefined,
-        scope: options.scope,
+        providerId: detectedProviderId ?? undefined,
+        scope: params.scope,
       });
     })
     .catch(() => {
@@ -253,35 +235,26 @@ export async function startSession(
 
 /**
  * End a session.
- * @task T4463
+ * Normalized Core signature: (projectRoot, params) → Result.
+ * @task T1450
  */
-export async function endSession(
-  options: EndSessionOptions = {},
-  cwd?: string,
-  accessor?: DataAccessor,
-): Promise<Session> {
-  const sessions = await readSessions(cwd, accessor);
+export async function endSession(projectRoot: string, params: SessionEndParams): Promise<Session> {
+  const accessor = await getAccessor(projectRoot);
+  const sessions = await readSessions(projectRoot, accessor);
 
   let session: Session | undefined;
 
-  if (options.sessionId) {
-    session = sessions.find((s: Session) => s.id === options.sessionId);
-  } else {
-    // Find most recent active session
-    session = sessions
-      .filter((s: Session) => s.status === 'active')
-      .sort(
-        (a: Session, b: Session) =>
-          new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
-      )[0];
-  }
+  // Find most recent active session (sessionId no longer supported in params)
+  session = sessions
+    .filter((s: Session) => s.status === 'active')
+    .sort(
+      (a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+    )[0];
 
   if (!session) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      options.sessionId ? `Session not found: ${options.sessionId}` : 'No active session found',
-      { fix: "Use 'cleo session list' to see available sessions" },
-    );
+    throw new CleoError(ExitCode.SESSION_NOT_FOUND, 'No active session found', {
+      fix: "Use 'cleo session list' to see available sessions",
+    });
   }
 
   if (session.status !== 'active') {
@@ -299,12 +272,11 @@ export async function endSession(
   // Dispatch SessionEnd hook — await to ensure memory bridge refreshes before CLI exits
   const { hooks } = await import('../hooks/registry.js');
   await hooks
-    .dispatch('SessionEnd', cwd ?? process.cwd(), {
+    .dispatch('SessionEnd', projectRoot, {
       timestamp: new Date().toISOString(),
       sessionId: session.id,
       duration,
       tasksCompleted: session.tasksCompleted || [],
-      providerId: session.providerId ?? undefined,
     })
     .catch(() => {
       /* Hooks are best-effort */
@@ -312,13 +284,9 @@ export async function endSession(
 
   // Bridge session data to brain.db as an observation — await for CLI mode
   const { bridgeSessionToMemory } = await import('./session-memory-bridge.js');
-  await bridgeSessionToMemory(cwd ?? process.cwd(), {
+  await bridgeSessionToMemory(projectRoot, {
     sessionId: session.id,
-    scope: options.sessionId
-      ? session.scope.type
-      : session.scope.epicId
-        ? `epic:${session.scope.epicId}`
-        : session.scope.type,
+    scope: session.scope.epicId ? `epic:${session.scope.epicId}` : session.scope.type,
     tasksCompleted: session.tasksCompleted || [],
     duration,
   }).catch(() => {
@@ -329,13 +297,12 @@ export async function endSession(
   // to query audit entries after the session ends. The caller (admin.grade handler
   // or sessionEnd engine) is responsible for cleanup after evaluation completes.
 
-  if (options.note) {
+  if (params.note) {
     if (!session.notes) session.notes = [];
-    session.notes.push(options.note);
+    session.notes.push(params.note);
   }
 
-  const acc = accessor ?? (await getAccessor(cwd));
-  await acc.upsertSingleSession(session);
+  await accessor.upsertSingleSession(session);
 
   // T947 Step 2: close the matching llmtxt AgentSession (if any) and
   // persist the ContributionReceipt to `.cleo/audit/receipts.jsonl`.
@@ -353,7 +320,7 @@ export async function endSession(
   // Direct memory bridge refresh AFTER session is saved to DB
   try {
     const { refreshMemoryBridge } = await import('../memory/memory-bridge.js');
-    await refreshMemoryBridge(cwd ?? process.cwd());
+    await refreshMemoryBridge(projectRoot);
   } catch {
     // best-effort
   }
@@ -363,13 +330,20 @@ export async function endSession(
 
 /**
  * Get current session status.
- * @task T4463
+ * Normalized Core signature: (projectRoot, params) → Result.
+ * @task T1450
  */
 export async function sessionStatus(
-  cwd?: string,
-  accessor?: DataAccessor,
+  projectRoot: string,
+  _params: SessionStatusParams,
 ): Promise<Session | null> {
-  const sessions = await readSessions(cwd, accessor);
+  // SessionStatusParams is `Record<string, never>` per the contract — there are
+  // no fields to read. The parameter is declared to satisfy ADR-057 D1's uniform
+  // `(projectRoot, params)` Core API surface; the underscore prefix is the
+  // documented TypeScript convention for an intentionally-unused parameter
+  // required by an API contract (TS6133 honors `_`-prefix exemption).
+  const accessor = await getAccessor(projectRoot);
+  const sessions = await readSessions(projectRoot, accessor);
 
   const active = sessions
     .filter((s: Session) => s.status === 'active')
@@ -382,18 +356,19 @@ export async function sessionStatus(
 
 /**
  * Resume an existing session.
- * @task T4463
+ * Normalized Core signature: (projectRoot, params) → Result.
+ * @task T1450
  */
 export async function resumeSession(
-  sessionId: string,
-  cwd?: string,
-  accessor?: DataAccessor,
+  projectRoot: string,
+  params: SessionResumeParams,
 ): Promise<Session> {
-  const sessions = await readSessions(cwd, accessor);
+  const accessor = await getAccessor(projectRoot);
+  const sessions = await readSessions(projectRoot, accessor);
 
-  const session = sessions.find((s: Session) => s.id === sessionId);
+  const session = sessions.find((s: Session) => s.id === params.sessionId);
   if (!session) {
-    throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session not found: ${sessionId}`, {
+    throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session not found: ${params.sessionId}`, {
       fix: "Use 'cleo session list' to see available sessions",
     });
   }
@@ -408,8 +383,7 @@ export async function resumeSession(
     if (!session.notes) session.notes = [];
     session.notes.push(`Resumed at ${new Date().toISOString()}`);
 
-    const acc = accessor ?? (await getAccessor(cwd));
-    await acc.upsertSingleSession(session);
+    await accessor.upsertSingleSession(session);
   }
 
   return session;
@@ -417,17 +391,18 @@ export async function resumeSession(
 
 /**
  * List sessions with optional filtering.
- * @task T4463
+ * Normalized Core signature: (projectRoot, params) → Result.
+ * @task T1450
  */
 export async function listSessions(
-  options: ListSessionsOptions = {},
-  cwd?: string,
-  accessor?: DataAccessor,
+  projectRoot: string,
+  params: SessionListParams,
 ): Promise<Session[]> {
-  let sessions = await readSessions(cwd, accessor);
+  const accessor = await getAccessor(projectRoot);
+  let sessions = await readSessions(projectRoot, accessor);
 
-  if (options.status) {
-    sessions = sessions.filter((s: Session) => s.status === options.status);
+  if (params.status) {
+    sessions = sessions.filter((s: Session) => s.status === params.status);
   }
 
   // Sort by start time, most recent first
@@ -435,8 +410,8 @@ export async function listSessions(
     (a: Session, b: Session) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
   );
 
-  if (options.limit) {
-    sessions = sessions.slice(0, options.limit);
+  if (params.limit) {
+    sessions = sessions.slice(0, params.limit);
   }
 
   // Attach _next progressive disclosure directives to each session
@@ -450,16 +425,17 @@ export async function listSessions(
 /**
  * Garbage collect old sessions.
  * Marks orphaned sessions that have been active too long.
- * @task T4463
+ * Normalized Core signature: (projectRoot, params) → Result.
+ * @task T1450
  */
 export async function gcSessions(
-  maxAgeHours: number = 24,
-  cwd?: string,
-  accessor?: DataAccessor,
+  projectRoot: string,
+  params: SessionGcParams,
 ): Promise<{ orphaned: string[]; removed: string[] }> {
-  let sessions = await readSessions(cwd, accessor);
+  const accessor = await getAccessor(projectRoot);
+  let sessions = await readSessions(projectRoot, accessor);
   const now = Date.now();
-  const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
+  const maxAgeMs = (params.maxAgeDays ?? 1) * 24 * 60 * 60 * 1000;
 
   const orphaned: string[] = [];
   const removed: string[] = [];
@@ -487,18 +463,16 @@ export async function gcSessions(
     return true;
   });
 
-  const acc = accessor ?? (await getAccessor(cwd));
-
   // Upsert orphaned sessions individually
   for (const session of sessions) {
     if (orphaned.includes(session.id)) {
-      await acc.upsertSingleSession(session);
+      await accessor.upsertSingleSession(session);
     }
   }
 
   // Remove old sessions individually
   for (const id of removed) {
-    await acc.removeSingleSession(id);
+    await accessor.removeSingleSession(id);
   }
 
   return { orphaned, removed };
@@ -548,6 +522,7 @@ export {
   getHandoff,
   getLastHandoff,
   persistHandoff,
+  sessionHandoffShow,
 } from './handoff.js';
 export { archiveSessions } from './session-archive.js';
 export { cleanupSessions } from './session-cleanup.js';
