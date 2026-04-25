@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.144] — 2026-04-25 — Tag-integrity fix-forward for v2026.4.143
+
+Re-ships v2026.4.143 scope as a properly-tagged release. The `v2026.4.143` tag was created on commit `6b66e7f14` before the CHANGELOG section landed, so the Release workflow's `Verify CHANGELOG section` step rejected it (CI failed at tag-push time). The fix-forward CHANGELOG commit (`ff286f5e1`) and the typed-narrowing TS error reduction (`51ff74664`) landed afterwards, and a manual `workflow_dispatch` Release on `ff286f5e1` succeeded — but the `v2026.4.143` git tag was never moved. Per project rule "Never reuse tags", v2026.4.144 supersedes v2026.4.143 with a tag that points at a fully-green commit.
+
+### Same scope as v2026.4.143
+
+All closures listed under v2026.4.143 below are inherited by this release. No new functional changes; only a clean tag pointing at a green-CI commit.
+
+### Lesson
+
+Future `cleo release` operations must add the `## [VERSION]` CHANGELOG section **before** running `git tag` — the Release workflow's `Verify CHANGELOG section` step is a hard gate. Sequence: `version-all.mjs` → CHANGELOG entry → commit → tag → push.
+
 ## [2026.4.143] — 2026-04-25 — T1430 dispatch test regression sweep + Council 2026-04-24 hybrid execution
 
 Sweeps the typed-narrowing wave T1421-T1427 contract regressions that landed in v2026.4.142 (22 dispatch tests across 6 files broken by TypedDomainHandler conversion).
