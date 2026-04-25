@@ -8,6 +8,7 @@
  * @task W1-T2
  */
 
+import type { ArchiveReasonValue } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import {
   type AnySQLiteColumn,
@@ -209,8 +210,15 @@ export const ARCHIVE_REASONS = [
   'completed-unverified',
 ] as const;
 
-/** Union type for {@link ARCHIVE_REASONS}. */
-export type ArchiveReason = (typeof ARCHIVE_REASONS)[number];
+/**
+ * Union type for {@link ARCHIVE_REASONS}.
+ *
+ * T1409: re-exported from `@cleocode/contracts` as the SSoT. The contracts
+ * package owns the typed Zod enum (`ArchiveReason`) and the inferred
+ * {@link ArchiveReasonValue} union; this alias is kept for back-compat with
+ * existing core/store consumers that import `ArchiveReason` from this file.
+ */
+export type ArchiveReason = ArchiveReasonValue;
 
 /** External task link types matching DB constraint on external_task_links.link_type. */
 export const EXTERNAL_LINK_TYPES = ['created', 'matched', 'manual', 'transferred'] as const;

@@ -4,7 +4,13 @@
  * @epic T4454
  */
 
-import type { Task, TaskStatus } from '@cleocode/contracts';
+import {
+  ARCHIVE_REASON_TOMBSTONE_ENV,
+  ArchiveReason,
+  type ArchiveReasonValue,
+  type Task,
+  type TaskStatus,
+} from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
@@ -33,26 +39,28 @@ import { safeAppendLog } from '../store/data-safety-central.js';
  *                             normal path (candidates are pre-filtered to done
  *                             or cancelled) but is safe to stamp if reached.
  *
- * The string literal `'completed-unverified'` is a migration tombstone — a
- * follow-up epic (T-RECONCILE-INVARIANT) will promote these to a typed
- * `ArchiveReason` enum (`verified | reconciled | superseded | shadowed |
- * cancelled`). Downstream consumers (stats/index.ts, archive-analytics.ts,
- * archive-stats.ts) that already group by `archiveReason` will see the new
- * literal as its own bucket, which is the intended behaviour.
+ * The string literal `'completed-unverified'` is a migration tombstone.
+ * T1409 promoted these values into a typed Zod enum at the contract layer
+ * ({@link ArchiveReason} in `@cleocode/contracts`); downstream consumers
+ * (stats/index.ts, archive-analytics.ts, archive-stats.ts) that already
+ * group by `archiveReason` will see the canonical literal as its own
+ * bucket, which is the intended behaviour.
  *
  * @see packages/core/src/tasks/__tests__/archive.test.ts — discriminator tests
+ * @see packages/contracts/src/tasks/archive.ts — typed enum + tombstone guard
  */
-function deriveArchiveReason(task: Task): string {
+function deriveArchiveReason(task: Task): ArchiveReasonValue {
   // T1434 follow-up: T1408 6-value enum mapping. Was returning 'completed'
   // for verified-done; the enum has 'verified' for that case.
-  // 'archived' (legacy fallback for non-done/non-cancelled) is mapped to
-  // 'completed-unverified' to remain enum-compliant; downstream callers
-  // should use status guards to avoid hitting this fallback.
-  if (task.status === 'cancelled') return 'cancelled';
+  // T1409: replaced literal strings with the contracts SSoT enum so the
+  // type and the DB CHECK constraint share one source of truth.
+  if (task.status === 'cancelled') return ArchiveReason.enum.cancelled;
   if (task.status === 'done') {
-    return task.verification?.passed === true ? 'verified' : 'completed-unverified';
+    return task.verification?.passed === true
+      ? ArchiveReason.enum.verified
+      : ArchiveReason.enum['completed-unverified'];
   }
-  return 'completed-unverified';
+  return ArchiveReason.enum['completed-unverified'];
 }
 
 /** Options for archiving tasks. */
@@ -153,11 +161,28 @@ export async function archiveTasks(
   const archivedSet = new Set(archived);
   const tasksToArchive = candidates.filter((t) => archivedSet.has(t.id));
 
-  for (const t of tasksToArchive) {
-    await acc.archiveSingleTask(t.id, {
-      archivedAt: now,
-      archiveReason: deriveArchiveReason(t),
-    });
+  // T1409 tombstone gate: this loop is the LEGITIMATE producer of the
+  // `'completed-unverified'` tombstone — `deriveArchiveReason` may return
+  // it for done-but-unverified tasks. Scope the tombstone-allow env flag
+  // for the duration of the bulk write so downstream guards in
+  // `archiveTask()` / `assertArchiveReason()` permit the write. Restored
+  // after the loop (or on throw) so user-facing single-task archive paths
+  // remain protected.
+  const priorTombstoneFlag = process.env[ARCHIVE_REASON_TOMBSTONE_ENV];
+  process.env[ARCHIVE_REASON_TOMBSTONE_ENV] = '1';
+  try {
+    for (const t of tasksToArchive) {
+      await acc.archiveSingleTask(t.id, {
+        archivedAt: now,
+        archiveReason: deriveArchiveReason(t),
+      });
+    }
+  } finally {
+    if (priorTombstoneFlag === undefined) {
+      delete process.env[ARCHIVE_REASON_TOMBSTONE_ENV];
+    } else {
+      process.env[ARCHIVE_REASON_TOMBSTONE_ENV] = priorTombstoneFlag;
+    }
   }
 
   await safeAppendLog(
