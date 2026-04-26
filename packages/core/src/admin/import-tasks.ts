@@ -9,7 +9,7 @@
 
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
-import type { Task, TaskStatus } from '@cleocode/contracts';
+import type { AdminImportParams, Task } from '@cleocode/contracts';
 import type { ImportFromPackageOptions, ImportFromPackageResult } from '../nexus/transfer-types.js';
 import { getAccessor } from '../store/data-accessor.js';
 import type { ExportPackage } from '../store/export.js';
@@ -48,20 +48,6 @@ function topologicalSort(tasks: Task[]): Task[] {
     visit(task);
   }
   return sorted;
-}
-
-export interface ImportTasksParams {
-  file: string;
-  dryRun?: boolean;
-  parent?: string;
-  phase?: string;
-  addLabel?: string;
-  provenance?: boolean;
-  resetStatus?: TaskStatus;
-  onConflict?: OnConflict;
-  onMissingDep?: OnMissingDep;
-  force?: boolean;
-  cwd?: string;
 }
 
 export interface ImportTasksResult {
@@ -211,7 +197,10 @@ export async function importFromPackage(
  * Import tasks from a cross-project export package file with ID remapping.
  * Thin wrapper around importFromPackage that handles file I/O.
  */
-export async function importTasksPackage(params: ImportTasksParams): Promise<ImportTasksResult> {
+export async function importTasksPackage(
+  projectRoot: string,
+  params: AdminImportParams,
+): Promise<ImportTasksResult> {
   const { file } = params;
 
   try {
@@ -229,7 +218,7 @@ export async function importTasksPackage(params: ImportTasksParams): Promise<Imp
   }
 
   return importFromPackage(exportPkg, {
-    cwd: params.cwd,
+    cwd: projectRoot,
     dryRun: params.dryRun,
     parent: params.parent,
     phase: params.phase,

@@ -392,8 +392,8 @@ export class Cleo {
   get admin(): AdminAPI {
     const root = this.projectRoot;
     return {
-      export: (p) => exportTasks({ cwd: root, ...p }),
-      import: (p) => importTasks({ ...p, cwd: root }),
+      export: (p) => exportTasks(root, p ?? {}),
+      import: (p) => importTasks(root, p),
     };
   }
 

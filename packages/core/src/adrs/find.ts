@@ -18,6 +18,7 @@
 
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AdminAdrFindParams } from '@cleocode/contracts';
 import { parseAdrFile } from './parse.js';
 import type { AdrFindResult } from './types.js';
 
@@ -53,9 +54,9 @@ function matchedTerms(target: string, terms: string[]): string[] {
 
 export async function findAdrs(
   projectRoot: string,
-  query: string,
-  opts?: { topics?: string; keywords?: string; status?: string },
+  params: AdminAdrFindParams,
 ): Promise<AdrFindResult> {
+  const query = params.query ?? '';
   const adrsDir = join(projectRoot, '.cleo', 'adrs');
 
   if (!existsSync(adrsDir)) {
@@ -69,8 +70,8 @@ export async function findAdrs(
   const queryTerms = normalise(query)
     .split(' ')
     .filter((t) => t.length > 1);
-  const filterTopics = opts?.topics ? parseTags(opts.topics) : null;
-  const filterKeywords = opts?.keywords ? parseTags(opts.keywords) : null;
+  const filterTopics = params.topics ? parseTags(params.topics) : null;
+  const filterKeywords = params.keywords ? parseTags(params.keywords) : null;
 
   const results: AdrFindResult['adrs'] = [];
 
@@ -79,7 +80,7 @@ export async function findAdrs(
     const fm = record.frontmatter;
 
     // Status filter
-    if (opts?.status && fm.Status !== opts.status) continue;
+    if (params.status && fm.Status !== params.status) continue;
 
     // Topics filter (hard filter — must match all specified topics)
     if (filterTopics && filterTopics.length > 0) {

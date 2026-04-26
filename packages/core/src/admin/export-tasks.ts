@@ -8,7 +8,7 @@
  */
 
 import { writeFile } from 'node:fs/promises';
-import type { Task } from '@cleocode/contracts';
+import type { AdminExportParams, Task } from '@cleocode/contracts';
 import { getAccessor } from '../store/data-accessor.js';
 import { buildExportPackage } from '../store/export.js';
 
@@ -87,16 +87,6 @@ function expandDependencies(selectedIds: Set<string>, allTasks: Task[]): Task[] 
   return allTasks.filter((t) => expanded.has(t.id));
 }
 
-export interface ExportTasksParams {
-  taskIds?: string[];
-  output?: string;
-  subtree?: boolean;
-  filter?: string[];
-  includeDeps?: boolean;
-  dryRun?: boolean;
-  cwd?: string;
-}
-
 export interface ExportTasksResult {
   exportMode: string;
   taskCount: number;
@@ -109,8 +99,11 @@ export interface ExportTasksResult {
 /**
  * Export tasks to a portable cross-project package.
  */
-export async function exportTasksPackage(params: ExportTasksParams): Promise<ExportTasksResult> {
-  const accessor = await getAccessor(params.cwd);
+export async function exportTasksPackage(
+  projectRoot: string,
+  params: AdminExportParams,
+): Promise<ExportTasksResult> {
+  const accessor = await getAccessor(projectRoot);
   const { tasks: allTasks } = await accessor.queryTasks({});
   const subtreeMode = params.subtree ?? false;
   const includeDeps = params.includeDeps ?? false;

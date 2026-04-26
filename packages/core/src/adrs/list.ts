@@ -8,6 +8,7 @@
 
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AdminAdrFindParams } from '@cleocode/contracts';
 import { paginate } from '../pagination.js';
 import { parseAdrFile } from './parse.js';
 import type { AdrListResult } from './types.js';
@@ -15,7 +16,7 @@ import type { AdrListResult } from './types.js';
 /** List ADRs from .cleo/adrs/ directory with optional status filter */
 export async function listAdrs(
   projectRoot: string,
-  opts?: { status?: string; since?: string; limit?: number; offset?: number },
+  params: AdminAdrFindParams = {},
 ): Promise<AdrListResult> {
   const adrsDir = join(projectRoot, '.cleo', 'adrs');
 
@@ -31,11 +32,11 @@ export async function listAdrs(
 
   const total = records.length;
   const filtered = records.filter((r) => {
-    if (opts?.status && r.frontmatter.Status !== opts.status) return false;
-    if (opts?.since && r.frontmatter.Date < opts.since) return false;
+    if (params.status && r.frontmatter.Status !== params.status) return false;
+    if (params.since && r.frontmatter.Date < params.since) return false;
     return true;
   });
-  const page = paginate(filtered, opts?.limit, opts?.offset);
+  const page = paginate(filtered, params.limit, params.offset);
 
   return {
     adrs: page.items.map((r) => ({
