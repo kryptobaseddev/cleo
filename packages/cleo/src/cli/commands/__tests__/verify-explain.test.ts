@@ -62,7 +62,8 @@ vi.mock('../../../dispatch/lib/engine.js', () => ({
 }));
 
 /**
- * revalidateEvidence mock — lets individual tests drive staleness detection.
+ * revalidateEvidence / checkRevalidateEvidence mock — lets individual tests
+ * drive staleness detection.
  *
  * Default: always stillValid=true, mirroring happy-path behavior where all
  * captured evidence still matches filesystem/git state.
@@ -87,8 +88,12 @@ vi.mock('@cleocode/core/internal', async () => {
       info: vi.fn(),
       debug: vi.fn(),
     })),
+    // Legacy direct export (kept for backward compat mocking)
     revalidateEvidence: (...args: Parameters<typeof mockRevalidateEvidence>) =>
       mockRevalidateEvidence(...args),
+    // ADR-057 D1 normalized wrapper (T1452) — used by check.ts dispatch handler
+    checkRevalidateEvidence: (_projectRoot: string, params: { evidence: unknown }) =>
+      mockRevalidateEvidence(params.evidence as never, _projectRoot),
   };
 });
 

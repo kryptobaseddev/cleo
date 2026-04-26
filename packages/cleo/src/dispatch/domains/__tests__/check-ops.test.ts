@@ -1,62 +1,70 @@
+/**
+ * Check Domain Handler — operation routing tests.
+ *
+ * Verifies that the typed dispatch layer routes each operation to the
+ * correct Core normalized op (ADR-057 D1 shape, T1452).
+ *
+ * @task T1452 — updated mocks to Core ops shape
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CheckHandler } from '../check.js';
 
-// Mock dependencies
+// ---------------------------------------------------------------------------
+// Mock Core internal — check ops (ADR-057 D1 normalized shape, T1452)
+// ---------------------------------------------------------------------------
+vi.mock('@cleocode/core/internal', () => ({
+  checkArchiveStats: vi.fn(),
+  checkCoherence: vi.fn(),
+  checkComplianceRecord: vi.fn(),
+  checkComplianceSummary: vi.fn(),
+  checkComplianceSync: vi.fn(),
+  checkGradeSession: vi.fn(),
+  checkReadGrades: vi.fn(),
+  checkRevalidateEvidence: vi.fn(),
+  checkTestCoverage: vi.fn(),
+  checkTestRun: vi.fn(),
+  checkTestStatus: vi.fn(),
+  checkValidateChain: vi.fn(),
+  checkValidateManifest: vi.fn(),
+  checkValidateOutput: vi.fn(),
+  checkValidateProtocol: vi.fn(),
+  checkValidateSchema: vi.fn(),
+  checkValidateTask: vi.fn(),
+  checkWorkflowCompliance: vi.fn(),
+  getLogger: vi.fn(() => ({ error: vi.fn() })),
+  getProjectRoot: vi.fn(() => '/mock/project'),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock engine.js — only sub-protocol ops remain in the engine layer
+// ---------------------------------------------------------------------------
 vi.mock('../../lib/engine.js', () => ({
-  validateComplianceSummary: vi.fn(),
-  validateComplianceViolations: vi.fn(),
-  validateTestStatus: vi.fn(),
-  validateTestCoverage: vi.fn(),
-  validateCoherenceCheck: vi.fn(),
-  validateProtocol: vi.fn(),
+  validateGateVerify: vi.fn(),
+  validateProtocolArchitectureDecision: vi.fn(),
+  validateProtocolArtifactPublish: vi.fn(),
   validateProtocolConsensus: vi.fn(),
   validateProtocolContribution: vi.fn(),
   validateProtocolDecomposition: vi.fn(),
   validateProtocolImplementation: vi.fn(),
-  validateProtocolSpecification: vi.fn(),
-  validateProtocolArchitectureDecision: vi.fn(),
-  validateProtocolArtifactPublish: vi.fn(),
   validateProtocolProvenance: vi.fn(),
   validateProtocolRelease: vi.fn(),
   validateProtocolResearch: vi.fn(),
+  validateProtocolSpecification: vi.fn(),
   validateProtocolTesting: vi.fn(),
   validateProtocolValidation: vi.fn(),
-  validateGateVerify: vi.fn(),
-  systemArchiveStats: vi.fn(),
-  validateSchemaOp: vi.fn(),
-  validateTaskOp: vi.fn(),
-  validateManifestOp: vi.fn(),
-  validateOutput: vi.fn(),
-  validateComplianceRecord: vi.fn(),
-  validateTestRun: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/paths.js', async () => {
-  const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
-    '../../../../../core/src/paths.js',
-  );
-  return {
-    ...actual,
-    getProjectRoot: vi.fn(() => '/mock/project'),
-  };
-});
-
-vi.mock('../../../../../core/src/logger.js', () => ({
-  getLogger: vi.fn(() => ({
-    error: vi.fn(),
-  })),
 }));
 
 import {
-  systemArchiveStats,
-  validateCoherenceCheck,
-  validateComplianceSummary,
-  validateComplianceViolations,
+  checkArchiveStats,
+  checkCoherence,
+  checkComplianceSummary,
+  checkTestCoverage,
+  checkTestStatus,
+  checkValidateProtocol,
+} from '@cleocode/core/internal';
+import {
   validateGateVerify,
-  validateProtocol,
   validateProtocolConsensus,
-  validateTestCoverage,
-  validateTestStatus,
 } from '../../lib/engine.js';
 
 describe('CheckHandler Operations', () => {
@@ -66,88 +74,94 @@ describe('CheckHandler Operations', () => {
     vi.clearAllMocks();
     handler = new CheckHandler();
 
-    // Default mock implementations to return success with proper structure
-    vi.mocked(validateComplianceSummary).mockReturnValue({
-      success: true,
-      data: { total: 0, passed: 0, failed: 0, score: 0, byProtocol: {}, bySeverity: {} },
-    } as any);
-    vi.mocked(validateComplianceViolations).mockReturnValue({
-      success: true,
-      data: { violations: [], total: 0 },
-    } as any);
-    vi.mocked(validateTestStatus).mockReturnValue({
-      success: true,
-      data: { total: 0, passed: 0, failed: 0, skipped: 0, passRate: 0 },
-    } as any);
-    vi.mocked(validateTestCoverage).mockReturnValue({
-      success: true,
-      data: {
-        lineCoverage: 100,
-        branchCoverage: 100,
-        functionCoverage: 100,
-        statementCoverage: 100,
-        threshold: 80,
-        meetsThreshold: true,
-      },
-    } as any);
-    vi.mocked(validateCoherenceCheck).mockResolvedValue({
-      success: true,
-      data: { passed: true, issues: [], warnings: [] },
-    } as any);
-    vi.mocked(validateProtocol).mockResolvedValue({
-      success: true,
-      data: { taskId: '', protocol: '', passed: false, score: 0, violations: [], requirements: {} },
-    } as any);
+    // Default mock implementations
+    vi.mocked(checkComplianceSummary).mockReturnValue({
+      total: 0,
+      passed: 0,
+      failed: 0,
+      score: 0,
+      byProtocol: {},
+      bySeverity: { error: 0, warning: 0, info: 0 },
+    });
+    vi.mocked(checkTestStatus).mockReturnValue({
+      total: 0,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      passRate: 0,
+    });
+    vi.mocked(checkTestCoverage).mockReturnValue({
+      lineCoverage: 100,
+      branchCoverage: 100,
+      functionCoverage: 100,
+      statementCoverage: 100,
+      threshold: 80,
+      meetsThreshold: true,
+    });
+    vi.mocked(checkCoherence).mockResolvedValue({
+      passed: true,
+      issues: [],
+      warnings: [],
+    });
+    vi.mocked(checkValidateProtocol).mockResolvedValue({
+      taskId: '',
+      protocol: '',
+      passed: false,
+      score: 0,
+      violations: [],
+      requirements: { total: 0, met: 0, failed: 0 },
+    });
     vi.mocked(validateProtocolConsensus).mockResolvedValue({
       success: true,
       data: { taskId: '', protocol: '', passed: false, score: 0, violations: [], requirements: {} },
-    } as any);
+    } as never);
     vi.mocked(validateGateVerify).mockResolvedValue({
       success: true,
       data: { taskId: '', gates: {}, passed: false, round: 0 },
-    } as any);
-    vi.mocked(systemArchiveStats).mockResolvedValue({ success: true, data: {} } as any);
+    } as never);
+    vi.mocked(checkArchiveStats).mockResolvedValue({});
   });
 
   describe('compliance.summary', () => {
-    it('calls validateComplianceSummary by default', async () => {
+    it('calls checkComplianceSummary by default', async () => {
       await handler.query('compliance.summary');
-      expect(validateComplianceSummary).toHaveBeenCalled();
-      expect(validateComplianceViolations).not.toHaveBeenCalled();
+      expect(checkComplianceSummary).toHaveBeenCalled();
     });
 
-    it('calls validateComplianceViolations when detail is true', async () => {
+    it('calls checkComplianceSummary with detail flag (handled internally)', async () => {
       await handler.query('compliance.summary', { detail: true, limit: 10 });
-      expect(validateComplianceViolations).toHaveBeenCalledWith(10, '/mock/project');
-      expect(validateComplianceSummary).not.toHaveBeenCalled();
+      expect(checkComplianceSummary).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({ detail: true, limit: 10 }),
+      );
     });
   });
 
   describe('test', () => {
-    it('calls validateTestStatus by default', async () => {
+    it('calls checkTestStatus by default', async () => {
       await handler.query('test');
-      expect(validateTestStatus).toHaveBeenCalled();
-      expect(validateTestCoverage).not.toHaveBeenCalled();
+      expect(checkTestStatus).toHaveBeenCalled();
+      expect(checkTestCoverage).not.toHaveBeenCalled();
     });
 
-    it('calls validateTestCoverage when format is coverage', async () => {
+    it('calls checkTestCoverage when format is coverage', async () => {
       await handler.query('test', { format: 'coverage' });
-      expect(validateTestCoverage).toHaveBeenCalled();
-      expect(validateTestStatus).not.toHaveBeenCalled();
+      expect(checkTestCoverage).toHaveBeenCalled();
+      expect(checkTestStatus).not.toHaveBeenCalled();
     });
   });
 
   describe('coherence', () => {
-    it('calls validateCoherenceCheck', async () => {
+    it('calls checkCoherence', async () => {
       await handler.query('coherence');
-      expect(validateCoherenceCheck).toHaveBeenCalled();
+      expect(checkCoherence).toHaveBeenCalled();
     });
   });
 
   describe('protocol', () => {
-    it('calls validateProtocol (generic) when no type provided', async () => {
+    it('calls checkValidateProtocol (generic) when no type provided', async () => {
       await handler.query('protocol', { taskId: 'T1' });
-      expect(validateProtocol).toHaveBeenCalledWith('T1', undefined, '/mock/project');
+      expect(checkValidateProtocol).toHaveBeenCalledWith('/mock/project', expect.objectContaining({ taskId: 'T1' }));
     });
 
     it('calls validateProtocolConsensus when type is consensus', async () => {
@@ -185,9 +199,9 @@ describe('CheckHandler Operations', () => {
   });
 
   describe('archive.stats', () => {
-    it('calls systemArchiveStats', async () => {
+    it('calls checkArchiveStats', async () => {
       await handler.query('archive.stats');
-      expect(systemArchiveStats).toHaveBeenCalled();
+      expect(checkArchiveStats).toHaveBeenCalled();
     });
   });
 });
