@@ -15,6 +15,17 @@
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type {
+  LifecycleCheckParams,
+  LifecycleGateFailParams,
+  LifecycleGatePassParams,
+  LifecycleGatesParams,
+  LifecycleHistoryParams,
+  LifecycleProgressParams,
+  LifecycleResetParams,
+  LifecycleSkipParams,
+  LifecycleStatusParams,
+} from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { linkPipelineAdr } from '../adrs/link-pipeline.js';
 import { syncAdrsToDb } from '../adrs/sync.js';
@@ -156,9 +167,13 @@ export interface StageTransitionResult {
  * Get the current lifecycle state for an epic.
  * @task T4467
  */
-export async function getLifecycleState(epicId: string, cwd?: string): Promise<RcasdManifest> {
-  const status = await getLifecycleStatus(epicId, cwd);
-  const gates = await getLifecycleGates(epicId, cwd);
+export async function getLifecycleState(
+  projectRoot: string,
+  params: LifecycleStatusParams,
+): Promise<RcasdManifest> {
+  const epicId = (params.epicId ?? params.taskId)!;
+  const status = await getLifecycleStatus(projectRoot, params);
+  const gates = await getLifecycleGates(projectRoot, { taskId: epicId });
 
   const stages: Record<string, ManifestStageData> = {};
   for (const stage of status.stages) {
@@ -178,12 +193,13 @@ export async function getLifecycleState(epicId: string, cwd?: string): Promise<R
  * @task T4467
  */
 export async function startStage(
-  epicId: string,
-  stage: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleProgressParams,
 ): Promise<StageTransitionResult> {
+  const epicId = params.taskId;
+  const stage = params.stage as string;
   // Gate check
-  const gateResult = await checkGate(epicId, stage, cwd);
+  const gateResult = await checkGate(epicId, stage, projectRoot);
   if (!gateResult.allowed) {
     throw new CleoError(ExitCode.LIFECYCLE_GATE_FAILED, gateResult.message);
   }
@@ -192,7 +208,7 @@ export async function startStage(
     throw new CleoError(ExitCode.INVALID_INPUT, `Unknown stage: ${stage}`);
   }
 
-  const current = await getLifecycleStatus(epicId, cwd);
+  const current = await getLifecycleStatus(projectRoot, { epicId });
   const previousStatus = current.stages.find((s) => s.stage === stage)?.status ?? 'not_started';
   if (previousStatus === 'completed') {
     throw new CleoError(
@@ -201,7 +217,11 @@ export async function startStage(
     );
   }
 
-  const result = await recordStageProgress(epicId, stage, 'completed', undefined, cwd);
+  const result = await recordStageProgress(projectRoot, {
+    taskId: epicId,
+    stage: params.stage,
+    status: 'completed',
+  });
 
   return {
     epicId,
@@ -217,16 +237,16 @@ export async function startStage(
  * @task T4467
  */
 export async function completeStage(
-  epicId: string,
-  stage: string,
-  artifacts?: string[],
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleProgressParams & { artifacts?: string[] },
 ): Promise<StageTransitionResult> {
+  const epicId = params.taskId;
+  const stage = params.stage as string;
   if (!PIPELINE_STAGES.includes(stage as Stage)) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Unknown stage: ${stage}`);
   }
 
-  const current = await getLifecycleStatus(epicId, cwd);
+  const current = await getLifecycleStatus(projectRoot, { epicId });
   const previousStatus = current.stages.find((s) => s.stage === stage)?.status ?? 'not_started';
   if (previousStatus === 'completed') {
     throw new CleoError(
@@ -235,8 +255,15 @@ export async function completeStage(
     );
   }
 
-  const notes = artifacts?.length ? `Artifacts: ${artifacts.join(', ')}` : undefined;
-  const result = await recordStageProgress(epicId, stage, 'completed', notes, cwd);
+  const notes = params.artifacts?.length
+    ? `Artifacts: ${params.artifacts.join(', ')}`
+    : params.notes;
+  const result = await recordStageProgress(projectRoot, {
+    taskId: epicId,
+    stage: params.stage,
+    status: 'completed',
+    notes,
+  });
 
   return {
     epicId,
@@ -252,16 +279,16 @@ export async function completeStage(
  * @task T4467
  */
 export async function skipStage(
-  epicId: string,
-  stage: string,
-  reason: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleSkipParams,
 ): Promise<StageTransitionResult> {
+  const epicId = params.taskId;
+  const stage = params.stage as string;
   if (!PIPELINE_STAGES.includes(stage as Stage)) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Unknown stage: ${stage}`);
   }
 
-  const current = await getLifecycleStatus(epicId, cwd);
+  const current = await getLifecycleStatus(projectRoot, { epicId });
   const previousStatus = current.stages.find((s) => s.stage === stage)?.status ?? 'not_started';
   if (previousStatus === 'completed') {
     throw new CleoError(
@@ -270,7 +297,12 @@ export async function skipStage(
     );
   }
 
-  const result = await recordStageProgress(epicId, stage, 'skipped', reason, cwd);
+  const result = await recordStageProgress(projectRoot, {
+    taskId: epicId,
+    stage: params.stage,
+    status: 'skipped',
+    notes: params.reason,
+  });
 
   return {
     epicId,
@@ -307,7 +339,10 @@ export async function checkGate(
     throw new CleoError(ExitCode.INVALID_INPUT, `Unknown stage: ${targetStage}`);
   }
 
-  const prereqResult = await checkStagePrerequisites(epicId, targetStage, cwd);
+  const prereqResult = await checkStagePrerequisites(cwd ?? process.cwd(), {
+    epicId,
+    targetStage: targetStage as import('@cleocode/contracts').LifecycleCheckParams['targetStage'],
+  });
   const missing = prereqResult.missingPrerequisites;
 
   const allowed = mode === 'advisory' || missing.length === 0;
@@ -356,10 +391,11 @@ async function getEnforcementMode(cwd?: string): Promise<EnforcementMode> {
  * Get lifecycle status for an epic from SQLite.
  * Returns stage progress, current/next stage, and blockers.
  * @task T4801 - SQLite-native implementation
+ * @task T1455 - normalized to (projectRoot, params) shape
  */
 export async function getLifecycleStatus(
-  epicId: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleStatusParams,
 ): Promise<{
   epicId: string;
   title?: string;
@@ -376,9 +412,10 @@ export async function getLifecycleStatus(
   blockedOn: string[];
   initialized: boolean;
 }> {
+  const epicId = (params.epicId ?? params.taskId)!;
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
-  const db = await getDb(cwd);
+  const db = await getDb(projectRoot);
 
   // Query pipeline and task for this epic
   const pipelineResult = await db
@@ -514,14 +551,16 @@ export interface LifecycleHistoryEntry {
  * SQLite-native implementation - queries lifecycle_stages and lifecycle_gate_results tables.
  * @task T4785
  * @task T4801
+ * @task T1455 - normalized to (projectRoot, params) shape
  */
 export async function getLifecycleHistory(
-  epicId: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleHistoryParams,
 ): Promise<{ epicId: string; history: LifecycleHistoryEntry[] }> {
+  const epicId = params.taskId;
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
-  const db = await getDb(cwd);
+  const db = await getDb(projectRoot);
   const pipelineId = `pipeline-${epicId}`;
 
   // Query stages for this pipeline
@@ -615,14 +654,16 @@ export async function getLifecycleHistory(
 /**
  * Get all gate statuses for an epic.
  * @task T4785
+ * @task T1455 - normalized to (projectRoot, params) shape
  */
 export async function getLifecycleGates(
-  epicId: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleGatesParams,
 ): Promise<Record<string, Record<string, GateData>>> {
+  const epicId = params.taskId;
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
-  const db = await getDb(cwd);
+  const db = await getDb(projectRoot);
   const pipelineId = `pipeline-${epicId}`;
 
   const stages = await db
@@ -690,11 +731,11 @@ export function getStagePrerequisites(targetStage: string): {
 /**
  * Check if a stage's prerequisites are met for an epic.
  * @task T4785
+ * @task T1455 - normalized to (projectRoot, params) shape
  */
 export async function checkStagePrerequisites(
-  epicId: string,
-  targetStage: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleCheckParams,
 ): Promise<{
   epicId: string;
   targetStage: string;
@@ -703,6 +744,8 @@ export async function checkStagePrerequisites(
   missingPrerequisites: string[];
   issues: Array<{ stage: string; severity: string; message: string }>;
 }> {
+  const epicId = params.epicId;
+  const targetStage = params.targetStage as string;
   if (!PIPELINE_STAGES.includes(targetStage as Stage)) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
@@ -710,7 +753,7 @@ export async function checkStagePrerequisites(
     );
   }
 
-  const lifecycleStatus = await getLifecycleStatus(epicId, cwd);
+  const lifecycleStatus = await getLifecycleStatus(projectRoot, { epicId });
   const prereqs: string[] = STAGE_PREREQUISITES[targetStage as Stage] || [];
 
   const stageStatusMap = new Map(lifecycleStatus.stages.map((s) => [s.stage, s.status]));
@@ -827,14 +870,16 @@ async function ensureLifecycleContext(
  * SQLite-native implementation - T4801
  * @task T4785
  * @task T4801
+ * @task T1455 - normalized to (projectRoot, params) shape
  */
 export async function recordStageProgress(
-  epicId: string,
-  stage: string,
-  status: string,
-  notes?: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleProgressParams,
 ): Promise<{ epicId: string; stage: string; status: string; timestamp: string }> {
+  const epicId = params.taskId;
+  let stage = params.stage as string;
+  const status = params.status as string;
+  const notes = params.notes;
   // T929: resolve alias before validation so shorthand names like 'architecture'
   // map to 'architecture_decision'.
   stage = resolveStageAlias(stage);
@@ -854,13 +899,13 @@ export async function recordStageProgress(
   const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
   const stageName = stage as Stage;
-  const { db, stageId, pipelineId } = await ensureLifecycleContext(epicId, stage, cwd, {
+  const { db, stageId, pipelineId } = await ensureLifecycleContext(epicId, stage, projectRoot, {
     now,
     stageStatusOnCreate: status as (typeof schema.LIFECYCLE_STAGE_STATUSES)[number],
     updateCurrentStage: true,
   });
 
-  const artifact = await ensureStageArtifact(epicId, stageName, cwd);
+  const artifact = await ensureStageArtifact(epicId, stageName, projectRoot);
   const provenanceChain = {
     recordedAt: now,
     source: 'pipeline.stage.record',
@@ -917,12 +962,12 @@ export async function recordStageProgress(
   }
 
   if (status === 'completed') {
-    await linkProvenance(epicId, stageName, artifact.absolutePath, cwd);
+    await linkProvenance(epicId, stageName, artifact.absolutePath, projectRoot);
 
     if (stageName === 'architecture_decision') {
-      const projectRoot = getProjectRoot(cwd);
-      await syncAdrsToDb(projectRoot);
-      await linkPipelineAdr(projectRoot, epicId);
+      const resolvedRoot = getProjectRoot(projectRoot);
+      await syncAdrsToDb(resolvedRoot);
+      await linkPipelineAdr(resolvedRoot, epicId);
     }
   }
 
@@ -945,16 +990,23 @@ export async function recordStageProgress(
 /**
  * Skip a stage with a reason (engine-compatible).
  * @task T4785
+ * @task T1455 - normalized to (projectRoot, params) shape
  */
 export async function skipStageWithReason(
-  epicId: string,
-  stage: string,
-  reason: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleSkipParams,
 ): Promise<{ epicId: string; stage: string; reason: string; timestamp: string }> {
+  const epicId = params.taskId;
+  let stage = params.stage as string;
+  const reason = params.reason;
   // T929: resolve alias so shorthand names work.
   stage = resolveStageAlias(stage);
-  const result = await recordStageProgress(epicId, stage, 'skipped', reason, cwd);
+  const result = await recordStageProgress(projectRoot, {
+    taskId: epicId,
+    stage: stage as LifecycleSkipParams['stage'],
+    status: 'skipped',
+    notes: reason,
+  });
   return { epicId, stage, reason, timestamp: result.timestamp };
 }
 
@@ -963,11 +1015,12 @@ export async function skipStageWithReason(
  * @task T4785
  */
 export async function resetStage(
-  epicId: string,
-  stage: string,
-  reason: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleResetParams,
 ): Promise<{ epicId: string; stage: string; reason: string }> {
+  const epicId = params.taskId;
+  let stage = params.stage as string;
+  const reason = params.reason;
   // T929: resolve alias before validation.
   stage = resolveStageAlias(stage);
 
@@ -977,7 +1030,7 @@ export async function resetStage(
 
   const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
-  const { db, stageId } = await ensureLifecycleContext(epicId, stage, cwd, {
+  const { db, stageId } = await ensureLifecycleContext(epicId, stage, projectRoot, {
     now,
     stageStatusOnCreate: 'not_started',
     updateCurrentStage: false,
@@ -1005,17 +1058,16 @@ export async function resetStage(
  * @task T4801
  */
 export async function passGate(
-  epicId: string,
-  gateName: string,
-  agent?: string,
-  notes?: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleGatePassParams,
 ): Promise<{ epicId: string; gateName: string; timestamp: string }> {
+  const epicId = params.taskId;
+  const { gateName, agent, notes } = params;
   const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
   const stageName = gateName.split('-')[0];
   const gateId = `gate-${epicId}-${stageName}-${gateName}`;
-  const { db, stageId } = await ensureLifecycleContext(epicId, stageName, cwd, {
+  const { db, stageId } = await ensureLifecycleContext(epicId, stageName, projectRoot, {
     now,
     stageStatusOnCreate: 'in_progress',
     updateCurrentStage: true,
@@ -1060,16 +1112,16 @@ export async function passGate(
  * @task T4801
  */
 export async function failGate(
-  epicId: string,
-  gateName: string,
-  reason?: string,
-  cwd?: string,
+  projectRoot: string,
+  params: LifecycleGateFailParams,
 ): Promise<{ epicId: string; gateName: string; reason?: string; timestamp: string }> {
+  const epicId = params.taskId;
+  const { gateName, reason } = params;
   const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
   const stageName = gateName.split('-')[0];
   const gateId = `gate-${epicId}-${stageName}-${gateName}`;
-  const { db, stageId } = await ensureLifecycleContext(epicId, stageName, cwd, {
+  const { db, stageId } = await ensureLifecycleContext(epicId, stageName, projectRoot, {
     now,
     stageStatusOnCreate: 'in_progress',
     updateCurrentStage: true,
@@ -1110,11 +1162,12 @@ export async function failGate(
 /**
  * List all epic IDs that have lifecycle data.
  * @task T4785
+ * @task T1455 - normalized to (projectRoot) shape
  */
-export async function listEpicsWithLifecycle(cwd?: string): Promise<string[]> {
+export async function listEpicsWithLifecycle(projectRoot?: string): Promise<string[]> {
   try {
     const { getDb } = await import('../store/sqlite.js');
-    const db = await getDb(cwd);
+    const db = await getDb(projectRoot);
     const rows = await db
       .select({ taskId: schema.lifecyclePipelines.taskId })
       .from(schema.lifecyclePipelines)

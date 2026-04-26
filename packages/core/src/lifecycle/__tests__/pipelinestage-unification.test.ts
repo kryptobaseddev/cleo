@@ -56,36 +56,52 @@ async function readTaskPipelineStage(taskId: string): Promise<string | null> {
 
 describe('recordStageProgress keeps tasks.pipelineStage in sync (T835)', () => {
   it('writes tasks.pipeline_stage on completed status', async () => {
-    await recordStageProgress('T900', 'research', 'completed');
+    await recordStageProgress(testDir, { taskId: 'T900', stage: 'research', status: 'completed' });
     const stage = await readTaskPipelineStage('T900');
     expect(stage).toBe('research');
   });
 
   it('writes tasks.pipeline_stage on in_progress status', async () => {
-    await recordStageProgress('T901', 'consensus', 'in_progress');
+    await recordStageProgress(testDir, {
+      taskId: 'T901',
+      stage: 'consensus',
+      status: 'in_progress',
+    });
     const stage = await readTaskPipelineStage('T901');
     expect(stage).toBe('consensus');
   });
 
   it('does NOT overwrite tasks.pipeline_stage on skipped status', async () => {
     // First, mark research in_progress → task.pipelineStage = 'research'.
-    await recordStageProgress('T902', 'research', 'in_progress');
+    await recordStageProgress(testDir, {
+      taskId: 'T902',
+      stage: 'research',
+      status: 'in_progress',
+    });
     const first = await readTaskPipelineStage('T902');
     expect(first).toBe('research');
     // Now skip consensus — skipped must NOT advance tasks.pipeline_stage.
-    await recordStageProgress('T902', 'consensus', 'skipped');
+    await recordStageProgress(testDir, { taskId: 'T902', stage: 'consensus', status: 'skipped' });
     const second = await readTaskPipelineStage('T902');
     expect(second).toBe('research');
   });
 
   it('advances through multiple stages atomically', async () => {
-    await recordStageProgress('T903', 'research', 'completed');
+    await recordStageProgress(testDir, { taskId: 'T903', stage: 'research', status: 'completed' });
     expect(await readTaskPipelineStage('T903')).toBe('research');
-    await recordStageProgress('T903', 'consensus', 'completed');
+    await recordStageProgress(testDir, { taskId: 'T903', stage: 'consensus', status: 'completed' });
     expect(await readTaskPipelineStage('T903')).toBe('consensus');
-    await recordStageProgress('T903', 'specification', 'completed');
+    await recordStageProgress(testDir, {
+      taskId: 'T903',
+      stage: 'specification',
+      status: 'completed',
+    });
     expect(await readTaskPipelineStage('T903')).toBe('specification');
-    await recordStageProgress('T903', 'implementation', 'in_progress');
+    await recordStageProgress(testDir, {
+      taskId: 'T903',
+      stage: 'implementation',
+      status: 'in_progress',
+    });
     expect(await readTaskPipelineStage('T903')).toBe('implementation');
   });
 });
@@ -148,18 +164,30 @@ describe('resolveStageAlias (T929)', () => {
 
 describe('recordStageProgress accepts stage aliases (T929)', () => {
   it('accepts "architecture" shorthand for architecture_decision', async () => {
-    await recordStageProgress('T910', 'research', 'completed');
-    await recordStageProgress('T910', 'consensus', 'completed');
-    await recordStageProgress('T910', 'architecture', 'completed');
+    await recordStageProgress(testDir, { taskId: 'T910', stage: 'research', status: 'completed' });
+    await recordStageProgress(testDir, { taskId: 'T910', stage: 'consensus', status: 'completed' });
+    await recordStageProgress(testDir, {
+      taskId: 'T910',
+      stage: 'architecture' as 'research',
+      status: 'completed',
+    });
     const stage = await readTaskPipelineStage('T910');
     expect(stage).toBe('architecture_decision');
   });
 
   it('accepts "spec" shorthand for specification', async () => {
-    await recordStageProgress('T911', 'research', 'completed');
-    await recordStageProgress('T911', 'consensus', 'completed');
-    await recordStageProgress('T911', 'architecture_decision', 'completed');
-    await recordStageProgress('T911', 'spec', 'completed');
+    await recordStageProgress(testDir, { taskId: 'T911', stage: 'research', status: 'completed' });
+    await recordStageProgress(testDir, { taskId: 'T911', stage: 'consensus', status: 'completed' });
+    await recordStageProgress(testDir, {
+      taskId: 'T911',
+      stage: 'architecture_decision',
+      status: 'completed',
+    });
+    await recordStageProgress(testDir, {
+      taskId: 'T911',
+      stage: 'spec' as 'research',
+      status: 'completed',
+    });
     const stage = await readTaskPipelineStage('T911');
     expect(stage).toBe('specification');
   });
@@ -167,19 +195,31 @@ describe('recordStageProgress accepts stage aliases (T929)', () => {
   it('advances full RCASD chain using shorthand stage names (T929 regression)', async () => {
     // Mirrors the bug report: research→consensus→architecture→specification→decomposition
     // All using shorthand names as a user would type them on the CLI.
-    await recordStageProgress('T912', 'research', 'completed');
+    await recordStageProgress(testDir, { taskId: 'T912', stage: 'research', status: 'completed' });
     expect(await readTaskPipelineStage('T912')).toBe('research');
 
-    await recordStageProgress('T912', 'consensus', 'completed');
+    await recordStageProgress(testDir, { taskId: 'T912', stage: 'consensus', status: 'completed' });
     expect(await readTaskPipelineStage('T912')).toBe('consensus');
 
-    await recordStageProgress('T912', 'architecture', 'completed');
+    await recordStageProgress(testDir, {
+      taskId: 'T912',
+      stage: 'architecture' as 'research',
+      status: 'completed',
+    });
     expect(await readTaskPipelineStage('T912')).toBe('architecture_decision');
 
-    await recordStageProgress('T912', 'spec', 'completed');
+    await recordStageProgress(testDir, {
+      taskId: 'T912',
+      stage: 'spec' as 'research',
+      status: 'completed',
+    });
     expect(await readTaskPipelineStage('T912')).toBe('specification');
 
-    await recordStageProgress('T912', 'decompose', 'completed');
+    await recordStageProgress(testDir, {
+      taskId: 'T912',
+      stage: 'decompose' as 'research',
+      status: 'completed',
+    });
     expect(await readTaskPipelineStage('T912')).toBe('decomposition');
   });
 });

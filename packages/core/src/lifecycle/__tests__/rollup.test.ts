@@ -143,8 +143,18 @@ describe('computeTaskRollup', () => {
   it('surfaces passed gate names from lifecycle_gate_results', async () => {
     await seedTasks(accessor, [baseTask({ id: 'T600', status: 'active' })]);
 
-    await passGate('T600', 'research-spec-complete', 'test-agent', 'seeded', env.tempDir);
-    await passGate('T600', 'implementation-smoke', 'test-agent', 'seeded', env.tempDir);
+    await passGate(env.tempDir, {
+      taskId: 'T600',
+      gateName: 'research-spec-complete',
+      agent: 'test-agent',
+      notes: 'seeded',
+    });
+    await passGate(env.tempDir, {
+      taskId: 'T600',
+      gateName: 'implementation-smoke',
+      agent: 'test-agent',
+      notes: 'seeded',
+    });
 
     const rollup = await computeTaskRollup('T600', accessor);
     const r = rollup as TaskRollup;

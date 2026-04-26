@@ -528,6 +528,36 @@ export type {
 } from './operations/dialectic.js';
 // === Operations Types (API wire format, namespaced to avoid collision with domain types) ===
 export * as ops from './operations/index.js';
+// === Lifecycle Operation Types (T1455 — ADR-057 D1 Core normalization) ===
+// Re-exported at top level so @cleocode/core/lifecycle can import without the `ops.` namespace hop.
+// Note: Gate and GateStatus are omitted here — GateStatus conflicts with the
+// status-registry export (different shape). Consumers needing the lifecycle
+// Gate/GateStatus should import via `ops.Gate` / `ops.GateStatus`.
+export type {
+  LifecycleCheckParams,
+  LifecycleCheckResult,
+  LifecycleGateFailParams,
+  LifecycleGateFailResult,
+  LifecycleGatePassParams,
+  LifecycleGatePassResult,
+  LifecycleGatesParams,
+  LifecycleGatesResult,
+  LifecycleHistoryEntry,
+  LifecycleHistoryParams,
+  LifecycleHistoryResult,
+  LifecyclePrerequisitesParams,
+  LifecyclePrerequisitesResult,
+  LifecycleProgressParams,
+  LifecycleProgressResult,
+  LifecycleResetParams,
+  LifecycleResetResult,
+  LifecycleSkipParams,
+  LifecycleSkipResult,
+  LifecycleStage,
+  LifecycleStatusParams,
+  LifecycleStatusResult,
+  StageRecord,
+} from './operations/lifecycle.js';
 // Multi-pass retrieval bundle types (PSYCHE Wave 4 · T1090)
 export type {
   PassMask,
