@@ -398,11 +398,14 @@ async function whereClauses(filters: TokenUsageFilters): Promise<unknown[]> {
   return clauses;
 }
 
-export async function recordTokenExchange(input: TokenExchangeInput): Promise<TokenUsageRow> {
+export async function recordTokenExchange(
+  projectRoot: string,
+  input: Omit<TokenExchangeInput, 'cwd'>,
+): Promise<TokenUsageRow> {
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
   const measurement = await measureTokenExchange(input);
-  const db = await getDb(input.cwd);
+  const db = await getDb(projectRoot);
 
   const row: NewTokenUsageRow = {
     id: randomUUID(),
@@ -435,21 +438,24 @@ export async function recordTokenExchange(input: TokenExchangeInput): Promise<To
   return inserted[0]!;
 }
 
-export async function showTokenUsage(id: string, cwd?: string): Promise<TokenUsageRow | null> {
+export async function showTokenUsage(
+  projectRoot: string,
+  params: { id: string },
+): Promise<TokenUsageRow | null> {
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
-  const db = await getDb(cwd);
-  const rows = await db.select().from(tokenUsage).where(eq(tokenUsage.id, id)).limit(1);
+  const db = await getDb(projectRoot);
+  const rows = await db.select().from(tokenUsage).where(eq(tokenUsage.id, params.id)).limit(1);
   return rows[0] ?? null;
 }
 
 export async function listTokenUsage(
+  projectRoot: string,
   filters: TokenUsageFilters = {},
-  cwd?: string,
 ): Promise<{ records: TokenUsageRow[]; total: number; filtered: number }> {
   const { getDb } = await import('../store/sqlite.js');
   const { and, count, desc } = await import('drizzle-orm');
-  const db = await getDb(cwd);
+  const db = await getDb(projectRoot);
   const clauses = await whereClauses(filters);
   const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
 
@@ -471,12 +477,12 @@ export async function listTokenUsage(
 }
 
 export async function summarizeTokenUsage(
+  projectRoot: string,
   filters: TokenUsageFilters = {},
-  cwd?: string,
 ): Promise<TokenUsageSummary> {
   const { getDb } = await import('../store/sqlite.js');
   const { and, desc } = await import('drizzle-orm');
-  const db = await getDb(cwd);
+  const db = await getDb(projectRoot);
   const clauses = await whereClauses(filters);
   const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
   const rows = await db.select().from(tokenUsage).where(where).orderBy(desc(tokenUsage.createdAt));
@@ -526,23 +532,23 @@ export async function summarizeTokenUsage(
 }
 
 export async function deleteTokenUsage(
-  id: string,
-  cwd?: string,
+  projectRoot: string,
+  params: { id: string },
 ): Promise<{ deleted: boolean; id: string }> {
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
-  const db = await getDb(cwd);
-  await db.delete(tokenUsage).where(eq(tokenUsage.id, id));
-  return { deleted: true, id };
+  const db = await getDb(projectRoot);
+  await db.delete(tokenUsage).where(eq(tokenUsage.id, params.id));
+  return { deleted: true, id: params.id };
 }
 
 export async function clearTokenUsage(
+  projectRoot: string,
   filters: TokenUsageFilters = {},
-  cwd?: string,
 ): Promise<{ deleted: number }> {
   const { getDb } = await import('../store/sqlite.js');
   const { and, count } = await import('drizzle-orm');
-  const db = await getDb(cwd);
+  const db = await getDb(projectRoot);
   const clauses = await whereClauses(filters);
   const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
   const countRows = await db.select({ count: count() }).from(tokenUsage).where(where);
@@ -552,26 +558,27 @@ export async function clearTokenUsage(
 
 export async function autoRecordDispatchTokenUsage(input: TokenExchangeInput): Promise<void> {
   try {
-    await recordTokenExchange(input);
+    const { cwd, ...rest } = input;
+    await recordTokenExchange(cwd ?? '', rest);
   } catch {
     // Token telemetry must never break core CLI flows.
   }
 }
 
-export async function getLatestTokenRecord(cwd?: string): Promise<TokenUsageRow | null> {
+export async function getLatestTokenRecord(projectRoot?: string): Promise<TokenUsageRow | null> {
   const { getDb } = await import('../store/sqlite.js');
   const { desc } = await import('drizzle-orm');
-  const db = await getDb(cwd);
+  const db = await getDb(projectRoot);
   const rows = await db.select().from(tokenUsage).orderBy(desc(tokenUsage.createdAt)).limit(1);
   return rows[0] ?? null;
 }
 
 export async function getTokenUsageAggregateSql(
-  cwd?: string,
+  projectRoot?: string,
 ): Promise<Array<{ provider: string; transport: string; totalTokens: number; count: number }>> {
   const { getDb } = await import('../store/sqlite.js');
   const { sql, desc } = await import('drizzle-orm');
-  const db = await getDb(cwd);
+  const db = await getDb(projectRoot);
   return db
     .select({
       provider: tokenUsage.provider,

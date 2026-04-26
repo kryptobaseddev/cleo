@@ -7,7 +7,7 @@
  */
 
 import { writeFile } from 'node:fs/promises';
-import type { Task } from '@cleocode/contracts';
+import type { AdminExportParams, Task } from '@cleocode/contracts';
 import { getAccessor } from '../store/data-accessor.js';
 
 export type ExportFormat = 'json' | 'csv' | 'tsv' | 'markdown';
@@ -38,15 +38,6 @@ function taskToMarkdown(task: Task): string {
   return `- [${status}] **${task.id}** ${priority} ${task.title}`;
 }
 
-export interface ExportParams {
-  format?: ExportFormat;
-  output?: string;
-  status?: string;
-  parent?: string;
-  phase?: string;
-  cwd?: string;
-}
-
 export interface ExportResult {
   format: ExportFormat;
   taskCount: number;
@@ -58,8 +49,11 @@ export interface ExportResult {
  * Export tasks to a portable format.
  * Returns the formatted content and metadata.
  */
-export async function exportTasks(params: ExportParams): Promise<ExportResult> {
-  const accessor = await getAccessor(params.cwd);
+export async function exportTasks(
+  projectRoot: string,
+  params: AdminExportParams,
+): Promise<ExportResult> {
+  const accessor = await getAccessor(projectRoot);
   const queryResult = await accessor.queryTasks({});
   const projectMeta = await accessor.getMetaValue<{ name?: string }>('project');
 
