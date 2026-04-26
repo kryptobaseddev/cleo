@@ -60,13 +60,12 @@ describe('stage.record provenance integration', () => {
     const schema = await import('../../store/tasks-schema.js');
     const { eq } = await import('drizzle-orm');
 
-    await recordStageProgress(
-      'T9001',
-      'research',
-      'completed',
-      'Initial research complete',
-      testDir,
-    );
+    await recordStageProgress(testDir, {
+      taskId: 'T9001',
+      stage: 'research',
+      status: 'completed',
+      notes: 'Initial research complete',
+    });
 
     const artifactPath = join(cleoDir, 'rcasd', 'T9001', 'research', 'T9001-research.md');
     expect(existsSync(artifactPath)).toBe(true);
@@ -110,8 +109,18 @@ describe('stage.record provenance integration', () => {
   it('writes frontmatter backlinks to prerequisite stage artifacts', async () => {
     const { recordStageProgress } = await import('../index.js');
 
-    await recordStageProgress('T9002', 'research', 'completed', 'Research done', testDir);
-    await recordStageProgress('T9002', 'consensus', 'completed', 'Consensus done', testDir);
+    await recordStageProgress(testDir, {
+      taskId: 'T9002',
+      stage: 'research',
+      status: 'completed',
+      notes: 'Research done',
+    });
+    await recordStageProgress(testDir, {
+      taskId: 'T9002',
+      stage: 'consensus',
+      status: 'completed',
+      notes: 'Consensus done',
+    });
 
     const consensusPath = join(cleoDir, 'rcasd', 'T9002', 'consensus', 'T9002-consensus.md');
     const consensusContent = await readFile(consensusPath, 'utf-8');
@@ -123,13 +132,12 @@ describe('stage.record provenance integration', () => {
   it('auto-triggers ADR sync and linking on architecture_decision completion', async () => {
     const { recordStageProgress } = await import('../index.js');
 
-    await recordStageProgress(
-      'T9003',
-      'architecture_decision',
-      'completed',
-      'Architecture finalized',
-      testDir,
-    );
+    await recordStageProgress(testDir, {
+      taskId: 'T9003',
+      stage: 'architecture_decision',
+      status: 'completed',
+      notes: 'Architecture finalized',
+    });
 
     expect(syncAdrsToDbMock).toHaveBeenCalledWith(testDir);
     expect(linkPipelineAdrMock).toHaveBeenCalledWith(testDir, 'T9003');
