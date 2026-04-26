@@ -166,7 +166,7 @@ describe('taskShowWithHistory', () => {
       expect(result.data?.task).toBeDefined();
       expect(result.data?.task.id).toBe('T001');
       expect(Array.isArray(result.data?.history)).toBe(true);
-      expect(mockGetLifecycleStatus).toHaveBeenCalledWith('T001', projectRoot);
+      expect(mockGetLifecycleStatus).toHaveBeenCalledWith(projectRoot, { taskId: 'T001' });
     });
 
     it('history entries have the required shape', async () => {

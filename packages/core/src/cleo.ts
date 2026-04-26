@@ -351,15 +351,38 @@ export class Cleo {
     const resolveAccessor = (): Promise<DataAccessor> =>
       this._store !== null ? Promise.resolve(this._store) : getAccessor(root);
     return {
-      status: (epicId) => getLifecycleStatus(epicId, root),
-      startStage: (epicId, stage) => startStage(epicId, stage, root),
-      completeStage: (epicId, stage, artifacts) => completeStage(epicId, stage, artifacts, root),
-      skipStage: (epicId, stage, reason) => skipStage(epicId, stage, reason, root),
+      status: (epicId) => getLifecycleStatus(root, { epicId }),
+      startStage: (epicId, stage) =>
+        startStage(root, {
+          taskId: epicId,
+          stage: stage as import('@cleocode/contracts').LifecycleProgressParams['stage'],
+          status: 'in_progress',
+        }),
+      completeStage: (epicId, stage, artifacts) =>
+        completeStage(root, {
+          taskId: epicId,
+          stage: stage as import('@cleocode/contracts').LifecycleProgressParams['stage'],
+          status: 'completed',
+          artifacts,
+        }),
+      skipStage: (epicId, stage, reason) =>
+        skipStage(root, {
+          taskId: epicId,
+          stage: stage as import('@cleocode/contracts').LifecycleSkipParams['stage'],
+          reason,
+        }),
       checkGate: (epicId, target) => checkGate(epicId, target, root),
-      history: (epicId) => getLifecycleHistory(epicId, root),
-      resetStage: (epicId, stage, reason) => resetStage(epicId, stage, reason, root),
-      passGate: (epicId, gate, agent) => passGate(epicId, gate, agent, undefined, root),
-      failGate: (epicId, gate, reason) => failGate(epicId, gate, reason, root),
+      history: (epicId) => getLifecycleHistory(root, { taskId: epicId }),
+      resetStage: (epicId, stage, reason) =>
+        resetStage(root, {
+          taskId: epicId,
+          stage: stage as import('@cleocode/contracts').LifecycleResetParams['stage'],
+          reason,
+        }),
+      passGate: (epicId, gate, agent) =>
+        passGate(root, { taskId: epicId, gateName: gate, agent: agent ?? 'system' }),
+      failGate: (epicId, gate, reason) =>
+        failGate(root, { taskId: epicId, gateName: gate, reason: reason ?? '' }),
       stages: PIPELINE_STAGES,
       // T948: expose rollup so Studio + CLI share a single canonical
       // projection for "what is the state of this task?".
