@@ -919,6 +919,32 @@ export {
   WorkflowGateName,
   WorkflowGateTracker,
 } from './validation/operation-verification-gates.js';
+// Validation — ADR-057 D1 normalized ops (T1452)
+export type {
+  CheckRevalidateEvidenceParams,
+  CheckRevalidateEvidenceResult,
+} from './validation/ops.js';
+export {
+  checkArchiveStats,
+  checkBatchValidate,
+  checkCoherence,
+  checkComplianceRecord,
+  checkComplianceSummary,
+  checkComplianceSync,
+  checkGradeSession,
+  checkReadGrades,
+  checkRevalidateEvidence,
+  checkTestCoverage,
+  checkTestRun,
+  checkTestStatus,
+  checkValidateChain,
+  checkValidateManifest,
+  checkValidateOutput,
+  checkValidateProtocol,
+  checkValidateSchema,
+  checkValidateTask,
+  checkWorkflowCompliance,
+} from './validation/ops.js';
 export type {
   CommanderArgSplit,
   JSONSchemaObject,

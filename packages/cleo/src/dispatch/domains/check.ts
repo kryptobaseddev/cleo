@@ -40,24 +40,30 @@ import type {
   ValidateWorkflowComplianceParams,
 } from '@cleocode/contracts';
 import {
+  checkArchiveStats,
+  checkCoherence,
+  checkComplianceRecord,
+  checkComplianceSummary,
+  checkComplianceSync,
+  checkGradeSession,
+  checkReadGrades,
+  checkRevalidateEvidence,
+  checkTestCoverage,
+  checkTestRun,
+  checkTestStatus,
+  checkValidateChain,
+  checkValidateManifest,
+  checkValidateOutput,
+  checkValidateProtocol,
+  checkValidateSchema,
+  checkValidateTask,
+  checkWorkflowCompliance,
   getLogger,
   getProjectRoot,
-  getWorkflowComplianceReport,
-  paginate,
-  revalidateEvidence,
-  validateChain,
 } from '@cleocode/core/internal';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import {
-  systemArchiveStats,
-  validateCoherenceCheck,
-  validateComplianceRecord,
-  validateComplianceSummary,
-  validateComplianceViolations,
   validateGateVerify,
-  validateManifestOp,
-  validateOutput,
-  validateProtocol,
   validateProtocolArchitectureDecision,
   validateProtocolArtifactPublish,
   validateProtocolConsensus,
@@ -70,11 +76,6 @@ import {
   validateProtocolSpecification,
   validateProtocolTesting,
   validateProtocolValidation,
-  validateSchemaOp,
-  validateTaskOp,
-  validateTestCoverage,
-  validateTestRun,
-  validateTestStatus,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult } from './_base.js';
@@ -98,15 +99,20 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     if (!params.type) {
       return lafsError('E_INVALID_INPUT', 'type is required', 'schema');
     }
-    const result = await validateSchemaOp(params.type, params.data, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'schema',
-      );
+    try {
+      const result = await checkValidateSchema(projectRoot, params);
+      return lafsSuccess(result, 'schema');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.includes('not found')
+        ? 'E_NOT_FOUND'
+        : message.includes('Unknown schema')
+          ? 'E_INVALID_TYPE'
+          : message.includes('required')
+            ? 'E_INVALID_INPUT'
+            : 'E_VALIDATION_ERROR';
+      return lafsError(code, message, 'schema');
     }
-    return lafsSuccess(result.data ?? { valid: false, violations: [] }, 'schema');
   },
 
   task: async (params: ValidateTaskParams) => {
@@ -114,31 +120,28 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'task');
     }
-    const result = await validateTaskOp(params.taskId, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'task',
-      );
+    try {
+      const result = await checkValidateTask(projectRoot, params);
+      return lafsSuccess(result, 'task');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_INVALID_INPUT';
+      return lafsError(code, message, 'task');
     }
-    return lafsSuccess(
-      result.data ?? { taskId: params.taskId, valid: false, violations: [], checks: {} },
-      'task',
-    );
   },
 
-  manifest: async (_params: ValidateManifestParams) => {
+  manifest: async (params: ValidateManifestParams) => {
     const projectRoot = getProjectRoot();
-    const result = validateManifestOp(projectRoot);
-    if (!result.success) {
+    try {
+      const result = checkValidateManifest(projectRoot, params);
+      return lafsSuccess(result, 'manifest');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_FILE_ERROR',
+        err instanceof Error ? err.message : String(err),
         'manifest',
       );
     }
-    return lafsSuccess(result.data ?? { valid: false, entry: {}, violations: [] }, 'manifest');
   },
 
   output: async (params: ValidateOutputParams) => {
@@ -146,101 +149,72 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     if (!params.filePath) {
       return lafsError('E_INVALID_INPUT', 'filePath is required', 'output');
     }
-    const result = validateOutput(params.filePath, params.taskId, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'output',
-      );
+    try {
+      const result = checkValidateOutput(projectRoot, params);
+      return lafsSuccess(result, 'output');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_INVALID_INPUT';
+      return lafsError(code, message, 'output');
     }
-    return lafsSuccess(
-      result.data ?? { taskId: '', filePath: '', valid: false, checks: {}, violations: [] },
-      'output',
-    );
   },
 
   'compliance.summary': async (params: ValidateComplianceSummaryParams) => {
     const projectRoot = getProjectRoot();
-
-    if (params?.detail) {
-      const result = validateComplianceViolations(params.limit, projectRoot);
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'compliance.summary',
-        );
-      }
-      return lafsSuccess(result.data ?? { violations: [], total: 0 }, 'compliance.summary');
-    }
-
-    const result = validateComplianceSummary(projectRoot);
-    if (!result.success) {
+    try {
+      const summary = checkComplianceSummary(projectRoot, params);
+      // Include the requested view type so callers can differentiate
+      // trend/skills/value/audit/summary responses
+      const enrichedData = {
+        ...summary,
+        view: params.type ?? 'summary',
+        ...(params.taskId ? { taskId: params.taskId } : {}),
+        ...(params.days ? { days: params.days } : {}),
+        ...(params.global ? { global: params.global } : {}),
+      };
+      return lafsSuccess(enrichedData, 'compliance.summary');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_FILE_ERROR',
+        err instanceof Error ? err.message : String(err),
         'compliance.summary',
       );
     }
-
-    // Include the requested view type so callers can differentiate
-    // trend/skills/value/audit/summary responses
-    const data = result.data ?? {};
-    const enrichedData = {
-      ...data,
-      view: params.type ?? 'summary',
-      ...(params.taskId ? { taskId: params.taskId } : {}),
-      ...(params.days ? { days: params.days } : {}),
-      ...(params.global ? { global: params.global } : {}),
-    };
-    return lafsSuccess(enrichedData, 'compliance.summary');
   },
 
   test: async (params: ValidateTestStatusParams) => {
     const projectRoot = getProjectRoot();
 
     if (params?.format === 'coverage') {
-      const result = validateTestCoverage(projectRoot);
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'test',
-        );
+      try {
+        const result = checkTestCoverage(projectRoot, {});
+        return lafsSuccess(result, 'test');
+      } catch (err) {
+        return lafsError('E_FILE_ERROR', err instanceof Error ? err.message : String(err), 'test');
       }
-      return lafsSuccess(
-        result.data ?? { lineCoverage: 0, branchCoverage: 0, functionCoverage: 0, threshold: 0 },
-        'test',
-      );
     }
 
     // Default to status
-    const result = validateTestStatus(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'test',
-      );
+    try {
+      const result = checkTestStatus(projectRoot, params);
+      return lafsSuccess(result, 'test');
+    } catch (err) {
+      return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'test');
     }
-    return lafsSuccess(
-      result.data ?? { total: 0, passed: 0, failed: 0, skipped: 0, passRate: 0 },
-      'test',
-    );
   },
 
-  coherence: async (_params: ValidateCoherenceParams) => {
+  coherence: async (params: ValidateCoherenceParams) => {
     const projectRoot = getProjectRoot();
-    const result = await validateCoherenceCheck(projectRoot);
-    if (!result.success) {
+    try {
+      const result = await checkCoherence(projectRoot, params);
+      return lafsSuccess(result, 'coherence');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_NOT_INITIALIZED',
+        err instanceof Error ? err.message : String(err),
         'coherence',
       );
     }
-    return lafsSuccess(result.data ?? { passed: false, issues: [], warnings: [] }, 'coherence');
   },
 
   protocol: async (params: ValidateProtocolParams) => {
@@ -477,15 +451,14 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
             'protocol',
           );
         }
-        const result = await validateProtocol(params.taskId, protocolType, projectRoot);
-        if (!result.success) {
-          return lafsError(
-            String(result.error?.code ?? 'E_INTERNAL'),
-            result.error?.message ?? 'Unknown error',
-            'protocol',
-          );
+        try {
+          const result = await checkValidateProtocol(projectRoot, params);
+          return lafsSuccess(result, 'protocol');
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_INVALID_INPUT';
+          return lafsError(code, message, 'protocol');
         }
-        return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
     }
   },
@@ -612,15 +585,14 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       let stillValid = true;
       let failedAtoms: EvidenceEntry['failedAtoms'] = [];
       try {
-        const reval = await revalidateEvidence(
-          {
+        const reval = await checkRevalidateEvidence(projectRoot, {
+          evidence: {
             atoms: normalised.atoms,
             capturedAt: normalised.capturedAt,
             capturedBy: normalised.capturedBy,
             override: normalised.override,
           } as GateEvidence,
-          projectRoot,
-        );
+        });
         stillValid = reval.stillValid;
         failedAtoms = reval.failedAtoms.map((f) => ({
           kind: f.atom.kind,
@@ -730,59 +702,53 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
 
   'archive.stats': async (params: ValidateArchiveStatsParams) => {
     const projectRoot = getProjectRoot();
-    const result = await systemArchiveStats(projectRoot, {
-      period: params?.period,
-      report: params?.report as any,
-      since: params?.since,
-      until: params?.until,
-    });
-    if (!result.success) {
+    try {
+      const result = await checkArchiveStats(projectRoot, params);
+      return lafsSuccess(result, 'archive.stats');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_NOT_INITIALIZED',
+        err instanceof Error ? err.message : String(err),
         'archive.stats',
       );
     }
-    return lafsSuccess(result.data ?? {}, 'archive.stats');
   },
 
   'chain.validate': async (params: ValidateChainParams) => {
     if (!params.chain) {
       return lafsError('E_INVALID_INPUT', 'chain is required', 'chain.validate');
     }
-    // chain.validate is a pure-function check (no project state); no
-    // project root needed. Other check ops bind getProjectRoot() — see
-    // sibling handlers above.
-    const chainResult = validateChain(params.chain);
+    // chain.validate is a pure-function check (no project state); pass empty
+    // projectRoot string to satisfy the normalized (projectRoot, params) shape.
+    const chainResult = checkValidateChain('', params);
     return lafsSuccess(chainResult, 'chain.validate');
   },
 
   grade: async (params: ValidateGradeParams) => {
     const projectRoot = getProjectRoot();
-    const { gradeSession } = await import('@cleocode/core/internal');
     if (!params.sessionId) {
       return lafsError('E_INVALID_INPUT', 'sessionId required', 'grade');
     }
-    const gradeResult = await gradeSession(params.sessionId, projectRoot);
-    return lafsSuccess(gradeResult, 'grade');
+    try {
+      const gradeResult = await checkGradeSession(projectRoot, params);
+      return lafsSuccess(gradeResult, 'grade');
+    } catch (err) {
+      return lafsError('E_NOT_FOUND', err instanceof Error ? err.message : String(err), 'grade');
+    }
   },
 
   'grade.list': async (params: ValidateGradeListParams) => {
     const projectRoot = getProjectRoot();
-    const { readGrades } = await import('@cleocode/core/internal');
-    const allGrades = await readGrades(undefined, projectRoot);
-    const filteredGrades = params.sessionId
-      ? allGrades.filter((g) => g.sessionId === params.sessionId)
-      : allGrades;
-    const page = paginate(filteredGrades, params.limit, params.offset);
-    return lafsSuccess(
-      {
-        grades: page.items,
-        total: allGrades.length,
-        filtered: filteredGrades.length,
-      },
-      'grade.list',
-    );
+    try {
+      const result = await checkReadGrades(projectRoot, params);
+      return lafsSuccess(result, 'grade.list');
+    } catch (err) {
+      return lafsError(
+        'E_NOT_FOUND',
+        err instanceof Error ? err.message : String(err),
+        'grade.list',
+      );
+    }
   },
 
   canon: async (_params: ValidateCanonParams) => {
@@ -794,11 +760,16 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
 
   'workflow.compliance': async (params: ValidateWorkflowComplianceParams) => {
     const projectRoot = getProjectRoot();
-    const result = await getWorkflowComplianceReport({
-      since: params.since,
-      cwd: projectRoot,
-    });
-    return lafsSuccess(result, 'workflow.compliance');
+    try {
+      const result = await checkWorkflowCompliance(projectRoot, params);
+      return lafsSuccess(result, 'workflow.compliance');
+    } catch (err) {
+      return lafsError(
+        'E_GENERAL',
+        err instanceof Error ? err.message : String(err),
+        'workflow.compliance',
+      );
+    }
   },
 
   // -----------------------------------------------------------------------
@@ -810,74 +781,59 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     if (!params.taskId || !params.result) {
       return lafsError('E_INVALID_INPUT', 'taskId and result are required', 'compliance.record');
     }
-    const engineResult = validateComplianceRecord(
-      params.taskId,
-      params.result,
-      params.protocol,
-      params.violations,
-      projectRoot,
-    );
-    if (!engineResult.success) {
+    try {
+      const result = checkComplianceRecord(projectRoot, params);
+      return lafsSuccess(result, 'compliance.record');
+    } catch (err) {
       return lafsError(
-        String(engineResult.error?.code ?? 'E_INTERNAL'),
-        engineResult.error?.message ?? 'Unknown error',
+        'E_INVALID_INPUT',
+        err instanceof Error ? err.message : String(err),
         'compliance.record',
       );
     }
-    return lafsSuccess(
-      engineResult.data ?? { taskId: params.taskId, recorded: '' },
-      'compliance.record',
-    );
   },
 
   'test.run': async (params: ValidateTestRunParams) => {
     const projectRoot = getProjectRoot();
-    const result = validateTestRun(
-      { scope: params.scope, pattern: params.pattern, parallel: params.parallel },
-      projectRoot,
-    );
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'test.run',
-      );
+    try {
+      const result = checkTestRun(projectRoot, params);
+      return lafsSuccess(result, 'test.run');
+    } catch (err) {
+      return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'test.run');
     }
-    return lafsSuccess(
-      result.data ?? { status: { total: 0, passed: 0, failed: 0, skipped: 0, passRate: 0 } },
-      'test.run',
-    );
   },
 
-  'test.coverage': async (_params) => {
+  'test.coverage': async (params) => {
     // T1434: surface the dedicated test.coverage typed op declared in
     // CheckOps. The legacy `test` op routes by `params.format === 'coverage'`
     // and remains for backward compat with existing CLI surface; new typed
-    // callers SHOULD prefer `test.coverage` which targets `validateTestCoverage`
+    // callers SHOULD prefer `test.coverage` which targets checkTestCoverage
     // directly.
     const projectRoot = getProjectRoot();
-    const result = validateTestCoverage(projectRoot);
-    if (!result.success) {
+    try {
+      const result = checkTestCoverage(projectRoot, params ?? {});
+      return lafsSuccess(result, 'test.coverage');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_FILE_ERROR',
+        err instanceof Error ? err.message : String(err),
         'test.coverage',
       );
     }
-    return lafsSuccess(
-      result.data ?? { lineCoverage: 0, branchCoverage: 0, functionCoverage: 0, threshold: 0 },
-      'test.coverage',
-    );
   },
 
   'compliance.sync': async (params: ValidateComplianceSyncParams) => {
     const projectRoot = getProjectRoot();
-    const { syncComplianceMetrics } = await import('@cleocode/core/internal');
-    const result = await syncComplianceMetrics({
-      force: params.force,
-      cwd: projectRoot,
-    });
-    return lafsSuccess(result, 'compliance.sync');
+    try {
+      const result = await checkComplianceSync(projectRoot, params);
+      return lafsSuccess(result, 'compliance.sync');
+    } catch (err) {
+      return lafsError(
+        'E_GENERAL',
+        err instanceof Error ? err.message : String(err),
+        'compliance.sync',
+      );
+    }
   },
 
   'gate.set': async (params: ValidateGateParams) => {
