@@ -8,7 +8,7 @@
 
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
-import type { Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
+import type { AdminImportParams, Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
 import { getAccessor } from '../store/data-accessor.js';
 
 type DuplicateStrategy = 'skip' | 'overwrite' | 'rename';
@@ -24,16 +24,6 @@ function generateTaskId(existingIds: Set<string>): string {
   return newId;
 }
 
-export interface ImportParams {
-  file: string;
-  parent?: string;
-  phase?: string;
-  onDuplicate?: DuplicateStrategy;
-  addLabel?: string;
-  dryRun?: boolean;
-  cwd?: string;
-}
-
 export interface ImportResult {
   imported: number;
   skipped: number;
@@ -45,7 +35,10 @@ export interface ImportResult {
 /**
  * Import tasks from an export file.
  */
-export async function importTasks(params: ImportParams): Promise<ImportResult> {
+export async function importTasks(
+  projectRoot: string,
+  params: AdminImportParams,
+): Promise<ImportResult> {
   const { file } = params;
 
   try {
@@ -75,7 +68,7 @@ export async function importTasks(params: ImportParams): Promise<ImportResult> {
     return { imported: 0, skipped: 0, renamed: [], totalTasks: 0, dryRun: params.dryRun };
   }
 
-  const accessor = await getAccessor(params.cwd);
+  const accessor = await getAccessor(projectRoot);
   const { tasks: existingTasks } = await accessor.queryTasks({});
 
   const existingIds = new Set(existingTasks.map((t) => t.id));

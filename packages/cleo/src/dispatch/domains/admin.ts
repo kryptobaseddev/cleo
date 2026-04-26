@@ -434,21 +434,12 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
   'adr.find': async (params: AdminAdrFindParams) => {
     const projectRoot = getProjectRoot();
     if (params.query) {
-      const result = await findAdrs(projectRoot, params.query, {
-        topics: params.topics,
-        keywords: params.keywords,
-        status: params.status,
-      });
+      const result = await findAdrs(projectRoot, params);
       return lafsSuccess(result, 'adr.find');
     }
     // No query — list all ADRs
     const { limit, offset } = getListParams({ limit: params.limit, offset: params.offset });
-    const result = await listAdrs(projectRoot, {
-      status: params.status,
-      since: params.since,
-      limit,
-      offset,
-    });
+    const result = await listAdrs(projectRoot, { ...params, limit, offset });
     return lafsSuccess(
       {
         ...result,
@@ -460,7 +451,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
 
   'adr.show': async (params: AdminAdrShowParams) => {
     const projectRoot = getProjectRoot();
-    const adr = await showAdr(projectRoot, params.adrId);
+    const adr = await showAdr(projectRoot, params);
     if (!adr) {
       return lafsError('E_NOT_FOUND', `ADR not found: ${params.adrId}`, 'adr.show');
     }
@@ -476,7 +467,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
       if (!tokenId) {
         return lafsError('E_INVALID_INPUT', 'tokenId is required', 'token');
       }
-      const result = await showTokenUsage(tokenId, projectRoot);
+      const result = await showTokenUsage(projectRoot, { id: tokenId });
       if (!result) {
         return lafsError('E_NOT_FOUND', `Token usage record not found: ${tokenId}`, 'token');
       }
@@ -485,38 +476,7 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
 
     if (action === 'list') {
       const { limit, offset } = getListParams({ limit: params.limit, offset: params.offset });
-      const result = await listTokenUsage(
-        {
-          provider: params.provider,
-          transport: params.transport,
-          gateway: params.gateway,
-          domain: params.domain,
-          operation: params.operationName,
-          sessionId: params.sessionId,
-          taskId: params.taskId,
-          method: params.method,
-          confidence: params.confidence,
-          requestId: params.requestId,
-          since: params.since,
-          until: params.until,
-          limit,
-          offset,
-        },
-        projectRoot,
-      );
-      return lafsSuccess(
-        {
-          records: result.records,
-          total: result.total,
-          filtered: result.filtered,
-        },
-        'token',
-      );
-    }
-
-    // Default: summary
-    const result = await summarizeTokenUsage(
-      {
+      const result = await listTokenUsage(projectRoot, {
         provider: params.provider,
         transport: params.transport,
         gateway: params.gateway,
@@ -529,9 +489,34 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
         requestId: params.requestId,
         since: params.since,
         until: params.until,
-      },
-      projectRoot,
-    );
+        limit,
+        offset,
+      });
+      return lafsSuccess(
+        {
+          records: result.records,
+          total: result.total,
+          filtered: result.filtered,
+        },
+        'token',
+      );
+    }
+
+    // Default: summary
+    const result = await summarizeTokenUsage(projectRoot, {
+      provider: params.provider,
+      transport: params.transport,
+      gateway: params.gateway,
+      domain: params.domain,
+      operation: params.operationName,
+      sessionId: params.sessionId,
+      taskId: params.taskId,
+      method: params.method,
+      confidence: params.confidence,
+      requestId: params.requestId,
+      since: params.since,
+      until: params.until,
+    });
     return lafsSuccess(result, 'token');
   },
 
@@ -566,26 +551,11 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
       );
     }
     if (params.scope === 'tasks') {
-      const result = await exportTasksPackage({
-        taskIds: params.taskIds,
-        output: params.output,
-        subtree: params.subtree,
-        filter: params.filter,
-        includeDeps: params.includeDeps,
-        dryRun: params.dryRun,
-        cwd: projectRoot,
-      });
+      const result = await exportTasksPackage(projectRoot, params);
       return lafsSuccess(result, 'export');
     }
     // Default: standard export
-    const result = await exportTasks({
-      format: params.format,
-      output: params.output,
-      status: params.status,
-      parent: params.parent,
-      phase: params.phase,
-      cwd: projectRoot,
-    });
+    const result = await exportTasks(projectRoot, params);
     return lafsSuccess(result, 'export');
   },
 
@@ -938,32 +908,12 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
     }
 
     if (params.scope === 'tasks') {
-      const result = await importTasksPackage({
-        file,
-        dryRun: params.dryRun,
-        parent: params.parent,
-        phase: params.phase,
-        addLabel: params.addLabel,
-        provenance: params.provenance,
-        resetStatus: params.resetStatus,
-        onConflict: params.onConflict,
-        onMissingDep: params.onMissingDep,
-        force: params.force,
-        cwd: projectRoot,
-      });
+      const result = await importTasksPackage(projectRoot, params);
       return lafsSuccess(result, 'import');
     }
 
     // Default: standard import
-    const result = await importTasks({
-      file,
-      parent: params.parent,
-      phase: params.phase,
-      onDuplicate: params.onDuplicate,
-      addLabel: params.addLabel,
-      dryRun: params.dryRun,
-      cwd: projectRoot,
-    });
+    const result = await importTasks(projectRoot, params);
     return lafsSuccess(result, 'import');
   },
 
@@ -986,33 +936,30 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
       if (!tokenId) {
         return lafsError('E_INVALID_INPUT', 'tokenId is required', 'token.mutate');
       }
-      const result = await deleteTokenUsage(tokenId, projectRoot);
+      const result = await deleteTokenUsage(projectRoot, { id: tokenId });
       return lafsSuccess(result, 'token.mutate');
     }
 
     if (action === 'clear') {
-      const result = await clearTokenUsage(
-        {
-          provider: params.provider,
-          transport: params.transport,
-          gateway: params.gateway,
-          domain: params.domain,
-          operation: params.operationName,
-          sessionId: params.sessionId,
-          taskId: params.taskId,
-          method: params.method,
-          confidence: params.confidence,
-          requestId: params.requestId,
-          since: params.since,
-          until: params.until,
-        },
-        projectRoot,
-      );
+      const result = await clearTokenUsage(projectRoot, {
+        provider: params.provider,
+        transport: params.transport,
+        gateway: params.gateway,
+        domain: params.domain,
+        operation: params.operationName,
+        sessionId: params.sessionId,
+        taskId: params.taskId,
+        method: params.method,
+        confidence: params.confidence,
+        requestId: params.requestId,
+        since: params.since,
+        until: params.until,
+      });
       return lafsSuccess(result, 'token.mutate');
     }
 
     // Default: record
-    const result = await recordTokenExchange({
+    const result = await recordTokenExchange(projectRoot, {
       provider: params.provider,
       model: params.model,
       transport: params.transport,
@@ -1025,7 +972,6 @@ const _adminTypedHandler = defineTypedHandler<AdminHandlerOps>('admin', {
       requestPayload: params.requestPayload,
       responsePayload: params.responsePayload,
       metadata: params.metadata,
-      cwd: projectRoot,
     });
     return lafsSuccess(result, 'token.mutate');
   },

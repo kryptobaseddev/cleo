@@ -22,6 +22,7 @@ import type {
   TaskStatus,
   TaskType,
 } from './index.js';
+import type { AdminExportParams, AdminImportParams } from './operations/admin.js';
 
 // ============================================================================
 // Supporting types (previously scattered across core modules)
@@ -525,9 +526,9 @@ export interface ReleaseAPI {
 /** Admin domain API. */
 export interface AdminAPI {
   /** Export tasks. */
-  export(params?: Record<string, unknown>): Promise<unknown>;
+  export(params?: AdminExportParams): Promise<unknown>;
   /** Import tasks from file. */
-  import(params: Omit<ImportParams, 'cwd'>): Promise<unknown>;
+  import(params: AdminImportParams): Promise<unknown>;
 }
 
 /** Sticky notes domain API. */

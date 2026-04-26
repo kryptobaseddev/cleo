@@ -15,7 +15,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { measureTokenExchange, recordTokenExchange } from '@cleocode/core/internal';
+import { getProjectRoot, measureTokenExchange, recordTokenExchange } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
@@ -204,7 +204,7 @@ const estimateCommand = defineCommand({
     };
 
     const result = args.record
-      ? await recordTokenExchange(input)
+      ? await recordTokenExchange(getProjectRoot(), input)
       : await measureTokenExchange(input);
 
     cliOutput(result, {
