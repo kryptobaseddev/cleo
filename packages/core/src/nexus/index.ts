@@ -59,10 +59,10 @@ export {
 // Projects clean - bulk purge project registry rows (T1473)
 export {
   cleanProjects,
+  type CleanProjectsOptions,
+  type CleanProjectsResult,
   InvalidPatternError,
   NoCriteriaError,
-  type ProjectsCleanOptions,
-  type ProjectsCleanResult,
 } from './projects-clean.js';
 // Discovery - cross-project task discovery and search
 export {
