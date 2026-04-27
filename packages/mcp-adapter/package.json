@@ -42,6 +42,10 @@
     "directory": "packages/mcp-adapter"
   },
   "license": "MIT",
+  "dependencies": {
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/core": "workspace:*"
+  },
   "publishConfig": {
     "access": "public"
   }

@@ -1,25 +1,12 @@
 /**
  * Type definitions for the CLEO MCP Adapter.
  *
- * The MCP Adapter is an EXTERNAL-ONLY stub that exposes a subset of CLEO
- * sentient operations as MCP (Model Context Protocol) tools.  It does NOT
- * wire into the internal CLEO dispatch layer — it communicates with CLEO
- * exclusively via CLI subprocess calls.
+ * The MCP Adapter exposes a subset of CLEO sentient operations as MCP
+ * (Model Context Protocol) tools. It communicates with CLEO via the
+ * `@cleocode/core` SDK directly — no CLI subprocess.
  *
- * @task T1148 W8-9
+ * @task T1485 — MCP adapter SDK migration (T948 prerequisite)
  */
-
-/** Result of a CLI subprocess invocation. */
-export interface CliResult {
-  /** Whether the subprocess exited with code 0. */
-  success: boolean;
-  /** Raw stdout from the subprocess. */
-  stdout: string;
-  /** Raw stderr from the subprocess (non-empty on failure). */
-  stderr: string;
-  /** Exit code of the subprocess. */
-  exitCode: number;
-}
 
 /** MCP tool definition shape (minimal — no external MCP SDK dependency). */
 export interface McpTool {
