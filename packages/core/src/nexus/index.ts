@@ -8,6 +8,41 @@
  * @epic T4540
  */
 
+// Clusters - Louvain community detection results (T1473)
+export {
+  getProjectClusters,
+  type NexusCommunityEntry,
+  type NexusClustersResult,
+} from './clusters.js';
+// Context - symbol caller/callee/process context (T1473)
+export {
+  getSymbolContext,
+  type NexusContextNode,
+  type NexusContextOptions,
+  type NexusContextProcess,
+  type NexusContextRelation,
+  type NexusContextResult,
+  type NexusSourceContent,
+} from './context.js';
+// Flows - execution flow (process) nodes (T1473)
+export {
+  getProjectFlows,
+  type NexusFlowEntry,
+  type NexusFlowsResult,
+} from './flows.js';
+// GEXF export - graph serialization (T1473)
+export { escapeXml, generateGexf, hexToRgb } from './gexf-export.js';
+// Impact - BFS upstream blast radius (T1473)
+export {
+  getSymbolImpact,
+  type NexusImpactLayer,
+  type NexusImpactNode,
+  type NexusImpactOptions,
+  type NexusImpactResult,
+  type NexusRiskLevel,
+} from './impact.js';
+// Symbol ranking - priority scores for search results (T1473)
+export { NODE_KIND_PRIORITY, sortMatchingNodes } from './symbol-ranking.js';
 export type {
   NexusDiscoverHit as DiscoverResult,
   NexusDiscoverResult,
