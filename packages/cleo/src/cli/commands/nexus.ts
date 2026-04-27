@@ -26,7 +26,7 @@ import {
   scanForProjects,
 } from '@cleocode/core/nexus';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 
 // ── Subcommand definitions ───────────────────────────────────────────────────
 
@@ -130,6 +130,9 @@ const statusCommand = defineCommand({
     const startTime = Date.now();
 
     try {
+      // SSoT-EXEMPT:status-index-stats — getIndexStats requires direct pipeline access
+      // with db handle + table refs; no dispatch op exposes this level of detail.
+      // Dispatch 'nexus.status' is used as fallback on error (see catch block).
       const [{ getNexusDb, nexusSchema }, { getIndexStats }] = await Promise.all([
         import('@cleocode/core/store/nexus-sqlite' as string),
         import('@cleocode/nexus/pipeline' as string),
@@ -341,6 +344,8 @@ const setupCommand = defineCommand({
   args: {},
   async run() {
     try {
+      // SSoT-EXEMPT:cli-install — installs filesystem hook, not a domain operation.
+      // Hook installation writes shell scripts to disk and cannot be a LAFS dispatch op.
       const { homedir } = await import('node:os');
       const { installNexusAugmentHook } = await import('@cleocode/core/internal');
 
@@ -754,6 +759,7 @@ const clustersCommand = defineCommand({
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'clusters' dispatch op exists yet; pending T1488 Phase 2.
       const result = await getProjectClusters(projectId, repoPath);
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
@@ -838,6 +844,7 @@ const flowsCommand = defineCommand({
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'flows' dispatch op exists yet; pending T1488 Phase 2.
       const result = await getProjectFlows(projectId, repoPath);
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
@@ -924,6 +931,7 @@ const contextCommand = defineCommand({
     const symbolName = args.symbol as string;
     const showContent = !!args.content;
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'context' dispatch op exists yet; pending T1488 Phase 2.
       const result = await getSymbolContext(symbolName, projectId, repoPath, {
         limit,
         showContent,
@@ -1061,6 +1069,9 @@ const impactCommand = defineCommand({
     const maxDepth = Math.min(parseInt(args.depth as string, 10), 5);
     const symbolName = args.symbol as string;
     try {
+      // SSoT-EXEMPT:shape-mismatch — core NexusImpactResult (targetName/impactByDepth)
+      // differs from contracts NexusImpactResult (targetNodeId/affected); routing through
+      // dispatch.impact would require changing the output format. Tracked in T1488 Phase 2.
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,
@@ -1205,6 +1216,10 @@ const analyzeCommand = defineCommand({
     }
 
     try {
+      // SSoT-EXEMPT:pipeline-progress — runPipeline requires a progress callback
+      // (CLI-only rendering concern) and direct DB handle access. No dispatch op
+      // can expose this without introducing CLI rendering concerns into the dispatch
+      // layer. The full analyze pipeline is fundamentally CLI-side-orchestrated.
       // Lazy imports to avoid loading heavy dependencies until needed
       const [{ getNexusDb, nexusSchema }, { runPipeline }, { getProjectRoot }, { eq }] =
         await Promise.all([
@@ -1379,6 +1394,8 @@ const projectsListCommand = defineCommand({
     const startTime = Date.now();
     const jsonOutput = !!args.json;
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'projects.list' dispatch operation exists yet;
+      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
       const { nexusList } = await import('@cleocode/core/internal' as string);
       const list = (await nexusList()) as Array<{
         name: string;
@@ -1461,6 +1478,8 @@ const projectsRegisterCommand = defineCommand({
     const name = args.name as string | undefined;
 
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'projects.register' dispatch operation exists yet;
+      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
       const { nexusRegister } = await import('@cleocode/core/internal' as string);
       const hash = await (nexusRegister as (p: string, n?: string) => Promise<string>)(
         repoPath,
@@ -1533,6 +1552,7 @@ const projectsRemoveCommand = defineCommand({
     const startTime = Date.now();
     const jsonOutput = !!args.json;
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'projects.remove' dispatch op exists yet; pending T1488 Phase 2.
       const { nexusUnregister } = await import('@cleocode/core/internal' as string);
       await nexusUnregister(args.nameOrHash);
       const durationMs = Date.now() - startTime;
@@ -1619,6 +1639,8 @@ const projectsScanCommand = defineCommand({
         `[nexus] Scanning up to depth ${maxDepth} for .cleo/ project roots...\n`,
       );
     }
+    // SSoT-EXEMPT:no-dispatch-op — no 'projects.scan' dispatch operation exists yet;
+    // pending new dispatch op addition tracked in T1488 Phase 2 plan.
     const result = await scanForProjects({
       roots: args.roots as string | undefined,
       maxDepth,
@@ -1744,6 +1766,9 @@ const projectsCleanCommand = defineCommand({
     };
 
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'projects.clean' dispatch operation exists yet.
+      // Additionally requires CLI-side readline confirmation prompt (interactive stdin).
+      // Pending new dispatch op addition tracked in T1488 Phase 2 plan.
       // Preview phase (always dry-run first to get counts)
       const preview = await cleanProjects({ ...cleanOpts, dryRun: true });
       const { matched: matchCount, totalCount, sample: samplePaths } = preview;
@@ -1923,6 +1948,8 @@ const refreshBridgeCommand = defineCommand({
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
 
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'refresh-bridge' dispatch operation exists yet;
+      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
       const { writeNexusBridge } = await import('@cleocode/core/internal' as string);
       const result = await writeNexusBridge(repoPath, projectId);
       const durationMs = Date.now() - startTime;
@@ -2006,6 +2033,9 @@ const exportCommand = defineCommand({
     const projectFilter = args.project as string | undefined;
 
     try {
+      // SSoT-EXEMPT:file-serialization — GEXF/JSON graph export writes raw bytes
+      // to stdout/file; requires direct nexus.db access for node/relation queries.
+      // Cannot be a standard LAFS dispatch envelope without binary data concerns.
       const { getNexusDb, nexusSchema } = await import(
         '@cleocode/core/store/nexus-sqlite' as string
       );
@@ -2130,6 +2160,8 @@ const diffCommand = defineCommand({
       process.stderr.write(`[nexus] Diffing relations: ${beforeRef}..${afterRef} in ${repoPath}\n`);
     }
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'diff' dispatch operation exists yet;
+      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
       const result = await diffNexusIndex(repoPath, { beforeRef, afterRef, projectIdOverride });
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
@@ -2222,6 +2254,9 @@ const queryCommand = defineCommand({
       .filter(Boolean);
 
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'query-cte' dispatch operation exists yet;
+      // CTE alias resolution and raw SQL execution require direct nexus.db access.
+      // Pending new dispatch op addition tracked in T1488 Phase 2 plan.
       const { compileCteAlias, runNexusCte, formatCteResultAsMarkdown } = await import(
         '@cleocode/core/nexus/query-dsl.js' as string
       );
@@ -2305,66 +2340,16 @@ const routeMapCommand = defineCommand({
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
-
-    try {
-      const { getRouteMap } = await import('@cleocode/core/nexus/route-analysis.js');
-      const result = await getRouteMap(projectId, repoPath);
-
-      const durationMs = Date.now() - startTime;
-
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: {
-                operation: 'nexus.route-map',
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-      } else {
-        if (result.routes.length === 0) {
-          process.stdout.write(
-            `[nexus] No routes found for project ${projectId}.\n` +
-              `  Run 'cleo nexus analyze' first.\n`,
-          );
-        } else {
-          process.stdout.write(
-            `[nexus] Route Map for project ${projectId} (${result.routes.length} total):\n\n`,
-          );
-          process.stdout.write('| Route ID | Handler | Method | Path | Deps | Callers |\n');
-          process.stdout.write('|----------|---------|--------|------|------|----------|\n');
-
-          for (const route of result.routes) {
-            const method = (route.routeMeta['method'] as string) ?? '—';
-            const routePath = (route.routeMeta['path'] as string) ?? '—';
-            const depCount = route.fetchedDeps.length;
-            process.stdout.write(
-              `| ${route.routeId} | ${route.handlerName} | ${method} | ${routePath} | ${depCount} | ${route.callerCount} |\n`,
-            );
-          }
-
-          process.stdout.write('\n');
-          if (result.distinctDeps.length > 0) {
-            process.stdout.write(`External dependencies: ${result.distinctDeps.join(', ')}\n`);
-          }
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const durationMs = Date.now() - startTime;
+    const response = await dispatchRaw('query', 'nexus', 'route-map', { projectId });
+    const durationMs = Date.now() - startTime;
+    if (!response.success) {
+      const msg = response.error?.message ?? 'Unknown error';
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify(
             {
               success: false,
-              error: { code: 'E_ROUTE_MAP_FAILED', message: msg },
+              error: { code: response.error?.code ?? 'E_ROUTE_MAP_FAILED', message: msg },
               meta: {
                 operation: 'nexus.route-map',
                 duration_ms: durationMs,
@@ -2379,6 +2364,58 @@ const routeMapCommand = defineCommand({
         process.stderr.write(`[nexus] Error running route-map: ${msg}\n`);
       }
       process.exitCode = 1;
+      return;
+    }
+    const result = response.data as {
+      routes: Array<{
+        routeId: string;
+        handlerName: string;
+        routeMeta: Record<string, unknown>;
+        fetchedDeps: unknown[];
+        callerCount: number;
+      }>;
+      distinctDeps: string[];
+    };
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.route-map',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } else {
+      if (result.routes.length === 0) {
+        process.stdout.write(
+          `[nexus] No routes found for project ${projectId}.\n  Run 'cleo nexus analyze' first.\n`,
+        );
+      } else {
+        process.stdout.write(
+          `[nexus] Route Map for project ${projectId} (${result.routes.length} total):\n\n`,
+        );
+        process.stdout.write('| Route ID | Handler | Method | Path | Deps | Callers |\n');
+        process.stdout.write('|----------|---------|--------|------|------|----------|\n');
+        for (const route of result.routes) {
+          const method = (route.routeMeta['method'] as string) ?? '—';
+          const routePath = (route.routeMeta['path'] as string) ?? '—';
+          const depCount = route.fetchedDeps.length;
+          process.stdout.write(
+            `| ${route.routeId} | ${route.handlerName} | ${method} | ${routePath} | ${depCount} | ${route.callerCount} |\n`,
+          );
+        }
+        process.stdout.write('\n');
+        if (result.distinctDeps.length > 0) {
+          process.stdout.write(`External dependencies: ${result.distinctDeps.join(', ')}\n`);
+        }
+      }
     }
   },
 });
@@ -2418,68 +2455,16 @@ const shapeCheckCommand = defineCommand({
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
-
-    try {
-      const { shapeCheck } = await import('@cleocode/core/nexus/route-analysis.js');
-      const result = await shapeCheck(routeSymbol, projectId, repoPath);
-
-      const durationMs = Date.now() - startTime;
-
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: {
-                operation: 'nexus.shape-check',
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-      } else {
-        process.stdout.write(`[nexus] Shape Check for route ${routeSymbol}\n\n`);
-        process.stdout.write(`Handler: ${result.handlerId}\n`);
-        process.stdout.write(`Declared Shape: ${result.declaredShape}\n`);
-        process.stdout.write(`Overall Status: ${result.overallStatus}\n`);
-        process.stdout.write(`Recommendation: ${result.recommendation}\n\n`);
-
-        if (result.callers.length === 0) {
-          process.stdout.write('No callers found.\n');
-        } else {
-          process.stdout.write(`Callers (${result.callers.length} total):\n`);
-          process.stdout.write('| Caller | File | Expected Shape | Status |\n');
-          process.stdout.write('|--------|------|---------------|---------|\n');
-
-          for (const caller of result.callers) {
-            process.stdout.write(
-              `| ${caller.callerName} | ${caller.callerFile} | ${caller.expectedShape} | ${caller.status} |\n`,
-            );
-          }
-
-          if (result.callers.some((c) => c.status !== 'compatible')) {
-            process.stdout.write('\nIncompatibilities:\n');
-            for (const caller of result.callers) {
-              if (caller.status !== 'compatible') {
-                process.stdout.write(`  - ${caller.callerName}: ${caller.diagnosis}\n`);
-              }
-            }
-          }
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const durationMs = Date.now() - startTime;
+    const response = await dispatchRaw('query', 'nexus', 'shape-check', { routeSymbol, projectId });
+    const durationMs = Date.now() - startTime;
+    if (!response.success) {
+      const msg = response.error?.message ?? 'Unknown error';
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify(
             {
               success: false,
-              error: { code: 'E_SHAPE_CHECK_FAILED', message: msg },
+              error: { code: response.error?.code ?? 'E_SHAPE_CHECK_FAILED', message: msg },
               meta: {
                 operation: 'nexus.shape-check',
                 duration_ms: durationMs,
@@ -2494,6 +2479,63 @@ const shapeCheckCommand = defineCommand({
         process.stderr.write(`[nexus] Error running shape-check: ${msg}\n`);
       }
       process.exitCode = 1;
+      return;
+    }
+    const result = response.data as {
+      handlerId: string;
+      declaredShape: string;
+      overallStatus: string;
+      recommendation: string;
+      callers: Array<{
+        callerName: string;
+        callerFile: string;
+        expectedShape: string;
+        status: string;
+        diagnosis: string;
+      }>;
+    };
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.shape-check',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } else {
+      process.stdout.write(`[nexus] Shape Check for route ${routeSymbol}\n\n`);
+      process.stdout.write(`Handler: ${result.handlerId}\n`);
+      process.stdout.write(`Declared Shape: ${result.declaredShape}\n`);
+      process.stdout.write(`Overall Status: ${result.overallStatus}\n`);
+      process.stdout.write(`Recommendation: ${result.recommendation}\n\n`);
+      if (result.callers.length === 0) {
+        process.stdout.write('No callers found.\n');
+      } else {
+        process.stdout.write(`Callers (${result.callers.length} total):\n`);
+        process.stdout.write('| Caller | File | Expected Shape | Status |\n');
+        process.stdout.write('|--------|------|---------------|---------|\n');
+        for (const caller of result.callers) {
+          process.stdout.write(
+            `| ${caller.callerName} | ${caller.callerFile} | ${caller.expectedShape} | ${caller.status} |\n`,
+          );
+        }
+        if (result.callers.some((c) => c.status !== 'compatible')) {
+          process.stdout.write('\nIncompatibilities:\n');
+          for (const caller of result.callers) {
+            if (caller.status !== 'compatible') {
+              process.stdout.write(`  - ${caller.callerName}: ${caller.diagnosis}\n`);
+            }
+          }
+        }
+      }
     }
   },
 });
@@ -2531,83 +2573,81 @@ const fullContextCommand = defineCommand({
     const startTime = Date.now();
     const jsonOutput = !!args.json;
     const symbolId = args.symbol as string;
-    const projectRoot = process.cwd();
-    try {
-      const { getSymbolFullContext } = await import(
-        '@cleocode/core/nexus/living-brain.js' as string
+    const response = await dispatchRaw('query', 'nexus', 'full-context', { symbol: symbolId });
+    if (!response.success) {
+      process.stderr.write(
+        `[nexus] Error running full-context: ${response.error?.message ?? 'Unknown error'}\n`,
       );
-      const result = await getSymbolFullContext(symbolId, projectRoot);
-      const durationMs = Date.now() - startTime;
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: {
-                operation: 'nexus.full-context',
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-        return;
-      }
-      process.stdout.write(`\n## Living Brain: ${result.symbolId}\n\n`);
-      process.stdout.write(`### NEXUS\n`);
-      if (!result.nexus) {
-        process.stdout.write(`  (no nexus data — run 'cleo nexus analyze' first)\n`);
-      } else {
-        const n = result.nexus;
-        process.stdout.write(`  Kind: ${n.kind}  File: ${n.filePath ?? '—'}\n`);
-        process.stdout.write(
-          `  Callers (${n.callers.length}): ${
-            n.callers
-              .map((c: { name: string }) => c.name)
-              .slice(0, 10)
-              .join(', ') || '—'
-          }\n`,
-        );
-        process.stdout.write(
-          `  Callees (${n.callees.length}): ${
-            n.callees
-              .map((c: { name: string }) => c.name)
-              .slice(0, 10)
-              .join(', ') || '—'
-          }\n`,
-        );
-        process.stdout.write(
-          `  Plasticity: w=${result.plasticityWeight.totalWeight.toFixed(2)} edges=${result.plasticityWeight.edgeCount}\n`,
-        );
-      }
-      process.stdout.write(`\n### BRAIN memories (${result.brainMemories.length})\n`);
-      for (const m of result.brainMemories.slice(0, 10)) {
-        process.stdout.write(
-          `  [${m.nodeType}] ${m.label.slice(0, 80)} (edge=${m.edgeType} w=${m.weight.toFixed(2)})\n`,
-        );
-      }
-      if (result.brainMemories.length === 0) process.stdout.write(`  (none)\n`);
-      process.stdout.write(`\n### TASKS (${result.tasks.length})\n`);
-      for (const t of result.tasks.slice(0, 10))
-        process.stdout.write(`  ${t.taskId}  w=${t.weight.toFixed(2)}\n`);
-      if (result.tasks.length === 0) process.stdout.write(`  (none)\n`);
-      process.stdout.write(`\n### SENTIENT proposals (${result.sentientProposals.length})\n`);
-      for (const p of result.sentientProposals.slice(0, 5))
-        process.stdout.write(`  ${p.title.slice(0, 80)} (w=${p.weight.toFixed(2)})\n`);
-      if (result.sentientProposals.length === 0) process.stdout.write(`  (none)\n`);
-      process.stdout.write(`\n### CONDUIT threads (${result.conduitThreads.length})\n`);
-      for (const c of result.conduitThreads.slice(0, 5))
-        process.stdout.write(`  ${c.nodeId}  w=${c.weight.toFixed(2)}\n`);
-      if (result.conduitThreads.length === 0) process.stdout.write(`  (none)\n`);
-      process.stdout.write(`\n(${durationMs}ms)\n`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[nexus] Error running full-context: ${msg}\n`);
       process.exitCode = 1;
+      return;
     }
+    const result = response.data as import('@cleocode/contracts').SymbolFullContext;
+    const durationMs = Date.now() - startTime;
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.full-context',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+      return;
+    }
+    process.stdout.write(`\n## Living Brain: ${result.symbolId}\n\n`);
+    process.stdout.write(`### NEXUS\n`);
+    if (!result.nexus) {
+      process.stdout.write(`  (no nexus data — run 'cleo nexus analyze' first)\n`);
+    } else {
+      const n = result.nexus;
+      process.stdout.write(`  Kind: ${n.kind}  File: ${n.filePath ?? '—'}\n`);
+      process.stdout.write(
+        `  Callers (${n.callers.length}): ${
+          n.callers
+            .map((c: { name: string }) => c.name)
+            .slice(0, 10)
+            .join(', ') || '—'
+        }\n`,
+      );
+      process.stdout.write(
+        `  Callees (${n.callees.length}): ${
+          n.callees
+            .map((c: { name: string }) => c.name)
+            .slice(0, 10)
+            .join(', ') || '—'
+        }\n`,
+      );
+      process.stdout.write(
+        `  Plasticity: w=${result.plasticityWeight.totalWeight.toFixed(2)} edges=${result.plasticityWeight.edgeCount}\n`,
+      );
+    }
+    process.stdout.write(`\n### BRAIN memories (${result.brainMemories.length})\n`);
+    for (const m of result.brainMemories.slice(0, 10)) {
+      process.stdout.write(
+        `  [${m.nodeType}] ${m.label.slice(0, 80)} (edge=${m.edgeType} w=${m.weight.toFixed(2)})\n`,
+      );
+    }
+    if (result.brainMemories.length === 0) process.stdout.write(`  (none)\n`);
+    process.stdout.write(`\n### TASKS (${result.tasks.length})\n`);
+    for (const t of result.tasks.slice(0, 10))
+      process.stdout.write(`  ${t.taskId}  w=${t.weight.toFixed(2)}\n`);
+    if (result.tasks.length === 0) process.stdout.write(`  (none)\n`);
+    process.stdout.write(`\n### SENTIENT proposals (${result.sentientProposals.length})\n`);
+    for (const p of result.sentientProposals.slice(0, 5))
+      process.stdout.write(`  ${p.title.slice(0, 80)} (w=${p.weight.toFixed(2)})\n`);
+    if (result.sentientProposals.length === 0) process.stdout.write(`  (none)\n`);
+    process.stdout.write(`\n### CONDUIT threads (${result.conduitThreads.length})\n`);
+    for (const c of result.conduitThreads.slice(0, 5))
+      process.stdout.write(`  ${c.nodeId}  w=${c.weight.toFixed(2)}\n`);
+    if (result.conduitThreads.length === 0) process.stdout.write(`  (none)\n`);
+    process.stdout.write(`\n(${durationMs}ms)\n`);
   },
 });
 
@@ -2633,58 +2673,58 @@ const taskFootprintCommand = defineCommand({
     const startTime = Date.now();
     const jsonOutput = !!args.json;
     const taskId = args.taskId as string;
-    const projectRoot = process.cwd();
-    try {
-      const { getTaskCodeImpact } = await import('@cleocode/core/nexus/living-brain.js' as string);
-      const result = await getTaskCodeImpact(taskId, projectRoot);
-      const durationMs = Date.now() - startTime;
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: {
-                operation: 'nexus.task-footprint',
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-        return;
-      }
-      process.stdout.write(`\n## Task Code Impact: ${result.taskId}\n\n`);
-      process.stdout.write(`**Risk Score**: ${result.riskScore}\n`);
-      process.stdout.write(
-        `**Files** (${result.files.length}): ${result.files.slice(0, 10).join(', ') || '—'}\n\n`,
+    const response = await dispatchRaw('query', 'nexus', 'task-footprint', { taskId });
+    if (!response.success) {
+      process.stderr.write(
+        `[nexus] Error running task-footprint: ${response.error?.message ?? 'Unknown error'}\n`,
       );
-      process.stdout.write(`### Symbols (${result.symbols.length})\n`);
-      for (const s of result.symbols.slice(0, 20)) {
-        process.stdout.write(
-          `  [${s.riskLevel}] ${s.label} (${s.kind})  d1=${s.directCallers}  total=${s.totalAffected}\n`,
-        );
-      }
-      if (result.symbols.length === 0)
-        process.stdout.write(`  (none — run 'cleo nexus analyze' or link task to symbols first)\n`);
-      process.stdout.write(`\n### Blast Radius\n`);
-      process.stdout.write(
-        `  analyzed=${result.blastRadius.symbolsAnalyzed}  total_affected=${result.blastRadius.totalAffected}  max_risk=${result.blastRadius.maxRisk}\n`,
-      );
-      process.stdout.write(`\n### Brain Observations (${result.brainObservations.length})\n`);
-      for (const o of result.brainObservations.slice(0, 5))
-        process.stdout.write(`  [${o.nodeType}] ${o.label.slice(0, 80)}\n`);
-      process.stdout.write(`\n### Decisions (${result.decisions.length})\n`);
-      for (const d of result.decisions.slice(0, 5))
-        process.stdout.write(`  [${d.linkType}] ${d.decision.slice(0, 80)}\n`);
-      process.stdout.write(`\n(${durationMs}ms)\n`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[nexus] Error running task-footprint: ${msg}\n`);
       process.exitCode = 1;
+      return;
     }
+    const result = response.data as import('@cleocode/contracts').TaskCodeImpact;
+    const durationMs = Date.now() - startTime;
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.task-footprint',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+      return;
+    }
+    process.stdout.write(`\n## Task Code Impact: ${result.taskId}\n\n`);
+    process.stdout.write(`**Risk Score**: ${result.riskScore}\n`);
+    process.stdout.write(
+      `**Files** (${result.files.length}): ${result.files.slice(0, 10).join(', ') || '—'}\n\n`,
+    );
+    process.stdout.write(`### Symbols (${result.symbols.length})\n`);
+    for (const s of result.symbols.slice(0, 20)) {
+      process.stdout.write(
+        `  [${s.riskLevel}] ${s.label} (${s.kind})  d1=${s.directCallers}  total=${s.totalAffected}\n`,
+      );
+    }
+    if (result.symbols.length === 0)
+      process.stdout.write(`  (none — run 'cleo nexus analyze' or link task to symbols first)\n`);
+    process.stdout.write(`\n### Blast Radius\n`);
+    process.stdout.write(
+      `  analyzed=${result.blastRadius.symbolsAnalyzed}  total_affected=${result.blastRadius.totalAffected}  max_risk=${result.blastRadius.maxRisk}\n`,
+    );
+    process.stdout.write(`\n### Brain Observations (${result.brainObservations.length})\n`);
+    for (const o of result.brainObservations.slice(0, 5))
+      process.stdout.write(`  [${o.nodeType}] ${o.label.slice(0, 80)}\n`);
+    process.stdout.write(`\n### Decisions (${result.decisions.length})\n`);
+    for (const d of result.decisions.slice(0, 5))
+      process.stdout.write(`  [${d.linkType}] ${d.decision.slice(0, 80)}\n`);
+    process.stdout.write(`\n(${durationMs}ms)\n`);
   },
 });
 
@@ -2710,54 +2750,52 @@ const brainAnchorsCommand = defineCommand({
     const startTime = Date.now();
     const jsonOutput = !!args.json;
     const entryId = args.entryId as string;
-    const projectRoot = process.cwd();
-    try {
-      const { getBrainEntryCodeAnchors } = await import(
-        '@cleocode/core/nexus/living-brain.js' as string
+    const response = await dispatchRaw('query', 'nexus', 'brain-anchors', { entryId });
+    if (!response.success) {
+      process.stderr.write(
+        `[nexus] Error running brain-anchors: ${response.error?.message ?? 'Unknown error'}\n`,
       );
-      const result = await getBrainEntryCodeAnchors(entryId, projectRoot);
-      const durationMs = Date.now() - startTime;
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: {
-                operation: 'nexus.brain-anchors',
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-        return;
-      }
-      process.stdout.write(`\n## Brain Code Anchors: ${result.entryId}\n\n`);
-      process.stdout.write(`**Plasticity Signal**: ${result.plasticitySignal.toFixed(2)}\n\n`);
-      process.stdout.write(`### Nexus Nodes (${result.nexusNodes.length})\n`);
-      for (const n of result.nexusNodes.slice(0, 20)) {
-        process.stdout.write(
-          `  [${n.kind}] ${n.label}  file=${n.filePath ?? '—'}  edge=${n.edgeType}  w=${n.weight.toFixed(2)}\n`,
-        );
-      }
-      if (result.nexusNodes.length === 0) process.stdout.write(`  (none)\n`);
-      process.stdout.write(
-        `\n### Tasks for Nodes (${result.tasksForNodes.length} nodes with task links)\n`,
-      );
-      for (const entry of result.tasksForNodes.slice(0, 10)) {
-        const taskList = entry.tasks.map((t: { taskId: string }) => t.taskId).join(', ');
-        process.stdout.write(`  ${entry.nexusNodeId}: ${taskList}\n`);
-      }
-      if (result.tasksForNodes.length === 0) process.stdout.write(`  (none)\n`);
-      process.stdout.write(`\n(${durationMs}ms)\n`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[nexus] Error running brain-anchors: ${msg}\n`);
       process.exitCode = 1;
+      return;
     }
+    const result = response.data as import('@cleocode/contracts').CodeAnchorResult;
+    const durationMs = Date.now() - startTime;
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.brain-anchors',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+      return;
+    }
+    process.stdout.write(`\n## Brain Code Anchors: ${result.entryId}\n\n`);
+    process.stdout.write(`**Plasticity Signal**: ${result.plasticitySignal.toFixed(2)}\n\n`);
+    process.stdout.write(`### Nexus Nodes (${result.nexusNodes.length})\n`);
+    for (const n of result.nexusNodes.slice(0, 20)) {
+      process.stdout.write(
+        `  [${n.kind}] ${n.label}  file=${n.filePath ?? '—'}  edge=${n.edgeType}  w=${n.weight.toFixed(2)}\n`,
+      );
+    }
+    if (result.nexusNodes.length === 0) process.stdout.write(`  (none)\n`);
+    process.stdout.write(
+      `\n### Tasks for Nodes (${result.tasksForNodes.length} nodes with task links)\n`,
+    );
+    for (const entry of result.tasksForNodes.slice(0, 10)) {
+      const taskList = entry.tasks.map((t: { taskId: string }) => t.taskId).join(', ');
+      process.stdout.write(`  ${entry.nexusNodeId}: ${taskList}\n`);
+    }
+    if (result.tasksForNodes.length === 0) process.stdout.write(`  (none)\n`);
+    process.stdout.write(`\n(${durationMs}ms)\n`);
   },
 });
 
@@ -2787,57 +2825,48 @@ const whyCommand = defineCommand({
     const startTime = Date.now();
     const jsonOutput = !!args.json;
     const symbolId = args.symbol as string;
-    const projectRoot = process.cwd();
-    try {
-      const { reasonWhySymbol } = await import(
-        '@cleocode/core/memory/brain-reasoning.js' as string
+    const response = await dispatchRaw('query', 'nexus', 'why', { symbol: symbolId });
+    if (!response.success) {
+      process.stderr.write(
+        `[nexus] Error running why: ${response.error?.message ?? 'Unknown error'}\n`,
       );
-      const result = await (
-        reasonWhySymbol as (
-          s: string,
-          p: string,
-        ) => Promise<import('@cleocode/contracts').CodeReasonTrace>
-      )(symbolId, projectRoot);
-      const durationMs = Date.now() - startTime;
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: {
-                operation: 'nexus.why',
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-        return;
-      }
-      process.stdout.write(`\n## Code Reasoning: ${result.symbolId}\n\n`);
-      process.stdout.write(`**Narrative**: ${result.narrative}\n\n`);
-      process.stdout.write(`### Trace Chain (${result.chain.length} steps)\n`);
-      if (result.chain.length === 0) {
-        process.stdout.write(
-          `  (no trace — run 'cleo nexus analyze' and 'cleo memory code-links' first)\n`,
-        );
-      } else {
-        for (const step of result.chain) {
-          const refsStr = step.refs.length > 0 ? `  refs=[${step.refs.join(', ')}]` : '';
-          process.stdout.write(
-            `  [${step.type}] ${step.id}: ${step.title.slice(0, 80)}${refsStr}\n`,
-          );
-        }
-      }
-      process.stdout.write(`\n(${durationMs}ms)\n`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[nexus] Error running why: ${msg}\n`);
       process.exitCode = 1;
+      return;
     }
+    const result = response.data as import('@cleocode/contracts').CodeReasonTrace;
+    const durationMs = Date.now() - startTime;
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.why',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+      return;
+    }
+    process.stdout.write(`\n## Code Reasoning: ${result.symbolId}\n\n`);
+    process.stdout.write(`**Narrative**: ${result.narrative}\n\n`);
+    process.stdout.write(`### Trace Chain (${result.chain.length} steps)\n`);
+    if (result.chain.length === 0) {
+      process.stdout.write(
+        `  (no trace — run 'cleo nexus analyze' and 'cleo memory code-links' first)\n`,
+      );
+    } else {
+      for (const step of result.chain) {
+        const refsStr = step.refs.length > 0 ? `  refs=[${step.refs.join(', ')}]` : '';
+        process.stdout.write(`  [${step.type}] ${step.id}: ${step.title.slice(0, 80)}${refsStr}\n`);
+      }
+    }
+    process.stdout.write(`\n(${durationMs}ms)\n`);
   },
 });
 
@@ -2863,65 +2892,58 @@ const impactFullCommand = defineCommand({
     const startTime = Date.now();
     const jsonOutput = !!args.json;
     const symbolId = args.symbol as string;
-    const projectRoot = process.cwd();
-    try {
-      const { reasonImpactOfChange } = await import(
-        '@cleocode/core/nexus/living-brain.js' as string
+    const response = await dispatchRaw('query', 'nexus', 'impact-full', { symbol: symbolId });
+    if (!response.success) {
+      process.stderr.write(
+        `[nexus] Error running impact-full: ${response.error?.message ?? 'Unknown error'}\n`,
       );
-      const result = await (
-        reasonImpactOfChange as (
-          s: string,
-          p: string,
-        ) => Promise<import('@cleocode/contracts').ImpactFullReport>
-      )(symbolId, projectRoot);
-      const durationMs = Date.now() - startTime;
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: {
-                operation: 'nexus.impact-full',
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-        return;
-      }
-      process.stdout.write(`\n## Full Impact: ${result.symbolId}\n\n`);
-      process.stdout.write(`**Merged Risk Score**: ${result.mergedRiskScore}\n`);
-      process.stdout.write(`**Narrative**: ${result.narrative}\n\n`);
-      process.stdout.write(`### Structural Blast Radius\n`);
-      process.stdout.write(
-        `  d=1 (will break)=${result.structural.directCallers}` +
-          `  d=2 (likely affected)=${result.structural.likelyAffected}` +
-          `  d=3 (may need testing)=${result.structural.mayNeedTesting}` +
-          `  total=${result.structural.totalAffected}` +
-          `  risk=${result.structural.riskLevel}\n`,
-      );
-      process.stdout.write(`\n### Open Tasks (${result.openTasks.length})\n`);
-      for (const t of result.openTasks.slice(0, 10)) {
-        process.stdout.write(`  ${t.taskId}  ${t.label.slice(0, 60)}  w=${t.weight.toFixed(2)}\n`);
-      }
-      if (result.openTasks.length === 0) process.stdout.write(`  (none)\n`);
-      process.stdout.write(`\n### Brain Risk Notes (${result.brainRiskNotes.length})\n`);
-      for (const n of result.brainRiskNotes.slice(0, 10)) {
-        process.stdout.write(
-          `  [${n.nodeType}] ${n.label.slice(0, 70)}  edge=${n.edgeType}  w=${n.weight.toFixed(2)}\n`,
-        );
-      }
-      if (result.brainRiskNotes.length === 0) process.stdout.write(`  (none)\n`);
-      process.stdout.write(`\n(${durationMs}ms)\n`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[nexus] Error running impact-full: ${msg}\n`);
       process.exitCode = 1;
+      return;
     }
+    const result = response.data as import('@cleocode/contracts').ImpactFullReport;
+    const durationMs = Date.now() - startTime;
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.impact-full',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+      return;
+    }
+    process.stdout.write(`\n## Full Impact: ${result.symbolId}\n\n`);
+    process.stdout.write(`**Merged Risk Score**: ${result.mergedRiskScore}\n`);
+    process.stdout.write(`**Narrative**: ${result.narrative}\n\n`);
+    process.stdout.write(`### Structural Blast Radius\n`);
+    process.stdout.write(
+      `  d=1 (will break)=${result.structural.directCallers}` +
+        `  d=2 (likely affected)=${result.structural.likelyAffected}` +
+        `  d=3 (may need testing)=${result.structural.mayNeedTesting}` +
+        `  total=${result.structural.totalAffected}` +
+        `  risk=${result.structural.riskLevel}\n`,
+    );
+    process.stdout.write(`\n### Open Tasks (${result.openTasks.length})\n`);
+    for (const t of result.openTasks.slice(0, 10)) {
+      process.stdout.write(`  ${t.taskId}  ${t.label.slice(0, 60)}  w=${t.weight.toFixed(2)}\n`);
+    }
+    if (result.openTasks.length === 0) process.stdout.write(`  (none)\n`);
+    process.stdout.write(`\n### Brain Risk Notes (${result.brainRiskNotes.length})\n`);
+    for (const n of result.brainRiskNotes.slice(0, 10)) {
+      process.stdout.write(
+        `  [${n.nodeType}] ${n.label.slice(0, 70)}  edge=${n.edgeType}  w=${n.weight.toFixed(2)}\n`,
+      );
+    }
+    if (result.brainRiskNotes.length === 0) process.stdout.write(`  (none)\n`);
+    process.stdout.write(`\n(${durationMs}ms)\n`);
   },
 });
 
@@ -2953,19 +2975,16 @@ const conduitScanCommand = defineCommand({
   async run({ args }) {
     const startTime = Date.now();
     const jsonOutput = !!args.json;
-    const projectRoot = process.cwd();
-    try {
-      const { linkConduitMessagesToSymbols } = await import(
-        '@cleocode/core/memory/graph-memory-bridge.js' as string
-      );
-      const result = await linkConduitMessagesToSymbols(projectRoot);
-      const durationMs = Date.now() - startTime;
+    const response = await dispatchRaw('mutate', 'nexus', 'conduit-scan', {});
+    const durationMs = Date.now() - startTime;
+    if (!response.success) {
+      const msg = response.error?.message ?? 'Unknown error';
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify(
             {
-              success: true,
-              data: result,
+              success: false,
+              error: { code: response.error?.code ?? 'E_CONDUIT_SCAN_FAILED', message: msg },
               meta: {
                 operation: 'nexus.conduit-scan',
                 duration_ms: durationMs,
@@ -2977,32 +2996,32 @@ const conduitScanCommand = defineCommand({
           ) + '\n',
         );
       } else {
-        process.stdout.write(
-          `[nexus] conduit-scan complete: scanned=${result.scanned} linked=${result.linked} (${durationMs}ms)\n`,
-        );
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: false,
-              error: { code: 'E_CONDUIT_SCAN_FAILED', message: msg },
-              meta: {
-                operation: 'nexus.conduit-scan',
-                duration_ms: Date.now() - startTime,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-      } else {
         process.stderr.write(`[nexus] Error running conduit-scan: ${msg}\n`);
       }
       process.exitCode = 1;
+      return;
+    }
+    const result = response.data as { scanned: number; linked: number };
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.conduit-scan',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } else {
+      process.stdout.write(
+        `[nexus] conduit-scan complete: scanned=${result.scanned} linked=${result.linked} (${durationMs}ms)\n`,
+      );
     }
   },
 });
@@ -3039,17 +3058,16 @@ const taskSymbolsCommand = defineCommand({
     const startTime = Date.now();
     const jsonOutput = !!args.json;
     const taskId = args.taskId as string;
-    const projectRoot = process.cwd();
-    try {
-      const { getSymbolsForTask } = await import('@cleocode/core/nexus/tasks-bridge.js' as string);
-      const symbols = await getSymbolsForTask(taskId, projectRoot);
-      const durationMs = Date.now() - startTime;
+    const response = await dispatchRaw('query', 'nexus', 'task-symbols', { taskId });
+    const durationMs = Date.now() - startTime;
+    if (!response.success) {
+      const msg = response.error?.message ?? 'Unknown error';
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify(
             {
-              success: true,
-              data: { taskId, count: symbols.length, symbols },
+              success: false,
+              error: { code: response.error?.code ?? 'E_TASK_SYMBOLS_FAILED', message: msg },
               meta: {
                 operation: 'nexus.task-symbols',
                 duration_ms: durationMs,
@@ -3061,45 +3079,47 @@ const taskSymbolsCommand = defineCommand({
           ) + '\n',
         );
       } else {
-        if (symbols.length === 0) {
-          process.stdout.write(
-            `[nexus] No symbols found for task ${taskId}.\n` +
-              `  Run 'cleo nexus analyze' and ensure git history is available.\n`,
-          );
-        } else {
-          process.stdout.write(
-            `[nexus] Symbols touched by ${taskId} (${symbols.length} total):\n\n`,
-          );
-          for (const s of symbols) {
-            process.stdout.write(
-              `  [${s.kind.padEnd(12)}] ${s.label.padEnd(50)}  w=${s.weight.toFixed(2)}  via=${s.matchStrategy}\n`,
-            );
-          }
-        }
-        process.stdout.write(`\n(${durationMs}ms)\n`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: false,
-              error: { code: 'E_TASK_SYMBOLS_FAILED', message: msg },
-              meta: {
-                operation: 'nexus.task-symbols',
-                duration_ms: Date.now() - startTime,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-      } else {
         process.stderr.write(`[nexus] Error running task-symbols: ${msg}\n`);
       }
       process.exitCode = 1;
+      return;
+    }
+    const data = response.data as {
+      taskId: string;
+      count: number;
+      symbols: Array<{ kind: string; label: string; weight: number; matchStrategy: string }>;
+    };
+    const { symbols } = data;
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: { taskId, count: symbols.length, symbols },
+            meta: {
+              operation: 'nexus.task-symbols',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } else {
+      if (symbols.length === 0) {
+        process.stdout.write(
+          `[nexus] No symbols found for task ${taskId}.\n  Run 'cleo nexus analyze' and ensure git history is available.\n`,
+        );
+      } else {
+        process.stdout.write(`[nexus] Symbols touched by ${taskId} (${symbols.length} total):\n\n`);
+        for (const s of symbols) {
+          process.stdout.write(
+            `  [${s.kind.padEnd(12)}] ${s.label.padEnd(50)}  w=${s.weight.toFixed(2)}  via=${s.matchStrategy}\n`,
+          );
+        }
+      }
+      process.stdout.write(`\n(${durationMs}ms)\n`);
     }
   },
 });
@@ -3190,40 +3210,19 @@ const contractsSyncCommand = defineCommand({
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectIdOverride = args['project-id'] as string | undefined;
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
-
-    try {
-      const [{ extractHttpContracts }, { extractGrpcContracts }, { extractTopicContracts }] =
-        await Promise.all([
-          import('@cleocode/core/nexus/api-extractors/http-extractor.js' as string),
-          import('@cleocode/core/nexus/api-extractors/grpc-extractor.js' as string),
-          import('@cleocode/core/nexus/api-extractors/topic-extractor.js' as string),
-        ]);
-
-      const [httpContracts, grpcContracts, topicContracts] = await Promise.all([
-        extractHttpContracts(projectId, repoPath),
-        extractGrpcContracts(projectId, repoPath),
-        extractTopicContracts(projectId, repoPath),
-      ]);
-
-      const httpCount = httpContracts?.length ?? 0;
-      const grpcCount = grpcContracts?.length ?? 0;
-      const topicCount = topicContracts?.length ?? 0;
-      const totalCount = httpCount + grpcCount + topicCount;
-      const durationMs = Date.now() - startTime;
-
+    const response = await dispatchRaw('mutate', 'nexus', 'contracts-sync', {
+      projectId,
+      repoPath,
+    });
+    const durationMs = Date.now() - startTime;
+    if (!response.success) {
+      const msg = response.error?.message ?? 'Unknown error';
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify(
             {
-              success: true,
-              data: {
-                projectId,
-                repoPath,
-                http: httpCount,
-                grpc: grpcCount,
-                topic: topicCount,
-                totalCount,
-              },
+              success: false,
+              error: { code: response.error?.code ?? 'E_CONTRACTS_SYNC_FAILED', message: msg },
               meta: {
                 operation: 'nexus.contracts.sync',
                 duration_ms: durationMs,
@@ -3235,37 +3234,44 @@ const contractsSyncCommand = defineCommand({
           ) + '\n',
         );
       } else {
-        process.stdout.write(
-          `[nexus] Contracts extracted from ${projectId}:\n` +
-            `  HTTP:  ${httpCount}\n` +
-            `  gRPC:  ${grpcCount}\n` +
-            `  Topic: ${topicCount}\n` +
-            `  Total: ${totalCount}\n` +
-            `  (${durationMs}ms)\n`,
-        );
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: false,
-              error: { code: 'E_CONTRACTS_SYNC_FAILED', message: msg },
-              meta: {
-                operation: 'nexus.contracts.sync',
-                duration_ms: Date.now() - startTime,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-      } else {
         process.stderr.write(`[nexus] Error running contracts sync: ${msg}\n`);
       }
       process.exitCode = 1;
+      return;
+    }
+    const result = response.data as {
+      projectId: string;
+      repoPath: string;
+      http: number;
+      grpc: number;
+      topic: number;
+      totalCount: number;
+    };
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.contracts.sync',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } else {
+      process.stdout.write(
+        `[nexus] Contracts extracted from ${projectId}:\n` +
+          `  HTTP:  ${result.http}\n` +
+          `  gRPC:  ${result.grpc}\n` +
+          `  Topic: ${result.topic}\n` +
+          `  Total: ${result.totalCount}\n` +
+          `  (${durationMs}ms)\n`,
+      );
     }
   },
 });
@@ -3297,58 +3303,16 @@ const contractsShowCommand = defineCommand({
     const jsonOutput = !!args.json;
     const projectA = args['project-a'] as string;
     const projectB = args['project-b'] as string;
-    const repoPath = process.cwd();
-
-    try {
-      const [
-        { extractHttpContracts },
-        { extractGrpcContracts },
-        { extractTopicContracts },
-        { matchContracts },
-      ] = await Promise.all([
-        import('@cleocode/core/nexus/api-extractors/http-extractor.js' as string),
-        import('@cleocode/core/nexus/api-extractors/grpc-extractor.js' as string),
-        import('@cleocode/core/nexus/api-extractors/topic-extractor.js' as string),
-        import('@cleocode/core/nexus/api-extractors/matcher.js' as string),
-      ]);
-
-      const [httpA, grpcA, topicA, httpB, grpcB, topicB] = await Promise.all([
-        extractHttpContracts(projectA, repoPath),
-        extractGrpcContracts(projectA, repoPath),
-        extractTopicContracts(projectA, repoPath),
-        extractHttpContracts(projectB, repoPath),
-        extractGrpcContracts(projectB, repoPath),
-        extractTopicContracts(projectB, repoPath),
-      ]);
-
-      const contractsA = [...(httpA ?? []), ...(grpcA ?? []), ...(topicA ?? [])];
-      const contractsB = [...(httpB ?? []), ...(grpcB ?? []), ...(topicB ?? [])];
-      const matches = matchContracts(contractsA, contractsB) as Array<
-        import('@cleocode/contracts').ContractMatch
-      >;
-
-      const compatibleCount = matches.filter((m) => m.compatibility === 'compatible').length;
-      const incompatibleCount = matches.filter((m) => m.compatibility === 'incompatible').length;
-      const partialCount = matches.filter((m) => m.compatibility === 'partial').length;
-      const overallCompatibility =
-        matches.length > 0 ? Math.round((compatibleCount / matches.length) * 100) : 0;
-
-      const durationMs = Date.now() - startTime;
-
+    const response = await dispatchRaw('query', 'nexus', 'contracts-show', { projectA, projectB });
+    const durationMs = Date.now() - startTime;
+    if (!response.success) {
+      const msg = response.error?.message ?? 'Unknown error';
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify(
             {
-              success: true,
-              data: {
-                projectAId: projectA,
-                projectBId: projectB,
-                matches,
-                compatibleCount,
-                incompatibleCount,
-                partialCount,
-                overallCompatibility,
-              },
+              success: false,
+              error: { code: response.error?.code ?? 'E_CONTRACTS_SHOW_FAILED', message: msg },
               meta: {
                 operation: 'nexus.contracts.show',
                 duration_ms: durationMs,
@@ -3360,50 +3324,55 @@ const contractsShowCommand = defineCommand({
           ) + '\n',
         );
       } else {
-        if (matches.length === 0) {
-          process.stdout.write(
-            `[nexus] No contract matches found between ${projectA} and ${projectB}.\n` +
-              `  Run 'cleo nexus contracts sync' on both projects first.\n`,
-          );
-        } else {
-          process.stdout.write(
-            `[nexus] Contract compatibility: ${projectA} ↔ ${projectB}\n` +
-              `  Compatible: ${compatibleCount}  Incompatible: ${incompatibleCount}  Partial: ${partialCount}\n` +
-              `  Overall: ${overallCompatibility}%\n\n`,
-          );
-          for (const m of matches.slice(0, 20)) {
-            process.stdout.write(
-              `  [${m.compatibility.toUpperCase().padEnd(12)}] ${m.contractA.id} ↔ ${m.contractB.id}  score=${m.score.toFixed(2)}\n`,
-            );
-          }
-          if (matches.length > 20) {
-            process.stdout.write(`  (showing 20 of ${matches.length} matches)\n`);
-          }
-        }
-        process.stdout.write(`\n(${durationMs}ms)\n`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: false,
-              error: { code: 'E_CONTRACTS_SHOW_FAILED', message: msg },
-              meta: {
-                operation: 'nexus.contracts.show',
-                duration_ms: Date.now() - startTime,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-      } else {
         process.stderr.write(`[nexus] Error running contracts show: ${msg}\n`);
       }
       process.exitCode = 1;
+      return;
+    }
+    const result = response.data as {
+      projectAId: string;
+      projectBId: string;
+      matches: Array<import('@cleocode/contracts').ContractMatch>;
+      compatibleCount: number;
+      incompatibleCount: number;
+      partialCount: number;
+      overallCompatibility: number;
+    };
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.contracts.show',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } else {
+      if (result.matches.length === 0) {
+        process.stdout.write(
+          `[nexus] No contract matches found between ${projectA} and ${projectB}.\n  Run 'cleo nexus contracts sync' on both projects first.\n`,
+        );
+      } else {
+        process.stdout.write(
+          `[nexus] Contract compatibility: ${projectA} ↔ ${projectB}\n  Compatible: ${result.compatibleCount}  Incompatible: ${result.incompatibleCount}  Partial: ${result.partialCount}\n  Overall: ${result.overallCompatibility}%\n\n`,
+        );
+        for (const m of result.matches.slice(0, 20)) {
+          process.stdout.write(
+            `  [${m.compatibility.toUpperCase().padEnd(12)}] ${m.contractA.id} ↔ ${m.contractB.id}  score=${m.score.toFixed(2)}\n`,
+          );
+        }
+        if (result.matches.length > 20) {
+          process.stdout.write(`  (showing 20 of ${result.matches.length} matches)\n`);
+        }
+      }
+      process.stdout.write(`\n(${durationMs}ms)\n`);
     }
   },
 });
@@ -3430,20 +3399,19 @@ const contractsLinkTasksCommand = defineCommand({
     const jsonOutput = !!args.json;
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectId = Buffer.from(repoPath).toString('base64url').slice(0, 32);
-
-    try {
-      const { runGitLogTaskLinker } = await import(
-        '@cleocode/core/nexus/tasks-bridge.js' as string
-      );
-      const result = await runGitLogTaskLinker(projectId, repoPath);
-      const durationMs = Date.now() - startTime;
-
+    const response = await dispatchRaw('mutate', 'nexus', 'contracts-link-tasks', {
+      projectId,
+      repoPath,
+    });
+    const durationMs = Date.now() - startTime;
+    if (!response.success) {
+      const msg = response.error?.message ?? 'Unknown error';
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify(
             {
-              success: true,
-              data: { projectId, repoPath, ...result },
+              success: false,
+              error: { code: response.error?.code ?? 'E_CONTRACTS_LINK_FAILED', message: msg },
               meta: {
                 operation: 'nexus.contracts.link-tasks',
                 duration_ms: durationMs,
@@ -3455,37 +3423,44 @@ const contractsLinkTasksCommand = defineCommand({
           ) + '\n',
         );
       } else {
-        process.stdout.write(
-          `[nexus] contracts link-tasks:\n` +
-            `  Commits processed: ${result.commitsProcessed}\n` +
-            `  Tasks found:       ${result.tasksFound}\n` +
-            `  Edges linked:      ${result.linked}\n` +
-            `  Last commit:       ${result.lastCommitHash ?? '—'}\n` +
-            `  (${durationMs}ms)\n`,
-        );
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: false,
-              error: { code: 'E_CONTRACTS_LINK_FAILED', message: msg },
-              meta: {
-                operation: 'nexus.contracts.link-tasks',
-                duration_ms: Date.now() - startTime,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-      } else {
         process.stderr.write(`[nexus] Error running contracts link-tasks: ${msg}\n`);
       }
       process.exitCode = 1;
+      return;
+    }
+    const result = response.data as {
+      projectId: string;
+      repoPath: string;
+      commitsProcessed: number;
+      tasksFound: number;
+      linked: number;
+      lastCommitHash?: string;
+    };
+    if (jsonOutput) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data: result,
+            meta: {
+              operation: 'nexus.contracts.link-tasks',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } else {
+      process.stdout.write(
+        `[nexus] contracts link-tasks:\n` +
+          `  Commits processed: ${result.commitsProcessed}\n` +
+          `  Tasks found:       ${result.tasksFound}\n` +
+          `  Edges linked:      ${result.linked}\n` +
+          `  Last commit:       ${result.lastCommitHash ?? '—'}\n` +
+          `  (${durationMs}ms)\n`,
+      );
     }
   },
 });
@@ -3548,6 +3523,10 @@ const wikiCommand = defineCommand({
     const communityFilter = (args.community as string | undefined) ?? undefined;
     const isIncremental = !!(args.incremental as boolean | undefined);
 
+    // SSoT-EXEMPT:loom-provider — LLM backend resolution for wiki generation requires
+    // CLI-side async provider wiring that cannot be passed through the dispatch layer.
+    // The dispatch 'wiki' op always uses loomProvider=null (scaffold mode). CLI-side
+    // wiring enables real LLM narratives when a backend is available.
     // Resolve LOOM provider via the existing LLM backend resolver (warm tier).
     // Falls back gracefully — null means scaffold mode.
     // The 'ai' package lives in @cleocode/core's deps; we load it transitively.
@@ -3582,6 +3561,8 @@ const wikiCommand = defineCommand({
     }
 
     try {
+      // SSoT-EXEMPT:loom-provider — must call generateNexusWikiIndex directly to pass
+      // loomProvider. The dispatch 'wiki' op does not accept a loomProvider param.
       const { generateNexusWikiIndex } = await import(
         '@cleocode/core/nexus/wiki-index.js' as string
       );
@@ -3691,6 +3672,8 @@ const hotPathsCommand = defineCommand({
     const startTime = Date.now();
 
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'hot-paths' dispatch operation exists yet;
+      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
       const { getHotPaths } = await import('@cleocode/core/internal');
       const result = await getHotPaths(process.cwd(), limit);
 
@@ -3771,6 +3754,8 @@ const hotNodesCommand = defineCommand({
     const startTime = Date.now();
 
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'hot-nodes' dispatch operation exists yet;
+      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
       const { getHotNodes } = await import('@cleocode/core/internal');
       const result = await getHotNodes(process.cwd(), limit);
 
@@ -3851,6 +3836,8 @@ const coldSymbolsCommand = defineCommand({
     const startTime = Date.now();
 
     try {
+      // SSoT-EXEMPT:no-dispatch-op — no 'cold-symbols' dispatch operation exists yet;
+      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
       const { getColdSymbols } = await import('@cleocode/core/internal');
       const result = await getColdSymbols(process.cwd(), thresholdDays);
 
