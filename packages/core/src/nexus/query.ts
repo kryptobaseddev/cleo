@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, type NexusResolveParams } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { nexusGetProject, readRegistry } from './registry.js';
@@ -164,9 +164,27 @@ async function readProjectTasks(projectPath: string): Promise<Task[]> {
  * For named projects, returns a single task with project context.
  */
 export async function resolveTask(
+  _projectRoot: string,
+  params: NexusResolveParams,
+): Promise<NexusResolvedTask | NexusResolvedTask[]>;
+/** @deprecated Use `resolveTask(projectRoot, params)` — ADR-057 D1 */
+export async function resolveTask(
   query: string,
   currentProject?: string,
+): Promise<NexusResolvedTask | NexusResolvedTask[]>;
+export async function resolveTask(
+  projectRootOrQuery: string,
+  paramsOrCurrentProject?: NexusResolveParams | string,
 ): Promise<NexusResolvedTask | NexusResolvedTask[]> {
+  let query: string;
+  let currentProject: string | undefined;
+  if (paramsOrCurrentProject !== undefined && typeof paramsOrCurrentProject === 'object') {
+    query = paramsOrCurrentProject.query;
+    currentProject = paramsOrCurrentProject.currentProject;
+  } else {
+    query = projectRootOrQuery;
+    currentProject = paramsOrCurrentProject as string | undefined;
+  }
   const parsed = parseQuery(query, currentProject);
 
   if (parsed.wildcard) {

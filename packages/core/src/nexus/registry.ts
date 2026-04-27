@@ -14,7 +14,17 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import {
+  ExitCode,
+  type NexusInitParams,
+  type NexusListParams,
+  type NexusPermissionSetParams,
+  type NexusReconcileParams,
+  type NexusRegisterParams,
+  type NexusShowParams,
+  type NexusSyncParams,
+  type NexusUnregisterParams,
+} from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
@@ -234,7 +244,7 @@ export async function readRegistryRequired(): Promise<NexusRegistryFile> {
  * Idempotent -- safe to call multiple times.
  * Migrates legacy JSON registry on first run if present.
  */
-export async function nexusInit(): Promise<void> {
+export async function nexusInit(_projectRoot = '', _params: NexusInitParams = {}): Promise<void> {
   const nexusHome = getNexusHome();
   const cacheDir = getNexusCacheDir();
 
@@ -302,10 +312,36 @@ async function readProjectId(projectPath: string): Promise<string> {
  * @returns The project hash.
  */
 export async function nexusRegister(
+  _projectRoot: string,
+  params: NexusRegisterParams,
+): Promise<string>;
+/** @deprecated Use `nexusRegister(projectRoot, params)` — ADR-057 D1 */
+export async function nexusRegister(
   projectPath: string,
   name?: string,
-  permissions: NexusPermissionLevel = 'read',
+  permissions?: NexusPermissionLevel,
+): Promise<string>;
+export async function nexusRegister(
+  projectRootOrPath: string,
+  paramsOrName?: NexusRegisterParams | string,
+  permissionsArg?: NexusPermissionLevel,
 ): Promise<string> {
+  let projectPath: string;
+  let name: string | undefined;
+  let permissions: NexusPermissionLevel;
+
+  if (paramsOrName !== undefined && typeof paramsOrName === 'object') {
+    // New normalized signature: (projectRoot, params)
+    projectPath = paramsOrName.path;
+    name = paramsOrName.name;
+    permissions = (paramsOrName.permission as NexusPermissionLevel | undefined) ?? 'read';
+  } else {
+    // Legacy positional signature
+    projectPath = projectRootOrPath;
+    name = paramsOrName as string | undefined;
+    permissions = permissionsArg ?? 'read';
+  }
+
   if (!projectPath) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project path required');
   }
@@ -320,7 +356,7 @@ export async function nexusRegister(
   const projectName = name || basename(projectPath) || 'unnamed';
   const projectHash = generateProjectHash(projectPath);
 
-  // Ensure nexus.db is initialized
+  // Ensure nexus.db is initialized (internal call — projectRoot unused for global registry)
   await nexusInit();
   const { getNexusDb } = await import('../store/nexus-sqlite.js');
   const { eq } = await import('drizzle-orm');
@@ -416,7 +452,18 @@ export async function nexusRegister(
 /**
  * Unregister a project from the global registry.
  */
-export async function nexusUnregister(nameOrHash: string): Promise<void> {
+export async function nexusUnregister(
+  _projectRoot: string,
+  params: NexusUnregisterParams,
+): Promise<void>;
+/** @deprecated Use `nexusUnregister(projectRoot, params)` — ADR-057 D1 */
+export async function nexusUnregister(nameOrHash: string): Promise<void>;
+export async function nexusUnregister(
+  projectRootOrNameOrHash: string,
+  paramsOrUndefined?: NexusUnregisterParams,
+): Promise<void> {
+  const nameOrHash =
+    paramsOrUndefined !== undefined ? paramsOrUndefined.name : projectRootOrNameOrHash;
   if (!nameOrHash) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project name or hash required');
   }
@@ -443,7 +490,10 @@ export async function nexusUnregister(nameOrHash: string): Promise<void> {
 /**
  * List all registered projects.
  */
-export async function nexusList(): Promise<NexusProject[]> {
+export async function nexusList(
+  _projectRoot = '',
+  _params: NexusListParams = {},
+): Promise<NexusProject[]> {
   try {
     const { getNexusDb } = await import('../store/nexus-sqlite.js');
     const db = await getNexusDb();
@@ -458,7 +508,18 @@ export async function nexusList(): Promise<NexusProject[]> {
  * Get a project by name or hash.
  * Returns null if not found.
  */
-export async function nexusGetProject(nameOrHash: string): Promise<NexusProject | null> {
+export async function nexusGetProject(
+  _projectRoot: string,
+  params: NexusShowParams,
+): Promise<NexusProject | null>;
+/** @deprecated Use `nexusGetProject(projectRoot, params)` — ADR-057 D1 */
+export async function nexusGetProject(nameOrHash: string): Promise<NexusProject | null>;
+export async function nexusGetProject(
+  projectRootOrNameOrHash: string,
+  paramsOrUndefined?: NexusShowParams,
+): Promise<NexusProject | null> {
+  const nameOrHash =
+    paramsOrUndefined !== undefined ? paramsOrUndefined.name : projectRootOrNameOrHash;
   try {
     const { getNexusDb } = await import('../store/nexus-sqlite.js');
     const { eq, or } = await import('drizzle-orm');
@@ -489,7 +550,15 @@ export async function nexusProjectExists(nameOrHash: string): Promise<boolean> {
 /**
  * Sync project metadata (task count, labels) for a registered project.
  */
-export async function nexusSync(nameOrHash: string): Promise<void> {
+export async function nexusSync(_projectRoot: string, params: NexusSyncParams): Promise<void>;
+/** @deprecated Use `nexusSync(projectRoot, params)` — ADR-057 D1 */
+export async function nexusSync(nameOrHash: string): Promise<void>;
+export async function nexusSync(
+  projectRootOrName: string,
+  paramsOrUndefined?: NexusSyncParams,
+): Promise<void> {
+  const nameOrHash =
+    paramsOrUndefined !== undefined ? (paramsOrUndefined.name ?? '') : projectRootOrName;
   if (!nameOrHash) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project name or hash required');
   }
@@ -634,9 +703,27 @@ export async function nexusUpdateIndexStats(
  * Used by permissions.ts to avoid direct JSON file writes.
  */
 export async function nexusSetPermission(
+  _projectRoot: string,
+  params: NexusPermissionSetParams,
+): Promise<void>;
+/** @deprecated Use `nexusSetPermission(projectRoot, params)` — ADR-057 D1 */
+export async function nexusSetPermission(
   nameOrHash: string,
   permission: NexusPermissionLevel,
+): Promise<void>;
+export async function nexusSetPermission(
+  projectRootOrName: string,
+  paramsOrPermission?: NexusPermissionSetParams | NexusPermissionLevel,
 ): Promise<void> {
+  let nameOrHash: string;
+  let permission: NexusPermissionLevel;
+  if (paramsOrPermission !== undefined && typeof paramsOrPermission === 'object') {
+    nameOrHash = paramsOrPermission.name;
+    permission = paramsOrPermission.level as NexusPermissionLevel;
+  } else {
+    nameOrHash = projectRootOrName;
+    permission = (paramsOrPermission as NexusPermissionLevel | undefined) ?? 'read';
+  }
   const project = await nexusGetProject(nameOrHash);
   if (!project) {
     throw new CleoError(ExitCode.NOT_FOUND, `Project not found in registry: ${nameOrHash}`);
@@ -674,7 +761,10 @@ export async function nexusSetPermission(
  *
  * @task T5368
  */
-export async function nexusReconcile(projectRoot: string): Promise<{
+export async function nexusReconcile(
+  projectRoot: string,
+  _params: NexusReconcileParams = {},
+): Promise<{
   status: 'ok' | 'path_updated' | 'auto_registered';
   oldPath?: string;
   newPath?: string;

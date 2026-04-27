@@ -11,7 +11,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import type { SharingConfig } from '@cleocode/contracts';
+import type { NexusShareStatusParams, SharingConfig } from '@cleocode/contracts';
 import { loadConfig } from '../../config.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../../paths.js';
 import { cleoGitCommand, isCleoGitInitialized } from '../../store/git-checkpoint.js';
@@ -229,7 +229,11 @@ async function getLastSyncTimestamp(cleoDir: string): Promise<string | null> {
  * @task T4883
  * @task T110
  */
-export async function getSharingStatus(cwd?: string): Promise<SharingStatus> {
+export async function getSharingStatus(
+  projectRoot?: string,
+  _params: NexusShareStatusParams = {},
+): Promise<SharingStatus> {
+  const cwd = projectRoot;
   const config = await loadConfig(cwd);
   const sharing = config.sharing;
   const cleoDir = getCleoDirAbsolute(cwd);

@@ -8,6 +8,7 @@
  * @epic T5701
  */
 
+import type { NexusDiscoverParams, NexusSearchParams } from '@cleocode/contracts';
 import { getAccessor } from '../store/data-accessor.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
 import { readRegistry } from './registry.js';
@@ -157,10 +158,32 @@ export interface NexusSearchResult {
  * so callers can wrap them in an appropriate engine error response.
  */
 export async function discoverRelated(
+  _projectRoot: string,
+  params: NexusDiscoverParams,
+): Promise<NexusDiscoverResult | { error: { code: string; message: string } }>;
+/** @deprecated Use `discoverRelated(projectRoot, params)` — ADR-057 D1 */
+export async function discoverRelated(
   taskQuery: string,
-  method: string = 'auto',
-  limit: number = 10,
+  method?: string,
+  limit?: number,
+): Promise<NexusDiscoverResult | { error: { code: string; message: string } }>;
+export async function discoverRelated(
+  projectRootOrQuery: string,
+  paramsOrMethod?: NexusDiscoverParams | string,
+  limitArg?: number,
 ): Promise<NexusDiscoverResult | { error: { code: string; message: string } }> {
+  let taskQuery: string;
+  let method: string;
+  let limit: number;
+  if (paramsOrMethod !== undefined && typeof paramsOrMethod === 'object') {
+    taskQuery = paramsOrMethod.query;
+    method = paramsOrMethod.method ?? 'auto';
+    limit = paramsOrMethod.limit ?? 10;
+  } else {
+    taskQuery = projectRootOrQuery;
+    method = (paramsOrMethod as string | undefined) ?? 'auto';
+    limit = limitArg ?? 10;
+  }
   if (!validateSyntax(taskQuery)) {
     return {
       error: {
@@ -268,10 +291,32 @@ export async function discoverRelated(
  * Validation errors (bad pattern) are returned as { error } objects.
  */
 export async function searchAcrossProjects(
+  _projectRoot: string,
+  params: NexusSearchParams,
+): Promise<NexusSearchResult | { error: { code: string; message: string } }>;
+/** @deprecated Use `searchAcrossProjects(projectRoot, params)` — ADR-057 D1 */
+export async function searchAcrossProjects(
   pattern: string,
   projectFilter?: string,
-  limit: number = 20,
+  limit?: number,
+): Promise<NexusSearchResult | { error: { code: string; message: string } }>;
+export async function searchAcrossProjects(
+  projectRootOrPattern: string,
+  paramsOrProjectFilter?: NexusSearchParams | string,
+  limitArg?: number,
 ): Promise<NexusSearchResult | { error: { code: string; message: string } }> {
+  let pattern: string;
+  let projectFilter: string | undefined;
+  let limit: number;
+  if (paramsOrProjectFilter !== undefined && typeof paramsOrProjectFilter === 'object') {
+    pattern = paramsOrProjectFilter.pattern;
+    projectFilter = paramsOrProjectFilter.project;
+    limit = paramsOrProjectFilter.limit ?? 20;
+  } else {
+    pattern = projectRootOrPattern;
+    projectFilter = paramsOrProjectFilter as string | undefined;
+    limit = limitArg ?? 20;
+  }
   // Handle wildcard query syntax (*:T001) - delegate to resolveTask
   if (/^\*:.+$/.test(pattern)) {
     try {
