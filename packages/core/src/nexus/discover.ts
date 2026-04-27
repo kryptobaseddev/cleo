@@ -8,7 +8,14 @@
  * @epic T5701
  */
 
-import type { NexusDiscoverParams, NexusSearchParams } from '@cleocode/contracts';
+import type {
+  NexusDiscoverHit,
+  NexusDiscoverParams,
+  NexusDiscoverResult,
+  NexusSearchHit,
+  NexusSearchParams,
+  NexusSearchResult,
+} from '@cleocode/contracts/operations/nexus';
 import { getAccessor } from '../store/data-accessor.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
 import { readRegistry } from './registry.js';
@@ -111,45 +118,6 @@ export function extractKeywords(text: string): string[] {
     .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
 }
 
-// ---------------------------------------------------------------------------
-// Discovery result types
-// ---------------------------------------------------------------------------
-
-export interface DiscoverResult {
-  project: string;
-  taskId: string;
-  title: string;
-  score: number;
-  type: string;
-  reason: string;
-}
-
-export interface NexusDiscoverResult {
-  query: string;
-  method: string;
-  results: DiscoverResult[];
-  total: number;
-}
-
-export interface SearchResult {
-  id: string;
-  title: string;
-  status: string;
-  priority?: string;
-  description?: string;
-  _project: string;
-}
-
-export interface NexusSearchResult {
-  pattern: string;
-  results: SearchResult[];
-  resultCount: number;
-}
-
-// ---------------------------------------------------------------------------
-// Core business logic
-// ---------------------------------------------------------------------------
-
 /**
  * Discover tasks related to a given task query across projects.
  *
@@ -214,7 +182,7 @@ export async function discoverRelated(
     return { query: taskQuery, method, results: [], total: 0 };
   }
 
-  const candidates: DiscoverResult[] = [];
+  const candidates: NexusDiscoverHit[] = [];
 
   for (const project of Object.values(registry.projects)) {
     let tasks: Array<{
@@ -355,7 +323,7 @@ export async function searchAcrossProjects(
     };
   }
 
-  const results: SearchResult[] = [];
+  const results: NexusSearchHit[] = [];
   const projectEntries = projectFilter
     ? Object.values(registry.projects).filter((p) => p.name === projectFilter)
     : Object.values(registry.projects);

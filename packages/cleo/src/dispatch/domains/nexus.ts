@@ -66,6 +66,7 @@ import type {
   NexusWhyParams,
   NexusWikiParams,
 } from '@cleocode/contracts';
+import type { NexusImpactResult } from '@cleocode/contracts/operations/nexus';
 import {
   getBrainNativeDb,
   getLogger,
@@ -1404,28 +1405,6 @@ export interface NexusImpactAffectedSymbol {
    *   - "depth=2 hop via imports"
    */
   reasons: string[];
-}
-
-/** Result wrapper for `nexus.impact`. */
-export interface NexusImpactResult {
-  /** Original symbol query string. */
-  query: string;
-  /** Project ID the analysis ran against. */
-  projectId: string;
-  /** Resolved target node ID (or null when no match was found). */
-  targetNodeId: string | null;
-  /** Resolved target label (or null when no match was found). */
-  targetLabel: string | null;
-  /** Whether `why` reasons were requested and populated. */
-  why: boolean;
-  /** Risk tier based on totalImpact count. */
-  riskLevel: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  /** Total affected symbols across all depths (excludes the target itself). */
-  totalImpact: number;
-  /** Maximum traversal depth applied (capped at 5). */
-  maxDepth: number;
-  /** Affected symbols grouped by BFS depth. */
-  affected: NexusImpactAffectedSymbol[];
 }
 
 /**

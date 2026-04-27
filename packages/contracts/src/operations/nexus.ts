@@ -20,6 +20,7 @@
  */
 
 // Profile types are now canonical in nexus-user-profile.ts (T1424 dedup)
+import type { SigilCard } from './memory.js';
 import type {
   NexusProfileExportParams,
   NexusProfileExportResult,
@@ -781,19 +782,43 @@ export interface NexusImpactParams {
   projectId?: string;
   /** Include "why" reasons (optional). */
   why?: boolean;
+  /** Maximum reverse traversal depth (default 3, capped at 5). */
+  depth?: number;
 }
 /** Affected symbol in impact result. */
 export interface NexusImpactAffectedNode {
+  /** Nexus node ID. */
   nodeId: string;
+  /** Human-readable label. */
   label: string;
+  /** Node kind. */
   kind: string;
+  /** Source file path (nullable). */
+  filePath: string | null;
+  /** BFS depth from the target (1 = direct caller). */
+  depth: number;
+  /** Path-strings explaining why this symbol is impacted. */
   reasons: string[];
 }
 /** Result of `nexus.impact`. */
 export interface NexusImpactResult {
+  /** Original symbol query string. */
+  query: string;
+  /** Project ID the analysis ran against. */
+  projectId: string;
+  /** Resolved target node ID (or null when no match was found). */
   targetNodeId: string | null;
+  /** Resolved target label (or null when no match was found). */
+  targetLabel: string | null;
+  /** Whether `why` reasons were requested and populated. */
   why: boolean;
+  /** Risk tier based on totalImpact count. */
   riskLevel: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  /** Total affected symbols across all depths (excludes the target itself). */
+  totalImpact: number;
+  /** Maximum traversal depth applied. */
+  maxDepth: number;
+  /** Affected symbols grouped by BFS depth. */
   affected: NexusImpactAffectedNode[];
 }
 
@@ -901,7 +926,12 @@ export interface NexusSigilListParams {
   role?: string;
 }
 /** Result of `nexus.sigil.list`. */
-export type NexusSigilListResult = unknown;
+export interface NexusSigilListResult {
+  /** Array of sigil records, ordered by displayName ascending. */
+  sigils: SigilCard[];
+  /** Total count of sigils returned. */
+  count: number;
+}
 
 /** Parameters for `nexus.sigil.sync` — none. */
 export type NexusSigilSyncParams = Record<string, never>;

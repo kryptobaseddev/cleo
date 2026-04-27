@@ -28,6 +28,7 @@ import type {
   ResolvedAgent,
   Task,
 } from '@cleocode/contracts';
+import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
 // Core module imports
 import {
   AgentNotFoundError,
@@ -65,6 +66,9 @@ import {
   validateSpawnReadiness,
 } from '@cleocode/core/internal';
 import { cleoErrorToEngineError, type EngineResult, engineError } from './_error.js';
+
+export type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
+
 import { sessionContextInject, sessionEnd, sessionStatus } from './session-engine.js';
 
 // ---------------------------------------------------------------------------
@@ -1661,30 +1665,6 @@ export interface PlanWarning {
   code: string;
   /** Human-readable message. */
   message: string;
-}
-
-/**
- * Result envelope returned by {@link orchestratePlan}.
- *
- * @task T889 / W3-6
- */
-export interface OrchestratePlanResult {
-  /** Epic id the plan was computed for. */
-  epicId: string;
-  /** Epic title (falls back to `epicId` when missing). */
-  epicTitle: string;
-  /** Total number of child tasks considered. */
-  totalTasks: number;
-  /** Ordered waves produced by the dependency topological sort. */
-  waves: PlanWave[];
-  /** ISO 8601 timestamp when the plan was generated. */
-  generatedAt: string;
-  /** `true` when the plan is reproducible from the current input snapshot. */
-  deterministic: boolean;
-  /** Sha256 of the sorted `(taskId, status, updatedAt, dependsOn)` tuples + epicId. */
-  inputHash: string;
-  /** Non-fatal warnings (graceful resolver misses, missing AC.files, …). */
-  warnings: PlanWarning[];
 }
 
 /**
