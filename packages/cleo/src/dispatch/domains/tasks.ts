@@ -436,7 +436,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     const result = await taskCreate(projectRoot, {
       title: params.title,
       description: typeof params.description === 'string' ? params.description : undefined,
-      parent: params.parent ?? params.parentId,
+      parent: params.parent,
       depends: params.depends,
       priority: params.priority,
       labels: params.labels,
@@ -448,8 +448,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       files: params.files,
       dryRun: params.dryRun,
       parentSearch: params.parentSearch,
-      // T944: orthogonal axes — role accepts 'kind' alias for CLI compat
-      role: params.role ?? params.kind,
+      // T944: orthogonal axes — role is the canonical wire field (ADR-057 D2)
+      role: params.role,
       scope: params.scope,
       severity: params.severity,
     });
@@ -478,7 +478,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       addDepends: params.addDepends,
       removeDepends: params.removeDepends,
       acceptance: params.acceptance,
-      parent: params.parent ?? params.parentId,
+      // ADR-057 D2: canonical wire field — no alias fallback
+      parent: params.parent,
       type: params.type,
       size: params.size,
       // T1014: wire --files through dispatch to engine (parity with add).
