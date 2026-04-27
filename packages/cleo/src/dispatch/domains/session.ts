@@ -23,6 +23,7 @@ import {
   lafsSuccess,
   type OpsFromCore,
   typedDispatch,
+  wrapCoreResult,
 } from '../adapters/typed.js';
 import { bindSession, unbindSession } from '../context/session-context.js';
 import {
@@ -188,51 +189,20 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
   // Query ops
   // -------------------------------------------------------------------------
 
-  status: async (_params: SessionOps['status'][0]) => {
-    const result = await coreOps.status();
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'status',
-      );
-    }
-    // Engine guarantees data on success; return as-is (data shape matches SessionStatusResult)
-    return lafsSuccess(
-      result.data ?? { hasActiveSession: false, session: null, taskWork: null },
-      'status',
-    );
-  },
+  // Engine guarantees data on success; fallback mirrors empty-state shape.
+  status: async (_params: SessionOps['status'][0]) =>
+    wrapCoreResult(await coreOps.status(), 'status', {
+      hasActiveSession: false as const,
+      session: null,
+      taskWork: null,
+    }),
 
-  list: async (params: SessionOps['list'][0]) => {
-    const result = await coreOps.list(params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'list',
-      );
-    }
-    return lafsSuccess(result.data ?? { sessions: [], total: 0, filtered: 0 }, 'list');
-  },
+  list: async (params: SessionOps['list'][0]) => wrapCoreResult(await coreOps.list(params), 'list'),
 
   // session.show absorbs debrief.show via include param (T5615)
   show: async (params: SessionOps['show'][0]) => {
     if (!params.sessionId) {
       return lafsError('E_INVALID_INPUT', 'sessionId is required', 'show');
-    }
-    if (params.include === 'debrief') {
-      const result = await coreOps.show(params);
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'show',
-        );
-      }
-      // sessionDebriefShow returns opaque debrief data — SessionShowResult is `unknown`
-      // so no cast is needed; the typed result passes through unchanged.
-      return lafsSuccess(result.data, 'show');
     }
     const result = await coreOps.show(params);
     if (!result.success) {
@@ -242,7 +212,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
         'show',
       );
     }
-    if (!result.data) {
+    // Non-debrief path: require data. Debrief returns opaque shape — no null check needed.
+    if (params.include !== 'debrief' && !result.data) {
       return lafsError('E_NOT_FOUND', `Session ${params.sessionId} not found`, 'show');
     }
     return lafsSuccess(result.data, 'show');
@@ -250,6 +221,7 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
 
   find: async (params: SessionOps['find'][0]) => {
     const result = await coreOps.find(params);
+    // Core returns an array; wrap in the expected {sessions:[]} envelope shape.
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -260,61 +232,29 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess({ sessions: result.data ?? [] }, 'find');
   },
 
-  'decision.log': async (params: SessionOps['decision.log'][0]) => {
-    const result = await coreOps['decision.log'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'decision.log',
-      );
-    }
-    return lafsSuccess(result.data ?? [], 'decision.log');
-  },
+  'decision.log': async (params: SessionOps['decision.log'][0]) =>
+    wrapCoreResult(await coreOps['decision.log'](params), 'decision.log', []),
 
   'context.drift': async (params: SessionOps['context.drift'][0]) => {
     const result = await coreOps['context.drift'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'context.drift',
-      );
-    }
-    if (!result.data) {
+    if (result.success && !result.data) {
       return lafsError('E_INTERNAL', 'context.drift returned no data', 'context.drift');
     }
-    return lafsSuccess(result.data, 'context.drift');
+    return wrapCoreResult(result, 'context.drift');
   },
 
-  'handoff.show': async (params: SessionOps['handoff.show'][0]) => {
-    const result = await coreOps['handoff.show'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'handoff.show',
-      );
-    }
-    return lafsSuccess(result.data ?? null, 'handoff.show');
-  },
+  'handoff.show': async (params: SessionOps['handoff.show'][0]) =>
+    wrapCoreResult(await coreOps['handoff.show'](params), 'handoff.show', null),
 
-  'briefing.show': async (params: SessionOps['briefing.show'][0]) => {
-    const result = await coreOps['briefing.show'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'briefing.show',
-      );
-    }
-    return lafsSuccess(result.data, 'briefing.show');
-  },
+  'briefing.show': async (params: SessionOps['briefing.show'][0]) =>
+    wrapCoreResult(await coreOps['briefing.show'](params), 'briefing.show'),
 
   // -------------------------------------------------------------------------
   // Mutate ops
   // -------------------------------------------------------------------------
 
+  // SSoT-EXEMPT: storeOwnerAuthToken (DB side-effect requiring post-create sessionId),
+  // bindSession (process-scoped context, requires scope-string parsing) — ADR-058
   start: async (params: SessionOps['start'][0]) => {
     const projectRoot = getProjectRoot();
     if (!params.scope) {
@@ -375,6 +315,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(sessionData, 'start');
   },
 
+  // SSoT-EXEMPT: orchestrated post-op pipeline — sessionComputeDebrief, persistSessionMemory,
+  // unbindSession (process-context teardown), refreshMemoryBridge — ADR-058
   end: async (params: SessionOps['end'][0]) => {
     const projectRoot = getProjectRoot();
     // End the session first (T140: pass sessionSummary for structured ingestion)
@@ -450,17 +392,10 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
       return lafsError('E_INVALID_INPUT', 'sessionId is required', 'resume');
     }
     const result = await coreOps.resume(params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'resume',
-      );
-    }
-    if (!result.data) {
+    if (result.success && !result.data) {
       return lafsError('E_NOT_FOUND', `Session ${params.sessionId} not found`, 'resume');
     }
-    return lafsSuccess(result.data, 'resume');
+    return wrapCoreResult(result, 'resume');
   },
 
   suspend: async (params: SessionOps['suspend'][0]) => {
@@ -468,60 +403,30 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
       return lafsError('E_INVALID_INPUT', 'sessionId is required', 'suspend');
     }
     const result = await coreOps.suspend(params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'suspend',
-      );
-    }
-    if (!result.data) {
+    if (result.success && !result.data) {
       return lafsError('E_NOT_FOUND', `Session ${params.sessionId} not found`, 'suspend');
     }
-    return lafsSuccess(result.data, 'suspend');
+    return wrapCoreResult(result, 'suspend');
   },
 
-  gc: async (params: SessionOps['gc'][0]) => {
-    const result = await coreOps.gc(params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'gc',
-      );
-    }
-    // Engine guarantees data on success; provide empty fallback for safety
-    return lafsSuccess(result.data ?? { orphaned: [], removed: [] }, 'gc');
-  },
+  // Engine guarantees data on success; fallback for safety.
+  gc: async (params: SessionOps['gc'][0]) =>
+    wrapCoreResult(await coreOps.gc(params), 'gc', { orphaned: [], removed: [] }),
 
   'record.decision': async (params: SessionOps['record.decision'][0]) => {
     const result = await coreOps['record.decision'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'record.decision',
-      );
-    }
-    if (!result.data) {
+    if (result.success && !result.data) {
       return lafsError('E_INTERNAL', 'record.decision returned no data', 'record.decision');
     }
-    return lafsSuccess(result.data, 'record.decision');
+    return wrapCoreResult(result, 'record.decision');
   },
 
   'record.assumption': async (params: SessionOps['record.assumption'][0]) => {
     const result = await coreOps['record.assumption'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'record.assumption',
-      );
-    }
-    if (!result.data) {
+    if (result.success && !result.data) {
       return lafsError('E_INTERNAL', 'record.assumption returned no data', 'record.assumption');
     }
-    return lafsSuccess(result.data, 'record.assumption');
+    return wrapCoreResult(result, 'record.assumption');
   },
 });
 
