@@ -49,6 +49,14 @@
     "./nexus-tasks-bridge-ops.js": {
       "types": "./dist/nexus-tasks-bridge-ops.d.ts",
       "import": "./dist/nexus-tasks-bridge-ops.js"
+    },
+    "./operations/*": {
+      "types": "./dist/operations/*.d.ts",
+      "import": "./dist/operations/*.js"
+    },
+    "./operations/*.js": {
+      "types": "./dist/operations/*.d.ts",
+      "import": "./dist/operations/*.js"
     }
   },
   "scripts": {

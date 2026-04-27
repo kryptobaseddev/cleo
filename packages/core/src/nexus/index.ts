@@ -8,6 +8,12 @@
  * @epic T4540
  */
 
+export type {
+  NexusDiscoverHit as DiscoverResult,
+  NexusDiscoverResult,
+  NexusSearchHit as SearchResult,
+  NexusSearchResult,
+} from '@cleocode/contracts/operations/nexus';
 // Deps - global dependency graph and analysis
 export {
   type BlockingAnalysisResult,
@@ -29,12 +35,8 @@ export {
 } from './deps.js';
 // Discovery - cross-project task discovery and search
 export {
-  type DiscoverResult,
   discoverRelated,
   extractKeywords,
-  type NexusDiscoverResult,
-  type NexusSearchResult,
-  type SearchResult,
   searchAcrossProjects,
 } from './discover.js';
 // Hash - canonical project identity hash

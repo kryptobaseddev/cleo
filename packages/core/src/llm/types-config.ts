@@ -8,6 +8,10 @@
  * @task T1386
  */
 
+import type { ToolCallParams } from '@cleocode/contracts/operations/llm';
+
+export type { LLMCallParams, ToolCallParams, ToolResult } from '@cleocode/contracts/operations/llm';
+
 /** Supported provider transport names. */
 export type ModelTransport = 'anthropic' | 'openai' | 'gemini';
 
@@ -47,46 +51,6 @@ export interface ModelConfig {
   stopSequences?: string[] | null;
   cachePolicy?: PromptCachePolicy | null;
   fallback?: Omit<ModelConfig, 'fallback'> | null;
-}
-
-/** Parameters for a single LLM call. */
-export interface LLMCallParams {
-  modelConfig: ModelConfig;
-  prompt: string;
-  maxTokens: number;
-  messages?: Array<Record<string, unknown>> | null;
-  temperature?: number | null;
-  stopSeqs?: string[] | null;
-  jsonMode?: boolean;
-  reasoningEffort?: string | null;
-  verbosity?: 'low' | 'medium' | 'high' | null;
-  thinkingBudgetTokens?: number | null;
-  enableRetry?: boolean;
-  retryAttempts?: number;
-  stream?: boolean;
-  streamFinalOnly?: boolean;
-  tools?: Array<Record<string, unknown>> | null;
-  toolChoice?: string | Record<string, unknown> | null;
-  maxToolIterations?: number;
-  maxInputTokens?: number | null;
-  traceName?: string | null;
-  trackName?: string | null;
-}
-
-/** Tool call result descriptor. */
-export interface ToolCallParams {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-  thoughtSignature?: string | null;
-}
-
-/** Tool execution result. */
-export interface ToolResult {
-  toolId: string;
-  toolName: string;
-  result: unknown;
-  isError?: boolean;
 }
 
 /** Result of a completed LLM call. */

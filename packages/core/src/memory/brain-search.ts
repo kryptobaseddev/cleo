@@ -21,8 +21,8 @@ import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';
 import { QUALITY_SCORE_THRESHOLD } from './quality-scoring.js';
 
-/** Search result with BM25 rank. */
-export interface BrainSearchResult {
+/** Search result grouped by backing memory table. */
+export interface BrainMemorySearchResult {
   decisions: BrainDecisionRow[];
   patterns: BrainPatternRow[];
   learnings: BrainLearningRow[];
@@ -301,7 +301,7 @@ export async function searchBrain(
   projectRoot: string,
   query: string,
   options?: BrainSearchOptions,
-): Promise<BrainSearchResult> {
+): Promise<BrainMemorySearchResult> {
   if (!query?.trim()) {
     return { decisions: [], patterns: [], learnings: [], observations: [] };
   }
@@ -375,8 +375,8 @@ function searchWithFts5(
   limit: number,
   peerId?: string,
   includeGlobal = true,
-): BrainSearchResult {
-  const result: BrainSearchResult = {
+): BrainMemorySearchResult {
+  const result: BrainMemorySearchResult = {
     decisions: [],
     patterns: [],
     learnings: [],
@@ -500,8 +500,8 @@ function searchWithLike(
   limit: number,
   peerId?: string,
   includeGlobal = true,
-): BrainSearchResult {
-  const result: BrainSearchResult = {
+): BrainMemorySearchResult {
+  const result: BrainMemorySearchResult = {
     decisions: [],
     patterns: [],
     learnings: [],
@@ -912,7 +912,7 @@ export async function hybridSearch(
   }
 
   const allResults = await Promise.all(searches);
-  const ftsResults = allResults[0] as BrainSearchResult;
+  const ftsResults = allResults[0] as BrainMemorySearchResult;
   const vecResults = allResults[1] as SimilarityResult[];
   const codeResults = (includeCode ? (allResults[2] ?? []) : []) as Array<{
     id: string;

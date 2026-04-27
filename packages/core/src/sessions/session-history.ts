@@ -6,7 +6,10 @@
  */
 
 import type { Session } from '@cleocode/contracts';
+import type { SessionHistoryParams } from '@cleocode/contracts/operations/session';
 import { getAccessor } from '../store/data-accessor.js';
+
+export type { SessionHistoryParams } from '@cleocode/contracts/operations/session';
 
 export interface SessionHistoryEntry {
   id: string;
@@ -17,11 +20,6 @@ export interface SessionHistoryEntry {
   tasksCompleted: number;
   focusChanges: number;
   focusHistory: Array<{ taskId: string; timestamp: string }>;
-}
-
-export interface SessionHistoryParams {
-  sessionId?: string;
-  limit?: number;
 }
 
 /**
