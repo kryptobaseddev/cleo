@@ -631,7 +631,11 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
         'release.list',
       );
     }
-    return lafsSuccess(result.data, 'release.list');
+    // Embed engine page in data so outer query() can populate DispatchResponse.page.
+    return lafsSuccess(
+      { ...(result.data as Record<string, unknown> | undefined), _enginePage: result.page },
+      'release.list',
+    );
   },
 
   'release.show': async (params: PipelineOps['release.show'][0]) => {
@@ -761,7 +765,11 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
         'manifest.list',
       );
     }
-    return lafsSuccess(result.data, 'manifest.list');
+    // Embed engine page in data so outer query() can populate DispatchResponse.page.
+    return lafsSuccess(
+      { ...(result.data as Record<string, unknown> | undefined), _enginePage: result.page },
+      'manifest.list',
+    );
   },
 
   'manifest.find': async (params: PipelineOps['manifest.find'][0]) => {
@@ -1095,10 +1103,22 @@ export class PipelineHandler implements DomainHandler {
         };
       }
 
+      // Extract _enginePage embedded by typed handler ops (e.g. manifest.list, release.list)
+      // so the DispatchResponse.page field is populated for pagination-aware consumers.
+      const envelopeData = envelope.data as Record<string, unknown> | undefined;
+      const enginePage = envelopeData?._enginePage as import('@cleocode/lafs').LAFSPage | undefined;
+      const responseData =
+        envelopeData?._enginePage !== undefined
+          ? (({ _enginePage: _p, ...rest }) => rest)(
+              envelopeData as Record<string, unknown> & { _enginePage: unknown },
+            )
+          : envelopeData;
+
       return {
         meta: dispatchMeta('query', 'pipeline', operation, startTime),
         success: true,
-        data: envelope.data as unknown,
+        data: responseData as unknown,
+        ...(enginePage ? { page: enginePage } : {}),
       };
     } catch (error) {
       getLogger('domain:pipeline').error(
