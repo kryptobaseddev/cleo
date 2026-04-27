@@ -47,6 +47,19 @@ jobs:
           version: '2.4.8'
       - run: biome ci .
 
+  ssot-lint:
+    name: Contracts/Core SSoT (ADR-057)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint Contracts/Core SSoT (ADR-057)
+        # No untrusted input used — pure static analysis of checked-in source files.
+        run: node scripts/lint-contracts-core-ssot.mjs --exit-on-fail
+
   canon-drift:
     name: Canon Drift Check
     needs: [biome]
