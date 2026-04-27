@@ -452,17 +452,22 @@ export class Cleo {
   // === Nexus ===
   get nexus(): NexusAPI {
     return {
-      init: () => nexusInit(),
+      init: () => nexusInit('', {}),
       register: (p) =>
-        nexusRegister(p.path, p.name, p.permissions as 'read' | 'write' | 'execute' | undefined),
-      unregister: (p) => nexusUnregister(p.name),
-      list: () => nexusList(),
-      show: (p) => nexusGetProject(p.name),
-      sync: (p) => (p?.name ? nexusSync(p.name) : nexusSyncAll()),
-      discover: (p) => discoverRelated(p.query, p.method, p.limit),
-      search: (p) => searchAcrossProjects(p.pattern, p.project, p.limit),
-      setPermission: (p) => setPermission(p.name, p.level),
-      sharingStatus: () => getSharingStatus(),
+        nexusRegister('', {
+          path: p.path,
+          name: p.name,
+          permission: p.permissions as 'read' | 'write' | 'execute' | undefined,
+        }),
+      unregister: (p) => nexusUnregister('', { name: p.name }),
+      list: () => nexusList('', {}),
+      show: (p) => nexusGetProject('', { name: p.name }),
+      sync: (p) => (p?.name ? nexusSync('', { name: p.name }) : nexusSyncAll()),
+      discover: (p) => discoverRelated('', { query: p.query, method: p.method, limit: p.limit }),
+      search: (p) =>
+        searchAcrossProjects('', { pattern: p.pattern, project: p.project, limit: p.limit }),
+      setPermission: (p) => setPermission('', { name: p.name, level: p.level }),
+      sharingStatus: () => getSharingStatus(undefined, {}),
       route: (message) => {
         const directive = parseDirective(message);
         if (!directive) return Promise.resolve([]);

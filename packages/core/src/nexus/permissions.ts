@@ -13,7 +13,7 @@
  * @epic T4540
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, type NexusPermissionSetParams } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { type NexusPermissionLevel, nexusGetProject, nexusSetPermission } from './registry.js';
 
@@ -118,14 +118,32 @@ export async function checkPermissionDetail(
  * @task T4574
  */
 export async function setPermission(
+  _projectRoot: string,
+  params: NexusPermissionSetParams,
+): Promise<void>;
+/** @deprecated Use `setPermission(projectRoot, params)` — ADR-057 D1 */
+export async function setPermission(
   nameOrHash: string,
   permission: NexusPermissionLevel,
+): Promise<void>;
+export async function setPermission(
+  projectRootOrName: string,
+  paramsOrPermission?: NexusPermissionSetParams | NexusPermissionLevel,
 ): Promise<void> {
+  let nameOrHash: string;
+  let permission: NexusPermissionLevel;
+  if (paramsOrPermission !== undefined && typeof paramsOrPermission === 'object') {
+    nameOrHash = paramsOrPermission.name;
+    permission = paramsOrPermission.level as NexusPermissionLevel;
+  } else {
+    nameOrHash = projectRootOrName;
+    permission = (paramsOrPermission as NexusPermissionLevel | undefined) ?? 'read';
+  }
   if (!nameOrHash) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project name or hash required');
   }
 
-  await nexusSetPermission(nameOrHash, permission);
+  await nexusSetPermission('', { name: nameOrHash, level: permission });
 }
 
 /** Convenience: check read access. */

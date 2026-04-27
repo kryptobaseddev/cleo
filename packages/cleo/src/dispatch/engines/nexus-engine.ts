@@ -112,7 +112,7 @@ export async function nexusListProjects(
   }>
 > {
   try {
-    const projects = await nexusList();
+    const projects = await nexusList('', {});
     const page = paginate(projects, limit, offset);
     return {
       success: true,
@@ -137,7 +137,7 @@ export async function nexusShowProject(
   name: string,
 ): Promise<EngineResult<Awaited<ReturnType<typeof nexusGetProject>>>> {
   try {
-    const project = await nexusGetProject(name);
+    const project = await nexusGetProject('', { name });
     if (!project) {
       return engineError('E_NOT_FOUND', `Project not found: ${name}`);
     }
@@ -161,7 +161,7 @@ export async function nexusResolve(
         `Invalid query syntax: ${query}. Expected: T001, project:T001, .:T001, or *:T001`,
       );
     }
-    const result = await resolveTask(query, currentProject);
+    const result = await resolveTask('', { query, currentProject });
     return engineSuccess(result);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -176,7 +176,7 @@ export async function nexusDepsQuery(
   direction: 'forward' | 'reverse' = 'forward',
 ): Promise<EngineResult<Awaited<ReturnType<typeof nexusDeps>>>> {
   try {
-    const result = await nexusDeps(query, direction);
+    const result = await nexusDeps('', { query, direction });
     return engineSuccess(result);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -190,7 +190,7 @@ export async function nexusGraph(): Promise<
   EngineResult<Awaited<ReturnType<typeof buildGlobalGraph>>>
 > {
   try {
-    const graph = await buildGlobalGraph();
+    const graph = await buildGlobalGraph('', {});
     return engineSuccess(graph);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -204,7 +204,7 @@ export async function nexusCriticalPath(): Promise<
   EngineResult<Awaited<ReturnType<typeof criticalPath>>>
 > {
   try {
-    const path = await criticalPath();
+    const path = await criticalPath('', {});
     return engineSuccess(path);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -572,7 +572,7 @@ export async function nexusBlockers(
   query: string,
 ): Promise<EngineResult<Awaited<ReturnType<typeof blockingAnalysis>>>> {
   try {
-    const analysis = await blockingAnalysis(query);
+    const analysis = await blockingAnalysis('', { query });
     return engineSuccess(analysis);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -595,7 +595,7 @@ export async function nexusOrphans(
   }>
 > {
   try {
-    const orphans = await orphanDetection();
+    const orphans = await orphanDetection('', {});
     const page = paginate(orphans, limit, offset);
     return {
       success: true,
@@ -644,7 +644,7 @@ export async function nexusDiscover(
   }>
 > {
   try {
-    const result = await discoverRelated(taskQuery, method, limit);
+    const result = await discoverRelated('', { query: taskQuery, method, limit });
     if ('error' in result) {
       return engineError(result.error.code as 'E_INVALID_INPUT', result.error.message);
     }
@@ -680,7 +680,7 @@ export async function nexusSearch(
   }>
 > {
   try {
-    const result = await searchAcrossProjects(pattern, projectFilter, limit);
+    const result = await searchAcrossProjects('', { pattern, project: projectFilter, limit });
     if ('error' in result) {
       return engineError(
         result.error.code as 'E_INVALID_INPUT' | 'E_NOT_FOUND',
@@ -702,7 +702,7 @@ export async function nexusSearch(
  */
 export async function nexusInitialize(): Promise<EngineResult<{ message: string }>> {
   try {
-    await nexusInit();
+    await nexusInit('', {});
     return engineSuccess({ message: 'NEXUS initialized successfully' });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -718,7 +718,7 @@ export async function nexusRegisterProject(
   permission: NexusPermissionLevel = 'read',
 ): Promise<EngineResult<{ hash: string; message: string }>> {
   try {
-    const hash = await nexusRegister(path, name, permission);
+    const hash = await nexusRegister('', { path, name, permission });
     return engineSuccess({ hash, message: `Project registered with hash: ${hash}` });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -732,7 +732,7 @@ export async function nexusUnregisterProject(
   name: string,
 ): Promise<EngineResult<{ message: string }>> {
   try {
-    await nexusUnregister(name);
+    await nexusUnregister('', { name });
     return engineSuccess({ message: `Project unregistered: ${name}` });
   } catch (error) {
     return cleoErrorToEngineError(error, 'E_INTERNAL', `Failed to unregister project: ${name}`);
@@ -745,7 +745,7 @@ export async function nexusUnregisterProject(
 export async function nexusSyncProject(name?: string): Promise<EngineResult<unknown>> {
   try {
     if (name) {
-      await nexusSync(name);
+      await nexusSync('', { name });
       return engineSuccess({ message: `Project synced: ${name}` });
     }
     const result = await nexusSyncAll();
@@ -763,7 +763,7 @@ export async function nexusSetPermission(
   level: NexusPermissionLevel,
 ): Promise<EngineResult<{ message: string }>> {
   try {
-    await setPermission(name, level);
+    await setPermission('', { name, level });
     return engineSuccess({ message: `Permission for '${name}' set to '${level}'` });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -777,7 +777,7 @@ export async function nexusReconcileProject(
   projectRoot: string,
 ): Promise<EngineResult<Awaited<ReturnType<typeof nexusReconcile>>>> {
   try {
-    const result = await nexusReconcile(projectRoot);
+    const result = await nexusReconcile(projectRoot, {});
     return engineSuccess(result);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
@@ -795,7 +795,7 @@ export async function nexusShareStatus(
   projectRoot: string,
 ): Promise<EngineResult<Awaited<ReturnType<typeof getSharingStatus>>>> {
   try {
-    const result = await getSharingStatus(projectRoot);
+    const result = await getSharingStatus(projectRoot, {});
     return engineSuccess(result);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
