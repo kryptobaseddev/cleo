@@ -1,491 +1,235 @@
 # @cleocode/contracts
 
-Domain types, interfaces, and contracts for the CLEO ecosystem.
+Canonical wire-format type surface for the CLEO ecosystem. All operation `Params`/`Result` types, domain discriminated unions, LAFS envelope types, and shared primitives live here — making this package the **SSoT** (single source of truth) for every CLEO dispatch operation.
 
-## Overview
+## Position in the Architecture
 
-This package contains all type definitions, interfaces, and contracts used throughout the CLEO monorepo. It is the **leaf package** in the dependency graph with **zero runtime dependencies**, serving as the foundation for type safety across all other packages.
+`@cleocode/contracts` is the **leaf package** in the CLEO dependency graph — it has zero runtime dependencies. Every other CLEO package imports from here; nothing here imports from them.
 
-All domain types (Task, Session, DataAccessor, etc.) are defined here. Implementation packages (`@cleocode/core`, `@cleocode/cleo`) import from here.
-
-## Installation
-
-```bash
-npm install @cleocode/contracts
+```
+packages/contracts/          ← wire-format SSoT (this package)
+   └── src/operations/       ← <Domain>Ops discriminated unions + Params/Result types
+packages/core/               ← SDK implementation (imports Params/Result from here)
+packages/cleo/               ← CLI dispatch (imports XOps + OpsFromCore from here)
+packages/cleo-os/            ← harness adapters (imports adapter contracts from here)
+packages/studio/             ← Studio routes (imports operation types from here)
 ```
 
-```bash
-pnpm add @cleocode/contracts
+Per **ADR-057** (Contracts/Core SSoT layering), every Core function that backs a dispatch operation MUST import its `<Op>Params` and `<Op>Result` types from this package. Per **ADR-058** (Dispatch Type Inference via `OpsFromCore<C>`), dispatch handlers derive their full type-safety from these contracts rather than declaring parallel types inline.
+
+## The `<Op>Params` / `<Op>Result` Pattern
+
+Each dispatch-ready operation is represented by a pair of types:
+
+- **`<Op>Params`** — the wire-format input shape the CLI/Studio/SDK sends to Core.
+- **`<Op>Result`** — the wire-format output shape Core returns (wrapped in a `LafsEnvelope`).
+
+These pairs are collected into a **`<Domain>Ops` discriminated union** (a plain TypeScript record type). The union maps operation names to `readonly [Params, Result]` tuples:
+
+```typescript
+// packages/contracts/src/operations/tasks.ts
+export type TasksOps = {
+  readonly show:     readonly [TasksShowParams,    TasksShowResult];
+  readonly list:     readonly [TasksListParams,    TasksListResult];
+  readonly find:     readonly [TasksFindParams,    TasksFindResult];
+  readonly add:      readonly [TasksAddParams,     TasksAddResult];
+  readonly update:   readonly [TasksUpdateQueryParams, TasksUpdateQueryResult];
+  readonly complete: readonly [TasksCompleteQueryParams, TasksCompleteQueryResult];
+  // ... (all operations in the tasks domain)
+};
 ```
 
-```bash
-yarn add @cleocode/contracts
+The dispatch layer uses `TypedDomainHandler<TasksOps>` to get compile-time narrowing on every branch. When a Params or Result type changes in this file, TypeScript surfaces the break immediately at every call site — no silent drift.
+
+### `OpsFromCore<C>` — Inference Helper
+
+For domains where Core functions already follow the ADR-057 D1 uniform signature (`async fn(projectRoot: string, params: <Op>Params): Promise<<Op>Result>`), the dispatch layer can skip writing a manual `<Domain>Ops` type. Instead it uses `OpsFromCore<C>` (defined in `packages/cleo/src/dispatch/adapters/typed.ts`, introduced in T1436) to **infer** the Params/Result pairs directly from the Core function signatures:
+
+```typescript
+import type { OpsFromCore } from '@cleocode/cleo/dispatch/adapters/typed';
+import * as taskCore from '@cleocode/core/tasks';
+
+// Automatically derives TasksOps-equivalent types from Core's signatures.
+type InferredTasksOps = OpsFromCore<typeof taskCore>;
 ```
+
+The contracts package supplies the `Params`/`Result` types that Core functions are annotated with — so `OpsFromCore<C>` and the hand-written `<Domain>Ops` type stay in sync automatically.
+
+See **ADR-058** for the full migration recipe, tier classification (thin wrapper / engine wrapper / manual `TypedOpRecord`), and escape hatches.
+
+## Usage Examples
+
+### 1. Importing operation types for a tasks domain handler
+
+```typescript
+import type {
+  TasksOps,
+  TasksAddParams,
+  TasksAddResult,
+  TasksShowParams,
+  TasksShowResult,
+} from '@cleocode/contracts';
+
+// Use in a TypedDomainHandler — params/result are compile-time checked.
+async function addTask(
+  projectRoot: string,
+  params: TasksAddParams,
+): Promise<TasksAddResult> {
+  // ...implementation...
+}
+```
+
+### 2. Importing session operation types and the `SessionOps` union
+
+```typescript
+import type {
+  SessionOps,
+  SessionStartParams,
+  SessionStartResult,
+  SessionEndParams,
+  SessionEndResult,
+} from '@cleocode/contracts';
+
+// SessionOps is the discriminated union consumed by TypedDomainHandler<SessionOps>.
+// Keying into it gives the exact [Params, Result] tuple for each operation.
+type StartTuple = SessionOps['start'];
+//   ^ readonly [SessionStartParams, SessionStartResult]
+```
+
+### 3. Working with LAFS envelopes and exit codes
+
+```typescript
+import {
+  isLafsSuccess,
+  isLafsError,
+  ExitCode,
+  isSuccessCode,
+  type LafsEnvelope,
+} from '@cleocode/contracts';
+
+function handleCLIResponse(response: LafsEnvelope<unknown>, code: number): void {
+  if (isLafsSuccess(response)) {
+    console.log('data:', response.data);
+  } else if (isLafsError(response)) {
+    console.error('error:', response.error.message);
+  }
+
+  if (!isSuccessCode(code)) {
+    process.exit(code);
+  }
+}
+```
+
+## Versioning Policy
+
+`@cleocode/contracts` follows **CalVer `YYYY.MM.patch`** (e.g., `2026.4.151`). The version is the calendar position of the release, not a semantic compatibility signal. Breaking changes to operation types (renamed fields, removed Params properties) are tracked via ADR entries and announced in the CHANGELOG. Consumers should pin to a specific version and review the CHANGELOG on upgrades.
+
+The package is published to npm with `"access": "public"` — see `publishConfig` in `package.json`. It is **not** marked `"private"`.
+
+## Sub-path Exports
+
+The package exposes several sub-path entry points in addition to the root `"."`:
+
+| Sub-path | Contents |
+|---|---|
+| `.` (root) | All domain types, LAFS envelope types, exit codes, status registry, and re-exported operation types (`ops.*`, `TasksOps`, `SessionOps`, …) |
+| `./operations/*` | Individual operation files by domain (e.g., `./operations/tasks`, `./operations/session`) |
+| `./nexus-contract-ops` | Nexus contract operation types |
+| `./nexus-living-brain-ops` | BRAIN super-domain living-brain operation types |
+| `./nexus-query-ops` | Nexus query operation types |
+| `./nexus-route-ops` | Nexus route operation types |
+| `./nexus-tasks-bridge-ops` | Nexus–Tasks bridge operation types |
+
+Example:
+
+```typescript
+// Root import — preferred for most consumers
+import type { TasksOps, TasksAddParams } from '@cleocode/contracts';
+
+// Sub-path import — useful when you need tree-shaking at the type level
+import type { TasksOps } from '@cleocode/contracts/operations/tasks';
+```
+
+## ADR Cross-References
+
+| ADR | Topic |
+|---|---|
+| [ADR-057](../../docs/adr/ADR-057-contracts-core-ssot.md) | Contracts/Core SSoT layering — uniform `(projectRoot, params)` Core API and `OpsFromCore`-inferred dispatch |
+| [ADR-058](../../docs/adr/ADR-058-dispatch-type-inference.md) | Dispatch type inference via `OpsFromCore<C>` — pattern, migration recipe, escape hatches |
+| [ADR-039](../../docs/adr/ADR-039-lafs-envelope-spec.md) | LAFS envelope format — `LafsEnvelope<T>`, `LafsSuccess`, `LafsError` |
+| [ADR-056](../../docs/adr/ADR-056-db-ssot.md) | DB SSoT layering (supplements the contracts SSoT for storage types) |
 
 ## API Overview
 
-### Core Types
+### Operation Types (Wire Format)
 
-#### Task Types
+All domains follow the `<Op>Params` / `<Op>Result` naming convention. Available domain operation files under `src/operations/`:
+
+| Domain file | `XOps` type | Description |
+|---|---|---|
+| `tasks.ts` | `TasksOps` | Task CRUD, query, lifecycle, sync, claim |
+| `session.ts` | `SessionOps` | Session start/end/resume, briefing, handoff |
+| `brain.ts` | — | BRAIN super-graph wire types |
+| `memory.ts` | `MemoryOps` | Observations, patterns, decisions, tiers |
+| `nexus.ts` | `NexusOps` | Code intelligence, wiki, impact |
+| `lifecycle.ts` | `LifecycleOps` | Epic lifecycle pipeline stages |
+| `orchestrate.ts` | `OrchestrateOps` | Multi-agent spawn, wave, IVTR, playbook |
+| `pipeline.ts` | — | LOOM pipeline wave types |
+| `admin.ts` | `AdminOps` | Backup, restore, export, import |
+| `validate.ts` | `CheckOps` | Evidence gates, verification |
+| `release.ts` | `ReleaseOps` | CalVer release and tag |
+| `sentient.ts` | `SentientOps` | Tier-2 proposal management |
+| `conduit.ts` | `ConduitOps` | Messaging transport |
+| `research.ts` | `ResearchOps` | LOOM research stage |
+| `skills.ts` | `SkillsOps` | Agent skill management |
+| `playbook.ts` | `PlaybookOps` | `.cantbook` playbook execution |
+| `worktree.ts` | `WorktreeOps` | Git worktree provisioning |
+| `issues.ts` | `IssuesOps` | GitHub issue sync |
+| `system.ts` | `SystemOps` | System health and diagnostics |
+| `sticky.ts` | `StickyOps` | Sticky note capture |
+
+### LAFS Envelope Types
+
+Standardized response envelope (per ADR-039):
 
 ```typescript
-import type { 
-  Task, 
-  TaskCreate, 
-  TaskPriority, 
-  TaskStatus,
-  TaskType,
-  TaskSize,
-  EpicLifecycle,
-  Phase,
-  PhaseStatus,
-  PhaseTransition,
-  VerificationGate,
-  TaskVerification,
-  TaskWorkState
-} from '@cleocode/contracts';
+import type { LafsEnvelope, LafsSuccess, LafsError } from '@cleocode/contracts';
+import { isLafsSuccess, isLafsError } from '@cleocode/contracts';
 ```
 
-#### Session Types
+### Core Domain Types
 
 ```typescript
-import type { 
-  Session, 
-  SessionScope, 
-  SessionStartResult,
-  SessionStats,
-  SessionTaskWork,
-  SessionView
-} from '@cleocode/contracts';
-```
-
-#### Memory Types
-
-```typescript
-import type { 
+import type {
+  Task, TaskCreate, TaskPriority, TaskStatus, TaskType, TaskSize,
+  Session, SessionScope,
+  DataAccessor, TransactionAccessor,
+  CleoConfig,
   BrainEntryRef,
-  BrainEntrySummary,
-  ContradictionDetail,
-  SupersededEntry,
-  MemoryBridgeConfig,
-  MemoryBridgeContent,
-  BridgeDecision,
-  BridgeLearning,
-  BridgeObservation,
-  BridgePattern,
-  SessionSummary
-} from '@cleocode/contracts';
-```
-
-#### Data Accessor Interface
-
-```typescript
-import type { 
-  DataAccessor,
-  TransactionAccessor,
-  TaskQueryFilters,
-  QueryTasksResult,
-  TaskFieldUpdates,
-  ArchiveFields,
-  ArchiveFile
+  CLEOProviderAdapter,
 } from '@cleocode/contracts';
 ```
 
 ### Status Registry
 
-Centralized status definitions with validation and display helpers:
-
 ```typescript
-import { 
+import {
   TASK_STATUSES,
-  SESSION_STATUSES,
-  LIFECYCLE_STAGE_STATUSES,
-  LIFECYCLE_PIPELINE_STATUSES,
-  GATE_STATUSES,
-  ADR_STATUSES,
-  MANIFEST_STATUSES,
   isValidStatus,
-  STATUS_REGISTRY,
-  TASK_STATUS_SYMBOLS_ASCII,
   TASK_STATUS_SYMBOLS_UNICODE,
-  PIPELINE_STATUS_ICONS,
-  STAGE_STATUS_ICONS,
-  TERMINAL_TASK_STATUSES,
-  TERMINAL_STAGE_STATUSES,
-  TERMINAL_PIPELINE_STATUSES
 } from '@cleocode/contracts';
-
-// Validate a status
-const isValid = isValidStatus('task', 'in_progress');
-
-// Get status icon
-const icon = TASK_STATUS_SYMBOLS_UNICODE['completed'];
 ```
 
 ### Exit Codes
 
-Standardized exit codes for CLEO operations:
-
 ```typescript
-import { 
-  ExitCode,
-  getExitCodeName,
-  isSuccessCode,
-  isErrorCode,
-  isRecoverableCode,
-  isNoChangeCode
-} from '@cleocode/contracts';
-
-// Check exit code meaning
-if (isSuccessCode(exitCode)) {
-  console.log('Operation succeeded');
-}
-```
-
-### Configuration Types
-
-```typescript
-import type { 
-  CleoConfig,
-  ConfigSource,
-  LogLevel,
-  LoggingConfig,
-  SessionConfig,
-  LifecycleConfig,
-  LifecycleEnforcementMode,
-  EnforcementProfile,
-  SharingConfig,
-  SharingMode,
-  SignalDockConfig,
-  SignalDockMode,
-  OutputConfig,
-  OutputFormat,
-  DateFormat,
-  BackupConfig,
-  HierarchyConfig,
-  ResolvedValue
-} from '@cleocode/contracts';
-```
-
-### LAFS (Language-Agnostic Feedback Schema)
-
-Standardized envelope format for API responses:
-
-```typescript
-import type { 
-  LafsEnvelope,
-  LafsSuccess,
-  LafsError,
-  LafsErrorDetail,
-  LAFSPage,
-  LAFSPageOffset,
-  LAFSPageNone,
-  LAFSMeta,
-  MVILevel,
-  Warning,
-  LafsAlternative,
-  CleoResponse,
-  GatewayEnvelope,
-  GatewaySuccess,
-  GatewayError,
-  GatewayMeta,
-  ConformanceReport,
-  FlagInput,
-  LAFSError,
-  LAFSErrorCategory,
-  LAFSTransport
-} from '@cleocode/contracts';
-
-import { 
-  isLafsSuccess, 
-  isLafsError,
-  isGatewayEnvelope 
-} from '@cleocode/contracts';
-```
-
-### Provider Adapter Contracts
-
-```typescript
-import type { 
-  CLEOProviderAdapter,
-  AdapterHealthStatus,
-  AdapterCapabilities,
-  AdapterContextMonitorProvider,
-  AdapterHookProvider,
-  AdapterInstallProvider,
-  InstallOptions,
-  InstallResult,
-  AdapterSpawnProvider,
-  SpawnContext,
-  SpawnResult,
-  AdapterTransportProvider,
-  AdapterPathProvider,
-  AdapterTaskSyncProvider,
-  ExternalTask,
-  ExternalTaskStatus,
-  ReconcileAction,
-  ReconcileActionType,
-  ReconcileOptions,
-  ReconcileResult,
-  SyncSessionState,
-  ConflictPolicy
-} from '@cleocode/contracts';
-```
-
-### Task Sync Types
-
-Provider-agnostic reconciliation types:
-
-```typescript
-import type { 
-  ExternalTask,
-  ExternalTaskStatus,
-  ReconcileAction,
-  ReconcileActionType,
-  ReconcileOptions,
-  ReconcileResult,
-  SyncSessionState,
-  ConflictPolicy
-} from '@cleocode/contracts';
-```
-
-### Archive Types
-
-```typescript
-import type { 
-  ArchivedTask,
-  ArchiveMetadata,
-  ArchiveSummaryReport,
-  ArchiveTrendsReport,
-  ArchiveCycleTimesReport,
-  ArchiveStatsEnvelope,
-  ArchiveReportType,
-  ArchiveDailyTrend,
-  ArchiveMonthlyTrend,
-  ArchiveLabelEntry,
-  ArchivePhaseEntry,
-  ArchivePriorityEntry,
-  CycleTimeDistribution,
-  CycleTimePercentiles
-} from '@cleocode/contracts';
-```
-
-### Results Types
-
-Dashboard and statistics results:
-
-```typescript
-import type { 
-  DashboardResult,
-  StatsResult,
-  StatsActivityMetrics,
-  StatsAllTime,
-  StatsCompletionMetrics,
-  StatsCurrentState,
-  StatsCycleTimes,
-  ContextResult,
-  LogQueryResult,
-  SequenceResult,
-  TaskDepsResult,
-  TaskAnalysisResult,
-  TaskRef,
-  TaskRefPriority,
-  TaskSummary,
-  LabelCount,
-  CompleteTaskUnblocked,
-  BottleneckTask,
-  LeveragedTask
-} from '@cleocode/contracts';
-```
-
-### Task Record Types
-
-String-widened types for dispatch and LAFS:
-
-```typescript
-import type { 
-  TaskRecord,
-  MinimalTaskRecord,
-  TaskRecordRelation,
-  ValidationHistoryEntry
-} from '@cleocode/contracts';
-```
-
-### Spawn Types
-
-CLEO spawn system types:
-
-```typescript
-import type { 
-  CLEOSpawnAdapter,
-  CLEOSpawnContext,
-  CLEOSpawnResult,
-  CAAMPSpawnOptions,
-  CAAMPSpawnResult,
-  Provider,
-  SpawnStatus,
-  TokenResolution
-} from '@cleocode/contracts';
-```
-
-### Tessera Types
-
-Template instantiation types:
-
-```typescript
-import type { 
-  TesseraTemplate,
-  TesseraVariable,
-  TesseraInstantiationInput
-} from '@cleocode/contracts';
-```
-
-### WarpChain Types
-
-Protocol execution chain types:
-
-```typescript
-import type { 
-  WarpChain,
-  WarpChainInstance,
-  WarpChainExecution,
-  WarpStage,
-  WarpLink,
-  GateContract,
-  GateName,
-  GateCheck,
-  GateResult,
-  ChainValidation,
-  ChainShape,
-  ProtocolType
-} from '@cleocode/contracts';
-```
-
-### Operations Types (Namespace)
-
-All operation types are namespaced under `ops` to avoid collisions:
-
-```typescript
-import { ops } from '@cleocode/contracts';
-
-// Access operation types
-const taskParams: ops.TaskQueryParams = { ... };
-const createParams: ops.TaskCreateParams = { ... };
-```
-
-Available operation namespaces:
-- `ops.TaskQueryParams`
-- `ops.TaskCreateParams`
-- `ops.TaskUpdateParams`
-- `ops.TaskCompleteParams`
-- `ops.SessionStartParams`
-- `ops.SessionEndParams`
-- `ops.MemoryObserveParams`
-- `ops.MemorySearchParams`
-- `ops.BrainQueryParams`
-- `ops.ValidateParams`
-- `ops.ReleaseParams`
-- `ops.OrchestrateParams`
-- `ops.ResearchParams`
-- `ops.SkillsParams`
-- `ops.SystemParams`
-- `ops.IssuesParams`
-- And more...
-
-### Discovery Types
-
-Provider manifest discovery:
-
-```typescript
-import type { 
-  AdapterManifest,
-  DetectionPattern
-} from '@cleocode/contracts';
-```
-
-### Context Monitor Types
-
-```typescript
-import type { 
-  AdapterContextMonitorProvider
-} from '@cleocode/contracts';
-```
-
-### Hooks Types
-
-```typescript
-import type { 
-  AdapterHookProvider
-} from '@cleocode/contracts';
-```
-
-## Usage Examples
-
-### Creating a Task Type
-
-```typescript
-import type { TaskCreate, TaskPriority, TaskType } from '@cleocode/contracts';
-
-const newTask: TaskCreate = {
-  title: 'Implement authentication',
-  description: 'Add JWT-based auth to the API',
-  priority: 'high' as TaskPriority,
-  type: 'feature' as TaskType,
-  size: 'medium',
-  labels: ['backend', 'security']
-};
-```
-
-### Using the Data Accessor Interface
-
-```typescript
-import type { DataAccessor, TaskQueryFilters } from '@cleocode/contracts';
-
-async function fetchHighPriorityTasks(accessor: DataAccessor) {
-  const filters: TaskQueryFilters = {
-    priority: ['high', 'urgent'],
-    status: ['pending', 'in_progress'],
-    limit: 10
-  };
-  
-  return await accessor.queryTasks(filters);
-}
-```
-
-### Working with LAFS Envelopes
-
-```typescript
-import { isLafsSuccess, isLafsError, type LafsEnvelope } from '@cleocode/contracts';
-
-function handleResponse(response: LafsEnvelope<unknown>) {
-  if (isLafsSuccess(response)) {
-    console.log('Success:', response.data);
-  } else if (isLafsError(response)) {
-    console.error('Error:', response.error.message);
-  }
-}
-```
-
-### Status Validation
-
-```typescript
-import { isValidStatus, TASK_STATUSES } from '@cleocode/contracts';
-
-// Check if a status is valid
-if (isValidStatus('task', 'in_progress')) {
-  console.log('Valid task status');
-}
-
-// Iterate over all valid statuses
-for (const status of TASK_STATUSES) {
-  console.log(`Valid status: ${status}`);
-}
+import { ExitCode, isSuccessCode, isErrorCode, getExitCodeName } from '@cleocode/contracts';
 ```
 
 ## Dependencies
 
-This package has **no runtime dependencies**. It contains only TypeScript type definitions and interfaces.
+This package has **no runtime dependencies**. It is a pure TypeScript type and constant library. The only dev dependency is `vitest` for schema validation tests.
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) for details.
+MIT — see [LICENSE](../../LICENSE) for details.
