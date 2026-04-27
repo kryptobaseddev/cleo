@@ -22,8 +22,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 const REPO = process.cwd();
 const DISPATCH_DOMAINS_DIR = join(REPO, 'packages/cleo/src/dispatch/domains');
@@ -63,6 +63,77 @@ function isExempt(lines, lineIdx) {
 function report(rule, file, line, msg) {
   console.error(`${file}:${line}  ${RULES[rule]}  ${msg}`);
   violations++;
+}
+
+function sourceCandidates(basePath) {
+  const candidates = [basePath];
+  if (basePath.endsWith('.js')) {
+    candidates.push(basePath.replace(/\.js$/, '.ts'), basePath.replace(/\.js$/, '.tsx'));
+  } else if (!/\.[cm]?[tj]sx?$/.test(basePath)) {
+    candidates.push(`${basePath}.ts`, `${basePath}.tsx`, `${basePath}.js`);
+  }
+  candidates.push(join(basePath, 'index.ts'), join(basePath, 'index.tsx'));
+  return candidates;
+}
+
+function resolveExportTarget(fromFile, specifier) {
+  if (specifier.startsWith('.')) {
+    const basePath = resolve(dirname(fromFile), specifier);
+    return sourceCandidates(basePath).find((candidate) => existsSync(candidate)) ?? null;
+  }
+
+  const workspacePackage = specifier.match(/^@cleocode\/([^/]+)(?:\/(.+))?$/);
+  if (!workspacePackage) return null;
+
+  const [, packageName, subpath = 'index'] = workspacePackage;
+  const sourcePath = join(REPO, 'packages', packageName, 'src', subpath);
+  return sourceCandidates(sourcePath).find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function exportedName(specifier) {
+  const cleaned = specifier
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '')
+    .trim()
+    .replace(/^type\s+/, '');
+  if (!cleaned) return null;
+
+  const aliasMatch = cleaned.match(/\bas\s+([A-Za-z_$][\w$]*)$/);
+  if (aliasMatch) return aliasMatch[1];
+
+  const nameMatch = cleaned.match(/^([A-Za-z_$][\w$]*)$/);
+  return nameMatch ? nameMatch[1] : null;
+}
+
+function addTopLevelExports(content, exports) {
+  for (const m of content.matchAll(
+    /\bexport\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g,
+  )) {
+    exports.add(m[1]);
+  }
+
+  for (const m of content.matchAll(/\bexport\s+(?:declare\s+)?(?:const|let|var)\s+([^=;]+)/g)) {
+    for (const part of m[1].split(',')) {
+      const name = part.trim().match(/^([A-Za-z_$][\w$]*)/);
+      if (name) exports.add(name[1]);
+    }
+  }
+
+  for (const m of content.matchAll(/\bexport\s+(?:type\s+)?\{([\s\S]*?)\}\s*(?:from\b|;)/g)) {
+    for (const part of m[1].split(',')) {
+      const name = exportedName(part);
+      if (name && name !== 'default') exports.add(name);
+    }
+  }
+}
+
+function addWildcardExports(fromFile, content, exports) {
+  for (const m of content.matchAll(/\bexport\s+\*\s+from\s+['"]([^'"]+)['"]/g)) {
+    const target = resolveExportTarget(fromFile, m[1]);
+    if (target) {
+      addTopLevelExports(readText(target), exports);
+    }
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -292,15 +363,8 @@ function lintCorePublic() {
   const indexContent = readText(CORE_INDEX);
   // Collect re-exported names from packages/core/src/index.ts
   const reExports = new Set();
-  for (const m of indexContent.matchAll(/export\s+\{([^}]+)\}\s+from/g)) {
-    for (const name of m[1].split(',').map((s) => s.trim().replace(/\s+as\s+\w+/, ''))) {
-      if (name && !name.startsWith('type ')) reExports.add(name);
-    }
-  }
-  // Also wildcard re-exports cover everything
-  const hasWildcard = /export\s+\*\s+from\s+['"][^'"]+['"]/.test(indexContent);
-
-  if (hasWildcard) return; // wildcard re-export — every Core fn is public
+  addTopLevelExports(indexContent, reExports);
+  addWildcardExports(CORE_INDEX, indexContent, reExports);
 
   // Check each fn imported by dispatch from @cleocode/core (not /internal)
   const dispatchFiles = readdirSync(DISPATCH_DOMAINS_DIR).filter(
