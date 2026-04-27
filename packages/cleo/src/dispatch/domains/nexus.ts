@@ -34,6 +34,7 @@ import {
   lafsSuccess,
   type OpsFromCore,
   typedDispatch,
+  wrapCoreResult,
 } from '../adapters/typed.js';
 import {
   nexusAugment,
@@ -106,17 +107,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   // Query ops (30)
   // -------------------------------------------------------------------------
 
-  status: async (_params) => {
-    const result = await nexusStatus();
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'status',
-      );
-    }
-    return lafsSuccess(result.data, 'status');
-  },
+  status: async (_params) => wrapCoreResult(await nexusStatus(), 'status'),
 
   list: async (params) => {
     const result = await nexusListProjects(params.limit, params.offset);
@@ -127,8 +118,8 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'list',
       );
     }
-    // Engine returns page nested inside data; lift it to envelope top-level
-    // and strip from data to preserve pre-T1424 contract shape.
+    // SSoT-EXEMPT:page-envelope-lifting — engine puts page in data.page; lift to
+    // envelope top-level and strip from data to preserve pre-T1424 contract shape.
     const data = result.data as {
       projects: unknown;
       count: number;
@@ -144,88 +135,30 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   },
 
   show: async (params) => {
-    if (!params.name) {
-      return lafsError('E_INVALID_INPUT', 'name is required', 'show');
-    }
-    const result = await nexusShowProject(params.name);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'show',
-      );
-    }
-    return lafsSuccess(result.data, 'show');
+    if (!params.name) return lafsError('E_INVALID_INPUT', 'name is required', 'show');
+    return wrapCoreResult(await nexusShowProject(params.name), 'show');
   },
 
   resolve: async (params) => {
-    if (!params.query) {
-      return lafsError('E_INVALID_INPUT', 'query is required', 'resolve');
-    }
-    const result = await nexusResolve(params.query, params.currentProject);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'resolve',
-      );
-    }
-    return lafsSuccess(result.data, 'resolve');
+    if (!params.query) return lafsError('E_INVALID_INPUT', 'query is required', 'resolve');
+    return wrapCoreResult(await nexusResolve(params.query, params.currentProject), 'resolve');
   },
 
   deps: async (params) => {
-    if (!params.query) {
-      return lafsError('E_INVALID_INPUT', 'query is required', 'deps');
-    }
-    const direction = params.direction ?? 'forward';
-    const result = await nexusDepsQuery(params.query, direction);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'deps',
-      );
-    }
-    return lafsSuccess(result.data, 'deps');
+    if (!params.query) return lafsError('E_INVALID_INPUT', 'query is required', 'deps');
+    return wrapCoreResult(
+      await nexusDepsQuery(params.query, params.direction ?? 'forward'),
+      'deps',
+    );
   },
 
-  graph: async (_params) => {
-    const result = await nexusGraph();
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'graph',
-      );
-    }
-    return lafsSuccess(result.data, 'graph');
-  },
+  graph: async (_params) => wrapCoreResult(await nexusGraph(), 'graph'),
 
-  'path.show': async (_params) => {
-    const result = await nexusCriticalPath();
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'path.show',
-      );
-    }
-    return lafsSuccess(result.data, 'path.show');
-  },
+  'path.show': async (_params) => wrapCoreResult(await nexusCriticalPath(), 'path.show'),
 
   'blockers.show': async (params) => {
-    if (!params.query) {
-      return lafsError('E_INVALID_INPUT', 'query is required', 'blockers.show');
-    }
-    const result = await nexusBlockers(params.query);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'blockers.show',
-      );
-    }
-    return lafsSuccess(result.data, 'blockers.show');
+    if (!params.query) return lafsError('E_INVALID_INPUT', 'query is required', 'blockers.show');
+    return wrapCoreResult(await nexusBlockers(params.query), 'blockers.show');
   },
 
   'orphans.list': async (params) => {
@@ -237,6 +170,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'orphans.list',
       );
     }
+    // SSoT-EXEMPT:page-envelope-lifting — same contract as nexus.list
     const data = result.data as {
       orphans: unknown;
       count: number;
@@ -252,65 +186,29 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   },
 
   discover: async (params) => {
-    if (!params.query) {
-      return lafsError('E_INVALID_INPUT', 'query is required', 'discover');
-    }
-    const method = params.method ?? 'auto';
-    const limit = params.limit ?? 10;
-    const result = await nexusDiscover(params.query, method, limit);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'discover',
-      );
-    }
-    return lafsSuccess(result.data, 'discover');
+    if (!params.query) return lafsError('E_INVALID_INPUT', 'query is required', 'discover');
+    return wrapCoreResult(
+      await nexusDiscover(params.query, params.method ?? 'auto', params.limit ?? 10),
+      'discover',
+    );
   },
 
   search: async (params) => {
-    if (!params.pattern) {
-      return lafsError('E_INVALID_INPUT', 'pattern is required', 'search');
-    }
-    const limit = params.limit ?? 20;
-    const result = await nexusSearch(params.pattern, params.project, limit);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'search',
-      );
-    }
-    return lafsSuccess(result.data, 'search');
+    if (!params.pattern) return lafsError('E_INVALID_INPUT', 'pattern is required', 'search');
+    return wrapCoreResult(
+      await nexusSearch(params.pattern, params.project, params.limit ?? 20),
+      'search',
+    );
   },
 
   augment: async (params) => {
-    if (!params.pattern) {
-      return lafsError('E_INVALID_INPUT', 'pattern is required', 'augment');
-    }
-    const limit = params.limit ?? 5;
-    const result = await nexusAugment(params.pattern, limit);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'augment',
-      );
-    }
-    return lafsSuccess(result.data, 'augment');
+    if (!params.pattern) return lafsError('E_INVALID_INPUT', 'pattern is required', 'augment');
+    return wrapCoreResult(await nexusAugment(params.pattern, params.limit ?? 5), 'augment');
   },
 
   'share.status': async (_params) => {
     const projectRoot = getProjectRoot();
-    const result = await nexusShareStatus(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'share.status',
-      );
-    }
-    return lafsSuccess(result.data, 'share.status');
+    return wrapCoreResult(await nexusShareStatus(projectRoot), 'share.status');
   },
 
   'transfer.preview': async (params) => {
@@ -321,341 +219,155 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'transfer.preview',
       );
     }
-    const result = await nexusTransferPreview({
-      taskIds: params.taskIds,
-      sourceProject: params.sourceProject,
-      targetProject: params.targetProject,
-      mode: params.mode ?? 'copy',
-      scope: params.scope ?? 'subtree',
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'transfer.preview',
-      );
-    }
-    return lafsSuccess(result.data, 'transfer.preview');
+    return wrapCoreResult(
+      await nexusTransferPreview({
+        taskIds: params.taskIds,
+        sourceProject: params.sourceProject,
+        targetProject: params.targetProject,
+        mode: params.mode ?? 'copy',
+        scope: params.scope ?? 'subtree',
+      }),
+      'transfer.preview',
+    );
   },
 
-  'top-entries': async (params) => {
-    const result = await nexusTopEntries({
-      limit: params?.limit,
-      kind: params?.kind,
-      nodeType: params?.nodeType,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'top-entries',
-      );
-    }
-    return lafsSuccess(result.data, 'top-entries');
-  },
+  'top-entries': async (params) =>
+    wrapCoreResult(
+      await nexusTopEntries({
+        limit: params?.limit,
+        kind: params?.kind,
+        nodeType: params?.nodeType,
+      }),
+      'top-entries',
+    ),
 
   impact: async (params) => {
-    if (!params.symbol) {
-      return lafsError('E_INVALID_INPUT', 'symbol is required', 'impact');
-    }
-    const result = await nexusImpact(params.symbol, params.projectId, params.why);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'impact',
-      );
-    }
-    return lafsSuccess(result.data, 'impact');
+    if (!params.symbol) return lafsError('E_INVALID_INPUT', 'symbol is required', 'impact');
+    return wrapCoreResult(await nexusImpact(params.symbol, params.projectId, params.why), 'impact');
   },
 
   'full-context': async (params) => {
-    if (!params.symbol) {
-      return lafsError('E_INVALID_INPUT', 'symbol is required', 'full-context');
-    }
+    if (!params.symbol) return lafsError('E_INVALID_INPUT', 'symbol is required', 'full-context');
     const projectRoot = getProjectRoot();
-    const result = await nexusFullContext(params.symbol, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'full-context',
-      );
-    }
-    return lafsSuccess(result.data, 'full-context');
+    return wrapCoreResult(await nexusFullContext(params.symbol, projectRoot), 'full-context');
   },
 
   'task-footprint': async (params) => {
-    if (!params.taskId) {
-      return lafsError('E_INVALID_INPUT', 'taskId is required', 'task-footprint');
-    }
+    if (!params.taskId) return lafsError('E_INVALID_INPUT', 'taskId is required', 'task-footprint');
     const projectRoot = getProjectRoot();
-    const result = await nexusTaskFootprint(params.taskId, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'task-footprint',
-      );
-    }
-    return lafsSuccess(result.data, 'task-footprint');
+    return wrapCoreResult(await nexusTaskFootprint(params.taskId, projectRoot), 'task-footprint');
   },
 
   'brain-anchors': async (params) => {
-    if (!params.entryId) {
+    if (!params.entryId)
       return lafsError('E_INVALID_INPUT', 'entryId is required', 'brain-anchors');
-    }
     const projectRoot = getProjectRoot();
-    const result = await nexusBrainAnchors(params.entryId, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'brain-anchors',
-      );
-    }
-    return lafsSuccess(result.data, 'brain-anchors');
+    return wrapCoreResult(await nexusBrainAnchors(params.entryId, projectRoot), 'brain-anchors');
   },
 
   why: async (params) => {
-    if (!params.symbol) {
-      return lafsError('E_INVALID_INPUT', 'symbol is required', 'why');
-    }
+    if (!params.symbol) return lafsError('E_INVALID_INPUT', 'symbol is required', 'why');
     const projectRoot = getProjectRoot();
-    const result = await nexusWhy(params.symbol, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'why',
-      );
-    }
-    return lafsSuccess(result.data, 'why');
+    return wrapCoreResult(await nexusWhy(params.symbol, projectRoot), 'why');
   },
 
   'impact-full': async (params) => {
-    if (!params.symbol) {
-      return lafsError('E_INVALID_INPUT', 'symbol is required', 'impact-full');
-    }
+    if (!params.symbol) return lafsError('E_INVALID_INPUT', 'symbol is required', 'impact-full');
     const projectRoot = getProjectRoot();
-    const result = await nexusImpactFull(params.symbol, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'impact-full',
-      );
-    }
-    return lafsSuccess(result.data, 'impact-full');
+    return wrapCoreResult(await nexusImpactFull(params.symbol, projectRoot), 'impact-full');
   },
 
   'route-map': async (params) => {
     const projectRoot = getProjectRoot();
     const projectId =
       params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
-    const result = await nexusRouteMap(projectId, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'route-map',
-      );
-    }
-    return lafsSuccess(result.data, 'route-map');
+    return wrapCoreResult(await nexusRouteMap(projectId, projectRoot), 'route-map');
   },
 
   'shape-check': async (params) => {
-    if (!params.routeSymbol) {
+    if (!params.routeSymbol)
       return lafsError('E_INVALID_INPUT', 'routeSymbol is required', 'shape-check');
-    }
     const projectRoot = getProjectRoot();
     const projectId =
       params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
-    const result = await nexusShapeCheck(params.routeSymbol, projectId, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'shape-check',
-      );
-    }
-    return lafsSuccess(result.data, 'shape-check');
+    return wrapCoreResult(
+      await nexusShapeCheck(params.routeSymbol, projectId, projectRoot),
+      'shape-check',
+    );
   },
 
   'search-code': async (params) => {
-    if (!params.pattern) {
-      return lafsError('E_INVALID_INPUT', 'pattern is required', 'search-code');
-    }
-    const limit = params.limit ?? 10;
-    const result = await nexusSearchCode(params.pattern, limit);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'search-code',
-      );
-    }
-    return lafsSuccess(result.data, 'search-code');
+    if (!params.pattern) return lafsError('E_INVALID_INPUT', 'pattern is required', 'search-code');
+    return wrapCoreResult(await nexusSearchCode(params.pattern, params.limit ?? 10), 'search-code');
   },
 
   wiki: async (params) => {
     const projectRoot = getProjectRoot();
     const outputDir = params.outputDir ?? `${projectRoot}/.cleo/wiki`;
     // Argument order: (outputDir, projectRoot, options) — matches engine signature
-    const result = await nexusWiki(outputDir, projectRoot, {
-      communityFilter: params.communityFilter,
-      incremental: params.incremental,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'wiki',
-      );
-    }
-    return lafsSuccess(result.data, 'wiki');
+    return wrapCoreResult(
+      await nexusWiki(outputDir, projectRoot, {
+        communityFilter: params.communityFilter,
+        incremental: params.incremental,
+      }),
+      'wiki',
+    );
   },
 
   'contracts-show': async (params) => {
-    if (!params.projectA || !params.projectB) {
+    if (!params.projectA || !params.projectB)
       return lafsError('E_INVALID_INPUT', 'projectA and projectB are required', 'contracts-show');
-    }
     const projectRoot = getProjectRoot();
-    const result = await nexusContractsShow(params.projectA, params.projectB, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'contracts-show',
-      );
-    }
-    return lafsSuccess(result.data, 'contracts-show');
+    return wrapCoreResult(
+      await nexusContractsShow(params.projectA, params.projectB, projectRoot),
+      'contracts-show',
+    );
   },
 
   'task-symbols': async (params) => {
-    if (!params.taskId) {
-      return lafsError('E_INVALID_INPUT', 'taskId is required', 'task-symbols');
-    }
+    if (!params.taskId) return lafsError('E_INVALID_INPUT', 'taskId is required', 'task-symbols');
     const projectRoot = getProjectRoot();
-    const result = await nexusTaskSymbols(params.taskId, projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'task-symbols',
-      );
-    }
-    return lafsSuccess(result.data, 'task-symbols');
+    return wrapCoreResult(await nexusTaskSymbols(params.taskId, projectRoot), 'task-symbols');
   },
 
-  'profile.view': async (params) => {
-    const result = await nexusProfileView(params.minConfidence, params.includeSuperseded);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'profile.view',
-      );
-    }
-    return lafsSuccess(result.data, 'profile.view');
-  },
+  'profile.view': async (params) =>
+    wrapCoreResult(
+      await nexusProfileView(params.minConfidence, params.includeSuperseded),
+      'profile.view',
+    ),
 
   'profile.get': async (params) => {
-    if (!params.traitKey) {
+    if (!params.traitKey)
       return lafsError('E_INVALID_INPUT', 'traitKey is required', 'profile.get');
-    }
-    const result = await nexusProfileGet(params.traitKey);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'profile.get',
-      );
-    }
-    return lafsSuccess(result.data, 'profile.get');
+    return wrapCoreResult(await nexusProfileGet(params.traitKey), 'profile.get');
   },
 
-  'sigil.list': async (params) => {
-    const result = await nexusSigilList(params.role);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'sigil.list',
-      );
-    }
-    return lafsSuccess(result.data, 'sigil.list');
-  },
+  'sigil.list': async (params) => wrapCoreResult(await nexusSigilList(params.role), 'sigil.list'),
 
   // -------------------------------------------------------------------------
   // Mutate ops (18)
   // -------------------------------------------------------------------------
 
-  init: async (_params) => {
-    const result = await nexusInitialize();
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'init',
-      );
-    }
-    return lafsSuccess(result.data, 'init');
-  },
+  init: async (_params) => wrapCoreResult(await nexusInitialize(), 'init'),
 
   register: async (params) => {
-    if (!params.path) {
-      return lafsError('E_INVALID_INPUT', 'path is required', 'register');
-    }
-    const result = await nexusRegisterProject(
-      params.path,
-      params.name,
-      params.permission ?? 'read',
+    if (!params.path) return lafsError('E_INVALID_INPUT', 'path is required', 'register');
+    return wrapCoreResult(
+      await nexusRegisterProject(params.path, params.name, params.permission ?? 'read'),
+      'register',
     );
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'register',
-      );
-    }
-    return lafsSuccess(result.data, 'register');
   },
 
   unregister: async (params) => {
-    if (!params.name) {
-      return lafsError('E_INVALID_INPUT', 'name is required', 'unregister');
-    }
-    const result = await nexusUnregisterProject(params.name);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'unregister',
-      );
-    }
-    return lafsSuccess(result.data, 'unregister');
+    if (!params.name) return lafsError('E_INVALID_INPUT', 'name is required', 'unregister');
+    return wrapCoreResult(await nexusUnregisterProject(params.name), 'unregister');
   },
 
-  sync: async (params) => {
-    const result = await nexusSyncProject(params.name);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'sync',
-      );
-    }
-    return lafsSuccess(result.data, 'sync');
-  },
+  sync: async (params) => wrapCoreResult(await nexusSyncProject(params.name), 'sync'),
 
   'permission.set': async (params) => {
-    if (!params.name) {
-      return lafsError('E_INVALID_INPUT', 'name is required', 'permission.set');
-    }
-    if (!params.level) {
-      return lafsError('E_INVALID_INPUT', 'level is required', 'permission.set');
-    }
+    if (!params.name) return lafsError('E_INVALID_INPUT', 'name is required', 'permission.set');
+    if (!params.level) return lafsError('E_INVALID_INPUT', 'level is required', 'permission.set');
     if (!['read', 'write', 'execute'].includes(params.level)) {
       return lafsError(
         'E_INVALID_INPUT',
@@ -663,57 +375,31 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'permission.set',
       );
     }
-    const result = await nexusSetPermission(params.name, params.level as NexusPermissionLevel);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'permission.set',
-      );
-    }
-    return lafsSuccess(result.data, 'permission.set');
+    return wrapCoreResult(
+      await nexusSetPermission(params.name, params.level as NexusPermissionLevel),
+      'permission.set',
+    );
   },
 
-  reconcile: async (params) => {
-    const projectRoot = params.projectRoot ?? process.cwd();
-    const result = await nexusReconcileProject(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'reconcile',
-      );
-    }
-    return lafsSuccess(result.data, 'reconcile');
-  },
+  reconcile: async (params) =>
+    wrapCoreResult(await nexusReconcileProject(params.projectRoot ?? process.cwd()), 'reconcile'),
 
   'share.snapshot.export': async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await nexusShareSnapshotExport(projectRoot, params.outputPath);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'share.snapshot.export',
-      );
-    }
-    return lafsSuccess(result.data, 'share.snapshot.export');
+    return wrapCoreResult(
+      await nexusShareSnapshotExport(projectRoot, params.outputPath),
+      'share.snapshot.export',
+    );
   },
 
   'share.snapshot.import': async (params) => {
-    if (!params.inputPath) {
+    if (!params.inputPath)
       return lafsError('E_INVALID_INPUT', 'inputPath is required', 'share.snapshot.import');
-    }
     const projectRoot = getProjectRoot();
-    const result = await nexusShareSnapshotImport(projectRoot, params.inputPath);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'share.snapshot.import',
-      );
-    }
-    return lafsSuccess(result.data, 'share.snapshot.import');
+    return wrapCoreResult(
+      await nexusShareSnapshotImport(projectRoot, params.inputPath),
+      'share.snapshot.import',
+    );
   },
 
   transfer: async (params) => {
@@ -724,105 +410,55 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'transfer',
       );
     }
-    const result = await nexusTransferExecute({
-      taskIds: params.taskIds,
-      sourceProject: params.sourceProject,
-      targetProject: params.targetProject,
-      mode: params.mode ?? 'copy',
-      scope: params.scope ?? 'subtree',
-      onConflict: params.onConflict ?? 'rename',
-      transferBrain: params.transferBrain ?? false,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'transfer',
-      );
-    }
-    return lafsSuccess(result.data, 'transfer');
+    return wrapCoreResult(
+      await nexusTransferExecute({
+        taskIds: params.taskIds,
+        sourceProject: params.sourceProject,
+        targetProject: params.targetProject,
+        mode: params.mode ?? 'copy',
+        scope: params.scope ?? 'subtree',
+        onConflict: params.onConflict ?? 'rename',
+        transferBrain: params.transferBrain ?? false,
+      }),
+      'transfer',
+    );
   },
 
   'contracts-sync': async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
     const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
-    const result = await nexusContractsSync(projectId, repoPath);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'contracts-sync',
-      );
-    }
-    return lafsSuccess(result.data, 'contracts-sync');
+    return wrapCoreResult(await nexusContractsSync(projectId, repoPath), 'contracts-sync');
   },
 
   'contracts-link-tasks': async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
     const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
-    const result = await nexusContractsLinkTasks(projectId, repoPath);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'contracts-link-tasks',
-      );
-    }
-    return lafsSuccess(result.data, 'contracts-link-tasks');
+    return wrapCoreResult(
+      await nexusContractsLinkTasks(projectId, repoPath),
+      'contracts-link-tasks',
+    );
   },
 
   'conduit-scan': async (_params) => {
     const projectRoot = getProjectRoot();
-    const result = await nexusConduitScan(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'conduit-scan',
-      );
-    }
-    return lafsSuccess(result.data, 'conduit-scan');
+    return wrapCoreResult(await nexusConduitScan(projectRoot), 'conduit-scan');
   },
 
-  'profile.import': async (params) => {
-    const result = await nexusProfileImport(params.path);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'profile.import',
-      );
-    }
-    return lafsSuccess(result.data, 'profile.import');
-  },
+  'profile.import': async (params) =>
+    wrapCoreResult(await nexusProfileImport(params.path), 'profile.import'),
 
-  'profile.export': async (params) => {
-    const result = await nexusProfileExport(params.path);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'profile.export',
-      );
-    }
-    return lafsSuccess(result.data, 'profile.export');
-  },
+  'profile.export': async (params) =>
+    wrapCoreResult(await nexusProfileExport(params.path), 'profile.export'),
 
   'profile.reinforce': async (params) => {
-    if (!params.traitKey) {
+    if (!params.traitKey)
       return lafsError('E_INVALID_INPUT', 'traitKey is required', 'profile.reinforce');
-    }
-    const result = await nexusProfileReinforce(params.traitKey, params.source);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'profile.reinforce',
-      );
-    }
-    return lafsSuccess(result.data, 'profile.reinforce');
+    return wrapCoreResult(
+      await nexusProfileReinforce(params.traitKey, params.source),
+      'profile.reinforce',
+    );
   },
 
   'profile.upsert': async (params) => {
@@ -833,43 +469,19 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
         'profile.upsert',
       );
     }
-    const result = await nexusProfileUpsert(params.trait);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'profile.upsert',
-      );
-    }
-    return lafsSuccess(result.data, 'profile.upsert');
+    return wrapCoreResult(await nexusProfileUpsert(params.trait), 'profile.upsert');
   },
 
   'profile.supersede': async (params) => {
-    if (!params.oldKey || !params.newKey) {
+    if (!params.oldKey || !params.newKey)
       return lafsError('E_INVALID_INPUT', 'oldKey and newKey are required', 'profile.supersede');
-    }
-    const result = await nexusProfileSupersede(params.oldKey, params.newKey);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'profile.supersede',
-      );
-    }
-    return lafsSuccess(result.data, 'profile.supersede');
+    return wrapCoreResult(
+      await nexusProfileSupersede(params.oldKey, params.newKey),
+      'profile.supersede',
+    );
   },
 
-  'sigil.sync': async (_params) => {
-    const result = await nexusSigilSync();
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'sigil.sync',
-      );
-    }
-    return lafsSuccess(result.data, 'sigil.sync');
-  },
+  'sigil.sync': async (_params) => wrapCoreResult(await nexusSigilSync(), 'sigil.sync'),
 });
 
 // ---------------------------------------------------------------------------
