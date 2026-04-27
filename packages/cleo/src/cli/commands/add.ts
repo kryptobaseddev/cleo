@@ -13,10 +13,9 @@
  * @epic T4454
  */
 
-import { getProjectRoot } from '@cleocode/core';
+import { getProjectRoot, inferTaskAddParams } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { inferFilesViaGitNexus } from '../infer-files-via-gitnexus.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
@@ -195,44 +194,6 @@ export const addCommand = defineCommand({
     }
     if (args.labels) params['labels'] = (args.labels as string).split(',').map((s) => s.trim());
 
-    // Handle file inference: if --files-infer is set and --files is not provided,
-    // invoke GitNexus to suggest touched files (T1330)
-    if (args['files-infer'] && !args.files) {
-      const inferredFiles = inferFilesViaGitNexus(args.title, args.description ?? args.desc);
-      if (inferredFiles.length > 0) {
-        params['files'] = inferredFiles;
-      } else {
-        // Warn if inference returned no results
-        process.stderr.write(
-          '⚠ No files inferred by GitNexus. Use --files to specify files explicitly, or leave empty for atomicity check at spawn time.\n',
-        );
-      }
-    } else if (args.files) {
-      params['files'] = (args.files as string).split(',').map((s) => s.trim());
-    }
-    if (args.acceptance) {
-      const raw = args.acceptance as string;
-      // Support JSON array format: --acceptance '["c1","c2","c3"]' (T090)
-      if (raw.trimStart().startsWith('[')) {
-        try {
-          const parsed = JSON.parse(raw);
-          params['acceptance'] = Array.isArray(parsed)
-            ? parsed.map((s: unknown) => String(s).trim()).filter(Boolean)
-            : [raw];
-        } catch {
-          // Not valid JSON — fall through to pipe-delimited parsing
-          params['acceptance'] = raw
-            .split('|')
-            .map((s) => s.trim())
-            .filter(Boolean);
-        }
-      } else {
-        params['acceptance'] = raw
-          .split('|')
-          .map((s) => s.trim())
-          .filter(Boolean);
-      }
-    }
     if (args.depends) params['depends'] = (args.depends as string).split(',').map((s) => s.trim());
     if (args.notes !== undefined) params['notes'] = args.notes;
     if (args.note !== undefined) params['notes'] = params['notes'] ?? args.note;
@@ -248,25 +209,33 @@ export const addCommand = defineCommand({
     if (args.scope !== undefined) params['scope'] = args.scope;
     if (args.severity !== undefined) params['severity'] = args.severity;
 
-    // T1329: Strict-mode parent inference from active session's current task
-    // Infer --parent from session.taskWork.taskId when:
-    // - No explicit --parent provided
-    // - Type is not 'epic' (epics are root-level)
-    // - Active session exists with current task set
-    if (!params['parent'] && params['type'] !== 'epic') {
-      try {
-        const projectRoot = getProjectRoot();
-        const { taskCurrentGet } = await import('../../dispatch/engines/session-engine.js');
-        const currentResult = await taskCurrentGet(projectRoot);
-        if (currentResult.success && currentResult.data?.currentTask) {
-          params['parent'] = currentResult.data.currentTask;
-          process.stderr.write(
-            `[cleo add] inferred --parent from current task: ${currentResult.data.currentTask}\n`,
-          );
-        }
-      } catch {
-        // Session lookup is non-fatal — proceed without inference
-      }
+    // T1490: Delegate file inference, acceptance parsing, and parent inference
+    // to Core so the CLI layer stays a thin parse-and-delegate shell.
+    // Stderr output (warnings, notices) remains here in the CLI layer.
+    const inferred = await inferTaskAddParams(getProjectRoot(), {
+      title: args.title,
+      description: (args.description ?? args.desc) as string | undefined,
+      filesInfer: args['files-infer'] as boolean | undefined,
+      filesRaw: args.files as string | undefined,
+      acceptanceRaw: args.acceptance as string | undefined,
+      parentRaw: params['parent'] as string | undefined,
+      type: params['type'] as string | undefined,
+    });
+
+    // Emit stderr notices (CLI responsibility — Core never writes to stderr)
+    if (inferred.filesInferWarning) {
+      process.stderr.write(
+        '⚠ No files inferred by GitNexus. Use --files to specify files explicitly, or leave empty for atomicity check at spawn time.\n',
+      );
+    }
+    if (inferred.files) params['files'] = inferred.files;
+    if (inferred.acceptance) params['acceptance'] = inferred.acceptance;
+    // T1329: parent inference from active session's current task
+    if (inferred.inferredParent) {
+      params['parent'] = inferred.inferredParent;
+      process.stderr.write(
+        `[cleo add] inferred --parent from current task: ${inferred.inferredParent}\n`,
+      );
     }
 
     const response = await dispatchRaw('mutate', 'tasks', 'add', params);
