@@ -28,7 +28,10 @@ import type {
   ResolvedAgent,
   Task,
 } from '@cleocode/contracts';
-import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
+import type {
+  OrchestrateHandoffParams,
+  OrchestratePlanResult,
+} from '@cleocode/contracts/operations/orchestrate';
 // Core module imports
 import {
   AgentNotFoundError,
@@ -135,16 +138,6 @@ interface HandoffState {
   contextInject: HandoffStepState;
   sessionEnd: HandoffStepState;
   spawn: HandoffStepState;
-}
-
-interface OrchestrateHandoffParams {
-  taskId: string;
-  protocolType: string;
-  note?: string;
-  nextAction?: string;
-  variant?: string;
-  tier?: 0 | 1 | 2;
-  idempotencyKey?: string;
 }
 
 interface HandoffFailureDetails {
