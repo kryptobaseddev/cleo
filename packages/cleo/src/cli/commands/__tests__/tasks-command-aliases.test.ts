@@ -34,6 +34,8 @@ vi.mock('../../renderers/index.js', () => ({
 vi.mock('@cleocode/core', () => ({
   createPage: vi.fn(),
   getProjectRoot: vi.fn(() => '/mock/project'),
+  // T1490: add.ts now calls inferTaskAddParams from Core
+  inferTaskAddParams: vi.fn().mockResolvedValue({}),
 }));
 
 async function invokeAdd(args: Record<string, string | boolean>): Promise<void> {

@@ -9,7 +9,11 @@
  * If GitNexus is unavailable or returns nothing, a warning is printed
  * and files remain empty (existing atomicity check at spawn time fires).
  *
+ * T1490: inference moved to Core (`inferTaskAddParams`). Tests now mock at the
+ * Core boundary rather than the lower-level `inferFilesViaGitNexus` function.
+ *
  * @task T1330
+ * @task T1490
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,18 +36,15 @@ vi.mock('../../renderers/index.js', () => ({
   cliError: vi.fn(),
 }));
 
-// Mock GitNexus inference
-const mockInferFilesViaGitNexus = vi.fn();
-vi.mock('../../infer-files-via-gitnexus.js', () => ({
-  inferFilesViaGitNexus: (...args: unknown[]) => mockInferFilesViaGitNexus(...args),
-}));
-
-// Mock session-engine to prevent T1329 parent-inference side effects in these tests
-vi.mock('../../../dispatch/engines/session-engine.js', () => ({
-  taskCurrentGet: vi
-    .fn()
-    .mockResolvedValue({ success: true, data: { currentTask: null, currentPhase: null } }),
-}));
+// Mock Core inference — add.ts now delegates all inference to inferTaskAddParams (T1490)
+const mockInferTaskAddParams = vi.fn();
+vi.mock('@cleocode/core', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@cleocode/core')>();
+  return {
+    ...original,
+    inferTaskAddParams: (...args: unknown[]) => mockInferTaskAddParams(...args),
+  };
+});
 
 // Mock stderr
 const mockStderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -71,16 +72,15 @@ describe('add command with --files-infer', () => {
   beforeEach(() => {
     mockDispatchRaw.mockClear();
     mockHandleRawError.mockClear();
-    mockInferFilesViaGitNexus.mockClear();
+    mockInferTaskAddParams.mockClear();
     mockStderrWrite.mockClear();
   });
 
   it('should infer files when --files-infer is passed and --files is absent', async () => {
-    // Setup: GitNexus returns two suggested files
-    mockInferFilesViaGitNexus.mockReturnValue([
-      'packages/core/src/auth.ts',
-      'packages/cli/src/login.ts',
-    ]);
+    // Setup: Core inference returns two suggested files
+    mockInferTaskAddParams.mockResolvedValue({
+      files: ['packages/core/src/auth.ts', 'packages/cli/src/login.ts'],
+    });
 
     // Setup: dispatch succeeds
     mockDispatchRaw.mockResolvedValue({
@@ -99,10 +99,14 @@ describe('add command with --files-infer', () => {
       'files-infer': true,
     });
 
-    // Verify that inference was called with title and description
-    expect(mockInferFilesViaGitNexus).toHaveBeenCalledWith(
-      'Add auth flow',
-      'Implement OAuth2 authentication',
+    // Verify that Core inference was called with correct input
+    expect(mockInferTaskAddParams).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        title: 'Add auth flow',
+        description: 'Implement OAuth2 authentication',
+        filesInfer: true,
+      }),
     );
 
     // Verify that dispatch was called with inferred files
@@ -121,8 +125,10 @@ describe('add command with --files-infer', () => {
   });
 
   it('should warn when --files-infer returns no results', async () => {
-    // Setup: GitNexus returns empty array
-    mockInferFilesViaGitNexus.mockReturnValue([]);
+    // Setup: Core inference signals a warning (no files inferred)
+    mockInferTaskAddParams.mockResolvedValue({
+      filesInferWarning: true,
+    });
 
     // Setup: dispatch succeeds
     mockDispatchRaw.mockResolvedValue({
@@ -136,8 +142,14 @@ describe('add command with --files-infer', () => {
       'files-infer': true,
     });
 
-    // Verify that inference was called
-    expect(mockInferFilesViaGitNexus).toHaveBeenCalledWith('Vague task', undefined);
+    // Verify that Core inference was called
+    expect(mockInferTaskAddParams).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        title: 'Vague task',
+        filesInfer: true,
+      }),
+    );
 
     // Verify that warning was printed
     expect(mockStderrWrite).toHaveBeenCalledWith(
@@ -156,8 +168,10 @@ describe('add command with --files-infer', () => {
   });
 
   it('should use explicit --files instead of inference', async () => {
-    // Setup: GitNexus would return files
-    mockInferFilesViaGitNexus.mockReturnValue(['packages/inferred.ts']);
+    // Setup: Core inference returns explicit files (filesRaw path)
+    mockInferTaskAddParams.mockResolvedValue({
+      files: ['packages/explicit.ts'],
+    });
 
     // Setup: dispatch succeeds
     mockDispatchRaw.mockResolvedValue({
@@ -166,15 +180,20 @@ describe('add command with --files-infer', () => {
     });
 
     // Invoke add with both --files and --files-infer
-    // Explicit --files should take precedence
+    // The Core inference function receives both and uses explicit --files
     await invokeAdd({
       title: 'Task',
       'files-infer': true,
       files: 'packages/explicit.ts',
     });
 
-    // Verify that inference was NOT called (--files takes precedence)
-    expect(mockInferFilesViaGitNexus).not.toHaveBeenCalled();
+    // Verify that Core inference was called with filesRaw set
+    expect(mockInferTaskAddParams).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        filesRaw: 'packages/explicit.ts',
+      }),
+    );
 
     // Verify that dispatch was called with explicit files
     expect(mockDispatchRaw).toHaveBeenCalledWith(
@@ -188,6 +207,9 @@ describe('add command with --files-infer', () => {
   });
 
   it('should not infer files when --files-infer is false or absent', async () => {
+    // Setup: Core inference returns nothing
+    mockInferTaskAddParams.mockResolvedValue({});
+
     // Setup: dispatch succeeds
     mockDispatchRaw.mockResolvedValue({
       success: true,
@@ -199,8 +221,14 @@ describe('add command with --files-infer', () => {
       title: 'Task',
     });
 
-    // Verify that inference was NOT called
-    expect(mockInferFilesViaGitNexus).not.toHaveBeenCalled();
+    // Verify that Core inference was called (it's always called now, but without filesInfer)
+    expect(mockInferTaskAddParams).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        title: 'Task',
+        filesInfer: undefined,
+      }),
+    );
 
     // Verify that dispatch was called without files
     expect(mockDispatchRaw).toHaveBeenCalledWith(
@@ -211,5 +239,7 @@ describe('add command with --files-infer', () => {
         title: 'Task',
       }),
     );
+    const callParams = mockDispatchRaw.mock.calls[0][3] as Record<string, unknown>;
+    expect(callParams['files']).toBeUndefined();
   });
 });
