@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.151] — 2026-04-26 — CI hotfix: lifecycle-engine type narrowing
+
+v2026.4.150 release tag pushed but CI Type Check failed on `packages/cleo/src/dispatch/engines/lifecycle-engine.ts:207`. The `lifecycleStatus(epicId, projectRoot?)` engine wrapper passed `projectRoot?: string` directly to `getLifecycleStatus()` which now requires `projectRoot: string` (per ADR-057 D1 in T1455). Fix mirrors the pattern used at line 195 (`listRcsdEpics`): `projectRoot ?? process.cwd()`.
+
+The release commit `e950a57ad` itself only touched `package.json` files and `CHANGELOG.md`; the type error was pre-existing on `5feda5140` (T1455 lifecycle callers fix-up) and slipped past local `pnpm run build` because `tsc -b` is the stricter CI gate.
+
+This release re-ships the T1449 epic content under the v2026.4.151 tag with CI green.
+
+### Quality gates
+
+- `pnpm exec tsc -b` exit 0
+- `pnpm biome ci .` clean
+- `pnpm run build` exit 0
+- `pnpm run test` 11491 passing
+- `node scripts/lint-contracts-core-ssot.mjs --exit-on-fail` exit 0
+
 ## [2026.4.150] — 2026-04-26 — T1449 Core+Contracts SSoT alignment + ADR-057 CI enforcement
 
 T1449 epic shipped. 9 dispatch domains (admin, check, conduit, nexus, pipeline, playbook, sentient, session, tasks) refactored so every Core function follows the uniform `(projectRoot: string, params: <Op>Params): Promise<<Op>Result>` signature per ADR-057 D1. Contract aliases (`parentId`/`parent`, `kind`/`role`/`type`, `note`/`notes`, `focus`/`startTask`) removed; CLI flag aliasing moved to the command layer per D2. Drift is now structurally impossible: changing a contract type breaks the Core signature at compile time, and `scripts/lint-contracts-core-ssot.mjs` enforces L1 (signature uniformity), L2 (no aliases in contracts), L3 (no dispatch normalization), and L4 (Core fns referenced by dispatch are SDK-public) via pre-commit hook and CI workflow.
