@@ -574,12 +574,12 @@ export interface TasksRelatesAddParams {
 }
 export type TasksRelatesAddResult = unknown;
 
-// tasks.add (dispatch-level alias params — extends TasksCreateParams)
+// tasks.add (dispatch-level params — extends TasksCreateParams)
 export interface TasksAddParams {
   title: string;
   description?: string;
+  /** Canonical wire field for parent task ID. @see ADR-057 D2 */
   parent?: string;
-  parentId?: string;
   depends?: string[];
   priority?: string;
   labels?: string[];
@@ -591,14 +591,14 @@ export interface TasksAddParams {
   files?: string[];
   dryRun?: boolean;
   parentSearch?: string;
+  /** Canonical wire field for task role axis. @see ADR-057 D2 */
   role?: string;
-  kind?: string;
   scope?: string;
   severity?: string;
 }
 export type TasksAddResult = unknown;
 
-// tasks.update (dispatch-level alias params — extends TasksUpdateParams)
+// tasks.update (dispatch-level params — extends TasksUpdateParams)
 export interface TasksUpdateQueryParams {
   taskId: string;
   title?: string;
@@ -614,8 +614,8 @@ export interface TasksUpdateQueryParams {
   addDepends?: string[];
   removeDepends?: string[];
   acceptance?: string[];
+  /** Canonical wire field for parent task ID. @see ADR-057 D2 */
   parent?: string | null;
-  parentId?: string | null;
   type?: string;
   size?: string;
   files?: string[];

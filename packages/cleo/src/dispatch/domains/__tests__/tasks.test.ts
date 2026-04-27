@@ -477,7 +477,7 @@ describe('TasksHandler', () => {
       );
     });
 
-    it('add - forwards parentId param as parent to engine', async () => {
+    it('add - forwards parent param to engine (ADR-057 D2 canonical wire field)', async () => {
       const mockTask = {
         task: {
           id: 'T002',
@@ -495,7 +495,7 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('add', {
         title: 'Child Task',
         description: 'Desc',
-        parentId: 'T001',
+        parent: 'T001',
       });
 
       expect(result.success).toBe(true);
@@ -508,7 +508,7 @@ describe('TasksHandler', () => {
       );
     });
 
-    it('add - prefers parent over parentId when both provided', async () => {
+    it('add - uses parent canonical wire field for parent task ID', async () => {
       const mockTask = {
         task: {
           id: 'T002',
@@ -526,7 +526,6 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('add', {
         title: 'Child Task',
         parent: 'T100',
-        parentId: 'T200',
       });
 
       expect(result.success).toBe(true);
@@ -637,7 +636,7 @@ describe('TasksHandler', () => {
       );
     });
 
-    it('update - forwards parentId param as parent to engine', async () => {
+    it('update - forwards parent param to engine (ADR-057 D2 canonical wire field)', async () => {
       vi.mocked(taskUpdate).mockResolvedValue({
         success: true,
         data: {
@@ -653,7 +652,7 @@ describe('TasksHandler', () => {
         },
       });
 
-      const result = await handler.mutate('update', { taskId: 'T001', parentId: 'T002' });
+      const result = await handler.mutate('update', { taskId: 'T001', parent: 'T002' });
 
       expect(result.success).toBe(true);
       expect(taskUpdate).toHaveBeenCalledWith(
