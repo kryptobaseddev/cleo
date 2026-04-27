@@ -21,3 +21,5 @@ export {
   type DispatchResult,
   resolveMetaAgent,
 } from './agent-dispatcher.js';
+
+export type { playbookCoreOps } from './ops.js';
