@@ -58,6 +58,25 @@ export interface FindTasksResult {
  * Calculate fuzzy match score between query and text.
  * Higher score = better match. 0 = no match.
  * @task T4460
+ *
+ * @example
+ * ```ts
+ * // Exact match returns the maximum score (100)
+ * const exact = fuzzyScore('auth', 'auth');
+ * console.assert(exact === 100, 'exact match → 100');
+ *
+ * // Substring match returns a high score (80)
+ * const contains = fuzzyScore('auth', 'authentication module');
+ * console.assert(contains === 80, 'substring match → 80');
+ *
+ * // No match at all returns 0
+ * const none = fuzzyScore('xyz', 'authentication');
+ * console.assert(none === 0, 'no match → 0');
+ *
+ * // Scores are comparable — substring beats partial character match
+ * const partial = fuzzyScore('athn', 'authentication');
+ * console.assert(partial < contains, 'partial < full-substring');
+ * ```
  */
 export function fuzzyScore(query: string, text: string): number {
   const q = query.toLowerCase();
@@ -117,6 +136,24 @@ export function fuzzyScore(query: string, text: string): number {
  *   changed.
  *
  * @task T1187-followup / v2026.4.114
+ *
+ * @example
+ * ```ts
+ * // Inline status token is lifted; remaining text stays as query
+ * const result = extractInlineFilters({ query: 'status:pending auth flow' });
+ * console.assert(result.status === 'pending', 'status lifted from query');
+ * console.assert(result.query === 'auth flow', 'remaining text preserved as query');
+ *
+ * // Role token lifted similarly
+ * const result2 = extractInlineFilters({ query: 'role:bug login crash' });
+ * console.assert(result2.role === 'bug', 'role lifted from query');
+ * console.assert(result2.query === 'login crash', 'remaining text preserved');
+ *
+ * // No inline tokens — options returned unchanged
+ * const result3 = extractInlineFilters({ query: 'auth module' });
+ * console.assert(result3.query === 'auth module', 'plain query unchanged');
+ * console.assert(result3.status === undefined, 'status remains undefined');
+ * ```
  */
 export function extractInlineFilters(options: FindTasksOptions): FindTasksOptions {
   if (!options.query) return options;

@@ -214,6 +214,22 @@ export interface ObserveBrainResult {
  * @param projectRoot - Project root directory
  * @param params - Search parameters
  * @returns Compact search results with token estimate
+ *
+ * @example
+ * ```ts
+ * // Search for observations related to authentication decisions.
+ * // Returns compact hits (~50 tokens each) from BRAIN tables.
+ * const result = await searchBrainCompact('/path/to/project', {
+ *   query: 'authentication decisions',
+ *   limit: 5,
+ *   tables: ['decisions', 'observations'],
+ * });
+ *
+ * // Result shape: { results: BrainCompactHit[], total: number, tokensEstimated: number }
+ * console.assert(typeof result.total === 'number', 'total is a number');
+ * console.assert(Array.isArray(result.results), 'results is an array');
+ * console.assert(typeof result.tokensEstimated === 'number', 'tokensEstimated present');
+ * ```
  */
 export async function searchBrainCompact(
   projectRoot: string,
@@ -774,6 +790,22 @@ let observeSeq = 0;
  * @param projectRoot - Project root directory
  * @param params - Observation data
  * @returns Created observation ID, type, and timestamp
+ *
+ * @example
+ * ```ts
+ * // Save a decision observation to the BRAIN.
+ * // The result contains the auto-generated ID, classified type, and timestamp.
+ * const result = await observeBrain('/path/to/project', {
+ *   text: 'Decided to use ESM-only imports for better tree-shaking.',
+ *   title: 'ESM-only import decision',
+ *   type: 'decision',
+ *   sourceType: 'session-debrief',
+ * });
+ *
+ * console.assert(result.id.startsWith('O-'), 'ID uses O- prefix');
+ * console.assert(result.type === 'decision', 'type preserved from params');
+ * console.assert(typeof result.createdAt === 'string', 'createdAt is ISO timestamp');
+ * ```
  */
 export async function observeBrain(
   projectRoot: string,
