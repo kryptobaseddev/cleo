@@ -48,6 +48,7 @@ import {
   lafsSuccess,
   type OpsFromCore,
   typedDispatch,
+  wrapCoreResult,
 } from '../adapters/typed.js';
 import {
   lifecycleCheck,
@@ -457,47 +458,26 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.epicId || !params.targetStage) {
       return lafsError('E_INVALID_INPUT', 'epicId and targetStage are required', 'stage.validate');
     }
-    const result = await coreOps['stage.validate'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stage.validate',
-      );
-    }
-    return lafsSuccess(result.data, 'stage.validate');
+    return wrapCoreResult(await coreOps['stage.validate'](params), 'stage.validate');
   },
 
   'stage.status': async (params: PipelineOps['stage.status'][0]) => {
     if (!params.epicId) {
       return lafsError('E_INVALID_INPUT', 'epicId is required', 'stage.status');
     }
-    const result = await coreOps['stage.status'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stage.status',
-      );
-    }
-    return lafsSuccess(result.data, 'stage.status');
+    return wrapCoreResult(await coreOps['stage.status'](params), 'stage.status');
   },
 
   'stage.history': async (params: PipelineOps['stage.history'][0]) => {
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'stage.history');
     }
-    const result = await coreOps['stage.history'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stage.history',
-      );
-    }
-    return lafsSuccess(result.data, 'stage.history');
+    return wrapCoreResult(await coreOps['stage.history'](params), 'stage.history');
   },
 
+  // SSoT-EXEMPT: sentinel-unwrap from stageGuidanceOp + isValidStage + buildStageGuidance
+  // + formatStageGuidance — Core fn returns an intermediate sentinel shape; dispatch
+  // cannot simply delegate and wrap — ADR-058
   'stage.guidance': async (params: PipelineOps['stage.guidance'][0]) => {
     // stage.guidance — stageGuidanceOp resolves the stage from epicId and returns
     // a { _stage, _format, _projectRoot } sentinel. Validation and guidance
@@ -547,75 +527,35 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.taskId || !params.stage || !params.status) {
       return lafsError('E_INVALID_INPUT', 'taskId, stage, and status are required', 'stage.record');
     }
-    const result = await coreOps['stage.record'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stage.record',
-      );
-    }
-    return lafsSuccess(result.data, 'stage.record');
+    return wrapCoreResult(await coreOps['stage.record'](params), 'stage.record');
   },
 
   'stage.skip': async (params: PipelineOps['stage.skip'][0]) => {
     if (!params.taskId || !params.stage || !params.reason) {
       return lafsError('E_INVALID_INPUT', 'taskId, stage, and reason are required', 'stage.skip');
     }
-    const result = await coreOps['stage.skip'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stage.skip',
-      );
-    }
-    return lafsSuccess(result.data, 'stage.skip');
+    return wrapCoreResult(await coreOps['stage.skip'](params), 'stage.skip');
   },
 
   'stage.reset': async (params: PipelineOps['stage.reset'][0]) => {
     if (!params.taskId || !params.stage || !params.reason) {
       return lafsError('E_INVALID_INPUT', 'taskId, stage, and reason are required', 'stage.reset');
     }
-    const result = await coreOps['stage.reset'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stage.reset',
-      );
-    }
-    return lafsSuccess(result.data, 'stage.reset');
+    return wrapCoreResult(await coreOps['stage.reset'](params), 'stage.reset');
   },
 
   'stage.gate.pass': async (params: PipelineOps['stage.gate.pass'][0]) => {
     if (!params.taskId || !params.gateName) {
       return lafsError('E_INVALID_INPUT', 'taskId and gateName are required', 'stage.gate.pass');
     }
-    const result = await coreOps['stage.gate.pass'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stage.gate.pass',
-      );
-    }
-    return lafsSuccess(result.data, 'stage.gate.pass');
+    return wrapCoreResult(await coreOps['stage.gate.pass'](params), 'stage.gate.pass');
   },
 
   'stage.gate.fail': async (params: PipelineOps['stage.gate.fail'][0]) => {
     if (!params.taskId || !params.gateName) {
       return lafsError('E_INVALID_INPUT', 'taskId and gateName are required', 'stage.gate.fail');
     }
-    const result = await coreOps['stage.gate.fail'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stage.gate.fail',
-      );
-    }
-    return lafsSuccess(result.data, 'stage.gate.fail');
+    return wrapCoreResult(await coreOps['stage.gate.fail'](params), 'stage.gate.fail');
   },
 
   // -------------------------------------------------------------------------
@@ -642,35 +582,21 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.version) {
       return lafsError('E_INVALID_INPUT', 'version is required', 'release.show');
     }
-    const result = await coreOps['release.show'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'release.show',
-      );
-    }
-    return lafsSuccess(result.data, 'release.show');
+    return wrapCoreResult(await coreOps['release.show'](params), 'release.show');
   },
 
-  'release.channel.show': async (_params: PipelineOps['release.channel.show'][0]) => {
-    const result = await coreOps['release.channel.show'](_params);
-    return lafsSuccess(result.data, 'release.channel.show');
-  },
+  // Always succeeds (git branch detection falls back to 'unknown') — no error path.
+  'release.channel.show': async (_params: PipelineOps['release.channel.show'][0]) =>
+    lafsSuccess((await coreOps['release.channel.show'](_params)).data, 'release.channel.show'),
 
   'release.changelog.since': async (params: PipelineOps['release.changelog.since'][0]) => {
     if (!params.sinceTag) {
       return lafsError('E_INVALID_INPUT', 'sinceTag is required', 'release.changelog.since');
     }
-    const result = await coreOps['release.changelog.since'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'release.changelog.since',
-      );
-    }
-    return lafsSuccess(result.data, 'release.changelog.since');
+    return wrapCoreResult(
+      await coreOps['release.changelog.since'](params),
+      'release.changelog.since',
+    );
   },
 
   // -------------------------------------------------------------------------
@@ -681,60 +607,28 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.version || !params.epicId) {
       return lafsError('E_INVALID_INPUT', 'version and epicId are required', 'release.ship');
     }
-    const result = await coreOps['release.ship'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'release.ship',
-      );
-    }
-    return lafsSuccess(result.data, 'release.ship');
+    return wrapCoreResult(await coreOps['release.ship'](params), 'release.ship');
   },
 
   'release.cancel': async (params: PipelineOps['release.cancel'][0]) => {
     if (!params.version) {
       return lafsError('E_INVALID_INPUT', 'version is required', 'release.cancel');
     }
-    const result = await coreOps['release.cancel'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'release.cancel',
-      );
-    }
-    return lafsSuccess(result.data, 'release.cancel');
+    return wrapCoreResult(await coreOps['release.cancel'](params), 'release.cancel');
   },
 
   'release.rollback': async (params: PipelineOps['release.rollback'][0]) => {
     if (!params.version) {
       return lafsError('E_INVALID_INPUT', 'version is required', 'release.rollback');
     }
-    const result = await coreOps['release.rollback'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'release.rollback',
-      );
-    }
-    return lafsSuccess(result.data, 'release.rollback');
+    return wrapCoreResult(await coreOps['release.rollback'](params), 'release.rollback');
   },
 
   'release.rollback.full': async (params: PipelineOps['release.rollback.full'][0]) => {
     if (!params.version) {
       return lafsError('E_INVALID_INPUT', 'version is required', 'release.rollback.full');
     }
-    const result = await coreOps['release.rollback.full'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'release.rollback.full',
-      );
-    }
-    return lafsSuccess(result.data, 'release.rollback.full');
+    return wrapCoreResult(await coreOps['release.rollback.full'](params), 'release.rollback.full');
   },
 
   // -------------------------------------------------------------------------
@@ -745,15 +639,7 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.entryId) {
       return lafsError('E_INVALID_INPUT', 'entryId is required', 'manifest.show');
     }
-    const result = await coreOps['manifest.show'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'manifest.show',
-      );
-    }
-    return lafsSuccess(result.data, 'manifest.show');
+    return wrapCoreResult(await coreOps['manifest.show'](params), 'manifest.show');
   },
 
   'manifest.list': async (params: PipelineOps['manifest.list'][0]) => {
@@ -776,28 +662,11 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.query) {
       return lafsError('E_INVALID_INPUT', 'query is required', 'manifest.find');
     }
-    const result = await coreOps['manifest.find'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'manifest.find',
-      );
-    }
-    return lafsSuccess(result.data, 'manifest.find');
+    return wrapCoreResult(await coreOps['manifest.find'](params), 'manifest.find');
   },
 
-  'manifest.stats': async (params: PipelineOps['manifest.stats'][0]) => {
-    const result = await coreOps['manifest.stats'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'manifest.stats',
-      );
-    }
-    return lafsSuccess(result.data, 'manifest.stats');
-  },
+  'manifest.stats': async (params: PipelineOps['manifest.stats'][0]) =>
+    wrapCoreResult(await coreOps['manifest.stats'](params), 'manifest.stats'),
 
   // -------------------------------------------------------------------------
   // Manifest mutations
@@ -807,15 +676,7 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.entry) {
       return lafsError('E_INVALID_INPUT', 'entry is required', 'manifest.append');
     }
-    const result = await coreOps['manifest.append'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'manifest.append',
-      );
-    }
-    return lafsSuccess(result.data, 'manifest.append');
+    return wrapCoreResult(await coreOps['manifest.append'](params), 'manifest.append');
   },
 
   'manifest.archive': async (params: PipelineOps['manifest.archive'][0]) => {
@@ -826,45 +687,19 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
         'manifest.archive',
       );
     }
-    const result = await coreOps['manifest.archive'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'manifest.archive',
-      );
-    }
-    return lafsSuccess(result.data, 'manifest.archive');
+    return wrapCoreResult(await coreOps['manifest.archive'](params), 'manifest.archive');
   },
 
   // -------------------------------------------------------------------------
   // Phase queries
   // -------------------------------------------------------------------------
 
-  'phase.show': async (params: PipelineOps['phase.show'][0]) => {
-    const result = await coreOps['phase.show'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'phase.show',
-      );
-    }
-    return lafsSuccess(result.data, 'phase.show');
-  },
+  'phase.show': async (params: PipelineOps['phase.show'][0]) =>
+    wrapCoreResult(await coreOps['phase.show'](params), 'phase.show'),
 
-  'phase.list': async (_params: PipelineOps['phase.list'][0]) => {
-    const result = await coreOps['phase.list'](_params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'phase.list',
-      );
-    }
-    // Pagination is applied in PipelineHandler.query() for phase.list.
-    return lafsSuccess(result.data, 'phase.list');
-  },
+  // Pagination is applied in PipelineHandler.query() for phase.list.
+  'phase.list': async (_params: PipelineOps['phase.list'][0]) =>
+    wrapCoreResult(await coreOps['phase.list'](_params), 'phase.list'),
 
   // -------------------------------------------------------------------------
   // Phase mutations
@@ -874,57 +709,24 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.phaseId) {
       return lafsError('E_INVALID_INPUT', 'phaseId is required', 'phase.set');
     }
-    const result = await coreOps['phase.set'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'phase.set',
-      );
-    }
-    return lafsSuccess(result.data, 'phase.set');
+    return wrapCoreResult(await coreOps['phase.set'](params), 'phase.set');
   },
 
-  'phase.advance': async (params: PipelineOps['phase.advance'][0]) => {
-    const result = await coreOps['phase.advance'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'phase.advance',
-      );
-    }
-    return lafsSuccess(result.data, 'phase.advance');
-  },
+  'phase.advance': async (params: PipelineOps['phase.advance'][0]) =>
+    wrapCoreResult(await coreOps['phase.advance'](params), 'phase.advance'),
 
   'phase.rename': async (params: PipelineOps['phase.rename'][0]) => {
     if (!params.oldName || !params.newName) {
       return lafsError('E_INVALID_INPUT', 'oldName and newName are required', 'phase.rename');
     }
-    const result = await coreOps['phase.rename'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'phase.rename',
-      );
-    }
-    return lafsSuccess(result.data, 'phase.rename');
+    return wrapCoreResult(await coreOps['phase.rename'](params), 'phase.rename');
   },
 
   'phase.delete': async (params: PipelineOps['phase.delete'][0]) => {
     if (!params.phaseId) {
       return lafsError('E_INVALID_INPUT', 'phaseId is required', 'phase.delete');
     }
-    const result = await coreOps['phase.delete'](params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'phase.delete',
-      );
-    }
-    return lafsSuccess(result.data, 'phase.delete');
+    return wrapCoreResult(await coreOps['phase.delete'](params), 'phase.delete');
   },
 
   // -------------------------------------------------------------------------
@@ -955,8 +757,7 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.chain) {
       return lafsError('E_INVALID_INPUT', 'chain is required', 'chain.add');
     }
-    const data = await coreOps['chain.add'](params);
-    return lafsSuccess(data, 'chain.add');
+    return lafsSuccess(await coreOps['chain.add'](params), 'chain.add');
   },
 
   'chain.instantiate': async (params: PipelineOps['chain.instantiate'][0]) => {
@@ -964,8 +765,7 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
       return lafsError('E_INVALID_INPUT', 'chainId and epicId are required', 'chain.instantiate');
     }
     try {
-      const instance = await coreOps['chain.instantiate'](params);
-      return lafsSuccess(instance, 'chain.instantiate');
+      return lafsSuccess(await coreOps['chain.instantiate'](params), 'chain.instantiate');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (
@@ -983,8 +783,7 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     if (!params.instanceId || !params.nextStage) {
       return lafsError('E_INVALID_INPUT', 'instanceId and nextStage are required', 'chain.advance');
     }
-    const updated = await coreOps['chain.advance'](params);
-    return lafsSuccess(updated, 'chain.advance');
+    return lafsSuccess(await coreOps['chain.advance'](params), 'chain.advance');
   },
 });
 
