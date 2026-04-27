@@ -223,9 +223,11 @@ export const addCommand = defineCommand({
       params['position'] = Number.parseInt(args.position as string, 10);
     if (args['dry-run'] !== undefined) params['dryRun'] = args['dry-run'];
     if (args['parent-search'] !== undefined) params['parentSearch'] = args['parent-search'];
-    // T944: orthogonal axes — --kind is an alias for --role
+    // T944: orthogonal axes — --kind is a CLI alias for --role (ADR-057 D2)
+    // Aliasing lives at the CLI layer; wire format only uses 'role'.
     if (args.role !== undefined) params['role'] = args.role;
-    if (args.kind !== undefined) params['kind'] = args.kind;
+    if (args.kind !== undefined)
+      params['role'] = (params['role'] as string | undefined) ?? args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
     if (args.severity !== undefined) params['severity'] = args.severity;
 
