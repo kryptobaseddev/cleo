@@ -15,6 +15,7 @@ export * from './nexus.js';
 export * from './nexus-user-profile.js';
 export * from './orchestrate.js';
 export * from './params.js';
+export * from './playbook.js';
 export * from './release.js';
 export * from './research.js';
 export * from './sentient.js';
