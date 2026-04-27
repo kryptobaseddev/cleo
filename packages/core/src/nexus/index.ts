@@ -56,14 +56,6 @@ export {
   type NexusDiffOptions,
   type NexusDiffResult,
 } from './diff.js';
-// Projects clean - bulk purge project registry rows (T1473)
-export {
-  cleanProjects,
-  type CleanProjectsOptions,
-  type CleanProjectsResult,
-  InvalidPatternError,
-  NoCriteriaError,
-} from './projects-clean.js';
 // Discovery - cross-project task discovery and search
 export {
   discoverRelated,
@@ -103,6 +95,14 @@ export {
   requirePermission,
   setPermission,
 } from './permissions.js';
+// Projects clean - bulk purge project registry rows (T1473)
+export {
+  type CleanProjectsOptions,
+  type CleanProjectsResult,
+  cleanProjects,
+  InvalidPatternError,
+  NoCriteriaError,
+} from './projects-clean.js';
 // Projects scan - filesystem walker for CLEO project discovery (T1473)
 export {
   getDevice,
