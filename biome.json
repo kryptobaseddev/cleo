@@ -62,6 +62,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/cleo/src/dispatch/domains/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDefaultExport": "error"
+          }
+        }
+      }
     }
   ]
 }
