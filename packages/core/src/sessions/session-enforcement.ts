@@ -73,7 +73,7 @@ export interface ActiveSessionInfo {
 
 /** Get active session info. Returns null if no active session. */
 export async function getActiveSessionInfo(cwd?: string): Promise<ActiveSessionInfo | null> {
-  const session = await sessionStatus(cwd);
+  const session = await sessionStatus(cwd ?? '', {});
   if (!session) return null;
 
   return {

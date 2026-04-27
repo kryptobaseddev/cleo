@@ -242,7 +242,7 @@ export async function convertStickyToSessionNote(
     // Find target session
     let targetSessionId = sessionId;
     if (!targetSessionId) {
-      const activeSession = await sessionStatus(projectRoot);
+      const activeSession = await sessionStatus(projectRoot, {});
       if (activeSession) {
         targetSessionId = activeSession.id;
       }
