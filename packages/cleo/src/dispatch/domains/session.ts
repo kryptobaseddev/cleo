@@ -7,14 +7,25 @@
  *
  * All operations delegate to native engine functions from session-engine.
  * Param extraction is type-safe via OpsFromCore inference (T1444 — T1435
- * Wave 1 dispatch refactor). Zero per-op Params/Result imports from contracts.
+ * Wave 1 dispatch refactor). Per-op Params types are sole-sourced via
+ * `import type` from `@cleocode/contracts` (T1489).
  *
  * @epic T4820
  * @task T5671
  * @task T975 — typed-dispatch migration
  * @task T1444 — OpsFromCore inference migration
+ * @task T1489 — sole-source Params/Result aliases via contracts re-exports
  */
 
+import type {
+  SessionEndParams,
+  SessionGcParams,
+  SessionHandoffShowParams,
+  SessionResumeParams,
+  SessionShowParams,
+  SessionStartParams,
+  SessionSuspendParams,
+} from '@cleocode/contracts';
 import { getDb, getLogger, getProjectRoot, sessions } from '@cleocode/core/internal';
 import { eq } from 'drizzle-orm';
 import {
@@ -49,38 +60,6 @@ import {
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
-type SessionShowOpParams = {
-  sessionId: Parameters<typeof sessionShow>[1];
-  include?: string;
-};
-
-type SessionHandoffShowOpParams = {
-  scope?: string;
-};
-
-type SessionStartOpParams = Parameters<typeof sessionStart>[1] & {
-  ownerAuthToken?: string;
-};
-
-type SessionEndOpParams = {
-  note?: Parameters<typeof sessionEnd>[1];
-  nextAction?: NonNullable<Parameters<typeof sessionComputeDebrief>[2]>['nextAction'];
-  sessionSummary?: NonNullable<Parameters<typeof sessionEnd>[2]>['sessionSummary'];
-};
-
-type SessionResumeOpParams = {
-  sessionId: Parameters<typeof sessionResume>[1];
-};
-
-type SessionSuspendOpParams = {
-  sessionId: Parameters<typeof sessionSuspend>[1];
-  reason?: Parameters<typeof sessionSuspend>[2];
-};
-
-type SessionGcOpParams = {
-  maxAgeDays?: Parameters<typeof sessionGc>[1];
-};
-
 async function sessionStatusOp() {
   return sessionStatus(getProjectRoot());
 }
@@ -89,7 +68,7 @@ async function sessionListOp(params: NonNullable<Parameters<typeof sessionList>[
   return sessionList(getProjectRoot(), params);
 }
 
-async function sessionShowOp(params: SessionShowOpParams) {
+async function sessionShowOp(params: SessionShowParams) {
   if (params.include === 'debrief') {
     return sessionDebriefShow(getProjectRoot(), params.sessionId);
   }
@@ -110,7 +89,7 @@ async function sessionContextDriftOp(
   return sessionContextDrift(getProjectRoot(), params);
 }
 
-async function sessionHandoffShowOp(params: SessionHandoffShowOpParams) {
+async function sessionHandoffShowOp(params: SessionHandoffShowParams) {
   let scopeFilter: { type: string; epicId?: string } | undefined;
   if (params.scope) {
     if (params.scope === 'global') {
@@ -126,25 +105,25 @@ async function sessionBriefingShowOp(params: NonNullable<Parameters<typeof sessi
   return sessionBriefing(getProjectRoot(), params);
 }
 
-async function sessionStartOp(params: SessionStartOpParams) {
+async function sessionStartOp(params: SessionStartParams) {
   return sessionStart(getProjectRoot(), params);
 }
 
-async function sessionEndOp(params: SessionEndOpParams) {
+async function sessionEndOp(params: SessionEndParams) {
   return sessionEnd(getProjectRoot(), params.note, {
     sessionSummary: params.sessionSummary,
   });
 }
 
-async function sessionResumeOp(params: SessionResumeOpParams) {
+async function sessionResumeOp(params: SessionResumeParams) {
   return sessionResume(getProjectRoot(), params.sessionId);
 }
 
-async function sessionSuspendOp(params: SessionSuspendOpParams) {
+async function sessionSuspendOp(params: SessionSuspendParams) {
   return sessionSuspend(getProjectRoot(), params.sessionId, params.reason);
 }
 
-async function sessionGcOp(params: SessionGcOpParams) {
+async function sessionGcOp(params: SessionGcParams) {
   return sessionGc(getProjectRoot(), params.maxAgeDays);
 }
 
