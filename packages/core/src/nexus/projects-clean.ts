@@ -110,7 +110,11 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   /**
    * Return true if a project matches any active criteria.
    */
-  function matchesCriteria(projectPath: string, healthStatus: string, lastIndexed: string | null): boolean {
+  function matchesCriteria(
+    projectPath: string,
+    healthStatus: string,
+    lastIndexed: string | null,
+  ): boolean {
     if (patternRegex?.test(projectPath)) return true;
     if (opts.includeTemp && TEMP_RE.test(projectPath)) return true;
     if (opts.includeTests && TESTS_RE.test(projectPath)) return true;
