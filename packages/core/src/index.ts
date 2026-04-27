@@ -406,6 +406,13 @@ export { completeTask } from './tasks/complete.js';
 export { deleteTask } from './tasks/delete.js';
 export { findTasks } from './tasks/find.js';
 export { normalizeTaskId } from './tasks/id-generator.js';
+export {
+  type InferAddParamsInput,
+  type InferAddParamsResult,
+  inferFilesViaGitNexus,
+  inferTaskAddParams,
+  parseAcceptanceCriteria,
+} from './tasks/infer-add-params.js';
 export { listTasks } from './tasks/list.js';
 export { showTask } from './tasks/show.js';
 export { updateTask } from './tasks/update.js';

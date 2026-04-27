@@ -94,6 +94,14 @@ export {
   type SignedGateAuditRecord,
   verifyAuditHistory,
 } from './gate-audit.js';
+// Pre-dispatch inference for cleo add (T1490)
+export {
+  type InferAddParamsInput,
+  type InferAddParamsResult,
+  inferFilesViaGitNexus,
+  inferTaskAddParams,
+  parseAcceptanceCriteria,
+} from './infer-add-params.js';
 export { type ListTasksOptions, type ListTasksResult, listTasks } from './list.js';
 // Task Core operation signatures for OpsFromCore inference (T1445)
 export type { tasksCoreOps } from './ops.js';

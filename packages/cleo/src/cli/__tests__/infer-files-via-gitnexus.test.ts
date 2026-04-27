@@ -1,21 +1,34 @@
 /**
- * Tests for GitNexus file inference module.
+ * Tests for GitNexus file inference module — re-export shim.
+ *
+ * T1490: `inferFilesViaGitNexus` has moved to `packages/core/src/tasks/infer-add-params.ts`.
+ * This file validates that the CLI shim re-exports the function correctly.
+ * The full behaviour tests live in `packages/core`.
  *
  * @task T1330
+ * @task T1490
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { inferFilesViaGitNexus } from '../infer-files-via-gitnexus.js';
 
-// Mock execFileSync
+// Mock node:child_process using importOriginal so we don't break other
+// modules that also use child_process (e.g. caamp lock.ts uses execFile).
 const mockExecFileSync = vi.fn();
-vi.mock('node:child_process', () => ({
-  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
-}));
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
+  };
+});
 
-describe('inferFilesViaGitNexus', () => {
-  it('should extract files from gitnexus query response', () => {
-    // Mock GitNexus response with processes containing symbols
+describe('inferFilesViaGitNexus shim (T1490)', () => {
+  it('re-exports inferFilesViaGitNexus from Core', async () => {
+    const { inferFilesViaGitNexus } = await import('../infer-files-via-gitnexus.js');
+    expect(typeof inferFilesViaGitNexus).toBe('function');
+  });
+
+  it('calls gitnexus and extracts file paths via the re-export', async () => {
     const gitnexusResponse = [
       {
         name: 'auth-setup',
@@ -32,92 +45,20 @@ describe('inferFilesViaGitNexus', () => {
 
     mockExecFileSync.mockReturnValue(JSON.stringify(gitnexusResponse));
 
+    const { inferFilesViaGitNexus } = await import('../infer-files-via-gitnexus.js');
     const files = inferFilesViaGitNexus('Add auth flow', 'Implement OAuth2 authentication');
 
     expect(files).toEqual(['packages/core/src/auth.ts', 'packages/cli/src/login.ts']);
   });
 
-  it('should handle duplicate file paths (use Set)', () => {
-    // Mock response where the same file is referenced multiple times
-    const gitnexusResponse = [
-      {
-        name: 'auth-module',
-        symbols: [
-          { name: 'func1', location: 'packages/core/src/auth.ts:10:0' },
-          { name: 'func2', location: 'packages/core/src/auth.ts:50:0' },
-        ],
-      },
-    ];
-
-    mockExecFileSync.mockReturnValue(JSON.stringify(gitnexusResponse));
-
-    const files = inferFilesViaGitNexus('Task', 'Description');
-
-    expect(files).toEqual(['packages/core/src/auth.ts']);
-  });
-
-  it('should return empty array when gitnexus is unavailable', () => {
+  it('returns empty array when gitnexus is unavailable', async () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error('gitnexus not found');
     });
 
+    const { inferFilesViaGitNexus } = await import('../infer-files-via-gitnexus.js');
     const files = inferFilesViaGitNexus('Task', 'Description');
 
     expect(files).toEqual([]);
-  });
-
-  it('should return empty array when gitnexus returns invalid JSON', () => {
-    mockExecFileSync.mockReturnValue('not valid json {]');
-
-    const files = inferFilesViaGitNexus('Task', 'Description');
-
-    expect(files).toEqual([]);
-  });
-
-  it('should handle response with files array instead of symbols', () => {
-    const gitnexusResponse = [
-      {
-        name: 'process1',
-        files: ['packages/core/src/file1.ts', 'packages/cli/src/file2.ts'],
-      },
-    ];
-
-    mockExecFileSync.mockReturnValue(JSON.stringify(gitnexusResponse));
-
-    const files = inferFilesViaGitNexus('Task', 'Description');
-
-    expect(files).toEqual(['packages/core/src/file1.ts', 'packages/cli/src/file2.ts']);
-  });
-
-  it('should work with title only (no description)', () => {
-    const gitnexusResponse = [
-      {
-        name: 'process1',
-        symbols: [{ name: 'func', location: 'packages/file.ts:1:0' }],
-      },
-    ];
-
-    mockExecFileSync.mockReturnValue(JSON.stringify(gitnexusResponse));
-
-    const files = inferFilesViaGitNexus('Task title');
-
-    expect(files).toEqual(['packages/file.ts']);
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      'gitnexus',
-      ['query', '--json', '--limit', '5', 'Task title'],
-      expect.any(Object),
-    );
-  });
-
-  it('should combine title and description in query', () => {
-    mockExecFileSync.mockReturnValue(JSON.stringify([]));
-
-    inferFilesViaGitNexus('Fix bug', 'Resolve auth issue in login flow');
-
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      'gitnexus',
-      ['query', '--json', '--limit', '5', 'Fix bug Resolve auth issue in login flow'],
-      expect.any(Object),
-    );
   });
 });
