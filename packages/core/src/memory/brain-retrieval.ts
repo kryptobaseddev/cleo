@@ -1030,7 +1030,7 @@ async function autoLinkObservationToTask(
   accessor: Awaited<ReturnType<typeof getBrainAccessor>>,
 ): Promise<void> {
   const { sessionStatus } = await import('../sessions/index.js');
-  const session = await sessionStatus(projectRoot);
+  const session = await sessionStatus(projectRoot, {});
 
   if (!session) return;
 
@@ -1528,7 +1528,7 @@ export async function retrieveWithBudget(
 async function getCurrentSessionId(projectRoot: string): Promise<string | undefined> {
   try {
     const { sessionStatus } = await import('../sessions/index.js');
-    const session = await sessionStatus(projectRoot);
+    const session = await sessionStatus(projectRoot, {});
     return session?.id;
   } catch {
     // Session manager unavailable or other error — log retrievals without session
