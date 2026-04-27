@@ -56,6 +56,14 @@ export {
   type NexusDiffOptions,
   type NexusDiffResult,
 } from './diff.js';
+// Projects clean - bulk purge project registry rows (T1473)
+export {
+  cleanProjects,
+  InvalidPatternError,
+  NoCriteriaError,
+  type ProjectsCleanOptions,
+  type ProjectsCleanResult,
+} from './projects-clean.js';
 // Discovery - cross-project task discovery and search
 export {
   discoverRelated,
