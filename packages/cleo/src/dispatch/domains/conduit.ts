@@ -14,36 +14,49 @@
  * All operations use AgentRegistryAccessor for credentials and
  * @cleocode/runtime AgentPoller for polling lifecycle.
  *
- * Param extraction is type-safe via TypedDomainHandler<ConduitOps> (T1422 —
- * Wave D typed-dispatch migration, T975 follow-on). Zero `as any` / `as X`
+ * Param extraction is type-safe via OpsFromCore<typeof conduit.conduitCoreOps>
+ * (T1439 — Core-derived type inference, T1435 Wave 1). Zero `as any` / `as X`
  * param casts.
  *
  * @task T183
  * @task T1252
  * @task T1422 — Typed-dispatch migration (T975 follow-on)
+ * @task T1439 — OpsFromCore inference (T1435 Wave 1)
  */
 
-import type {
-  ConduitListenParams,
-  ConduitOps,
-  ConduitPeekParams,
-  ConduitPublishParams,
-  ConduitSendParams,
-  ConduitStartParams,
-  ConduitStatusParams,
-  ConduitStopParams,
-  ConduitSubscribeParams,
-} from '@cleocode/contracts';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
+import type { conduit } from '@cleocode/core';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+} from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
-// Typed inner handler (Wave D · T1422)
+// OpsFromCore inference — derive typed operation record from Core signatures.
+//
+// `conduitCoreOps` is an ambient declaration in packages/core/src/conduit/ops.ts
+// that carries the [Params, Result] shapes for all 8 conduit operations.
+// `OpsFromCore` lifts those shapes into the `TypedOpRecord` form consumed by
+// `defineTypedHandler`.  No runtime value is needed — this is purely
+// compile-time type derivation.
+// ---------------------------------------------------------------------------
+
+/** Compile-time operation types for the conduit domain. */
+type ConduitOps = OpsFromCore<typeof conduit.conduitCoreOps>;
+
+// ---------------------------------------------------------------------------
+// Typed inner handler (Wave D · T1422, OpsFromCore · T1439)
 //
 // The typed handler holds all per-op logic with fully-narrowed params.
 // The outer DomainHandler class delegates to it so the registry sees the
 // expected query/mutate interface while every param access is type-safe.
+//
+// Per-op param types are inferred from ConduitOps (OpsFromCore inference);
+// no explicit parameter type annotations are needed in the handler body.
 // ---------------------------------------------------------------------------
 
 /** Singleton poller state — shared across dispatch calls within a session. */
@@ -55,7 +68,7 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
   // Query ops
   // -------------------------------------------------------------------------
 
-  status: async (params: ConduitStatusParams) => {
+  status: async (params) => {
     try {
       const result = await getStatusImpl(params.agentId);
       if (!result.success) {
@@ -75,7 +88,7 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
     }
   },
 
-  peek: async (params: ConduitPeekParams) => {
+  peek: async (params) => {
     try {
       const result = await peekImpl(params.agentId, params.limit);
       if (!result.success) {
@@ -91,7 +104,7 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
     }
   },
 
-  listen: async (params: ConduitListenParams) => {
+  listen: async (params) => {
     try {
       const result = await listenTopicImpl(
         params.topicName,
@@ -120,7 +133,7 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
   // Mutate ops
   // -------------------------------------------------------------------------
 
-  start: async (params: ConduitStartParams) => {
+  start: async (params) => {
     try {
       const result = await startPollingImpl(
         params.agentId,
@@ -144,7 +157,7 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
     }
   },
 
-  stop: async (_params: ConduitStopParams) => {
+  stop: async (_params) => {
     try {
       const result = stopPollingImpl();
       if (!result.success) {
@@ -160,7 +173,7 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
     }
   },
 
-  send: async (params: ConduitSendParams) => {
+  send: async (params) => {
     try {
       const result = await sendMessageImpl(
         params.content,
@@ -181,7 +194,7 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
     }
   },
 
-  subscribe: async (params: ConduitSubscribeParams) => {
+  subscribe: async (params) => {
     try {
       const result = await subscribeTopicImpl(params.topicName, params.agentId, params.filter);
       if (!result.success) {
@@ -201,7 +214,7 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
     }
   },
 
-  publish: async (params: ConduitPublishParams) => {
+  publish: async (params) => {
     try {
       const result = await publishToTopicImpl(
         params.topicName,
@@ -247,7 +260,11 @@ const MUTATE_OPS = new Set<string>(['start', 'stop', 'send', 'subscribe', 'publi
  * satisfies the registry's `DomainHandler` interface while keeping every
  * param access fully type-safe via the T1422 Wave D adapter.
  *
+ * `ConduitOps` is derived from `OpsFromCore<typeof conduit.conduitCoreOps>`
+ * so param shapes are inferred from Core rather than hand-maintained.
+ *
  * @task T1422 — Typed-dispatch migration (T975 follow-on)
+ * @task T1439 — OpsFromCore inference (T1435 Wave 1)
  */
 export class ConduitHandler implements DomainHandler {
   /**

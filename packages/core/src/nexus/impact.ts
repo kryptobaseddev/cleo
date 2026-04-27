@@ -129,10 +129,9 @@ export async function getSymbolImpact(
 
   let allRelations: Array<Record<string, unknown>> = [];
   try {
-    allRelations = db
-      .select()
-      .from(nexusSchema.nexusRelations)
-      .all() as Array<Record<string, unknown>>;
+    allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
+      Record<string, unknown>
+    >;
   } catch {
     allRelations = [];
   }
@@ -227,7 +226,13 @@ export async function getSymbolImpact(
     label: depthLabels[i] ?? `depth ${i + 1}`,
     nodes: whyFlag
       ? layer
-      : layer.map(({ nodeId, name, kind, filePath }) => ({ nodeId, name, kind, filePath, reasons: [] })),
+      : layer.map(({ nodeId, name, kind, filePath }) => ({
+          nodeId,
+          name,
+          kind,
+          filePath,
+          reasons: [],
+        })),
   }));
 
   return {

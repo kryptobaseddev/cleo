@@ -8,8 +8,8 @@
  * @task T1473
  */
 
-import path from 'node:path';
 import { existsSync, readdirSync, statSync } from 'node:fs';
+import path from 'node:path';
 
 /** Auto-register error record. */
 export interface ScanAutoRegisterError {

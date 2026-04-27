@@ -57,9 +57,7 @@ export async function getProjectClusters(
     rows = [];
   }
 
-  const communities = rows.filter(
-    (r) => r['kind'] === 'community' && r['projectId'] === projectId,
-  );
+  const communities = rows.filter((r) => r['kind'] === 'community' && r['projectId'] === projectId);
 
   return {
     projectId,

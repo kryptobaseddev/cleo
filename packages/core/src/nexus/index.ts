@@ -8,11 +8,17 @@
  * @epic T4540
  */
 
+export type {
+  NexusDiscoverHit as DiscoverResult,
+  NexusDiscoverResult,
+  NexusSearchHit as SearchResult,
+  NexusSearchResult,
+} from '@cleocode/contracts/operations/nexus';
 // Clusters - Louvain community detection results (T1473)
 export {
   getProjectClusters,
-  type NexusCommunityEntry,
   type NexusClustersResult,
+  type NexusCommunityEntry,
 } from './clusters.js';
 // Context - symbol caller/callee/process context (T1473)
 export {
@@ -24,47 +30,6 @@ export {
   type NexusContextResult,
   type NexusSourceContent,
 } from './context.js';
-// Flows - execution flow (process) nodes (T1473)
-export {
-  getProjectFlows,
-  type NexusFlowEntry,
-  type NexusFlowsResult,
-} from './flows.js';
-// GEXF export - graph serialization (T1473)
-export { escapeXml, generateGexf, hexToRgb } from './gexf-export.js';
-// Impact - BFS upstream blast radius (T1473)
-export {
-  getSymbolImpact,
-  type NexusImpactLayer,
-  type NexusImpactNode,
-  type NexusImpactOptions,
-  type NexusImpactResult,
-  type NexusRiskLevel,
-} from './impact.js';
-// Symbol ranking - priority scores for search results (T1473)
-export { NODE_KIND_PRIORITY, sortMatchingNodes } from './symbol-ranking.js';
-// Index diff - compare node/relation counts between git commits (T1473)
-export {
-  diffNexusIndex,
-  type NexusDiffHealth,
-  type NexusDiffOptions,
-  type NexusDiffResult,
-} from './diff.js';
-// Projects scan - filesystem walker for CLEO project discovery (T1473)
-export {
-  getDevice,
-  type ProjectsScanOptions,
-  type ProjectsScanResult,
-  type ScanAutoRegisterError,
-  scanForProjects,
-  walkForCleo,
-} from './projects-scan.js';
-export type {
-  NexusDiscoverHit as DiscoverResult,
-  NexusDiscoverResult,
-  NexusSearchHit as SearchResult,
-  NexusSearchResult,
-} from '@cleocode/contracts/operations/nexus';
 // Deps - global dependency graph and analysis
 export {
   type BlockingAnalysisResult,
@@ -84,14 +49,38 @@ export {
   orphanDetection,
   resolveCrossDeps,
 } from './deps.js';
+// Index diff - compare node/relation counts between git commits (T1473)
+export {
+  diffNexusIndex,
+  type NexusDiffHealth,
+  type NexusDiffOptions,
+  type NexusDiffResult,
+} from './diff.js';
 // Discovery - cross-project task discovery and search
 export {
   discoverRelated,
   extractKeywords,
   searchAcrossProjects,
 } from './discover.js';
+// Flows - execution flow (process) nodes (T1473)
+export {
+  getProjectFlows,
+  type NexusFlowEntry,
+  type NexusFlowsResult,
+} from './flows.js';
+// GEXF export - graph serialization (T1473)
+export { escapeXml, generateGexf, hexToRgb } from './gexf-export.js';
 // Hash - canonical project identity hash
 export { generateProjectHash } from './hash.js';
+// Impact - BFS upstream blast radius (T1473)
+export {
+  getSymbolImpact,
+  type NexusImpactLayer,
+  type NexusImpactNode,
+  type NexusImpactOptions,
+  type NexusImpactResult,
+  type NexusRiskLevel,
+} from './impact.js';
 // Permissions - three-tier access control
 export {
   canExecute,
@@ -106,6 +95,15 @@ export {
   requirePermission,
   setPermission,
 } from './permissions.js';
+// Projects scan - filesystem walker for CLEO project discovery (T1473)
+export {
+  getDevice,
+  type ProjectsScanOptions,
+  type ProjectsScanResult,
+  type ScanAutoRegisterError,
+  scanForProjects,
+  walkForCleo,
+} from './projects-scan.js';
 // Query - cross-project task resolution
 export {
   getCurrentProject,
@@ -163,6 +161,8 @@ export {
   resolveCanonicalCantFiles,
   syncCanonicalSigils,
 } from './sigil-sync.js';
+// Symbol ranking - priority scores for search results (T1473)
+export { NODE_KIND_PRIORITY, sortMatchingNodes } from './symbol-ranking.js';
 // Tasks Bridge - git-log sweeper linking task IDs to nexus symbols
 export {
   getSymbolsForTask,
