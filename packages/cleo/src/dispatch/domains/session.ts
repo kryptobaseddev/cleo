@@ -6,35 +6,24 @@
  * context.drift, record.assumption, handoff.show, briefing.show, find.
  *
  * All operations delegate to native engine functions from session-engine.
- * Param extraction is type-safe via TypedDomainHandler<SessionOps> (T975 —
- * Wave D typed-dispatch migration). Zero `as any` / `as X` param casts.
+ * Param extraction is type-safe via OpsFromCore inference (T1444 — T1435
+ * Wave 1 dispatch refactor). Zero per-op Params/Result imports from contracts.
  *
  * @epic T4820
  * @task T5671
  * @task T975 — typed-dispatch migration
+ * @task T1444 — OpsFromCore inference migration
  */
 
-import type {
-  SessionBriefingShowParams,
-  SessionContextDriftParams,
-  SessionDecisionLogParams,
-  SessionEndParams,
-  SessionFindParams,
-  SessionGcParams,
-  SessionHandoffShowParams,
-  SessionListParams,
-  SessionOps,
-  SessionRecordAssumptionParams,
-  SessionRecordDecisionParams,
-  SessionResumeParams,
-  SessionShowParams,
-  SessionStartParams,
-  SessionStatusParams,
-  SessionSuspendParams,
-} from '@cleocode/contracts';
 import { getDb, getLogger, getProjectRoot, sessions } from '@cleocode/core/internal';
 import { eq } from 'drizzle-orm';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+} from '../adapters/typed.js';
 import { bindSession, unbindSession } from '../context/session-context.js';
 import {
   sessionBriefing,
@@ -59,6 +48,133 @@ import {
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
+type SessionShowOpParams = {
+  sessionId: Parameters<typeof sessionShow>[1];
+  include?: string;
+};
+
+type SessionHandoffShowOpParams = {
+  scope?: string;
+};
+
+type SessionStartOpParams = Parameters<typeof sessionStart>[1] & {
+  ownerAuthToken?: string;
+};
+
+type SessionEndOpParams = {
+  note?: Parameters<typeof sessionEnd>[1];
+  nextAction?: NonNullable<Parameters<typeof sessionComputeDebrief>[2]>['nextAction'];
+  sessionSummary?: NonNullable<Parameters<typeof sessionEnd>[2]>['sessionSummary'];
+};
+
+type SessionResumeOpParams = {
+  sessionId: Parameters<typeof sessionResume>[1];
+};
+
+type SessionSuspendOpParams = {
+  sessionId: Parameters<typeof sessionSuspend>[1];
+  reason?: Parameters<typeof sessionSuspend>[2];
+};
+
+type SessionGcOpParams = {
+  maxAgeDays?: Parameters<typeof sessionGc>[1];
+};
+
+async function sessionStatusOp() {
+  return sessionStatus(getProjectRoot());
+}
+
+async function sessionListOp(params: NonNullable<Parameters<typeof sessionList>[1]>) {
+  return sessionList(getProjectRoot(), params);
+}
+
+async function sessionShowOp(params: SessionShowOpParams) {
+  if (params.include === 'debrief') {
+    return sessionDebriefShow(getProjectRoot(), params.sessionId);
+  }
+  return sessionShow(getProjectRoot(), params.sessionId);
+}
+
+async function sessionFindOp(params: NonNullable<Parameters<typeof sessionFind>[1]>) {
+  return sessionFind(getProjectRoot(), params);
+}
+
+async function sessionDecisionLogOp(params: NonNullable<Parameters<typeof sessionDecisionLog>[1]>) {
+  return sessionDecisionLog(getProjectRoot(), params);
+}
+
+async function sessionContextDriftOp(
+  params: NonNullable<Parameters<typeof sessionContextDrift>[1]>,
+) {
+  return sessionContextDrift(getProjectRoot(), params);
+}
+
+async function sessionHandoffShowOp(params: SessionHandoffShowOpParams) {
+  let scopeFilter: { type: string; epicId?: string } | undefined;
+  if (params.scope) {
+    if (params.scope === 'global') {
+      scopeFilter = { type: 'global' };
+    } else if (params.scope.startsWith('epic:')) {
+      scopeFilter = { type: 'epic', epicId: params.scope.replace('epic:', '') };
+    }
+  }
+  return sessionHandoff(getProjectRoot(), scopeFilter);
+}
+
+async function sessionBriefingShowOp(params: NonNullable<Parameters<typeof sessionBriefing>[1]>) {
+  return sessionBriefing(getProjectRoot(), params);
+}
+
+async function sessionStartOp(params: SessionStartOpParams) {
+  return sessionStart(getProjectRoot(), params);
+}
+
+async function sessionEndOp(params: SessionEndOpParams) {
+  return sessionEnd(getProjectRoot(), params.note, {
+    sessionSummary: params.sessionSummary,
+  });
+}
+
+async function sessionResumeOp(params: SessionResumeOpParams) {
+  return sessionResume(getProjectRoot(), params.sessionId);
+}
+
+async function sessionSuspendOp(params: SessionSuspendOpParams) {
+  return sessionSuspend(getProjectRoot(), params.sessionId, params.reason);
+}
+
+async function sessionGcOp(params: SessionGcOpParams) {
+  return sessionGc(getProjectRoot(), params.maxAgeDays);
+}
+
+async function sessionRecordDecisionOp(params: Parameters<typeof sessionRecordDecision>[1]) {
+  return sessionRecordDecision(getProjectRoot(), params);
+}
+
+async function sessionRecordAssumptionOp(params: Parameters<typeof sessionRecordAssumption>[1]) {
+  return sessionRecordAssumption(getProjectRoot(), params);
+}
+
+const coreOps = {
+  status: sessionStatusOp,
+  list: sessionListOp,
+  show: sessionShowOp,
+  find: sessionFindOp,
+  'decision.log': sessionDecisionLogOp,
+  'context.drift': sessionContextDriftOp,
+  'handoff.show': sessionHandoffShowOp,
+  'briefing.show': sessionBriefingShowOp,
+  start: sessionStartOp,
+  end: sessionEndOp,
+  resume: sessionResumeOp,
+  suspend: sessionSuspendOp,
+  gc: sessionGcOp,
+  'record.decision': sessionRecordDecisionOp,
+  'record.assumption': sessionRecordAssumptionOp,
+} as const;
+
+type SessionOps = OpsFromCore<typeof coreOps>;
+
 // ---------------------------------------------------------------------------
 // Typed inner handler (Wave D · T975)
 //
@@ -72,9 +188,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
   // Query ops
   // -------------------------------------------------------------------------
 
-  status: async (_params: SessionStatusParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await sessionStatus(projectRoot);
+  status: async (_params: SessionOps['status'][0]) => {
+    const result = await coreOps.status();
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -89,14 +204,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     );
   },
 
-  list: async (params: SessionListParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await sessionList(projectRoot, {
-      active: params.active,
-      status: params.status,
-      limit: params.limit,
-      offset: params.offset,
-    });
+  list: async (params: SessionOps['list'][0]) => {
+    const result = await coreOps.list(params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -108,13 +217,12 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
   },
 
   // session.show absorbs debrief.show via include param (T5615)
-  show: async (params: SessionShowParams) => {
-    const projectRoot = getProjectRoot();
+  show: async (params: SessionOps['show'][0]) => {
     if (!params.sessionId) {
       return lafsError('E_INVALID_INPUT', 'sessionId is required', 'show');
     }
     if (params.include === 'debrief') {
-      const result = await sessionDebriefShow(projectRoot, params.sessionId);
+      const result = await coreOps.show(params);
       if (!result.success) {
         return lafsError(
           String(result.error?.code ?? 'E_INTERNAL'),
@@ -126,7 +234,7 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
       // so no cast is needed; the typed result passes through unchanged.
       return lafsSuccess(result.data, 'show');
     }
-    const result = await sessionShow(projectRoot, params.sessionId);
+    const result = await coreOps.show(params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -140,14 +248,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(result.data, 'show');
   },
 
-  find: async (params: SessionFindParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await sessionFind(projectRoot, {
-      status: params.status,
-      scope: params.scope,
-      query: params.query,
-      limit: params.limit,
-    });
+  find: async (params: SessionOps['find'][0]) => {
+    const result = await coreOps.find(params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -158,12 +260,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess({ sessions: result.data ?? [] }, 'find');
   },
 
-  'decision.log': async (params: SessionDecisionLogParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await sessionDecisionLog(projectRoot, {
-      sessionId: params.sessionId,
-      taskId: params.taskId,
-    });
+  'decision.log': async (params: SessionOps['decision.log'][0]) => {
+    const result = await coreOps['decision.log'](params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -174,9 +272,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(result.data ?? [], 'decision.log');
   },
 
-  'context.drift': async (params: SessionContextDriftParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await sessionContextDrift(projectRoot, { sessionId: params.sessionId });
+  'context.drift': async (params: SessionOps['context.drift'][0]) => {
+    const result = await coreOps['context.drift'](params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -190,17 +287,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(result.data, 'context.drift');
   },
 
-  'handoff.show': async (params: SessionHandoffShowParams) => {
-    const projectRoot = getProjectRoot();
-    let scopeFilter: { type: string; epicId?: string } | undefined;
-    if (params.scope) {
-      if (params.scope === 'global') {
-        scopeFilter = { type: 'global' };
-      } else if (params.scope.startsWith('epic:')) {
-        scopeFilter = { type: 'epic', epicId: params.scope.replace('epic:', '') };
-      }
-    }
-    const result = await sessionHandoff(projectRoot, scopeFilter);
+  'handoff.show': async (params: SessionOps['handoff.show'][0]) => {
+    const result = await coreOps['handoff.show'](params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -211,15 +299,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(result.data ?? null, 'handoff.show');
   },
 
-  'briefing.show': async (params: SessionBriefingShowParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await sessionBriefing(projectRoot, {
-      maxNextTasks: params.maxNextTasks,
-      maxBugs: params.maxBugs,
-      maxBlocked: params.maxBlocked,
-      maxEpics: params.maxEpics,
-      scope: params.scope,
-    });
+  'briefing.show': async (params: SessionOps['briefing.show'][0]) => {
+    const result = await coreOps['briefing.show'](params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -234,18 +315,12 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
   // Mutate ops
   // -------------------------------------------------------------------------
 
-  start: async (params: SessionStartParams) => {
+  start: async (params: SessionOps['start'][0]) => {
     const projectRoot = getProjectRoot();
     if (!params.scope) {
       return lafsError('E_INVALID_INPUT', 'scope is required', 'start');
     }
-    const result = await sessionStart(projectRoot, {
-      scope: params.scope,
-      name: params.name,
-      autoStart: params.autoStart,
-      startTask: params.startTask,
-      grade: params.grade,
-    });
+    const result = await coreOps.start(params);
 
     if (!result.success) {
       return lafsError(
@@ -300,12 +375,10 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(sessionData, 'start');
   },
 
-  end: async (params: SessionEndParams) => {
+  end: async (params: SessionOps['end'][0]) => {
     const projectRoot = getProjectRoot();
     // End the session first (T140: pass sessionSummary for structured ingestion)
-    const endResult = await sessionEnd(projectRoot, params.note, {
-      sessionSummary: params.sessionSummary,
-    });
+    const endResult = await coreOps.end(params);
 
     if (!endResult.success) {
       return lafsError(
@@ -372,12 +445,11 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(endResult.data, 'end');
   },
 
-  resume: async (params: SessionResumeParams) => {
-    const projectRoot = getProjectRoot();
+  resume: async (params: SessionOps['resume'][0]) => {
     if (!params.sessionId) {
       return lafsError('E_INVALID_INPUT', 'sessionId is required', 'resume');
     }
-    const result = await sessionResume(projectRoot, params.sessionId);
+    const result = await coreOps.resume(params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -391,12 +463,11 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(result.data, 'resume');
   },
 
-  suspend: async (params: SessionSuspendParams) => {
-    const projectRoot = getProjectRoot();
+  suspend: async (params: SessionOps['suspend'][0]) => {
     if (!params.sessionId) {
       return lafsError('E_INVALID_INPUT', 'sessionId is required', 'suspend');
     }
-    const result = await sessionSuspend(projectRoot, params.sessionId, params.reason);
+    const result = await coreOps.suspend(params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -410,9 +481,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(result.data, 'suspend');
   },
 
-  gc: async (params: SessionGcParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await sessionGc(projectRoot, params.maxAgeDays);
+  gc: async (params: SessionOps['gc'][0]) => {
+    const result = await coreOps.gc(params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -424,15 +494,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(result.data ?? { orphaned: [], removed: [] }, 'gc');
   },
 
-  'record.decision': async (params: SessionRecordDecisionParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await sessionRecordDecision(projectRoot, {
-      sessionId: params.sessionId,
-      taskId: params.taskId,
-      decision: params.decision,
-      rationale: params.rationale,
-      alternatives: params.alternatives,
-    });
+  'record.decision': async (params: SessionOps['record.decision'][0]) => {
+    const result = await coreOps['record.decision'](params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -446,14 +509,8 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     return lafsSuccess(result.data, 'record.decision');
   },
 
-  'record.assumption': async (params: SessionRecordAssumptionParams) => {
-    const projectRoot = getProjectRoot();
-    const result = await sessionRecordAssumption(projectRoot, {
-      sessionId: params.sessionId,
-      taskId: params.taskId,
-      assumption: params.assumption,
-      confidence: params.confidence,
-    });
+  'record.assumption': async (params: SessionOps['record.assumption'][0]) => {
+    const result = await coreOps['record.assumption'](params);
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
