@@ -14,12 +14,15 @@
 
 import path from 'node:path';
 import {
+  cleanProjects,
   diffNexusIndex,
   generateGexf,
   getProjectClusters,
   getProjectFlows,
   getSymbolContext,
   getSymbolImpact,
+  InvalidPatternError,
+  NoCriteriaError,
   scanForProjects,
 } from '@cleocode/core/nexus';
 import { defineCommand, showUsage } from 'citty';
@@ -1731,136 +1734,21 @@ const projectsCleanCommand = defineCommand({
     const jsonOutput = !!args.json;
     const dryRun = !!args['dry-run'];
     const skipPrompt = !!args.yes;
-    const patternRaw = args.pattern as string | undefined;
-    const includeTemp = !!args['include-temp'];
-    const includeTests = !!args['include-tests'];
-    const matchUnhealthy = !!args.unhealthy;
-    const matchNeverIndexed = !!args['never-indexed'];
 
-    // Require at least one real criteria flag (not just --dry-run / --yes / --json)
-    const hasCriteria =
-      patternRaw !== undefined ||
-      includeTemp ||
-      includeTests ||
-      matchUnhealthy ||
-      matchNeverIndexed;
-
-    if (!hasCriteria) {
-      const errMsg =
-        'No filter criteria provided. Refusing to purge all projects without explicit criteria.\n' +
-        'Use at least one of: --pattern <regex>, --include-temp, --include-tests, --unhealthy, --never-indexed';
-      if (jsonOutput) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              success: false,
-              error: { code: 'E_NO_CRITERIA', message: errMsg },
-              meta: {
-                operation: 'nexus.projects.clean',
-                duration_ms: Date.now() - startTime,
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ) + '\n',
-        );
-      } else {
-        process.stderr.write(`[nexus] Error: ${errMsg}\n`);
-      }
-      process.exitCode = 6;
-      return;
-    }
-
-    // Compile user-supplied regex (if any)
-    let patternRegex: RegExp | null = null;
-    if (patternRaw !== undefined) {
-      try {
-        patternRegex = new RegExp(patternRaw);
-      } catch (err) {
-        const msg = `Invalid --pattern regex: ${err instanceof Error ? err.message : String(err)}`;
-        if (jsonOutput) {
-          process.stdout.write(
-            JSON.stringify(
-              {
-                success: false,
-                error: { code: 'E_INVALID_PATTERN', message: msg },
-                meta: {
-                  operation: 'nexus.projects.clean',
-                  duration_ms: Date.now() - startTime,
-                  timestamp: new Date().toISOString(),
-                },
-              },
-              null,
-              2,
-            ) + '\n',
-          );
-        } else {
-          process.stderr.write(`[nexus] Error: ${msg}\n`);
-        }
-        process.exitCode = 6;
-        return;
-      }
-    }
-
-    // Preset regexes
-    const TEMP_RE = /(^|\/)\.temp(\/|$)/;
-    const TESTS_RE = /(^|\/)(tmp|test|fixture|scratch|sandbox)(\/|$)/;
-
-    /**
-     * Return true if a project_path matches any of the active criteria.
-     */
-    function matchesCriteria(
-      projectPath: string,
-      healthStatus: string,
-      lastIndexed: string | null,
-    ): boolean {
-      if (patternRegex?.test(projectPath)) return true;
-      if (includeTemp && TEMP_RE.test(projectPath)) return true;
-      if (includeTests && TESTS_RE.test(projectPath)) return true;
-      if (matchUnhealthy && healthStatus === 'unhealthy') return true;
-      if (matchNeverIndexed && lastIndexed === null) return true;
-      return false;
-    }
+    const cleanOpts = {
+      pattern: args.pattern as string | undefined,
+      includeTemp: !!args['include-temp'],
+      includeTests: !!args['include-tests'],
+      matchUnhealthy: !!args.unhealthy,
+      matchNeverIndexed: !!args['never-indexed'],
+    };
 
     try {
-      const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
-      const { projectRegistry: regTable, nexusAuditLog: auditTable } = await import(
-        '@cleocode/core/store/nexus-schema' as string
-      );
-      const { randomUUID } = await import('node:crypto');
-      const { inArray } = await import('drizzle-orm');
-      const db = await getNexusDb();
+      // Preview phase (always dry-run first to get counts)
+      const preview = await cleanProjects({ ...cleanOpts, dryRun: true });
+      const { matched: matchCount, totalCount, sample: samplePaths } = preview;
 
-      /** Minimal shape we need from each registry row. */
-      type RegistryRow = {
-        projectId: string;
-        projectPath: string;
-        healthStatus: string;
-        lastIndexed: string | null;
-      };
-
-      // Fetch all registry rows in one query — avoid N+1.
-      // Cast is required because dynamic imports with `as string` suppress
-      // the real module types; the actual schema column types match this shape.
-      const allRows = (await db
-        .select({
-          projectId: regTable.projectId,
-          projectPath: regTable.projectPath,
-          healthStatus: regTable.healthStatus,
-          lastIndexed: regTable.lastIndexed,
-        })
-        .from(regTable)) as RegistryRow[];
-
-      const matches = allRows.filter((row) =>
-        matchesCriteria(row.projectPath, row.healthStatus, row.lastIndexed),
-      );
-
-      const totalCount = allRows.length;
-      const matchCount = matches.length;
-      const samplePaths = matches.slice(0, 10).map((r) => r.projectPath);
-
-      // Always show preview
+      // Show preview in human mode
       if (!jsonOutput) {
         process.stdout.write(
           `[nexus] Clean preview — ${matchCount} project(s) of ${totalCount} total match criteria:\n`,
@@ -1877,60 +1765,21 @@ const projectsCleanCommand = defineCommand({
         }
       }
 
-      if (matchCount === 0) {
+      if (matchCount === 0 || dryRun) {
         const durationMs = Date.now() - startTime;
         if (jsonOutput) {
           process.stdout.write(
             JSON.stringify(
               {
                 success: true,
-                data: {
-                  dryRun,
-                  matched: 0,
-                  purged: 0,
-                  remaining: totalCount,
-                  sample: [],
-                },
-                meta: {
-                  operation: 'nexus.projects.clean',
-                  duration_ms: durationMs,
-                  timestamp: new Date().toISOString(),
-                },
+                data: { dryRun: true, matched: matchCount, purged: 0, remaining: totalCount, sample: samplePaths },
+                meta: { operation: 'nexus.projects.clean', duration_ms: durationMs, timestamp: new Date().toISOString() },
               },
               null,
               2,
             ) + '\n',
           );
-        }
-        return;
-      }
-
-      // Dry-run: stop here
-      if (dryRun) {
-        const durationMs = Date.now() - startTime;
-        if (jsonOutput) {
-          process.stdout.write(
-            JSON.stringify(
-              {
-                success: true,
-                data: {
-                  dryRun: true,
-                  matched: matchCount,
-                  purged: 0,
-                  remaining: totalCount,
-                  sample: samplePaths,
-                },
-                meta: {
-                  operation: 'nexus.projects.clean',
-                  duration_ms: durationMs,
-                  timestamp: new Date().toISOString(),
-                },
-              },
-              null,
-              2,
-            ) + '\n',
-          );
-        } else {
+        } else if (dryRun && matchCount > 0) {
           process.stdout.write(
             `[nexus] Dry-run — ${matchCount} project(s) would be purged. Rerun without --dry-run to delete.\n`,
           );
@@ -1943,13 +1792,10 @@ const projectsCleanCommand = defineCommand({
         const { createInterface } = await import('node:readline');
         const rl = createInterface({ input: process.stdin, output: process.stdout });
         const confirmed = await new Promise<boolean>((resolve) => {
-          rl.question(
-            `\n[nexus] Delete ${matchCount} project(s) from the registry? [y/N] `,
-            (answer) => {
-              rl.close();
-              resolve(answer.trim().toLowerCase() === 'y');
-            },
-          );
+          rl.question(`\n[nexus] Delete ${matchCount} project(s) from the registry? [y/N] `, (answer) => {
+            rl.close();
+            resolve(answer.trim().toLowerCase() === 'y');
+          });
         });
         if (!confirmed) {
           process.stdout.write('[nexus] Aborted — no projects deleted.\n');
@@ -1957,36 +1803,8 @@ const projectsCleanCommand = defineCommand({
         }
       }
 
-      // Delete in a single transaction
-      const idsToDelete = matches.map((r) => r.projectId);
-      await db.delete(regTable).where(inArray(regTable.projectId, idsToDelete));
-
-      const remaining = totalCount - matchCount;
-
-      // Audit log (best-effort)
-      try {
-        await db.insert(auditTable).values({
-          id: randomUUID(),
-          action: 'projects.clean',
-          domain: 'nexus',
-          operation: 'projects.clean',
-          success: 1,
-          detailsJson: JSON.stringify({
-            pattern: patternRaw ?? null,
-            presets: {
-              includeTemp,
-              includeTests,
-              matchUnhealthy,
-              matchNeverIndexed,
-            },
-            count: matchCount,
-            sample: samplePaths,
-          }),
-        });
-      } catch {
-        // Audit failure is non-fatal
-      }
-
+      // Actual delete
+      const result = await cleanProjects({ ...cleanOpts, dryRun: false });
       const durationMs = Date.now() - startTime;
 
       if (jsonOutput) {
@@ -1994,18 +1812,8 @@ const projectsCleanCommand = defineCommand({
           JSON.stringify(
             {
               success: true,
-              data: {
-                dryRun: false,
-                matched: matchCount,
-                purged: matchCount,
-                remaining,
-                sample: samplePaths,
-              },
-              meta: {
-                operation: 'nexus.projects.clean',
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-              },
+              data: { dryRun: false, matched: result.matched, purged: result.purged, remaining: result.remaining, sample: result.sample },
+              meta: { operation: 'nexus.projects.clean', duration_ms: durationMs, timestamp: new Date().toISOString() },
             },
             null,
             2,
@@ -2013,24 +1821,23 @@ const projectsCleanCommand = defineCommand({
         );
       } else {
         process.stdout.write(
-          `[nexus] Purged ${matchCount} project(s). ${remaining} project(s) remaining in registry.\n`,
+          `[nexus] Purged ${result.purged} project(s). ${result.remaining} project(s) remaining in registry.\n`,
         );
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
       const durationMs = Date.now() - startTime;
+      const code =
+        err instanceof NoCriteriaError
+          ? 'E_NO_CRITERIA'
+          : err instanceof InvalidPatternError
+            ? 'E_INVALID_PATTERN'
+            : 'E_CLEAN_FAILED';
+      const exitCode = code === 'E_NO_CRITERIA' || code === 'E_INVALID_PATTERN' ? 6 : 1;
+      const msg = err instanceof Error ? err.message : String(err);
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify(
-            {
-              success: false,
-              error: { code: 'E_CLEAN_FAILED', message: msg },
-              meta: {
-                operation: 'nexus.projects.clean',
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-              },
-            },
+            { success: false, error: { code, message: msg }, meta: { operation: 'nexus.projects.clean', duration_ms: durationMs, timestamp: new Date().toISOString() } },
             null,
             2,
           ) + '\n',
@@ -2038,7 +1845,7 @@ const projectsCleanCommand = defineCommand({
       } else {
         process.stderr.write(`[nexus] Error: ${msg}\n`);
       }
-      process.exitCode = 1;
+      process.exitCode = exitCode;
     }
   },
 });

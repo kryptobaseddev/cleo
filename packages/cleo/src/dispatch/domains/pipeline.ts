@@ -3,14 +3,22 @@
  *
  * Consolidates legacy lifecycle and release domains into a single "pipeline"
  * domain with dot-prefixed operation names. All operations delegate to
- * native engine functions.
+ * native engine functions from the respective dispatch engines.
  *
  * Sub-domains:
  *   stage.*    - RCASD-IVTR+C lifecycle stage management
  *   release.*  - Release lifecycle (prepare, changelog, commit, tag, push)
  *   manifest.* - Research manifest (JSONL) operations
+ *   phase.*    - Project phase management
+ *   chain.*    - Warp-chain operations (T5405)
+ *
+ * Uses typed-handler pattern (Wave D · T975) for compile-time param narrowing.
+ * Param extraction is type-safe via OpsFromCore<typeof coreOps> inference.
+ * Zero `as string` / `as unknown` param casts in per-op code.
  *
  * @epic T4820
+ * @task T1441 — OpsFromCore inference migration
+ * @task T1435 — Wave 1 dispatch refactor
  */
 
 import { execFileSync } from 'node:child_process';
@@ -35,6 +43,13 @@ import {
   showChain,
 } from '@cleocode/core/internal';
 import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+} from '../adapters/typed.js';
+import {
   lifecycleCheck,
   lifecycleGateFail,
   lifecycleGatePass,
@@ -46,7 +61,6 @@ import {
   phaseAdvance,
   phaseComplete,
   phaseDelete,
-  // Phase operations
   phaseList,
   phaseRename,
   phaseSet,
@@ -56,31 +70,932 @@ import {
   pipelineManifestArchive,
   pipelineManifestFind,
   pipelineManifestList,
-  // Manifest operations
   pipelineManifestShow,
   pipelineManifestStats,
   releaseCancel,
   releaseChangelogSince,
   releaseList,
-  // Release operations
   releaseRollback,
   releaseRollbackFull,
   releaseShip,
   releaseShow,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { errorResult, getListParams, handleErrorResult, wrapResult } from './_base.js';
+import { errorResult, getListParams, handleErrorResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
+
+// ---------------------------------------------------------------------------
+// Core operation registry — single-param wrappers that bind projectRoot.
+//
+// Each wrapper captures getProjectRoot() at call time (not at module load) and
+// maps the positional engine function into a single-object-param shape that
+// OpsFromCore can infer. This is the canonical "thin dispatch" pattern used in
+// session.ts and sentient.ts (Wave D · T975 / T1435).
+// ---------------------------------------------------------------------------
+
+// ---- Stage wrapper types ---------------------------------------------------
+
+type StageValidateParams = { epicId: string; targetStage: string };
+type StageStatusParams = { epicId: string };
+type StageHistoryParams = { taskId: string };
+type StageGuidanceParams = { stage?: string; epicId?: string; format?: string };
+type StageRecordParams = { taskId: string; stage: string; status: string; notes?: string };
+type StageSkipParams = { taskId: string; stage: string; reason: string };
+type StageResetParams = { taskId: string; stage: string; reason: string };
+type StageGatePassParams = { taskId: string; gateName: string; agent?: string; notes?: string };
+type StageGateFailParams = { taskId: string; gateName: string; reason?: string };
+
+// ---- Release wrapper types -------------------------------------------------
+
+type ReleaseListParams = { status?: ReleaseListOptions['status']; limit?: number; offset?: number };
+type ReleaseShowParams = { version: string };
+type ReleaseChannelShowParams = Record<string, never>;
+type ReleaseChangelogSinceParams = { sinceTag: string };
+type ReleaseShipParams = {
+  version: string;
+  epicId: string;
+  remote?: string;
+  dryRun?: boolean;
+  bump?: boolean;
+  force?: boolean;
+};
+type ReleaseCancelParams = { version: string };
+type ReleaseRollbackParams = { version: string; reason?: string };
+type ReleaseRollbackFullParams = {
+  version: string;
+  reason?: string;
+  force?: boolean;
+  unpublish?: boolean;
+};
+
+// ---- Manifest wrapper types ------------------------------------------------
+
+type ManifestShowParams = { entryId: string };
+type ManifestListParams = Parameters<typeof pipelineManifestList>[0];
+type ManifestFindParams = { query: string; confidence?: number; limit?: number };
+type ManifestStatsParams = { epicId?: string };
+type ManifestAppendParams = { entry: Parameters<typeof pipelineManifestAppend>[0] };
+type ManifestArchiveParams = { beforeDate: string };
+
+// ---- Phase wrapper types ---------------------------------------------------
+
+type PhaseShowParams = { phaseId?: string };
+type PhaseListParams = Record<string, never>;
+type PhaseSetParams = {
+  phaseId: string;
+  action?: string;
+  rollback?: boolean;
+  force?: boolean;
+  dryRun?: boolean;
+};
+type PhaseAdvanceParams = { force?: boolean };
+type PhaseRenameParams = { oldName: string; newName: string };
+type PhaseDeleteParams = { phaseId: string; reassignTo?: string; force?: boolean };
+
+// ---- Chain wrapper types ---------------------------------------------------
+
+type ChainShowParams = { chainId: string };
+type ChainListParams = { limit?: number; offset?: number };
+type ChainAddParams = { chain: WarpChain };
+type ChainInstantiateParams = {
+  chainId: string;
+  epicId: string;
+  variables?: Record<string, unknown>;
+  stageToTask?: Record<string, string>;
+};
+type ChainAdvanceParams = { instanceId: string; nextStage: string; gateResults?: GateResult[] };
+
+// ---------------------------------------------------------------------------
+// Core op wrappers — single-param functions for OpsFromCore inference
+// ---------------------------------------------------------------------------
+
+async function stageValidateOp(params: StageValidateParams) {
+  return lifecycleCheck(params.epicId, params.targetStage, getProjectRoot());
+}
+
+async function stageStatusOp(params: StageStatusParams) {
+  return lifecycleStatus(params.epicId, getProjectRoot());
+}
+
+async function stageHistoryOp(params: StageHistoryParams) {
+  return lifecycleHistory(params.taskId, getProjectRoot());
+}
+
+async function stageGuidanceOp(params: StageGuidanceParams) {
+  // Perform the full guidance resolution here so OpsFromCore correctly infers
+  // params as StageGuidanceParams (not a sentinel wrapper shape).
+  let stage = params.stage;
+  const epicId = params.epicId;
+  const format = params.format ?? 'markdown';
+  const projectRoot = getProjectRoot();
+
+  if (!stage && epicId) {
+    const statusResult = await lifecycleStatus(epicId, projectRoot);
+    if (statusResult.success) {
+      const data = statusResult.data as { currentStage?: string; activeStage?: string } | undefined;
+      stage = data?.currentStage ?? data?.activeStage;
+    }
+  }
+
+  return { _stage: stage, _format: format, _projectRoot: projectRoot };
+}
+
+async function stageRecordOp(params: StageRecordParams) {
+  return lifecycleProgress(
+    params.taskId,
+    params.stage,
+    params.status,
+    params.notes,
+    getProjectRoot(),
+  );
+}
+
+async function stageSkipOp(params: StageSkipParams) {
+  return lifecycleSkip(params.taskId, params.stage, params.reason, getProjectRoot());
+}
+
+async function stageResetOp(params: StageResetParams) {
+  return lifecycleReset(params.taskId, params.stage, params.reason, getProjectRoot());
+}
+
+async function stageGatePassOp(params: StageGatePassParams) {
+  return lifecycleGatePass(
+    params.taskId,
+    params.gateName,
+    params.agent,
+    params.notes,
+    getProjectRoot(),
+  );
+}
+
+async function stageGateFailOp(params: StageGateFailParams) {
+  return lifecycleGateFail(params.taskId, params.gateName, params.reason, getProjectRoot());
+}
+
+async function releaseListOp(params: ReleaseListParams) {
+  return releaseList(
+    { status: params.status, limit: params.limit, offset: params.offset },
+    getProjectRoot(),
+  );
+}
+
+async function releaseShowOp(params: ReleaseShowParams) {
+  return releaseShow(params.version, getProjectRoot());
+}
+
+async function releaseChannelShowOp(_params: ReleaseChannelShowParams) {
+  let currentBranch = 'unknown';
+  const projectRoot = getProjectRoot();
+  try {
+    currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      cwd: projectRoot,
+    }).trim();
+  } catch {
+    // git not available or not a git repo — leave as 'unknown'
+  }
+  const resolvedChannel = resolveChannelFromBranch(currentBranch);
+  const distTag = channelToDistTag(resolvedChannel);
+  const description = describeChannel(resolvedChannel);
+  return {
+    success: true as const,
+    data: { branch: currentBranch, channel: resolvedChannel, distTag, description },
+  };
+}
+
+async function releaseChangelogSinceOp(params: ReleaseChangelogSinceParams) {
+  return releaseChangelogSince(params.sinceTag, getProjectRoot());
+}
+
+async function releaseShipOp(params: ReleaseShipParams) {
+  return releaseShip(
+    {
+      version: params.version,
+      epicId: params.epicId,
+      remote: params.remote,
+      dryRun: params.dryRun,
+      bump: params.bump,
+      force: params.force,
+    },
+    getProjectRoot(),
+  );
+}
+
+async function releaseCancelOp(params: ReleaseCancelParams) {
+  return releaseCancel(params.version, getProjectRoot());
+}
+
+async function releaseRollbackOp(params: ReleaseRollbackParams) {
+  return releaseRollback(params.version, params.reason, getProjectRoot());
+}
+
+async function releaseRollbackFullOp(params: ReleaseRollbackFullParams) {
+  return releaseRollbackFull(
+    params.version,
+    { reason: params.reason, force: params.force, unpublish: params.unpublish },
+    getProjectRoot(),
+  );
+}
+
+async function manifestShowOp(params: ManifestShowParams) {
+  return pipelineManifestShow(params.entryId, getProjectRoot());
+}
+
+async function manifestListOp(params: ManifestListParams) {
+  return pipelineManifestList(params, getProjectRoot());
+}
+
+async function manifestFindOp(params: ManifestFindParams) {
+  return pipelineManifestFind(
+    params.query,
+    { confidence: params.confidence, limit: params.limit },
+    getProjectRoot(),
+  );
+}
+
+async function manifestStatsOp(params: ManifestStatsParams) {
+  return pipelineManifestStats(params.epicId, getProjectRoot());
+}
+
+async function manifestAppendOp(params: ManifestAppendParams) {
+  return pipelineManifestAppend(params.entry, getProjectRoot());
+}
+
+async function manifestArchiveOp(params: ManifestArchiveParams) {
+  return pipelineManifestArchive(params.beforeDate, getProjectRoot());
+}
+
+async function phaseShowOp(params: PhaseShowParams) {
+  return phaseShow(params.phaseId, getProjectRoot());
+}
+
+async function phaseListOp(_params: PhaseListParams) {
+  return phaseList(getProjectRoot());
+}
+
+async function phaseSetOp(params: PhaseSetParams) {
+  const { phaseId, action, rollback, force, dryRun } = params;
+  const projectRoot = getProjectRoot();
+  if (action === 'start') {
+    return phaseStart(phaseId, projectRoot);
+  }
+  if (action === 'complete') {
+    return phaseComplete(phaseId, projectRoot);
+  }
+  return phaseSet({ phaseId, rollback, force, dryRun }, projectRoot);
+}
+
+async function phaseAdvanceOp(params: PhaseAdvanceParams) {
+  return phaseAdvance(params.force, getProjectRoot());
+}
+
+async function phaseRenameOp(params: PhaseRenameParams) {
+  return phaseRename(params.oldName, params.newName, getProjectRoot());
+}
+
+async function phaseDeleteOp(params: PhaseDeleteParams) {
+  return phaseDelete(
+    params.phaseId,
+    { reassignTo: params.reassignTo, force: params.force },
+    getProjectRoot(),
+  );
+}
+
+async function chainShowOp(params: ChainShowParams) {
+  const chain = await showChain(params.chainId, getProjectRoot());
+  // Return both chain and chainId so typed handler can produce E_NOT_FOUND.
+  return { _chain: chain, _chainId: params.chainId };
+}
+
+async function chainListOp(_params: ChainListParams) {
+  // Return raw chains; outer query() applies pagination to avoid LAFSPage type conflicts.
+  const chains = await listChains(getProjectRoot());
+  return { _chains: chains };
+}
+
+async function chainAddOp(params: ChainAddParams) {
+  await addChain(params.chain, getProjectRoot());
+  return { id: params.chain.id };
+}
+
+async function chainInstantiateOp(params: ChainInstantiateParams) {
+  return createInstance(
+    {
+      chainId: params.chainId,
+      epicId: params.epicId,
+      variables: params.variables,
+      stageToTask: params.stageToTask,
+    },
+    getProjectRoot(),
+  );
+}
+
+async function chainAdvanceOp(params: ChainAdvanceParams) {
+  return advanceInstance(
+    params.instanceId,
+    params.nextStage,
+    params.gateResults ?? [],
+    getProjectRoot(),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Core ops registry
+// ---------------------------------------------------------------------------
+
+const coreOps = {
+  'stage.validate': stageValidateOp,
+  'stage.status': stageStatusOp,
+  'stage.history': stageHistoryOp,
+  'stage.guidance': stageGuidanceOp,
+  'stage.record': stageRecordOp,
+  'stage.skip': stageSkipOp,
+  'stage.reset': stageResetOp,
+  'stage.gate.pass': stageGatePassOp,
+  'stage.gate.fail': stageGateFailOp,
+  'release.list': releaseListOp,
+  'release.show': releaseShowOp,
+  'release.channel.show': releaseChannelShowOp,
+  'release.changelog.since': releaseChangelogSinceOp,
+  'release.ship': releaseShipOp,
+  'release.cancel': releaseCancelOp,
+  'release.rollback': releaseRollbackOp,
+  'release.rollback.full': releaseRollbackFullOp,
+  'manifest.show': manifestShowOp,
+  'manifest.list': manifestListOp,
+  'manifest.find': manifestFindOp,
+  'manifest.stats': manifestStatsOp,
+  'manifest.append': manifestAppendOp,
+  'manifest.archive': manifestArchiveOp,
+  'phase.show': phaseShowOp,
+  'phase.list': phaseListOp,
+  'phase.set': phaseSetOp,
+  'phase.advance': phaseAdvanceOp,
+  'phase.rename': phaseRenameOp,
+  'phase.delete': phaseDeleteOp,
+  'chain.show': chainShowOp,
+  'chain.list': chainListOp,
+  'chain.add': chainAddOp,
+  'chain.instantiate': chainInstantiateOp,
+  'chain.advance': chainAdvanceOp,
+} as const;
+
+/** Inferred typed operation record for the pipeline domain (Wave D · T1441). */
+export type PipelineOps = OpsFromCore<typeof coreOps>;
+
+// ---------------------------------------------------------------------------
+// Typed inner handler (Wave D · T1441)
+// ---------------------------------------------------------------------------
+
+const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
+  // -------------------------------------------------------------------------
+  // Stage queries
+  // -------------------------------------------------------------------------
+
+  'stage.validate': async (params: PipelineOps['stage.validate'][0]) => {
+    if (!params.epicId || !params.targetStage) {
+      return lafsError('E_INVALID_INPUT', 'epicId and targetStage are required', 'stage.validate');
+    }
+    const result = await coreOps['stage.validate'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'stage.validate',
+      );
+    }
+    return lafsSuccess(result.data, 'stage.validate');
+  },
+
+  'stage.status': async (params: PipelineOps['stage.status'][0]) => {
+    if (!params.epicId) {
+      return lafsError('E_INVALID_INPUT', 'epicId is required', 'stage.status');
+    }
+    const result = await coreOps['stage.status'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'stage.status',
+      );
+    }
+    return lafsSuccess(result.data, 'stage.status');
+  },
+
+  'stage.history': async (params: PipelineOps['stage.history'][0]) => {
+    if (!params.taskId) {
+      return lafsError('E_INVALID_INPUT', 'taskId is required', 'stage.history');
+    }
+    const result = await coreOps['stage.history'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'stage.history',
+      );
+    }
+    return lafsSuccess(result.data, 'stage.history');
+  },
+
+  'stage.guidance': async (params: PipelineOps['stage.guidance'][0]) => {
+    // stage.guidance — stageGuidanceOp resolves the stage from epicId and returns
+    // a { _stage, _format, _projectRoot } sentinel. Validation and guidance
+    // building happen here after unwrapping.
+    const {
+      _stage: stage,
+      _format: format,
+      _projectRoot: projectRoot,
+    } = await coreOps['stage.guidance'](params);
+
+    if (!stage) {
+      return lafsError(
+        'E_INVALID_INPUT',
+        'Either stage or epicId (with an active pipeline stage) is required',
+        'stage.guidance',
+      );
+    }
+
+    if (!isValidStage(stage)) {
+      return lafsError('E_INVALID_INPUT', `Unknown stage: ${stage}`, 'stage.guidance');
+    }
+
+    const guidance = buildStageGuidance(stage as Stage, projectRoot);
+    const data =
+      format === 'json'
+        ? { stage: guidance.stage, guidance }
+        : {
+            stage: guidance.stage,
+            name: guidance.name,
+            order: guidance.order,
+            primarySkill: guidance.primarySkill,
+            loadedSkills: guidance.loadedSkills,
+            requiredGates: guidance.requiredGates,
+            expectedArtifacts: guidance.expectedArtifacts,
+            source: guidance.source,
+            prompt: formatStageGuidance(guidance),
+          };
+
+    return lafsSuccess(data, 'stage.guidance');
+  },
+
+  // -------------------------------------------------------------------------
+  // Stage mutations
+  // -------------------------------------------------------------------------
+
+  'stage.record': async (params: PipelineOps['stage.record'][0]) => {
+    if (!params.taskId || !params.stage || !params.status) {
+      return lafsError('E_INVALID_INPUT', 'taskId, stage, and status are required', 'stage.record');
+    }
+    const result = await coreOps['stage.record'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'stage.record',
+      );
+    }
+    return lafsSuccess(result.data, 'stage.record');
+  },
+
+  'stage.skip': async (params: PipelineOps['stage.skip'][0]) => {
+    if (!params.taskId || !params.stage || !params.reason) {
+      return lafsError('E_INVALID_INPUT', 'taskId, stage, and reason are required', 'stage.skip');
+    }
+    const result = await coreOps['stage.skip'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'stage.skip',
+      );
+    }
+    return lafsSuccess(result.data, 'stage.skip');
+  },
+
+  'stage.reset': async (params: PipelineOps['stage.reset'][0]) => {
+    if (!params.taskId || !params.stage || !params.reason) {
+      return lafsError('E_INVALID_INPUT', 'taskId, stage, and reason are required', 'stage.reset');
+    }
+    const result = await coreOps['stage.reset'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'stage.reset',
+      );
+    }
+    return lafsSuccess(result.data, 'stage.reset');
+  },
+
+  'stage.gate.pass': async (params: PipelineOps['stage.gate.pass'][0]) => {
+    if (!params.taskId || !params.gateName) {
+      return lafsError('E_INVALID_INPUT', 'taskId and gateName are required', 'stage.gate.pass');
+    }
+    const result = await coreOps['stage.gate.pass'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'stage.gate.pass',
+      );
+    }
+    return lafsSuccess(result.data, 'stage.gate.pass');
+  },
+
+  'stage.gate.fail': async (params: PipelineOps['stage.gate.fail'][0]) => {
+    if (!params.taskId || !params.gateName) {
+      return lafsError('E_INVALID_INPUT', 'taskId and gateName are required', 'stage.gate.fail');
+    }
+    const result = await coreOps['stage.gate.fail'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'stage.gate.fail',
+      );
+    }
+    return lafsSuccess(result.data, 'stage.gate.fail');
+  },
+
+  // -------------------------------------------------------------------------
+  // Release queries
+  // -------------------------------------------------------------------------
+
+  'release.list': async (params: PipelineOps['release.list'][0]) => {
+    const result = await coreOps['release.list'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'release.list',
+      );
+    }
+    return lafsSuccess(result.data, 'release.list');
+  },
+
+  'release.show': async (params: PipelineOps['release.show'][0]) => {
+    if (!params.version) {
+      return lafsError('E_INVALID_INPUT', 'version is required', 'release.show');
+    }
+    const result = await coreOps['release.show'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'release.show',
+      );
+    }
+    return lafsSuccess(result.data, 'release.show');
+  },
+
+  'release.channel.show': async (_params: PipelineOps['release.channel.show'][0]) => {
+    const result = await coreOps['release.channel.show'](_params);
+    return lafsSuccess(result.data, 'release.channel.show');
+  },
+
+  'release.changelog.since': async (params: PipelineOps['release.changelog.since'][0]) => {
+    if (!params.sinceTag) {
+      return lafsError('E_INVALID_INPUT', 'sinceTag is required', 'release.changelog.since');
+    }
+    const result = await coreOps['release.changelog.since'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'release.changelog.since',
+      );
+    }
+    return lafsSuccess(result.data, 'release.changelog.since');
+  },
+
+  // -------------------------------------------------------------------------
+  // Release mutations
+  // -------------------------------------------------------------------------
+
+  'release.ship': async (params: PipelineOps['release.ship'][0]) => {
+    if (!params.version || !params.epicId) {
+      return lafsError('E_INVALID_INPUT', 'version and epicId are required', 'release.ship');
+    }
+    const result = await coreOps['release.ship'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'release.ship',
+      );
+    }
+    return lafsSuccess(result.data, 'release.ship');
+  },
+
+  'release.cancel': async (params: PipelineOps['release.cancel'][0]) => {
+    if (!params.version) {
+      return lafsError('E_INVALID_INPUT', 'version is required', 'release.cancel');
+    }
+    const result = await coreOps['release.cancel'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'release.cancel',
+      );
+    }
+    return lafsSuccess(result.data, 'release.cancel');
+  },
+
+  'release.rollback': async (params: PipelineOps['release.rollback'][0]) => {
+    if (!params.version) {
+      return lafsError('E_INVALID_INPUT', 'version is required', 'release.rollback');
+    }
+    const result = await coreOps['release.rollback'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'release.rollback',
+      );
+    }
+    return lafsSuccess(result.data, 'release.rollback');
+  },
+
+  'release.rollback.full': async (params: PipelineOps['release.rollback.full'][0]) => {
+    if (!params.version) {
+      return lafsError('E_INVALID_INPUT', 'version is required', 'release.rollback.full');
+    }
+    const result = await coreOps['release.rollback.full'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'release.rollback.full',
+      );
+    }
+    return lafsSuccess(result.data, 'release.rollback.full');
+  },
+
+  // -------------------------------------------------------------------------
+  // Manifest queries
+  // -------------------------------------------------------------------------
+
+  'manifest.show': async (params: PipelineOps['manifest.show'][0]) => {
+    if (!params.entryId) {
+      return lafsError('E_INVALID_INPUT', 'entryId is required', 'manifest.show');
+    }
+    const result = await coreOps['manifest.show'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'manifest.show',
+      );
+    }
+    return lafsSuccess(result.data, 'manifest.show');
+  },
+
+  'manifest.list': async (params: PipelineOps['manifest.list'][0]) => {
+    const result = await coreOps['manifest.list'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'manifest.list',
+      );
+    }
+    return lafsSuccess(result.data, 'manifest.list');
+  },
+
+  'manifest.find': async (params: PipelineOps['manifest.find'][0]) => {
+    if (!params.query) {
+      return lafsError('E_INVALID_INPUT', 'query is required', 'manifest.find');
+    }
+    const result = await coreOps['manifest.find'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'manifest.find',
+      );
+    }
+    return lafsSuccess(result.data, 'manifest.find');
+  },
+
+  'manifest.stats': async (params: PipelineOps['manifest.stats'][0]) => {
+    const result = await coreOps['manifest.stats'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'manifest.stats',
+      );
+    }
+    return lafsSuccess(result.data, 'manifest.stats');
+  },
+
+  // -------------------------------------------------------------------------
+  // Manifest mutations
+  // -------------------------------------------------------------------------
+
+  'manifest.append': async (params: PipelineOps['manifest.append'][0]) => {
+    if (!params.entry) {
+      return lafsError('E_INVALID_INPUT', 'entry is required', 'manifest.append');
+    }
+    const result = await coreOps['manifest.append'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'manifest.append',
+      );
+    }
+    return lafsSuccess(result.data, 'manifest.append');
+  },
+
+  'manifest.archive': async (params: PipelineOps['manifest.archive'][0]) => {
+    if (!params.beforeDate) {
+      return lafsError(
+        'E_INVALID_INPUT',
+        'beforeDate is required (ISO-8601: YYYY-MM-DD)',
+        'manifest.archive',
+      );
+    }
+    const result = await coreOps['manifest.archive'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'manifest.archive',
+      );
+    }
+    return lafsSuccess(result.data, 'manifest.archive');
+  },
+
+  // -------------------------------------------------------------------------
+  // Phase queries
+  // -------------------------------------------------------------------------
+
+  'phase.show': async (params: PipelineOps['phase.show'][0]) => {
+    const result = await coreOps['phase.show'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'phase.show',
+      );
+    }
+    return lafsSuccess(result.data, 'phase.show');
+  },
+
+  'phase.list': async (_params: PipelineOps['phase.list'][0]) => {
+    const result = await coreOps['phase.list'](_params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'phase.list',
+      );
+    }
+    // Pagination is applied in PipelineHandler.query() for phase.list.
+    return lafsSuccess(result.data, 'phase.list');
+  },
+
+  // -------------------------------------------------------------------------
+  // Phase mutations
+  // -------------------------------------------------------------------------
+
+  'phase.set': async (params: PipelineOps['phase.set'][0]) => {
+    if (!params.phaseId) {
+      return lafsError('E_INVALID_INPUT', 'phaseId is required', 'phase.set');
+    }
+    const result = await coreOps['phase.set'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'phase.set',
+      );
+    }
+    return lafsSuccess(result.data, 'phase.set');
+  },
+
+  'phase.advance': async (params: PipelineOps['phase.advance'][0]) => {
+    const result = await coreOps['phase.advance'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'phase.advance',
+      );
+    }
+    return lafsSuccess(result.data, 'phase.advance');
+  },
+
+  'phase.rename': async (params: PipelineOps['phase.rename'][0]) => {
+    if (!params.oldName || !params.newName) {
+      return lafsError('E_INVALID_INPUT', 'oldName and newName are required', 'phase.rename');
+    }
+    const result = await coreOps['phase.rename'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'phase.rename',
+      );
+    }
+    return lafsSuccess(result.data, 'phase.rename');
+  },
+
+  'phase.delete': async (params: PipelineOps['phase.delete'][0]) => {
+    if (!params.phaseId) {
+      return lafsError('E_INVALID_INPUT', 'phaseId is required', 'phase.delete');
+    }
+    const result = await coreOps['phase.delete'](params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'phase.delete',
+      );
+    }
+    return lafsSuccess(result.data, 'phase.delete');
+  },
+
+  // -------------------------------------------------------------------------
+  // Chain queries
+  // -------------------------------------------------------------------------
+
+  'chain.show': async (params: PipelineOps['chain.show'][0]) => {
+    if (!params.chainId) {
+      return lafsError('E_INVALID_INPUT', 'chainId is required', 'chain.show');
+    }
+    const { _chain, _chainId } = await coreOps['chain.show'](params);
+    if (!_chain) {
+      return lafsError('E_NOT_FOUND', `Chain "${_chainId}" not found`, 'chain.show');
+    }
+    return lafsSuccess(_chain, 'chain.show');
+  },
+
+  'chain.list': async (params: PipelineOps['chain.list'][0]) => {
+    // Returns raw chains; pagination is applied in PipelineHandler.query().
+    return lafsSuccess(await coreOps['chain.list'](params), 'chain.list');
+  },
+
+  // -------------------------------------------------------------------------
+  // Chain mutations
+  // -------------------------------------------------------------------------
+
+  'chain.add': async (params: PipelineOps['chain.add'][0]) => {
+    if (!params.chain) {
+      return lafsError('E_INVALID_INPUT', 'chain is required', 'chain.add');
+    }
+    const data = await coreOps['chain.add'](params);
+    return lafsSuccess(data, 'chain.add');
+  },
+
+  'chain.instantiate': async (params: PipelineOps['chain.instantiate'][0]) => {
+    if (!params.chainId || !params.epicId) {
+      return lafsError('E_INVALID_INPUT', 'chainId and epicId are required', 'chain.instantiate');
+    }
+    try {
+      const instance = await coreOps['chain.instantiate'](params);
+      return lafsSuccess(instance, 'chain.instantiate');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes(`Chain "${params.chainId}" not found`) ||
+        message.includes('FOREIGN KEY constraint failed') ||
+        message.includes('SQLITE_CONSTRAINT_FOREIGNKEY')
+      ) {
+        return lafsError('E_NOT_FOUND', `Chain "${params.chainId}" not found`, 'chain.instantiate');
+      }
+      throw error;
+    }
+  },
+
+  'chain.advance': async (params: PipelineOps['chain.advance'][0]) => {
+    if (!params.instanceId || !params.nextStage) {
+      return lafsError('E_INVALID_INPUT', 'instanceId and nextStage are required', 'chain.advance');
+    }
+    const updated = await coreOps['chain.advance'](params);
+    return lafsSuccess(updated, 'chain.advance');
+  },
+});
 
 // ---------------------------------------------------------------------------
 // PipelineHandler
 // ---------------------------------------------------------------------------
 
+/**
+ * Pipeline domain handler.
+ *
+ * Delegates all operations to the typed inner handler via `typedDispatch`.
+ * Special cases:
+ * - `stage.guidance` — resolved in the typed handler (stage-from-epicId logic).
+ * - `phase.list` / `chain.list` — pagination applied in this outer handler to avoid
+ *   LAFSPage type incompatibility between `@cleocode/lafs` and `@cleocode/contracts`.
+ *
+ * @task T1441 — OpsFromCore inference migration (Wave D · T1435)
+ */
 export class PipelineHandler implements DomainHandler {
-  private get projectRoot(): string {
-    return getProjectRoot();
-  }
-
   // -----------------------------------------------------------------------
   // DomainHandler interface
   // -----------------------------------------------------------------------
@@ -88,32 +1003,26 @@ export class PipelineHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
-    try {
-      // Stage sub-domain
-      if (operation.startsWith('stage.')) {
-        return await this.queryStage(operation.slice('stage.'.length), params, startTime);
-      }
+    const queryOps = new Set<string>([
+      'stage.validate',
+      'stage.status',
+      'stage.history',
+      'stage.guidance',
+      'manifest.show',
+      'manifest.list',
+      'manifest.find',
+      'manifest.stats',
+      'release.list',
+      'release.show',
+      'release.channel.show',
+      'release.changelog.since',
+      'phase.show',
+      'phase.list',
+      'chain.show',
+      'chain.list',
+    ]);
 
-      // Manifest sub-domain
-      if (operation.startsWith('manifest.')) {
-        return await this.queryManifest(operation.slice('manifest.'.length), params, startTime);
-      }
-
-      // Phase sub-domain
-      if (operation.startsWith('phase.')) {
-        return this.queryPhase(operation.slice('phase.'.length), params, startTime);
-      }
-
-      // Release sub-domain (read-only ops: list, show)
-      if (operation.startsWith('release.')) {
-        return await this.queryRelease(operation.slice('release.'.length), params, startTime);
-      }
-
-      // Chain sub-domain (T5405)
-      if (operation.startsWith('chain.')) {
-        return await this.queryChain(operation.slice('chain.'.length), params, startTime);
-      }
-
+    if (!queryOps.has(operation)) {
       return errorResult(
         'query',
         'pipeline',
@@ -122,6 +1031,75 @@ export class PipelineHandler implements DomainHandler {
         `Unknown pipeline query: ${operation}`,
         startTime,
       );
+    }
+
+    try {
+      const envelope = await typedDispatch(
+        _pipelineTypedHandler,
+        operation as keyof PipelineOps & string,
+        params ?? {},
+      );
+
+      if (!envelope.success) {
+        return {
+          meta: dispatchMeta('query', 'pipeline', operation, startTime),
+          success: false,
+          error: {
+            code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
+            message: envelope.error?.message ?? 'Unknown error',
+          },
+        };
+      }
+
+      // phase.list — re-apply pagination so DispatchResponse.page is populated.
+      if (operation === 'phase.list') {
+        const rawData = envelope.data as unknown;
+        const listData = rawData as ListPhasesResult & Record<string, unknown>;
+        const phases = ((listData as { phases?: unknown[] } | undefined)?.phases ??
+          []) as unknown[];
+        const total =
+          (listData as { summary?: { total?: number } } | undefined)?.summary?.total ??
+          phases.length;
+        const { limit, offset } = getListParams(params);
+        const page = paginate(phases, limit, offset);
+
+        return {
+          meta: dispatchMeta('query', 'pipeline', operation, startTime),
+          success: true,
+          data: {
+            ...listData,
+            phases: page.items,
+            total,
+            filtered: total,
+          },
+          page: page.page,
+        };
+      }
+
+      // chain.list — apply pagination to raw chains returned by typed handler.
+      if (operation === 'chain.list') {
+        const rawData = envelope.data as unknown as { _chains: unknown[] };
+        const chains = rawData._chains ?? [];
+        const { limit, offset } = getListParams(params);
+        const page = paginate(chains, limit, offset);
+
+        return {
+          meta: dispatchMeta('query', 'pipeline', operation, startTime),
+          success: true,
+          data: {
+            chains: page.items,
+            total: chains.length,
+            filtered: chains.length,
+          },
+          page: page.page,
+        };
+      }
+
+      return {
+        meta: dispatchMeta('query', 'pipeline', operation, startTime),
+        success: true,
+        data: envelope.data as unknown,
+      };
     } catch (error) {
       getLogger('domain:pipeline').error(
         { gateway: 'query', domain: 'pipeline', operation, err: error },
@@ -134,32 +1112,28 @@ export class PipelineHandler implements DomainHandler {
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
 
-    try {
-      // Stage sub-domain
-      if (operation.startsWith('stage.')) {
-        return await this.mutateStage(operation.slice('stage.'.length), params, startTime);
-      }
+    const mutateOps = new Set<string>([
+      'stage.record',
+      'stage.skip',
+      'stage.reset',
+      'stage.gate.pass',
+      'stage.gate.fail',
+      'release.ship',
+      'release.cancel',
+      'release.rollback',
+      'release.rollback.full',
+      'manifest.append',
+      'manifest.archive',
+      'phase.set',
+      'phase.advance',
+      'phase.rename',
+      'phase.delete',
+      'chain.add',
+      'chain.instantiate',
+      'chain.advance',
+    ]);
 
-      // Release sub-domain
-      if (operation.startsWith('release.')) {
-        return this.mutateRelease(operation.slice('release.'.length), params, startTime);
-      }
-
-      // Manifest sub-domain
-      if (operation.startsWith('manifest.')) {
-        return await this.mutateManifest(operation.slice('manifest.'.length), params, startTime);
-      }
-
-      // Phase sub-domain
-      if (operation.startsWith('phase.')) {
-        return this.mutatePhase(operation.slice('phase.'.length), params, startTime);
-      }
-
-      // Chain sub-domain (T5405)
-      if (operation.startsWith('chain.')) {
-        return await this.mutateChain(operation.slice('chain.'.length), params, startTime);
-      }
-
+    if (!mutateOps.has(operation)) {
       return errorResult(
         'mutate',
         'pipeline',
@@ -168,6 +1142,28 @@ export class PipelineHandler implements DomainHandler {
         `Unknown pipeline mutation: ${operation}`,
         startTime,
       );
+    }
+
+    try {
+      const envelope = await typedDispatch(
+        _pipelineTypedHandler,
+        operation as keyof PipelineOps & string,
+        params ?? {},
+      );
+
+      return {
+        meta: dispatchMeta('mutate', 'pipeline', operation, startTime),
+        success: envelope.success,
+        ...(envelope.success
+          ? { data: envelope.data as unknown }
+          : {
+              error: {
+                code:
+                  envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
+                message: envelope.error?.message ?? 'Unknown error',
+              },
+            }),
+      };
     } catch (error) {
       getLogger('domain:pipeline').error(
         { gateway: 'mutate', domain: 'pipeline', operation, err: error },
@@ -218,938 +1214,5 @@ export class PipelineHandler implements DomainHandler {
         'chain.advance',
       ],
     };
-  }
-
-  // -----------------------------------------------------------------------
-  // Stage queries
-  // -----------------------------------------------------------------------
-
-  private async queryStage(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'validate': {
-        const epicId = params?.epicId as string;
-        const targetStage = params?.targetStage as string;
-        if (!epicId || !targetStage) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'stage.validate',
-            'E_INVALID_INPUT',
-            'epicId and targetStage are required',
-            startTime,
-          );
-        }
-        const result = await lifecycleCheck(epicId, targetStage, this.projectRoot);
-        return wrapResult(result, 'query', 'pipeline', 'stage.validate', startTime);
-      }
-
-      case 'status': {
-        const epicId = params?.epicId as string;
-        if (!epicId) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'stage.status',
-            'E_INVALID_INPUT',
-            'epicId is required',
-            startTime,
-          );
-        }
-        const result = await lifecycleStatus(epicId, this.projectRoot);
-        return wrapResult(result, 'query', 'pipeline', 'stage.status', startTime);
-      }
-
-      case 'history': {
-        const taskId = params?.taskId as string;
-        if (!taskId) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'stage.history',
-            'E_INVALID_INPUT',
-            'taskId is required',
-            startTime,
-          );
-        }
-        const result = await lifecycleHistory(taskId, this.projectRoot);
-        return wrapResult(result, 'query', 'pipeline', 'stage.history', startTime);
-      }
-
-      case 'guidance': {
-        // Phase 2 + Phase 4: stage-aware prompt guidance sourced from real
-        // SKILL.md files (ct-cleo, ct-orchestrator + stage-specific skill).
-        // Resolves stage from: (a) explicit stage param, or
-        // (b) epicId → lifecycleStatus → active stage.
-        let stage = params?.stage as string | undefined;
-        const epicId = params?.epicId as string | undefined;
-        const format = (params?.format as string | undefined) ?? 'markdown';
-
-        if (!stage && epicId) {
-          const statusResult = await lifecycleStatus(epicId, this.projectRoot);
-          if (statusResult.success) {
-            const data = statusResult.data as
-              | { currentStage?: string; activeStage?: string }
-              | undefined;
-            stage = data?.currentStage ?? data?.activeStage;
-          }
-        }
-
-        if (!stage) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'stage.guidance',
-            'E_INVALID_INPUT',
-            'Either stage or epicId (with an active pipeline stage) is required',
-            startTime,
-          );
-        }
-
-        if (!isValidStage(stage)) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'stage.guidance',
-            'E_INVALID_INPUT',
-            `Unknown stage: ${stage}`,
-            startTime,
-          );
-        }
-
-        const guidance = buildStageGuidance(stage as Stage, this.projectRoot);
-        const data =
-          format === 'json'
-            ? { stage: guidance.stage, guidance }
-            : {
-                stage: guidance.stage,
-                name: guidance.name,
-                order: guidance.order,
-                primarySkill: guidance.primarySkill,
-                loadedSkills: guidance.loadedSkills,
-                requiredGates: guidance.requiredGates,
-                expectedArtifacts: guidance.expectedArtifacts,
-                source: guidance.source,
-                prompt: formatStageGuidance(guidance),
-              };
-
-        return wrapResult(
-          { success: true, data },
-          'query',
-          'pipeline',
-          'stage.guidance',
-          startTime,
-        );
-      }
-
-      default:
-        return errorResult(
-          'query',
-          'pipeline',
-          `stage.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown stage query: ${sub}`,
-          startTime,
-        );
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Stage mutations
-  // -----------------------------------------------------------------------
-
-  private async mutateStage(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'record': {
-        const taskId = params?.taskId as string;
-        const stage = params?.stage as string;
-        const status = params?.status as string;
-        const notes = params?.notes as string | undefined;
-        if (!taskId || !stage || !status) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'stage.record',
-            'E_INVALID_INPUT',
-            'taskId, stage, and status are required',
-            startTime,
-          );
-        }
-        const result = await lifecycleProgress(taskId, stage, status, notes, this.projectRoot);
-        return wrapResult(result, 'mutate', 'pipeline', 'stage.record', startTime);
-      }
-
-      case 'skip': {
-        const taskId = params?.taskId as string;
-        const stage = params?.stage as string;
-        const reason = params?.reason as string;
-        if (!taskId || !stage || !reason) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'stage.skip',
-            'E_INVALID_INPUT',
-            'taskId, stage, and reason are required',
-            startTime,
-          );
-        }
-        const result = await lifecycleSkip(taskId, stage, reason, this.projectRoot);
-        return wrapResult(result, 'mutate', 'pipeline', 'stage.skip', startTime);
-      }
-
-      case 'reset': {
-        const taskId = params?.taskId as string;
-        const stage = params?.stage as string;
-        const reason = params?.reason as string;
-        if (!taskId || !stage || !reason) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'stage.reset',
-            'E_INVALID_INPUT',
-            'taskId, stage, and reason are required',
-            startTime,
-          );
-        }
-        const result = await lifecycleReset(taskId, stage, reason, this.projectRoot);
-        return wrapResult(result, 'mutate', 'pipeline', 'stage.reset', startTime);
-      }
-
-      case 'gate.pass': {
-        const taskId = params?.taskId as string;
-        const gateName = params?.gateName as string;
-        if (!taskId || !gateName) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'stage.gate.pass',
-            'E_INVALID_INPUT',
-            'taskId and gateName are required',
-            startTime,
-          );
-        }
-        const result = await lifecycleGatePass(
-          taskId,
-          gateName,
-          params?.agent as string | undefined,
-          params?.notes as string | undefined,
-          this.projectRoot,
-        );
-        return wrapResult(result, 'mutate', 'pipeline', 'stage.gate.pass', startTime);
-      }
-
-      case 'gate.fail': {
-        const taskId = params?.taskId as string;
-        const gateName = params?.gateName as string;
-        if (!taskId || !gateName) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'stage.gate.fail',
-            'E_INVALID_INPUT',
-            'taskId and gateName are required',
-            startTime,
-          );
-        }
-        const result = await lifecycleGateFail(
-          taskId,
-          gateName,
-          params?.reason as string | undefined,
-          this.projectRoot,
-        );
-        return wrapResult(result, 'mutate', 'pipeline', 'stage.gate.fail', startTime);
-      }
-
-      default:
-        return errorResult(
-          'mutate',
-          'pipeline',
-          `stage.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown stage mutation: ${sub}`,
-          startTime,
-        );
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Release queries (read-only)
-  // -----------------------------------------------------------------------
-
-  private async queryRelease(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'list': {
-        const result = await releaseList(
-          {
-            status: params?.status as ReleaseListOptions['status'],
-            limit: params?.limit as number | undefined,
-            offset: params?.offset as number | undefined,
-          },
-          this.projectRoot,
-        );
-        return wrapResult(result, 'query', 'pipeline', 'release.list', startTime);
-      }
-
-      case 'show': {
-        const version = params?.version as string;
-        if (!version) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'release.show',
-            'E_INVALID_INPUT',
-            'version is required',
-            startTime,
-          );
-        }
-        const result = await releaseShow(version, this.projectRoot);
-        return wrapResult(result, 'query', 'pipeline', 'release.show', startTime);
-      }
-
-      case 'channel.show': {
-        let currentBranch = 'unknown';
-        try {
-          currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-            encoding: 'utf-8',
-            stdio: 'pipe',
-            cwd: this.projectRoot,
-          }).trim();
-        } catch {
-          // git not available or not a git repo — leave as 'unknown'
-        }
-
-        const resolvedChannel = resolveChannelFromBranch(currentBranch);
-        const distTag = channelToDistTag(resolvedChannel);
-        const description = describeChannel(resolvedChannel);
-
-        return wrapResult(
-          {
-            success: true,
-            data: {
-              branch: currentBranch,
-              channel: resolvedChannel,
-              distTag,
-              description,
-            },
-          },
-          'query',
-          'pipeline',
-          'release.channel.show',
-          startTime,
-        );
-      }
-
-      case 'changelog.since': {
-        const sinceTag = params?.sinceTag as string;
-        if (!sinceTag) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'release.changelog.since',
-            'E_INVALID_INPUT',
-            'sinceTag is required',
-            startTime,
-          );
-        }
-        const result = await releaseChangelogSince(sinceTag, this.projectRoot);
-        return wrapResult(result, 'query', 'pipeline', 'release.changelog.since', startTime);
-      }
-
-      default:
-        return errorResult(
-          'query',
-          'pipeline',
-          `release.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown release query: ${sub}`,
-          startTime,
-        );
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Release mutations
-  // -----------------------------------------------------------------------
-
-  private async mutateRelease(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      // Release operations consolidated in T5615:
-      // prepare/changelog/commit/tag/push/gates.run merged into release.ship
-
-      case 'rollback': {
-        const version = params?.version as string;
-        if (!version) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'release.rollback',
-            'E_INVALID_INPUT',
-            'version is required',
-            startTime,
-          );
-        }
-        const reason = params?.reason as string | undefined;
-        const result = await releaseRollback(version, reason, this.projectRoot);
-        return wrapResult(result, 'mutate', 'pipeline', 'release.rollback', startTime);
-      }
-
-      case 'cancel': {
-        const version = params?.version as string;
-        if (!version) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'release.cancel',
-            'E_INVALID_INPUT',
-            'version is required',
-            startTime,
-          );
-        }
-        const result = await releaseCancel(version, this.projectRoot);
-        return wrapResult(result, 'mutate', 'pipeline', 'release.cancel', startTime);
-      }
-
-      case 'ship': {
-        const version = params?.version as string;
-        const epicId = params?.epicId as string;
-        if (!version || !epicId) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'release.ship',
-            'E_INVALID_INPUT',
-            'version and epicId are required',
-            startTime,
-          );
-        }
-        const remote = params?.remote as string | undefined;
-        const dryRun = params?.dryRun as boolean | undefined;
-        const bump = params?.bump as boolean | undefined;
-        const force = params?.force as boolean | undefined;
-        const result = await releaseShip(
-          { version, epicId, remote, dryRun, bump, force },
-          this.projectRoot,
-        );
-        return wrapResult(result, 'mutate', 'pipeline', 'release.ship', startTime);
-      }
-
-      // T820 RELEASE-05: Real rollback — delete tag, revert commit, remove record
-      case 'rollback.full': {
-        const version = params?.version as string;
-        if (!version) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'release.rollback.full',
-            'E_INVALID_INPUT',
-            'version is required',
-            startTime,
-          );
-        }
-        const reason = params?.reason as string | undefined;
-        const force = params?.force as boolean | undefined;
-        const unpublish = params?.unpublish as boolean | undefined;
-        const result = await releaseRollbackFull(
-          version,
-          { reason, force, unpublish },
-          this.projectRoot,
-        );
-        return wrapResult(result, 'mutate', 'pipeline', 'release.rollback.full', startTime);
-      }
-
-      default:
-        return errorResult(
-          'mutate',
-          'pipeline',
-          `release.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown release mutation: ${sub}`,
-          startTime,
-        );
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Manifest queries
-  // -----------------------------------------------------------------------
-
-  private async queryManifest(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'show': {
-        const entryId = params?.entryId as string;
-        if (!entryId) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'manifest.show',
-            'E_INVALID_INPUT',
-            'entryId is required',
-            startTime,
-          );
-        }
-        const result = await pipelineManifestShow(entryId, this.projectRoot);
-        return wrapResult(result, 'query', 'pipeline', 'manifest.show', startTime);
-      }
-      case 'list': {
-        const result = await pipelineManifestList(
-          (params ?? {}) as Parameters<typeof pipelineManifestList>[0],
-          this.projectRoot,
-        );
-        return wrapResult(result, 'query', 'pipeline', 'manifest.list', startTime);
-      }
-      case 'find': {
-        const query = params?.query as string;
-        if (!query) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'manifest.find',
-            'E_INVALID_INPUT',
-            'query is required',
-            startTime,
-          );
-        }
-        const result = await pipelineManifestFind(
-          query,
-          {
-            confidence: params?.confidence as number | undefined,
-            limit: params?.limit as number | undefined,
-          },
-          this.projectRoot,
-        );
-        return wrapResult(result, 'query', 'pipeline', 'manifest.find', startTime);
-      }
-      case 'stats': {
-        const result = await pipelineManifestStats(
-          params?.epicId as string | undefined,
-          this.projectRoot,
-        );
-        return wrapResult(result, 'query', 'pipeline', 'manifest.stats', startTime);
-      }
-      default:
-        return errorResult(
-          'query',
-          'pipeline',
-          `manifest.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown manifest query: ${sub}`,
-          startTime,
-        );
-    }
-  }
-
-  private async queryPhase(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'show': {
-        const phaseId = params?.phaseId as string | undefined;
-        const result = await phaseShow(phaseId, this.projectRoot);
-        return wrapResult(result, 'query', 'pipeline', 'phase.show', startTime);
-      }
-
-      case 'list': {
-        const result = await phaseList(this.projectRoot);
-        if (!result.success || !result.data) {
-          return wrapResult(result, 'query', 'pipeline', 'phase.list', startTime);
-        }
-
-        const listData = result.data as ListPhasesResult;
-        const phases = listData.phases ?? [];
-        const total = listData.summary?.total ?? phases.length;
-        const { limit, offset } = getListParams(params);
-        const page = paginate(phases, limit, offset);
-
-        return {
-          meta: dispatchMeta('query', 'pipeline', 'phase.list', startTime),
-          success: true,
-          data: {
-            ...listData,
-            phases: page.items,
-            total,
-            filtered: total,
-          },
-          page: page.page,
-        };
-      }
-
-      default:
-        return errorResult(
-          'query',
-          'pipeline',
-          `phase.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown phase query: ${sub}`,
-          startTime,
-        );
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Manifest mutations
-  // -----------------------------------------------------------------------
-
-  private async mutateManifest(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'append': {
-        const entry = params?.entry as Parameters<typeof pipelineManifestAppend>[0];
-        if (!entry) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'manifest.append',
-            'E_INVALID_INPUT',
-            'entry is required',
-            startTime,
-          );
-        }
-        const result = await pipelineManifestAppend(entry, this.projectRoot);
-        return wrapResult(result, 'mutate', 'pipeline', 'manifest.append', startTime);
-      }
-      case 'archive': {
-        const beforeDate = params?.beforeDate as string;
-        if (!beforeDate) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'manifest.archive',
-            'E_INVALID_INPUT',
-            'beforeDate is required (ISO-8601: YYYY-MM-DD)',
-            startTime,
-          );
-        }
-        const result = await pipelineManifestArchive(beforeDate, this.projectRoot);
-        return wrapResult(result, 'mutate', 'pipeline', 'manifest.archive', startTime);
-      }
-      default:
-        return errorResult(
-          'mutate',
-          'pipeline',
-          `manifest.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown manifest mutation: ${sub}`,
-          startTime,
-        );
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Phase mutations (T5326)
-  // -----------------------------------------------------------------------
-
-  private async mutatePhase(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'set': {
-        const phaseId = params?.phaseId as string;
-        if (!phaseId) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'phase.set',
-            'E_INVALID_INPUT',
-            'phaseId is required',
-            startTime,
-          );
-        }
-        const action = params?.action as string | undefined;
-        if (action === 'start') {
-          const result = await phaseStart(phaseId, this.projectRoot);
-          return wrapResult(result, 'mutate', 'pipeline', 'phase.set', startTime);
-        }
-        if (action === 'complete') {
-          const result = await phaseComplete(phaseId, this.projectRoot);
-          return wrapResult(result, 'mutate', 'pipeline', 'phase.set', startTime);
-        }
-        const result = await phaseSet(
-          {
-            phaseId,
-            rollback: params?.rollback as boolean | undefined,
-            force: params?.force as boolean | undefined,
-            dryRun: params?.dryRun as boolean | undefined,
-          },
-          this.projectRoot,
-        );
-        return wrapResult(result, 'mutate', 'pipeline', 'phase.set', startTime);
-      }
-
-      case 'advance': {
-        const force = params?.force as boolean | undefined;
-        const result = await phaseAdvance(force, this.projectRoot);
-        return wrapResult(result, 'mutate', 'pipeline', 'phase.advance', startTime);
-      }
-
-      case 'rename': {
-        const oldName = params?.oldName as string;
-        const newName = params?.newName as string;
-        if (!oldName || !newName) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'phase.rename',
-            'E_INVALID_INPUT',
-            'oldName and newName are required',
-            startTime,
-          );
-        }
-        const result = await phaseRename(oldName, newName, this.projectRoot);
-        return wrapResult(result, 'mutate', 'pipeline', 'phase.rename', startTime);
-      }
-
-      case 'delete': {
-        const phaseId = params?.phaseId as string;
-        if (!phaseId) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'phase.delete',
-            'E_INVALID_INPUT',
-            'phaseId is required',
-            startTime,
-          );
-        }
-        const result = await phaseDelete(
-          phaseId,
-          {
-            reassignTo: params?.reassignTo as string | undefined,
-            force: params?.force as boolean | undefined,
-          },
-          this.projectRoot,
-        );
-        return wrapResult(result, 'mutate', 'pipeline', 'phase.delete', startTime);
-      }
-
-      default:
-        return errorResult(
-          'mutate',
-          'pipeline',
-          `phase.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown phase mutation: ${sub}`,
-          startTime,
-        );
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Chain queries (T5405)
-  // -----------------------------------------------------------------------
-
-  private async queryChain(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'show': {
-        const chainId = params?.chainId as string;
-        if (!chainId) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'chain.show',
-            'E_INVALID_INPUT',
-            'chainId is required',
-            startTime,
-          );
-        }
-        const chain = await showChain(chainId, this.projectRoot);
-        if (!chain) {
-          return errorResult(
-            'query',
-            'pipeline',
-            'chain.show',
-            'E_NOT_FOUND',
-            `Chain "${chainId}" not found`,
-            startTime,
-          );
-        }
-        return wrapResult(
-          { success: true, data: chain },
-          'query',
-          'pipeline',
-          'chain.show',
-          startTime,
-        );
-      }
-
-      case 'list': {
-        const chains = await listChains(this.projectRoot);
-        const { limit, offset } = getListParams(params);
-        const page = paginate(chains, limit, offset);
-        return wrapResult(
-          {
-            success: true,
-            data: {
-              chains: page.items,
-              total: chains.length,
-              filtered: chains.length,
-            },
-            page: page.page,
-          },
-          'query',
-          'pipeline',
-          'chain.list',
-          startTime,
-        );
-      }
-
-      default:
-        return errorResult(
-          'query',
-          'pipeline',
-          `chain.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown chain query: ${sub}`,
-          startTime,
-        );
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Chain mutations (T5405)
-  // -----------------------------------------------------------------------
-
-  private async mutateChain(
-    sub: string,
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    switch (sub) {
-      case 'add': {
-        const chain = params?.chain as WarpChain;
-        if (!chain) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'chain.add',
-            'E_INVALID_INPUT',
-            'chain is required',
-            startTime,
-          );
-        }
-        await addChain(chain, this.projectRoot);
-        return wrapResult(
-          { success: true, data: { id: chain.id } },
-          'mutate',
-          'pipeline',
-          'chain.add',
-          startTime,
-        );
-      }
-
-      case 'instantiate': {
-        const chainId = params?.chainId as string;
-        const epicId = params?.epicId as string;
-        if (!chainId || !epicId) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'chain.instantiate',
-            'E_INVALID_INPUT',
-            'chainId and epicId are required',
-            startTime,
-          );
-        }
-        let instance: Awaited<ReturnType<typeof createInstance>>;
-        try {
-          instance = await createInstance(
-            {
-              chainId,
-              epicId,
-              variables: params?.variables as Record<string, unknown> | undefined,
-              stageToTask: params?.stageToTask as Record<string, string> | undefined,
-            },
-            this.projectRoot,
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (
-            message.includes(`Chain "${chainId}" not found`) ||
-            message.includes('FOREIGN KEY constraint failed') ||
-            message.includes('SQLITE_CONSTRAINT_FOREIGNKEY')
-          ) {
-            return errorResult(
-              'mutate',
-              'pipeline',
-              'chain.instantiate',
-              'E_NOT_FOUND',
-              `Chain "${chainId}" not found`,
-              startTime,
-            );
-          }
-          throw error;
-        }
-        return wrapResult(
-          { success: true, data: instance },
-          'mutate',
-          'pipeline',
-          'chain.instantiate',
-          startTime,
-        );
-      }
-
-      case 'advance': {
-        const instanceId = params?.instanceId as string;
-        const nextStage = params?.nextStage as string;
-        if (!instanceId || !nextStage) {
-          return errorResult(
-            'mutate',
-            'pipeline',
-            'chain.advance',
-            'E_INVALID_INPUT',
-            'instanceId and nextStage are required',
-            startTime,
-          );
-        }
-        const gateResults = (params?.gateResults ?? []) as GateResult[];
-        const updated = await advanceInstance(instanceId, nextStage, gateResults, this.projectRoot);
-        return wrapResult(
-          { success: true, data: updated },
-          'mutate',
-          'pipeline',
-          'chain.advance',
-          startTime,
-        );
-      }
-
-      default:
-        return errorResult(
-          'mutate',
-          'pipeline',
-          `chain.${sub}`,
-          'E_INVALID_OPERATION',
-          `Unknown chain mutation: ${sub}`,
-          startTime,
-        );
-    }
   }
 }
