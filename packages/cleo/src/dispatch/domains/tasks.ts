@@ -28,6 +28,7 @@ import {
   lafsSuccess,
   type OpsFromCore,
   typedDispatch,
+  wrapCoreResult,
 } from '../adapters/typed.js';
 import {
   taskAnalyze,
@@ -100,36 +101,12 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
   show: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.ivtrHistory) {
-      const result = await taskShowIvtrHistory(projectRoot, params.taskId);
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'show',
-        );
-      }
-      return lafsSuccess(result.data, 'show');
+      return wrapCoreResult(await taskShowIvtrHistory(projectRoot, params.taskId), 'show');
     }
     if (params.history) {
-      const result = await taskShowWithHistory(projectRoot, params.taskId, true);
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'show',
-        );
-      }
-      return lafsSuccess(result.data, 'show');
+      return wrapCoreResult(await taskShowWithHistory(projectRoot, params.taskId, true), 'show');
     }
-    const result = await taskShow(projectRoot, params.taskId);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'show',
-      );
-    }
-    return lafsSuccess(result.data, 'show');
+    return wrapCoreResult(await taskShow(projectRoot, params.taskId), 'show');
   },
 
   list: async (params) => {
@@ -153,90 +130,48 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         'list',
       );
     }
-    const envelope = lafsSuccess(result.data, 'list');
     // Attach page metadata if present in engine result
     if (result.page) {
-      return {
-        success: true as const,
-        data: result.data,
-        page: result.page,
-      };
+      return { success: true as const, data: result.data, page: result.page };
     }
-    return envelope;
+    return lafsSuccess(result.data, 'list');
   },
 
   find: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskFind(projectRoot, params.query, params.limit, {
-      id: params.id,
-      exact: params.exact,
-      status: params.status,
-      includeArchive: params.includeArchive,
-      offset: params.offset,
-      fields: params.fields,
-      verbose: params.verbose,
-      // T944: role filter
-      role: params.role,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'find',
-      );
-    }
-    return lafsSuccess(result.data, 'find');
+    return wrapCoreResult(
+      await taskFind(projectRoot, params.query, params.limit, {
+        id: params.id,
+        exact: params.exact,
+        status: params.status,
+        includeArchive: params.includeArchive,
+        offset: params.offset,
+        fields: params.fields,
+        verbose: params.verbose,
+        // T944: role filter
+        role: params.role,
+      }),
+      'find',
+    );
   },
 
   tree: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskTree(projectRoot, params.taskId, params.withBlockers);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'tree',
-      );
-    }
-    return lafsSuccess(result.data, 'tree');
+    return wrapCoreResult(await taskTree(projectRoot, params.taskId, params.withBlockers), 'tree');
   },
 
   blockers: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskBlockers(projectRoot, params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'blockers',
-      );
-    }
-    return lafsSuccess(result.data, 'blockers');
+    return wrapCoreResult(await taskBlockers(projectRoot, params), 'blockers');
   },
 
   depends: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.action === 'overview') {
-      const result = await taskDepsOverview(projectRoot);
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'depends',
-        );
-      }
-      return lafsSuccess(result.data, 'depends');
+      return wrapCoreResult(await taskDepsOverview(projectRoot), 'depends');
     }
     if (params.action === 'cycles') {
-      const result = await taskDepsCycles(projectRoot);
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'depends',
-        );
-      }
-      return lafsSuccess(result.data, 'depends');
+      return wrapCoreResult(await taskDepsCycles(projectRoot), 'depends');
     }
     if (!params.taskId) {
       return lafsError(
@@ -245,170 +180,81 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         'depends',
       );
     }
-    const result = await taskDepends(projectRoot, params.taskId, params.direction, params.tree);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'depends',
-      );
-    }
-    return lafsSuccess(result.data, 'depends');
+    return wrapCoreResult(
+      await taskDepends(projectRoot, params.taskId, params.direction, params.tree),
+      'depends',
+    );
   },
 
   analyze: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskAnalyze(projectRoot, params.taskId, { tierLimit: params.tierLimit });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'analyze',
-      );
-    }
-    return lafsSuccess(result.data, 'analyze');
+    return wrapCoreResult(
+      await taskAnalyze(projectRoot, params.taskId, { tierLimit: params.tierLimit }),
+      'analyze',
+    );
   },
 
   impact: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskImpact(projectRoot, params.change, params.matchLimit);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'impact',
-      );
-    }
-    return lafsSuccess(result.data, 'impact');
+    return wrapCoreResult(
+      await taskImpact(projectRoot, params.change, params.matchLimit),
+      'impact',
+    );
   },
 
   next: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskNext(projectRoot, params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'next',
-      );
-    }
-    return lafsSuccess(result.data, 'next');
+    return wrapCoreResult(await taskNext(projectRoot, params), 'next');
   },
 
   plan: async (_params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskPlan(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'plan',
-      );
-    }
-    return lafsSuccess(result.data, 'plan');
+    return wrapCoreResult(await taskPlan(projectRoot), 'plan');
   },
 
   relates: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.mode) {
-      const result = await taskRelatesFind(projectRoot, params.taskId, {
-        mode: params.mode,
-        threshold: params.threshold,
-      });
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'relates',
-        );
-      }
-      return lafsSuccess(result.data, 'relates');
-    }
-    const result = await taskRelates(projectRoot, params.taskId);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+      return wrapCoreResult(
+        await taskRelatesFind(projectRoot, params.taskId, {
+          mode: params.mode,
+          threshold: params.threshold,
+        }),
         'relates',
       );
     }
-    return lafsSuccess(result.data, 'relates');
+    return wrapCoreResult(await taskRelates(projectRoot, params.taskId), 'relates');
   },
 
   'complexity.estimate': async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskComplexityEstimate(projectRoot, { taskId: params.taskId });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'complexity.estimate',
-      );
-    }
-    return lafsSuccess(result.data, 'complexity.estimate');
+    return wrapCoreResult(
+      await taskComplexityEstimate(projectRoot, { taskId: params.taskId }),
+      'complexity.estimate',
+    );
   },
 
   history: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.taskId) {
-      const result = await taskHistory(projectRoot, params.taskId, params.limit);
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'history',
-        );
-      }
-      return lafsSuccess(result.data, 'history');
+      return wrapCoreResult(await taskHistory(projectRoot, params.taskId, params.limit), 'history');
     }
-    const result = await taskWorkHistory(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'history',
-      );
-    }
-    return lafsSuccess(result.data, 'history');
+    return wrapCoreResult(await taskWorkHistory(projectRoot), 'history');
   },
 
   current: async (_params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskCurrentGet(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'current',
-      );
-    }
-    return lafsSuccess(result.data, 'current');
+    return wrapCoreResult(await taskCurrentGet(projectRoot), 'current');
   },
 
   'label.list': async (_params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskLabelList(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'label.list',
-      );
-    }
-    return lafsSuccess(result.data, 'label.list');
+    return wrapCoreResult(await taskLabelList(projectRoot), 'label.list');
   },
 
   'sync.links': async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskSyncLinks(projectRoot, params);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'sync.links',
-      );
-    }
-    return lafsSuccess(result.data, 'sync.links');
+    return wrapCoreResult(await taskSyncLinks(projectRoot, params), 'sync.links');
   },
 
   // -------------------------------------------------------------------------
@@ -417,68 +263,58 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   add: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskCreate(projectRoot, {
-      title: params.title,
-      description: typeof params.description === 'string' ? params.description : undefined,
-      parent: params.parent,
-      depends: params.depends,
-      priority: params.priority,
-      labels: params.labels,
-      type: params.type,
-      acceptance: params.acceptance,
-      phase: params.phase,
-      size: params.size,
-      notes: params.notes,
-      files: params.files,
-      dryRun: params.dryRun,
-      parentSearch: params.parentSearch,
-      // T944: orthogonal axes — role is the canonical wire field (ADR-057 D2)
-      role: params.role,
-      scope: params.scope,
-      severity: params.severity,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'add',
-      );
-    }
-    return lafsSuccess(result.data, 'add');
+    return wrapCoreResult(
+      await taskCreate(projectRoot, {
+        title: params.title,
+        description: typeof params.description === 'string' ? params.description : undefined,
+        parent: params.parent,
+        depends: params.depends,
+        priority: params.priority,
+        labels: params.labels,
+        type: params.type,
+        acceptance: params.acceptance,
+        phase: params.phase,
+        size: params.size,
+        notes: params.notes,
+        files: params.files,
+        dryRun: params.dryRun,
+        parentSearch: params.parentSearch,
+        // T944: orthogonal axes — role is the canonical wire field (ADR-057 D2)
+        role: params.role,
+        scope: params.scope,
+        severity: params.severity,
+      }),
+      'add',
+    );
   },
 
   update: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskUpdate(projectRoot, params.taskId, {
-      title: params.title,
-      description: params.description,
-      status: params.status,
-      priority: params.priority,
-      notes: params.notes,
-      labels: params.labels,
-      addLabels: params.addLabels,
-      removeLabels: params.removeLabels,
-      depends: params.depends,
-      addDepends: params.addDepends,
-      removeDepends: params.removeDepends,
-      acceptance: params.acceptance,
-      // ADR-057 D2: canonical wire field — no alias fallback
-      parent: params.parent,
-      type: params.type,
-      size: params.size,
-      // T1014: wire --files through dispatch to engine (parity with add).
-      files: params.files,
-      // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
-      pipelineStage: params.pipelineStage,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'update',
-      );
-    }
-    return lafsSuccess(result.data, 'update');
+    return wrapCoreResult(
+      await taskUpdate(projectRoot, params.taskId, {
+        title: params.title,
+        description: params.description,
+        status: params.status,
+        priority: params.priority,
+        notes: params.notes,
+        labels: params.labels,
+        addLabels: params.addLabels,
+        removeLabels: params.removeLabels,
+        depends: params.depends,
+        addDepends: params.addDepends,
+        removeDepends: params.removeDepends,
+        acceptance: params.acceptance,
+        // ADR-057 D2: canonical wire field — no alias fallback
+        parent: params.parent,
+        type: params.type,
+        size: params.size,
+        // T1014: wire --files through dispatch to engine (parity with add).
+        files: params.files,
+        // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
+        pipelineStage: params.pipelineStage,
+      }),
+      'update',
+    );
   },
 
   complete: async (params) => {
@@ -494,6 +330,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     }
     const result = await taskCompleteStrict(projectRoot, params.taskId, params.notes);
     // T994: Track memory usage on task completion (fire-and-forget; must not block).
+    // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
     setImmediate(async () => {
       try {
         const { trackMemoryUsage } = await import('@cleocode/core/internal');
@@ -502,128 +339,75 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         // Quality tracking errors must never surface to the complete flow
       }
     });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'complete',
-      );
-    }
-    return lafsSuccess(result.data, 'complete');
+    return wrapCoreResult(result, 'complete');
   },
 
   cancel: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskCancel(projectRoot, params.taskId, params.reason);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'cancel',
-      );
-    }
-    return lafsSuccess(result.data, 'cancel');
+    return wrapCoreResult(await taskCancel(projectRoot, params.taskId, params.reason), 'cancel');
   },
 
   delete: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskDelete(projectRoot, params.taskId, params.force);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'delete',
-      );
-    }
-    return lafsSuccess(result.data, 'delete');
+    return wrapCoreResult(await taskDelete(projectRoot, params.taskId, params.force), 'delete');
   },
 
   archive: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskArchive(projectRoot, params.taskId, params.before, {
-      taskIds: params.taskIds,
-      includeCancelled: params.includeCancelled,
-      dryRun: params.dryRun,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'archive',
-      );
-    }
-    return lafsSuccess(result.data, 'archive');
+    return wrapCoreResult(
+      await taskArchive(projectRoot, params.taskId, params.before, {
+        taskIds: params.taskIds,
+        includeCancelled: params.includeCancelled,
+        dryRun: params.dryRun,
+      }),
+      'archive',
+    );
   },
 
   restore: async (params) => {
     const projectRoot = getProjectRoot();
-    // Consolidated: from param routes to reopen/unarchive logic (T5615/T5671)
+    // SSoT-EXEMPT: from param routes to different engine fns (T5615/T5671 consolidation)
     if (params.from === 'done') {
-      const result = await taskReopen(projectRoot, params.taskId, {
-        status: params.status,
-        reason: params.reason,
-      });
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'restore',
-        );
-      }
-      return lafsSuccess(result.data, 'restore');
-    }
-    if (params.from === 'archived') {
-      const result = await taskUnarchive(projectRoot, params.taskId, {
-        status: params.status,
-        preserveStatus: params.preserveStatus,
-      });
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
-          'restore',
-        );
-      }
-      return lafsSuccess(result.data, 'restore');
-    }
-    const result = await taskRestore(projectRoot, params.taskId, {
-      cascade: params.cascade,
-      notes: params.notes,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+      return wrapCoreResult(
+        await taskReopen(projectRoot, params.taskId, {
+          status: params.status,
+          reason: params.reason,
+        }),
         'restore',
       );
     }
-    return lafsSuccess(result.data, 'restore');
+    if (params.from === 'archived') {
+      return wrapCoreResult(
+        await taskUnarchive(projectRoot, params.taskId, {
+          status: params.status,
+          preserveStatus: params.preserveStatus,
+        }),
+        'restore',
+      );
+    }
+    return wrapCoreResult(
+      await taskRestore(projectRoot, params.taskId, {
+        cascade: params.cascade,
+        notes: params.notes,
+      }),
+      'restore',
+    );
   },
 
   reparent: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskReparent(projectRoot, params.taskId, params.newParentId ?? null);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'reparent',
-      );
-    }
-    return lafsSuccess(result.data, 'reparent');
+    return wrapCoreResult(
+      await taskReparent(projectRoot, params.taskId, params.newParentId ?? null),
+      'reparent',
+    );
   },
 
   reorder: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskReorder(projectRoot, params.taskId, params.position);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'reorder',
-      );
-    }
-    return lafsSuccess(result.data, 'reorder');
+    return wrapCoreResult(
+      await taskReorder(projectRoot, params.taskId, params.position),
+      'reorder',
+    );
   },
 
   'relates.add': async (params) => {
@@ -633,106 +417,53 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     if (!relatedId) {
       return lafsError('E_INVALID_INPUT', 'relatedId (or targetId) is required', 'relates.add');
     }
-    const result = await taskRelatesAdd(
-      projectRoot,
-      params.taskId,
-      relatedId,
-      params.type,
-      params.reason,
+    return wrapCoreResult(
+      await taskRelatesAdd(projectRoot, params.taskId, relatedId, params.type, params.reason),
+      'relates.add',
     );
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'relates.add',
-      );
-    }
-    return lafsSuccess(result.data, 'relates.add');
   },
 
   start: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskStart(projectRoot, params.taskId);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'start',
-      );
-    }
-    return lafsSuccess(result.data, 'start');
+    return wrapCoreResult(await taskStart(projectRoot, params.taskId), 'start');
   },
 
   stop: async (_params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskStop(projectRoot);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stop',
-      );
-    }
-    return lafsSuccess(result.data, 'stop');
+    return wrapCoreResult(await taskStop(projectRoot), 'stop');
   },
 
   'sync.reconcile': async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskSyncReconcile(projectRoot, {
-      providerId: params.providerId,
-      externalTasks: params.externalTasks,
-      dryRun: params.dryRun,
-      conflictPolicy: params.conflictPolicy,
-      defaultPhase: params.defaultPhase,
-      defaultLabels: params.defaultLabels,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'sync.reconcile',
-      );
-    }
-    return lafsSuccess(result.data, 'sync.reconcile');
+    return wrapCoreResult(
+      await taskSyncReconcile(projectRoot, {
+        providerId: params.providerId,
+        externalTasks: params.externalTasks,
+        dryRun: params.dryRun,
+        conflictPolicy: params.conflictPolicy,
+        defaultPhase: params.defaultPhase,
+        defaultLabels: params.defaultLabels,
+      }),
+      'sync.reconcile',
+    );
   },
 
   'sync.links.remove': async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskSyncLinksRemove(projectRoot, params.providerId);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'sync.links.remove',
-      );
-    }
-    return lafsSuccess(result.data, 'sync.links.remove');
+    return wrapCoreResult(
+      await taskSyncLinksRemove(projectRoot, params.providerId),
+      'sync.links.remove',
+    );
   },
 
   claim: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskClaim(projectRoot, params.taskId, params.agentId);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'claim',
-      );
-    }
-    return lafsSuccess(result.data, 'claim');
+    return wrapCoreResult(await taskClaim(projectRoot, params.taskId, params.agentId), 'claim');
   },
 
   unclaim: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await taskUnclaim(projectRoot, params.taskId);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'unclaim',
-      );
-    }
-    return lafsSuccess(result.data, 'unclaim');
+    return wrapCoreResult(await taskUnclaim(projectRoot, params.taskId), 'unclaim');
   },
 });
 
