@@ -328,9 +328,6 @@ importers:
       '@cleocode/cant':
         specifier: workspace:*
         version: link:../cant
-      '@cleocode/cleo':
-        specifier: workspace:*
-        version: link:../cleo
       '@cleocode/core':
         specifier: workspace:*
         version: link:../core
