@@ -45,6 +45,23 @@ const AGENT_SESSION_HANDLES = new Map<string, AgentSessionHandle>();
 /**
  * Parse a scope string into a SessionScope.
  * @task T4463
+ *
+ * @example
+ * ```ts
+ * // Global scope
+ * const global = parseScope('global');
+ * console.assert(global.type === 'global', 'global scope type');
+ *
+ * // Epic scope with task ID
+ * const epic = parseScope('epic:T123');
+ * console.assert(epic.type === 'epic', 'epic scope type');
+ * console.assert(epic.epicId === 'T123', 'epic scope ID');
+ *
+ * // Invalid scope throws
+ * let threw = false;
+ * try { parseScope('invalid'); } catch { threw = true; }
+ * console.assert(threw, 'invalid scope throws CleoError');
+ * ```
  */
 export function parseScope(scopeStr: string): SessionScope {
   if (scopeStr === 'global') {

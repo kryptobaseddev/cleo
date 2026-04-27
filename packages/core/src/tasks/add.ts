@@ -92,6 +92,19 @@ export interface AddTaskResult {
  * Gates are initialized to false (not yet passed). `passed` starts false
  * because no gates have been verified yet.
  * @task T061
+ *
+ * @example
+ * ```ts
+ * const ts = '2026-04-27T00:00:00.000Z';
+ * const v = buildDefaultVerification(ts);
+ *
+ * console.assert(v.passed === false, 'starts not-passed');
+ * console.assert(v.round === 1, 'starts at round 1');
+ * console.assert(v.gates.implemented === false, 'implemented gate starts false');
+ * console.assert(v.gates.testsPassed === false, 'testsPassed gate starts false');
+ * console.assert(v.gates.qaPassed === false, 'qaPassed gate starts false');
+ * console.assert(v.initializedAt === ts, 'stores initializedAt timestamp');
+ * ```
  */
 export function buildDefaultVerification(initializedAt: string): TaskVerification {
   return {
@@ -175,6 +188,23 @@ export const VALID_PRIORITIES: readonly TaskPriority[] = [
  * Accepts both string names ("critical","high","medium","low") and numeric (1-9).
  * Returns the canonical string format per todo.schema.json.
  * @task T4572
+ *
+ * @example
+ * ```ts
+ * // String form — returned as-is (lowercased)
+ * const p1 = normalizePriority('high');
+ * console.assert(p1 === 'high', 'string priority passthrough');
+ *
+ * // Numeric form — mapped to canonical string
+ * const p2 = normalizePriority(1);  // 1-2 → 'critical'
+ * console.assert(p2 === 'critical', 'numeric 1 → critical');
+ *
+ * const p3 = normalizePriority(5);  // 5-6 → 'medium'
+ * console.assert(p3 === 'medium', 'numeric 5 → medium');
+ *
+ * const p4 = normalizePriority(9);  // 7-9 → 'low'
+ * console.assert(p4 === 'low', 'numeric 9 → low');
+ * ```
  */
 export function normalizePriority(priority: string | number): TaskPriority {
   // Handle numeric input
@@ -439,6 +469,26 @@ export function validateParent(
 /**
  * Get the depth of a task in the hierarchy.
  * @task T4460
+ *
+ * @example
+ * ```ts
+ * const now = new Date().toISOString();
+ * const tasks = [
+ *   { id: 'T001', title: 'Epic', description: '', type: 'epic', status: 'pending',
+ *     priority: 'medium', size: 'medium', parentId: null,
+ *     position: 1, positionVersion: 0, createdAt: now, updatedAt: now },
+ *   { id: 'T002', title: 'Task', description: '', type: 'task', status: 'pending',
+ *     priority: 'medium', size: 'medium', parentId: 'T001',
+ *     position: 1, positionVersion: 0, createdAt: now, updatedAt: now },
+ *   { id: 'T003', title: 'Subtask', description: '', type: 'subtask', status: 'pending',
+ *     priority: 'medium', size: 'medium', parentId: 'T002',
+ *     position: 1, positionVersion: 0, createdAt: now, updatedAt: now },
+ * ] as Task[];
+ *
+ * console.assert(getTaskDepth('T001', tasks) === 0, 'root epic depth = 0');
+ * console.assert(getTaskDepth('T002', tasks) === 1, 'child task depth = 1');
+ * console.assert(getTaskDepth('T003', tasks) === 2, 'grandchild subtask depth = 2');
+ * ```
  */
 export function getTaskDepth(taskId: string, tasks: Task[]): number {
   let depth = 0;
@@ -459,6 +509,28 @@ export function getTaskDepth(taskId: string, tasks: Task[]): number {
 /**
  * Infer task type from parent context.
  * @task T4460
+ *
+ * @example
+ * ```ts
+ * const now = new Date().toISOString();
+ * const tasks = [
+ *   { id: 'T001', title: 'My Epic', description: '', type: 'epic',
+ *     status: 'pending', priority: 'medium', size: 'medium', parentId: null,
+ *     position: 1, positionVersion: 0, createdAt: now, updatedAt: now },
+ *   { id: 'T002', title: 'Child Task', description: '', type: 'task',
+ *     status: 'pending', priority: 'medium', size: 'medium', parentId: 'T001',
+ *     position: 1, positionVersion: 0, createdAt: now, updatedAt: now },
+ * ] as Task[];
+ *
+ * // No parent → standalone task
+ * console.assert(inferTaskType(null, tasks) === 'task', 'no parent → task');
+ *
+ * // Epic parent → child is a task
+ * console.assert(inferTaskType('T001', tasks) === 'task', 'epic parent → task');
+ *
+ * // Task parent → child is a subtask
+ * console.assert(inferTaskType('T002', tasks) === 'subtask', 'task parent → subtask');
+ * ```
  */
 export function inferTaskType(parentId: string | null | undefined, tasks: Task[]): TaskType {
   if (!parentId) return 'task';
@@ -471,6 +543,27 @@ export function inferTaskType(parentId: string | null | undefined, tasks: Task[]
 /**
  * Get the next position for a task within a parent scope.
  * @task T4460
+ *
+ * @example
+ * ```ts
+ * const now = new Date().toISOString();
+ * const tasks = [
+ *   { id: 'T001', title: 'First', description: '', type: 'task', status: 'pending',
+ *     priority: 'medium', size: 'medium', parentId: 'T000',
+ *     position: 1, positionVersion: 0, createdAt: now, updatedAt: now },
+ *   { id: 'T002', title: 'Second', description: '', type: 'task', status: 'pending',
+ *     priority: 'medium', size: 'medium', parentId: 'T000',
+ *     position: 3, positionVersion: 0, createdAt: now, updatedAt: now },
+ * ] as Task[];
+ *
+ * // Next position = max existing position + 1
+ * const next = getNextPosition('T000', tasks);
+ * console.assert(next === 4, 'next position after max(1,3) is 4');
+ *
+ * // No siblings → position 1
+ * const first = getNextPosition('T999', tasks);
+ * console.assert(first === 1, 'first child gets position 1');
+ * ```
  */
 export function getNextPosition(parentId: string | null | undefined, tasks: Task[]): number {
   const siblings = tasks.filter((t) =>
