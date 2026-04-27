@@ -40,6 +40,7 @@ export * as codebaseMap from './codebase-map/index.js';
 export * as compliance from './compliance/index.js';
 export * as conduit from './conduit/index.js';
 export * as context from './context/index.js';
+export * as gc from './gc/index.js';
 export * as harness from './harness/index.js';
 export * as coreHooks from './hooks/index.js';
 export * as identity from './identity/index.js';
@@ -48,6 +49,7 @@ export * as intelligence from './intelligence/index.js';
 export * as issue from './issue/index.js';
 export * as lib from './lib/index.js';
 export * as lifecycle from './lifecycle/index.js';
+export * as llm from './llm/index.js';
 // (removed: former coreMcp export — Phase 2 production readiness)
 export * as memory from './memory/index.js';
 export * as metrics from './metrics/index.js';
@@ -72,6 +74,7 @@ export * as research from './research/index.js';
 export * as roadmap from './roadmap/index.js';
 export * as routing from './routing/index.js';
 export * as security from './security/index.js';
+export * as sentient from './sentient/index.js';
 export * as sequence from './sequence/index.js';
 /**
  * Canonical dispatch-domain alias for the `sessions` module (ADR-057 D5 · T1470).
