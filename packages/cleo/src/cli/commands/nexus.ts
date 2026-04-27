@@ -1772,8 +1772,18 @@ const projectsCleanCommand = defineCommand({
             JSON.stringify(
               {
                 success: true,
-                data: { dryRun: true, matched: matchCount, purged: 0, remaining: totalCount, sample: samplePaths },
-                meta: { operation: 'nexus.projects.clean', duration_ms: durationMs, timestamp: new Date().toISOString() },
+                data: {
+                  dryRun: true,
+                  matched: matchCount,
+                  purged: 0,
+                  remaining: totalCount,
+                  sample: samplePaths,
+                },
+                meta: {
+                  operation: 'nexus.projects.clean',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
               },
               null,
               2,
@@ -1792,10 +1802,13 @@ const projectsCleanCommand = defineCommand({
         const { createInterface } = await import('node:readline');
         const rl = createInterface({ input: process.stdin, output: process.stdout });
         const confirmed = await new Promise<boolean>((resolve) => {
-          rl.question(`\n[nexus] Delete ${matchCount} project(s) from the registry? [y/N] `, (answer) => {
-            rl.close();
-            resolve(answer.trim().toLowerCase() === 'y');
-          });
+          rl.question(
+            `\n[nexus] Delete ${matchCount} project(s) from the registry? [y/N] `,
+            (answer) => {
+              rl.close();
+              resolve(answer.trim().toLowerCase() === 'y');
+            },
+          );
         });
         if (!confirmed) {
           process.stdout.write('[nexus] Aborted — no projects deleted.\n');
@@ -1812,8 +1825,18 @@ const projectsCleanCommand = defineCommand({
           JSON.stringify(
             {
               success: true,
-              data: { dryRun: false, matched: result.matched, purged: result.purged, remaining: result.remaining, sample: result.sample },
-              meta: { operation: 'nexus.projects.clean', duration_ms: durationMs, timestamp: new Date().toISOString() },
+              data: {
+                dryRun: false,
+                matched: result.matched,
+                purged: result.purged,
+                remaining: result.remaining,
+                sample: result.sample,
+              },
+              meta: {
+                operation: 'nexus.projects.clean',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
             },
             null,
             2,
@@ -1837,7 +1860,15 @@ const projectsCleanCommand = defineCommand({
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify(
-            { success: false, error: { code, message: msg }, meta: { operation: 'nexus.projects.clean', duration_ms: durationMs, timestamp: new Date().toISOString() } },
+            {
+              success: false,
+              error: { code, message: msg },
+              meta: {
+                operation: 'nexus.projects.clean',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
             null,
             2,
           ) + '\n',
