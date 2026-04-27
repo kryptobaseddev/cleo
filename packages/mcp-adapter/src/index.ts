@@ -1,13 +1,12 @@
 /**
  * Public API for the CLEO MCP Adapter.
  *
- * External-only stub that exposes CLEO sentient operations as MCP tools.
- * Does NOT import or wire into internal CLEO dispatch.
+ * External stub that exposes CLEO sentient operations as MCP tools.
+ * Uses `@cleocode/core` SDK directly — no CLI subprocess.
  *
- * @task T1148 W8-9
+ * @task T1485 — MCP adapter SDK migration (T948 prerequisite)
  */
 
-export { runCleo } from './cli-runner.js';
 export { startServer } from './server.js';
 export { ALL_TOOLS, handleToolCall } from './tools.js';
-export type { CliResult, McpContent, McpTool, McpToolResult } from './types.js';
+export type { McpContent, McpTool, McpToolResult } from './types.js';
