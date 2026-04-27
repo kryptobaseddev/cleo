@@ -11,7 +11,14 @@
 
 import { createHash } from 'node:crypto';
 import type { Task } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import {
+  ExitCode,
+  type NexusBlockersShowParams,
+  type NexusDepsParams,
+  type NexusGraphParams,
+  type NexusOrphansListParams,
+  type NexusPathShowParams,
+} from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { checkPermission } from './permissions.js';
@@ -126,7 +133,10 @@ async function computeGlobalChecksum(registry: NexusRegistryFile): Promise<strin
  * Build the global dependency graph from all registered projects.
  * Uses checksum-based caching to avoid unnecessary rebuilds.
  */
-export async function buildGlobalGraph(): Promise<NexusGlobalGraph> {
+export async function buildGlobalGraph(
+  _projectRoot = '',
+  _params: NexusGraphParams = {},
+): Promise<NexusGlobalGraph> {
   const registry = await readRegistryRequired();
   const checksum = await computeGlobalChecksum(registry);
 
@@ -195,10 +205,25 @@ export async function buildGlobalGraph(): Promise<NexusGlobalGraph> {
  * Show dependencies for a task across projects.
  * Supports forward (what this depends on) and reverse (what depends on this) lookups.
  */
+export async function nexusDeps(_projectRoot: string, params: NexusDepsParams): Promise<DepsResult>;
+/** @deprecated Use `nexusDeps(projectRoot, params)` — ADR-057 D1 */
 export async function nexusDeps(
   taskQuery: string,
-  direction: 'forward' | 'reverse' = 'forward',
+  direction?: 'forward' | 'reverse',
+): Promise<DepsResult>;
+export async function nexusDeps(
+  projectRootOrQuery: string,
+  paramsOrDirection?: NexusDepsParams | 'forward' | 'reverse',
 ): Promise<DepsResult> {
+  let taskQuery: string;
+  let direction: 'forward' | 'reverse';
+  if (paramsOrDirection !== undefined && typeof paramsOrDirection === 'object') {
+    taskQuery = paramsOrDirection.query;
+    direction = paramsOrDirection.direction ?? 'forward';
+  } else {
+    taskQuery = projectRootOrQuery;
+    direction = (paramsOrDirection as 'forward' | 'reverse' | undefined) ?? 'forward';
+  }
   if (!validateSyntax(taskQuery)) {
     throw new CleoError(ExitCode.NEXUS_INVALID_SYNTAX, `Invalid query syntax: ${taskQuery}`);
   }
@@ -342,7 +367,10 @@ export async function resolveCrossDeps(
  * Calculate the critical path across project boundaries.
  * Returns the longest dependency chain in the global graph.
  */
-export async function criticalPath(): Promise<CriticalPathResult> {
+export async function criticalPath(
+  _projectRoot = '',
+  _params: NexusPathShowParams = {},
+): Promise<CriticalPathResult> {
   const graph = await buildGlobalGraph();
 
   // Find all leaf nodes (no outgoing dependency edges)
@@ -420,7 +448,17 @@ function traceBack(
  * Analyze the blocking impact of a task across all projects.
  * Uses BFS to find all direct and transitive dependents.
  */
-export async function blockingAnalysis(taskQuery: string): Promise<BlockingAnalysisResult> {
+export async function blockingAnalysis(
+  _projectRoot: string,
+  params: NexusBlockersShowParams,
+): Promise<BlockingAnalysisResult>;
+/** @deprecated Use `blockingAnalysis(projectRoot, params)` — ADR-057 D1 */
+export async function blockingAnalysis(taskQuery: string): Promise<BlockingAnalysisResult>;
+export async function blockingAnalysis(
+  projectRootOrQuery: string,
+  paramsOrUndefined?: NexusBlockersShowParams,
+): Promise<BlockingAnalysisResult> {
+  const taskQuery = paramsOrUndefined !== undefined ? paramsOrUndefined.query : projectRootOrQuery;
   if (!validateSyntax(taskQuery)) {
     throw new CleoError(ExitCode.NEXUS_INVALID_SYNTAX, `Invalid query syntax: ${taskQuery}`);
   }
@@ -465,7 +503,10 @@ export async function blockingAnalysis(taskQuery: string): Promise<BlockingAnaly
  * Detect orphaned cross-project dependencies.
  * Finds tasks with dependency references to projects or tasks that don't exist.
  */
-export async function orphanDetection(): Promise<OrphanEntry[]> {
+export async function orphanDetection(
+  _projectRoot = '',
+  _params: NexusOrphansListParams = {},
+): Promise<OrphanEntry[]> {
   const registry = await readRegistryRequired();
   const orphans: OrphanEntry[] = [];
 
