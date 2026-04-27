@@ -81,6 +81,8 @@ export {
   type NexusImpactResult,
   type NexusRiskLevel,
 } from './impact.js';
+// Ops registry — type source for OpsFromCore<typeof nexus.nexusCoreOps> (T1440)
+export type { nexusCoreOps } from './ops.js';
 // Permissions - three-tier access control
 export {
   canExecute,
