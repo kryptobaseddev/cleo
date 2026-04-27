@@ -27,10 +27,9 @@
 import type { conduit } from '@cleocode/core';
 import {
   defineTypedHandler,
-  lafsError,
-  lafsSuccess,
   type OpsFromCore,
   typedDispatch,
+  wrapConduitImpl,
 } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
@@ -68,177 +67,52 @@ const _conduitTypedHandler = defineTypedHandler<ConduitOps>('conduit', {
   // Query ops
   // -------------------------------------------------------------------------
 
-  status: async (params) => {
-    try {
-      const result = await getStatusImpl(params.agentId);
-      if (!result.success) {
-        return lafsError(
-          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
-          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
-          'status',
-        );
-      }
-      return lafsSuccess(result.data ?? {}, 'status');
-    } catch (error) {
-      return lafsError(
-        'E_CONDUIT',
-        error instanceof Error ? error.message : String(error),
-        'status',
-      );
-    }
-  },
+  status: async (params) => wrapConduitImpl(() => getStatusImpl(params.agentId), 'status'),
 
-  peek: async (params) => {
-    try {
-      const result = await peekImpl(params.agentId, params.limit);
-      if (!result.success) {
-        return lafsError(
-          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
-          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
-          'peek',
-        );
-      }
-      return lafsSuccess(result.data ?? {}, 'peek');
-    } catch (error) {
-      return lafsError('E_CONDUIT', error instanceof Error ? error.message : String(error), 'peek');
-    }
-  },
+  peek: async (params) => wrapConduitImpl(() => peekImpl(params.agentId, params.limit), 'peek'),
 
-  listen: async (params) => {
-    try {
-      const result = await listenTopicImpl(
-        params.topicName,
-        params.agentId,
-        params.limit,
-        params.since,
-      );
-      if (!result.success) {
-        return lafsError(
-          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
-          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
-          'listen',
-        );
-      }
-      return lafsSuccess(result.data ?? {}, 'listen');
-    } catch (error) {
-      return lafsError(
-        'E_CONDUIT',
-        error instanceof Error ? error.message : String(error),
-        'listen',
-      );
-    }
-  },
+  listen: async (params) =>
+    wrapConduitImpl(
+      () => listenTopicImpl(params.topicName, params.agentId, params.limit, params.since),
+      'listen',
+    ),
 
   // -------------------------------------------------------------------------
   // Mutate ops
   // -------------------------------------------------------------------------
 
-  start: async (params) => {
-    try {
-      const result = await startPollingImpl(
-        params.agentId,
-        params.pollIntervalMs,
-        params.groupConversationIds,
-      );
-      if (!result.success) {
-        return lafsError(
-          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
-          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
-          'start',
-        );
-      }
-      return lafsSuccess(result.data ?? {}, 'start');
-    } catch (error) {
-      return lafsError(
-        'E_CONDUIT',
-        error instanceof Error ? error.message : String(error),
-        'start',
-      );
-    }
-  },
+  start: async (params) =>
+    wrapConduitImpl(
+      () => startPollingImpl(params.agentId, params.pollIntervalMs, params.groupConversationIds),
+      'start',
+    ),
 
-  stop: async (_params) => {
-    try {
-      const result = stopPollingImpl();
-      if (!result.success) {
-        return lafsError(
-          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
-          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
-          'stop',
-        );
-      }
-      return lafsSuccess(result.data ?? {}, 'stop');
-    } catch (error) {
-      return lafsError('E_CONDUIT', error instanceof Error ? error.message : String(error), 'stop');
-    }
-  },
+  stop: async (_params) => wrapConduitImpl(() => Promise.resolve(stopPollingImpl()), 'stop'),
 
-  send: async (params) => {
-    try {
-      const result = await sendMessageImpl(
-        params.content,
-        params.to,
-        params.conversationId,
-        params.agentId,
-      );
-      if (!result.success) {
-        return lafsError(
-          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
-          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
-          'send',
-        );
-      }
-      return lafsSuccess(result.data ?? {}, 'send');
-    } catch (error) {
-      return lafsError('E_CONDUIT', error instanceof Error ? error.message : String(error), 'send');
-    }
-  },
+  send: async (params) =>
+    wrapConduitImpl(
+      () => sendMessageImpl(params.content, params.to, params.conversationId, params.agentId),
+      'send',
+    ),
 
-  subscribe: async (params) => {
-    try {
-      const result = await subscribeTopicImpl(params.topicName, params.agentId, params.filter);
-      if (!result.success) {
-        return lafsError(
-          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
-          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
-          'subscribe',
-        );
-      }
-      return lafsSuccess(result.data ?? {}, 'subscribe');
-    } catch (error) {
-      return lafsError(
-        'E_CONDUIT',
-        error instanceof Error ? error.message : String(error),
-        'subscribe',
-      );
-    }
-  },
+  subscribe: async (params) =>
+    wrapConduitImpl(
+      () => subscribeTopicImpl(params.topicName, params.agentId, params.filter),
+      'subscribe',
+    ),
 
-  publish: async (params) => {
-    try {
-      const result = await publishToTopicImpl(
-        params.topicName,
-        params.content,
-        params.kind,
-        params.payload,
-        params.agentId,
-      );
-      if (!result.success) {
-        return lafsError(
-          (result as { error?: { code?: string } }).error?.code ?? 'E_CONDUIT',
-          (result as { error?: { message?: string } }).error?.message ?? 'Unknown error',
-          'publish',
-        );
-      }
-      return lafsSuccess(result.data ?? {}, 'publish');
-    } catch (error) {
-      return lafsError(
-        'E_CONDUIT',
-        error instanceof Error ? error.message : String(error),
-        'publish',
-      );
-    }
-  },
+  publish: async (params) =>
+    wrapConduitImpl(
+      () =>
+        publishToTopicImpl(
+          params.topicName,
+          params.content,
+          params.kind,
+          params.payload,
+          params.agentId,
+        ),
+      'publish',
+    ),
 });
 
 // ---------------------------------------------------------------------------
