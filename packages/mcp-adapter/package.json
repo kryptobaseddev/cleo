@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/mcp-adapter",
-  "version": "2026.4.149",
+  "version": "2026.4.150",
   "description": "External-only MCP adapter stub exposing CLEO sentient operations as MCP tools. Does NOT wire into internal CLEO dispatch — external tools only.",
   "type": "module",
   "main": "./dist/index.js",
