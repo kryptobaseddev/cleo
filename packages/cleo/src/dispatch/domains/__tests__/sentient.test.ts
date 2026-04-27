@@ -1,7 +1,7 @@
 /**
  * Tests for Sentient Domain Handler (typed narrowing — T1421)
  *
- * Validates that the TypedDomainHandler<SentientOps> pattern
+ * Validates that the TypedDomainHandler<OpsFromCore<typeof coreOps>> pattern
  * provides correct param narrowing and zero unintended casts.
  *
  * @task T1421 — Sentient domain typed narrowing (Wave D follow-on)
@@ -118,17 +118,10 @@ describe('SentientHandler — typed narrowing', () => {
       expect(ops.mutate.length).toBeGreaterThan(0);
     });
 
-    it('maintains correct type contracts via SentientOps', () => {
-      // The SentientOps type record maps operation names to [Params, Result] tuples.
-      // Each operation function receives the narrowed Params type automatically.
-      // No per-param `as X` casts are needed in operation implementations.
-
-      // Example structure (verified at compile time):
-      // SentientOps = {
-      //   'propose.list': [ProposeListParams, ProposeListResult];
-      //   'propose.accept': [ProposeAcceptParams, ProposeAcceptResult];
-      //   ... etc
-      // }
+    it('maintains correct type contracts via OpsFromCore inference', () => {
+      // The dispatch layer infers SentientOps from the Core operation registry.
+      // Each operation function receives the narrowed params type automatically,
+      // without importing per-op contract params into the dispatch file.
 
       // This test serves as documentation that the pattern works.
       expect(handler).toBeDefined();
