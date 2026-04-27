@@ -1,524 +1,198 @@
-# @cleocode/core
+# @cleocode/core — CLEO SDK
 
 CLEO core business logic kernel **and canonical SDK surface** — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store.
 
-> **`@cleocode/core` IS the CLEO SDK.** There is no separate `@cleocode/cleo-sdk` package. The facade (`Cleo`), domain namespaces (`tasks`, `sessions`, `memory`, …), and flat free functions are all exposed through per-subpath exports that follow a SemVer-within-CalVer stability contract. See [STABILITY.md](./STABILITY.md) for the full contract, `.dts-snapshots/` for the enforced baseline, and `scripts/generate-dts-snapshots.sh` for the regen tool.
+> **`@cleocode/core` IS the CLEO SDK.** There is no separate `@cleocode/cleo-sdk` package. The `Cleo` facade, domain namespaces, and flat free functions are all exposed through per-subpath exports that follow a CalVer stability contract. See [STABILITY.md](./STABILITY.md) for the full contract and `.dts-snapshots/` for the enforced baseline.
 
-## Overview
+## Quickstart
 
-This package contains the complete business logic implementation for the CLEO ecosystem. It provides programmatic APIs for:
+```ts
+import { startSession } from '@cleocode/core/sessions';
+import { tasksAddOp } from '@cleocode/core/tasks';
 
-- **Task Management**: CRUD operations, dependencies, archival
-- **Session Management**: Start, resume, end sessions with context
-- **Memory Systems**: Brain storage, search, observation
-- **Orchestration**: Multi-agent coordination, wave execution
-- **Lifecycle Management**: Pipeline stages, gates, compliance
-- **Compliance & Validation**: Protocol enforcement, rule checking
+const projectRoot = process.cwd();
 
-The package includes a bundled SQLite store via Drizzle ORM for persistence.
-See [`migrations/README.md`](./migrations/README.md) for the complete guide to authoring,
-maintaining, and recovering database migrations (Hybrid Path A+ workflow).
+// Open a session before performing mutations
+const session = await startSession(projectRoot, { scope: 'global', name: 'my-session' });
 
-## Who consumes this package?
+// Add a task — uniform (projectRoot, params) signature per ADR-057
+const task = await tasksAddOp(projectRoot, {
+  title: 'My task',
+  type: 'task',
+  priority: 'medium',
+});
+```
 
-| Consumer | Recommended subpath | Why |
-|---|---|---|
-| **CLI** (`@cleocode/cleo`) | `@cleocode/core/internal` | Full flat free-function surface used by the dispatch engine. |
-| **Studio UI panels** | `@cleocode/core/sdk` | `Cleo` facade — project-bound, domain-grouped. |
-| **External agents & SDK consumers** (incl. OpenClaw, issue #97) | `@cleocode/core/sdk` | Stable facade with a minimal import cost. |
-| **Type-only tools (validators, docs)** | `@cleocode/core/contracts` | Pure re-export of `@cleocode/contracts` types. |
-| **Memory-only helpers** | `@cleocode/core/memory` | Narrow brain / timeline / STDP surface. |
-| **Task-scoped scripts** | `@cleocode/core/tasks` | CRUD, hierarchy, graph-ops. |
+Or use the `Cleo` facade for a project-bound, domain-grouped interface:
 
-## Subpath contract (`STABILITY.md`)
-
-Every stable subpath is enforced by two CI gates:
-
-1. **Type-baseline snapshots** under `.dts-snapshots/` — run `./scripts/generate-dts-snapshots.sh` to regenerate, `--check` to diff in CI.
-2. **Contract test** at `src/__tests__/subpath-contract.test.ts` — verifies every declared subpath resolves, `import('@cleocode/core/sdk')` returns `Cleo`, and every stable subpath has a snapshot.
-
-Breaking changes to a **stable** subpath require a **CalVer month bump** (e.g. `2026.5.x`) and a one-release-cycle deprecation notice in `STABILITY.md`. See [STABILITY.md](./STABILITY.md) for the full policy.
-
-### Quick SDK example
-
-```typescript
-// Narrow — recommended for external consumers
+```ts
 import { Cleo } from '@cleocode/core/sdk';
 
-const cleo = await Cleo.init('./my-project');
-await cleo.tasks.add({ title: 'Ship subpath contract' });
+const cleo = await Cleo.init(process.cwd());
+
+const session = await cleo.sessions.start({ scope: 'global', name: 'my-session' });
+const task    = await cleo.tasks.add({ title: 'My task', type: 'task', priority: 'medium' });
+
+await cleo.destroy();
 ```
 
 ## Installation
 
 ```bash
+# npm
 npm install @cleocode/core
-```
 
-```bash
+# pnpm (recommended)
 pnpm add @cleocode/core
-```
 
-```bash
+# yarn
 yarn add @cleocode/core
 ```
 
-## API Overview
+**Node.js requirement**: `>=24.0.0`
 
-### Import Patterns
+## Available namespaces
 
-```typescript
-// Pattern 1: Facade (recommended for most use cases)
-import { Cleo } from '@cleocode/core';
-const cleo = await Cleo.init('./project');
+### Primary dispatch domains (9)
 
-// Pattern 2: Namespace access
-import { tasks, sessions, memory, orchestration } from '@cleocode/core';
+These domains map 1:1 to the CLEO CLI dispatch surface and follow the uniform
+`(projectRoot: string, params: <Op>Params) => Promise<<Op>Result>` signature
+mandated by [ADR-057](../../docs/adr/ADR-057-contracts-core-ssot.md).
 
-// Pattern 3: Direct function imports (tree-shakeable)
-import { addTask, startSession, observeBrain } from '@cleocode/core';
+| Domain | Subpath | Purpose |
+|--------|---------|---------|
+| `admin` | `@cleocode/core/admin` | Import/export, project health checks, backup |
+| `check` | `@cleocode/core` *(via internal)* | Protocol compliance, canon validation |
+| `conduit` | `@cleocode/core/conduit` | Inter-agent messaging, local transport |
+| `nexus` | `@cleocode/core/nexus` | Code-intelligence graph, cross-project linking |
+| `pipeline` | `@cleocode/core/pipeline` | RCASD/IVTR pipeline stage management |
+| `playbook` | `@cleocode/core` *(via internal)* | `.cantbook` playbook runtime |
+| `sentient` | `@cleocode/core/sentient` | Tier-2 autonomous proposals, sentient daemon |
+| `sessions` | `@cleocode/core/sessions` | Session lifecycle, briefing, handoff |
+| `tasks` | `@cleocode/core/tasks` | Task CRUD, dependencies, lifecycle, archival |
+
+### Supporting domains
+
+| Domain | Subpath | Purpose |
+|--------|---------|---------|
+| `gc` | `@cleocode/core/gc` | Garbage-collection daemon, transcript pruning |
+| `llm` | `@cleocode/core` | LLM-extraction, transcript ingestion, brain backfill |
+| `memory` | `@cleocode/core/memory` | BRAIN storage, search, STDP, observation |
+| `lifecycle` | `@cleocode/core/lifecycle` | Gate verification, evidence, pipeline stages |
+| `harness` | `@cleocode/core/harness` | CleoOS adapter surface, Pi harness integration |
+
+## Subpath exports
+
+Prefer the **narrowest** subpath that satisfies your need — it reduces import cost and is covered by snapshot-enforced stability gates.
+
+| Subpath | Tier | Use when |
+|---------|------|----------|
+| `@cleocode/core/sdk` | stable | External agents, Studio panels — `Cleo` facade only |
+| `@cleocode/core/tasks` | stable | Task CRUD, hierarchy, graph ops |
+| `@cleocode/core/sessions` | stable | Session lifecycle, briefing, handoff |
+| `@cleocode/core/memory` | stable | Brain observe/search/timeline |
+| `@cleocode/core/nexus` | stable | Code-intelligence graph queries |
+| `@cleocode/core/lifecycle` | stable | Gate verification, pipeline stages |
+| `@cleocode/core/conduit` | stable | Conduit messaging |
+| `@cleocode/core/sentient` | stable | Sentient daemon, proposals |
+| `@cleocode/core/gc` | stable | Garbage-collection daemon |
+| `@cleocode/core/contracts` | stable | Pure `@cleocode/contracts` re-export (types only) |
+| `@cleocode/core` | stable | All namespaces + flat free functions |
+| `@cleocode/core/internal` | **internal** | CLI dispatch only — do NOT import from third-party code |
+
+See [STABILITY.md](./STABILITY.md) for the full tier definitions and breaking-change policy.
+
+## Type definitions
+
+All param/result types live in [`@cleocode/contracts`](../contracts/README.md) and are
+re-exported from `@cleocode/core/contracts`:
+
+```ts
+import type { TasksAddParams, SessionStartParams } from '@cleocode/core/contracts';
+// or directly:
+import type { TasksAddParams } from '@cleocode/contracts';
 ```
 
-### The Cleo Facade
+Do **not** inline or mock types — always import from `@cleocode/contracts`.
 
-The `Cleo` class provides a unified interface to all CLEO functionality:
+## Usage examples
 
-```typescript
-import { Cleo } from '@cleocode/core';
+### Task operations
 
-// Initialize CLEO for a project
-const cleo = await Cleo.init('./my-project', {
-  configPath: './.cleo/config.yaml',
-  logLevel: 'info'
-});
+```ts
+import { tasksAddOp, tasksShowOp, tasksListOp, tasksCompleteOp } from '@cleocode/core/tasks';
 
-// Task operations
-await cleo.tasks.add({ title: 'New task', priority: 'high' });
-const task = await cleo.tasks.show('T1234');
-await cleo.tasks.complete('T1234');
+const root = process.cwd();
 
-// Session operations
-const session = await cleo.sessions.start({ scope: 'feature-branch' });
-await cleo.sessions.end(session.id);
-
-// Memory operations
-await cleo.memory.observe({ topic: 'architecture', content: '...' });
-const entries = await cleo.memory.search('auth pattern');
-
-// Cleanup
-await cleo.destroy();
-```
-
-### Namespaces
-
-All functionality is organized into namespaces:
-
-| Namespace | Purpose |
-|-----------|---------|
-| `tasks` | Task CRUD, dependencies, archival |
-| `sessions` | Session lifecycle, context, checkpoints |
-| `memory` | Brain storage, search, observation |
-| `orchestration` | Multi-agent coordination, waves, consensus |
-| `lifecycle` | Pipeline stages, gates, compliance |
-| `compliance` | Protocol enforcement, validation rules |
-| `codebaseMap` | Project structure analysis |
-| `phases` | Phase management and transitions |
-| `release` | Release management, versioning |
-| `research` | Research workflows, web extraction |
-| `skills` | Skill management and execution |
-| `sticky` | Ephemeral notes and context |
-| `validation` | Task validation and verification |
-| `nexus` | Multi-project sync and sharing |
-| `adrs` | Architecture Decision Records |
-| `admin` | Administrative operations |
-| `caamp` | Context-aware agent memory protocol |
-| `context` | Context management and injection |
-| `inject` | Context injection utilities |
-| `issue` | Issue tracking integration |
-| `metrics` | Performance metrics and analytics |
-| `migration` | Database migrations |
-| `observability` | Logging, monitoring, tracing |
-| `otel` | OpenTelemetry integration |
-| `pipeline` | Pipeline execution |
-| `reconciliation` | Task sync and reconciliation |
-| `remote` | Remote operations |
-| `roadmap` | Roadmap planning |
-| `routing` | Request routing |
-| `security` | Security utilities |
-| `sequence` | Task sequencing |
-| `signaldock` | Signal handling |
-| `snapshot` | Project snapshots |
-| `spawn` | Subagent spawning |
-| `stats` | Statistics and reporting |
-| `system` | System operations |
-| `taskWork` | Active task tracking |
-| `templates` | Template management |
-| `ui` | UI utilities |
-
-### Task Operations
-
-```typescript
-import { tasks, addTask, listTasks, completeTask, updateTask, deleteTask } from '@cleocode/core';
-
-// Create a task
-const task = await addTask({
-  title: 'Implement user authentication',
-  description: 'Add JWT-based auth',
+const task = await tasksAddOp(root, {
+  title: 'Implement login endpoint',
+  type: 'task',
   priority: 'high',
-  type: 'feature',
   size: 'medium',
-  labels: ['backend', 'security']
+  parent: 'T1000',            // optional parent task/epic ID
+  depends: ['T1001'],         // optional dependency list
 });
 
-// List tasks
-const allTasks = await listTasks({ status: ['pending', 'in_progress'] });
-
-// Update a task
-await updateTask('T1234', { priority: 'urgent', labels: ['backend', 'security', 'urgent'] });
-
-// Complete a task
-await completeTask('T1234', { notes: 'Implemented with bcrypt and JWT' });
-
-// Delete a task
-await deleteTask('T1234');
-
-// Using namespace
-await tasks.add({ title: 'Another task' });
-await tasks.archive(['T1234', 'T1235']);
+const detail  = await tasksShowOp(root,     { taskId: task.data.id });
+const list    = await tasksListOp(root,     { status: ['pending', 'in_progress'] });
+await tasksCompleteOp(root, { taskId: task.data.id });
 ```
 
-### Session Operations
+### Session operations
 
-```typescript
-import { sessions, startSession, endSession, listSessions, resumeSession } from '@cleocode/core';
+```ts
+import { startSession, endSession, sessionStatus } from '@cleocode/core/sessions';
 
-// Start a session
-const session = await startSession({
-  scope: 'feature/authentication',
-  notes: 'Working on auth system'
+const root    = process.cwd();
+const session = await startSession(root, { scope: 'feature/auth', name: 'auth-session' });
+
+const status  = await sessionStatus(root, { id: session.id });
+
+await endSession(root, { id: session.id, note: 'Completed login endpoint' });
+```
+
+### Memory (BRAIN) operations
+
+```ts
+import { observeBrain, searchBrain, timelineBrain } from '@cleocode/core/memory';
+
+const root = process.cwd();
+
+await observeBrain(root, {
+  text: 'Using bcrypt with cost factor 12 for password hashing',
+  title: 'auth-password-hashing',
 });
 
-// List active sessions
-const activeSessions = await listSessions({ status: 'active' });
-
-// Resume a session
-await resumeSession(session.id);
-
-// End a session
-await endSession(session.id, { summary: 'Completed auth implementation' });
+const results  = await searchBrain(root, { query: 'auth', limit: 5 });
+const timeline = await timelineBrain(root, { limit: 20 });
 ```
 
-### Memory Operations
+### Facade (all-in-one)
 
-```typescript
-import { memory, observeBrain, searchBrain, searchBrainCompact, timelineBrain, fetchBrainEntries } from '@cleocode/core';
-
-// Observe (store) a memory
-await observeBrain({
-  topic: 'authentication-pattern',
-  content: 'Using JWT with refresh tokens',
-  tags: ['auth', 'pattern'],
-  confidence: 0.95
-});
-
-// Search memories
-const results = await searchBrain('authentication', { limit: 10 });
-
-// Compact search (lightweight)
-const compact = await searchBrainCompact('auth', { maxResults: 5 });
-
-// Timeline view
-const timeline = await timelineBrain({ from: '2026-01-01', to: '2026-03-01' });
-
-// Fetch specific entries
-const entries = await fetchBrainEntries(['entry-1', 'entry-2']);
-```
-
-### Orchestration
-
-```typescript
-import { orchestration } from '@cleocode/core';
-
-// Analyze dependencies
-const analysis = await orchestration.analyze({
-  taskIds: ['T1234', 'T1235', 'T1236'],
-  includeBlocked: true
-});
-
-// Execute in waves (parallel where possible)
-const waves = await orchestration.waves({
-  taskIds: ['T1234', 'T1235', 'T1236', 'T1237'],
-  maxParallel: 3
-});
-
-// Bootstrap orchestration
-await orchestration.bootstrap({
-  projectPath: './my-project',
-  config: { autoSpawn: true }
-});
-
-// Validate spawn context
-const validation = await orchestration.validateSpawn({
-  taskId: 'T1234',
-  context: { memoryBudget: 100000 }
-});
-```
-
-### Compliance & Validation
-
-```typescript
-import { compliance, validation } from '@cleocode/core';
-
-// Check compliance
-const report = await compliance.check({
-  taskId: 'T1234',
-  rules: ['has-description', 'has-acceptance-criteria']
-});
-
-// Validate task structure
-const result = await validation.validateTask({
-  taskId: 'T1234',
-  schema: 'standard'
-});
-```
-
-### Configuration
-
-```typescript
-import { loadConfig, getConfigValue, setConfigValue, getRawConfig } from '@cleocode/core';
-
-// Load configuration
-const config = await loadConfig();
-
-// Get a config value
-const logLevel = getConfigValue('logging.level');
-
-// Set a config value
-await setConfigValue('logging.level', 'debug');
-```
-
-### Paths & Project Info
-
-```typescript
-import { 
-  getProjectRoot, 
-  getCleoDir, 
-  isProjectInitialized,
-  getProjectInfo,
-  resolveProjectPath
-} from '@cleocode/core';
-
-// Get project root
-const root = getProjectRoot();
-
-// Get .cleo directory
-const cleoDir = getCleoDir();
-
-// Check if initialized
-if (isProjectInitialized()) {
-  const info = await getProjectInfo();
-  console.log(`Project: ${info.name}`);
-}
-```
-
-### Logging
-
-```typescript
-import { getLogger, initLogger, closeLogger } from '@cleocode/core';
-
-// Initialize logger
-initLogger('./.cleo', {
-  level: 'info',
-  filePath: 'logs/cleo.log'
-});
-
-// Get logger instance
-const logger = getLogger('my-module');
-logger.info('Starting operation');
-logger.debug({ taskId: 'T1234' }, 'Task details');
-
-// Cleanup
-closeLogger();
-```
-
-### Hooks
-
-```typescript
-import { hooks, HookRegistry } from '@cleocode/core';
-
-// Register a hook
-hooks.register('onTaskCreate', async (context) => {
-  console.log(`Task created: ${context.taskId}`);
-});
-
-// Dispatch a hook
-await hooks.dispatch('onTaskCreate', { taskId: 'T1234' });
-```
-
-### Output Formatting
-
-```typescript
-import { formatOutput, formatSuccess, formatError, pushWarning } from '@cleocode/core';
-
-// Format successful response
-const success = formatSuccess({ taskId: 'T1234', title: 'My Task' });
-
-// Format error response
-const error = formatError('E_TASK_NOT_FOUND', { taskId: 'T1234' });
-
-// Add warning
-pushWarning('Task is overdue');
-```
-
-### Pagination
-
-```typescript
-import { paginate, createPage } from '@cleocode/core';
-
-// Paginate results
-const page = paginate(allTasks, { page: 1, limit: 20 });
-
-// Create a page object
-const pageObj = createPage({
-  items: tasks,
-  total: 100,
-  page: 1,
-  limit: 20
-});
-```
-
-### Error Handling
-
-```typescript
-import { CleoError, getErrorDefinition, ERROR_CATALOG } from '@cleocode/core';
-
-// Throw CLEO error
-throw new CleoError('E_TASK_NOT_FOUND', { taskId: 'T1234' });
-
-// Get error definition
-const def = getErrorDefinition('E_TASK_NOT_FOUND');
-console.log(def.message); // "Task not found"
-```
-
-### Platform Utilities
-
-```typescript
-import { 
-  getSystemInfo, 
-  detectPlatform, 
-  getIsoTimestamp,
-  sha256,
-  PLATFORM
-} from '@cleocode/core';
-
-// Get system information
-const info = getSystemInfo();
-console.log(info.platform, info.arch, info.nodeVersion);
-
-// Current platform
-const platform = detectPlatform();
-
-// ISO timestamp
-const timestamp = getIsoTimestamp();
-
-// Hash
-const hash = sha256('content to hash');
-```
-
-### Migration
-
-```typescript
-import { 
-  runMigration, 
-  runAllMigrations, 
-  getMigrationStatus,
-  compareSemver,
-  detectVersion
-} from '@cleocode/core';
-
-// Run a specific migration
-await runMigration('v2.0.0');
-
-// Run all pending migrations
-await runAllMigrations();
-
-// Check migration status
-const status = await getMigrationStatus();
-```
-
-### Store / Data Accessor
-
-```typescript
-import { createDataAccessor, getAccessor } from '@cleocode/core';
-
-// Create data accessor for a project
-const accessor = createDataAccessor('./my-project');
-
-// Get global accessor
-const globalAccessor = getAccessor();
-
-// Use accessor
-const tasks = await accessor.queryTasks({ status: ['pending'] });
-await accessor.updateTask('T1234', { status: 'completed' });
-```
-
-## Usage Examples
-
-### Complete Workflow Example
-
-```typescript
-import { Cleo } from '@cleocode/core';
+```ts
+import { Cleo } from '@cleocode/core/sdk';
 
 async function main() {
-  // Initialize CLEO
-  const cleo = await Cleo.init('./my-project');
-  
+  const cleo = await Cleo.init(process.cwd());
+
   try {
-    // Create tasks for a feature
-    const epic = await cleo.tasks.add({
-      title: 'User Authentication System',
-      type: 'epic',
-      priority: 'high'
-    });
-    
-    const task1 = await cleo.tasks.add({
-      title: 'Implement login endpoint',
-      parentId: epic.id,
-      type: 'task',
-      priority: 'high'
-    });
-    
-    const task2 = await cleo.tasks.add({
-      title: 'Add password hashing',
-      parentId: epic.id,
+    const epic = await cleo.tasks.add({ title: 'Auth System', type: 'epic', priority: 'high' });
+
+    const task = await cleo.tasks.add({
+      title: 'Implement JWT validation',
       type: 'task',
       priority: 'high',
-      dependsOn: [task1.id]
+      parent: epic.data.id,
     });
-    
-    // Start a session
-    const session = await cleo.sessions.start({
-      scope: 'auth-feature',
-      notes: 'Implementing authentication'
-    });
-    
-    // Store architectural decision
+
+    await cleo.sessions.start({ scope: 'feature/auth', name: 'auth-sprint' });
+
     await cleo.memory.observe({
-      topic: 'auth-architecture',
-      content: 'Using bcrypt for password hashing with cost factor 12',
-      tags: ['architecture', 'security', 'auth'],
-      confidence: 0.95
+      text: 'JWT validated via RS256 — symmetric HMAC rejected',
+      title: 'jwt-algo-decision',
     });
-    
-    // Complete work
-    await cleo.tasks.start(task1.id);
-    await cleo.tasks.complete(task1.id);
-    
-    // End session
-    await cleo.sessions.end(session.id, {
-      summary: 'Completed login endpoint'
-    });
-    
+
+    await cleo.tasks.complete({ taskId: task.data.id });
   } finally {
     await cleo.destroy();
   }
@@ -527,92 +201,58 @@ async function main() {
 main().catch(console.error);
 ```
 
-### Working with Dependencies
+## Error handling
 
-```typescript
-import { tasks, orchestration } from '@cleocode/core';
+All functions return LAFS-compliant envelopes `{ success: boolean; data?: T; error?: E; meta: M }`.
+Errors extend `CleoError` and carry a typed code from the `ERROR_CATALOG`:
 
-async function manageDependencies() {
-  // Add tasks with dependencies
-  const backend = await tasks.add({ title: 'Backend API' });
-  const frontend = await tasks.add({ 
-    title: 'Frontend UI',
-    dependsOn: [backend.id]
-  });
-  const tests = await tasks.add({
-    title: 'Integration Tests',
-    dependsOn: [backend.id, frontend.id]
-  });
-  
-  // Analyze dependency tree
-  const analysis = await orchestration.analyze({
-    taskIds: [backend.id, frontend.id, tests.id]
-  });
-  
-  // Get execution order
-  console.log('Execution order:', analysis.sequence);
-  
-  // Find blocked tasks
-  console.log('Blocked:', analysis.blocked);
+```ts
+import { CleoError } from '@cleocode/core';
+
+try {
+  await tasksShowOp(root, { taskId: 'T9999' });
+} catch (err) {
+  if (err instanceof CleoError) {
+    console.error(err.code);    // e.g. 'E_NOT_FOUND'
+    console.error(err.message); // human-readable description
+  }
 }
 ```
 
-### Memory Bridge Example
+See [`@cleocode/contracts`](../contracts/README.md) for the full error catalog and `ExitCode` enum.
 
-```typescript
-import { memory } from '@cleocode/core';
+## Versioning policy
 
-async function buildKnowledge() {
-  // Store observations
-  await memory.observe({
-    topic: 'database-choice',
-    content: 'Selected PostgreSQL over MongoDB for ACID compliance',
-    tags: ['database', 'decision'],
-    confidence: 0.9
-  });
-  
-  await memory.observe({
-    topic: 'api-design',
-    content: 'RESTful API with OpenAPI 3.0 spec',
-    tags: ['api', 'design'],
-    confidence: 0.95
-  });
-  
-  // Search for patterns
-  const results = await memory.search('database', { 
-    tags: ['decision'],
-    limit: 5 
-  });
-  
-  // Build context for AI
-  const context = results.map(r => ({
-    topic: r.topic,
-    content: r.content,
-    confidence: r.confidence
-  }));
-}
-```
+`@cleocode/core` uses **CalVer** (`YYYY.M.PATCH`) to express calendar-position compatibility with the CLEO CLI:
 
-## Dependencies
+| Change class | Version impact |
+|---|---|
+| Non-breaking addition to a stable subpath | `PATCH` bump only |
+| Breaking change to a **stable** subpath | CalVer **month bump** (`2026.5.x`) |
+| Breaking change to an **internal** subpath | `PATCH` bump; documented in CHANGELOG |
+| Removal of a deprecated symbol | Requires one-release-cycle advance notice in `STABILITY.md` |
 
-### Production Dependencies
+If this package is ever forked as a standalone SDK (decoupled from the CLEO CLI release train), SemVer (`MAJOR.MINOR.PATCH`) will be adopted at that fork point with a major version bump. Until then, CalVer is canonical and the `PATCH` component carries no SemVer semantics.
 
-- `@cleocode/contracts` - Type definitions
-- `@cleocode/caamp` - Context-aware agent memory protocol
-- `@cleocode/lafs` - Language-agnostic feedback schema
-- `drizzle-orm` - Database ORM
-- `zod` - Schema validation
-- `pino` - Logging
-- `yaml` - YAML parsing
-- `ajv` - JSON Schema validation
-- And more...
+## Architecture references
 
-### Development Dependencies
+- [ADR-057: Contracts/Core SSoT layering — uniform `(projectRoot, params)` Core API](../../docs/adr/ADR-057-contracts-core-ssot.md)
+- [ADR-058: Dispatch type inference via `OpsFromCore<C>`](../../docs/adr/ADR-058-dispatch-type-inference.md)
+- [STABILITY.md](./STABILITY.md) — per-subpath stability tiers and breaking-change policy
+- [`@cleocode/contracts`](../contracts/README.md) — all shared types (Params, Results, envelopes)
 
-- `typescript` - Type checking
-- `vitest` - Testing framework
-- `@types/*` - Type definitions
+## Package boundary
+
+`@cleocode/core` is the **SDK** — runtime primitives, domain logic, store, memory, sentient, and GC.
+
+| Do | Do not |
+|---|---|
+| Import from `@cleocode/core/sdk` or narrow subpaths | Import from `@cleocode/core/internal` in third-party code |
+| Use `@cleocode/contracts` types | Inline or mock types |
+| Call `Cleo.init()` / domain ops | Access the SQLite store directly |
+
+See the monorepo [AGENTS.md](../../AGENTS.md) for the full package-boundary contract.
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) for details.
+MIT — see [LICENSE](../../LICENSE) for details.
