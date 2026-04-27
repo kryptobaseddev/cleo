@@ -22,6 +22,11 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type {
+  AdminDbLocalityCheck as DbLocalityCheck,
+  AdminSmokeProviderResult as SmokeProviderResult,
+  AdminSpawnStatus as SpawnStatus,
+} from '@cleocode/contracts/operations/admin';
 import { BRAIN_DB_FILENAME, CLEO_DIR_NAME } from '../../../cli/paths.js';
 import type { EngineResult } from '../../engines/_error.js';
 import { engineError, engineSuccess } from '../../engines/_error.js';
@@ -44,45 +49,6 @@ const VALID_PROVIDER_IDS = [
 
 /** Provider IDs supported by the CLEO adapter registry. */
 export type KnownProviderId = (typeof VALID_PROVIDER_IDS)[number];
-
-// ---------------------------------------------------------------------------
-// Result types
-// ---------------------------------------------------------------------------
-
-/** Locality status of a single CLEO-owned database file. */
-export interface DbLocalityCheck {
-  /** Database name (e.g. `"brain.db"`). */
-  name: string;
-  /** Whether the DB path resolves under CLEO-owned storage. */
-  local: boolean;
-  /** Resolved absolute path. */
-  path: string;
-}
-
-/** Spawn implementation classification for a provider adapter. */
-export type SpawnStatus = 'yes' | 'stub' | 'no';
-
-/** Complete result of a provider harness sovereignty probe. */
-export interface SmokeProviderResult {
-  /** Provider ID that was probed. */
-  providerId: string;
-  /** Whether the adapter dist module resolved with the expected CLEOProviderAdapter shape. */
-  adapterLoaded: boolean;
-  /** Locality checks for the four CLEO-owned databases. */
-  dbChecks: DbLocalityCheck[];
-  /** Count of CAAMP canonical hook events referenced in the provider's hooks.ts. */
-  hooksDeclared: number;
-  /** Spawn implementation classification. */
-  spawnStatus: SpawnStatus;
-  /** Absolute path returned by `getProviderAgentFolder`, or null when provider is unknown. */
-  agentFolder: string | null;
-  /** Whether all ADR-049 invariants passed. */
-  passed: boolean;
-  /** Human-readable failure reason when `passed` is false. */
-  failureReason?: string;
-  /** Formatted plain-text report block for CLI rendering. */
-  report: string;
-}
 
 // ---------------------------------------------------------------------------
 // Internal helpers

@@ -173,6 +173,9 @@ export type SessionBriefingShowResult = unknown;
 // session.history (query — not in primary handler but exported for completeness)
 /** Parameters for `session.history`. */
 export interface SessionHistoryParams {
+  /** Specific session id to filter to. */
+  sessionId?: string;
+  /** Maximum number of sessions to return. */
   limit?: number;
 }
 /** A single session history entry. */
