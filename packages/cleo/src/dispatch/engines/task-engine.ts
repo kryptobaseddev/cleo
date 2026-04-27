@@ -263,7 +263,7 @@ export async function taskShowWithHistory(
     // Fetch lifecycle stages — empty array on any failure (task may have no pipeline).
     let history: LifecycleStageEntry[] = [];
     try {
-      const status = await getLifecycleStatus(taskId, projectRoot);
+      const status = await getLifecycleStatus(projectRoot ?? process.cwd(), { taskId });
       history = status.stages.map(
         (s): LifecycleStageEntry => ({
           stage: s.stage,

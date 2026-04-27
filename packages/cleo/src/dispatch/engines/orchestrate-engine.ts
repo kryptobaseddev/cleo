@@ -1181,12 +1181,12 @@ export async function orchestrateStartup(
     // getLifecycleStatus returns initialized:false when no pipeline exists.
     // recordStageProgress creates the pipeline + stage record idempotently via
     // ensureLifecycleContext, so re-invoking orchestrateStartup is safe.
-    const lifecycleStatus = await getLifecycleStatus(epicId, root);
+    const lifecycleStatus = await getLifecycleStatus(root, { epicId });
     let autoInitialized = false;
     let currentStage: string;
 
     if (!lifecycleStatus.initialized) {
-      await recordStageProgress(epicId, 'research', 'in_progress', undefined, root);
+      await recordStageProgress(root, { taskId: epicId, stage: 'research', status: 'in_progress' });
       autoInitialized = true;
       currentStage = 'research';
     } else {
