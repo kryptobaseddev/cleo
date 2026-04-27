@@ -46,7 +46,6 @@ function readPackageVersion(packageJsonPath: string): string {
  * Handle version flags before delegating to Pi.
  *
  * - `--version` / `-V`: prints the CleoOS version from its own package.json.
- * - `--cleo-version`: prints the @cleocode/cleo CLI version.
  *
  * @param args - User-supplied CLI arguments.
  * @returns `true` if a version flag was handled (caller should exit), `false` otherwise.
@@ -55,26 +54,6 @@ function handleVersionFlags(args: string[]): boolean {
   if (args.includes('--version') || args.includes('-V')) {
     const version = readPackageVersion(join(__dirname, '..', 'package.json'));
     console.log(`CleoOS v${version}`);
-    return true;
-  }
-
-  if (args.includes('--cleo-version')) {
-    // Resolve @cleocode/cleo package.json via require.resolve pattern
-    let cleoVersion = 'unknown';
-    try {
-      const cleoPkgPath = join(
-        __dirname,
-        '..',
-        'node_modules',
-        '@cleocode',
-        'cleo',
-        'package.json',
-      );
-      cleoVersion = readPackageVersion(cleoPkgPath);
-    } catch {
-      // fallback: already 'unknown'
-    }
-    console.log(`CLEO CLI v${cleoVersion}`);
     return true;
   }
 
