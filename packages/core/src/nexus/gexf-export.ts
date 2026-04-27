@@ -23,7 +23,7 @@ export function escapeXml(str: string): string {
       '<': '&lt;',
       '>': '&gt;',
       '"': '&quot;',
-      "\'": '&apos;',
+      "'": '&apos;',
       '&': '&amp;',
     };
     return map[c];
@@ -118,7 +118,7 @@ export function generateGexf(
         '<': '&lt;',
         '>': '&gt;',
         '"': '&quot;',
-        "\'": '&apos;',
+        "'": '&apos;',
         '&': '&amp;',
       };
       return map[c];
@@ -162,7 +162,7 @@ export function generateGexf(
         '<': '&lt;',
         '>': '&gt;',
         '"': '&quot;',
-        "\'": '&apos;',
+        "'": '&apos;',
         '&': '&amp;',
       };
       return map[c];
@@ -172,7 +172,7 @@ export function generateGexf(
         '<': '&lt;',
         '>': '&gt;',
         '"': '&quot;',
-        "\'": '&apos;',
+        "'": '&apos;',
         '&': '&amp;',
       };
       return map[c];

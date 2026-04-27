@@ -155,10 +155,9 @@ export async function getSymbolContext(
 
   let allRelations: Array<Record<string, unknown>> = [];
   try {
-    allRelations = db
-      .select()
-      .from(nexusSchema.nexusRelations)
-      .all() as Array<Record<string, unknown>>;
+    allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
+      Record<string, unknown>
+    >;
   } catch {
     allRelations = [];
   }
@@ -279,7 +278,10 @@ export async function getSymbolContext(
         isExported: node['isExported'],
         docSummary: node['docSummary'],
         community: community
-          ? { id: communityId, label: community['label'] != null ? String(community['label']) : null }
+          ? {
+              id: communityId,
+              label: community['label'] != null ? String(community['label']) : null,
+            }
           : communityId != null
             ? { id: communityId, label: null }
             : null,
