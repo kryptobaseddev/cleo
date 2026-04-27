@@ -821,6 +821,17 @@ export { getCriticalPath } from './tasks/graph-ops.js';
 export type { TaskTreeNode } from './tasks/hierarchy.js';
 export type { CompactTask } from './tasks/list.js';
 export { toCompact } from './tasks/list.js';
+// Tasks domain — ADR-057 D1 normalized ops (projectRoot, params: <Op>Params) shape
+export {
+  tasksAddOp,
+  tasksArchiveOp,
+  tasksCompleteOp,
+  tasksDeleteOp,
+  tasksFindOp,
+  tasksListOp,
+  tasksShowOp,
+  tasksUpdateOp,
+} from './tasks/ops.js';
 export {
   getPipelineStageOrder,
   isPipelineTransitionForward,
