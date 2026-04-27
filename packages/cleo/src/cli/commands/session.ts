@@ -51,6 +51,10 @@ const startCommand = defineCommand({
     },
     focus: {
       type: 'string',
+      description: 'Set initial task to work on (alias for --start-task)',
+    },
+    'start-task': {
+      type: 'string',
       description: 'Set initial task to work on',
     },
     agent: {
@@ -86,7 +90,8 @@ const startCommand = defineCommand({
         scope: args.scope,
         name: args.name,
         autoStart: (args['auto-start'] || args['auto-focus']) as boolean | undefined,
-        focus: args.focus as string | undefined,
+        // CLI-level alias normalization: --focus and --start-task both map to startTask (ADR-057 D2)
+        startTask: (args['start-task'] ?? args.focus) as string | undefined,
         grade: args.grade as boolean | undefined,
         ownerAuthToken,
       },
