@@ -62,10 +62,7 @@ import {
   checkTestStatus,
   checkValidateProtocol,
 } from '@cleocode/core/internal';
-import {
-  validateGateVerify,
-  validateProtocolConsensus,
-} from '../../lib/engine.js';
+import { validateGateVerify, validateProtocolConsensus } from '../../lib/engine.js';
 
 describe('CheckHandler Operations', () => {
   let handler: CheckHandler;
@@ -161,7 +158,10 @@ describe('CheckHandler Operations', () => {
   describe('protocol', () => {
     it('calls checkValidateProtocol (generic) when no type provided', async () => {
       await handler.query('protocol', { taskId: 'T1' });
-      expect(checkValidateProtocol).toHaveBeenCalledWith('/mock/project', expect.objectContaining({ taskId: 'T1' }));
+      expect(checkValidateProtocol).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({ taskId: 'T1' }),
+      );
     });
 
     it('calls validateProtocolConsensus when type is consensus', async () => {
