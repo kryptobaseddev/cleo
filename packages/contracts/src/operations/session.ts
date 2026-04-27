@@ -198,8 +198,6 @@ export interface SessionStartParams {
   name?: string;
   autoStart?: boolean;
   startTask?: string;
-  /** Alias for startTask — accepted from CLI for backward compat. */
-  focus?: string;
   /** Enable full query+mutation audit logging for behavioral grading. */
   grade?: boolean;
   /**

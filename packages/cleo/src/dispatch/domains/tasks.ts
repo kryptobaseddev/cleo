@@ -470,7 +470,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       description: params.description,
       status: params.status,
       priority: params.priority,
-      notes: params.notes ?? params.note,
+      notes: params.notes,
       labels: params.labels,
       addLabels: params.addLabels,
       removeLabels: params.removeLabels,
@@ -644,7 +644,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
 
   'relates.add': async (params: TasksRelatesAddParams) => {
     const projectRoot = getProjectRoot();
-    // Accept both targetId and relatedId for compatibility (T5149)
+    // SSoT-EXEMPT: targetId is a backward-compat alias for relatedId (T5149); both fields exist in TasksRelatesAddParams by design
     const relatedId = params.relatedId ?? params.targetId;
     if (!relatedId) {
       return lafsError('E_INVALID_INPUT', 'relatedId (or targetId) is required', 'relates.add');

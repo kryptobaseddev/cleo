@@ -243,7 +243,7 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
       scope: params.scope,
       name: params.name,
       autoStart: params.autoStart,
-      startTask: params.startTask ?? params.focus,
+      startTask: params.startTask,
       grade: params.grade,
     });
 

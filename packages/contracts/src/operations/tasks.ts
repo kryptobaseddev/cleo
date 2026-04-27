@@ -564,10 +564,11 @@ export interface TasksReorderQueryParams {
 }
 export type TasksReorderDispatchResult = unknown;
 
-// tasks.relates.add (accepts both relatedId and targetId aliases)
+// tasks.relates.add — relatedId is canonical; targetId kept for backward compat (T5149)
 export interface TasksRelatesAddParams {
   taskId: string;
   relatedId?: string;
+  // SSoT-EXEMPT: targetId is a backward-compat alias for relatedId accepted since T5149; removal is a separate cleanup task
   targetId?: string;
   type: string;
   reason?: string;
@@ -606,7 +607,6 @@ export interface TasksUpdateQueryParams {
   status?: string;
   priority?: string;
   notes?: string;
-  note?: string;
   labels?: string[];
   addLabels?: string[];
   removeLabels?: string[];
