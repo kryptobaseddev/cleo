@@ -30,7 +30,12 @@
  *  - Tests override the dispatcher via the `__playbookRuntimeOverrides`
  *    hook exposed below to keep integration tests hermetic.
  *
+ * Param extraction is type-safe via OpsFromCore<typeof corePlaybook.playbookCoreOps>
+ * inference (T1442 — T1435 Wave 1 dispatch refactor). Zero per-op Params/Result
+ * imports from contracts.
+ *
  * @task T935 — HITL CLI surface for cleo playbook + orchestrate approvals
+ * @task T1442 — playbook dispatch OpsFromCore refactor
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -39,6 +44,7 @@ import { dirname, join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import type { PlaybookApproval, PlaybookRun, PlaybookRunStatus } from '@cleocode/contracts';
+import type { playbook as corePlaybook } from '@cleocode/core';
 import {
   type AgentDispatcher,
   type AgentDispatchInput,
@@ -56,8 +62,15 @@ import {
   parsePlaybook,
   resumePlaybook,
 } from '@cleocode/playbooks';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+} from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { errorResult, getListParams, handleErrorResult } from './_base.js';
+import { getListParams, handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 
 // ---------------------------------------------------------------------------
@@ -120,6 +133,12 @@ interface PlaybookListEnvelope {
   /** Effective status filter (after `active|completed|pending` translation). */
   statusFilter?: PlaybookRunStatus;
 }
+
+// ---------------------------------------------------------------------------
+// OpsFromCore type inference
+// ---------------------------------------------------------------------------
+
+type PlaybookOps = OpsFromCore<typeof corePlaybook.playbookCoreOps>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -321,130 +340,36 @@ function toRunEnvelope(result: ExecutePlaybookResult): PlaybookRunEnvelope {
 }
 
 // ---------------------------------------------------------------------------
-// PlaybookHandler
+// Typed inner handler (Wave D · T1442)
+//
+// The typed handler holds all per-op logic with fully-narrowed params via
+// OpsFromCore<typeof corePlaybook.playbookCoreOps>. The outer DomainHandler
+// class delegates to it so the registry sees the expected query/mutate
+// interface while every param access is type-safe.
 // ---------------------------------------------------------------------------
 
-/**
- * Canonical dispatch handler for the `playbook` domain.
- *
- * Each CLI subcommand routes through exactly one of the four operations:
- *   - `query  playbook.status` → {@link PlaybookHandler.query}
- *   - `query  playbook.list`   → {@link PlaybookHandler.query}
- *   - `mutate playbook.run`    → {@link PlaybookHandler.mutate}
- *   - `mutate playbook.resume` → {@link PlaybookHandler.mutate}
- *
- * @task T935
- */
-export class PlaybookHandler implements DomainHandler {
-  /**
-   * Query gateway — `status`, `list`, and `validate`.
-   */
-  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
-    const startTime = Date.now();
-    try {
-      switch (operation) {
-        case 'status':
-          return this.handleStatus(params, startTime);
-        case 'list':
-          return this.handleList(params, startTime);
-        case 'validate':
-          return this.handleValidate(params, startTime);
-        default:
-          return errorResult(
-            'query',
-            'playbook',
-            operation,
-            'E_INVALID_OPERATION',
-            `Unknown playbook query: ${operation}`,
-            startTime,
-          );
-      }
-    } catch (err) {
-      return handleErrorResult('query', 'playbook', operation, err, startTime);
-    }
-  }
-
-  /**
-   * Mutate gateway — `run` and `resume`.
-   */
-  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
-    const startTime = Date.now();
-    try {
-      switch (operation) {
-        case 'run':
-          return this.handleRun(params, startTime);
-        case 'resume':
-          return this.handleResume(params, startTime);
-        default:
-          return errorResult(
-            'mutate',
-            'playbook',
-            operation,
-            'E_INVALID_OPERATION',
-            `Unknown playbook mutation: ${operation}`,
-            startTime,
-          );
-      }
-    } catch (err) {
-      return handleErrorResult('mutate', 'playbook', operation, err, startTime);
-    }
-  }
-
-  /**
-   * Exposed operations for dispatcher introspection + parity tests.
-   */
-  getSupportedOperations(): { query: string[]; mutate: string[] } {
-    return {
-      query: ['status', 'list', 'validate'],
-      mutate: ['run', 'resume'],
-    };
-  }
-
+const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
   // -----------------------------------------------------------------------
-  // Operation implementations
+  // Query ops
   // -----------------------------------------------------------------------
 
-  private async handleStatus(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    const runId = params?.runId as string | undefined;
+  status: async (params: PlaybookOps['status'][0]) => {
+    const runId = params.runId;
     if (!runId) {
-      return errorResult(
-        'query',
-        'playbook',
-        'status',
-        'E_INVALID_INPUT',
-        'runId is required',
-        startTime,
-      );
+      return lafsError('E_INVALID_INPUT', 'runId is required', 'status');
     }
     const db = await acquireDb();
     const run = getPlaybookRun(db, runId);
     if (run === null) {
-      return errorResult(
-        'query',
-        'playbook',
-        'status',
-        'E_NOT_FOUND',
-        `playbook run ${runId} not found`,
-        startTime,
-      );
+      return lafsError('E_NOT_FOUND', `playbook run ${runId} not found`, 'status');
     }
-    return {
-      meta: dispatchMeta('query', 'playbook', 'status', startTime),
-      success: true,
-      data: run,
-    };
-  }
+    return lafsSuccess(run, 'status');
+  },
 
-  private async handleList(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    const statusFilter = normalizeListStatus(params?.status);
-    const epicId = typeof params?.epicId === 'string' ? params.epicId : undefined;
-    const { limit, offset } = getListParams(params);
+  list: async (params: PlaybookOps['list'][0]) => {
+    const statusFilter = normalizeListStatus(params.status);
+    const epicId = typeof params.epicId === 'string' ? params.epicId : undefined;
+    const { limit, offset } = getListParams(params as Record<string, unknown>);
 
     const db = await acquireDb();
     const opts: Parameters<typeof listPlaybookRunsState>[1] = {};
@@ -463,41 +388,18 @@ export class PlaybookHandler implements DomainHandler {
     };
     if (statusFilter !== undefined) envelope.statusFilter = statusFilter;
 
-    return {
-      meta: dispatchMeta('query', 'playbook', 'list', startTime),
-      success: true,
-      data: envelope,
-    };
-  }
+    return lafsSuccess(envelope, 'list');
+  },
 
-  /**
-   * Validate a `.cantbook` file at an absolute path or a playbook name.
-   *
-   * Accepts either:
-   *  - `file` — absolute or relative path to a `.cantbook` file on disk.
-   *  - `name` — playbook name resolved through the standard search path.
-   *
-   * Returns a LAFS envelope with `valid: true` on success, or an error
-   * envelope with `E_PLAYBOOK_PARSE` and the field/message on failure.
-   * Exit code 70 is passed through from {@link PlaybookParseError}.
-   *
-   * @task T1261 PSYCHE E4
-   */
-  private async handleValidate(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    const file = params?.file as string | undefined;
-    const name = params?.name as string | undefined;
+  validate: async (params: PlaybookOps['validate'][0]) => {
+    const file = params.file;
+    const name = params.name;
 
     if (!file && !name) {
-      return errorResult(
-        'query',
-        'playbook',
-        'validate',
+      return lafsError(
         'E_INVALID_INPUT',
         'Either file (path) or name (playbook name) is required',
-        startTime,
+        'validate',
       );
     }
 
@@ -506,18 +408,9 @@ export class PlaybookHandler implements DomainHandler {
 
     if (file) {
       // Absolute or relative file path.
-      const { existsSync, readFileSync } = await import('node:fs');
-      const { resolve: resolvePath } = await import('node:path');
       const resolved = resolvePath(file);
       if (!existsSync(resolved)) {
-        return errorResult(
-          'query',
-          'playbook',
-          'validate',
-          'E_NOT_FOUND',
-          `playbook file not found: ${resolved}`,
-          startTime,
-        );
+        return lafsError('E_NOT_FOUND', `playbook file not found: ${resolved}`, 'validate');
       }
       sourcePath = resolved;
       source = readFileSync(resolved, 'utf8');
@@ -525,13 +418,10 @@ export class PlaybookHandler implements DomainHandler {
       // Resolve by name through the standard search path.
       const loaded = loadPlaybookByName(name!);
       if (loaded === null) {
-        return errorResult(
-          'query',
-          'playbook',
-          'validate',
+        return lafsError(
           'E_NOT_FOUND',
           `playbook "${name}" not found in any search path`,
-          startTime,
+          'validate',
         );
       }
       sourcePath = loaded.sourcePath;
@@ -540,11 +430,9 @@ export class PlaybookHandler implements DomainHandler {
 
     try {
       const { definition, sourceHash } = parsePlaybook(source);
-      return {
-        meta: dispatchMeta('query', 'playbook', 'validate', startTime),
-        success: true,
-        data: {
-          valid: true,
+      return lafsSuccess(
+        {
+          valid: true as const,
           sourcePath,
           sourceHash,
           name: definition.name,
@@ -555,68 +443,43 @@ export class PlaybookHandler implements DomainHandler {
           hasEnsures: definition.nodes.some((n) => n.ensures !== undefined),
           hasErrorHandlers: (definition.error_handlers?.length ?? 0) > 0,
         },
-      };
+        'validate',
+      );
     } catch (err) {
       if (err instanceof PlaybookParseError) {
-        return errorResult(
-          'query',
-          'playbook',
-          'validate',
+        return lafsError(
           err.code,
           `${err.message}${err.field ? ` [field=${err.field}]` : ''}`,
-          startTime,
+          'validate',
         );
       }
-      return errorResult(
-        'query',
-        'playbook',
-        'validate',
+      return lafsError(
         'E_PLAYBOOK_PARSE',
         err instanceof Error ? err.message : String(err),
-        startTime,
+        'validate',
       );
     }
-  }
+  },
 
-  private async handleRun(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    const name = params?.name as string | undefined;
+  // -----------------------------------------------------------------------
+  // Mutate ops
+  // -----------------------------------------------------------------------
+
+  run: async (params: PlaybookOps['run'][0]) => {
+    const name = params.name;
     if (!name) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'run',
-        'E_INVALID_INPUT',
-        'name is required',
-        startTime,
-      );
+      return lafsError('E_INVALID_INPUT', 'name is required', 'run');
     }
     let initialContext: Record<string, unknown>;
     try {
-      initialContext = parseContextJson(params?.context);
+      initialContext = parseContextJson(params.context);
     } catch (err) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'run',
-        'E_INVALID_INPUT',
-        err instanceof Error ? err.message : String(err),
-        startTime,
-      );
+      return lafsError('E_INVALID_INPUT', err instanceof Error ? err.message : String(err), 'run');
     }
 
     const loaded = loadPlaybookByName(name);
     if (loaded === null) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'run',
-        'E_NOT_FOUND',
-        `playbook "${name}" not found in any search path`,
-        startTime,
-      );
+      return lafsError('E_NOT_FOUND', `playbook "${name}" not found in any search path`, 'run');
     }
 
     // Parse + validate .cantbook via the canonical parser so syntax errors
@@ -626,23 +489,13 @@ export class PlaybookHandler implements DomainHandler {
       parsed = parsePlaybook(loaded.source);
     } catch (err) {
       if (err instanceof PlaybookParseError) {
-        return errorResult(
-          'mutate',
-          'playbook',
-          'run',
+        return lafsError(
           err.code,
           `${err.message}${err.field ? ` [field=${err.field}]` : ''}`,
-          startTime,
+          'run',
         );
       }
-      return errorResult(
-        'mutate',
-        'playbook',
-        'run',
-        'E_PLAYBOOK_PARSE',
-        err instanceof Error ? err.message : String(err),
-        startTime,
-      );
+      return lafsError('E_PLAYBOOK_PARSE', err instanceof Error ? err.message : String(err), 'run');
     }
 
     const db = await acquireDb();
@@ -671,46 +524,28 @@ export class PlaybookHandler implements DomainHandler {
       const code = message.startsWith(E_PLAYBOOK_RUNTIME_INVALID)
         ? E_PLAYBOOK_RUNTIME_INVALID
         : 'E_PLAYBOOK_RUNTIME';
-      return errorResult('mutate', 'playbook', 'run', code, message, startTime);
+      return lafsError(code, message, 'run');
     }
 
-    return {
-      meta: dispatchMeta('mutate', 'playbook', 'run', startTime),
-      success: true,
-      data: {
+    return lafsSuccess(
+      {
         ...toRunEnvelope(result),
         playbookName: parsed.definition.name,
         playbookSource: loaded.sourcePath,
       },
-    };
-  }
+      'run',
+    );
+  },
 
-  private async handleResume(
-    params: Record<string, unknown> | undefined,
-    startTime: number,
-  ): Promise<DispatchResponse> {
-    const runId = params?.runId as string | undefined;
+  resume: async (params: PlaybookOps['resume'][0]) => {
+    const runId = params.runId;
     if (!runId) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_INVALID_INPUT',
-        'runId is required',
-        startTime,
-      );
+      return lafsError('E_INVALID_INPUT', 'runId is required', 'resume');
     }
     const db = await acquireDb();
     const run = getPlaybookRun(db, runId);
     if (run === null) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
-        'E_NOT_FOUND',
-        `playbook run ${runId} not found`,
-        startTime,
-      );
+      return lafsError('E_NOT_FOUND', `playbook run ${runId} not found`, 'resume');
     }
 
     // The approval token lookup doubles as the "gate still pending?" guard.
@@ -719,35 +554,26 @@ export class PlaybookHandler implements DomainHandler {
     // when no approval has been issued yet.
     const approvals = loadApprovalsForRun(db, runId);
     if (approvals.length === 0) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
+      return lafsError(
         'E_APPROVAL_NOT_FOUND',
         `run ${runId} has no approval gates — nothing to resume`,
-        startTime,
+        'resume',
       );
     }
     // Newest approval first — sorted ascending by requested_at so pick tail.
     const latest = approvals[approvals.length - 1] as PlaybookApproval;
     if (latest.status === 'pending') {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
+      return lafsError(
         'E_APPROVAL_PENDING',
         `gate ${latest.approvalId} for run ${runId} is still pending — approve before resuming`,
-        startTime,
+        'resume',
       );
     }
     if (latest.status === 'rejected') {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
+      return lafsError(
         'E_APPROVAL_REJECTED',
         `gate ${latest.approvalId} was rejected${latest.reason ? ` (${latest.reason})` : ''}`,
-        startTime,
+        'resume',
       );
     }
 
@@ -756,36 +582,27 @@ export class PlaybookHandler implements DomainHandler {
     // on-disk search path so the hash is re-validated on every resume.
     const loaded = loadPlaybookByName(run.playbookName);
     if (loaded === null) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
+      return lafsError(
         'E_NOT_FOUND',
         `playbook "${run.playbookName}" not found — cannot resume run ${runId}`,
-        startTime,
+        'resume',
       );
     }
     let parsed: ReturnType<typeof parsePlaybook>;
     try {
       parsed = parsePlaybook(loaded.source);
     } catch (err) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
+      return lafsError(
         'E_PLAYBOOK_PARSE',
         err instanceof Error ? err.message : String(err),
-        startTime,
+        'resume',
       );
     }
     if (parsed.sourceHash !== run.playbookHash) {
-      return errorResult(
-        'mutate',
-        'playbook',
-        'resume',
+      return lafsError(
         'E_PLAYBOOK_HASH_MISMATCH',
         `playbook "${run.playbookName}" source changed since run started (hash drift)`,
-        startTime,
+        'resume',
       );
     }
 
@@ -801,27 +618,124 @@ export class PlaybookHandler implements DomainHandler {
         opts.approvalSecret = __playbookRuntimeOverrides.approvalSecret;
       }
       const result = await resumePlaybook(opts);
-      return {
-        meta: dispatchMeta('mutate', 'playbook', 'resume', startTime),
-        success: true,
-        data: toRunEnvelope(result),
-      };
+      return lafsSuccess(toRunEnvelope(result), 'resume');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.startsWith(E_PLAYBOOK_RESUME_BLOCKED)) {
-        return errorResult(
-          'mutate',
-          'playbook',
-          'resume',
-          E_PLAYBOOK_RESUME_BLOCKED,
-          message,
-          startTime,
-        );
+        return lafsError(E_PLAYBOOK_RESUME_BLOCKED, message, 'resume');
       }
-      return errorResult('mutate', 'playbook', 'resume', 'E_PLAYBOOK_RUNTIME', message, startTime);
+      return lafsError('E_PLAYBOOK_RUNTIME', message, 'resume');
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Op sets — validated before dispatch to prevent unsupported-op errors
+// ---------------------------------------------------------------------------
+
+const QUERY_OPS = new Set<string>(['status', 'list', 'validate']);
+const MUTATE_OPS = new Set<string>(['run', 'resume']);
+
+// ---------------------------------------------------------------------------
+// PlaybookHandler
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical dispatch handler for the `playbook` domain.
+ *
+ * Delegates to the typed handler via `typedDispatch`, which performs the
+ * single trust-boundary cast from `Record<string, unknown>` to the narrowed
+ * `PlaybookOps[op][0]` type.
+ *
+ * Each CLI subcommand routes through exactly one of the four operations:
+ *   - `query  playbook.status` → status
+ *   - `query  playbook.list`   → list
+ *   - `query  playbook.validate` → validate
+ *   - `mutate playbook.run`    → run
+ *   - `mutate playbook.resume` → resume
+ *
+ * @task T935
+ * @task T1442 — OpsFromCore typed-dispatch migration
+ */
+export class PlaybookHandler implements DomainHandler {
+  /**
+   * Query gateway — `status`, `list`, and `validate`.
+   */
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const startTime = Date.now();
+    if (!QUERY_OPS.has(operation)) {
+      return unsupportedOp('query', 'playbook', operation, startTime);
+    }
+    try {
+      const envelope = await typedDispatch(
+        _playbookTypedHandler,
+        operation as keyof PlaybookOps & string,
+        params ?? {},
+      );
+      return {
+        meta: dispatchMeta('query', 'playbook', operation, startTime),
+        success: envelope.success,
+        ...(envelope.success
+          ? { data: envelope.data as unknown }
+          : {
+              error: {
+                code:
+                  envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
+                message: envelope.error?.message ?? 'Unknown error',
+              },
+            }),
+      };
+    } catch (err) {
+      return handleErrorResult('query', 'playbook', operation, err, startTime);
     }
   }
+
+  /**
+   * Mutate gateway — `run` and `resume`.
+   */
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+    const startTime = Date.now();
+    if (!MUTATE_OPS.has(operation)) {
+      return unsupportedOp('mutate', 'playbook', operation, startTime);
+    }
+    try {
+      const envelope = await typedDispatch(
+        _playbookTypedHandler,
+        operation as keyof PlaybookOps & string,
+        params ?? {},
+      );
+      return {
+        meta: dispatchMeta('mutate', 'playbook', operation, startTime),
+        success: envelope.success,
+        ...(envelope.success
+          ? { data: envelope.data as unknown }
+          : {
+              error: {
+                code:
+                  envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
+                message: envelope.error?.message ?? 'Unknown error',
+              },
+            }),
+      };
+    } catch (err) {
+      return handleErrorResult('mutate', 'playbook', operation, err, startTime);
+    }
+  }
+
+  /**
+   * Exposed operations for dispatcher introspection + parity tests.
+   */
+  getSupportedOperations(): { query: string[]; mutate: string[] } {
+    return {
+      query: ['status', 'list', 'validate'],
+      mutate: ['run', 'resume'],
+    };
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Load all approval rows for a run, ordered ascending by `requested_at`
@@ -833,6 +747,10 @@ export class PlaybookHandler implements DomainHandler {
 function loadApprovalsForRun(db: _DatabaseSyncType, runId: string): PlaybookApproval[] {
   return listPlaybookApprovalsState(db, runId);
 }
+
+// ---------------------------------------------------------------------------
+// Exported helpers for orchestrate domain (approval/pending)
+// ---------------------------------------------------------------------------
 
 /**
  * Pure helper to support orchestrate.approve / orchestrate.reject / pending
