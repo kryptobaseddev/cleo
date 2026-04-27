@@ -2,18 +2,19 @@
  * MCP tool definitions and handlers for CLEO sentient operations.
  *
  * Exposes 3 CLEO sentient operations as MCP tools:
- *   1. `cleo_sentient_status`        — query sentient subsystem state
- *   2. `cleo_sentient_propose_list`  — list Tier-2 proposals
+ *   1. `cleo_sentient_status`         — query sentient subsystem state
+ *   2. `cleo_sentient_propose_list`   — list Tier-2 proposals
  *   3. `cleo_sentient_propose_enable` — enable Tier-2 proposal generation
  *                                       (subject to M7 gate on the CLEO side)
  *
  * External tools (Claude Code, LLM clients) call these tools; the adapter
- * delegates to `cleo` CLI subprocess calls.  No internal CLEO code is imported.
+ * delegates to `@cleocode/core` SDK calls.  No CLI subprocess is used.
  *
- * @task T1148 W8-9
+ * @task T1485 — MCP adapter SDK migration (T948 prerequisite)
  */
 
-import { runCleo } from './cli-runner.js';
+import { getSentientDaemonStatus } from '@cleocode/core/sentient/daemon.js';
+import { sentientProposeEnable, sentientProposeList } from '@cleocode/core/sentient/ops.js';
 import type { McpTool, McpToolResult } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -83,11 +84,11 @@ export const ALL_TOOLS: McpTool[] = [TOOL_SENTIENT_STATUS, TOOL_PROPOSE_LIST, TO
 // ---------------------------------------------------------------------------
 
 /**
- * Dispatch an MCP tool call to the appropriate CLEO CLI command.
+ * Dispatch an MCP tool call to the appropriate Core SDK function.
  *
  * @param toolName  - The `name` field from the MCP tool call.
  * @param toolInput - The parsed input parameters.
- * @param opts      - Optional execution options (cwd for CLI subprocess).
+ * @param opts      - Optional execution options (cwd fallback when projectRoot not in input).
  * @returns MCP tool result with text content.
  */
 export async function handleToolCall(
@@ -95,28 +96,53 @@ export async function handleToolCall(
   toolInput: Record<string, string>,
   opts?: { cwd?: string },
 ): Promise<McpToolResult> {
-  const cwd = toolInput['projectRoot'] ?? opts?.cwd ?? process.cwd();
+  const projectRoot = toolInput['projectRoot'] ?? opts?.cwd ?? process.cwd();
 
   switch (toolName) {
     case 'cleo_sentient_status': {
-      const result = await runCleo(['sentient', 'status', '--json'], { cwd });
-      return toMcpResult(result.stdout || result.stderr, !result.success);
+      try {
+        const status = await getSentientDaemonStatus(projectRoot);
+        return toMcpResult(JSON.stringify({ success: true, data: status }), false);
+      } catch (err) {
+        return toMcpResult(
+          JSON.stringify({ success: false, error: { message: String(err) } }),
+          true,
+        );
+      }
     }
 
     case 'cleo_sentient_propose_list': {
-      const args = ['sentient', 'propose', 'list', '--json'];
-      if (toolInput['limit']) args.push('--limit', toolInput['limit']);
-      const result = await runCleo(args, { cwd });
-      return toMcpResult(result.stdout || result.stderr, !result.success);
+      try {
+        const rawLimit = toolInput['limit'];
+        const limit = rawLimit ? Number.parseInt(rawLimit, 10) : 20;
+        const result = await sentientProposeList(projectRoot, { limit });
+        return toMcpResult(JSON.stringify({ success: true, data: result }), false);
+      } catch (err) {
+        return toMcpResult(
+          JSON.stringify({ success: false, error: { message: String(err) } }),
+          true,
+        );
+      }
     }
 
     case 'cleo_sentient_propose_enable': {
-      const result = await runCleo(['sentient', 'propose', 'enable', '--json'], { cwd });
-      // M7 gate failure is surfaced as isError so MCP clients see a clear signal.
-      const isM7Failure =
-        !result.success &&
-        (result.stdout.includes('E_M7_GATE_FAILED') || result.stderr.includes('E_M7_GATE_FAILED'));
-      return toMcpResult(result.stdout || result.stderr, !result.success || isM7Failure);
+      try {
+        const result = await sentientProposeEnable(projectRoot, {});
+        return toMcpResult(JSON.stringify({ success: true, data: result }), false);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        const isM7Failure = code === 'E_M7_GATE_FAILED';
+        return toMcpResult(
+          JSON.stringify({
+            success: false,
+            error: {
+              code: code ?? 'E_SENTIENT_PROPOSE_ENABLE',
+              message: err instanceof Error ? err.message : String(err),
+            },
+          }),
+          isM7Failure,
+        );
+      }
     }
 
     default:
