@@ -38,6 +38,7 @@ export type AdrValidationError = ValidationError;
 export type AdrValidationResult = ValidationResult;
 
 /** Validate all ADRs in .cleo/adrs/ against the schema */
+// SSoT-EXEMPT: zero-params op — no Params contract needed; ADR-057 D1 applies to parameterized ops only
 export async function validateAllAdrs(projectRoot: string): Promise<ValidationResult> {
   const adrsDir = join(projectRoot, '.cleo', 'adrs');
   const schemaPath = join(projectRoot, 'schemas', 'adr-frontmatter.schema.json');

@@ -70,6 +70,7 @@ function collectAdrFiles(dir: string): Array<{ file: string; relPath: string }> 
  * Sync all ADR markdown files into the architecture_decisions table
  * AND regenerate the ADR index (adr-index.jsonl) in one pass.
  */
+// SSoT-EXEMPT: zero-params op — no Params contract needed; ADR-057 D1 applies to parameterized ops only
 export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> {
   const adrsDir = join(projectRoot, '.cleo', 'adrs');
   const result: AdrSyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [], warnings: [] };

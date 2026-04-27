@@ -108,6 +108,7 @@ function computeChecksum(tasks: SnapshotTask[]): string {
  * Export current task state to a snapshot.
  * @task T4882
  */
+// SSoT-EXEMPT: snapshot fns use file-path/cwd args, not projectRoot+params; distinct from dispatch API signature convention per ADR-057 D1
 export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
   const accessor = await getAccessor(cwd);
   const { tasks } = await accessor.queryTasks({});
@@ -146,6 +147,7 @@ export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
  * Write a snapshot to a file.
  * @task T4882
  */
+// SSoT-EXEMPT: snapshot fns use file-path/cwd args, not projectRoot+params; distinct from dispatch API signature convention per ADR-057 D1
 export async function writeSnapshot(snapshot: Snapshot, outputPath: string): Promise<void> {
   const dir = dirname(outputPath);
   if (!existsSync(dir)) {
@@ -158,6 +160,7 @@ export async function writeSnapshot(snapshot: Snapshot, outputPath: string): Pro
  * Read a snapshot from a file.
  * @task T4882
  */
+// SSoT-EXEMPT: snapshot fns use file-path/cwd args, not projectRoot+params; distinct from dispatch API signature convention per ADR-057 D1
 export async function readSnapshot(inputPath: string): Promise<Snapshot> {
   const content = await readFile(inputPath, 'utf-8');
   const parsed = JSON.parse(content) as Snapshot;
@@ -187,6 +190,7 @@ export function getDefaultSnapshotPath(cwd?: string): string {
  * the snapshot version wins only if its updatedAt is newer.
  * @task T4882
  */
+// SSoT-EXEMPT: snapshot fns use file-path/cwd args, not projectRoot+params; distinct from dispatch API signature convention per ADR-057 D1
 export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<ImportResult> {
   const accessor = await getAccessor(cwd);
   const { tasks: localTasks } = await accessor.queryTasks({});
