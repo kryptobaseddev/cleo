@@ -259,12 +259,15 @@ async function createDomainOps(
     discoverRelated: (taskId) => relates.discoverRelated(taskId, cwd, acc),
     listRelations: (taskId) => relates.listRelations(taskId, cwd, acc),
     analyzeTaskPriority: (opts) => analyzeTaskPriority({ ...opts, cwd }, acc),
-    startSession: (options) => sessions.startSession(options, cwd, acc),
-    richEndSession: (options) => sessions.endSession(options, cwd, acc),
-    sessionStatus: () => sessions.sessionStatus(cwd, acc),
-    resumeSession: (sessionId) => sessions.resumeSession(sessionId, cwd, acc),
-    richListSessions: (options) => sessions.listSessions(options, cwd, acc),
-    gcSessions: (maxAgeHours) => sessions.gcSessions(maxAgeHours, cwd, acc),
+    // T1450: session Core fns normalized to (projectRoot, params) signature.
+    // The accessor (acc) and cwd are now resolved internally by Core via getAccessor(projectRoot).
+    startSession: (options) => sessions.startSession(cwd ?? '', options),
+    richEndSession: (options) => sessions.endSession(cwd ?? '', { note: options?.note }),
+    sessionStatus: () => sessions.sessionStatus(cwd ?? '', {}),
+    resumeSession: (sessionId) => sessions.resumeSession(cwd ?? '', { sessionId }),
+    richListSessions: (options) => sessions.listSessions(cwd ?? '', options ?? {}),
+    gcSessions: (maxAgeHours) =>
+      sessions.gcSessions(cwd ?? '', { maxAgeDays: (maxAgeHours ?? 24) / 24 }),
     currentTask: () => taskWork.currentTask(cwd, acc),
     startTask: (taskId: string) => taskWork.startTask(taskId, cwd, acc),
     stopTask: () => taskWork.stopTask(cwd, acc),
