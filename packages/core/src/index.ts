@@ -58,6 +58,12 @@ export * as orchestration from './orchestration/index.js';
 export * as otel from './otel/index.js';
 export * as phases from './phases/index.js';
 export * as pipeline from './pipeline/index.js';
+/**
+ * Canonical dispatch-domain alias for the `playbooks` module (ADR-057 D5 · T1470).
+ * Consumers can do: `import { playbook } from '@cleocode/core'`.
+ * DO NOT REMOVE — complements (does not replace) the `playbooks` export below.
+ */
+export * as playbook from './playbooks/index.js';
 export * as playbooks from './playbooks/index.js';
 export * as reconciliation from './reconciliation/index.js';
 export * as release from './release/index.js';
@@ -67,6 +73,12 @@ export * as roadmap from './roadmap/index.js';
 export * as routing from './routing/index.js';
 export * as security from './security/index.js';
 export * as sequence from './sequence/index.js';
+/**
+ * Canonical dispatch-domain alias for the `sessions` module (ADR-057 D5 · T1470).
+ * Consumers can do: `import { session } from '@cleocode/core'`.
+ * DO NOT REMOVE — complements (does not replace) the `sessions` export below.
+ */
+export * as session from './sessions/index.js';
 export * as sessions from './sessions/index.js';
 // signaldock/ removed — use conduit/ instead (T170 unification)
 export * as skills from './skills/index.js';
@@ -80,6 +92,12 @@ export * as tasks from './tasks/index.js';
 export * as telemetry from './telemetry/index.js';
 export * as templates from './templates/index.js';
 export * as ui from './ui/index.js';
+/**
+ * Canonical dispatch-domain alias for the `validation` module (ADR-057 D5 · T1470).
+ * Consumers can do: `import { check } from '@cleocode/core'`.
+ * DO NOT REMOVE — complements (does not replace) the `validation` export below.
+ */
+export * as check from './validation/index.js';
 export * as validation from './validation/index.js';
 
 // ---------------------------------------------------------------------------
