@@ -21,8 +21,8 @@ export interface ScanAutoRegisterError {
 
 /** Options for {@link scanForProjects}. */
 export interface ProjectsScanOptions {
-  /** Comma-separated or array of search roots (default: ~/code, ~/projects, /mnt/projects). */
-  roots?: string[];
+  /** Comma-separated string or array of search roots (default: ~/code, ~/projects, /mnt/projects). */
+  roots?: string | string[];
   /** Maximum directory traversal depth (default: 4, max: 20). */
   maxDepth?: number;
   /** When true, register all discovered unregistered projects. */
@@ -167,7 +167,21 @@ export async function scanForProjects(opts: ProjectsScanOptions = {}): Promise<P
   const home = homedir();
   const defaultRoots = [path.join(home, 'code'), path.join(home, 'projects'), '/mnt/projects'];
 
-  const rawRoots = opts.roots ?? defaultRoots;
+  // Accept either a comma-separated string or an array of roots
+  let parsedRoots: string[];
+  if (opts.roots == null) {
+    parsedRoots = defaultRoots;
+  } else if (typeof opts.roots === 'string') {
+    parsedRoots = opts.roots
+      .split(',')
+      .map((r) => r.trim())
+      .filter((r) => r.length > 0)
+      .map((r) => (r.startsWith('~') ? path.join(home, r.slice(1)) : path.resolve(r)));
+  } else {
+    parsedRoots = opts.roots;
+  }
+
+  const rawRoots = parsedRoots;
   const roots = rawRoots.filter((r) => {
     try {
       return existsSync(r) && statSync(r).isDirectory();

@@ -21,6 +21,8 @@ export interface NexusDiffOptions {
   beforeRef?: string;
   /** Git ref for the "after" snapshot (default: 'HEAD'). */
   afterRef?: string;
+  /** Override the project ID (default: derived from repoPath). */
+  projectIdOverride?: string;
 }
 
 /** Result envelope for {@link diffNexusIndex}. */
@@ -68,20 +70,20 @@ export interface NexusDiffResult {
  * the changed files, then re-counts to compute deltas. Regressions are
  * flagged when more than 5 relations are removed or any nodes are removed.
  *
- * @param repoPath  - Absolute path to the repository.
- * @param projectId - Nexus project ID.
- * @param opts      - Optional before/after git refs.
+ * @param repoPath - Absolute path to the repository.
+ * @param opts     - Optional before/after git refs and project ID override.
  * @returns Diff result with health classification.
  *
  * @example
- * const result = await diffNexusIndex('/home/user/myproject', 'abc123');
+ * const result = await diffNexusIndex('/home/user/myproject');
  * console.log(result.healthStatus, result.regressions);
  */
 export async function diffNexusIndex(
   repoPath: string,
-  projectId: string,
   opts: NexusDiffOptions = {},
 ): Promise<NexusDiffResult> {
+  const projectId =
+    opts.projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
   const { execFile: execFileNode } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const execFileAsync = promisify(execFileNode);
