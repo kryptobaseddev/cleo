@@ -309,7 +309,8 @@
     "migrations",
     "schemas",
     "templates",
-    "src"
+    "README.md",
+    "STABILITY.md"
   ],
   "devDependencies": {
     "@types/node-cron": "^3.0.11",
