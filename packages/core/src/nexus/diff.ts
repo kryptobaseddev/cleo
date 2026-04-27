@@ -115,9 +115,7 @@ export async function diffNexusIndex(
     changedFiles = diffOutput
       .split('\n')
       .map((f) => f.trim())
-      .filter(
-        (f) => f.length > 0 && (f.endsWith('.ts') || f.endsWith('.js') || f.endsWith('.rs')),
-      );
+      .filter((f) => f.length > 0 && (f.endsWith('.ts') || f.endsWith('.js') || f.endsWith('.rs')));
   } catch {
     // git diff failed — proceed with full status comparison
   }

@@ -13,8 +13,6 @@
  */
 
 import path from 'node:path';
-import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import {
   diffNexusIndex,
   generateGexf,
@@ -24,6 +22,8 @@ import {
   getSymbolImpact,
   scanForProjects,
 } from '@cleocode/core/nexus';
+import { defineCommand, showUsage } from 'citty';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 // ── Subcommand definitions ───────────────────────────────────────────────────
 
@@ -754,19 +754,57 @@ const clustersCommand = defineCommand({
       const result = await getProjectClusters(projectId, repoPath);
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
-        process.stdout.write(JSON.stringify({ success: true, data: result, meta: { operation: 'nexus.clusters', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n');
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.clusters',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
       } else if (result.communities.length === 0) {
-        process.stdout.write(`[nexus] No communities found for project ${projectId}.\n  Run 'cleo nexus analyze' first.\n`);
+        process.stdout.write(
+          `[nexus] No communities found for project ${projectId}.\n  Run 'cleo nexus analyze' first.\n`,
+        );
       } else {
-        process.stdout.write(`[nexus] Communities for project ${projectId} (${result.communities.length} total):\n`);
+        process.stdout.write(
+          `[nexus] Communities for project ${projectId} (${result.communities.length} total):\n`,
+        );
         for (const c of result.communities) {
           const cohesion = typeof c.cohesion === 'number' ? c.cohesion.toFixed(3) : '0.000';
-          process.stdout.write(`  ${String(c.id).padEnd(16)}  label=${String(c.label).padEnd(24)}  symbols=${String(c.symbolCount).padStart(5)}  cohesion=${cohesion}\n`);
+          process.stdout.write(
+            `  ${String(c.id).padEnd(16)}  label=${String(c.label).padEnd(24)}  symbols=${String(c.symbolCount).padStart(5)}  cohesion=${cohesion}\n`,
+          );
         }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (jsonOutput) { process.stdout.write(JSON.stringify({ success: false, error: { code: 'E_CLUSTERS_FAILED', message: msg }, meta: { operation: 'nexus.clusters', duration_ms: Date.now() - startTime, timestamp: new Date().toISOString() } }, null, 2) + '\n'); } else { process.stderr.write(`[nexus] Error: ${msg}\n`); }
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_CLUSTERS_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.clusters',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error: ${msg}\n`);
+      }
       process.exitCode = 1;
     }
   },
@@ -779,9 +817,16 @@ const flowsCommand = defineCommand({
     description: 'List all detected execution flows (processes) from the last analysis',
   },
   args: {
-    path: { type: 'positional', description: 'Path to project directory (default: cwd)', required: false },
+    path: {
+      type: 'positional',
+      description: 'Path to project directory (default: cwd)',
+      required: false,
+    },
     json: { type: 'boolean', description: 'Output result as JSON (LAFS envelope format)' },
-    'project-id': { type: 'string', description: 'Override the project ID (default: auto-detected from path)' },
+    'project-id': {
+      type: 'string',
+      description: 'Override the project ID (default: auto-detected from path)',
+    },
   },
   async run({ args }) {
     const startTime = Date.now();
@@ -793,19 +838,57 @@ const flowsCommand = defineCommand({
       const result = await getProjectFlows(projectId, repoPath);
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
-        process.stdout.write(JSON.stringify({ success: true, data: result, meta: { operation: 'nexus.flows', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n');
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.flows',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
       } else if (result.flows.length === 0) {
-        process.stdout.write(`[nexus] No execution flows found for project ${projectId}.\n  Run 'cleo nexus analyze' first.\n`);
+        process.stdout.write(
+          `[nexus] No execution flows found for project ${projectId}.\n  Run 'cleo nexus analyze' first.\n`,
+        );
       } else {
-        process.stdout.write(`[nexus] Execution flows for project ${projectId} (${result.flows.length} total):\n`);
+        process.stdout.write(
+          `[nexus] Execution flows for project ${projectId} (${result.flows.length} total):\n`,
+        );
         for (const p of result.flows) {
           const processType = p.processType.replace('_community', '');
-          process.stdout.write(`  ${String(p.id).padEnd(30)}  steps=${String(p.stepCount).padStart(3)}  type=${processType.padEnd(12)}  ${String(p.label)}\n`);
+          process.stdout.write(
+            `  ${String(p.id).padEnd(30)}  steps=${String(p.stepCount).padStart(3)}  type=${processType.padEnd(12)}  ${String(p.label)}\n`,
+          );
         }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (jsonOutput) { process.stdout.write(JSON.stringify({ success: false, error: { code: 'E_FLOWS_FAILED', message: msg }, meta: { operation: 'nexus.flows', duration_ms: Date.now() - startTime, timestamp: new Date().toISOString() } }, null, 2) + '\n'); } else { process.stderr.write(`[nexus] Error: ${msg}\n`); }
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_FLOWS_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.flows',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error: ${msg}\n`);
+      }
       process.exitCode = 1;
     }
   },
@@ -815,12 +898,16 @@ const flowsCommand = defineCommand({
 const contextCommand = defineCommand({
   meta: {
     name: 'context',
-    description: 'Show callers, callees, community membership, and process participation for a code symbol',
+    description:
+      'Show callers, callees, community membership, and process participation for a code symbol',
   },
   args: {
     symbol: { type: 'positional', description: 'Symbol name to look up', required: true },
     json: { type: 'boolean', description: 'Output result as JSON (LAFS envelope format)' },
-    'project-id': { type: 'string', description: 'Override the project ID (default: auto-detected from cwd)' },
+    'project-id': {
+      type: 'string',
+      description: 'Override the project ID (default: auto-detected from cwd)',
+    },
     limit: { type: 'string', description: 'Max callers/callees to show per side', default: '20' },
     content: { type: 'boolean', description: 'Append source code content for the symbol' },
   },
@@ -834,26 +921,111 @@ const contextCommand = defineCommand({
     const symbolName = args.symbol as string;
     const showContent = !!args.content;
     try {
-      const result = await getSymbolContext(symbolName, projectId, repoPath, { limit, showContent });
+      const result = await getSymbolContext(symbolName, projectId, repoPath, {
+        limit,
+        showContent,
+      });
       const durationMs = Date.now() - startTime;
       if (result.matchCount === 0) {
-        if (jsonOutput) { process.stdout.write(JSON.stringify({ success: false, error: { code: 'E_NOT_FOUND', message: `No symbol found matching '${symbolName}' in project ${projectId}` }, meta: { operation: 'nexus.context', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n'); } else { process.stdout.write(`[nexus] No symbol found matching '${symbolName}'.\n  Run 'cleo nexus analyze' first, or check the symbol name.\n`); }
-        process.exitCode = 4; return;
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: {
+                  code: 'E_NOT_FOUND',
+                  message: `No symbol found matching '${symbolName}' in project ${projectId}`,
+                },
+                meta: {
+                  operation: 'nexus.context',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stdout.write(
+            `[nexus] No symbol found matching '${symbolName}'.\n  Run 'cleo nexus analyze' first, or check the symbol name.\n`,
+          );
+        }
+        process.exitCode = 4;
+        return;
       }
       if (jsonOutput) {
-        process.stdout.write(JSON.stringify({ success: true, data: result, meta: { operation: 'nexus.context', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n');
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.context',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
       } else {
-        process.stdout.write(`[nexus] Context for symbol '${symbolName}' (${result.matchCount} match${result.matchCount !== 1 ? 'es' : ''}):\n`);
+        process.stdout.write(
+          `[nexus] Context for symbol '${symbolName}' (${result.matchCount} match${result.matchCount !== 1 ? 'es' : ''}):\n`,
+        );
         for (const r of result.results) {
-          process.stdout.write(`\n  Symbol:   ${String(r.name)}  (${String(r.kind)})\n  File:     ${r.filePath ? String(r.filePath) : 'n/a'}${r.startLine ? `:${String(r.startLine)}` : ''}\n` + (r.docSummary ? `  Doc:      ${String(r.docSummary)}\n` : '') + (r.community ? `  Community: ${String(r.community.label ?? r.community.id)}\n` : '') + `  Callers (${r.callers.length}): ${r.callers.length === 0 ? 'none' : r.callers.map((c) => `${String(c.name)}[${String(c.kind)}]`).join(', ')}\n` + `  Callees (${r.callees.length}): ${r.callees.length === 0 ? 'none' : r.callees.map((c) => `${String(c.name)}[${String(c.kind)}]`).join(', ')}\n` + (r.processes.length > 0 ? `  Processes: ${r.processes.map((p) => `${String(p.label)}(${String(p.role)})`).join(', ')}\n` : ''));
-          if (r.source?.source) { const ext = String(r.filePath).split('.').pop() ?? 'txt'; process.stdout.write(`\n  Source (lines ${r.source.startLine}-${r.source.endLine}):\n  \`\`\`${ext}\n${r.source.source.split('\n').map((line) => `  ${line}`).join('\n')}\n  \`\`\`\n`); }
-          else if (r.source?.errors?.length) { process.stdout.write(`\n  [warning] Could not retrieve source: ${r.source.errors[0]}\n`); }
+          process.stdout.write(
+            `\n  Symbol:   ${String(r.name)}  (${String(r.kind)})\n  File:     ${r.filePath ? String(r.filePath) : 'n/a'}${r.startLine ? `:${String(r.startLine)}` : ''}\n` +
+              (r.docSummary ? `  Doc:      ${String(r.docSummary)}\n` : '') +
+              (r.community ? `  Community: ${String(r.community.label ?? r.community.id)}\n` : '') +
+              `  Callers (${r.callers.length}): ${r.callers.length === 0 ? 'none' : r.callers.map((c) => `${String(c.name)}[${String(c.kind)}]`).join(', ')}\n` +
+              `  Callees (${r.callees.length}): ${r.callees.length === 0 ? 'none' : r.callees.map((c) => `${String(c.name)}[${String(c.kind)}]`).join(', ')}\n` +
+              (r.processes.length > 0
+                ? `  Processes: ${r.processes.map((p) => `${String(p.label)}(${String(p.role)})`).join(', ')}\n`
+                : ''),
+          );
+          if (r.source?.source) {
+            const ext = String(r.filePath).split('.').pop() ?? 'txt';
+            process.stdout.write(
+              `\n  Source (lines ${r.source.startLine}-${r.source.endLine}):\n  \`\`\`${ext}\n${r.source.source
+                .split('\n')
+                .map((line) => `  ${line}`)
+                .join('\n')}\n  \`\`\`\n`,
+            );
+          } else if (r.source?.errors?.length) {
+            process.stdout.write(
+              `\n  [warning] Could not retrieve source: ${r.source.errors[0]}\n`,
+            );
+          }
         }
-        if (result.matchCount > 5) { process.stdout.write(`\n  (Showing 5 of ${result.matchCount} matches — use --json for full list)\n`); }
+        if (result.matchCount > 5) {
+          process.stdout.write(
+            `\n  (Showing 5 of ${result.matchCount} matches — use --json for full list)\n`,
+          );
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (jsonOutput) { process.stdout.write(JSON.stringify({ success: false, error: { code: 'E_CONTEXT_FAILED', message: msg }, meta: { operation: 'nexus.context', duration_ms: Date.now() - startTime, timestamp: new Date().toISOString() } }, null, 2) + '\n'); } else { process.stderr.write(`[nexus] Error: ${msg}\n`); }
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_CONTEXT_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.context',
+                duration_ms: Date.now() - startTime,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error: ${msg}\n`);
+      }
       process.exitCode = 1;
     }
   },
@@ -863,12 +1035,16 @@ const contextCommand = defineCommand({
 const impactCommand = defineCommand({
   meta: {
     name: 'impact',
-    description: 'Show blast radius for a code symbol — direct callers (d=1), indirect callers (d=2), transitive (d=3)',
+    description:
+      'Show blast radius for a code symbol — direct callers (d=1), indirect callers (d=2), transitive (d=3)',
   },
   args: {
     symbol: { type: 'positional', description: 'Symbol name to analyze', required: true },
     json: { type: 'boolean', description: 'Output result as JSON (LAFS envelope format)' },
-    'project-id': { type: 'string', description: 'Override the project ID (default: auto-detected from cwd)' },
+    'project-id': {
+      type: 'string',
+      description: 'Override the project ID (default: auto-detected from cwd)',
+    },
     depth: { type: 'string', description: 'Maximum traversal depth (default: 3)', default: '3' },
     why: { type: 'boolean', description: 'Append reasons[] path-strings for each affected symbol' },
   },
@@ -882,33 +1058,104 @@ const impactCommand = defineCommand({
     const maxDepth = Math.min(parseInt(args.depth as string, 10), 5);
     const symbolName = args.symbol as string;
     try {
-      const result = await getSymbolImpact(symbolName, projectId, repoPath, { maxDepth, why: whyFlag });
+      const result = await getSymbolImpact(symbolName, projectId, repoPath, {
+        maxDepth,
+        why: whyFlag,
+      });
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
-        process.stdout.write(JSON.stringify({ success: true, data: result, meta: { operation: 'nexus.impact', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n');
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.impact',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
       } else {
-        process.stdout.write(`[nexus] Impact analysis for '${symbolName}'\n  Target:  ${String(result.targetName)}  (${String(result.targetKind)})\n  File:    ${result.targetFilePath ? String(result.targetFilePath) : 'n/a'}\n  Risk:    ${result.riskLevel}  (${result.totalImpactedNodes} impacted node${result.totalImpactedNodes !== 1 ? 's' : ''})\n`);
-        if (result.totalImpactedNodes === 0) { process.stdout.write('  No callers found — safe to modify.\n'); }
-        else {
+        process.stdout.write(
+          `[nexus] Impact analysis for '${symbolName}'\n  Target:  ${String(result.targetName)}  (${String(result.targetKind)})\n  File:    ${result.targetFilePath ? String(result.targetFilePath) : 'n/a'}\n  Risk:    ${result.riskLevel}  (${result.totalImpactedNodes} impacted node${result.totalImpactedNodes !== 1 ? 's' : ''})\n`,
+        );
+        if (result.totalImpactedNodes === 0) {
+          process.stdout.write('  No callers found — safe to modify.\n');
+        } else {
           for (let i = 0; i < result.impactByDepth.length; i++) {
             const layer = result.impactByDepth[i];
             if (!layer || layer.nodes.length === 0) continue;
             const label = i === 0 ? 'WILL BREAK' : i === 1 ? 'LIKELY AFFECTED' : 'MAY NEED TESTING';
             process.stdout.write(`\n  d=${i + 1} ${label} (${layer.nodes.length}):\n`);
-            for (const node of layer.nodes.slice(0, 15)) { process.stdout.write(`    ${String(node.name).padEnd(36)}  ${String(node.kind).padEnd(12)}  ${node.filePath ?? ''}\n`); if (whyFlag && node.reasons.length > 0) { for (const reason of node.reasons) { process.stdout.write(`      why: ${reason}\n`); } } }
-            if (layer.nodes.length > 15) { process.stdout.write(`    ... and ${layer.nodes.length - 15} more\n`); }
+            for (const node of layer.nodes.slice(0, 15)) {
+              process.stdout.write(
+                `    ${String(node.name).padEnd(36)}  ${String(node.kind).padEnd(12)}  ${node.filePath ?? ''}\n`,
+              );
+              if (whyFlag && node.reasons.length > 0) {
+                for (const reason of node.reasons) {
+                  process.stdout.write(`      why: ${reason}\n`);
+                }
+              }
+            }
+            if (layer.nodes.length > 15) {
+              process.stdout.write(`    ... and ${layer.nodes.length - 15} more\n`);
+            }
           }
         }
       }
     } catch (err) {
-      const code = (err instanceof Error && 'code' in err) ? (err as { code?: string }).code : undefined;
+      const code =
+        err instanceof Error && 'code' in err ? (err as { code?: string }).code : undefined;
       const msg = err instanceof Error ? err.message : String(err);
       const durationMs = Date.now() - startTime;
       if (code === 'E_NOT_FOUND') {
-        if (jsonOutput) { process.stdout.write(JSON.stringify({ success: false, error: { code: 'E_NOT_FOUND', message: msg }, meta: { operation: 'nexus.impact', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n'); } else { process.stdout.write(`[nexus] No symbol found matching '${symbolName}'.\n  Run 'cleo nexus analyze' first, or check the symbol name.\n`); }
-        process.exitCode = 4; return;
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                success: false,
+                error: { code: 'E_NOT_FOUND', message: msg },
+                meta: {
+                  operation: 'nexus.impact',
+                  duration_ms: durationMs,
+                  timestamp: new Date().toISOString(),
+                },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else {
+          process.stdout.write(
+            `[nexus] No symbol found matching '${symbolName}'.\n  Run 'cleo nexus analyze' first, or check the symbol name.\n`,
+          );
+        }
+        process.exitCode = 4;
+        return;
       }
-      if (jsonOutput) { process.stdout.write(JSON.stringify({ success: false, error: { code: 'E_IMPACT_FAILED', message: msg }, meta: { operation: 'nexus.impact', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n'); } else { process.stderr.write(`[nexus] Error: ${msg}\n`); }
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_IMPACT_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.impact',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error: ${msg}\n`);
+      }
       process.exitCode = 1;
     }
   },
@@ -1333,12 +1580,29 @@ const projectsRemoveCommand = defineCommand({
 
 /** cleo nexus projects scan — walk filesystem roots to discover .cleo/ directories */
 const projectsScanCommand = defineCommand({
-  meta: { name: 'scan', description: 'Walk filesystem roots to discover .cleo/ directories not registered in the global nexus registry' },
+  meta: {
+    name: 'scan',
+    description:
+      'Walk filesystem roots to discover .cleo/ directories not registered in the global nexus registry',
+  },
   args: {
-    roots: { type: 'string', description: 'Comma-separated search roots (default: ~/code,~/projects,/mnt/projects)' },
-    'max-depth': { type: 'string', description: 'Maximum directory traversal depth (default: 4)', default: '4' },
-    'auto-register': { type: 'boolean', description: 'Register all discovered unregistered projects automatically' },
-    'include-existing': { type: 'boolean', description: 'Also report projects that are already registered' },
+    roots: {
+      type: 'string',
+      description: 'Comma-separated search roots (default: ~/code,~/projects,/mnt/projects)',
+    },
+    'max-depth': {
+      type: 'string',
+      description: 'Maximum directory traversal depth (default: 4)',
+      default: '4',
+    },
+    'auto-register': {
+      type: 'boolean',
+      description: 'Register all discovered unregistered projects automatically',
+    },
+    'include-existing': {
+      type: 'boolean',
+      description: 'Also report projects that are already registered',
+    },
     json: { type: 'boolean', description: 'Output as JSON (LAFS envelope format)' },
   },
   async run({ args }) {
@@ -1347,20 +1611,76 @@ const projectsScanCommand = defineCommand({
     const autoRegister = !!args['auto-register'];
     const includeExisting = !!args['include-existing'];
     const maxDepth = Math.max(1, Math.min(parseInt(args['max-depth'] as string, 10), 20));
-    if (!jsonOutput) { process.stdout.write(`[nexus] Scanning up to depth ${maxDepth} for .cleo/ project roots...\n`); }
-    const result = await scanForProjects({ roots: args.roots as string | undefined, maxDepth, autoRegister, includeExisting });
-    if (!jsonOutput) { process.stdout.write(`[nexus] Scanning ${result.roots.length} root(s) up to depth ${maxDepth}:\n${result.roots.map((r) => `  ${r}`).join('\n')}\n`); }
+    if (!jsonOutput) {
+      process.stdout.write(
+        `[nexus] Scanning up to depth ${maxDepth} for .cleo/ project roots...\n`,
+      );
+    }
+    const result = await scanForProjects({
+      roots: args.roots as string | undefined,
+      maxDepth,
+      autoRegister,
+      includeExisting,
+    });
+    if (!jsonOutput) {
+      process.stdout.write(
+        `[nexus] Scanning ${result.roots.length} root(s) up to depth ${maxDepth}:\n${result.roots.map((r) => `  ${r}`).join('\n')}\n`,
+      );
+    }
     const durationMs = Date.now() - startTime;
     if (jsonOutput) {
-      const data: Record<string, unknown> = { roots: result.roots, unregistered: result.unregistered, tally: result.tally };
+      const data: Record<string, unknown> = {
+        roots: result.roots,
+        unregistered: result.unregistered,
+        tally: result.tally,
+      };
       if (includeExisting) data['registered'] = result.registered;
-      if (autoRegister) { data['autoRegistered'] = result.autoRegistered; data['autoRegisterErrors'] = result.autoRegisterErrors; }
-      process.stdout.write(JSON.stringify({ success: true, data, meta: { operation: 'nexus.projects.scan', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n');
+      if (autoRegister) {
+        data['autoRegistered'] = result.autoRegistered;
+        data['autoRegisterErrors'] = result.autoRegisterErrors;
+      }
+      process.stdout.write(
+        JSON.stringify(
+          {
+            success: true,
+            data,
+            meta: {
+              operation: 'nexus.projects.scan',
+              duration_ms: durationMs,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
     } else {
-      process.stdout.write(`\n[nexus] Scan complete — ${result.tally.total} project(s) found (${result.tally.unregistered} unregistered, ${result.tally.registered} registered)\n`);
-      if (result.unregistered.length > 0) { process.stdout.write('\n  Unregistered:\n'); for (const p of result.unregistered) { process.stdout.write(`    ${p}\n`); } if (!autoRegister) { process.stdout.write('\n  Tip: run with --auto-register to register all of the above.\n'); } }
-      if (includeExisting && result.registered.length > 0) { process.stdout.write('\n  Already registered:\n'); for (const p of result.registered) { process.stdout.write(`    ${p}\n`); } }
-      if (autoRegister) { process.stdout.write(`\n  Auto-registered: ${result.autoRegistered.length} project(s)${result.autoRegisterErrors.length > 0 ? `, ${result.autoRegisterErrors.length} failed` : ''}\n`); for (const e of result.autoRegisterErrors) { process.stdout.write(`    FAILED ${e.path}: ${e.error}\n`); } }
+      process.stdout.write(
+        `\n[nexus] Scan complete — ${result.tally.total} project(s) found (${result.tally.unregistered} unregistered, ${result.tally.registered} registered)\n`,
+      );
+      if (result.unregistered.length > 0) {
+        process.stdout.write('\n  Unregistered:\n');
+        for (const p of result.unregistered) {
+          process.stdout.write(`    ${p}\n`);
+        }
+        if (!autoRegister) {
+          process.stdout.write('\n  Tip: run with --auto-register to register all of the above.\n');
+        }
+      }
+      if (includeExisting && result.registered.length > 0) {
+        process.stdout.write('\n  Already registered:\n');
+        for (const p of result.registered) {
+          process.stdout.write(`    ${p}\n`);
+        }
+      }
+      if (autoRegister) {
+        process.stdout.write(
+          `\n  Auto-registered: ${result.autoRegistered.length} project(s)${result.autoRegisterErrors.length > 0 ? `, ${result.autoRegisterErrors.length} failed` : ''}\n`,
+        );
+        for (const e of result.autoRegisterErrors) {
+          process.stdout.write(`    FAILED ${e.path}: ${e.error}\n`);
+        }
+      }
     }
   },
 });
@@ -1939,13 +2259,27 @@ const exportCommand = defineCommand({
  * @task T625
  */
 const diffCommand = defineCommand({
-  meta: { name: 'diff', description: 'Compare NEXUS index state between two git commits — shows new/removed relations and broken call chains' },
+  meta: {
+    name: 'diff',
+    description:
+      'Compare NEXUS index state between two git commits — shows new/removed relations and broken call chains',
+  },
   args: {
-    before: { type: 'string', description: 'Git SHA or ref for the "before" snapshot (default: HEAD~1)' },
-    after: { type: 'string', description: 'Git SHA or ref for the "after" snapshot (default: HEAD)', default: 'HEAD' },
+    before: {
+      type: 'string',
+      description: 'Git SHA or ref for the "before" snapshot (default: HEAD~1)',
+    },
+    after: {
+      type: 'string',
+      description: 'Git SHA or ref for the "after" snapshot (default: HEAD)',
+      default: 'HEAD',
+    },
     path: { type: 'string', description: 'Repository directory to analyze (default: cwd)' },
     json: { type: 'boolean', description: 'Output result as JSON (LAFS envelope format)' },
-    'project-id': { type: 'string', description: 'Override the project ID (default: auto-detected from path)' },
+    'project-id': {
+      type: 'string',
+      description: 'Override the project ID (default: auto-detected from path)',
+    },
   },
   async run({ args }) {
     const startTime = Date.now();
@@ -1954,20 +2288,63 @@ const diffCommand = defineCommand({
     const projectIdOverride = args['project-id'] as string | undefined;
     const beforeRef = (args.before as string | undefined) ?? 'HEAD~1';
     const afterRef = (args.after as string | undefined) ?? 'HEAD';
-    if (!jsonOutput) { process.stderr.write(`[nexus] Diffing relations: ${beforeRef}..${afterRef} in ${repoPath}\n`); }
+    if (!jsonOutput) {
+      process.stderr.write(`[nexus] Diffing relations: ${beforeRef}..${afterRef} in ${repoPath}\n`);
+    }
     try {
       const result = await diffNexusIndex(repoPath, { beforeRef, afterRef, projectIdOverride });
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
-        process.stdout.write(JSON.stringify({ success: true, data: result, meta: { operation: 'nexus.diff', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n');
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: true,
+              data: result,
+              meta: {
+                operation: 'nexus.diff',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
       } else {
-        process.stdout.write(`[nexus] Diff: ${result.beforeSha}..${result.afterSha}\n  Changed files: ${result.changedFiles.length > 0 ? result.changedFiles.join(', ') : 'n/a'}\n  Nodes:     before=${result.nodesBefore}  after=${result.nodesAfter}  new=+${result.newNodes}  removed=-${result.removedNodes}\n  Relations: before=${result.relationsBefore}  after=${result.relationsAfter}  new=+${result.newRelations}  removed=-${result.removedRelations}\n  Health:    ${result.healthStatus}\n`);
-        if (result.regressions.length > 0) { process.stdout.write('\n  REGRESSIONS:\n'); for (const reg of result.regressions) { process.stdout.write(`    - ${reg}\n`); } } else { process.stdout.write('  No regressions detected.\n'); }
+        process.stdout.write(
+          `[nexus] Diff: ${result.beforeSha}..${result.afterSha}\n  Changed files: ${result.changedFiles.length > 0 ? result.changedFiles.join(', ') : 'n/a'}\n  Nodes:     before=${result.nodesBefore}  after=${result.nodesAfter}  new=+${result.newNodes}  removed=-${result.removedNodes}\n  Relations: before=${result.relationsBefore}  after=${result.relationsAfter}  new=+${result.newRelations}  removed=-${result.removedRelations}\n  Health:    ${result.healthStatus}\n`,
+        );
+        if (result.regressions.length > 0) {
+          process.stdout.write('\n  REGRESSIONS:\n');
+          for (const reg of result.regressions) {
+            process.stdout.write(`    - ${reg}\n`);
+          }
+        } else {
+          process.stdout.write('  No regressions detected.\n');
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const durationMs = Date.now() - startTime;
-      if (jsonOutput) { process.stdout.write(JSON.stringify({ success: false, error: { code: 'E_DIFF_FAILED', message: msg }, meta: { operation: 'nexus.diff', duration_ms: durationMs, timestamp: new Date().toISOString() } }, null, 2) + '\n'); } else { process.stderr.write(`[nexus] Error running diff: ${msg}\n`); }
+      if (jsonOutput) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              success: false,
+              error: { code: 'E_DIFF_FAILED', message: msg },
+              meta: {
+                operation: 'nexus.diff',
+                duration_ms: durationMs,
+                timestamp: new Date().toISOString(),
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } else {
+        process.stderr.write(`[nexus] Error running diff: ${msg}\n`);
+      }
       process.exitCode = 1;
     }
   },
