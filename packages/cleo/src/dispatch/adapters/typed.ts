@@ -380,6 +380,97 @@ export function lafsError(
 }
 
 // ---------------------------------------------------------------------------
+// Thin-dispatch helpers (T1484 · ADR-057 D3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap a Core engine result into a LAFS envelope.
+ *
+ * Eliminates the repetitive 8-12 line pattern:
+ * ```ts
+ * const result = await coreOps.foo(params);
+ * if (!result.success) return lafsError(String(result.error?.code ?? 'E_INTERNAL'), ...);
+ * return lafsSuccess(result.data ?? fallback, opName);
+ * ```
+ *
+ * Usage:
+ * ```ts
+ * return wrapCoreResult(await coreOps.foo(params), 'foo', fallback);
+ * ```
+ *
+ * @param result   - Result returned by a Core op wrapper function.
+ * @param opName   - Operation name forwarded to {@link lafsError} / {@link lafsSuccess}.
+ * @param fallback - Optional default when `result.data` is `null`/`undefined` on success.
+ * @returns A `LafsEnvelope` for the operation.
+ *
+ * @task T1484
+ */
+// biome-ignore lint/suspicious/noExplicitAny: fallback must accept any data shape
+export function wrapCoreResult<T = any>(
+  result: {
+    success: boolean;
+    data?: T;
+    error?: { code?: string | number; message?: string };
+  },
+  opName: string,
+  fallback?: T,
+): LafsEnvelope<T> {
+  if (!result.success) {
+    return lafsError(
+      String(result.error?.code ?? 'E_INTERNAL'),
+      result.error?.message ?? 'Unknown error',
+      opName,
+    ) as LafsEnvelope<T>;
+  }
+  return lafsSuccess((result.data ?? fallback) as T, opName);
+}
+
+/**
+ * Wrap a conduit `*Impl` call in a standardised try/catch returning a LAFS envelope.
+ *
+ * All conduit typed-handler ops follow an identical 15-25 line try/catch pattern:
+ * ```ts
+ * try {
+ *   const result = await fooImpl(...params);
+ *   if (!result.success) return lafsError(result.error?.code ?? 'E_CONDUIT', ...);
+ *   return lafsSuccess(result.data ?? {}, opName);
+ * } catch (error) {
+ *   return lafsError('E_CONDUIT', error instanceof Error ? error.message : String(error), opName);
+ * }
+ * ```
+ *
+ * Usage:
+ * ```ts
+ * return wrapConduitImpl(() => fooImpl(params.bar, params.baz), 'foo');
+ * ```
+ *
+ * @param fn     - Zero-argument async factory that calls the impl function.
+ * @param opName - Operation name forwarded to {@link lafsError} / {@link lafsSuccess}.
+ * @returns A `Promise<LafsEnvelope<T>>` for the operation.
+ *
+ * @task T1484
+ */
+export async function wrapConduitImpl(
+  fn: () => Promise<unknown>,
+  opName: string,
+): Promise<LafsEnvelope<unknown>> {
+  try {
+    // biome-ignore lint/suspicious/noExplicitAny: conduit impl types are heterogeneous
+    const result = (await fn()) as any;
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_CONDUIT'),
+        result.error?.message ?? 'Unknown error',
+        opName,
+      );
+    }
+    return lafsSuccess(result.data ?? {}, opName);
+  } catch (error) {
+    return lafsError('E_CONDUIT', error instanceof Error ? error.message : String(error), opName);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Internal exports for testing
 // ---------------------------------------------------------------------------
 
