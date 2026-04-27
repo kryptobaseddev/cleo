@@ -23,3 +23,4 @@ export {
 } from './help.js';
 export { importTasks } from './import.js';
 export { importTasksPackage } from './import-tasks.js';
+export type { adminCoreOps } from './ops.js';
