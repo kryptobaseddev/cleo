@@ -43,6 +43,22 @@ export {
 } from './impact.js';
 // Symbol ranking - priority scores for search results (T1473)
 export { NODE_KIND_PRIORITY, sortMatchingNodes } from './symbol-ranking.js';
+// Index diff - compare node/relation counts between git commits (T1473)
+export {
+  diffNexusIndex,
+  type NexusDiffHealth,
+  type NexusDiffOptions,
+  type NexusDiffResult,
+} from './diff.js';
+// Projects scan - filesystem walker for CLEO project discovery (T1473)
+export {
+  getDevice,
+  type ProjectsScanOptions,
+  type ProjectsScanResult,
+  type ScanAutoRegisterError,
+  scanForProjects,
+  walkForCleo,
+} from './projects-scan.js';
 export type {
   NexusDiscoverHit as DiscoverResult,
   NexusDiscoverResult,
