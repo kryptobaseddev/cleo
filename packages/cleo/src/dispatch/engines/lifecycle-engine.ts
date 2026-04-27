@@ -204,7 +204,7 @@ export async function lifecycleStatus(epicId: string, projectRoot?: string): Pro
     return engineError('E_INVALID_INPUT', 'epicId is required');
   }
   try {
-    const data = await getLifecycleStatus(projectRoot, { epicId });
+    const data = await getLifecycleStatus(projectRoot ?? process.cwd(), { epicId });
     return engineSuccess(data);
   } catch (err) {
     if (err instanceof Error) {
