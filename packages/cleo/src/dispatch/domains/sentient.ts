@@ -15,7 +15,7 @@
  *
  * All operations emit LAFS-compliant envelopes.
  *
- * Handler uses TypedDomainHandler<SentientOps> (Wave D · T975 follow-on)
+ * Handler uses TypedDomainHandler<OpsFromCore<typeof coreOps>> (Wave D · T975 follow-on)
  * to eliminate param casts. Zero `as string` / `as unknown` param casts in
  * per-op code. Single boundary cast inside typedDispatch (T974 adapter).
  *
@@ -28,19 +28,6 @@
  * @see ADR-057 — Core API normalization
  */
 
-import type {
-  AllowlistAddParams,
-  AllowlistListParams,
-  AllowlistRemoveParams,
-  ProposeAcceptParams,
-  ProposeDiffParams,
-  ProposeDisableParams,
-  ProposeEnableParams,
-  ProposeListParams,
-  ProposeRejectParams,
-  ProposeRunParams,
-  SentientOps,
-} from '@cleocode/contracts';
 import { getProjectRoot } from '@cleocode/core';
 import {
   sentientAllowlistAdd,
@@ -54,9 +41,44 @@ import {
   sentientProposeReject,
   sentientProposeRun,
 } from '@cleocode/core/sentient';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+} from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+
+// ---------------------------------------------------------------------------
+// Core operation registry
+// ---------------------------------------------------------------------------
+
+const coreOps = {
+  'propose.list': (params: Parameters<typeof sentientProposeList>[1]) =>
+    sentientProposeList(getProjectRoot(), params),
+  'propose.diff': (params: Parameters<typeof sentientProposeDiff>[1]) =>
+    sentientProposeDiff(getProjectRoot(), params),
+  'allowlist.list': (params: Parameters<typeof sentientAllowlistList>[1]) =>
+    sentientAllowlistList(getProjectRoot(), params),
+  'propose.accept': (params: Parameters<typeof sentientProposeAccept>[1]) =>
+    sentientProposeAccept(getProjectRoot(), params),
+  'propose.reject': (params: Parameters<typeof sentientProposeReject>[1]) =>
+    sentientProposeReject(getProjectRoot(), params),
+  'propose.run': (params: Parameters<typeof sentientProposeRun>[1]) =>
+    sentientProposeRun(getProjectRoot(), params),
+  'propose.enable': (params: Parameters<typeof sentientProposeEnable>[1]) =>
+    sentientProposeEnable(getProjectRoot(), params),
+  'propose.disable': (params: Parameters<typeof sentientProposeDisable>[1]) =>
+    sentientProposeDisable(getProjectRoot(), params),
+  'allowlist.add': (params: Parameters<typeof sentientAllowlistAdd>[1]) =>
+    sentientAllowlistAdd(getProjectRoot(), params),
+  'allowlist.remove': (params: Parameters<typeof sentientAllowlistRemove>[1]) =>
+    sentientAllowlistRemove(getProjectRoot(), params),
+} as const;
+
+type SentientOps = OpsFromCore<typeof coreOps>;
 
 // ---------------------------------------------------------------------------
 // Typed inner handler (Wave D · T1421)
@@ -67,10 +89,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
   // Query ops
   // -------------------------------------------------------------------------
 
-  'propose.list': async (params: ProposeListParams) => {
-    const projectRoot = getProjectRoot();
+  'propose.list': async (params) => {
     try {
-      const data = await sentientProposeList(projectRoot, params);
+      const data = await coreOps['propose.list'](params);
       return lafsSuccess(data, 'propose.list');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -78,10 +99,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
     }
   },
 
-  'propose.diff': async (params: ProposeDiffParams) => {
-    const projectRoot = getProjectRoot();
+  'propose.diff': async (params) => {
     try {
-      const data = await sentientProposeDiff(projectRoot, params);
+      const data = await coreOps['propose.diff'](params);
       return lafsSuccess(data, 'propose.diff');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -89,10 +109,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
     }
   },
 
-  'allowlist.list': async (_params: AllowlistListParams) => {
-    const projectRoot = getProjectRoot();
+  'allowlist.list': async (_params) => {
     try {
-      const data = await sentientAllowlistList(projectRoot, _params);
+      const data = await coreOps['allowlist.list'](_params);
       return lafsSuccess(data, 'allowlist.list');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -104,10 +123,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
   // Mutate ops
   // -------------------------------------------------------------------------
 
-  'propose.accept': async (params: ProposeAcceptParams) => {
-    const projectRoot = getProjectRoot();
+  'propose.accept': async (params) => {
     try {
-      const data = await sentientProposeAccept(projectRoot, params);
+      const data = await coreOps['propose.accept'](params);
       return lafsSuccess(data, 'propose.accept');
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? 'E_INTERNAL';
@@ -116,10 +134,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
     }
   },
 
-  'propose.reject': async (params: ProposeRejectParams) => {
-    const projectRoot = getProjectRoot();
+  'propose.reject': async (params) => {
     try {
-      const data = await sentientProposeReject(projectRoot, params);
+      const data = await coreOps['propose.reject'](params);
       return lafsSuccess(data, 'propose.reject');
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? 'E_INTERNAL';
@@ -128,10 +145,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
     }
   },
 
-  'propose.run': async (_params: ProposeRunParams) => {
-    const projectRoot = getProjectRoot();
+  'propose.run': async (_params) => {
     try {
-      const data = await sentientProposeRun(projectRoot, _params);
+      const data = await coreOps['propose.run'](_params);
       return lafsSuccess(data, 'propose.run');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -139,10 +155,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
     }
   },
 
-  'propose.enable': async (_params: ProposeEnableParams) => {
-    const projectRoot = getProjectRoot();
+  'propose.enable': async (_params) => {
     try {
-      const data = await sentientProposeEnable(projectRoot, _params);
+      const data = await coreOps['propose.enable'](_params);
       return lafsSuccess(data, 'propose.enable');
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? 'E_INTERNAL';
@@ -151,10 +166,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
     }
   },
 
-  'propose.disable': async (_params: ProposeDisableParams) => {
-    const projectRoot = getProjectRoot();
+  'propose.disable': async (_params) => {
     try {
-      const data = await sentientProposeDisable(projectRoot, _params);
+      const data = await coreOps['propose.disable'](_params);
       return lafsSuccess(data, 'propose.disable');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -162,10 +176,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
     }
   },
 
-  'allowlist.add': async (params: AllowlistAddParams) => {
-    const projectRoot = getProjectRoot();
+  'allowlist.add': async (params) => {
     try {
-      const data = await sentientAllowlistAdd(projectRoot, params);
+      const data = await coreOps['allowlist.add'](params);
       return lafsSuccess(data, 'allowlist.add');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -173,10 +186,9 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
     }
   },
 
-  'allowlist.remove': async (params: AllowlistRemoveParams) => {
-    const projectRoot = getProjectRoot();
+  'allowlist.remove': async (params) => {
     try {
-      const data = await sentientAllowlistRemove(projectRoot, params);
+      const data = await coreOps['allowlist.remove'](params);
       return lafsSuccess(data, 'allowlist.remove');
     } catch (err) {
       const code =
