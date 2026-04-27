@@ -15,6 +15,7 @@
  *
  * @module tasks/ops
  * @task T1458 — tasks domain Core API SSoT alignment (ADR-057 D1+D2)
+ * @task T1445 — `tasksCoreOps` type registry for OpsFromCore inference
  * @see ADR-057 — Core API normalization
  * @see packages/contracts/src/operations/tasks.ts
  */
@@ -26,6 +27,7 @@ import type {
   TaskSeverity,
   TaskSize,
   TaskStatus,
+  TasksOps,
   TaskType,
 } from '@cleocode/contracts';
 import { type AddTaskResult, addTask } from './add.js';
@@ -337,3 +339,68 @@ export async function tasksArchiveOp(
     projectRoot,
   );
 }
+
+
+// ---------------------------------------------------------------------------
+// Core operation type registry (T1445 — OpsFromCore inference)
+// ---------------------------------------------------------------------------
+
+/**
+ * Type helper: extract the single-arg function type for a tasks operation.
+ *
+ * @typeParam Op - A key of `TasksOps` (e.g. `'show'`, `'add'`).
+ */
+type TaskCoreOperation<Op extends keyof TasksOps> = (
+  params: TasksOps[Op][0],
+) => Promise<TasksOps[Op][1]>;
+
+/**
+ * Tasks operation signature registry — consumed by the dispatch layer for
+ * `OpsFromCore<typeof coreTasks.tasksCoreOps>` inference.
+ *
+ * @example
+ * ```ts
+ * import type { tasks as coreTasks } from '@cleocode/core';
+ * import type { OpsFromCore } from '../adapters/typed.js';
+ *
+ * type TasksOps = OpsFromCore<typeof coreTasks.tasksCoreOps>;
+ * ```
+ *
+ * @task T1445 — OpsFromCore inference migration
+ */
+export declare const tasksCoreOps: {
+  // Query ops
+  readonly show: TaskCoreOperation<'show'>;
+  readonly list: TaskCoreOperation<'list'>;
+  readonly find: TaskCoreOperation<'find'>;
+  readonly tree: TaskCoreOperation<'tree'>;
+  readonly blockers: TaskCoreOperation<'blockers'>;
+  readonly depends: TaskCoreOperation<'depends'>;
+  readonly analyze: TaskCoreOperation<'analyze'>;
+  readonly impact: TaskCoreOperation<'impact'>;
+  readonly next: TaskCoreOperation<'next'>;
+  readonly plan: TaskCoreOperation<'plan'>;
+  readonly relates: TaskCoreOperation<'relates'>;
+  readonly 'complexity.estimate': TaskCoreOperation<'complexity.estimate'>;
+  readonly history: TaskCoreOperation<'history'>;
+  readonly current: TaskCoreOperation<'current'>;
+  readonly 'label.list': TaskCoreOperation<'label.list'>;
+  readonly 'sync.links': TaskCoreOperation<'sync.links'>;
+  // Mutate ops
+  readonly add: TaskCoreOperation<'add'>;
+  readonly update: TaskCoreOperation<'update'>;
+  readonly complete: TaskCoreOperation<'complete'>;
+  readonly cancel: TaskCoreOperation<'cancel'>;
+  readonly delete: TaskCoreOperation<'delete'>;
+  readonly archive: TaskCoreOperation<'archive'>;
+  readonly restore: TaskCoreOperation<'restore'>;
+  readonly reparent: TaskCoreOperation<'reparent'>;
+  readonly reorder: TaskCoreOperation<'reorder'>;
+  readonly 'relates.add': TaskCoreOperation<'relates.add'>;
+  readonly start: TaskCoreOperation<'start'>;
+  readonly stop: TaskCoreOperation<'stop'>;
+  readonly 'sync.reconcile': TaskCoreOperation<'sync.reconcile'>;
+  readonly 'sync.links.remove': TaskCoreOperation<'sync.links.remove'>;
+  readonly claim: TaskCoreOperation<'claim'>;
+  readonly unclaim: TaskCoreOperation<'unclaim'>;
+};
