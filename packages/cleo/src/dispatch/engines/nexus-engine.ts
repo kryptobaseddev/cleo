@@ -51,7 +51,6 @@ import {
   readSnapshot,
   reinforceTrait,
   resolveTask,
-  type SigilCard,
   type SigilSyncResult,
   searchAcrossProjects,
   setPermission,
@@ -1580,15 +1579,7 @@ export async function nexusProfileSupersede(
 // Sigil operations (T1148 Wave 8 + T1386 sync)
 // ---------------------------------------------------------------------------
 
-/**
- * Result wire shape for `nexus sigil list`.
- */
-export interface NexusSigilListResult {
-  /** Array of sigil records, ordered by displayName ascending. */
-  sigils: SigilCard[];
-  /** Total count of sigils returned. */
-  count: number;
-}
+import type { NexusSigilListResult } from '@cleocode/contracts';
 
 /**
  * List every sigil currently stored in nexus.db, optionally filtered by role.
