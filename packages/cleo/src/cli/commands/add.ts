@@ -1,6 +1,11 @@
 /**
  * CLI add command — create a new task.
  *
+ * Task CLI command convention: CLEO intentionally exposes task operations as
+ * split root commands (`add`, `update`, `list`, etc.) instead of a
+ * `tasks.ts` command group. Keep CLI-only compatibility aliases in the
+ * command file that owns the flag, then dispatch only canonical task params.
+ *
  * Dispatches to `tasks.add` via dispatchRaw and emits advisory warnings and
  * duplicate / dry-run notices from the response payload.
  *
@@ -24,6 +29,8 @@ import { cliOutput } from '../renderers/index.js';
  *
  * T944 additions: `--role` (intent axis) and `--scope` (granularity axis).
  * `--kind` is accepted as a backward-compatible alias for `--role`.
+ * `--parent-id` and `--note` are CLI-only compatibility aliases for
+ * `--parent` and `--notes`.
  *
  * T1329: In strict mode, if no explicit `--parent` is provided and the task
  * type is not 'epic', the command attempts to infer `--parent` from the active
@@ -59,6 +66,10 @@ export const addCommand = defineCommand({
     parent: {
       type: 'string',
       description: 'Parent task ID (makes this task a subtask)',
+    },
+    'parent-id': {
+      type: 'string',
+      description: 'Alias for --parent (legacy parentId compatibility)',
     },
     size: {
       type: 'string',
@@ -103,6 +114,10 @@ export const addCommand = defineCommand({
     notes: {
       type: 'string',
       description: 'Initial note entry for the task',
+    },
+    note: {
+      type: 'string',
+      description: 'Alias for --notes',
     },
     position: {
       type: 'string',
@@ -169,6 +184,7 @@ export const addCommand = defineCommand({
     if (args.priority !== undefined) params['priority'] = args.priority;
     if (args.type !== undefined) params['type'] = args.type;
     if (args.parent !== undefined) params['parent'] = args.parent;
+    if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
     if (args.size !== undefined) params['size'] = args.size;
     if (args.phase !== undefined) params['phase'] = args.phase;
     if (args['add-phase'] !== undefined) params['addPhase'] = args['add-phase'];
@@ -219,6 +235,7 @@ export const addCommand = defineCommand({
     }
     if (args.depends) params['depends'] = (args.depends as string).split(',').map((s) => s.trim());
     if (args.notes !== undefined) params['notes'] = args.notes;
+    if (args.note !== undefined) params['notes'] = params['notes'] ?? args.note;
     if (args.position !== undefined)
       params['position'] = Number.parseInt(args.position as string, 10);
     if (args['dry-run'] !== undefined) params['dryRun'] = args['dry-run'];

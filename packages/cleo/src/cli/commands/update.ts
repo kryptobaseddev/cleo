@@ -11,6 +11,10 @@
  * files, blocked-by, parent, auto-complete control, pipeline stage,
  * role, and scope.
  *
+ * Task CLI command convention: task operations are split root commands, not a
+ * `tasks.ts` command group. CLI-only compatibility aliases are normalized in
+ * the owning command file before dispatch so the wire params stay canonical.
+ *
  * @task T4461
  * @epic T4454
  */
@@ -92,6 +96,10 @@ export const updateCommand = defineCommand({
       type: 'string',
       description: 'Add a note',
     },
+    note: {
+      type: 'string',
+      description: 'Alias for --notes',
+    },
     acceptance: {
       type: 'string',
       description: 'Set acceptance criteria (pipe-separated, e.g. "AC1|AC2|AC3")',
@@ -107,6 +115,10 @@ export const updateCommand = defineCommand({
     parent: {
       type: 'string',
       description: 'Set parent ID',
+    },
+    'parent-id': {
+      type: 'string',
+      description: 'Alias for --parent (legacy parentId compatibility)',
     },
     'no-auto-complete': {
       type: 'boolean',
@@ -126,6 +138,14 @@ export const updateCommand = defineCommand({
       type: 'string',
       description:
         'Task role / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
+    },
+    /**
+     * Backward-compatible alias for --role (fractal-ontology spec used "kind").
+     * @task T1472
+     */
+    kind: {
+      type: 'string',
+      description: 'Alias for --role (T944 fractal-ontology compat)',
     },
     /**
      * Task scope axis — granularity of work.
@@ -163,6 +183,7 @@ export const updateCommand = defineCommand({
     if (args['remove-depends'])
       params['removeDepends'] = (args['remove-depends'] as string).split(',').map((s) => s.trim());
     if (args.notes !== undefined) params['notes'] = args.notes;
+    if (args.note !== undefined) params['notes'] = params['notes'] ?? args.note;
     if (args.acceptance)
       params['acceptance'] = (args.acceptance as string)
         .split('|')
@@ -171,10 +192,12 @@ export const updateCommand = defineCommand({
     if (args.files) params['files'] = (args.files as string).split(',').map((s) => s.trim());
     if (args['blocked-by'] !== undefined) params['blockedBy'] = args['blocked-by'];
     if (args.parent !== undefined) params['parent'] = args.parent;
+    if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
     if (args['no-auto-complete'] === true) params['noAutoComplete'] = true;
     if (args['pipeline-stage'] !== undefined) params['pipelineStage'] = args['pipeline-stage'];
     // T944: orthogonal axes
     if (args.role !== undefined) params['role'] = args.role;
+    if (args.kind !== undefined) params['role'] = params['role'] ?? args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
