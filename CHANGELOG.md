@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.150] — 2026-04-26 — T1449 Core+Contracts SSoT alignment + ADR-057 CI enforcement
+
+T1449 epic shipped. 9 dispatch domains (admin, check, conduit, nexus, pipeline, playbook, sentient, session, tasks) refactored so every Core function follows the uniform `(projectRoot: string, params: <Op>Params): Promise<<Op>Result>` signature per ADR-057 D1. Contract aliases (`parentId`/`parent`, `kind`/`role`/`type`, `note`/`notes`, `focus`/`startTask`) removed; CLI flag aliasing moved to the command layer per D2. Drift is now structurally impossible: changing a contract type breaks the Core signature at compile time, and `scripts/lint-contracts-core-ssot.mjs` enforces L1 (signature uniformity), L2 (no aliases in contracts), L3 (no dispatch normalization), and L4 (Core fns referenced by dispatch are SDK-public) via pre-commit hook and CI workflow.
+
+### Per-domain commits
+
+- **T1450 session**: `af49ffb18` (PROOF — 15 ops normalized) + `a40abf979` (internal caller fix-up)
+- **T1451 admin**: shipped in pre-T1449 batched rollout; 12 Core fns annotated `SSoT-EXEMPT:T1451-followup` for next pass (token-service, snapshot, adrs sync/validate)
+- **T1452 check**: `36ad4fc54`
+- **T1453 conduit**: `0f032cba5` (vitest alias resolution)
+- **T1454 nexus**: `ceb30ed47` (with backward-compat positional overloads retained; clean removal in follow-up)
+- **T1455 pipeline**: `ad6b49a9d` + `5feda5140` (lifecycle caller fix-up)
+- **T1456 playbook**: `25b7b6628` (SSoT-EXEMPT for db-handle internals)
+- **T1457 sentient**: `edfa04977` (WIP-recovered, complete)
+- **T1458 tasks**: `651d4d199` (Part A — Core ops.ts normalization) + `8bc7baa15` (Part B — parentId/kind/type alias removal)
+- **T1459 ADR + lint gate**: `b8b96249a` (ADR-057 published) + `a901f5c15` (3 residual aliases resolved) + `0361abdf9` (pre-commit + CI workflow wire)
+
+### Architectural impact
+
+Core becomes the SDK: external consumers (Studio, future MCP adapters, public SDK) can now `import { sessionStart } from '@cleocode/core'; await sessionStart(projectRoot, params);` against a uniform, stable surface. CLI becomes a thin transport: command files parse flags, normalize aliases, call Core — no business logic in the CLI layer. The lint gate catches drift at PR time rather than at runtime.
+
+### Quality gates
+
+- `pnpm biome ci .` — clean (1 pre-existing broken-symlink warning, not introduced this release)
+- `pnpm run build` — exit 0
+- `pnpm run test` — 11491 passing, zero new failures vs v2026.4.149 baseline
+- `node scripts/lint-contracts-core-ssot.mjs --exit-on-fail` — exit 0
+
+### Known follow-ups
+
+- **T1451 admin completion**: 12 `SSoT-EXEMPT:T1451-followup` annotations remain; a dedicated pass will finish normalization of token-service, snapshot, and adrs sync/validate Core fns
+- **T1454 nexus positional overloads**: backward-compat positional signatures retained on Core fns; remove after CLI and tests fully use named-params form
+- **T1454 nexus dispatch form**: handler uses `TypedDomainHandler<NexusOps>` (T1424 form) rather than `OpsFromCore<typeof coreOps>` (ADR-057 D3 form); both are valid per the ADR; migrate in a follow-up for full uniformity
+
+### Council verdict (2026-04-25)
+
+5-advisor stress test (Contrarian, First Principles, Expansionist, Outsider, Executor) passed all rigor, evidence, and framing gates. Convergence: Core API uniformity is load-bearing infrastructure; the CI enforcement gate must come after per-domain audit, not before. Q1 (aliases policy) resolved as Option B — canonical SSoT in Contracts. Q2 (sequencing) resolved as normalize-first plus parallel execution across all 9 domains.
+
 ## [2026.4.149] — 2026-04-25 — Worker model: haiku → sonnet across orchestrator instructions
 
 The orchestrator playbooks instructed every spawned Worker and Explorer subagent to run on `model: "haiku"`. Memory observation `spawn-capability-gap-2026-04-25` documented the failure mode: haiku has a capability ceiling for complex multi-file refactors and was empirically observed to falsely report "Implementation complete" without running quality gates (T1450 PROOF). This release standardizes Workers and Explorers on `sonnet` everywhere the assignment was hard-coded, matching the precedent already set by `cleo-subagent.cant` (`model: sonnet`) and `docs/guides/LEAD-VS-WORKER-ROLES.md` (worker example uses `sonnet`).
