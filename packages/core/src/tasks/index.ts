@@ -95,5 +95,7 @@ export {
   verifyAuditHistory,
 } from './gate-audit.js';
 export { type ListTasksOptions, type ListTasksResult, listTasks } from './list.js';
+// Task Core operation signatures for OpsFromCore inference (T1445)
+export type { tasksCoreOps } from './ops.js';
 export { showTask, type TaskDetail } from './show.js';
 export { type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';

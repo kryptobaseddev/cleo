@@ -1,48 +1,19 @@
 /**
- * NEXUS project registry bulk clean.
+ * NEXUS project registry bulk-clean.
  *
- * Filters and purges project_registry rows matching configurable criteria
- * (regex pattern, presets for temp/test paths, health status, index freshness).
- * Respects dry-run mode and supports readline confirmation from the CLI layer.
+ * Purges project_registry rows matching configurable path/status criteria.
+ * Supports dry-run mode and returns a summary result.
  *
  * @task T1473
  */
 
-/** Options for {@link cleanProjects}. */
-export interface ProjectsCleanOptions {
-  /** When true, return match count without deleting anything. */
-  dryRun?: boolean;
-  /** JS regex string to match against project_path. */
-  pattern?: string;
-  /** Preset: match paths containing a .temp/ segment. */
-  includeTemp?: boolean;
-  /** Preset: match paths containing tmp/test/fixture/scratch/sandbox. */
-  includeTests?: boolean;
-  /** Match rows where health_status is "unhealthy". */
-  matchUnhealthy?: boolean;
-  /** Match rows where last_indexed IS NULL. */
-  matchNeverIndexed?: boolean;
-}
+import path from 'node:path';
 
-/** Result envelope for {@link cleanProjects}. */
-export interface ProjectsCleanResult {
-  /** Whether the run was dry-run only. */
-  dryRun: boolean;
-  /** Number of rows that matched the criteria. */
-  matched: number;
-  /** Number of rows actually purged (0 on dry-run). */
-  purged: number;
-  /** Number of rows remaining after purge. */
-  remaining: number;
-  /** Up to 10 sample paths from matched rows. */
-  sample: string[];
-  /** Total rows in registry before purge. */
-  totalCount: number;
-}
-
-/** Error thrown when no filter criteria are provided. */
+/** Thrown when no filter criteria are provided to cleanProjects. */
 export class NoCriteriaError extends Error {
-  readonly code = 'E_NO_CRITERIA';
+  /** @override */
+  override readonly name = 'NoCriteriaError';
+
   constructor() {
     super(
       'No filter criteria provided. Refusing to purge all projects without explicit criteria.\n' +
@@ -51,79 +22,100 @@ export class NoCriteriaError extends Error {
   }
 }
 
-/** Error thrown when the supplied regex pattern is invalid. */
+/** Thrown when --pattern is not a valid JS regex. */
 export class InvalidPatternError extends Error {
-  readonly code = 'E_INVALID_PATTERN';
-  constructor(cause: unknown) {
+  /** @override */
+  override readonly name = 'InvalidPatternError';
+
+  constructor(pattern: string, cause: unknown) {
     super(
-      `Invalid --pattern regex: ${cause instanceof Error ? cause.message : String(cause)}`,
+      `Invalid --pattern regex '${pattern}': ${cause instanceof Error ? cause.message : String(cause)}`,
     );
   }
 }
 
+/** Options for {@link cleanProjects}. */
+export interface CleanProjectsOptions {
+  /** When true, perform a dry-run scan only — no deletions. */
+  dryRun: boolean;
+  /** JS regex pattern matched against project_path. */
+  pattern?: string;
+  /** Match paths containing a .temp/ segment. */
+  includeTemp?: boolean;
+  /** Match paths containing tmp/test/fixture/scratch/sandbox segments. */
+  includeTests?: boolean;
+  /** Match rows where health_status is 'unhealthy'. */
+  matchUnhealthy?: boolean;
+  /** Match rows where last_indexed IS NULL. */
+  matchNeverIndexed?: boolean;
+}
+
+/** Result envelope for {@link cleanProjects}. */
+export interface CleanProjectsResult {
+  /** Whether this was a dry-run (no deletions performed). */
+  dryRun: boolean;
+  /** Number of rows matching criteria. */
+  matched: number;
+  /** Number of rows actually deleted (0 when dryRun is true). */
+  purged: number;
+  /** Rows remaining after deletion. */
+  remaining: number;
+  /** Sample of matched project paths (first 10). */
+  sample: string[];
+  /** Total registry rows scanned. */
+  totalCount: number;
+}
+
+const TEMP_RE = /(^|\/)\.temp(\/|$)/;
+const TESTS_RE = /(^|\/)(tmp|test|fixture|scratch|sandbox)(\/|$)/;
+
 /**
- * Bulk purge project_registry rows matching given criteria.
+ * Bulk-purge project registry rows matching configurable criteria.
  *
- * Validates criteria, filters all registry rows, and (unless dry-run) deletes
- * the matching rows in a single transaction. Writes an audit log entry on success.
+ * At least one of `pattern`, `includeTemp`, `includeTests`, `matchUnhealthy`,
+ * or `matchNeverIndexed` must be set — otherwise throws {@link NoCriteriaError}.
+ * If `pattern` is set but invalid, throws {@link InvalidPatternError}.
+ * When `dryRun` is true, performs only a preview scan with no deletions.
  *
- * The CLI layer is responsible for the readline confirmation prompt — call this
- * only after the user has confirmed (or pass `dryRun: true` for preview).
- *
- * @param opts - Filter options.
- * @returns Clean result with match/purge counts and sample paths.
+ * @param opts - Clean options.
+ * @returns Clean result with match count and sample.
  * @throws {NoCriteriaError} When no filter criteria are provided.
- * @throws {InvalidPatternError} When the regex pattern is syntactically invalid.
+ * @throws {InvalidPatternError} When `opts.pattern` is not a valid regex.
  *
  * @example
- * const result = await cleanProjects({ includeTemp: true, dryRun: true });
- * console.log(result.matched);
+ * const preview = await cleanProjects({ dryRun: true, includeTemp: true });
+ * console.log(preview.matched, 'projects would be purged');
  */
-export async function cleanProjects(opts: ProjectsCleanOptions = {}): Promise<ProjectsCleanResult> {
-  const {
-    dryRun = false,
-    pattern: patternRaw,
-    includeTemp = false,
-    includeTests = false,
-    matchUnhealthy = false,
-    matchNeverIndexed = false,
-  } = opts;
-
-  // Require at least one filter criteria
+export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanProjectsResult> {
   const hasCriteria =
-    patternRaw !== undefined ||
-    includeTemp ||
-    includeTests ||
-    matchUnhealthy ||
-    matchNeverIndexed;
+    opts.pattern !== undefined ||
+    opts.includeTemp ||
+    opts.includeTests ||
+    opts.matchUnhealthy ||
+    opts.matchNeverIndexed;
 
   if (!hasCriteria) {
     throw new NoCriteriaError();
   }
 
-  // Validate regex pattern
   let patternRegex: RegExp | null = null;
-  if (patternRaw !== undefined) {
+  if (opts.pattern !== undefined) {
     try {
-      patternRegex = new RegExp(patternRaw);
+      patternRegex = new RegExp(opts.pattern);
     } catch (err) {
-      throw new InvalidPatternError(err);
+      throw new InvalidPatternError(opts.pattern, err);
     }
   }
 
-  const TEMP_RE = /(^|\/)\.temp(\/|$)/;
-  const TESTS_RE = /(^|\/)(tmp|test|fixture|scratch|sandbox)(\/|$)/;
-
-  function matchesCriteria(
-    projectPath: string,
-    healthStatus: string,
-    lastIndexed: string | null,
-  ): boolean {
+  /**
+   * Return true if a project matches any active criteria.
+   */
+  function matchesCriteria(projectPath: string, healthStatus: string, lastIndexed: string | null): boolean {
     if (patternRegex?.test(projectPath)) return true;
-    if (includeTemp && TEMP_RE.test(projectPath)) return true;
-    if (includeTests && TESTS_RE.test(projectPath)) return true;
-    if (matchUnhealthy && healthStatus === 'unhealthy') return true;
-    if (matchNeverIndexed && lastIndexed === null) return true;
+    if (opts.includeTemp && TEMP_RE.test(projectPath)) return true;
+    if (opts.includeTests && TESTS_RE.test(projectPath)) return true;
+    if (opts.matchUnhealthy && healthStatus === 'unhealthy') return true;
+    if (opts.matchNeverIndexed && lastIndexed === null) return true;
     return false;
   }
 
@@ -131,8 +123,8 @@ export async function cleanProjects(opts: ProjectsCleanOptions = {}): Promise<Pr
   const { projectRegistry: regTable, nexusAuditLog: auditTable } = await import(
     '@cleocode/core/store/nexus-schema' as string
   );
-  const { inArray } = await import('drizzle-orm');
   const { randomUUID } = await import('node:crypto');
+  const { inArray } = await import('drizzle-orm');
   const db = await getNexusDb();
 
   type RegistryRow = {
@@ -156,24 +148,25 @@ export async function cleanProjects(opts: ProjectsCleanOptions = {}): Promise<Pr
   );
 
   const totalCount = allRows.length;
-  const matchCount = matches.length;
-  const samplePaths = matches.slice(0, 10).map((r) => r.projectPath);
+  const matched = matches.length;
+  const sample = matches.slice(0, 10).map((r) => path.resolve(r.projectPath));
 
-  if (matchCount === 0 || dryRun) {
+  if (opts.dryRun || matched === 0) {
     return {
-      dryRun,
-      matched: matchCount,
+      dryRun: opts.dryRun,
+      matched,
       purged: 0,
       remaining: totalCount,
-      sample: samplePaths,
+      sample,
       totalCount,
     };
   }
 
+  // Delete matched rows
   const idsToDelete = matches.map((r) => r.projectId);
   await db.delete(regTable).where(inArray(regTable.projectId, idsToDelete));
 
-  const remaining = totalCount - matchCount;
+  const remaining = totalCount - matched;
 
   // Audit log (best-effort)
   try {
@@ -184,10 +177,15 @@ export async function cleanProjects(opts: ProjectsCleanOptions = {}): Promise<Pr
       operation: 'projects.clean',
       success: 1,
       detailsJson: JSON.stringify({
-        pattern: patternRaw ?? null,
-        presets: { includeTemp, includeTests, matchUnhealthy, matchNeverIndexed },
-        count: matchCount,
-        sample: samplePaths,
+        pattern: opts.pattern ?? null,
+        presets: {
+          includeTemp: opts.includeTemp,
+          includeTests: opts.includeTests,
+          matchUnhealthy: opts.matchUnhealthy,
+          matchNeverIndexed: opts.matchNeverIndexed,
+        },
+        count: matched,
+        sample,
       }),
     });
   } catch {
@@ -196,10 +194,10 @@ export async function cleanProjects(opts: ProjectsCleanOptions = {}): Promise<Pr
 
   return {
     dryRun: false,
-    matched: matchCount,
-    purged: matchCount,
+    matched,
+    purged: matched,
     remaining,
-    sample: samplePaths,
+    sample,
     totalCount,
   };
 }
