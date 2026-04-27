@@ -366,6 +366,9 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
     return lafsSuccess(run, 'status');
   },
 
+  // SSoT-EXEMPT:db-injection+runtime-offset-pagination — listPlaybookRunsState only
+  // supports LIMIT; offset must be applied client-side after fetch. acquireDb() returns
+  // a DatabaseSync handle that cannot be represented as a wire-format param (ADR-057 D1).
   list: async (params: PlaybookOps['list'][0]) => {
     const statusFilter = normalizeListStatus(params.status);
     const epicId = typeof params.epicId === 'string' ? params.epicId : undefined;
@@ -391,6 +394,9 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
     return lafsSuccess(envelope, 'list');
   },
 
+  // SSoT-EXEMPT:file-load+parse — must resolve .cantbook from disk before any DB row
+  // is written; parsePlaybook returns a non-wire-serializable definition object
+  // (ADR-057 D1 exception).
   validate: async (params: PlaybookOps['validate'][0]) => {
     const file = params.file;
     const name = params.name;
@@ -465,6 +471,10 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
   // Mutate ops
   // -----------------------------------------------------------------------
 
+  // SSoT-EXEMPT:db-injection+file-load+executePlaybook — db is a DatabaseSync handle
+  // (non-wire-serializable infrastructure per ADR-057 D1); file loading and
+  // parsePlaybook return a non-wire-serializable PlaybookDefinition; executePlaybook
+  // is the runtime state machine SSoT in @cleocode/playbooks and must remain here.
   run: async (params: PlaybookOps['run'][0]) => {
     const name = params.name;
     if (!name) {
@@ -537,6 +547,9 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
     );
   },
 
+  // SSoT-EXEMPT:db-injection+gate-validation — db is a DatabaseSync handle (ADR-057 D1);
+  // approval gate state machine requires loading playbook source + verifying hash
+  // integrity; resumePlaybook is the runtime SSoT in @cleocode/playbooks.
   resume: async (params: PlaybookOps['resume'][0]) => {
     const runId = params.runId;
     if (!runId) {
