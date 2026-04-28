@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v2026.4.154 — 2026-04-28
+
+### Highlights
+
+Comprehensive overnight orchestration campaign with 4 dispatch waves + 10-teammate domain audit + V1-V5 release validation. Net: 60+ commits across architecture cleanup, governance pumps, audit-driven fixes, and pre-release polish.
+
+### Key fixes
+
+- **fix(memory)**: wire `cleo memory sweep --rollback` dispatch routing (T1496/P0-1)
+- **fix(lifecycle)**: defensive guard for undefined `gateName` in `passGate`/`failGate` + 7 pipeline.integration tests fixed (T1497/P0-4)
+- **feat(verification)**: per-session `CLEO_OWNER_OVERRIDE` cap + `--shared-evidence` flag for batch closes + ADR-059 (T1501+T1502/P0-5+P0-6)
+- **feat(verification)**: raise default override cap 3→10 + worktree-context exemption (T1504)
+- **feat(orchestrate)**: worktree leak auto-cleanup + `cleo orchestrate prune` CLI (T1462)
+- **fix(paths)**: `getProjectRoot` rejects `.cleo` candidates lacking sibling `.git` (T1463)
+- **feat(tasks)**: epic closure requires direct evidence or all children verified-done (T1404)
+- **refactor(dispatch)**: 6 remaining fat handlers thinned to ≤5 LOC per ADR-058 (T1492 — T-THIN-WRAPPER feature-complete)
+- **fix(reconciliation)**: `sync:${providerId}` colon broke validateLabels regex — silently swallowed all reconciliation actions (T1530 silent data-corruption fix)
+- **fix(dispatch)**: migrate docs.ts to TypedDomainHandler<DocsTypedOps> per ADR-058 (T1529)
+- **chore(orphans)**: scripted re-parent of 39 orphaned tasks (T1503)
+- **chore(audit)**: 10-teammate domain audit + master synthesis (T1520)
+
+### Pre-release polish (T1562)
+
+- **fix(readme)**: correct invalid scope example
+- **chore(core)**: add runtime guard to `./internal` barrel
+- **fix(check)**: align `config.schema.json` with current config structure
+
+### Test suite
+
+- Pre-existing failures: 12 → 0
+- Test counts: 11507 → 11566 passing (708 test files)
+
+### Tooling
+
+- ADR-058 OpsFromCore adoption: 12/18 dispatch domains compliant (8 follow-up tasks filed in T1555)
+- Force-bypass governance pumps now LIVE (cap, shared-evidence, epic-closure-evidence)
+
 ## [2026.4.153] — 2026-04-28 — T1534: project-agnostic verify tools + cross-process semaphore + bounded stdout buffer
 
 Resolves the resource thrash and apparent memory leak observed when 10+ orchestrator-spawned worker subagents call `cleo verify --evidence "tool:<name>"` simultaneously across worktrees.
