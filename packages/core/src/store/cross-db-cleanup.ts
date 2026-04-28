@@ -341,10 +341,14 @@ export async function sessionExistsInTasksDb(
  * @task T238
  */
 export async function agentExistsInSignaldockDb(agentId: string, cwd?: string): Promise<boolean> {
+  // `cwd` parameter is retained for API compatibility but is intentionally
+  // unused: signaldock.db is global-only since T310. Agent identity lives in
+  // the global DB regardless of which project is being queried.
+  void cwd;
   try {
-    const { getSignaldockDbPath } = await import('./signaldock-sqlite.js');
+    const { getGlobalSignaldockDbPath } = await import('./signaldock-sqlite.js');
     const { existsSync } = await import('node:fs');
-    const dbPath = getSignaldockDbPath(cwd);
+    const dbPath = getGlobalSignaldockDbPath();
     if (!existsSync(dbPath)) return false;
 
     const { createRequire } = await import('node:module');
