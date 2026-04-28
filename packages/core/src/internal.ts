@@ -257,6 +257,14 @@ export {
 } from './lifecycle/ivtr-loop.js';
 export { STAGE_DEFINITIONS } from './lifecycle/stages.js';
 export { instantiateTessera, showTessera } from './lifecycle/tessera-engine.js';
+// Lifecycle — verify explain (T1013 / T1541 / ADR-051 / ADR-057)
+export {
+  checkExplainVerification,
+  type EvidenceEntry,
+  type ExplainVerificationResult,
+  type GateStateRecord,
+  type GateStatusRawData,
+} from './lifecycle/verification/explain.js';
 export type { BrainBackfillResult } from './memory/brain-backfill.js';
 export { backfillBrainGraph } from './memory/brain-backfill.js';
 // Memory — brain export (T626-M6)
@@ -672,6 +680,13 @@ export {
   convertStickyToTaskNote,
 } from './sticky/convert.js';
 export { listStickies, purgeSticky } from './sticky/index.js';
+export type {
+  StickyConvertMemoryParams,
+  StickyConvertResult,
+  StickyConvertSessionNoteParams,
+  StickyConvertTaskNoteParams,
+  StickyConvertTaskParams,
+} from './sticky/ops.js';
 export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
 export type { DerefResult } from './store/attachment-store.js';
 // Attachment store (T760 docs domain)

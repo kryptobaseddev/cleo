@@ -6,12 +6,15 @@
  *
  * @task T5282
  * @epic T5277
+ * @task T1535 — OpsFromCore migration tests
+ * @task T1537 — convert sub-operation split tests
  */
 
 import { describe, expect, it } from 'vitest';
-
 import { getByDomain, OPERATIONS } from '../../registry.js';
 import { CANONICAL_DOMAINS } from '../../types.js';
+import type { StickyDispatchOps } from '../sticky.js';
+import { StickyHandler } from '../sticky.js';
 
 describe('Sticky Domain (T5282)', () => {
   // =========================================================================
@@ -128,6 +131,82 @@ describe('Sticky Domain (T5282)', () => {
 
       expect(hasQuery).toBe(true);
       expect(hasMutate).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // T1535 — OpsFromCore typed handler pattern
+  // =========================================================================
+
+  describe('T1535 — OpsFromCore typed handler', () => {
+    it('StickyHandler can be instantiated', () => {
+      const handler = new StickyHandler();
+      expect(handler).toBeDefined();
+    });
+
+    it('getSupportedOperations returns expected shape', () => {
+      const handler = new StickyHandler();
+      const ops = handler.getSupportedOperations();
+      expect(ops.query).toContain('list');
+      expect(ops.query).toContain('show');
+      expect(ops.mutate).toContain('add');
+      expect(ops.mutate).toContain('convert');
+      expect(ops.mutate).toContain('archive');
+      expect(ops.mutate).toContain('purge');
+    });
+
+    it('query with unsupported op returns E_INVALID_OPERATION', async () => {
+      const handler = new StickyHandler();
+      const result = await handler.query('not-a-real-op', {});
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_OPERATION');
+    });
+
+    it('mutate with unsupported op returns E_INVALID_OPERATION', async () => {
+      const handler = new StickyHandler();
+      const result = await handler.mutate('not-a-real-op', {});
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_OPERATION');
+    });
+
+    it('StickyDispatchOps type is exported (compile-time check)', () => {
+      // If file compiles, the exported type exists. Runtime proof: handler is instantiable.
+      type _check = StickyDispatchOps;
+      const handler = new StickyHandler();
+      expect(handler).toBeDefined();
+    });
+  });
+
+  // =========================================================================
+  // T1537 — Convert sub-operation split
+  // =========================================================================
+
+  describe('T1537 — convert sub-operation routing', () => {
+    it('mutate convert without targetType returns E_INVALID_INPUT', async () => {
+      const handler = new StickyHandler();
+      const result = await handler.mutate('convert', { stickyId: 'SN-001' });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+      expect(result.error?.message).toContain('targetType');
+    });
+
+    it('mutate convert with invalid targetType returns E_INVALID_INPUT', async () => {
+      const handler = new StickyHandler();
+      const result = await handler.mutate('convert', { stickyId: 'SN-001', targetType: 'bogus' });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('mutate convert task_note without taskId returns E_INVALID_INPUT', async () => {
+      const handler = new StickyHandler();
+      // Intentionally omit taskId to trigger sub-op typed validation
+      const result = await handler.mutate('convert', {
+        stickyId: 'SN-001',
+        targetType: 'task_note',
+      });
+      // Sub-op validation fires: taskId is required for task_note
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
   });
 });
