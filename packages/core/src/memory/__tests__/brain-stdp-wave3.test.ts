@@ -358,7 +358,7 @@ describe('T695 — session-bucket pair grouping (real SQLite)', () => {
   // inside a single `it()` body; under parallel vitest workers on shared CPU this
   // can exceed the 60 s test timeout for non-algorithmic reasons (GC, I/O contention).
   //
-  // TODO(T1093-followup): re-enable only after (a) rewriting the trials out-of-band
+  // T1517: re-enable only after (a) rewriting the trials out-of-band
   // (separate perf suite, sequential run) AND (b) adopting an absolute-time budget
   // keyed to single-run cost rather than a ratio.
   it.skip('T695-1: session-bucket O(n²) guard — ratio-based complexity proof (N=50 vs N=200)', async () => {
