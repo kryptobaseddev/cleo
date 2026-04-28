@@ -10,6 +10,7 @@ This document supersedes all earlier handoff narratives. Verified against npm + 
 - **Core is now a real SDK**: `@cleocode/cleo` is a thin transport layer over `@cleocode/core` + `@cleocode/contracts`. All 9 dispatch domains use `OpsFromCore<typeof coreOps>` inference. ADR-057 + ADR-058 committed. Lint gate enforces no drift.
 - **A3 inventory reconciliation performed 2026-04-28**: 5 backlog items confirmed obsolete/resolved (see MASTER-BACKLOG OBSOLETE section). 2 pump items promoted from P3 → P0. 1 new bug surfaced (pipeline.integration.test.ts 7 failing tests). Override pump escalation documented.
 - **A1 + A4 inventory findings folded 2026-04-28**: 51 orphaned tasks invisible to `cleo list --parent` (new P0-7). 3 duplicate epics (T1466/T1136/T889). T1106 stale (v2026.4.102 era, 50 versions back). 20 stale SSoT-EXEMPT annotations (T1488/T1451). 4 T310-era deprecated shims. 6 T1082.followup markers never filed. Override pump updated: 246 entries in 4 days (up from 106 in 3 days), 665 total.
+- **A2 planning-docs + RCASD audit folded 2026-04-28** (FINAL fold-in): 25 shell-task stubs (T029-T068, T105-T106) with real planning docs but empty CLEO records. 8 stalled pending epics with 0 children (T889/T942/T946/T990/T1042/T1232/T631/T939-T941). 79 RCASD workspaces audited: ~5 with substantive content for non-archived pending tasks. Total task-record integrity gap: 51 orphans + 25 shells = **~76 task records** lacking coherence. New P0-NEW + P1-NEW-3 + P2-NEW-7 added to master backlog.
 - **CRITICAL: 246 force-bypass entries in 4 days (2026-04-24 to 2026-04-28), 36 unique tasks bypassed, 665 total** — this session contributed 20. The pattern is escalating, not isolated. The prior handoff warned about this; it repeated within 72 hours. P0-5 (override cap) and P0-6 (shared-evidence flag) must be implemented before new code campaigns begin.
 - **Master backlog**: `.cleo/agent-outputs/MASTER-BACKLOG-2026-04-28.md` (updated by A3 + A1 + A4 corrections)
 - **Next session top priorities**: (1) audit 246 override entries / inform owner, (2) implement override cap (P0-5) + shared-evidence flag (P0-6), (3) re-parent 51 orphaned tasks (P0-7) after owner T1106 decision, (4) owner: BRAIN sweep decision (moot — all runs rolled back), (5) wire sweep --rollback (1 LOC not ~20)
@@ -128,21 +129,25 @@ This repeats the meta-failure identified in the v2026.4.141 handoff. The first a
 
 ---
 
-## Next session priorities (top 5, from MASTER-BACKLOG P0 — updated by A3 + A1 + A4)
+## Next session priorities (top 5+2, from MASTER-BACKLOG P0 — updated by A3 + A1 + A4 + A2)
 
 1. **Audit 246 override entries and inform owner** (P0-3) — the 4-day escalation (246 entries, 36 tasks, 665 total) MUST be surfaced to the owner before any new code work. Verify the 2026-04-27 session's 20 overrides against `git blame`. Investigate "emergency hotfix incident 9999" (no task ID). File regression tasks for any failure introduced by the campaign. Owner must be explicitly informed that the session's 20 were part of a 246-entry, 4-day pattern.
 2. **Implement P0-5 + P0-6: override cap + shared-evidence flag** — with 665 total entries and no enforcement gate, these pumps are genuine P0. Implement before next code campaign or the pattern repeats again.
 3. **Re-parent 51 orphaned tasks** (P0-7, new from A1) — 51 pending tasks have clear epic affiliation but no `parentId`, making their epics appear empty to `cleo list --parent`. Requires owner decision on T1106 fate (P1-NEW-2) first, then script `cleo task update` calls. Priority groups: EP1/EP2/EP3 Nexus tasks (T1057–T1073 → T1054/T1055/T1056); agents-arch tasks (T897–T909 → T1232/T942); Sandbox/Tier3 tasks (T923/T925/T1009–T1012/T1029–T1032 → T911/T942). CLOSE-ALL tasks (T1104/T1105/T1108+ → T1106 or cancel if stale).
 4. **Owner decision on BRAIN sweep (now moot — all runs rolled back)** (P0-2) — A3 confirmed all 4 `brain_backfill_runs` have `status=rolled-back`. No active staged sweep exists. Owner decides: re-run when P0-1 is fixed, or permanently abandon. Document in BRAIN. (~5 min)
 5. **Wire `cleo memory sweep --rollback` dispatch** (P0-1) — **1 LOC fix** (not ~20 LOC as previously stated): add `'sweep'` to the `mutate[]` array in `getOperationConfig()` in `packages/cleo/src/dispatch/domains/memory.ts` (~line 1994). The `case 'sweep'` block already handles rollback — only the routing entry is missing.
+6. **Owner: 25 shell-task triage** (P0-NEW, new from A2) — 25 task records filed circa 2026-03-21 have rich planning docs attached but empty CLEO entries (title = "Task XX", no description, no acceptance). Owner reviews 4 largest first (T030 FK audit 40KB, T031 index analysis 25KB, T106 session audit 16KB, T105 enforcement audit 10KB): accept with criteria OR cancel. Agent can batch-update remaining 21 shells after. Together with P0-7, this resolves the **~76 task-record integrity gap** that makes the orchestrator's view incoherent.
+7. **Stalled-epic decomposition decisions** (P1-NEW-3, new from A2) — 8 pending epics with 0 children need explicit decompose-or-cancel decisions. Agent can cancel T889/T631/T939/T940/T941 (some require CLEO_OWNER_OVERRIDE due to T877 invariant). T942/T990 require owner scoping sessions. T1232 needs implementation go/no-go. T946 needs narrow replan. See P1-NEW-3 decision table in master backlog.
 
 ---
 
-## Structural Health (new section — A1 + A4 findings 2026-04-28)
+## Structural Health (updated — A1 + A2 + A4 findings 2026-04-28)
 
-### Task DB orphan summary
+### Task DB integrity summary (A2 final fold-in)
 
-51 pending tasks exist in the DB with no `parentId` despite clear epic affiliation. These are invisible when running `cleo list --parent <epicId>`. Full breakdown:
+**Total task-record integrity gap: ~76 records** (51 orphans with no parentId + 25 shell stubs with no content).
+
+**51 orphans (A1)**: Pending tasks with clear epic affiliation but `parentId=null` — invisible to `cleo list --parent`. Full breakdown:
 
 | Orphan Group | Tasks | Count | Intended Parent |
 |---|---|---|---|
@@ -155,6 +160,43 @@ This repeats the meta-failure identified in the v2026.4.141 handoff. The first a
 | **Total** | | **~51** | |
 
 Note: T1104 and T1105 reference "v2026.4.102" specifically — they are 50 versions stale. Verify relevance before re-parenting; likely need cancellation. Owner must decide T1106 fate before CLOSE-ALL group can be processed.
+
+**25 shell stubs (A2)**: Task records filed circa 2026-03-21 with generic titles ("Task 30", etc.) and zero content. Rich planning docs exist in `.cleo/agent-outputs/` for all 25. Top 4 by planning-doc size:
+
+| Task | Generic Title | Planning Doc | Size |
+|------|--------------|--------------|------|
+| T030 | "Task 30" | T030-soft-fk-audit.md | 40KB |
+| T031 | "Task 31" | T031-index-analysis.md | 25KB |
+| T106 | "Target 6" | T106-session-audit.md | 16KB |
+| T105 | "Target 5" | T105-enforcement-audit.md | 10KB |
+
+Additional 21 shells: T029, T032-T045, T060-T068 — each has 2-8KB planning doc. All have generic titles and zero description. See P0-NEW in master backlog for batch `cleo update` commands.
+
+### RCASD workspace summary (A2)
+
+79 total RCASD directories in `.cleo/rcasd/`:
+- ~34 empty stubs (YAML frontmatter only)
+- ~45 with substantive content
+- ~40 of the substantive ones map to archived/done tasks (historical, no action needed)
+- **~5 stalled**: substantive content for pending/non-archived tasks that have no implementation evidence:
+  - `rcasd/T1232/` — 9 stages through validation; 3 children all pending; implementation not started
+  - `rcasd/T1106/` — 6 stages through implementation; partly complete; owner decision pending (P1-NEW-2)
+  - `rcasd/T942/` — 4 stage files, all empty stubs; owner RCASD session required
+  - `rcasd/T889/` — research stage only, empty stub; stalled since 2026-04-17
+  - `rcasd/T919/` — consensus stage only, empty stub; "Fix GH issue #94" research never started
+
+**8 stalled pending epics with 0 children** (A2):
+
+| Epic | Title | Stalled Since | RCASD State | Recommended |
+|------|-------|--------------|-------------|-------------|
+| T889 | Orchestration Coherence v3 | 2026-04-17 | Empty research stub | Cancel — T910 v4 supersedes |
+| T942 | Sentient Architecture Redesign | 2026-04-20 | 4 stages all empty | Owner RCASD session required |
+| T946 | AGI Capstone | 2026-04-20 | No RCASD | Narrow replan or cancel |
+| T990 | Studio Design System | 2026-04-20 | No RCASD | Owner design direction required |
+| T1042 | Nexus vs GitNexus | 2026-04-20 | Empty research stub | Decompose or link unlinked children |
+| T1232 | Agents Architecture Remediation | 2026-04-23 | Full RCASD, stalled at impl | Owner implementation go/no-go |
+| T631 | Cleo Prime Orchestrator Persona | ~2026-04-16 | No RCASD | Cancel or R-task decomposition |
+| T939/T940/T941 | Test-artifact epics | 2026-04-20 | 5 stages each, all empty | Cancel via owner override (T877 blocks) |
 
 ### Duplicate epics (need owner decision)
 
@@ -189,6 +231,9 @@ Note: T1104 and T1105 reference "v2026.4.102" specifically — they are 50 versi
 | **T1466 / T1136 / T889 duplicate epics** (NEW — A1) | Three epics duplicate existing work: T1466 duplicates T1461; T1136 duplicates T1407 T-INV-3; T889 superseded by T1323. Recommend cancel/archive. | Agents may start decomposing T1466 or T1136 not knowing the overlapping epic is already ready to execute |
 | T942 Sentient CLEO Architecture Redesign | Meta-epic; requires RCASD planning session; involves irreversible state SSoT changes | If agents start without RCASD, scope will drift |
 | T990 Studio UI/UX Design System | Requires owner design direction; invoke frontend-design skill | Agents cannot produce a designed UI without direction |
+| **25 shell-task triage (P0-NEW, A2)** | Review T030/T031/T106/T105 (4 largest docs): accept with criteria OR cancel with rationale. Agent batches remaining 21. ~76 total task-record integrity gap (51 orphans + 25 shells). | Without triage, 25 tasks remain orchestrator-invisible; planning docs are effectively lost |
+| **Stalled-epic decompositions (P1-NEW-3, A2)** | 8 pending epics with 0 children need explicit decompose-or-cancel: T889/T631 → cancel; T939/T940/T941 → cancel via override (T877); T942/T990 → RCASD/design sessions; T1232 → impl go/no-go; T946 → replan or cancel. | Stalled epics waste orchestrator attention every session; T939/T940/T941 can't be cancelled without CLEO_OWNER_OVERRIDE (T877 invariant) |
+| **RCASD workspace stall/advance (P2-NEW-7, A2)** | 5 RCASD workspaces with content for non-archived tasks: T1232 (impl go/no-go), T1106 (fate per P1-NEW-2), T942 (RCASD session), T889 (cancel), T919 (start or abandon). | Without explicit advance-or-stall, RCASD content misleads agents into thinking planning is active |
 
 ---
 
@@ -259,7 +304,7 @@ Note: T1104 and T1105 reference "v2026.4.102" specifically — they are 50 versi
 
 ---
 
-## What the A3 + A1 + A4 reconciliation sessions did NOT do (honest accounting)
+## What the A3 + A1 + A4 + A2 reconciliation sessions did NOT do (honest accounting)
 
 This section documents items from the prior handoff that A3 identified as resolved but this session did not implement, plus items A1/A4 found that remain unfixed:
 
@@ -273,6 +318,9 @@ This section documents items from the prior handoff that A3 identified as resolv
 - Did NOT remove any deprecated shims or dead-code functions (A4 finding) — only documented them.
 - Did NOT file regression tasks for sqlite-warning-suppress, backup-pack race, or T1093-followup skips (A4 finding) — only documented them.
 - Did NOT cancel or merge T1466/T1136/T889 duplicate epics (A1 finding) — only documented the overlaps.
+- Did NOT rename or describe any of the 25 shell-task stubs (A2 finding) — only documented them. Requires owner triage of T030/T031/T106/T105 first.
+- Did NOT cancel any of the 8 stalled epics with 0 children (A2 finding) — only documented them. Requires owner decisions + CLEO_OWNER_OVERRIDE for T939/T940/T941.
+- Did NOT advance or mark-stalled any of the 5 RCASD workspaces with content for non-archived tasks (A2 finding) — only documented them. Follows from owner stalled-epic decisions.
 
 ---
 
@@ -282,6 +330,6 @@ This is the SSoT. When a future agent session opens:
 1. Read this entire file FIRST. Trust it over all prior session-specific handoff prose.
 2. Verify the "Definitive current state" table values against live npm + git before acting.
 3. Start with the "Honest accounting" section — do not proceed to new code work without auditing the 106 override entries (3-day window) and informing the owner.
-4. The master backlog (`MASTER-BACKLOG-2026-04-28.md`) is the ranked task list — **this file has been updated by A3 + A1 + A4 corrections** (2026-04-28). P0-7 (51 orphaned tasks) is new. P1-NEW-1 (duplicate epics) and P1-NEW-2 (T1106 stale decision) are new. P2-NEW-1 through P2-NEW-6 are new (stale SSoT-EXEMPTs, deprecation cleanup, TODO followups, regression tasks, T659 orphan files). Override pump stats updated to A4 figures (246 in 4 days, 665 total).
+4. The master backlog (`MASTER-BACKLOG-2026-04-28.md`) is the ranked task list — **this file has been updated by A3 + A1 + A4 + A2 corrections** (2026-04-28, FINAL fold-in). P0-7 (51 orphaned tasks) is new from A1. P1-NEW-1 (duplicate epics + 8 stalled epics) and P1-NEW-2 (T1106 stale decision) are new. P2-NEW-1 through P2-NEW-6 are new from A4 (stale SSoT-EXEMPTs, deprecation cleanup, TODO followups, regression tasks, T659 orphan files). **A2 additions**: P0-NEW (25 shell-task stubs), P1-NEW-3 (stalled-epic decomposition decisions table), P2-NEW-7 (5 stalled RCASD workspaces). Override pump stats updated to A4 figures (246 in 4 days, 665 total). Integrity gap summary: 51 orphans + 25 shells = ~76 task records lacking coherence.
 5. The "Hard rules" section is not aspirational — these are enforced by CI and biome. Do not bypass.
 6. Update this file at the end of every session with a concise "What this session did" entry — replace stale state cleanly, do NOT append addenda at the top.
