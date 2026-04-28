@@ -1180,6 +1180,17 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
+    operation: 'test.coverage',
+    description: 'check.test.coverage (query) — dedicated test coverage sub-op (T1434)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'check',
     operation: 'coherence',
     description: 'check.coherence (query) — renamed from coherence.check (T5615)',
     tier: 1,
