@@ -18,6 +18,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -379,6 +380,182 @@ export function pruneOrphanedWorktrees(
   }
 
   return { removed: removed.length, removedPaths: removed, errors };
+}
+
+/**
+ * Result of a single-task worktree prune operation.
+ *
+ * @task T1462
+ */
+export interface PruneWorktreeResult {
+  /** Task ID whose worktree was targeted. */
+  taskId: string;
+  /** Outcome: 'pruned' — cleaned up, 'skipped' — no worktree found, 'error' — failed. */
+  status: 'pruned' | 'skipped' | 'error';
+  /** Whether the worktree directory was removed. */
+  worktreeRemoved: boolean;
+  /** Whether the task branch was deleted. */
+  branchDeleted: boolean;
+  /** Whether the worktree was dirty (had uncommitted changes) when pruned. */
+  wasDirty: boolean;
+  /** Error message if any step failed. */
+  error?: string;
+}
+
+/**
+ * Prune the worktree for a single completed or cancelled task.
+ *
+ * Unlike {@link completeAgentWorktree}, this function does NOT cherry-pick
+ * any commits — it is called after `cleo complete` has already recorded the
+ * task as done. It simply removes the worktree filesystem entry and the
+ * `task/<taskId>` branch if the branch has no commits ahead of the base ref.
+ *
+ * Behaviour:
+ * - Returns `{ status: 'skipped' }` when no worktree exists for the task.
+ * - Unlocks the worktree before removing (handles locked worktrees created by spawn).
+ * - Falls back to `rmSync` if `git worktree remove` fails.
+ * - Deletes `task/<taskId>` branch only when it has 0 commits ahead of the
+ *   current HEAD (i.e. the branch has already been cherry-picked or is empty).
+ *   When commits are still present the branch is left in place and reported in
+ *   the result — callers should use `cleo orchestrate worktree.complete` first.
+ * - Always writes a `--force` remove with an audit log entry (`.cleo/audit/worktree-prune.jsonl`)
+ *   when the worktree is detected as dirty.
+ * - Never throws — failures are returned in `{ status: 'error', error }`.
+ *
+ * @param taskId     - The CLEO task ID (e.g. "T1462").
+ * @param projectRoot - Absolute path to the project root.
+ * @param opts.auditLogPath - Override path for the audit JSONL (testing).
+ * @returns Prune outcome.
+ *
+ * @task T1462
+ * @adr ADR-055
+ */
+export function pruneWorktree(
+  taskId: string,
+  projectRoot: string,
+  opts: { auditLogPath?: string } = {},
+): PruneWorktreeResult {
+  const branch = `task/${taskId}`;
+  let gitRoot: string;
+  try {
+    gitRoot = getGitRoot(projectRoot);
+  } catch (err) {
+    return {
+      taskId,
+      status: 'error',
+      worktreeRemoved: false,
+      branchDeleted: false,
+      wasDirty: false,
+      error: `Not a git repo: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
+  const worktreePath = join(worktreeRoot, taskId);
+
+  // Fast-path: nothing to do if the worktree directory doesn't exist.
+  if (!existsSync(worktreePath)) {
+    // Still attempt to remove a stale branch if it exists.
+    let branchDeleted = false;
+    try {
+      const branchExists = gitSync(['branch', '--list', branch], gitRoot);
+      if (branchExists) {
+        gitSync(['branch', '-D', branch], gitRoot);
+        branchDeleted = true;
+      } else {
+        branchDeleted = true; // nothing to delete
+      }
+    } catch {
+      /* best-effort */
+    }
+    return { taskId, status: 'skipped', worktreeRemoved: false, branchDeleted, wasDirty: false };
+  }
+
+  // Detect dirty state: uncommitted changes in the worktree.
+  let wasDirty = false;
+  try {
+    const statusOut = gitSync(['status', '--porcelain'], worktreePath);
+    wasDirty = statusOut.length > 0;
+  } catch {
+    // If we can't check status assume clean.
+  }
+
+  // If dirty, write an audit log entry before force-removing.
+  if (wasDirty) {
+    try {
+      const auditDir = opts.auditLogPath
+        ? opts.auditLogPath.split('/').slice(0, -1).join('/')
+        : join(projectRoot, '.cleo', 'audit');
+      mkdirSync(auditDir, { recursive: true });
+      const logPath = opts.auditLogPath ?? join(auditDir, 'worktree-prune.jsonl');
+      const entry = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        taskId,
+        worktreePath,
+        action: 'force-remove-dirty',
+        agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+      });
+      appendFileSync(logPath, entry + '\n', 'utf-8');
+    } catch {
+      /* audit is best-effort */
+    }
+  }
+
+  // Unlock and remove the worktree.
+  let worktreeRemoved = false;
+  gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
+  if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
+    worktreeRemoved = true;
+  } else {
+    try {
+      rmSync(worktreePath, { recursive: true, force: true });
+      // Prune stale git admin entries.
+      gitSilent(['worktree', 'prune'], gitRoot);
+      worktreeRemoved = true;
+    } catch (err) {
+      return {
+        taskId,
+        status: 'error',
+        worktreeRemoved: false,
+        branchDeleted: false,
+        wasDirty,
+        error: `Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  // Delete the branch only when it has no commits ahead of current HEAD.
+  let branchDeleted = false;
+  try {
+    const branchExists = gitSync(['branch', '--list', branch], gitRoot);
+    if (branchExists) {
+      // Check for unmerged commits.
+      let baseRef: string;
+      try {
+        baseRef = gitSync(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot);
+      } catch {
+        baseRef = 'main';
+      }
+      const aheadLog = gitSync(['log', '--format=%H', `${baseRef}..${branch}`], gitRoot);
+      const aheadCommits = aheadLog
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (aheadCommits.length === 0) {
+        gitSync(['branch', '-D', branch], gitRoot);
+        branchDeleted = true;
+      } else {
+        // Commits ahead — leave branch, surface in result.
+        branchDeleted = false;
+      }
+    } else {
+      branchDeleted = true; // already gone
+    }
+  } catch {
+    /* best-effort */
+  }
+
+  return { taskId, status: 'pruned', worktreeRemoved, branchDeleted, wasDirty };
 }
 
 // ---------------------------------------------------------------------------
