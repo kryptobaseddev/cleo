@@ -52,8 +52,10 @@ export const GLOBAL_SIGNALDOCK_DB_FILENAME = 'signaldock.db';
 export const GLOBAL_SIGNALDOCK_SCHEMA_VERSION = '2026.4.12';
 
 /**
- * @deprecated Use GLOBAL_SIGNALDOCK_SCHEMA_VERSION. Retained during T310
- * migration window. Will be removed after all callers migrate (T355).
+ * @deprecated Use GLOBAL_SIGNALDOCK_SCHEMA_VERSION. T310 is done (archived).
+ * Retained only because packages/core/src/internal.ts re-exports this name.
+ * Removal blocked until internal.ts export is cleaned up.
+ * Tracking: T355 / T1508 P2-NEW-2 — remove in v2026.5.0.
  */
 export const SIGNALDOCK_SCHEMA_VERSION = GLOBAL_SIGNALDOCK_SCHEMA_VERSION;
 
@@ -91,9 +93,12 @@ export function getGlobalSignaldockDbPath(): string {
 }
 
 /**
- * @deprecated Use getGlobalSignaldockDbPath() directly. Retained during T310
- * migration window so the TypeScript build does not break until all callers
- * are updated (tracked in T355 accessor refactor).
+ * @deprecated Use getGlobalSignaldockDbPath() directly. T310 is done (archived).
+ * Blocked from deletion: two callers still use this shim and require migration:
+ *   - packages/core/src/store/cross-db-cleanup.ts (calls with cwd — will throw)
+ *   - packages/core/src/internal.ts (re-exports this name)
+ * Fix: migrate cross-db-cleanup.ts to use getConduitDbPath() and remove from
+ * internal.ts. Tracking: T355 / T1508 P2-NEW-2 — remove in v2026.5.0.
  *
  * When called WITHOUT arguments: returns the global-tier path (forwards to
  * getGlobalSignaldockDbPath()).
@@ -243,8 +248,12 @@ export async function ensureGlobalSignaldockDb(): Promise<{
 }
 
 /**
- * @deprecated Use ensureGlobalSignaldockDb(). Retained during T310 migration
- * window for callers in init.ts and agent-registry-accessor.ts.
+ * @deprecated Use ensureGlobalSignaldockDb(). T310 is done (archived).
+ * Blocked from deletion: caller still uses this shim and requires migration:
+ *   - packages/core/src/upgrade.ts calls ensureSignaldockDb(projectRootForMaint)
+ *     (with cwd arg — will throw at runtime). Must migrate to ensureConduitDb(cwd).
+ *   - packages/core/src/internal.ts re-exports this name.
+ * Tracking: T355 / T1508 P2-NEW-2 — remove in v2026.5.0.
  *
  * When called WITHOUT arguments: forwards to ensureGlobalSignaldockDb().
  * When called WITH a non-undefined `cwd` argument: throws a migration error.
@@ -347,8 +356,10 @@ export async function checkGlobalSignaldockDbHealth(): Promise<{
 }
 
 /**
- * @deprecated Use checkGlobalSignaldockDbHealth(). Retained during T310 migration
- * window for callers in `cleo doctor` and other diagnostics.
+ * @deprecated Use checkGlobalSignaldockDbHealth(). T310 is done (archived).
+ * Retained only because packages/core/src/internal.ts re-exports this name.
+ * Removal blocked until internal.ts export is cleaned up.
+ * Tracking: T355 / T1508 P2-NEW-2 — remove in v2026.5.0.
  *
  * When called WITHOUT arguments: forwards to checkGlobalSignaldockDbHealth().
  * When called WITH a non-undefined `cwd` argument: throws a migration error.
