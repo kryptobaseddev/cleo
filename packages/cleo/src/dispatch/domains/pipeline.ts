@@ -788,6 +788,77 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
 });
 
 // ---------------------------------------------------------------------------
+// PipelineHandler post-dispatch helpers (ADR-058 thin-handler T1492/P1-1)
+//
+// These helpers extract the fat post-dispatch transformation blocks from
+// PipelineHandler.query so each branch in the query method is ≤5 LOC.
+// SSoT-EXEMPT: pagination + page-envelope lifting are dispatch-layer concerns
+// (LAFSPage type incompatibility between @cleocode/lafs and @cleocode/contracts).
+// ---------------------------------------------------------------------------
+
+/** Apply phase.list pagination to a typed-dispatch envelope. */
+function pipelinePhaseListResponse(
+  envelope: { data?: unknown },
+  params: Record<string, unknown> | undefined,
+  operation: string,
+  startTime: number,
+): DispatchResponse {
+  const listData = (envelope.data as ListPhasesResult & Record<string, unknown>) ?? {};
+  const phases = ((listData as { phases?: unknown[] } | undefined)?.phases ?? []) as unknown[];
+  const total =
+    (listData as { summary?: { total?: number } } | undefined)?.summary?.total ?? phases.length;
+  const { limit, offset } = getListParams(params);
+  const page = paginate(phases, limit, offset);
+  return {
+    meta: dispatchMeta('query', 'pipeline', operation, startTime),
+    success: true,
+    data: { ...listData, phases: page.items, total, filtered: total },
+    page: page.page,
+  };
+}
+
+/** Apply chain.list pagination to a typed-dispatch envelope. */
+function pipelineChainListResponse(
+  envelope: { data?: unknown },
+  params: Record<string, unknown> | undefined,
+  operation: string,
+  startTime: number,
+): DispatchResponse {
+  const rawData = (envelope.data as { _chains: unknown[] } | undefined) ?? { _chains: [] };
+  const chains = rawData._chains ?? [];
+  const { limit, offset } = getListParams(params);
+  const page = paginate(chains, limit, offset);
+  return {
+    meta: dispatchMeta('query', 'pipeline', operation, startTime),
+    success: true,
+    data: { chains: page.items, total: chains.length, filtered: chains.length },
+    page: page.page,
+  };
+}
+
+/** Extract _enginePage from typed-dispatch envelope and return DispatchResponse. */
+function pipelineEnvelopeResponse(
+  envelope: { data?: unknown },
+  operation: string,
+  startTime: number,
+): DispatchResponse {
+  const envelopeData = envelope.data as Record<string, unknown> | undefined;
+  const enginePage = envelopeData?._enginePage as import('@cleocode/lafs').LAFSPage | undefined;
+  const responseData =
+    envelopeData?._enginePage !== undefined
+      ? (({ _enginePage: _p, ...rest }) => rest)(
+          envelopeData as Record<string, unknown> & { _enginePage: unknown },
+        )
+      : envelopeData;
+  return {
+    meta: dispatchMeta('query', 'pipeline', operation, startTime),
+    success: true,
+    data: responseData as unknown,
+    ...(enginePage ? { page: enginePage } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // PipelineHandler
 // ---------------------------------------------------------------------------
 
@@ -858,67 +929,11 @@ export class PipelineHandler implements DomainHandler {
         };
       }
 
-      // phase.list — re-apply pagination so DispatchResponse.page is populated.
-      if (operation === 'phase.list') {
-        const rawData = envelope.data as unknown;
-        const listData = rawData as ListPhasesResult & Record<string, unknown>;
-        const phases = ((listData as { phases?: unknown[] } | undefined)?.phases ??
-          []) as unknown[];
-        const total =
-          (listData as { summary?: { total?: number } } | undefined)?.summary?.total ??
-          phases.length;
-        const { limit, offset } = getListParams(params);
-        const page = paginate(phases, limit, offset);
-
-        return {
-          meta: dispatchMeta('query', 'pipeline', operation, startTime),
-          success: true,
-          data: {
-            ...listData,
-            phases: page.items,
-            total,
-            filtered: total,
-          },
-          page: page.page,
-        };
-      }
-
-      // chain.list — apply pagination to raw chains returned by typed handler.
-      if (operation === 'chain.list') {
-        const rawData = envelope.data as unknown as { _chains: unknown[] };
-        const chains = rawData._chains ?? [];
-        const { limit, offset } = getListParams(params);
-        const page = paginate(chains, limit, offset);
-
-        return {
-          meta: dispatchMeta('query', 'pipeline', operation, startTime),
-          success: true,
-          data: {
-            chains: page.items,
-            total: chains.length,
-            filtered: chains.length,
-          },
-          page: page.page,
-        };
-      }
-
-      // Extract _enginePage embedded by typed handler ops (e.g. manifest.list, release.list)
-      // so the DispatchResponse.page field is populated for pagination-aware consumers.
-      const envelopeData = envelope.data as Record<string, unknown> | undefined;
-      const enginePage = envelopeData?._enginePage as import('@cleocode/lafs').LAFSPage | undefined;
-      const responseData =
-        envelopeData?._enginePage !== undefined
-          ? (({ _enginePage: _p, ...rest }) => rest)(
-              envelopeData as Record<string, unknown> & { _enginePage: unknown },
-            )
-          : envelopeData;
-
-      return {
-        meta: dispatchMeta('query', 'pipeline', operation, startTime),
-        success: true,
-        data: responseData as unknown,
-        ...(enginePage ? { page: enginePage } : {}),
-      };
+      // phase.list / chain.list — pagination applied via helpers (ADR-058 T1492/P1-1)
+      if (operation === 'phase.list') return pipelinePhaseListResponse(envelope, params, operation, startTime);
+      if (operation === 'chain.list') return pipelineChainListResponse(envelope, params, operation, startTime);
+      // All other ops — extract _enginePage from envelope (manifest.list, release.list, etc.)
+      return pipelineEnvelopeResponse(envelope, operation, startTime);
     } catch (error) {
       getLogger('domain:pipeline').error(
         { gateway: 'query', domain: 'pipeline', operation, err: error },
