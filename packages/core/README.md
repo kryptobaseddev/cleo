@@ -184,7 +184,7 @@ async function main() {
       parent: epic.data.id,
     });
 
-    await cleo.sessions.start({ scope: 'feature/auth', name: 'auth-sprint' });
+    await cleo.sessions.start({ scope: 'epic:T1234', name: 'auth-sprint' });
 
     await cleo.memory.observe({
       text: 'JWT validated via RS256 — symmetric HMAC rejected',
