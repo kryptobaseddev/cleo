@@ -529,3 +529,85 @@ jobs:
             exit 1
           fi
           echo "✓ All packages published or skipped (idempotent re-run safe)"
+
+  # ── Post-Deploy Execution Payload ──────────────────────────────────────────
+  # T1403: execute-payload job — runs AFTER all packages have been published.
+  #
+  # Purpose: close the CI execution gap where the release pipeline shipped
+  # code but never ran post-deploy steps (registry verification, deployment
+  # summary artifact, smoke confirmation). Filed as a process pump during
+  # v2026.4.141; implemented here so the gap is actually closed, not just
+  # filed as a task.
+  #
+  # What it does:
+  #   1. Verifies every @cleocode/* package at <VERSION> is resolvable on npm.
+  #   2. Writes a structured deploy-summary-<VERSION>.json artifact.
+  #   3. Writes a smoke-<VERSION>.txt artifact confirming end-to-end execution.
+  #   4. Uploads both as a GitHub Actions artifact for audit/traceability.
+  #
+  # Failure behavior:
+  #   - Registry verify failures exit 1 (step fails the job).
+  #   - Job failure does NOT block the release — continue-on-error: true
+  #     so a transient npm propagation delay never rolls back a good publish.
+  #   - Owner is notified via the failed job annotation in the Actions UI.
+
+  execute-payload:
+    name: Post-Deploy Execution Payload
+    runs-on: ubuntu-latest
+    needs: [release]
+    # Don't block the release on transient registry propagation delays.
+    # The job failure is visible in the Actions UI and the artifact captures
+    # which packages failed verification so the issue can be investigated.
+    continue-on-error: true
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Resolve version using the same logic as the release job.
+      - name: Get version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Post-deploy payload target: v$VERSION"
+
+      # Run the post-deploy payload script:
+      #   1. Verify all @cleocode/* packages at VERSION are on npm
+      #   2. Write deploy-summary-<VERSION>.json
+      #   3. Write smoke-<VERSION>.txt
+      # Uses --output-dir so artifacts land in a predictable path for upload.
+      - name: Run execute-payload
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ARTIFACT_DIR="/tmp/postdeploy-artifacts"
+          node scripts/execute-payload.mjs \
+            --version "$VERSION" \
+            --output-dir "$ARTIFACT_DIR"
+          echo "artifact_dir=$ARTIFACT_DIR" >> "$GITHUB_ENV"
+
+      # Upload both artifacts regardless of whether execute-payload succeeded.
+      # The deploy-summary JSON captures pass/fail per-package so failures
+      # are auditable even when the job itself exits non-zero.
+      - name: Upload post-deploy artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postdeploy-${{ steps.version.outputs.version }}
+          path: /tmp/postdeploy-artifacts/
+          if-no-files-found: warn
+          retention-days: 30
