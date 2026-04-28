@@ -139,12 +139,16 @@ MANDATORY before every `cleo complete <id>`. Every gate write MUST be backed by 
 cleo verify T### --gate implemented \
   --evidence "commit:<sha>;files:path/a.ts,path/b.ts"
 
-# testsPassed — vitest JSON or direct tool
+# testsPassed — structured test JSON OR project-resolved tool
+cleo verify T### --gate testsPassed --evidence "tool:test"
+#   OR (legacy alias — pnpm-test, cargo-test, pytest, etc. all map to canonical `test`)
 cleo verify T### --gate testsPassed --evidence "tool:pnpm-test"
-#   OR
+#   OR (anchored test-run JSON — preferred for sharing across sibling tasks)
 cleo verify T### --gate testsPassed --evidence "test-run:/tmp/vitest-out.json"
 
-# qaPassed — biome + tsc exit 0
+# qaPassed — lint + typecheck exit 0 (project-resolved: biome/eslint/clippy/ruff, tsc/mypy/...)
+cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"
+#   OR via legacy aliases — both still work
 cleo verify T### --gate qaPassed --evidence "tool:biome;tool:tsc"
 
 # documented — docs files or URL
@@ -182,6 +186,12 @@ CLEO_OWNER_OVERRIDE_REASON="incident 1234 hotfix" \
 ```
 
 All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
+
+### Tool resolution + result cache (ADR-061)
+
+`tool:<name>` evidence is project-agnostic. Canonical names: `test`, `build`, `lint`, `typecheck`, `audit`, `security-scan`. They resolve via `.cleo/project-context.json` (`testing.command`, `build.command`) with per-`primaryType` fallbacks (cargo, pytest, go, bun, …). Legacy aliases (`pnpm-test`, `tsc`, `biome`, `cargo-test`, `pytest`, …) still work.
+
+Results are cached under `.cleo/cache/evidence/<key>.json`, keyed on `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies against identical state coalesce to one execution via a per-key lock; cross-worktree parallelism is bounded by a machine-wide per-tool semaphore at `~/.local/share/cleo/locks/tool-<canonical>/`. Tune with `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>` (`0` disables).
 
 ### Anti-patterns to avoid
 

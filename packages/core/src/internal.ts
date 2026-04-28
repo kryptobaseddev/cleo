@@ -817,13 +817,15 @@ export {
   type TaskViewNextAction,
   type TaskViewPipelineStage,
 } from './tasks/compute-task-view.js';
-// Evidence-based verification (T832 / ADR-051)
+// Evidence-based verification (T832 / ADR-051, T1534 / ADR-061)
 export {
   type AtomValidation,
+  CANONICAL_TOOLS,
   checkGateEvidenceMinimum,
   composeGateEvidence,
   type EvidenceTool,
   GATE_EVIDENCE_MINIMUMS,
+  isValidToolName,
   type ParsedAtom,
   type ParsedEvidence,
   parseEvidence,
@@ -847,6 +849,32 @@ export type { RunGatesOptions } from './tasks/gate-runner.js';
 export { extractTypedGates, runGates } from './tasks/gate-runner.js';
 export { getCriticalPath } from './tasks/graph-ops.js';
 export type { TaskTreeNode } from './tasks/hierarchy.js';
+// Project-agnostic tool resolution + cache + semaphore (T1534 / ADR-061)
+export {
+  type AcquireSlotOptions,
+  acquireGlobalSlot,
+  type CanonicalTool,
+  cacheEntryPath,
+  captureDirtyFingerprint,
+  captureHead,
+  clearToolCache,
+  computeCacheKey,
+  defaultMaxConcurrent,
+  listValidToolNames,
+  type ReleaseSlotFn,
+  type ResolutionSource,
+  type ResolvedToolCommand,
+  type ResolveToolResult,
+  type RunToolOptions,
+  readCacheEntry,
+  resolveMaxConcurrent,
+  resolveToolCommand,
+  runToolCached,
+  semaphoreDir,
+  type ToolCacheEntry,
+  type ToolRunResult,
+  writeCacheEntry,
+} from './tasks/index.js';
 export type { CompactTask } from './tasks/list.js';
 export { toCompact } from './tasks/list.js';
 // Tasks domain — ADR-057 D1 normalized ops (projectRoot, params: <Op>Params) shape
