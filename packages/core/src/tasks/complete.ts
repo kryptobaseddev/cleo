@@ -128,6 +128,44 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
 }
 
 /**
+ * Check whether an epic has sufficient evidence to complete.
+ *
+ * An epic satisfies the evidence requirement if ANY of the following is true:
+ * 1. It has at least one direct evidence atom on any verification gate.
+ * 2. All of its children (excluding cancelled) have `status='done'` AND
+ *    `verification.passed=true`.
+ *
+ * Returns `true` when the epic may proceed; `false` when it must be rejected.
+ *
+ * @param task - The epic task to check.
+ * @param acc - Data accessor used to load children.
+ * @returns `true` when evidence is sufficient; `false` otherwise.
+ * @task T1404
+ */
+export async function verifyEpicHasEvidence(task: Task, acc: DataAccessor): Promise<boolean> {
+  // Condition 1: direct evidence atoms on any gate
+  if (task.verification?.evidence) {
+    const gates = task.verification.evidence;
+    const hasAtoms = Object.values(gates).some(
+      (gateEvidence) => gateEvidence != null && gateEvidence.atoms.length > 0,
+    );
+    if (hasAtoms) return true;
+  }
+
+  // Condition 2: all non-cancelled children are done+verified
+  const children = await acc.getChildren(task.id);
+  const nonCancelled = children.filter((c) => c.status !== 'cancelled');
+  if (
+    nonCancelled.length > 0 &&
+    nonCancelled.every((c) => c.status === 'done' && c.verification?.passed === true)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Complete a task by ID.
  * Handles dependency checking and optional auto-completion of epics.
  * @task T4461
@@ -220,6 +258,29 @@ export async function completeTask(
         `Task ${options.taskId} failed verification gates: ${missingRequiredGates.join(', ') || 'verification.passed=false'}`,
         {
           fix: `Set required verification gates before completion: ${enforcement.verificationRequiredGates.join(', ')}`,
+        },
+      );
+    }
+  }
+
+  // ---- T1404 / P1-4: Epic closure requires direct evidence or verified children ----
+  // Epics with no evidence atoms and no verified children cannot silently complete.
+  // This gate fires only under strict lifecycle mode with verification enabled,
+  // matching the same conditions as the non-epic verification block above.
+  if (
+    enforcement.verificationEnabled &&
+    enforcement.lifecycleMode === 'strict' &&
+    task.type === 'epic'
+  ) {
+    const evidenceSatisfied = await verifyEpicHasEvidence(task, acc);
+    if (!evidenceSatisfied) {
+      throw new CleoError(
+        ExitCode.LIFECYCLE_GATE_FAILED,
+        `Epic ${options.taskId} cannot complete without direct evidence atoms or verified children`,
+        {
+          fix:
+            `Either add direct evidence via 'cleo verify ${options.taskId} --gate implemented --evidence "..."' ` +
+            `or ensure all children have status=done with verification.passed=true.`,
         },
       );
     }
