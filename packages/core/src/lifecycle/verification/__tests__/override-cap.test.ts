@@ -175,7 +175,8 @@ describe('override-cap (T1501 / P0-5)', () => {
     // T1504 — worktree-context exemption tests
 
     it('7. worktree-context call is allowed and does not increment the cap counter (T1504)', () => {
-      const worktreeCmd = '/home/user/.local/share/cleo/worktrees/abc123/T1234/cleo.js verify T1234';
+      const worktreeCmd =
+        '/home/user/.local/share/cleo/worktrees/abc123/T1234/cleo.js verify T1234';
       // Use up 10 overrides first
       for (let i = 0; i < 10; i++) {
         checkAndIncrementOverrideCap(tmpDir, SESSION_ID);
