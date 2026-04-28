@@ -930,8 +930,10 @@ export class PipelineHandler implements DomainHandler {
       }
 
       // phase.list / chain.list — pagination applied via helpers (ADR-058 T1492/P1-1)
-      if (operation === 'phase.list') return pipelinePhaseListResponse(envelope, params, operation, startTime);
-      if (operation === 'chain.list') return pipelineChainListResponse(envelope, params, operation, startTime);
+      if (operation === 'phase.list')
+        return pipelinePhaseListResponse(envelope, params, operation, startTime);
+      if (operation === 'chain.list')
+        return pipelineChainListResponse(envelope, params, operation, startTime);
       // All other ops — extract _enginePage from envelope (manifest.list, release.list, etc.)
       return pipelineEnvelopeResponse(envelope, operation, startTime);
     } catch (error) {
