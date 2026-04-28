@@ -3,7 +3,8 @@ id: ADR-059
 title: Override Governance Pumps — per-session cap + shared-evidence flag
 status: accepted
 created: 2026-04-27
-tasks: [T1501, T1502]
+updated: 2026-04-27
+tasks: [T1501, T1502, T1504]
 supersedes: ~
 ---
 
@@ -26,9 +27,9 @@ Two recurrent failure modes were identified in sessions from 2026-04-21 to 2026-
 
 ## Decisions
 
-### D1 — Per-session CLEO_OWNER_OVERRIDE cap (T1501)
+### D1 — Per-session CLEO_OWNER_OVERRIDE cap (T1501, updated T1504)
 
-**Default cap:** 3 overrides per session.
+**Default cap:** 10 overrides per session (raised from 3 by T1504 — see §D3).
 
 **Persistence:** The running count is stored in
 `.cleo/audit/session-override-count.<sessionId>.json` so it survives across multiple
@@ -66,18 +67,52 @@ other sessions are ignored.
 **Behavior with `--shared-evidence`:** Accept silently and log
 `sharedEvidence: true` in the audit entry.
 
+### D3 — Cap default tuning + worktree-context exemption (T1504)
+
+**Context:** T1500 audit found that 39 of 178 force-bypass entries are
+by-design — they originate from worktree-orchestrate flows where the
+evidence system does not understand worktree branches.  The original cap of
+3 (D1) was too low for orchestrate sessions that legitimately spawn multiple
+workers and re-verify.
+
+**Cap raised:** `DEFAULT_OVERRIDE_CAP_PER_SESSION` 3 → 10.  Direct sessions
+(solo human operator) typically use 1–3 overrides per session; the new limit
+gives orchestrate sessions enough headroom without removing friction.
+
+**Worktree-context exemption:** When the CLI command string passed to
+`checkAndIncrementOverrideCap` contains `/worktrees/` (the canonical layout
+under `~/.local/share/cleo/worktrees/`), and `CLEO_OVERRIDE_EXEMPT_WORKTREE`
+is not explicitly set to `0` or `false`, the override:
+
+- is permitted immediately without incrementing the per-session counter.
+- returns `workTreeContext: true` in the result.
+- is still logged to force-bypass.jsonl with `workTreeContext: true` for
+  full audit coverage.
+
+The exemption is off by default in terms of detection scope: only commands
+whose path literally passes through the worktree directory are tagged.
+Agents that invoke `cleo` from a worktree path automatically qualify;
+sessions running from the main working tree do not.
+
+**Env controls:**
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `CLEO_OVERRIDE_CAP_PER_SESSION` | — | Not implemented (use the `cap` param directly) |
+| `CLEO_OVERRIDE_EXEMPT_WORKTREE` | `true` | Set to `"0"` or `"false"` to disable worktree exemption |
+
 ## Implementation
 
 | File | Change |
 |------|--------|
 | `packages/contracts/src/branch-lock.ts` | Added `E_OVERRIDE_CAP_EXCEEDED` and `E_SHARED_EVIDENCE_FLAG_REQUIRED` error codes |
 | `packages/contracts/src/operations/validate.ts` | Added `sharedEvidence?: boolean` to `ValidateGateParams` |
-| `packages/core/src/tasks/gate-audit.ts` | Extended `ForceBypassRecord` with `sessionOverrideOrdinal`, `sharedEvidence`, `sharedAtomWarning` |
-| `packages/core/src/security/override-cap.ts` | NEW — cap enforcement, waiver validation, persistent count |
+| `packages/core/src/tasks/gate-audit.ts` | Extended `ForceBypassRecord` with `sessionOverrideOrdinal`, `sharedEvidence`, `sharedAtomWarning`, `workTreeContext` |
+| `packages/core/src/security/override-cap.ts` | NEW — cap enforcement, waiver validation, persistent count; T1504: raised default 3→10, added `isWorktreeContext`, `isWorktreeExemptionEnabled`, `WORKTREE_PATH_SEGMENT`, `workTreeContext` result field |
 | `packages/core/src/security/shared-evidence-tracker.ts` | NEW — atom usage tracking, enforce function |
-| `packages/core/src/security/index.ts` | Re-exports for new modules |
-| `packages/core/src/internal.ts` | Internal API surface for dispatch layer |
-| `packages/cleo/src/dispatch/engines/validate-engine.ts` | Wired cap check + shared-evidence enforcement into `validateGateVerify` |
+| `packages/core/src/security/index.ts` | Re-exports for new modules (extended for T1504 exports) |
+| `packages/core/src/internal.ts` | Internal API surface for dispatch layer (extended for T1504 exports) |
+| `packages/cleo/src/dispatch/engines/validate-engine.ts` | Wired cap check + shared-evidence enforcement into `validateGateVerify`; T1504: passes `command` to cap check + logs `workTreeContext` in bypass record |
 | `packages/cleo/src/dispatch/engines/session-engine.ts` | `sessionStatus` now returns `overrideCount` |
 | `packages/cleo/src/dispatch/domains/session.ts` | Updated fallback shape with `overrideCount: 0` |
 | `packages/cleo/src/dispatch/domains/check.ts` | Threads `sharedEvidence` param to engine |
@@ -110,10 +145,14 @@ advisory only (not machine-validated).
 
 ## Consequences
 
-- Override escalation is now bounded per session.  Operators who genuinely need >3
+- Override escalation is now bounded per session.  Operators who genuinely need >10
   overrides must produce a waiver document explaining the need — this is the minimum
   friction required to surface patterns that led to the v2026.4.141→.152 failure mode.
 - Shared-evidence copy-paste is warned immediately rather than discovered in post-hoc
   audit.  CI pipelines can enable strict mode to turn this into a hard gate.
 - The `sessionOverrideOrdinal` field enables time-series analysis of escalation patterns
   within a session for future BRAIN / Sentient learning.
+- Worktree-orchestrate sessions no longer exhaust the cap budget through by-design
+  overrides.  The 39 entries identified in the T1500 audit are now tagged
+  `workTreeContext: true` in force-bypass.jsonl and excluded from the counter.
+  Administrators can filter these out of escalation reports using the new field.
