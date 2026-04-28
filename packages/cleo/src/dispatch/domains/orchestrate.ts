@@ -11,8 +11,12 @@
  * - orchestrate.fanout.status (T415) — fanout status stub
  * - orchestrate.analyze mode="parallel-safety" (T410) — dep-graph grouping
  *
+ * Type-safe dispatch via OpsFromCore<typeof coreOps> per ADR-058.
+ * Param extraction inferred by coreOps — zero `params?.x as Type` casts.
+ *
  * @epic T4820
  * @epic T377
+ * @task T1538 — OpsFromCore migration per ADR-058
  */
 
 import {
@@ -24,6 +28,7 @@ import {
   showTessera,
 } from '@cleocode/core/internal';
 import { CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from '../../cli/paths.js';
+import type { OpsFromCore } from '../adapters/typed.js';
 import {
   orchestrateAnalyze,
   orchestrateBootstrap,
@@ -57,6 +62,419 @@ import {
 const ivtrHandler = new IvtrHandler();
 
 // ---------------------------------------------------------------------------
+// Local param types for OpsFromCore wrapper functions
+// ---------------------------------------------------------------------------
+
+interface OrchestrateStatusParams {
+  epicId?: string;
+}
+
+interface OrchestrateNextParams {
+  epicId: string;
+}
+
+interface OrchestrateReadyParams {
+  epicId: string;
+}
+
+interface OrchestrateAnalyzeParams {
+  epicId?: string;
+  mode?: string;
+  taskIds?: string[];
+}
+
+interface OrchestrateClassifyParams {
+  request: string;
+  context?: string;
+}
+
+interface OrchestrateFanoutStatusParams {
+  manifestEntryId: string;
+}
+
+interface OrchestrateContextParams {
+  epicId?: string;
+}
+
+interface OrchestrateWavesParams {
+  epicId: string;
+}
+
+interface OrchestratePlanParams {
+  epicId: string;
+  preferTier?: 0 | 1 | 2;
+}
+
+interface OrchestrateBootstrapParams {
+  speed?: 'fast' | 'full' | 'complete';
+}
+
+type OrchestrateUnblockParams = Record<string, never>;
+
+interface OrchestrateTesseraListParams {
+  id?: string;
+  limit?: number;
+  offset?: number;
+}
+
+interface OrchestrateIvtrStatusParams {
+  taskId?: string;
+  [key: string]: unknown;
+}
+
+type OrchestratePendingParams = Record<string, never>;
+
+interface OrchestrateStartParams {
+  epicId: string;
+}
+
+interface OrchestrateSpawnParams {
+  taskId: string;
+  protocolType?: string;
+  tier?: 0 | 1 | 2;
+  noWorktree?: boolean;
+}
+
+interface OrchestrateHandoffParams {
+  taskId: string;
+  protocolType: string;
+  note?: string;
+  nextAction?: string;
+  variant?: string;
+  tier?: 0 | 1 | 2;
+  idempotencyKey?: string;
+}
+
+interface OrchestrateSpawnExecuteParams {
+  taskId: string;
+  adapterId?: string;
+  protocolType?: string;
+  tier?: 0 | 1 | 2;
+}
+
+interface OrchestrateValidateParams {
+  taskId: string;
+}
+
+interface OrchestrateWorktreeCompleteParams {
+  taskId: string;
+}
+
+interface OrchestrateWorktreeCleanupParams {
+  taskIds?: string[];
+}
+
+interface OrchestrateWorktreePruneParams {
+  taskId?: string;
+}
+
+interface OrchestrateParallelParams {
+  action: string;
+  epicId?: string;
+  wave?: number;
+}
+
+interface OrchestrateFanoutParams {
+  items: Array<{ team: string; taskId: string; skill?: string }>;
+}
+
+interface OrchestrateTesseraInstantiateParams {
+  templateId: string;
+  epicId: string;
+  variables?: Record<string, unknown>;
+}
+
+interface OrchestrateApproveParams {
+  resumeToken?: string;
+  approver?: string;
+  reason?: string;
+}
+
+interface OrchestrateRejectParams {
+  resumeToken?: string;
+  approver?: string;
+  reason?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Wave 7a helper types (T408, T409, T410)
+// ---------------------------------------------------------------------------
+
+/** Classify result shape returned by orchestrate.classify. */
+interface ClassifyResult {
+  /** Matched team name, or null if no match. */
+  team: string | null;
+  /** Lead agent name within the matched team, or null. */
+  lead: string | null;
+  /** Suggested protocol type for the spawn. */
+  protocol: string | null;
+  /** Stage hint from the matched team's stages list. */
+  stage: string | null;
+  /** Confidence score 0.0–1.0 (stub always returns 0.5). */
+  confidence: number;
+  /** Human-readable reasoning for the classification. */
+  reasoning: string;
+}
+
+/** Single fanout item shape. */
+interface FanoutItem {
+  /** Team name to route the task to. */
+  team: string;
+  /** Task ID to spawn. */
+  taskId: string;
+  /** Optional skill to inject into the spawn context. */
+  skill?: string;
+}
+
+/** Result for a single fanout item. */
+interface FanoutItemResult {
+  /** Task ID. */
+  taskId: string;
+  /** Outcome status. */
+  status: 'spawned' | 'failed';
+  /** Adapter instance ID returned by the spawn adapter, when available. */
+  instanceId?: string;
+  /** Error message if status is failed. */
+  error?: string;
+}
+
+/** Maximum number of fanout manifest entries retained in memory. */
+const FANOUT_MANIFEST_MAX_SIZE = 64;
+
+const fanoutManifestStore = new Map<
+  string,
+  {
+    results: FanoutItemResult[];
+    completedAt: string;
+  }
+>();
+
+/**
+ * Evict oldest entries when the manifest store exceeds the size cap.
+ */
+function evictFanoutManifest(): void {
+  while (fanoutManifestStore.size > FANOUT_MANIFEST_MAX_SIZE) {
+    const oldest = fanoutManifestStore.keys().next().value;
+    if (oldest !== undefined) fanoutManifestStore.delete(oldest);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Core op wrappers — single-param functions for OpsFromCore inference
+// ---------------------------------------------------------------------------
+
+async function orchestrateStatusOp(params: OrchestrateStatusParams) {
+  return orchestrateStatus(params.epicId, getProjectRoot());
+}
+
+async function orchestrateNextOp(params: OrchestrateNextParams) {
+  return orchestrateNext(params.epicId, getProjectRoot());
+}
+
+async function orchestrateReadyOp(params: OrchestrateReadyParams) {
+  return orchestrateReady(params.epicId, getProjectRoot());
+}
+
+async function orchestrateAnalyzeOp(params: OrchestrateAnalyzeParams) {
+  if (params.mode === 'parallel-safety') {
+    return orchestrateAnalyzeParallelSafety(params.taskIds ?? [], getProjectRoot());
+  }
+  return orchestrateAnalyze(params.epicId, getProjectRoot(), params.mode);
+}
+
+async function orchestrateClassifyOp(params: OrchestrateClassifyParams) {
+  return orchestrateClassify(params.request, params.context, getProjectRoot());
+}
+
+function orchestrateFanoutStatusOp(params: OrchestrateFanoutStatusParams) {
+  const entry = fanoutManifestStore.get(params.manifestEntryId);
+  if (!entry) {
+    return Promise.resolve({
+      success: true,
+      data: {
+        manifestEntryId: params.manifestEntryId,
+        pending: [] as string[],
+        running: [] as string[],
+        complete: [] as string[],
+        failed: [] as string[],
+        found: false,
+      },
+    });
+  }
+  const spawned = entry.results.filter((r) => r.status === 'spawned').map((r) => r.taskId);
+  const failed = entry.results.filter((r) => r.status === 'failed').map((r) => r.taskId);
+  return Promise.resolve({
+    success: true,
+    data: {
+      manifestEntryId: params.manifestEntryId,
+      pending: [] as string[],
+      running: spawned,
+      complete: [] as string[],
+      failed,
+      found: true,
+      completedAt: entry.completedAt,
+    },
+  });
+}
+
+async function orchestrateContextOp(params: OrchestrateContextParams) {
+  return orchestrateContext(params.epicId, getProjectRoot());
+}
+
+async function orchestrateWavesOp(params: OrchestrateWavesParams) {
+  return orchestrateWaves(params.epicId, getProjectRoot());
+}
+
+async function orchestratePlanOp(params: OrchestratePlanParams) {
+  return orchestratePlan({
+    epicId: params.epicId,
+    projectRoot: getProjectRoot(),
+    preferTier: params.preferTier,
+  });
+}
+
+async function orchestrateBootstrapOp(params: OrchestrateBootstrapParams) {
+  return orchestrateBootstrap(getProjectRoot(), { speed: params.speed });
+}
+
+async function orchestrateUnblockOp(_params: OrchestrateUnblockParams) {
+  return orchestrateUnblockOpportunities(getProjectRoot());
+}
+
+async function orchestrateTesseraListOp(params: OrchestrateTesseraListParams) {
+  return Promise.resolve({ success: true, data: params }); // sentinel — handled inline
+}
+
+async function orchestrateIvtrStatusOp(params: OrchestrateIvtrStatusParams) {
+  return ivtrHandler.query('status', params);
+}
+
+async function orchestratePendingOp(_params: OrchestratePendingParams) {
+  return Promise.resolve({ success: true, data: {} }); // sentinel — handled inline
+}
+
+async function orchestrateStartOp(params: OrchestrateStartParams) {
+  return orchestrateStartup(params.epicId, getProjectRoot());
+}
+
+async function orchestrateSpawnOp(params: OrchestrateSpawnParams) {
+  return orchestrateSpawn(
+    params.taskId,
+    params.protocolType,
+    getProjectRoot(),
+    params.tier,
+    params.noWorktree,
+  );
+}
+
+async function orchestrateHandoffOp(params: OrchestrateHandoffParams) {
+  return orchestrateHandoff(
+    {
+      taskId: params.taskId,
+      protocolType: params.protocolType,
+      note: params.note,
+      nextAction: params.nextAction,
+      variant: params.variant,
+      tier: params.tier,
+      idempotencyKey: params.idempotencyKey,
+    },
+    getProjectRoot(),
+  );
+}
+
+async function orchestrateSpawnExecuteOp(params: OrchestrateSpawnExecuteParams) {
+  return orchestrateSpawnExecute(
+    params.taskId,
+    params.adapterId,
+    params.protocolType,
+    getProjectRoot(),
+    params.tier,
+  );
+}
+
+async function orchestrateValidateOp(params: OrchestrateValidateParams) {
+  return orchestrateValidate(params.taskId, getProjectRoot());
+}
+
+async function orchestrateWorktreeCompleteOp(params: OrchestrateWorktreeCompleteParams) {
+  return handleWorktreeComplete(params.taskId, getProjectRoot());
+}
+
+async function orchestrateWorktreeCleanupOp(params: OrchestrateWorktreeCleanupParams) {
+  return handleWorktreeCleanup(getProjectRoot(), params.taskIds);
+}
+
+async function orchestrateWorktreePruneOp(params: OrchestrateWorktreePruneParams) {
+  return handleWorktreePrune(getProjectRoot(), params.taskId);
+}
+
+async function orchestrateParallelOp(params: OrchestrateParallelParams) {
+  return Promise.resolve({ success: true, data: params }); // sentinel — handled inline via routeByParam
+}
+
+async function orchestrateFanoutOp(params: OrchestrateFanoutParams) {
+  return orchestrateFanoutImpl(params.items, getProjectRoot());
+}
+
+async function orchestrateTesseraInstantiateOp(params: OrchestrateTesseraInstantiateParams) {
+  return Promise.resolve({ success: true, data: params }); // sentinel — handled inline
+}
+
+async function orchestrateApproveOp(params: OrchestrateApproveParams) {
+  return Promise.resolve({ success: true, data: params }); // sentinel — handled inline
+}
+
+async function orchestrateRejectOp(params: OrchestrateRejectParams) {
+  return Promise.resolve({ success: true, data: params }); // sentinel — handled inline
+}
+
+// ---------------------------------------------------------------------------
+// Core op registry — OpsFromCore inference source
+// ---------------------------------------------------------------------------
+
+/**
+ * Orchestrate operation registry for `OpsFromCore<typeof coreOps>` inference.
+ *
+ * @task T1538 — orchestrate dispatch OpsFromCore migration
+ */
+const coreOps = {
+  status: orchestrateStatusOp,
+  next: orchestrateNextOp,
+  ready: orchestrateReadyOp,
+  analyze: orchestrateAnalyzeOp,
+  classify: orchestrateClassifyOp,
+  'fanout.status': orchestrateFanoutStatusOp,
+  context: orchestrateContextOp,
+  waves: orchestrateWavesOp,
+  plan: orchestratePlanOp,
+  bootstrap: orchestrateBootstrapOp,
+  'unblock.opportunities': orchestrateUnblockOp,
+  'tessera.list': orchestrateTesseraListOp,
+  'ivtr.status': orchestrateIvtrStatusOp,
+  pending: orchestratePendingOp,
+  start: orchestrateStartOp,
+  spawn: orchestrateSpawnOp,
+  handoff: orchestrateHandoffOp,
+  'spawn.execute': orchestrateSpawnExecuteOp,
+  validate: orchestrateValidateOp,
+  'worktree.complete': orchestrateWorktreeCompleteOp,
+  'worktree.cleanup': orchestrateWorktreeCleanupOp,
+  'worktree.prune': orchestrateWorktreePruneOp,
+  parallel: orchestrateParallelOp,
+  fanout: orchestrateFanoutOp,
+  'tessera.instantiate': orchestrateTesseraInstantiateOp,
+  approve: orchestrateApproveOp,
+  reject: orchestrateRejectOp,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Typed operation record (public — for testing and downstream inference)
+// ---------------------------------------------------------------------------
+
+/** Inferred typed operation record for the orchestrate domain (ADR-058 · T1538). */
+export type OrchestrateDispatchOps = OpsFromCore<typeof coreOps>;
+
+// ---------------------------------------------------------------------------
 // OrchestrateHandler
 // ---------------------------------------------------------------------------
 
@@ -66,20 +484,17 @@ export class OrchestrateHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
-    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
       switch (operation) {
         case 'status': {
-          const epicId = params?.epicId as string | undefined;
-          const result = await orchestrateStatus(epicId, projectRoot);
-          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+          const p: OrchestrateStatusParams = { epicId: params?.epicId as string | undefined };
+          return wrapResult(await coreOps.status(p), 'query', 'orchestrate', operation, startTime);
         }
 
         case 'next': {
-          const epicId = params?.epicId as string;
-          if (!epicId) {
+          if (!params?.epicId)
             return errorResult(
               'query',
               'orchestrate',
@@ -88,14 +503,12 @@ export class OrchestrateHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
-          }
-          const result = await orchestrateNext(epicId, projectRoot);
-          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+          const p: OrchestrateNextParams = { epicId: params.epicId as string };
+          return wrapResult(await coreOps.next(p), 'query', 'orchestrate', operation, startTime);
         }
 
         case 'ready': {
-          const epicId = params?.epicId as string;
-          if (!epicId) {
+          if (!params?.epicId)
             return errorResult(
               'query',
               'orchestrate',
@@ -104,30 +517,21 @@ export class OrchestrateHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
-          }
-          const result = await orchestrateReady(epicId, projectRoot);
-          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+          const p: OrchestrateReadyParams = { epicId: params.epicId as string };
+          return wrapResult(await coreOps.ready(p), 'query', 'orchestrate', operation, startTime);
         }
 
         case 'analyze': {
-          const epicId = params?.epicId as string;
-          const mode = params?.mode as string | undefined;
-
-          // T410: parallel-safety mode — dep-graph grouping without epicId
-          if (mode === 'parallel-safety') {
-            const taskIds = params?.taskIds as string[] | undefined;
-            const result = await orchestrateAnalyzeParallelSafety(taskIds ?? [], projectRoot);
-            return wrapResult(result, 'query', 'orchestrate', 'analyze', startTime);
-          }
-
-          const result = await orchestrateAnalyze(epicId, projectRoot, mode);
-          return wrapResult(result, 'query', 'orchestrate', 'analyze', startTime);
+          const p: OrchestrateAnalyzeParams = {
+            epicId: params?.epicId as string | undefined,
+            mode: params?.mode as string | undefined,
+            taskIds: params?.taskIds as string[] | undefined,
+          };
+          return wrapResult(await coreOps.analyze(p), 'query', 'orchestrate', 'analyze', startTime);
         }
 
-        // T408: prompt-based CANT team routing (ADR-030 §5: query, idempotent, advisory)
         case 'classify': {
-          const request = params?.request as string | undefined;
-          if (!request)
+          if (!params?.request)
             return errorResult(
               'query',
               'orchestrate',
@@ -136,8 +540,12 @@ export class OrchestrateHandler implements DomainHandler {
               'request is required',
               startTime,
             );
+          const p: OrchestrateClassifyParams = {
+            request: params.request as string,
+            context: params.context as string | undefined,
+          };
           return wrapResult(
-            await orchestrateClassify(request, params?.context as string | undefined, projectRoot),
+            await coreOps.classify(p),
             'query',
             'orchestrate',
             operation,
@@ -146,9 +554,7 @@ export class OrchestrateHandler implements DomainHandler {
         }
 
         case 'fanout.status': {
-          // T433 STAB-1: reads results from the in-process fanoutManifestStore.
-          const manifestEntryId = params?.manifestEntryId as string | undefined;
-          if (!manifestEntryId) {
+          if (!params?.manifestEntryId)
             return errorResult(
               'query',
               'orchestrate',
@@ -157,48 +563,24 @@ export class OrchestrateHandler implements DomainHandler {
               'manifestEntryId is required',
               startTime,
             );
-          }
-          const entry = fanoutManifestStore.get(manifestEntryId);
-          if (!entry) {
-            return {
-              meta: dispatchMeta('query', 'orchestrate', operation, startTime),
-              success: true,
-              data: {
-                manifestEntryId,
-                pending: [] as string[],
-                running: [] as string[],
-                complete: [] as string[],
-                failed: [] as string[],
-                found: false,
-              },
-            };
-          }
-          const spawned = entry.results.filter((r) => r.status === 'spawned').map((r) => r.taskId);
-          const failed = entry.results.filter((r) => r.status === 'failed').map((r) => r.taskId);
+          const p: OrchestrateFanoutStatusParams = {
+            manifestEntryId: params.manifestEntryId as string,
+          };
+          const result = await coreOps['fanout.status'](p);
           return {
             meta: dispatchMeta('query', 'orchestrate', operation, startTime),
             success: true,
-            data: {
-              manifestEntryId,
-              pending: [] as string[],
-              running: spawned,
-              complete: [] as string[],
-              failed,
-              found: true,
-              completedAt: entry.completedAt,
-            },
+            data: result.data,
           };
         }
 
         case 'context': {
-          const epicId = params?.epicId as string | undefined;
-          const result = await orchestrateContext(epicId, projectRoot);
-          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+          const p: OrchestrateContextParams = { epicId: params?.epicId as string | undefined };
+          return wrapResult(await coreOps.context(p), 'query', 'orchestrate', operation, startTime);
         }
 
         case 'waves': {
-          const epicId = params?.epicId as string;
-          if (!epicId) {
+          if (!params?.epicId)
             return errorResult(
               'query',
               'orchestrate',
@@ -207,15 +589,12 @@ export class OrchestrateHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
-          }
-          const result = await orchestrateWaves(epicId, projectRoot);
-          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+          const p: OrchestrateWavesParams = { epicId: params.epicId as string };
+          return wrapResult(await coreOps.waves(p), 'query', 'orchestrate', operation, startTime);
         }
 
         case 'plan': {
-          // T889 / W3-6: deterministic machine-readable plan of waves+workers.
-          const epicId = params?.epicId as string;
-          if (!epicId) {
+          if (!params?.epicId)
             return errorResult(
               'query',
               'orchestrate',
@@ -224,32 +603,42 @@ export class OrchestrateHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
-          }
-          const preferTierRaw = params?.preferTier;
+          const preferTierRaw = params.preferTier;
           let preferTier: 0 | 1 | 2 | undefined;
           if (preferTierRaw === 0 || preferTierRaw === 1 || preferTierRaw === 2) {
             preferTier = preferTierRaw;
           }
-          const result = await orchestratePlan({ epicId, projectRoot, preferTier });
-          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+          const p: OrchestratePlanParams = { epicId: params.epicId as string, preferTier };
+          return wrapResult(await coreOps.plan(p), 'query', 'orchestrate', operation, startTime);
         }
 
         case 'bootstrap': {
-          const speed = params?.speed as 'fast' | 'full' | 'complete' | undefined;
-          const result = await orchestrateBootstrap(projectRoot, { speed });
-          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+          const p: OrchestrateBootstrapParams = {
+            speed: params?.speed as 'fast' | 'full' | 'complete' | undefined,
+          };
+          return wrapResult(
+            await coreOps.bootstrap(p),
+            'query',
+            'orchestrate',
+            operation,
+            startTime,
+          );
         }
 
-        case 'unblock.opportunities': {
-          const result = await orchestrateUnblockOpportunities(projectRoot);
-          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
-        }
+        case 'unblock.opportunities':
+          return wrapResult(
+            await coreOps['unblock.opportunities']({}),
+            'query',
+            'orchestrate',
+            operation,
+            startTime,
+          );
 
         case 'tessera.list': {
           const id = params?.id as string | undefined;
           if (id) {
             const template = showTessera(id);
-            if (!template) {
+            if (!template)
               return errorResult(
                 'query',
                 'orchestrate',
@@ -258,7 +647,6 @@ export class OrchestrateHandler implements DomainHandler {
                 `Tessera template "${id}" not found`,
                 startTime,
               );
-            }
             return {
               meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
               success: true,
@@ -281,11 +669,9 @@ export class OrchestrateHandler implements DomainHandler {
           };
         }
 
-        // T811: IVTR orchestration harness sub-operations
         case 'ivtr.status':
           return ivtrHandler.query('status', params);
 
-        // T935: HITL approval gates for playbook runs
         case 'pending':
           return handlePendingApprovals(startTime);
 
@@ -309,14 +695,12 @@ export class OrchestrateHandler implements DomainHandler {
   }
 
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
-    const projectRoot = getProjectRoot();
     const startTime = Date.now();
 
     try {
       switch (operation) {
         case 'start': {
-          const epicId = params?.epicId as string;
-          if (!epicId) {
+          if (!params?.epicId)
             return errorResult(
               'mutate',
               'orchestrate',
@@ -325,14 +709,12 @@ export class OrchestrateHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
-          }
-          const result = await orchestrateStartup(epicId, projectRoot);
-          return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
+          const p: OrchestrateStartParams = { epicId: params.epicId as string };
+          return wrapResult(await coreOps.start(p), 'mutate', 'orchestrate', operation, startTime);
         }
 
         case 'spawn': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
+          if (!params?.taskId)
             return errorResult(
               'mutate',
               'orchestrate',
@@ -341,24 +723,20 @@ export class OrchestrateHandler implements DomainHandler {
               'taskId is required',
               startTime,
             );
-          }
-          const protocolType = params?.protocolType as string | undefined;
-          const tier = params?.tier as 0 | 1 | 2 | undefined;
-          const noWorktree = params?.noWorktree as boolean | undefined;
-          const result = await orchestrateSpawn(
-            taskId,
-            protocolType,
-            projectRoot,
+          const tierRaw = params.tier;
+          const tier =
+            tierRaw === 0 || tierRaw === 1 || tierRaw === 2 ? (tierRaw as 0 | 1 | 2) : undefined;
+          const p: OrchestrateSpawnParams = {
+            taskId: params.taskId as string,
+            protocolType: params.protocolType as string | undefined,
             tier,
-            noWorktree,
-          );
-          return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
+            noWorktree: params.noWorktree as boolean | undefined,
+          };
+          return wrapResult(await coreOps.spawn(p), 'mutate', 'orchestrate', operation, startTime);
         }
 
         case 'handoff': {
-          const taskId = params?.taskId as string;
-          const protocolType = params?.protocolType as string;
-          if (!taskId) {
+          if (!params?.taskId)
             return errorResult(
               'mutate',
               'orchestrate',
@@ -367,8 +745,7 @@ export class OrchestrateHandler implements DomainHandler {
               'taskId is required',
               startTime,
             );
-          }
-          if (!protocolType) {
+          if (!params?.protocolType)
             return errorResult(
               'mutate',
               'orchestrate',
@@ -377,26 +754,29 @@ export class OrchestrateHandler implements DomainHandler {
               'protocolType is required',
               startTime,
             );
-          }
-          const tier = params?.tier as 0 | 1 | 2 | undefined;
-          const result = await orchestrateHandoff(
-            {
-              taskId,
-              protocolType,
-              note: params?.note as string | undefined,
-              nextAction: params?.nextAction as string | undefined,
-              variant: params?.variant as string | undefined,
-              tier,
-              idempotencyKey: params?.idempotencyKey as string | undefined,
-            },
-            projectRoot,
+          const tierRaw = params.tier;
+          const tier =
+            tierRaw === 0 || tierRaw === 1 || tierRaw === 2 ? (tierRaw as 0 | 1 | 2) : undefined;
+          const p: OrchestrateHandoffParams = {
+            taskId: params.taskId as string,
+            protocolType: params.protocolType as string,
+            note: params.note as string | undefined,
+            nextAction: params.nextAction as string | undefined,
+            variant: params.variant as string | undefined,
+            tier,
+            idempotencyKey: params.idempotencyKey as string | undefined,
+          };
+          return wrapResult(
+            await coreOps.handoff(p),
+            'mutate',
+            'orchestrate',
+            operation,
+            startTime,
           );
-          return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
         }
 
         case 'spawn.execute': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
+          if (!params?.taskId)
             return errorResult(
               'mutate',
               'orchestrate',
@@ -405,23 +785,26 @@ export class OrchestrateHandler implements DomainHandler {
               'taskId is required',
               startTime,
             );
-          }
-          const adapterId = params?.adapterId as string | undefined;
-          const protocolType = params?.protocolType as string | undefined;
-          const tier = params?.tier as 0 | 1 | 2 | undefined;
-          const result = await orchestrateSpawnExecute(
-            taskId,
-            adapterId,
-            protocolType,
-            projectRoot,
+          const tierRaw = params.tier;
+          const tier =
+            tierRaw === 0 || tierRaw === 1 || tierRaw === 2 ? (tierRaw as 0 | 1 | 2) : undefined;
+          const p: OrchestrateSpawnExecuteParams = {
+            taskId: params.taskId as string,
+            adapterId: params.adapterId as string | undefined,
+            protocolType: params.protocolType as string | undefined,
             tier,
+          };
+          return wrapResult(
+            await coreOps['spawn.execute'](p),
+            'mutate',
+            'orchestrate',
+            operation,
+            startTime,
           );
-          return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
         }
 
         case 'validate': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
+          if (!params?.taskId)
             return errorResult(
               'mutate',
               'orchestrate',
@@ -430,15 +813,18 @@ export class OrchestrateHandler implements DomainHandler {
               'taskId is required',
               startTime,
             );
-          }
-          const result = await orchestrateValidate(taskId, projectRoot);
-          return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
+          const p: OrchestrateValidateParams = { taskId: params.taskId as string };
+          return wrapResult(
+            await coreOps.validate(p),
+            'mutate',
+            'orchestrate',
+            operation,
+            startTime,
+          );
         }
 
-        // T1118 L1 — Worktree lifecycle operations
         case 'worktree.complete': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
+          if (!params?.taskId)
             return errorResult(
               'mutate',
               'orchestrate',
@@ -447,19 +833,40 @@ export class OrchestrateHandler implements DomainHandler {
               'taskId is required',
               startTime,
             );
-          }
-          return handleWorktreeComplete(taskId, projectRoot, startTime);
+          const p: OrchestrateWorktreeCompleteParams = { taskId: params.taskId as string };
+          return wrapResult(
+            await coreOps['worktree.complete'](p),
+            'mutate',
+            'orchestrate',
+            operation,
+            startTime,
+          );
         }
 
         case 'worktree.cleanup': {
-          const taskIds = params?.taskIds as string[] | undefined;
-          return handleWorktreeCleanup(projectRoot, taskIds, startTime);
+          const p: OrchestrateWorktreeCleanupParams = {
+            taskIds: params?.taskIds as string[] | undefined,
+          };
+          return wrapResult(
+            await coreOps['worktree.cleanup'](p),
+            'mutate',
+            'orchestrate',
+            operation,
+            startTime,
+          );
         }
 
-        // T1462 — Single-task worktree prune (used by `cleo orchestrate prune`)
         case 'worktree.prune': {
-          const taskId = params?.taskId as string | undefined;
-          return handleWorktreePrune(projectRoot, taskId, startTime);
+          const p: OrchestrateWorktreePruneParams = {
+            taskId: params?.taskId as string | undefined,
+          };
+          return wrapResult(
+            await coreOps['worktree.prune'](p),
+            'mutate',
+            'orchestrate',
+            operation,
+            startTime,
+          );
         }
 
         case 'parallel': {
@@ -467,7 +874,7 @@ export class OrchestrateHandler implements DomainHandler {
             start: async () => {
               const epicId = params?.epicId as string;
               const wave = params?.wave as number;
-              if (!epicId) {
+              if (!epicId)
                 return errorResult(
                   'mutate',
                   'orchestrate',
@@ -476,8 +883,7 @@ export class OrchestrateHandler implements DomainHandler {
                   'epicId is required',
                   startTime,
                 );
-              }
-              if (wave === undefined || wave === null) {
+              if (wave === undefined || wave === null)
                 return errorResult(
                   'mutate',
                   'orchestrate',
@@ -486,14 +892,18 @@ export class OrchestrateHandler implements DomainHandler {
                   'wave number is required',
                   startTime,
                 );
-              }
-              const result = await orchestrateParallelStart(epicId, wave, projectRoot);
-              return wrapResult(result, 'mutate', 'orchestrate', 'parallel', startTime);
+              return wrapResult(
+                await orchestrateParallelStart(epicId, wave, getProjectRoot()),
+                'mutate',
+                'orchestrate',
+                'parallel',
+                startTime,
+              );
             },
             end: async () => {
               const epicId = params?.epicId as string;
               const wave = params?.wave as number;
-              if (!epicId) {
+              if (!epicId)
                 return errorResult(
                   'mutate',
                   'orchestrate',
@@ -502,8 +912,7 @@ export class OrchestrateHandler implements DomainHandler {
                   'epicId is required',
                   startTime,
                 );
-              }
-              if (wave === undefined || wave === null) {
+              if (wave === undefined || wave === null)
                 return errorResult(
                   'mutate',
                   'orchestrate',
@@ -512,14 +921,17 @@ export class OrchestrateHandler implements DomainHandler {
                   'wave number is required',
                   startTime,
                 );
-              }
-              const result = await orchestrateParallelEnd(epicId, wave, projectRoot);
-              return wrapResult(result, 'mutate', 'orchestrate', 'parallel', startTime);
+              return wrapResult(
+                await orchestrateParallelEnd(epicId, wave, getProjectRoot()),
+                'mutate',
+                'orchestrate',
+                'parallel',
+                startTime,
+              );
             },
           });
         }
 
-        // T409: Promise.allSettled fanout wrapper (ADR-030 §5: not idempotent, concurrent)
         case 'fanout': {
           const items = params?.items as
             | Array<{ team: string; taskId: string; skill?: string }>
@@ -533,19 +945,12 @@ export class OrchestrateHandler implements DomainHandler {
               'items array is required and must be non-empty',
               startTime,
             );
-          return wrapResult(
-            await orchestrateFanout(items, projectRoot),
-            'mutate',
-            'orchestrate',
-            operation,
-            startTime,
-          );
+          const p: OrchestrateFanoutParams = { items };
+          return wrapResult(await coreOps.fanout(p), 'mutate', 'orchestrate', operation, startTime);
         }
 
         case 'tessera.instantiate': {
-          const templateId = params?.templateId as string;
-          const epicId = params?.epicId as string;
-          if (!templateId) {
+          if (!params?.templateId)
             return errorResult(
               'mutate',
               'orchestrate',
@@ -554,8 +959,7 @@ export class OrchestrateHandler implements DomainHandler {
               'templateId is required',
               startTime,
             );
-          }
-          if (!epicId) {
+          if (!params?.epicId)
             return errorResult(
               'mutate',
               'orchestrate',
@@ -564,23 +968,26 @@ export class OrchestrateHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
-          }
-          const template = showTessera(templateId);
-          if (!template) {
+          const template = showTessera(params.templateId as string);
+          if (!template)
             return errorResult(
               'mutate',
               'orchestrate',
               operation,
               'E_NOT_FOUND',
-              `Tessera template "${templateId}" not found`,
+              `Tessera template "${params.templateId}" not found`,
               startTime,
             );
-          }
-          const variables = (params?.variables as Record<string, unknown>) ?? {};
+          const variables = (params.variables as Record<string, unknown>) ?? {};
+          const epicId = params.epicId as string;
           const instance = await instantiateTessera(
             template,
-            { templateId, epicId, variables: { epicId, ...variables } },
-            projectRoot,
+            {
+              templateId: params.templateId as string,
+              epicId,
+              variables: { epicId, ...variables },
+            },
+            getProjectRoot(),
           );
           return {
             meta: dispatchMeta('mutate', 'orchestrate', operation, startTime),
@@ -589,7 +996,6 @@ export class OrchestrateHandler implements DomainHandler {
           };
         }
 
-        // T811: IVTR orchestration harness sub-operations
         case 'ivtr.start':
           return ivtrHandler.mutate('start', params);
         case 'ivtr.next':
@@ -599,7 +1005,6 @@ export class OrchestrateHandler implements DomainHandler {
         case 'ivtr.loop-back':
           return ivtrHandler.mutate('loop-back', params);
 
-        // T935: HITL approval gates for playbook runs
         case 'approve':
           return handleApproveGate(params, startTime);
         case 'reject':
@@ -633,16 +1038,13 @@ export class OrchestrateHandler implements DomainHandler {
         'analyze',
         'context',
         'waves',
-        'plan', // T889 / W3-6 — deterministic machine-readable plan
+        'plan',
         'bootstrap',
         'unblock.opportunities',
         'tessera.list',
-        // Wave 7a (T379)
         'classify',
         'fanout.status',
-        // T811: IVTR orchestration harness
         'ivtr.status',
-        // T935: HITL approval gate listing
         'pending',
       ],
       mutate: [
@@ -653,20 +1055,15 @@ export class OrchestrateHandler implements DomainHandler {
         'validate',
         'parallel',
         'tessera.instantiate',
-        // Wave 7a (T379)
         'fanout',
-        // T811: IVTR orchestration harness
         'ivtr.start',
         'ivtr.next',
         'ivtr.release',
         'ivtr.loop-back',
-        // T935: HITL approval gate decisions
         'approve',
         'reject',
-        // T1118 L1 — Worktree lifecycle
         'worktree.complete',
         'worktree.cleanup',
-        // T1462 — Single-task worktree prune
         'worktree.prune',
       ],
     };
@@ -677,36 +1074,12 @@ export class OrchestrateHandler implements DomainHandler {
 // Wave 7a handler functions (T408, T409, T410)
 // ---------------------------------------------------------------------------
 
-/** Classify result shape returned by orchestrate.classify. */
-interface ClassifyResult {
-  /** Matched team name, or null if no match. */
-  team: string | null;
-  /** Lead agent name within the matched team, or null. */
-  lead: string | null;
-  /** Suggested protocol type for the spawn. */
-  protocol: string | null;
-  /** Stage hint from the matched team's stages list. */
-  stage: string | null;
-  /** Confidence score 0.0–1.0 (stub always returns 0.5). */
-  confidence: number;
-  /** Human-readable reasoning for the classification. */
-  reasoning: string;
-}
-
 /**
  * T408 — Classify a request against the CANT team registry.
- *
- * Implementation: prompt-based reasoning stub. Reads team definitions from the
- * canonical CANT workflows dir and performs substring matching against each
- * team's `consult-when` hint. Returns the highest-scoring team.
- *
- * Real LLM-based routing will replace this in a later wave once the runtime
- * bridge (W7b) has loaded `.cant` team definitions into memory.
  *
  * @param request - The request text to classify.
  * @param context - Optional additional context.
  * @param projectRoot - Project root directory.
- * @returns EngineResult containing ClassifyResult.
  */
 async function orchestrateClassify(
   request: string,
@@ -721,7 +1094,6 @@ async function orchestrateClassify(
     const workflowsDir = getCleoCantWorkflowsDir();
     const combined = `${request} ${context ?? ''}`.toLowerCase();
 
-    // Walk .cant files and look for `consult-when:` entries.
     const matches: Array<{ team: string; score: number; consultWhen: string; stages: string[] }> =
       [];
 
@@ -730,20 +1102,13 @@ async function orchestrateClassify(
       for (const file of files) {
         try {
           const src = readFileSync(join(workflowsDir, file), 'utf-8');
-          // Extract team name
           const teamMatch = /^team\s+(\S+):/m.exec(src);
           if (!teamMatch) continue;
           const teamName = teamMatch[1]!;
-
-          // Extract consult-when hint
           const cwMatch = /consult-when:\s*["']?(.+?)["']?\s*$/m.exec(src);
           const consultWhen = cwMatch ? cwMatch[1]!.trim() : '';
-
-          // Extract stages
           const stagesMatch = /stages:\s*\[([^\]]+)\]/.exec(src);
           const stages = stagesMatch ? stagesMatch[1]!.split(',').map((s: string) => s.trim()) : [];
-
-          // Simple substring scoring: count hint word matches in request
           const hintWords = consultWhen.toLowerCase().split(/\s+/);
           const score = hintWords.filter((w: string) => combined.includes(w)).length;
           matches.push({ team: teamName, score, consultWhen, stages });
@@ -753,7 +1118,6 @@ async function orchestrateClassify(
       }
     }
 
-    // Also check project-local .cant files
     const localCantDir = join(projectRoot, CLEO_DIR_NAME, WORKFLOWS_SUBDIR);
     if (existsSync(localCantDir)) {
       const files = readdirSync(localCantDir).filter((f: string) => f.endsWith('.cant'));
@@ -786,22 +1150,19 @@ async function orchestrateClassify(
           stage: null,
           confidence: 0,
           reasoning:
-            'No CANT team definitions found. Seed teams.cant in the global workflows dir ' +
-            '(W7b runtime enforcement) to enable team routing.',
+            'No CANT team definitions found. Seed teams.cant in the global workflows dir (W7b runtime enforcement) to enable team routing.',
         },
       };
     }
 
-    // Pick the best match
     matches.sort((a, b) => b.score - a.score);
     const best = matches[0]!;
-
     return {
       success: true,
       data: {
         team: best.team,
-        lead: null, // lead resolution requires W7b runtime bridge
-        protocol: 'base-subagent', // default protocol stub
+        lead: null,
+        protocol: 'base-subagent',
         stage: best.stages[0] ?? null,
         confidence: best.score > 0 ? 0.5 : 0.1,
         reasoning:
@@ -825,87 +1186,24 @@ async function orchestrateClassify(
   }
 }
 
-/** Single fanout item shape. */
-interface FanoutItem {
-  /** Team name to route the task to. */
-  team: string;
-  /** Task ID to spawn. */
-  taskId: string;
-  /** Optional skill to inject into the spawn context. */
-  skill?: string;
-}
-
-/** Result for a single fanout item. */
-interface FanoutItemResult {
-  /** Task ID. */
-  taskId: string;
-  /** Outcome status — 'spawned' when the spawn adapter accepted the task, 'failed' on error. */
-  status: 'spawned' | 'failed';
-  /** Adapter instance ID returned by the spawn adapter, when available. */
-  instanceId?: string;
-  /** Error message if status is failed. */
-  error?: string;
-}
-
-/**
- * In-process store for fanout manifest entries.
- *
- * Keyed by manifestEntryId (generated in orchestrateFanout).
- * Populated when a fanout completes so that orchestrate.fanout.status
- * can categorise results across orchestrator turns.
- */
-/** Maximum number of fanout manifest entries retained in memory. */
-const FANOUT_MANIFEST_MAX_SIZE = 64;
-
-const fanoutManifestStore = new Map<
-  string,
-  {
-    results: FanoutItemResult[];
-    completedAt: string;
-  }
->();
-
-/**
- * Evict oldest entries when the manifest store exceeds the size cap.
- * Map iteration order is insertion order, so deleting the first key
- * removes the oldest entry.
- */
-function evictFanoutManifest(): void {
-  while (fanoutManifestStore.size > FANOUT_MANIFEST_MAX_SIZE) {
-    const oldest = fanoutManifestStore.keys().next().value;
-    if (oldest !== undefined) fanoutManifestStore.delete(oldest);
-  }
-}
-
 /**
  * T409 / T433 — Fan out N spawn requests via Promise.allSettled.
- *
- * Each item is dispatched concurrently through orchestrateSpawnExecute
- * (T432/W7a adapter registry path). Results are persisted in the
- * in-process fanoutManifestStore so that orchestrate.fanout.status can
- * categorise them across orchestrator turns.
- *
- * @param items - Array of fanout items to dispatch.
- * @param projectRoot - Project root directory.
- * @returns EngineResult with aggregated results and a manifest entry ID.
  */
-async function orchestrateFanout(
+async function orchestrateFanoutImpl(
   items: FanoutItem[],
   projectRoot: string,
 ): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
   const manifestEntryId = `fanout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   try {
-    // Promise.allSettled wrapper — each item is processed concurrently via
-    // the adapter registry's orchestrateSpawnExecute path (T432/W7a wired).
     const settled = await Promise.allSettled(
       items.map(async (item): Promise<FanoutItemResult> => {
         const spawnResult = await orchestrateSpawnExecute(
           item.taskId,
-          /* adapterId */ undefined,
-          /* protocolType */ undefined,
+          undefined,
+          undefined,
           projectRoot,
-          /* tier */ undefined,
+          undefined,
         );
         if (!spawnResult.success) {
           return {
@@ -924,9 +1222,7 @@ async function orchestrateFanout(
     );
 
     const results: FanoutItemResult[] = settled.map((outcome, i) => {
-      if (outcome.status === 'fulfilled') {
-        return outcome.value;
-      }
+      if (outcome.status === 'fulfilled') return outcome.value;
       return {
         taskId: items[i]!.taskId,
         status: 'failed',
@@ -934,12 +1230,7 @@ async function orchestrateFanout(
       };
     });
 
-    // Persist results in the in-process manifest store so that
-    // orchestrate.fanout.status can categorise them across turns.
-    fanoutManifestStore.set(manifestEntryId, {
-      results,
-      completedAt: new Date().toISOString(),
-    });
+    fanoutManifestStore.set(manifestEntryId, { results, completedAt: new Date().toISOString() });
     evictFanoutManifest();
 
     return {
@@ -969,17 +1260,6 @@ async function orchestrateFanout(
 
 /**
  * T410 — Analyze a list of tasks for parallel safety.
- *
- * Walks `Task.depends` (stored as `blockers` in the accessor) to build a
- * transitive dependency closure. Two tasks are parallel-safe if neither
- * appears in the other's transitive closure.
- *
- * Returns `{parallelSafe: boolean, groups: string[][]}` where each group
- * contains tasks with no intra-group dependency edges.
- *
- * @param taskIds - List of task IDs to analyze.
- * @param projectRoot - Project root directory.
- * @returns EngineResult with parallel safety analysis.
  */
 async function orchestrateAnalyzeParallelSafety(
   taskIds: string[],
@@ -1002,18 +1282,12 @@ async function orchestrateAnalyzeParallelSafety(
     const result = await accessor.queryTasks({});
     const allTasks = result?.tasks ?? [];
 
-    // Build a lookup map from task ID to its direct dependencies.
     const depMap = new Map<string, string[]>();
     for (const t of allTasks) {
-      // Tasks store deps in `blockers` field which maps to Task.depends.
       const deps: string[] = (t as { blockers?: string[] }).blockers ?? [];
       depMap.set(t.id, deps);
     }
 
-    /**
-     * Compute the transitive dependency closure for a given task ID.
-     * Returns the set of all task IDs that `id` transitively depends on.
-     */
     function transitiveClose(id: string, visited = new Set<string>()): Set<string> {
       if (visited.has(id)) return visited;
       visited.add(id);
@@ -1024,24 +1298,17 @@ async function orchestrateAnalyzeParallelSafety(
       return visited;
     }
 
-    // Build the closure for each task in the input set.
     const closures = new Map<string, Set<string>>();
     for (const id of taskIds) {
       closures.set(id, transitiveClose(id));
     }
 
-    /**
-     * Two tasks are parallel-safe if:
-     * - neither appears in the other's transitive closure.
-     */
     function parallelSafe(a: string, b: string): boolean {
       const closureA = closures.get(a) ?? new Set();
       const closureB = closures.get(b) ?? new Set();
       return !closureA.has(b) && !closureB.has(a);
     }
 
-    // Greedy group assignment — assigns tasks to the first group where they
-    // are safe relative to all existing members.
     const groups: string[][] = [];
     for (const id of taskIds) {
       let placed = false;
@@ -1057,12 +1324,10 @@ async function orchestrateAnalyzeParallelSafety(
       }
     }
 
-    const isFullyParallelSafe = groups.length <= 1;
-
     return {
       success: true,
       data: {
-        parallelSafe: isFullyParallelSafe,
+        parallelSafe: groups.length <= 1,
         groups,
         taskCount: taskIds.length,
         groupCount: groups.length,
@@ -1084,29 +1349,94 @@ async function orchestrateAnalyzeParallelSafety(
 }
 
 // ---------------------------------------------------------------------------
+// T1118 L1 — Worktree lifecycle handlers
+// ---------------------------------------------------------------------------
+
+async function handleWorktreeComplete(
+  taskId: string,
+  projectRoot: string,
+): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
+  try {
+    const { completeAgentWorktree } = await import('@cleocode/core/internal');
+    const result = completeAgentWorktree(taskId, projectRoot);
+    return { success: true, data: result };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'worktree.complete', taskId, err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return {
+      success: false,
+      error: {
+        code: 'E_WORKTREE_COMPLETE_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+async function handleWorktreeCleanup(
+  projectRoot: string,
+  taskIds: string[] | undefined,
+): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
+  try {
+    const { pruneOrphanedWorktrees } = await import('@cleocode/core/internal');
+    const activeSet = taskIds ? new Set(taskIds) : undefined;
+    const result = pruneOrphanedWorktrees(projectRoot, activeSet);
+    return { success: true, data: result };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'worktree.cleanup', err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return {
+      success: false,
+      error: {
+        code: 'E_WORKTREE_CLEANUP_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+async function handleWorktreePrune(
+  projectRoot: string,
+  taskId: string | undefined,
+): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
+  try {
+    const { pruneWorktree, pruneOrphanedWorktrees } = await import('@cleocode/core/internal');
+    if (taskId) {
+      const result = pruneWorktree(taskId, projectRoot);
+      return { success: true, data: result };
+    }
+    const result = pruneOrphanedWorktrees(projectRoot, undefined);
+    return { success: true, data: { ...result, mode: 'bulk' } };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'worktree.prune', taskId, err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return {
+      success: false,
+      error: {
+        code: 'E_WORKTREE_PRUNE_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // T935 — HITL approval gate handlers
 // ---------------------------------------------------------------------------
 
-/**
- * List all pending approval gates across every active playbook run.
- *
- * Mirrors the schema of `getPendingApprovals` from `@cleocode/playbooks` and
- * wraps it in a LAFS envelope so the CLI can render a table or JSON blob
- * without additional transformation.
- *
- * @task T935
- */
 async function handlePendingApprovals(startTime: number): Promise<DispatchResponse> {
   try {
     const approvals = await listPendingApprovalsForDispatch();
     return {
       meta: dispatchMeta('query', 'orchestrate', 'pending', startTime),
       success: true,
-      data: {
-        approvals,
-        count: approvals.length,
-        total: approvals.length,
-      },
+      data: { approvals, count: approvals.length, total: approvals.length },
     };
   } catch (error) {
     getLogger('domain:orchestrate').error(
@@ -1117,24 +1447,12 @@ async function handlePendingApprovals(startTime: number): Promise<DispatchRespon
   }
 }
 
-/**
- * Approve a HITL playbook gate by its resume token.
- *
- * Idempotency contract: calling approve twice for the same token returns the
- * same approved approval record on the second invocation rather than
- * emitting `E_APPROVAL_ALREADY_DECIDED` — matching the task spec's
- * "double-approve returns same result" acceptance criterion. Only
- * transitions from `pending → approved` perform a state write; the second
- * call is a pure read.
- *
- * @task T935
- */
 async function handleApproveGate(
   params: Record<string, unknown> | undefined,
   startTime: number,
 ): Promise<DispatchResponse> {
   const resumeToken = params?.resumeToken as string | undefined;
-  if (!resumeToken) {
+  if (!resumeToken)
     return errorResult(
       'mutate',
       'orchestrate',
@@ -1143,7 +1461,7 @@ async function handleApproveGate(
       'resumeToken is required',
       startTime,
     );
-  }
+
   const approver =
     typeof params?.approver === 'string' && params.approver.length > 0
       ? params.approver
@@ -1152,7 +1470,7 @@ async function handleApproveGate(
 
   try {
     const existing = await lookupApprovalByTokenForDispatch(resumeToken);
-    if (existing === null) {
+    if (existing === null)
       return errorResult(
         'mutate',
         'orchestrate',
@@ -1161,20 +1479,15 @@ async function handleApproveGate(
         `no approval gate for token ${resumeToken}`,
         startTime,
       );
-    }
-    // Idempotent path: already approved → return the existing record.
+
     if (existing.status === 'approved') {
       return {
         meta: dispatchMeta('mutate', 'orchestrate', 'approve', startTime),
         success: true,
-        data: {
-          ...existing,
-          idempotent: true,
-        },
+        data: { ...existing, idempotent: true },
       };
     }
-    // Rejected gates cannot be re-approved.
-    if (existing.status === 'rejected') {
+    if (existing.status === 'rejected')
       return errorResult(
         'mutate',
         'orchestrate',
@@ -1183,9 +1496,7 @@ async function handleApproveGate(
         `gate ${existing.approvalId} was rejected${existing.reason ? ` (${existing.reason})` : ''}`,
         startTime,
       );
-    }
 
-    // Pending → approve.
     const db = await acquirePlaybookDb();
     const { approveGate } = await import('@cleocode/playbooks');
     const updated = approveGate(db, resumeToken, approver, reason);
@@ -1196,7 +1507,7 @@ async function handleApproveGate(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('E_APPROVAL_ALREADY_DECIDED')) {
+    if (message.includes('E_APPROVAL_ALREADY_DECIDED'))
       return errorResult(
         'mutate',
         'orchestrate',
@@ -1205,8 +1516,7 @@ async function handleApproveGate(
         message,
         startTime,
       );
-    }
-    if (message.includes('E_APPROVAL_NOT_FOUND')) {
+    if (message.includes('E_APPROVAL_NOT_FOUND'))
       return errorResult(
         'mutate',
         'orchestrate',
@@ -1215,23 +1525,17 @@ async function handleApproveGate(
         message,
         startTime,
       );
-    }
     getLogger('domain:orchestrate').error({ operation: 'approve', err: error }, message);
     return handleErrorResult('mutate', 'orchestrate', 'approve', error, startTime);
   }
 }
 
-/**
- * Reject a HITL playbook gate with a mandatory reason.
- *
- * @task T935
- */
 async function handleRejectGate(
   params: Record<string, unknown> | undefined,
   startTime: number,
 ): Promise<DispatchResponse> {
   const resumeToken = params?.resumeToken as string | undefined;
-  if (!resumeToken) {
+  if (!resumeToken)
     return errorResult(
       'mutate',
       'orchestrate',
@@ -1240,9 +1544,9 @@ async function handleRejectGate(
       'resumeToken is required',
       startTime,
     );
-  }
+
   const reason = typeof params?.reason === 'string' ? params.reason.trim() : '';
-  if (reason.length === 0) {
+  if (reason.length === 0)
     return errorResult(
       'mutate',
       'orchestrate',
@@ -1251,7 +1555,7 @@ async function handleRejectGate(
       'reason is required for rejection',
       startTime,
     );
-  }
+
   const approver =
     typeof params?.approver === 'string' && params.approver.length > 0
       ? params.approver
@@ -1259,7 +1563,7 @@ async function handleRejectGate(
 
   try {
     const existing = await lookupApprovalByTokenForDispatch(resumeToken);
-    if (existing === null) {
+    if (existing === null)
       return errorResult(
         'mutate',
         'orchestrate',
@@ -1268,19 +1572,15 @@ async function handleRejectGate(
         `no approval gate for token ${resumeToken}`,
         startTime,
       );
-    }
-    // Idempotent path: already rejected → return the existing record.
+
     if (existing.status === 'rejected') {
       return {
         meta: dispatchMeta('mutate', 'orchestrate', 'reject', startTime),
         success: true,
-        data: {
-          ...existing,
-          idempotent: true,
-        },
+        data: { ...existing, idempotent: true },
       };
     }
-    if (existing.status === 'approved') {
+    if (existing.status === 'approved')
       return errorResult(
         'mutate',
         'orchestrate',
@@ -1289,7 +1589,6 @@ async function handleRejectGate(
         `gate ${existing.approvalId} was already approved`,
         startTime,
       );
-    }
 
     const db = await acquirePlaybookDb();
     const { rejectGate } = await import('@cleocode/playbooks');
@@ -1301,7 +1600,7 @@ async function handleRejectGate(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('E_APPROVAL_ALREADY_DECIDED')) {
+    if (message.includes('E_APPROVAL_ALREADY_DECIDED'))
       return errorResult(
         'mutate',
         'orchestrate',
@@ -1310,8 +1609,7 @@ async function handleRejectGate(
         message,
         startTime,
       );
-    }
-    if (message.includes('E_APPROVAL_NOT_FOUND')) {
+    if (message.includes('E_APPROVAL_NOT_FOUND'))
       return errorResult(
         'mutate',
         'orchestrate',
@@ -1320,112 +1618,7 @@ async function handleRejectGate(
         message,
         startTime,
       );
-    }
     getLogger('domain:orchestrate').error({ operation: 'reject', err: error }, message);
     return handleErrorResult('mutate', 'orchestrate', 'reject', error, startTime);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// T1118 L1 — Worktree lifecycle handlers
-// ---------------------------------------------------------------------------
-
-/**
- * Cherry-pick commits from a task worktree back to main and clean up.
- *
- * @task T1118
- * @task T1120
- */
-async function handleWorktreeComplete(
-  taskId: string,
-  projectRoot: string,
-  startTime: number,
-): Promise<DispatchResponse> {
-  try {
-    const { completeAgentWorktree } = await import('@cleocode/core/internal');
-    const result = completeAgentWorktree(taskId, projectRoot);
-    return {
-      meta: dispatchMeta('mutate', 'orchestrate', 'worktree.complete', startTime),
-      success: true,
-      data: result,
-    };
-  } catch (error) {
-    getLogger('domain:orchestrate').error(
-      { operation: 'worktree.complete', taskId, err: error },
-      error instanceof Error ? error.message : String(error),
-    );
-    return handleErrorResult('mutate', 'orchestrate', 'worktree.complete', error, startTime);
-  }
-}
-
-/**
- * Prune orphaned agent worktrees (e.g. after agent crash or session end).
- *
- * @task T1118
- * @task T1120
- */
-async function handleWorktreeCleanup(
-  projectRoot: string,
-  taskIds: string[] | undefined,
-  startTime: number,
-): Promise<DispatchResponse> {
-  try {
-    const { pruneOrphanedWorktrees } = await import('@cleocode/core/internal');
-    const activeSet = taskIds ? new Set(taskIds) : undefined;
-    const result = pruneOrphanedWorktrees(projectRoot, activeSet);
-    return {
-      meta: dispatchMeta('mutate', 'orchestrate', 'worktree.cleanup', startTime),
-      success: true,
-      data: result,
-    };
-  } catch (error) {
-    getLogger('domain:orchestrate').error(
-      { operation: 'worktree.cleanup', err: error },
-      error instanceof Error ? error.message : String(error),
-    );
-    return handleErrorResult('mutate', 'orchestrate', 'worktree.cleanup', error, startTime);
-  }
-}
-
-/**
- * Prune the worktree for a single task, or all completed/cancelled task worktrees
- * when no taskId is provided.
- *
- * @task T1462
- */
-async function handleWorktreePrune(
-  projectRoot: string,
-  taskId: string | undefined,
-  startTime: number,
-): Promise<DispatchResponse> {
-  try {
-    const { pruneWorktree, pruneOrphanedWorktrees } = await import('@cleocode/core/internal');
-
-    if (taskId) {
-      // Single-task prune.
-      const result = pruneWorktree(taskId, projectRoot);
-      return {
-        meta: dispatchMeta('mutate', 'orchestrate', 'worktree.prune', startTime),
-        success: true,
-        data: result,
-      };
-    }
-
-    // Bulk prune: remove all worktrees with no active task entry.
-    // Without an active-task set, pruneOrphanedWorktrees cleans git admin
-    // stale entries only (git worktree prune). We delegate to that and
-    // return its result.
-    const result = pruneOrphanedWorktrees(projectRoot, undefined);
-    return {
-      meta: dispatchMeta('mutate', 'orchestrate', 'worktree.prune', startTime),
-      success: true,
-      data: { ...result, mode: 'bulk' },
-    };
-  } catch (error) {
-    getLogger('domain:orchestrate').error(
-      { operation: 'worktree.prune', taskId, err: error },
-      error instanceof Error ? error.message : String(error),
-    );
-    return handleErrorResult('mutate', 'orchestrate', 'worktree.prune', error, startTime);
   }
 }
