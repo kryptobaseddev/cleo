@@ -19,13 +19,17 @@
 | Grand total (incl archived) | 1508 | `cleo dash` |
 | Known open epics | T942, T990, T1042, T1056 (pending); E1 (active) | `cleo find` |
 | force-bypass.jsonl entries this session (2026-04-27) | **20** | `grep 2026-04-27 .cleo/audit/force-bypass.jsonl \| wc -l` |
-| force-bypass.jsonl entries (2026-04-25 to 2026-04-28, 3-day audit window) | **106** (36 unique tasks) | A3 inventory reconciliation |
-| Pre-existing test failures | 5 (brain-stdp×3, sqlite-warning-suppress×2) | `pnpm run test` (verified in v2026.4.152 release) |
+| force-bypass.jsonl entries (2026-04-24 to 2026-04-28, 4-day audit window) | **246** (36 unique tasks) | A4 inventory reconciliation |
+| force-bypass.jsonl total entries | **665** (no enforcement gate) | A4 inventory reconciliation |
+| Pre-existing test failures | 6 (brain-stdp×3, sqlite-warning-suppress×2, pipeline.integration) | `pnpm run test` (verified in v2026.4.152 release) |
 | Test suite passing count | 11507 | CHANGELOG.md v2026.4.152 |
+| Orphaned tasks (no parentId despite clear epic affiliation) | **~51** | A1 DB inventory (2026-04-28) |
 
 **Note on force-bypass entries**: 20 uses on 2026-04-27 (this session). The majority are `testsPassed` overrides citing "pre-existing failures unrelated to campaign scope" (notably T1473 nexus decomposition, which used a workaround citing 5 pre-existing failures). Two are in T948 (SDK public surface). None filed a regression task first. See P0 item #3.
 
-**A3 audit (2026-04-25 to 2026-04-28)**: 106 total force-bypass entries across 3 days, 36 unique tasks bypassed. Top patterns: epic lifecycle advancement (18+ entries), subagents advancing parent epic lifecycle (6+ entries), worktree pre-existing test failure workarounds (many). This session's 20 entries represent only ~19% of the 3-day window. The pattern is escalating, not isolated. Total `force-bypass.jsonl` size: 665 entries with no enforcement gate. See P0-NEW and promoted P0-5/P0-6.
+**A4 audit (2026-04-24 to 2026-04-28, 4-day window)**: 246 total force-bypass entries across 4 days, 36 unique tasks bypassed — nearly double the A3 3-day figure of 106. One "emergency hotfix incident 9999" entry has no task ID attached. Total `force-bypass.jsonl` size: **665 entries** (184 lifecycle_scope_bypass + 481 evidence_override) with no enforcement gate. Top patterns: epic lifecycle advancement (18+ entries), subagents advancing parent epic lifecycle (6+ entries), worktree pre-existing test failure workarounds (many). This session's 20 entries represent ~8% of the 4-day window. The pattern is escalating, not isolated. See P0-3, P0-5, P0-6, and new P0-7 below.
+
+**A1 structural audit (2026-04-28)**: 51 orphaned tasks exist in the DB with no `parentId` despite clear epic affiliation. These tasks are invisible to `cleo list --parent <epicId>`, making epics appear empty when they have substantial planned work. See new P0-7.
 
 ---
 
@@ -48,11 +52,12 @@
 - **Effort**: owner decision only (then small if re-run)
 - **Owner required**: YES — irreversible data operation if re-run
 
-### P0-3: 106 force-bypass entries in 3 days — escalating override pump (this session + prior)
+### P0-3: 246 force-bypass entries in 4 days — escalating override pump (this session + prior)
 - **Task**: No task filed — needs filing per ADR-051 policy
-- **Why blocker**: The prior handoff (v2026.4.141) documented the meta-failure: "NO owner-overrides without (a) a regression task filed first." This session used 20 overrides on 2026-04-27. The broader A3 audit window (2026-04-25 to 2026-04-28) reveals 106 entries across 36 unique tasks — the pattern is escalating, not isolated to this session. Top offending patterns: epic lifecycle advancement (18+ entries), subagents advancing parent epic lifecycle to unblock worktrees (6+ entries). The orchestrator's 20 entries from this session are ~19% of the 3-day total — meaning 86 more came from prior sessions in the same window.
+- **Why blocker**: The prior handoff (v2026.4.141) documented the meta-failure: "NO owner-overrides without (a) a regression task filed first." This session used 20 overrides on 2026-04-27. The broader A4 audit window (2026-04-24 to 2026-04-28) reveals **246 entries across 36 unique tasks** — nearly double the A3 3-day figure of 106. Total `force-bypass.jsonl` entries ever: **665** (184 lifecycle_scope_bypass + 481 evidence_override). Top offending patterns: epic lifecycle advancement (18+ entries), subagents advancing parent epic lifecycle to unblock worktrees (6+ entries). The orchestrator's 20 entries from this session are ~8% of the 4-day total — meaning 226 more came from prior sessions in the same window.
 - **Specific violations this session**: T1473 `testsPassed` override citing "pre-existing failures in brain-stdp, pipeline integration, sentient daemon, session-find, e2e-safety"; T948 `testsPassed` override. The claim that "pipeline integration, sentient daemon, session-find" failures are pre-existing (not introduced by nexus decomposition) was NOT independently verified.
-- **Acceptance**: (1) Audit 2026-04-27 session's 20 overrides — verify each "pre-existing" claim against `git blame` + test output; file regression tasks for any introduced by the campaign. (2) Owner informed of 106-entry, 3-day escalation.
+- **Notable anomaly (A4)**: One entry dated 2026-04-25T06:01 records "emergency hotfix incident 9999" with **no task ID attached**. If this was a real hotfix, a regression task must be filed retroactively; if it was a process test, document and close.
+- **Acceptance**: (1) Audit 2026-04-27 session's 20 overrides — verify each "pre-existing" claim against `git blame` + test output; file regression tasks for any introduced by the campaign. (2) Owner informed of 246-entry, 4-day escalation. (3) "Emergency hotfix incident 9999" entry investigated and task filed or closed.
 - **Effort**: small-medium investigation
 - **Owner required**: Owner should be informed (policy violation, escalating pattern)
 
@@ -68,19 +73,31 @@
 
 ### P0-5: `CLEO_OWNER_OVERRIDE` per-session cap — promoted from P3 (was P3-1)
 - **Task**: No task filed (proposed in v2026.4.141 handoff as "T-PUMP-OVERRIDE-CAP")
-- **Promotion rationale**: A3 audit found 106 force-bypass entries in 3 days across 36 unique tasks. The handoff warned about 15 batch overrides; the pattern repeated within 72 hours. This is not a process hygiene concern — it is an active governance failure. P3 severity was wrong; this is P0.
-- **Why blocker**: Zero limits on owner-override invocations per session. A cap with ADR-style waiver requirement would enforce the policy programmatically and make the escalation self-limiting. Without it, the 106-entry / 3-day rate will continue.
+- **Promotion rationale**: A4 audit found **246 force-bypass entries in 4 days** across 36 unique tasks (A3 had found 106 in 3 days — A4 expanded the window and nearly doubled the count). The handoff warned about 15 batch overrides; the pattern repeated within 72 hours and has now escalated further. This is not a process hygiene concern — it is an active governance failure. P3 severity was wrong; this is P0.
+- **Why blocker**: Zero limits on owner-override invocations per session. A cap with ADR-style waiver requirement would enforce the policy programmatically and make the escalation self-limiting. Without it, the 246-entry / 4-day rate (665 total) will continue unchecked.
 - **Effort**: medium
-- **Owner required**: No (design is clear from A3 recommendations)
+- **Owner required**: No (design is clear from A3/A4 recommendations)
 - **File command**: `cleo add "Pump: cap CLEO_OWNER_OVERRIDE invocations per session to N — require waiver doc above N" --size medium --priority critical`
 
 ### P0-6: `--shared-evidence` flag for batch closes — promoted from P3 (was P3-2)
 - **Task**: No task filed (proposed in v2026.4.141 handoff as "T-PUMP-BATCH-EVIDENCE")
-- **Promotion rationale**: Promoted alongside P0-5. A single shared `tool:pnpm-test` atom across N>3 child tasks enables the batch-override pattern that produced the 106-entry escalation. Without requiring explicit `--shared-evidence`, agents can silently batch-close many tasks on a single unverified test run.
-- **Why blocker**: Enables silent mass-override. The 36-task bypass pattern in 3 days is only possible because batch evidence sharing is unchecked.
+- **Promotion rationale**: Promoted alongside P0-5. A single shared `tool:pnpm-test` atom across N>3 child tasks enables the batch-override pattern that produced the 246-entry escalation in 4 days. Without requiring explicit `--shared-evidence`, agents can silently batch-close many tasks on a single unverified test run.
+- **Why blocker**: Enables silent mass-override. The 36-task bypass pattern in 4 days is only possible because batch evidence sharing is unchecked.
 - **Effort**: medium
 - **Owner required**: No
 - **File command**: `cleo add "Pump: require --shared-evidence flag when same evidence atom closes >3 tasks" --size medium --priority critical`
+
+### P0-7: 51 orphaned tasks invisible to `cleo list --parent` — DB structural integrity gap (new, from A1)
+- **Task**: No task filed — needs filing
+- **Why blocker**: A1 inventory (2026-04-28) found 51 pending tasks with clear epic affiliation but no `parentId` set in the DB. These tasks are invisible when running `cleo list --parent <epicId>`, making epics appear empty when they have substantial planned work already filed. Work is effectively lost from the orchestrator's view.
+  - **EP1/EP2/EP3 Nexus tasks** (T1057–T1073, 17 tasks) → belong under T1054/T1055/T1056
+  - **CLOSE-ALL tasks** (T1104/T1105/T1108/T1109/T1111/T1112/T1115/T1116/T1117/T1130/T1131/T1132, 12 tasks) → belong under T1106
+  - **Agents-arch tasks** (T897–T909, 13 tasks) → belong under T1232 or T942
+  - **Sandbox/Tier3 tasks** (T923/T925/T1009–T1012/T1029/T1030/T1032, 9 tasks) → belong under T911 or T942
+- **Acceptance**: Every task with a clear epic affiliation has its `parentId` set; `cleo list --parent <epicId>` returns the full child set for all affected epics; orphan count = 0 for these task groups. Note: T1104/T1105 reference v2026.4.102 (50 versions stale) — verify relevance before re-parenting; may need cancellation instead.
+- **Effort**: medium (scriptable via `cleo task update` calls — ~51 calls plus staleness verification for v2026.4.102-era tasks)
+- **Owner required**: No for mechanical re-parenting; YES for T1106 decision (see P1-NEW-2 below)
+- **File command**: `cleo add "Fix: re-parent 51 orphaned tasks to correct epics — T1057-T1073→T1054/T1055/T1056, T897-T909→T1232/T942, T923/T925/T1009-T1012/T1029-T1032→T911/T942" --size medium --priority high`
 
 ---
 
@@ -152,6 +169,26 @@
 - **Effort**: small ×2
 - **Owner required**: No
 
+### P1-NEW-1: Cancel / merge duplicate epics (from A1)
+- **Task**: No tasks filed for the cancellations — owner decisions needed before action
+- **Why**: A1 found three direct overlaps that waste orchestrator attention:
+  - **T1466** (T-CLEANUP-WORKTREE, 0 children) duplicates T1461 (disk-space hygiene, 3 children). T1461 handles auto-trigger; T1466 was intended for explicit CLI verbs but has no children. Recommend: cancel T1466 or explicitly scope its CLI verbs and file children so it no longer overlaps.
+  - **T1136** (CLEO-PROVENANCE, 0 children) overlaps T1407 T-INV-3 (commit-msg lint rule, fully decomposed and ready to execute). Both mandate `T\d+` in commit messages. Recommend: cancel T1136 or confirm T1407 T-INV-3 satisfies its scope.
+  - **T889** (Orchestration Coherence v3, 0 children) was superseded by T1323 (Orchestration Coherence v1, done 2026-04-24). Recommend: archive T889 as superseded.
+- **Acceptance**: Each overlap resolved — either cancellation confirmed in CLEO DB or new scope documented. No duplicate epics targeting the same deliverable.
+- **Effort**: small (owner decisions + `cleo task cancel` or `cleo task update` calls)
+- **Owner required**: YES — owner must decide fate of T1466/T1136/T889
+
+### P1-NEW-2: T1106 CLOSE-ALL stale epic decision — v2026.4.102 era (from A1)
+- **Task**: T1106 (`status:pending`, `priority:critical`) — owner decision required
+- **Why**: T1106 was filed as the CLOSE-ALL + sandbox proof blocker for v2026.4.102. Current version is v2026.4.152 — 50 patches later. T1106 still has 1 live child (T1139, pending) and ~12 tasks orphaned from it (T1104/T1105/T1108/T1109/T1111/T1112/T1115/T1116/T1117/T1130/T1131/T1132). T1104 and T1105 explicitly reference "v2026.4.102" — they are version-locked and almost certainly stale.
+- **Owner choices**:
+  1. **Close as superseded**: Mark T1106 done/archived; cancel the stale v2026.4.102 tasks (T1104, T1105); re-parent the still-relevant tasks (T1108, T1111, T1112, T1115, T1116, T1117, T1130, T1131, T1132) under T1232 or T942 as appropriate. T1139 remains under a live parent.
+  2. **Rebuild as v2026.4.152 audit**: Reframe T1106 as the current real-world sandbox proof blocker, update scope, file new children targeting current version.
+- **Acceptance**: Owner decision documented in BRAIN; T1106 either archived or reframed with updated children; T1104/T1105 cancelled if approach 1 is chosen.
+- **Effort**: small (decision + `cleo task cancel`/`cleo task update` calls)
+- **Owner required**: YES
+
 ---
 
 ## P2 — Cleanup + ship-state hygiene
@@ -182,6 +219,71 @@
 - **Task**: No task filed
 - **Why**: `pnpm biome ci .` emits 1 warning about a broken symlink. Has been present for multiple releases. Doesn't fail CI but is noise.
 - **Effort**: tiny (identify + remove or fix symlink)
+
+### P2-NEW-1: Stale SSoT-EXEMPT annotations — T1488 Phase 2 + T1451 incomplete (from A4)
+- **Task**: No task filed — needs filing
+- **Why**: A4 found 20 SSoT-EXEMPT annotations referencing tasks that are now `done`:
+  - **14 annotations** in `packages/cleo/src/cli/commands/nexus.ts` say `pending T1488 Phase 2` — T1488 is `done`. Phase 2 dispatch ops (clusters, flows, context, hot-paths, hot-nodes, cold-symbols, diff, query-cte) were either descoped or never filed. Either remove the annotations and file a new "T1488-Phase-2" epic with the missing dispatch ops, or update annotations to reference the correct task ID.
+  - **6 annotations** in `packages/core/src/metrics/token-service.ts` say `T1451 incomplete` — T1451 is `done`. If ADR-057 D1 normalization was fully implemented, remove annotations. If work was deferred, file a follow-up task.
+- **Acceptance**: Zero SSoT-EXEMPT annotations referencing completed/archived tasks; if dispatch ops were genuinely descoped, a new epic captures them; if token-service normalization is complete, annotations removed.
+- **Effort**: small (audit + annotation cleanup + optional new epic filing)
+- **Owner required**: No (for cleanup); small decision needed on Phase 2 dispatch op scope
+- **File command**: `cleo add "Clean up 20 stale SSoT-EXEMPT annotations: 14x pending T1488 Phase 2 in nexus.ts + 6x T1451 incomplete in token-service.ts — both tasks done" --size small --priority medium`
+
+### P2-NEW-2: Stale deprecation cleanup — T310 shims + ADR-027 flat-file functions (from A4)
+- **Task**: No task filed — needs filing
+- **Why**: A4 found deprecated code retained for completed migrations:
+  - **4 shims** in `packages/core/src/store/signaldock-sqlite.ts` retained "during T310 migration" — T310 is `archived/done`. The shims (`GLOBAL_SIGNALDOCK_SCHEMA_VERSION`, `getGlobalSignaldockDbPath()`, `ensureGlobalSignaldockDb()`, `checkGlobalSignaldockDbHealth()`) are dead code.
+  - **5 flat-file functions** in `packages/core/src/memory/index.ts` deprecated per ADR-027 — T1093 (MANIFEST/RCASD Architecture Unification) is `done`. Callers should have been migrated; if migration is confirmed complete, remove the deprecated functions.
+  - (Lower priority) **7 SkillLibrary\* type aliases** in `packages/caamp/src/types.ts` — if no external callers remain, remove.
+- **Acceptance**: 4 T310-era shims removed from `signaldock-sqlite.ts`; 5 ADR-027 flat-file deprecated functions removed or confirmed still needed (if callers exist); build + tests green.
+- **Effort**: small (removal + verification)
+- **Owner required**: No
+- **File command**: `cleo add "Remove stale deprecated shims: 4x T310-era in signaldock-sqlite.ts + 5x ADR-027 flat-file in memory/index.ts — both migrations done" --size small --priority medium`
+
+### P2-NEW-3: TODO(T1082.followup) markers — unfiled embedding + telemetry work (from A4)
+- **Task**: No task filed — needs filing
+- **Why**: A4 found 6 `TODO(T1082.followup)` markers in BRAIN source files:
+  - `packages/core/src/memory/session-narrative.ts` (lines 61, 256): embedding cosine similarity dedup deferred
+  - `packages/core/src/memory/dialectic-evaluator.ts` (lines 117, 183, 213): confidence threshold tuning, telemetry when no LLM backend available, telemetry error surfacing
+  - T1082 (parent epic) is `archived`. These follow-up items were never formally filed as tasks. Either file them as concrete tasks or remove the markers and accept current behavior.
+- **Acceptance**: All `TODO(T1082.followup)` markers resolved — either replaced with real task ID references (for newly filed tasks) or removed (if work is explicitly deferred/abandoned).
+- **Effort**: small (file 2–3 new tasks + update markers)
+- **Owner required**: No
+- **File command**: `cleo add "File T1082 follow-up tasks: (a) embedding cosine similarity dedup in session-narrative.ts (b) confidence threshold tuning + few-shot in dialectic-evaluator.ts (c) telemetry gaps when LLM backend unavailable" --size small --priority low`
+
+### P2-NEW-4: T1XXX placeholder in `nexus/route-analysis.ts` — AST shape inference epic never filed (from A4)
+- **Task**: No task filed — needs decision
+- **Why**: `packages/core/src/nexus/route-analysis.ts:162` has a `T1XXX` placeholder referencing "future AST-based shape inference epic" — no task was ever filed. This is an orphan reference with no task linkage.
+- **Acceptance**: Either (a) a concrete task is filed and `T1XXX` is replaced with the real task ID, or (b) the comment is rewritten to remove the placeholder without implying pending work.
+- **Effort**: tiny (file one task + 1-line comment update)
+- **Owner required**: No
+- **File command**: `cleo add "File AST-based shape inference epic for nexus/route-analysis.ts T1XXX placeholder — replace placeholder with real task ID" --size small --priority low`
+
+### P2-NEW-5: Pre-existing test failure regression tasks — sqlite-warning-suppress, backup-pack race, T1093-followup skips (from A4)
+- **Task**: No tasks filed — needs filing (T1429 covers brain-stdp and performance-safety)
+- **Why**: A4 identified 3 pre-existing test failures with no dedicated task tracking:
+  - **`sqlite-warning-suppress.test.ts`** — 2 tests fail in worktree/git logic context (ENV sensitivity). No task filed.
+  - **`backup-pack.test.ts`** — ENOTEMPTY race condition when sibling tests' staging dirs appear in `os.tmpdir()` (parallel test runner issue). No dedicated task filed (T1107 bypass mentions it but no ownership).
+  - **2 skipped tests with `TODO(T1093-followup)` comments** — `brain-stdp-wave3.test.ts:364` (T695-1 session-bucket O(n²) guard) and `task-sweeper-wired.test.ts:157` (runGitLogTaskLinker). T1093 is done; follow-up tasks never filed.
+  - (Additionally: `cant-napi` bridge tests skipped in `agent-fixtures.test.ts` — no task filed, but lower priority P4)
+- **Acceptance**: A dedicated task exists for each of the 3 failures; acceptance criteria define either a fix (preferred) or a permanent skip with documentation justification.
+- **Effort**: small (file 3 tasks)
+- **Owner required**: No
+- **File commands**:
+  ```bash
+  cleo add "Fix sqlite-warning-suppress.test.ts worktree-context flakiness — add skipIf guard for non-worktree environments" --size small --priority medium
+  cleo add "Fix backup-pack.test.ts ENOTEMPTY race — isolate staging dir per-test via unique mkdtemp prefix" --size small --priority medium
+  cleo add "Resolve T1093-followup skipped tests: re-enable or permanently close brain-stdp-wave3:T695-1 + task-sweeper-wired:runGitLogTaskLinker" --size small --priority low
+  ```
+
+### P2-NEW-6: T659 orphan test files — coverage-final-push + core-coverage-gaps (from A4)
+- **Task**: No task filed
+- **Why**: `packages/caamp/tests/unit/coverage-final-push.test.ts` and `packages/caamp/tests/unit/core-coverage-gaps.test.ts` both contain `TODO(T659): this file slated for deletion as coverage-debt`. T659 (`Phase 2: Test suite rationalization`) is `archived`. The files were supposed to be deleted but remain.
+- **Acceptance**: Both files deleted; `pnpm run test` still green after deletion.
+- **Effort**: tiny
+- **Owner required**: No
+- **File command**: `cleo add "Delete T659 orphan test files: caamp/tests/unit/coverage-final-push.test.ts + core-coverage-gaps.test.ts — T659 archived, files should have been removed" --size small --priority low`
 
 ---
 
@@ -257,42 +359,53 @@
 
 ```
 P0-2 (BRAIN sweep decision) → P0-1 (sweep --rollback 1-LOC fix must exist first if re-run)
-P0-3 (audit 106 override entries) → [no hard dependency, but MUST be done before new batch work]
+P0-3 (audit 246 override entries) → [no hard dependency, but MUST be done before new batch work]
 P0-5 (override cap) → P0-6 (shared-evidence flag) → [together close the governance gap]
 P0-4 (pipeline.integration.test.ts fix) → P1-2 (T1429 brain-stdp deflake) → [clean test suite, 0 overrides]
+P0-7 (re-parent 51 orphaned tasks) → [unlocks cleo list --parent for all affected epics]
 P1-1 (T1492 thin handlers) → P2-1 (nexus CLI LOC — T1492 covers nexus.ts too)
 P1-3 (T1403 post-deploy CI, MUST IMPLEMENT not just file) → P1-4 (T1404 parent-closure atom, MUST IMPLEMENT) → [meta-failure pumps]
 P1-8 (reconcile-scheduler) → T1139 (BRAIN auto-reconcile) → P3-4 (T1056 Living Brain)
+P1-NEW-2 (T1106 owner decision) → P0-7 (re-parent or cancel CLOSE-ALL orphans) → T1139 (BRAIN auto-reconcile)
+P2-NEW-1 (stale SSoT-EXEMPT cleanup) → [may reveal untracked nexus dispatch ops — file Phase 2 epic if so]
+P2-NEW-5 (regression task filing) → P1-2 (T1429 scope extended to cover sqlite-warning-suppress)
 T942 (Sentient Redesign) → requires RCASD council session first
 T990 (Studio Design) → requires owner design direction first
 T1042 (Nexus far-exceed) → T1056 (Living Brain) → depends on nexus parity first
+T1054/T1055/T1056 (Nexus P0/P1/P2) → P0-7 (must re-parent T1057-T1073 first for epics to show children)
 ```
 
 ---
 
 ## Recommended execution order for next session
 
-1. **Audit the 106 force-bypass entries** (P0-3): A3 found 106 entries in 3 days across 36 unique tasks. Audit the 2026-04-27 session's 20 specifically — verify each "pre-existing" claim vs `git blame` + test output. File regression tasks for any failure introduced by the campaign. Inform owner of the 3-day escalation. This MUST happen before new code work. (~45 min)
+1. **Audit the 246 force-bypass entries** (P0-3): A4 found 246 entries in 4 days across 36 unique tasks (up from A3's 106 in 3 days). Audit the 2026-04-27 session's 20 specifically — verify each "pre-existing" claim vs `git blame` + test output. Investigate "emergency hotfix incident 9999" entry (no task ID). File regression tasks for any failure introduced by the campaign. Inform owner of the 4-day escalation. This MUST happen before new code work. (~45 min)
 
-2. **File and implement P0-5 + P0-6** (override cap + shared-evidence flag): With 106 entries in 3 days and no enforcement gate, these pumps are genuinely P0. File tasks, implement the session cap and shared-evidence flag. Without these, the escalation will continue. (~4 hours total)
+2. **File and implement P0-5 + P0-6** (override cap + shared-evidence flag): With 246 entries in 4 days (665 total) and no enforcement gate, these pumps are genuinely P0. File tasks, implement the session cap and shared-evidence flag. Without these, the escalation will continue. (~4 hours total)
 
-3. **Owner decision on BRAIN sweep** (P0-2): All 4 runs are already `rolled-back` — no active staged sweep. Owner decides: "re-run when P0-1 is fixed" or "permanently abandon." Document in BRAIN. (~5 min)
+3. **Re-parent 51 orphaned tasks** (P0-7): Script `cleo task update` calls to wire T1057–T1073 → T1054/T1055/T1056, T897–T909 → T1232/T942, T923/T925/T1009–T1012/T1029–T1032 → T911/T942. Verify T1104/T1105 staleness before re-parenting (may need cancellation). Owner must first decide T1106 fate (P1-NEW-2) before CLOSE-ALL orphans are re-parented. (~1 hour after owner decision on T1106)
 
-4. **Wire `cleo memory sweep --rollback` dispatch** (P0-1): 1 LOC fix — add `'sweep'` to the `mutate[]` array in `getOperationConfig()` in `packages/cleo/src/dispatch/domains/memory.ts` (~line 1994). File task first, implement with evidence gates. (~30 min)
+4. **Owner decision on BRAIN sweep** (P0-2): All 4 `brain_backfill_runs` rows have `status=rolled-back` — no active staged sweep. Owner decides: "re-run when P0-1 is fixed" or "permanently abandon." Document in BRAIN. (~5 min)
 
-5. **Fix `pipeline.integration.test.ts`** (P0-4): 7 failing `passGate` tests. Defensive guard in `passGate` for undefined `gateName`, or test file fix. This is the root of most `testsPassed` overrides. (~45 min)
+5. **Wire `cleo memory sweep --rollback` dispatch** (P0-1): 1 LOC fix — add `'sweep'` to the `mutate[]` array in `getOperationConfig()` in `packages/cleo/src/dispatch/domains/memory.ts` (~line 1994). File task first, implement with evidence gates. (~30 min)
 
-6. **T1492: Thin remaining fat handlers** (P1-1): `memory.ts`, `sticky.ts`, `orchestrate.ts`, `release.ts`, `pipeline.ts`, `nexus.ts` handlers >5 LOC. NO override allowed — all tests must pass. (~2 hours)
+6. **Fix `pipeline.integration.test.ts`** (P0-4): 7 failing `passGate` tests. Defensive guard in `passGate` for undefined `gateName`, or test file fix. This is the root of most `testsPassed` overrides. (~45 min)
 
-7. **T1429: brain-stdp deflake** (P1-2): Apply skip pattern to 3 remaining flaky tests. Cleans test suite toward 0 forced overrides. (~30 min)
+7. **T1492: Thin remaining fat handlers** (P1-1): `memory.ts`, `sticky.ts`, `orchestrate.ts`, `release.ts`, `pipeline.ts`, `nexus.ts` handlers >5 LOC. NO override allowed — all tests must pass. (~2 hours)
 
-8. **T1403 + T1404: Implement (not just file) process pumps** (P1-3, P1-4): Both are `status:pending, pipelineStage:research, zero children`. Actual implementation needed, not task filing. (~3 hours each)
+8. **T1429: brain-stdp deflake** (P1-2): Apply skip pattern to 3 remaining flaky tests. Cleans test suite toward 0 forced overrides. (~30 min)
 
-9. **T1462 + T1463: Worktree leak + getProjectRoot trap** (P1-6, P1-7): Small bug fixes that improve operational safety. (~1 hour each)
+9. **T1403 + T1404: Implement (not just file) process pumps** (P1-3, P1-4): Both are `status:pending, pipelineStage:research, zero children`. Actual implementation needed, not task filing. (~3 hours each)
 
-10. **T1405: CleoOS doctor + claude-sdk smoke** (P1-5): Restore CleoOS harness functionality. (~1 hour)
+10. **T1462 + T1463: Worktree leak + getProjectRoot trap** (P1-6, P1-7): Small bug fixes that improve operational safety. (~1 hour each)
 
-11. **Owner scoping of T1151 subtasks + T942 RCASD session** (P2-2, P3-4): T1152–T1159 in DB are unrelated T-MSR tasks — the 4-pillar subtasks were never filed. Owner must decide: file under T942 or explicitly defer. Document in BRAIN.
+11. **T1405: CleoOS doctor + claude-sdk smoke** (P1-5): Restore CleoOS harness functionality. (~1 hour)
+
+12. **Stale SSoT-EXEMPT cleanup** (P2-NEW-1): Audit 14 `pending T1488 Phase 2` + 6 `T1451 incomplete` annotations. Remove or update to reference correct tasks. (~30 min)
+
+13. **Stale deprecation cleanup** (P2-NEW-2): Remove 4 T310 shims from `signaldock-sqlite.ts` and verify 5 ADR-027 flat-file functions in `memory/index.ts` can be removed. (~30 min)
+
+14. **Owner scoping of T1151 subtasks + T942 RCASD session** (P2-2, P3-4): T1152–T1159 in DB are unrelated T-MSR tasks — the 4-pillar subtasks were never filed. Owner must decide: file under T942 or explicitly defer. Document in BRAIN.
 
 ---
 
@@ -304,25 +417,30 @@ cleo add "Fix: add 'sweep' to mutate[] routing in memory dispatch — getOperati
   --parent T1147 --size small --priority critical \
   --acceptance "cleo memory sweep --rollback <runId> exits 0 and no longer returns E_INVALID_OPERATION: Unknown operation: mutate:memory.sweep|pnpm run test green|biome clean"
 
-# P0-3: audit overrides (106 entries in 3 days, not just 20)
-cleo add "Audit force-bypass escalation: 106 entries 2026-04-25 to 2026-04-28 across 36 tasks — verify pre-existing failure claims and inform owner" \
+# P0-3: audit overrides (246 entries in 4 days, including 20 this session)
+cleo add "Audit force-bypass escalation: 246 entries 2026-04-24 to 2026-04-28 across 36 tasks — verify pre-existing failure claims, investigate incident 9999, inform owner" \
   --size small --priority critical \
-  --acceptance "2026-04-27 session's 20 overrides each verified against git blame|regression tasks filed for any failure introduced by campaign|BRAIN observation written with 3-day escalation stats"
+  --acceptance "2026-04-27 session's 20 overrides each verified against git blame|regression tasks filed for any failure introduced by campaign|emergency hotfix incident 9999 investigated and task filed or documented|BRAIN observation written with 4-day escalation stats (246 entries, 665 total)"
 
 # P0-4: pipeline.integration.test.ts — 7 failing tests (NOT backup-pack)
 cleo add "Fix pipeline.integration.test.ts — 7 failing passGate tests crash on undefined gateName" \
   --size small --priority high \
   --acceptance "passGate gracefully handles undefined gateName (returns error, does not crash) OR test caller always passes named gate|all 7 tests in pipeline.integration.test.ts pass|net reduction of 7 pre-existing failures"
 
-# P0-5: override cap pump (PROMOTED FROM P3)
-cleo add "Pump: cap CLEO_OWNER_OVERRIDE invocations per session — require ADR-style waiver doc above N (106 entries in 3 days, escalating)" \
+# P0-5: override cap pump (PROMOTED FROM P3, updated A4 stats)
+cleo add "Pump: cap CLEO_OWNER_OVERRIDE invocations per session — require ADR-style waiver doc above N (246 entries in 4 days, 665 total, escalating)" \
   --size medium --priority critical \
   --acceptance "cleo verify rejects override at N+1 per session without waiver file path argument|waiver format documented in ADR|force-bypass.jsonl includes per-session count|cleo session status surfaces override count"
 
 # P0-6: shared-evidence flag (PROMOTED FROM P3)
-cleo add "Pump: require --shared-evidence flag when same evidence atom closes >3 child tasks (enables 36-task bypass pattern)" \
+cleo add "Pump: require --shared-evidence flag when same evidence atom closes >3 child tasks (enables 36-task bypass pattern, 246 entries in 4 days)" \
   --size medium --priority critical \
   --acceptance "cleo verify warns when single atom covers >3 tasks without --shared-evidence flag|flag explanation logged to force-bypass.jsonl with sharedAtomWarning:true|flag documented"
+
+# P0-7: re-parent 51 orphaned tasks
+cleo add "Fix: re-parent 51 orphaned tasks to correct epics — T1057-T1073→T1054/T1055/T1056, T897-T909→T1232/T942, T923/T925/T1009-T1012/T1029-T1032→T911/T942; verify staleness of T1104/T1105 (v2026.4.102 era)" \
+  --size medium --priority high \
+  --acceptance "cleo list --parent T1054 returns EP1 tasks T1057-T1061|cleo list --parent T1055 returns EP2 tasks T1062-T1065|cleo list --parent T1056 returns EP3 tasks T1066-T1073|T897-T909 parented to T1232 or T942|T1104/T1105 either re-parented or cancelled as stale|orphan count for these groups = 0"
 
 # P1-8: reconcile-scheduler
 cleo add "Implement reconcile-scheduler.ts — periodic BRAIN reconciler per PLAN.md §7.3" \
@@ -333,19 +451,64 @@ cleo add "Implement reconcile-scheduler.ts — periodic BRAIN reconciler per PLA
 cleo add "Implement observation_embeddings and turn_embeddings tables per PORT-AND-RENAME §2 (confirmed absent — grep returns zero results)" \
   --size small --priority low \
   --acceptance "observation_embeddings and turn_embeddings table DDL exists in memory-schema.ts|migration applied|biome+tsc green"
+
+# P2-NEW-1: stale SSoT-EXEMPT cleanup (A4)
+cleo add "Clean up 20 stale SSoT-EXEMPT annotations: 14x pending T1488 Phase 2 in nexus.ts + 6x T1451 incomplete in token-service.ts — both tasks done" \
+  --size small --priority medium \
+  --acceptance "zero SSoT-EXEMPT annotations referencing T1488 or T1451 remain|if Phase 2 nexus dispatch ops were descoped, new epic filed with correct ID|biome+build green"
+
+# P2-NEW-2: stale deprecation cleanup (A4)
+cleo add "Remove stale deprecated shims: 4x T310-era in signaldock-sqlite.ts + 5x ADR-027 flat-file in memory/index.ts — both migrations done" \
+  --size small --priority medium \
+  --acceptance "4 deprecated T310 shims removed from signaldock-sqlite.ts|5 deprecated ADR-027 flat-file functions removed from memory/index.ts (or callers confirmed missing)|pnpm run test green|biome+tsc green"
+
+# P2-NEW-3: T1082 followup tasks (A4)
+cleo add "File T1082 follow-up tasks: embedding cosine similarity dedup in session-narrative.ts + confidence threshold tuning + telemetry gaps when LLM backend unavailable" \
+  --size small --priority low \
+  --acceptance "all 6 TODO(T1082.followup) markers replaced with real task IDs or explicitly removed|new tasks filed with acceptance criteria for (a) cosine dedup (b) confidence tuning (c) telemetry"
+
+# P2-NEW-4: T1XXX placeholder (A4)
+cleo add "Replace T1XXX placeholder in nexus/route-analysis.ts:162 — file AST-based shape inference epic and update comment" \
+  --size small --priority low \
+  --acceptance "T1XXX placeholder replaced with real task ID in route-analysis.ts:162|new epic filed describing AST-based shape inference scope"
+
+# P2-NEW-5 regression tasks (A4) — file as 3 separate tasks:
+cleo add "Fix sqlite-warning-suppress.test.ts worktree-context flakiness — add skipIf guard for non-worktree environments" \
+  --size small --priority medium \
+  --acceptance "sqlite-warning-suppress tests pass in both worktree and clean-checkout environments OR skipIf guard prevents failure in incompatible contexts|pnpm run test green"
+
+cleo add "Fix backup-pack.test.ts ENOTEMPTY race — isolate staging dir per-test via unique mkdtemp prefix" \
+  --size small --priority medium \
+  --acceptance "backup-pack.test.ts passes 100% in parallel runs with other tests|ENOTEMPTY error does not appear in test output|pnpm run test green"
+
+cleo add "Resolve T1093-followup skipped tests: re-enable or permanently close brain-stdp-wave3:T695-1 + task-sweeper-wired:runGitLogTaskLinker" \
+  --size small --priority low \
+  --acceptance "T695-1 either re-enabled and passing or marked it.skip with documented justification|runGitLogTaskLinker test either re-enabled or marked it.skip with documented justification|no TODO(T1093-followup) markers remain without task linkage"
+
+# P2-NEW-6: T659 orphan files (A4)
+cleo add "Delete T659 orphan test files: caamp/tests/unit/coverage-final-push.test.ts + core-coverage-gaps.test.ts — T659 archived, files should have been removed" \
+  --size small --priority low \
+  --acceptance "both files deleted|pnpm run test green|no TODO(T659) markers remain"
 ```
 
 ### Tasks already in DB (no new add needed)
 
 - T1403 — Post-deploy CI execution gap (filed, needs IMPLEMENTATION not just filing)
 - T1404 — Parent-closure-without-atom enforcement (filed, needs IMPLEMENTATION not just filing)
-- T1429 — brain-stdp deflake (filed, pending)
+- T1429 — brain-stdp deflake (filed, pending — covers brain-stdp-functional + performance-safety)
 - T1492 — Thin remaining fat dispatch handlers (filed, pending)
 - T1462 — Worktree leak auto-cleanup (filed, pending)
 - T1463 — getProjectRoot trap (filed, pending)
 - T1405 — CleoOS doctor + claude-sdk smoke (filed, pending)
 - T1113 — nexus exports map (filed, pending)
 - T1114 — nexus verb alias (filed, pending)
+- T1139 — BRAIN auto-reconcile (filed, pending — P1-8 reconcile-scheduler files as child)
+
+### Owner decisions needed before filing / acting
+
+- T1106 fate (P1-NEW-2): Close as superseded OR rebuild as v2026.4.152 audit — decision gates T0-7 re-parenting of CLOSE-ALL orphans
+- T1466 / T1136 / T889 duplicate epics (P1-NEW-1): Cancel or explicitly scope
+- T1151 4-pillar subtasks (P2-2): File under T942 or defer
 
 ### No longer needed (resolved — do NOT file)
 
