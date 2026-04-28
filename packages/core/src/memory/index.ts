@@ -14,10 +14,9 @@ import {
   getBackupDir,
   getManifestPath as getCentralManifestPath,
   getCleoDirAbsolute,
-  getManifestArchivePath,
   getProjectRoot,
 } from '../paths.js';
-import { atomicWrite, safeReadFile } from '../store/atomic.js';
+import { safeReadFile } from '../store/atomic.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { appendJsonl, readJson, saveJson } from '../store/json.js';
 import { logOperation } from '../tasks/add.js';
@@ -86,20 +85,6 @@ export interface ListResearchOptions {
   taskId?: string;
   /** Filter by research status. */
   status?: 'pending' | 'complete' | 'partial';
-}
-
-/** Manifest query options. */
-export interface ManifestQueryOptions {
-  /** Filter by completion status. */
-  status?: string;
-  /** Filter by agent type. */
-  agentType?: string;
-  /** Filter by topic tag. */
-  topic?: string;
-  /** Filter by linked task ID. */
-  taskId?: string;
-  /** Maximum entries to return. */
-  limit?: number;
 }
 
 /**
@@ -463,109 +448,6 @@ export async function archiveResearch(cwd?: string): Promise<{
   };
 }
 
-// === MANIFEST OPERATIONS ===
-
-/**
- * Read manifest entries from the legacy agent-outputs flat-file (deprecated).
- * @deprecated Use `cleo manifest list` — reads from pipeline_manifest SQLite table per ADR-027.
- *
- * @param cwd - Optional working directory for path resolution
- * @returns Array of parsed ManifestEntry records from the JSONL file
- *
- * @remarks
- * Reads the file line by line, skipping blank and malformed lines.
- * Returns an empty array if the file does not exist.
- *
- * @example
- * ```typescript
- * const entries = await readManifest('/project');
- * ```
- *
- * @task T4465
- */
-export async function readManifest(cwd?: string): Promise<ManifestEntry[]> {
-  const manifestPath = getManifestPath(cwd);
-  const content = await safeReadFile(manifestPath);
-  if (!content) return [];
-
-  const entries: ManifestEntry[] = [];
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      entries.push(JSON.parse(trimmed) as ManifestEntry);
-    } catch {
-      // Skip malformed lines
-    }
-  }
-  return entries;
-}
-
-/**
- * Append a manifest entry.
- *
- * @param entry - The ManifestEntry to append
- * @param cwd - Optional working directory for path resolution
- *
- * @remarks
- * Appends a single JSON line to the legacy agent-outputs flat-file (deprecated).
- * @deprecated Use `cleo manifest append` — writes to pipeline_manifest SQLite table per ADR-027.
- *
- * @example
- * ```typescript
- * await appendManifest({ id: 'M001', file: 'report.md', ... }, '/project');
- * ```
- *
- * @task T4465
- */
-export async function appendManifest(entry: ManifestEntry, cwd?: string): Promise<void> {
-  const manifestPath = getManifestPath(cwd);
-  await appendJsonl(manifestPath, entry);
-}
-
-/**
- * Query manifest entries with filtering.
- *
- * @param options - Filter criteria (status, agentType, topic, taskId, limit)
- * @param cwd - Optional working directory for path resolution
- * @returns Filtered array of ManifestEntry records
- *
- * @remarks
- * Applies filters sequentially: status, agentType, topic, taskId, then limit.
- * Returns all entries when no filters are provided.
- *
- * @example
- * ```typescript
- * const entries = await queryManifest({ status: 'completed', limit: 5 }, '/project');
- * ```
- *
- * @task T4465
- */
-export async function queryManifest(
-  options: ManifestQueryOptions = {},
-  cwd?: string,
-): Promise<ManifestEntry[]> {
-  let entries = await readManifest(cwd);
-
-  if (options.status) {
-    entries = entries.filter((e) => e.status === options.status);
-  }
-  if (options.agentType) {
-    entries = entries.filter((e) => e.agent_type === options.agentType);
-  }
-  if (options.topic) {
-    entries = entries.filter((e) => e.topics.includes(options.topic!));
-  }
-  if (options.taskId) {
-    entries = entries.filter((e) => e.linked_tasks.includes(options.taskId!));
-  }
-  if (options.limit && options.limit > 0) {
-    entries = entries.slice(0, options.limit);
-  }
-
-  return entries;
-}
-
 // ============================================================================
 // Engine-compatible manifest operations (extended fields)
 // These are used by the dispatch engine layer for research domain support.
@@ -925,56 +807,6 @@ export async function manifestStats(
 }
 
 /**
- * Link a manifest entry to a task (adds taskId to linked_tasks array).
- *
- * @param taskId - The task ID to link
- * @param researchId - The manifest entry ID to link to
- * @param cwd - Optional working directory for path resolution
- * @returns Confirmation with link details and whether it was already linked
- *
- * @remarks
- * Appends the taskId to the entry's linked_tasks array if not already present.
- * Rewrites the entire legacy agent-outputs flat-file after modification (deprecated).
- * @deprecated Flat-file agent-outputs retired per ADR-027. Use pipeline_manifest via `cleo manifest` CLI.
- *
- * @example
- * ```typescript
- * const result = await linkManifestEntry('T042', 'M001', '/project');
- * ```
- *
- * @task T4787
- */
-export async function linkManifestEntry(
-  taskId: string,
-  researchId: string,
-  cwd?: string,
-): Promise<{ taskId: string; researchId: string; alreadyLinked: boolean }> {
-  const manifestPath = getManifestPath(cwd);
-  const entries = await readExtendedManifest(cwd);
-
-  const entryIndex = entries.findIndex((e) => e.id === researchId);
-  if (entryIndex === -1) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Research entry '${researchId}' not found`);
-  }
-
-  const entry = entries[entryIndex];
-
-  if (entry.linked_tasks?.includes(taskId)) {
-    return { taskId, researchId, alreadyLinked: true };
-  }
-
-  if (!entry.linked_tasks) {
-    entry.linked_tasks = [];
-  }
-  entry.linked_tasks.push(taskId);
-
-  const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
-  await atomicWrite(manifestPath, content);
-
-  return { taskId, researchId, alreadyLinked: false };
-}
-
-/**
  * Append an extended manifest entry.
  * Validates required fields before appending.
  *
@@ -1015,65 +847,6 @@ export async function appendExtendedManifest(
   await appendJsonl(manifestPath, entry);
 
   return { entryId: entry.id, file: getManifestPath() };
-}
-
-/**
- * Archive manifest entries older than a date.
- *
- * @param beforeDate - ISO date string; entries older than this are archived
- * @param cwd - Optional working directory for path resolution
- * @returns Counts of archived and remaining entries, and the archive file path
- *
- * @remarks
- * Moves entries with a date before the threshold to MANIFEST.archive.jsonl
- * and rewrites the main legacy agent-outputs flat-file with the remaining entries.
- * @deprecated Flat-file agent-outputs retired per ADR-027. Use pipeline_manifest via `cleo manifest` CLI.
- *
- * @example
- * ```typescript
- * const result = await archiveManifestEntries('2026-01-01', '/project');
- * console.log(`Archived ${result.archived} entries`);
- * ```
- *
- * @task T4787
- */
-export async function archiveManifestEntries(
-  beforeDate: string,
-  cwd?: string,
-): Promise<{ archived: number; remaining: number; archiveFile: string }> {
-  const manifestPath = getManifestPath(cwd);
-  const archivePath = getManifestArchivePath(cwd);
-  const entries = await readExtendedManifest(cwd);
-
-  const toArchive = entries.filter((e) => e.date < beforeDate);
-  const toKeep = entries.filter((e) => e.date >= beforeDate);
-
-  if (toArchive.length === 0) {
-    return {
-      archived: 0,
-      remaining: entries.length,
-      archiveFile: getManifestArchivePath(),
-    };
-  }
-
-  // Append archived entries to archive file
-  const existingArchive = await safeReadFile(archivePath);
-  const archiveContent = toArchive.map((e) => JSON.stringify(e)).join('\n') + '\n';
-  const fullArchive = existingArchive
-    ? existingArchive.trimEnd() + '\n' + archiveContent
-    : archiveContent;
-  await atomicWrite(archivePath, fullArchive);
-
-  // Rewrite main manifest with remaining entries
-  const remainingContent =
-    toKeep.length > 0 ? toKeep.map((e) => JSON.stringify(e)).join('\n') + '\n' : '';
-  await atomicWrite(manifestPath, remainingContent);
-
-  return {
-    archived: toArchive.length,
-    remaining: toKeep.length,
-    archiveFile: getManifestArchivePath(),
-  };
 }
 
 /** Contradiction detail between two manifest entries. */
@@ -1315,82 +1088,6 @@ export async function readProtocolInjection(
     estimatedTokens: Math.ceil(protocolContent.length / 4),
     taskId: params?.taskId || null,
     variant: params?.variant || null,
-  };
-}
-
-/**
- * Compact the legacy agent-outputs flat-file by removing duplicate/stale entries.
- * @deprecated Flat-file agent-outputs retired per ADR-027. Use pipeline_manifest via `cleo manifest` CLI.
- *
- * @param cwd - Optional working directory for path resolution
- * @returns Compaction summary with counts of removed entries
- *
- * @remarks
- * Removes malformed lines and deduplicates entries by ID (keeping the last
- * occurrence). Rewrites the file atomically.
- *
- * @example
- * ```typescript
- * const result = await compactManifest('/project');
- * console.log(`Removed ${result.duplicatesRemoved} duplicates`);
- * ```
- *
- * @task T4787
- */
-export async function compactManifest(cwd?: string): Promise<{
-  compacted: boolean;
-  originalLines: number;
-  malformedRemoved: number;
-  duplicatesRemoved: number;
-  remainingEntries: number;
-}> {
-  const manifestPath = getManifestPath(cwd);
-  const content = await safeReadFile(manifestPath);
-
-  if (!content) {
-    return {
-      compacted: false,
-      originalLines: 0,
-      malformedRemoved: 0,
-      duplicatesRemoved: 0,
-      remainingEntries: 0,
-    };
-  }
-
-  const lines = content.split('\n');
-  const entries: ExtendedManifestEntry[] = [];
-  let malformedCount = 0;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      entries.push(JSON.parse(trimmed) as ExtendedManifestEntry);
-    } catch {
-      malformedCount++;
-    }
-  }
-
-  const originalCount = entries.length + malformedCount;
-
-  const idMap = new Map<string, ExtendedManifestEntry>();
-  for (const entry of entries) {
-    idMap.set(entry.id, entry);
-  }
-
-  const compacted = Array.from(idMap.values());
-  const duplicatesRemoved = entries.length - compacted.length;
-
-  const compactedContent =
-    compacted.length > 0 ? compacted.map((e) => JSON.stringify(e)).join('\n') + '\n' : '';
-  await atomicWrite(manifestPath, compactedContent);
-
-  return {
-    compacted: true,
-    originalLines: originalCount,
-    malformedRemoved: malformedCount,
-    duplicatesRemoved,
-    remainingEntries: compacted.length,
   };
 }
 
