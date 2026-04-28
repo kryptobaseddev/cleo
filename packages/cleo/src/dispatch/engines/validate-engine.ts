@@ -991,8 +991,16 @@ export async function validateGateVerify(
     // T1501 / P0-5 — per-session CLEO_OWNER_OVERRIDE cap.
     // Enforce before the write proceeds so the error surfaces early.
     let sessionOverrideOrdinal: number | undefined;
+    // T1504 — track worktree-context exemption so it can be logged in the bypass record.
+    let isWorktreeCtx = false;
     if (override.override && isWriteRequiringEvidence) {
-      const capResult = checkAndIncrementOverrideCap(root, sessionId ?? 'global');
+      const command = (process.argv.slice(1).join(' ') || 'cleo').slice(0, 512);
+      const capResult = checkAndIncrementOverrideCap(
+        root,
+        sessionId ?? 'global',
+        undefined,
+        command,
+      );
       if (!capResult.allowed) {
         return engineError(
           capResult.errorCode ?? 'E_OVERRIDE_CAP_EXCEEDED',
@@ -1000,6 +1008,7 @@ export async function validateGateVerify(
         );
       }
       sessionOverrideOrdinal = capResult.sessionOverrideOrdinal;
+      isWorktreeCtx = capResult.workTreeContext === true;
     }
 
     // T1502 / P0-6 — shared-evidence detection.
@@ -1164,12 +1173,14 @@ export async function validateGateVerify(
         await appendGateAuditLine(root, auditRecord);
         if (override.override && action !== 'reset') {
           // T1501: include sessionOverrideOrdinal in the force-bypass record.
+          // T1504: include workTreeContext when the override was exempt from the cap counter.
           await appendForceBypassLine(root, {
             ...auditRecord,
             overrideReason: override.reason,
             pid: process.pid,
             command: (process.argv.slice(1).join(' ') || 'cleo').slice(0, 512),
             ...(sessionOverrideOrdinal !== undefined ? { sessionOverrideOrdinal } : {}),
+            ...(isWorktreeCtx ? { workTreeContext: true } : {}),
           });
         } else if ((sharedEvidenceAcknowledged || sharedAtomWarned) && action !== 'reset') {
           // T1502: log shared-evidence state even on non-override writes.

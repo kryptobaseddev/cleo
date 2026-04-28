@@ -24,14 +24,17 @@ export {
   VALID_PRIORITIES,
   validateEnum,
 } from './input-sanitization.js';
-// Per-session override cap + waiver enforcement (T1501 / P0-5)
+// Per-session override cap + waiver enforcement (T1501 / P0-5 / T1504)
 export type { OverrideCapResult } from './override-cap.js';
 export {
   checkAndIncrementOverrideCap,
   DEFAULT_OVERRIDE_CAP_PER_SESSION,
   getSessionOverrideCountPath,
+  isWorktreeContext,
+  isWorktreeExemptionEnabled,
   readSessionOverrideCount,
   validateWaiverDoc,
+  WORKTREE_PATH_SEGMENT,
   writeSessionOverrideCount,
 } from './override-cap.js';
 // Owner-override authentication (T1118 L4)
