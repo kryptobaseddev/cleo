@@ -40,7 +40,17 @@ export class StickyHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'list': {
-          const result = await stickyListFiltered(projectRoot, { status: params?.status as 'active' | 'converted' | 'archived' | undefined, color: params?.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined, priority: params?.priority as 'low' | 'medium' | 'high' | undefined, tags: params?.tags as string[] | undefined }, params?.limit as number | undefined, params?.offset as number | undefined);
+          const result = await stickyListFiltered(
+            projectRoot,
+            {
+              status: params?.status as 'active' | 'converted' | 'archived' | undefined,
+              color: params?.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined,
+              priority: params?.priority as 'low' | 'medium' | 'high' | undefined,
+              tags: params?.tags as string[] | undefined,
+            },
+            params?.limit as number | undefined,
+            params?.offset as number | undefined,
+          );
           return wrapResult(result, 'query', 'sticky', operation, startTime);
         }
 
