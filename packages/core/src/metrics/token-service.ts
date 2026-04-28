@@ -398,7 +398,7 @@ async function whereClauses(filters: TokenUsageFilters): Promise<unknown[]> {
   return clauses;
 }
 
-// SSoT-EXEMPT: T1451 incomplete — params type uses Omit<> instead of named *Params contract; ADR-057 D1 normalization pending follow-up
+// SSoT-EXEMPT: T1511 — params type uses Omit<> instead of named *Params contract; ADR-057 D1 normalization tracked in T1511.
 export async function recordTokenExchange(
   projectRoot: string,
   input: Omit<TokenExchangeInput, 'cwd'>,
@@ -439,7 +439,7 @@ export async function recordTokenExchange(
   return inserted[0]!;
 }
 
-// SSoT-EXEMPT: T1451 incomplete — params uses inline type instead of named *Params contract; ADR-057 D1 normalization pending follow-up
+// SSoT-EXEMPT: T1511 — params uses inline type instead of named *Params contract; ADR-057 D1 normalization tracked in T1511.
 export async function showTokenUsage(
   projectRoot: string,
   params: { id: string },
@@ -451,7 +451,7 @@ export async function showTokenUsage(
   return rows[0] ?? null;
 }
 
-// SSoT-EXEMPT: T1451 incomplete — second param named 'filters' not 'params' + uses TokenUsageFilters not *Params; ADR-057 D1 normalization pending follow-up
+// SSoT-EXEMPT: T1511 — second param named 'filters' not 'params' + uses TokenUsageFilters not *Params; ADR-057 D1 normalization tracked in T1511.
 export async function listTokenUsage(
   projectRoot: string,
   filters: TokenUsageFilters = {},
@@ -479,7 +479,7 @@ export async function listTokenUsage(
   };
 }
 
-// SSoT-EXEMPT: T1451 incomplete — second param named 'filters' not 'params'; ADR-057 D1 normalization pending follow-up
+// SSoT-EXEMPT: T1511 — second param named 'filters' not 'params'; ADR-057 D1 normalization tracked in T1511.
 export async function summarizeTokenUsage(
   projectRoot: string,
   filters: TokenUsageFilters = {},
@@ -535,7 +535,7 @@ export async function summarizeTokenUsage(
   };
 }
 
-// SSoT-EXEMPT: T1451 incomplete — params uses inline type instead of named *Params contract; ADR-057 D1 normalization pending follow-up
+// SSoT-EXEMPT: T1511 — params uses inline type instead of named *Params contract; ADR-057 D1 normalization tracked in T1511.
 export async function deleteTokenUsage(
   projectRoot: string,
   params: { id: string },
@@ -547,7 +547,7 @@ export async function deleteTokenUsage(
   return { deleted: true, id: params.id };
 }
 
-// SSoT-EXEMPT: T1451 incomplete — second param named 'filters' not 'params'; ADR-057 D1 normalization pending follow-up
+// SSoT-EXEMPT: T1511 — second param named 'filters' not 'params'; ADR-057 D1 normalization tracked in T1511.
 export async function clearTokenUsage(
   projectRoot: string,
   filters: TokenUsageFilters = {},
