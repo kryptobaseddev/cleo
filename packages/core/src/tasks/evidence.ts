@@ -71,11 +71,31 @@ export const TOOL_COMMANDS: Record<EvidenceTool, ToolCommand> = {
  * - Alternatives are modeled as separate sets — if ANY set is satisfied the
  *   evidence is accepted.
  *
+ * ## `implemented` gate alternatives
+ *
+ * Two valid evidence sets exist for the `implemented` gate:
+ *
+ * 1. `[commit, files]` — standard: commit SHA + list of modified files.
+ *    Use this when the implementation added or modified files.
+ * 2. `[commit, note]` — deletion-safe: commit SHA + descriptive note.
+ *    Use this when the implementation deleted files (no files remain to
+ *    anchor the evidence, e.g. `note:deleted src/legacy.ts`).
+ *
+ * Example (deletion task):
+ * ```bash
+ * cleo verify T### --gate implemented \
+ *   --evidence "commit:<sha>;note:deleted packages/legacy/src/old-module.ts"
+ * ```
+ *
  * @task T832
+ * @task T1515
  * @adr ADR-051 §2.3
  */
 export const GATE_EVIDENCE_MINIMUMS: Record<VerificationGate, EvidenceAtom['kind'][][]> = {
-  implemented: [['commit', 'files']],
+  implemented: [
+    ['commit', 'files'],
+    ['commit', 'note'],
+  ],
   testsPassed: [['test-run'], ['tool']],
   qaPassed: [['tool']],
   documented: [['files'], ['url']],
