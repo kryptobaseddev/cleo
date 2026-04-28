@@ -24,7 +24,17 @@ function readJsonlFile(filePath: string): Record<string, unknown>[] {
   if (!existsSync(filePath)) return [];
   const content = readFileSync(filePath, 'utf-8').trim();
   if (!content) return [];
-  return content.split('\n').map((line) => JSON.parse(line));
+  const results: Record<string, unknown>[] = [];
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue; // skip blank lines
+    try {
+      results.push(JSON.parse(trimmed) as Record<string, unknown>);
+    } catch {
+      // skip malformed lines — T1528 P2: otel JSONL resilience
+    }
+  }
+  return results;
 }
 
 /** Get token tracking status. */
