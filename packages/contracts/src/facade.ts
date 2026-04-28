@@ -276,6 +276,8 @@ export interface TasksAPI {
     labels?: string[];
     depends?: string[];
     notes?: string;
+    /** Acceptance criteria items (free-text strings or structured gate specs). */
+    acceptance?: string[];
   }): Promise<unknown>;
   /** Find tasks by query, ID, status, or limit. */
   find(params: {
