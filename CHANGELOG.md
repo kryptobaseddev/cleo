@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.152] — 2026-04-27 — T-THIN-WRAPPER + T-SDK-PUBLIC: thin-wrapper architecture + public SDK
+
+The T-THIN-WRAPPER campaign + T-SDK-PUBLIC follow-up shipped 46 commits across two epics. Goal: turn `@cleocode/cleo` into a thin transport over `@cleocode/core` (the SDK) and `@cleocode/contracts` (canonical wire-format SSoT).
+
+### What shipped
+
+**T-THIN-WRAPPER (T1467) — 13 subtasks**
+- Lint script L4 wildcard re-export shortcut fixed (T1469)
+- Core index namespace exports for check/session/playbook + sentient/gc/llm (T1470, T1483)
+- 17 type duplicates dedup'd from Core/cleo into contracts (T1471)
+- Canonical CLI tasks layer with alias normalization (T1472)
+- All 9 dispatch domains use `OpsFromCore<typeof coreOps>` inference (T1437/T1438/T1439/T1440/T1441/T1442/T1443/T1444/T1445)
+- Redundant per-op contract type aliases stripped (T1446 — pipeline.ts -244 LOC, tasks.ts -299 LOC)
+- ADR-058 dispatch-type-inference authored (T1447)
+- biome rule + regression test prevent inline type drift (T1448)
+- nexus.ts CLI decomposed (T1473 — 5366 → 4084 LOC, 9 new core/nexus files)
+- Engine type duplicates removed (T1482)
+- 57 dispatch handlers thinned via wrapCoreResult helper (T1484)
+- 79 more dispatch handlers thinned in tasks/playbook/nexus (T1487 — 61-70% body LOC reduction)
+- Nexus CLI bypass paths routed through dispatch (T1488)
+- Session dispatch param aliases sole-sourced via contracts (T1489)
+- add.ts CLI inference moved to Core inferTaskAddParams (T1490)
+
+**T-SDK-PUBLIC (T948) — 5 deliverables**
+- @cleocode/core publish surface hardened (files allowlist excludes 13MB src)
+- @cleocode/contracts public type surface README documenting XOps pattern
+- @cleocode/core SDK README with runnable quickstart
+- TypeScript .d.ts declaration cleanliness verified (zero internal leaks)
+- forge-ts @example doctests on 10 public Core fns
+
+**Critical bug fixes after validation**
+- `build.mjs` sharedExternals regression (introduced v2026.4.141): added openai/google-genai/anthropic-sdk to externals — fresh npm installs were crashing with "Dynamic require of stream" since v2026.4.148
+- conduit/ops.ts `declare const` type-only fixed (was crashing CLI at startup)
+- brain `sleep-consolidation` SQL `e.observation_id` → `e.id` (matched vec0 schema)
+- TasksAPI.add() facade gained `acceptance?: string[]`
+- README quickstart corrected (`addTask` not `tasksAddOp`)
+- `cleo update --note` (singular) alias regression test added
+
+**Adapter migrations to public SDK** (T948 prereqs)
+- MCP adapter (`@cleocode/mcp-adapter`) migrated from CLI subprocess to direct `@cleocode/core` + `@cleocode/contracts` (T1485)
+- cleo-os decoupled from `@cleocode/cleo` binary dep (T1486)
+
+### Quality gates
+
+- pnpm exec tsc -b: exit 0
+- pnpm biome ci .: exit 0 (1 pre-existing symlink warning)
+- pnpm run build: exit 0
+- pnpm run test: 11507 passing / 5 pre-existing failures (brain-stdp + sqlite-warning-suppress, unrelated to campaign)
+- node scripts/lint-contracts-core-ssot.mjs --exit-on-fail: exit 0
+- Validation matrix: V1 + V2-RERUN + V3 + V4 + V5 + FINAL re-run all GREEN
+- Sandbox: 3/7 ubuntu, 4/7 fedora, 0 new regressions vs v2026.4.151
+
+### Codex audit progression
+- Audit #1 (campaign start): NO/NO/PARTIAL on the 3 thin-wrapper questions
+- Audit #4 (post-campaign): PARTIAL/PARTIAL/TRUE — Core SDK is now solidly publishable
+
 ## [2026.4.151] — 2026-04-26 — CI hotfix: lifecycle-engine type narrowing
 
 v2026.4.150 release tag pushed but CI Type Check failed on `packages/cleo/src/dispatch/engines/lifecycle-engine.ts:207`. The `lifecycleStatus(epicId, projectRoot?)` engine wrapper passed `projectRoot?: string` directly to `getLifecycleStatus()` which now requires `projectRoot: string` (per ADR-057 D1 in T1455). Fix mirrors the pattern used at line 195 (`listRcsdEpics`): `projectRoot ?? process.cwd()`.
