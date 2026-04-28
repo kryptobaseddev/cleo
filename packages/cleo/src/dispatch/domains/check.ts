@@ -969,6 +969,7 @@ export class CheckHandler implements DomainHandler {
         'compliance.summary',
         'workflow.compliance',
         'test',
+        'test.coverage',
         'coherence',
         'gate.status',
         'archive.stats',
