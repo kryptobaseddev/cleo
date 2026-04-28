@@ -52,8 +52,7 @@ function setupDb(): DatabaseSync {
       tree_id INTEGER
     );
     CREATE TABLE brain_embeddings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      observation_id TEXT NOT NULL,
+      id TEXT PRIMARY KEY,
       embedding BLOB
     );
     CREATE TABLE brain_memory_trees (
@@ -117,7 +116,7 @@ function insertObsWithEmbedding(d: DatabaseSync, id: string, type = 'change', ti
     floats[i] = Math.random();
   }
   const buf = Buffer.from(floats.buffer);
-  d.prepare(`INSERT INTO brain_embeddings (observation_id, embedding) VALUES (?, ?)`).run(id, buf);
+  d.prepare(`INSERT INTO brain_embeddings (id, embedding) VALUES (?, ?)`).run(id, buf);
 }
 
 /** Insert a plain observation without embedding. */
@@ -169,7 +168,7 @@ describe('computeSurprisalScore', () => {
 
     // Query what embedding was stored
     const row = db
-      .prepare('SELECT embedding FROM brain_embeddings WHERE observation_id = ?')
+      .prepare('SELECT embedding FROM brain_embeddings WHERE id = ?')
       .get('prior-1') as { embedding: Buffer };
 
     const storedFloats = new Float32Array(
@@ -192,7 +191,7 @@ describe('computeSurprisalScore', () => {
       'change',
       'Prior',
     );
-    db.prepare('INSERT INTO brain_embeddings (observation_id, embedding) VALUES (?, ?)').run(
+    db.prepare('INSERT INTO brain_embeddings (id, embedding) VALUES (?, ?)').run(
       'prior-1',
       Buffer.from(prior.buffer),
     );
