@@ -154,7 +154,7 @@ afterEach(() => {
 // wiring so this suite goes green without skip) is tracked under T1106 /
 // T1110 follow-up work and is OUT OF SCOPE for this regression repair.
 //
-// TODO(T1093-followup): re-enable once `runGitLogTaskLinker` produces the
+// T1517 / T1110: re-enable once `runGitLogTaskLinker` produces the
 // expected `task_touches_symbol` edges against a synthetic git fixture
 // (currently emits 0 edges; expected 3 per the it() assertions below).
 describe.skip('task-sweeper post-analyze wiring', { sequential: true }, () => {
