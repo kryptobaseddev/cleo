@@ -99,7 +99,7 @@ export interface SurprisalResult {
 // ============================================================================
 
 interface RawEmbeddingRow {
-  observation_id: string;
+  id: string;
   embedding: Buffer | null;
   created_at: string | null;
 }
@@ -163,10 +163,10 @@ function fetchPriorEmbeddings(
 ): Array<{ id: string; embedding: number[]; createdAt: string | null }> {
   const rows = nativeDb
     .prepare(
-      `SELECT e.observation_id, e.embedding, o.created_at
+      `SELECT e.id, e.embedding, o.created_at
        FROM brain_embeddings e
-       JOIN brain_observations o ON o.id = e.observation_id
-       WHERE e.observation_id != ?
+       JOIN brain_observations o ON o.id = e.id
+       WHERE e.id != ?
          AND e.embedding IS NOT NULL
        ORDER BY o.created_at DESC
        LIMIT ?`,
@@ -176,7 +176,7 @@ function fetchPriorEmbeddings(
   return rows
     .filter((r) => r.embedding !== null && r.embedding.byteLength > 0)
     .map((r) => ({
-      id: r.observation_id,
+      id: r.id,
       embedding: bufferToFloat32Array(r.embedding!),
       createdAt: r.created_at,
     }));
