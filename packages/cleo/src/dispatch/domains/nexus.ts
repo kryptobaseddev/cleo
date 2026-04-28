@@ -574,7 +574,18 @@ function nexusQueryEnvelopeToResponse(
       resultData = cleanData;
     }
   }
-  return wrapResult({ success: env.success, data: resultData, page: pageMetadata, error: env.error ? { code: String(env.error.code), message: env.error.message } : undefined }, 'query', 'nexus', operation, startTime);
+  return wrapResult(
+    {
+      success: env.success,
+      data: resultData,
+      page: pageMetadata,
+      error: env.error ? { code: String(env.error.code), message: env.error.message } : undefined,
+    },
+    'query',
+    'nexus',
+    operation,
+    startTime,
+  );
 }
 
 /** Convert a nexus mutate envelope to DispatchResponse (no page lifting). */
@@ -588,7 +599,17 @@ function nexusMutateEnvelopeToResponse(
     data?: unknown;
     error?: { code: string | number; message: string };
   };
-  return wrapResult({ success: env.success, data: env.data, error: env.error ? { code: String(env.error.code), message: env.error.message } : undefined }, 'mutate', 'nexus', operation, startTime);
+  return wrapResult(
+    {
+      success: env.success,
+      data: env.data,
+      error: env.error ? { code: String(env.error.code), message: env.error.message } : undefined,
+    },
+    'mutate',
+    'nexus',
+    operation,
+    startTime,
+  );
 }
 
 /**
@@ -627,10 +648,17 @@ export class NexusHandler implements DomainHandler {
 
     try {
       // operation is validated above — cast to typed key is safe (ADR-058 trust boundary)
-      const envelope = await typedDispatch(_nexusTypedHandler, operation as keyof NexusOps & string, params ?? {});
+      const envelope = await typedDispatch(
+        _nexusTypedHandler,
+        operation as keyof NexusOps & string,
+        params ?? {},
+      );
       return nexusQueryEnvelopeToResponse(envelope, operation, startTime);
     } catch (error) {
-      getLogger('domain:nexus').error({ gateway: 'query', domain: 'nexus', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:nexus').error(
+        { gateway: 'query', domain: 'nexus', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('query', 'nexus', operation, error, startTime);
     }
   }
@@ -650,10 +678,17 @@ export class NexusHandler implements DomainHandler {
 
     try {
       // operation is validated above — cast to typed key is safe (ADR-058 trust boundary)
-      const envelope = await typedDispatch(_nexusTypedHandler, operation as keyof NexusOps & string, params ?? {});
+      const envelope = await typedDispatch(
+        _nexusTypedHandler,
+        operation as keyof NexusOps & string,
+        params ?? {},
+      );
       return nexusMutateEnvelopeToResponse(envelope, operation, startTime);
     } catch (error) {
-      getLogger('domain:nexus').error({ gateway: 'mutate', domain: 'nexus', operation, err: error }, error instanceof Error ? error.message : String(error));
+      getLogger('domain:nexus').error(
+        { gateway: 'mutate', domain: 'nexus', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
       return handleErrorResult('mutate', 'nexus', operation, error, startTime);
     }
   }

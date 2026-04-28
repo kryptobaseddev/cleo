@@ -127,8 +127,22 @@ export class OrchestrateHandler implements DomainHandler {
         // T408: prompt-based CANT team routing (ADR-030 §5: query, idempotent, advisory)
         case 'classify': {
           const request = params?.request as string | undefined;
-          if (!request) return errorResult('query', 'orchestrate', operation, 'E_INVALID_INPUT', 'request is required', startTime);
-          return wrapResult(await orchestrateClassify(request, params?.context as string | undefined, projectRoot), 'query', 'orchestrate', operation, startTime);
+          if (!request)
+            return errorResult(
+              'query',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'request is required',
+              startTime,
+            );
+          return wrapResult(
+            await orchestrateClassify(request, params?.context as string | undefined, projectRoot),
+            'query',
+            'orchestrate',
+            operation,
+            startTime,
+          );
         }
 
         case 'fanout.status': {
@@ -507,9 +521,25 @@ export class OrchestrateHandler implements DomainHandler {
 
         // T409: Promise.allSettled fanout wrapper (ADR-030 §5: not idempotent, concurrent)
         case 'fanout': {
-          const items = params?.items as Array<{ team: string; taskId: string; skill?: string }> | undefined;
-          if (!items || !Array.isArray(items) || items.length === 0) return errorResult('mutate', 'orchestrate', operation, 'E_INVALID_INPUT', 'items array is required and must be non-empty', startTime);
-          return wrapResult(await orchestrateFanout(items, projectRoot), 'mutate', 'orchestrate', operation, startTime);
+          const items = params?.items as
+            | Array<{ team: string; taskId: string; skill?: string }>
+            | undefined;
+          if (!items || !Array.isArray(items) || items.length === 0)
+            return errorResult(
+              'mutate',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'items array is required and must be non-empty',
+              startTime,
+            );
+          return wrapResult(
+            await orchestrateFanout(items, projectRoot),
+            'mutate',
+            'orchestrate',
+            operation,
+            startTime,
+          );
         }
 
         case 'tessera.instantiate': {
