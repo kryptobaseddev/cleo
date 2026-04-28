@@ -195,6 +195,13 @@ export interface ValidateGateParams {
   reset?: boolean;
   evidence?: string;
   sessionId?: string;
+  /**
+   * Acknowledge that the same evidence atom is being applied to more than 3
+   * distinct tasks in this session (T1502 / P0-6).  Without this flag,
+   * such reuse triggers a warning (or a hard reject in strict mode when
+   * `CLEO_STRICT_EVIDENCE=1`).
+   */
+  sharedEvidence?: boolean;
 }
 export interface ValidateGateResult {
   taskId: string;

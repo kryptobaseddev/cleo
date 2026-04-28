@@ -227,6 +227,8 @@ export interface OwnerOverrideConfig {
  * Error codes emitted by the branch-lock + override-auth system.
  *
  * @task T1118
+ * @task T1501
+ * @task T1502
  */
 export const BRANCH_LOCK_ERROR_CODES = {
   /** L2: git shim blocked a branch-mutating operation. */
@@ -247,6 +249,17 @@ export const BRANCH_LOCK_ERROR_CODES = {
   E_OVERRIDE_NEEDS_TTY: 'E_OVERRIDE_NEEDS_TTY',
   /** L4d: session override limit exceeded. */
   E_OVERRIDE_RATE_LIMIT: 'E_OVERRIDE_RATE_LIMIT',
+  /**
+   * T1501 / P0-5: per-session cap (default 3) exceeded without a valid waiver doc.
+   * Set CLEO_OWNER_OVERRIDE_WAIVER=<absolute path> to a file containing
+   * `cap-waiver: true` in its frontmatter to bypass the cap.
+   */
+  E_OVERRIDE_CAP_EXCEEDED: 'E_OVERRIDE_CAP_EXCEEDED',
+  /**
+   * T1502 / P0-6: the same evidence atom was used across >3 distinct tasks and
+   * `--shared-evidence` was not passed (or CLEO_STRICT_EVIDENCE=1 is set in CI).
+   */
+  E_SHARED_EVIDENCE_FLAG_REQUIRED: 'E_SHARED_EVIDENCE_FLAG_REQUIRED',
 } as const;
 
 /** Union of all branch-lock error code strings. */

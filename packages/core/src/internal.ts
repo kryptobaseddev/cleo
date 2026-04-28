@@ -551,6 +551,16 @@ export {
   VALID_PRIORITIES,
   validateEnum,
 } from './security/input-sanitization.js';
+// Per-session override cap + waiver enforcement (T1501 / P0-5)
+export type { OverrideCapResult } from './security/override-cap.js';
+export {
+  checkAndIncrementOverrideCap,
+  DEFAULT_OVERRIDE_CAP_PER_SESSION,
+  getSessionOverrideCountPath,
+  readSessionOverrideCount,
+  validateWaiverDoc,
+  writeSessionOverrideCount,
+} from './security/override-cap.js';
 // Owner-override auth (T1118 L4)
 export type { OverrideValidationResult } from './security/owner-override-auth.js';
 export {
@@ -566,6 +576,21 @@ export {
   validateOwnerOverride,
   verifyOwnerAuthToken,
 } from './security/owner-override-auth.js';
+// Shared-evidence tracker (T1502 / P0-6)
+export type {
+  SharedEvidenceCheckResult,
+  SharedEvidenceEnforceResult,
+} from './security/shared-evidence-tracker.js';
+export {
+  appendAtomUsage,
+  atomKey,
+  checkAndRecordSharedEvidence,
+  enforceSharedEvidence,
+  extractAtomKeys,
+  getSharedEvidencePath,
+  readAtomUsageMap,
+  SHARED_EVIDENCE_THRESHOLD,
+} from './security/shared-evidence-tracker.js';
 // Sequence
 export { allocateNextTaskId, repairSequence } from './sequence/index.js';
 export { recordAssumption } from './sessions/assumptions.js';
