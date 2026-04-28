@@ -6,8 +6,7 @@
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
   "type": "object",
   "required": [
-    "version",
-    "_meta"
+    "version"
   ],
   "additionalProperties": false,
   "properties": {
@@ -403,6 +402,18 @@
           ],
           "default": "strict",
           "description": "Session enforcement mode for write operations. strict=block without session, warn/advisory=warn but allow, none/off=no enforcement."
+        },
+        "autoStart": {
+          "type": "boolean",
+          "default": false,
+          "x-deprecated": true,
+          "description": "DEPRECATED: not enforced by the engine. Auto-start behavior is not supported. Retained for backward compatibility."
+        },
+        "multiSession": {
+          "type": "boolean",
+          "default": false,
+          "x-deprecated": true,
+          "description": "DEPRECATED: not enforced by the engine. Multi-session mode is not supported. Retained for backward compatibility."
         }
       }
     },
@@ -481,6 +492,13 @@
           "maximum": 50,
           "default": 5,
           "description": "Maximum number of safety backups to retain (count-based retention, works with safetyRetentionDays)."
+        },
+        "maxOperationalBackups": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 10,
+          "description": "Maximum number of operational (session-triggered) backups to retain (count-based retention)."
         },
         "maxIncremental": {
           "type": "integer",
@@ -1063,6 +1081,23 @@
               "description": "Automatically set verification.gates.implemented = true when task is completed."
             }
           }
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "description": "Lifecycle enforcement shorthand. Alias for lifecycleEnforcement — both keys are accepted for backward compatibility.",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "advisory",
+            "off"
+          ],
+          "default": "strict",
+          "description": "Enforcement mode: strict (blocks spawn if prerequisites not met), advisory (warns but allows spawn), off (disables gate checks)."
         }
       }
     },
