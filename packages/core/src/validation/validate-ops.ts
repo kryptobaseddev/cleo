@@ -18,6 +18,7 @@ import { getManifestPath as getCentralManifestPath } from '../paths.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { computeChecksum } from '../store/json.js';
 import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
+import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { validateSchema as ajvValidateSchema } from './schema-validator.js';
 import {
   hasErrors,
@@ -1046,8 +1047,22 @@ export async function coreCoherenceCheck(
 // ============================================================================
 
 /**
- * Execute test suite via subprocess.
+ * Execute the project's test suite via subprocess.
+ *
+ * Project-agnostic per T1534 / ADR-061: the runner is resolved from
+ * `.cleo/project-context.json` (`testing.command`) with per-`primaryType`
+ * fallbacks (vitest → pytest → cargo test → go test, …). Pre-T1534 this
+ * function shelled out to `npx vitest run`, which silently failed on
+ * non-Node projects.
+ *
+ * `params.scope` is appended to the resolved command verbatim. `params.pattern`
+ * is forwarded as a vitest-style `--testNamePattern` only when the resolved
+ * canonical tool is `test` AND the binary recognises that flag — for other
+ * runners we omit it (callers should use scope/glob instead).
+ *
  * @task T4786
+ * @task T1534
+ * @adr ADR-061
  */
 export function coreTestRun(
   params: { scope?: string; pattern?: string; parallel?: boolean } | undefined,
@@ -1062,28 +1077,37 @@ export function coreTestRun(
   passed?: boolean;
   message?: string;
 } {
-  const hasVitest = existsSync(join(projectRoot, 'node_modules', '.bin', 'vitest'));
-  const hasBats = existsSync(join(projectRoot, 'tests'));
-
-  if (!hasVitest && !hasBats) {
+  const resolution = resolveToolCommand('test', projectRoot);
+  if (!resolution.ok) {
     return {
       ran: false,
-      message: 'No test runner found (vitest or bats tests/ directory)',
+      message: `No test runner found: ${resolution.reason}`,
     };
   }
 
-  try {
-    const args: string[] = ['vitest', 'run', '--reporter=json'];
+  const command = resolution.command;
+  const args = [...command.args];
 
-    if (params?.scope) {
-      args.push(params.scope);
-    }
+  if (params?.scope) {
+    args.push(params.scope);
+  }
 
-    if (params?.pattern) {
+  if (params?.pattern) {
+    // Only vitest / jest accept --testNamePattern. Other runners ignore the
+    // flag at best, fail at worst — so gate it on the resolved binary name.
+    const cmdLower = command.cmd.toLowerCase();
+    const argsLower = command.args.map((a) => a.toLowerCase());
+    const looksLikeVitest =
+      cmdLower.includes('vitest') ||
+      cmdLower.includes('jest') ||
+      argsLower.some((a) => a.includes('vitest') || a.includes('jest'));
+    if (looksLikeVitest) {
       args.push('--testNamePattern', params.pattern);
     }
+  }
 
-    const result = execFileSync('npx', args, {
+  try {
+    const result = execFileSync(command.cmd, args, {
       cwd: projectRoot,
       timeout: 120000,
       encoding: 'utf-8',
@@ -1099,7 +1123,7 @@ export function coreTestRun(
 
     return {
       ran: true,
-      runner: 'vitest',
+      runner: command.canonical,
       output: parsed || result.slice(0, 2000),
       exitCode: 0,
     };
@@ -1107,7 +1131,7 @@ export function coreTestRun(
     const execError = error as { status?: number; stdout?: string; stderr?: string };
     return {
       ran: true,
-      runner: 'vitest',
+      runner: command.canonical,
       exitCode: execError.status || 1,
       stdout: (execError.stdout || '').slice(0, 2000),
       stderr: (execError.stderr || '').slice(0, 2000),

@@ -2,11 +2,22 @@
  * Evidence-based gate validation (ADR-051 / T832).
  *
  * Parses and validates evidence atoms for `cleo verify`. Each atom is checked
- * against the filesystem, git, vitest JSON output, or toolchain exit code.
+ * against the filesystem, git, structured test-run JSON output (vitest /
+ * pytest / cargo-nextest etc.), or a project-resolved toolchain exit code.
  * Soft evidence (`url:`, `note:`) is accepted without validation.
  *
+ * Tool resolution is project-agnostic per T1534 / ADR-061:
+ *   - {@link resolveToolCommand} maps `tool:<name>` to a runnable command
+ *     using `.cleo/project-context.json` and per-`primaryType` fallbacks.
+ *   - {@link runToolCached} memoises results per `(cmd, args, head, dirty)`
+ *     and serialises concurrent identical runs via a cross-process lock,
+ *     preventing the resource thrash observed when multiple `cleo verify`
+ *     invocations spawned full toolchains in parallel.
+ *
  * @task T832
+ * @task T1534
  * @adr ADR-051
+ * @adr ADR-061
  */
 
 import { spawn } from 'node:child_process';
@@ -19,49 +30,57 @@ import type { EvidenceAtom, GateEvidence, VerificationGate } from '@cleocode/con
 import { ExitCode } from '@cleocode/contracts';
 
 import { CleoError } from '../errors.js';
+import { runToolCached } from './tool-cache.js';
+import {
+  CANONICAL_TOOLS,
+  type CanonicalTool,
+  listValidToolNames,
+  resolveToolCommand,
+} from './tool-resolver.js';
 
 /**
  * Valid tool names recognised by the `tool:<name>` evidence atom.
  *
- * Tool invocation definitions live in {@link TOOL_COMMANDS}.
+ * Sourced from {@link listValidToolNames} so canonical names + every legacy
+ * alias resolve identically. Use {@link isValidToolName} or pass to
+ * {@link resolveToolCommand} directly — direct array indexing is no longer
+ * the canonical path (post-T1534).
  *
  * @task T832
+ * @task T1534
  */
-export const VALID_TOOLS = [
-  'biome',
-  'tsc',
-  'eslint',
-  'pnpm-build',
-  'pnpm-test',
-  'security-scan',
-] as const;
+export const VALID_TOOLS: readonly string[] = Object.freeze(listValidToolNames());
 
 /**
- * Type of a supported evidence tool.
+ * Type of a supported evidence tool. Post-T1534, this is widened to every
+ * canonical tool name plus every alias accepted by {@link resolveToolCommand}.
+ *
+ * Existing callers that assigned `'pnpm-test' | 'biome' | ...` continue to
+ * compile because those literal types remain assignable to `string`.
  *
  * @task T832
+ * @task T1534
  */
-export type EvidenceTool = (typeof VALID_TOOLS)[number];
+export type EvidenceTool = CanonicalTool | string;
 
-interface ToolCommand {
-  cmd: string;
-  args: string[];
+/**
+ * Test whether a string is a recognised tool name (canonical or alias).
+ *
+ * @task T1534
+ */
+export function isValidToolName(name: string): boolean {
+  return VALID_TOOLS.includes(name);
 }
 
 /**
- * Tool name → shell command + args.  Each tool is executed with `cwd = project
- * root` and stdout/stderr captured. Exit 0 is required for acceptance.
+ * @deprecated Since T1534 — tool commands are resolved per-project from
+ * `.cleo/project-context.json` via {@link resolveToolCommand}. This export
+ * is retained as an empty record for back-compat with downstream callers
+ * that destructured the legacy table; new code MUST call the resolver.
  *
- * @task T832
+ * @task T1534
  */
-export const TOOL_COMMANDS: Record<EvidenceTool, ToolCommand> = {
-  biome: { cmd: 'pnpm', args: ['biome', 'ci', '.'] },
-  tsc: { cmd: 'pnpm', args: ['tsc', '--noEmit'] },
-  eslint: { cmd: 'pnpm', args: ['eslint', '.'] },
-  'pnpm-build': { cmd: 'pnpm', args: ['run', 'build'] },
-  'pnpm-test': { cmd: 'pnpm', args: ['run', 'test'] },
-  'security-scan': { cmd: 'pnpm', args: ['audit'] },
-};
+export const TOOL_COMMANDS: Record<string, { cmd: string; args: string[] }> = Object.freeze({});
 
 /**
  * Minimum evidence required for each verification gate.
@@ -424,36 +443,50 @@ async function validateTestRun(path: string, projectRoot: string): Promise<AtomV
 }
 
 async function validateTool(tool: string, projectRoot: string): Promise<AtomValidation> {
-  if (!(VALID_TOOLS as readonly string[]).includes(tool)) {
+  const resolution = resolveToolCommand(tool, projectRoot);
+  if (!resolution.ok) {
     return {
       ok: false,
-      reason: `Unknown tool: "${tool}". Valid: ${VALID_TOOLS.join(', ')}`,
-      codeName: 'E_EVIDENCE_INVALID',
+      reason: resolution.reason,
+      codeName:
+        resolution.codeName === 'E_TOOL_UNKNOWN'
+          ? 'E_EVIDENCE_INVALID'
+          : 'E_EVIDENCE_TOOL_UNAVAILABLE',
     };
   }
-  const cmd = TOOL_COMMANDS[tool as EvidenceTool];
-  const result = await runCommand(cmd.cmd, cmd.args, projectRoot);
+
+  const result = await runToolCached(resolution.command, projectRoot);
+
   if (result.exitCode === null) {
     return {
       ok: false,
-      reason: `Tool "${tool}" could not be executed (binary missing or spawn error)`,
+      reason:
+        `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
+        `could not be executed (binary missing or spawn error)`,
       codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
     };
   }
+
   if (result.exitCode !== 0) {
-    const tail = tailString(result.stdout + '\n' + result.stderr, 512);
+    const tail = tailString(`${result.stdoutTail}\n${result.stderrTail}`, 512);
     return {
       ok: false,
-      reason: `Tool "${tool}" exited with code ${result.exitCode}. Tail: ${tail}`,
+      reason:
+        `Tool "${tool}" exited with code ${result.exitCode}` +
+        `${result.cacheHit ? ' (cached)' : ''}. Tail: ${tail}`,
       codeName: 'E_EVIDENCE_TOOL_FAILED',
     };
   }
-  const stdoutTail = tailString(result.stdout, 512);
+
   return {
     ok: true,
-    atom: { kind: 'tool', tool, exitCode: 0, stdoutTail },
+    atom: { kind: 'tool', tool, exitCode: 0, stdoutTail: result.stdoutTail },
   };
 }
+
+// Re-export so downstream code can keep importing the canonical-tools list
+// from evidence.ts without crossing into tool-resolver internals.
+export { CANONICAL_TOOLS };
 
 function validateUrl(url: string): AtomValidation {
   if (!/^https?:\/\//.test(url)) {

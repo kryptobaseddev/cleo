@@ -58,13 +58,15 @@ export {
   validateDependencyRefs,
   wouldCreateCycle,
 } from './dependency-check.js';
-// Evidence-based verification (T832 / ADR-051)
+// Evidence-based verification (T832 / ADR-051, T1534 / ADR-061)
 export {
   type AtomValidation,
+  CANONICAL_TOOLS,
   checkGateEvidenceMinimum,
   composeGateEvidence,
   type EvidenceTool,
   GATE_EVIDENCE_MINIMUMS,
+  isValidToolName,
   type ParsedAtom,
   type ParsedEvidence,
   parseEvidence,
@@ -106,4 +108,36 @@ export { type ListTasksOptions, type ListTasksResult, listTasks } from './list.j
 // Task Core operation signatures for OpsFromCore inference (T1445)
 export type { tasksCoreOps } from './ops.js';
 export { showTask, type TaskDetail } from './show.js';
+// Tool result cache + cross-process semaphore (T1534 / ADR-061)
+export {
+  cacheEntryPath,
+  captureDirtyFingerprint,
+  captureHead,
+  clearToolCache,
+  computeCacheKey,
+  type RunToolOptions,
+  readCacheEntry,
+  runToolCached,
+  type ToolCacheEntry,
+  type ToolRunResult,
+  writeCacheEntry,
+} from './tool-cache.js';
+// Project-agnostic tool resolution (T1534 / ADR-061)
+export {
+  type CanonicalTool,
+  listValidToolNames,
+  type ResolutionSource,
+  type ResolvedToolCommand,
+  type ResolveToolResult,
+  resolveToolCommand,
+} from './tool-resolver.js';
+// Cross-process global per-tool concurrency semaphore (T1534 / ADR-061)
+export {
+  type AcquireSlotOptions,
+  acquireGlobalSlot,
+  defaultMaxConcurrent,
+  type ReleaseSlotFn,
+  resolveMaxConcurrent,
+  semaphoreDir,
+} from './tool-semaphore.js';
 export { type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';
