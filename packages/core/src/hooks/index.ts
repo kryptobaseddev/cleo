@@ -5,7 +5,7 @@
  * Import from here to access the hook registry, types, handlers, and
  * Zod payload validation schemas.
  *
- * @module @cleocode/cleo/hooks
+ * @module @cleocode/core/hooks
  */
 
 export * from './handlers/index.js';
