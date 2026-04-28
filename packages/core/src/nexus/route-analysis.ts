@@ -159,7 +159,7 @@ export async function getRouteMap(
  *
  * Currently limited to meta_json shape string equality due to lack of AST analysis.
  * A full implementation would require parsing type annotations and inferring shapes
- * from call sites, which is deferred to T1XXX (future AST-based shape inference epic).
+ * from call sites, which is deferred to T1534 (AST-based shape inference).
  *
  * @param routeSymbol - Route symbol ID (format: `<filePath>::<routeName>`)
  * @param projectId - Project identifier from registry
