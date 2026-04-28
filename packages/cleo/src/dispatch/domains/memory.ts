@@ -1913,6 +1913,11 @@ export class MemoryHandler implements DomainHandler {
           }
         }
 
+        // T1147 W7 — sweep mutate operations (approve, rollback) delegate to query handler
+        // which already handles all sweep sub-commands via a unified case block.
+        case 'sweep':
+          return this.query(operation, params);
+
         default:
           return unsupportedOp('mutate', 'memory', operation, startTime);
       }
@@ -1991,6 +1996,8 @@ export class MemoryHandler implements DomainHandler {
         'precompact-flush',
         // T1006 — write a diary-typed observation
         'diary.write',
+        // T1147 W7 — sweep mutate operations (approve, rollback)
+        'sweep',
         // T1003 — staged backfill operations
         'backfill.run',
         'backfill.approve',

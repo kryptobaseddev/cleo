@@ -2721,6 +2721,35 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T1147 W7 — sweep mutate variant (approve, rollback) — routes to same handler as query
+  // Registered separately so mutate:memory.sweep resolves correctly (T1496/P0-1)
+  {
+    gateway: 'mutate',
+    domain: 'memory',
+    operation: 'sweep',
+    description:
+      'memory.sweep (mutate) — T1147 W7 BRAIN noise sweep approve/rollback. ' +
+      'approve <runId>: apply sweep to live brain tables. ' +
+      'rollback <runId>: discard a staged run without applying changes.',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'approve',
+        type: 'string',
+        required: false,
+        description: 'Run ID to approve and apply to live tables.',
+      },
+      {
+        name: 'rollback',
+        type: 'string',
+        required: false,
+        description: 'Run ID to roll back without applying changes.',
+      },
+    ],
+  },
   // T791 — LLM extraction backend status
   {
     gateway: 'query',
