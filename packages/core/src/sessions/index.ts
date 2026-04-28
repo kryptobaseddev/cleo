@@ -495,7 +495,6 @@ export async function gcSessions(
   return { orphaned, removed };
 }
 
-export type { Session as SessionRecord } from '@cleocode/contracts';
 export type {
   AgentSessionAdapterOptions,
   AgentSessionHandle,
@@ -507,7 +506,6 @@ export {
   openAgentSession,
   wrapWithAgentSession,
 } from './agent-session-adapter.js';
-export type { RecordAssumptionParams } from './assumptions.js';
 export { recordAssumption } from './assumptions.js';
 export type {
   BriefingBlockedTask,
@@ -521,7 +519,6 @@ export type {
   SessionBriefing,
 } from './briefing.js';
 export { computeBriefing } from './briefing.js';
-export type { DecisionLogParams, RecordDecisionParams } from './decisions.js';
 export { getDecisionLog, recordDecision } from './decisions.js';
 export type { FindSessionsParams, MinimalSessionRecord } from './find.js';
 export { findSessions } from './find.js';
