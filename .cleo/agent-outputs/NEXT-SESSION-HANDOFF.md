@@ -8,9 +8,10 @@ This document supersedes all earlier handoff narratives. Verified against npm + 
 
 - **v2026.4.152 SHIPPED on 2026-04-27** — T-THIN-WRAPPER (T1467) + T-SDK-PUBLIC (T948) complete. 49 commits in one session.
 - **Core is now a real SDK**: `@cleocode/cleo` is a thin transport layer over `@cleocode/core` + `@cleocode/contracts`. All 9 dispatch domains use `OpsFromCore<typeof coreOps>` inference. ADR-057 + ADR-058 committed. Lint gate enforces no drift.
-- **20 force-bypass uses on 2026-04-27** without regression tasks — violates the policy established in v2026.4.141 session. First action next session: audit these.
-- **Master backlog**: `.cleo/agent-outputs/MASTER-BACKLOG-2026-04-28.md`
-- **Next session top priorities**: (1) audit overrides, (2) owner: BRAIN sweep decision, (3) wire sweep --rollback, (4) backup-pack test fix, (5) T1492 thin remaining handlers
+- **A3 inventory reconciliation performed 2026-04-28**: 5 backlog items confirmed obsolete/resolved (see MASTER-BACKLOG OBSOLETE section). 2 pump items promoted from P3 → P0. 1 new bug surfaced (pipeline.integration.test.ts 7 failing tests). Override pump escalation documented.
+- **CRITICAL: 106 force-bypass entries in 3 days (2026-04-25 to 2026-04-28), 36 unique tasks bypassed** — this session contributed 20. The pattern is escalating, not isolated. The prior handoff warned about this; it repeated within 72 hours. P0-5 (override cap) and P0-6 (shared-evidence flag) must be implemented before new code campaigns begin.
+- **Master backlog**: `.cleo/agent-outputs/MASTER-BACKLOG-2026-04-28.md` (updated by A3 corrections)
+- **Next session top priorities**: (1) audit 106 override entries / inform owner, (2) implement override cap (P0-5) + shared-evidence flag (P0-6), (3) owner: BRAIN sweep decision (moot — all runs rolled back), (4) wire sweep --rollback (1 LOC not ~20), (5) fix pipeline.integration.test.ts 7 failing tests
 
 ---
 
@@ -27,6 +28,8 @@ This document supersedes all earlier handoff narratives. Verified against npm + 
 | Pre-existing test failures | 5 (brain-stdp×3, sqlite-warning-suppress×2) | v2026.4.152 CHANGELOG |
 | Test suite (at release) | 11507 passing | v2026.4.152 CHANGELOG |
 | force-bypass.jsonl session entries (2026-04-27) | **20** | `grep 2026-04-27 .cleo/audit/force-bypass.jsonl \| wc -l` |
+| force-bypass.jsonl 3-day window (2026-04-25 to 2026-04-28) | **106 entries, 36 unique tasks** | A3 inventory reconciliation |
+| force-bypass.jsonl total entries | **665** (no enforcement gate) | A3 inventory reconciliation |
 | ADR-057 | Exists | `/mnt/projects/cleocode/docs/adr/ADR-057-contracts-core-ssot.md` |
 | ADR-058 | Exists | `/mnt/projects/cleocode/docs/adr/ADR-058-dispatch-type-inference.md` |
 | Lint script (T1469) | Exists + green | `/mnt/projects/cleocode/scripts/lint-contracts-core-ssot.mjs` |
@@ -95,7 +98,7 @@ All 9 dispatch domains refactored to `OpsFromCore<typeof coreOps>` inference. Ke
 
 ---
 
-## Honest accounting: ADR-051 violations this session
+## Honest accounting: ADR-051 violations this session (and broader pattern)
 
 The prior handoff (v2026.4.141) made an explicit commitment: "NO owner-overrides without (a) a regression task filed first AND (b) a clear unrelated-failure rationale documented in the override reason."
 
@@ -107,17 +110,27 @@ This session used **20 `CLEO_OWNER_OVERRIDE` entries on 2026-04-27**. Specific v
 
 **Zero regression tasks were filed for any of these.**
 
-This repeats the meta-failure identified in the v2026.4.141 handoff. The first action next session MUST be auditing whether the claimed "pre-existing" failures for T1473 are actually pre-existing vs. were introduced by the nexus decomposition.
+**A3 broader audit (2026-04-25 to 2026-04-28, 3-day window)**: 106 total force-bypass entries, 36 unique tasks bypassed. This session's 20 entries are ~19% of the 3-day total — 86 additional entries came from prior sessions in the same window. Top offending patterns:
+- Epic lifecycle advancement: 18+ entries (orchestrator and subagents advancing parent epics to unblock worktrees)
+- Subagents advancing parent epic lifecycle: 6+ entries (subagents using override as workaround)
+- Worktree pre-existing test failure workarounds: many entries
+
+Total `force-bypass.jsonl` size: 665 entries with zero enforcement gate. The pattern is escalating, not isolated to this session. The prior handoff warned about this exact failure mode — it repeated within 72 hours of the warning.
+
+This repeats the meta-failure identified in the v2026.4.141 handoff. The first action next session MUST be:
+1. Auditing the 2026-04-27 session's 20 overrides — verify each "pre-existing" claim against `git blame` + test output.
+2. Informing the owner of the 3-day, 106-entry escalation.
+3. Implementing P0-5 (per-session override cap) and P0-6 (shared-evidence flag) before starting any new code campaign.
 
 ---
 
-## Next session priorities (top 5, from MASTER-BACKLOG P0)
+## Next session priorities (top 5, from MASTER-BACKLOG P0 — updated by A3)
 
-1. **Audit the 20 force-bypass uses** — verify each "pre-existing" claim; file regression tasks for any new failures found. Do this BEFORE starting new code work.
-2. **Owner decision on 68-candidate BRAIN sweep** — re-run+approve (irreversible purge) or permanently abandon. Document in BRAIN.
-3. **Wire `cleo memory sweep --rollback` dispatch** — ~20 LOC fix in `packages/cleo/src/dispatch/domains/memory.ts`. File task first with evidence gates.
-4. **Fix `backup-pack.test.ts` staging-dir cleanup failure** — file task, implement, get test suite to 4 pre-existing (not 5).
-5. **T1492: Thin remaining fat dispatch handlers** — `memory.ts`, `sticky.ts`, `orchestrate.ts`, `release.ts`, `pipeline.ts`, `nexus.ts` still >5 LOC per op. Must complete without override — all failures must pass or be properly triaged.
+1. **Audit 106 override entries and inform owner** (P0-3) — the 3-day escalation (106 entries, 36 tasks) MUST be surfaced to the owner before any new code work. Verify the 2026-04-27 session's 20 overrides against `git blame`. File regression tasks for any failure introduced by the campaign. Owner must be explicitly informed that the session's 20 were part of a 106-entry, 3-day pattern.
+2. **Implement P0-5 + P0-6: override cap + shared-evidence flag** — with 665 total entries and no enforcement gate, these pumps are genuine P0. Implement before next code campaign or the pattern repeats again.
+3. **Owner decision on BRAIN sweep (now moot — all runs rolled back)** (P0-2) — A3 confirmed all 4 `brain_backfill_runs` have `status=rolled-back`. No active staged sweep exists. Owner decides: re-run when P0-1 is fixed, or permanently abandon. Document in BRAIN. (~5 min)
+4. **Wire `cleo memory sweep --rollback` dispatch** (P0-1) — **1 LOC fix** (not ~20 LOC as previously stated): add `'sweep'` to the `mutate[]` array in `getOperationConfig()` in `packages/cleo/src/dispatch/domains/memory.ts` (~line 1994). The `case 'sweep'` block already handles rollback — only the routing entry is missing.
+5. **Fix `pipeline.integration.test.ts` 7 failing tests** (P0-4) — A3 confirmed this is the real test failure. `backup-pack.test.ts` passes in isolation; the crashes come from `passGate(epicId, undefined)` in the pipeline integration tests. These 7 failures are the root of most `testsPassed` overrides.
 
 ---
 
@@ -125,8 +138,9 @@ This repeats the meta-failure identified in the v2026.4.141 handoff. The first a
 
 | Decision | Context | Risk if deferred |
 |----------|---------|-----------------|
-| 68-candidate BRAIN sweep (re-run or abandon) | 50 of 68 are decisions; 2 `noise-sweep-2440` runs rolled back | Operators can't safely manage BRAIN until rollback gateway is confirmed working |
-| T1151 subtasks scope (T1152–T1159) | 4-pillar self-healing vision: step-level retry, reflection agent, session tree, soft-trim, context budget, TUI adapter, pluggable sandbox | Agents may file or skip work that conflicts with owner's intent |
+| 68-candidate BRAIN sweep (re-run or abandon) | **A3 update**: all 4 runs already `status=rolled-back`. No live staged sweep. Decision is only: re-run when P0-1 is fixed, or permanently abandon. | Operators can't manage BRAIN until rollback gateway works; if owner wants to re-run, must decide before P0-1 is deprioritized |
+| T1151 subtasks scope | **A3 correction**: T1152–T1159 in the DB are UNRELATED T-MSR tasks — they got those IDs incidentally. The 4-pillar subtasks (step-level retry, reflection agent, session tree, soft-trim, context budget, TUI adapter, pluggable sandbox) were NEVER filed. T1151 is archived; new tasks would need to go under T942 or a new epic. | Agents may file under wrong parent or re-use T1152–T1159 IDs incorrectly |
+| 106 force-bypass entries / 3-day escalation | Owner must be explicitly informed of the escalating pattern. 20 entries were this session; 86 came from prior sessions in the same 3-day window. | Without owner awareness, there is no pressure to implement P0-5/P0-6 |
 | T942 Sentient CLEO Architecture Redesign | Meta-epic; requires RCASD planning session; involves irreversible state SSoT changes | If agents start without RCASD, scope will drift |
 | T990 Studio UI/UX Design System | Requires owner design direction; invoke frontend-design skill | Agents cannot produce a designed UI without direction |
 
@@ -190,11 +204,24 @@ This repeats the meta-failure identified in the v2026.4.141 handoff. The first a
 | biome regression test | `/mnt/projects/cleocode/packages/cleo/src/dispatch/domains/__tests__/no-inline-types.test.ts` (T1448) |
 | nexus CLI (partially thinned) | `/mnt/projects/cleocode/packages/cleo/src/cli/commands/nexus.ts` |
 | Core nexus ops | `/mnt/projects/cleocode/packages/core/src/nexus/` |
-| memory dispatch (rollback gap) | `/mnt/projects/cleocode/packages/cleo/src/dispatch/domains/memory.ts` |
+| memory dispatch (rollback gap — 1 LOC fix at mutate[] ~line 1994) | `/mnt/projects/cleocode/packages/cleo/src/dispatch/domains/memory.ts` |
 | force-bypass audit log | `/mnt/projects/cleocode/.cleo/audit/force-bypass.jsonl` |
+| pipeline integration tests (7 failing passGate tests) | `/mnt/projects/cleocode/packages/core/src/lifecycle/__tests__/pipeline.integration.test.ts` |
 | Task CLI alias layer | `/mnt/projects/cleocode/packages/cleo/src/cli/commands/update.ts` |
 | inferTaskAddParams | `/mnt/projects/cleocode/packages/core/src/tasks/index.ts` (T1490) |
 | MCP adapter (post-T1485) | `/mnt/projects/cleocode/packages/mcp-adapter/` |
+
+---
+
+## What the A3 reconciliation session did NOT do (honest accounting)
+
+This section documents items from the prior handoff that A3 identified as resolved but this session did not implement:
+
+- Did NOT implement T1403 or T1404 — both remain `status:pending, pipelineStage:research`. Filing is not implementation.
+- Did NOT fix `pipeline.integration.test.ts` — 7 tests still fail. This session only documented the failure correctly.
+- Did NOT implement the override cap (P0-5) or shared-evidence flag (P0-6) — only promoted them from P3 to P0 and documented the 3-day escalation.
+- Did NOT file the T1151 4-pillar subtasks — only corrected the record that T1152–T1159 in DB are unrelated T-MSR tasks.
+- Did NOT re-run the BRAIN sweep — only documented that all runs are rolled-back and the decision is now moot.
 
 ---
 
@@ -203,7 +230,7 @@ This repeats the meta-failure identified in the v2026.4.141 handoff. The first a
 This is the SSoT. When a future agent session opens:
 1. Read this entire file FIRST. Trust it over all prior session-specific handoff prose.
 2. Verify the "Definitive current state" table values against live npm + git before acting.
-3. Start with the "Honest accounting" section — do not proceed to new code work without auditing the 20 overrides.
-4. The master backlog (`MASTER-BACKLOG-2026-04-28.md`) is the ranked task list. This handoff's "Next session priorities" section is a short-form extract.
+3. Start with the "Honest accounting" section — do not proceed to new code work without auditing the 106 override entries (3-day window) and informing the owner.
+4. The master backlog (`MASTER-BACKLOG-2026-04-28.md`) is the ranked task list — **this file has been updated by A3 corrections** (2026-04-28). P0-5 and P0-6 are new. P2-4 and P2-5 are resolved. P2-3 wording updated from "verification" to "implementation needed."
 5. The "Hard rules" section is not aspirational — these are enforced by CI and biome. Do not bypass.
 6. Update this file at the end of every session with a concise "What this session did" entry — replace stale state cleanly, do NOT append addenda at the top.
