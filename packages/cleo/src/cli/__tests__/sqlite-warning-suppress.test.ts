@@ -27,93 +27,106 @@ const PKG_ROOT = resolve(__dirname, '..', '..', '..');
 /** Path to compiled CLI entry point. */
 const CLI_DIST = resolve(PKG_ROOT, 'dist', 'cli', 'index.js');
 
+// ---------------------------------------------------------------------------
+// T695-1 flakiness class — ENV-gated skip guard (T1507 deflake)
+//
+// The 2 CLI-invocation tests below spawn the compiled dist binary. They fail
+// deterministically when the dist has not been built — either because:
+//   (a) the monorepo dist has not been built yet (fresh clone, pre-build CI), or
+//   (b) the worktree context does not include the compiled output.
+//
+// This is the same T695-1 class that prompted the brain-stdp-functional deflake
+// (T1506). The correct response is an it.skipIf guard at module-load time, not
+// an inline expect.skip() call (which does not exist in Vitest 4.x and throws
+// "TypeError: expect.skip is not a function" in ENV-sensitive contexts).
+//
+// Guard: existsSync on CLI_DIST — evaluated once at module-load time so the
+// skip decision is visible in the test reporter before any test body runs.
+// ---------------------------------------------------------------------------
+
+/** True when the compiled CLI dist bundle exists and can be spawned. */
+const CLI_DIST_AVAILABLE = existsSync(CLI_DIST);
+
 describe('T1138 — sqlite ExperimentalWarning suppression', () => {
-  it('dist CLI exists (build must have run)', () => {
+  it.skipIf(!CLI_DIST_AVAILABLE)('dist CLI exists (build must have run)', () => {
     // Graceful skip if build hasn't run yet (clean checkout).
     // CI always builds before running tests.
-    if (!existsSync(CLI_DIST)) {
-      // eslint-disable-next-line vitest/no-skipped-tests
-      expect.skip();
-    }
     expect(existsSync(CLI_DIST)).toBe(true);
   });
 
-  it('CLI invocation suppresses ExperimentalWarning for "SQLite is an experimental feature"', () => {
-    if (!existsSync(CLI_DIST)) {
-      // eslint-disable-next-line vitest/no-skipped-tests
-      expect.skip();
-    }
+  it.skipIf(!CLI_DIST_AVAILABLE)(
+    'CLI invocation suppresses ExperimentalWarning for "SQLite is an experimental feature"',
+    () => {
+      // Run: `node dist/cli/index.js --version` and capture stderr.
+      // This is a simple, fast invocation that will still trigger the warning
+      // if it were not suppressed (because it imports the node:sqlite code path).
+      const result = spawnSync('node', [CLI_DIST, '--version'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+        // T1434: CLI bootstrap is heavy (~6s cold) — was 5000ms which raced
+        // the spawn timeout and produced empty stdout. Bumped to 30s to be
+        // safe under parallel-test load.
+        timeout: 30000,
+      });
 
-    // Run: `node dist/cli/index.js --version` and capture stderr.
-    // This is a simple, fast invocation that will still trigger the warning
-    // if it were not suppressed (because it imports the node:sqlite code path).
-    const result = spawnSync('node', [CLI_DIST, '--version'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      // T1434: CLI bootstrap is heavy (~6s cold) — was 5000ms which raced
-      // the spawn timeout and produced empty stdout. Bumped to 30s to be
-      // safe under parallel-test load.
-      timeout: 30000,
-    });
+      const stderr = result.stderr || '';
+      const stdout = result.stdout || '';
 
-    const stderr = result.stderr || '';
-    const stdout = result.stdout || '';
+      // Verify: stdout contains the version (sanity check that the command ran).
+      expect(stdout.trim()).toMatch(/\d+\.\d+\.\d+/);
 
-    // Verify: stdout contains the version (sanity check that the command ran).
-    expect(stdout.trim()).toMatch(/\d+\.\d+\.\d+/);
+      // T1431 CARVE-OUT: SQLite warning suppression for CLI consumers
+      //
+      // The suppression filter in @cleocode/core/suppress-sqlite-warning.ts works
+      // correctly for programmatic consumers (T1406 scope). However, complete
+      // suppression for CLI invocations is NOT achievable with esbuild's banner
+      // approach because Node.js emits the ExperimentalWarning during the ESM
+      // module resolution phase (before ANY code can execute).
+      //
+      // Execution order in the compiled bundle:
+      // 1. Node.js starts loading the ESM module
+      // 2. Node.js hoists all `import` statements (including imports from
+      //    @cleocode/core that transitively depend on node:sqlite)
+      // 3. Node.js resolves and loads those imports → emits ExperimentalWarning
+      // 4. esbuild banner code executes (too late to intercept the warning)
+      // 5. User code executes
+      //
+      // Complete suppression would require:
+      // - Using a Node.js loader hook (--loader flag), OR
+      // - Refactoring the entire CLI to use dynamic imports, OR
+      // - Setting NODE_OPTIONS="--no-warnings=ExperimentalWarning"
+      //
+      // This test verifies that:
+      // 1. The CLI runs successfully (exit code 0)
+      // 2. The warning doesn't cause a runtime error
+      // 3. Normal output is produced (version number)
+      //
+      // The warning WILL appear in stderr, but it does not break the CLI.
+      // Users can suppress it themselves if needed by setting the NODE_OPTIONS
+      // environment variable.
+      void stderr; // documented above — not asserted
+    },
+  );
 
-    // T1431 CARVE-OUT: SQLite warning suppression for CLI consumers
-    //
-    // The suppression filter in @cleocode/core/suppress-sqlite-warning.ts works
-    // correctly for programmatic consumers (T1406 scope). However, complete
-    // suppression for CLI invocations is NOT achievable with esbuild's banner
-    // approach because Node.js emits the ExperimentalWarning during the ESM
-    // module resolution phase (before ANY code can execute).
-    //
-    // Execution order in the compiled bundle:
-    // 1. Node.js starts loading the ESM module
-    // 2. Node.js hoists all `import` statements (including imports from
-    //    @cleocode/core that transitively depend on node:sqlite)
-    // 3. Node.js resolves and loads those imports → emits ExperimentalWarning
-    // 4. esbuild banner code executes (too late to intercept the warning)
-    // 5. User code executes
-    //
-    // Complete suppression would require:
-    // - Using a Node.js loader hook (--loader flag), OR
-    // - Refactoring the entire CLI to use dynamic imports, OR
-    // - Setting NODE_OPTIONS="--no-warnings=ExperimentalWarning"
-    //
-    // This test verifies that:
-    // 1. The CLI runs successfully (exit code 0)
-    // 2. The warning doesn't cause a runtime error
-    // 3. Normal output is produced (version number)
-    //
-    // The warning WILL appear in stderr, but it does not break the CLI.
-    // Users can suppress it themselves if needed by setting the NODE_OPTIONS
-    // environment variable.
-  });
+  it.skipIf(!CLI_DIST_AVAILABLE)(
+    'CLI invocation preserves other Node warnings (if any fire)',
+    () => {
+      // This test verifies we didn't over-suppress: other warnings should still emit.
+      // We don't manufacture a warning here (too fragile), but we document that
+      // the filter checks the warning name and message, so non-SQLite warnings pass through.
 
-  it('CLI invocation preserves other Node warnings (if any fire)', () => {
-    if (!existsSync(CLI_DIST)) {
-      // eslint-disable-next-line vitest/no-skipped-tests
-      expect.skip();
-    }
+      const result = spawnSync('node', [CLI_DIST, '--version'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+        // T1434: CLI bootstrap is heavy (~6s cold) — was 5000ms which raced
+        // the spawn timeout and produced empty stdout. Bumped to 30s to be
+        // safe under parallel-test load.
+        timeout: 30000,
+      });
 
-    // This test verifies we didn't over-suppress: other warnings should still emit.
-    // We don't manufacture a warning here (too fragile), but we document that
-    // the filter checks the warning name and message, so non-SQLite warnings pass through.
-
-    const result = spawnSync('node', [CLI_DIST, '--version'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      // T1434: CLI bootstrap is heavy (~6s cold) — was 5000ms which raced
-      // the spawn timeout and produced empty stdout. Bumped to 30s to be
-      // safe under parallel-test load.
-      timeout: 30000,
-    });
-
-    // If the process exited cleanly, the filter is working.
-    // (If we broke the emit binding, the process would crash.)
-    expect(result.status).toBe(0);
-  });
+      // If the process exited cleanly, the filter is working.
+      // (If we broke the emit binding, the process would crash.)
+      expect(result.status).toBe(0);
+    },
+  );
 });
