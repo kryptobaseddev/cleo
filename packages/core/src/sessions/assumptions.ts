@@ -14,9 +14,6 @@ import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
 import type { AssumptionRecord } from './types.js';
 
-/** @deprecated Use SessionRecordAssumptionParams from @cleocode/contracts. */
-export type RecordAssumptionParams = SessionRecordAssumptionParams;
-
 /**
  * Record an assumption made during a session.
  * Normalized Core signature: (projectRoot, params) → Result.
