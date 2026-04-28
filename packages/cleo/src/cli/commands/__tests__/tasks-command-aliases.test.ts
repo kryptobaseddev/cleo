@@ -139,6 +139,45 @@ describe('task CLI command alias normalization (T1472)', () => {
     );
   });
 
+  it('--note alone (singular) is not dropped — maps to notes (T1472 BUG-CLI-NOTE)', async () => {
+    // Regression: --note (singular) was silently dropped; only --notes (plural) worked.
+    // The fix wires `note` as a CLI arg alias so it normalizes to params.notes before dispatch.
+    await invokeUpdate({
+      taskId: 'T201',
+      note: 'singular note text',
+    });
+
+    expect(mocks.dispatchFromCli).toHaveBeenCalledWith(
+      'mutate',
+      'tasks',
+      'update',
+      expect.objectContaining({
+        notes: 'singular note text',
+        taskId: 'T201',
+      }),
+      { command: 'update' },
+    );
+  });
+
+  it('--notes takes precedence over --note when both are supplied', async () => {
+    await invokeUpdate({
+      taskId: 'T202',
+      notes: 'canonical notes',
+      note: 'should be ignored',
+    });
+
+    expect(mocks.dispatchFromCli).toHaveBeenCalledWith(
+      'mutate',
+      'tasks',
+      'update',
+      expect.objectContaining({
+        notes: 'canonical notes',
+        taskId: 'T202',
+      }),
+      { command: 'update' },
+    );
+  });
+
   it('normalizes list --parent-id to parent', async () => {
     await invokeList({ 'parent-id': 'T100' });
 
