@@ -36,6 +36,7 @@ import {
   paginate,
   parseScope,
   persistHandoff,
+  readSessionOverrideCount,
   recordAssumption,
   recordDecision,
   type SessionBriefing,
@@ -56,27 +57,34 @@ export type { DecisionRecord, EngineResult, Session as SessionRecord };
  * Get current session status.
  *
  * @remarks
- * Returns whether there is an active session, along with the session record
- * and current task work state if available.
+ * Returns whether there is an active session, along with the session record,
+ * current task work state, and the running CLEO_OWNER_OVERRIDE count for
+ * the active session (T1501 / P0-5 — surfaced so operators can see the cap
+ * progress without digging into audit files).
  *
  * @param projectRoot - Absolute path to the project root
- * @returns EngineResult with active session flag, session record, and task work state
+ * @returns EngineResult with active session flag, session record, task work
+ *   state, and `overrideCount` for the active session.
  *
  * @example
  * ```typescript
  * const result = await sessionStatus('/project');
  * if (result.success && result.data.hasActiveSession) {
  *   console.log(result.data.session?.id);
+ *   console.log('Overrides used:', result.data.overrideCount);
  * }
  * ```
  *
  * @task T4782
+ * @task T1501
  */
 export async function sessionStatus(projectRoot: string): Promise<
   EngineResult<{
     hasActiveSession: boolean;
     session?: Session | null;
     taskWork?: TaskWorkState | null;
+    /** Running CLEO_OWNER_OVERRIDE count for the active session (T1501 / P0-5). */
+    overrideCount: number;
   }>
 > {
   try {
@@ -86,12 +94,16 @@ export async function sessionStatus(projectRoot: string): Promise<
     const sessions = await accessor.loadSessions();
     const active = sessions.find((s: Session) => s.status === 'active');
 
+    // T1501: surface persisted override count for the active session.
+    const overrideCount = active ? readSessionOverrideCount(projectRoot, active.id) : 0;
+
     return {
       success: true,
       data: {
         hasActiveSession: !!active,
         session: active || null,
         taskWork: focusState || null,
+        overrideCount,
       },
     };
   } catch {

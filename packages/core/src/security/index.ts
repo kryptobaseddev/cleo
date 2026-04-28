@@ -24,6 +24,16 @@ export {
   VALID_PRIORITIES,
   validateEnum,
 } from './input-sanitization.js';
+// Per-session override cap + waiver enforcement (T1501 / P0-5)
+export type { OverrideCapResult } from './override-cap.js';
+export {
+  checkAndIncrementOverrideCap,
+  DEFAULT_OVERRIDE_CAP_PER_SESSION,
+  getSessionOverrideCountPath,
+  readSessionOverrideCount,
+  validateWaiverDoc,
+  writeSessionOverrideCount,
+} from './override-cap.js';
 // Owner-override authentication (T1118 L4)
 export type { OverrideValidationResult } from './owner-override-auth.js';
 export {
@@ -39,3 +49,18 @@ export {
   validateOwnerOverride,
   verifyOwnerAuthToken,
 } from './owner-override-auth.js';
+// Shared-evidence tracker (T1502 / P0-6)
+export type {
+  SharedEvidenceCheckResult,
+  SharedEvidenceEnforceResult,
+} from './shared-evidence-tracker.js';
+export {
+  appendAtomUsage,
+  atomKey,
+  checkAndRecordSharedEvidence,
+  enforceSharedEvidence,
+  extractAtomKeys,
+  getSharedEvidencePath,
+  readAtomUsageMap,
+  SHARED_EVIDENCE_THRESHOLD,
+} from './shared-evidence-tracker.js';

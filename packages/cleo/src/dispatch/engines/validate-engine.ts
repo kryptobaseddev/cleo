@@ -766,8 +766,10 @@ import type {
 import {
   appendForceBypassLine,
   appendGateAuditLine,
+  checkAndIncrementOverrideCap,
   checkGateEvidenceMinimum,
   composeGateEvidence,
+  enforceSharedEvidence,
   getAccessor,
   parseEvidence,
   validateAtom,
@@ -879,6 +881,12 @@ interface GateVerifyParams {
   evidence?: string;
   /** Session ID for audit trail (T832 / ADR-051 §6.1). */
   sessionId?: string;
+  /**
+   * Acknowledge that the same evidence atom is being applied to >3 distinct
+   * tasks in this session (T1502 / P0-6).  Without this flag, such reuse
+   * triggers a warning (or a hard reject in strict mode).
+   */
+  sharedEvidence?: boolean;
 }
 
 interface GateVerifyResult {
@@ -979,6 +987,41 @@ export async function validateGateVerify(
     // (value=false) and resets do NOT require evidence.
     const isWriteRequiringEvidence = (all || (gate && value !== false)) && !reset;
     const override = readOverrideState();
+
+    // T1501 / P0-5 — per-session CLEO_OWNER_OVERRIDE cap.
+    // Enforce before the write proceeds so the error surfaces early.
+    let sessionOverrideOrdinal: number | undefined;
+    if (override.override && isWriteRequiringEvidence) {
+      const capResult = checkAndIncrementOverrideCap(root, sessionId ?? 'global');
+      if (!capResult.allowed) {
+        return engineError(
+          capResult.errorCode ?? 'E_OVERRIDE_CAP_EXCEEDED',
+          capResult.errorMessage ?? 'Per-session override cap exceeded.',
+        );
+      }
+      sessionOverrideOrdinal = capResult.sessionOverrideOrdinal;
+    }
+
+    // T1502 / P0-6 — shared-evidence detection.
+    let sharedEvidenceAcknowledged = false;
+    let sharedAtomWarned = false;
+    if (isWriteRequiringEvidence && !override.override && params.evidence && sessionId) {
+      const seResult = enforceSharedEvidence(
+        root,
+        sessionId,
+        taskId,
+        params.evidence,
+        params.sharedEvidence === true,
+      );
+      if (!seResult.allowed) {
+        return engineError(
+          seResult.errorCode ?? 'E_SHARED_EVIDENCE_FLAG_REQUIRED',
+          seResult.errorMessage ?? 'Shared evidence flag required.',
+        );
+      }
+      sharedEvidenceAcknowledged = seResult.acknowledged === true;
+      sharedAtomWarned = seResult.warned === true;
+    }
 
     // Modification mode
     let verification = task.verification ?? initVerification();
@@ -1120,11 +1163,23 @@ export async function validateGateVerify(
       try {
         await appendGateAuditLine(root, auditRecord);
         if (override.override && action !== 'reset') {
+          // T1501: include sessionOverrideOrdinal in the force-bypass record.
           await appendForceBypassLine(root, {
             ...auditRecord,
             overrideReason: override.reason,
             pid: process.pid,
             command: (process.argv.slice(1).join(' ') || 'cleo').slice(0, 512),
+            ...(sessionOverrideOrdinal !== undefined ? { sessionOverrideOrdinal } : {}),
+          });
+        } else if ((sharedEvidenceAcknowledged || sharedAtomWarned) && action !== 'reset') {
+          // T1502: log shared-evidence state even on non-override writes.
+          await appendForceBypassLine(root, {
+            ...auditRecord,
+            overrideReason: 'shared-evidence',
+            pid: process.pid,
+            command: (process.argv.slice(1).join(' ') || 'cleo').slice(0, 512),
+            ...(sharedEvidenceAcknowledged ? { sharedEvidence: true } : {}),
+            ...(sharedAtomWarned ? { sharedAtomWarning: true } : {}),
           });
         }
       } catch {
