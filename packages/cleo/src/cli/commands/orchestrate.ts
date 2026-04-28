@@ -645,6 +645,44 @@ const fanoutCommand = defineCommand({
 });
 
 /**
+ * cleo orchestrate prune — remove stale agent worktrees after task completion.
+ *
+ * Without a task ID, prunes all orphaned worktrees for the project.
+ * With a task ID, prunes that specific worktree (unlocks, removes dir, deletes branch
+ * if no commits are ahead of the current HEAD).
+ *
+ * Safe to call on already-clean repos — returns `status: 'skipped'` when there is
+ * nothing to remove.
+ *
+ * @task T1462
+ * @adr ADR-055
+ */
+const pruneCommand = defineCommand({
+  meta: {
+    name: 'prune',
+    description: 'Remove stale agent worktrees (after task completion or crash)',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID whose worktree should be pruned (omit for bulk prune)',
+      required: false,
+    },
+  },
+  async run({ args }) {
+    const taskId =
+      typeof args.taskId === 'string' && args.taskId.length > 0 ? args.taskId : undefined;
+    await dispatchFromCli(
+      'mutate',
+      'orchestrate',
+      'worktree.prune',
+      { taskId },
+      { command: 'orchestrate' },
+    );
+  },
+});
+
+/**
  * cleo orchestrate conduit-status — legacy alias for `cleo conduit status`.
  *
  * T964: dispatches to the canonical `conduit` domain. The `conduit-*`
@@ -874,6 +912,7 @@ export const orchestrateCommand = defineCommand({
     handoff: handoffCommand,
     'spawn-execute': spawnExecuteCommand,
     fanout: fanoutCommand,
+    prune: pruneCommand,
     'conduit-status': conduitStatusCommand,
     'conduit-peek': conduitPeekCommand,
     'conduit-start': conduitStartCommand,
