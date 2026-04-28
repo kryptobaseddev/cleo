@@ -94,9 +94,11 @@ describe('getProjectRoot — walk-up algorithm', () => {
   describe('AC-1: nested subdir resolves to parent containing .cleo/', () => {
     it('returns the project root when called from a nested subdirectory', () => {
       tempBase = makeTempBase('ac1');
-      // Fixture: tmp/project/.cleo/  +  tmp/project/src/nested/
+      // Fixture: tmp/project/.cleo/ + .git/  +  tmp/project/src/nested/
+      // A real project has .git/ alongside .cleo/ — add it to satisfy T1463 guard.
       const projectRoot = join(tempBase, 'project');
       mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(projectRoot, '.git'), { recursive: true });
       const nestedDir = join(projectRoot, 'src', 'nested');
       mkdirSync(nestedDir, { recursive: true });
 
@@ -108,6 +110,7 @@ describe('getProjectRoot — walk-up algorithm', () => {
       tempBase = makeTempBase('ac1-direct');
       const projectRoot = join(tempBase, 'project');
       mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+      // Called directly at the project root — no walk-up needed, no sibling check.
 
       const result = getProjectRoot(projectRoot);
       expect(result).toBe(projectRoot);
@@ -222,16 +225,19 @@ describe('getProjectRoot — walk-up algorithm', () => {
     it('returns the inner project root, not the outer one', () => {
       tempBase = makeTempBase('ac5');
       // Fixture:
-      //   tmp/outer/.cleo/           <- outer project
-      //   tmp/outer/inner/.cleo/     <- inner project
-      //   tmp/outer/inner/src/       <- cwd
+      //   tmp/outer/.cleo/ + .git/     <- outer project (valid anchor)
+      //   tmp/outer/inner/.cleo/ + .git/ <- inner project (valid anchor)
+      //   tmp/outer/inner/src/         <- cwd
       // Expected: returns tmp/outer/inner (first hit walking up from src)
+      // Both projects have .git/ siblings to satisfy the T1463 trap guard.
       const outerRoot = join(tempBase, 'outer');
       const innerRoot = join(outerRoot, 'inner');
       const srcDir = join(innerRoot, 'src');
 
       mkdirSync(join(outerRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(outerRoot, '.git'), { recursive: true });
       mkdirSync(join(innerRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(innerRoot, '.git'), { recursive: true });
       mkdirSync(srcDir, { recursive: true });
 
       const result = getProjectRoot(srcDir);
@@ -245,7 +251,9 @@ describe('getProjectRoot — walk-up algorithm', () => {
       const srcDir = join(innerRoot, 'src');
 
       mkdirSync(join(outerRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(outerRoot, '.git'), { recursive: true });
       mkdirSync(join(innerRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(innerRoot, '.git'), { recursive: true });
       mkdirSync(srcDir, { recursive: true });
 
       const result = getProjectRoot(srcDir);
@@ -259,9 +267,13 @@ describe('getProjectRoot — walk-up algorithm', () => {
       const level3 = join(level2, 'l3');
       const deepDir = join(level3, 'deep', 'path');
 
+      // All three levels are valid projects with .git/ siblings.
       mkdirSync(join(level1, '.cleo'), { recursive: true });
+      mkdirSync(join(level1, '.git'), { recursive: true });
       mkdirSync(join(level2, '.cleo'), { recursive: true });
+      mkdirSync(join(level2, '.git'), { recursive: true });
       mkdirSync(join(level3, '.cleo'), { recursive: true });
+      mkdirSync(join(level3, '.git'), { recursive: true });
       mkdirSync(deepDir, { recursive: true });
 
       const result = getProjectRoot(deepDir);
@@ -275,11 +287,13 @@ describe('getProjectRoot — walk-up algorithm', () => {
   describe('AC-6: integration-equivalent deep nesting', () => {
     it('resolves correctly from several levels deep inside a project', () => {
       tempBase = makeTempBase('ac6');
-      // Simulate: monorepo-root/.cleo/  +  monorepo-root/packages/lafs/src/lib/
+      // Simulate: monorepo-root/.cleo/ + .git/  +  monorepo-root/packages/lafs/src/lib/
+      // Real monorepos have .git/ at the root — add it for T1463 trap guard.
       const monoRoot = join(tempBase, 'monorepo');
       const lafsDir = join(monoRoot, 'packages', 'lafs', 'src', 'lib');
 
       mkdirSync(join(monoRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(monoRoot, '.git'), { recursive: true });
       mkdirSync(lafsDir, { recursive: true });
 
       const result = getProjectRoot(lafsDir);
@@ -288,14 +302,17 @@ describe('getProjectRoot — walk-up algorithm', () => {
 
     it('stops at the nearest .cleo/ when intermediate package has its own', () => {
       tempBase = makeTempBase('ac6-nested-pkg');
-      // Simulate: monorepo-root/.cleo/  +  monorepo-root/packages/core/.cleo/
+      // Simulate: monorepo-root/.cleo/ + .git/  +  monorepo-root/packages/core/.cleo/ + package.json
       //           calling from monorepo-root/packages/core/src/
+      // Both levels have sibling markers to satisfy the T1463 trap guard.
       const monoRoot = join(tempBase, 'monorepo');
       const coreRoot = join(monoRoot, 'packages', 'core');
       const coreSrc = join(coreRoot, 'src');
 
       mkdirSync(join(monoRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(monoRoot, '.git'), { recursive: true });
       mkdirSync(join(coreRoot, '.cleo'), { recursive: true });
+      mkdirSync(join(coreRoot, '.git'), { recursive: true });
       mkdirSync(coreSrc, { recursive: true });
 
       const result = getProjectRoot(coreSrc);
