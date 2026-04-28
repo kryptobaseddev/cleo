@@ -16,11 +16,18 @@
  *
  * Without `--explain` the response shape is identical to prior releases.
  *
+ * The `--shared-evidence` flag (T1502 / P0-6) acknowledges that the same
+ * evidence atom is being applied to more than 3 distinct tasks in this
+ * session.  Without the flag such reuse triggers a warning on stderr; in
+ * strict mode (`CLEO_STRICT_EVIDENCE=1`) it is a hard reject.
+ *
  * @task T4454
  * @task T832
  * @task T1006
  * @task T1013
+ * @task T1502
  * @adr ADR-051
+ * @adr ADR-059
  */
 
 import { defineCommand, showUsage } from 'citty';
@@ -33,6 +40,9 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
  * Read-only view is the default when no write flag is provided.  Passing
  * `--explain` enriches the view with the blocker breakdown described in
  * ADR-051 §2.3 (T1013).
+ *
+ * Pass `--shared-evidence` when knowingly applying the same evidence atom
+ * across more than 3 tasks in one session (T1502 / ADR-059).
  */
 export const verifyCommand = defineCommand({
   meta: { name: 'verify', description: 'View or modify verification gates for a task' },
@@ -73,6 +83,11 @@ export const verifyCommand = defineCommand({
       description:
         'Enrich read-only view with per-gate evidence breakdown, re-validation status, and blockers[] preventing `cleo complete` (T1013 / ADR-051).',
     },
+    'shared-evidence': {
+      type: 'boolean',
+      description:
+        'Acknowledge that the same evidence atom is applied to >3 distinct tasks in this session (T1502 / ADR-059). Without this flag, such reuse triggers a warning; in strict mode (CLEO_STRICT_EVIDENCE=1) it is a hard reject.',
+    },
   },
   async run({ args, cmd }) {
     if (!args.taskId) {
@@ -97,6 +112,7 @@ export const verifyCommand = defineCommand({
         all: args.all as boolean | undefined,
         reset: args.reset as boolean | undefined,
         evidence: args.evidence as string | undefined,
+        sharedEvidence: (args['shared-evidence'] as boolean | undefined) ?? false,
       },
       { command: 'verify' },
     );
