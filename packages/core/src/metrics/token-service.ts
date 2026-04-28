@@ -81,6 +81,30 @@ export interface TokenUsageSummary {
   byOperation: Array<{ key: string; count: number; totalTokens: number }>;
 }
 
+/** Named params type for {@link recordTokenExchange} — wraps TokenExchangeInput minus cwd (projectRoot is first positional arg). */
+export type RecordTokenExchangeParams = Omit<TokenExchangeInput, 'cwd'>;
+
+/** Named params type for {@link showTokenUsage} — look up a single token usage record by id. */
+export interface ShowTokenUsageParams {
+  /** Record identifier. */
+  id: string;
+}
+
+/** Named params type for {@link listTokenUsage} — filter and paginate token usage records. */
+export type ListTokenUsageParams = TokenUsageFilters;
+
+/** Named params type for {@link summarizeTokenUsage} — filter token usage records for aggregation. */
+export type SummarizeTokenUsageParams = TokenUsageFilters;
+
+/** Named params type for {@link deleteTokenUsage} — delete a single token usage record by id. */
+export interface DeleteTokenUsageParams {
+  /** Record identifier. */
+  id: string;
+}
+
+/** Named params type for {@link clearTokenUsage} — bulk-delete token usage records matching filters. */
+export type ClearTokenUsageParams = TokenUsageFilters;
+
 function normalizeProvider(provider?: string, model?: string, runtimeProvider?: string): string {
   const value = (provider ?? '').trim().toLowerCase();
   const modelValue = (model ?? '').trim().toLowerCase();
@@ -398,27 +422,26 @@ async function whereClauses(filters: TokenUsageFilters): Promise<unknown[]> {
   return clauses;
 }
 
-// SSoT-EXEMPT: T1511 — params type uses Omit<> instead of named *Params contract; ADR-057 D1 normalization tracked in T1511.
 export async function recordTokenExchange(
   projectRoot: string,
-  input: Omit<TokenExchangeInput, 'cwd'>,
+  params: RecordTokenExchangeParams,
 ): Promise<TokenUsageRow> {
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
-  const measurement = await measureTokenExchange(input);
+  const measurement = await measureTokenExchange(params);
   const db = await getDb(projectRoot);
 
   const row: NewTokenUsageRow = {
     id: randomUUID(),
     provider: measurement.provider,
     model: measurement.model,
-    transport: input.transport ?? 'unknown',
-    gateway: input.gateway,
-    domain: input.domain,
-    operation: input.operation,
-    sessionId: input.sessionId,
-    taskId: input.taskId,
-    requestId: input.requestId,
+    transport: params.transport ?? 'unknown',
+    gateway: params.gateway,
+    domain: params.domain,
+    operation: params.operation,
+    sessionId: params.sessionId,
+    taskId: params.taskId,
+    requestId: params.requestId,
     inputChars: measurement.inputChars,
     outputChars: measurement.outputChars,
     inputTokens: measurement.inputTokens,
@@ -430,7 +453,7 @@ export async function recordTokenExchange(
     responseHash: measurement.responseHash,
     metadataJson: JSON.stringify({
       ...measurement.metadata,
-      ...(input.metadata ?? {}),
+      ...(params.metadata ?? {}),
     }),
   };
 
@@ -439,10 +462,9 @@ export async function recordTokenExchange(
   return inserted[0]!;
 }
 
-// SSoT-EXEMPT: T1511 — params uses inline type instead of named *Params contract; ADR-057 D1 normalization tracked in T1511.
 export async function showTokenUsage(
   projectRoot: string,
-  params: { id: string },
+  params: ShowTokenUsageParams,
 ): Promise<TokenUsageRow | null> {
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
@@ -451,15 +473,14 @@ export async function showTokenUsage(
   return rows[0] ?? null;
 }
 
-// SSoT-EXEMPT: T1511 — second param named 'filters' not 'params' + uses TokenUsageFilters not *Params; ADR-057 D1 normalization tracked in T1511.
 export async function listTokenUsage(
   projectRoot: string,
-  filters: TokenUsageFilters = {},
+  params: ListTokenUsageParams = {},
 ): Promise<{ records: TokenUsageRow[]; total: number; filtered: number }> {
   const { getDb } = await import('../store/sqlite.js');
   const { and, count, desc } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
-  const clauses = await whereClauses(filters);
+  const clauses = await whereClauses(params);
   const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
 
   const totalRows = await db.select({ count: count() }).from(tokenUsage);
@@ -468,8 +489,8 @@ export async function listTokenUsage(
   let query = db.select().from(tokenUsage).orderBy(desc(tokenUsage.createdAt));
   if (where) query = query.where(where) as typeof query;
 
-  const limit = typeof filters.limit === 'number' && filters.limit > 0 ? filters.limit : 20;
-  const offset = typeof filters.offset === 'number' && filters.offset > 0 ? filters.offset : 0;
+  const limit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 20;
+  const offset = typeof params.offset === 'number' && params.offset > 0 ? params.offset : 0;
   const records = await query.limit(limit).offset(offset);
 
   return {
@@ -479,15 +500,14 @@ export async function listTokenUsage(
   };
 }
 
-// SSoT-EXEMPT: T1511 — second param named 'filters' not 'params'; ADR-057 D1 normalization tracked in T1511.
 export async function summarizeTokenUsage(
   projectRoot: string,
-  filters: TokenUsageFilters = {},
+  params: SummarizeTokenUsageParams = {},
 ): Promise<TokenUsageSummary> {
   const { getDb } = await import('../store/sqlite.js');
   const { and, desc } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
-  const clauses = await whereClauses(filters);
+  const clauses = await whereClauses(params);
   const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
   const rows = await db.select().from(tokenUsage).where(where).orderBy(desc(tokenUsage.createdAt));
 
@@ -535,10 +555,9 @@ export async function summarizeTokenUsage(
   };
 }
 
-// SSoT-EXEMPT: T1511 — params uses inline type instead of named *Params contract; ADR-057 D1 normalization tracked in T1511.
 export async function deleteTokenUsage(
   projectRoot: string,
-  params: { id: string },
+  params: DeleteTokenUsageParams,
 ): Promise<{ deleted: boolean; id: string }> {
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
@@ -547,15 +566,14 @@ export async function deleteTokenUsage(
   return { deleted: true, id: params.id };
 }
 
-// SSoT-EXEMPT: T1511 — second param named 'filters' not 'params'; ADR-057 D1 normalization tracked in T1511.
 export async function clearTokenUsage(
   projectRoot: string,
-  filters: TokenUsageFilters = {},
+  params: ClearTokenUsageParams = {},
 ): Promise<{ deleted: number }> {
   const { getDb } = await import('../store/sqlite.js');
   const { and, count } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
-  const clauses = await whereClauses(filters);
+  const clauses = await whereClauses(params);
   const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
   const countRows = await db.select({ count: count() }).from(tokenUsage).where(where);
   await db.delete(tokenUsage).where(where);
