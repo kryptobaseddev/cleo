@@ -575,13 +575,12 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
     it('should record gate results with timestamp [T4801 SQLite-native]', async () => {
       // T4801: Now uses SQLite-native gate tracking
       const epicId = 'T4806';
-      const gateResult = await passGate(
-        epicId,
-        'research-prerequisites-met',
-        'test-agent',
-        'All prerequisites verified',
-        testDir,
-      );
+      const gateResult = await passGate(testDir, {
+        taskId: epicId,
+        gateName: 'research-prerequisites-met',
+        agent: 'test-agent',
+        notes: 'All prerequisites verified',
+      });
 
       expect(gateResult.epicId).toBe(epicId);
       expect(gateResult.gateName).toBe('research-prerequisites-met');
@@ -591,12 +590,11 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
     it('should record failed gate with reason [T4801 SQLite-native]', async () => {
       // T4801: Now uses SQLite-native gate tracking
       const epicId = 'T4806';
-      const gateResult = await failGate(
-        epicId,
-        'specification-incomplete',
-        'Missing acceptance criteria',
-        testDir,
-      );
+      const gateResult = await failGate(testDir, {
+        taskId: epicId,
+        gateName: 'specification-incomplete',
+        reason: 'Missing acceptance criteria',
+      });
 
       expect(gateResult.epicId).toBe(epicId);
       expect(gateResult.gateName).toBe('specification-incomplete');
@@ -644,33 +642,46 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const epicId = 'T4806';
 
       // Simulate session A: progress through some stages
-      await recordStageProgress(epicId, 'research', 'completed', 'Initial research done', testDir);
-      await recordStageProgress(epicId, 'consensus', 'completed', 'Consensus reached', testDir);
-      await recordStageProgress(
-        epicId,
-        'architecture_decision',
-        'skipped',
-        'Simple change, no ADR needed',
-        testDir,
-      );
-      await recordStageProgress(epicId, 'specification', 'completed', 'Spec written', testDir);
+      await recordStageProgress(testDir, {
+        taskId: epicId,
+        stage: 'research',
+        status: 'completed',
+        notes: 'Initial research done',
+      });
+      await recordStageProgress(testDir, {
+        taskId: epicId,
+        stage: 'consensus',
+        status: 'completed',
+        notes: 'Consensus reached',
+      });
+      await recordStageProgress(testDir, {
+        taskId: epicId,
+        stage: 'architecture_decision',
+        status: 'skipped',
+        notes: 'Simple change, no ADR needed',
+      });
+      await recordStageProgress(testDir, {
+        taskId: epicId,
+        stage: 'specification',
+        status: 'completed',
+        notes: 'Spec written',
+      });
 
       // Simulate session B: read state and continue
-      const status = await getLifecycleStatus(epicId, testDir);
+      const status = await getLifecycleStatus(testDir, { epicId });
 
       expect(status.initialized).toBe(true);
       expect(status.currentStage).toBe('specification');
 
       // Continue in session B
-      await recordStageProgress(
-        epicId,
-        'decomposition',
-        'completed',
-        'Task breakdown complete',
-        testDir,
-      );
+      await recordStageProgress(testDir, {
+        taskId: epicId,
+        stage: 'decomposition',
+        status: 'completed',
+        notes: 'Task breakdown complete',
+      });
 
-      const updatedStatus = await getLifecycleStatus(epicId, testDir);
+      const updatedStatus = await getLifecycleStatus(testDir, { epicId });
       expect(updatedStatus.currentStage).toBe('decomposition');
     });
 
@@ -679,11 +690,21 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const epicId = 'T4806';
 
       // Session A: record gate passes
-      await passGate(epicId, 'research-complete', 'agent-a', 'Research verified', testDir);
-      await passGate(epicId, 'specification-reviewed', 'agent-a', 'Spec approved', testDir);
+      await passGate(testDir, {
+        taskId: epicId,
+        gateName: 'research-complete',
+        agent: 'agent-a',
+        notes: 'Research verified',
+      });
+      await passGate(testDir, {
+        taskId: epicId,
+        gateName: 'specification-reviewed',
+        agent: 'agent-a',
+        notes: 'Spec approved',
+      });
 
       // Session B: verify gates are still recorded
-      const history = await getLifecycleHistory(epicId, testDir);
+      const history = await getLifecycleHistory(testDir, { taskId: epicId });
 
       const gateEvents = history.history.filter((h) => h.action.startsWith('gate.'));
       expect(gateEvents.length).toBe(2);
@@ -695,10 +716,14 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const beforeTime = new Date().toISOString();
 
       // Record progress
-      await recordStageProgress(epicId, 'research', 'completed', undefined, testDir);
+      await recordStageProgress(testDir, {
+        taskId: epicId,
+        stage: 'research',
+        status: 'completed',
+      });
 
       // Verify timestamp is recorded
-      const status = await getLifecycleStatus(epicId, testDir);
+      const status = await getLifecycleStatus(testDir, { epicId });
       const researchStage = status.stages.find((s) => s.stage === 'research');
       expect(researchStage?.completedAt).toBeDefined();
       expect(Date.parse(researchStage?.completedAt ?? '')).toBeGreaterThanOrEqual(
@@ -711,11 +736,24 @@ describe('RCASD-IVTR+C Pipeline Integration', () => {
       const epicId = 'T4806';
 
       // Complete several stages
-      await recordStageProgress(epicId, 'research', 'completed', undefined, testDir);
-      await recordStageProgress(epicId, 'consensus', 'skipped', 'Single agent', testDir);
-      await recordStageProgress(epicId, 'specification', 'completed', undefined, testDir);
+      await recordStageProgress(testDir, {
+        taskId: epicId,
+        stage: 'research',
+        status: 'completed',
+      });
+      await recordStageProgress(testDir, {
+        taskId: epicId,
+        stage: 'consensus',
+        status: 'skipped',
+        notes: 'Single agent',
+      });
+      await recordStageProgress(testDir, {
+        taskId: epicId,
+        stage: 'specification',
+        status: 'completed',
+      });
 
-      const history = await getLifecycleHistory(epicId, testDir);
+      const history = await getLifecycleHistory(testDir, { taskId: epicId });
       const completedActions = history.history.filter((h) => h.action === 'completed');
 
       expect(completedActions.length).toBe(2); // research and specification
@@ -1221,12 +1259,17 @@ describe('T4798 Epic Completion Validation', () => {
     expect(STAGE_DEFINITIONS['research'].order).toBe(1);
 
     // T4804: Gate/Evidence Recording (via passGate/failGate)
-    const gateResult = await passGate('T4806', 'research-test-gate', 'agent', 'Test', testDir);
+    const gateResult = await passGate(testDir, {
+      taskId: 'T4806',
+      gateName: 'research-test-gate',
+      agent: 'agent',
+      notes: 'Test',
+    });
     expect(gateResult.timestamp).toBeDefined();
 
     // T4805: Cross-session resume (via recordStageProgress)
-    await recordStageProgress('T4806', 'research', 'completed', undefined, testDir);
-    const status = await getLifecycleStatus('T4806', testDir);
+    await recordStageProgress(testDir, { taskId: 'T4806', stage: 'research', status: 'completed' });
+    const status = await getLifecycleStatus(testDir, { epicId: 'T4806' });
     expect(status.initialized).toBe(true);
   });
 

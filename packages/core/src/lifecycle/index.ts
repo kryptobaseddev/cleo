@@ -1063,6 +1063,9 @@ export async function passGate(
 ): Promise<{ epicId: string; gateName: string; timestamp: string }> {
   const epicId = params.taskId;
   const { gateName, agent, notes } = params;
+  if (!gateName) {
+    throw new CleoError(ExitCode.INVALID_INPUT, 'gateName is required for passGate');
+  }
   const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
   const stageName = gateName.split('-')[0];
@@ -1117,6 +1120,9 @@ export async function failGate(
 ): Promise<{ epicId: string; gateName: string; reason?: string; timestamp: string }> {
   const epicId = params.taskId;
   const { gateName, reason } = params;
+  if (!gateName) {
+    throw new CleoError(ExitCode.INVALID_INPUT, 'gateName is required for failGate');
+  }
   const { eq } = await import('drizzle-orm');
   const now = new Date().toISOString();
   const stageName = gateName.split('-')[0];
