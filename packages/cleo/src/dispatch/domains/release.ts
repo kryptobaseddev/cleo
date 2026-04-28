@@ -63,58 +63,22 @@ export class ReleaseHandler implements DomainHandler {
 
     try {
       switch (operation) {
-        // ------------------------------------------------------------------
         // release.gate — IVTR gate check (RELEASE-03)
-        // ------------------------------------------------------------------
         case 'gate': {
           const epicId = params?.['epicId'] as string | undefined;
-          if (!epicId) {
-            return errorResult(
-              'query',
-              'release',
-              operation,
-              'E_INVALID_INPUT',
-              'epicId is required',
-              startTime,
-            );
-          }
-
-          const force = params?.['force'] === true;
-          const projectRoot = getProjectRoot();
-          const result = await releaseGateCheck(epicId, force, projectRoot);
-          return wrapResult(result, 'query', 'release', operation, startTime);
+          if (!epicId) return errorResult('query', 'release', operation, 'E_INVALID_INPUT', 'epicId is required', startTime);
+          return wrapResult(await releaseGateCheck(epicId, params?.['force'] === true, getProjectRoot()), 'query', 'release', operation, startTime);
         }
 
-        // ------------------------------------------------------------------
         // release.ivtr-suggest — IVTR auto-suggest (RELEASE-07)
-        // ------------------------------------------------------------------
         case 'ivtr-suggest': {
           const taskId = params?.['taskId'] as string | undefined;
-          if (!taskId) {
-            return errorResult(
-              'query',
-              'release',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-
-          const projectRoot = getProjectRoot();
-          const result = await releaseIvtrAutoSuggest(taskId, projectRoot);
-          return wrapResult(result, 'query', 'release', operation, startTime);
+          if (!taskId) return errorResult('query', 'release', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+          return wrapResult(await releaseIvtrAutoSuggest(taskId, getProjectRoot()), 'query', 'release', operation, startTime);
         }
 
         default:
-          return errorResult(
-            'query',
-            'release',
-            operation,
-            'E_INVALID_OPERATION',
-            `Unknown release query operation: ${operation}`,
-            startTime,
-          );
+          return errorResult('query', 'release', operation, 'E_INVALID_OPERATION', `Unknown release query operation: ${operation}`, startTime);
       }
     } catch (err) {
       log.error({ err, operation }, 'ReleaseHandler query error');
@@ -143,60 +107,22 @@ export class ReleaseHandler implements DomainHandler {
 
     try {
       switch (operation) {
-        // ------------------------------------------------------------------
-        // release.gate — IVTR gate check (RELEASE-03)
-        // Pre-ship guard: blocks release.ship when tasks are not IVTR released.
-        // ------------------------------------------------------------------
+        // release.gate — IVTR gate check (RELEASE-03, no DB writes)
         case 'gate': {
           const epicId = params?.['epicId'] as string | undefined;
-          if (!epicId) {
-            return errorResult(
-              'mutate',
-              'release',
-              operation,
-              'E_INVALID_INPUT',
-              'epicId is required',
-              startTime,
-            );
-          }
-
-          const force = params?.['force'] === true;
-          const projectRoot = getProjectRoot();
-          const result = await releaseGateCheck(epicId, force, projectRoot);
-          return wrapResult(result, 'mutate', 'release', operation, startTime);
+          if (!epicId) return errorResult('mutate', 'release', operation, 'E_INVALID_INPUT', 'epicId is required', startTime);
+          return wrapResult(await releaseGateCheck(epicId, params?.['force'] === true, getProjectRoot()), 'mutate', 'release', operation, startTime);
         }
 
-        // ------------------------------------------------------------------
-        // release.ivtr-suggest — IVTR auto-suggest (RELEASE-07)
-        // Triggered after ivtr.release succeeds; checks if all siblings are done.
-        // ------------------------------------------------------------------
+        // release.ivtr-suggest — IVTR auto-suggest (RELEASE-07, no DB writes)
         case 'ivtr-suggest': {
           const taskId = params?.['taskId'] as string | undefined;
-          if (!taskId) {
-            return errorResult(
-              'mutate',
-              'release',
-              operation,
-              'E_INVALID_INPUT',
-              'taskId is required',
-              startTime,
-            );
-          }
-
-          const projectRoot = getProjectRoot();
-          const result = await releaseIvtrAutoSuggest(taskId, projectRoot);
-          return wrapResult(result, 'mutate', 'release', operation, startTime);
+          if (!taskId) return errorResult('mutate', 'release', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+          return wrapResult(await releaseIvtrAutoSuggest(taskId, getProjectRoot()), 'mutate', 'release', operation, startTime);
         }
 
         default:
-          return errorResult(
-            'mutate',
-            'release',
-            operation,
-            'E_INVALID_OPERATION',
-            `Unknown release mutate operation: ${operation}`,
-            startTime,
-          );
+          return errorResult('mutate', 'release', operation, 'E_INVALID_OPERATION', `Unknown release mutate operation: ${operation}`, startTime);
       }
     } catch (err) {
       log.error({ err, operation }, 'ReleaseHandler mutate error');
