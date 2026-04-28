@@ -123,9 +123,6 @@ export function buildDispatchInputSchema(def: OperationDef): JSONSchemaObject {
   return { type: 'object', properties, required };
 }
 
-/** @deprecated Use {@link buildDispatchInputSchema} instead. */
-export const buildMcpInputSchema = buildDispatchInputSchema;
-
 function paramTypeToJsonSchema(t: ParamDef['type']): JsonSchemaType {
   switch (t) {
     case 'string':
