@@ -65,6 +65,8 @@ export interface GateAuditRecord {
  * override was used.
  *
  * @task T832
+ * @task T1501
+ * @task T1502
  */
 export interface ForceBypassRecord extends GateAuditRecord {
   /** Reason supplied via CLEO_OWNER_OVERRIDE_REASON env. */
@@ -73,6 +75,22 @@ export interface ForceBypassRecord extends GateAuditRecord {
   pid: number;
   /** CLI command line invocation (best-effort). */
   command: string;
+  /**
+   * 1-based ordinal of this override within the current session (T1501 / P0-5).
+   * Enables post-hoc audit of escalation patterns within a single session.
+   */
+  sessionOverrideOrdinal?: number;
+  /**
+   * True when the same evidence atom was applied to >3 distinct tasks and
+   * `--shared-evidence` was passed to acknowledge the reuse (T1502 / P0-6).
+   */
+  sharedEvidence?: boolean;
+  /**
+   * True when the same evidence atom was applied to >3 distinct tasks but
+   * `--shared-evidence` was NOT passed — a warning was emitted instead of
+   * a hard reject (non-strict mode, T1502 / P0-6).
+   */
+  sharedAtomWarning?: boolean;
 }
 
 /**

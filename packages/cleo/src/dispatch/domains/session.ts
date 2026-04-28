@@ -169,11 +169,13 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
   // -------------------------------------------------------------------------
 
   // Engine guarantees data on success; fallback mirrors empty-state shape.
+  // overrideCount included per T1501 / P0-5.
   status: async (_params: SessionOps['status'][0]) =>
     wrapCoreResult(await coreOps.status(), 'status', {
       hasActiveSession: false as const,
       session: null,
       taskWork: null,
+      overrideCount: 0,
     }),
 
   list: async (params: SessionOps['list'][0]) => wrapCoreResult(await coreOps.list(params), 'list'),
