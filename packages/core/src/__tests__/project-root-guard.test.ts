@@ -80,12 +80,15 @@ describe('getProjectRoot $HOME / root guard (T889/T909)', () => {
   it('returns a real project root when cwd is inside a real .cleo/ project (non-home)', () => {
     // Synthesize a tmp project with a legitimate .cleo/ sentinel that is
     // NOT inside $HOME and NOT `/`.
+    // Per T1463/P1-7: when walking up, a .cleo/ dir must have a sibling
+    // .git/ or package.json to be accepted. A real project always has .git/.
     const base = join(
       tmpdir(),
       `cleo-t909-guard-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     const nested = join(base, 'sub', 'deep');
     mkdirSync(join(base, '.cleo'), { recursive: true });
+    mkdirSync(join(base, '.git'), { recursive: true }); // T1463: required sibling marker
     mkdirSync(nested, { recursive: true });
 
     try {
