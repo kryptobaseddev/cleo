@@ -759,7 +759,7 @@ const clustersCommand = defineCommand({
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     try {
-      // SSoT-EXEMPT:no-dispatch-op — no 'clusters' dispatch op exists yet; pending T1488 Phase 2.
+      // SSoT-EXEMPT:no-dispatch-op — no 'clusters' dispatch op exists yet; tracked in T1510.
       const result = await getProjectClusters(projectId, repoPath);
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
@@ -844,7 +844,7 @@ const flowsCommand = defineCommand({
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     try {
-      // SSoT-EXEMPT:no-dispatch-op — no 'flows' dispatch op exists yet; pending T1488 Phase 2.
+      // SSoT-EXEMPT:no-dispatch-op — no 'flows' dispatch op exists yet; tracked in T1510.
       const result = await getProjectFlows(projectId, repoPath);
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
@@ -931,7 +931,7 @@ const contextCommand = defineCommand({
     const symbolName = args.symbol as string;
     const showContent = !!args.content;
     try {
-      // SSoT-EXEMPT:no-dispatch-op — no 'context' dispatch op exists yet; pending T1488 Phase 2.
+      // SSoT-EXEMPT:no-dispatch-op — no 'context' dispatch op exists yet; tracked in T1510.
       const result = await getSymbolContext(symbolName, projectId, repoPath, {
         limit,
         showContent,
@@ -1071,7 +1071,7 @@ const impactCommand = defineCommand({
     try {
       // SSoT-EXEMPT:shape-mismatch — core NexusImpactResult (targetName/impactByDepth)
       // differs from contracts NexusImpactResult (targetNodeId/affected); routing through
-      // dispatch.impact would require changing the output format. Tracked in T1488 Phase 2.
+      // dispatch.impact would require changing the output format. Tracked in T1510.
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,
@@ -1395,7 +1395,7 @@ const projectsListCommand = defineCommand({
     const jsonOutput = !!args.json;
     try {
       // SSoT-EXEMPT:no-dispatch-op — no 'projects.list' dispatch operation exists yet;
-      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
+      // tracked in T1510.
       const { nexusList } = await import('@cleocode/core/internal' as string);
       const list = (await nexusList()) as Array<{
         name: string;
@@ -1479,7 +1479,7 @@ const projectsRegisterCommand = defineCommand({
 
     try {
       // SSoT-EXEMPT:no-dispatch-op — no 'projects.register' dispatch operation exists yet;
-      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
+      // tracked in T1510.
       const { nexusRegister } = await import('@cleocode/core/internal' as string);
       const hash = await (nexusRegister as (p: string, n?: string) => Promise<string>)(
         repoPath,
@@ -1552,7 +1552,7 @@ const projectsRemoveCommand = defineCommand({
     const startTime = Date.now();
     const jsonOutput = !!args.json;
     try {
-      // SSoT-EXEMPT:no-dispatch-op — no 'projects.remove' dispatch op exists yet; pending T1488 Phase 2.
+      // SSoT-EXEMPT:no-dispatch-op — no 'projects.remove' dispatch op exists yet; tracked in T1510.
       const { nexusUnregister } = await import('@cleocode/core/internal' as string);
       await nexusUnregister(args.nameOrHash);
       const durationMs = Date.now() - startTime;
@@ -1640,7 +1640,7 @@ const projectsScanCommand = defineCommand({
       );
     }
     // SSoT-EXEMPT:no-dispatch-op — no 'projects.scan' dispatch operation exists yet;
-    // pending new dispatch op addition tracked in T1488 Phase 2 plan.
+    // tracked in T1510.
     const result = await scanForProjects({
       roots: args.roots as string | undefined,
       maxDepth,
@@ -1768,7 +1768,7 @@ const projectsCleanCommand = defineCommand({
     try {
       // SSoT-EXEMPT:no-dispatch-op — no 'projects.clean' dispatch operation exists yet.
       // Additionally requires CLI-side readline confirmation prompt (interactive stdin).
-      // Pending new dispatch op addition tracked in T1488 Phase 2 plan.
+      // Tracked in T1510.
       // Preview phase (always dry-run first to get counts)
       const preview = await cleanProjects({ ...cleanOpts, dryRun: true });
       const { matched: matchCount, totalCount, sample: samplePaths } = preview;
@@ -1949,7 +1949,7 @@ const refreshBridgeCommand = defineCommand({
 
     try {
       // SSoT-EXEMPT:no-dispatch-op — no 'refresh-bridge' dispatch operation exists yet;
-      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
+      // tracked in T1510.
       const { writeNexusBridge } = await import('@cleocode/core/internal' as string);
       const result = await writeNexusBridge(repoPath, projectId);
       const durationMs = Date.now() - startTime;
@@ -2161,7 +2161,7 @@ const diffCommand = defineCommand({
     }
     try {
       // SSoT-EXEMPT:no-dispatch-op — no 'diff' dispatch operation exists yet;
-      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
+      // tracked in T1510.
       const result = await diffNexusIndex(repoPath, { beforeRef, afterRef, projectIdOverride });
       const durationMs = Date.now() - startTime;
       if (jsonOutput) {
@@ -2256,7 +2256,7 @@ const queryCommand = defineCommand({
     try {
       // SSoT-EXEMPT:no-dispatch-op — no 'query-cte' dispatch operation exists yet;
       // CTE alias resolution and raw SQL execution require direct nexus.db access.
-      // Pending new dispatch op addition tracked in T1488 Phase 2 plan.
+      // Tracked in T1510.
       const { compileCteAlias, runNexusCte, formatCteResultAsMarkdown } = await import(
         '@cleocode/core/nexus/query-dsl.js' as string
       );
@@ -3673,7 +3673,7 @@ const hotPathsCommand = defineCommand({
 
     try {
       // SSoT-EXEMPT:no-dispatch-op — no 'hot-paths' dispatch operation exists yet;
-      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
+      // tracked in T1510.
       const { getHotPaths } = await import('@cleocode/core/internal');
       const result = await getHotPaths(process.cwd(), limit);
 
@@ -3755,7 +3755,7 @@ const hotNodesCommand = defineCommand({
 
     try {
       // SSoT-EXEMPT:no-dispatch-op — no 'hot-nodes' dispatch operation exists yet;
-      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
+      // tracked in T1510.
       const { getHotNodes } = await import('@cleocode/core/internal');
       const result = await getHotNodes(process.cwd(), limit);
 
@@ -3837,7 +3837,7 @@ const coldSymbolsCommand = defineCommand({
 
     try {
       // SSoT-EXEMPT:no-dispatch-op — no 'cold-symbols' dispatch operation exists yet;
-      // pending new dispatch op addition tracked in T1488 Phase 2 plan.
+      // tracked in T1510.
       const { getColdSymbols } = await import('@cleocode/core/internal');
       const result = await getColdSymbols(process.cwd(), thresholdDays);
 
