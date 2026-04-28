@@ -16,7 +16,8 @@ export {
   SpawnAdapterRegistry,
   spawnRegistry,
 } from './adapter-registry.js';
-// Branch-lock engine (T1118)
+// Branch-lock engine (T1118, T1462)
+export type { PruneWorktreeResult } from './branch-lock.js';
 export {
   applyFsHarden,
   buildAgentEnv,
@@ -27,6 +28,7 @@ export {
   ensureGitShimDir,
   getGitRoot,
   pruneOrphanedWorktrees,
+  pruneWorktree,
   removeFsHarden,
   resolveAgentWorktreeRoot,
 } from './branch-lock.js';
