@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.153] — 2026-04-28 — T1534: project-agnostic verify tools + cross-process semaphore + bounded stdout buffer
+
+Resolves the resource thrash and apparent memory leak observed when 10+ orchestrator-spawned worker subagents call `cleo verify --evidence "tool:<name>"` simultaneously across worktrees.
+
+### Fixed
+
+- **Apparent memory leak under parallel verify load.** `validateTool` previously accumulated the entire child stdout/stderr stream into JS strings on every `'data'` event. A vitest run emitting 50–200 MB of progress output sat resident per spawn, multiplied by N parallel verifies. New `TailBuffer` in `tool-cache.ts` caps in-memory capture at 64 KB per stream per spawn. Cached evidence tail unchanged at 512 bytes. (T1534, ADR-061 §3)
+- **`@cleocode/core` package-boundary violation.** `evidence.ts` hardcoded a `pnpm`/`biome`/`tsc` `TOOL_COMMANDS` table, breaking the contract that core MUST be project-type agnostic. New `tool-resolver.ts` reads `.cleo/project-context.json` (`testing.command`, `build.command`) with per-`primaryType` fallbacks for node, python, rust, go, ruby, java, dotnet, bash, elixir, php, deno, bun. (T1534, ADR-061 §1)
+- **`coreTestRun` (`validate.tests.run`) hardcoded to `npx vitest run`.** Now routes through the same resolver — `validate.tests.run` works on Python/Rust/Go projects without modification. (T1534)
+
+### Added
+
+- **Content-addressed result cache.** Cache entries at `.cleo/cache/evidence/<key>.json`, keyed on `(canonical, cmd, args, git HEAD, dirty-tree fingerprint)`. Sibling verifies against the same state coalesce to one execution. Edits and new commits invalidate automatically; no GC daemon required. (T1534, ADR-061 §2)
+- **Cross-process global per-tool concurrency semaphore.** Slot directories at `~/.local/share/cleo/locks/tool-<canonical>/` bound the total concurrent runs of a canonical tool across all worktrees and projects on the machine. Defaults: `test`/`build` = max(1, cpus/4); `lint`/`typecheck`/`audit`/`security-scan` = max(2, cpus/2). Override via `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>` (set `0` to disable). Stale-process recovery via `proper-lockfile` 10-min stale window. (T1534, ADR-061 §4)
+- **Six canonical tool names** for `tool:<name>` evidence: `test`, `build`, `lint`, `typecheck`, `audit`, `security-scan`. Legacy aliases (`pnpm-test`, `npm-test`, `cargo-test`, `pytest`, `vitest`, `jest`, `tsc`, `mypy`, `pyright`, `biome`, `eslint`, `prettier`, `ruff`, `clippy`, `pnpm-build`, `cargo-build`, `go-test`, `pnpm-audit`, `cargo-audit`, …) continue to resolve and remain re-validatable.
+- **ADR-061** — Project-Agnostic Evidence Tools + Cross-Process Result Cache.
+
+### Real-world load-test results (24-core / 64 GB box)
+
+- 10 worktrees, 2-slot semaphore, 5 MB stdout each: max 2 children, 24 MB heap growth, all tails bounded at 512 bytes.
+- 20 worktrees, default 6 slots, 10 MB each (400 MB streamed total): max 6 children, 67 MB heap growth.
+- 10 independent Node PIDs sharing `CLEO_HOME`: 4 perfect serialised waves of 3 — proves the cross-process bound holds across PIDs, not just in-process.
+- 20 same-repo parallel verifies: 1 spawn, 19 cache hits.
+
+### Backwards compatibility
+
+- `EvidenceTool` widened from union to `string` — strict superset of the old union, no caller breaks.
+- `TOOL_COMMANDS` retained as `Object.freeze({})` for any destructure consumers; deprecated, new code MUST call `resolveToolCommand`.
+- All stored evidence atoms (including pre-T1534 audit trails) remain re-validatable via the alias map.
+
+### Tests
+
+112/112 across 5 new/extended suites (resolver + cache + semaphore + evidence + injection-mvi-tiers); 1997/1997 in `@cleocode/cleo` downstream suite; full workspace build green; `pnpm biome ci .` clean.
+
 ## [2026.4.152] — 2026-04-27 — T-THIN-WRAPPER + T-SDK-PUBLIC: thin-wrapper architecture + public SDK
 
 The T-THIN-WRAPPER campaign + T-SDK-PUBLIC follow-up shipped 46 commits across two epics. Goal: turn `@cleocode/cleo` into a thin transport over `@cleocode/core` (the SDK) and `@cleocode/contracts` (canonical wire-format SSoT).
