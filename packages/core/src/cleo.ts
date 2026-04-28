@@ -226,6 +226,7 @@ export class Cleo {
             labels: p.labels,
             depends: p.depends,
             notes: p.notes,
+            acceptance: p.acceptance,
           },
           root,
           store,
