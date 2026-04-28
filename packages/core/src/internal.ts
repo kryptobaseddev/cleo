@@ -12,6 +12,25 @@
  * @internal
  */
 
+// Runtime guard — warn when the internal barrel is imported outside of the
+// known @cleocode/* workspace packages (STABILITY.md §./internal, T1562/V2).
+// This guard fires once per process; it does NOT throw so existing callers are
+// not disrupted, but it surfaces clearly in logs for any external consumer.
+(function warnInternalImport() {
+  if (typeof process !== 'undefined' && process.env['CLEO_ALLOW_INTERNAL'] !== '1') {
+    // Check for explicit opt-out — workspace packages set this via env or pass silently.
+    // External callers will see the warning in stderr on first import.
+    const callerHint = process.env['npm_package_name'] ?? '';
+    if (callerHint && !callerHint.startsWith('@cleocode/')) {
+      process.stderr.write(
+        '[CLEO] WARNING: @cleocode/core/internal is an internal API not intended for external ' +
+          'consumers. Import from @cleocode/core or a stable subpath instead. ' +
+          'Set CLEO_ALLOW_INTERNAL=1 to suppress this warning (STABILITY.md §./internal).\n',
+      );
+    }
+  }
+})();
+
 import './lib/suppress-sqlite-warning.js';
 
 // ---------------------------------------------------------------------------
