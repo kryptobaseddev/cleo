@@ -8,19 +8,18 @@ CLEO core business logic kernel **and canonical SDK surface** — tasks, session
 
 ```ts
 import { startSession } from '@cleocode/core/sessions';
-import { tasksAddOp } from '@cleocode/core/tasks';
+import { addTask } from '@cleocode/core/tasks';
 
 const projectRoot = process.cwd();
 
 // Open a session before performing mutations
 const session = await startSession(projectRoot, { scope: 'global', name: 'my-session' });
 
-// Add a task — uniform (projectRoot, params) signature per ADR-057
-const task = await tasksAddOp(projectRoot, {
-  title: 'My task',
-  type: 'task',
-  priority: 'medium',
-});
+// Add a task
+const task = await addTask(
+  { title: 'My task', type: 'task', priority: 'medium' },
+  projectRoot,
+);
 ```
 
 Or use the `Cleo` facade for a project-bound, domain-grouped interface:
