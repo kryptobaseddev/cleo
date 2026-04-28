@@ -24,6 +24,7 @@ vi.mock('../../engines/nexus-engine.js', () => ({
   nexusOrphans: vi.fn(),
   nexusDiscover: vi.fn(),
   nexusSearch: vi.fn(),
+  nexusAugment: vi.fn(),
   nexusInitialize: vi.fn(),
   nexusRegisterProject: vi.fn(),
   nexusUnregisterProject: vi.fn(),
@@ -35,6 +36,46 @@ vi.mock('../../engines/nexus-engine.js', () => ({
   nexusShareSnapshotImport: vi.fn(),
   nexusTransferPreview: vi.fn(),
   nexusTransferExecute: vi.fn(),
+  nexusImpact: vi.fn(),
+  nexusTopEntries: vi.fn(),
+  nexusFullContext: vi.fn(),
+  nexusTaskFootprint: vi.fn(),
+  nexusBrainAnchors: vi.fn(),
+  nexusWhy: vi.fn(),
+  nexusImpactFull: vi.fn(),
+  nexusRouteMap: vi.fn(),
+  nexusShapeCheck: vi.fn(),
+  nexusSearchCode: vi.fn(),
+  nexusWiki: vi.fn(),
+  nexusContractsShow: vi.fn(),
+  nexusTaskSymbols: vi.fn(),
+  nexusContractsSync: vi.fn(),
+  nexusContractsLinkTasks: vi.fn(),
+  nexusConduitScan: vi.fn(),
+  nexusProfileView: vi.fn(),
+  nexusProfileGet: vi.fn(),
+  nexusProfileImport: vi.fn(),
+  nexusProfileExport: vi.fn(),
+  nexusProfileReinforce: vi.fn(),
+  nexusProfileUpsert: vi.fn(),
+  nexusProfileSupersede: vi.fn(),
+  nexusSigilList: vi.fn(),
+  nexusSigilSync: vi.fn(),
+  // T1510 — Phase 2 engine functions
+  nexusClusters: vi.fn(),
+  nexusFlows: vi.fn(),
+  nexusContext: vi.fn(),
+  nexusProjectsList: vi.fn(),
+  nexusProjectsRegister: vi.fn(),
+  nexusProjectsRemove: vi.fn(),
+  nexusProjectsScan: vi.fn(),
+  nexusProjectsClean: vi.fn(),
+  nexusRefreshBridge: vi.fn(),
+  nexusDiff: vi.fn(),
+  nexusQueryCte: vi.fn(),
+  nexusHotPaths: vi.fn(),
+  nexusHotNodes: vi.fn(),
+  nexusColdSymbols: vi.fn(),
 }));
 
 import {
@@ -1002,6 +1043,16 @@ describe('NexusHandler', () => {
         'profile.get',
         // T1386 — sigil list (peer-card identity)
         'sigil.list',
+        // T1510 — Phase 2 query ops
+        'clusters',
+        'flows',
+        'context',
+        'projects.list',
+        'diff',
+        'query-cte',
+        'hot-paths',
+        'hot-nodes',
+        'cold-symbols',
       ]);
       expect(ops.mutate).toEqual([
         'share.snapshot.export',
@@ -1025,6 +1076,12 @@ describe('NexusHandler', () => {
         'profile.supersede',
         // T1386 — sigil sync (canonical CANT agent peer cards)
         'sigil.sync',
+        // T1510 — Phase 2 mutate ops
+        'projects.register',
+        'projects.remove',
+        'projects.scan',
+        'projects.clean',
+        'refresh-bridge',
       ]);
     });
   });

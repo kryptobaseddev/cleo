@@ -40,15 +40,22 @@ import {
   nexusAugment,
   nexusBlockers,
   nexusBrainAnchors,
+  nexusClusters,
+  nexusColdSymbols,
   nexusConduitScan,
+  nexusContext,
   nexusContractsLinkTasks,
   nexusContractsShow,
   nexusContractsSync,
   nexusCriticalPath,
   nexusDepsQuery,
+  nexusDiff,
   nexusDiscover,
+  nexusFlows,
   nexusFullContext,
   nexusGraph,
+  nexusHotNodes,
+  nexusHotPaths,
   nexusImpact,
   nexusImpactFull,
   nexusInitialize,
@@ -61,7 +68,14 @@ import {
   nexusProfileSupersede,
   nexusProfileUpsert,
   nexusProfileView,
+  nexusProjectsClean,
+  nexusProjectsList,
+  nexusProjectsRegister,
+  nexusProjectsRemove,
+  nexusProjectsScan,
+  nexusQueryCte,
   nexusReconcileProject,
+  nexusRefreshBridge,
   nexusRegisterProject,
   nexusResolve,
   nexusRouteMap,
@@ -344,6 +358,129 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   'sigil.list': async (params) => wrapCoreResult(await nexusSigilList(params.role), 'sigil.list'),
 
+  // T1510 — Phase 2 query ops
+  clusters: async (params) => {
+    const projectRoot = getProjectRoot();
+    const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
+    const projectId =
+      (params.projectId as string | undefined) ??
+      Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    return wrapCoreResult(await nexusClusters(projectId, repoPath), 'clusters');
+  },
+
+  flows: async (params) => {
+    const projectRoot = getProjectRoot();
+    const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
+    const projectId =
+      (params.projectId as string | undefined) ??
+      Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    return wrapCoreResult(await nexusFlows(projectId, repoPath), 'flows');
+  },
+
+  context: async (params) => {
+    if (!params.symbol) return lafsError('E_INVALID_INPUT', 'symbol is required', 'context');
+    const projectRoot = getProjectRoot();
+    const projectId =
+      (params.projectId as string | undefined) ??
+      Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+    const limit = typeof params.limit === 'number' ? params.limit : 20;
+    const showContent = params.content === true;
+    return wrapCoreResult(
+      await nexusContext(params.symbol as string, projectId, projectRoot, limit, showContent),
+      'context',
+    );
+  },
+
+  'projects.list': async (_params) => wrapCoreResult(await nexusProjectsList(), 'projects.list'),
+
+  'projects.register': async (params) => {
+    if (!params.path) return lafsError('E_INVALID_INPUT', 'path is required', 'projects.register');
+    return wrapCoreResult(
+      await nexusProjectsRegister(params.path as string, params.name as string | undefined),
+      'projects.register',
+    );
+  },
+
+  'projects.remove': async (params) => {
+    if (!params.nameOrHash)
+      return lafsError('E_INVALID_INPUT', 'nameOrHash is required', 'projects.remove');
+    return wrapCoreResult(
+      await nexusProjectsRemove(params.nameOrHash as string),
+      'projects.remove',
+    );
+  },
+
+  'projects.scan': async (params) =>
+    wrapCoreResult(
+      await nexusProjectsScan({
+        roots: params.roots as string | undefined,
+        maxDepth: typeof params.maxDepth === 'number' ? params.maxDepth : undefined,
+        autoRegister: params.autoRegister === true,
+        includeExisting: params.includeExisting === true,
+      }),
+      'projects.scan',
+    ),
+
+  'projects.clean': async (params) =>
+    wrapCoreResult(
+      await nexusProjectsClean({
+        dryRun: params.dryRun === true,
+        pattern: params.pattern as string | undefined,
+        includeTemp: params.includeTemp === true,
+        includeTests: params.includeTests === true,
+        matchUnhealthy: params.matchUnhealthy === true,
+        matchNeverIndexed: params.matchNeverIndexed === true,
+      }),
+      'projects.clean',
+    ),
+
+  'refresh-bridge': async (params) => {
+    const projectRoot = getProjectRoot();
+    const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
+    const projectId = params.projectId as string | undefined;
+    return wrapCoreResult(await nexusRefreshBridge(repoPath, projectId), 'refresh-bridge');
+  },
+
+  diff: async (params) => {
+    const projectRoot = getProjectRoot();
+    const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
+    return wrapCoreResult(
+      await nexusDiff(
+        repoPath,
+        params.beforeRef as string | undefined,
+        params.afterRef as string | undefined,
+        params.projectId as string | undefined,
+      ),
+      'diff',
+    );
+  },
+
+  'query-cte': async (params) => {
+    if (!params.cte) return lafsError('E_INVALID_INPUT', 'cte is required', 'query-cte');
+    return wrapCoreResult(
+      await nexusQueryCte(params.cte as string, params.params as string[] | undefined),
+      'query-cte',
+    );
+  },
+
+  'hot-paths': async (params) => {
+    const projectRoot = getProjectRoot();
+    const limit = typeof params.limit === 'number' ? params.limit : 20;
+    return wrapCoreResult(await nexusHotPaths(projectRoot, limit), 'hot-paths');
+  },
+
+  'hot-nodes': async (params) => {
+    const projectRoot = getProjectRoot();
+    const limit = typeof params.limit === 'number' ? params.limit : 20;
+    return wrapCoreResult(await nexusHotNodes(projectRoot, limit), 'hot-nodes');
+  },
+
+  'cold-symbols': async (params) => {
+    const projectRoot = getProjectRoot();
+    const days = typeof params.days === 'number' ? params.days : 30;
+    return wrapCoreResult(await nexusColdSymbols(projectRoot, days), 'cold-symbols');
+  },
+
   // -------------------------------------------------------------------------
   // Mutate ops (18)
   // -------------------------------------------------------------------------
@@ -519,6 +656,16 @@ const QUERY_OPS = new Set<string>([
   'profile.view',
   'profile.get',
   'sigil.list',
+  // T1510 — Phase 2 query ops
+  'clusters',
+  'flows',
+  'context',
+  'projects.list',
+  'diff',
+  'query-cte',
+  'hot-paths',
+  'hot-nodes',
+  'cold-symbols',
 ]);
 
 const MUTATE_OPS = new Set<string>([
@@ -540,6 +687,12 @@ const MUTATE_OPS = new Set<string>([
   'profile.upsert',
   'profile.supersede',
   'sigil.sync',
+  // T1510 — Phase 2 mutate ops
+  'projects.register',
+  'projects.remove',
+  'projects.scan',
+  'projects.clean',
+  'refresh-bridge',
 ]);
 
 // ---------------------------------------------------------------------------

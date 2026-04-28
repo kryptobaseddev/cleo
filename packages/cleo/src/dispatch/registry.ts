@@ -5107,6 +5107,364 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
+  // T1510 — Phase 2 nexus dispatch ops
+  // ---------------------------------------------------------------------------
+
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'clusters',
+    description:
+      'nexus.clusters (query) — list all detected Louvain community clusters for a project from nexus.db',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      { name: 'projectId', type: 'string', required: false, description: 'Override project ID' },
+      {
+        name: 'repoPath',
+        type: 'string',
+        required: false,
+        description: 'Path to project directory (default: cwd)',
+      },
+    ],
+  },
+
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'flows',
+    description:
+      'nexus.flows (query) — list all detected execution flow nodes for a project from nexus.db',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      { name: 'projectId', type: 'string', required: false, description: 'Override project ID' },
+      {
+        name: 'repoPath',
+        type: 'string',
+        required: false,
+        description: 'Path to project directory (default: cwd)',
+      },
+    ],
+  },
+
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'context',
+    description:
+      'nexus.context (query) — show callers, callees, community membership, and process participation for a code symbol',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['symbol'],
+    params: [
+      {
+        name: 'symbol',
+        type: 'string',
+        required: true,
+        description: 'Symbol name to look up',
+        cli: { positional: true },
+      },
+      { name: 'projectId', type: 'string', required: false, description: 'Override project ID' },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Max callers/callees per side (default: 20)',
+      },
+      {
+        name: 'content',
+        type: 'boolean',
+        required: false,
+        description: 'Append source code content',
+      },
+    ],
+  },
+
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'projects.list',
+    description:
+      'nexus.projects.list (query) — list all projects registered in the global nexus registry',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
+
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'projects.register',
+    description:
+      'nexus.projects.register (mutate) — register a project in the global nexus registry',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['path'],
+    params: [
+      {
+        name: 'path',
+        type: 'string',
+        required: true,
+        description: 'Path to the project directory',
+        cli: { positional: true },
+      },
+      { name: 'name', type: 'string', required: false, description: 'Custom project name' },
+    ],
+  },
+
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'projects.remove',
+    description: 'nexus.projects.remove (mutate) — remove a project from the global nexus registry',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['nameOrHash'],
+    params: [
+      {
+        name: 'nameOrHash',
+        type: 'string',
+        required: true,
+        description: 'Project name or hash to remove',
+        cli: { positional: true },
+      },
+    ],
+  },
+
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'projects.scan',
+    description:
+      'nexus.projects.scan (mutate) — walk filesystem roots to discover unregistered .cleo/ project directories',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'roots',
+        type: 'string',
+        required: false,
+        description: 'Comma-separated search roots',
+      },
+      {
+        name: 'maxDepth',
+        type: 'number',
+        required: false,
+        description: 'Maximum traversal depth (default: 4)',
+      },
+      {
+        name: 'autoRegister',
+        type: 'boolean',
+        required: false,
+        description: 'Auto-register discovered projects',
+      },
+      {
+        name: 'includeExisting',
+        type: 'boolean',
+        required: false,
+        description: 'Also report already-registered projects',
+      },
+    ],
+  },
+
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'projects.clean',
+    description:
+      'nexus.projects.clean (mutate) — bulk-purge project registry rows matching configurable criteria',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Dry-run only (no deletions)',
+      },
+      {
+        name: 'pattern',
+        type: 'string',
+        required: false,
+        description: 'JS regex matched against project_path',
+      },
+      { name: 'includeTemp', type: 'boolean', required: false, description: 'Match .temp/ paths' },
+      {
+        name: 'includeTests',
+        type: 'boolean',
+        required: false,
+        description: 'Match test/tmp/fixture paths',
+      },
+      {
+        name: 'matchUnhealthy',
+        type: 'boolean',
+        required: false,
+        description: 'Match unhealthy rows',
+      },
+      {
+        name: 'matchNeverIndexed',
+        type: 'boolean',
+        required: false,
+        description: 'Match never-indexed rows',
+      },
+    ],
+  },
+
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'refresh-bridge',
+    description:
+      'nexus.refresh-bridge (mutate) — regenerate .cleo/nexus-bridge.md from the existing nexus.db index',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'repoPath',
+        type: 'string',
+        required: false,
+        description: 'Path to project directory (default: cwd)',
+      },
+      { name: 'projectId', type: 'string', required: false, description: 'Override project ID' },
+    ],
+  },
+
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'diff',
+    description:
+      'nexus.diff (query) — compare NEXUS index state between two git commits; shows new/removed relations and broken call chains',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'beforeRef',
+        type: 'string',
+        required: false,
+        description: 'Git ref for "before" snapshot (default: HEAD~1)',
+      },
+      {
+        name: 'afterRef',
+        type: 'string',
+        required: false,
+        description: 'Git ref for "after" snapshot (default: HEAD)',
+      },
+      {
+        name: 'repoPath',
+        type: 'string',
+        required: false,
+        description: 'Repository path (default: cwd)',
+      },
+      { name: 'projectId', type: 'string', required: false, description: 'Override project ID' },
+    ],
+  },
+
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'query-cte',
+    description:
+      'nexus.query-cte (query) — execute a recursive CTE query against nexus.db; supports template aliases (callers-of, callees-of, co-changed, co-cited, path-between, community-members)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['cte'],
+    params: [
+      {
+        name: 'cte',
+        type: 'string',
+        required: true,
+        description: 'CTE SQL or template alias',
+        cli: { positional: true },
+      },
+      {
+        name: 'params',
+        type: 'string',
+        required: false,
+        description: 'Comma-separated CTE parameters',
+      },
+    ],
+  },
+
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'hot-paths',
+    description:
+      'nexus.hot-paths (query) — list highest-weight relation edges by Hebbian plasticity weight',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Maximum edges to return (default: 20)',
+      },
+    ],
+  },
+
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'hot-nodes',
+    description: 'nexus.hot-nodes (query) — list symbols with highest aggregate Hebbian weight',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Maximum nodes to return (default: 20)',
+      },
+    ],
+  },
+
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'cold-symbols',
+    description:
+      'nexus.cold-symbols (query) — list cold symbols (stale access + low weight) as pruning candidates',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'days',
+        type: 'number',
+        required: false,
+        description: 'Age threshold in days (default: 30)',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
   // sticky — Ephemeral notes for quick capture (T5282)
   // ---------------------------------------------------------------------------
 
