@@ -314,7 +314,7 @@ export async function reconcile(
                 description: ext.description ?? `Synced from ${providerId}`,
                 priority: ext.priority,
                 type: ext.type,
-                labels: [...(defaultLabels ?? []), ...(ext.labels ?? []), `sync:${providerId}`],
+                labels: [...(defaultLabels ?? []), ...(ext.labels ?? []), `sync.${providerId}`],
                 ...(defaultPhase ? { phase: defaultPhase, addPhase: true } : {}),
               },
               cwd,
