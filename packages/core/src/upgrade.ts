@@ -839,10 +839,12 @@ export async function runUpgrade(
       /* best-effort */
     }
 
-    // Initialize/upgrade signaldock.db for local agent messaging (T224)
+    // Initialize/upgrade signaldock.db for global agent identity (T224 / T310)
+    // signaldock.db is global-only since T310 — do NOT pass cwd/projectRoot.
+    // Project-local messaging uses conduit.db (see ensureConduitDb below).
     try {
-      const { ensureSignaldockDb } = await import('./store/signaldock-sqlite.js');
-      const sdResult = await ensureSignaldockDb(projectRootForMaint);
+      const { ensureGlobalSignaldockDb } = await import('./store/signaldock-sqlite.js');
+      const sdResult = await ensureGlobalSignaldockDb();
       actions.push({
         action: 'ensure_signaldock_db',
         status: 'applied',
