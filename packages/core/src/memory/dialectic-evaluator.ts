@@ -21,8 +21,8 @@
  *
  * When no LLM backend is available (no `ANTHROPIC_API_KEY`, no local Ollama),
  * `evaluateDialectic` returns empty arrays so the caller can continue without
- * failing.  A `TODO(T1082.followup)` marker documents where prompt-iteration
- * work should land.
+ * failing.  Prompt-iteration work is tracked in T1532 (confidence thresholds +
+ * few-shot examples) and T1533 (telemetry for missing backend / errors).
  *
  * ## PSYCHE Reference
  *
@@ -114,7 +114,7 @@ const DialecticInsightsSchema = z.object({
  * original is OpenAI-style; this version targets Claude 4.x structured output
  * via the Vercel AI SDK's `generateObject()`.
  *
- * TODO(T1082.followup): iterate on confidence thresholds + add few-shot examples.
+ * T1532: iterate on confidence thresholds + add few-shot examples.
  *
  * @param activePeerId - The CANT agent peer ID active for this turn.
  * @returns System prompt string for the dialectic LLM call.
@@ -180,7 +180,7 @@ export async function evaluateDialectic(turn: DialecticTurn): Promise<DialecticI
 
   const backend = await resolveLlmBackend('cold');
   if (!backend || backend.name === 'none') {
-    // TODO(T1082.followup): log telemetry when no backend is available
+    // T1533: log telemetry when no backend is available
     return EMPTY;
   }
 
@@ -210,7 +210,7 @@ export async function evaluateDialectic(turn: DialecticTurn): Promise<DialecticI
       sessionNarrativeDelta: object.sessionNarrativeDelta,
     };
   } catch {
-    // TODO(T1082.followup): surface errors via telemetry
+    // T1533: surface errors via telemetry
     return EMPTY;
   }
 }

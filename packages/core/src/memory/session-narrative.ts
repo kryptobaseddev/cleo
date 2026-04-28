@@ -58,7 +58,7 @@ const MAX_NARRATIVE_CHARS = 2000;
  * When fewer than this fraction of delta keywords appear in the narrative,
  * the topic is considered to have shifted significantly.
  *
- * TODO(T1082.followup): replace with cosine similarity < 0.3 once embedding
+ * T1531: replace with cosine similarity < 0.3 once embedding
  * vec extension is reliably loaded.
  */
 const PIVOT_KEYWORD_OVERLAP_THRESHOLD = 0.5;
@@ -253,7 +253,7 @@ export async function appendNarrativeDelta(
  * Short deltas (< 5 tokens) never trigger a pivot to avoid false positives from
  * acknowledgement messages.
  *
- * TODO(T1082.followup): replace with embedding cosine < 0.3 once vec extension
+ * T1531: replace with embedding cosine < 0.3 once vec extension
  * is reliably available.
  *
  * @param delta            - Incoming narrative text from the new turn.
