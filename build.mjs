@@ -200,6 +200,19 @@ const sharedExternals = [
   'onnxruntime-node',
   'mssql',
   '@opentelemetry/api',
+  // openai SDK bundles node-fetch@2 (CJS) via its node-runtime shim, which calls
+  // require("stream") and crashes in an ESM context. Keep openai and its subpaths
+  // external so node-fetch never gets inlined into the ESM bundle. (T-THIN-WRAPPER)
+  'openai',
+  /^openai\//,
+  // @google/generative-ai is a runtime dep for the Gemini LLM backend. Externalize
+  // to avoid bundling any transitive CJS shims it may carry. (T-THIN-WRAPPER)
+  '@google/generative-ai',
+  /^@google\/generative-ai\//,
+  // @anthropic-ai/sdk similarly should stay external — it's a large SDK that
+  // the runtime needs to load from node_modules anyway.
+  '@anthropic-ai/sdk',
+  /^@anthropic-ai\//,
 ];
 
 // ---------------------------------------------------------------------------
