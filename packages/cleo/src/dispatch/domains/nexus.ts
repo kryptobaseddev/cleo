@@ -542,6 +542,55 @@ const MUTATE_OPS = new Set<string>([
   'sigil.sync',
 ]);
 
+// ---------------------------------------------------------------------------
+// Nexus envelope helpers (ADR-058 thin-handler T1492/P1-1)
+//
+// Extract typed-dispatch LafsEnvelope → DispatchResponse conversion into
+// helpers so each branch in query/mutate methods is ≤5 LOC.
+// SSoT-EXEMPT: page-envelope lifting — dual-source page extraction (envelope-
+// level vs legacy data.page nesting) is a dispatch-layer concern.
+// ---------------------------------------------------------------------------
+
+/** Convert a nexus query envelope to DispatchResponse, lifting page metadata. */
+function nexusQueryEnvelopeToResponse(
+  envelope: unknown,
+  operation: string,
+  startTime: number,
+): DispatchResponse {
+  const env = envelope as {
+    success: boolean;
+    data?: unknown;
+    page?: import('@cleocode/lafs').LAFSPage;
+    error?: { code: string | number; message: string };
+  };
+  // Two page sources: envelope-level (preferred) or legacy data.page (fallback).
+  let pageMetadata: import('@cleocode/lafs').LAFSPage | undefined = env.page;
+  let resultData: unknown = env.data;
+  if (!pageMetadata && env.success && resultData && typeof resultData === 'object') {
+    const dataObj = resultData as Record<string, unknown>;
+    if ('page' in dataObj && dataObj.page) {
+      pageMetadata = dataObj.page as import('@cleocode/lafs').LAFSPage;
+      const { page: _removed, ...cleanData } = dataObj;
+      resultData = cleanData;
+    }
+  }
+  return wrapResult({ success: env.success, data: resultData, page: pageMetadata, error: env.error ? { code: String(env.error.code), message: env.error.message } : undefined }, 'query', 'nexus', operation, startTime);
+}
+
+/** Convert a nexus mutate envelope to DispatchResponse (no page lifting). */
+function nexusMutateEnvelopeToResponse(
+  envelope: unknown,
+  operation: string,
+  startTime: number,
+): DispatchResponse {
+  const env = envelope as {
+    success: boolean;
+    data?: unknown;
+    error?: { code: string | number; message: string };
+  };
+  return wrapResult({ success: env.success, data: env.data, error: env.error ? { code: String(env.error.code), message: env.error.message } : undefined }, 'mutate', 'nexus', operation, startTime);
+}
+
 /**
  * Domain handler for the `nexus` domain.
  *
@@ -577,55 +626,11 @@ export class NexusHandler implements DomainHandler {
     }
 
     try {
-      // operation is validated above — cast to the typed key is safe.
-      // This is the single documented trust boundary: the registry guarantees
-      // `operation` is a valid nexus query op name at this point.
-      const envelope = await typedDispatch(
-        _nexusTypedHandler,
-        operation as keyof NexusOps & string,
-        params ?? {},
-      );
-      // Extract page metadata. Two sources are supported:
-      // 1) Envelope-level `page` (preferred — typed handlers set this via
-      //    lafsSuccess(data, op, { page })).
-      // 2) Legacy `data.page` (engines that return page nested in data).
-      // T1432-followup: Cast envelope to its untyped form for narrowed property
-      // access (the typed dispatch returns LafsEnvelope<unknown>).
-      const env = envelope as {
-        success: boolean;
-        data?: unknown;
-        page?: import('@cleocode/lafs').LAFSPage;
-        error?: { code: string | number; message: string };
-      };
-      let pageMetadata: import('@cleocode/lafs').LAFSPage | undefined = env.page;
-      let resultData: unknown = env.data;
-      if (!pageMetadata && env.success && resultData && typeof resultData === 'object') {
-        const dataObj = resultData as Record<string, unknown>;
-        if ('page' in dataObj && dataObj.page) {
-          pageMetadata = dataObj.page as import('@cleocode/lafs').LAFSPage;
-          const { page: _removed, ...cleanData } = dataObj;
-          resultData = cleanData;
-        }
-      }
-      return wrapResult(
-        {
-          success: env.success,
-          data: resultData,
-          page: pageMetadata,
-          error: env.error
-            ? { code: String(env.error.code), message: env.error.message }
-            : undefined,
-        },
-        'query',
-        'nexus',
-        operation,
-        startTime,
-      );
+      // operation is validated above — cast to typed key is safe (ADR-058 trust boundary)
+      const envelope = await typedDispatch(_nexusTypedHandler, operation as keyof NexusOps & string, params ?? {});
+      return nexusQueryEnvelopeToResponse(envelope, operation, startTime);
     } catch (error) {
-      getLogger('domain:nexus').error(
-        { gateway: 'query', domain: 'nexus', operation, err: error },
-        error instanceof Error ? error.message : String(error),
-      );
+      getLogger('domain:nexus').error({ gateway: 'query', domain: 'nexus', operation, err: error }, error instanceof Error ? error.message : String(error));
       return handleErrorResult('query', 'nexus', operation, error, startTime);
     }
   }
@@ -644,37 +649,11 @@ export class NexusHandler implements DomainHandler {
     }
 
     try {
-      // operation is validated above — cast to the typed key is safe.
-      // This is the single documented trust boundary: the registry guarantees
-      // `operation` is a valid nexus mutate op name at this point.
-      const envelope = await typedDispatch(
-        _nexusTypedHandler,
-        operation as keyof NexusOps & string,
-        params ?? {},
-      );
-      const env = envelope as {
-        success: boolean;
-        data?: unknown;
-        error?: { code: string | number; message: string };
-      };
-      return wrapResult(
-        {
-          success: env.success,
-          data: env.data,
-          error: env.error
-            ? { code: String(env.error.code), message: env.error.message }
-            : undefined,
-        },
-        'mutate',
-        'nexus',
-        operation,
-        startTime,
-      );
+      // operation is validated above — cast to typed key is safe (ADR-058 trust boundary)
+      const envelope = await typedDispatch(_nexusTypedHandler, operation as keyof NexusOps & string, params ?? {});
+      return nexusMutateEnvelopeToResponse(envelope, operation, startTime);
     } catch (error) {
-      getLogger('domain:nexus').error(
-        { gateway: 'mutate', domain: 'nexus', operation, err: error },
-        error instanceof Error ? error.message : String(error),
-      );
+      getLogger('domain:nexus').error({ gateway: 'mutate', domain: 'nexus', operation, err: error }, error instanceof Error ? error.message : String(error));
       return handleErrorResult('mutate', 'nexus', operation, error, startTime);
     }
   }
