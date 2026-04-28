@@ -148,6 +148,7 @@ async function canUseLlmtxtBackend(): Promise<boolean> {
  * This probe is side-effect free: it does NOT open the SQLite manifest or
  * touch the filesystem — it only resolves the peer-dep loaders.
  */
+// SSoT-EXEMPT:probe-fn — zero-arg probe that detects peer-dep availability; no projectRoot needed
 export async function resolveAttachmentBackend(): Promise<AttachmentBackend> {
   return (await canUseLlmtxtBackend()) ? 'llmtxt' : 'legacy';
 }

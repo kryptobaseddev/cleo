@@ -339,6 +339,7 @@ function buildLlmsTxt(
  * @epic T760
  * @task T798
  */
+// SSoT-EXEMPT:options-object — uses typed GenerateDocsOptions struct; not a dispatch-bound operation
 export async function generateDocsLlmsTxt(
   options: GenerateDocsOptions,
 ): Promise<GenerateDocsResult> {
