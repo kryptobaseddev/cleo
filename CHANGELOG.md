@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## v2026.4.154 — 2026-04-28
+## [2026.4.154] — 2026-04-28 — Domain audit + V1-V5 release validation + governance pumps live
 
 ### Highlights
 
