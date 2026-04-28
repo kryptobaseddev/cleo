@@ -124,31 +124,11 @@ export class OrchestrateHandler implements DomainHandler {
           return wrapResult(result, 'query', 'orchestrate', 'analyze', startTime);
         }
 
+        // T408: prompt-based CANT team routing (ADR-030 §5: query, idempotent, advisory)
         case 'classify': {
-          // T408: prompt-based team routing stub.
-          //
-          // ADR-030 §5 Challenge Questions:
-          // Q1: Is this operation idempotent? Yes — same request + context produces same routing.
-          // Q2: What is the failure mode when no team matches? Returns confidence=0 with null team.
-          // Q3: Should this be a query or mutate? Query — no state is written; routing is advisory.
-          // Q4: How does this compose with orchestrate.spawn? Classify first, then spawn to the
-          //     returned team's lead using the returned protocol.
-          // Q5: What prevents stale team registry data? The classifier reads live .cant files at
-          //     runtime; W7b adds cache invalidation on file-change events.
           const request = params?.request as string | undefined;
-          if (!request) {
-            return errorResult(
-              'query',
-              'orchestrate',
-              operation,
-              'E_INVALID_INPUT',
-              'request is required',
-              startTime,
-            );
-          }
-          const context = params?.context as string | undefined;
-          const result = await orchestrateClassify(request, context, projectRoot);
-          return wrapResult(result, 'query', 'orchestrate', operation, startTime);
+          if (!request) return errorResult('query', 'orchestrate', operation, 'E_INVALID_INPUT', 'request is required', startTime);
+          return wrapResult(await orchestrateClassify(request, params?.context as string | undefined, projectRoot), 'query', 'orchestrate', operation, startTime);
         }
 
         case 'fanout.status': {
@@ -525,34 +505,11 @@ export class OrchestrateHandler implements DomainHandler {
           });
         }
 
+        // T409: Promise.allSettled fanout wrapper (ADR-030 §5: not idempotent, concurrent)
         case 'fanout': {
-          // T409: Promise.allSettled fanout wrapper.
-          //
-          // ADR-030 §5 Challenge Questions:
-          // Q1: Is this idempotent? No — each call triggers new spawn attempts.
-          // Q2: What happens on partial failure? allSettled collects all; results
-          //     include per-item status and error fields. Orchestrator decides retry.
-          // Q3: Does this block the orchestrator? No — allSettled runs concurrently
-          //     and returns aggregate results. The caller decides whether to await.
-          // Q4: How does this relate to orchestrate.spawn? fanout is the N-task
-          //     coordinator; spawn is the single-task primitive. fanout wraps spawn.
-          // Q5: What is the manifestEntryId for? Correlates with fanout.status so
-          //     the orchestrator can poll fanout progress across turns.
-          const items = params?.items as
-            | Array<{ team: string; taskId: string; skill?: string }>
-            | undefined;
-          if (!items || !Array.isArray(items) || items.length === 0) {
-            return errorResult(
-              'mutate',
-              'orchestrate',
-              operation,
-              'E_INVALID_INPUT',
-              'items array is required and must be non-empty',
-              startTime,
-            );
-          }
-          const result = await orchestrateFanout(items, projectRoot);
-          return wrapResult(result, 'mutate', 'orchestrate', operation, startTime);
+          const items = params?.items as Array<{ team: string; taskId: string; skill?: string }> | undefined;
+          if (!items || !Array.isArray(items) || items.length === 0) return errorResult('mutate', 'orchestrate', operation, 'E_INVALID_INPUT', 'items array is required and must be non-empty', startTime);
+          return wrapResult(await orchestrateFanout(items, projectRoot), 'mutate', 'orchestrate', operation, startTime);
         }
 
         case 'tessera.instantiate': {
