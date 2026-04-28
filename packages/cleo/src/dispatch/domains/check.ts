@@ -850,6 +850,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       reset: params.reset,
       evidence: params.evidence,
       sessionId: params.sessionId,
+      sharedEvidence: params.sharedEvidence,
     };
     const result = await validateGateVerify(gateParams, projectRoot);
     // T994: Track memory usage on gate verification (fire-and-forget; must not block).
