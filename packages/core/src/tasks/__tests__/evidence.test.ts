@@ -226,6 +226,71 @@ describe('validateAtom - test-run (T832)', () => {
   });
 });
 
+describe('validateAtom - tool (T832 / T1534, project-agnostic resolver)', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'evidence-tool-'));
+    initGitRepo(tmpDir);
+    gitCommit(tmpDir, 'a.txt', 'one\n', 'first');
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('rejects unknown tool names with E_EVIDENCE_INVALID', async () => {
+    writeFileSync(join(tmpDir, 'package.json'), '{}');
+    const r = await validateAtom({ kind: 'tool', tool: 'frobnicate' }, tmpDir);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.codeName).toBe('E_EVIDENCE_INVALID');
+  });
+
+  it('uses project-context.json testing.command for canonical `test`', async () => {
+    // Set up project-context.json that overrides `test` to a passing noop.
+    const cleoDir = join(tmpDir, '.cleo');
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(cleoDir, { recursive: true });
+    writeFileSync(
+      join(cleoDir, 'project-context.json'),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        detectedAt: new Date().toISOString(),
+        projectTypes: ['node'],
+        primaryType: 'node',
+        testing: { command: 'true' }, // Always exits 0 — no real toolchain needed.
+      }),
+    );
+    const r = await validateAtom({ kind: 'tool', tool: 'test' }, tmpDir);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.atom.kind === 'tool') {
+      expect(r.atom.tool).toBe('test');
+      expect(r.atom.exitCode).toBe(0);
+    }
+  });
+
+  it('reports tool failure with E_EVIDENCE_TOOL_FAILED when exit != 0', async () => {
+    const cleoDir = join(tmpDir, '.cleo');
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(cleoDir, { recursive: true });
+    writeFileSync(
+      join(cleoDir, 'project-context.json'),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        detectedAt: new Date().toISOString(),
+        projectTypes: ['node'],
+        primaryType: 'node',
+        testing: { command: 'false' }, // Always exits 1.
+      }),
+    );
+    const r = await validateAtom({ kind: 'tool', tool: 'test' }, tmpDir);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.codeName).toBe('E_EVIDENCE_TOOL_FAILED');
+    }
+  });
+});
+
 describe('validateAtom - commit (T832, with git repo)', () => {
   let tmpDir: string;
   let firstSha: string;
