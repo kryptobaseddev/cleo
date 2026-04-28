@@ -8,6 +8,7 @@
  * @epic T5267
  */
 
+import { paginate } from '@cleocode/core';
 import type { CreateStickyParams, ListStickiesParams, StickyNote } from '@cleocode/core/internal';
 import {
   addSticky,
@@ -58,6 +59,47 @@ export async function stickyList(
   try {
     const stickies = await listStickies(params, projectRoot);
     return { success: true, data: { stickies, total: stickies.length } };
+  } catch (error) {
+    return engineError('E_INTERNAL', String(error));
+  }
+}
+
+/**
+ * List sticky notes with optional filtering and pagination.
+ *
+ * Handles the dual-query pattern (filtered + unfiltered total) and applies
+ * pagination, returning page metadata in the EngineResult so dispatch
+ * handlers remain ≤5 LOC (ADR-058).
+ *
+ * @param projectRoot - Project root path
+ * @param filters - Filter parameters (status, color, priority, tags)
+ * @param limit - Pagination limit
+ * @param offset - Pagination offset
+ * @returns EngineResult with paginated stickies, total, filtered, and page metadata
+ * @task T1492 ADR-058 thin-handler
+ */
+export async function stickyListFiltered(
+  projectRoot: string,
+  filters: Omit<ListStickiesParams, 'limit'>,
+  limit?: number,
+  offset?: number,
+): Promise<EngineResult<{ stickies: StickyNote[]; total: number; filtered: number }>> {
+  try {
+    const filteredStickies = await listStickies(filters, projectRoot);
+    const hasFilter =
+      filters.status !== undefined ||
+      filters.color !== undefined ||
+      filters.priority !== undefined ||
+      (filters.tags !== undefined && filters.tags.length > 0);
+    const total = hasFilter
+      ? (await listStickies({}, projectRoot)).length
+      : filteredStickies.length;
+    const page = paginate(filteredStickies, limit, offset);
+    return {
+      success: true,
+      data: { stickies: page.items, total, filtered: filteredStickies.length },
+      page: page.page,
+    };
   } catch (error) {
     return engineError('E_INTERNAL', String(error));
   }
