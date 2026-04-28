@@ -270,7 +270,7 @@ describe('validateAtom - commit (T832, with git repo)', () => {
 });
 
 describe('checkGateEvidenceMinimum (T832)', () => {
-  it('implemented gate requires commit AND files', () => {
+  it('implemented gate accepts commit AND files (standard path)', () => {
     expect(
       checkGateEvidenceMinimum('implemented', [
         { kind: 'commit', sha: 'abc', shortSha: 'abc' },
@@ -282,6 +282,31 @@ describe('checkGateEvidenceMinimum (T832)', () => {
       checkGateEvidenceMinimum('implemented', [{ kind: 'commit', sha: 'abc', shortSha: 'abc' }]),
     ).not.toBeNull();
 
+    expect(
+      checkGateEvidenceMinimum('implemented', [
+        { kind: 'files', files: [{ path: 'a.ts', sha256: 'x'.repeat(64) }] },
+      ]),
+    ).not.toBeNull();
+  });
+
+  it('implemented gate accepts commit AND note (deletion-safe path, T1515)', () => {
+    // Deletion tasks have no files to anchor evidence — commit+note is the
+    // deletion-safe alternative that does NOT require CLEO_OWNER_OVERRIDE.
+    expect(
+      checkGateEvidenceMinimum('implemented', [
+        { kind: 'commit', sha: 'abc', shortSha: 'abc' },
+        { kind: 'note', note: 'deleted packages/legacy/src/old-module.ts' },
+      ]),
+    ).toBeNull();
+
+    // note alone is NOT sufficient — commit is always required.
+    expect(
+      checkGateEvidenceMinimum('implemented', [
+        { kind: 'note', note: 'deleted packages/legacy/src/old-module.ts' },
+      ]),
+    ).not.toBeNull();
+
+    // files alone is NOT sufficient — commit is always required.
     expect(
       checkGateEvidenceMinimum('implemented', [
         { kind: 'files', files: [{ path: 'a.ts', sha256: 'x'.repeat(64) }] },
