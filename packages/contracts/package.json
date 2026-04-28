@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/contracts",
-  "version": "2026.4.153",
+  "version": "2026.4.154",
   "description": "Domain types, interfaces, and contracts for the CLEO ecosystem",
   "type": "module",
   "main": "./dist/index.js",
