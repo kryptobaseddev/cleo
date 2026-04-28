@@ -84,6 +84,9 @@ export {
   registerInvariant,
   runInvariants,
 } from './invariants/index.js';
+export type { ReleaseIvtrSuggestParams } from './ops.js';
+// Dispatch op registry (ADR-058 OpsFromCore inference — T1543)
+export { releaseCoreOps } from './ops.js';
 // Release configuration
 export type {
   ChannelConfig,
