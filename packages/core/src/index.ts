@@ -269,6 +269,7 @@ export {
   getProjectRoot,
   isProjectInitialized,
   resolveProjectPath,
+  validateProjectRoot,
 } from './paths.js';
 export type { Platform, SystemInfo } from './platform.js';
 // Platform

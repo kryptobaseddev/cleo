@@ -239,6 +239,49 @@ export function getCleoDirAbsolute(cwd?: string): string {
 }
 
 /**
+ * Validate that a candidate project root directory is a legitimate CLEO
+ * project root and not a stray parent `.cleo/` directory that happened to
+ * be found by the walk-up algorithm.
+ *
+ * A candidate is considered valid when its `.cleo/` directory is accompanied
+ * by at least one of the following sibling markers:
+ *   - `.git/` (git-backed project — most common)
+ *   - `package.json` (Node.js / monorepo project root)
+ *
+ * These markers establish that the directory is a deliberate project root
+ * rather than an accidental `.cleo/` left in a non-project parent directory
+ * (e.g., `$HOME/.cleo/` from a prior buggy run, or a user's Documents folder
+ * that somehow acquired a `.cleo/` sub-directory).
+ *
+ * @param candidate - Absolute path to the directory being considered as the
+ *   project root (parent of the `.cleo/` directory).
+ * @returns `true` when the candidate has a `.cleo/` sibling marker; `false`
+ *   when it has `.cleo/` but no recognised sibling markers.
+ *
+ * @remarks
+ * Intentionally does **not** validate the contents of `.cleo/` itself
+ * (e.g., `project-info.json` projectHash). Hash validation is an optional
+ * caller concern; this function focuses on the lightweight sibling-presence
+ * check that can be done with a single `existsSync` call per marker.
+ *
+ * @example
+ * ```typescript
+ * // Project root with .git sibling — valid
+ * validateProjectRoot('/home/user/myproject'); // true
+ *
+ * // Stray .cleo in home dir with no sibling markers — invalid
+ * validateProjectRoot('/home/user'); // false
+ * ```
+ *
+ * @task T1463
+ */
+export function validateProjectRoot(candidate: string): boolean {
+  const gitDir = join(candidate, '.git');
+  const pkgJson = join(candidate, 'package.json');
+  return existsSync(gitDir) || existsSync(pkgJson);
+}
+
+/**
  * Get the project root by walking ancestor directories for `.cleo/` or `.git/`.
  *
  * Stops at the **first** ancestor directory that contains either sentinel
@@ -249,14 +292,20 @@ export function getCleoDirAbsolute(cwd?: string): string {
  *   1. `CLEO_ROOT` env var — bypasses walk entirely (CI / test override)
  *   2. `CLEO_DIR` env var (absolute path only) — derives project root from dirname
  *   3. Walk ancestors from `cwd` (or `process.cwd()`) toward filesystem root:
- *      - `.cleo/` found → return that directory (project root)
+ *      - `.cleo/` found with a sibling `.git/` or `package.json` → accept as root
+ *      - `.cleo/` found but **no** sibling marker → skip (stray/parent `.cleo/`)
  *      - `.git/` found (without `.cleo/` sibling) → throw `E_NOT_INITIALIZED`
- *   4. Filesystem root reached without either → throw `E_NO_PROJECT`
+ *   4. Filesystem root reached without a valid root → throw `E_INVALID_PROJECT_ROOT`
+ *      (if at least one `.cleo/` was skipped) or `E_NO_PROJECT` (none found)
  *
  * @param cwd - Optional starting directory; defaults to `process.cwd()`
  * @returns Absolute path to the project root directory (parent of `.cleo/`)
  * @throws {CleoError} `ExitCode.CONFIG_ERROR` (`E_NOT_INITIALIZED`) when a
  *   `.git/` is found but no `.cleo/` is present at that level.
+ * @throws {CleoError} `ExitCode.CONFIG_ERROR` (`E_INVALID_PROJECT_ROOT`) when
+ *   one or more `.cleo/` directories are found but none have the required sibling
+ *   markers (`.git/` or `package.json`). This prevents accidental operations on
+ *   the wrong project when a stray parent `.cleo/` exists higher in the filesystem.
  * @throws {CleoError} `ExitCode.NOT_FOUND` (`E_NO_PROJECT`) when neither
  *   sentinel is found in any ancestor.
  *
@@ -325,7 +374,12 @@ export function getProjectRoot(cwd?: string): string {
   // env-var path above bypasses this guard, making the opt-in explicit.
   const homeRoot = homedir();
 
-  // 2. Walk ancestors toward filesystem root
+  // T1463/P1-7: track if we skipped any .cleo/ dirs that failed validation.
+  // Used to produce a more informative error message when every candidate
+  // was rejected by validateProjectRoot.
+  const skippedCleoDirs: string[] = [];
+
+  // 3. Walk ancestors toward filesystem root
   while (true) {
     const cleoDir = join(current, '.cleo');
     const gitDir = join(current, '.git');
@@ -335,8 +389,26 @@ export function getProjectRoot(cwd?: string): string {
     const isDangerousRoot = current === homeRoot || current === '/' || current === '';
 
     if (existsSync(cleoDir) && !isDangerousRoot) {
-      // .cleo/ found — this is the project root
-      return current;
+      // T1463/P1-7: validate that the .cleo/ dir has the required sibling
+      // markers (.git/ or package.json) before accepting this candidate.
+      //
+      // Validation is only enforced when we have walked UP from the starting
+      // directory (current !== start). When the `.cleo/` is found at the
+      // exact starting directory, we accept it unconditionally — callers
+      // that explicitly pass a project root directory know what they're doing
+      // (e.g. test harnesses, CLI commands that receive --cwd from the user).
+      //
+      // The trap scenario is specifically about the walk-up finding a PARENT
+      // `.cleo/` dir that belongs to a different, unrelated ancestor directory
+      // (e.g. `~/.cleo/` from a prior buggy run, or a grandparent project).
+      if (current === start || validateProjectRoot(current)) {
+        // Valid project root — either we're at the start dir, or the parent
+        // .cleo/ has a recognized sibling marker.
+        return current;
+      }
+      // .cleo/ exists but lacks sibling markers and we're above the start —
+      // skip this candidate and continue walking up for a better-anchored root.
+      skippedCleoDirs.push(current);
     }
 
     if (existsSync(gitDir) && !isDangerousRoot) {
@@ -355,7 +427,21 @@ export function getProjectRoot(cwd?: string): string {
     current = parent;
   }
 
-  // 3. No sentinel found in any ancestor
+  // 4a. At least one .cleo/ was found but all were rejected by validateProjectRoot.
+  //     This is the "parent .cleo/ trap" scenario: a stray .cleo/ dir higher in
+  //     the filesystem lacks a .git/ or package.json sibling, so it cannot be
+  //     trusted as a project root.
+  if (skippedCleoDirs.length > 0) {
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      `E_INVALID_PROJECT_ROOT: no .cleo with sibling .git found from ${start} (skipped: ${skippedCleoDirs.join(', ')})`,
+      {
+        fix: `cleo init or add a .git directory alongside the .cleo dir`,
+      },
+    );
+  }
+
+  // 4b. No sentinel found in any ancestor
   throw new CleoError(
     ExitCode.NOT_FOUND,
     'Not inside a CLEO project. Run cleo init or cd to an existing project',
