@@ -17,11 +17,6 @@ import {
 import { CleoError } from '../errors.js';
 import type { DecisionRecord } from './types.js';
 
-/** @deprecated Use SessionRecordDecisionParams from @cleocode/contracts. */
-export type RecordDecisionParams = SessionRecordDecisionParams;
-/** @deprecated Use SessionDecisionLogParams from @cleocode/contracts. */
-export type DecisionLogParams = SessionDecisionLogParams;
-
 /**
  * Record a decision to the audit trail.
  * Normalized Core signature: (projectRoot, params) → Result.
