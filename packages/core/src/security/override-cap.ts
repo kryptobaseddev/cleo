@@ -1,7 +1,7 @@
 /**
  * Per-session CLEO_OWNER_OVERRIDE cap with waiver-doc requirement (T1501 / P0-5).
  *
- * Enforces a hard cap (default: 3) on how many times `CLEO_OWNER_OVERRIDE` may
+ * Enforces a hard cap (default: 10) on how many times `CLEO_OWNER_OVERRIDE` may
  * be used within a single session.  Above the cap the call is rejected with
  * `E_OVERRIDE_CAP_EXCEEDED` unless the operator sets:
  *
@@ -15,8 +15,19 @@
  * multiple CLI invocations within the same session (each invocation is its own
  * process).
  *
+ * ## Worktree-context exemption (T1504)
+ *
+ * Overrides that originate from a worktree-orchestrate workflow are tagged with
+ * `workTreeContext: true` and excluded from the per-session cap counter.  They
+ * are still logged in full to force-bypass.jsonl for audit purposes.
+ *
+ * Detection: the `command` argument contains a path segment matching the
+ * canonical worktree layout (`/worktrees/`).  This heuristic is controlled by
+ * the `CLEO_OVERRIDE_EXEMPT_WORKTREE` env var (defaults to `true`).
+ *
  * @adr ADR-059
  * @task T1501
+ * @task T1504
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -28,8 +39,50 @@ import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Default maximum CLEO_OWNER_OVERRIDE uses per session (T1501 / P0-5). */
-export const DEFAULT_OVERRIDE_CAP_PER_SESSION = 3;
+/**
+ * Default maximum CLEO_OWNER_OVERRIDE uses per session (T1501 / P0-5).
+ *
+ * Raised from 3 → 10 by T1504: orchestrate sessions legitimately spawn multiple
+ * workers that each re-verify, so the original 3 was too low.
+ */
+export const DEFAULT_OVERRIDE_CAP_PER_SESSION = 10;
+
+/**
+ * Canonical worktree path segment used to detect worktree-orchestrate context
+ * (T1504 / ADR-059 §D3).
+ *
+ * When a `command` string contains this segment the override is considered
+ * originating from an orchestrate worktree and is exempt from the per-session
+ * cap counter (but still logged).
+ */
+export const WORKTREE_PATH_SEGMENT = '/worktrees/';
+
+/**
+ * Whether worktree-context overrides are exempt from the per-session cap counter.
+ *
+ * Controlled by the `CLEO_OVERRIDE_EXEMPT_WORKTREE` environment variable.
+ * Defaults to `true`.  Set to `"0"` or `"false"` to disable the exemption.
+ *
+ * @task T1504
+ */
+export function isWorktreeExemptionEnabled(): boolean {
+  const val = (process.env['CLEO_OVERRIDE_EXEMPT_WORKTREE'] ?? '').trim().toLowerCase();
+  // Disabled only when explicitly set to '0' or 'false'.
+  return val !== '0' && val !== 'false';
+}
+
+/**
+ * Detect whether a CLI command string originates from a worktree-orchestrate
+ * workflow by checking for the canonical worktree path segment.
+ *
+ * @param command - The CLI command line string (e.g. from `process.argv`).
+ * @returns `true` when the command path contains `/worktrees/`.
+ *
+ * @task T1504
+ */
+export function isWorktreeContext(command: string): boolean {
+  return command.includes(WORKTREE_PATH_SEGMENT);
+}
 
 // ---------------------------------------------------------------------------
 // Persistence helpers
@@ -170,6 +223,13 @@ export interface OverrideCapResult {
   errorMessage?: string;
   /** 1-based ordinal of this override within the session (populated on success). */
   sessionOverrideOrdinal?: number;
+  /**
+   * True when the override was exempt from the cap counter because it originated
+   * from a worktree-orchestrate workflow (T1504 / ADR-059 §D3).
+   *
+   * Worktree-context overrides are still logged in force-bypass.jsonl.
+   */
+  workTreeContext?: boolean;
 }
 
 /**
@@ -178,19 +238,43 @@ export interface OverrideCapResult {
  * Reads the persisted count, checks it against the cap, validates the waiver
  * doc when required, increments the count on success, and returns the ordinal.
  *
+ * ## Worktree-context exemption (T1504 / ADR-059 §D3)
+ *
+ * When `command` contains `/worktrees/` AND `CLEO_OVERRIDE_EXEMPT_WORKTREE` is
+ * not disabled, the override is permitted without counting against the cap.  It
+ * is still logged in force-bypass.jsonl with `workTreeContext: true`.
+ *
  * @param projectRoot - Absolute path to the project root.
  * @param sessionId - Active session ID ("global" when no session is active).
- * @param cap - Maximum overrides allowed per session (default: 3).
+ * @param cap - Maximum overrides allowed per session (default: 10).
+ * @param command - CLI command string used for worktree-context detection (optional).
  * @returns `OverrideCapResult` indicating whether the override is permitted.
  *
  * @task T1501
+ * @task T1504
  * @adr ADR-059
  */
 export function checkAndIncrementOverrideCap(
   projectRoot: string,
   sessionId: string,
   cap: number = DEFAULT_OVERRIDE_CAP_PER_SESSION,
+  command?: string,
 ): OverrideCapResult {
+  // T1504 — worktree-context exemption: if the command path references a
+  // worktree directory AND the exemption is enabled, skip the cap counter.
+  // The caller is still expected to write the audit entry with workTreeContext:true.
+  if (command !== undefined && isWorktreeExemptionEnabled() && isWorktreeContext(command)) {
+    // Do NOT increment the counter — worktree overrides are by-design and
+    // excluded from the session budget.  The force-bypass.jsonl entry is
+    // written by the caller with workTreeContext:true for full audit coverage.
+    const current = readSessionOverrideCount(projectRoot, sessionId);
+    return {
+      allowed: true,
+      sessionOverrideOrdinal: current + 1, // informational only, not persisted
+      workTreeContext: true,
+    };
+  }
+
   const current = readSessionOverrideCount(projectRoot, sessionId);
 
   if (current < cap) {

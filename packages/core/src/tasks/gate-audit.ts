@@ -91,6 +91,13 @@ export interface ForceBypassRecord extends GateAuditRecord {
    * a hard reject (non-strict mode, T1502 / P0-6).
    */
   sharedAtomWarning?: boolean;
+  /**
+   * True when the override originated from a worktree-orchestrate workflow and
+   * was exempt from the per-session cap counter (T1504 / ADR-059 §D3).
+   *
+   * The entry is still logged in force-bypass.jsonl for full audit coverage.
+   */
+  workTreeContext?: boolean;
 }
 
 /**
