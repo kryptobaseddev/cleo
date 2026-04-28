@@ -90,68 +90,21 @@ export class MemoryHandler implements DomainHandler {
       switch (operation) {
         case 'find': {
           const query = paramStringRequired(params, 'query');
-          if (!query) {
-            return errorResult(
-              'query',
-              'memory',
-              operation,
-              'E_INVALID_INPUT',
-              'query is required',
-              startTime,
-            );
-          }
-          const result = await memoryFind(
-            {
-              query,
-              limit: paramNumber(params, 'limit'),
-              tables: paramStringArray(params, 'tables'),
-              dateStart: paramString(params, 'dateStart'),
-              dateEnd: paramString(params, 'dateEnd'),
-              // T418: optional agent filter for per-agent mental model retrieval
-              agent: paramString(params, 'agent'),
-            },
-            projectRoot,
-          );
-          return wrapResult(result, 'query', 'memory', operation, startTime);
+          if (!query) return errorResult('query', 'memory', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+          // T418: optional agent filter for per-agent mental model retrieval
+          return wrapResult(await memoryFind({ query, limit: paramNumber(params, 'limit'), tables: paramStringArray(params, 'tables'), dateStart: paramString(params, 'dateStart'), dateEnd: paramString(params, 'dateEnd'), agent: paramString(params, 'agent') }, projectRoot), 'query', 'memory', operation, startTime);
         }
 
         case 'timeline': {
           const anchor = paramStringRequired(params, 'anchor');
-          if (!anchor) {
-            return errorResult(
-              'query',
-              'memory',
-              operation,
-              'E_INVALID_INPUT',
-              'anchor is required',
-              startTime,
-            );
-          }
-          const result = await memoryTimeline(
-            {
-              anchor,
-              depthBefore: paramNumber(params, 'depthBefore'),
-              depthAfter: paramNumber(params, 'depthAfter'),
-            },
-            projectRoot,
-          );
-          return wrapResult(result, 'query', 'memory', operation, startTime);
+          if (!anchor) return errorResult('query', 'memory', operation, 'E_INVALID_INPUT', 'anchor is required', startTime);
+          return wrapResult(await memoryTimeline({ anchor, depthBefore: paramNumber(params, 'depthBefore'), depthAfter: paramNumber(params, 'depthAfter') }, projectRoot), 'query', 'memory', operation, startTime);
         }
 
         case 'fetch': {
           const ids = paramStringArray(params, 'ids');
-          if (!ids || ids.length === 0) {
-            return errorResult(
-              'query',
-              'memory',
-              operation,
-              'E_INVALID_INPUT',
-              'ids is required (non-empty array)',
-              startTime,
-            );
-          }
-          const result = await memoryFetch({ ids }, projectRoot);
-          return wrapResult(result, 'query', 'memory', operation, startTime);
+          if (!ids || ids.length === 0) return errorResult('query', 'memory', operation, 'E_INVALID_INPUT', 'ids is required (non-empty array)', startTime);
+          return wrapResult(await memoryFetch({ ids }, projectRoot), 'query', 'memory', operation, startTime);
         }
 
         case 'decision.find': {
