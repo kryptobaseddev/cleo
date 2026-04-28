@@ -1023,7 +1023,6 @@ export {
   buildCommanderArgs,
   buildCommanderOptionString,
   buildDispatchInputSchema,
-  buildMcpInputSchema,
   camelToKebab,
   validateRequiredParamsDef,
 } from './validation/param-utils.js';

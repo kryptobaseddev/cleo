@@ -17,7 +17,6 @@ export {
   buildCommanderArgs,
   buildCommanderOptionString,
   buildDispatchInputSchema,
-  buildMcpInputSchema,
   camelToKebab,
   validateRequiredParamsDef,
 } from '@cleocode/core/internal';
