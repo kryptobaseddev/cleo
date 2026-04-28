@@ -462,6 +462,12 @@ export class OrchestrateHandler implements DomainHandler {
           return handleWorktreeCleanup(projectRoot, taskIds, startTime);
         }
 
+        // T1462 — Single-task worktree prune (used by `cleo orchestrate prune`)
+        case 'worktree.prune': {
+          const taskId = params?.taskId as string | undefined;
+          return handleWorktreePrune(projectRoot, taskId, startTime);
+        }
+
         case 'parallel': {
           return routeByParam(params, 'action', {
             start: async () => {
@@ -673,6 +679,8 @@ export class OrchestrateHandler implements DomainHandler {
         // T1118 L1 — Worktree lifecycle
         'worktree.complete',
         'worktree.cleanup',
+        // T1462 — Single-task worktree prune
+        'worktree.prune',
       ],
     };
   }
@@ -1389,5 +1397,48 @@ async function handleWorktreeCleanup(
       error instanceof Error ? error.message : String(error),
     );
     return handleErrorResult('mutate', 'orchestrate', 'worktree.cleanup', error, startTime);
+  }
+}
+
+/**
+ * Prune the worktree for a single task, or all completed/cancelled task worktrees
+ * when no taskId is provided.
+ *
+ * @task T1462
+ */
+async function handleWorktreePrune(
+  projectRoot: string,
+  taskId: string | undefined,
+  startTime: number,
+): Promise<DispatchResponse> {
+  try {
+    const { pruneWorktree, pruneOrphanedWorktrees } = await import('@cleocode/core/internal');
+
+    if (taskId) {
+      // Single-task prune.
+      const result = pruneWorktree(taskId, projectRoot);
+      return {
+        meta: dispatchMeta('mutate', 'orchestrate', 'worktree.prune', startTime),
+        success: true,
+        data: result,
+      };
+    }
+
+    // Bulk prune: remove all worktrees with no active task entry.
+    // Without an active-task set, pruneOrphanedWorktrees cleans git admin
+    // stale entries only (git worktree prune). We delegate to that and
+    // return its result.
+    const result = pruneOrphanedWorktrees(projectRoot, undefined);
+    return {
+      meta: dispatchMeta('mutate', 'orchestrate', 'worktree.prune', startTime),
+      success: true,
+      data: { ...result, mode: 'bulk' },
+    };
+  } catch (error) {
+    getLogger('domain:orchestrate').error(
+      { operation: 'worktree.prune', taskId, err: error },
+      error instanceof Error ? error.message : String(error),
+    );
+    return handleErrorResult('mutate', 'orchestrate', 'worktree.prune', error, startTime);
   }
 }
