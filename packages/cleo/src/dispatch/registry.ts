@@ -6138,6 +6138,26 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T1462 — Single-task worktree prune (auto-triggered by cleo complete)
+  {
+    gateway: 'mutate' as const,
+    domain: 'orchestrate',
+    operation: 'worktree.prune',
+    description:
+      'orchestrate.worktree.prune (mutate) — prune the worktree for a single completed task, or all orphaned worktrees when no taskId is supplied',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string' as const,
+        required: false,
+        description: 'Task ID whose worktree should be pruned (omit for bulk prune)',
+      },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
