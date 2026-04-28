@@ -13,6 +13,7 @@
  * @epic T311
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -21,6 +22,18 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { extract as tarExtract, list as tarList } from 'tar';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { packBundle } from '../backup-pack.js';
+
+// ---------------------------------------------------------------------------
+// Per-worker unique token (T695-1 deflake pattern).
+//
+// Under parallel vitest workers, multiple copies of this suite can run
+// concurrently in the same OS temp directory. We embed a short random token
+// in every mkdtempSync prefix so each worker's directories are distinct and
+// cannot collide or trigger ENOTEMPTY errors from sibling workers.
+// ---------------------------------------------------------------------------
+
+/** Short hex token unique to this vitest worker process invocation. */
+const workerToken = crypto.randomBytes(4).toString('hex');
 
 // ---------------------------------------------------------------------------
 // node:sqlite interop
@@ -73,8 +86,8 @@ describe('T347 backup-pack', () => {
   let outputDir: string;
 
   beforeEach(() => {
-    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t347-root-'));
-    outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t347-out-'));
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), `cleo-t347-root-${workerToken}-`));
+    outputDir = fs.mkdtempSync(path.join(os.tmpdir(), `cleo-t347-out-${workerToken}-`));
     seedProject(tmpRoot);
   });
 
@@ -337,7 +350,7 @@ describe('T347 backup-pack', () => {
     const bundlePath = path.join(outputDir, 'test.cleobundle.tar.gz');
     await packBundle({ scope: 'project', projectRoot: tmpRoot, outputPath: bundlePath });
 
-    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t347-extract-'));
+    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), `cleo-t347-extract-${workerToken}-`));
     try {
       await tarExtract({ file: bundlePath, cwd: extractDir });
       const checksumContent = fs.readFileSync(path.join(extractDir, 'checksums.sha256'), 'utf-8');
@@ -356,7 +369,7 @@ describe('T347 backup-pack', () => {
     const bundlePath = path.join(outputDir, 'test.cleobundle.tar.gz');
     await packBundle({ scope: 'project', projectRoot: tmpRoot, outputPath: bundlePath });
 
-    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t347-extract2-'));
+    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), `cleo-t347-extract2-${workerToken}-`));
     try {
       await tarExtract({ file: bundlePath, cwd: extractDir });
       const checksumContent = fs.readFileSync(path.join(extractDir, 'checksums.sha256'), 'utf-8');
@@ -371,7 +384,7 @@ describe('T347 backup-pack', () => {
     const bundlePath = path.join(outputDir, 'test.cleobundle.tar.gz');
     await packBundle({ scope: 'project', projectRoot: tmpRoot, outputPath: bundlePath });
 
-    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t347-extract3-'));
+    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), `cleo-t347-extract3-${workerToken}-`));
     try {
       await tarExtract({ file: bundlePath, cwd: extractDir });
       const checksumContent = fs.readFileSync(path.join(extractDir, 'checksums.sha256'), 'utf-8');
