@@ -441,6 +441,20 @@ export async function completeTask(
     }
   }
 
+  // T1462: Auto-prune the task worktree when the task is completed.
+  // This runs best-effort and never blocks or fails the completion.
+  import('../spawn/branch-lock.js')
+    .then(({ pruneWorktree }) => {
+      try {
+        pruneWorktree(options.taskId, projectRoot);
+      } catch {
+        /* best-effort — worktree may not exist */
+      }
+    })
+    .catch(() => {
+      /* module unavailable — non-fatal */
+    });
+
   // NOTE: Memory bridge refresh is now handled by the onToolComplete hook
   // via memory-bridge-refresh.ts (T138). No direct call needed here.
 
