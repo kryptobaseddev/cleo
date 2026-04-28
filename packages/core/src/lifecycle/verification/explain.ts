@@ -199,7 +199,8 @@ function describeAtom(atom: EvidenceAtom): string {
  * @adr ADR-051
  * @adr ADR-057
  */
-export async function checkExplainVerification( // SSoT-EXEMPT:positional-rawData — pre-struct wrapper, call-site compat
+// SSoT-EXEMPT:positional-rawData — pre-struct wrapper, positional args retained for call-site compat
+export async function checkExplainVerification(
   rawData: GateStatusRawData,
   projectRoot: string,
   taskId: string,
