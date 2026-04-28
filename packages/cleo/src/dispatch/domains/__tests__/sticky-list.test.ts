@@ -19,6 +19,7 @@ vi.mock('../../../../../core/src/logger.js', () => ({
 vi.mock('../../engines/sticky-engine.js', () => ({
   stickyAdd: vi.fn(),
   stickyList: vi.fn(),
+  stickyListFiltered: vi.fn(),
   stickyShow: vi.fn(),
   stickyConvertToTask: vi.fn(),
   stickyConvertToMemory: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock('../../engines/sticky-engine.js', () => ({
   stickyPurge: vi.fn(),
 }));
 
-import { stickyList } from '../../engines/sticky-engine.js';
+import { stickyListFiltered } from '../../engines/sticky-engine.js';
 import { StickyHandler } from '../sticky.js';
 
 describe('StickyHandler list compliance', () => {
@@ -40,39 +41,26 @@ describe('StickyHandler list compliance', () => {
   });
 
   it('returns canonical sticky list envelope with pagination', async () => {
-    vi.mocked(stickyList)
-      .mockResolvedValueOnce({
-        success: true,
-        data: {
-          stickies: [
-            { id: 'SN-3', content: 'third' },
-            { id: 'SN-2', content: 'second' },
-          ],
-          total: 2,
-        },
-      } as never)
-      .mockResolvedValueOnce({
-        success: true,
-        data: {
-          stickies: [
-            { id: 'SN-4', content: 'fourth' },
-            { id: 'SN-3', content: 'third' },
-            { id: 'SN-2', content: 'second' },
-            { id: 'SN-1', content: 'first' },
-          ],
-          total: 4,
-        },
-      } as never);
+    // stickyListFiltered now handles dual-query + pagination inside the engine
+    vi.mocked(stickyListFiltered).mockResolvedValueOnce({
+      success: true,
+      data: {
+        stickies: [{ id: 'SN-2', content: 'second' }],
+        total: 4,
+        filtered: 2,
+      },
+      page: { mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 },
+    } as never);
 
     const result = await handler.query('list', { status: 'active', limit: 1, offset: 1 });
 
     expect(result.success).toBe(true);
-    expect(stickyList).toHaveBeenNthCalledWith(1, '/mock/project', {
-      status: 'active',
-      color: undefined,
-      priority: undefined,
-    });
-    expect(stickyList).toHaveBeenNthCalledWith(2, '/mock/project', {});
+    expect(stickyListFiltered).toHaveBeenCalledWith(
+      '/mock/project',
+      { status: 'active', color: undefined, priority: undefined, tags: undefined },
+      1,
+      1,
+    );
     expect(result.data).toEqual({
       stickies: [{ id: 'SN-2', content: 'second' }],
       total: 4,
