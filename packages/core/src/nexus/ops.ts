@@ -102,4 +102,19 @@ export declare const nexusCoreOps: {
   readonly 'profile.upsert': NexusCoreOperation<'profile.upsert'>;
   readonly 'profile.supersede': NexusCoreOperation<'profile.supersede'>;
   readonly 'sigil.sync': NexusCoreOperation<'sigil.sync'>;
+  // T1510 — Phase 2 dispatch ops
+  readonly clusters: NexusCoreOperation<'clusters'>;
+  readonly flows: NexusCoreOperation<'flows'>;
+  readonly context: NexusCoreOperation<'context'>;
+  readonly 'projects.list': NexusCoreOperation<'projects.list'>;
+  readonly 'projects.register': NexusCoreOperation<'projects.register'>;
+  readonly 'projects.remove': NexusCoreOperation<'projects.remove'>;
+  readonly 'projects.scan': NexusCoreOperation<'projects.scan'>;
+  readonly 'projects.clean': NexusCoreOperation<'projects.clean'>;
+  readonly 'refresh-bridge': NexusCoreOperation<'refresh-bridge'>;
+  readonly diff: NexusCoreOperation<'diff'>;
+  readonly 'query-cte': NexusCoreOperation<'query-cte'>;
+  readonly 'hot-paths': NexusCoreOperation<'hot-paths'>;
+  readonly 'hot-nodes': NexusCoreOperation<'hot-nodes'>;
+  readonly 'cold-symbols': NexusCoreOperation<'cold-symbols'>;
 };

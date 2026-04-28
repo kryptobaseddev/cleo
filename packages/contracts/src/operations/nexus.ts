@@ -964,6 +964,238 @@ export interface NexusContractsLinkTasksParams {
 export type NexusContractsLinkTasksResult = unknown;
 
 // ============================================================================
+// T1510 — Phase 2 dispatch ops (clusters, flows, context, projects.*, diff,
+//          refresh-bridge, query-cte, hot-paths, hot-nodes, cold-symbols)
+// ============================================================================
+
+/** Parameters for `nexus.clusters`. */
+export interface NexusClustersParams {
+  /** Project ID (optional, auto-generated from repoPath). */
+  projectId?: string;
+  /** Path to project directory (optional, defaults to cwd). */
+  repoPath?: string;
+}
+/** One detected Louvain community entry. */
+export interface NexusCommunityEntry {
+  id: string;
+  label: string | null;
+  symbolCount: number;
+  cohesion: number;
+}
+/** Result of `nexus.clusters`. */
+export interface NexusClustersResult {
+  projectId: string;
+  repoPath: string;
+  count: number;
+  communities: NexusCommunityEntry[];
+}
+
+/** Parameters for `nexus.flows`. */
+export interface NexusFlowsParams {
+  /** Project ID (optional, auto-generated from repoPath). */
+  projectId?: string;
+  /** Path to project directory (optional, defaults to cwd). */
+  repoPath?: string;
+}
+/** One detected execution flow entry. */
+export interface NexusFlowEntry {
+  id: string;
+  label: string | null;
+  stepCount: number;
+  processType: string;
+  entryPointId: string | null;
+}
+/** Result of `nexus.flows`. */
+export interface NexusFlowsResult {
+  projectId: string;
+  repoPath: string;
+  count: number;
+  flows: NexusFlowEntry[];
+}
+
+/** Parameters for `nexus.context`. */
+export interface NexusContextParams {
+  /** Symbol name to look up (required). */
+  symbol: string;
+  /** Project ID (optional, auto-generated from cwd). */
+  projectId?: string;
+  /** Max callers/callees per side (default: 20). */
+  limit?: number;
+  /** When true, fetch source code content. */
+  content?: boolean;
+}
+/** Result of `nexus.context`. */
+export type NexusContextResult = unknown;
+
+/** Parameters for `nexus.projects.list`. */
+export type NexusProjectsListParams = Record<string, never>;
+/** Result of `nexus.projects.list`. */
+export type NexusProjectsListResult = unknown;
+
+/** Parameters for `nexus.projects.register`. */
+export interface NexusProjectsRegisterParams {
+  /** Path to the project directory (required). */
+  path: string;
+  /** Custom project name (optional). */
+  name?: string;
+}
+/** Result of `nexus.projects.register`. */
+export interface NexusProjectsRegisterResult {
+  hash: string;
+  path: string;
+}
+
+/** Parameters for `nexus.projects.remove`. */
+export interface NexusProjectsRemoveParams {
+  /** Project name or hash to remove (required). */
+  nameOrHash: string;
+}
+/** Result of `nexus.projects.remove`. */
+export interface NexusProjectsRemoveResult {
+  removed: string;
+}
+
+/** Parameters for `nexus.projects.scan`. */
+export interface NexusProjectsScanParams {
+  /** Comma-separated search roots (optional). */
+  roots?: string;
+  /** Maximum directory traversal depth (default: 4). */
+  maxDepth?: number;
+  /** Auto-register all discovered unregistered projects. */
+  autoRegister?: boolean;
+  /** Also report already-registered projects. */
+  includeExisting?: boolean;
+}
+/** Result of `nexus.projects.scan`. */
+export type NexusProjectsScanResult = unknown;
+
+/** Parameters for `nexus.projects.clean`. */
+export interface NexusProjectsCleanParams {
+  /** Dry-run only (no deletions). */
+  dryRun?: boolean;
+  /** JS regex matched against project_path. */
+  pattern?: string;
+  /** Match paths containing a .temp/ segment. */
+  includeTemp?: boolean;
+  /** Match paths containing tmp/test/fixture/scratch/sandbox segments. */
+  includeTests?: boolean;
+  /** Also match unhealthy rows. */
+  matchUnhealthy?: boolean;
+  /** Also match never-indexed rows. */
+  matchNeverIndexed?: boolean;
+}
+/** Result of `nexus.projects.clean`. */
+export type NexusProjectsCleanResult = unknown;
+
+/** Parameters for `nexus.refresh-bridge`. */
+export interface NexusRefreshBridgeParams {
+  /** Path to project directory (optional, defaults to cwd). */
+  repoPath?: string;
+  /** Override the project ID. */
+  projectId?: string;
+}
+/** Result of `nexus.refresh-bridge`. */
+export interface NexusRefreshBridgeResult {
+  path: string;
+  written: boolean;
+  projectId: string;
+  repoPath: string;
+}
+
+/** Parameters for `nexus.diff`. */
+export interface NexusDiffParams {
+  /** Git ref for the "before" snapshot (default: HEAD~1). */
+  beforeRef?: string;
+  /** Git ref for the "after" snapshot (default: HEAD). */
+  afterRef?: string;
+  /** Repository path (optional, defaults to cwd). */
+  repoPath?: string;
+  /** Override the project ID. */
+  projectId?: string;
+}
+/** Result of `nexus.diff`. */
+export type NexusDiffResult = unknown;
+
+/** Parameters for `nexus.query-cte`. */
+export interface NexusQueryCteParams {
+  /** CTE SQL or template alias (required). */
+  cte: string;
+  /** Positional parameters for the CTE (optional). */
+  params?: string[];
+}
+/** Result of `nexus.query-cte`. */
+export type NexusQueryCteResult = unknown;
+
+/** One hot-path relation edge. */
+export interface NexusHotPath {
+  sourceId: string;
+  targetId: string;
+  type: string;
+  weight: number;
+  lastAccessedAt: string | null;
+  coAccessedCount: number;
+}
+/** Parameters for `nexus.hot-paths`. */
+export interface NexusHotPathsParams {
+  /** Maximum number of edges to return (default: 20). */
+  limit?: number;
+}
+/** Result of `nexus.hot-paths`. */
+export interface NexusHotPathsResult {
+  paths: NexusHotPath[];
+  count: number;
+  note?: string;
+}
+
+/** One hot-node symbol. */
+export interface NexusHotNode {
+  nodeId: string;
+  sourceId: string;
+  label: string;
+  filePath: string | null;
+  kind: string;
+  totalWeight: number;
+  pathCount: number;
+}
+/** Parameters for `nexus.hot-nodes`. */
+export interface NexusHotNodesParams {
+  /** Maximum number of nodes to return (default: 20). */
+  limit?: number;
+}
+/** Result of `nexus.hot-nodes`. */
+export interface NexusHotNodesResult {
+  nodes: NexusHotNode[];
+  count: number;
+  note?: string;
+}
+
+/** One cold symbol. */
+export interface NexusColdSymbol {
+  nodeId: string;
+  sourceId: string;
+  label: string;
+  filePath: string | null;
+  kind: string;
+  lastAccessedAt: string | null;
+  lastAccessed: string | null;
+  ageDays: number | null;
+  pathCount: number;
+  maxWeight: number;
+}
+/** Parameters for `nexus.cold-symbols`. */
+export interface NexusColdSymbolsParams {
+  /** Age threshold in days (default: 30). */
+  days?: number;
+}
+/** Result of `nexus.cold-symbols`. */
+export interface NexusColdSymbolsResult {
+  symbols: NexusColdSymbol[];
+  count: number;
+  thresholdDays: number;
+  note?: string;
+}
+
+// ============================================================================
 // Typed Operations Union (T1424 — Wave D typed-dispatch migration)
 // ============================================================================
 
@@ -1034,4 +1266,19 @@ export type NexusOps = {
     NexusContractsLinkTasksResult,
   ];
   readonly 'conduit-scan': readonly [NexusConduitScanParams, NexusConduitScanResult];
+  // T1510 — Phase 2 dispatch ops
+  readonly clusters: readonly [NexusClustersParams, NexusClustersResult];
+  readonly flows: readonly [NexusFlowsParams, NexusFlowsResult];
+  readonly context: readonly [NexusContextParams, NexusContextResult];
+  readonly 'projects.list': readonly [NexusProjectsListParams, NexusProjectsListResult];
+  readonly 'projects.register': readonly [NexusProjectsRegisterParams, NexusProjectsRegisterResult];
+  readonly 'projects.remove': readonly [NexusProjectsRemoveParams, NexusProjectsRemoveResult];
+  readonly 'projects.scan': readonly [NexusProjectsScanParams, NexusProjectsScanResult];
+  readonly 'projects.clean': readonly [NexusProjectsCleanParams, NexusProjectsCleanResult];
+  readonly 'refresh-bridge': readonly [NexusRefreshBridgeParams, NexusRefreshBridgeResult];
+  readonly diff: readonly [NexusDiffParams, NexusDiffResult];
+  readonly 'query-cte': readonly [NexusQueryCteParams, NexusQueryCteResult];
+  readonly 'hot-paths': readonly [NexusHotPathsParams, NexusHotPathsResult];
+  readonly 'hot-nodes': readonly [NexusHotNodesParams, NexusHotNodesResult];
+  readonly 'cold-symbols': readonly [NexusColdSymbolsParams, NexusColdSymbolsResult];
 };

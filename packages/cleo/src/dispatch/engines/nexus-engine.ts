@@ -1612,3 +1612,377 @@ export async function nexusSigilSync(): Promise<EngineResult<SigilSyncResult>> {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }
+
+// ---------------------------------------------------------------------------
+// T1510 — Phase 2 dispatch ops
+// ---------------------------------------------------------------------------
+
+import type {
+  NexusClustersResult,
+  NexusColdSymbolsResult,
+  NexusDiffResult,
+  NexusFlowsResult,
+  NexusHotNodesResult,
+  NexusHotPathsResult,
+  NexusProjectsCleanResult,
+  NexusProjectsRegisterResult,
+  NexusProjectsRemoveResult,
+  NexusProjectsScanResult,
+  NexusQueryCteResult,
+  NexusRefreshBridgeResult,
+} from '@cleocode/contracts';
+
+/**
+ * List all Louvain community clusters for a project from nexus.db.
+ *
+ * @param projectId - Nexus project ID (auto-derived from repoPath if omitted).
+ * @param repoPath  - Absolute path to the project root.
+ * @task T1510
+ */
+export async function nexusClusters(
+  projectId: string,
+  repoPath: string,
+): Promise<EngineResult<NexusClustersResult>> {
+  try {
+    const { getProjectClusters } = await import('@cleocode/core/nexus/clusters.js' as string);
+    const result = await (
+      getProjectClusters as (id: string, root: string) => Promise<NexusClustersResult>
+    )(projectId, repoPath);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * List all detected execution flow nodes for a project from nexus.db.
+ *
+ * @param projectId - Nexus project ID (auto-derived from repoPath if omitted).
+ * @param repoPath  - Absolute path to the project root.
+ * @task T1510
+ */
+export async function nexusFlows(
+  projectId: string,
+  repoPath: string,
+): Promise<EngineResult<NexusFlowsResult>> {
+  try {
+    const { getProjectFlows } = await import('@cleocode/core/nexus/flows.js' as string);
+    const result = await (
+      getProjectFlows as (id: string, root: string) => Promise<NexusFlowsResult>
+    )(projectId, repoPath);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Get caller/callee context and process participation for a named symbol.
+ *
+ * @param symbolName - Symbol name to look up (partial match).
+ * @param projectId  - Nexus project ID.
+ * @param repoPath   - Absolute repository root path.
+ * @param limit      - Max callers/callees per side (default: 20).
+ * @param showContent - When true, fetch source code content.
+ * @task T1510
+ */
+export async function nexusContext(
+  symbolName: string,
+  projectId: string,
+  repoPath: string,
+  limit: number,
+  showContent: boolean,
+): Promise<EngineResult<unknown>> {
+  try {
+    const { getSymbolContext } = await import('@cleocode/core/nexus/context.js' as string);
+    const result = await (
+      getSymbolContext as (
+        name: string,
+        id: string,
+        root: string,
+        opts: { limit: number; showContent: boolean },
+      ) => Promise<unknown>
+    )(symbolName, projectId, repoPath, { limit, showContent });
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * List all projects in the global nexus registry.
+ *
+ * @task T1510
+ */
+export async function nexusProjectsList(): Promise<EngineResult<unknown>> {
+  try {
+    const { nexusList } = await import('@cleocode/core/internal' as string);
+    const list = await (nexusList as () => Promise<unknown[]>)();
+    return engineSuccess({ projects: list, count: (list as unknown[]).length });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Register a project in the global nexus registry.
+ *
+ * @param repoPath - Absolute path to the project directory.
+ * @param name     - Custom project name (optional).
+ * @task T1510
+ */
+export async function nexusProjectsRegister(
+  repoPath: string,
+  name?: string,
+): Promise<EngineResult<NexusProjectsRegisterResult>> {
+  try {
+    const { nexusRegister } = await import('@cleocode/core/internal' as string);
+    const hash = await (nexusRegister as (p: string, n?: string) => Promise<string>)(
+      repoPath,
+      name,
+    );
+    return engineSuccess({ hash, path: repoPath });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Remove a project from the global nexus registry by name or hash.
+ *
+ * @param nameOrHash - Project name or hash to remove.
+ * @task T1510
+ */
+export async function nexusProjectsRemove(
+  nameOrHash: string,
+): Promise<EngineResult<NexusProjectsRemoveResult>> {
+  try {
+    const { nexusUnregister } = await import('@cleocode/core/internal' as string);
+    await (nexusUnregister as (name: string) => Promise<void>)(nameOrHash);
+    return engineSuccess({ removed: nameOrHash });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Walk filesystem roots to discover unregistered .cleo/ project directories.
+ *
+ * @param opts - Scan options (roots, maxDepth, autoRegister, includeExisting).
+ * @task T1510
+ */
+export async function nexusProjectsScan(opts: {
+  roots?: string;
+  maxDepth?: number;
+  autoRegister?: boolean;
+  includeExisting?: boolean;
+}): Promise<EngineResult<NexusProjectsScanResult>> {
+  try {
+    const { scanForProjects } = await import('@cleocode/core/nexus/projects-scan.js' as string);
+    const result = await (scanForProjects as (o: typeof opts) => Promise<NexusProjectsScanResult>)(
+      opts,
+    );
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Bulk-purge project registry rows matching configurable criteria.
+ *
+ * Throws NoCriteriaError when no filter is provided.
+ * Throws InvalidPatternError when pattern is not a valid regex.
+ *
+ * @param opts - Clean options.
+ * @task T1510
+ */
+export async function nexusProjectsClean(opts: {
+  dryRun?: boolean;
+  pattern?: string;
+  includeTemp?: boolean;
+  includeTests?: boolean;
+  matchUnhealthy?: boolean;
+  matchNeverIndexed?: boolean;
+}): Promise<EngineResult<NexusProjectsCleanResult>> {
+  try {
+    const { cleanProjects } = await import('@cleocode/core/nexus/projects-clean.js' as string);
+    const result = await (
+      cleanProjects as (o: Parameters<typeof cleanProjects>[0]) => Promise<NexusProjectsCleanResult>
+    )({ dryRun: opts.dryRun ?? false, ...opts });
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Regenerate .cleo/nexus-bridge.md from the existing nexus.db index.
+ *
+ * @param repoPath  - Absolute path to the project root.
+ * @param projectId - Nexus project ID (auto-derived from repoPath if omitted).
+ * @task T1510
+ */
+export async function nexusRefreshBridge(
+  repoPath: string,
+  projectId?: string,
+): Promise<EngineResult<NexusRefreshBridgeResult>> {
+  try {
+    const { writeNexusBridge } = await import('@cleocode/core/internal' as string);
+    const result = await (
+      writeNexusBridge as (root: string, id?: string) => Promise<{ path: string; written: boolean }>
+    )(repoPath, projectId);
+    const resolvedProjectId = projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    return engineSuccess({
+      path: result.path,
+      written: result.written,
+      projectId: resolvedProjectId,
+      repoPath,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Compare NEXUS index state between two git commits.
+ *
+ * @param repoPath  - Absolute path to the repository.
+ * @param beforeRef - Git ref for the "before" snapshot (default: HEAD~1).
+ * @param afterRef  - Git ref for the "after" snapshot (default: HEAD).
+ * @param projectId - Override the project ID.
+ * @task T1510
+ */
+export async function nexusDiff(
+  repoPath: string,
+  beforeRef?: string,
+  afterRef?: string,
+  projectId?: string,
+): Promise<EngineResult<NexusDiffResult>> {
+  try {
+    const { diffNexusIndex } = await import('@cleocode/core/nexus/diff.js' as string);
+    const result = await (
+      diffNexusIndex as (
+        root: string,
+        opts: { beforeRef?: string; afterRef?: string; projectIdOverride?: string },
+      ) => Promise<NexusDiffResult>
+    )(repoPath, { beforeRef, afterRef, projectIdOverride: projectId });
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Execute a recursive CTE query against nexus.db.
+ *
+ * @param cte    - CTE SQL or template alias.
+ * @param params - Positional parameters for the CTE.
+ * @task T1510
+ */
+export async function nexusQueryCte(
+  cte: string,
+  params?: string[],
+): Promise<EngineResult<NexusQueryCteResult>> {
+  try {
+    const { compileCteAlias, runNexusCte } = await import(
+      '@cleocode/core/nexus/query-dsl.js' as string
+    );
+    const aliases = [
+      'callers-of',
+      'callees-of',
+      'co-changed',
+      'co-cited',
+      'path-between',
+      'community-members',
+    ];
+    let cteSql: string;
+    const finalParams: (string | number | null)[] = params ?? [];
+    if (aliases.includes(cte)) {
+      const template = (compileCteAlias as (alias: string) => { cte: string; paramCount: number })(
+        cte,
+      );
+      cteSql = template.cte;
+      if (finalParams.length !== template.paramCount) {
+        return engineError(
+          'E_INVALID_INPUT',
+          `${cte} expects ${template.paramCount} parameters, got ${finalParams.length}`,
+        );
+      }
+    } else {
+      cteSql = cte;
+    }
+    const result = await (
+      runNexusCte as (sql: string, p: (string | number | null)[]) => Promise<NexusQueryCteResult>
+    )(cteSql, finalParams);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Return top-N hot relation edges by Hebbian plasticity weight.
+ *
+ * @param projectRoot - Absolute project root path (passed through but unused internally).
+ * @param limit       - Maximum edges to return (default: 20).
+ * @task T1510
+ */
+export async function nexusHotPaths(
+  projectRoot: string,
+  limit: number,
+): Promise<EngineResult<NexusHotPathsResult>> {
+  try {
+    const { getHotPaths } = await import('@cleocode/core/internal' as string);
+    const result = await (
+      getHotPaths as (root: string, limit: number) => Promise<NexusHotPathsResult>
+    )(projectRoot, limit);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Return top-N source symbols by aggregated Hebbian weight.
+ *
+ * @param projectRoot - Absolute project root path.
+ * @param limit       - Maximum nodes to return (default: 20).
+ * @task T1510
+ */
+export async function nexusHotNodes(
+  projectRoot: string,
+  limit: number,
+): Promise<EngineResult<NexusHotNodesResult>> {
+  try {
+    const { getHotNodes } = await import('@cleocode/core/internal' as string);
+    const result = await (
+      getHotNodes as (root: string, limit: number) => Promise<NexusHotNodesResult>
+    )(projectRoot, limit);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Return symbols that have gone cold (low weight + old last-access).
+ *
+ * @param projectRoot   - Absolute project root path.
+ * @param thresholdDays - Age threshold in days (default: 30).
+ * @task T1510
+ */
+export async function nexusColdSymbols(
+  projectRoot: string,
+  thresholdDays: number,
+): Promise<EngineResult<NexusColdSymbolsResult>> {
+  try {
+    const { getColdSymbols } = await import('@cleocode/core/internal' as string);
+    const result = await (
+      getColdSymbols as (root: string, days: number) => Promise<NexusColdSymbolsResult>
+    )(projectRoot, thresholdDays);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
