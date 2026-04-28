@@ -3,7 +3,7 @@
  * Ports lib/skills/research-manifest.sh.
  *
  * Manages the legacy agent-outputs flat-file for backward compatibility.
- * @deprecated Use pipeline_manifest via `cleo manifest` CLI (ADR-027).
+ * @deprecated Use pipeline_manifest via `cleo manifest` CLI (T1119 — migration pending; ADR-027 not yet published).
  * Supports read, append, find, filter, archive, and rotation.
  *
  * @epic T4454
