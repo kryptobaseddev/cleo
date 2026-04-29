@@ -84,12 +84,11 @@ export {
   registerInvariant,
   runInvariants,
 } from './invariants/index.js';
-export type { ReleaseIvtrSuggestParams } from './ops.js';
 // Dispatch op registry (ADR-058 OpsFromCore inference — T1543).
 // Type-only export: ops.ts declares `releaseCoreOps` via `export declare const`
 // for `typeof` inference; there is NO runtime value. Re-exporting as `type`
 // avoids ERR_EXPORT_NOT_DEFINED when ESM loaders evaluate this barrel.
-export type { releaseCoreOps } from './ops.js';
+export type { releaseCoreOps, ReleaseIvtrSuggestParams } from './ops.js';
 // T1597 release pipeline (canonical 4-step flow)
 export {
   loadActiveReleaseHandle,

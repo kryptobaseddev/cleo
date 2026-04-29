@@ -4,7 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2026.4.155] — 2026-04-29 — T-FOUNDATION-LOCKDOWN: project-agnostic anti-drift enforcement layer
+## [2026.4.156] — 2026-04-29 — T-FOUNDATION-LOCKDOWN: project-agnostic anti-drift enforcement layer
+
+### Hotfix from v2026.4.155 (release-workflow biome CI 2.4.11 strict):
+- Merge two `export type` lines into one in `packages/core/src/release/index.ts` (organizeImports v2.4.11 enforcement)
 
 ### Highlights
 
