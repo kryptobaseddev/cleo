@@ -47,6 +47,7 @@ import {
   type OpsFromCore,
   typedDispatch,
 } from '../adapters/typed.js';
+import { engineError, engineSuccess } from '../engines/_error.js';
 import { releaseIvtrAutoSuggest } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
@@ -109,53 +110,57 @@ function extractEvidenceFromRaw(raw: unknown): string[] {
 // The typed handler cases become single-line wrapCoreResult calls.
 // ---------------------------------------------------------------------------
 
-async function ivtrStatusOp(params: IvtrStatusParams) {
+interface IvtrStatusResult {
+  taskId: string;
+  started: boolean;
+  currentPhase: IvtrPhase | null;
+  phaseHistory: IvtrPhaseEntry[];
+  message?: string;
+  startedAt?: string;
+  loopBackCount?: { implement: number; validate: number; test: number; released: number };
+  evidenceCount?: number;
+}
+
+async function ivtrStatusOp(
+  params: IvtrStatusParams,
+): Promise<import('@cleocode/core').EngineResult<IvtrStatusResult>> {
   const cwd = getProjectRoot();
   const state = await getIvtrState(params.taskId, { cwd });
 
   if (!state) {
-    return {
-      success: true,
-      data: {
-        taskId: params.taskId,
-        started: false,
-        currentPhase: null,
-        phaseHistory: [] as IvtrPhaseEntry[],
-        message: `Task ${params.taskId} has no active IVTR loop. Run --start to begin.`,
-      },
-    };
+    return engineSuccess({
+      taskId: params.taskId,
+      started: false,
+      currentPhase: null,
+      phaseHistory: [] as IvtrPhaseEntry[],
+      message: `Task ${params.taskId} has no active IVTR loop. Run --start to begin.`,
+    });
   }
 
-  return {
-    success: true,
-    data: {
-      taskId: params.taskId,
-      started: true,
-      currentPhase: state.currentPhase,
-      startedAt: state.startedAt,
-      phaseHistory: state.phaseHistory,
-      loopBackCount: state.loopBackCount ?? {
-        implement: 0,
-        validate: 0,
-        test: 0,
-        released: 0,
-      },
-      evidenceCount: state.phaseHistory.reduce(
-        (acc: number, e: IvtrPhaseEntry) => acc + e.evidenceRefs.length,
-        0,
-      ),
+  return engineSuccess({
+    taskId: params.taskId,
+    started: true,
+    currentPhase: state.currentPhase,
+    startedAt: state.startedAt,
+    phaseHistory: state.phaseHistory,
+    loopBackCount: state.loopBackCount ?? {
+      implement: 0,
+      validate: 0,
+      test: 0,
+      released: 0,
     },
-  };
+    evidenceCount: state.phaseHistory.reduce(
+      (acc: number, e: IvtrPhaseEntry) => acc + e.evidenceRefs.length,
+      0,
+    ),
+  });
 }
 
 async function ivtrStartOp(params: IvtrStartParams) {
   const cwd = getProjectRoot();
   const task = await getTask(params.taskId, cwd);
   if (!task) {
-    return {
-      success: false,
-      error: { code: 'E_NOT_FOUND', message: `Task ${params.taskId} not found` },
-    };
+    return engineError('E_NOT_FOUND', `Task ${params.taskId} not found`);
   }
 
   const state = await startIvtr(params.taskId, { cwd, agentIdentity: params.agentIdentity });
@@ -166,26 +171,20 @@ async function ivtrStartOp(params: IvtrStartParams) {
     task.description ?? '(no description)',
   );
 
-  return {
-    success: true,
-    data: {
-      taskId: params.taskId,
-      currentPhase: state.currentPhase,
-      startedAt: state.startedAt,
-      resolvedPrompt: prompt,
-      message: `IVTR loop started. Implement phase is now active for task ${params.taskId}.`,
-    },
-  };
+  return engineSuccess({
+    taskId: params.taskId,
+    currentPhase: state.currentPhase,
+    startedAt: state.startedAt,
+    resolvedPrompt: prompt,
+    message: `IVTR loop started. Implement phase is now active for task ${params.taskId}.`,
+  });
 }
 
 async function ivtrNextOp(params: IvtrNextParams) {
   const cwd = getProjectRoot();
   const task = await getTask(params.taskId, cwd);
   if (!task) {
-    return {
-      success: false,
-      error: { code: 'E_NOT_FOUND', message: `Task ${params.taskId} not found` },
-    };
+    return engineError('E_NOT_FOUND', `Task ${params.taskId} not found`);
   }
 
   const evidence = extractEvidenceFromRaw(params.evidence);
@@ -224,28 +223,25 @@ async function ivtrNextOp(params: IvtrNextParams) {
     [],
   );
 
-  return {
-    success: true,
-    data: {
-      taskId: params.taskId,
-      previousPhase: state.phaseHistory[state.phaseHistory.length - 2]?.phase ?? null,
-      currentPhase: state.currentPhase,
-      evidenceRecorded: evidence.length,
-      resolvedPrompt: prompt,
-      ...(autoRunResult
-        ? {
-            autoRunTests: {
-              attachmentSha256: autoRunResult.attachmentSha256,
-              testsPassed: autoRunResult.testsPassed,
-              testsFailed: autoRunResult.testsFailed,
-              exitCode: autoRunResult.exitCode,
-              evidenceRecord: autoRunResult.evidenceRecord,
-            },
-          }
-        : {}),
-      message: `Phase advanced to '${state.currentPhase}' for task ${params.taskId}.${autoRunResult ? ` Auto-run gates: ${autoRunResult.testsPassed} passed, ${autoRunResult.testsFailed} failed.` : ''}`,
-    },
-  };
+  return engineSuccess({
+    taskId: params.taskId,
+    previousPhase: state.phaseHistory[state.phaseHistory.length - 2]?.phase ?? null,
+    currentPhase: state.currentPhase,
+    evidenceRecorded: evidence.length,
+    resolvedPrompt: prompt,
+    ...(autoRunResult
+      ? {
+          autoRunTests: {
+            attachmentSha256: autoRunResult.attachmentSha256,
+            testsPassed: autoRunResult.testsPassed,
+            testsFailed: autoRunResult.testsFailed,
+            exitCode: autoRunResult.exitCode,
+            evidenceRecord: autoRunResult.evidenceRecord,
+          },
+        }
+      : {}),
+    message: `Phase advanced to '${state.currentPhase}' for task ${params.taskId}.${autoRunResult ? ` Auto-run gates: ${autoRunResult.testsPassed} passed, ${autoRunResult.testsFailed} failed.` : ''}`,
+  });
 }
 
 async function ivtrReleaseOp(params: IvtrReleaseParams) {
@@ -323,10 +319,7 @@ async function ivtrLoopBackOp(params: IvtrLoopBackParams) {
 
   const task = await getTask(params.taskId, cwd);
   if (!task) {
-    return {
-      success: false,
-      error: { code: 'E_NOT_FOUND', message: `Task ${params.taskId} not found` },
-    };
+    return engineError('E_NOT_FOUND', `Task ${params.taskId} not found`);
   }
 
   const evidence = extractEvidenceFromRaw(params.evidence);

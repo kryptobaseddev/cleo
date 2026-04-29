@@ -1837,17 +1837,19 @@ export async function systemSmoke(): Promise<EngineResult<SmokeResult>> {
   const failed = allProbes.filter((p) => p.status === 'fail').length;
   const skipped = allProbes.filter((p) => p.status === 'skip').length;
 
+  if (failed === 0) {
+    return {
+      success: true,
+      data: { probes, dbChecks, passed, failed, skipped, totalMs },
+    };
+  }
   return {
-    success: failed === 0,
-    data: { probes, dbChecks, passed, failed, skipped, totalMs },
-    ...(failed > 0
-      ? {
-          error: {
-            code: 'E_SMOKE_FAILURES',
-            message: `${failed} probe(s) failed smoke test`,
-            exitCode: 1,
-          },
-        }
-      : {}),
+    success: false,
+    error: {
+      code: 'E_SMOKE_FAILURES',
+      message: `${failed} probe(s) failed smoke test`,
+      exitCode: 1,
+      details: { probes, dbChecks, passed, failed, skipped, totalMs },
+    },
   };
 }

@@ -487,12 +487,8 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   backup: async (_params) => {
     const projectRoot = getProjectRoot();
     const result = systemListBackups(projectRoot);
-    if (!result.success || !result.data) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'backup',
-      );
+    if (!result.success) {
+      return lafsError(String(result.error.code), result.error.message, 'backup');
     }
     const backups = result.data;
     return lafsSuccess({ backups, count: backups.length }, 'backup');

@@ -489,10 +489,10 @@ export async function toolsSkillInstall(
     if (!allSuccess) {
       return {
         success: false,
-        data: { results, targets: targets.map((t) => t.providerId) },
         error: {
           code: 'E_INTERNAL',
           message: errors.join('; ') || 'Skill install failed',
+          details: { results, targets: targets.map((t) => t.providerId) },
         },
       };
     }
@@ -524,10 +524,10 @@ export async function toolsSkillUninstall(
     if (!ok) {
       return {
         success: false,
-        data: { removed: result.removed, errors: result.errors },
         error: {
           code: 'E_INTERNAL',
           message: result.errors.join('; ') || 'Skill uninstall failed',
+          details: { removed: result.removed, errors: result.errors },
         },
       };
     }
@@ -587,10 +587,10 @@ export async function toolsSkillRefresh(projectRoot: string): Promise<
     if (failed.length > 0) {
       return {
         success: false,
-        data: { updated, failed, checked: Object.keys(updates).length },
         error: {
           code: 'E_INTERNAL',
           message: `${failed.length} skill refreshes failed`,
+          details: { updated, failed, checked: Object.keys(updates).length },
         },
       };
     }
