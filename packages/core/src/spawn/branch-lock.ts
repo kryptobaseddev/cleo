@@ -23,6 +23,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   readlinkSync,
   rmSync,
   symlinkSync,
@@ -38,6 +39,7 @@ import type {
   FsHardenState,
   WorktreeCleanupResult,
   WorktreeCompleteResult,
+  WorktreeMergeResult,
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
 
@@ -556,6 +558,329 @@ export function pruneWorktree(
   }
 
   return { taskId, status: 'pruned', worktreeRemoved, branchDeleted, wasDirty };
+}
+
+// ---------------------------------------------------------------------------
+// Project-agnostic default-branch resolution (ADR-062 / T1587)
+// ---------------------------------------------------------------------------
+
+/**
+ * Probe order for default-branch fallback when neither config nor
+ * `origin/HEAD` resolves. Order matches industry convention frequency.
+ */
+const DEFAULT_BRANCH_PROBE_ORDER: readonly string[] = [
+  'main',
+  'master',
+  'develop',
+  'trunk',
+] as const;
+
+/**
+ * Resolve the project's default integration branch in a project-agnostic way.
+ *
+ * Resolution order (per ADR-062):
+ *
+ * 1. `.cleo/config.json::git.defaultBranch` (explicit override).
+ * 2. `git symbolic-ref refs/remotes/origin/HEAD` (what the remote calls
+ *    default — works for `master`, `main`, `trunk`, etc.).
+ * 3. Probe local branches in order: `main`, `master`, `develop`, `trunk`.
+ * 4. Fallback to `'main'`.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @returns The resolved default branch name (never throws).
+ *
+ * @task T1587
+ * @adr ADR-062
+ */
+export function getDefaultBranch(projectRoot: string): string {
+  // (1) .cleo/config.json override.
+  const configPath = join(projectRoot, '.cleo', 'config.json');
+  if (existsSync(configPath)) {
+    try {
+      const raw = readFileSync(configPath, 'utf-8');
+      const cfg = JSON.parse(raw) as { git?: { defaultBranch?: unknown } };
+      const fromCfg = cfg.git?.defaultBranch;
+      if (typeof fromCfg === 'string' && fromCfg.length > 0) {
+        return fromCfg;
+      }
+    } catch {
+      // malformed config — fall through.
+    }
+  }
+
+  let gitRoot: string;
+  try {
+    gitRoot = getGitRoot(projectRoot);
+  } catch {
+    return 'main';
+  }
+
+  // (2) origin/HEAD.
+  try {
+    const ref = gitSync(['symbolic-ref', 'refs/remotes/origin/HEAD'], gitRoot);
+    const stripped = ref.replace(/^refs\/remotes\/origin\//, '').trim();
+    if (stripped.length > 0) return stripped;
+  } catch {
+    // origin/HEAD not set — fall through.
+  }
+
+  // (3) probe local branches.
+  for (const candidate of DEFAULT_BRANCH_PROBE_ORDER) {
+    try {
+      const out = gitSync(['branch', '--list', candidate], gitRoot);
+      if (out.length > 0) return candidate;
+    } catch {
+      /* ignore — try next */
+    }
+  }
+
+  // (4) last-resort fallback.
+  return 'main';
+}
+
+/**
+ * Complete a worker task's worktree via `git merge --no-ff` (ADR-062).
+ *
+ * Replaces {@link completeAgentWorktree} (cherry-pick) — see ADR-062 for
+ * rationale. Preserves the full agent commit graph instead of rewriting
+ * SHAs, so `git log --grep "T<id>"` returns the originating commits.
+ *
+ * Steps performed inside the worktree at
+ * `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/`:
+ *
+ * 1. Resolve target branch via {@link getDefaultBranch} (or `opts.targetBranch`
+ *    override). NEVER hardcodes "main".
+ * 2. `git fetch origin` then `git rebase origin/<targetBranch>` inside the
+ *    worktree. Conflicts cause an early non-fatal return — the agent must
+ *    re-resolve before completion.
+ * 3. From the project's git root on `<targetBranch>`, run
+ *    `git merge --no-ff task/<taskId> -m "Merge T<id>: <title>"` so the
+ *    merge commit subject is `git log --grep`-friendly.
+ * 4. Capture the merge commit SHA and report it.
+ * 5. Delegate worktree+branch removal to {@link pruneWorktree} (T1462).
+ *
+ * Project-agnostic: no string in this function hardcodes "main", "master",
+ * or any other branch name. Test fixtures pass arbitrary `targetBranch`.
+ *
+ * @param taskId - The CLEO task ID (e.g. `"T1587"`).
+ * @param projectRoot - Absolute path to the project root.
+ * @param opts.targetBranch - Override the resolved default branch.
+ * @param opts.taskTitle - Task title used in the merge commit message subject.
+ * @param opts.skipFetch - Skip the `git fetch origin` step (test fixtures).
+ * @returns Merge integration result.
+ *
+ * @task T1587
+ * @adr ADR-062
+ */
+export function completeAgentWorktreeViaMerge(
+  taskId: string,
+  projectRoot: string,
+  opts: {
+    targetBranch?: string;
+    taskTitle?: string;
+    skipFetch?: boolean;
+  } = {},
+): WorktreeMergeResult {
+  const branch = `task/${taskId}`;
+  const targetBranch = opts.targetBranch ?? getDefaultBranch(projectRoot);
+
+  let gitRoot: string;
+  try {
+    gitRoot = getGitRoot(projectRoot);
+  } catch (err) {
+    return {
+      taskId,
+      targetBranch,
+      merged: false,
+      mergeCommit: '',
+      commitCount: 0,
+      rebased: false,
+      worktreeRemoved: false,
+      branchDeleted: false,
+      error: `Not a git repo: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
+  const worktreePath = join(worktreeRoot, taskId);
+
+  // Step 1: verify the worktree branch exists.
+  let branchExists = '';
+  try {
+    branchExists = gitSync(['branch', '--list', branch], gitRoot);
+  } catch (err) {
+    return {
+      taskId,
+      targetBranch,
+      merged: false,
+      mergeCommit: '',
+      commitCount: 0,
+      rebased: false,
+      worktreeRemoved: false,
+      branchDeleted: false,
+      error: `Failed to query branch: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (!branchExists) {
+    return {
+      taskId,
+      targetBranch,
+      merged: false,
+      mergeCommit: '',
+      commitCount: 0,
+      rebased: false,
+      worktreeRemoved: false,
+      branchDeleted: false,
+      error: `Branch ${branch} does not exist`,
+    };
+  }
+
+  // Step 2: rebase inside the worktree (only when worktree dir present).
+  let rebased = false;
+  if (existsSync(worktreePath)) {
+    if (!opts.skipFetch) {
+      gitSilent(['fetch', 'origin'], worktreePath);
+    }
+    // Prefer remote target if available, else local.
+    const rebaseOnto = (() => {
+      const hasRemote = gitSilent(
+        ['rev-parse', '--verify', `refs/remotes/origin/${targetBranch}`],
+        worktreePath,
+      );
+      return hasRemote ? `origin/${targetBranch}` : targetBranch;
+    })();
+    try {
+      gitSync(['rebase', rebaseOnto], worktreePath);
+      rebased = true;
+    } catch (err) {
+      gitSilent(['rebase', '--abort'], worktreePath);
+      return {
+        taskId,
+        targetBranch,
+        merged: false,
+        mergeCommit: '',
+        commitCount: 0,
+        rebased: false,
+        worktreeRemoved: false,
+        branchDeleted: false,
+        error: `Rebase onto ${rebaseOnto} failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  // Step 3: count commits ahead before merge (for reporting).
+  let commitCount = 0;
+  try {
+    const aheadLog = gitSync(['log', '--format=%H', `${targetBranch}..${branch}`], gitRoot);
+    commitCount = aheadLog
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean).length;
+  } catch {
+    /* best-effort */
+  }
+
+  if (commitCount === 0) {
+    // Nothing to merge — proceed straight to prune.
+    const pruneResult = pruneWorktree(taskId, projectRoot);
+    return {
+      taskId,
+      targetBranch,
+      merged: true,
+      mergeCommit: '',
+      commitCount: 0,
+      rebased,
+      worktreeRemoved: pruneResult.worktreeRemoved,
+      branchDeleted: pruneResult.branchDeleted,
+    };
+  }
+
+  // Step 4: merge --no-ff into target branch.
+  const subject = opts.taskTitle
+    ? `Merge ${taskId}: ${opts.taskTitle}`
+    : `Merge ${taskId}: worktree integration`;
+
+  // Capture current branch in gitRoot so we can restore it.
+  let originalBranch: string | null = null;
+  try {
+    originalBranch = gitSync(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot);
+  } catch {
+    /* ignore */
+  }
+
+  let checkedOut = false;
+  if (originalBranch !== targetBranch) {
+    if (gitSilent(['checkout', targetBranch], gitRoot)) {
+      checkedOut = true;
+    } else {
+      return {
+        taskId,
+        targetBranch,
+        merged: false,
+        mergeCommit: '',
+        commitCount,
+        rebased,
+        worktreeRemoved: false,
+        branchDeleted: false,
+        error: `Failed to checkout ${targetBranch} in main worktree`,
+      };
+    }
+  }
+
+  let mergeCommit = '';
+  let merged = false;
+  let mergeError: string | undefined;
+  try {
+    // T1591: set CLEO_ORCHESTRATE_MERGE=1 so a PATH-shimmed git accepts this
+    // merge. The shim refuses `git merge` from agent worktrees unless this env
+    // is set — completeAgentWorktreeViaMerge is the ONLY sanctioned call site.
+    execFileSync('git', ['merge', '--no-ff', branch, '-m', subject], {
+      cwd: gitRoot,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, CLEO_ORCHESTRATE_MERGE: '1' },
+    });
+    mergeCommit = gitSync(['rev-parse', 'HEAD'], gitRoot);
+    merged = true;
+  } catch (err) {
+    gitSilent(['merge', '--abort'], gitRoot);
+    mergeError = `Merge --no-ff failed: ${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    // Restore previous branch if we changed it (only on failure — on success
+    // staying on target is the expected post-condition).
+    if (!merged && checkedOut && originalBranch && originalBranch !== targetBranch) {
+      gitSilent(['checkout', originalBranch], gitRoot);
+    }
+  }
+
+  if (!merged) {
+    return {
+      taskId,
+      targetBranch,
+      merged: false,
+      mergeCommit: '',
+      commitCount,
+      rebased,
+      worktreeRemoved: false,
+      branchDeleted: false,
+      error: mergeError,
+    };
+  }
+
+  // Step 5: prune worktree + branch (T1462).
+  const pruneResult = pruneWorktree(taskId, projectRoot);
+
+  return {
+    taskId,
+    targetBranch,
+    merged: true,
+    mergeCommit,
+    commitCount,
+    rebased,
+    worktreeRemoved: pruneResult.worktreeRemoved,
+    branchDeleted: pruneResult.branchDeleted,
+    error: pruneResult.error,
+  };
 }
 
 // ---------------------------------------------------------------------------
