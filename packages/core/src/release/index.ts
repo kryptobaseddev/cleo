@@ -87,6 +87,14 @@ export {
 export type { ReleaseIvtrSuggestParams } from './ops.js';
 // Dispatch op registry (ADR-058 OpsFromCore inference — T1543)
 export { releaseCoreOps } from './ops.js';
+// T1597 release pipeline (canonical 4-step flow)
+export {
+  loadActiveReleaseHandle,
+  releasePublish,
+  releaseReconcile,
+  releaseStart,
+  releaseVerify,
+} from './pipeline.js';
 // Release configuration
 export type {
   ChannelConfig,
@@ -130,7 +138,6 @@ export {
   showManifestRelease,
   tagRelease,
 } from './release-manifest.js';
-
 // Version bumping
 export type { BumpResult, BumpType, VersionBumpTarget } from './version-bump.js';
 export {
@@ -141,12 +148,3 @@ export {
   isVersionBumpConfigured,
   validateVersionFormat,
 } from './version-bump.js';
-
-// T1597 release pipeline (canonical 4-step flow)
-export {
-  releaseStart,
-  releaseVerify,
-  releasePublish,
-  releaseReconcile,
-  loadActiveReleaseHandle,
-} from './pipeline.js';
