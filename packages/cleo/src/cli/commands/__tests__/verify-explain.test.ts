@@ -76,6 +76,177 @@ const mockRevalidateEvidence = vi.fn(async () => ({
   }>,
 }));
 
+/**
+ * Mock implementation of checkExplainVerification (T1541 extraction).
+ *
+ * Replicates Core logic using mockRevalidateEvidence so dispatch handler
+ * tests remain isolated from the filesystem.  The mock is wired into the
+ * @cleocode/core/internal mock below so CheckHandler.verify.explain routes
+ * through it.
+ */
+async function mockCheckExplainVerification(
+  rawData: {
+    taskId: string;
+    title?: string;
+    status?: string;
+    verification?: {
+      passed: boolean;
+      round: number;
+      gates: Record<string, boolean>;
+      evidence?: Record<string, unknown>;
+      lastUpdated?: string | null;
+    };
+    requiredGates?: string[];
+    missingGates?: string[];
+  },
+  _projectRoot: string,
+  taskId: string,
+) {
+  type EvidenceAtom = import('@cleocode/contracts').EvidenceAtom;
+  const gatesObj = rawData.verification?.gates ?? {};
+  const evidenceObj = (rawData.verification?.evidence ?? {}) as Record<string, unknown>;
+  const requiredGates = rawData.requiredGates ?? [];
+  const missingGates = rawData.missingGates ?? [];
+  const lastUpdated = rawData.verification?.lastUpdated ?? null;
+
+  const gatesArray = requiredGates.map((gate) => {
+    const v = gatesObj[gate];
+    const state: 'pass' | 'fail' | 'pending' =
+      v === true ? 'pass' : v === false ? 'fail' : 'pending';
+    const evidenceEntry = evidenceObj[gate];
+    const capturedAt =
+      evidenceEntry && typeof evidenceEntry === 'object' && !Array.isArray(evidenceEntry)
+        ? ((evidenceEntry as { capturedAt?: string }).capturedAt ?? null)
+        : null;
+    const timestamp = capturedAt ?? (state === 'pending' ? null : lastUpdated);
+    return { name: gate, state, timestamp };
+  });
+
+  function normaliseEvidence(raw: unknown): {
+    atoms: EvidenceAtom[];
+    capturedAt: string;
+    capturedBy: string;
+    override?: boolean;
+  } | null {
+    if (!raw) return null;
+    if (Array.isArray(raw)) {
+      return { atoms: raw as EvidenceAtom[], capturedAt: lastUpdated ?? '', capturedBy: 'unknown' };
+    }
+    if (typeof raw === 'object') {
+      const obj = raw as Record<string, unknown>;
+      if (Array.isArray(obj['atoms'])) {
+        return {
+          atoms: obj['atoms'] as EvidenceAtom[],
+          capturedAt: (obj['capturedAt'] as string) ?? lastUpdated ?? '',
+          capturedBy: (obj['capturedBy'] as string) ?? 'unknown',
+          override: obj['override'] === true,
+        };
+      }
+    }
+    return null;
+  }
+
+  const evidenceArray: Array<{
+    gate: string;
+    atoms: EvidenceAtom[];
+    capturedAt: string;
+    capturedBy: string;
+    override: boolean;
+    stillValid: boolean;
+    failedAtoms: Array<{ kind: EvidenceAtom['kind']; reason: string }>;
+  }> = [];
+  const staleGates: string[] = [];
+
+  for (const gate of requiredGates) {
+    const normalised = normaliseEvidence(evidenceObj[gate]);
+    if (!normalised) continue;
+    const reval = await mockRevalidateEvidence({ atoms: normalised.atoms } as never, _projectRoot);
+    if (!reval.stillValid) staleGates.push(gate);
+    evidenceArray.push({
+      gate,
+      atoms: normalised.atoms,
+      capturedAt: normalised.capturedAt,
+      capturedBy: normalised.capturedBy,
+      override: normalised.override === true,
+      stillValid: reval.stillValid,
+      failedAtoms: reval.failedAtoms.map((f) => ({ kind: f.atom.kind, reason: f.reason })),
+    });
+  }
+
+  const blockers: string[] = [];
+  for (const g of missingGates) {
+    blockers.push(
+      `Gate '${g}' is not yet passing — run \`cleo verify ${taskId} --gate ${g} --evidence …\``,
+    );
+  }
+  for (const g of staleGates) {
+    const entry = evidenceArray.find((e) => e.gate === g);
+    const firstFailure = entry?.failedAtoms[0]?.reason ?? 'evidence re-validation failed';
+    blockers.push(`Gate '${g}' evidence is stale: ${firstFailure} (E_EVIDENCE_STALE)`);
+  }
+  if (rawData.status === 'done') {
+    blockers.push(`Task ${taskId} is already done — verification is locked (ADR-051 §11.1)`);
+  }
+
+  const gateLines = requiredGates.map((gate) => {
+    const passed = gatesObj[gate] === true;
+    const entry = evidenceArray.find((e) => e.gate === gate);
+    const atomDesc =
+      entry && entry.atoms.length > 0
+        ? entry.atoms
+            .map((a) => {
+              const atom = a as Record<string, unknown>;
+              const kind = atom['kind'] as string;
+              const payload =
+                atom['sha'] ??
+                atom['shortSha'] ??
+                atom['tool'] ??
+                atom['url'] ??
+                atom['note'] ??
+                atom['path'] ??
+                atom['value'] ??
+                '';
+              return kind ? `${kind}:${payload}` : String(a);
+            })
+            .join(', ')
+        : 'no evidence recorded';
+    const staleTag = entry && !entry.stillValid ? ' [STALE]' : '';
+    return `  ${passed ? 'PASS' : 'FAIL'} [${gate}]${staleTag} — ${atomDesc}`;
+  });
+
+  const overallVerdict = rawData.verification?.passed
+    ? staleGates.length > 0
+      ? `BLOCKED — ${staleGates.length} gate(s) have stale evidence`
+      : 'All required gates PASSED'
+    : `PENDING — ${missingGates.length} gate(s) not yet passing: ${missingGates.join(', ')}`;
+
+  const explanation = [
+    `Task: ${rawData.taskId}${rawData.title ? ` — ${rawData.title}` : ''}`,
+    `Status: ${rawData.status ?? 'unknown'} | Verification round: ${rawData.verification?.round ?? 0}`,
+    '',
+    'Gate breakdown:',
+    ...gateLines,
+    '',
+    `Verdict: ${overallVerdict}`,
+  ].join('\n');
+
+  return {
+    taskId: rawData.taskId,
+    title: rawData.title,
+    status: rawData.status,
+    passed: rawData.verification?.passed ?? false,
+    round: rawData.verification?.round ?? 0,
+    gates: gatesArray,
+    evidence: evidenceArray,
+    blockers,
+    gatesMap: gatesObj,
+    evidenceMap: evidenceObj,
+    requiredGates,
+    missingGates,
+    explanation,
+  };
+}
+
 vi.mock('@cleocode/core/internal', async () => {
   const actual =
     await vi.importActual<typeof import('@cleocode/core/internal')>('@cleocode/core/internal');
@@ -94,6 +265,14 @@ vi.mock('@cleocode/core/internal', async () => {
     // ADR-057 D1 normalized wrapper (T1452) — used by check.ts dispatch handler
     checkRevalidateEvidence: (_projectRoot: string, params: { evidence: unknown }) =>
       mockRevalidateEvidence(params.evidence as never, _projectRoot),
+    // T1541 — checkExplainVerification extracted to Core (ADR-057 D3).
+    // Provide a mock that uses mockRevalidateEvidence so dispatch handler tests
+    // continue to control staleness behavior without filesystem access.
+    checkExplainVerification: (
+      rawData: Parameters<typeof actual.checkExplainVerification>[0],
+      _projectRoot: string,
+      taskId: string,
+    ) => mockCheckExplainVerification(rawData, _projectRoot, taskId),
   };
 });
 

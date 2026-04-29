@@ -17,8 +17,6 @@
 
 import type {
   CheckOps,
-  EvidenceAtom,
-  GateEvidence,
   ValidateArchiveStatsParams,
   ValidateCanonParams,
   ValidateChainParams,
@@ -45,9 +43,9 @@ import {
   checkComplianceRecord,
   checkComplianceSummary,
   checkComplianceSync,
+  checkExplainVerification,
   checkGradeSession,
   checkReadGrades,
-  checkRevalidateEvidence,
   checkTestCoverage,
   checkTestRun,
   checkTestStatus,
@@ -499,205 +497,13 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       );
     }
 
-    const d = raw.data as {
-      taskId: string;
-      title?: string;
-      status?: string;
-      verification?: {
-        passed: boolean;
-        round: number;
-        gates: Record<string, boolean>;
-        evidence?: Record<string, unknown>;
-        failureLog?: unknown[];
-        lastUpdated?: string | null;
-      };
-      requiredGates?: string[];
-      missingGates?: string[];
-    };
-
-    const gatesObj = d.verification?.gates ?? {};
-    const evidenceObj = (d.verification?.evidence ?? {}) as Record<string, unknown>;
-    const requiredGates = d.requiredGates ?? [];
-    const missingGates = d.missingGates ?? [];
-    const lastUpdated = d.verification?.lastUpdated ?? null;
-
-    // ---- Build gates[] array -----------------------------------------
-    const gatesArray = requiredGates.map((gate) => {
-      const v = gatesObj[gate];
-      const state: 'pass' | 'fail' | 'pending' =
-        v === true ? 'pass' : v === false ? 'fail' : 'pending';
-      const evidenceEntry = evidenceObj[gate];
-      const capturedAt =
-        evidenceEntry && typeof evidenceEntry === 'object' && !Array.isArray(evidenceEntry)
-          ? ((evidenceEntry as { capturedAt?: string }).capturedAt ?? null)
-          : null;
-      const timestamp = capturedAt ?? (state === 'pending' ? null : lastUpdated);
-      return { name: gate, state, timestamp };
-    });
-
-    // ---- Normalise evidence to canonical GateEvidence form ----------
-    function normaliseGateEvidence(raw: unknown): {
-      atoms: EvidenceAtom[];
-      capturedAt: string;
-      capturedBy: string;
-      override?: boolean;
-    } | null {
-      if (!raw) return null;
-      if (Array.isArray(raw)) {
-        return {
-          atoms: raw as EvidenceAtom[],
-          capturedAt: lastUpdated ?? '',
-          capturedBy: 'unknown',
-        };
-      }
-      if (typeof raw === 'object') {
-        const obj = raw as Record<string, unknown>;
-        if (Array.isArray(obj.atoms)) {
-          return {
-            atoms: obj.atoms as EvidenceAtom[],
-            capturedAt: (obj.capturedAt as string) ?? lastUpdated ?? '',
-            capturedBy: (obj.capturedBy as string) ?? 'unknown',
-            override: obj.override === true,
-          };
-        }
-      }
-      return null;
-    }
-
-    // ---- Build evidence[] with re-validation --------------------------
-    interface EvidenceEntry {
-      gate: string;
-      atoms: EvidenceAtom[];
-      capturedAt: string;
-      capturedBy: string;
-      override: boolean;
-      stillValid: boolean;
-      failedAtoms: Array<{ kind: EvidenceAtom['kind']; reason: string }>;
-    }
-
-    const evidenceArray: EvidenceEntry[] = [];
-    const staleGates: string[] = [];
-
-    for (const gate of requiredGates) {
-      const normalised = normaliseGateEvidence(evidenceObj[gate]);
-      if (!normalised) continue;
-
-      let stillValid = true;
-      let failedAtoms: EvidenceEntry['failedAtoms'] = [];
-      try {
-        const reval = await checkRevalidateEvidence(projectRoot, {
-          evidence: {
-            atoms: normalised.atoms,
-            capturedAt: normalised.capturedAt,
-            capturedBy: normalised.capturedBy,
-            override: normalised.override,
-          } as GateEvidence,
-        });
-        stillValid = reval.stillValid;
-        failedAtoms = reval.failedAtoms.map((f) => ({
-          kind: f.atom.kind,
-          reason: f.reason,
-        }));
-      } catch {
-        // Re-validation failure is not fatal
-        stillValid = true;
-        failedAtoms = [];
-      }
-
-      if (!stillValid) {
-        staleGates.push(gate);
-      }
-
-      evidenceArray.push({
-        gate,
-        atoms: normalised.atoms,
-        capturedAt: normalised.capturedAt,
-        capturedBy: normalised.capturedBy,
-        override: normalised.override === true,
-        stillValid,
-        failedAtoms,
-      });
-    }
-
-    // ---- Build blockers[] ---------------------------------------------
-    const blockers: string[] = [];
-    for (const g of missingGates) {
-      blockers.push(
-        `Gate '${g}' is not yet passing — run \`cleo verify ${params.taskId} --gate ${g} --evidence …\``,
-      );
-    }
-    for (const g of staleGates) {
-      const entry = evidenceArray.find((e) => e.gate === g);
-      const firstFailure = entry?.failedAtoms[0]?.reason ?? 'evidence re-validation failed';
-      blockers.push(`Gate '${g}' evidence is stale: ${firstFailure} (E_EVIDENCE_STALE)`);
-    }
-    if (d.status === 'done') {
-      blockers.push(
-        `Task ${params.taskId} is already done — verification is locked (ADR-051 §11.1)`,
-      );
-    }
-
-    // ---- Build human-readable explanation -----------------------------
-    const gateLines = requiredGates.map((gate) => {
-      const passed = gatesObj[gate] === true;
-      const entry = evidenceArray.find((e) => e.gate === gate);
-      const atomDesc =
-        entry && entry.atoms.length > 0
-          ? entry.atoms
-              .map((a) => {
-                const atom = a as Record<string, unknown>;
-                const kind = atom.kind as string;
-                const payload =
-                  atom.sha ??
-                  atom.shortSha ??
-                  atom.tool ??
-                  atom.url ??
-                  atom.note ??
-                  atom.path ??
-                  atom.value ??
-                  '';
-                return kind ? `${kind}:${payload}` : String(a);
-              })
-              .join(', ')
-          : 'no evidence recorded';
-      const staleTag = entry && !entry.stillValid ? ' [STALE]' : '';
-      return `  ${passed ? 'PASS' : 'FAIL'} [${gate}]${staleTag} — ${atomDesc}`;
-    });
-
-    const overallVerdict = d.verification?.passed
-      ? staleGates.length > 0
-        ? `BLOCKED — ${staleGates.length} gate(s) have stale evidence`
-        : 'All required gates PASSED'
-      : `PENDING — ${missingGates.length} gate(s) not yet passing: ${missingGates.join(', ')}`;
-
-    const explanation = [
-      `Task: ${d.taskId}${d.title ? ` — ${d.title}` : ''}`,
-      `Status: ${d.status ?? 'unknown'} | Verification round: ${d.verification?.round ?? 0}`,
-      ``,
-      `Gate breakdown:`,
-      ...gateLines,
-      ``,
-      `Verdict: ${overallVerdict}`,
-    ].join('\n');
-
-    return lafsSuccess(
-      {
-        taskId: d.taskId,
-        title: d.title,
-        status: d.status,
-        passed: d.verification?.passed ?? false,
-        round: d.verification?.round ?? 0,
-        gates: gatesArray,
-        evidence: evidenceArray,
-        blockers,
-        gatesMap: gatesObj,
-        evidenceMap: evidenceObj,
-        requiredGates,
-        missingGates,
-        explanation,
-      },
-      'verify.explain',
+    // Delegate all explain rendering to Core (ADR-057 D3 — CLI is thin transport).
+    const result = await checkExplainVerification(
+      raw.data as Parameters<typeof checkExplainVerification>[0],
+      projectRoot,
+      params.taskId,
     );
+    return lafsSuccess(result, 'verify.explain');
   },
 
   'archive.stats': async (params: ValidateArchiveStatsParams) => {
