@@ -754,6 +754,107 @@ export async function ensureCleoGitRepo(projectRoot: string): Promise<ScaffoldRe
 }
 
 /**
+ * Ensure the project's git repository has at least one commit on HEAD.
+ *
+ * On a fresh `git init` (unborn HEAD) `git rev-parse --verify HEAD` fails,
+ * which causes `git worktree add` (used by `cleo orchestrate spawn`) to error
+ * with `fatal: invalid reference: main` and fall back to a no-isolation
+ * worktree. To keep the worktree-by-default contract (T1140 / ADR-055)
+ * working immediately after `cleo init`, this helper materializes an empty
+ * initial commit so HEAD resolves and the worktree path can be created.
+ *
+ * Idempotent — skips when:
+ *   - the project root has no `.git` directory (not a git repo), or
+ *   - HEAD already resolves to a commit (the repo already has history).
+ *
+ * Best-effort: returns `skipped` with `details` when git isn't installed or
+ * the commit cannot be made (e.g. signing/hook failures); `cleo init` must
+ * never fail because of this auxiliary step. The caller surfaces details as
+ * a warning when relevant.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Scaffold result indicating the action taken
+ *
+ * @task T1244 — fix `cleo orchestrate spawn` worktree provisioning on
+ *   freshly-init'd projects with an unborn HEAD
+ */
+export async function ensureProjectGitInitialCommit(projectRoot: string): Promise<ScaffoldResult> {
+  const projectGitDir = join(projectRoot, '.git');
+
+  // Not a git repo (or `.cleo/.git` shadowed it from a prior bug) — nothing to do.
+  if (!existsSync(projectGitDir)) {
+    return {
+      action: 'skipped',
+      path: projectGitDir,
+      details: 'No project-level .git directory — skipping initial commit',
+    };
+  }
+
+  // Use a clean env so the project's own GIT_DIR/GIT_WORK_TREE is honored
+  // (instead of the .cleo/.git checkpoint env that may have leaked in).
+  const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+  cleanEnv.GIT_DIR = undefined;
+  cleanEnv.GIT_WORK_TREE = undefined;
+  // Strip the keys entirely so git doesn't see empty strings.
+  delete cleanEnv.GIT_DIR;
+  delete cleanEnv.GIT_WORK_TREE;
+
+  // Idempotency: if HEAD already resolves to a commit, do nothing.
+  try {
+    await execFileAsync('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], {
+      cwd: projectRoot,
+      env: cleanEnv,
+    });
+    return {
+      action: 'skipped',
+      path: projectGitDir,
+      details: 'HEAD already has a commit — no initial commit needed',
+    };
+  } catch {
+    // HEAD unborn — fall through and create the empty initial commit.
+  }
+
+  // Ensure user.email / user.name are set locally; otherwise git commit fails
+  // on systems without global config (CI, fresh containers).
+  try {
+    await execFileAsync('git', ['config', 'user.email'], { cwd: projectRoot, env: cleanEnv });
+  } catch {
+    await execFileAsync('git', ['config', 'user.email', 'cleo@local'], {
+      cwd: projectRoot,
+      env: cleanEnv,
+    });
+  }
+  try {
+    await execFileAsync('git', ['config', 'user.name'], { cwd: projectRoot, env: cleanEnv });
+  } catch {
+    await execFileAsync('git', ['config', 'user.name', 'CLEO'], {
+      cwd: projectRoot,
+      env: cleanEnv,
+    });
+  }
+
+  try {
+    await execFileAsync('git', ['commit', '--allow-empty', '--quiet', '-m', 'initial: cleo init'], {
+      cwd: projectRoot,
+      env: cleanEnv,
+    });
+    return {
+      action: 'created',
+      path: projectGitDir,
+      details: 'Empty initial commit created so HEAD resolves',
+    };
+  } catch (err) {
+    return {
+      action: 'skipped',
+      path: projectGitDir,
+      details: `Could not create initial commit: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+}
+
+/**
  * Create SQLite database if missing.
  * Idempotent: skips if tasks.db already exists.
  *

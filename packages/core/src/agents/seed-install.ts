@@ -48,6 +48,8 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getCleoGlobalCantAgentsDir, getCleoHome } from '../paths.js';
+import { installAgentFromCant } from '../store/agent-install.js';
+import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from '../store/signaldock-sqlite.js';
 import { resolveStarterBundle } from './resolveStarterBundle.js';
 import { loadProjectContext, substituteCantAgentBody } from './variable-substitution.js';
 
@@ -569,6 +571,152 @@ export async function ensureSeedAgentsInstalled(
     bundleVersion,
     projectRoot: options.projectRoot,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Project-tier force-reinstall (T1242)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-agent outcome of {@link forceInstallProjectTierAgents}.
+ *
+ * @task T1242
+ */
+export interface ProjectTierForceInstallEntry {
+  /** Business identifier of the agent (kebab-case file basename). */
+  readonly agentId: string;
+  /** Absolute source path on the project filesystem. */
+  readonly cantPath: string;
+  /** Whether the agents-row was inserted (`true`) or updated (`false`). */
+  readonly inserted: boolean;
+  /** Skill slugs successfully attached to the agents-row. */
+  readonly skillsAttached: ReadonlyArray<string>;
+  /** Non-fatal warnings surfaced by {@link installAgentFromCant}. */
+  readonly warnings: ReadonlyArray<string>;
+}
+
+/**
+ * Result envelope returned by {@link forceInstallProjectTierAgents}.
+ *
+ * @task T1242
+ */
+export interface ProjectTierForceInstallResult {
+  /** Successfully (re)installed agents. */
+  readonly installed: ReadonlyArray<ProjectTierForceInstallEntry>;
+  /** Agents that failed to install — paired with the underlying error message. */
+  readonly failed: ReadonlyArray<{ readonly cantPath: string; readonly error: string }>;
+  /** Absolute path that was scanned for `.cant` files. */
+  readonly scannedDir: string;
+}
+
+/**
+ * Force-reinstall every project-tier `.cant` agent into the registry.
+ *
+ * Walks `<projectRoot>/.cleo/cant/agents/` (the canonical project-tier CANT
+ * directory) and, for each `.cant` file found, calls
+ * {@link installAgentFromCant} with `force: true` so the agents-row is
+ * rewritten / inserted regardless of whether a stale row already exists. This
+ * closes the T1242 gap where `cleo init` deployed the starter bundle to disk
+ * but never re-attached the agents to the registry, leaving operators with
+ * D-002 / D-003 doctor findings the moment a fresh project was initialised
+ * over a previous install.
+ *
+ * The function is intentionally tolerant of per-file failures — a malformed
+ * `.cant` blocks only its own row and is reported via {@link
+ * ProjectTierForceInstallResult.failed}, leaving sibling installs intact.
+ *
+ * Pre-conditions:
+ * - The global `signaldock.db` is bootstrapped via {@link
+ *   ensureGlobalSignaldockDb} before any DB write.
+ * - When the scanned directory is empty / missing, the result is an empty
+ *   `installed` array (no error).
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @returns Per-file install outcomes plus the directory that was scanned.
+ *
+ * @example
+ * ```typescript
+ * // Inside cleo init, after deployStarterBundle has copied the seeds:
+ * const result = await forceInstallProjectTierAgents(projectRoot);
+ * for (const agent of result.installed) {
+ *   created.push(`agent: ${agent.agentId} (${agent.inserted ? 'inserted' : 'updated'})`);
+ * }
+ * for (const failure of result.failed) {
+ *   warnings.push(`agent install failed: ${failure.cantPath} — ${failure.error}`);
+ * }
+ * ```
+ *
+ * @task T1242
+ */
+export async function forceInstallProjectTierAgents(
+  projectRoot: string,
+): Promise<ProjectTierForceInstallResult> {
+  const scannedDir = join(projectRoot, '.cleo', 'cant', 'agents');
+  const installed: ProjectTierForceInstallEntry[] = [];
+  const failed: Array<{ cantPath: string; error: string }> = [];
+
+  if (!existsSync(scannedDir)) {
+    return { installed, failed, scannedDir };
+  }
+
+  let cantFiles: string[];
+  try {
+    cantFiles = readdirSync(scannedDir).filter((f) => f.endsWith('.cant'));
+  } catch (err) {
+    return {
+      installed,
+      failed: [
+        {
+          cantPath: scannedDir,
+          error: `failed to enumerate .cant files: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      ],
+      scannedDir,
+    };
+  }
+
+  if (cantFiles.length === 0) {
+    return { installed, failed, scannedDir };
+  }
+
+  // Bootstrap + open global signaldock.db once for the whole batch so we
+  // amortise the migration cost across every seed agent.
+  await ensureGlobalSignaldockDb();
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(getGlobalSignaldockDbPath());
+  db.exec('PRAGMA foreign_keys = ON');
+  db.exec('PRAGMA journal_mode = WAL');
+
+  try {
+    for (const filename of cantFiles) {
+      const cantPath = join(scannedDir, filename);
+      try {
+        const result = installAgentFromCant(db, {
+          cantSource: cantPath,
+          targetTier: 'project',
+          installedFrom: 'seed',
+          projectRoot,
+          force: true,
+        });
+        installed.push({
+          agentId: result.agentId,
+          cantPath: result.cantPath,
+          inserted: result.inserted,
+          skillsAttached: result.skillsAttached,
+          warnings: result.warnings,
+        });
+      } catch (err) {
+        failed.push({
+          cantPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  } finally {
+    db.close();
+  }
+
+  return { installed, failed, scannedDir };
 }
 
 // ---------------------------------------------------------------------------

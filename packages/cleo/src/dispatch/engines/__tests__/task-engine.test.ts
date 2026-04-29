@@ -68,20 +68,29 @@ vi.mock('@cleocode/core/internal', () => {
 
 // ---------------------------------------------------------------------------
 // @cleocode/core mock — used by the existing taskComplete tests.
+//
+// We use importOriginal() so canonical helpers (`engineError`, `engineSuccess`,
+// `EngineResult` type, …) remain real — `_error.ts` re-exports them and the
+// engine's catch-boundary calls `engineError` to build typed failure results.
+// Only side-effecting domain functions are stubbed.
 // ---------------------------------------------------------------------------
-vi.mock('@cleocode/core', () => ({
-  getLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  })),
-  completeTask: vi.fn(),
-  getAccessor: vi.fn(),
-  showTask: vi.fn(),
-  updateTask: vi.fn(),
-  getActiveSession: vi.fn().mockResolvedValue(null),
-}));
+vi.mock('@cleocode/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/core')>();
+  return {
+    ...actual,
+    getLogger: vi.fn(() => ({
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    })),
+    completeTask: vi.fn(),
+    getAccessor: vi.fn(),
+    showTask: vi.fn(),
+    updateTask: vi.fn(),
+    getActiveSession: vi.fn().mockResolvedValue(null),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)

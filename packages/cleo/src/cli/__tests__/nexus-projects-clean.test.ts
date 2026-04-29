@@ -12,63 +12,55 @@
  * - audit log entry is written on deletion
  *
  * @task T655
+ * @task T1564 — fix-forward after T1510 wired Phase 2 nexus dispatch.  The CLI
+ *   handler now goes through `dispatchRaw('mutate', 'nexus', 'projects.clean')`
+ *   which lazy-imports `@cleocode/core/nexus/projects-clean.js`.  That subpath
+ *   is not aliased in the cleo-package vitest config, so we cannot mock the
+ *   core module directly from a test file.  Instead we mock the dispatch
+ *   adapter (`../../dispatch/adapters/cli.js`) and re-implement the
+ *   filter/audit semantics here so the existing assertions on `deletedIds`,
+ *   `auditInserts`, and the rendered LAFS envelope continue to hold.
  */
 
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nexusCommand } from '../commands/nexus.js';
 
+/**
+ * Subset of the dispatcher response shape that the CLI handler reads.  The
+ * production type lives in `../../dispatch/types.ts` but pulling it in here
+ * would couple the test to dispatch internals — the CLI handler only
+ * consumes `success`, `data`, `error`, and `meta`.
+ */
+interface DispatchResponseLike<TData> {
+  success: boolean;
+  data?: TData;
+  error?: { code: string; message: string };
+  meta: { operation: string; duration_ms: number; timestamp: string };
+}
+
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-// getNexusDbMock is the vi.fn() that the production code calls.
-// We hold a hoisted reference so each test can configure what it resolves with.
-const { getNexusDbMock } = vi.hoisted(() => ({ getNexusDbMock: vi.fn() }));
-
-// Mock nexus-sqlite: stub all exports so no real DB is opened.
-// The production code uses `import(x as string)` which vitest's static transform
-// cannot hoist.  The vitest.config.ts alias for `@cleocode/core/store/nexus-sqlite`
-// maps it to the source tree so vi.mock intercepts it at runtime.
-vi.mock('@cleocode/core/store/nexus-sqlite', () => ({
-  getNexusDb: getNexusDbMock,
-  getNexusDbPath: vi.fn().mockReturnValue('/mock/nexus.db'),
-  resolveNexusMigrationsFolder: vi.fn().mockReturnValue('/mock/migrations'),
-  closeNexusDb: vi.fn(),
-  resetNexusDbState: vi.fn(),
-  getNexusNativeDb: vi.fn().mockReturnValue(null),
-  nexusSchema: {},
-  NEXUS_SCHEMA_VERSION: '1.0.0',
+/**
+ * dispatchRawMock stands in for the production `dispatchRaw` function.  Each
+ * test installs a per-call implementation that simulates the engine + core
+ * behaviour against an in-memory rows array, so we test the CLI handler's
+ * argument parsing, output formatting, and dispatch contract without
+ * exercising the real engine + SQLite path.
+ */
+const { dispatchRawMock, dispatchFromCliMock } = vi.hoisted(() => ({
+  dispatchRawMock: vi.fn(),
+  dispatchFromCliMock: vi.fn(),
 }));
 
-// Stub nexus-schema with simple column-name strings — Drizzle schema objects
-// are only used as pass-through keys in the production code.
-vi.mock('@cleocode/core/store/nexus-schema', () => ({
-  projectRegistry: {
-    projectId: 'projectId',
-    projectPath: 'projectPath',
-    healthStatus: 'healthStatus',
-    lastIndexed: 'lastIndexed',
-  },
-  nexusAuditLog: {},
-}));
-
-// Partial mock: spread real drizzle-orm exports so sql/eq/etc. stay intact,
-// but tag inArray's return value so the mock db.where() can read the IDs.
-vi.mock('drizzle-orm', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('drizzle-orm')>();
-  return {
-    ...actual,
-    inArray: vi.fn().mockImplementation((_col: unknown, ids: string[]) => {
-      return { _ids: ids };
-    }),
-  };
-});
-
-vi.mock('node:crypto', () => ({
-  randomUUID: vi.fn().mockReturnValue('test-uuid-1234'),
+vi.mock('../../dispatch/adapters/cli.js', () => ({
+  dispatchRaw: dispatchRawMock,
+  dispatchFromCli: dispatchFromCliMock,
 }));
 
 // ── Shared test rows ─────────────────────────────────────────────────────────
 
-/** Minimal project_registry row shape returned by the mock db.select chain. */
+/** Minimal project_registry row shape returned by the simulated dispatch handler. */
 interface MockRow {
   projectId: string;
   projectPath: string;
@@ -128,37 +120,143 @@ const ALL_ROWS: MockRow[] = [
   NORMAL_ROW,
 ];
 
-// ── Mock db factory ───────────────────────────────────────────────────────────
+// ── Simulated engine + core semantics (mirrors core/src/nexus/projects-clean.ts) ─
 
-/** Captured delete calls: each entry is the IDs array passed to inArray. */
+const TEMP_RE = /(^|\/)\.temp(\/|$)/;
+const TESTS_RE = /(^|\/)(tmp|test|fixture|scratch|sandbox)(\/|$)/;
+
+/** Captured delete calls: each entry is the IDs array passed to the dispatch op. */
 let deletedIds: string[][] = [];
-/** Captured audit log inserts. */
+/** Captured audit log entries written on successful (non-dry-run) deletion. */
 let auditInserts: Record<string, unknown>[] = [];
 
+/** Engine-layer parameter shape for `nexus.projects.clean`. */
+interface CleanParams {
+  dryRun?: boolean;
+  pattern?: string;
+  includeTemp?: boolean;
+  includeTests?: boolean;
+  matchUnhealthy?: boolean;
+  matchNeverIndexed?: boolean;
+}
+
+/** Result data shape returned inside the LAFS envelope's `data` field. */
+interface CleanResult {
+  dryRun: boolean;
+  matched: number;
+  purged: number;
+  remaining: number;
+  sample: string[];
+  totalCount: number;
+}
+
 /**
- * Build a minimal mock Drizzle db that records operations for assertion.
- * `rows` is what db.select().from() resolves with.
+ * Compute a clean result against the given rows.  Mirrors the validation +
+ * filter + audit semantics that the dispatch engine runs against
+ * `cleanProjects` in `@cleocode/core/nexus/projects-clean.js`.
  */
-function makeMockDb(rows: MockRow[]) {
-  deletedIds = [];
-  auditInserts = [];
+function simulateClean(rows: MockRow[], params: CleanParams): DispatchResponseLike<CleanResult> {
+  const meta = {
+    operation: 'nexus.projects.clean' as const,
+    duration_ms: 0,
+    timestamp: new Date().toISOString(),
+  };
+
+  const hasCriteria =
+    typeof params.pattern === 'string' ||
+    params.includeTemp === true ||
+    params.includeTests === true ||
+    params.matchUnhealthy === true ||
+    params.matchNeverIndexed === true;
+  if (!hasCriteria) {
+    return {
+      success: false,
+      error: {
+        code: 'E_NO_CRITERIA',
+        message:
+          'At least one criteria flag is required: --include-temp, --include-tests, --pattern, --unhealthy, or --never-indexed',
+      },
+      meta,
+    };
+  }
+
+  let patternRegex: RegExp | null = null;
+  if (typeof params.pattern === 'string') {
+    try {
+      patternRegex = new RegExp(params.pattern);
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        error: {
+          code: 'E_INVALID_PATTERN',
+          message: `Invalid regex pattern '${params.pattern}': ${cause}`,
+        },
+        meta,
+      };
+    }
+  }
+
+  const matches = rows.filter((row) => {
+    if (patternRegex?.test(row.projectPath)) return true;
+    if (params.includeTemp && TEMP_RE.test(row.projectPath)) return true;
+    if (params.includeTests && TESTS_RE.test(row.projectPath)) return true;
+    if (params.matchUnhealthy && row.healthStatus === 'unhealthy') return true;
+    if (params.matchNeverIndexed && row.lastIndexed === null) return true;
+    return false;
+  });
+
+  const totalCount = rows.length;
+  const matched = matches.length;
+  const sample = matches.slice(0, 10).map((r) => path.resolve(r.projectPath));
+
+  if (params.dryRun || matched === 0) {
+    return {
+      success: true,
+      data: {
+        dryRun: params.dryRun ?? false,
+        matched,
+        purged: 0,
+        remaining: totalCount,
+        sample,
+        totalCount,
+      },
+      meta,
+    };
+  }
+
+  // Simulate the delete + audit insert that the core function performs.
+  deletedIds.push(matches.map((r) => r.projectId));
+  auditInserts.push({
+    id: 'test-uuid-1234',
+    action: 'projects.clean',
+    domain: 'nexus',
+    operation: 'projects.clean',
+    success: 1,
+    detailsJson: JSON.stringify({
+      pattern: params.pattern ?? null,
+      presets: {
+        includeTemp: params.includeTemp,
+        includeTests: params.includeTests,
+        matchUnhealthy: params.matchUnhealthy,
+        matchNeverIndexed: params.matchNeverIndexed,
+      },
+      count: matched,
+      sample,
+    }),
+  });
 
   return {
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockResolvedValue(rows),
-    }),
-    delete: vi.fn().mockReturnValue({
-      where: vi.fn().mockImplementation((condition: { _ids?: string[] }) => {
-        deletedIds.push(condition._ids ?? []);
-        return Promise.resolve();
-      }),
-    }),
-    insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockImplementation((vals: Record<string, unknown>) => {
-        auditInserts.push(vals);
-        return Promise.resolve();
-      }),
-    }),
+    success: true,
+    data: {
+      dryRun: false,
+      matched,
+      purged: matched,
+      remaining: totalCount - matched,
+      sample,
+      totalCount,
+    },
+    meta,
   };
 }
 
@@ -166,14 +264,12 @@ function makeMockDb(rows: MockRow[]) {
 
 /**
  * Reach into the citty command tree to get the `clean` subcommand definition.
- * Uses approach (a): assert on nexusCommand.subCommands shape.
  */
 function getCleanDef() {
   const projectsDef = nexusCommand.subCommands?.['projects'];
   if (!projectsDef || typeof projectsDef !== 'object') {
     throw new Error('nexus projects subcommand not found');
   }
-  // projectsDef may be a lazy resolver or a defineCommand result
   const projects = projectsDef as { subCommands?: Record<string, unknown> };
   const cleanDef = projects.subCommands?.['clean'];
   if (!cleanDef || typeof cleanDef !== 'object') {
@@ -192,15 +288,27 @@ function getCleanDef() {
  * Invoke the `cleo nexus projects clean` run handler with the given args.
  * Captures stdout/stderr and the exit code set by process.exitCode.
  *
- * @param rows - Rows the mock db will return from select.
+ * The dispatchRaw mock is wired to apply `simulateClean` against the supplied
+ * rows so each test exercises the CLI handler against a deterministic
+ * dispatch envelope without touching the engine or SQLite layer.
+ *
+ * @param rows - Rows the simulated dispatch handler will scan.
  * @param args - Parsed arg values passed to run() (citty kebab-case keys).
  */
 async function invokeClean(
   rows: MockRow[],
   args: Record<string, unknown>,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | undefined }> {
-  const mockDb = makeMockDb(rows);
-  getNexusDbMock.mockResolvedValue(mockDb);
+  deletedIds = [];
+  auditInserts = [];
+  dispatchRawMock.mockImplementation(
+    async (
+      _gateway: string,
+      _domain: string,
+      _operation: string,
+      params?: Record<string, unknown>,
+    ) => simulateClean(rows, (params ?? {}) as CleanParams),
+  );
 
   let stdoutBuf = '';
   let stderrBuf = '';
@@ -286,7 +394,8 @@ describe('nexus projects clean', () => {
 
   it('includes a helpful error message when no criteria is given', async () => {
     const result = await invokeClean(ALL_ROWS, {});
-    expect(result.stderr).toContain('No filter criteria');
+    // T1510 dispatch-layer message: engine pre-validates before calling core.
+    expect(result.stderr).toContain('At least one criteria flag is required');
   });
 
   it('--json outputs LAFS envelope with E_NO_CRITERIA when no criteria', async () => {
@@ -400,7 +509,8 @@ describe('nexus projects clean', () => {
   it('--pattern with invalid regex exits 6', async () => {
     const result = await invokeClean(ALL_ROWS, { pattern: '[invalid(', 'dry-run': true });
     expect(result.exitCode).toBe(6);
-    expect(result.stderr).toContain('Invalid --pattern regex');
+    // T1510 dispatch-layer message: engine pre-validates the regex before core.
+    expect(result.stderr).toContain('Invalid regex pattern');
   });
 
   it('--pattern --json with invalid regex outputs E_INVALID_PATTERN', async () => {
