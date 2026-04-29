@@ -1423,13 +1423,36 @@ async function orchestrateAnalyzeParallelSafety(
 // T1118 L1 — Worktree lifecycle handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Dispatch handler for `cleo orchestrate worktree.complete`.
+ *
+ * Per ADR-062 / T1587 / T1601 — uses `git merge --no-ff` rather than
+ * cherry-pick so the agent's commit SHAs are preserved in the integration
+ * branch's history. Project-agnostic: delegates target-branch resolution to
+ * {@link getDefaultBranch} (no hardcoded `main`).
+ *
+ * @task T1601
+ * @adr ADR-062
+ */
 async function handleWorktreeComplete(
   taskId: string,
   projectRoot: string,
 ): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
   try {
-    const { completeAgentWorktree } = await import('@cleocode/core/internal');
-    const result = completeAgentWorktree(taskId, projectRoot);
+    const { completeAgentWorktreeViaMerge } = await import('@cleocode/core/internal');
+    const result = completeAgentWorktreeViaMerge(taskId, projectRoot);
+    // Surface a non-fatal merge error as a dispatch-level failure so callers
+    // can react (rebase conflicts, missing branch, etc.) rather than treating
+    // a partial result as success.
+    if (!result.merged && result.error) {
+      return {
+        success: false,
+        error: {
+          code: 'E_WORKTREE_COMPLETE_FAILED',
+          message: result.error,
+        },
+      };
+    }
     return { success: true, data: result };
   } catch (error) {
     getLogger('domain:orchestrate').error(

@@ -6515,7 +6515,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'orchestrate',
     operation: 'worktree.complete',
     description:
-      'orchestrate.worktree.complete (mutate) — cherry-pick commits from a task worktree back to main and clean up the worktree',
+      'orchestrate.worktree.complete (mutate) — merge (--no-ff) a task worktree branch into the project default branch (preserves agent commit SHAs per ADR-062) and clean up the worktree',
     tier: 2,
     idempotent: false,
     sessionRequired: false,

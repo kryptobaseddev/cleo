@@ -240,12 +240,21 @@ export function buildWorktreeSpawnResult(
  * 3. Unlock the worktree and remove it.
  * 4. Delete the task branch.
  *
+ * @deprecated since T1601 — use {@link completeAgentWorktreeViaMerge}
+ * (ADR-062). Cherry-pick rewrites SHAs and destroys provenance; the merge
+ * variant preserves the agent's commit graph so `git log --grep "T<id>"`
+ * returns the originating commits. This function is retained for one
+ * release window for back-compat with in-flight worktrees and will be
+ * removed thereafter. No production callsite in this repository uses it
+ * (verified by T1601). Tests / external consumers MUST migrate.
+ *
  * @param taskId - The task ID whose worktree to complete.
  * @param projectRoot - Absolute path to the project root.
  * @returns Completion result.
  *
  * @task T1118
  * @task T1120
+ * @task T1601
  */
 export function completeAgentWorktree(taskId: string, projectRoot: string): WorktreeCompleteResult {
   const gitRoot = getGitRoot(projectRoot);
