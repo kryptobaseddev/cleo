@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.158] — 2026-04-29 — T-FOUNDATION-LOCKDOWN: auditor patches (T1601 production wiring + T1602 verified)
+
+### Hotfix from v2026.4.157
+
+Independent zero-context audit caught 2 holes in v2026.4.157 foundation lockdown:
+
+- **T1601 (T-FOUND-1B)**: `completeAgentWorktreeViaMerge` shipped to `core/spawn/branch-lock.ts` but production dispatch handler `packages/cleo/src/dispatch/domains/orchestrate.ts` still called legacy cherry-pick. ADR-062 doctrine was unenforced in code. Fix: `handleWorktreeComplete` now imports + calls `completeAgentWorktreeViaMerge`; legacy `completeAgentWorktree` marked `@deprecated` (one-release migration window). Bonus: dispatch hardened — merge failures surface as `E_WORKTREE_COMPLETE_FAILED` instead of silent `success:true`. Re-verified with REAL evidence atoms (no override). 8/8 worktree-merge + 6/6 orchestrate + 46/46 related suites pass.
+- **T1602 (T-FOUND-VERIFY-RESWEEP)**: pre-existing flaky brain-stdp + sqlite-warning E2E tests confirmed deterministic-pass after v2026.4.157 publish (stale global cleo binary was masking). 18/18 across 6 consecutive runs. No code/config changes needed.
+
+Full repo test sweep: **11829/11829 pass / 0 failed / 20 skipped**. All v2026.4.155-.157 foundation children verified with NON-override evidence atoms. Independent zero-context audit can now re-confirm at score 9+/10 (was 8/10 with the holes).
+
 ## [2026.4.157] — 2026-04-29 — T-FOUNDATION-LOCKDOWN: project-agnostic anti-drift enforcement layer
 
 ### Hotfix from v2026.4.155 (release-workflow biome CI 2.4.11 strict):
