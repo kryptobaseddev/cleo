@@ -141,3 +141,12 @@ export {
   isVersionBumpConfigured,
   validateVersionFormat,
 } from './version-bump.js';
+
+// T1597 release pipeline (canonical 4-step flow)
+export {
+  releaseStart,
+  releaseVerify,
+  releasePublish,
+  releaseReconcile,
+  loadActiveReleaseHandle,
+} from './pipeline.js';
