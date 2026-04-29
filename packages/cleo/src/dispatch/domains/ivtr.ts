@@ -427,9 +427,9 @@ export type IvtrOps = OpsFromCore<typeof ivtrCoreOps>;
 const _ivtrTypedHandler = defineTypedHandler<IvtrOps>('ivtr', {
   status: async (params) => {
     const result = await ivtrCoreOps.status(params);
-    return result.success
-      ? lafsSuccess(result.data, 'status')
-      : lafsError(result.error?.code ?? 'E_INTERNAL', result.error?.message ?? '', 'status');
+    if (result.success) return lafsSuccess(result.data, 'status');
+    const err = (result as { error?: { code?: string; message?: string } }).error;
+    return lafsError(err?.code ?? 'E_INTERNAL', err?.message ?? '', 'status');
   },
 
   start: async (params) => {
