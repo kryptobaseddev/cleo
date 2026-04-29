@@ -30,6 +30,7 @@ import type { ProposalCandidate } from '@cleocode/contracts';
 import { runBrainIngester } from './ingesters/brain-ingester.js';
 import { runNexusIngester } from './ingesters/nexus-ingester.js';
 import { runTestIngester } from './ingesters/test-ingester.js';
+import { checkDedupCollision, recordDedupRejection } from './proposal-dedup.js';
 import {
   countTodayProposals,
   DEFAULT_DAILY_PROPOSAL_LIMIT,
@@ -330,8 +331,46 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
 
   // Write proposals
   let written = 0;
+  let dedupRejected = 0;
 
   for (const candidate of toWrite) {
+    if (!tasksNativeDb) {
+      process.stderr.write('[sentient/propose-tick] tasks DB not available; skipping write\n');
+      break;
+    }
+
+    // T1592 — per-parent dedup gate.  Sentient proposals are root tasks
+    // (parent_id IS NULL), so collisions detect cross-tick duplicates of the
+    // T1555 burst pattern.  Hash is computed before rate-limit insert so that
+    // a skipped dup does not consume a daily slot.
+    const dedupCheck = checkDedupCollision({
+      tasksDb: tasksNativeDb,
+      candidate: {
+        parentId: null,
+        title: candidate.title,
+        acceptance: candidate.rationale,
+      },
+    });
+
+    if (dedupCheck.isDuplicate && dedupCheck.existingTaskId) {
+      dedupRejected++;
+      try {
+        await recordDedupRejection({
+          projectRoot,
+          parentId: null,
+          title: candidate.title,
+          source: candidate.source,
+          sourceId: candidate.sourceId,
+          dedupHash: dedupCheck.dedupHash,
+          existingTaskId: dedupCheck.existingTaskId,
+        });
+      } catch (auditErr) {
+        const message = auditErr instanceof Error ? auditErr.message : String(auditErr);
+        process.stderr.write(`[sentient/propose-tick] audit append failed: ${message}\n`);
+      }
+      continue;
+    }
+
     // Allocate task ID
     let taskId: string;
     if (options.allocateTaskId) {
@@ -344,15 +383,12 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
     const now = new Date().toISOString();
     const labels = JSON.stringify([TIER2_LABEL, `source:${candidate.source}`]);
 
-    if (!tasksNativeDb) {
-      process.stderr.write('[sentient/propose-tick] tasks DB not available; skipping write\n');
-      break;
-    }
-
     // Use the SQL INSERT path (with metadata_json-equivalent stored in notes_json
     // as a structured first element) and labels to mark the proposal.
     // The rate limiter identifies proposals by: labels_json LIKE '%sentient-tier2%'
     // This avoids needing a new column on the tasks table.
+    // T1592: dedupHash is embedded inside the proposal-meta envelope so future
+    // ticks can detect cross-tick duplicates via a substring LIKE query.
     const notesJson = JSON.stringify([
       JSON.stringify({
         kind: 'proposal-meta',
@@ -361,6 +397,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
         sourceId: candidate.sourceId,
         weight: candidate.weight,
         proposedAt: now,
+        dedupHash: dedupCheck.dedupHash,
       }),
     ]);
 
@@ -431,15 +468,19 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
       kind: 'no-candidates',
       written: 0,
       count: finalCount,
-      detail: 'candidates available but none written (rate limit or DB unavailable)',
+      detail:
+        dedupRejected > 0
+          ? `candidates available but all ${dedupRejected} rejected by per-parent dedup gate (T1592)`
+          : 'candidates available but none written (rate limit or DB unavailable)',
     };
   }
 
+  const dedupSuffix = dedupRejected > 0 ? `; ${dedupRejected} dup(s) rejected (T1592)` : '';
   return {
     kind: 'wrote',
     written,
     count: finalCount,
-    detail: `wrote ${written} proposal(s) (${finalCount}/${DEFAULT_DAILY_PROPOSAL_LIMIT} today)`,
+    detail: `wrote ${written} proposal(s) (${finalCount}/${DEFAULT_DAILY_PROPOSAL_LIMIT} today)${dedupSuffix}`,
   };
 }
 

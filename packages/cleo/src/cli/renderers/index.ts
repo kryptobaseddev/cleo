@@ -36,6 +36,7 @@ import { normalizeForHuman } from './normalizer.js';
 // System renderers
 import {
   renderBlockers,
+  renderBriefing,
   renderCurrent,
   renderDoctor,
   renderGeneric,
@@ -107,6 +108,8 @@ const renderers: Record<string, HumanRenderer> = {
   orchestrate: renderTree,
   session: renderSession,
   version: renderVersion,
+  // T1593 — `cleo briefing` reads tasks.db + brain.db (NEVER markdown handoffs).
+  briefing: renderBriefing,
 };
 
 // ---------------------------------------------------------------------------

@@ -198,8 +198,55 @@ const endCommand = defineCommand({
       type: 'string',
       description: 'Suggested next action',
     },
+    'emit-markdown': {
+      type: 'string',
+      description:
+        'Optional path to write a derived markdown VIEW of the handoff (one-way; never read back by CLEO). Source of truth remains tasks.db + brain.db. Use `cleo briefing` to resume context. (T1593)',
+    },
   },
   async run({ args }) {
+    const emitMarkdownPath = args['emit-markdown'] as string | undefined;
+
+    if (emitMarkdownPath) {
+      // Capture the dispatch result so we can render the persisted handoff
+      // to disk after the session is ended. Markdown is a derived view —
+      // never re-ingested by CLEO. (T1593)
+      const response = await dispatchRaw('mutate', 'session', 'end', {
+        note: args.note as string | undefined,
+        nextAction: args['next-action'] as string | undefined,
+      });
+
+      if (!response.success) {
+        handleRawError(response, { command: 'session end', operation: 'session.end' });
+      }
+
+      try {
+        const handoffResp = await dispatchRaw('query', 'session', 'handoff.show', {});
+        const handoffData = handoffResp.success
+          ? (handoffResp.data as
+              | { sessionId: string; handoff: Record<string, unknown> }
+              | null
+              | undefined)
+          : null;
+        if (handoffData?.handoff) {
+          const { emitHandoffMarkdown } = await import('@cleocode/core/internal');
+          await emitHandoffMarkdown(
+            emitMarkdownPath,
+            handoffData.handoff as unknown as Parameters<typeof emitHandoffMarkdown>[1],
+            { sessionId: handoffData.sessionId },
+          );
+        }
+      } catch (err) {
+        // Non-fatal: markdown emission is opt-in. Surface a warning to stderr.
+        process.stderr.write(
+          `[cleo] session end --emit-markdown failed: ${(err as Error).message}\n`,
+        );
+      }
+
+      cliOutput(response.data ?? {}, { command: 'session', operation: 'session.end' });
+      return;
+    }
+
     await dispatchFromCli(
       'mutate',
       'session',
@@ -440,6 +487,30 @@ const showCommand = defineCommand({
   },
 });
 
+/**
+ * cleo session drift — detect file-scope drift for the active session (T1594).
+ *
+ * Project-agnostic: compares `git status --porcelain` against the active
+ * task's declared `files[]`. Distinct from `session context-drift`, which
+ * measures task-completion drift across the task graph.
+ */
+const driftCommand = defineCommand({
+  meta: {
+    name: 'drift',
+    description: 'Detect file-scope drift for the active session (project-agnostic)',
+  },
+  args: {
+    'audit-scope': { type: 'string', description: 'Audit log scope (global|local)' },
+  },
+  async run({ args }) {
+    const { detectSessionDrift, getProjectRoot } = await import('@cleocode/core');
+    const projectRoot = await getProjectRoot();
+    const scope = (args['audit-scope'] === 'local' ? 'local' : 'global') as 'global' | 'local';
+    const report = await detectSessionDrift({ projectRoot, auditScope: scope });
+    cliOutput(report, { command: 'session drift', operation: 'session.drift' });
+  },
+});
+
 /** cleo session context-drift — detect context drift in the current or specified session */
 const contextDriftCommand = defineCommand({
   meta: {
@@ -631,6 +702,7 @@ export const sessionCommand = defineCommand({
     gc: gcCommand,
     show: showCommand,
     'context-drift': contextDriftCommand,
+    drift: driftCommand,
     suspend: suspendCommand,
     'record-assumption': recordAssumptionCommand,
     'record-decision': recordDecisionCommand,

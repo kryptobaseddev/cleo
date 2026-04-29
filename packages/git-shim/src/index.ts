@@ -1,19 +1,37 @@
 /**
- * @cleocode/git-shim — Harness-agnostic git branch-mutation fence.
+ * @cleocode/git-shim — Harness-agnostic git fence (T1118 + T1591).
  *
- * Exports the denylist utilities so other packages can inspect the
- * blocked operation table without executing the shim binary.
- *
- * The shim binary itself lives at `dist/shim.js` and is registered
- * as the `git` bin entry in package.json.
+ * Re-exports the denylist + boundary predicates so other packages can inspect
+ * the shim's enforcement without executing the binary. The shim binary itself
+ * lives at `dist/shim.js` and is registered as the `git` bin entry in
+ * package.json.
  *
  * @task T1118
  * @task T1121
+ * @task T1591
  * @packageDocumentation
  */
 
-export type {} from './denylist.js';
+export type { AuditOutcome, AuditRecord } from './audit-log.js';
+export { resolveAuditLogPath, writeAuditRecord } from './audit-log.js';
+export type { BoundaryViolation } from './boundary.js';
+export {
+  commitHasInlineMessage,
+  extractCommitMessages,
+  validateAddPaths,
+  validateCherryPickSource,
+  validateCommitSubject,
+  validateMergeAllowed,
+} from './boundary.js';
 export { findDeniedOp, GIT_OP_DENYLIST, RESTRICTED_ROLES } from './denylist.js';
+export {
+  extractTaskIdFromWorktreePath,
+  isInsideWorktreesRoot,
+  isPathInsideWorktree,
+  resolveActiveWorktree,
+  resolveCleoWorktreesRoot,
+  resolveProjectWorktreeRoot,
+} from './worktree-path.js';
 
 /**
  * Install the shim symlink so that `git` resolves to this shim when

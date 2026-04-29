@@ -18,6 +18,7 @@ export * from './ingesters/nexus-ingester.js';
 export * from './ingesters/test-ingester.js';
 export * from './kms.js';
 export * from './ops.js';
+export * from './proposal-dedup.js';
 export * from './proposal-rate-limiter.js';
 export * from './propose-tick.js';
 export * from './state.js';

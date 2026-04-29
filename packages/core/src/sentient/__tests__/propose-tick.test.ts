@@ -29,6 +29,7 @@ function createTestTasksDb(): DatabaseSync {
   db.exec(`
     CREATE TABLE tasks (
       id TEXT PRIMARY KEY,
+      parent_id TEXT,
       title TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'pending',

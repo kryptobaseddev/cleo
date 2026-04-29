@@ -93,6 +93,8 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_GATE_DEPENDENCY: 45,
   E_VERIFICATION_LOCKED: 46,
   E_ROUND_MISMATCH: 47,
+  // T1590 — Acceptance-criteria immutability after implementation stage
+  E_AC_LOCKED: 48,
 
   // Context Safeguard (50-54)
   E_CONTEXT_WARNING: 50,

@@ -25,6 +25,7 @@ import {
   instantiateTessera,
   listTesseraTemplates,
   paginate,
+  pivotTask,
   showTessera,
 } from '@cleocode/core/internal';
 import { CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from '../../cli/paths.js';
@@ -154,6 +155,13 @@ interface OrchestrateSpawnExecuteParams {
 
 interface OrchestrateValidateParams {
   taskId: string;
+}
+
+interface OrchestratePivotParams {
+  fromTaskId: string;
+  toTaskId: string;
+  reason: string;
+  blocksFrom?: boolean;
 }
 
 interface OrchestrateWorktreeCompleteParams {
@@ -396,6 +404,30 @@ async function orchestrateValidateOp(params: OrchestrateValidateParams) {
   return orchestrateValidate(params.taskId, getProjectRoot());
 }
 
+async function orchestratePivotOp(params: OrchestratePivotParams) {
+  try {
+    const result = await pivotTask(params.fromTaskId, params.toTaskId, {
+      reason: params.reason,
+      blocksFrom: params.blocksFrom,
+      projectRoot: getProjectRoot(),
+    });
+    return { success: true, data: result };
+  } catch (err) {
+    const code = (err as { code?: number })?.code;
+    const message = err instanceof Error ? err.message : String(err);
+    // Map ExitCode 38 (ACTIVE_TASK_REQUIRED) → spec-named E_NOT_ACTIVE
+    let errorCode = 'E_GENERAL';
+    if (code === 2) errorCode = 'E_INVALID_INPUT';
+    else if (code === 4) errorCode = 'E_NOT_FOUND';
+    else if (code === 6) errorCode = 'E_VALIDATION';
+    else if (code === 38) errorCode = 'E_NOT_ACTIVE';
+    return {
+      success: false,
+      error: { code: errorCode, message },
+    };
+  }
+}
+
 async function orchestrateWorktreeCompleteOp(params: OrchestrateWorktreeCompleteParams) {
   return handleWorktreeComplete(params.taskId, getProjectRoot());
 }
@@ -457,6 +489,7 @@ const coreOps = {
   handoff: orchestrateHandoffOp,
   'spawn.execute': orchestrateSpawnExecuteOp,
   validate: orchestrateValidateOp,
+  pivot: orchestratePivotOp,
   'worktree.complete': orchestrateWorktreeCompleteOp,
   'worktree.cleanup': orchestrateWorktreeCleanupOp,
   'worktree.prune': orchestrateWorktreePruneOp,
@@ -823,6 +856,43 @@ export class OrchestrateHandler implements DomainHandler {
           );
         }
 
+        case 'pivot': {
+          if (!params?.fromTaskId)
+            return errorResult(
+              'mutate',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'fromTaskId is required',
+              startTime,
+            );
+          if (!params?.toTaskId)
+            return errorResult(
+              'mutate',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT',
+              'toTaskId is required',
+              startTime,
+            );
+          if (!params?.reason || typeof params.reason !== 'string' || !params.reason.trim())
+            return errorResult(
+              'mutate',
+              'orchestrate',
+              operation,
+              'E_VALIDATION',
+              'reason is required (no silent pivots)',
+              startTime,
+            );
+          const p: OrchestratePivotParams = {
+            fromTaskId: params.fromTaskId as string,
+            toTaskId: params.toTaskId as string,
+            reason: params.reason as string,
+            blocksFrom: params.blocksFrom as boolean | undefined,
+          };
+          return wrapResult(await coreOps.pivot(p), 'mutate', 'orchestrate', operation, startTime);
+        }
+
         case 'worktree.complete': {
           if (!params?.taskId)
             return errorResult(
@@ -1053,6 +1123,7 @@ export class OrchestrateHandler implements DomainHandler {
         'handoff',
         'spawn.execute',
         'validate',
+        'pivot',
         'parallel',
         'tessera.instantiate',
         'fanout',

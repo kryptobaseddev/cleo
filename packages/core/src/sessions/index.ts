@@ -520,6 +520,21 @@ export type {
 } from './briefing.js';
 export { computeBriefing } from './briefing.js';
 export { getDecisionLog, recordDecision } from './decisions.js';
+export type {
+  DetectSessionDriftOptions,
+  DriftAuditEntry,
+  DriftReport,
+} from './drift-watchdog.js';
+export {
+  DEFAULT_PIVOT_THRESHOLD,
+  DRIFT_WATCHDOG_INTERVAL_DEFAULT_SEC,
+  DRIFT_WATCHDOG_INTERVAL_ENV,
+  detectSessionDrift,
+  GLOBAL_AUDIT_RELPATH,
+  getDriftWatchdogIntervalSec,
+  LOCAL_AUDIT_RELPATH,
+  resolveDriftAuditPath,
+} from './drift-watchdog.js';
 export type { FindSessionsParams, MinimalSessionRecord } from './find.js';
 export { findSessions } from './find.js';
 export type {
@@ -538,6 +553,8 @@ export {
   persistHandoff,
   sessionHandoffShow,
 } from './handoff.js';
+export type { HandoffMarkdownContext } from './handoff-markdown.js';
+export { emitHandoffMarkdown, renderHandoffMarkdown } from './handoff-markdown.js';
 export { archiveSessions } from './session-archive.js';
 export { cleanupSessions } from './session-cleanup.js';
 export type { ContextDriftResult } from './session-drift.js';
