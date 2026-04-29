@@ -127,7 +127,7 @@ export class ReleaseHandler implements DomainHandler {
         // release.gate — IVTR gate check (RELEASE-03)
         case 'gate': {
           // Type-safe param extraction via coreOps inferred types (no `as string` cast)
-          const typed = params as ReleaseGateCheckParams;
+          const typed = params as unknown as ReleaseGateCheckParams;
           if (!typed?.epicId)
             return errorResult(
               'query',
@@ -142,7 +142,7 @@ export class ReleaseHandler implements DomainHandler {
 
         // release.ivtr-suggest — IVTR auto-suggest (RELEASE-07)
         case 'ivtr-suggest': {
-          const typed = params as ReleaseIvtrSuggestParams;
+          const typed = params as unknown as ReleaseIvtrSuggestParams;
           if (!typed?.taskId)
             return errorResult(
               'query',
@@ -192,7 +192,7 @@ export class ReleaseHandler implements DomainHandler {
       switch (operation) {
         // release.gate — IVTR gate check (RELEASE-03, no DB writes)
         case 'gate': {
-          const typed = params as ReleaseGateCheckParams;
+          const typed = params as unknown as ReleaseGateCheckParams;
           if (!typed?.epicId)
             return errorResult(
               'mutate',
@@ -207,7 +207,7 @@ export class ReleaseHandler implements DomainHandler {
 
         // release.ivtr-suggest — IVTR auto-suggest (RELEASE-07, no DB writes)
         case 'ivtr-suggest': {
-          const typed = params as ReleaseIvtrSuggestParams;
+          const typed = params as unknown as ReleaseIvtrSuggestParams;
           if (!typed?.taskId)
             return errorResult(
               'mutate',
