@@ -90,23 +90,33 @@ vi.mock('@cleocode/core/internal', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock @cleocode/core (used by _error.ts for logger)
+// Mock @cleocode/core (used by _error.ts for logger + engineError/engineSuccess)
+//
+// _error.ts imports engineError, engineSuccess, and getLogger from @cleocode/core.
+// We must use importOriginal() to preserve the canonical engineError/engineSuccess
+// helpers; otherwise _error.ts throws "No 'engineError' export is defined on the
+// '@cleocode/core' mock". Only getLogger is replaced with a no-op stub so the
+// pino logger doesn't write to stderr during tests.
 // ---------------------------------------------------------------------------
 
-vi.mock('@cleocode/core', () => ({
-  getLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  })),
-}));
+vi.mock('@cleocode/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/core')>();
+  return {
+    ...actual,
+    getLogger: vi.fn(() => ({
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    })),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import type { Session } from '@cleocode/contracts';
+import type { Session } from '@cleocode/core';
 import { lifecycleProgress, lifecycleReset, lifecycleSkip } from '../lifecycle-engine.js';
 
 // ---------------------------------------------------------------------------

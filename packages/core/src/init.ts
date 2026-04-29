@@ -52,6 +52,7 @@ import {
   ensureConfig,
   ensureGitignore,
   ensureProjectContext,
+  ensureProjectGitInitialCommit,
   ensureProjectInfo,
   getPackageRoot,
   removeCleoFromRootGitignore,
@@ -669,6 +670,27 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     );
   }
 
+  // T1244: Materialize an empty initial commit on the project's git repo when
+  // HEAD is unborn. Without this, `cleo orchestrate spawn` cannot resolve the
+  // base ref and falls back to a no-isolation worktree with a WARN.
+  // Idempotent — does nothing when HEAD already points at a commit.
+  try {
+    const initialCommitResult = await ensureProjectGitInitialCommit(projRoot);
+    if (initialCommitResult.action === 'created') {
+      created.push('git: empty initial commit (so HEAD resolves for worktree provisioning)');
+    } else if (
+      initialCommitResult.action === 'skipped' &&
+      initialCommitResult.details &&
+      initialCommitResult.details.startsWith('Could not create')
+    ) {
+      warnings.push(initialCommitResult.details);
+    }
+  } catch (err) {
+    warnings.push(
+      `Initial commit step failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // T4700: Migrate legacy agent-output directories before proceeding
   try {
     const migrationResult = migrateAgentOutputs(projRoot, cleoDir);
@@ -847,6 +869,29 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     await deployStarterBundle(cleoDir, created, warnings);
   } catch (err) {
     warnings.push(`Starter bundle deploy: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // T1242: Force-reinstall project-tier agents into the registry. Without this
+  // step, `deployStarterBundle` lays down `.cant` files on disk but leaves the
+  // global `signaldock.db:agents` rows out of sync — producing D-002 / D-003
+  // findings the moment `cleo agent doctor` runs over a previously-init'd
+  // workspace. Force semantics ensure we overwrite stale rows from prior init
+  // runs (different project paths sharing the same global DB).
+  try {
+    const { forceInstallProjectTierAgents } = await import('./agents/seed-install.js');
+    const installResult = await forceInstallProjectTierAgents(projRoot);
+    if (installResult.installed.length > 0) {
+      created.push(
+        `agents: registered ${installResult.installed.length} project-tier .cant agents`,
+      );
+    }
+    for (const failure of installResult.failed) {
+      warnings.push(`agent install failed (${failure.cantPath}): ${failure.error}`);
+    }
+  } catch (err) {
+    warnings.push(
+      `project-tier agent registration failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // T283 / T1272: Optional install of canonical CleoOS seed agent personas.
