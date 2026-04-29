@@ -19,6 +19,7 @@
  * @epic T4454
  */
 
+import { release } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
@@ -255,6 +256,66 @@ const channelCommand = defineCommand({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Canonical 4-step release pipeline (T1597 / ADR-063)
+// ---------------------------------------------------------------------------
+
+/** cleo release start — Step 1: validate version, capture branch, persist handle. */
+const startCommand = defineCommand({
+  meta: {
+    name: 'start',
+    description: 'Begin a release (validates version, captures branch, persists handle)',
+  },
+  args: {
+    version: { type: 'positional', description: 'Version to release', required: true },
+    epic: { type: 'string', description: 'Epic ID this release ships' },
+    branch: { type: 'string', description: 'Override detected branch' },
+  },
+  async run({ args }) {
+    const handle = await release.releaseStart(args.version, {
+      epicId: args.epic as string | undefined,
+      branch: args.branch as string | undefined,
+    });
+    process.stdout.write(`${JSON.stringify(handle, null, 2)}\n`);
+  },
+});
+
+/** cleo release verify — Step 2: run gates + audit child tasks of release epic. */
+const verifyCommand = defineCommand({
+  meta: { name: 'verify', description: 'Verify release gates + child task gate state' },
+  async run() {
+    const result = await release.releaseVerify(release.loadActiveReleaseHandle(process.cwd()));
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (!result.passed) process.exit(1);
+  },
+});
+
+/** cleo release publish — Step 3: invoke project-context publish.command. */
+const publishCommand = defineCommand({
+  meta: { name: 'publish', description: 'Publish release artifact (project-context driven)' },
+  args: { 'dry-run': { type: 'boolean', description: 'Print command without executing' } },
+  async run({ args }) {
+    const result = await release.releasePublish(release.loadActiveReleaseHandle(process.cwd()), {
+      dryRun: args['dry-run'] === true,
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (!result.success) process.exit(1);
+  },
+});
+
+/** cleo release reconcile — Step 4: run post-release invariants, auto-complete tasks. */
+const reconcileCommand = defineCommand({
+  meta: { name: 'reconcile', description: 'Run post-release invariants for the active release' },
+  args: { 'dry-run': { type: 'boolean', description: 'Preview without mutations' } },
+  async run({ args }) {
+    const result = await release.releaseReconcile(release.loadActiveReleaseHandle(process.cwd()), {
+      dryRun: args['dry-run'] === true,
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (!result.success) process.exit(1);
+  },
+});
+
 /**
  * Root release command group — release lifecycle management.
  *
@@ -271,6 +332,11 @@ export const releaseCommand = defineCommand({
     rollback: rollbackCommand,
     'rollback-full': rollbackFullCommand,
     channel: channelCommand,
+    // Canonical 4-step pipeline (T1597 / ADR-063)
+    start: startCommand,
+    verify: verifyCommand,
+    publish: publishCommand,
+    reconcile: reconcileCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

@@ -124,6 +124,20 @@ export {
 // Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
 export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';
 export { exportDocument } from './docs/export-document.js';
+// Git hooks (T1588) — project-agnostic POSIX commit-msg + pre-push T-ID enforcement
+export type {
+  CleoHookName,
+  InstallCleoHooksOptions,
+  InstallCleoHooksResult,
+} from './git/hooks-install.js';
+export {
+  CLEO_HOOK_NAMES,
+  CLEO_HOOK_SENTINEL,
+  installCleoHooks,
+  isCleoManagedHook,
+  resolveGitDir,
+  resolveHooksDir,
+} from './git/hooks-install.js';
 // Harness
 export type {
   HarnessSpawnCapability,
@@ -446,6 +460,9 @@ export {
   nexusUpdateIndexStats,
 } from './nexus/registry.js';
 export { getSharingStatus } from './nexus/sharing/index.js';
+// Orchestrate (T1596) — context-switch primitives
+export type { PivotOptions, PivotResult } from './orchestrate/pivot.js';
+export { PIVOT_AUDIT_FILE, pivotTask } from './orchestrate/pivot.js';
 // Context
 export { estimateContext } from './orchestration/context.js';
 // Orchestration
@@ -638,6 +655,8 @@ export {
   getLastHandoff,
   persistHandoff,
 } from './sessions/handoff.js';
+export type { HandoffMarkdownContext } from './sessions/handoff-markdown.js';
+export { emitHandoffMarkdown, renderHandoffMarkdown } from './sessions/handoff-markdown.js';
 // Sessions (additional)
 export {
   archiveSessions,

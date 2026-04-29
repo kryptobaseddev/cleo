@@ -212,7 +212,7 @@ Pros: market value of SDK. Cons: SDK on inconsistent surface ships drift to cons
 ## References
 
 - T1449 epic + 11 children
-- T1435 Option A failure analysis (handoff: `.cleo/agent-outputs/NEXT-SESSION-HANDOFF.md`)
+- T1435 Option A failure analysis (canonical state in tasks.db; run `cleo briefing` to read it — markdown handoff files are NOT a source of truth, see T1593)
 - T1436 OpsFromCore<C> helper (cherry-picked to T1450 from `feat/t1435-dispatch-ops-inference`)
 - Council verdict 2026-04-25: `~/.claude/skills/council/.cleo/council-runs/20260425T143444Z-e72b81ef/verdict.md`
 - Orchestrator audit: `.cleo/agent-outputs/T1449-CORE-API-AUDIT.md`

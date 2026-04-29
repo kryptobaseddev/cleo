@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { renderTree } from '../system.js';
+import { renderBriefing, renderTree } from '../system.js';
 
 // ---------------------------------------------------------------------------
 // T1194: renderTree handles data.waves
@@ -286,5 +286,100 @@ describe('renderTreeNodes quiet mode — connectors preserved (T1198)', () => {
     };
     const output = renderTree(data, true);
     expect(output).not.toContain('Should not appear');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T1593: renderBriefing — composite session-start view from tasks.db + brain.db
+// ---------------------------------------------------------------------------
+
+describe('renderBriefing — composite session-start view (T1593)', () => {
+  const sampleBriefing = {
+    lastSession: {
+      endedAt: '2026-04-28T23:18:20.909Z',
+      duration: 487,
+      handoff: {
+        lastTask: null,
+        tasksCompleted: ['T100', 'T101'],
+        tasksCreated: ['T200'],
+        decisionsRecorded: 3,
+        nextSuggested: ['T942'],
+        openBlockers: [],
+        openBugs: [],
+        note: 'Big day. Shipped foundation.',
+      },
+    },
+    currentTask: {
+      id: 'T1593',
+      title: 'Briefing as canonical handoff',
+      status: 'active',
+    },
+    nextTasks: [
+      { id: 'T1587', title: 'Worktree integration', leverage: 2, score: 110 },
+      { id: 'T1564', title: 'Red tests', leverage: 1, score: 105 },
+    ],
+    openBugs: [],
+    blockedTasks: [{ id: 'T1568', title: 'Migrate task-engine', blockedBy: ['T1565'] }],
+    activeEpics: [{ id: 'T1337', title: 'Auth epic', completionPercent: 0 }],
+    memoryContext: {
+      recentDecisions: [],
+      recentObservations: [
+        { id: 'O-c87e8c0c', title: 'session-journal substrate', date: '2026-04-24' },
+      ],
+    },
+  };
+
+  it('renders the briefing header advertising the source of truth', () => {
+    const out = renderBriefing(sampleBriefing as Record<string, unknown>, false);
+    expect(out).toContain('CLEO Session Briefing');
+    expect(out).toContain('tasks.db + brain.db');
+  });
+
+  it('renders Last Session block with note + completed tasks', () => {
+    const out = renderBriefing(sampleBriefing as Record<string, unknown>, false);
+    expect(out).toContain('Last Session');
+    expect(out).toContain('Completed:');
+    expect(out).toContain('T100');
+    expect(out).toContain('T101');
+    expect(out).toContain('Big day. Shipped foundation.');
+  });
+
+  it('renders Current Task line', () => {
+    const out = renderBriefing(sampleBriefing as Record<string, unknown>, false);
+    expect(out).toContain('Current Task');
+    expect(out).toContain('T1593');
+  });
+
+  it('renders Next Suggested with leverage and score', () => {
+    const out = renderBriefing(sampleBriefing as Record<string, unknown>, false);
+    expect(out).toContain('Next Suggested');
+    expect(out).toContain('T1587');
+    expect(out).toContain('leverage: 2');
+    expect(out).toContain('score: 110');
+  });
+
+  it('renders Active Blockers and Open Epics', () => {
+    const out = renderBriefing(sampleBriefing as Record<string, unknown>, false);
+    expect(out).toContain('Active Blockers');
+    expect(out).toContain('T1568');
+    expect(out).toContain('Open Epics');
+    expect(out).toContain('T1337');
+  });
+
+  it('renders BRAIN observations from memoryContext', () => {
+    const out = renderBriefing(sampleBriefing as Record<string, unknown>, false);
+    expect(out).toContain('Recent Observations');
+    expect(out).toContain('O-c87e8c0c');
+  });
+
+  it('quiet mode emits only nextTask IDs (one per line)', () => {
+    const out = renderBriefing(sampleBriefing as Record<string, unknown>, true);
+    expect(out).toBe('T1587\nT1564');
+  });
+
+  it('handles empty/missing briefing data gracefully (fresh session)', () => {
+    const out = renderBriefing({} as Record<string, unknown>, false);
+    expect(out).toContain('CLEO Session Briefing');
+    expect(out).toContain('fresh session');
   });
 });
