@@ -157,6 +157,19 @@ export const updateCommand = defineCommand({
       description:
         'Task scope / granularity axis (project|feature|unit) — orthogonal to --type (T944)',
     },
+    /**
+     * Operator-supplied justification required to override the
+     * acceptance-criteria immutability guard once a task has entered the
+     * implementation pipeline stage. Audit log: `.cleo/audit/ac-changes.jsonl`.
+     *
+     * @epic T1586 Foundation Lockdown
+     * @task T1590
+     */
+    reason: {
+      type: 'string',
+      description:
+        'Operator override reason for AC-immutability guard (required to mutate --acceptance once stage >= implementation; T1590)',
+    },
   },
   async run({ args, cmd }) {
     if (!args.taskId) {
@@ -199,6 +212,8 @@ export const updateCommand = defineCommand({
     if (args.role !== undefined) params['role'] = args.role;
     if (args.kind !== undefined) params['role'] = params['role'] ?? args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
+    // T1590: AC-immutability override reason — forwarded as `reason`.
+    if (args.reason !== undefined) params['reason'] = args.reason;
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
   },

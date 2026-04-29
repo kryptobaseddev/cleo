@@ -161,6 +161,7 @@ export type {
   OwnerOverrideConfig,
   WorktreeCleanupResult,
   WorktreeCompleteResult,
+  WorktreeMergeResult,
   WorktreeSpawnResult,
 } from './branch-lock.js';
 // === Branch-Lock + Owner-Auth Types (T1118) ===
@@ -980,6 +981,15 @@ export type {
   PlaybookRunStatus,
 } from './playbook.js';
 export type { AdapterPathProvider } from './provider-paths.js';
+// === Release Pipeline (T1597 / ADR-063) ===
+export type {
+  PublishResult,
+  ReleaseGateStatus,
+  ReleaseHandle,
+  ReleaseReconcileResult,
+  ReleaseVersionScheme,
+  VerifyResult,
+} from './release/pipeline.js';
 // === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
 export type {
   BottleneckTask,

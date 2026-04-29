@@ -660,6 +660,13 @@ export async function taskUpdate(
     role?: string;
     /** Task scope axis — granularity of work (T944). */
     scope?: string;
+    /**
+     * Operator-supplied justification required to override the
+     * acceptance-criteria immutability guard at locked pipeline stages.
+     *
+     * @task T1590
+     */
+    reason?: string;
   },
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
@@ -689,6 +696,8 @@ export async function taskUpdate(
         // T944: orthogonal axes
         role: updates.role as import('@cleocode/contracts').TaskRole | undefined,
         scope: updates.scope as import('@cleocode/contracts').TaskScope | undefined,
+        // T1590: forward operator override reason to AC-immutability guard.
+        reason: updates.reason,
       },
       projectRoot,
       accessor,

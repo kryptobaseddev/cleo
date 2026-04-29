@@ -328,6 +328,18 @@ export type {
 } from './cleo.js';
 // Cleo facade class
 export { Cleo } from './cleo.js';
+// Git hooks (T1588) — project-agnostic POSIX commit-msg + pre-push T-ID enforcement
+export {
+  CLEO_HOOK_NAMES,
+  CLEO_HOOK_SENTINEL,
+  type CleoHookName,
+  type InstallCleoHooksOptions,
+  type InstallCleoHooksResult,
+  installCleoHooks,
+  isCleoManagedHook,
+  resolveGitDir,
+  resolveHooksDir,
+} from './git/hooks-install.js';
 // Hooks
 export { HookRegistry, hooks } from './hooks/registry.js';
 // Lifecycle
@@ -384,8 +396,10 @@ export {
 } from './mvi-helpers.js';
 // Reconciliation
 export { reconcile } from './reconciliation/index.js';
+export type { DriftReport } from './sessions/index.js';
 // Sessions
 export {
+  detectSessionDrift,
   endSession,
   listSessions,
   resumeSession,

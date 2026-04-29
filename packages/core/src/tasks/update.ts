@@ -20,6 +20,7 @@ import { CleoError } from '../errors.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
+import { enforceAcceptanceImmutability } from './ac-immutability.js';
 import {
   normalizePriority,
   validateLabels,
@@ -100,6 +101,20 @@ export interface UpdateTaskOptions {
    * @task T944
    */
   scope?: TaskScope;
+  /**
+   * Operator-supplied justification required to override the
+   * acceptance-criteria immutability guard once a task has entered the
+   * implementation pipeline stage. When supplied, the override is recorded
+   * in `.cleo/audit/ac-changes.jsonl` together with the before/after AC.
+   *
+   * Without `--reason`, an attempt to mutate `acceptance` on a task in
+   * stage `implementation` (or any later stage) is rejected with
+   * {@link ExitCode.AC_LOCKED}.
+   *
+   * @epic T1586 Foundation Lockdown
+   * @task T1590
+   */
+  reason?: string;
 }
 
 /** Result of updating a task. */
@@ -158,6 +173,18 @@ export async function updateTask(
       { fix: updateValidation.fix },
     );
   }
+
+  // T1590 — AC-immutability guard. Once a task has entered the
+  // implementation pipeline stage (or any later stage), changes to
+  // `acceptance` require an explicit operator `--reason`, which is
+  // appended to `.cleo/audit/ac-changes.jsonl`. Without a reason, the
+  // attempt is rejected with E_AC_LOCKED.
+  enforceAcceptanceImmutability({
+    task,
+    newAcceptance: options.acceptance,
+    reason: options.reason,
+    projectRoot: cwd,
+  });
 
   // Update fields
   if (options.title !== undefined) {

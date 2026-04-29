@@ -60,6 +60,22 @@ export enum ExitCode {
   GATE_DEPENDENCY = 45,
   VERIFICATION_LOCKED = 46,
   ROUND_MISMATCH = 47,
+  /**
+   * E_AC_LOCKED — Acceptance criteria are locked because the task has
+   * advanced into (or past) the implementation pipeline stage.
+   *
+   * Reframing AC after work has begun is an anti-pattern (the
+   * "T-THIN-WRAPPER feature-complete" failure mode where AC was
+   * silently rewritten to match what shipped). To override the lock,
+   * the operator MUST supply an explicit `--reason "<text>"` which is
+   * appended to `.cleo/audit/ac-changes.jsonl`.
+   *
+   * Locked stages: implementation, validation, testing, release, contribution.
+   *
+   * @epic T1586 Foundation Lockdown
+   * @task T1590 AC-immutability guard
+   */
+  AC_LOCKED = 48,
 
   // === CONTEXT SAFEGUARD (50-54) ===
   CONTEXT_WARNING = 50,

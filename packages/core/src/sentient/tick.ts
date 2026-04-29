@@ -25,6 +25,11 @@
 import { spawn } from 'node:child_process';
 import type { Task } from '@cleocode/contracts';
 import {
+  type ReVerifyOptions,
+  reVerifyWorkerReport,
+  type WorkerReport,
+} from '../orchestrate/worker-verify.js';
+import {
   incrementStats,
   patchSentientState,
   readSentientState,
@@ -184,6 +189,25 @@ export interface TickOptions {
    * @task T1145
    */
   runDeriverBatch?: boolean;
+  /**
+   * Override for the orchestrator-side worker re-verification gate (T1589).
+   *
+   * When omitted, the default {@link reVerifyWorkerReport} runs `tool:test`
+   * (project-resolved per ADR-061) and compares the worker's claimed
+   * touched-files against `git status --porcelain`. Tests inject a stub to
+   * force accept/reject without spawning real subprocesses.
+   *
+   * @task T1589
+   */
+  reVerify?: (report: WorkerReport, options: ReVerifyOptions) => Promise<{ accepted: boolean }>;
+  /**
+   * Disable the worker re-verification gate entirely. Defaults to `false`
+   * (gate enabled). Only set to `true` for `--dry-run` ticks or controlled
+   * test paths that have already verified the worker by other means.
+   *
+   * @task T1589
+   */
+  skipReVerify?: boolean;
 }
 
 /** Result of a spawn invocation. */
@@ -523,6 +547,48 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
 
   // -- Classify + record -----------------------------------------------------
   if (spawnResult.exitCode === 0) {
+    // T1589: orchestrator-side re-verification gate. Worker self-reports
+    // exit=0 but we MUST NOT trust it without re-running gates against
+    // ground truth (lie #4 in HONEST-HANDOFF-2026-04-28.md). The gate is
+    // skipped under --dry-run and when explicitly disabled; tests inject
+    // an `options.reVerify` stub instead of spawning real subprocesses.
+    const skipReVerify = options.skipReVerify === true || options.dryRun === true;
+    if (!skipReVerify && options.reVerify !== undefined) {
+      const report: WorkerReport = {
+        taskId: task.id,
+        selfReportSuccess: true,
+        evidenceAtoms: ['tool:test'],
+        touchedFiles: [],
+      };
+      const verdict = await options.reVerify(report, { projectRoot });
+      if (!verdict.accepted) {
+        const currentAttempts = existingStuck?.attempts ?? 0;
+        const nextAttempts = currentAttempts + 1;
+        const failureReason = `worker re-verify rejected (T1589): exit=0 but gates failed`;
+        await writeFailureReceipt(
+          projectRoot,
+          task.id,
+          nextAttempts,
+          spawnResult.exitCode,
+          failureReason,
+        );
+        await incrementStats(statePath, { tasksFailed: 1, ticksExecuted: 1 });
+        await patchSentientState(statePath, {
+          activeTaskId: null,
+          lastTickAt: new Date(Date.now()).toISOString(),
+        });
+        return {
+          kind: 'failure',
+          taskId: task.id,
+          detail: failureReason,
+        };
+      }
+    }
+    // Reference reVerifyWorkerReport so the import is retained even when
+    // tests inject a stub via options.reVerify (production callers can
+    // assign options.reVerify = reVerifyWorkerReport).
+    void reVerifyWorkerReport;
+
     await writeSuccessReceipt(projectRoot, task.id, spawnResult.exitCode);
     // Clear stuck entry on success.
     const post = await readSentientState(statePath);

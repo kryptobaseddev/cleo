@@ -2412,6 +2412,47 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
+  // T1596 — pivot: first-class context-switch verb that audits + memorializes
+  {
+    gateway: 'mutate',
+    domain: 'orchestrate',
+    operation: 'pivot',
+    description:
+      'orchestrate.pivot (mutate) — record an audited context switch from one task to another (replaces silent reframes)',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['fromTaskId', 'toTaskId', 'reason'],
+    params: [
+      {
+        name: 'fromTaskId',
+        type: 'string',
+        required: true,
+        description: 'Currently-active task ID being paused',
+        cli: { positional: true },
+      },
+      {
+        name: 'toTaskId',
+        type: 'string',
+        required: true,
+        description: 'Task ID becoming active in the current session',
+        cli: { positional: true },
+      },
+      {
+        name: 'reason',
+        type: 'string',
+        required: true,
+        description: 'Free-form rationale for the pivot — REQUIRED, no silent pivots',
+      },
+      {
+        name: 'blocksFrom',
+        type: 'boolean',
+        required: false,
+        description:
+          'When true (default), adds toTaskId as a dependency on fromTaskId so it cannot complete before the pivot resolves',
+      },
+    ],
+  },
   // parallel.start and parallel.end merged into orchestrate.parallel via action param (T5615)
   {
     gateway: 'mutate',
