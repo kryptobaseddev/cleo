@@ -36,6 +36,12 @@ function adaptResult<T>(result: {
   error?: { code: string; message: string; details?: Record<string, unknown> };
 }): EngineResult<T> {
   if (result.success) {
+    if (result.data === undefined) {
+      return {
+        success: false,
+        error: { code: 'E_INTERNAL', message: 'Template parser succeeded with no data' },
+      };
+    }
     return { success: true, data: result.data };
   }
   return {

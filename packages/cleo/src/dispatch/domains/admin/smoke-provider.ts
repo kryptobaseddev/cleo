@@ -366,11 +366,11 @@ export async function smokeProvider(
   if (!passed) {
     return {
       success: false,
-      data: result,
       error: {
         code: 'E_SMOKE_PROVIDER_FAIL',
         message: `ADR-049 probe FAILED for provider "${providerId}": ${partial.failureReason}`,
         exitCode: 1,
+        details: { result },
       },
     };
   }

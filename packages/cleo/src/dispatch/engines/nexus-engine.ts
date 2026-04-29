@@ -1805,6 +1805,34 @@ export async function nexusProjectsClean(opts: {
   matchUnhealthy?: boolean;
   matchNeverIndexed?: boolean;
 }): Promise<EngineResult<NexusProjectsCleanResult>> {
+  // Validate at least one criteria flag is given. Routed via dispatch so the
+  // CLI maps E_NO_CRITERIA → exit code 6 (validation error).
+  const hasCriteria =
+    typeof opts.pattern === 'string' ||
+    opts.includeTemp === true ||
+    opts.includeTests === true ||
+    opts.matchUnhealthy === true ||
+    opts.matchNeverIndexed === true;
+  if (!hasCriteria) {
+    return engineError(
+      'E_NO_CRITERIA',
+      'At least one criteria flag is required: --include-temp, --include-tests, --pattern, --unhealthy, or --never-indexed',
+    );
+  }
+
+  // Validate regex pattern at the engine boundary so dispatch can route the
+  // typed error code without leaking implementation details to the CLI.
+  if (typeof opts.pattern === 'string') {
+    try {
+      new RegExp(opts.pattern);
+    } catch (e) {
+      return engineError(
+        'E_INVALID_PATTERN',
+        `Invalid regex pattern '${opts.pattern}': ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   try {
     const { cleanProjects } = await import('@cleocode/core/nexus/projects-clean.js' as string);
     const result = await (

@@ -126,9 +126,8 @@ export class ReleaseHandler implements DomainHandler {
       switch (operation) {
         // release.gate — IVTR gate check (RELEASE-03)
         case 'gate': {
-          // Type-safe param extraction via coreOps inferred types (no `as string` cast)
-          const typed = params as ReleaseGateCheckParams;
-          if (!typed?.epicId)
+          const epicId = typeof params?.epicId === 'string' ? params.epicId : undefined;
+          if (!epicId)
             return errorResult(
               'query',
               'release',
@@ -137,13 +136,15 @@ export class ReleaseHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
+          const force = typeof params?.force === 'boolean' ? params.force : false;
+          const typed: ReleaseGateCheckParams = { epicId, force };
           return wrapResult(await coreOps.gate(typed), 'query', 'release', operation, startTime);
         }
 
         // release.ivtr-suggest — IVTR auto-suggest (RELEASE-07)
         case 'ivtr-suggest': {
-          const typed = params as ReleaseIvtrSuggestParams;
-          if (!typed?.taskId)
+          const taskId = typeof params?.taskId === 'string' ? params.taskId : undefined;
+          if (!taskId)
             return errorResult(
               'query',
               'release',
@@ -152,6 +153,7 @@ export class ReleaseHandler implements DomainHandler {
               'taskId is required',
               startTime,
             );
+          const typed: ReleaseIvtrSuggestParams = { taskId };
           return wrapResult(
             await coreOps['ivtr-suggest'](typed),
             'query',
@@ -192,8 +194,8 @@ export class ReleaseHandler implements DomainHandler {
       switch (operation) {
         // release.gate — IVTR gate check (RELEASE-03, no DB writes)
         case 'gate': {
-          const typed = params as ReleaseGateCheckParams;
-          if (!typed?.epicId)
+          const epicId = typeof params?.epicId === 'string' ? params.epicId : undefined;
+          if (!epicId)
             return errorResult(
               'mutate',
               'release',
@@ -202,13 +204,15 @@ export class ReleaseHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
+          const force = typeof params?.force === 'boolean' ? params.force : false;
+          const typed: ReleaseGateCheckParams = { epicId, force };
           return wrapResult(await coreOps.gate(typed), 'mutate', 'release', operation, startTime);
         }
 
         // release.ivtr-suggest — IVTR auto-suggest (RELEASE-07, no DB writes)
         case 'ivtr-suggest': {
-          const typed = params as ReleaseIvtrSuggestParams;
-          if (!typed?.taskId)
+          const taskId = typeof params?.taskId === 'string' ? params.taskId : undefined;
+          if (!taskId)
             return errorResult(
               'mutate',
               'release',
@@ -217,6 +221,7 @@ export class ReleaseHandler implements DomainHandler {
               'taskId is required',
               startTime,
             );
+          const typed: ReleaseIvtrSuggestParams = { taskId };
           return wrapResult(
             await coreOps['ivtr-suggest'](typed),
             'mutate',
