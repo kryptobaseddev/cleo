@@ -1437,16 +1437,18 @@ export {
 } from './skills/precedence-integration.js';
 // Spawn
 export { initializeDefaultAdapters, spawnRegistry } from './spawn/adapter-registry.js';
-// Branch-lock engine (T1118, T1462)
+// Branch-lock engine (T1118, T1462, T1587, T1601)
 export type { PruneWorktreeResult } from './spawn/branch-lock.js';
 export {
   applyFsHarden,
   buildAgentEnv,
   buildWorktreeSpawnResult,
   completeAgentWorktree,
+  completeAgentWorktreeViaMerge,
   createAgentWorktree,
   detectFsHardenCapabilities,
   ensureGitShimDir,
+  getDefaultBranch,
   getGitRoot,
   pruneOrphanedWorktrees,
   pruneWorktree,
