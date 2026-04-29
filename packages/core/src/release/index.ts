@@ -88,7 +88,7 @@ export {
 // Type-only export: ops.ts declares `releaseCoreOps` via `export declare const`
 // for `typeof` inference; there is NO runtime value. Re-exporting as `type`
 // avoids ERR_EXPORT_NOT_DEFINED when ESM loaders evaluate this barrel.
-export type { releaseCoreOps, ReleaseIvtrSuggestParams } from './ops.js';
+export type { ReleaseIvtrSuggestParams, releaseCoreOps } from './ops.js';
 // T1597 release pipeline (canonical 4-step flow)
 export {
   loadActiveReleaseHandle,
