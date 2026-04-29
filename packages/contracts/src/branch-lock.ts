@@ -79,6 +79,37 @@ export interface WorktreeCompleteResult {
 }
 
 /**
+ * Result from the orchestrate.worktree.complete-via-merge operation.
+ *
+ * Replaces {@link WorktreeCompleteResult} (cherry-pick) per ADR-062.
+ * Preserves the full agent commit graph instead of rewriting SHAs, so
+ * `git log --grep "T<id>"` returns full provenance.
+ *
+ * @task T1587
+ * @adr ADR-062
+ */
+export interface WorktreeMergeResult {
+  /** Task ID that was integrated. */
+  taskId: string;
+  /** Branch the worktree was merged into (project-agnostic — `main`/`master`/etc). */
+  targetBranch: string;
+  /** Whether the merge succeeded. */
+  merged: boolean;
+  /** SHA of the merge commit on target (empty when merge skipped — no commits ahead). */
+  mergeCommit: string;
+  /** Number of agent commits preserved by the merge (ahead of target before merge). */
+  commitCount: number;
+  /** Whether the worktree branch was successfully rebased onto target before merge. */
+  rebased: boolean;
+  /** Whether the worktree filesystem entry was removed. */
+  worktreeRemoved: boolean;
+  /** Whether `task/<taskId>` was deleted post-merge. */
+  branchDeleted: boolean;
+  /** Error message if any step failed (non-fatal — caller decides). */
+  error?: string;
+}
+
+/**
  * Result from the orchestrate.worktree.cleanup operation.
  *
  * @task T1118
