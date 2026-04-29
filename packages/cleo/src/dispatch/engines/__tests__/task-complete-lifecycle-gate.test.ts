@@ -83,6 +83,8 @@ vi.mock('@cleocode/core/internal', () => {
 });
 
 // Mock @cleocode/core for getLogger used by the IVTR bypass path
+// engineError / engineSuccess must mirror the canonical constructors in
+// packages/core/src/engine-result.ts — _error.ts in dispatch delegates to them.
 vi.mock('@cleocode/core', () => ({
   getLogger: vi.fn(() => ({
     info: vi.fn(),
@@ -90,6 +92,32 @@ vi.mock('@cleocode/core', () => ({
     error: vi.fn(),
     debug: vi.fn(),
   })),
+  // Canonical EngineResult constructors (T1585B: stale-mock fix).
+  engineError: vi.fn(
+    (
+      code: string,
+      message: string,
+      options?: {
+        exitCode?: number;
+        details?: unknown;
+        fix?: string;
+        alternatives?: Array<{ action: string; command: string }>;
+      },
+    ) => ({
+      success: false,
+      error: {
+        code,
+        message,
+        ...(options?.exitCode !== undefined ? { exitCode: options.exitCode } : {}),
+        ...(options?.details !== undefined ? { details: options.details } : {}),
+        ...(options?.fix !== undefined ? { fix: options.fix } : {}),
+        ...(options?.alternatives ? { alternatives: options.alternatives } : {}),
+      },
+    }),
+  ),
+  engineSuccess: vi.fn((data: unknown, page?: unknown) =>
+    page ? { success: true, data, page } : { success: true, data },
+  ),
   // Stub other symbols that may be re-exported via task-engine
   completeTask: vi.fn(),
   getAccessor: vi.fn(),

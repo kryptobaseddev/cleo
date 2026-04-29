@@ -942,6 +942,66 @@ export async function runUpgrade(
       /* best-effort */
     }
 
+    // Reconcile agent registry against on-disk .cant files (T1243).
+    // After seed-agents are deployed to disk, sync the global signaldock.db:agents
+    // table so it reflects current truth. Reuses cleo agent doctor's
+    // buildDoctorReport + reconcileDoctor (no duplication). Idempotent and
+    // non-destructive: applies only D-002 orphan-row deletes + D-003 hash
+    // refreshes by default, plus D-010 legacy-JSON import (importLegacyJson).
+    // Path migration (D-008) is opt-in and not enabled here to avoid mutating
+    // user paths during routine upgrade.
+    try {
+      const [
+        { buildDoctorReport, reconcileDoctor },
+        { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath },
+        { createRequire },
+      ] = await Promise.all([
+        import('./store/agent-doctor.js'),
+        import('./store/signaldock-sqlite.js'),
+        import('node:module'),
+      ]);
+      const nodeSqlite = createRequire(import.meta.url)(
+        'node:sqlite',
+      ) as typeof import('node:sqlite');
+      const { DatabaseSync } = nodeSqlite;
+
+      await ensureGlobalSignaldockDb();
+      const sdPath = getGlobalSignaldockDbPath();
+      const sdDb = new DatabaseSync(sdPath);
+      sdDb.exec('PRAGMA foreign_keys = ON');
+      try {
+        const report = await buildDoctorReport(sdDb, { projectRoot: projectRootForMaint });
+        if (report.findings.length === 0) {
+          actions.push({
+            action: 'agent_registry_sync',
+            status: 'skipped',
+            details: 'Agent registry in sync with .cant files (no drift)',
+          });
+        } else {
+          const reconciled = await reconcileDoctor(sdDb, report.findings, {
+            importLegacyJson: true,
+          });
+          actions.push({
+            action: 'agent_registry_sync',
+            status: reconciled.repaired.length > 0 ? 'applied' : 'skipped',
+            details:
+              `Findings: ${report.summary.error} error(s), ${report.summary.warn} warning(s), ${report.summary.info} info; ` +
+              `repaired: ${reconciled.repaired.length > 0 ? reconciled.repaired.join(', ') : '(none)'}; ` +
+              `skipped: ${reconciled.skipped.length > 0 ? reconciled.skipped.join(', ') : '(none)'}`,
+          });
+        }
+      } finally {
+        sdDb.close();
+      }
+    } catch (err) {
+      actions.push({
+        action: 'agent_registry_sync',
+        status: 'error',
+        details: `Agent registry reconciliation failed: ${err instanceof Error ? err.message : String(err)}`,
+        fix: 'Run: cleo agent doctor --repair --import-legacy-json',
+      });
+    }
+
     // Ensure global CLEOOS-IDENTITY.md is present (T631 — single SSoT).
     // Self-heals if file is missing on existing projects after upgrade.
     try {
@@ -1112,11 +1172,53 @@ export async function runUpgrade(
       });
     }
 
+    // Dry-run preview for agent registry sync (T1243).
+    // Read-only buildDoctorReport so users see drift before --fix.
+    try {
+      const [
+        { buildDoctorReport },
+        { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath },
+        { createRequire },
+      ] = await Promise.all([
+        import('./store/agent-doctor.js'),
+        import('./store/signaldock-sqlite.js'),
+        import('node:module'),
+      ]);
+      const nodeSqlite = createRequire(import.meta.url)(
+        'node:sqlite',
+      ) as typeof import('node:sqlite');
+      const { DatabaseSync } = nodeSqlite;
+
+      await ensureGlobalSignaldockDb();
+      const sdPath = getGlobalSignaldockDbPath();
+      const sdDb = new DatabaseSync(sdPath);
+      sdDb.exec('PRAGMA foreign_keys = ON');
+      try {
+        const report = await buildDoctorReport(sdDb, { projectRoot: getProjectRoot(options.cwd) });
+        actions.push({
+          action: 'agent_registry_sync',
+          status: 'preview',
+          details:
+            report.findings.length === 0
+              ? 'Agent registry in sync with .cant files (no drift)'
+              : `Would reconcile ${report.findings.length} drift finding(s) (${report.summary.error} error / ${report.summary.warn} warn / ${report.summary.info} info) — see 'cleo agent doctor' for detail`,
+        });
+      } finally {
+        sdDb.close();
+      }
+    } catch (err) {
+      actions.push({
+        action: 'agent_registry_sync',
+        status: 'preview',
+        details: `Would reconcile agent registry against .cant files (preview unavailable: ${err instanceof Error ? err.message : String(err)})`,
+      });
+    }
+
     actions.push({
       action: 'structural_maintenance',
       status: 'preview',
       details:
-        'Would create missing directories, ensure config, install hooks, schemas, project-info, agent definition, skills, and NEXUS registration',
+        'Would create missing directories, ensure config, install hooks, schemas, project-info, agent definition, skills, NEXUS registration, and agent registry sync',
     });
   }
 
