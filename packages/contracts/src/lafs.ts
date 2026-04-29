@@ -60,28 +60,64 @@ export type LAFSTransport = 'cli' | 'http' | 'sdk';
 /** MVI (Minimal Viable Information) level. */
 export type MVILevel = 'minimal' | 'standard' | 'full';
 
-/** LAFS page — no pagination. */
+/**
+ * LAFS page — no pagination.
+ *
+ * Discriminator field is `mode` to match the canonical {@link "@cleocode/lafs"}
+ * spec (LAFSPageNone). Contracts cannot depend on `@cleocode/lafs` directly
+ * (zero external deps invariant) so the type is inlined with matching shape.
+ */
 export interface LAFSPageNone {
-  /** Discriminant indicating no pagination is applied. */
-  strategy: 'none';
+  /** Discriminant indicating no pagination. */
+  mode: 'none';
 }
 
-/** LAFS page — offset-based pagination. */
+/**
+ * LAFS page — offset-based pagination.
+ *
+ * Discriminator field is `mode` to match the canonical {@link "@cleocode/lafs"}
+ * spec (LAFSPageOffset).
+ */
 export interface LAFSPageOffset {
   /** Discriminant identifying offset-based pagination. */
-  strategy: 'offset';
-  /** Zero-based index of the first item in this page. */
-  offset: number;
+  mode: 'offset';
   /** Maximum number of items per page. */
   limit: number;
-  /** Total number of items across all pages. */
-  total: number;
+  /** Zero-based index of the first item in this page. */
+  offset: number;
   /** Whether additional pages exist beyond the current one. */
   hasMore: boolean;
+  /** Total number of items across all pages, or `null` if unknown. */
+  total?: number | null;
 }
 
-/** LAFS page union. */
-export type LAFSPage = LAFSPageNone | LAFSPageOffset;
+/**
+ * LAFS page — cursor-based pagination.
+ *
+ * Discriminator field is `mode` to match the canonical {@link "@cleocode/lafs"}
+ * spec (LAFSPageCursor).
+ */
+export interface LAFSPageCursor {
+  /** Discriminant identifying cursor-based pagination. */
+  mode: 'cursor';
+  /** Opaque cursor for fetching the next page, or `null` when at the end. */
+  nextCursor: string | null;
+  /** Whether additional pages exist beyond the current one. */
+  hasMore: boolean;
+  /** Maximum number of items per page. */
+  limit?: number;
+  /** Total number of items across all pages, or `null` if unknown. */
+  total?: number | null;
+}
+
+/**
+ * LAFS page union.
+ *
+ * Structurally compatible with `@cleocode/lafs` `LAFSPage` so that values
+ * flow freely between dispatch (which uses contracts) and core (which uses
+ * lafs). Both export the same three variants discriminated on `mode`.
+ */
+export type LAFSPage = LAFSPageNone | LAFSPageOffset | LAFSPageCursor;
 
 /** LAFS metadata block. */
 export interface LAFSMeta {

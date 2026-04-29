@@ -22,7 +22,7 @@
  * - 100+: Special informational codes (not errors)
  */
 
-import { type EngineResult, getLogger } from '@cleocode/core';
+import { engineError as coreEngineError, type EngineResult, getLogger } from '@cleocode/core';
 import { mapNumericExitCodeToString } from '../lib/exit-codes.js';
 
 // Re-export EngineResult from core (canonical location)
@@ -247,28 +247,15 @@ export function engineError<T>(
     );
   }
 
-  return {
-    success: false,
-    error: {
-      code,
-      message,
-      exitCode,
-      ...(options?.details && { details: options.details }),
-      ...(options?.fix && { fix: options.fix }),
-      ...(options?.alternatives && { alternatives: options.alternatives }),
-    },
-  };
+  // Delegate construction to canonical core helper (DRY).
+  // The dispatch-layer wrapper adds: numeric exitCode resolution + structured logging.
+  return coreEngineError<T>(code, message, { exitCode, ...options });
 }
 
 /**
- * Create an engine success result.
+ * Create an engine success result (re-export of canonical core helper).
  *
- * @remarks
- * Wraps arbitrary data in the standard EngineResult envelope with
- * `success: true`. This is the complement to {@link engineError}.
- *
- * @param data - The result data
- * @returns EngineResult with success=true
+ * @see {@link import('@cleocode/core').engineSuccess}
  *
  * @example
  * ```typescript
@@ -277,9 +264,7 @@ export function engineError<T>(
  * return engineSuccess({ tasks: filteredTasks, total: count });
  * ```
  */
-export function engineSuccess<T>(data: T): EngineResult<T> {
-  return { success: true, data };
-}
+export { engineSuccess } from '@cleocode/core';
 
 /**
  * Shape of a caught value that may be a `CleoError` instance.

@@ -187,9 +187,10 @@ export type StickyDispatchOps = OpsFromCore<typeof stickyCoreOps>;
 const _stickyTypedHandler = defineTypedHandler<StickyDispatchOps>('sticky', {
   list: async (params) => {
     const result = await stickyCoreOps.list(params);
-    return result.success
-      ? lafsSuccess(result.data, 'list')
-      : lafsError(result.error?.code ?? 'E_INTERNAL', result.error?.message ?? '', 'list');
+    if (!result.success) {
+      return lafsError(result.error.code, result.error.message, 'list');
+    }
+    return lafsSuccess(result.data, 'list', result.page ? { page: result.page } : undefined);
   },
 
   show: async (params) => {
@@ -289,17 +290,24 @@ function envelopeToDispatch(
   operation: string,
   startTime: number,
 ): DispatchResponse {
+  if (envelope.success) {
+    const withPage = envelope as typeof envelope & {
+      page?: import('@cleocode/contracts').LAFSPage;
+    };
+    return {
+      meta: dispatchMeta(gateway, 'sticky', operation, startTime),
+      success: true,
+      data: envelope.data,
+      ...(withPage.page ? { page: withPage.page } : {}),
+    };
+  }
   return {
     meta: dispatchMeta(gateway, 'sticky', operation, startTime),
-    success: envelope.success,
-    ...(envelope.success
-      ? { data: envelope.data as unknown }
-      : {
-          error: {
-            code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
-            message: envelope.error?.message ?? 'Unknown error',
-          },
-        }),
+    success: false,
+    error: {
+      code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
+      message: envelope.error?.message ?? 'Unknown error',
+    },
   };
 }
 
