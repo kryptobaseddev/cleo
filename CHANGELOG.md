@@ -4,6 +4,77 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.4.155] — 2026-04-29 — T-FOUNDATION-LOCKDOWN: project-agnostic anti-drift enforcement layer
+
+### Highlights
+
+CLEO is now an anti-drift harness. 13 enforcement layers ship under T-FOUNDATION-LOCKDOWN (T1586) — every leak point identified in `HONEST-HANDOFF-2026-04-28.md` is closed by code, not documentation. Plus runtime crash fix (`releaseCoreOps` ESM export) that was blocking the cleo binary from starting after T1543's structural-only ADR-058 commit.
+
+### Foundation children (T1586)
+
+- **T1587** Worktree integration via `git merge --no-ff` (NOT cherry-pick) — preserves agent commit graph + task↔commit traceability. ADR-062 establishes doctrine. New `completeAgentWorktreeViaMerge()` + `getDefaultBranch()` in `core/spawn/branch-lock.ts`. Project-agnostic 4-step branch resolution chain. `WorktreeMergeResult` shared type in `@cleocode/contracts`.
+- **T1588** Pre-commit + pre-push T-ID enforcement — POSIX `/bin/sh` hooks at `packages/cleo/templates/hooks/`. SDK `installCleoHooks()` honors `core.hooksPath` + worktrees + sentinel. Wired into `cleo init`/`cleo upgrade` via `agent_registry_sync` ladder. Generalizes T1410 (was release-commit-only) to every commit on every project.
+- **T1589** Worker self-report re-verification gate — orchestrator now re-runs gates BEFORE accepting subagent return. `reVerifyWorkerReport()` + `.cleo/audit/worker-mismatch.jsonl`. Wired into `runTick()`. Closes lie #4 from HONEST-HANDOFF (workers were trusted without re-verification).
+- **T1590** Acceptance criteria immutability after `implementation` stage — `enforceAcceptanceImmutability()` + new `ExitCode.AC_LOCKED = 48` in `@cleocode/contracts`. Override path: `cleo update <id> --acceptance "..." --reason "<X>"` audit-logged to `.cleo/audit/ac-changes.jsonl`. Closes lie #1 pattern (T-THIN-WRAPPER "feature-complete" was AC reframed mid-flight).
+- **T1591** Git shim 4-boundary enforcement — (a) worktree-path-scoped staging, (b) commit T-ID gate, (c) merge-only-via-`cleo orchestrate complete` (`CLEO_ORCHESTRATE_MERGE=1` flag), (d) cherry-pick refusal from `task/T*` branches. Override `CLEO_ALLOW_GIT=1` audit-logged. 99/99 tests.
+- **T1592** Sentient proposer dedup — per-parent ID-hash gate. Reproduces + blocks T1555-style 4-pair dup-burst. Audit log at `.cleo/audit/sentient-dedup.jsonl`.
+- **T1593** `cleo briefing` replacement — TASKS+BRAIN are SoT. New `renderBriefing` (8 sections) reads tasks.db + brain.db; `emitHandoffMarkdown` is derived view labeled "NOT a source of truth". `NEXT-SESSION-HANDOFF.md` deprecated as canonical. Templates updated.
+- **T1594** Session-drift watchdog — `cleo session drift` detects files-touched outside active task scope; suggests `cleo pivot` when drift > 50%. Audit log at `.cleo/audit/session-drift.jsonl`.
+- **T1595** Pre-push reconcile gate — extends T1588 pre-push hook with `cleo reconcile release --tag <next> --dry-run`; refuses push if drift > 0. Override `CLEO_ALLOW_DRIFT_PUSH=1` audit-logged.
+- **T1596** `cleo pivot <fromTask> <toTask> --reason "..."` — first-class context-switch primitive. Pauses fromTask, sets toTask active, audit log + memory observation. `--reason` mandatory. Replaces silent reframes.
+- **T1597** Canonical release pipeline — `cleo release start/verify/publish/reconcile` (4 steps). Project-agnostic via `project-context.json` (`publish.command`, `version.scheme`). Per-language fallbacks (node/rust/python/go/ruby). ADR-063.
+- **T1598** Markdown-claim sync linter — `scripts/lint-claim-sync.mjs` detects `T<NUM>.*shipped/done/complete` claims that don't match `cleo show` state. CI-gate-ready (`--severity error --since origin/main`).
+- **T1599** Contracts hygiene Phase 1 audit — ~1267 inline type defs catalogued in core, ~81 in cleo. T1565 cleo→contracts invariant already holds. Phase 2 relocations DEFERRED (conflict-storm risk).
+
+### Dogfooding GAPs (T1567)
+
+- **T1244** Unborn-HEAD scaffold — `ensureProjectGitInitialCommit()` in `core/scaffold.ts` creates empty `initial: cleo init` commit when HEAD is unborn. Idempotent. Eliminates the `fatal: invalid reference: main` failure on fresh `git init`.
+- **T1242** Force project-tier agent install — `forceInstallProjectTierAgents()` in `core/agents/seed-install.ts`. D-003 errors **4 → 0** on fresh init.
+- **T1243** `cleo upgrade agent_registry_sync` — 8th upgrade action delegating to `buildDoctorReport`+`reconcileDoctor`+`ensureGlobalSignaldockDb` (zero duplication).
+
+### Test debt cleared (T1585)
+
+- 32 sub-tests across 3 files (`lifecycle-scope-guard`, `task-complete-lifecycle-gate`, `task-engine`) — all stale `vi.mock('@cleocode/core')` missed `engineError`/`engineSuccess` after EngineResult discriminated-union refactor (`a6122477b`). Pattern: `importOriginal()` partial-mock conversion. Zero production changes.
+- **T1564** 17/24 → 24/24 in `nexus-projects-clean.test.ts` (mocks updated for T1510 dispatch envelope).
+
+### Bug fix
+
+- `fix(release/T1543)`: `releaseCoreOps` ESM runtime crash — predecessor's structural-only T1543 commit (`5b0230508`) declared `releaseCoreOps` via `export declare const` (type-only) but barrel re-exported it as runtime → `ERR_EXPORT_NOT_DEFINED` once the file became actively imported. Fix: re-export as `type`. Without this fix the entire cleo binary fails to start.
+
+### Architecture rules NOW ENFORCED in code
+
+| Rule | Mechanism |
+|---|---|
+| Worktree integration = `git merge --no-ff` | `completeAgentWorktreeViaMerge` + git shim |
+| Every commit has T-ID | POSIX hooks installed by `cleo init`/`upgrade` |
+| Worker self-reports re-verified | `reVerifyWorkerReport` in orchestrator |
+| AC immutable after `implementation` | `enforceAcceptanceImmutability` + `E_AC_LOCKED` |
+| Git ops boundary-enforced | git shim 4-boundary |
+| Sentient cannot dup-fire | per-parent ID-hash gate |
+| TASKS+BRAIN are SoT | `cleo briefing` + handoff markdown demoted |
+| Drift surfaced | `cleo session drift` |
+| Pre-push refuses on drift | reconcile gate extension |
+| Pivot is first-class | `cleo pivot --reason` mandatory |
+| Release pipeline canonical | 4-step `start/verify/publish/reconcile` |
+| Markdown-claim drift detected | `lint-claim-sync.mjs` |
+
+### Memory + recovery
+
+12+ BRAIN observations recorded covering architectural decisions, doctrine corrections, and recovery commands. New orchestrator on clean session: `cleo briefing` → returns structured next-session context with T1566 (engine migration) auto-recommended (score 110); `cleo memory find "foundation lockdown"` returns 8+ observations.
+
+### What's NOT done (deliberately)
+
+- **T1566 engine migration** (15,297 LOC across 17 sequential children T1568-T1584) — this is the next-session primary work. Bravo-1 plan at `.cleo/agent-outputs/T-AUDIT-2026-04-28/teams-2026-04-29/BRAVO-1-task-engine-PLAN.md`. KEY FINDING: task-engine.ts is 92% pure delegation; only 4 fns carry real logic.
+- **T1600 (T-FOUND-7B)** briefing expansion to full handoff parity — verified-metrics snapshot, git deltas, ADR diff, owner-decision queue, structured/markdown emission modes. Blocked-by T1593 baseline (now done).
+- **T1599 Phase 2** contracts type relocations — deferred to avoid conflict-storm with concurrent foundation work.
+
+### Reverts / archives this cycle
+
+- T1047 cancelled (superseded by T1048; V1 RECOMMENDATION had MCP-server task violating AGENTS.md CLI-only-dispatch).
+- T1139 cancelled (superseded by T1147).
+- T1550, T1552, T1553 deleted (duplicates of T1544, T1546, T1547 from T1555 sentient dup-burst).
+- 87 fixture-pollution tasks archived (Pomodoro, tutorial, smoke, imports, waves).
+
 ## [2026.4.154] — 2026-04-28 — Domain audit + V1-V5 release validation + governance pumps live
 
 ### Highlights
