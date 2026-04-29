@@ -87,3 +87,70 @@ describe('OrchestrateHandler operations', () => {
     expect(result.error?.code).toBe('E_INVALID_OPERATION');
   });
 });
+
+// ---------------------------------------------------------------------------
+// worktree.complete dispatch — ADR-062 / T1601
+// ---------------------------------------------------------------------------
+
+describe('OrchestrateHandler.mutate("worktree.complete") — ADR-062 merge wiring', () => {
+  let handler: OrchestrateHandler;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    handler = new OrchestrateHandler();
+  });
+
+  it('invokes completeAgentWorktreeViaMerge (NOT the legacy cherry-pick variant)', async () => {
+    const internal = await import('@cleocode/core/internal');
+    const mergeSpy = vi.spyOn(internal, 'completeAgentWorktreeViaMerge').mockReturnValue({
+      taskId: 'T1601',
+      targetBranch: 'main',
+      merged: true,
+      mergeCommit: 'a'.repeat(40),
+      commitCount: 2,
+      rebased: true,
+      worktreeRemoved: true,
+      branchDeleted: true,
+    });
+    const cherrySpy = vi.spyOn(internal, 'completeAgentWorktree');
+
+    const result = await handler.mutate('worktree.complete', { taskId: 'T1601' });
+
+    expect(mergeSpy).toHaveBeenCalledTimes(1);
+    expect(mergeSpy).toHaveBeenCalledWith('T1601', '/mock/project');
+    expect(cherrySpy).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    const data = result.data as { merged: boolean; targetBranch: string; mergeCommit: string };
+    expect(data.merged).toBe(true);
+    expect(data.targetBranch).toBe('main');
+    expect(data.mergeCommit).toHaveLength(40);
+  });
+
+  it('surfaces merge failure as dispatch error (E_WORKTREE_COMPLETE_FAILED)', async () => {
+    const internal = await import('@cleocode/core/internal');
+    vi.spyOn(internal, 'completeAgentWorktreeViaMerge').mockReturnValue({
+      taskId: 'T1601',
+      targetBranch: 'main',
+      merged: false,
+      mergeCommit: '',
+      commitCount: 1,
+      rebased: false,
+      worktreeRemoved: false,
+      branchDeleted: false,
+      error: 'Rebase onto origin/main failed: conflict in feature.ts',
+    });
+
+    const result = await handler.mutate('worktree.complete', { taskId: 'T1601' });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_WORKTREE_COMPLETE_FAILED');
+    expect(result.error?.message).toMatch(/Rebase onto origin\/main failed/);
+  });
+
+  it('rejects worktree.complete without taskId (E_INVALID_INPUT)', async () => {
+    const result = await handler.mutate('worktree.complete', {});
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_INVALID_INPUT');
+  });
+});
