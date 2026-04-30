@@ -523,6 +523,29 @@ export {
 // Orchestrate (T1596) — context-switch primitives
 export type { PivotOptions, PivotResult } from './orchestrate/pivot.js';
 export { PIVOT_AUDIT_FILE, pivotTask } from './orchestrate/pivot.js';
+// Orchestrate query ops (T1570 Wave 1 — migrated from orchestrate-engine.ts)
+export {
+  loadTasks,
+  orchestrateAnalyze,
+  orchestrateContext,
+  orchestrateNext,
+  orchestrateReady,
+  orchestrateStatus,
+  orchestrateValidate,
+  orchestrateWaves,
+} from './orchestrate/query-ops.js';
+// Orchestrate lifecycle ops (T1570 Wave 1 — migrated from orchestrate-engine.ts)
+export {
+  orchestrateBootstrap,
+  orchestrateCheck,
+  orchestrateCriticalPath,
+  orchestrateParallel,
+  orchestrateParallelEnd,
+  orchestrateParallelStart,
+  orchestrateSkillInject,
+  orchestrateStartup,
+  orchestrateUnblockOpportunities,
+} from './orchestrate/lifecycle-ops.js';
 // Context
 export { estimateContext } from './orchestration/context.js';
 // Orchestration
