@@ -18,6 +18,10 @@ vi.mock('../../lib/engine.js', () => ({
   orchestrateParallelStart: vi.fn(),
   orchestrateParallelEnd: vi.fn(),
   orchestrateCheck: vi.fn(),
+  // T1570: session ops injected into orchestrateHandoff via DI (core→cleo cycle avoidance)
+  sessionStatus: vi.fn(),
+  sessionEnd: vi.fn(),
+  sessionContextInject: vi.fn(),
 }));
 
 vi.mock('../../../../../core/src/paths.js', async () => {
@@ -73,6 +77,12 @@ describe('OrchestrateHandler handoff', () => {
         tier: 1,
         idempotencyKey: 'h1',
       },
+      // T1570: session ops are now injected as 2nd arg (DI pattern to avoid core→cleo cycle)
+      expect.objectContaining({
+        sessionStatus: expect.any(Function),
+        sessionEnd: expect.any(Function),
+        sessionContextInject: expect.any(Function),
+      }),
       '/mock/project',
     );
   });

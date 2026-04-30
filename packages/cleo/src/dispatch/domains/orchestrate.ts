@@ -47,6 +47,9 @@ import {
   orchestrateUnblockOpportunities,
   orchestrateValidate,
   orchestrateWaves,
+  sessionContextInject,
+  sessionEnd,
+  sessionStatus,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, getListParams, handleErrorResult, wrapResult } from './_base.js';
@@ -386,6 +389,8 @@ async function orchestrateHandoffOp(params: OrchestrateHandoffParams) {
       tier: params.tier,
       idempotencyKey: params.idempotencyKey,
     },
+    // Inject cleo session ops to avoid core→cleo import cycle (T1570 ADR-057)
+    { sessionStatus, sessionEnd, sessionContextInject },
     getProjectRoot(),
   );
 }
