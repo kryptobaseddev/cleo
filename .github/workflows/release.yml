@@ -124,6 +124,8 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install ripgrep (required for T1605 callsite-coverage validator)
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       # Hard gate — biome ci must pass BEFORE any build/publish step runs.
       # No untrusted user input used here; "pnpm biome ci ." is a static command.
