@@ -26,8 +26,19 @@ export {
   validateTaskType,
   validateTitle,
 } from './add.js';
-export { type ArchiveTasksOptions, type ArchiveTasksResult, archiveTasks } from './archive.js';
-export { type CompleteTaskOptions, type CompleteTaskResult, completeTask } from './complete.js';
+export {
+  type ArchiveTasksOptions,
+  type ArchiveTasksResult,
+  archiveTasks,
+  taskArchive,
+} from './archive.js';
+export {
+  type CompleteTaskOptions,
+  type CompleteTaskResult,
+  completeTask,
+  completeTaskStrict,
+  taskComplete,
+} from './complete.js';
 // Canonical task view — unified derivation (T943)
 export {
   computeTaskView,
@@ -39,7 +50,8 @@ export {
   type TaskViewNextAction,
   type TaskViewPipelineStage,
 } from './compute-task-view.js';
-export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask } from './delete.js';
+// Wave 4: Complex mutations + strict completion (T1568 / ADR-057 / ADR-058)
+export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask, taskDelete } from './delete.js';
 // Dependency graph helpers (sentient loop consumers).
 export {
   type DependencyCheckResult,
@@ -58,6 +70,14 @@ export {
   validateDependencyRefs,
   wouldCreateCycle,
 } from './dependency-check.js';
+// Engine-layer converter types and functions (T1568 / ADR-057 / ADR-058)
+export {
+  type IvtrHistoryEntry,
+  type LifecycleStageEntry,
+  tasksToRecords,
+  taskToRecord,
+  toHistoryEntry,
+} from './engine-converters.js';
 // Evidence-based verification (T832 / ADR-051, T1534 / ADR-061)
 export {
   type AtomValidation,
@@ -82,6 +102,7 @@ export {
   type FindTasksResult,
   findTasks,
   fuzzyScore,
+  taskFind,
 } from './find.js';
 // Gate audit trail (T832 / ADR-051, T947 / ADR-054 draft)
 export {
@@ -104,10 +125,53 @@ export {
   inferTaskAddParams,
   parseAcceptanceCriteria,
 } from './infer-add-params.js';
-export { type ListTasksOptions, type ListTasksResult, listTasks } from './list.js';
+export { taskLabelList, taskLabelShow } from './labels.js';
+export { type ListTasksOptions, type ListTasksResult, listTasks, taskList } from './list.js';
 // Task Core operation signatures for OpsFromCore inference (T1445)
 export type { tasksCoreOps } from './ops.js';
-export { showTask, type TaskDetail } from './show.js';
+export { taskPlan } from './plan.js';
+export { addTaskWithSessionScope, resolveParentFromSession } from './session-scope.js';
+// Engine-layer EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058) — Wave 2
+export {
+  showTask,
+  type TaskDetail,
+  taskExists,
+  taskShow,
+  taskShowIvtrHistory,
+  taskShowWithHistory,
+} from './show.js';
+// Sync sub-domain (T1568 / ADR-057 / ADR-058) — Wave 3
+export { taskSyncLinks, taskSyncLinksRemove, taskSyncReconcile } from './sync-ops.js';
+export {
+  taskAnalyze,
+  taskBatchValidate,
+  taskBlockers,
+  taskCancel,
+  taskClaim,
+  taskComplexityEstimate,
+  taskDepends,
+  taskDeps,
+  taskDepsCycles,
+  taskDepsOverview,
+  taskExport,
+  taskHistory,
+  taskImpact,
+  taskImport,
+  taskLint,
+  taskNext,
+  taskPromote,
+  taskRelates,
+  taskRelatesAdd,
+  taskRelatesFind,
+  taskReopen,
+  taskReorder,
+  taskReparent,
+  taskRestore,
+  taskStats,
+  taskTree,
+  taskUnarchive,
+  taskUnclaim,
+} from './task-ops.js';
 // Tool result cache + cross-process semaphore (T1534 / ADR-061)
 export {
   cacheEntryPath,
@@ -140,4 +204,4 @@ export {
   resolveMaxConcurrent,
   semaphoreDir,
 } from './tool-semaphore.js';
-export { type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';
+export { taskUpdate, type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';

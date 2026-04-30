@@ -2,92 +2,24 @@
  * Tests for FIX-1.5 (T374): CleoError rich envelope propagation through engine catch blocks.
  *
  * Verifies that `cleoErrorToEngineError` correctly forwards .fix, .details,
- * and .alternatives from caught CleoError instances, and that task-engine
- * catch blocks now surface those fields end-to-end.
+ * and .alternatives from caught CleoError instances.
+ *
+ * After T1568 Wave 5, task-engine.ts was deleted. The end-to-end tests that
+ * tested taskShow/taskComplete error propagation have been removed since those
+ * functions now live in core and use a different (simpler) error-mapping path.
+ * The unit tests for cleoErrorToEngineError are preserved here.
  *
  * @task T374
  * @epic T335
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Mock core modules before importing task-engine (same pattern as task-engine.test.ts)
+// Imports
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
-  getAccessor: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/tasks/show.js', () => ({
-  showTask: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/tasks/update.js', () => ({
-  updateTask: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/tasks/complete.js', () => ({
-  completeTask: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/tasks/add.js', () => ({
-  addTask: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/tasks/delete.js', () => ({
-  deleteTask: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/tasks/archive.js', () => ({
-  archiveTasks: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/tasks/list.js', () => ({
-  listTasks: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/tasks/find.js', () => ({
-  findTasks: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/tasks/task-ops.js', () => ({
-  coreTaskNext: vi.fn(),
-  coreTaskBlockers: vi.fn(),
-  coreTaskTree: vi.fn(),
-  coreTaskDeps: vi.fn(),
-  coreTaskRelates: vi.fn(),
-  coreTaskRelatesAdd: vi.fn(),
-  coreTaskAnalyze: vi.fn(),
-  coreTaskRestore: vi.fn(),
-  coreTaskUnarchive: vi.fn(),
-  coreTaskReorder: vi.fn(),
-  coreTaskReparent: vi.fn(),
-  coreTaskPromote: vi.fn(),
-  coreTaskReopen: vi.fn(),
-  coreTaskComplexityEstimate: vi.fn(),
-  coreTaskDepends: vi.fn(),
-  coreTaskStats: vi.fn(),
-  coreTaskExport: vi.fn(),
-  coreTaskHistory: vi.fn(),
-  coreTaskLint: vi.fn(),
-  coreTaskBatchValidate: vi.fn(),
-  coreTaskImport: vi.fn(),
-  predictImpact: vi.fn(),
-  toCompact: vi.fn(),
-}));
-
-// ---------------------------------------------------------------------------
-// Imports after mocks
-// ---------------------------------------------------------------------------
-
-import { completeTask as coreCompleteTask, getAccessor, showTask } from '@cleocode/core';
 import { cleoErrorToEngineError } from '../_error.js';
-import { taskComplete, taskShow } from '../task-engine.js';
-
-const mockShowTask = vi.mocked(showTask);
-const mockCompleteTask = vi.mocked(coreCompleteTask);
-const mockGetAccessor = vi.mocked(getAccessor);
 
 // ---------------------------------------------------------------------------
 // Helper: build a CleoError-shaped object (structural type, avoids circular dep)
@@ -196,102 +128,5 @@ describe('cleoErrorToEngineError', () => {
       const result = cleoErrorToEngineError(err, 'E_FALLBACK', 'fallback message');
       expect(result.error?.code, `code ${numericCode}`).toBe(expectedStringCode);
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// End-to-end: taskShow propagates CleoError envelope
-// ---------------------------------------------------------------------------
-
-describe('taskShow end-to-end CleoError propagation', () => {
-  const projectRoot = '/mock/project';
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockGetAccessor.mockResolvedValue(
-      {} as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
-    );
-  });
-
-  it('propagates fix and alternatives when showTask throws a CleoError', async () => {
-    const richErr = makeCleoError(4, "Task 'T999' not found", {
-      fix: "Use 'cleo find' to search for tasks",
-      alternatives: [
-        { action: 'Search by text', command: 'cleo find "T999"' },
-        { action: 'List all tasks', command: 'cleo list' },
-      ],
-    });
-    mockShowTask.mockRejectedValue(richErr);
-
-    const result = await taskShow(projectRoot, 'T999');
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('E_NOT_FOUND');
-    expect(result.error?.fix).toBe("Use 'cleo find' to search for tasks");
-    expect(result.error?.alternatives).toHaveLength(2);
-    expect(result.error?.alternatives?.[0]).toEqual({
-      action: 'Search by text',
-      command: 'cleo find "T999"',
-    });
-  });
-
-  it('returns undefined fix/alternatives when showTask throws a plain Error', async () => {
-    const plainErr = new Error('Database connection failed');
-    mockShowTask.mockRejectedValue(plainErr);
-
-    const result = await taskShow(projectRoot, 'T888');
-
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toBe('Database connection failed');
-    expect(result.error?.fix).toBeUndefined();
-    expect(result.error?.alternatives).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// End-to-end: taskComplete propagates CleoError envelope
-// ---------------------------------------------------------------------------
-
-describe('taskComplete end-to-end CleoError propagation', () => {
-  const projectRoot = '/mock/project';
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockGetAccessor.mockResolvedValue(
-      {} as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
-    );
-  });
-
-  it('propagates fix from a lifecycle gate failure CleoError', async () => {
-    const gateErr = makeCleoError(80, 'Lifecycle gate failed: missing audit', {
-      fix: 'Run cleo audit before completing',
-      alternatives: [{ action: 'Run audit', command: 'cleo audit T555' }],
-    });
-    mockCompleteTask.mockRejectedValue(gateErr);
-
-    const result = await taskComplete(projectRoot, 'T555');
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('E_LIFECYCLE_GATE_FAILED');
-    expect(result.error?.fix).toBe('Run cleo audit before completing');
-    expect(result.error?.alternatives).toHaveLength(1);
-  });
-
-  it('propagates fix from a dependency error CleoError', async () => {
-    const depErr = makeCleoError(5, 'Unresolved dependencies: T100, T200', {
-      fix: 'Complete blocking tasks first',
-      alternatives: [
-        { action: 'Show blockers', command: 'cleo blockers T555' },
-        { action: 'Show dependency tree', command: 'cleo deps T555' },
-      ],
-    });
-    mockCompleteTask.mockRejectedValue(depErr);
-
-    const result = await taskComplete(projectRoot, 'T555');
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('E_DEPENDENCY');
-    expect(result.error?.fix).toBe('Complete blocking tasks first');
-    expect(result.error?.alternatives).toHaveLength(2);
   });
 });

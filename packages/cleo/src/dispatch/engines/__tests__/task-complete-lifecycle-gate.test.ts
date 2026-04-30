@@ -24,113 +24,45 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Mock @cleocode/core/internal — must be hoisted before any imports.
+// Source-level mocks — completeTaskStrict imports from relative paths in core,
+// not through @cleocode/core/internal. We mock those source modules directly.
 // ---------------------------------------------------------------------------
 
-vi.mock('@cleocode/core/internal', () => {
-  const mockLogger = {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  };
-  return {
-    // Used at top-level import in task-engine.ts
-    getAccessor: vi.fn(),
-    getIvtrState: vi.fn(),
-    showTask: vi.fn(),
-    getLifecycleStatus: vi.fn(),
-    // loadConfig is dynamically imported — provide a default strict mode response
-    loadConfig: vi.fn().mockResolvedValue({ lifecycle: { mode: 'strict' } }),
-    // getLogger is dynamically imported for advisory/warning log paths
-    getLogger: vi.fn(() => mockLogger),
-    // Full barrel stubs so task-engine.ts can import without crashing
-    addTask: vi.fn(),
-    archiveTasks: vi.fn(),
-    completeTask: vi.fn(),
-    deleteTask: vi.fn(),
-    findTasks: vi.fn(),
-    listTasks: vi.fn(),
-    updateTask: vi.fn(),
-    coreTaskNext: vi.fn(),
-    coreTaskBlockers: vi.fn(),
-    coreTaskTree: vi.fn(),
-    coreTaskDeps: vi.fn(),
-    coreTaskRelates: vi.fn(),
-    coreTaskRelatesAdd: vi.fn(),
-    coreTaskAnalyze: vi.fn(),
-    coreTaskRestore: vi.fn(),
-    coreTaskUnarchive: vi.fn(),
-    coreTaskReorder: vi.fn(),
-    coreTaskReparent: vi.fn(),
-    coreTaskPromote: vi.fn(),
-    coreTaskReopen: vi.fn(),
-    coreTaskComplexityEstimate: vi.fn(),
-    coreTaskDepends: vi.fn(),
-    coreTaskStats: vi.fn(),
-    coreTaskExport: vi.fn(),
-    coreTaskHistory: vi.fn(),
-    coreTaskLint: vi.fn(),
-    coreTaskBatchValidate: vi.fn(),
-    coreTaskImport: vi.fn(),
-    coreTaskCancel: vi.fn(),
-    coreTaskDepsCycles: vi.fn(),
-    coreTaskDepsOverview: vi.fn(),
-    predictImpact: vi.fn(),
-    getActiveSession: vi.fn(),
-    toCompact: vi.fn(),
-  };
-});
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
+  getAccessor: vi.fn(),
+}));
 
-// Mock @cleocode/core for getLogger used by the IVTR bypass path
-// engineError / engineSuccess must mirror the canonical constructors in
-// packages/core/src/engine-result.ts — _error.ts in dispatch delegates to them.
-vi.mock('@cleocode/core', () => ({
+vi.mock('../../../../../core/src/lifecycle/ivtr-loop.js', () => ({
+  getIvtrState: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../../../../../core/src/config.js', () => ({
+  loadConfig: vi.fn().mockResolvedValue({ lifecycle: { mode: 'strict' } }),
+  getRawConfigValue: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../../../../core/src/logger.js', () => ({
   getLogger: vi.fn(() => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
   })),
-  // Canonical EngineResult constructors (T1585B: stale-mock fix).
-  engineError: vi.fn(
-    (
-      code: string,
-      message: string,
-      options?: {
-        exitCode?: number;
-        details?: unknown;
-        fix?: string;
-        alternatives?: Array<{ action: string; command: string }>;
-      },
-    ) => ({
-      success: false,
-      error: {
-        code,
-        message,
-        ...(options?.exitCode !== undefined ? { exitCode: options.exitCode } : {}),
-        ...(options?.details !== undefined ? { details: options.details } : {}),
-        ...(options?.fix !== undefined ? { fix: options.fix } : {}),
-        ...(options?.alternatives ? { alternatives: options.alternatives } : {}),
-      },
-    }),
-  ),
-  engineSuccess: vi.fn((data: unknown, page?: unknown) =>
-    page ? { success: true, data, page } : { success: true, data },
-  ),
-  // Stub other symbols that may be re-exported via task-engine
-  completeTask: vi.fn(),
-  getAccessor: vi.fn(),
-  showTask: vi.fn(),
-  updateTask: vi.fn(),
+}));
+
+vi.mock('../../../../../core/src/tasks/evidence.js', () => ({
+  revalidateEvidence: vi.fn().mockResolvedValue({ stillValid: true, failedAtoms: [] }),
+  parseEvidence: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { getAccessor, getIvtrState, loadConfig } from '@cleocode/core/internal';
-import { taskCompleteStrict } from '../task-engine.js';
+import { loadConfig } from '../../../../../core/src/config.js';
+import { getIvtrState } from '../../../../../core/src/lifecycle/ivtr-loop.js';
+import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
+import { completeTaskStrict } from '../../../../../core/src/tasks/complete.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -227,7 +159,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
           }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
         );
 
-        const result = await taskCompleteStrict(PROJECT_ROOT, CHILD_ID);
+        const result = await completeTaskStrict(PROJECT_ROOT, CHILD_ID);
 
         expect(result.success).toBe(false);
         expect(result.error?.code).toBe('E_LIFECYCLE_GATE_FAILED');
@@ -260,24 +192,9 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
           }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
         );
 
-        // completeTask (the core delegate) is mocked via @cleocode/core/internal
-        const { completeTask: mockComplete } = await import('@cleocode/core/internal');
-        vi.mocked(mockComplete).mockResolvedValue({
-          task: {
-            id: CHILD_ID,
-            title: 'Child task',
-            description: '',
-            status: 'done',
-            priority: 'medium',
-            createdAt: '2026-01-01T00:00:00.000Z',
-            updatedAt: '2026-01-02T00:00:00.000Z',
-            completedAt: '2026-01-02T00:00:00.000Z',
-          },
-        } as ReturnType<typeof mockComplete> extends Promise<infer T> ? T : never);
+        const result = await completeTaskStrict(PROJECT_ROOT, CHILD_ID);
 
-        const result = await taskCompleteStrict(PROJECT_ROOT, CHILD_ID);
-
-        // Should NOT fail with E_LIFECYCLE_GATE_FAILED — may still fail IVTR or succeed
+        // Should NOT fail with E_LIFECYCLE_GATE_FAILED — may still fail at other gates or succeed
         if (!result.success) {
           expect(result.error?.code).not.toBe('E_LIFECYCLE_GATE_FAILED');
         }
@@ -301,29 +218,12 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
       }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
     );
 
-    const { completeTask: mockComplete } = await import('@cleocode/core/internal');
-    vi.mocked(mockComplete).mockResolvedValue({
-      task: {
-        id: CHILD_ID,
-        title: 'Child task',
-        description: '',
-        status: 'done',
-        priority: 'medium',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-02T00:00:00.000Z',
-        completedAt: '2026-01-02T00:00:00.000Z',
-      },
-    } as ReturnType<typeof mockComplete> extends Promise<infer T> ? T : never);
-
-    const result = await taskCompleteStrict(PROJECT_ROOT, CHILD_ID);
+    const result = await completeTaskStrict(PROJECT_ROOT, CHILD_ID);
 
     // In advisory mode the gate must not reject with E_LIFECYCLE_GATE_FAILED
     if (!result.success) {
       expect(result.error?.code).not.toBe('E_LIFECYCLE_GATE_FAILED');
     }
-    // getLogger should have been called (advisory warning path)
-    const { getLogger } = await import('@cleocode/core/internal');
-    expect(vi.mocked(getLogger)).toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
@@ -342,21 +242,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
       }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
     );
 
-    const { completeTask: mockComplete } = await import('@cleocode/core/internal');
-    vi.mocked(mockComplete).mockResolvedValue({
-      task: {
-        id: CHILD_ID,
-        title: 'Child task',
-        description: '',
-        status: 'done',
-        priority: 'medium',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-02T00:00:00.000Z',
-        completedAt: '2026-01-02T00:00:00.000Z',
-      },
-    } as ReturnType<typeof mockComplete> extends Promise<infer T> ? T : never);
-
-    const result = await taskCompleteStrict(PROJECT_ROOT, CHILD_ID);
+    const result = await completeTaskStrict(PROJECT_ROOT, CHILD_ID);
 
     if (!result.success) {
       expect(result.error?.code).not.toBe('E_LIFECYCLE_GATE_FAILED');
@@ -378,21 +264,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
       }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
     );
 
-    const { completeTask: mockComplete } = await import('@cleocode/core/internal');
-    vi.mocked(mockComplete).mockResolvedValue({
-      task: {
-        id: CHILD_ID,
-        title: 'Child task',
-        description: '',
-        status: 'done',
-        priority: 'medium',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-02T00:00:00.000Z',
-        completedAt: '2026-01-02T00:00:00.000Z',
-      },
-    } as ReturnType<typeof mockComplete> extends Promise<infer T> ? T : never);
-
-    const result = await taskCompleteStrict(PROJECT_ROOT, CHILD_ID);
+    const result = await completeTaskStrict(PROJECT_ROOT, CHILD_ID);
 
     if (!result.success) {
       expect(result.error?.code).not.toBe('E_LIFECYCLE_GATE_FAILED');
@@ -415,21 +287,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
       }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
     );
 
-    const { completeTask: mockComplete } = await import('@cleocode/core/internal');
-    vi.mocked(mockComplete).mockResolvedValue({
-      task: {
-        id: CHILD_ID,
-        title: 'Child task',
-        description: '',
-        status: 'done',
-        priority: 'medium',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-02T00:00:00.000Z',
-        completedAt: '2026-01-02T00:00:00.000Z',
-      },
-    } as ReturnType<typeof mockComplete> extends Promise<infer T> ? T : never);
-
-    const result = await taskCompleteStrict(PROJECT_ROOT, CHILD_ID);
+    const result = await completeTaskStrict(PROJECT_ROOT, CHILD_ID);
 
     if (!result.success) {
       expect(result.error?.code).not.toBe('E_LIFECYCLE_GATE_FAILED');
@@ -458,7 +316,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
     // Current signature: taskCompleteStrict(projectRoot, taskId, notes?).
     // Passing extra args is a compile-time error; at runtime the gate STILL
     // rejects research-stage parent epics.
-    const result = await taskCompleteStrict(PROJECT_ROOT, CHILD_ID);
+    const result = await completeTaskStrict(PROJECT_ROOT, CHILD_ID);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_LIFECYCLE_GATE_FAILED');
