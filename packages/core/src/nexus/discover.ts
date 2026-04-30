@@ -16,6 +16,7 @@ import type {
   NexusSearchParams,
   NexusSearchResult,
 } from '@cleocode/contracts/operations/nexus';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
 import { readRegistry } from './registry.js';
@@ -373,4 +374,72 @@ export async function searchAcrossProjects(
 
   const sliced = results.slice(0, limit);
   return { pattern, results: sliced, resultCount: sliced.length };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusDiscover(
+  taskQuery: string,
+  method: string = 'auto',
+  limit: number = 10,
+): Promise<
+  EngineResult<{
+    query: string;
+    method: string;
+    results: Array<{
+      project: string;
+      taskId: string;
+      title: string;
+      score: number;
+      type: string;
+      reason: string;
+    }>;
+    total: number;
+  }>
+> {
+  try {
+    const result = await discoverRelated('', { query: taskQuery, method, limit });
+    if ('error' in result) {
+      return engineError(result.error.code as 'E_INVALID_INPUT', result.error.message);
+    }
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusSearch(
+  pattern: string,
+  projectFilter?: string,
+  limit: number = 20,
+): Promise<
+  EngineResult<{
+    pattern: string;
+    results: Array<{
+      id: string;
+      title: string;
+      status: string;
+      priority?: string;
+      description?: string;
+      _project: string;
+    }>;
+    resultCount: number;
+  }>
+> {
+  try {
+    const result = await searchAcrossProjects('', { pattern, project: projectFilter, limit });
+    if ('error' in result) {
+      return engineError(
+        result.error.code as 'E_INVALID_INPUT' | 'E_NOT_FOUND',
+        result.error.message,
+      );
+    }
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }
