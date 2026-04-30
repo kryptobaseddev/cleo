@@ -47,6 +47,25 @@ jobs:
           version: '2.4.8'
       - run: biome ci .
 
+  agent-outputs-registration:
+    # T1617: Require every .md added to .cleo/agent-outputs/ to be registered
+    # via (a) cleo docs add, (b) cleo memory observe, or (c) @no-cleo-register
+    # marker in frontmatter. Prevents markdown debt accumulation.
+    # Only newly added .md files are checked (git diff --diff-filter=A vs main).
+    # No untrusted input used — pure static analysis of checked-in source files.
+    name: Agent-Outputs Registration Lint (T1617)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint agent-outputs registration
+        run: node scripts/lint-agent-outputs-registration.mjs --since origin/main --severity error
+
   ssot-lint:
     name: Contracts/Core SSoT (ADR-057)
     runs-on: ubuntu-latest
