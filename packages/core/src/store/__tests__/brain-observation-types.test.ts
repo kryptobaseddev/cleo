@@ -1,6 +1,7 @@
 /**
- * Tests for BRAIN_OBSERVATION_TYPES enum (T1005).
- * Verifies that 'diary' type is properly added to both schema and contract layers.
+ * Tests for BRAIN_OBSERVATION_TYPES enum (T1005, T1615).
+ * Verifies that 'diary' and 'session-summary' types are properly added to
+ * both schema and contract layers.
  */
 
 import type { BrainObservationType } from '@cleocode/contracts';
@@ -13,16 +14,24 @@ describe('BRAIN_OBSERVATION_TYPES', () => {
     expect(SchemaTypes).toContain('diary');
   });
 
-  it('should have exactly 7 observation types in schema', () => {
-    expect(SchemaTypes).toHaveLength(7);
+  it('should include session-summary type in schema', () => {
+    expect(SchemaTypes).toContain('session-summary');
+  });
+
+  it('should have exactly 8 observation types in schema', () => {
+    expect(SchemaTypes).toHaveLength(8);
   });
 
   it('should include diary type in contracts facade', () => {
     expect(ContractTypes).toContain('diary');
   });
 
-  it('should have exactly 7 observation types in contracts', () => {
-    expect(ContractTypes).toHaveLength(7);
+  it('should include session-summary type in contracts facade', () => {
+    expect(ContractTypes).toContain('session-summary');
+  });
+
+  it('should have exactly 8 observation types in contracts', () => {
+    expect(ContractTypes).toHaveLength(8);
   });
 
   it('should match between schema and contracts', () => {
@@ -34,6 +43,11 @@ describe('BRAIN_OBSERVATION_TYPES', () => {
     expect(ContractTypes).toContain(diaryType);
   });
 
+  it('should accept session-summary as valid BrainObservationType', () => {
+    const summaryType: BrainObservationType = 'session-summary';
+    expect(ContractTypes).toContain(summaryType);
+  });
+
   it('should accept all required observation types', () => {
     const required: BrainObservationType[] = [
       'discovery',
@@ -43,6 +57,7 @@ describe('BRAIN_OBSERVATION_TYPES', () => {
       'decision',
       'refactor',
       'diary',
+      'session-summary',
     ];
     for (const t of required) {
       expect(SchemaTypes).toContain(t);

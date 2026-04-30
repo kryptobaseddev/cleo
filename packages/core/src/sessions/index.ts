@@ -299,13 +299,17 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
       /* Hooks are best-effort */
     });
 
-  // Bridge session data to brain.db as an observation — await for CLI mode
+  // Bridge session data to brain.db as a 'session-summary' observation — await for CLI mode.
+  // Also links the observation to all tasks completed/created via brain_task_observations.
+  // T1615: enables cleo memory find queries to surface session context by task ID.
   const { bridgeSessionToMemory } = await import('./session-memory-bridge.js');
   await bridgeSessionToMemory(projectRoot, {
     sessionId: session.id,
     scope: session.scope.epicId ? `epic:${session.scope.epicId}` : session.scope.type,
     tasksCompleted: session.tasksCompleted || [],
+    tasksCreated: session.tasksCreated || [],
     duration,
+    note: params.note,
   }).catch(() => {
     /* Memory bridge is best-effort */
   });
@@ -561,7 +565,7 @@ export type { ContextDriftResult } from './session-drift.js';
 export { getContextDrift } from './session-drift.js';
 export type { SessionHistoryEntry, SessionHistoryParams } from './session-history.js';
 export { getSessionHistory } from './session-history.js';
-export type { SessionBridgeData } from './session-memory-bridge.js';
+export type { SessionBridgeData, SessionBridgeResult } from './session-memory-bridge.js';
 export { bridgeSessionToMemory } from './session-memory-bridge.js';
 // Re-export extended session modules (engine-compatible)
 export { showSession } from './session-show.js';
