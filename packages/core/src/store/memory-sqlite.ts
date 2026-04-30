@@ -465,6 +465,31 @@ function runBrainMigrations(
     `CREATE INDEX IF NOT EXISTS idx_brain_trees_parent ON brain_memory_trees (parent_id)`,
   );
   nativeDb.exec(`CREATE INDEX IF NOT EXISTS idx_brain_trees_depth ON brain_memory_trees (depth)`);
+
+  // T1615: brain_task_observations — join table linking brain_observations to task IDs.
+  // Enables cleo memory find queries to surface session context for a given task.
+  // CREATE IF NOT EXISTS so re-runs on existing databases are safe.
+  nativeDb.exec(
+    `CREATE TABLE IF NOT EXISTS brain_task_observations (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      observation_id  TEXT NOT NULL,
+      task_id         TEXT NOT NULL,
+      link_type       TEXT NOT NULL DEFAULT 'session-completed',
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+  );
+  nativeDb.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_task_obs_unique
+      ON brain_task_observations (observation_id, task_id)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_task_obs_observation
+      ON brain_task_observations (observation_id)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_task_obs_task
+      ON brain_task_observations (task_id)`,
+  );
 }
 
 /**
