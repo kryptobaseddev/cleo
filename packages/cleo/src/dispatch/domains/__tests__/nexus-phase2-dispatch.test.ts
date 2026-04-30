@@ -28,6 +28,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock core internals
+// Mock the nexus-engine — stub all functions referenced by NexusHandler
 vi.mock('@cleocode/core/internal', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
   getLogger: vi.fn(() => ({
@@ -38,10 +39,6 @@ vi.mock('@cleocode/core/internal', () => ({
   })),
   getBrainNativeDb: vi.fn(() => null),
   getNexusNativeDb: vi.fn(() => null),
-}));
-
-// Mock the nexus-engine — stub all functions referenced by NexusHandler
-vi.mock('../../engines/nexus-engine.js', () => ({
   nexusStatus: vi.fn(),
   nexusListProjects: vi.fn(),
   nexusShowProject: vi.fn(),
@@ -122,7 +119,7 @@ import {
   nexusProjectsScan,
   nexusQueryCte,
   nexusRefreshBridge,
-} from '../../engines/nexus-engine.js';
+} from '@cleocode/core/internal';
 import { NexusHandler } from '../nexus.js';
 
 // ---------------------------------------------------------------------------

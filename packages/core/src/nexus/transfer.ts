@@ -19,8 +19,16 @@ import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import type { UserProfileTrait } from '@cleocode/contracts';
 import { importFromPackage } from '../admin/import-tasks.js';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
 import { createLink } from '../reconciliation/link-store.js';
+import {
+  exportSnapshot,
+  getDefaultSnapshotPath,
+  importSnapshot,
+  readSnapshot,
+  writeSnapshot,
+} from '../snapshot/index.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { exportSingle, exportSubtree } from '../store/export.js';
 import { BrainDataAccessor } from '../store/memory-accessor.js';
@@ -506,4 +514,71 @@ async function executeTransferInternal(params: TransferParams): Promise<Transfer
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusShareSnapshotExport(
+  projectRoot: string,
+  outputPath?: string,
+): Promise<
+  EngineResult<{
+    path: string;
+    taskCount: number;
+    checksum: string;
+  }>
+> {
+  try {
+    const snapshot = await exportSnapshot(projectRoot);
+    const resolvedPath = outputPath ?? getDefaultSnapshotPath(projectRoot);
+    await writeSnapshot(snapshot, resolvedPath);
+    return engineSuccess({
+      path: resolvedPath,
+      taskCount: snapshot._meta.taskCount,
+      checksum: snapshot._meta.checksum,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusShareSnapshotImport(
+  projectRoot: string,
+  inputPath: string,
+): Promise<EngineResult<Awaited<ReturnType<typeof importSnapshot>>>> {
+  try {
+    const snapshot = await readSnapshot(inputPath);
+    const result = await importSnapshot(snapshot, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusTransferPreview(
+  params: TransferParams,
+): Promise<EngineResult<TransferResult>> {
+  try {
+    const result = await previewTransfer(params);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusTransferExecute(
+  params: TransferParams,
+): Promise<EngineResult<TransferResult>> {
+  try {
+    const result = await executeTransfer(params);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

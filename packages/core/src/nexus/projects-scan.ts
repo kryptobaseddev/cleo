@@ -10,6 +10,7 @@
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 
 /** Auto-register error record. */
 export interface ScanAutoRegisterError {
@@ -254,4 +255,19 @@ export async function scanForProjects(opts: ProjectsScanOptions = {}): Promise<P
     autoRegistered,
     autoRegisterErrors,
   };
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProjectsScan(opts: {
+  roots?: string;
+  maxDepth?: number;
+  autoRegister?: boolean;
+  includeExisting?: boolean;
+}): Promise<EngineResult<ProjectsScanResult>> {
+  try {
+    const result = await scanForProjects(opts);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }
