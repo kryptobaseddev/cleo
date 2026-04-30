@@ -1248,6 +1248,8 @@ export {
   taskShowIvtrHistory,
   taskShowWithHistory,
 } from './tasks/show.js';
+// Sync sub-domain (T1568 / ADR-057 / ADR-058) — Wave 3
+export { taskSyncLinks, taskSyncLinksRemove, taskSyncReconcile } from './tasks/sync-ops.js';
 // Tasks (additional — stats)
 export {
   coreTaskStats,
