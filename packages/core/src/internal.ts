@@ -567,6 +567,15 @@ export {
   orchestrateSpawnSelectProvider,
   sendConduitEvent,
 } from './orchestrate/spawn-ops.js';
+// Orchestrate handoff ops (T1570 Wave 4 — migrated from orchestrate-engine.ts)
+export type {
+  HandoffFailureDetails,
+  HandoffSessionOps,
+  HandoffState,
+  HandoffStepState,
+  HandoffStepStatus,
+} from './orchestrate/handoff-ops.js';
+export { orchestrateHandoff } from './orchestrate/handoff-ops.js';
 // Context
 export { estimateContext } from './orchestration/context.js';
 // Orchestration
