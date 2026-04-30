@@ -1294,7 +1294,7 @@ export type { BuildConfig } from './config/build-config.js';
 // Build config
 export { BUILD_CONFIG } from './config/build-config.js';
 // Init (additional)
-export { initCoreSkills } from './init.js';
+export { initCoreSkills, installHandoffRedirectStubs } from './init.js';
 // Memory — anthropic key resolver (additional)
 export {
   clearAnthropicKeyCache,
