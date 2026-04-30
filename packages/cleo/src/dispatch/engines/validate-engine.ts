@@ -767,11 +767,13 @@ import {
   appendForceBypassLine,
   appendGateAuditLine,
   checkAndIncrementOverrideCap,
+  checkCallsiteCoverageAtom,
   checkEngineMigrationLocDrop,
   checkGateEvidenceMinimum,
   composeGateEvidence,
   enforceSharedEvidence,
   getAccessor,
+  hasCallsiteCoverageLabel,
   hasEngineMigrationLabel,
   parseEvidence,
   validateAtom,
@@ -1105,6 +1107,19 @@ export async function validateGateVerify(
           const locDropError = checkEngineMigrationLocDrop(validatedAtoms);
           if (locDropError) {
             return engineError('E_EVIDENCE_INSUFFICIENT', locDropError);
+          }
+        }
+
+        // T1605 — callsite-coverage label gate.
+        // If the task carries the `callsite-coverage` label and the `implemented`
+        // gate is among the targets, require a `callsite-coverage` evidence atom
+        // proving the exported symbol has ≥1 production callsite outside its
+        // own source file, test files, and dist directories.  Catches the T1601
+        // pattern where a function is shipped but never wired to production.
+        if (isImplementedTarget && hasCallsiteCoverageLabel(task.labels ?? [])) {
+          const callsiteError = checkCallsiteCoverageAtom(validatedAtoms);
+          if (callsiteError) {
+            return engineError('E_EVIDENCE_INSUFFICIENT', callsiteError);
           }
         }
       }
