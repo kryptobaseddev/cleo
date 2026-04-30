@@ -56,6 +56,10 @@ vi.mock('@cleocode/core/internal', () => ({
   predictImpact: vi.fn(),
   getActiveSession: vi.fn(),
   toCompact: vi.fn(),
+  computeTaskView: vi.fn(),
+  getIvtrState: vi.fn(),
+  taskToRecord: vi.fn((task: unknown) => task),
+  toHistoryEntry: vi.fn(),
 }));
 
 import { showTask as coreShowTask, getAccessor, getLifecycleStatus } from '@cleocode/core/internal';
