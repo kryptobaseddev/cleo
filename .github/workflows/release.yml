@@ -144,6 +144,81 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # Hard gate: ESM module-load smoke test — runs AFTER build, BEFORE publish.
+      #
+      # Imports @cleocode/core and @cleocode/cleo directly from the local built
+      # dist (not from npm, not from src). Catches runtime crashes caused by
+      # TypeScript patterns like `export declare const releaseCoreOps` which
+      # compile without error but produce undefined at runtime, breaking any
+      # consumer that destructures or calls the export. (T1606)
+      #
+      # Uses an explicit Node.js script written to /tmp to avoid heredoc quoting
+      # issues with GitHub Actions multi-line run: blocks. The script paths are
+      # static (no user-controlled input), satisfying the injection-safe
+      # requirement for workflow files.
+      - name: ESM module-load smoke test (@cleocode/core + @cleocode/cleo)
+        run: |
+          # Write the smoke-test script to a temp file to avoid heredoc quoting issues.
+          # All paths are static — no user-controlled input reaches this script.
+          cat > /tmp/esm-smoke-test.mjs << 'SMOKE_EOF'
+          import { pathToFileURL } from 'url';
+          import path from 'path';
+
+          async function smokeTest(pkgLabel, distPath) {
+            const absPath = path.resolve(distPath);
+            let mod;
+            try {
+              mod = await import(pathToFileURL(absPath).href);
+            } catch (err) {
+              throw new Error(`${pkgLabel}: import failed — ${err.message}`);
+            }
+
+            if (mod === null || typeof mod !== 'object') {
+              throw new Error(`${pkgLabel}: module loaded but returned a non-object`);
+            }
+
+            // Catch the "export declare const" pattern: default export is undefined
+            if ('default' in mod && mod.default === undefined) {
+              throw new Error(
+                `${pkgLabel}: default export is undefined — ` +
+                `possible "export declare const" runtime crash (type-only declaration leaked into dist)`
+              );
+            }
+
+            const namedExports = Object.keys(mod).filter(k => k !== 'default');
+            if (namedExports.length === 0 && !('default' in mod)) {
+              throw new Error(`${pkgLabel}: no exports found in dist — build may be empty or misconfigured`);
+            }
+
+            const exportCount = namedExports.length + ('default' in mod ? 1 : 0);
+            console.log(`PASS  ${pkgLabel} — ${exportCount} export(s), dist: ${distPath}`);
+          }
+
+          let failed = false;
+          for (const [label, distPath] of [
+            ['@cleocode/core', 'packages/core/dist/index.js'],
+            ['@cleocode/cleo', 'packages/cleo/dist/cli/index.js'],
+          ]) {
+            try {
+              await smokeTest(label, distPath);
+            } catch (err) {
+              console.error(`FAIL  ${err.message}`);
+              failed = true;
+            }
+          }
+
+          if (failed) {
+            console.error('');
+            console.error('ESM smoke test FAILED — fix the export pattern before publishing.');
+            process.exit(1);
+          }
+
+          console.log('');
+          console.log('ESM module-load smoke tests passed.');
+          SMOKE_EOF
+
+          node /tmp/esm-smoke-test.mjs
+
       # Hard gate: verify critical .js files are present in the @cleocode/core
       # tarball before any publish step runs. Catches the regression pattern
       # where tsc incremental compilation emits only .d.ts outputs. (T721)
