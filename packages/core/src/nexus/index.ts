@@ -44,7 +44,13 @@ export {
   type NexusGlobalGraph,
   type NexusGraphEdge,
   type NexusGraphNode,
+  // EngineResult wrappers (T1569)
+  nexusBlockers,
+  nexusCriticalPath,
   nexusDeps,
+  nexusDepsQuery,
+  nexusGraph,
+  nexusOrphans,
   type OrphanEntry,
   orphanDetection,
   resolveCrossDeps,
@@ -80,6 +86,8 @@ export {
   type NexusImpactOptions,
   type NexusImpactResult,
   type NexusRiskLevel,
+  // EngineResult wrapper (T1569)
+  nexusImpact,
 } from './impact.js';
 // Ops registry — type source for OpsFromCore<typeof nexus.nexusCoreOps> (T1440)
 export type { nexusCoreOps } from './ops.js';
@@ -91,6 +99,7 @@ export {
   checkPermission,
   checkPermissionDetail,
   getPermission,
+  nexusSetPermission,
   type PermissionCheckResult,
   // Operations
   permissionLevel,
@@ -120,6 +129,9 @@ export {
   getProjectFromQuery,
   type NexusParsedQuery,
   type NexusResolvedTask,
+  // EngineResult wrappers (T1569)
+  nexusResolve,
+  nexusTopEntries,
   parseQuery,
   resolveProjectPath,
   resolveTask,
@@ -139,14 +151,25 @@ export {
   type NexusRegistryFile,
   nexusGetProject,
   nexusInit,
+  // EngineResult wrappers (T1569)
+  nexusInitialize,
   nexusList,
+  nexusListProjects,
   nexusProjectExists,
+  nexusProjectsList,
+  nexusProjectsRegister,
+  nexusProjectsRemove,
   nexusReconcile,
+  nexusReconcileProject,
   nexusRegister,
-  nexusSetPermission,
+  nexusRegisterProject,
+  nexusShowProject,
+  nexusStatus,
   nexusSync,
   nexusSyncAll,
+  nexusSyncProject,
   nexusUnregister,
+  nexusUnregisterProject,
   nexusUpdateIndexStats,
   // Operations
   readRegistry,

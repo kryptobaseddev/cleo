@@ -430,12 +430,20 @@ export {
   blockingAnalysis,
   buildGlobalGraph,
   criticalPath,
+  // EngineResult wrappers (T1569 Wave 1)
+  nexusBlockers,
+  nexusCriticalPath,
   nexusDeps,
+  nexusDepsQuery,
+  nexusGraph,
+  nexusOrphans,
   orphanDetection,
 } from './nexus/deps.js';
 export { searchAcrossProjects } from './nexus/discover.js';
 export { installNexusAugmentHook } from './nexus/hooks-augment.js';
-export { setPermission } from './nexus/permissions.js';
+// EngineResult wrapper (T1569 Wave 1)
+export { nexusImpact } from './nexus/impact.js';
+export { nexusSetPermission, setPermission } from './nexus/permissions.js';
 // T1013: plasticity queries over nexus_relations weight/last_accessed_at columns (added in T998)
 export {
   getColdSymbols,
@@ -446,17 +454,35 @@ export {
   type NexusHotPath,
   type NexusPlasticityResult,
 } from './nexus/plasticity-queries.js';
-export { resolveTask, validateSyntax } from './nexus/query.js';
+export {
+  // EngineResult wrappers (T1569 Wave 1)
+  nexusResolve,
+  nexusTopEntries,
+  resolveTask,
+  validateSyntax,
+} from './nexus/query.js';
 export type { NexusPermissionLevel, NexusProject, NexusProjectStats } from './nexus/registry.js';
 export {
   nexusGetProject,
   nexusInit,
+  // EngineResult wrappers (T1569 Wave 1)
+  nexusInitialize,
   nexusList,
+  nexusListProjects,
+  nexusProjectsList,
+  nexusProjectsRegister,
+  nexusProjectsRemove,
   nexusReconcile,
+  nexusReconcileProject,
   nexusRegister,
+  nexusRegisterProject,
+  nexusShowProject,
+  nexusStatus,
   nexusSync,
   nexusSyncAll,
+  nexusSyncProject,
   nexusUnregister,
+  nexusUnregisterProject,
   nexusUpdateIndexStats,
 } from './nexus/registry.js';
 export { getSharingStatus } from './nexus/sharing/index.js';

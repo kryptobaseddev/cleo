@@ -25,8 +25,10 @@ import {
   type NexusSyncParams,
   type NexusUnregisterParams,
 } from '@cleocode/contracts';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
+import { paginate } from '../pagination.js';
 import { getCleoHome } from '../paths.js';
 import { getAccessor } from '../store/data-accessor.js';
 import type { ProjectRegistryRow } from '../store/nexus-schema.js';
@@ -903,3 +905,239 @@ export async function nexusReconcile(
  * Re-exported from nexus-sqlite for test convenience.
  */
 export { resetNexusDbState };
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a caught error to an EngineResult failure.
+ */
+function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
+  const e = error instanceof Error ? error : null;
+  return engineError<T>('E_INTERNAL', e?.message ?? fallbackMsg);
+}
+
+/**
+ * Get nexus status (initialized, project count, last updated).
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusStatus(): Promise<
+  EngineResult<{
+    initialized: boolean;
+    projectCount: number;
+    lastUpdated: string | null;
+  }>
+> {
+  try {
+    const registry = await readRegistry();
+    const initialized = registry !== null;
+    const projectCount = initialized ? Object.keys(registry.projects).length : 0;
+    return engineSuccess({
+      initialized,
+      projectCount,
+      lastUpdated: registry?.lastUpdated ?? null,
+    });
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to get nexus status');
+  }
+}
+
+/**
+ * List all registered projects with pagination.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusListProjects(
+  limit?: number,
+  offset?: number,
+): Promise<
+  EngineResult<{
+    projects: Awaited<ReturnType<typeof nexusList>>;
+    count: number;
+    total: number;
+    filtered: number;
+    page: ReturnType<typeof paginate>['page'];
+  }>
+> {
+  try {
+    const projects = await nexusList('', {});
+    const page = paginate(projects, limit, offset);
+    return {
+      success: true,
+      data: {
+        projects: page.items as Awaited<ReturnType<typeof nexusList>>,
+        count: projects.length,
+        total: projects.length,
+        filtered: projects.length,
+        page: page.page,
+      },
+      page: page.page,
+    };
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to list projects');
+  }
+}
+
+/**
+ * Show a single project by name.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusShowProject(
+  name: string,
+): Promise<EngineResult<Awaited<ReturnType<typeof nexusGetProject>>>> {
+  try {
+    const project = await nexusGetProject('', { name });
+    if (!project) {
+      return engineError('E_NOT_FOUND', `Project not found: ${name}`);
+    }
+    return engineSuccess(project);
+  } catch (error) {
+    return caughtToEngineError(error, `Failed to show project: ${name}`);
+  }
+}
+
+/**
+ * Initialize the nexus.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusInitialize(): Promise<EngineResult<{ message: string }>> {
+  try {
+    await nexusInit('', {});
+    return engineSuccess({ message: 'NEXUS initialized successfully' });
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to initialize nexus');
+  }
+}
+
+/**
+ * Register a project in the nexus.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusRegisterProject(
+  path: string,
+  name?: string,
+  permission: NexusPermissionLevel = 'read',
+): Promise<EngineResult<{ hash: string; message: string }>> {
+  try {
+    const hash = await nexusRegister('', { path, name, permission });
+    return engineSuccess({ hash, message: `Project registered with hash: ${hash}` });
+  } catch (error) {
+    return caughtToEngineError(error, `Failed to register project: ${path}`);
+  }
+}
+
+/**
+ * Unregister a project from the nexus.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusUnregisterProject(
+  name: string,
+): Promise<EngineResult<{ message: string }>> {
+  try {
+    await nexusUnregister('', { name });
+    return engineSuccess({ message: `Project unregistered: ${name}` });
+  } catch (error) {
+    return caughtToEngineError(error, `Failed to unregister project: ${name}`);
+  }
+}
+
+/**
+ * Sync a specific project or all projects.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusSyncProject(name?: string): Promise<EngineResult<unknown>> {
+  try {
+    if (name) {
+      await nexusSync('', { name });
+      return engineSuccess({ message: `Project synced: ${name}` });
+    }
+    const result = await nexusSyncAll();
+    return engineSuccess(result);
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to sync project');
+  }
+}
+
+/**
+ * Reconcile the nexus registry with the filesystem.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusReconcileProject(
+  projectRoot: string,
+): Promise<EngineResult<Awaited<ReturnType<typeof nexusReconcile>>>> {
+  try {
+    const result = await nexusReconcile(projectRoot, {});
+    return engineSuccess(result);
+  } catch (error) {
+    return caughtToEngineError(error, `Failed to reconcile project: ${projectRoot}`);
+  }
+}
+
+/**
+ * List all projects in the global nexus registry (Phase 2 dispatch op).
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProjectsList(): Promise<EngineResult<unknown>> {
+  try {
+    const list = await nexusList('', {});
+    return engineSuccess({ projects: list, count: list.length });
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to list nexus projects');
+  }
+}
+
+/**
+ * Register a project in the global nexus registry (Phase 2 dispatch op).
+ *
+ * @param repoPath - Absolute path to the project directory.
+ * @param name     - Custom project name (optional).
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProjectsRegister(
+  repoPath: string,
+  name?: string,
+): Promise<EngineResult<{ hash: string; path: string }>> {
+  try {
+    const hash = await nexusRegister(repoPath, name);
+    return engineSuccess({ hash, path: repoPath });
+  } catch (error) {
+    return caughtToEngineError(error, `Failed to register project: ${repoPath}`);
+  }
+}
+
+/**
+ * Remove a project from the global nexus registry by name or hash (Phase 2 dispatch op).
+ *
+ * @param nameOrHash - Project name or hash to remove.
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProjectsRemove(
+  nameOrHash: string,
+): Promise<EngineResult<{ removed: string }>> {
+  try {
+    await nexusUnregister(nameOrHash);
+    return engineSuccess({ removed: nameOrHash });
+  } catch (error) {
+    return caughtToEngineError(error, `Failed to remove project: ${nameOrHash}`);
+  }
+}

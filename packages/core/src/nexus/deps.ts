@@ -19,7 +19,9 @@ import {
   type NexusOrphansListParams,
   type NexusPathShowParams,
 } from '@cleocode/contracts';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { paginate } from '../pagination.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { checkPermission } from './permissions.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
@@ -552,4 +554,122 @@ export async function orphanDetection(
   }
 
   return orphans;
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a caught error to an EngineResult failure.
+ */
+function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
+  const e = error instanceof Error ? error : null;
+  return engineError<T>('E_INTERNAL', e?.message ?? fallbackMsg);
+}
+
+/**
+ * Get cross-project dependencies for a task query.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusDepsQuery(
+  query: string,
+  direction: 'forward' | 'reverse' = 'forward',
+): Promise<EngineResult<Awaited<ReturnType<typeof nexusDeps>>>> {
+  try {
+    const result = await nexusDeps('', { query, direction });
+    return engineSuccess(result);
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to get nexus dependencies');
+  }
+}
+
+/**
+ * Build the global dependency graph.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusGraph(): Promise<
+  EngineResult<Awaited<ReturnType<typeof buildGlobalGraph>>>
+> {
+  try {
+    const graph = await buildGlobalGraph('', {});
+    return engineSuccess(graph);
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to build global graph');
+  }
+}
+
+/**
+ * Get the critical path across projects.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusCriticalPath(): Promise<
+  EngineResult<Awaited<ReturnType<typeof criticalPath>>>
+> {
+  try {
+    const path = await criticalPath('', {});
+    return engineSuccess(path);
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to compute critical path');
+  }
+}
+
+/**
+ * Analyze blockers for a task query.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusBlockers(
+  query: string,
+): Promise<EngineResult<Awaited<ReturnType<typeof blockingAnalysis>>>> {
+  try {
+    const analysis = await blockingAnalysis('', { query });
+    return engineSuccess(analysis);
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to analyze blockers');
+  }
+}
+
+/**
+ * List orphaned cross-project tasks.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusOrphans(
+  limit?: number,
+  offset?: number,
+): Promise<
+  EngineResult<{
+    orphans: Awaited<ReturnType<typeof orphanDetection>>;
+    count: number;
+    total: number;
+    filtered: number;
+    page: ReturnType<typeof paginate>['page'];
+  }>
+> {
+  try {
+    const orphans = await orphanDetection('', {});
+    const page = paginate(orphans, limit, offset);
+    return {
+      success: true,
+      data: {
+        orphans: page.items as Awaited<ReturnType<typeof orphanDetection>>,
+        count: orphans.length,
+        total: orphans.length,
+        filtered: orphans.length,
+        page: page.page,
+      },
+      page: page.page,
+    };
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to detect orphans');
+  }
 }

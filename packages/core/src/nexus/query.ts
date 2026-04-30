@@ -15,8 +15,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { ExitCode, type NexusResolveParams } from '@cleocode/contracts';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
+import { getBrainNativeDb } from '../store/memory-sqlite.js';
+import { getNexusNativeDb } from '../store/nexus-sqlite.js';
 import { nexusGetProject, readRegistry } from './registry.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -237,4 +240,208 @@ async function resolveWildcard(taskId: string): Promise<NexusResolvedTask[]> {
 export function getProjectFromQuery(query: string, currentProject?: string): string {
   const parsed = parseQuery(query, currentProject);
   return parsed.project;
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a caught error to an EngineResult failure.
+ */
+function caughtToEngineError<T>(error: unknown, fallbackMsg: string): EngineResult<T> {
+  const e = error instanceof Error ? error : null;
+  return engineError<T>('E_INTERNAL', e?.message ?? fallbackMsg);
+}
+
+/**
+ * Resolve a cross-project task query.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusResolve(
+  query: string,
+  currentProject?: string,
+): Promise<EngineResult<Awaited<ReturnType<typeof resolveTask>>>> {
+  try {
+    if (!validateSyntax(query)) {
+      return engineError(
+        'E_INVALID_INPUT',
+        `Invalid query syntax: ${query}. Expected: T001, project:T001, .:T001, or *:T001`,
+      );
+    }
+    const result = await resolveTask('', { query, currentProject });
+    return engineSuccess(result);
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to resolve query');
+  }
+}
+
+/**
+ * Query highest-weight symbols/nodes from nexus plasticity or brain page nodes.
+ *
+ * Prioritizes brain.db page_nodes (quality_score) over nexus_relations (aggregate weight).
+ * Supports optional --kind (nexus) or --nodeType (brain) filter.
+ * Returns graceful empty result with note when neither DB is available.
+ *
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusTopEntries(params?: {
+  limit?: number;
+  kind?: string;
+  nodeType?: string;
+}): Promise<
+  EngineResult<{
+    entries: unknown[];
+    count: number;
+    limit: number;
+    kind?: string | null;
+    nodeType?: string | null;
+    note?: string;
+  }>
+> {
+  try {
+    const limit =
+      typeof params?.limit === 'number' && Number.isFinite(params.limit) && params.limit > 0
+        ? Math.floor(params.limit)
+        : 20;
+
+    // Brain.db path takes priority: query brain_page_nodes by quality_score.
+    const brainDb = getBrainNativeDb();
+    if (brainDb !== null && brainDb !== undefined) {
+      try {
+        const nodeType = params?.nodeType ? String(params.nodeType) : null;
+        const sql =
+          nodeType === null
+            ? `SELECT id, node_type, label, quality_score, last_activity_at, metadata_json
+                 FROM brain_page_nodes
+                ORDER BY quality_score DESC
+                LIMIT ?`
+            : `SELECT id, node_type, label, quality_score, last_activity_at, metadata_json
+                 FROM brain_page_nodes
+                WHERE node_type = ?
+                ORDER BY quality_score DESC
+                LIMIT ?`;
+        const bindArgs: (string | number)[] = nodeType === null ? [limit] : [nodeType, limit];
+        const rows = brainDb.prepare(sql).all(...bindArgs) as Array<{
+          id: string;
+          node_type: string | null;
+          label: string | null;
+          quality_score: number | null;
+          last_activity_at: string | null;
+          metadata_json: string | null;
+        }>;
+
+        const entries = rows.map((r) => ({
+          id: r.id,
+          node_type: r.node_type ?? 'unknown',
+          label: r.label ?? r.id,
+          quality_score: r.quality_score ?? 0,
+          last_activity_at: r.last_activity_at ?? '',
+          metadata_json: r.metadata_json ?? null,
+        }));
+
+        return engineSuccess({
+          entries,
+          count: entries.length,
+          limit,
+          nodeType,
+        });
+      } catch {
+        // brain_page_nodes table not yet created — fall through to nexus
+      }
+    }
+
+    // Nexus.db fallback: check if a nexus.db connection is already open.
+    const nexusDb = getNexusNativeDb();
+
+    if (!nexusDb) {
+      return engineSuccess({
+        entries: [],
+        count: 0,
+        limit,
+        kind: params?.kind ? String(params.kind) : null,
+        note: 'Neither brain.db nor nexus.db is available. Run "cleo nexus init" to initialize.',
+      });
+    }
+
+    try {
+      const kind = params?.kind ? String(params.kind) : null;
+      const sql =
+        kind === null
+          ? `SELECT r.source_id,
+                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                    COUNT(*)                   AS edgeCount,
+                    n.label,
+                    n.kind,
+                    n.file_path
+               FROM nexus_relations r
+               LEFT JOIN nexus_nodes n ON n.id = r.source_id
+              GROUP BY r.source_id
+              ORDER BY totalWeight DESC, edgeCount DESC
+              LIMIT ?`
+          : `SELECT r.source_id,
+                    SUM(COALESCE(r.weight, 0)) AS totalWeight,
+                    COUNT(*)                   AS edgeCount,
+                    n.label,
+                    n.kind,
+                    n.file_path
+               FROM nexus_relations r
+               LEFT JOIN nexus_nodes n ON n.id = r.source_id
+              WHERE n.kind = ?
+              GROUP BY r.source_id
+              ORDER BY totalWeight DESC, edgeCount DESC
+              LIMIT ?`;
+      const bindArgs: (string | number)[] = kind === null ? [limit] : [kind, limit];
+      const rows = nexusDb.prepare(sql).all(...bindArgs) as Array<{
+        source_id: string;
+        totalWeight: number;
+        edgeCount: number;
+        label: string | null;
+        kind: string | null;
+        file_path: string | null;
+      }>;
+
+      const entries = rows.map((r) => ({
+        nodeId: r.source_id,
+        label: r.label ?? r.source_id,
+        kind: r.kind ?? 'unknown',
+        filePath: r.file_path ?? null,
+        totalWeight: r.totalWeight,
+        edgeCount: r.edgeCount,
+      }));
+
+      const result: {
+        entries: unknown[];
+        count: number;
+        limit: number;
+        kind?: string | null;
+        note?: string;
+      } = {
+        entries,
+        count: entries.length,
+        limit,
+        kind,
+      };
+
+      if (entries.length === 0) {
+        result.note =
+          'No high-impact sources detected yet. Code plasticity will accumulate as the system indexes and analyzes dependencies.';
+      }
+
+      return engineSuccess(result);
+    } catch {
+      return engineSuccess({
+        entries: [],
+        count: 0,
+        limit,
+        kind: params?.kind ? String(params.kind) : null,
+        note: 'Nexus registry not yet initialized. Run "cleo nexus init" to start.',
+      });
+    }
+  } catch (error) {
+    return caughtToEngineError(error, 'Failed to get top entries');
+  }
 }
