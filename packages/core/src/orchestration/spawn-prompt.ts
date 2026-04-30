@@ -98,6 +98,51 @@ function locateCleoInjectionTemplate(): string | null {
 // Types
 // ============================================================================
 
+/**
+ * Metadata for a single task document attachment to be embedded in the spawn prompt.
+ *
+ * Passed via {@link BuildSpawnPromptInput.docAttachments} by the
+ * {@link composeSpawnPayload} caller after auto-fetching via `blobList`.
+ * Text-based attachments (`text/plain`, `text/markdown`) have their `textContent`
+ * inlined so the agent can read them without additional CLI calls. All others
+ * are listed by name so the agent knows they exist and can use
+ * `cleo docs fetch` if needed.
+ *
+ * @task T1614 — spawn auto-attaches docs to subagent task
+ */
+export interface TaskDocAttachment {
+  /** User-visible attachment name (e.g. `"design.md"`). */
+  readonly name: string;
+  /** Lowercase hex SHA-256 digest (64 chars). Content-address. */
+  readonly sha256: string;
+  /** Byte size of the stored blob. */
+  readonly sizeBytes: number;
+  /** IANA MIME type, when known. */
+  readonly mimeType?: string;
+  /**
+   * Inline text content for text-based attachments (text/plain, text/markdown).
+   *
+   * Populated by {@link composeSpawnPayload} for small text blobs (≤ {@link INLINE_TEXT_SIZE_LIMIT_BYTES}).
+   * Larger blobs or non-text MIME types leave this field `undefined` — the
+   * agent must call `cleo docs fetch` to retrieve them.
+   */
+  readonly textContent?: string;
+}
+
+/**
+ * Inline size limit for text attachments (bytes).
+ *
+ * Blobs at or below this size that carry a text MIME type are inlined directly
+ * into the `## Task Documents` section. Larger blobs are listed with a
+ * `cleo docs fetch` pointer so the agent can retrieve them on-demand.
+ *
+ * Exported so {@link composeSpawnPayload} can apply the same threshold when
+ * deciding whether to populate {@link TaskDocAttachment.textContent}.
+ *
+ * @task T1614
+ */
+export const INLINE_TEXT_SIZE_LIMIT_BYTES = 32 * 1024; // 32 KB
+
 /** Protocol tiers per ADR-051 / T882 spawn contract. */
 export type SpawnTier = 0 | 1 | 2;
 
@@ -243,6 +288,21 @@ export interface BuildSpawnPromptInput {
    * @task T1260 PSYCHE E3
    */
   retrievalBundle?: import('@cleocode/contracts').RetrievalBundle;
+  /**
+   * Task document attachments to embed in the spawn prompt.
+   *
+   * Auto-fetched by {@link composeSpawnPayload} via `blobList` for the task ID.
+   * When non-empty, a `## Task Documents` section is injected between File Paths
+   * and Stage-Specific Guidance. Text-based attachments (≤ 32 KB) have their
+   * content inlined so the agent does not need to call `cleo docs fetch` for them.
+   * Binary or large attachments are listed by name only.
+   *
+   * When empty or absent, the section is omitted entirely — no bloat for tasks
+   * with no attachments.
+   *
+   * @task T1614 — spawn auto-attaches docs to subagent task
+   */
+  docAttachments?: readonly TaskDocAttachment[];
 }
 
 /**
@@ -412,6 +472,65 @@ function buildWorktreeSetupBlock(
     '',
     'All commits MUST land on YOUR branch only. Cherry-pick to main is handled by the orchestrator.',
   ].join('\n');
+}
+
+/**
+ * Build the `## Task Documents` section listing attachments for the spawned task.
+ *
+ * Text-based attachments with `textContent` populated are inlined directly so
+ * the agent can read them without additional CLI calls. Binary or large
+ * attachments are listed with their name, size, and a `cleo docs fetch` pointer.
+ *
+ * @param taskId      - Task identifier (for CLI command examples).
+ * @param attachments - Resolved attachment records from `blobList`.
+ * @returns Markdown section string. Returns empty string when `attachments` is
+ *          empty — callers omit the section entirely in that case.
+ *
+ * @task T1614 — spawn auto-attaches docs to subagent task
+ */
+function buildDocsBlock(taskId: string, attachments: readonly TaskDocAttachment[]): string {
+  if (attachments.length === 0) return '';
+
+  const lines: string[] = [
+    '## Task Documents',
+    '',
+    `${attachments.length} attachment${attachments.length === 1 ? '' : 's'} are attached to \`${taskId}\`.`,
+    'Text attachments are inlined below. For binary or large attachments, use:',
+    '',
+    '```bash',
+    `cleo docs list --task ${taskId}`,
+    'cleo docs fetch <attachmentRef>',
+    '```',
+    '',
+  ];
+
+  for (const att of attachments) {
+    const sizeKb = (att.sizeBytes / 1024).toFixed(1);
+    const mimeLabel = att.mimeType ? ` (${att.mimeType})` : '';
+
+    if (att.textContent !== undefined) {
+      // Inline the text content between fenced blocks.
+      const fence = att.name.endsWith('.json') ? '```json' : '```';
+      lines.push(`### ${att.name}${mimeLabel} — ${sizeKb} KB`);
+      lines.push('');
+      lines.push(fence);
+      lines.push(att.textContent);
+      lines.push('```');
+      lines.push('');
+    } else {
+      // Binary or oversized — list-only row with fetch pointer.
+      lines.push(`### ${att.name}${mimeLabel} — ${sizeKb} KB`);
+      lines.push('');
+      lines.push(`SHA-256: \`${att.sha256}\``);
+      lines.push('');
+      lines.push('```bash');
+      lines.push(`cleo docs fetch ${att.sha256.slice(0, 8)}`);
+      lines.push('```');
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
 }
 
 /** Build the header block — identity banner + tier + protocol. Kept short so
@@ -1272,6 +1391,15 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     authoredSections.push(buildPsycheMemoryBlock(input.retrievalBundle));
   }
   authoredSections.push(buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir));
+  // Task Documents (T1614) — only emitted when the task has attachments.
+  // Text-based attachments ≤ INLINE_TEXT_SIZE_LIMIT_BYTES are inlined; others get a fetch pointer.
+  // Omitted entirely when no attachments exist so the prompt stays lean.
+  if (input.docAttachments && input.docAttachments.length > 0) {
+    const docsBlock = buildDocsBlock(taskId, input.docAttachments);
+    if (docsBlock) {
+      authoredSections.push(docsBlock);
+    }
+  }
   authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));
   authoredSections.push(buildQualityGateBlock());

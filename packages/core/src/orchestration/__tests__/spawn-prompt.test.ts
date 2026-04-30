@@ -15,9 +15,11 @@ import {
   ALL_SPAWN_PROTOCOL_PHASES,
   buildSpawnPrompt,
   DEFAULT_SPAWN_TIER,
+  INLINE_TEXT_SIZE_LIMIT_BYTES,
   resetSpawnPromptCache,
   resolvePromptTokens,
   type SpawnTier,
+  type TaskDocAttachment,
 } from '../spawn-prompt.js';
 
 const BASE_TASK: Task = {
@@ -437,5 +439,180 @@ describe('buildSpawnPrompt — worktree setup section (T1140)', () => {
     const filePathsIdx = result.prompt.indexOf('## File Paths');
     expect(sessionIdx).toBeLessThan(worktreeIdx);
     expect(worktreeIdx).toBeLessThan(filePathsIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T1614 — Task Documents section (spawn auto-attaches docs)
+// ---------------------------------------------------------------------------
+
+describe('buildSpawnPrompt — task documents section (T1614)', () => {
+  const TEXT_ATTACHMENT: TaskDocAttachment = {
+    name: 'spec.md',
+    sha256: 'a'.repeat(64),
+    sizeBytes: 200,
+    mimeType: 'text/markdown',
+    textContent: '# Spec\n\nThis is the spec content.',
+  };
+
+  const BINARY_ATTACHMENT: TaskDocAttachment = {
+    name: 'diagram.png',
+    sha256: 'b'.repeat(64),
+    sizeBytes: 4096,
+    mimeType: 'image/png',
+    // no textContent — binary blob
+  };
+
+  const LARGE_TEXT_ATTACHMENT: TaskDocAttachment = {
+    name: 'big-notes.txt',
+    sha256: 'c'.repeat(64),
+    sizeBytes: INLINE_TEXT_SIZE_LIMIT_BYTES + 1,
+    mimeType: 'text/plain',
+    // no textContent — oversized, not inlined by composeSpawnPayload
+  };
+
+  it('omits ## Task Documents section when docAttachments is undefined', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).not.toContain('## Task Documents');
+  });
+
+  it('omits ## Task Documents section when docAttachments is empty', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [],
+    });
+    expect(result.prompt).not.toContain('## Task Documents');
+  });
+
+  it('emits ## Task Documents section when attachments are provided', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [TEXT_ATTACHMENT],
+    });
+    expect(result.prompt).toContain('## Task Documents');
+  });
+
+  it('inlines text attachment content between fenced code blocks', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [TEXT_ATTACHMENT],
+    });
+    expect(result.prompt).toContain('spec.md');
+    expect(result.prompt).toContain('# Spec');
+    expect(result.prompt).toContain('This is the spec content.');
+  });
+
+  it('renders binary attachment with sha256 and cleo docs fetch pointer (no inline content)', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [BINARY_ATTACHMENT],
+    });
+    expect(result.prompt).toContain('diagram.png');
+    expect(result.prompt).toContain('SHA-256');
+    // Should contain the first 8 chars of sha256 in the fetch command
+    expect(result.prompt).toContain(`cleo docs fetch ${BINARY_ATTACHMENT.sha256.slice(0, 8)}`);
+    // Must NOT inline binary content (there is none)
+    expect(result.prompt).not.toContain('data:image');
+  });
+
+  it('renders oversized text attachment as list-only (no inline content)', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [LARGE_TEXT_ATTACHMENT],
+    });
+    expect(result.prompt).toContain('big-notes.txt');
+    expect(result.prompt).toContain(`cleo docs fetch ${LARGE_TEXT_ATTACHMENT.sha256.slice(0, 8)}`);
+  });
+
+  it('renders mixed attachments: inlined text + binary listing', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [TEXT_ATTACHMENT, BINARY_ATTACHMENT],
+    });
+    // Both should appear
+    expect(result.prompt).toContain('spec.md');
+    expect(result.prompt).toContain('diagram.png');
+    // Text content inlined
+    expect(result.prompt).toContain('# Spec');
+    // Binary fetch pointer
+    expect(result.prompt).toContain(`cleo docs fetch ${BINARY_ATTACHMENT.sha256.slice(0, 8)}`);
+  });
+
+  it('shows attachment count in the section header', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [TEXT_ATTACHMENT, BINARY_ATTACHMENT],
+    });
+    expect(result.prompt).toContain('2 attachments');
+  });
+
+  it('shows singular "attachment" for a single doc', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [TEXT_ATTACHMENT],
+    });
+    expect(result.prompt).toContain('1 attachment');
+    expect(result.prompt).not.toContain('1 attachments');
+  });
+
+  it('docs section appears after File Paths and before Stage Guidance', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [TEXT_ATTACHMENT],
+    });
+    const filePathsIdx = result.prompt.indexOf('## File Paths');
+    const docsIdx = result.prompt.indexOf('## Task Documents');
+    const stageIdx = result.prompt.indexOf('## Stage-Specific Guidance');
+    expect(filePathsIdx).toBeGreaterThan(-1);
+    expect(docsIdx).toBeGreaterThan(-1);
+    expect(stageIdx).toBeGreaterThan(-1);
+    expect(filePathsIdx).toBeLessThan(docsIdx);
+    expect(docsIdx).toBeLessThan(stageIdx);
+  });
+
+  it('includes cleo docs list CLI command in the header', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [TEXT_ATTACHMENT],
+    });
+    expect(result.prompt).toContain(`cleo docs list --task ${BASE_TASK.id}`);
+  });
+
+  it('INLINE_TEXT_SIZE_LIMIT_BYTES is exported and equals 32 KB', () => {
+    expect(INLINE_TEXT_SIZE_LIMIT_BYTES).toBe(32 * 1024);
+  });
+
+  it('produces zero unresolved tokens when docAttachments provided', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      docAttachments: [TEXT_ATTACHMENT, BINARY_ATTACHMENT],
+    });
+    expect(result.unresolvedTokens).toHaveLength(0);
   });
 });
