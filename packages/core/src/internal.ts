@@ -874,8 +874,10 @@ export {
 export {
   type AtomValidation,
   CANONICAL_TOOLS,
+  checkEngineMigrationLocDrop,
   checkGateEvidenceMinimum,
   composeGateEvidence,
+  ENGINE_MIGRATION_MIN_REDUCTION_PCT,
   type EvidenceTool,
   GATE_EVIDENCE_MINIMUMS,
   isValidToolName,
@@ -1134,6 +1136,17 @@ export {
   coreValidateSchema,
   coreValidateTask,
 } from './validation/validate-ops.js';
+// LOC-drop gate helpers + metrics-delta atom extensions (T1604 / T1023)
+export {
+  ENGINE_MIGRATION_LABEL,
+  hasEngineMigrationLabel,
+  isMetricImproved,
+  type MetricsDeltaValidation,
+  type ParsedMetricsDeltaAtom,
+  parseMetricsDeltaAtom,
+  type ValidatedMetricsDeltaAtom,
+  validateMetricsDeltaAtom,
+} from './verification/evidence-atoms.js';
 
 // ---------------------------------------------------------------------------
 // Additional flat exports (TS2724 resolution for @cleocode/cleo)
