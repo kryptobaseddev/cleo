@@ -5,6 +5,7 @@
  *
  * @epic T4454
  * @task W1-T4
+ * @task T1609 insertHandoffEntry — write-once INSERT path for handoff data
  */
 
 import type { Session } from '@cleocode/contracts';
@@ -89,6 +90,33 @@ export async function updateSession(
   db.update(schema.sessions).set(updateRow).where(eq(schema.sessions.id, sessionId)).run();
 
   return getSession(sessionId, cwd);
+}
+
+/**
+ * Insert a handoff entry for a session (write-once, append-only).
+ *
+ * The underlying `session_handoff_entries` table enforces:
+ *   - UNIQUE on `session_id` — only one handoff per session.
+ *   - BEFORE UPDATE trigger — rows are immutable after insertion.
+ *   - AFTER INSERT trigger — mirrors value to `sessions.handoff_json`
+ *     so existing read paths continue to work without change.
+ *
+ * Throws a SQLite `SQLITE_CONSTRAINT_UNIQUE` error (message contains
+ * "UNIQUE constraint failed") if a handoff already exists for this session.
+ * Callers should catch and surface as `E_HANDOFF_ALREADY_PERSISTED`.
+ *
+ * @param sessionId - The session that is being handed off.
+ * @param handoffJson - Serialised HandoffData or DebriefData JSON string.
+ * @param cwd - Optional working directory (resolves tasks.db location).
+ * @task T1609
+ */
+export async function insertHandoffEntry(
+  sessionId: string,
+  handoffJson: string,
+  cwd?: string,
+): Promise<void> {
+  const db = await getDb(cwd);
+  db.insert(schema.sessionHandoffEntries).values({ sessionId, handoffJson }).run();
 }
 
 /** List sessions with optional filters. */
