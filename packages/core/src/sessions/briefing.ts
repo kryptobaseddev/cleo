@@ -292,7 +292,12 @@ export async function computeBriefing(
   // 10. Docs context — third pillar: task-attached references (optional, best-effort — T1616)
   let docsContext: BriefingDocsContext | undefined;
   try {
-    docsContext = await computeDocsContext(projectRoot, focus?.currentTask, tasks, scopeTaskIds);
+    docsContext = await computeDocsContext(
+      projectRoot,
+      focus?.currentTask ?? undefined,
+      tasks,
+      scopeTaskIds,
+    );
   } catch {
     // Docs context not available -- proceed without
   }
