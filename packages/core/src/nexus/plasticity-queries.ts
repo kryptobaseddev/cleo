@@ -18,6 +18,7 @@
  */
 
 import { sql } from 'drizzle-orm';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
 
 /** One row in the hot-paths result. */
@@ -266,4 +267,47 @@ export async function getColdSymbols(
       ? `${neverAccessed}/${symbols.length} symbols have never been accessed (last_accessed_at IS NULL)`
       : `all ${symbols.length} symbols last-accessed before the ${thresholdDays}-day cutoff`;
   return { symbols, count: symbols.length, thresholdDays, note };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusHotPaths(
+  projectRoot: string,
+  limit: number,
+): Promise<EngineResult<NexusHotPathsResult>> {
+  try {
+    const result = await getHotPaths(projectRoot, limit);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusHotNodes(
+  projectRoot: string,
+  limit: number,
+): Promise<EngineResult<NexusHotNodesResult>> {
+  try {
+    const result = await getHotNodes(projectRoot, limit);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusColdSymbols(
+  projectRoot: string,
+  thresholdDays: number,
+): Promise<EngineResult<NexusColdSymbolsResult>> {
+  try {
+    const result = await getColdSymbols(projectRoot, thresholdDays);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

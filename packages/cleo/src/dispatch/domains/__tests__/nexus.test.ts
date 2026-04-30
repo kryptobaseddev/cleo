@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock getProjectRoot and getLogger used by the handler constructor/error paths
+// All nexus functions now live in @cleocode/core/internal (T1569 — nexus-engine.ts deleted)
 vi.mock('@cleocode/core/internal', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
   getLogger: vi.fn(() => ({
@@ -9,10 +9,8 @@ vi.mock('@cleocode/core/internal', () => ({
     info: vi.fn(),
     debug: vi.fn(),
   })),
-}));
-
-// Mock the nexus-engine (used by the handler)
-vi.mock('../../engines/nexus-engine.js', () => ({
+  getBrainNativeDb: vi.fn(() => null),
+  getNexusNativeDb: vi.fn(() => null),
   nexusStatus: vi.fn(),
   nexusListProjects: vi.fn(),
   nexusShowProject: vi.fn(),
@@ -101,7 +99,7 @@ import {
   nexusTransferExecute,
   nexusTransferPreview,
   nexusUnregisterProject,
-} from '../../engines/nexus-engine.js';
+} from '@cleocode/core/internal';
 import { NexusHandler } from '../nexus.js';
 
 describe('NexusHandler', () => {

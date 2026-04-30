@@ -14,11 +14,21 @@ export type {
   NexusSearchHit as SearchResult,
   NexusSearchResult,
 } from '@cleocode/contracts/operations/nexus';
+// API Contracts + Ingestion Bridge EngineResult wrappers (T1569)
+export {
+  nexusConduitScan,
+  nexusContractsLinkTasks,
+  nexusContractsShow,
+  nexusContractsSync,
+  nexusTaskSymbols,
+} from './api-contracts.js';
 // Clusters - Louvain community detection results (T1473)
 export {
   getProjectClusters,
   type NexusClustersResult,
   type NexusCommunityEntry,
+  // EngineResult wrapper (T1569)
+  nexusClusters,
 } from './clusters.js';
 // Context - symbol caller/callee/process context (T1473)
 export {
@@ -29,6 +39,8 @@ export {
   type NexusContextRelation,
   type NexusContextResult,
   type NexusSourceContent,
+  // EngineResult wrapper (T1569)
+  nexusContext,
 } from './context.js';
 // Deps - global dependency graph and analysis
 export {
@@ -44,7 +56,13 @@ export {
   type NexusGlobalGraph,
   type NexusGraphEdge,
   type NexusGraphNode,
+  // EngineResult wrappers (T1569)
+  nexusBlockers,
+  nexusCriticalPath,
   nexusDeps,
+  nexusDepsQuery,
+  nexusGraph,
+  nexusOrphans,
   type OrphanEntry,
   orphanDetection,
   resolveCrossDeps,
@@ -55,11 +73,16 @@ export {
   type NexusDiffHealth,
   type NexusDiffOptions,
   type NexusDiffResult,
+  // EngineResult wrapper (T1569)
+  nexusDiff,
 } from './diff.js';
 // Discovery - cross-project task discovery and search
 export {
   discoverRelated,
   extractKeywords,
+  // EngineResult wrappers (T1569)
+  nexusDiscover,
+  nexusSearch,
   searchAcrossProjects,
 } from './discover.js';
 // Flows - execution flow (process) nodes (T1473)
@@ -67,6 +90,8 @@ export {
   getProjectFlows,
   type NexusFlowEntry,
   type NexusFlowsResult,
+  // EngineResult wrapper (T1569)
+  nexusFlows,
 } from './flows.js';
 // GEXF export - graph serialization (T1473)
 export { escapeXml, generateGexf, hexToRgb } from './gexf-export.js';
@@ -80,7 +105,17 @@ export {
   type NexusImpactOptions,
   type NexusImpactResult,
   type NexusRiskLevel,
+  // EngineResult wrapper (T1569)
+  nexusImpact,
 } from './impact.js';
+// Living Brain EngineResult wrappers (T1569)
+export {
+  nexusBrainAnchors,
+  nexusFullContext,
+  nexusImpactFull,
+  nexusTaskFootprint,
+  nexusWhy,
+} from './living-brain.js';
 // Ops registry — type source for OpsFromCore<typeof nexus.nexusCoreOps> (T1440)
 export type { nexusCoreOps } from './ops.js';
 // Permissions - three-tier access control
@@ -91,6 +126,7 @@ export {
   checkPermission,
   checkPermissionDetail,
   getPermission,
+  nexusSetPermission,
   type PermissionCheckResult,
   // Operations
   permissionLevel,
@@ -104,10 +140,14 @@ export {
   cleanProjects,
   InvalidPatternError,
   NoCriteriaError,
+  // EngineResult wrapper (T1569)
+  nexusProjectsClean,
 } from './projects-clean.js';
 // Projects scan - filesystem walker for CLEO project discovery (T1473)
 export {
   getDevice,
+  // EngineResult wrapper (T1569)
+  nexusProjectsScan,
   type ProjectsScanOptions,
   type ProjectsScanResult,
   type ScanAutoRegisterError,
@@ -120,6 +160,9 @@ export {
   getProjectFromQuery,
   type NexusParsedQuery,
   type NexusResolvedTask,
+  // EngineResult wrappers (T1569)
+  nexusResolve,
+  nexusTopEntries,
   parseQuery,
   resolveProjectPath,
   resolveTask,
@@ -139,14 +182,25 @@ export {
   type NexusRegistryFile,
   nexusGetProject,
   nexusInit,
+  // EngineResult wrappers (T1569)
+  nexusInitialize,
   nexusList,
+  nexusListProjects,
   nexusProjectExists,
+  nexusProjectsList,
+  nexusProjectsRegister,
+  nexusProjectsRemove,
   nexusReconcile,
+  nexusReconcileProject,
   nexusRegister,
-  nexusSetPermission,
+  nexusRegisterProject,
+  nexusShowProject,
+  nexusStatus,
   nexusSync,
   nexusSyncAll,
+  nexusSyncProject,
   nexusUnregister,
+  nexusUnregisterProject,
   nexusUpdateIndexStats,
   // Operations
   readRegistry,
@@ -157,16 +211,26 @@ export {
 export {
   // Operations
   getSharingStatus,
+  // EngineResult wrapper (T1569)
+  nexusShareStatus,
   // Types
   type SharingStatus,
   syncGitignore,
 } from './sharing/index.js';
 export type { SigilCard, SigilInput } from './sigil.js';
 // Sigil (peer-card identity) SDK (T1148 Wave 8)
-export { getSigil, listSigils, upsertSigil } from './sigil.js';
+export {
+  getSigil,
+  listSigils,
+  // EngineResult wrapper (T1569)
+  nexusSigilList,
+  upsertSigil,
+} from './sigil.js';
 // Sigil sync — populate sigils table from canonical CANT agents (T1386)
 export type { CanonicalCantFiles, SigilSyncResult } from './sigil-sync.js';
 export {
+  // EngineResult wrapper (T1569)
+  nexusSigilSync,
   parseSigilFromCant,
   resolveCanonicalCantFiles,
   syncCanonicalSigils,
@@ -190,6 +254,11 @@ export {
   exportUserProfile,
   getDefaultUserProfilePath,
   importUserProfile,
+  // EngineResult wrappers (T1569)
+  nexusShareSnapshotExport,
+  nexusShareSnapshotImport,
+  nexusTransferExecute,
+  nexusTransferPreview,
   previewTransfer,
 } from './transfer.js';
 export type {
@@ -208,6 +277,14 @@ export type {
 export {
   getUserProfileTrait,
   listUserProfile,
+  // EngineResult wrappers (T1569)
+  nexusProfileExport,
+  nexusProfileGet,
+  nexusProfileImport,
+  nexusProfileReinforce,
+  nexusProfileSupersede,
+  nexusProfileUpsert,
+  nexusProfileView,
   reinforceTrait,
   supersedeTrait,
   upsertUserProfileTrait,
