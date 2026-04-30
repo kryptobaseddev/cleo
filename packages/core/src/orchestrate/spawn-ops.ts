@@ -326,8 +326,6 @@ export async function orchestrateSpawnExecute(
     }
 
     // Verify provider supports subagents using providerSupportsById
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error — @cleocode/caamp dist lacks .d.ts; same pattern as other core files
     const { providerSupportsById } = await import('@cleocode/caamp');
     if (!providerSupportsById(adapter.providerId, 'spawn.supportsSubagents')) {
       return {
@@ -377,8 +375,6 @@ export async function orchestrateSpawnExecute(
     }
 
     // Build CLEO spawn context from core spawn payload
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error — @cleocode/caamp dist lacks .d.ts; same pattern as other core files
     const { getSpawnCapableProviders } = await import('@cleocode/caamp');
     const providers = getSpawnCapableProviders();
     const provider = providers.find((p: { id: string }) => p.id === adapter.providerId);
