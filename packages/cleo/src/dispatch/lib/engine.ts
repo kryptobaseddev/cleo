@@ -9,15 +9,44 @@
  */
 
 export type { MinimalTaskRecord, Session as SessionRecord, TaskRecord } from '@cleocode/contracts';
+export type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
 // Task operations — re-exported from @cleocode/core/internal (T1568 / ADR-057 / ADR-058)
 // task-engine.ts was deleted in Wave 5; all symbols now live in core/tasks/.
-export type { CompactTask, IvtrHistoryEntry, LifecycleStageEntry } from '@cleocode/core/internal';
+// Orchestrate — types and functions from @cleocode/core/internal (T1570 ADR-057)
+export type {
+  CompactTask,
+  IvtrHistoryEntry,
+  LifecycleStageEntry,
+  OrchestratePlanInput,
+  PlanWarning,
+  PlanWave,
+  PlanWorkerEntry,
+} from '@cleocode/core/internal';
 // Pipeline manifest functions (moved from memory domain in T5241)
 export {
   addTaskWithSessionScope,
   completeTaskStrict,
   filterEntries as filterManifestEntries,
   type ManifestEntry as ResearchManifestEntry,
+  orchestrateAnalyze,
+  orchestrateBootstrap,
+  orchestrateCheck,
+  orchestrateContext,
+  orchestrateCriticalPath,
+  orchestrateHandoff,
+  orchestrateNext,
+  orchestrateParallelEnd,
+  orchestrateParallelStart,
+  orchestratePlan,
+  orchestrateReady,
+  orchestrateSkillInject,
+  orchestrateSpawn,
+  orchestrateSpawnExecute,
+  orchestrateStartup,
+  orchestrateStatus,
+  orchestrateUnblockOpportunities,
+  orchestrateValidate,
+  orchestrateWaves,
   pipelineManifestAppend,
   pipelineManifestArchive,
   pipelineManifestFind,
@@ -141,35 +170,6 @@ export {
   memoryTimeline,
   memoryUnlink,
 } from '../engines/memory-engine.js';
-export type {
-  OrchestratePlanInput,
-  OrchestratePlanResult,
-  PlanWarning,
-  PlanWave,
-  PlanWorkerEntry,
-} from '../engines/orchestrate-engine.js';
-// Orchestrate engine
-export {
-  orchestrateAnalyze,
-  orchestrateBootstrap,
-  orchestrateCheck,
-  orchestrateContext,
-  orchestrateCriticalPath,
-  orchestrateHandoff,
-  orchestrateNext,
-  orchestrateParallelEnd,
-  orchestrateParallelStart,
-  orchestratePlan,
-  orchestrateReady,
-  orchestrateSkillInject,
-  orchestrateSpawn,
-  orchestrateSpawnExecute,
-  orchestrateStartup,
-  orchestrateStatus,
-  orchestrateUnblockOpportunities,
-  orchestrateValidate,
-  orchestrateWaves,
-} from '../engines/orchestrate-engine.js';
 // Pipeline engine (Phase operations)
 export {
   phaseAdvance,

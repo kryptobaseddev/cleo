@@ -14,12 +14,9 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
+import { orchestratePlan, orchestrateReady } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  type OrchestratePlanResult,
-  orchestratePlan,
-  orchestrateReady,
-} from '../orchestrate-engine.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures — one epic + a small diamond dep graph

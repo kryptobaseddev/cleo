@@ -19,7 +19,7 @@
  *  - Case-sensitive matching.
  *  - Scalar coercion (numbers, booleans → String); objects → JSON.stringify.
  *
- * Integration: {@link packages/cleo/src/dispatch/engines/orchestrate-engine.ts}
+ * Integration: `packages/core/src/orchestrate/spawn-ops.ts` (T1570: orchestrate-engine.ts deleted)
  *   calls {@link substituteCantAgentBody} from within `orchestrateSpawnExecute`
  *   so CANT agent bodies are resolved before the spawn prompt is assembled.
  *
