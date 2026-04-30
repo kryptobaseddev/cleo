@@ -2,7 +2,7 @@
  * Verification evidence-atom extensions.
  *
  * This module extends the base evidence-atom vocabulary (defined in
- * `@cleocode/contracts`) with two additional atom kinds:
+ * `@cleocode/contracts`) with additional atom kinds:
  *
  * ### `metrics-delta` (Tier-3 auto-merge experiments — T1023)
  *
@@ -22,9 +22,20 @@
  *
  * Format: `loc-drop:<fromLines>:<toLines>` (both non-negative integers)
  *
+ * ### `callsite-coverage` (production-callsite gate — T1605)
+ *
+ * Proves that an exported symbol has ≥1 production callsite outside its own
+ * source file, test files, and dist directories.  Required for the
+ * `implemented` gate whenever the task carries the `callsite-coverage` label.
+ * Catches the T1601 pattern where a function is shipped but never wired to
+ * any production callsite.
+ *
+ * Format: `callsite-coverage:<symbolName>:<relativeSourcePath>`
+ *
  * @see packages/core/src/verification/gates.ts — `metricsImproved` gate
  * @task T1023
  * @task T1604
+ * @task T1605
  */
 
 import type { BaselineEvent, SentientEvent } from '../sentient/events.js';
@@ -399,4 +410,44 @@ export const ENGINE_MIGRATION_LABEL = 'engine-migration';
 export function hasEngineMigrationLabel(labels: string[] | null | undefined): boolean {
   if (!Array.isArray(labels)) return false;
   return labels.includes(ENGINE_MIGRATION_LABEL);
+}
+
+// ---------------------------------------------------------------------------
+// Callsite-coverage label helpers (T1605)
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical label that triggers callsite-coverage gate enforcement.
+ *
+ * When a task carries this label the `implemented` gate MUST be accompanied
+ * by a `callsite-coverage` evidence atom proving the exported symbol is
+ * referenced from at least one production callsite outside its definition
+ * file, test files, and dist directories.
+ *
+ * @task T1605
+ */
+export const CALLSITE_COVERAGE_GATE_LABEL = 'callsite-coverage';
+
+/**
+ * Determine whether a task's labels include `callsite-coverage`.
+ *
+ * Accepts a `string[]` (from `task.labels`) or `null`/`undefined` for tasks
+ * without labels.  Returns `false` for any non-array value so callers can
+ * pass the raw DB field without pre-checking.
+ *
+ * @param labels - Task labels array (from `task.labels`).
+ * @returns `true` when the `callsite-coverage` label is present.
+ *
+ * @example
+ * ```ts
+ * hasCallsiteCoverageLabel(['foundation', 'callsite-coverage']); // true
+ * hasCallsiteCoverageLabel(['foundation']);                       // false
+ * hasCallsiteCoverageLabel(null);                                // false
+ * ```
+ *
+ * @task T1605
+ */
+export function hasCallsiteCoverageLabel(labels: string[] | null | undefined): boolean {
+  if (!Array.isArray(labels)) return false;
+  return labels.includes(CALLSITE_COVERAGE_GATE_LABEL);
 }
