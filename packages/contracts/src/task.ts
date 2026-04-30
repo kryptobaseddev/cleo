@@ -166,6 +166,35 @@ export type EvidenceAtom =
       toLines: number;
       /** Actual percentage reduction, rounded to two decimal places. */
       reductionPct: number;
+    }
+  | {
+      /**
+       * Callsite-coverage atom — proves that an exported symbol has ≥1
+       * production callsite outside its own source file, test files, and
+       * dist directories.  Required for the `implemented` gate whenever the
+       * task carries the `callsite-coverage` label.  Catches the T1601
+       * pattern where a function is shipped but never wired into production.
+       *
+       * Format: `callsite-coverage:<symbolName>:<relativeSourcePath>`
+       *
+       * - `symbolName` — The exported identifier (function, class, constant)
+       *   to search for.
+       * - `relativeSourcePath` — Source path relative to project root
+       *   (excluded from the grep search so the definition itself is not
+       *   counted as a callsite).
+       *
+       * @task T1605
+       */
+      kind: 'callsite-coverage';
+      /** Exported identifier that must appear in a production callsite. */
+      symbolName: string;
+      /**
+       * Source file path relative to project root (definition file, excluded
+       * from callsite search).
+       */
+      relativeSourcePath: string;
+      /** Number of production callsite hits found by ripgrep. */
+      hitCount: number;
     };
 
 /**
