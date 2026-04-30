@@ -66,6 +66,9 @@ export {
 export {
   discoverRelated,
   extractKeywords,
+  // EngineResult wrappers (T1569)
+  nexusDiscover,
+  nexusSearch,
   searchAcrossProjects,
 } from './discover.js';
 // Flows - execution flow (process) nodes (T1473)
@@ -89,6 +92,14 @@ export {
   // EngineResult wrapper (T1569)
   nexusImpact,
 } from './impact.js';
+// Living Brain EngineResult wrappers (T1569)
+export {
+  nexusBrainAnchors,
+  nexusFullContext,
+  nexusImpactFull,
+  nexusTaskFootprint,
+  nexusWhy,
+} from './living-brain.js';
 // Ops registry — type source for OpsFromCore<typeof nexus.nexusCoreOps> (T1440)
 export type { nexusCoreOps } from './ops.js';
 // Permissions - three-tier access control
@@ -180,6 +191,8 @@ export {
 export {
   // Operations
   getSharingStatus,
+  // EngineResult wrapper (T1569)
+  nexusShareStatus,
   // Types
   type SharingStatus,
   syncGitignore,
@@ -213,6 +226,11 @@ export {
   exportUserProfile,
   getDefaultUserProfilePath,
   importUserProfile,
+  // EngineResult wrappers (T1569)
+  nexusShareSnapshotExport,
+  nexusShareSnapshotImport,
+  nexusTransferExecute,
+  nexusTransferPreview,
   previewTransfer,
 } from './transfer.js';
 export type {

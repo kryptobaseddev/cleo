@@ -13,6 +13,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import type { NexusShareStatusParams, SharingConfig } from '@cleocode/contracts';
 import { loadConfig } from '../../config.js';
+import { type EngineResult, engineError, engineSuccess } from '../../engine-result.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../../paths.js';
 import { cleoGitCommand, isCleoGitInitialized } from '../../store/git-checkpoint.js';
 
@@ -351,4 +352,20 @@ export async function syncGitignore(
   }
 
   return { updated: true, entriesCount: entries.length };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusShareStatus(
+  projectRoot: string,
+): Promise<EngineResult<Awaited<ReturnType<typeof getSharingStatus>>>> {
+  try {
+    const result = await getSharingStatus(projectRoot, {});
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

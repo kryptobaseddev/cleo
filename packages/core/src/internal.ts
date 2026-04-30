@@ -425,7 +425,13 @@ export {
   summarizeTokenUsage,
 } from './metrics/token-service.js';
 // Nexus
-export { augmentSymbol, formatAugmentResults } from './nexus/augment.js';
+export {
+  augmentSymbol,
+  formatAugmentResults,
+  // EngineResult wrappers (T1569 Wave 2)
+  nexusAugment,
+  nexusSearchCode,
+} from './nexus/augment.js';
 export {
   blockingAnalysis,
   buildGlobalGraph,
@@ -439,10 +445,23 @@ export {
   nexusOrphans,
   orphanDetection,
 } from './nexus/deps.js';
-export { searchAcrossProjects } from './nexus/discover.js';
+export {
+  // EngineResult wrappers (T1569 Wave 2)
+  nexusDiscover,
+  nexusSearch,
+  searchAcrossProjects,
+} from './nexus/discover.js';
 export { installNexusAugmentHook } from './nexus/hooks-augment.js';
 // EngineResult wrapper (T1569 Wave 1)
 export { nexusImpact } from './nexus/impact.js';
+// EngineResult wrappers (T1569 Wave 2 — Living Brain)
+export {
+  nexusBrainAnchors,
+  nexusFullContext,
+  nexusImpactFull,
+  nexusTaskFootprint,
+  nexusWhy,
+} from './nexus/living-brain.js';
 export { nexusSetPermission, setPermission } from './nexus/permissions.js';
 // T1013: plasticity queries over nexus_relations weight/last_accessed_at columns (added in T998)
 export {
@@ -485,7 +504,18 @@ export {
   nexusUnregisterProject,
   nexusUpdateIndexStats,
 } from './nexus/registry.js';
-export { getSharingStatus } from './nexus/sharing/index.js';
+export {
+  getSharingStatus,
+  // EngineResult wrapper (T1569 Wave 2)
+  nexusShareStatus,
+} from './nexus/sharing/index.js';
+// EngineResult wrappers (T1569 Wave 2 — Transfer + Snapshot)
+export {
+  nexusShareSnapshotExport,
+  nexusShareSnapshotImport,
+  nexusTransferExecute,
+  nexusTransferPreview,
+} from './nexus/transfer.js';
 // Orchestrate (T1596) — context-switch primitives
 export type { PivotOptions, PivotResult } from './orchestrate/pivot.js';
 export { PIVOT_AUDIT_FILE, pivotTask } from './orchestrate/pivot.js';
