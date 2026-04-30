@@ -219,10 +219,18 @@ export {
 } from './sharing/index.js';
 export type { SigilCard, SigilInput } from './sigil.js';
 // Sigil (peer-card identity) SDK (T1148 Wave 8)
-export { getSigil, listSigils, upsertSigil } from './sigil.js';
+export {
+  getSigil,
+  listSigils,
+  // EngineResult wrapper (T1569)
+  nexusSigilList,
+  upsertSigil,
+} from './sigil.js';
 // Sigil sync — populate sigils table from canonical CANT agents (T1386)
 export type { CanonicalCantFiles, SigilSyncResult } from './sigil-sync.js';
 export {
+  // EngineResult wrapper (T1569)
+  nexusSigilSync,
   parseSigilFromCant,
   resolveCanonicalCantFiles,
   syncCanonicalSigils,
@@ -269,6 +277,14 @@ export type {
 export {
   getUserProfileTrait,
   listUserProfile,
+  // EngineResult wrappers (T1569)
+  nexusProfileExport,
+  nexusProfileGet,
+  nexusProfileImport,
+  nexusProfileReinforce,
+  nexusProfileSupersede,
+  nexusProfileUpsert,
+  nexusProfileView,
   reinforceTrait,
   supersedeTrait,
   upsertUserProfileTrait,
