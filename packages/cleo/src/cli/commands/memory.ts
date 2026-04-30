@@ -362,7 +362,7 @@ const observeCommand = defineCommand({
     type: {
       type: 'string',
       description:
-        'Category: discovery (found something new), decision (choice made), bugfix (bug found/fixed), refactor (code restructured), feature (feature added), change (general change), pattern (recurring pattern), session_summary (end-of-session recap)',
+        'Category: discovery (found something new), decision (choice made), bugfix (bug found/fixed), refactor (code restructured), feature (feature added), change (general change), diary (journal entry), session-summary (end-of-session recap auto-created by cleo session end)',
     },
     agent: {
       type: 'string',
@@ -2554,7 +2554,7 @@ const recentCommand = makeMemorySubcommand({
     type: {
       type: 'string',
       description:
-        'Filter by observation type (discovery, decision, bugfix, refactor, feature, change, pattern, diary, session_summary).',
+        'Filter by observation type (discovery, decision, bugfix, refactor, feature, change, diary, session-summary).',
     },
     since: {
       type: 'string',
