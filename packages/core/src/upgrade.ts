@@ -28,6 +28,7 @@ import {
   initCoreSkills,
   initNexusRegistration,
   installGitHubTemplates,
+  installHandoffRedirectStubs,
 } from './init.js';
 import { ensureInjection } from './injection.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
@@ -1105,6 +1106,22 @@ export async function runUpgrade(
             details: `Installed ${ghCreated.length} GitHub template(s): ${ghCreated.join(', ')}`,
           });
         }
+      }
+    } catch {
+      /* best-effort */
+    }
+
+    // T1610: Replace deprecated markdown handoff files with redirect stubs.
+    // Prevents fresh agents from reading stale markdown instead of running `cleo briefing`.
+    try {
+      const stubCreated: string[] = [];
+      await installHandoffRedirectStubs(projectRootForMaint, stubCreated);
+      for (const entry of stubCreated) {
+        actions.push({
+          action: 'handoff_redirect_stub',
+          status: 'applied',
+          details: entry,
+        });
       }
     } catch {
       /* best-effort */

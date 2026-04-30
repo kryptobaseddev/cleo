@@ -482,6 +482,99 @@ export async function installGitHubTemplates(
   }
 }
 
+// ── Handoff Redirect Stubs ───────────────────────────────────────────
+
+/** Redirect stub content written in place of deprecated markdown handoff files. */
+const HANDOFF_REDIRECT_STUB = `# STALE — DO NOT READ THIS FILE FOR STATE
+
+**This file is deprecated as canonical state per T1593 (shipped in v2026.4.157).**
+
+The current state of the project lives in **TASKS + BRAIN** — never in markdown.
+
+## What you must do instead
+
+\`\`\`bash
+cleo briefing
+\`\`\`
+
+That command returns the structured handoff from the last session, next tasks ranked by
+score, blocked tasks, memory context, and active epics — all from the canonical source.
+
+## If you are seeing this and you ALREADY started reading instead of running \`cleo briefing\`
+
+Stop. Run \`cleo briefing\`. The system has explicit instructions for the next orchestrator
+that live in BRAIN memory, not in this file.
+
+---
+
+*This file deliberately contains no state. Reading it cannot mislead you. Run \`cleo briefing\`.*
+`;
+
+/**
+ * Patterns for deprecated markdown handoff files that must be replaced with redirect stubs.
+ * Matches files in the .cleo/agent-outputs/ directory whose names match the pattern.
+ *
+ * @task T1610
+ */
+const DEPRECATED_HANDOFF_PATTERNS = [/^NEXT-SESSION-HANDOFF\.md$/, /^HONEST-HANDOFF-.+\.md$/];
+
+/**
+ * Install redirect stubs over deprecated markdown handoff files.
+ *
+ * Replaces any `NEXT-SESSION-HANDOFF.md` or `HONEST-HANDOFF-*.md` files in
+ * `.cleo/agent-outputs/` that still contain narrative state (i.e. are more
+ * than the redirect stub itself). Files that are already stubs are left alone.
+ *
+ * This prevents fresh agents from reading stale markdown as canonical state
+ * instead of running `cleo briefing`.
+ *
+ * Idempotent: calling multiple times is safe.
+ *
+ * @param projectRoot  Absolute path to the project root.
+ * @param created      Array to push "replaced: ..." log entries into.
+ *
+ * @task T1610
+ */
+export async function installHandoffRedirectStubs(
+  projectRoot: string,
+  created: string[],
+): Promise<void> {
+  const agentOutputsDir = join(projectRoot, '.cleo', 'agent-outputs');
+
+  if (!existsSync(agentOutputsDir)) {
+    return;
+  }
+
+  let files: string[];
+  try {
+    files = readdirSync(agentOutputsDir);
+  } catch {
+    return;
+  }
+
+  for (const file of files) {
+    const isDeprecated = DEPRECATED_HANDOFF_PATTERNS.some((re) => re.test(file));
+    if (!isDeprecated) continue;
+
+    const filePath = join(agentOutputsDir, file);
+    let existing: string;
+    try {
+      existing = readFileSync(filePath, 'utf-8');
+    } catch {
+      continue;
+    }
+
+    // Already a stub if it contains the redirect marker and is short (< 2 KB)
+    const isAlreadyStub =
+      existing.includes('deliberately contains no state') && existing.length < 2048;
+
+    if (!isAlreadyStub) {
+      await writeFile(filePath, HANDOFF_REDIRECT_STUB, 'utf-8');
+      created.push(`handoff-redirect-stub: ${file} (replaced with redirect-only stub)`);
+    }
+  }
+}
+
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
@@ -852,6 +945,14 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     await installGitHubTemplates(projRoot, created, skipped);
   } catch (err) {
     warnings.push(`GitHub templates: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // T1610: Replace deprecated markdown handoff files with redirect stubs.
+  // Prevents fresh agents from reading stale markdown instead of running `cleo briefing`.
+  try {
+    await installHandoffRedirectStubs(projRoot, created);
+  } catch (err) {
+    warnings.push(`Handoff redirect stubs: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Remove .cleo/ from root .gitignore if present
