@@ -148,7 +148,25 @@ export type EvidenceAtom =
   | { kind: 'tool'; tool: string; exitCode: number; stdoutTail: string }
   | { kind: 'url'; url: string }
   | { kind: 'note'; note: string }
-  | { kind: 'override'; reason: string };
+  | { kind: 'override'; reason: string }
+  | {
+      /**
+       * LOC-drop atom — proves that a migrated engine file shed at least a
+       * configurable percentage of lines.  Required for `implemented` gate
+       * when the task carries the `engine-migration` label.
+       *
+       * Format: `loc-drop:<from>:<to>`  (both values are line counts ≥ 0)
+       *
+       * @task T1604
+       */
+      kind: 'loc-drop';
+      /** Line count before migration (wc -l of original file). */
+      fromLines: number;
+      /** Line count after migration (wc -l of migrated file). */
+      toLines: number;
+      /** Actual percentage reduction, rounded to two decimal places. */
+      reductionPct: number;
+    };
 
 /**
  * Evidence backing a single verification gate.
