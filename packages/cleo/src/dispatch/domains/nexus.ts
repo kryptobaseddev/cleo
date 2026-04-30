@@ -27,16 +27,6 @@ import {
   getNexusNativeDb,
   getProjectRoot,
   type NexusPermissionLevel,
-} from '@cleocode/core/internal';
-import {
-  defineTypedHandler,
-  lafsError,
-  lafsSuccess,
-  type OpsFromCore,
-  typedDispatch,
-  wrapCoreResult,
-} from '../adapters/typed.js';
-import {
   nexusAugment,
   nexusBlockers,
   nexusBrainAnchors,
@@ -99,7 +89,15 @@ import {
   nexusUnregisterProject,
   nexusWhy,
   nexusWiki,
-} from '../engines/nexus-engine.js';
+} from '@cleocode/core/internal';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+  wrapCoreResult,
+} from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
