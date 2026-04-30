@@ -1524,10 +1524,18 @@ export { readRegistry as nexusReadRegistry } from './nexus/registry.js';
 export { nexusRouteMap, nexusShapeCheck } from './nexus/route-analysis.js';
 // Nexus — sigil (peer-card) SDK (T1148 Wave 8)
 export type { SigilCard, SigilInput } from './nexus/sigil.js';
-export { getSigil, listSigils, upsertSigil } from './nexus/sigil.js';
+export {
+  getSigil,
+  listSigils,
+  // EngineResult wrapper (T1569 Wave 4)
+  nexusSigilList,
+  upsertSigil,
+} from './nexus/sigil.js';
 // Nexus — sigil sync (T1386): populate sigils from canonical CANT agents
 export type { CanonicalCantFiles, SigilSyncResult } from './nexus/sigil-sync.js';
 export {
+  // EngineResult wrapper (T1569 Wave 4)
+  nexusSigilSync,
   parseSigilFromCant,
   resolveCanonicalCantFiles,
   syncCanonicalSigils,
@@ -1552,6 +1560,14 @@ export type {
 export {
   getUserProfileTrait,
   listUserProfile,
+  // EngineResult wrappers (T1569 Wave 4)
+  nexusProfileExport,
+  nexusProfileGet,
+  nexusProfileImport,
+  nexusProfileReinforce,
+  nexusProfileSupersede,
+  nexusProfileUpsert,
+  nexusProfileView,
   reinforceTrait,
   supersedeTrait,
   upsertUserProfileTrait,

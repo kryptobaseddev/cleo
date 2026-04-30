@@ -20,10 +20,21 @@
  * @epic T1076
  */
 
-import type { UserProfileTrait } from '@cleocode/contracts';
+import type {
+  NexusProfileExportResult,
+  NexusProfileGetResult,
+  NexusProfileImportResult,
+  NexusProfileReinforceResult,
+  NexusProfileSupersedeResult,
+  NexusProfileUpsertResult,
+  NexusProfileViewResult,
+  UserProfileTrait,
+} from '@cleocode/contracts';
 import { and, asc, desc, eq, gte, isNull } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import * as nexusSchema from '../store/nexus-schema.js';
+import { getNexusDb } from '../store/nexus-sqlite.js';
 
 /** Type alias for the Drizzle nexus database instance. */
 type NexusDb = NodeSQLiteDatabase<typeof nexusSchema>;
@@ -253,4 +264,121 @@ export async function supersedeTrait(
     .update(nexusSchema.userProfile)
     .set({ supersededBy: newKey })
     .where(eq(nexusSchema.userProfile.traitKey, oldKey));
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProfileView(
+  minConfidence?: number,
+  includeSuperseded?: boolean,
+): Promise<EngineResult<NexusProfileViewResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    const traits = await listUserProfile(nexusDb, { minConfidence, includeSuperseded });
+    return engineSuccess({ traits, count: traits.length });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProfileGet(
+  traitKey: string,
+): Promise<EngineResult<NexusProfileGetResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    const trait = await getUserProfileTrait(nexusDb, traitKey);
+    return engineSuccess({ trait });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProfileImport(
+  path?: string,
+): Promise<EngineResult<NexusProfileImportResult>> {
+  try {
+    const { importUserProfile } = await import('../nexus/transfer.js');
+    const result = await importUserProfile(path);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProfileExport(
+  path?: string,
+): Promise<EngineResult<NexusProfileExportResult>> {
+  try {
+    const { exportUserProfile } = await import('../nexus/transfer.js');
+    const result = await exportUserProfile(path);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProfileReinforce(
+  traitKey: string,
+  source?: string,
+): Promise<EngineResult<NexusProfileReinforceResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    await reinforceTrait(nexusDb, traitKey, source ?? 'manual');
+    const updated = await getUserProfileTrait(nexusDb, traitKey);
+    if (!updated) {
+      return engineError('E_NOT_FOUND', `Trait not found: ${traitKey}`);
+    }
+    return engineSuccess({
+      reinforcementCount: updated.reinforcementCount,
+      confidence: updated.confidence,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProfileUpsert(
+  trait: Pick<
+    UserProfileTrait,
+    'traitKey' | 'traitValue' | 'confidence' | 'source' | 'derivedFromMessageId'
+  >,
+): Promise<EngineResult<NexusProfileUpsertResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    const existing = await getUserProfileTrait(nexusDb, trait.traitKey);
+    const now = new Date().toISOString();
+    const fullTrait: UserProfileTrait = {
+      ...trait,
+      firstObservedAt: existing?.firstObservedAt ?? now,
+      lastReinforcedAt: now,
+      reinforcementCount: existing ? existing.reinforcementCount + 1 : 1,
+      supersededBy: existing?.supersededBy ?? null,
+    };
+    await upsertUserProfileTrait(nexusDb, fullTrait);
+    return engineSuccess({ created: existing === null });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProfileSupersede(
+  oldKey: string,
+  newKey: string,
+): Promise<EngineResult<NexusProfileSupersedeResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    await supersedeTrait(nexusDb, oldKey, newKey);
+    return engineSuccess({ oldKey, newKey });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

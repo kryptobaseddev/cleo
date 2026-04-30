@@ -35,6 +35,7 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, resetNexusDbState } from '../store/nexus-sqlite.js';
 import { upsertSigil } from './sigil.js';
 
@@ -463,3 +464,13 @@ export async function syncCanonicalSigils(): Promise<SigilSyncResult> {
  * `packages/core/src/store/nexus-sqlite.ts`.
  */
 export { resetNexusDbState };
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusSigilSync(): Promise<EngineResult<SigilSyncResult>> {
+  try {
+    const result = await syncCanonicalSigils();
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
