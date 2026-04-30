@@ -520,20 +520,15 @@ export {
   nexusTransferExecute,
   nexusTransferPreview,
 } from './nexus/transfer.js';
-// Orchestrate (T1596) — context-switch primitives
-export type { PivotOptions, PivotResult } from './orchestrate/pivot.js';
-export { PIVOT_AUDIT_FILE, pivotTask } from './orchestrate/pivot.js';
-// Orchestrate query ops (T1570 Wave 1 — migrated from orchestrate-engine.ts)
-export {
-  loadTasks,
-  orchestrateAnalyze,
-  orchestrateContext,
-  orchestrateNext,
-  orchestrateReady,
-  orchestrateStatus,
-  orchestrateValidate,
-  orchestrateWaves,
-} from './orchestrate/query-ops.js';
+// Orchestrate handoff ops (T1570 Wave 4 — migrated from orchestrate-engine.ts)
+export type {
+  HandoffFailureDetails,
+  HandoffSessionOps,
+  HandoffState,
+  HandoffStepState,
+  HandoffStepStatus,
+} from './orchestrate/handoff-ops.js';
+export { orchestrateHandoff } from './orchestrate/handoff-ops.js';
 // Orchestrate lifecycle ops (T1570 Wave 1 — migrated from orchestrate-engine.ts)
 export {
   orchestrateBootstrap,
@@ -546,6 +541,9 @@ export {
   orchestrateStartup,
   orchestrateUnblockOpportunities,
 } from './orchestrate/lifecycle-ops.js';
+// Orchestrate (T1596) — context-switch primitives
+export type { PivotOptions, PivotResult } from './orchestrate/pivot.js';
+export { PIVOT_AUDIT_FILE, pivotTask } from './orchestrate/pivot.js';
 // Orchestrate plan (T1570 Wave 2 — migrated from orchestrate-engine.ts)
 export type {
   OrchestratePlanInput,
@@ -558,6 +556,17 @@ export {
   openSignaldockDbForComposer,
   orchestratePlan,
 } from './orchestrate/plan.js';
+// Orchestrate query ops (T1570 Wave 1 — migrated from orchestrate-engine.ts)
+export {
+  loadTasks,
+  orchestrateAnalyze,
+  orchestrateContext,
+  orchestrateNext,
+  orchestrateReady,
+  orchestrateStatus,
+  orchestrateValidate,
+  orchestrateWaves,
+} from './orchestrate/query-ops.js';
 // Orchestrate spawn ops (T1570 Wave 3 — migrated from orchestrate-engine.ts)
 export type { ConduitOrchestrationEvent } from './orchestrate/spawn-ops.js';
 export {
@@ -567,15 +576,6 @@ export {
   orchestrateSpawnSelectProvider,
   sendConduitEvent,
 } from './orchestrate/spawn-ops.js';
-// Orchestrate handoff ops (T1570 Wave 4 — migrated from orchestrate-engine.ts)
-export type {
-  HandoffFailureDetails,
-  HandoffSessionOps,
-  HandoffState,
-  HandoffStepState,
-  HandoffStepStatus,
-} from './orchestrate/handoff-ops.js';
-export { orchestrateHandoff } from './orchestrate/handoff-ops.js';
 // Context
 export { estimateContext } from './orchestration/context.js';
 // Orchestration
