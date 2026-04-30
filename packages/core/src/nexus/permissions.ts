@@ -14,8 +14,13 @@
  */
 
 import { ExitCode, type NexusPermissionSetParams } from '@cleocode/contracts';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
-import { type NexusPermissionLevel, nexusGetProject, nexusSetPermission } from './registry.js';
+import {
+  type NexusPermissionLevel,
+  nexusGetProject,
+  nexusSetPermission as nexusSetPermissionCore,
+} from './registry.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -143,7 +148,7 @@ export async function setPermission(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project name or hash required');
   }
 
-  await nexusSetPermission('', { name: nameOrHash, level: permission });
+  await nexusSetPermissionCore('', { name: nameOrHash, level: permission });
 }
 
 /** Convenience: check read access. */
@@ -159,4 +164,28 @@ export async function canWrite(nameOrHash: string): Promise<boolean> {
 /** Convenience: check execute access. */
 export async function canExecute(nameOrHash: string): Promise<boolean> {
   return checkPermission(nameOrHash, 'execute');
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set permission level for a project (EngineResult wrapper).
+ *
+ * @param name  - Project name or hash.
+ * @param level - Permission level to set.
+ * @task T1569
+ */
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusSetPermission(
+  name: string,
+  level: NexusPermissionLevel,
+): Promise<EngineResult<{ message: string }>> {
+  try {
+    await setPermission('', { name, level });
+    return engineSuccess({ message: `Permission for '${name}' set to '${level}'` });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }
