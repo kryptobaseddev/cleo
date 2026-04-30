@@ -50,7 +50,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 /**
  * Obtain a mutable reference to the `fs` CommonJS module.
@@ -138,7 +138,8 @@ export function parseArgs(argv) {
  * Print usage message and exit 0.
  */
 function printHelp() {
-  console.log(`
+  console.log(
+    `
 Usage: node scripts/fresh-agent-test.mjs [OPTIONS]
 
 Simulates a zero-context auditor with a PHYSICAL block on reading any .md
@@ -162,7 +163,8 @@ Exit codes:
   0  Score 10/10
   1  Score < 10 or denylist violated
   2  Fatal error / bad usage
-`.trim());
+`.trim(),
+  );
 }
 
 // ============================================================================
@@ -418,7 +420,10 @@ export function runProbes(cleoBin, cwd, taskId, verbose) {
   {
     const r = invoke(['briefing']);
     const data = /** @type {Record<string, unknown>|null} */ (r.data);
-    const passed = r.success === true && data !== null && typeof data === 'object' &&
+    const passed =
+      r.success === true &&
+      data !== null &&
+      typeof data === 'object' &&
       ('memoryContext' in data || 'lastSession' in data || 'nextTasks' in data);
     results.push({
       index: 2,
@@ -457,7 +462,8 @@ export function runProbes(cleoBin, cwd, taskId, verbose) {
     const probeTaskId = taskId ?? 'T1618';
     const r = invoke(['docs', 'list', '--task', probeTaskId]);
     const data = /** @type {Record<string, unknown>|null} */ (r.data);
-    const passed = r.success === true &&
+    const passed =
+      r.success === true &&
       data !== null &&
       typeof data === 'object' &&
       'attachments' in data &&
@@ -496,7 +502,8 @@ export function runProbes(cleoBin, cwd, taskId, verbose) {
   {
     const r = invoke(['memory', 'find', 'T1611']);
     const data = /** @type {Record<string, unknown>|null} */ (r.data);
-    const passed = r.success === true &&
+    const passed =
+      r.success === true &&
       data !== null &&
       typeof data === 'object' &&
       'results' in data &&
@@ -520,8 +527,11 @@ export function runProbes(cleoBin, cwd, taskId, verbose) {
     const probeTaskId = taskId ?? 'T1611';
     const r = invoke(['show', probeTaskId]);
     // The probe passes if we get any valid LAFS envelope back (success or error with code)
-    const hasEnvelope = r.success === true ||
-      (r.error !== null && typeof r.error === 'object' && 'code' in /** @type {object} */ (r.error));
+    const hasEnvelope =
+      r.success === true ||
+      (r.error !== null &&
+        typeof r.error === 'object' &&
+        'code' in /** @type {object} */ (r.error));
     results.push({
       index: 7,
       name: 'cleo show returns a valid LAFS envelope',
@@ -551,7 +561,7 @@ export function runProbes(cleoBin, cwd, taskId, verbose) {
       // Accept both flat (data.title) and nested (data.task.title) shapes for
       // forward-compatibility.
       const taskRecord = /** @type {Record<string, unknown>} */ (
-        ('task' in data && data['task'] !== null && typeof data['task'] === 'object')
+        'task' in data && data['task'] !== null && typeof data['task'] === 'object'
           ? data['task']
           : data
       );
@@ -698,9 +708,7 @@ export function printReport(report) {
 
   if (report.denylist.violationCount > 0) {
     console.log('');
-    console.log(
-      `  DENYLIST VIOLATED: ${report.denylist.violationCount} blocked read(s)`,
-    );
+    console.log(`  DENYLIST VIOLATED: ${report.denylist.violationCount} blocked read(s)`);
     for (const v of report.denylist.violations) {
       console.log(`    - ${v}`);
     }
@@ -751,8 +759,8 @@ async function main() {
 }
 
 // Only run main when this file is executed directly (not imported in tests)
-const isMain = process.argv[1] === import.meta.filename ||
-  process.argv[1]?.endsWith('fresh-agent-test.mjs');
+const isMain =
+  process.argv[1] === import.meta.filename || process.argv[1]?.endsWith('fresh-agent-test.mjs');
 
 if (isMain) {
   main().catch((err) => {
