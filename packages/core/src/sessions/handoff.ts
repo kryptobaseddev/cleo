@@ -19,6 +19,7 @@ import type { Session, SessionHandoffShowParams, Task } from '@cleocode/contract
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getAccessor } from '../store/data-accessor.js';
+import { insertHandoffEntry } from '../store/session-store.js';
 import { getDecisionLog } from './decisions.js';
 
 const execFileAsync = promisify(execFile);
@@ -213,7 +214,20 @@ function getScopeTaskIds(session: Session, tasks: Task[]): Set<string> {
 }
 
 /**
- * Persist handoff data to a session.
+ * Persist handoff data to a session (write-once, append-only).
+ *
+ * Writes the handoff JSON into `session_handoff_entries` via an INSERT.
+ * The table enforces write-once semantics at the SQL level:
+ *   - A UNIQUE constraint on `session_id` rejects duplicate calls.
+ *   - A BEFORE UPDATE trigger makes rows physically immutable.
+ *   - An AFTER INSERT trigger mirrors the value to `sessions.handoff_json`
+ *     so all existing read paths continue to work without modification.
+ *
+ * Throws `CleoError(SESSION_NOT_FOUND)` when the session does not exist.
+ * Throws `CleoError(HANDOFF_ALREADY_PERSISTED)` when a handoff was already
+ * written for this session (surfaced from the UNIQUE constraint violation).
+ *
+ * @task T1609
  */
 export async function persistHandoff(
   projectRoot: string,
@@ -223,17 +237,31 @@ export async function persistHandoff(
   const accessor = await getAccessor(projectRoot);
   const sessions = await accessor.loadSessions();
 
-  // Find session in active sessions
+  // Verify session exists before attempting the INSERT.
   const session = sessions.find((s) => s.id === sessionId);
-
   if (!session) {
     throw new CleoError(ExitCode.SESSION_NOT_FOUND, `Session '${sessionId}' not found`);
   }
 
-  // Store handoff data as JSON string on the typed Session field
-  session.handoffJson = JSON.stringify(handoff);
+  const handoffJson = JSON.stringify(handoff);
 
-  await accessor.upsertSingleSession(session);
+  try {
+    // INSERT into session_handoff_entries.
+    // The AFTER INSERT trigger mirrors the value into sessions.handoff_json.
+    await insertHandoffEntry(sessionId, handoffJson, projectRoot);
+  } catch (err: unknown) {
+    // Translate the UNIQUE constraint violation into a domain error so callers
+    // don't have to inspect raw SQLite error messages.
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('UNIQUE constraint failed')) {
+      throw new CleoError(
+        ExitCode.ALREADY_EXISTS,
+        `Handoff already persisted for session '${sessionId}'. ` +
+          'session_handoff_entries is write-once (T1609).',
+      );
+    }
+    throw err;
+  }
 }
 
 /**

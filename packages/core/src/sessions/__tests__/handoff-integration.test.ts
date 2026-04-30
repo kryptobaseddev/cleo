@@ -17,8 +17,15 @@ vi.mock('../decisions.js', () => ({
   getDecisionLog: vi.fn().mockResolvedValue([]),
 }));
 
+// Mock session-store insertHandoffEntry so persistHandoff works without a real DB.
+// The mock simulates the AFTER INSERT trigger by writing handoffJson to the session.
+vi.mock('../../store/session-store.js', () => ({
+  insertHandoffEntry: vi.fn(),
+}));
+
 import type { Session, SessionScope } from '@cleocode/contracts';
 import { getAccessor } from '../../store/data-accessor.js';
+import { insertHandoffEntry } from '../../store/session-store.js';
 import { computeBriefing } from '../briefing.js';
 import { computeHandoff, getHandoff, getLastHandoff, persistHandoff } from '../handoff.js';
 
@@ -143,6 +150,18 @@ describe('Session handoff full round-trip', () => {
   beforeEach(() => {
     store = createMockStore();
     (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(store.accessor);
+    vi.clearAllMocks();
+    // Wire insertHandoffEntry mock to simulate the AFTER INSERT trigger:
+    // mirrors the handoff_json value back into the matching session in the store.
+    (insertHandoffEntry as ReturnType<typeof vi.fn>).mockImplementation(
+      (_sessionId: string, handoffJson: string) => {
+        const session = store.sessions.find((s: Session) => s.id === _sessionId);
+        if (session) {
+          session.handoffJson = handoffJson;
+        }
+        return Promise.resolve();
+      },
+    );
   });
 
   it('full round-trip: start → end → compute handoff → persist → retrieve → successor start', async () => {
