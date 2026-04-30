@@ -23,8 +23,10 @@ import type {
   NexusCteParams,
   NexusCtePlaceholder,
   NexusCteResult,
+  NexusQueryCteResult,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
 
@@ -349,4 +351,44 @@ export function formatCteResultAsMarkdown(result: NexusCteResult): string {
   });
 
   return [header, separator, ...rows].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+const CTE_ALIASES = [
+  'callers-of',
+  'callees-of',
+  'co-changed',
+  'co-cited',
+  'path-between',
+  'community-members',
+];
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusQueryCte(
+  cte: string,
+  params?: string[],
+): Promise<EngineResult<NexusQueryCteResult>> {
+  try {
+    const finalParams: (string | number | null)[] = params ?? [];
+    let cteSql: string;
+    if (CTE_ALIASES.includes(cte)) {
+      const template = compileCteAlias(cte as NexusCteAlias);
+      cteSql = template.cte;
+      if (finalParams.length !== template.paramCount) {
+        return engineError(
+          'E_INVALID_INPUT',
+          `${cte} expects ${template.paramCount} parameters, got ${finalParams.length}`,
+        );
+      }
+    } else {
+      cteSql = cte;
+    }
+    const result = await runNexusCte(cteSql, finalParams);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }
