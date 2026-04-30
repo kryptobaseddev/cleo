@@ -873,7 +873,9 @@ export {
 // Evidence-based verification (T832 / ADR-051, T1534 / ADR-061)
 export {
   type AtomValidation,
+  CALLSITE_COVERAGE_LABEL,
   CANONICAL_TOOLS,
+  checkCallsiteCoverageAtom,
   checkEngineMigrationLocDrop,
   checkGateEvidenceMinimum,
   composeGateEvidence,
@@ -1136,9 +1138,11 @@ export {
   coreValidateSchema,
   coreValidateTask,
 } from './validation/validate-ops.js';
-// LOC-drop gate helpers + metrics-delta atom extensions (T1604 / T1023)
+// LOC-drop gate helpers + metrics-delta atom extensions + callsite-coverage gate (T1604 / T1023 / T1605)
 export {
+  CALLSITE_COVERAGE_GATE_LABEL,
   ENGINE_MIGRATION_LABEL,
+  hasCallsiteCoverageLabel,
   hasEngineMigrationLabel,
   isMetricImproved,
   type MetricsDeltaValidation,

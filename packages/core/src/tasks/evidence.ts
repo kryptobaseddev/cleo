@@ -159,7 +159,8 @@ export type ParsedAtom =
   | { kind: 'tool'; tool: string }
   | { kind: 'url'; url: string }
   | { kind: 'note'; note: string }
-  | { kind: 'loc-drop'; fromLines: number; toLines: number };
+  | { kind: 'loc-drop'; fromLines: number; toLines: number }
+  | { kind: 'callsite-coverage'; symbolName: string; relativeSourcePath: string };
 
 /**
  * Parse the CLI `--evidence` string into structured atoms.
@@ -270,12 +271,47 @@ export function parseEvidence(raw: string): ParsedEvidence {
         atoms.push({ kind: 'loc-drop', fromLines, toLines });
         break;
       }
+      case 'callsite-coverage': {
+        // Format: callsite-coverage:<symbolName>:<relativeSourcePath>
+        const colonIdx = payload.indexOf(':');
+        if (colonIdx < 1 || colonIdx === payload.length - 1) {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `Malformed callsite-coverage atom: "${chunk}" (expected callsite-coverage:<symbolName>:<relativeSourcePath>)`,
+            {
+              fix: 'Use format: callsite-coverage:<symbolName>:<relativeSourcePath> e.g. callsite-coverage:myFn:packages/core/src/myFn.ts',
+            },
+          );
+        }
+        const symbolName = payload.slice(0, colonIdx).trim();
+        const relativeSourcePath = payload.slice(colonIdx + 1).trim();
+        if (!symbolName) {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `callsite-coverage: symbolName must not be empty in "${chunk}"`,
+            {
+              fix: 'Use format: callsite-coverage:<symbolName>:<relativeSourcePath>',
+            },
+          );
+        }
+        if (!relativeSourcePath) {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `callsite-coverage: relativeSourcePath must not be empty in "${chunk}"`,
+            {
+              fix: 'Use format: callsite-coverage:<symbolName>:<relativeSourcePath>',
+            },
+          );
+        }
+        atoms.push({ kind: 'callsite-coverage', symbolName, relativeSourcePath });
+        break;
+      }
       default:
         throw new CleoError(
           ExitCode.VALIDATION_ERROR,
           `Unknown evidence kind: "${kind}" in atom "${chunk}"`,
           {
-            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop',
+            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage',
           },
         );
     }
@@ -328,6 +364,8 @@ export async function validateAtom(
       return validateNote(parsed.note);
     case 'loc-drop':
       return validateLocDrop(parsed.fromLines, parsed.toLines);
+    case 'callsite-coverage':
+      return validateCallsiteCoverage(parsed.symbolName, parsed.relativeSourcePath, projectRoot);
     default: {
       // Exhaustiveness check — never reachable if ParsedAtom is complete.
       return { ok: false, reason: `Unknown parsed atom`, codeName: 'E_EVIDENCE_INVALID' };
@@ -655,6 +693,166 @@ export function checkEngineMigrationLocDrop(
 }
 
 // ---------------------------------------------------------------------------
+// Callsite-coverage atom (T1605)
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical label that triggers callsite-coverage gate enforcement.
+ *
+ * When a task carries this label the `implemented` gate MUST be accompanied
+ * by a `callsite-coverage` evidence atom proving the exported symbol is
+ * referenced from a production callsite.
+ *
+ * @task T1605
+ */
+export const CALLSITE_COVERAGE_LABEL = 'callsite-coverage';
+
+/**
+ * Validate a `callsite-coverage` atom by running ripgrep across the project,
+ * excluding the definition file itself, test files, and dist directories.
+ *
+ * A callsite is any file that contains the `symbolName` identifier outside of:
+ * - The source file itself (`relativeSourcePath`).
+ * - Test files (`*.test.ts`, `*.spec.ts`, files under `__tests__/`).
+ * - Built output (`dist/`, `node_modules/`).
+ *
+ * Requires `rg` (ripgrep) on the PATH.  Falls back gracefully with
+ * `E_EVIDENCE_TOOL_FAILED` when ripgrep is unavailable so callers get a clear
+ * diagnostic rather than a silent pass.
+ *
+ * @param symbolName - The exported identifier to search for.
+ * @param relativeSourcePath - Source file path relative to project root
+ *   (definition file — excluded from the search).
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @returns Validated atom (with `hitCount`) on success, error on failure.
+ *
+ * @task T1605
+ */
+async function validateCallsiteCoverage(
+  symbolName: string,
+  relativeSourcePath: string,
+  projectRoot: string,
+): Promise<AtomValidation> {
+  if (!symbolName || typeof symbolName !== 'string') {
+    return {
+      ok: false,
+      reason: `callsite-coverage: symbolName must be a non-empty string`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  if (!relativeSourcePath || typeof relativeSourcePath !== 'string') {
+    return {
+      ok: false,
+      reason: `callsite-coverage: relativeSourcePath must be a non-empty string`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+
+  // Build the ripgrep command.
+  // Exclude: the definition file, test files, dist/, and node_modules/.
+  const rgArgs = [
+    '--fixed-strings',
+    symbolName,
+    '--glob',
+    '!*.test.ts',
+    '--glob',
+    '!*.spec.ts',
+    '--glob',
+    '!**/__tests__/**',
+    '--glob',
+    '!**/dist/**',
+    '--glob',
+    '!**/node_modules/**',
+    '--glob',
+    `!${relativeSourcePath}`,
+    '--count-matches',
+    '--no-heading',
+    '.',
+  ];
+
+  const result = await runCommand('rg', rgArgs, projectRoot);
+
+  // rg exits 0 when matches found, 1 when no matches, 2 on error.
+  if (result.exitCode === 2 || (result.exitCode !== 0 && result.exitCode !== 1)) {
+    const isNotFound =
+      result.stderr.includes('No such file or directory') ||
+      result.stderr.includes('command not found') ||
+      result.stderr.includes('not found');
+    if (isNotFound || result.exitCode === null) {
+      return {
+        ok: false,
+        reason:
+          `callsite-coverage: ripgrep (rg) is not available on PATH. ` +
+          `Install ripgrep to use callsite-coverage atoms.`,
+        codeName: 'E_EVIDENCE_TOOL_FAILED',
+      };
+    }
+    return {
+      ok: false,
+      reason: `callsite-coverage: ripgrep failed (exit ${result.exitCode}): ${result.stderr.slice(0, 200)}`,
+      codeName: 'E_EVIDENCE_TOOL_FAILED',
+    };
+  }
+
+  // Parse match counts from rg --count-matches output.
+  // Each line is: <filepath>:<count>
+  let totalHits = 0;
+  if (result.exitCode === 0) {
+    for (const line of result.stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const lastColon = trimmed.lastIndexOf(':');
+      if (lastColon < 0) continue;
+      const count = parseInt(trimmed.slice(lastColon + 1), 10);
+      if (Number.isFinite(count) && count > 0) {
+        totalHits += count;
+      }
+    }
+  }
+
+  if (totalHits === 0) {
+    return {
+      ok: false,
+      reason:
+        `callsite-coverage: exported symbol "${symbolName}" has no production callsite. ` +
+        `No references found outside "${relativeSourcePath}", test files, and dist directories. ` +
+        `Wire the symbol to a production callsite before verifying the implemented gate.`,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+    };
+  }
+
+  return {
+    ok: true,
+    atom: { kind: 'callsite-coverage', symbolName, relativeSourcePath, hitCount: totalHits },
+  };
+}
+
+/**
+ * Check that the provided evidence atoms satisfy the callsite-coverage
+ * requirement for tasks carrying the `callsite-coverage` label.
+ *
+ * Returns `null` when the requirement is satisfied; otherwise returns a
+ * human-readable reason string suitable for use as an `E_EVIDENCE_INSUFFICIENT`
+ * error message.
+ *
+ * @param atoms - Already-validated evidence atoms.
+ * @returns `null` on success, error message string on failure.
+ *
+ * @task T1605
+ */
+export function checkCallsiteCoverageAtom(atoms: EvidenceAtom[]): string | null {
+  const hasCallsiteAtom = atoms.some((a) => a.kind === 'callsite-coverage');
+  if (!hasCallsiteAtom) {
+    return (
+      `Gate 'implemented' on callsite-coverage tasks requires a 'callsite-coverage' evidence atom. ` +
+      `Example: --evidence "commit:<sha>;files:<path>;callsite-coverage:<symbolName>:<relativeSourcePath>". ` +
+      `The exported symbol must be referenced from at least one production callsite.`
+    );
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Gate minimum evaluation
 // ---------------------------------------------------------------------------
 
@@ -808,6 +1006,10 @@ export async function revalidateEvidence(
         // LOC counts are immutable once captured — no re-execution possible.
         // The counts are structural facts about the migration; the atom is
         // trusted as-is once validated at verify time.
+        break;
+      case 'callsite-coverage':
+        // Callsite hit counts are captured at verify time and treated as
+        // immutable structural facts — no re-execution at complete time.
         break;
       default:
         // Exhaustiveness — unreachable if EvidenceAtom is complete.
