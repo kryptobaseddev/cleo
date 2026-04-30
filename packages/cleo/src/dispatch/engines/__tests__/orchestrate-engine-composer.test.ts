@@ -22,8 +22,8 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { orchestrateSpawn } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { orchestrateSpawn } from '../orchestrate-engine.js';
 
 /**
  * Minimal task shape seeded through the store during setup.

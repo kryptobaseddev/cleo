@@ -157,22 +157,24 @@ describe('Import Graph Verification (T4796)', () => {
     expect(content).toContain('getSystemHealth');
   });
 
-  it('orchestrate-engine.ts imports core orchestration functions via @cleocode/core', async () => {
-    // T5718: imports rewired from relative ../../core/ to @cleocode/core
-    const dispatchEngineDir = join(process.cwd(), 'packages', 'cleo', 'src', 'dispatch', 'engines');
-    const content = await readFile(join(dispatchEngineDir, 'orchestrate-engine.ts'), 'utf-8');
+  it('@cleocode/core/internal exports core orchestration functions (T1570: orchestrate-engine.ts deleted)', async () => {
+    // T1570: orchestrate-engine.ts deleted; functions now live in packages/core/src/orchestrate/
+    // Verify that @cleocode/core/internal exports the expected orchestration functions.
+    const coreInternal = await import('@cleocode/core/internal');
 
-    expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
-    expect(content).toContain('analyzeEpic');
-    expect(content).toContain('prepareSpawn');
+    expect(typeof coreInternal.orchestrateStatus).toBe('function');
+    expect(typeof coreInternal.orchestrateAnalyze).toBe('function');
+    expect(typeof coreInternal.orchestrateSpawn).toBe('function');
+    expect(typeof coreInternal.orchestrateSpawnSelectProvider).toBe('function');
+    expect(typeof coreInternal.orchestratePlan).toBe('function');
   });
 
-  it('orchestrate.spawn.select delegates provider selection to core harness', async () => {
-    const dispatchEngineDir = join(process.cwd(), 'packages', 'cleo', 'src', 'dispatch', 'engines');
-    const content = await readFile(join(dispatchEngineDir, 'orchestrate-engine.ts'), 'utf-8');
+  it('orchestrate.spawn.select delegates provider selection to core harness (T1570: orchestrate-engine.ts deleted)', async () => {
+    // T1570: orchestrate-engine.ts deleted; selectHarnessSpawnProvider now in core/orchestrate/spawn-ops.ts
+    const coreInternal = await import('@cleocode/core/internal');
 
-    expect(content).toContain('selectHarnessSpawnProvider');
-    expect(content).not.toContain('getProvidersBySpawnCapability');
+    expect(typeof coreInternal.orchestrateSpawnSelectProvider).toBe('function');
+    expect(typeof coreInternal.selectHarnessSpawnProvider).toBe('function');
   });
 
   // research-engine.ts has been consolidated into core/memory/engine-compat.ts

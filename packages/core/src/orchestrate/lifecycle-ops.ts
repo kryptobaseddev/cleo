@@ -12,23 +12,20 @@
 
 import type { BrainState } from '@cleocode/contracts';
 import { type EngineResult, engineError } from '../engine-result.js';
+import { getLifecycleStatus, recordStageProgress } from '../lifecycle/index.js';
 import { buildBrainState } from '../orchestration/bootstrap.js';
 import { getCriticalPath } from '../orchestration/critical-path.js';
+import { getReadyTasks } from '../orchestration/index.js';
 import {
   endParallelExecution,
   getParallelStatus,
   startParallelExecution,
 } from '../orchestration/parallel.js';
 import { getSkillContent } from '../orchestration/skill-ops.js';
-import {
-  computeProgress,
-  computeStartupSummary,
-} from '../orchestration/status.js';
+import { computeProgress, computeStartupSummary } from '../orchestration/status.js';
 import { getUnblockOpportunities } from '../orchestration/unblock.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
-import { getLifecycleStatus, recordStageProgress } from '../lifecycle/index.js';
-import { getReadyTasks } from '../orchestration/index.js';
 import { loadTasks } from './query-ops.js';
 
 export type { EngineResult };

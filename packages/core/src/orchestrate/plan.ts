@@ -14,14 +14,11 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
 import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
 import { type EngineResult, engineError } from '../engine-result.js';
+import { getEnrichedWaves } from '../orchestration/waves.js';
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
-import {
-  ensureGlobalSignaldockDb,
-  getGlobalSignaldockDbPath,
-} from '../store/signaldock-sqlite.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
-import { getEnrichedWaves } from '../orchestration/waves.js';
+import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from '../store/signaldock-sqlite.js';
 import { loadTasks } from './query-ops.js';
 
 // ---------------------------------------------------------------------------

@@ -11,16 +11,9 @@
 import type { Task } from '@cleocode/contracts';
 import { type EngineResult, engineError } from '../engine-result.js';
 import { analyzeDependencies } from '../orchestration/analyze.js';
-import {
-  analyzeEpic,
-  getNextTask,
-  getReadyTasks,
-} from '../orchestration/index.js';
 import { estimateContext } from '../orchestration/context.js';
-import {
-  computeEpicStatus,
-  computeOverallStatus,
-} from '../orchestration/status.js';
+import { analyzeEpic, getNextTask, getReadyTasks } from '../orchestration/index.js';
+import { computeEpicStatus, computeOverallStatus } from '../orchestration/status.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { getAccessor } from '../store/data-accessor.js';

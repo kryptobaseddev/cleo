@@ -5,7 +5,7 @@
  * Mutate operations: 6
  *
  * SYNC: Canonical implementations at
- *   packages/cleo/src/dispatch/engines/orchestrate-engine.ts
+ *   packages/core/src/orchestrate/*.ts (T1570: orchestrate-engine.ts deleted)
  *   packages/core/src/orchestration/*.ts
  *
  * @task T963 — contract↔impl drift reconciliation (T910 audit)
@@ -49,7 +49,7 @@ export interface SkillDefinition {
  *
  * @remarks
  * Re-synced to match `orchestrateStatus(epicId?, projectRoot?)` in
- * `packages/cleo/src/dispatch/engines/orchestrate-engine.ts`. When `epicId`
+ * `packages/core/src/orchestrate/query-ops.ts`. When `epicId`
  * is omitted, the engine returns an overall status envelope across all
  * tasks in the project.
  *
@@ -497,7 +497,7 @@ export interface OrchestrateStartupResult {
  *
  * @remarks
  * Re-synced to match `orchestrateSpawn(taskId, protocolType, projectRoot, tier)`
- * in `packages/cleo/src/dispatch/engines/orchestrate-engine.ts`. The legacy
+ * in `packages/core/src/orchestrate/spawn-ops.ts`. The legacy
  * `{skill, model}` fields from earlier drafts were never implemented — the
  * T882 rebuild (v2026.4.85) introduced `protocolType` + `tier` as the
  * authoritative inputs.
