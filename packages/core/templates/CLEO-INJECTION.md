@@ -2,10 +2,29 @@
 
 Version: 2.6.0 | CLI-only dispatch | `cleo <command> [args]`
 
+## MANDATORY: Run `cleo briefing` BEFORE Any Other Tool
+
+**HARD PROHIBITION**: BEFORE any tool use other than `cleo briefing`, the orchestrator
+MUST run `cleo briefing` first.
+
+Do NOT read `.cleo/agent-outputs/*.md`, `NEXT-SESSION-HANDOFF.md`,
+`HONEST-HANDOFF-*.md`, or ANY markdown file as a substitute for `cleo briefing`.
+These files are deprecated, go stale, and have historically caused orchestrators to
+act on false information. They contain redirect stubs — not state.
+
+The ONLY canonical sources of session state are:
+- `cleo briefing` — structured handoff + next tasks + BRAIN context
+- `cleo memory find "<query>"` — BRAIN memory lookup
+- `cleo show <taskId>` — individual task detail
+
+If you find yourself reading a markdown file for orientation, STOP. Run `cleo briefing`.
+
 ## Session Start (cheapest-first)
 
-1. `cleo session status` — resume existing? (~200 tokens)
-2. `cleo dash` — project overview (~500 tokens)
+**FIRST COMMAND IS ALWAYS `cleo briefing`** — no exceptions.
+
+1. `cleo briefing` — canonical session context: handoff note, next tasks, BRAIN digest (~600 tokens)
+2. `cleo session status` — resume existing? (~200 tokens)
 3. `cleo current` — active task? (~100 tokens)
 4. `cleo next` — what to work on (~300 tokens)
 5. `cleo show {id}` — full details for chosen task (~400 tokens)
