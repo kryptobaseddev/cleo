@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026.4.161] (2026-04-30) — hotfix CI ripgrep + CHANGELOG
+
+CI hotfix:
+- Install `ripgrep` in CI workflows so T1605 callsite-coverage validator tests pass (validator shells out to `rg`).
+- Adds CHANGELOG sections for prior hotfixes 2026.4.160 + 2026.4.161 (release workflow gates require explicit section per version).
+
+## [2026.4.160] (2026-04-30) — hotfix ESM smoke test (T1606)
+
+T1606 hotfix:
+- Remove `@cleocode/cleo` from ESM module-load smoke test. Its dist entry is a CLI shebang that self-executes on import and exits 1 when invoked without args, which would always trip the smoke test. The CLI runtime is covered separately by the postinstall-check-core script and global install probe.
+
 ## [2026.4.159] (2026-04-30)
 
 Auto-prepared by release.ship (T1603)
