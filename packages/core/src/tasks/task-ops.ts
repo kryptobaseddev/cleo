@@ -24,6 +24,9 @@ import type {
   TaskStatus,
 } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { predictImpact } from '../intelligence/impact.js';
+import type { ImpactReport } from '../intelligence/types.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
 import { canCancel } from './cancel-ops.js';
@@ -37,6 +40,7 @@ import {
 } from './dependency-check.js';
 import { depsReady } from './deps-ready.js';
 import { isTerminalPipelineStage } from './pipeline-stage.js';
+import { discoverRelated, suggestRelated } from './relates.js';
 
 // ============================================================================
 // Types (shared)
@@ -2398,4 +2402,663 @@ export async function coreTaskImport(
     errors,
     ...(Object.keys(remapTable).length > 0 ? { remapTable } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers for non-CRUD ops (T1568 / ADR-057 / ADR-058)
+// Each function wraps a coreTask* or accessor function in try/catch → EngineResult.
+// claim/unclaim wrappers are also here (accessor-based).
+// ---------------------------------------------------------------------------
+
+function nonCrudEngineError<T>(err: unknown, fallbackMsg: string): EngineResult<T> {
+  const e = err as { message?: string };
+  return engineError<T>('E_NOT_INITIALIZED', e?.message ?? fallbackMsg);
+}
+
+/**
+ * Suggest next task to work on.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskNext(
+  projectRoot: string,
+  params?: { count?: number; explain?: boolean },
+): Promise<
+  EngineResult<{
+    suggestions: Array<{
+      id: string;
+      title: string;
+      priority: string;
+      phase: string | null;
+      score: number;
+      reasons?: string[];
+    }>;
+    totalCandidates: number;
+  }>
+> {
+  try {
+    const result = await coreTaskNext(projectRoot, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * Show blocked tasks and analyze blocking chains.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskBlockers(
+  projectRoot: string,
+  params?: { analyze?: boolean; limit?: number },
+): Promise<
+  EngineResult<{
+    blockedTasks: Array<{
+      id: string;
+      title: string;
+      status: string;
+      depends?: string[];
+      blockingChain: string[];
+    }>;
+    criticalBlockers: Array<{ id: string; title: string; blocksCount: number }>;
+    summary: string;
+    total: number;
+    limit: number;
+  }>
+> {
+  try {
+    const result = await coreTaskBlockers(projectRoot, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * Build hierarchy tree.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskTree(
+  projectRoot: string,
+  taskId?: string,
+  withBlockers?: boolean,
+): Promise<EngineResult> {
+  try {
+    const result = await coreTaskTree(projectRoot, taskId, withBlockers);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_NOT_FOUND', e?.message ?? 'Task not found');
+  }
+}
+
+/**
+ * Show dependencies for a task.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskDeps(
+  projectRoot: string,
+  taskId: string,
+): Promise<
+  EngineResult<{
+    taskId: string;
+    dependsOn: Array<{ id: string; title: string; status: string }>;
+    dependedOnBy: Array<{ id: string; title: string; status: string }>;
+    unresolvedDeps: string[];
+    allDepsReady: boolean;
+  }>
+> {
+  try {
+    const result = await coreTaskDeps(projectRoot, taskId);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * Show task relations.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskRelates(
+  projectRoot: string,
+  taskId: string,
+): Promise<
+  EngineResult<{
+    taskId: string;
+    relations: Array<{ taskId: string; type: string; reason?: string }>;
+    count: number;
+  }>
+> {
+  try {
+    const result = await coreTaskRelates(projectRoot, taskId);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_GENERAL', e?.message ?? 'Failed to read task relations');
+  }
+}
+
+/**
+ * Add a relation between two tasks.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskRelatesAdd(
+  projectRoot: string,
+  taskId: string,
+  relatedId: string,
+  type: string,
+  reason?: string,
+): Promise<EngineResult<{ from: string; to: string; type: string; added: boolean }>> {
+  try {
+    const result = await coreTaskRelatesAdd(projectRoot, taskId, relatedId, type, reason);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_GENERAL', e?.message ?? 'Failed to update task relations');
+  }
+}
+
+/**
+ * Find related tasks using semantic search or keyword matching.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskRelatesFind(
+  projectRoot: string,
+  taskId: string,
+  params?: { mode?: 'suggest' | 'discover'; threshold?: number },
+): Promise<EngineResult<Record<string, unknown>>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const mode = params?.mode ?? 'suggest';
+    let result: Record<string, unknown>;
+    if (mode === 'discover') {
+      result = await discoverRelated(taskId, undefined, accessor);
+    } else {
+      const threshold = params?.threshold ?? 50;
+      result = await suggestRelated(taskId, { threshold }, accessor);
+    }
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_INTERNAL', e?.message ?? 'Task relates find failed');
+  }
+}
+
+/**
+ * Analyze task quality and project health.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskAnalyze(
+  projectRoot: string,
+  taskId?: string,
+  params?: { tierLimit?: number },
+): Promise<
+  EngineResult<{
+    recommended: { id: string; title: string; leverage: number; reason: string } | null;
+    bottlenecks: Array<{ id: string; title: string; blocksCount: number }>;
+    tiers: {
+      critical: Array<{ id: string; title: string; leverage: number }>;
+      high: Array<{ id: string; title: string; leverage: number }>;
+      normal: Array<{ id: string; title: string; leverage: number }>;
+    };
+    metrics: { totalTasks: number; actionable: number; blocked: number; avgLeverage: number };
+    tierLimit: number;
+  }>
+> {
+  try {
+    const result = await coreTaskAnalyze(projectRoot, taskId, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_GENERAL', e?.message ?? 'Task analysis failed');
+  }
+}
+
+/**
+ * Predict downstream impact of a change.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskImpact(
+  projectRoot: string,
+  change: string,
+  matchLimit?: number,
+): Promise<EngineResult<ImpactReport>> {
+  try {
+    const result = await predictImpact(change, projectRoot, undefined, matchLimit);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_GENERAL', e?.message ?? 'Impact prediction failed');
+  }
+}
+
+/**
+ * Restore a cancelled task back to pending.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskRestore(
+  projectRoot: string,
+  taskId: string,
+  params?: { cascade?: boolean; notes?: string },
+): Promise<EngineResult<{ task: string; restored: string[]; count: number }>> {
+  try {
+    const result = await coreTaskRestore(projectRoot, taskId, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to restore task');
+  }
+}
+
+/**
+ * Move an archived task back to active.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskUnarchive(
+  projectRoot: string,
+  taskId: string,
+  params?: { status?: string; preserveStatus?: boolean },
+): Promise<EngineResult<{ task: string; unarchived: boolean; title: string; status: string }>> {
+  try {
+    const result = await coreTaskUnarchive(projectRoot, taskId, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to unarchive task');
+  }
+}
+
+/**
+ * Change task position within its sibling group.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskReorder(
+  projectRoot: string,
+  taskId: string,
+  position: number,
+): Promise<
+  EngineResult<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number }>
+> {
+  try {
+    const result = await coreTaskReorder(projectRoot, taskId, position);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to reorder task');
+  }
+}
+
+/**
+ * Move task under a different parent.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskReparent(
+  projectRoot: string,
+  taskId: string,
+  newParentId: string | null,
+): Promise<
+  EngineResult<{
+    task: string;
+    reparented: boolean;
+    oldParent: string | null;
+    newParent: string | null;
+    newType?: string;
+  }>
+> {
+  try {
+    const result = await coreTaskReparent(projectRoot, taskId, newParentId);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to reparent task');
+  }
+}
+
+/**
+ * Promote a subtask to task or task to root.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskPromote(
+  projectRoot: string,
+  taskId: string,
+): Promise<
+  EngineResult<{
+    task: string;
+    promoted: boolean;
+    previousParent: string | null;
+    typeChanged: boolean;
+  }>
+> {
+  try {
+    const result = await coreTaskPromote(projectRoot, taskId);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to promote task');
+  }
+}
+
+/**
+ * Reopen a completed task.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskReopen(
+  projectRoot: string,
+  taskId: string,
+  params?: { status?: string; reason?: string },
+): Promise<
+  EngineResult<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }>
+> {
+  try {
+    const result = await coreTaskReopen(projectRoot, taskId, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to reopen task');
+  }
+}
+
+/**
+ * Cancel a task (soft terminal state).
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskCancel(
+  projectRoot: string,
+  taskId: string,
+  reason?: string,
+): Promise<
+  EngineResult<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }>
+> {
+  try {
+    const result = await coreTaskCancel(projectRoot, taskId, { reason });
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_NOT_FOUND', e?.message ?? 'Failed to cancel task');
+  }
+}
+
+/**
+ * Deterministic complexity scoring.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskComplexityEstimate(
+  projectRoot: string,
+  params: { taskId: string },
+): Promise<
+  EngineResult<{
+    size: 'small' | 'medium' | 'large';
+    score: number;
+    factors: ComplexityFactor[];
+    dependencyDepth: number;
+    subtaskCount: number;
+    fileCount: number;
+  }>
+> {
+  try {
+    const result = await coreTaskComplexityEstimate(projectRoot, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * List dependencies for a task in a given direction.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskDepends(
+  projectRoot: string,
+  taskId: string,
+  direction: 'upstream' | 'downstream' | 'both' = 'both',
+  tree?: boolean,
+): Promise<EngineResult> {
+  try {
+    const result = await coreTaskDepends(
+      projectRoot,
+      taskId,
+      direction,
+      tree ? { tree } : undefined,
+    );
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * Overview of all dependencies across the project.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskDepsOverview(projectRoot: string): Promise<
+  EngineResult<{
+    totalTasks: number;
+    tasksWithDeps: number;
+    blockedTasks: Array<{ id: string; title: string; status: string; unblockedBy: string[] }>;
+    readyTasks: Array<{ id: string; title: string; status: string }>;
+    validation: { valid: boolean; errorCount: number; warningCount: number };
+  }>
+> {
+  try {
+    const result = await coreTaskDepsOverview(projectRoot);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to load deps overview');
+  }
+}
+
+/**
+ * Detect circular dependencies across the project.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskDepsCycles(projectRoot: string): Promise<
+  EngineResult<{
+    hasCycles: boolean;
+    cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }>;
+  }>
+> {
+  try {
+    const result = await coreTaskDepsCycles(projectRoot);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to detect cycles');
+  }
+}
+
+/**
+ * Compute task statistics, optionally scoped to an epic.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskStats(
+  projectRoot: string,
+  epicId?: string,
+): Promise<
+  EngineResult<{
+    total: number;
+    pending: number;
+    active: number;
+    blocked: number;
+    done: number;
+    cancelled: number;
+    byPriority: Record<string, number>;
+    byType: Record<string, number>;
+  }>
+> {
+  try {
+    const result = await coreTaskStats(projectRoot, epicId);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * Export tasks as JSON or CSV.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskExport(
+  projectRoot: string,
+  params?: { format?: 'json' | 'csv'; status?: string; parent?: string },
+): Promise<EngineResult<unknown>> {
+  try {
+    const result = await coreTaskExport(projectRoot, params);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * Get task history from the log file.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskHistory(
+  projectRoot: string,
+  taskId: string,
+  limit?: number,
+): Promise<EngineResult<Array<Record<string, unknown>>>> {
+  try {
+    const result = await coreTaskHistory(projectRoot, taskId, limit);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to read task history');
+  }
+}
+
+/**
+ * Lint tasks for common issues.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskLint(
+  projectRoot: string,
+  taskId?: string,
+): Promise<
+  EngineResult<
+    Array<{ taskId: string; severity: 'error' | 'warning'; rule: string; message: string }>
+  >
+> {
+  try {
+    const result = await coreTaskLint(projectRoot, taskId);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * Validate multiple tasks at once.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskBatchValidate(
+  projectRoot: string,
+  taskIds: string[],
+  checkMode: 'full' | 'quick' = 'full',
+): Promise<
+  EngineResult<{
+    results: Record<
+      string,
+      Array<{ severity: 'error' | 'warning'; rule: string; message: string }>
+    >;
+    summary: {
+      totalTasks: number;
+      validTasks: number;
+      invalidTasks: number;
+      totalIssues: number;
+      errors: number;
+      warnings: number;
+    };
+  }>
+> {
+  try {
+    const result = await coreTaskBatchValidate(projectRoot, taskIds, checkMode);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Task database not initialized');
+  }
+}
+
+/**
+ * Import tasks from a JSON source string or export package.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskImport(
+  projectRoot: string,
+  source: string,
+  overwrite?: boolean,
+): Promise<
+  EngineResult<{
+    imported: number;
+    skipped: number;
+    errors: string[];
+    remapTable?: Record<string, string>;
+  }>
+> {
+  try {
+    const result = await coreTaskImport(projectRoot, source, overwrite);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to import tasks');
+  }
+}
+
+/**
+ * Atomically claim a task for an agent.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskClaim(
+  projectRoot: string,
+  taskId: string,
+  agentId: string,
+): Promise<EngineResult<{ taskId: string; agentId: string }>> {
+  if (!taskId) return engineError('E_INVALID_INPUT', 'taskId is required');
+  if (!agentId) return engineError('E_INVALID_INPUT', 'agentId is required');
+  try {
+    const acc = await getAccessor(projectRoot);
+    await acc.claimTask(taskId, agentId);
+    return engineSuccess({ taskId, agentId });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_INTERNAL', e?.message ?? 'Failed to claim task');
+  }
+}
+
+/**
+ * Release an agent's claim on a task.
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskUnclaim(
+  projectRoot: string,
+  taskId: string,
+): Promise<EngineResult<{ taskId: string }>> {
+  if (!taskId) return engineError('E_INVALID_INPUT', 'taskId is required');
+  try {
+    const acc = await getAccessor(projectRoot);
+    await acc.unclaimTask(taskId);
+    return engineSuccess({ taskId });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_INTERNAL', e?.message ?? 'Failed to unclaim task');
+  }
 }
