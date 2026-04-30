@@ -472,6 +472,10 @@ export {
   type NexusHotNode,
   type NexusHotPath,
   type NexusPlasticityResult,
+  // EngineResult wrappers (T1569 Wave 3)
+  nexusColdSymbols,
+  nexusHotNodes,
+  nexusHotPaths,
 } from './nexus/plasticity-queries.js';
 export {
   // EngineResult wrappers (T1569 Wave 1)
@@ -1486,20 +1490,38 @@ export {
   ingestStructuredSummary,
   persistSessionMemory,
 } from './memory/session-memory.js';
+// Nexus Wave 3 — code intelligence EngineResult wrappers
+export {
+  nexusConduitScan,
+  nexusContractsLinkTasks,
+  nexusContractsShow,
+  nexusContractsSync,
+  nexusTaskSymbols,
+} from './nexus/api-contracts.js';
+export { nexusClusters } from './nexus/clusters.js';
+export { nexusContext } from './nexus/context.js';
+export { nexusDiff } from './nexus/diff.js';
 // Nexus — discoverRelated (exported as nexusDiscoverRelated to avoid name clash with tasks discoverRelated)
 // Nexus — searchAcrossProjects
 export {
   discoverRelated as nexusDiscoverRelated,
   searchAcrossProjects as nexusSearchAcrossProjects,
 } from './nexus/discover.js';
+export { nexusFlows } from './nexus/flows.js';
 // Nexus — bridge (code intelligence summary for agents)
 export {
   generateNexusBridgeContent,
+  // EngineResult wrapper (T1569 Wave 3)
+  nexusRefreshBridge,
   refreshNexusBridge,
   writeNexusBridge,
 } from './nexus/nexus-bridge.js';
+export { nexusProjectsClean } from './nexus/projects-clean.js';
+export { nexusProjectsScan } from './nexus/projects-scan.js';
+export { nexusQueryCte } from './nexus/query-dsl.js';
 // Nexus — readRegistry (exported as nexusReadRegistry to avoid name clash with skills readRegistry)
 export { readRegistry as nexusReadRegistry } from './nexus/registry.js';
+export { nexusRouteMap, nexusShapeCheck } from './nexus/route-analysis.js';
 // Nexus — sigil (peer-card) SDK (T1148 Wave 8)
 export type { SigilCard, SigilInput } from './nexus/sigil.js';
 export { getSigil, listSigils, upsertSigil } from './nexus/sigil.js';
@@ -1534,6 +1556,7 @@ export {
   supersedeTrait,
   upsertUserProfileTrait,
 } from './nexus/user-profile.js';
+export { nexusWiki } from './nexus/wiki-index.js';
 export type { DependencyAnalysis } from './orchestration/analyze.js';
 export { analyzeDependencies as orchestrationAnalyzeDependencies } from './orchestration/analyze.js';
 export { getCriticalPath as orchestrationGetCriticalPath } from './orchestration/critical-path.js';

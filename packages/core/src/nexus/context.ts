@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 
 /** Source code content fetched via smartUnfold. */
@@ -299,4 +300,23 @@ export async function getSymbolContext(
     matchCount: matchingNodes.length,
     results,
   };
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusContext(
+  symbolName: string,
+  projectId: string,
+  repoPath: string,
+  limit: number,
+  showContent: boolean,
+): Promise<EngineResult<unknown>> {
+  try {
+    const result = await getSymbolContext(symbolName, projectId, repoPath, {
+      limit,
+      showContent,
+    });
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

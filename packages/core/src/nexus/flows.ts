@@ -7,6 +7,7 @@
  * @task T1473
  */
 
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 
 /** One detected execution flow (process node). */
@@ -79,4 +80,17 @@ export async function getProjectFlows(
       };
     }),
   };
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusFlows(
+  projectId: string,
+  repoPath: string,
+): Promise<EngineResult<NexusFlowsResult>> {
+  try {
+    const result = await getProjectFlows(projectId, repoPath);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

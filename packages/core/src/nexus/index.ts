@@ -14,11 +14,21 @@ export type {
   NexusSearchHit as SearchResult,
   NexusSearchResult,
 } from '@cleocode/contracts/operations/nexus';
+// API Contracts + Ingestion Bridge EngineResult wrappers (T1569)
+export {
+  nexusConduitScan,
+  nexusContractsLinkTasks,
+  nexusContractsShow,
+  nexusContractsSync,
+  nexusTaskSymbols,
+} from './api-contracts.js';
 // Clusters - Louvain community detection results (T1473)
 export {
   getProjectClusters,
   type NexusClustersResult,
   type NexusCommunityEntry,
+  // EngineResult wrapper (T1569)
+  nexusClusters,
 } from './clusters.js';
 // Context - symbol caller/callee/process context (T1473)
 export {
@@ -29,6 +39,8 @@ export {
   type NexusContextRelation,
   type NexusContextResult,
   type NexusSourceContent,
+  // EngineResult wrapper (T1569)
+  nexusContext,
 } from './context.js';
 // Deps - global dependency graph and analysis
 export {
@@ -61,6 +73,8 @@ export {
   type NexusDiffHealth,
   type NexusDiffOptions,
   type NexusDiffResult,
+  // EngineResult wrapper (T1569)
+  nexusDiff,
 } from './diff.js';
 // Discovery - cross-project task discovery and search
 export {
@@ -76,6 +90,8 @@ export {
   getProjectFlows,
   type NexusFlowEntry,
   type NexusFlowsResult,
+  // EngineResult wrapper (T1569)
+  nexusFlows,
 } from './flows.js';
 // GEXF export - graph serialization (T1473)
 export { escapeXml, generateGexf, hexToRgb } from './gexf-export.js';
@@ -124,10 +140,14 @@ export {
   cleanProjects,
   InvalidPatternError,
   NoCriteriaError,
+  // EngineResult wrapper (T1569)
+  nexusProjectsClean,
 } from './projects-clean.js';
 // Projects scan - filesystem walker for CLEO project discovery (T1473)
 export {
   getDevice,
+  // EngineResult wrapper (T1569)
+  nexusProjectsScan,
   type ProjectsScanOptions,
   type ProjectsScanResult,
   type ScanAutoRegisterError,
