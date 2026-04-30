@@ -25,7 +25,9 @@ export function getCleoHome(): string {
   }
   if (platform === 'win32') {
     const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
-    return join(localAppData, 'cleo');
+    // env-paths-style convention: append the Data subdir on Windows so this
+    // matches what `cleo admin paths --json` reports as `cleoHome`.
+    return join(localAppData, 'cleo', 'Data');
   }
   const xdgDataHome = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
   return join(xdgDataHome, 'cleo');

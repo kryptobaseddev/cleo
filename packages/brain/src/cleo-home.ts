@@ -27,7 +27,7 @@ import { join } from 'node:path';
  *   1. `CLEO_HOME` env var
  *   2. Platform default:
  *      - macOS: `~/Library/Application Support/cleo`
- *      - Windows: `%LOCALAPPDATA%\cleo`
+ *      - Windows: `%LOCALAPPDATA%\cleo\Data`
  *      - Linux: `$XDG_DATA_HOME/cleo` (defaults to `~/.local/share/cleo`)
  */
 export function getCleoHome(): string {
@@ -41,7 +41,12 @@ export function getCleoHome(): string {
   }
   if (platform === 'win32') {
     const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
-    return join(localAppData, 'cleo');
+    // env-paths-style convention: append the Data subdir on Windows so this
+    // matches what `cleo admin paths --json` reports as `cleoHome` (e.g.
+    // `%LOCALAPPDATA%\cleo\Data`). Without the suffix, Brain looks for
+    // `nexus.db` and `signaldock.db` one directory shallower than where the
+    // CLI writes them.
+    return join(localAppData, 'cleo', 'Data');
   }
   const xdgDataHome = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
   return join(xdgDataHome, 'cleo');
