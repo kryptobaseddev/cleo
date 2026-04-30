@@ -7,6 +7,7 @@
 import type {
   Task,
   TaskPriority,
+  TaskRecord,
   TaskRole,
   TaskScope,
   TaskSize,
@@ -16,6 +17,7 @@ import type {
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -31,6 +33,7 @@ import {
 } from './add.js';
 import { completeTask } from './complete.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
+import { taskToRecord } from './engine-converters.js';
 import {
   findEpicAncestor,
   validateChildStageCeiling,
@@ -470,4 +473,84 @@ export async function updateTask(
   });
 
   return { task, changes };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1568 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Update a task's fields, wrapped in EngineResult.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to update
+ * @param updates - Fields to update (only provided fields are changed)
+ * @returns EngineResult with the updated task record and list of changes
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskUpdate(
+  projectRoot: string,
+  taskId: string,
+  updates: {
+    title?: string;
+    description?: string;
+    status?: string;
+    priority?: string;
+    notes?: string;
+    labels?: string[];
+    addLabels?: string[];
+    removeLabels?: string[];
+    depends?: string[];
+    addDepends?: string[];
+    removeDepends?: string[];
+    acceptance?: string[];
+    parent?: string | null;
+    type?: string;
+    size?: string;
+    files?: string[];
+    pipelineStage?: string;
+    role?: string;
+    scope?: string;
+    reason?: string;
+  },
+): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await updateTask(
+      {
+        taskId,
+        title: updates.title,
+        description: updates.description,
+        status: updates.status as TaskStatus | undefined,
+        priority: updates.priority as TaskPriority | undefined,
+        notes: updates.notes,
+        labels: updates.labels,
+        addLabels: updates.addLabels,
+        removeLabels: updates.removeLabels,
+        depends: updates.depends,
+        addDepends: updates.addDepends,
+        removeDepends: updates.removeDepends,
+        acceptance: updates.acceptance,
+        parentId: updates.parent,
+        type: updates.type as TaskType | undefined,
+        size: updates.size as TaskSize | undefined,
+        files: updates.files,
+        pipelineStage: updates.pipelineStage,
+        role: updates.role as TaskRole | undefined,
+        scope: updates.scope as TaskScope | undefined,
+        reason: updates.reason,
+      },
+      projectRoot,
+      accessor,
+    );
+    return engineSuccess({ task: taskToRecord(result.task), changes: result.changes });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
+    };
+  }
 }
