@@ -6,6 +6,10 @@
  * - With the flag: data has `task` + `history` array.
  * - Tasks with no pipeline record return `history: []` (not an error).
  *
+ * After T1568 Wave 5, task-engine.ts was deleted. taskShowWithHistory now lives
+ * in packages/core/src/tasks/show.ts. We mock source-level dependencies so that
+ * the real function can run without a database.
+ *
  * @task T787
  * @epic T769
  */
@@ -13,63 +17,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Mock @cleocode/core/internal so tests run without a real SQLite DB.
+// Source-level mocks (taskShowWithHistory imports from relative paths, not
+// through @cleocode/core/internal).
 // ---------------------------------------------------------------------------
 
-vi.mock('@cleocode/core/internal', () => ({
+vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
-  showTask: vi.fn(),
-  getLifecycleStatus: vi.fn(),
-  // Provide enough of the barrel so task-engine.ts can import without crashing.
-  addTask: vi.fn(),
-  archiveTasks: vi.fn(),
-  completeTask: vi.fn(),
-  deleteTask: vi.fn(),
-  findTasks: vi.fn(),
-  listTasks: vi.fn(),
-  updateTask: vi.fn(),
-  coreTaskNext: vi.fn(),
-  coreTaskBlockers: vi.fn(),
-  coreTaskTree: vi.fn(),
-  coreTaskDeps: vi.fn(),
-  coreTaskRelates: vi.fn(),
-  coreTaskRelatesAdd: vi.fn(),
-  coreTaskAnalyze: vi.fn(),
-  coreTaskRestore: vi.fn(),
-  coreTaskUnarchive: vi.fn(),
-  coreTaskReorder: vi.fn(),
-  coreTaskReparent: vi.fn(),
-  coreTaskPromote: vi.fn(),
-  coreTaskReopen: vi.fn(),
-  coreTaskComplexityEstimate: vi.fn(),
-  coreTaskDepends: vi.fn(),
-  coreTaskStats: vi.fn(),
-  coreTaskExport: vi.fn(),
-  coreTaskHistory: vi.fn(),
-  coreTaskLint: vi.fn(),
-  coreTaskBatchValidate: vi.fn(),
-  coreTaskImport: vi.fn(),
-  coreTaskRelatesFind: vi.fn(),
-  coreTaskCancel: vi.fn(),
-  coreTaskDepsCycles: vi.fn(),
-  coreTaskDepsOverview: vi.fn(),
-  predictImpact: vi.fn(),
-  getActiveSession: vi.fn(),
-  toCompact: vi.fn(),
-  computeTaskView: vi.fn(),
-  getIvtrState: vi.fn(),
-  taskToRecord: vi.fn((task: unknown) => task),
-  toHistoryEntry: vi.fn(),
 }));
 
-import { showTask as coreShowTask, getAccessor, getLifecycleStatus } from '@cleocode/core/internal';
-import { taskShowWithHistory } from '../task-engine.js';
+vi.mock('../../../../../core/src/lifecycle/index.js', () => ({
+  getLifecycleStatus: vi.fn(),
+}));
+
+// ---------------------------------------------------------------------------
+// Imports (after mocks)
+// ---------------------------------------------------------------------------
+
+import { getLifecycleStatus } from '../../../../../core/src/lifecycle/index.js';
+import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
+import { taskShowWithHistory } from '../../../../../core/src/tasks/show.js';
 
 const mockGetAccessor = vi.mocked(getAccessor);
-const mockShowTask = vi.mocked(coreShowTask);
 const mockGetLifecycleStatus = vi.mocked(getLifecycleStatus);
 
-/** Minimal Task shape satisfying TaskRecord conversion. */
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+/** Minimal Task shape satisfying taskToRecord conversion. */
 const MOCK_TASK = {
   id: 'T001',
   title: 'Test task',
@@ -101,6 +76,18 @@ const MOCK_TASK = {
   pipelineStage: null,
 };
 
+/** Full DataAccessor stub that showTask can use without hitting the DB. */
+function makeAccessorStub() {
+  return {
+    loadSingleTask: vi.fn(async (id: string) => (id === 'T001' ? MOCK_TASK : null)),
+    loadArchive: vi.fn().mockResolvedValue(null),
+    getChildren: vi.fn().mockResolvedValue([]),
+    loadTasks: vi.fn().mockResolvedValue([]),
+    getDependents: vi.fn().mockResolvedValue([]),
+    getAncestorChain: vi.fn().mockResolvedValue([]),
+  };
+}
+
 /** Minimal lifecycle status returned by getLifecycleStatus. */
 const MOCK_LIFECYCLE_STATUS = {
   epicId: 'T001',
@@ -130,16 +117,17 @@ const MOCK_LIFECYCLE_STATUS = {
   initialized: true,
 };
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 describe('taskShowWithHistory', () => {
   const projectRoot = '/mock/project';
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetAccessor.mockResolvedValue(
-      {} as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
-    );
-    mockShowTask.mockResolvedValue(
-      MOCK_TASK as ReturnType<typeof coreShowTask> extends Promise<infer T> ? T : never,
+      makeAccessorStub() as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
     );
   });
 

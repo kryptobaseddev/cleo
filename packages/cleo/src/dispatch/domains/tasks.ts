@@ -31,14 +31,14 @@ import {
   wrapCoreResult,
 } from '../adapters/typed.js';
 import {
+  addTaskWithSessionScope,
+  completeTaskStrict,
   taskAnalyze,
   taskArchive,
   taskBlockers,
   taskCancel,
   taskClaim,
-  taskCompleteStrict,
   taskComplexityEstimate,
-  taskCreate,
   taskCurrentGet,
   taskDelete,
   taskDepends,
@@ -264,7 +264,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
   add: async (params) => {
     const projectRoot = getProjectRoot();
     return wrapCoreResult(
-      await taskCreate(projectRoot, {
+      await addTaskWithSessionScope(projectRoot, {
         title: params.title,
         description: typeof params.description === 'string' ? params.description : undefined,
         parent: params.parent,
@@ -328,7 +328,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         'complete',
       );
     }
-    const result = await taskCompleteStrict(projectRoot, params.taskId, params.notes);
+    const result = await completeTaskStrict(projectRoot, params.taskId, params.notes);
     // T994: Track memory usage on task completion (fire-and-forget; must not block).
     // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
     setImmediate(async () => {
