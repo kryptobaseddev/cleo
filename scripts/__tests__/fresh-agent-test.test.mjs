@@ -281,9 +281,11 @@ describe('isDenied', () => {
     expect(isDenied('/project/.cleo/agent-outputs/')).toBe(false);
   });
 
-  it('handles Windows-style backslash paths', () => {
-    // On Linux this won't occur in practice, but the guard must be safe
-    expect(isDenied('C:\\project\\.cleo\\agent-outputs\\T1234.md')).toBe(false);
+  it('handles Windows-style backslash paths (normalized and correctly denied)', () => {
+    // After backslash normalisation the path contains /.cleo/agent-outputs/*.md
+    // and should be blocked — this is the conservative safe behaviour.
+    // On Linux these paths won't arise in practice but the guard must not crash.
+    expect(isDenied('C:\\project\\.cleo\\agent-outputs\\T1234.md')).toBe(true);
   });
 });
 
