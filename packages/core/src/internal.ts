@@ -1229,16 +1229,57 @@ export type {
   Resolution,
 } from './store/restore-json-merge.js';
 export { regenerateAndCompare, regenerateAndCompareAll } from './store/restore-json-merge.js';
-// Tasks (additional — stats)
-export { coreTaskStats } from './tasks/task-ops.js';
 // Engine-layer converters and types (T1568 / ADR-057 / ADR-058)
 export {
   type IvtrHistoryEntry,
   type LifecycleStageEntry,
-  taskToRecord,
   tasksToRecords,
+  taskToRecord,
   toHistoryEntry,
 } from './tasks/engine-converters.js';
+export { taskFind } from './tasks/find.js';
+export { taskLabelList, taskLabelShow } from './tasks/labels.js';
+export { taskList } from './tasks/list.js';
+export { taskPlan } from './tasks/plan.js';
+// Engine-layer EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058) — Wave 2
+export {
+  taskExists,
+  taskShow,
+  taskShowIvtrHistory,
+  taskShowWithHistory,
+} from './tasks/show.js';
+// Tasks (additional — stats)
+export {
+  coreTaskStats,
+  taskAnalyze,
+  taskBatchValidate,
+  taskBlockers,
+  taskCancel,
+  taskClaim,
+  taskComplexityEstimate,
+  taskDepends,
+  taskDeps,
+  taskDepsCycles,
+  taskDepsOverview,
+  taskExport,
+  taskHistory,
+  taskImpact,
+  taskImport,
+  taskLint,
+  taskNext,
+  taskPromote,
+  taskRelates,
+  taskRelatesAdd,
+  taskRelatesFind,
+  taskReopen,
+  taskReorder,
+  taskReparent,
+  taskRestore,
+  taskStats,
+  taskTree,
+  taskUnarchive,
+  taskUnclaim,
+} from './tasks/task-ops.js';
 
 // ---------------------------------------------------------------------------
 // Additional flat exports (required by @cleocode/cleo)

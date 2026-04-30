@@ -5,6 +5,7 @@
  */
 
 import type { ProjectMeta, Task } from '@cleocode/contracts';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { depsReady } from './deps-ready.js';
 
@@ -363,4 +364,31 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
     openBugs,
     metrics,
   };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1568 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute a ranked plan: in-progress epics, ready tasks, blockers, bugs.
+ * Wrapped in EngineResult for use by the dispatch layer.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @returns EngineResult with the plan data
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskPlan(projectRoot: string): Promise<EngineResult> {
+  try {
+    const result = await coreTaskPlan(projectRoot);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
+    };
+  }
 }
