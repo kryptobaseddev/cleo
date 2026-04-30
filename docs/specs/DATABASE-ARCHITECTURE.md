@@ -119,7 +119,7 @@ As of v2026.4.12, API keys use `HMAC-SHA256(machineKey || globalSalt, agentId)`.
 
 ### 5. `nexus.db` — Cross-Project Routing
 
-**Location**: `~/.local/share/cleo/nexus.db` (Linux: `~/.local/share/cleo/`, macOS: `~/Library/Application Support/cleo/`, Windows: `%APPDATA%/cleo/`)
+**Location**: `~/.local/share/cleo/nexus.db` (Linux: `~/.local/share/cleo/`, macOS: `~/Library/Application Support/cleo/`, Windows: `%LOCALAPPDATA%/cleo/Data/`)
 **ORM**: Drizzle ORM (TypeScript, node:sqlite `DatabaseSync`)
 **Migration**: Drizzle Kit
 **Purpose**: NEXUS cross-project task routing, project discovery, and multi-project workflow orchestration (warp chains).
