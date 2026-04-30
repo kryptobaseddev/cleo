@@ -42,8 +42,10 @@ import { autoDispatch } from './index.js';
 import {
   buildSpawnPrompt,
   type ConduitSubscriptionConfig,
+  INLINE_TEXT_SIZE_LIMIT_BYTES,
   type SpawnProtocolPhase,
   type SpawnTier,
+  type TaskDocAttachment,
 } from './spawn-prompt.js';
 import {
   enforceThinAgent,
@@ -513,6 +515,61 @@ export async function composeSpawnPayload(
     }
   }
 
+  // 6d. Auto-fetch task document attachments (T1614).
+  //     Best-effort: errors are silently swallowed so a missing blob store never
+  //     blocks spawn. Text-based attachments ≤ INLINE_TEXT_SIZE_LIMIT_BYTES are
+  //     read and their content populated in `textContent`; all others are listed
+  //     by name only so the agent knows they exist and can use `cleo docs fetch`.
+  let docAttachments: readonly TaskDocAttachment[] | undefined;
+  try {
+    const { blobList, blobRead } = await import('../store/blob-ops.js');
+    const blobEntries = await blobList(task.id, projectRoot).catch(() => []);
+
+    if (blobEntries.length > 0) {
+      // MIME types safe to inline as UTF-8 text — must match INLINEABLE_MIME_TYPES in spawn-prompt.ts.
+      const inlineableMimes = new Set([
+        'text/plain',
+        'text/markdown',
+        'text/x-markdown',
+        'application/json',
+        'text/yaml',
+        'text/csv',
+      ]);
+
+      const resolved: TaskDocAttachment[] = [];
+
+      for (const entry of blobEntries) {
+        const mimeBase = entry.mimeType?.split(';')[0]?.trim();
+        const isText = mimeBase !== undefined && inlineableMimes.has(mimeBase);
+        const fitsInline = entry.sizeBytes <= INLINE_TEXT_SIZE_LIMIT_BYTES;
+
+        let textContent: string | undefined;
+        if (isText && fitsInline) {
+          try {
+            const bytes = await blobRead(task.id, entry.name, projectRoot);
+            if (bytes !== null) {
+              textContent = new TextDecoder().decode(bytes);
+            }
+          } catch {
+            // best-effort — leave textContent undefined
+          }
+        }
+
+        resolved.push({
+          name: entry.name,
+          sha256: entry.sha256,
+          sizeBytes: entry.sizeBytes,
+          mimeType: entry.mimeType,
+          textContent,
+        });
+      }
+
+      docAttachments = resolved;
+    }
+  } catch {
+    // best-effort — blob store may not be initialized; proceed without docs
+  }
+
   // 7. Build the prompt via the T882 engine. The engine is now the internal
   //    assembler; callers that previously imported buildSpawnPrompt directly
   //    continue to work unchanged.
@@ -530,6 +587,7 @@ export async function composeSpawnPayload(
     worktreeBranch: options.worktreeBranch,
     conduitSubscription: options.conduitSubscription,
     retrievalBundle,
+    docAttachments,
   });
 
   // 8. Assemble the traceability envelope. `dedupSavedChars` only counts
