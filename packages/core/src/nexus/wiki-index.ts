@@ -31,6 +31,7 @@ import type {
   WikiStateFile,
   WikiSymbolRow,
 } from '@cleocode/contracts';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDbPath, getNexusNativeDb } from '../store/nexus-sqlite.js';
 
 const execFileAsync = promisify(execFileNode);
@@ -542,5 +543,31 @@ export async function generateNexusWikiIndex(
       communities: [],
       error: `Exception during wiki generation: ${errorMsg}`,
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusWiki(
+  outputDir: string,
+  projectRoot: string,
+  options?: {
+    communityFilter?: string;
+    incremental?: boolean;
+  },
+): Promise<EngineResult<NexusWikiResult>> {
+  try {
+    const result = await generateNexusWikiIndex(outputDir, projectRoot, {
+      communityFilter: options?.communityFilter,
+      incremental: options?.incremental ?? false,
+      loomProvider: null,
+      projectRoot,
+    });
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }

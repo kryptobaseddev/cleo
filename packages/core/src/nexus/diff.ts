@@ -8,6 +8,8 @@
  * @task T1473
  */
 
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+
 /** Health classification for a diff result. */
 export type NexusDiffHealth =
   | 'STABLE'
@@ -208,4 +210,23 @@ export async function diffNexusIndex(
     healthStatus,
     regressions,
   };
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusDiff(
+  repoPath: string,
+  beforeRef?: string,
+  afterRef?: string,
+  projectId?: string,
+): Promise<EngineResult<NexusDiffResult>> {
+  try {
+    const result = await diffNexusIndex(repoPath, {
+      beforeRef,
+      afterRef,
+      projectIdOverride: projectId,
+    });
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

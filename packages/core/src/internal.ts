@@ -425,17 +425,44 @@ export {
   summarizeTokenUsage,
 } from './metrics/token-service.js';
 // Nexus
-export { augmentSymbol, formatAugmentResults } from './nexus/augment.js';
+export {
+  augmentSymbol,
+  formatAugmentResults,
+  // EngineResult wrappers (T1569 Wave 2)
+  nexusAugment,
+  nexusSearchCode,
+} from './nexus/augment.js';
 export {
   blockingAnalysis,
   buildGlobalGraph,
   criticalPath,
+  // EngineResult wrappers (T1569 Wave 1)
+  nexusBlockers,
+  nexusCriticalPath,
   nexusDeps,
+  nexusDepsQuery,
+  nexusGraph,
+  nexusOrphans,
   orphanDetection,
 } from './nexus/deps.js';
-export { searchAcrossProjects } from './nexus/discover.js';
+export {
+  // EngineResult wrappers (T1569 Wave 2)
+  nexusDiscover,
+  nexusSearch,
+  searchAcrossProjects,
+} from './nexus/discover.js';
 export { installNexusAugmentHook } from './nexus/hooks-augment.js';
-export { setPermission } from './nexus/permissions.js';
+// EngineResult wrapper (T1569 Wave 1)
+export { nexusImpact } from './nexus/impact.js';
+// EngineResult wrappers (T1569 Wave 2 — Living Brain)
+export {
+  nexusBrainAnchors,
+  nexusFullContext,
+  nexusImpactFull,
+  nexusTaskFootprint,
+  nexusWhy,
+} from './nexus/living-brain.js';
+export { nexusSetPermission, setPermission } from './nexus/permissions.js';
 // T1013: plasticity queries over nexus_relations weight/last_accessed_at columns (added in T998)
 export {
   getColdSymbols,
@@ -445,21 +472,54 @@ export {
   type NexusHotNode,
   type NexusHotPath,
   type NexusPlasticityResult,
+  // EngineResult wrappers (T1569 Wave 3)
+  nexusColdSymbols,
+  nexusHotNodes,
+  nexusHotPaths,
 } from './nexus/plasticity-queries.js';
-export { resolveTask, validateSyntax } from './nexus/query.js';
+export {
+  // EngineResult wrappers (T1569 Wave 1)
+  nexusResolve,
+  nexusTopEntries,
+  resolveTask,
+  validateSyntax,
+} from './nexus/query.js';
 export type { NexusPermissionLevel, NexusProject, NexusProjectStats } from './nexus/registry.js';
 export {
   nexusGetProject,
   nexusInit,
+  // EngineResult wrappers (T1569 Wave 1)
+  nexusInitialize,
   nexusList,
+  nexusListProjects,
+  nexusProjectsList,
+  nexusProjectsRegister,
+  nexusProjectsRemove,
   nexusReconcile,
+  nexusReconcileProject,
   nexusRegister,
+  nexusRegisterProject,
+  nexusShowProject,
+  nexusStatus,
   nexusSync,
   nexusSyncAll,
+  nexusSyncProject,
   nexusUnregister,
+  nexusUnregisterProject,
   nexusUpdateIndexStats,
 } from './nexus/registry.js';
-export { getSharingStatus } from './nexus/sharing/index.js';
+export {
+  getSharingStatus,
+  // EngineResult wrapper (T1569 Wave 2)
+  nexusShareStatus,
+} from './nexus/sharing/index.js';
+// EngineResult wrappers (T1569 Wave 2 — Transfer + Snapshot)
+export {
+  nexusShareSnapshotExport,
+  nexusShareSnapshotImport,
+  nexusTransferExecute,
+  nexusTransferPreview,
+} from './nexus/transfer.js';
 // Orchestrate (T1596) — context-switch primitives
 export type { PivotOptions, PivotResult } from './orchestrate/pivot.js';
 export { PIVOT_AUDIT_FILE, pivotTask } from './orchestrate/pivot.js';
@@ -1430,26 +1490,52 @@ export {
   ingestStructuredSummary,
   persistSessionMemory,
 } from './memory/session-memory.js';
+// Nexus Wave 3 — code intelligence EngineResult wrappers
+export {
+  nexusConduitScan,
+  nexusContractsLinkTasks,
+  nexusContractsShow,
+  nexusContractsSync,
+  nexusTaskSymbols,
+} from './nexus/api-contracts.js';
+export { nexusClusters } from './nexus/clusters.js';
+export { nexusContext } from './nexus/context.js';
+export { nexusDiff } from './nexus/diff.js';
 // Nexus — discoverRelated (exported as nexusDiscoverRelated to avoid name clash with tasks discoverRelated)
 // Nexus — searchAcrossProjects
 export {
   discoverRelated as nexusDiscoverRelated,
   searchAcrossProjects as nexusSearchAcrossProjects,
 } from './nexus/discover.js';
+export { nexusFlows } from './nexus/flows.js';
 // Nexus — bridge (code intelligence summary for agents)
 export {
   generateNexusBridgeContent,
+  // EngineResult wrapper (T1569 Wave 3)
+  nexusRefreshBridge,
   refreshNexusBridge,
   writeNexusBridge,
 } from './nexus/nexus-bridge.js';
+export { nexusProjectsClean } from './nexus/projects-clean.js';
+export { nexusProjectsScan } from './nexus/projects-scan.js';
+export { nexusQueryCte } from './nexus/query-dsl.js';
 // Nexus — readRegistry (exported as nexusReadRegistry to avoid name clash with skills readRegistry)
 export { readRegistry as nexusReadRegistry } from './nexus/registry.js';
+export { nexusRouteMap, nexusShapeCheck } from './nexus/route-analysis.js';
 // Nexus — sigil (peer-card) SDK (T1148 Wave 8)
 export type { SigilCard, SigilInput } from './nexus/sigil.js';
-export { getSigil, listSigils, upsertSigil } from './nexus/sigil.js';
+export {
+  getSigil,
+  listSigils,
+  // EngineResult wrapper (T1569 Wave 4)
+  nexusSigilList,
+  upsertSigil,
+} from './nexus/sigil.js';
 // Nexus — sigil sync (T1386): populate sigils from canonical CANT agents
 export type { CanonicalCantFiles, SigilSyncResult } from './nexus/sigil-sync.js';
 export {
+  // EngineResult wrapper (T1569 Wave 4)
+  nexusSigilSync,
   parseSigilFromCant,
   resolveCanonicalCantFiles,
   syncCanonicalSigils,
@@ -1474,10 +1560,19 @@ export type {
 export {
   getUserProfileTrait,
   listUserProfile,
+  // EngineResult wrappers (T1569 Wave 4)
+  nexusProfileExport,
+  nexusProfileGet,
+  nexusProfileImport,
+  nexusProfileReinforce,
+  nexusProfileSupersede,
+  nexusProfileUpsert,
+  nexusProfileView,
   reinforceTrait,
   supersedeTrait,
   upsertUserProfileTrait,
 } from './nexus/user-profile.js';
+export { nexusWiki } from './nexus/wiki-index.js';
 export type { DependencyAnalysis } from './orchestration/analyze.js';
 export { analyzeDependencies as orchestrationAnalyzeDependencies } from './orchestration/analyze.js';
 export { getCriticalPath as orchestrationGetCriticalPath } from './orchestration/critical-path.js';

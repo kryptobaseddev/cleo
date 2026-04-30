@@ -31,6 +31,7 @@ import { existsSync } from 'node:fs';
 import type {
   BrainRiskNote,
   CodeAnchorResult,
+  CodeReasonTrace,
   ImpactFullReport,
   ImpactResult,
   NexusEdgeRef,
@@ -39,6 +40,8 @@ import type {
   SymbolImpactEntry,
   TaskCodeImpact,
 } from '@cleocode/contracts';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { reasonWhySymbol } from '../memory/brain-reasoning.js';
 import { EDGE_TYPES } from '../memory/edge-types.js';
 import { getConduitDbPath } from '../store/conduit-sqlite.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
@@ -1208,4 +1211,73 @@ export async function reasonImpactOfChange(
     `. Merged risk: ${result.mergedRiskScore}.`;
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusFullContext(
+  symbolId: string,
+  projectRoot: string,
+): Promise<EngineResult<SymbolFullContext>> {
+  try {
+    const result = await getSymbolFullContext(symbolId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusTaskFootprint(
+  taskId: string,
+  projectRoot: string,
+): Promise<EngineResult<TaskCodeImpact>> {
+  try {
+    const result = await getTaskCodeImpact(taskId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusBrainAnchors(
+  entryId: string,
+  projectRoot: string,
+): Promise<EngineResult<CodeAnchorResult>> {
+  try {
+    const result = await getBrainEntryCodeAnchors(entryId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusImpactFull(
+  symbolId: string,
+  projectRoot: string,
+): Promise<EngineResult<ImpactFullReport>> {
+  try {
+    const result = await reasonImpactOfChange(symbolId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusWhy(
+  symbolId: string,
+  projectRoot: string,
+): Promise<EngineResult<CodeReasonTrace>> {
+  try {
+    const result = await reasonWhySymbol(symbolId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

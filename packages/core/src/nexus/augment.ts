@@ -11,6 +11,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDbPath, getNexusNativeDb } from '../store/nexus-sqlite.js';
 
 /**
@@ -162,4 +163,36 @@ export function formatAugmentResults(results: AugmentResult[]): string {
   }
 
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusAugment(
+  pattern: string,
+  limit?: number,
+): Promise<
+  EngineResult<{
+    pattern: string;
+    results: AugmentResult[];
+    text: string;
+  }>
+> {
+  try {
+    const results = augmentSymbol(pattern, limit ?? 5);
+    const text = formatAugmentResults(results);
+    return engineSuccess({ pattern, results, text });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusSearchCode(
+  pattern: string,
+  limit: number,
+): Promise<EngineResult<unknown>> {
+  return nexusAugment(pattern, limit);
 }

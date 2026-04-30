@@ -11,6 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock core internals used by the handler
+// Mock the nexus-engine — only need the 5 new functions + existing stubs
 vi.mock('@cleocode/core/internal', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
   getLogger: vi.fn(() => ({
@@ -19,10 +20,6 @@ vi.mock('@cleocode/core/internal', () => ({
     info: vi.fn(),
     debug: vi.fn(),
   })),
-}));
-
-// Mock the nexus-engine — only need the 5 new functions + existing stubs
-vi.mock('../../engines/nexus-engine.js', () => ({
   nexusStatus: vi.fn(),
   nexusListProjects: vi.fn(),
   nexusShowProject: vi.fn(),
@@ -60,7 +57,7 @@ import {
   nexusImpactFull,
   nexusTaskFootprint,
   nexusWhy,
-} from '../../engines/nexus-engine.js';
+} from '@cleocode/core/internal';
 import { NexusHandler } from '../nexus.js';
 
 // ---------------------------------------------------------------------------
