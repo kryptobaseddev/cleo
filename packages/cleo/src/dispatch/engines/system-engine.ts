@@ -15,6 +15,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import type { TaskRecord } from '@cleocode/contracts';
 import {
   type ArchiveReportType,
   analyzeArchive,
@@ -55,7 +56,6 @@ import {
   TASKS_DB_FILENAME,
 } from '../../cli/paths.js';
 import { cleoErrorToEngineError, type EngineResult, engineError } from './_error.js';
-import type { TaskRecord } from './task-engine.js';
 
 // Re-export types for downstream consumers
 export type {
