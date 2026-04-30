@@ -260,7 +260,9 @@ describe('isDenied', () => {
   });
 
   it('matches with cwd-relative path containing .cleo/agent-outputs/', () => {
-    expect(isDenied('/home/user/projects/cleocode/.cleo/agent-outputs/NEXT-SESSION-HANDOFF.md')).toBe(true);
+    expect(
+      isDenied('/home/user/projects/cleocode/.cleo/agent-outputs/NEXT-SESSION-HANDOFF.md'),
+    ).toBe(true);
   });
 
   it('does NOT match .ts files', () => {
@@ -295,7 +297,15 @@ describe('isDenied', () => {
 
 describe('buildReport', () => {
   it('computes score and passed correctly when all pass', () => {
-    const config = { cleoBin: 'cleo', cwd: '/tmp', taskId: null, json: false, verbose: false, guard: true, help: false };
+    const config = {
+      cleoBin: 'cleo',
+      cwd: '/tmp',
+      taskId: null,
+      json: false,
+      verbose: false,
+      guard: true,
+      help: false,
+    };
     const probes = Array.from({ length: 10 }, (_, i) => ({
       index: i + 1,
       name: `probe ${i + 1}`,
@@ -310,7 +320,15 @@ describe('buildReport', () => {
   });
 
   it('computes score and passed=false when one probe fails', () => {
-    const config = { cleoBin: 'cleo', cwd: '/tmp', taskId: null, json: false, verbose: false, guard: true, help: false };
+    const config = {
+      cleoBin: 'cleo',
+      cwd: '/tmp',
+      taskId: null,
+      json: false,
+      verbose: false,
+      guard: true,
+      help: false,
+    };
     const probes = Array.from({ length: 10 }, (_, i) => ({
       index: i + 1,
       name: `probe ${i + 1}`,
@@ -326,7 +344,15 @@ describe('buildReport', () => {
   it('includes denylist state in report', () => {
     denylistState.count = 2;
     denylistState.violations.push('/project/.cleo/agent-outputs/x.md');
-    const config = { cleoBin: 'cleo', cwd: '/tmp', taskId: null, json: false, verbose: false, guard: true, help: false };
+    const config = {
+      cleoBin: 'cleo',
+      cwd: '/tmp',
+      taskId: null,
+      json: false,
+      verbose: false,
+      guard: true,
+      help: false,
+    };
     const probes = [];
     const report = buildReport(config, probes);
     expect(report.denylist.violationCount).toBe(2);
@@ -430,10 +456,9 @@ describe('fresh-agent-test subprocess', () => {
 
   it('--json flag emits valid JSON with correct shape', () => {
     const stub = makeFakeCleo(tmpDir);
-    const { stdout, status } = runScript(
-      ['--cleo-bin', stub, '--cwd', tmpDir, '--json'],
-      { cwd: tmpDir },
-    );
+    const { stdout, status } = runScript(['--cleo-bin', stub, '--cwd', tmpDir, '--json'], {
+      cwd: tmpDir,
+    });
     expect(status).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveProperty('score', 10);
@@ -448,10 +473,7 @@ describe('fresh-agent-test subprocess', () => {
 
   it('--json probe array has index, name, passed, detail, cmd for each probe', () => {
     const stub = makeFakeCleo(tmpDir);
-    const { stdout } = runScript(
-      ['--cleo-bin', stub, '--cwd', tmpDir, '--json'],
-      { cwd: tmpDir },
-    );
+    const { stdout } = runScript(['--cleo-bin', stub, '--cwd', tmpDir, '--json'], { cwd: tmpDir });
     const parsed = JSON.parse(stdout);
     for (const probe of parsed.probes) {
       expect(probe).toHaveProperty('index');
@@ -495,10 +517,9 @@ describe('fresh-agent-test subprocess', () => {
     const otherDir = makeTmpDir();
     try {
       const stub = makeFakeCleo(otherDir);
-      const { stdout, status } = runScript(
-        ['--cleo-bin', stub, '--cwd', otherDir],
-        { cwd: otherDir },
-      );
+      const { stdout, status } = runScript(['--cleo-bin', stub, '--cwd', otherDir], {
+        cwd: otherDir,
+      });
       expect(status).toBe(0);
       expect(stdout).toContain('10/10');
     } finally {
@@ -508,10 +529,14 @@ describe('fresh-agent-test subprocess', () => {
 
   it('--verbose flag is accepted and prints probe details to stderr', () => {
     const stub = makeFakeCleo(tmpDir);
-    const result = spawnSync(process.execPath, [SCRIPT, '--cleo-bin', stub, '--cwd', tmpDir, '--verbose'], {
-      cwd: tmpDir,
-      encoding: 'utf8',
-    });
+    const result = spawnSync(
+      process.execPath,
+      [SCRIPT, '--cleo-bin', stub, '--cwd', tmpDir, '--verbose'],
+      {
+        cwd: tmpDir,
+        encoding: 'utf8',
+      },
+    );
     expect(result.status).toBe(0);
     expect(result.stderr).toContain('Probe');
   });
@@ -525,10 +550,9 @@ describe('denylist guard (subprocess)', () => {
   it('probe 9 score is 10/10 when no agent-outputs md is read', () => {
     const stub = makeFakeCleo(tmpDir);
     // No agent-outputs file placed; stub never reads any md
-    const { stdout, status } = runScript(
-      ['--cleo-bin', stub, '--cwd', tmpDir, '--json'],
-      { cwd: tmpDir },
-    );
+    const { stdout, status } = runScript(['--cleo-bin', stub, '--cwd', tmpDir, '--json'], {
+      cwd: tmpDir,
+    });
     expect(status).toBe(0);
     const parsed = JSON.parse(stdout);
     const probe9 = parsed.probes.find((p) => p.index === 9);

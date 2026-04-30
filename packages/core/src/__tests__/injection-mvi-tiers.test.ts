@@ -46,8 +46,8 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
   describe('Contains essential sections', () => {
     it('includes Session Start sequence', () => {
       expect(content).toContain('## Session Start');
+      expect(content).toContain('cleo briefing');
       expect(content).toContain('cleo session status');
-      expect(content).toContain('cleo dash');
       expect(content).toContain('cleo current');
       expect(content).toContain('cleo next');
       expect(content).toContain('cleo show');
@@ -129,9 +129,9 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
   });
 
   describe('Template size', () => {
-    it('is under 280 lines (token-optimized; v2026.4.116 T1252 adds CONDUIT Subscription guidance — currently ~268 lines)', () => {
+    it('is under 300 lines (token-optimized; T1610 v2026.4.159 adds 22-line cleo-briefing-first hard prohibition — currently ~293 lines)', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThanOrEqual(280);
+      expect(lines).toBeLessThanOrEqual(300);
     });
 
     it('is at least 50 lines (not accidentally empty)', () => {
