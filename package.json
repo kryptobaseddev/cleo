@@ -81,7 +81,7 @@
     }
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.11",
+    "@biomejs/biome": "2.4.11",
     "@changesets/cli": "^2.30.0",
     "@codluv/versionguard": "1.2.0",
     "@forge-ts/cli": "^0.19.5",
