@@ -18,9 +18,12 @@
  * @epic T1075
  */
 
+import type { NexusSigilListResult } from '@cleocode/contracts';
 import { eq } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import * as nexusSchema from '../store/nexus-schema.js';
+import { getNexusDb } from '../store/nexus-sqlite.js';
 
 /** Type alias for the Drizzle nexus database instance. */
 type NexusDb = NodeSQLiteDatabase<typeof nexusSchema>;
@@ -201,4 +204,15 @@ export async function listSigils(nexusDb: NexusDb, opts?: { role?: string }): Pr
   const rows = opts?.role ? await query.where(eq(nexusSchema.sigils.role, opts.role)) : await query;
 
   return rows.map(rowToSigilCard);
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusSigilList(role?: string): Promise<EngineResult<NexusSigilListResult>> {
+  try {
+    const nexusDb = await getNexusDb();
+    const sigils = await listSigils(nexusDb, role ? { role } : undefined);
+    return engineSuccess({ sigils, count: sigils.length });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }
