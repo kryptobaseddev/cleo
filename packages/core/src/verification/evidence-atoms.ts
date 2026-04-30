@@ -1,38 +1,30 @@
 /**
- * Verification evidence-atom extensions — Tier-3 `metrics-delta` atom.
+ * Verification evidence-atom extensions.
  *
- * Extends the base evidence-atom vocabulary (defined in `@cleocode/contracts`)
- * with the `metrics-delta` atom, which proves that a Tier-3 auto-merge
- * experiment produced measurable metric improvements relative to a signed
- * baseline.
+ * This module extends the base evidence-atom vocabulary (defined in
+ * `@cleocode/contracts`) with two additional atom kinds:
  *
- * ## Atom format
+ * ### `metrics-delta` (Tier-3 auto-merge experiments — T1023)
  *
- * ```
- * metrics-delta:<beforeReceiptId>:<afterReceiptId>
- * ```
+ * Proves that a Tier-3 auto-merge experiment produced measurable metric
+ * improvements relative to a signed baseline.
+ *
+ * Format: `metrics-delta:<beforeReceiptId>:<afterReceiptId>`
  *
  * Both receipt IDs must correspond to `kind:"baseline"` events in the
  * project's sentient event log (`.cleo/audit/sentient-events.jsonl`).
  *
- * ## Validation rules
+ * ### `loc-drop` (engine-migration tasks — T1604)
  *
- * The validator loads both events, verifies their Ed25519 signatures, then
- * compares the numeric fields extracted from `payload.metricsJson`:
+ * Proves that a migrated engine shed ≥ a configured percentage of lines.
+ * Required for the `implemented` gate whenever the task carries the
+ * `engine-migration` label.
  *
- * | Metric key          | Pass condition      |
- * |---------------------|---------------------|
- * | `testsPassed`       | after ≥ before      |
- * | `coveragePct`       | after ≥ before      |
- * | `bundleSizeKb`      | after ≤ before      |
- * | (any other numeric) | after ≥ before      |
- *
- * If either event has an invalid signature the atom is rejected with
- * `E_EVIDENCE_TAMPERED`. If the after event predates the before event
- * (timestamp check) the atom is rejected with `E_EVIDENCE_TAMPERED`.
+ * Format: `loc-drop:<fromLines>:<toLines>` (both non-negative integers)
  *
  * @see packages/core/src/verification/gates.ts — `metricsImproved` gate
  * @task T1023
+ * @task T1604
  */
 
 import type { BaselineEvent, SentientEvent } from '../sentient/events.js';
@@ -369,4 +361,42 @@ function parseMetricsJson(
   }
 
   return { metrics };
+}
+
+// ---------------------------------------------------------------------------
+// LOC-drop gate helpers (T1604)
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical label that triggers LOC-drop gate enforcement.
+ *
+ * When a task carries this label the `implemented` gate MUST be accompanied
+ * by a `loc-drop` evidence atom proving the migrated engine shed lines.
+ *
+ * @task T1604
+ */
+export const ENGINE_MIGRATION_LABEL = 'engine-migration';
+
+/**
+ * Determine whether a task's labels include `engine-migration`.
+ *
+ * Accepts a `string[]` (from `task.labels`) or `null`/`undefined` for tasks
+ * without labels.  Returns `false` for any non-array value so callers can
+ * pass the raw DB field without pre-checking.
+ *
+ * @param labels - Task labels array (from `task.labels`).
+ * @returns `true` when the `engine-migration` label is present.
+ *
+ * @example
+ * ```ts
+ * hasEngineMigrationLabel(['foundation', 'engine-migration']); // true
+ * hasEngineMigrationLabel(['foundation']);                      // false
+ * hasEngineMigrationLabel(null);                               // false
+ * ```
+ *
+ * @task T1604
+ */
+export function hasEngineMigrationLabel(labels: string[] | null | undefined): boolean {
+  if (!Array.isArray(labels)) return false;
+  return labels.includes(ENGINE_MIGRATION_LABEL);
 }
