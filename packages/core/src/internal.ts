@@ -546,6 +546,18 @@ export {
   orchestrateStartup,
   orchestrateUnblockOpportunities,
 } from './orchestrate/lifecycle-ops.js';
+// Orchestrate plan (T1570 Wave 2 — migrated from orchestrate-engine.ts)
+export type {
+  OrchestratePlanInput,
+  PlanWarning,
+  PlanWave,
+  PlanWorkerEntry,
+} from './orchestrate/plan.js';
+export {
+  numericToAgentTier,
+  openSignaldockDbForComposer,
+  orchestratePlan,
+} from './orchestrate/plan.js';
 // Context
 export { estimateContext } from './orchestration/context.js';
 // Orchestration
