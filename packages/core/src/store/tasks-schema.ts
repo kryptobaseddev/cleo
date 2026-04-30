@@ -1,11 +1,13 @@
 /**
  * Drizzle ORM schema for CLEO tasks.db (SQLite via node:sqlite + sqlite-proxy).
  *
- * Tables: tasks, task_dependencies, task_relations, sessions, task_work_history
+ * Tables: tasks, task_dependencies, task_relations, sessions,
+ *         session_handoff_entries, task_work_history
  * Archive uses the same tasks table with status = 'archived' + archive metadata.
  *
  * @epic T4454
  * @task W1-T2
+ * @task T1609 session_handoff_entries — write-once handoff table
  */
 
 import type { ArchiveReasonValue } from '@cleocode/contracts';
@@ -449,6 +451,40 @@ export const sessions = sqliteTable(
     // T033 composite index: getActiveSession hot path
     index('idx_sessions_status_started_at').on(table.status, table.startedAt),
   ],
+);
+
+// === SESSION HANDOFF ENTRIES (T1609 — append-only, write-once) ===
+
+/**
+ * Write-once handoff log for sessions.
+ *
+ * Each session may have AT MOST ONE handoff entry (UNIQUE on session_id).
+ * A BEFORE UPDATE trigger in the migration SQL raises ABORT if an update is
+ * attempted, making the row physically immutable once inserted.  The
+ * `persistHandoff` helper in `packages/core/src/sessions/handoff.ts` is the
+ * only authorised writer — callers must use that function, never raw SQL.
+ *
+ * An AFTER INSERT trigger mirrors the value back to `sessions.handoff_json`
+ * so that all existing read paths continue to work without modification.
+ *
+ * @task T1609
+ */
+export const sessionHandoffEntries = sqliteTable(
+  'session_handoff_entries',
+  {
+    /** Auto-increment surrogate key — sessions are addressed by sessionId UNIQUE. */
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** FK → sessions.id.  UNIQUE enforces one-handoff-per-session. */
+    sessionId: text('session_id')
+      .notNull()
+      .unique()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    /** Serialised HandoffData (or DebriefData) JSON blob. */
+    handoffJson: text('handoff_json').notNull(),
+    /** Wall-clock instant this entry was created. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [index('idx_session_handoff_session_id').on(table.sessionId)],
 );
 
 // === TASK WORK HISTORY ===
