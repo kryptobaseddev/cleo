@@ -71,7 +71,7 @@
     "simple-git": "3.33.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.8",
+    "@biomejs/biome": "2.4.11",
     "@forge-ts/cli": "0.23.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "25.5.0",
