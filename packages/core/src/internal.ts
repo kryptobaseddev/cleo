@@ -558,6 +558,15 @@ export {
   openSignaldockDbForComposer,
   orchestratePlan,
 } from './orchestrate/plan.js';
+// Orchestrate spawn ops (T1570 Wave 3 — migrated from orchestrate-engine.ts)
+export type { ConduitOrchestrationEvent } from './orchestrate/spawn-ops.js';
+export {
+  composeSpawnForTask,
+  orchestrateSpawn,
+  orchestrateSpawnExecute,
+  orchestrateSpawnSelectProvider,
+  sendConduitEvent,
+} from './orchestrate/spawn-ops.js';
 // Context
 export { estimateContext } from './orchestration/context.js';
 // Orchestration
