@@ -767,10 +767,12 @@ import {
   appendForceBypassLine,
   appendGateAuditLine,
   checkAndIncrementOverrideCap,
+  checkEngineMigrationLocDrop,
   checkGateEvidenceMinimum,
   composeGateEvidence,
   enforceSharedEvidence,
   getAccessor,
+  hasEngineMigrationLabel,
   parseEvidence,
   validateAtom,
 } from '@cleocode/core/internal';
@@ -1091,6 +1093,18 @@ export async function validateGateVerify(
           const missing = checkGateEvidenceMinimum(targetGate, validatedAtoms);
           if (missing) {
             return engineError('E_EVIDENCE_INSUFFICIENT', missing);
+          }
+        }
+
+        // T1604 — engine-migration label gate.
+        // If the task carries the `engine-migration` label and the `implemented`
+        // gate is among the targets, require a `loc-drop` evidence atom proving
+        // the migrated engine shed ≥ the configured minimum percentage of LOC.
+        const isImplementedTarget = targets.includes('implemented');
+        if (isImplementedTarget && hasEngineMigrationLabel(task.labels ?? [])) {
+          const locDropError = checkEngineMigrationLocDrop(validatedAtoms);
+          if (locDropError) {
+            return engineError('E_EVIDENCE_INSUFFICIENT', locDropError);
           }
         }
       }
