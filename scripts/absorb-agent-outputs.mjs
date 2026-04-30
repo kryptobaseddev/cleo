@@ -31,9 +31,9 @@
  * @epic T1611
  */
 
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -43,7 +43,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -89,7 +88,11 @@ function loadState() {
 /** Persist updated state map */
 function saveState(processed) {
   const obj = Object.fromEntries(processed);
-  writeFileSync(STATE_PATH, JSON.stringify({ processed: obj, updatedAt: new Date().toISOString() }, null, 2), 'utf-8');
+  writeFileSync(
+    STATE_PATH,
+    JSON.stringify({ processed: obj, updatedAt: new Date().toISOString() }, null, 2),
+    'utf-8',
+  );
 }
 
 /** Compute a short SHA-256 hash of file content */
@@ -145,11 +148,7 @@ function classifyFile(filePath, content) {
   // -------------------------------------------------------------------------
   // 2. Handoff files — archive but extract a learning
   // -------------------------------------------------------------------------
-  if (
-    /handoff/i.test(fileName) ||
-    /next.session/i.test(fileName) ||
-    /HANDOFF/i.test(fileName)
-  ) {
+  if (/handoff/i.test(fileName) || /next.session/i.test(fileName) || /HANDOFF/i.test(fileName)) {
     return {
       type: 'handoff',
       memoryType: 'session_summary',
@@ -364,12 +363,17 @@ function ingestAsObservation({ title, summary, memoryType, linkedTask }) {
   const truncatedSummary = summary.slice(0, 2000);
 
   const cmdArgs = [
-    'memory', 'observe',
+    'memory',
+    'observe',
     truncatedSummary,
-    '--title', truncatedTitle,
-    '--type', memoryType,
-    '--agent', 'absorb-agent-outputs',
-    '--source-type', 'auto',
+    '--title',
+    truncatedTitle,
+    '--type',
+    memoryType,
+    '--agent',
+    'absorb-agent-outputs',
+    '--source-type',
+    'auto',
   ];
 
   const result = runCleo(cmdArgs);
@@ -397,11 +401,14 @@ function ingestAsObservation({ title, summary, memoryType, linkedTask }) {
  */
 function attachToTask(taskId, filePath, desc) {
   const cmdArgs = [
-    'docs', 'add',
+    'docs',
+    'add',
     taskId,
     filePath,
-    '--desc', desc.slice(0, 200),
-    '--attached-by', 'absorb-agent-outputs',
+    '--desc',
+    desc.slice(0, 200),
+    '--attached-by',
+    'absorb-agent-outputs',
   ];
 
   const result = runCleo(cmdArgs);
@@ -426,9 +433,7 @@ function archiveFile(filePath) {
   }
 
   // If destination exists, add a timestamp suffix to avoid collision
-  const finalDest = existsSync(dest)
-    ? join(ARCHIVE_DIR, `${Date.now()}-${fileName}`)
-    : dest;
+  const finalDest = existsSync(dest) ? join(ARCHIVE_DIR, `${Date.now()}-${fileName}`) : dest;
 
   renameSync(filePath, finalDest);
 }
@@ -523,11 +528,13 @@ async function main() {
     const { type, memoryType, shouldArchive, linkedTask, title, summary } = classification;
 
     console.log(`[${String(count).padStart(3)}] ${fileName}`);
-    console.log(`      type=${type} memoryType=${memoryType ?? 'n/a'} task=${linkedTask ?? 'none'} archive=${shouldArchive}`);
+    console.log(
+      `      type=${type} memoryType=${memoryType ?? 'n/a'} task=${linkedTask ?? 'none'} archive=${shouldArchive}`,
+    );
 
     stats[type] = (stats[type] ?? 0) + 1;
 
-    let observationId = null;
+    let _observationId = null;
 
     // Ingest into BRAIN (all except pure-superseded MANIFEST files)
     if (memoryType !== null) {
@@ -536,7 +543,7 @@ async function main() {
         console.warn(`      WARN: memory observe failed for ${fileName}`);
         stats.errors++;
       } else {
-        observationId = ingested.observationId;
+        _observationId = ingested.observationId;
       }
     }
 
