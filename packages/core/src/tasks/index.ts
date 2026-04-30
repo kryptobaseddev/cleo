@@ -26,8 +26,19 @@ export {
   validateTaskType,
   validateTitle,
 } from './add.js';
-export { type ArchiveTasksOptions, type ArchiveTasksResult, archiveTasks } from './archive.js';
-export { type CompleteTaskOptions, type CompleteTaskResult, completeTask } from './complete.js';
+export {
+  type ArchiveTasksOptions,
+  type ArchiveTasksResult,
+  archiveTasks,
+  taskArchive,
+} from './archive.js';
+export {
+  type CompleteTaskOptions,
+  type CompleteTaskResult,
+  completeTask,
+  completeTaskStrict,
+  taskComplete,
+} from './complete.js';
 // Canonical task view — unified derivation (T943)
 export {
   computeTaskView,
@@ -39,7 +50,8 @@ export {
   type TaskViewNextAction,
   type TaskViewPipelineStage,
 } from './compute-task-view.js';
-export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask } from './delete.js';
+// Wave 4: Complex mutations + strict completion (T1568 / ADR-057 / ADR-058)
+export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask, taskDelete } from './delete.js';
 // Dependency graph helpers (sentient loop consumers).
 export {
   type DependencyCheckResult,
@@ -118,6 +130,7 @@ export { type ListTasksOptions, type ListTasksResult, listTasks, taskList } from
 // Task Core operation signatures for OpsFromCore inference (T1445)
 export type { tasksCoreOps } from './ops.js';
 export { taskPlan } from './plan.js';
+export { addTaskWithSessionScope, resolveParentFromSession } from './session-scope.js';
 // Engine-layer EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058) — Wave 2
 export {
   showTask,
@@ -191,4 +204,4 @@ export {
   resolveMaxConcurrent,
   semaphoreDir,
 } from './tool-semaphore.js';
-export { type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';
+export { taskUpdate, type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';
