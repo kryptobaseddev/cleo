@@ -122,6 +122,17 @@ export const GATE_EVIDENCE_MINIMUMS: Record<VerificationGate, EvidenceAtom['kind
   cleanupDone: [['note']],
 };
 
+/**
+ * Minimum LOC reduction percentage required when the `engine-migration` label
+ * is present on a task.
+ *
+ * Tasks claiming to migrate an engine MUST demonstrate a measurable reduction
+ * in lines of code to prevent structural-only migrations (T1604).
+ *
+ * @task T1604
+ */
+export const ENGINE_MIGRATION_MIN_REDUCTION_PCT = 10;
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
@@ -147,7 +158,8 @@ export type ParsedAtom =
   | { kind: 'test-run'; path: string }
   | { kind: 'tool'; tool: string }
   | { kind: 'url'; url: string }
-  | { kind: 'note'; note: string };
+  | { kind: 'note'; note: string }
+  | { kind: 'loc-drop'; fromLines: number; toLines: number };
 
 /**
  * Parse the CLI `--evidence` string into structured atoms.
@@ -225,12 +237,45 @@ export function parseEvidence(raw: string): ParsedEvidence {
       case 'note':
         atoms.push({ kind: 'note', note: payload });
         break;
+      case 'loc-drop': {
+        // Format: loc-drop:<fromLines>:<toLines>
+        const firstColon = payload.indexOf(':');
+        if (firstColon < 1 || firstColon === payload.length - 1) {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `Malformed loc-drop atom: "${chunk}" (expected loc-drop:<fromLines>:<toLines>)`,
+            {
+              fix: 'Use format: loc-drop:<fromLines>:<toLines> e.g. loc-drop:1200:800',
+            },
+          );
+        }
+        const fromRaw = payload.slice(0, firstColon).trim();
+        const toRaw = payload.slice(firstColon + 1).trim();
+        const fromLines = Number(fromRaw);
+        const toLines = Number(toRaw);
+        if (!Number.isInteger(fromLines) || fromLines < 0) {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `loc-drop: fromLines must be a non-negative integer, got "${fromRaw}"`,
+            { fix: 'Use format: loc-drop:<fromLines>:<toLines> e.g. loc-drop:1200:800' },
+          );
+        }
+        if (!Number.isInteger(toLines) || toLines < 0) {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `loc-drop: toLines must be a non-negative integer, got "${toRaw}"`,
+            { fix: 'Use format: loc-drop:<fromLines>:<toLines> e.g. loc-drop:1200:800' },
+          );
+        }
+        atoms.push({ kind: 'loc-drop', fromLines, toLines });
+        break;
+      }
       default:
         throw new CleoError(
           ExitCode.VALIDATION_ERROR,
           `Unknown evidence kind: "${kind}" in atom "${chunk}"`,
           {
-            fix: 'Valid kinds: commit, files, test-run, tool, url, note',
+            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop',
           },
         );
     }
@@ -281,6 +326,8 @@ export async function validateAtom(
       return validateUrl(parsed.url);
     case 'note':
       return validateNote(parsed.note);
+    case 'loc-drop':
+      return validateLocDrop(parsed.fromLines, parsed.toLines);
     default: {
       // Exhaustiveness check — never reachable if ParsedAtom is complete.
       return { ok: false, reason: `Unknown parsed atom`, codeName: 'E_EVIDENCE_INVALID' };
@@ -517,6 +564,96 @@ function validateNote(note: string): AtomValidation {
   return { ok: true, atom: { kind: 'note', note } };
 }
 
+/**
+ * Validate a `loc-drop` atom: both counts must be non-negative integers and
+ * `fromLines` must be strictly greater than zero (cannot reduce from nothing).
+ *
+ * The reduction percentage is computed and stored but the threshold check
+ * (whether the percentage meets the required minimum) is performed separately
+ * in `checkEngineMigrationLocDrop` so the gate logic stays decoupled from
+ * atom validation.
+ *
+ * @param fromLines - Line count of the original file.
+ * @param toLines - Line count of the migrated file.
+ * @returns Validated atom on success, error on invalid input.
+ *
+ * @task T1604
+ */
+function validateLocDrop(fromLines: number, toLines: number): AtomValidation {
+  if (!Number.isInteger(fromLines) || fromLines < 0) {
+    return {
+      ok: false,
+      reason: `loc-drop: fromLines must be a non-negative integer, got ${fromLines}`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  if (!Number.isInteger(toLines) || toLines < 0) {
+    return {
+      ok: false,
+      reason: `loc-drop: toLines must be a non-negative integer, got ${toLines}`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  if (fromLines === 0) {
+    return {
+      ok: false,
+      reason: `loc-drop: fromLines cannot be zero (nothing to reduce)`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  if (toLines > fromLines) {
+    return {
+      ok: false,
+      reason: `loc-drop: toLines (${toLines}) is greater than fromLines (${fromLines}) — LOC increased, not dropped`,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+    };
+  }
+  const reductionPct = Math.round(((fromLines - toLines) / fromLines) * 100 * 100) / 100;
+  return { ok: true, atom: { kind: 'loc-drop', fromLines, toLines, reductionPct } };
+}
+
+/**
+ * Check that the provided evidence atoms satisfy the LOC-drop requirement for
+ * engine-migration tasks.
+ *
+ * Returns `null` when the requirement is satisfied; otherwise returns a human-
+ * readable reason string suitable for use as an `E_EVIDENCE_INSUFFICIENT`
+ * error message.
+ *
+ * @param atoms - Already-validated evidence atoms.
+ * @param minReductionPct - Minimum reduction percentage required (default: 10%).
+ * @returns `null` on success, error message on failure.
+ *
+ * @task T1604
+ */
+export function checkEngineMigrationLocDrop(
+  atoms: EvidenceAtom[],
+  minReductionPct: number = ENGINE_MIGRATION_MIN_REDUCTION_PCT,
+): string | null {
+  const locDropAtom = atoms.find((a) => a.kind === 'loc-drop') as
+    | Extract<EvidenceAtom, { kind: 'loc-drop' }>
+    | undefined;
+
+  if (!locDropAtom) {
+    return (
+      `Gate 'implemented' on engine-migration tasks requires a 'loc-drop' evidence atom. ` +
+      `Example: --evidence "commit:<sha>;files:<path>;loc-drop:<fromLines>:<toLines>". ` +
+      `The migrated engine must shed ≥${minReductionPct}% of its lines.`
+    );
+  }
+
+  if (locDropAtom.reductionPct < minReductionPct) {
+    return (
+      `loc-drop: reduction of ${locDropAtom.reductionPct}% is below the required ` +
+      `${minReductionPct}% for engine-migration tasks ` +
+      `(from=${locDropAtom.fromLines} lines, to=${locDropAtom.toLines} lines). ` +
+      `The migrated engine must shed ≥${minReductionPct}% of its lines.`
+    );
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Gate minimum evaluation
 // ---------------------------------------------------------------------------
@@ -667,6 +804,11 @@ export async function revalidateEvidence(
         // should use test-run / files to anchor the state.
         break;
       }
+      case 'loc-drop':
+        // LOC counts are immutable once captured — no re-execution possible.
+        // The counts are structural facts about the migration; the atom is
+        // trusted as-is once validated at verify time.
+        break;
       default:
         // Exhaustiveness — unreachable if EvidenceAtom is complete.
         break;
