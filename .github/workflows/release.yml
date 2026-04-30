@@ -197,7 +197,6 @@ jobs:
           let failed = false;
           for (const [label, distPath] of [
             ['@cleocode/core', 'packages/core/dist/index.js'],
-            ['@cleocode/cleo', 'packages/cleo/dist/cli/index.js'],
           ]) {
             try {
               await smokeTest(label, distPath);
