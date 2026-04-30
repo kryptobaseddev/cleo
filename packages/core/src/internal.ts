@@ -1229,6 +1229,9 @@ export type {
   Resolution,
 } from './store/restore-json-merge.js';
 export { regenerateAndCompare, regenerateAndCompareAll } from './store/restore-json-merge.js';
+export { taskArchive } from './tasks/archive.js';
+export { completeTaskStrict, taskComplete } from './tasks/complete.js';
+export { taskDelete } from './tasks/delete.js';
 // Engine-layer converters and types (T1568 / ADR-057 / ADR-058)
 export {
   type IvtrHistoryEntry,
@@ -1241,6 +1244,8 @@ export { taskFind } from './tasks/find.js';
 export { taskLabelList, taskLabelShow } from './tasks/labels.js';
 export { taskList } from './tasks/list.js';
 export { taskPlan } from './tasks/plan.js';
+// Complex mutations + strict completion (T1568 / ADR-057 / ADR-058) — Wave 4
+export { addTaskWithSessionScope, resolveParentFromSession } from './tasks/session-scope.js';
 // Engine-layer EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058) — Wave 2
 export {
   taskExists,
@@ -1282,6 +1287,7 @@ export {
   taskUnarchive,
   taskUnclaim,
 } from './tasks/task-ops.js';
+export { taskUpdate } from './tasks/update.js';
 
 // ---------------------------------------------------------------------------
 // Additional flat exports (required by @cleocode/cleo)

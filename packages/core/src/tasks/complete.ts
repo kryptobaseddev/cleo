@@ -4,17 +4,22 @@
  * @epic T4454
  */
 
-import type { Task, TaskRef, VerificationGate } from '@cleocode/contracts';
+import type { Task, TaskRecord, TaskRef, VerificationGate } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
+import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
+import { getActiveSession } from '../store/session-store.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
+import { revalidateEvidence } from './evidence.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
 import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
 
@@ -604,4 +609,249 @@ export async function completeTask(
     ...(unblockedTasks.length > 0 && { unblockedTasks }),
     ...(receiptSummary ? { receipt: receiptSummary } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+type CompleteEngineResult = EngineResult<{
+  task: TaskRecord;
+  autoCompleted?: string[];
+  unblockedTasks?: Array<{ id: string; title: string }>;
+}>;
+
+/**
+ * Complete a task (set status to done), wrapped in EngineResult.
+ *
+ * Stamps modified_by + session_id provenance on successful completion
+ * (T1222 / CLEO-VALID-27).
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to complete
+ * @param notes - Optional completion notes
+ * @returns EngineResult with the completed task, auto-completed parents, and unblocked tasks
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskComplete(
+  projectRoot: string,
+  taskId: string,
+  notes?: string,
+): Promise<CompleteEngineResult> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await completeTask({ taskId, notes }, projectRoot, accessor);
+
+    // T1222 / CLEO-VALID-27: stamp modified_by + session_id on every successful completion.
+    // Best-effort — failure here must not roll back the completion that already landed.
+    try {
+      const agentId = process.env['CLEO_AGENT_ID'] ?? 'cleo';
+      let sessionId: string | null =
+        typeof process.env['CLEO_SESSION_ID'] === 'string' &&
+        process.env['CLEO_SESSION_ID'].length > 0
+          ? process.env['CLEO_SESSION_ID']
+          : null;
+      const activeSession = await getActiveSession(projectRoot);
+      if (activeSession?.id) {
+        sessionId = activeSession.id;
+      }
+      await accessor.updateTaskFields(taskId, { modifiedBy: agentId, sessionId });
+    } catch {
+      // Provenance write failure is non-fatal.
+    }
+
+    return engineSuccess({
+      task: result.task as TaskRecord,
+      ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
+      ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),
+    });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_INTERNAL', e?.message ?? 'Failed to complete task');
+  }
+}
+
+/**
+ * Complete a task with strict IVTR + evidence-staleness enforcement.
+ *
+ * Enforcement path (T832 / ADR-051 Decision 3+8):
+ * 1. Evidence staleness re-check: every verification.evidence record is re-validated.
+ * 2. IVTR enforcement in strict mode: ivtr_state.currentPhase MUST be 'released'.
+ * 3. Parent-epic lifecycle gate: child task completion is blocked while the parent
+ *    epic is still in a planning stage.
+ * 4. Verification_json null check.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to complete
+ * @param notes - Optional completion notes
+ * @returns EngineResult with the completed task, auto-completed parents, and unblocked tasks
+ *
+ * @task T1568
+ * @adr ADR-051
+ * @epic T1566
+ */
+export async function completeTaskStrict(
+  projectRoot: string,
+  taskId: string,
+  notes?: string,
+): Promise<CompleteEngineResult> {
+  try {
+    const config = await loadConfig(projectRoot);
+    const lifecycleMode = config.lifecycle?.mode ?? 'strict';
+
+    // 1. Evidence staleness re-check (T832 / ADR-051 Decision 8).
+    if (lifecycleMode === 'strict') {
+      const accessor = await getAccessor(projectRoot);
+      const task = await accessor.loadSingleTask(taskId);
+      if (task?.verification?.evidence) {
+        const evidenceEntries = Object.entries(task.verification.evidence);
+        const staleGates: Array<{ gate: string; failures: string[] }> = [];
+        for (const [gate, ev] of evidenceEntries) {
+          if (!ev) continue;
+          const check = await revalidateEvidence(ev, projectRoot);
+          if (!check.stillValid) {
+            staleGates.push({
+              gate,
+              failures: check.failedAtoms.map((f: { reason: string }) => f.reason),
+            });
+          }
+        }
+        if (staleGates.length > 0) {
+          const message =
+            `Task ${taskId} evidence is stale. ` +
+            staleGates.map((sg) => `Gate '${sg.gate}': ${sg.failures.join('; ')}`).join(' | ');
+          return engineError<{
+            task: TaskRecord;
+            autoCompleted?: string[];
+            unblockedTasks?: Array<{ id: string; title: string }>;
+          }>('E_EVIDENCE_STALE', message, {
+            details: { taskId, staleGates },
+            fix:
+              `Re-capture evidence for the stale gates via ` +
+              `'cleo verify ${taskId} --gate <gate> --evidence <updated>' ` +
+              `then retry 'cleo complete ${taskId}'. See ADR-051.`,
+          });
+        }
+      }
+    }
+
+    // 2. IVTR enforcement only applies in strict mode.
+    if (lifecycleMode === 'strict') {
+      const ivtrState = await getIvtrState(taskId, { cwd: projectRoot });
+
+      if (ivtrState !== null && ivtrState.currentPhase !== 'released') {
+        const requiredPhases: Array<Exclude<IvtrPhase, 'released'>> = [
+          'implement',
+          'validate',
+          'test',
+        ];
+        const failedPhases: string[] = [];
+        for (const phase of requiredPhases) {
+          const hasPassed = ivtrState.phaseHistory.some(
+            (e) => e.phase === phase && e.passed === true,
+          );
+          if (!hasPassed) {
+            failedPhases.push(`Phase '${phase}' has no passing entry`);
+          }
+        }
+
+        const activeEntry = ivtrState.phaseHistory.findLast((e) => e.completedAt === null);
+        if (activeEntry) {
+          failedPhases.push(
+            `Phase '${activeEntry.phase}' is currently in-progress (not completed)`,
+          );
+        }
+
+        return engineError<{
+          task: TaskRecord;
+          autoCompleted?: string[];
+          unblockedTasks?: Array<{ id: string; title: string }>;
+        }>(
+          'E_IVTR_INCOMPLETE',
+          `Task ${taskId} IVTR loop is not complete — currentPhase='${ivtrState.currentPhase}', not 'released'`,
+          {
+            details: { taskId, currentPhase: ivtrState.currentPhase, failedPhases },
+            fix: `Advance the IVTR loop to 'released' via 'cleo orchestrate ivtr ${taskId} --next'. Evidence-based bypass: CLEO_OWNER_OVERRIDE=1 on 'cleo verify' (audited, see ADR-051).`,
+          },
+        );
+      }
+    }
+
+    // 3. Parent-epic lifecycle gate check on child complete (T788 LOOM-04).
+    if (lifecycleMode === 'strict' || lifecycleMode === 'advisory') {
+      const accessor = await getAccessor(projectRoot);
+      const task = await accessor.loadSingleTask(taskId);
+      if (task?.parentId) {
+        const parent = await accessor.loadSingleTask(task.parentId);
+        if (parent?.type === 'epic') {
+          const earlyStages = new Set([
+            'research',
+            'consensus',
+            'architecture_decision',
+            'specification',
+            'decomposition',
+          ]);
+          const epicStage = parent.pipelineStage ?? null;
+          if (epicStage && earlyStages.has(epicStage)) {
+            const msg =
+              `Task ${taskId} cannot complete: parent epic ${task.parentId} is still in ` +
+              `'${epicStage}' stage. Advance the epic past decomposition before completing children.`;
+            if (lifecycleMode === 'strict') {
+              return engineError<{
+                task: TaskRecord;
+                autoCompleted?: string[];
+                unblockedTasks?: Array<{ id: string; title: string }>;
+              }>('E_LIFECYCLE_GATE_FAILED', msg, {
+                details: {
+                  taskId,
+                  parentEpicId: task.parentId,
+                  epicStage,
+                  requiredStages: ['implementation', 'validation', 'testing', 'release'],
+                },
+                fix:
+                  `Advance the parent epic via 'cleo lifecycle complete ${task.parentId} ${epicStage}' ` +
+                  `and then the next stages. Lifecycle advancement automatically updates the parent epic's pipelineStage (ADR-051 Decision 5).`,
+              });
+            }
+            getLogger('engine:lifecycle').warn(
+              { taskId, parentEpicId: task.parentId, epicStage, mode: lifecycleMode },
+              `[ADVISORY] parent-epic lifecycle gate: ${msg}`,
+            );
+          }
+        }
+      }
+    }
+
+    // 4. T1222 / CLEO-VALID-26: verify verification_json is not NULL before delegating.
+    if (lifecycleMode === 'strict') {
+      const accessor = await getAccessor(projectRoot);
+      const task = await accessor.loadSingleTask(taskId);
+      if (task && task.type !== 'epic' && !task.verification) {
+        return engineError<{
+          task: TaskRecord;
+          autoCompleted?: string[];
+          unblockedTasks?: Array<{ id: string; title: string }>;
+        }>(
+          'E_EVIDENCE_MISSING',
+          `Task ${taskId} has no verification record (verification_json IS NULL). ` +
+            `Run 'cleo verify' with programmatic evidence before completing. See ADR-051.`,
+          {
+            details: { taskId, verificationStatus: 'null' },
+            fix:
+              `Initialize and populate verification gates: ` +
+              `'cleo verify ${taskId} --gate implemented --evidence "commit:<sha>;files:<list>"' ` +
+              `and other required gates, then retry 'cleo complete ${taskId}'.`,
+          },
+        );
+      }
+    }
+
+    // No IVTR state, or lifecycle not strict, or already released — delegate normally.
+    return taskComplete(projectRoot, taskId, notes);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_INTERNAL', e?.message ?? 'Failed to complete task (strict mode)');
+  }
 }
