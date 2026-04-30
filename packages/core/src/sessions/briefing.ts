@@ -12,12 +12,14 @@
  * - Blocked tasks (tasks.blockers)
  * - Active epics status (tasks.tree filtered)
  * - Pipeline stage data (from T4912)
+ * - Docs context (task-attached references, ADR registrations, llmtxt summaries)
  *
  * @task T4916
  * @epic T4914
  */
 
 import type {
+  AttachmentMetadata,
   RetrievalBundle,
   SessionBriefingShowParams,
   Task,
@@ -76,6 +78,45 @@ export interface PipelineStageInfo {
 }
 
 /**
+ * A single document reference entry for briefing output.
+ *
+ * Represents one attachment associated with a task: a file path, URL,
+ * blob, or generated llms.txt summary that is surfaced in the briefing
+ * so new orchestrator runs have immediate access to rationale and references.
+ */
+export interface BriefingDocRef {
+  /** ID of the task that owns this attachment. */
+  taskId: string;
+  /** Attachment identifier (UUID-like string). */
+  attachmentId: string;
+  /** Attachment kind (local-file, url, blob, llms-txt, llmtxt-doc). */
+  kind: string;
+  /** Optional human-readable description of the attachment. */
+  description?: string;
+  /** Optional labels for categorisation (e.g. ["adr", "spec"]). */
+  labels?: string[];
+  /** ISO 8601 creation timestamp. */
+  createdAt: string;
+}
+
+/**
+ * Docs context for briefing output — the third pillar (state + rationale + references).
+ *
+ * Contains task-attached document references for the active task and any
+ * in-scope tasks that have attachments. Surfaced so `cleo briefing` IS the
+ * complete knowledge surface: a new orchestrator run gets state (tasks),
+ * rationale (brain memory), and references (docs) in a single call.
+ */
+export interface BriefingDocsContext {
+  /** Document references for the currently focused task. */
+  currentTaskDocs: BriefingDocRef[];
+  /** Document references for in-scope tasks with at least one attachment. */
+  relatedDocs: BriefingDocRef[];
+  /** Total number of document references surfaced. */
+  totalDocs: number;
+}
+
+/**
  * Last session info with handoff data.
  */
 export interface LastSessionInfo {
@@ -124,6 +165,20 @@ export interface SessionBriefing {
    * @epic T1083
    */
   bundle?: RetrievalBundle;
+  /**
+   * Docs context — the third briefing pillar (references).
+   *
+   * Surfaces task-attached document references (ADR registrations, llmtxt
+   * summaries, URL refs, local files) so `cleo briefing` delivers the complete
+   * knowledge surface in one call: state + rationale + references.
+   *
+   * Present when at least one in-scope task has an attachment; omitted
+   * (undefined) when the attachment store is unavailable or no attachments exist.
+   *
+   * @task T1616
+   * @epic T1611
+   */
+  docsContext?: BriefingDocsContext;
 }
 
 /**
@@ -234,6 +289,14 @@ export async function computeBriefing(
     // Retrieval bundle not available -- proceed without
   }
 
+  // 10. Docs context — third pillar: task-attached references (optional, best-effort — T1616)
+  let docsContext: BriefingDocsContext | undefined;
+  try {
+    docsContext = await computeDocsContext(projectRoot, focus?.currentTask, tasks, scopeTaskIds);
+  } catch {
+    // Docs context not available -- proceed without
+  }
+
   // Compute warnings
   const warnings: string[] = [];
   if (currentTaskInfo?.blockedBy?.length) {
@@ -253,6 +316,7 @@ export async function computeBriefing(
     ...(warnings.length > 0 && { warnings }),
     ...(memoryContext && { memoryContext }),
     ...(bundle && { bundle }),
+    ...(docsContext && { docsContext }),
   };
 }
 
@@ -644,4 +708,100 @@ async function computePipelineStage(
   } catch {
     return undefined;
   }
+}
+
+// ─── Max per-task doc refs in briefing output ─────────────────────────────────
+const MAX_DOCS_PER_TASK = 10;
+/** Maximum number of related-task doc entries in the briefing (across all tasks). */
+const MAX_RELATED_DOCS = 20;
+
+/**
+ * Compute the docs context pillar for the session briefing.
+ *
+ * Queries the attachment store (tasks.db) for:
+ * - Attachments on the currently focused task (if any).
+ * - Attachments on any in-scope task that has at least one attachment,
+ *   up to {@link MAX_RELATED_DOCS} entries total.
+ *
+ * All queries are best-effort: individual task failures are swallowed so
+ * that a corrupt attachment ref never blocks the briefing.
+ *
+ * @param projectRoot  - Absolute path to the project root.
+ * @param currentTaskId - ID of the currently focused task (may be undefined).
+ * @param tasks        - All tasks loaded by computeBriefing.
+ * @param scopeTaskIds - Optional set of in-scope task IDs (undefined = all).
+ * @returns Docs context with current-task refs and related refs, or undefined
+ *          when no attachments exist.
+ *
+ * @task T1616
+ * @epic T1611
+ */
+async function computeDocsContext(
+  projectRoot: string,
+  currentTaskId: string | undefined,
+  tasks: unknown[],
+  scopeTaskIds: Set<string> | undefined,
+): Promise<BriefingDocsContext | undefined> {
+  // Dynamically import the attachment store to avoid mandatory hard deps.
+  const { createAttachmentStore } = await import('../store/attachment-store.js');
+  const store = createAttachmentStore();
+
+  /**
+   * Convert one AttachmentMetadata record into a BriefingDocRef.
+   */
+  function toDocRef(taskId: string, meta: AttachmentMetadata): BriefingDocRef {
+    const att = meta.attachment;
+    return {
+      taskId,
+      attachmentId: meta.id,
+      kind: att.kind,
+      ...(att.description ? { description: att.description } : {}),
+      ...(att.labels?.length ? { labels: att.labels } : {}),
+      createdAt: meta.createdAt,
+    };
+  }
+
+  // 1. Fetch attachments for the currently focused task.
+  const currentTaskDocs: BriefingDocRef[] = [];
+  if (currentTaskId) {
+    try {
+      const metas = await store.listByOwner('task', currentTaskId, projectRoot);
+      for (const meta of metas.slice(0, MAX_DOCS_PER_TASK)) {
+        currentTaskDocs.push(toDocRef(currentTaskId, meta));
+      }
+    } catch {
+      // Attachment store unavailable for this task — proceed without
+    }
+  }
+
+  // 2. Fetch attachments for in-scope tasks (excluding the current task).
+  const relatedDocs: BriefingDocRef[] = [];
+
+  const candidateTasks = tasks.filter((t) => {
+    const task = t as { id?: string };
+    return task.id && task.id !== currentTaskId && (!scopeTaskIds || scopeTaskIds.has(task.id));
+  });
+
+  for (const t of candidateTasks) {
+    if (relatedDocs.length >= MAX_RELATED_DOCS) break;
+
+    const task = t as { id: string };
+    try {
+      const metas = await store.listByOwner('task', task.id, projectRoot);
+      for (const meta of metas.slice(0, MAX_DOCS_PER_TASK)) {
+        if (relatedDocs.length >= MAX_RELATED_DOCS) break;
+        relatedDocs.push(toDocRef(task.id, meta));
+      }
+    } catch {
+      // Attachment store unavailable for this task — proceed without
+    }
+  }
+
+  const totalDocs = currentTaskDocs.length + relatedDocs.length;
+
+  // Return undefined when no docs exist — avoids polluting the briefing with an
+  // empty docs pillar when the attachment store is empty.
+  if (totalDocs === 0) return undefined;
+
+  return { currentTaskDocs, relatedDocs, totalDocs };
 }
