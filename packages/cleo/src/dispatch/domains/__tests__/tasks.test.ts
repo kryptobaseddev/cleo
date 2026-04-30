@@ -8,10 +8,10 @@ vi.mock('../../lib/engine.js', () => ({
   taskList: vi.fn(),
   taskFind: vi.fn(),
   taskExists: vi.fn(),
-  taskCreate: vi.fn(),
+  addTaskWithSessionScope: vi.fn(),
   taskUpdate: vi.fn(),
   taskComplete: vi.fn(),
-  taskCompleteStrict: vi.fn(),
+  completeTaskStrict: vi.fn(),
   taskDelete: vi.fn(),
   taskArchive: vi.fn(),
   taskNext: vi.fn(),
@@ -59,12 +59,12 @@ vi.mock('../../../../../core/src/paths.js', async () => {
 });
 
 import {
+  addTaskWithSessionScope,
+  completeTaskStrict,
   taskAnalyze,
   taskArchive,
   taskBlockers,
-  taskCompleteStrict,
   taskComplexityEstimate,
-  taskCreate,
   taskCurrentGet,
   taskDelete,
   taskDepends,
@@ -453,7 +453,7 @@ describe('TasksHandler', () => {
   // -----------------------------------------------------------------------
 
   describe('mutate', () => {
-    it('add - delegates to taskCreate', async () => {
+    it('add - delegates to addTaskWithSessionScope', async () => {
       const mockTask = {
         task: {
           id: 'T001',
@@ -466,12 +466,12 @@ describe('TasksHandler', () => {
         },
         duplicate: false,
       };
-      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
 
       const result = await handler.mutate('add', { title: 'New Task', description: 'Desc' });
 
       expect(result.success).toBe(true);
-      expect(taskCreate).toHaveBeenCalledWith(
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
         '/mock/project',
         expect.objectContaining({ title: 'New Task' }),
       );
@@ -490,7 +490,7 @@ describe('TasksHandler', () => {
         },
         duplicate: false,
       };
-      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
 
       const result = await handler.mutate('add', {
         title: 'Child Task',
@@ -499,7 +499,7 @@ describe('TasksHandler', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(taskCreate).toHaveBeenCalledWith(
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
         '/mock/project',
         expect.objectContaining({
           title: 'Child Task',
@@ -521,7 +521,7 @@ describe('TasksHandler', () => {
         },
         duplicate: false,
       };
-      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
 
       const result = await handler.mutate('add', {
         title: 'Child Task',
@@ -529,7 +529,7 @@ describe('TasksHandler', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(taskCreate).toHaveBeenCalledWith(
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
         '/mock/project',
         expect.objectContaining({
           parent: 'T100',
@@ -550,11 +550,11 @@ describe('TasksHandler', () => {
         },
         duplicate: false,
       };
-      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
 
       await handler.mutate('add', { title: 'Same' });
 
-      expect(taskCreate).toHaveBeenCalledWith(
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
         '/mock/project',
         expect.objectContaining({
           description: undefined,
@@ -575,11 +575,11 @@ describe('TasksHandler', () => {
         },
         duplicate: false,
       };
-      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
 
       await handler.mutate('add', { title: 'TitleOnly' });
 
-      const call = vi.mocked(taskCreate).mock.calls[0];
+      const call = vi.mocked(addTaskWithSessionScope).mock.calls[0];
       const options = call[1] as Record<string, unknown>;
       expect(options.description).toBeUndefined();
       expect(options.description).not.toBe('TitleOnly');
@@ -598,11 +598,11 @@ describe('TasksHandler', () => {
         },
         duplicate: false,
       };
-      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+      vi.mocked(addTaskWithSessionScope).mockResolvedValue({ success: true, data: mockTask });
 
       await handler.mutate('add', { title: 'X', description: 'Y' });
 
-      expect(taskCreate).toHaveBeenCalledWith(
+      expect(addTaskWithSessionScope).toHaveBeenCalledWith(
         '/mock/project',
         expect.objectContaining({
           description: 'Y',
@@ -665,7 +665,7 @@ describe('TasksHandler', () => {
     });
 
     it('complete - delegates to taskCompleteStrict', async () => {
-      vi.mocked(taskCompleteStrict).mockResolvedValue({
+      vi.mocked(completeTaskStrict).mockResolvedValue({
         success: true,
         data: {
           task: {
@@ -683,8 +683,8 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('complete', { taskId: 'T001', notes: 'Done' });
 
       expect(result.success).toBe(true);
-      // T832/ADR-051: taskCompleteStrict no longer accepts the force parameter.
-      expect(taskCompleteStrict).toHaveBeenCalledWith('/mock/project', 'T001', 'Done');
+      // T832/ADR-051: completeTaskStrict no longer accepts the force parameter.
+      expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', 'Done');
     });
 
     it('complete - rejects --force with E_FLAG_REMOVED (T832/ADR-051)', async () => {
@@ -696,11 +696,11 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_FLAG_REMOVED');
-      expect(taskCompleteStrict).not.toHaveBeenCalled();
+      expect(completeTaskStrict).not.toHaveBeenCalled();
     });
 
     it('complete - returns E_IVTR_INCOMPLETE when strict enforcement rejects', async () => {
-      vi.mocked(taskCompleteStrict).mockResolvedValue({
+      vi.mocked(completeTaskStrict).mockResolvedValue({
         success: false,
         error: {
           code: 'E_IVTR_INCOMPLETE',
@@ -719,8 +719,8 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_IVTR_INCOMPLETE');
-      // T832/ADR-051: force parameter removed from taskCompleteStrict signature.
-      expect(taskCompleteStrict).toHaveBeenCalledWith('/mock/project', 'T001', undefined);
+      // T832/ADR-051: force parameter removed from completeTaskStrict signature.
+      expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', undefined);
     });
 
     it('update - forwards pipelineStage to engine (T832 / T834)', async () => {
@@ -925,7 +925,7 @@ describe('TasksHandler', () => {
     });
 
     it('handles engine exceptions gracefully', async () => {
-      vi.mocked(taskCreate).mockRejectedValue(new Error('Disk full'));
+      vi.mocked(addTaskWithSessionScope).mockRejectedValue(new Error('Disk full'));
 
       const result = await handler.mutate('add', { title: 'New Task' });
 

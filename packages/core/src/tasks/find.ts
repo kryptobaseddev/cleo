@@ -4,13 +4,22 @@
  * @epic T4454
  */
 
-import type { Task, TaskQueryFilters, TaskRole, TaskStatus } from '@cleocode/contracts';
+import type {
+  MinimalTaskRecord,
+  Task,
+  TaskQueryFilters,
+  TaskRecord,
+  TaskRole,
+  TaskStatus,
+} from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
+import { taskToRecord } from './engine-converters.js';
 
 /** Minimal task info for search results. */
 export interface FindResult {
@@ -353,4 +362,82 @@ export async function findTasks(
     query: queryStr,
     searchType,
   };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1568 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fuzzy search tasks by title/description/ID, wrapped in EngineResult.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param query - Search string to match against title, description, or ID
+ * @param limit - Maximum number of results (defaults to 20)
+ * @param options - Additional search options
+ * @returns EngineResult with matching tasks and total count
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskFind(
+  projectRoot: string,
+  query: string,
+  limit?: number,
+  options?: {
+    id?: string;
+    exact?: boolean;
+    status?: string;
+    includeArchive?: boolean;
+    offset?: number;
+    fields?: string;
+    verbose?: boolean;
+    role?: string;
+  },
+): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const findResult = await findTasks(
+      {
+        query,
+        id: options?.id,
+        exact: options?.exact,
+        status: options?.status as TaskStatus | undefined,
+        includeArchive: options?.includeArchive,
+        limit: limit ?? 20,
+        offset: options?.offset,
+        role: options?.role as TaskRole | undefined,
+      },
+      projectRoot,
+      accessor,
+    );
+
+    if (options?.verbose || options?.fields) {
+      const fullResults: TaskRecord[] = [];
+      for (const r of findResult.results) {
+        const task = await accessor.loadSingleTask(r.id);
+        if (task) fullResults.push(taskToRecord(task));
+      }
+      return engineSuccess({ results: fullResults, total: findResult.total });
+    }
+
+    const results: MinimalTaskRecord[] = findResult.results.map((r) => ({
+      id: r.id,
+      title: r.title,
+      status: r.status,
+      priority: r.priority,
+      parentId: r.parentId,
+      depends: r.depends,
+      type: r.type,
+      size: r.size,
+    }));
+
+    return engineSuccess({ results, total: findResult.total });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
+    };
+  }
 }

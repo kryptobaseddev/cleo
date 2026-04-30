@@ -4,12 +4,14 @@
  * @epic T4454
  */
 
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskRecord } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
+import { taskToRecord } from './engine-converters.js';
 
 /** Options for deleting a task. */
 export interface DeleteTaskOptions {
@@ -159,4 +161,45 @@ export async function deleteTask(
     deletedTask: task,
     ...(cascadeDeleted.length > 0 && { cascadeDeleted }),
   };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1568 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete a task, wrapped in EngineResult.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Task identifier to delete
+ * @param force - When true, enables cascade deletion of children
+ * @returns EngineResult with the deleted task record and optional cascade info
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskDelete(
+  projectRoot: string,
+  taskId: string,
+  force?: boolean,
+): Promise<EngineResult<{ deletedTask: TaskRecord; deleted: boolean; cascadeDeleted?: string[] }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await deleteTask(
+      { taskId, force: force ?? false, cascade: force ?? false },
+      projectRoot,
+      accessor,
+    );
+    return engineSuccess({
+      deletedTask: taskToRecord(result.deletedTask),
+      deleted: true,
+      cascadeDeleted: result.cascadeDeleted,
+    });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
+    };
+  }
 }

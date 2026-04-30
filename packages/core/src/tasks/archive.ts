@@ -11,6 +11,7 @@ import {
   type Task,
   type TaskStatus,
 } from '@cleocode/contracts';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
@@ -201,4 +202,47 @@ export async function archiveTasks(
   );
 
   return { archived, skipped, total: totalActive };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1568 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * Archive completed tasks, wrapped in EngineResult.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param taskId - Optional specific task ID to archive
+ * @param before - Optional ISO date string; archives tasks completed before this date
+ * @param opts - Additional options (taskIds, includeCancelled, dryRun)
+ * @returns EngineResult with count and list of archived task IDs
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskArchive(
+  projectRoot: string,
+  taskId?: string,
+  before?: string,
+  opts?: { taskIds?: string[]; includeCancelled?: boolean; dryRun?: boolean },
+): Promise<EngineResult<{ archivedCount: number; archivedTasks: Array<{ id: string }> }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const taskIds = opts?.taskIds ?? (taskId ? [taskId] : undefined);
+    const result = await archiveTasks(
+      { taskIds, before, includeCancelled: opts?.includeCancelled, dryRun: opts?.dryRun },
+      projectRoot,
+      accessor,
+    );
+    return engineSuccess({
+      archivedCount: result.archived.length,
+      archivedTasks: result.archived.map((id: string) => ({ id })),
+    });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
+    };
+  }
 }
