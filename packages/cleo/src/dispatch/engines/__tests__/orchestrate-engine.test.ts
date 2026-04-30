@@ -7,11 +7,6 @@
  * @task T4854
  */
 
-import { mkdirSync, writeFileSync } from 'fs';
-import { mkdtemp, rm } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   orchestrateAnalyze,
   orchestrateContext,
@@ -23,8 +18,18 @@ import {
   orchestrateStatus,
   orchestrateValidate,
   orchestrateWaves,
-} from '../orchestrate-engine.js';
-import { sessionStart, sessionStatus } from '../session-engine.js';
+} from '@cleocode/core/internal';
+import { mkdirSync, writeFileSync } from 'fs';
+import { mkdtemp, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  sessionContextInject,
+  sessionEnd,
+  sessionStart,
+  sessionStatus,
+} from '../session-engine.js';
 
 let TEST_ROOT: string;
 let CLEO_DIR: string;
@@ -235,11 +240,12 @@ describe('Orchestrate Engine', () => {
       expect(result.error?.code).toBe('E_SPAWN_VALIDATION_FAILED');
     });
 
-    it('T929 regression: returns E_NOT_FOUND (exit 4) for a nonexistent task ID', async () => {
+    it('T929 regression: returns E_NOT_FOUND for a nonexistent task ID', async () => {
+      // T1570: exitCode no longer set in engine result (core engineError doesn't auto-assign);
+      // the CLI dispatch layer maps E_NOT_FOUND → exit 4 via STRING_TO_EXIT.
       const result = await orchestrateSpawn('T999', undefined, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_NOT_FOUND');
-      expect(result.error?.exitCode).toBe(4);
     });
   });
 
@@ -421,6 +427,7 @@ describe('Orchestrate Engine', () => {
           protocolType: 'implementation',
           note: 'handoff complete',
         },
+        { sessionStatus, sessionEnd, sessionContextInject },
         TEST_ROOT,
       );
 
@@ -444,6 +451,7 @@ describe('Orchestrate Engine', () => {
           taskId: 'T102',
           protocolType: 'implementation',
         },
+        { sessionStatus, sessionEnd, sessionContextInject },
         TEST_ROOT,
       );
 
@@ -467,6 +475,7 @@ describe('Orchestrate Engine', () => {
           taskId: 'T104',
           protocolType: 'implementation',
         },
+        { sessionStatus, sessionEnd, sessionContextInject },
         TEST_ROOT,
       );
 
