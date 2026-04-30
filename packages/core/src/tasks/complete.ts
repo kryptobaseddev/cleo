@@ -804,6 +804,7 @@ export async function completeTaskStrict(
                 autoCompleted?: string[];
                 unblockedTasks?: Array<{ id: string; title: string }>;
               }>('E_LIFECYCLE_GATE_FAILED', msg, {
+                exitCode: ExitCode.LIFECYCLE_GATE_FAILED,
                 details: {
                   taskId,
                   parentEpicId: task.parentId,

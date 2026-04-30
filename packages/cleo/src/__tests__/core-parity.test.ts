@@ -94,22 +94,22 @@ describe('Import Graph Verification (T4796)', () => {
     });
   }
 
-  it('task-engine.ts imports core CRUD functions via @cleocode/core', async () => {
-    // task-engine.ts moved to src/dispatch/engines/task-engine.ts (T5100)
-    // T5718: imports rewired from relative ../../core/ to @cleocode/core
-    const dispatchEngineDir = join(process.cwd(), 'packages', 'cleo', 'src', 'dispatch', 'engines');
-    const content = await readFile(join(dispatchEngineDir, 'task-engine.ts'), 'utf-8');
-
-    // Core task functions are now imported via @cleocode/core (T5718)
-    expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
-    // Verify the key task functions are imported
-    expect(content).toContain('addTask');
-    expect(content).toContain('showTask');
-    expect(content).toContain('listTasks');
-    expect(content).toContain('findTasks');
-    expect(content).toContain('updateTask');
-    expect(content).toContain('deleteTask');
-    expect(content).toContain('archiveTasks');
+  it('task engine functions are exported from @cleocode/core/internal (T1568 migration)', async () => {
+    // task-engine.ts was deleted in T1568. Task functions now live in core/tasks/*.
+    // Verify that the expected task symbols are exported from @cleocode/core/internal.
+    const internal = await import('../../../core/src/internal.js');
+    // Key query functions
+    expect(typeof internal.taskShow).toBe('function');
+    expect(typeof internal.taskList).toBe('function');
+    expect(typeof internal.taskFind).toBe('function');
+    expect(typeof internal.taskExists).toBe('function');
+    // Mutation functions
+    expect(typeof internal.addTaskWithSessionScope).toBe('function');
+    expect(typeof internal.taskUpdate).toBe('function');
+    expect(typeof internal.taskDelete).toBe('function');
+    expect(typeof internal.taskArchive).toBe('function');
+    expect(typeof internal.taskComplete).toBe('function');
+    expect(typeof internal.completeTaskStrict).toBe('function');
   });
 
   it('dispatch session-engine.ts imports core session/task-work functions via @cleocode/core', async () => {
@@ -306,7 +306,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskShow returns same task data as core showTask', async () => {
     const { showTask } = await import('../../../core/src/tasks/show.js');
-    const { taskShow } = await import('../dispatch/engines/task-engine.js');
+    const { taskShow } = await import('../../../core/src/internal.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -330,7 +330,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskShow and core showTask both fail for missing task', async () => {
     const { showTask } = await import('../../../core/src/tasks/show.js');
-    const { taskShow } = await import('../dispatch/engines/task-engine.js');
+    const { taskShow } = await import('../../../core/src/internal.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -347,7 +347,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskList returns same tasks as core listTasks', async () => {
     const { listTasks } = await import('../../../core/src/tasks/list.js');
-    const { taskList } = await import('../dispatch/engines/task-engine.js');
+    const { taskList } = await import('../../../core/src/internal.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -373,7 +373,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskList with status filter matches core listTasks filter', async () => {
     const { listTasks } = await import('../../../core/src/tasks/list.js');
-    const { taskList } = await import('../dispatch/engines/task-engine.js');
+    const { taskList } = await import('../../../core/src/internal.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -392,7 +392,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskFind returns same results as core findTasks', async () => {
     const { findTasks } = await import('../../../core/src/tasks/find.js');
-    const { taskFind } = await import('../dispatch/engines/task-engine.js');
+    const { taskFind } = await import('../../../core/src/internal.js');
     const { getAccessor } = await import('../../../core/src/store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -413,9 +413,9 @@ describe('Task CRUD Data Parity (T4796)', () => {
     expect(engineIds).toContain('T001');
   });
 
-  it('taskCreate produces a valid task via engine', async () => {
+  it('addTaskWithSessionScope produces a valid task via core (replaces taskCreate)', async () => {
     const { sessionStart } = await import('../dispatch/engines/session-engine.js');
-    const { taskCreate } = await import('../dispatch/engines/task-engine.js');
+    const { addTaskWithSessionScope } = await import('../../../core/src/internal.js');
 
     const session = await sessionStart(testDir, {
       scope: 'global',
@@ -423,8 +423,8 @@ describe('Task CRUD Data Parity (T4796)', () => {
     });
     expect(session.success).toBe(true);
 
-    // Engine create
-    const engineResult = await taskCreate(testDir, {
+    // Core create with session scope
+    const engineResult = await addTaskWithSessionScope(testDir, {
       title: 'Engine-created task',
       description: 'Created via engine for parity test',
       acceptance: ['Task is created', 'Task has valid defaults', 'Engine result is successful'],
@@ -786,7 +786,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
   }
 
   it('task engine error results have E_ prefixed codes', async () => {
-    const { taskShow } = await import('../dispatch/engines/task-engine.js');
+    const { taskShow } = await import('../../../core/src/internal.js');
 
     // This will fail because no project dir is set up
     const result = await taskShow('/nonexistent', 'T999');
