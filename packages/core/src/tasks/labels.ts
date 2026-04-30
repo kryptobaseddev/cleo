@@ -5,6 +5,7 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
@@ -74,4 +75,58 @@ export async function getLabelStats(
     totalUsages,
     avgPerLabel,
   };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * List all labels used in tasks, wrapped in EngineResult.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @returns EngineResult with labels array and count
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskLabelList(
+  projectRoot: string,
+): Promise<EngineResult<{ labels: unknown[]; count: number }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const labels = await listLabels(projectRoot, accessor);
+    return engineSuccess({ labels, count: labels.length });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
+    };
+  }
+}
+
+/**
+ * Show tasks associated with a label, wrapped in EngineResult.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param label - Label to look up
+ * @returns EngineResult with tasks for this label
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskLabelShow(
+  projectRoot: string,
+  label: string,
+): Promise<EngineResult<Record<string, unknown>>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await showLabelTasks(label, projectRoot, accessor);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string; code?: number };
+    const code = e?.code === 4 ? 'E_NOT_FOUND' : 'E_INTERNAL';
+    return { success: false, error: { code, message: e?.message ?? 'Failed to list labels' } };
+  }
 }

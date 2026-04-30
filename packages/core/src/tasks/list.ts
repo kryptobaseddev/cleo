@@ -4,12 +4,15 @@
  * @epic T4454
  */
 
-import type { Task, TaskPriority, TaskStatus, TaskType } from '@cleocode/contracts';
+import type { Task, TaskPriority, TaskRecord, TaskStatus, TaskType } from '@cleocode/contracts';
 import type { LAFSPage } from '@cleocode/lafs';
+import { type EngineResult, engineSuccess } from '../engine-result.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
 import { paginate } from '../pagination.js';
 import type { DataAccessor, TaskQueryFilters } from '../store/data-accessor.js';
+import { getAccessor } from '../store/data-accessor.js';
+import { tasksToRecords } from './engine-converters.js';
 
 const TASK_LIST_DEFAULT_LIMIT = 10;
 
@@ -148,4 +151,63 @@ export async function listTasks(
     page,
     pagination,
   };
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrapper (T1568 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+/**
+ * List tasks with optional filters, wrapped in EngineResult.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param params - Optional filter, pagination, and format parameters
+ * @returns EngineResult with task array, total count, and filtered count
+ *
+ * @task T1568
+ * @epic T1566
+ */
+export async function taskList(
+  projectRoot: string,
+  params?: {
+    parent?: string;
+    status?: string;
+    priority?: string;
+    type?: string;
+    phase?: string;
+    label?: string;
+    children?: boolean;
+    limit?: number;
+    offset?: number;
+    compact?: boolean;
+  },
+): Promise<EngineResult<{ tasks: TaskRecord[] | CompactTask[]; total: number; filtered: number }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await listTasks(
+      {
+        parentId: params?.parent ?? undefined,
+        status: params?.status as TaskStatus | undefined,
+        priority: params?.priority as TaskPriority | undefined,
+        type: params?.type as TaskType | undefined,
+        phase: params?.phase,
+        label: params?.label,
+        children: params?.children,
+        limit: params?.limit,
+        offset: params?.offset,
+      },
+      projectRoot,
+      accessor,
+    );
+    const tasks = params?.compact
+      ? result.tasks.map((t) => toCompact(t))
+      : tasksToRecords(result.tasks);
+    return engineSuccess({ tasks, total: result.total, filtered: result.filtered }, result.page);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
+    };
+  }
 }
