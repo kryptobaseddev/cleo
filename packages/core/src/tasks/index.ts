@@ -141,3 +141,11 @@ export {
   semaphoreDir,
 } from './tool-semaphore.js';
 export { type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';
+// Engine-layer converter types and functions (T1568 / ADR-057 / ADR-058)
+export {
+  type IvtrHistoryEntry,
+  type LifecycleStageEntry,
+  taskToRecord,
+  tasksToRecords,
+  toHistoryEntry,
+} from './engine-converters.js';

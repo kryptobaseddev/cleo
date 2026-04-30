@@ -1231,6 +1231,14 @@ export type {
 export { regenerateAndCompare, regenerateAndCompareAll } from './store/restore-json-merge.js';
 // Tasks (additional — stats)
 export { coreTaskStats } from './tasks/task-ops.js';
+// Engine-layer converters and types (T1568 / ADR-057 / ADR-058)
+export {
+  type IvtrHistoryEntry,
+  type LifecycleStageEntry,
+  taskToRecord,
+  tasksToRecords,
+  toHistoryEntry,
+} from './tasks/engine-converters.js';
 
 // ---------------------------------------------------------------------------
 // Additional flat exports (required by @cleocode/cleo)
