@@ -24,6 +24,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { resolveBridgeMode } from '../system/bridge-mode.js';
 
 // ============================================================================
@@ -457,4 +458,23 @@ function buildEmptyBridge(repoPath: string): string {
     '| What execution flows exist? | `cleo nexus flows` |',
     '',
   ].join('\n');
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusRefreshBridge(
+  repoPath: string,
+  projectId?: string,
+): Promise<EngineResult<{ path: string; written: boolean; projectId: string; repoPath: string }>> {
+  try {
+    const result = await writeNexusBridge(repoPath, projectId);
+    const resolvedProjectId = projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    return engineSuccess({
+      path: result.path,
+      written: result.written,
+      projectId: resolvedProjectId,
+      repoPath,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

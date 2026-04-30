@@ -16,6 +16,7 @@ import type {
   ShapeCheckResult,
 } from '@cleocode/contracts/nexus-route-ops.js';
 import { and, eq } from 'drizzle-orm';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import type { NexusNodeRow, NexusRelationRow } from '../store/nexus-schema.js';
 
 /**
@@ -316,5 +317,36 @@ export async function shapeCheck(
     throw new Error(
       `Failed to check shape for route ${routeSymbol}: ${err instanceof Error ? err.message : String(err)}`,
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// EngineResult-returning wrappers (T1569 / ADR-057 / ADR-058)
+// ---------------------------------------------------------------------------
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusRouteMap(
+  projectId: string,
+  projectRoot: string,
+): Promise<EngineResult<RouteMapResult>> {
+  try {
+    const result = await getRouteMap(projectId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusShapeCheck(
+  routeSymbol: string,
+  projectId: string,
+  projectRoot: string,
+): Promise<EngineResult<ShapeCheckResult>> {
+  try {
+    const result = await shapeCheck(routeSymbol, projectId, projectRoot);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }

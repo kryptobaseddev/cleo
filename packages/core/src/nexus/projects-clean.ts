@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 
 /** Thrown when no filter criteria are provided to cleanProjects. */
 export class NoCriteriaError extends Error {
@@ -204,4 +205,45 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     sample,
     totalCount,
   };
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusProjectsClean(opts: {
+  dryRun?: boolean;
+  pattern?: string;
+  includeTemp?: boolean;
+  includeTests?: boolean;
+  matchUnhealthy?: boolean;
+  matchNeverIndexed?: boolean;
+}): Promise<EngineResult<CleanProjectsResult>> {
+  const hasCriteria =
+    typeof opts.pattern === 'string' ||
+    opts.includeTemp === true ||
+    opts.includeTests === true ||
+    opts.matchUnhealthy === true ||
+    opts.matchNeverIndexed === true;
+  if (!hasCriteria) {
+    return engineError(
+      'E_NO_CRITERIA',
+      'At least one criteria flag is required: --include-temp, --include-tests, --pattern, --unhealthy, or --never-indexed',
+    );
+  }
+
+  if (typeof opts.pattern === 'string') {
+    try {
+      new RegExp(opts.pattern);
+    } catch (e) {
+      return engineError(
+        'E_INVALID_PATTERN',
+        `Invalid regex pattern '${opts.pattern}': ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  try {
+    const result = await cleanProjects({ dryRun: opts.dryRun ?? false, ...opts });
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }

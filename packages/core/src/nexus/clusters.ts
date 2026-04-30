@@ -7,6 +7,7 @@
  * @task T1473
  */
 
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 
 /** One detected community (Louvain cluster). */
@@ -76,4 +77,17 @@ export async function getProjectClusters(
       };
     }),
   };
+}
+
+// SSoT-EXEMPT:engine-migration-T1569
+export async function nexusClusters(
+  projectId: string,
+  repoPath: string,
+): Promise<EngineResult<NexusClustersResult>> {
+  try {
+    const result = await getProjectClusters(projectId, repoPath);
+    return engineSuccess(result);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
 }
