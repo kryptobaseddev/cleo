@@ -220,6 +220,7 @@ export interface LogQueryData {
  * @task T4844
  * @task T1571
  */
+// SSoT-EXEMPT:engine-migration-T1571
 export async function queryAuditLog(
   projectRoot: string,
   filters?: {

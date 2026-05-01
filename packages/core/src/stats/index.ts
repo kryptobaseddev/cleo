@@ -255,6 +255,7 @@ const PRIORITY_ORDER: Record<string, number> = {
   low: 3,
 };
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Get project dashboard data. */
 export async function getDashboard(
   opts: {
@@ -540,6 +541,7 @@ export interface StatsData {
  *
  * @task T1571
  */
+// SSoT-EXEMPT:engine-migration-T1571
 export async function getProjectStatsExtended(
   cwd: string,
   params?: { period?: number },

@@ -149,6 +149,7 @@ async function resolveBinaryPath(name: string): Promise<string | null> {
   }
 }
 
+// SSoT-EXEMPT:engine-migration-T1571
 export async function getRuntimeDiagnostics(options?: {
   detailed?: boolean;
 }): Promise<RuntimeDiagnostics> {

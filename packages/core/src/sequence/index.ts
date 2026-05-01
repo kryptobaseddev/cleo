@@ -158,6 +158,7 @@ function getMaxIdFromTasks(tasks: Array<Pick<Task, 'id'>>): number {
   return max;
 }
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Show current sequence state. */
 export async function showSequence(cwd?: string): Promise<Record<string, unknown>> {
   const seq = await readSequence(cwd);
@@ -193,6 +194,7 @@ async function loadAllTasks(
   }
 }
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Check sequence integrity. */
 export async function checkSequence(
   cwd?: string,

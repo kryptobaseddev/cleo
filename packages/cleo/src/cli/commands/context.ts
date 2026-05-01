@@ -12,10 +12,9 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import { resolveProjectRoot } from '@cleocode/core/internal';
+import { getContextWindow, resolveProjectRoot } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { systemContext } from '../../dispatch/engines/system-engine.js';
 import { cliOutput } from '../renderers/index.js';
 
 /** Map context status strings to exit codes for scripting. */
@@ -66,20 +65,9 @@ const checkCommand = defineCommand({
   },
   async run({ args }) {
     const cwd = resolveProjectRoot();
-    const result = systemContext(cwd, {
+    const data = getContextWindow(cwd, {
       session: args.session as string | undefined,
     });
-    if (!result.success) {
-      console.error(result.error?.message ?? 'Context check failed');
-      process.exit(ExitCode.GENERAL_ERROR);
-      return;
-    }
-    const data = result.data;
-    if (!data) {
-      console.error('Context check returned no data');
-      process.exit(ExitCode.GENERAL_ERROR);
-      return;
-    }
     cliOutput(data, { command: 'context', operation: 'admin.context' });
     const exitCode = STATUS_EXIT_CODE[data.status] ?? ExitCode.SUCCESS;
     if (exitCode !== ExitCode.SUCCESS) {
