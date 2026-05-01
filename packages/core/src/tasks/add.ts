@@ -1299,5 +1299,19 @@ export async function addTask(
       /* Graph population is best-effort — never fail addTask. */
     });
 
+  // T1634 — LOOM auto-init for new epics.
+  // Every new epic automatically initializes the RCASD-IVTR lifecycle pipeline
+  // at the 'research' stage so 'cleo orchestrate ready --epic <id>' always
+  // has a LOOM context (and never returns 'epic has no children' due to an
+  // uninitialized pipeline). Fire-and-forget: failures are swallowed inside
+  // initLoomForEpic so LOOM init never blocks or fails epic creation.
+  if (taskType === 'epic') {
+    import('../orchestrate/lifecycle-ops.js')
+      .then(({ initLoomForEpic }) => initLoomForEpic(taskId, cwd ?? process.cwd()))
+      .catch(() => {
+        /* LOOM init is best-effort — never fail addTask. */
+      });
+  }
+
   return { task, ...(warnings.length > 0 && { warnings }) };
 }

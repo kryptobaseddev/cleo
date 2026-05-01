@@ -205,6 +205,43 @@ JSONL write, `applyGcBatch` state transition, and `safeRunCrossProjectHygiene`
 error-swallowing. Zero dynamic imports in source — all static for testability.
 Biome CI green.
 
+### Core invariant: LOOM auto-init for new epics (T1634)
+
+Closes the T1563+T1566 bug class where `cleo orchestrate ready --epic <id>` returned
+`"epic has no children"` because the RCASD-IVTR lifecycle pipeline was never initialized
+for the epic — even when the epic had tasks. The root cause was that `cleo add --type epic`
+did not automatically initialize LOOM.
+
+**Auto-init hook in `addTask`**
+
+- After a successful epic insert, `addTask` now fires a best-effort, fire-and-forget call
+  to `initLoomForEpic` — the same lifecycle primitive used by `cleo orchestrate start`.
+- Failure is swallowed (best-effort); LOOM init never blocks or fails epic creation.
+- Non-epic tasks are unaffected: the hook only fires when `type === 'epic'`.
+
+**New `initLoomForEpic` primitive (`packages/core/src/orchestrate/lifecycle-ops.ts`)**
+
+- Idempotent: if a pipeline already exists for the epic, returns `{ initialized: false, alreadyInitialized: true }` — no error.
+- Uses `getLifecycleStatus` + `recordStageProgress` (existing functions) — no new DB logic.
+- `orchestrateStartup` (the `cleo orchestrate start` handler) is refactored to delegate to `initLoomForEpic` — DRY, single source of truth.
+- Exported from `packages/core/src/orchestrate/index.ts`.
+
+**Backfill script (`packages/core/src/tasks/backfill-epic-loom.ts`)**
+
+- `backfillEpicLoom(projectRoot)` scans all non-terminal epics (status ≠ done, cancelled)
+  and calls `initLoomForEpic` for each one. Idempotent — re-running is safe.
+- Returns an aggregate `BackfillLoomResult` with per-epic breakdown (initialized / skipped / errors).
+
+**Tests (7 new, all green)**
+
+- `auto-initializes LOOM pipeline when an epic is created via addTask`
+- `initLoomForEpic is idempotent — second call skips re-init`
+- `initLoomForEpic returns initialized:true when called on un-LOOMed epic`
+- `does not initialize LOOM for non-epic tasks`
+- `backfillEpicLoom: populates LOOM for existing un-LOOMed epics`
+- `backfillEpicLoom: skips already-initialized epics (idempotent)`
+- `backfillEpicLoom: skips done/cancelled epics`
+
 ---
 
 ## [2026.5.0] (2026-05-01) — T1566 ENG-MIG epic complete + ADR-062 cherry-pick purge
