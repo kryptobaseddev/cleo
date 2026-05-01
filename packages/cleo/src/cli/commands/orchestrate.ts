@@ -22,6 +22,7 @@
  *   cleo orchestrate handoff <taskId>     — session handoff + successor spawn
  *   cleo orchestrate spawn-execute <taskId> — adapter-registry spawn
  *   cleo orchestrate fanout <epicId>      — parallel fan-out spawn
+ *   cleo orchestrate worktree-complete <taskId> — canonical git merge --no-ff integration (ADR-062)
  *   cleo orchestrate conduit-status       — conduit messaging status (legacy, prefer `cleo conduit status`)
  *   cleo orchestrate conduit-peek         — peek queued conduit messages (legacy)
  *   cleo orchestrate conduit-start        — start conduit message loop (legacy)
@@ -683,6 +684,55 @@ const pruneCommand = defineCommand({
 });
 
 /**
+ * cleo orchestrate worktree-complete — integrate a subagent worktree branch into the
+ * project's default branch using canonical `git merge --no-ff` (ADR-062).
+ *
+ * Exposes the existing `worktree.complete` dispatch handler
+ * ({@link handleWorktreeComplete} in `dispatch/domains/orchestrate.ts`) as a
+ * first-class CLI subcommand so orchestrators can run a single deterministic
+ * command instead of composing `git merge --no-ff task/<id>` manually.
+ *
+ * The handler delegates to {@link completeAgentWorktreeViaMerge} from
+ * `@cleocode/core/internal`, which:
+ *  - Rebases `task/<taskId>` onto the default branch (fast-forward, no conflict risk)
+ *  - Merges with `--no-ff` to preserve all agent commit SHAs and authorship
+ *  - Deletes the worktree filesystem entry and the `task/<taskId>` branch
+ *
+ * Returns the structured {@link WorktreeMergeResult} (mergeCommit, branchDeleted,
+ * commitCount, etc.) as a LAFS envelope on stdout.
+ *
+ * ADR-062: `git merge --no-ff` is the ONLY canonical integration strategy for
+ * agent worktrees. Cherry-pick is explicitly forbidden — it destroys commit SHAs
+ * and breaks `git log --grep "<taskId>"` traceability.
+ *
+ * @task T1625
+ * @adr ADR-062
+ */
+const worktreeCompleteCommand = defineCommand({
+  meta: {
+    name: 'worktree-complete',
+    description:
+      'Integrate subagent worktree into default branch via canonical git merge --no-ff (ADR-062)',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'Task ID whose worktree branch should be merged (e.g. T1625)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'orchestrate',
+      'worktree.complete',
+      { taskId: args.taskId },
+      { command: 'orchestrate' },
+    );
+  },
+});
+
+/**
  * cleo orchestrate conduit-status — legacy alias for `cleo conduit status`.
  *
  * T964: dispatches to the canonical `conduit` domain. The `conduit-*`
@@ -882,11 +932,11 @@ const conduitSendCommand = defineCommand({
 });
 
 /**
- * Root orchestrate command group — all 24 multi-agent orchestration operations.
+ * Root orchestrate command group — all 25 multi-agent orchestration operations.
  *
  * Dispatches to the `orchestrate` and `pipeline` dispatch domains.
  *
- * @task T4466, T478, T483, T811
+ * @task T4466, T478, T483, T811, T1625
  * @epic T4454
  */
 export const orchestrateCommand = defineCommand({
@@ -913,6 +963,7 @@ export const orchestrateCommand = defineCommand({
     'spawn-execute': spawnExecuteCommand,
     fanout: fanoutCommand,
     prune: pruneCommand,
+    'worktree-complete': worktreeCompleteCommand,
     'conduit-status': conduitStatusCommand,
     'conduit-peek': conduitPeekCommand,
     'conduit-start': conduitStartCommand,
