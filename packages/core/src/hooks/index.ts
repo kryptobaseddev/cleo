@@ -9,6 +9,9 @@
  */
 
 export * from './handlers/index.js';
+// Hooks engine-ops (ENG-MIG-12 / T1579) — EngineResult wrappers for hook operations
+export type { HookMatrixResult, ProviderMatrixEntry } from './engine-ops.js';
+export { queryCommonHooks, queryHookProviders, systemHooksMatrix } from './engine-ops.js';
 export type { PayloadValidationResult } from './payload-schemas.js';
 export {
   HookPayloadSchema,

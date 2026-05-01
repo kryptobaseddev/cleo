@@ -206,14 +206,14 @@ export {
   configSet,
   configSetPreset,
 } from '../engines/config-engine.js';
-// Hooks engine (T167)
+// Hooks engine (ENG-MIG-12 / T1579 — logic in @cleocode/core/internal)
 export {
   type HookMatrixResult,
   type ProviderMatrixEntry,
   queryCommonHooks,
   queryHookProviders,
   systemHooksMatrix,
-} from '../engines/hooks-engine.js';
+} from '@cleocode/core/internal';
 // Init engine
 export {
   ensureInitialized,
