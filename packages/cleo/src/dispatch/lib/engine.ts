@@ -13,14 +13,40 @@ export type { OrchestratePlanResult } from '@cleocode/contracts/operations/orche
 // Task operations — re-exported from @cleocode/core/internal (T1568 / ADR-057 / ADR-058)
 // task-engine.ts was deleted in Wave 5; all symbols now live in core/tasks/.
 // Orchestrate — types and functions from @cleocode/core/internal (T1570 ADR-057)
+// System — type aliases for backward compat (T1571: system-engine.ts deleted, canonical sources = @cleocode/core/internal)
 export type {
+  ArchiveStatsResult as ArchiveStatsData,
+  AuditResult as AuditData,
+  BackupEntry as BackupEntryData,
+  BackupResult as BackupData,
+  CleanupResult as CleanupData,
   CompactTask,
+  ComplianceData,
+  ContextData,
+  DashboardData,
+  DiagnosticsResult as DiagnosticsData,
+  FileRestoreResult,
+  HealthResult as HealthData,
+  HelpData,
+  InjectGenerateResult as InjectGenerateData,
   IvtrHistoryEntry,
+  LabelsResult as LabelsData,
   LifecycleStageEntry,
+  LogQueryData,
+  MigrateResult as MigrateData,
   OrchestratePlanInput,
+  PathsData,
   PlanWarning,
   PlanWave,
   PlanWorkerEntry,
+  RestoreResult as RestoreData,
+  RuntimeDiagnostics as RuntimeData,
+  SafestopResult as SafestopData,
+  ScaffoldHubData,
+  StatsData,
+  SyncData,
+  SystemMetricsResult as MetricsData,
+  UncancelResult as UncancelData,
 } from '@cleocode/core/internal';
 // Pipeline manifest functions (moved from memory domain in T5241)
 export {
@@ -234,34 +260,6 @@ export {
   taskStop,
   taskWorkHistory,
 } from '../engines/session-engine.js';
-// System — type aliases for backward compat (T1571: system-engine.ts deleted, canonical sources = @cleocode/core/internal)
-export type {
-  ArchiveStatsResult as ArchiveStatsData,
-  AuditResult as AuditData,
-  BackupEntry as BackupEntryData,
-  BackupResult as BackupData,
-  CleanupResult as CleanupData,
-  ComplianceData,
-  ContextData,
-  DashboardData,
-  DiagnosticsResult as DiagnosticsData,
-  FileRestoreResult,
-  HelpData,
-  HealthResult as HealthData,
-  InjectGenerateResult as InjectGenerateData,
-  LabelsResult as LabelsData,
-  LogQueryData,
-  MigrateResult as MigrateData,
-  PathsData,
-  RestoreResult as RestoreData,
-  RuntimeDiagnostics as RuntimeData,
-  SafestopResult as SafestopData,
-  ScaffoldHubData,
-  StatsData,
-  SyncData,
-  SystemMetricsResult as MetricsData,
-  UncancelResult as UncancelData,
-} from '@cleocode/core/internal';
 // Template parser engine
 export {
   generateTemplateConfig,

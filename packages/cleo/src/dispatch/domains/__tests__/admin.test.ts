@@ -14,9 +14,8 @@ vi.mock('../../lib/engine.js', () => ({
 
 // Mock core/internal — system functions moved here in T1571
 vi.mock('@cleocode/core/internal', async () => {
-  const actual = await vi.importActual<typeof import('@cleocode/core/internal')>(
-    '@cleocode/core/internal',
-  );
+  const actual =
+    await vi.importActual<typeof import('@cleocode/core/internal')>('@cleocode/core/internal');
   return {
     ...actual,
     getSystemHealth: vi.fn(),
@@ -161,33 +160,22 @@ vi.mock('../../registry.js', () => ({
 }));
 
 import {
+  checkSequence,
   cleanupSystem,
-  coreDoctorReport,
-  fileRestore,
   generateInjection,
   getAccessor,
   getContextWindow,
   getDashboard,
   getMigrationStatus,
   getProjectStatsExtended,
-  getRoadmap,
   getRuntimeDiagnostics,
   getSystemHealth,
-  getSystemPaths,
-  listSystemBackups,
   queryAuditLog,
-  restoreBackup,
-  runDoctorFixes,
   safestop,
   showSequence,
-  checkSequence,
   systemCreateBackup,
 } from '@cleocode/core/internal';
-import {
-  configSet,
-  getVersion,
-  initProject,
-} from '../../lib/engine.js';
+import { configSet, getVersion, initProject } from '../../lib/engine.js';
 import { getJobManager } from '../../lib/job-manager-accessor.js';
 import { AdminHandler } from '../admin.js';
 
@@ -281,9 +269,12 @@ describe('AdminHandler', () => {
     });
 
     it('should call getSystemHealth for health', async () => {
-      vi.mocked(getSystemHealth).mockResolvedValue(
-        { overall: 'healthy', checks: [], version: '1.0.0', installation: 'ok' } as any,
-      );
+      vi.mocked(getSystemHealth).mockResolvedValue({
+        overall: 'healthy',
+        checks: [],
+        version: '1.0.0',
+        installation: 'ok',
+      } as any);
 
       const res = await handler.query('health', { detailed: true });
 
@@ -294,13 +285,32 @@ describe('AdminHandler', () => {
     it('should call getProjectStatsExtended for stats', async () => {
       vi.mocked(getProjectStatsExtended).mockResolvedValue({
         currentState: {
-          pending: 0, active: 0, done: 10, blocked: 0, cancelled: 0,
-          totalActive: 0, archived: 0, grandTotal: 10,
+          pending: 0,
+          active: 0,
+          done: 10,
+          blocked: 0,
+          cancelled: 0,
+          totalActive: 0,
+          archived: 0,
+          grandTotal: 10,
         },
-        byPriority: {}, byType: {}, byPhase: {},
-        completionMetrics: { periodDays: 7, completedInPeriod: 0, createdInPeriod: 0, completionRate: 0 },
+        byPriority: {},
+        byType: {},
+        byPhase: {},
+        completionMetrics: {
+          periodDays: 7,
+          completedInPeriod: 0,
+          createdInPeriod: 0,
+          completionRate: 0,
+        },
         activityMetrics: { createdInPeriod: 0, completedInPeriod: 0, archivedInPeriod: 0 },
-        allTime: { totalCreated: 0, totalCompleted: 0, totalCancelled: 0, totalArchived: 0, archivedCompleted: 0 },
+        allTime: {
+          totalCreated: 0,
+          totalCompleted: 0,
+          totalCancelled: 0,
+          totalArchived: 0,
+          archivedCompleted: 0,
+        },
         cycleTimes: { averageDays: null, samples: 0 },
       });
 
@@ -312,9 +322,14 @@ describe('AdminHandler', () => {
 
     it('should call getContextWindow for context', async () => {
       vi.mocked(getContextWindow).mockReturnValue({
-        available: true, status: 'ok', percentage: 50,
-        currentTokens: 500, maxTokens: 1000, timestamp: null,
-        stale: false, sessions: [],
+        available: true,
+        status: 'ok',
+        percentage: 50,
+        currentTokens: 500,
+        maxTokens: 1000,
+        timestamp: null,
+        stale: false,
+        sessions: [],
       });
 
       const res = await handler.query('context');
@@ -325,11 +340,18 @@ describe('AdminHandler', () => {
 
     it('should call getRuntimeDiagnostics for runtime', async () => {
       vi.mocked(getRuntimeDiagnostics).mockResolvedValue({
-        channel: 'dev', mode: 'dev', source: 'local', version: '1.0.0',
-        installed: '/usr/local', dataRoot: '/tmp',
+        channel: 'dev',
+        mode: 'dev',
+        source: 'local',
+        version: '1.0.0',
+        installed: '/usr/local',
+        dataRoot: '/tmp',
         invocation: { executable: 'node', script: 'cleo', args: [] },
         naming: { cli: 'cleo', server: 'cleo-server' },
-        node: '20.0.0', platform: 'linux', arch: 'x64', warnings: [],
+        node: '20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        warnings: [],
       } as any);
 
       const res = await handler.query('runtime', { detailed: true });
@@ -341,13 +363,24 @@ describe('AdminHandler', () => {
     it('should call getDashboard for dash', async () => {
       vi.mocked(getAccessor).mockResolvedValue({} as any);
       vi.mocked(getDashboard).mockResolvedValue({
-        project: '/test', currentPhase: null,
-        summary: { pending: 0, active: 0, blocked: 0, done: 5, cancelled: 0, total: 5, archived: 0, grandTotal: 5 },
+        project: '/test',
+        currentPhase: null,
+        summary: {
+          pending: 0,
+          active: 0,
+          blocked: 0,
+          done: 5,
+          cancelled: 0,
+          total: 5,
+          archived: 0,
+          grandTotal: 5,
+        },
         focus: { currentTask: null, task: null },
         activeSession: null,
         highPriority: { count: 0, tasks: [] },
         blockedTasks: { count: 0, limit: 5, tasks: [] },
-        recentCompletions: [], topLabels: [],
+        recentCompletions: [],
+        topLabels: [],
       } as any);
 
       const res = await handler.query('dash');
@@ -358,17 +391,26 @@ describe('AdminHandler', () => {
 
     it('should call queryAuditLog for log', async () => {
       vi.mocked(queryAuditLog).mockResolvedValue({
-        entries: [], pagination: { total: 0, offset: 0, limit: 10, hasMore: false },
+        entries: [],
+        pagination: { total: 0, offset: 0, limit: 10, hasMore: false },
       });
 
       const res = await handler.query('log', { limit: 10, taskId: 'T001' });
 
       expect(res.success).toBe(true);
-      expect(queryAuditLog).toHaveBeenCalledWith('/mock/project', expect.objectContaining({ limit: 10, taskId: 'T001' }));
+      expect(queryAuditLog).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({ limit: 10, taskId: 'T001' }),
+      );
     });
 
     it('should call showSequence for sequence', async () => {
-      vi.mocked(showSequence).mockResolvedValue({ counter: 42, lastId: 'T042', checksum: 'abc', nextId: 'T043' } as any);
+      vi.mocked(showSequence).mockResolvedValue({
+        counter: 42,
+        lastId: 'T042',
+        checksum: 'abc',
+        nextId: 'T043',
+      } as any);
 
       const res = await handler.query('sequence');
 
@@ -525,24 +567,36 @@ describe('AdminHandler', () => {
       const res = await handler.mutate('backup', { type: 'snapshot' });
 
       expect(res.success).toBe(true);
-      expect(systemCreateBackup).toHaveBeenCalledWith('/mock/project', { type: 'snapshot', note: undefined });
+      expect(systemCreateBackup).toHaveBeenCalledWith('/mock/project', {
+        type: 'snapshot',
+        note: undefined,
+      });
     });
 
     it('should call getMigrationStatus for migrate', async () => {
-      vi.mocked(getMigrationStatus).mockResolvedValue(
-        { from: '1.0.0', to: '2.0.0', migrations: [], dryRun: true } as any,
-      );
+      vi.mocked(getMigrationStatus).mockResolvedValue({
+        from: '1.0.0',
+        to: '2.0.0',
+        migrations: [],
+        dryRun: true,
+      } as any);
 
       const res = await handler.mutate('migrate', { dryRun: true });
 
       expect(res.success).toBe(true);
-      expect(getMigrationStatus).toHaveBeenCalledWith('/mock/project', { dryRun: true, target: undefined });
+      expect(getMigrationStatus).toHaveBeenCalledWith('/mock/project', {
+        dryRun: true,
+        target: undefined,
+      });
     });
 
     it('should call cleanupSystem for cleanup with target validation', async () => {
-      vi.mocked(cleanupSystem).mockResolvedValue(
-        { target: 'backups', deleted: 3, items: [], dryRun: true } as any,
-      );
+      vi.mocked(cleanupSystem).mockResolvedValue({
+        target: 'backups',
+        deleted: 3,
+        items: [],
+        dryRun: true,
+      } as any);
 
       const res = await handler.mutate('cleanup', { target: 'backups', dryRun: true });
 
@@ -572,21 +626,29 @@ describe('AdminHandler', () => {
     });
 
     it('should call safestop for safestop', async () => {
-      vi.mocked(safestop).mockResolvedValue(
-        { stopped: true, reason: 'test', sessionEnded: false, dryRun: true } as any,
-      );
+      vi.mocked(safestop).mockResolvedValue({
+        stopped: true,
+        reason: 'test',
+        sessionEnded: false,
+        dryRun: true,
+      } as any);
 
       const res = await handler.mutate('safestop', { reason: 'test', dryRun: true });
 
       expect(res.success).toBe(true);
-      expect(safestop).toHaveBeenCalledWith('/mock/project', expect.objectContaining({ reason: 'test', dryRun: true }));
+      expect(safestop).toHaveBeenCalledWith(
+        '/mock/project',
+        expect.objectContaining({ reason: 'test', dryRun: true }),
+      );
     });
 
     it('should call generateInjection for inject.generate', async () => {
       vi.mocked(getAccessor).mockResolvedValue({} as any);
-      vi.mocked(generateInjection).mockResolvedValue(
-        { injection: '...', sizeBytes: 100, version: '1.0.0' } as any,
-      );
+      vi.mocked(generateInjection).mockResolvedValue({
+        injection: '...',
+        sizeBytes: 100,
+        version: '1.0.0',
+      } as any);
 
       const res = await handler.mutate('inject.generate');
 

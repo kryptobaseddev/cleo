@@ -215,11 +215,7 @@ export function getContextWindow(cwd: string, opts?: { session?: string }): Cont
     if (existsSync(currentSessionPath)) {
       const currentSession = readFileSync(currentSessionPath, 'utf-8').trim();
       if (currentSession) {
-        const sessionFile = join(
-          cleoDir,
-          'context-states',
-          `context-state-${currentSession}.json`,
-        );
+        const sessionFile = join(cleoDir, 'context-states', `context-state-${currentSession}.json`);
         stateFile = existsSync(sessionFile) ? sessionFile : join(cleoDir, '.context-state.json');
       } else {
         stateFile = join(cleoDir, '.context-state.json');
