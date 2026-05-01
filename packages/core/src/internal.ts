@@ -1293,6 +1293,24 @@ export { buildBrainState } from './orchestration/bootstrap.js';
 export { getOtelStatus } from './otel/index.js';
 // Phases (additional)
 export { completePhase } from './phases/index.js';
+// Release engine operations (T1572 — ENG-MIG-5: migrated from dispatch layer)
+export {
+  releaseCancel,
+  releaseChangelog,
+  releaseChangelogSince,
+  releaseCommit,
+  releaseGateCheck,
+  releaseGatesRun,
+  releaseIvtrAutoSuggest,
+  releaseList,
+  releasePrepare,
+  releasePush,
+  releaseRollback,
+  releaseRollbackFull,
+  releaseShip,
+  releaseShow,
+  releaseTag,
+} from './release/engine-ops.js';
 // Release (additional)
 export { tagRelease } from './release/release-manifest.js';
 // Remote (additional)
