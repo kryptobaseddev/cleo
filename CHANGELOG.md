@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [2026.5.3] (2026-05-01) — T1684 HOTFIX: daemon crash-loop + Studio bundling
+
+Fixes the v2026.5.2 daemon crash-loop discovered in production. Daemon now starts cleanly, supervises Studio when available, degrades gracefully to `studio: not-available` when not.
 
 ### T-LW-W8: HOTFIX — daemon crash-loop bugs (T1684)
 
