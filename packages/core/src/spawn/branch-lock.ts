@@ -3,16 +3,20 @@
  *
  * Implements all four protection layers:
  *
- * - L1: Git worktree creation, completion (cherry-pick), and cleanup.
+ * - L1: Git worktree creation, merge-completion (ADR-062), and cleanup.
  * - L2: Shim symlink materialisation + spawn env construction.
  * - L3: Filesystem hardening via chmod (+ optional chattr on Linux).
  * - L4: Not here — L4 lives in validate-engine and session domain handlers.
+ *
+ * Worktree integration uses `git merge --no-ff` exclusively per ADR-062.
+ * The legacy cherry-pick integration path was removed in T1624.
  *
  * All git operations use execFileSync with explicit arg arrays (no shell
  * interpolation) to prevent command injection.
  *
  * @task T1118
  * @adr ADR-055
+ * @adr ADR-062
  */
 
 import { execFileSync } from 'node:child_process';
@@ -38,7 +42,6 @@ import type {
   FsHardenCapabilities,
   FsHardenState,
   WorktreeCleanupResult,
-  WorktreeCompleteResult,
   WorktreeMergeResult,
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
@@ -232,116 +235,6 @@ export function buildWorktreeSpawnResult(
 }
 
 /**
- * Complete a task's worktree by cherry-picking commits to main and cleaning up.
- *
- * Steps:
- * 1. List commits on the task branch not present on baseRef.
- * 2. Cherry-pick them onto the orchestrator's current branch.
- * 3. Unlock the worktree and remove it.
- * 4. Delete the task branch.
- *
- * @deprecated since T1601 — use {@link completeAgentWorktreeViaMerge}
- * (ADR-062). Cherry-pick rewrites SHAs and destroys provenance; the merge
- * variant preserves the agent's commit graph so `git log --grep "T<id>"`
- * returns the originating commits. This function is retained for one
- * release window for back-compat with in-flight worktrees and will be
- * removed thereafter. No production callsite in this repository uses it
- * (verified by T1601). Tests / external consumers MUST migrate.
- *
- * @param taskId - The task ID whose worktree to complete.
- * @param projectRoot - Absolute path to the project root.
- * @returns Completion result.
- *
- * @task T1118
- * @task T1120
- * @task T1601
- */
-export function completeAgentWorktree(taskId: string, projectRoot: string): WorktreeCompleteResult {
-  const gitRoot = getGitRoot(projectRoot);
-  const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
-  const worktreePath = join(worktreeRoot, taskId);
-  const branch = `task/${taskId}`;
-
-  // Determine base ref.
-  let baseRef: string;
-  try {
-    baseRef = gitSync(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot);
-  } catch {
-    baseRef = 'main';
-  }
-
-  let cherryPicked = false;
-  let commitCount = 0;
-  let error: string | undefined;
-
-  // Step 1: Collect commits on the task branch not on baseRef.
-  let commits: string[] = [];
-  try {
-    const branchExists = gitSync(['branch', '--list', branch], gitRoot);
-    if (branchExists) {
-      const log = gitSync(['log', '--reverse', '--format=%H', `${baseRef}..${branch}`], gitRoot);
-      commits = log
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }
-  } catch (err) {
-    error = `Failed to list commits: ${err instanceof Error ? err.message : String(err)}`;
-  }
-
-  // Step 2: Cherry-pick commits if any.
-  if (commits.length > 0 && !error) {
-    try {
-      gitSync(['cherry-pick', ...commits], gitRoot);
-      cherryPicked = true;
-      commitCount = commits.length;
-    } catch (err) {
-      gitSilent(['cherry-pick', '--abort'], gitRoot);
-      error = `Cherry-pick failed: ${err instanceof Error ? err.message : String(err)}`;
-    }
-  } else if (commits.length === 0 && !error) {
-    cherryPicked = true;
-    commitCount = 0;
-  }
-
-  // Step 3: Unlock + remove the worktree.
-  let worktreeRemoved = false;
-  if (existsSync(worktreePath)) {
-    gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-    if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
-      worktreeRemoved = true;
-    } else {
-      try {
-        rmSync(worktreePath, { recursive: true, force: true });
-        worktreeRemoved = true;
-      } catch (err) {
-        if (!error) {
-          error = `Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`;
-        }
-      }
-    }
-  } else {
-    worktreeRemoved = true;
-  }
-
-  // Step 4: Delete the task branch.
-  let branchDeleted = false;
-  try {
-    const branchExists = gitSync(['branch', '--list', branch], gitRoot);
-    if (branchExists) {
-      gitSync(['branch', '-D', branch], gitRoot);
-    }
-    branchDeleted = true;
-  } catch (err) {
-    if (!error) {
-      error = `Failed to delete branch: ${err instanceof Error ? err.message : String(err)}`;
-    }
-  }
-
-  return { taskId, cherryPicked, commitCount, worktreeRemoved, branchDeleted, error };
-}
-
-/**
  * Prune orphaned agent worktrees for a project.
  *
  * @param projectRoot - Absolute path to the project root.
@@ -416,19 +309,20 @@ export interface PruneWorktreeResult {
 /**
  * Prune the worktree for a single completed or cancelled task.
  *
- * Unlike {@link completeAgentWorktree}, this function does NOT cherry-pick
- * any commits — it is called after `cleo complete` has already recorded the
- * task as done. It simply removes the worktree filesystem entry and the
- * `task/<taskId>` branch if the branch has no commits ahead of the base ref.
+ * This function does NOT integrate commits — it is called after
+ * {@link completeAgentWorktreeViaMerge} (or `cleo complete`) has already
+ * recorded the task as done. It simply removes the worktree filesystem entry
+ * and the `task/<taskId>` branch if the branch has no commits ahead of the
+ * base ref.
  *
  * Behaviour:
  * - Returns `{ status: 'skipped' }` when no worktree exists for the task.
  * - Unlocks the worktree before removing (handles locked worktrees created by spawn).
  * - Falls back to `rmSync` if `git worktree remove` fails.
  * - Deletes `task/<taskId>` branch only when it has 0 commits ahead of the
- *   current HEAD (i.e. the branch has already been cherry-picked or is empty).
+ *   current HEAD (i.e. the branch has already been merged or is empty).
  *   When commits are still present the branch is left in place and reported in
- *   the result — callers should use `cleo orchestrate worktree.complete` first.
+ *   the result — callers should use `completeAgentWorktreeViaMerge` first.
  * - Always writes a `--force` remove with an audit log entry (`.cleo/audit/worktree-prune.jsonl`)
  *   when the worktree is detected as dirty.
  * - Never throws — failures are returned in `{ status: 'error', error }`.
@@ -650,9 +544,9 @@ export function getDefaultBranch(projectRoot: string): string {
 /**
  * Complete a worker task's worktree via `git merge --no-ff` (ADR-062).
  *
- * Replaces {@link completeAgentWorktree} (cherry-pick) — see ADR-062 for
- * rationale. Preserves the full agent commit graph instead of rewriting
- * SHAs, so `git log --grep "T<id>"` returns the originating commits.
+ * Canonical worktree integration per ADR-062. Preserves the full agent
+ * commit graph instead of rewriting SHAs, so `git log --grep "T<id>"`
+ * returns the originating commits with their original authorship.
  *
  * Steps performed inside the worktree at
  * `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/`:
