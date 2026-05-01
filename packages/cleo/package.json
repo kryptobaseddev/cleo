@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@cleocode/caamp": "workspace:*",
+    "@cleocode/studio": "workspace:^",
     "@cleocode/cant": "workspace:*",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
