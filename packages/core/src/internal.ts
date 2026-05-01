@@ -1628,17 +1628,31 @@ export { ProtocolType } from './compliance/protocol-enforcement.js';
 export type { BuildConfig } from './config/build-config.js';
 // Build config
 export { BUILD_CONFIG } from './config/build-config.js';
-// Config engine-ops (ENG-MIG-15 / T1582) — EngineResult wrappers for config operations
-export { configGet, configListPresets, configSet, configSetPreset } from './config/engine-ops.js';
+// Config engine-ops (ENG-MIG-15 / T1582 / T1677) — EngineResult wrappers for config operations
+export {
+  configGet,
+  configListPresets,
+  configLlmDaemonModel,
+  configLlmDaemonProvider,
+  configSet,
+  configSetPreset,
+} from './config/engine-ops.js';
 // Init (additional)
 export { initCoreSkills, installHandoffRedirectStubs } from './init.js';
-// Memory — anthropic key resolver (additional)
+export type {
+  CredentialResolveOptions,
+  CredentialResult,
+  CredentialSource,
+} from './llm/credentials.js';
+// LLM — credential resolver (T1677: moved from memory/anthropic-key-resolver.ts)
 export {
   clearAnthropicKeyCache,
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
+  resolveCredentials,
+  resolveModelCredentials,
   storeAnthropicApiKey,
-} from './memory/anthropic-key-resolver.js';
+} from './llm/credentials.js';
 // Memory — auto-extract (additional)
 export { extractFromTranscript } from './memory/auto-extract.js';
 // Memory — brain embedding (additional)

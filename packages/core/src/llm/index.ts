@@ -24,6 +24,21 @@ export type { GeminiCacheHandle } from './caching.js';
 export { buildCacheKey, geminiCacheStore, InMemoryGeminiCacheStore } from './caching.js';
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
+export type {
+  CredentialResolveOptions,
+  CredentialResult,
+  CredentialSource,
+} from './credentials.js';
+// Credential resolver (T1677)
+export {
+  clearAnthropicKeyCache,
+  defaultTransportApiKey,
+  resolveAnthropicApiKey,
+  resolveAnthropicApiKeySource,
+  resolveCredentials,
+  resolveModelCredentials,
+  storeAnthropicApiKey,
+} from './credentials.js';
 // Executor (inner call, for testing)
 export { cleoLlmCallInner, completionResultToResponse } from './executor.js';
 // History adapters
@@ -60,4 +75,10 @@ export type {
 } from './types.js';
 export { StreamingResponseWithMetadata } from './types.js';
 // Config types (re-exported from contracts)
-export type { ModelConfig, PromptCachePolicy } from './types-config.js';
+export type {
+  DaemonLLMConfig,
+  LlmConfig,
+  LlmProviderEntry,
+  ModelConfig,
+  PromptCachePolicy,
+} from './types-config.js';

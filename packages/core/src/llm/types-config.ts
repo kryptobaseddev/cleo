@@ -10,6 +10,7 @@
 
 import type { ToolCallParams } from '@cleocode/contracts/operations/llm';
 
+export type { DaemonLLMConfig, LlmConfig, LlmProviderEntry } from '@cleocode/contracts';
 export type { LLMCallParams, ToolCallParams, ToolResult } from '@cleocode/contracts/operations/llm';
 
 /** Supported provider transport names. */

@@ -32,9 +32,9 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { resolveAnthropicApiKey } from '../llm/credentials.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
-import { resolveAnthropicApiKey } from './anthropic-key-resolver.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
 

@@ -98,7 +98,7 @@ vi.mock('@anthropic-ai/sdk/helpers/zod', () => ({
   zodOutputFormat: mockZodOutputFormat,
 }));
 
-vi.mock('../anthropic-key-resolver.js', () => ({
+vi.mock('../../llm/credentials.js', () => ({
   resolveAnthropicApiKey: mockResolveKey,
 }));
 
