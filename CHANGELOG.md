@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased]
+
+### T-LW-W8: HOTFIX — daemon crash-loop bugs (T1684)
+
+Fixes three production bugs that caused the v2026.5.2 daemon to crash-loop
+immediately after `systemctl --user enable --now cleo-daemon`:
+
+**Bug 1 — Studio package not bundled**
+
+- `packages/studio/package.json`: set `"private": false`, added `exports` and
+  `files` fields so the package can be published alongside `@cleocode/cleo`.
+- `packages/cleo/package.json`: added `@cleocode/studio` as a production
+  dependency (not devDependency) so it ships with the CLI.
+- `packages/core/src/sentient/daemon.ts` (`StudioSupervisor.#resolveStudioPackageDir`):
+  replaced workspace-relative path walk with `import.meta.resolve('@cleocode/studio')`
+  so the installed package is located correctly in global npm installs.
+  Falls back to workspace walk for dev setups. When the package is not installed,
+  `StudioSupervisor.#spawn()` sets `status = 'not-available'` instead of crash-looping.
+- Added `'not-available'` variant to `StudioStatus` union.
+
+**Bug 2 — Hardcoded fnm node path**
+
+Already resolved in v2026.5.2 via `process.execPath` throughout `daemon.ts`.
+Confirmed no fnm-specific paths remain in the daemon or Studio spawn code.
+
+**Bug 3 — `cleo daemon install` import path**
+
+- `packages/cleo/src/cli/commands/daemon.ts` (`resolveDaemonInstallerScript`):
+  walks from `fileURLToPath(import.meta.url)` up to pkg root — already correct
+  for compiled output at `dist/cli/commands/daemon.js`.
+- `packages/core/src/sentient/daemon-api.ts` (`_resolveInstallerModule`): replaced
+  workspace-root walk with `import.meta.resolve('@cleocode/cleo')` so the installer
+  script is found correctly in global npm installs. Dev fallback preserved.
+
 ## [2026.5.2] (2026-05-01) — T1676 LLM Wiring: real LLM intelligence + cost-disciplined tiered escalation + multi-provider + daemon supervision
 
 The sentient harness now uses **real LLM reasoning** with cost discipline — only escalates to LLM API calls when cheaper deterministic tiers (filesystem, SQL, Jaccard similarity) cannot decide. Multi-provider support (Anthropic, OpenAI, Gemini, Moonshot Kimi K2) configurable per-daemon. Centralized 5-tier credential resolution. One daemon supervises both sentient ticks/dreams AND the Cleo Studio web server. Cross-OS daemon auto-install via systemd (Linux) / launchd (macOS) on `npm install -g`.
