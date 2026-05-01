@@ -328,7 +328,11 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         'complete',
       );
     }
-    const result = await completeTaskStrict(projectRoot, params.taskId, params.notes);
+    const result = await completeTaskStrict(projectRoot, params.taskId, {
+      notes: params.notes,
+      overrideReason: params.overrideReason,
+      acknowledgeRisk: params.acknowledgeRisk,
+    });
     // T994: Track memory usage on task completion (fire-and-forget; must not block).
     // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
     setImmediate(async () => {
