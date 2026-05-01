@@ -261,9 +261,6 @@ importers:
       '@cleocode/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@cleocode/studio':
-        specifier: workspace:^
-        version: link:../studio
       check-disk-space:
         specifier: ^3.4.0
         version: 3.4.0
@@ -322,6 +319,10 @@ importers:
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+    optionalDependencies:
+      '@cleocode/studio':
+        specifier: workspace:^
+        version: link:../studio
 
   packages/cleo-os:
     dependencies:

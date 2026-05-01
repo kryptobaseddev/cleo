@@ -30,6 +30,7 @@
  * @epic T726
  */
 
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,8 +64,9 @@ async function showDaemonStatus(
   try {
     const gcStatus = await getGCDaemonStatus(cleoDir);
 
-    // Sentient status (includes T1637 hygiene fields). Best-effort — sentient
-    // daemon may not be running; missing state file yields sensible defaults.
+    // Sentient status (includes T1637 hygiene + T1683/T1684 Studio fields).
+    // Best-effort — sentient daemon may not be running; missing state file
+    // yields sensible defaults.
     let hygieneLastRunAt: string | null = null;
     let hygieneSummary: string | null = null;
     let hygieneStats: {
@@ -80,13 +82,17 @@ async function showDaemonStatus(
       duplicateEpicGroups: 0,
       worktreesPruned: 0,
     };
+    let supervisesStudio: boolean | null = null;
+    let studioStatus: string | null = null;
     try {
       const sentientStatus = await getSentientDaemonStatus(projectRoot);
       hygieneLastRunAt = sentientStatus.hygieneLastRunAt;
       hygieneSummary = sentientStatus.hygieneSummary;
       hygieneStats = sentientStatus.hygieneStats;
+      supervisesStudio = sentientStatus.supervisesStudio;
+      studioStatus = sentientStatus.studioStatus;
     } catch {
-      // Sentient not initialised — hygiene fields remain null/default.
+      // Sentient not initialised — hygiene and Studio fields remain null/default.
     }
 
     const result = {
@@ -97,6 +103,10 @@ async function showDaemonStatus(
           lastRunAt: hygieneLastRunAt,
           summary: hygieneSummary,
           stats: hygieneStats,
+        },
+        studio: {
+          supervises: supervisesStudio,
+          status: studioStatus,
         },
       },
     };
@@ -115,6 +125,12 @@ async function showDaemonStatus(
         process.stdout.write(
           `\nWARNING: Disk threshold breached. Run 'cleo gc run' to reclaim space.\n`,
         );
+      }
+      // T1683/T1684: Studio supervision section
+      if (supervisesStudio !== null) {
+        process.stdout.write(`\nStudio Supervision:\n`);
+        process.stdout.write(`  Enabled:         ${supervisesStudio ? 'yes' : 'no'}\n`);
+        process.stdout.write(`  Status:          ${studioStatus ?? 'unknown'}\n`);
       }
       // T1637: hygiene section
       process.stdout.write(`\nHygiene Loop (cross-project):\n`);
@@ -156,17 +172,34 @@ async function showDaemonStatus(
 
 /**
  * Resolve the absolute path to install-daemon-service.mjs from the
- * compiled CLI package tree. Works for both tsc multi-file builds and
- * esbuild single-file bundles (where scripts/ is a sibling of bin/).
+ * compiled CLI package tree.
+ *
+ * Works for both esbuild single-file bundles and tsc multi-file builds by
+ * probing candidate paths in order of likelihood (T1684 hotfix):
+ *
+ *   1. Single-file bundle: `dist/cli/index.js` → 2 dirs up → `<pkg>/scripts/`
+ *   2. Multi-file tsc:     `dist/cli/commands/daemon.js` → 3 dirs up → `<pkg>/scripts/`
  *
  * @returns Absolute path to install-daemon-service.mjs.
  */
 function resolveDaemonInstallerScript(): string {
-  // dist/cli/commands/daemon.js → ../../.. → package root → scripts/
-  const __filename = fileURLToPath(import.meta.url);
-  // Walk up three levels: commands/ → cli/ → dist/ → package root
-  const pkgRoot = join(__filename, '..', '..', '..', '..');
-  return join(pkgRoot, 'scripts', 'install-daemon-service.mjs');
+  const filePath = fileURLToPath(import.meta.url);
+
+  // Probe candidate 1: esbuild bundle — dist/cli/index.js (2 dirs above the file = pkg root)
+  const candidate1 = join(filePath, '..', '..', '..', 'scripts', 'install-daemon-service.mjs');
+  if (existsSync(candidate1)) return candidate1;
+
+  // Probe candidate 2: tsc multi-file — dist/cli/commands/daemon.js (3 dirs above = pkg root)
+  const candidate2 = join(
+    filePath,
+    '..',
+    '..',
+    '..',
+    '..',
+    'scripts',
+    'install-daemon-service.mjs',
+  );
+  return candidate2;
 }
 
 // ---------------------------------------------------------------------------
