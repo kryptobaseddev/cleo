@@ -3,7 +3,14 @@
   "version": "2026.5.2",
   "description": "CLEO Studio — unified web portal for Nexus, Brain, and Tasks visualization",
   "type": "module",
-  "private": true,
+  "private": false,
+  "exports": {
+    ".": "./build/index.js"
+  },
+  "files": [
+    "build",
+    "src"
+  ],
   "scripts": {
     "dev": "vite dev --port 3456",
     "build": "vite build",

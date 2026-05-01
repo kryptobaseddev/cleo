@@ -122,16 +122,26 @@ describe('StudioSupervisor — lifecycle', () => {
 
 describe('StudioSupervisor — spawn injection via subclass', () => {
   it('start() does not throw even when the studio package dir is missing', () => {
-    // We can't easily inject spawn into the private field without framework support.
     // Test the observable contract: start() must never throw, even if the Studio
     // binary does not exist. The supervisor handles spawn failures gracefully.
+    // T1684 hotfix: when the Studio entrypoint does not exist at the package dir,
+    // the supervisor sets status to 'not-available' rather than crash-looping.
     const sup = new StudioSupervisor({
       studioPackageDir: '/nonexistent/studio/path',
     });
-    // start() is synchronous — it will try to spawn and fail silently.
-    // The child exits immediately; status may be 'crashed' or 'stopped'.
+    // start() is synchronous — it detects the missing entrypoint and degrades.
+    // Status will be 'not-available' (T1684), 'crashed', or 'stopped'.
     expect(() => sup.start()).not.toThrow();
-    expect(['running', 'crashed', 'stopped']).toContain(sup.status);
+    expect(['running', 'crashed', 'stopped', 'not-available']).toContain(sup.status);
+  });
+
+  it('start() sets status to "not-available" when build/index.js does not exist (T1684)', () => {
+    // Direct verification of the T1684 graceful-degrade path.
+    const sup = new StudioSupervisor({
+      studioPackageDir: '/tmp/nonexistent-studio-T1684',
+    });
+    sup.start();
+    expect(sup.status).toBe('not-available');
   });
 });
 
@@ -181,7 +191,9 @@ describe('getSentientDaemonStatus — Studio supervision fields', () => {
     expect(status).toHaveProperty('supervisesStudio');
     expect(status).toHaveProperty('studioStatus');
     expect(typeof status.supervisesStudio).toBe('boolean');
-    expect(['running', 'stopped', 'crashed', 'disabled']).toContain(status.studioStatus);
+    expect(['running', 'stopped', 'crashed', 'disabled', 'not-available']).toContain(
+      status.studioStatus,
+    );
   });
 
   it('studioStatus is "stopped" when daemon is not running', async () => {
