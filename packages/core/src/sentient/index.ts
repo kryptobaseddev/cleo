@@ -11,6 +11,7 @@
 
 export * from './allowlist.js';
 export * from './baseline.js';
+export * from './cross-project-hygiene.js';
 export * from './daemon.js';
 export * from './events.js';
 export * from './hygiene-scan.js';
