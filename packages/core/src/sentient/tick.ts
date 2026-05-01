@@ -29,6 +29,7 @@ import {
   reVerifyWorkerReport,
   type WorkerReport,
 } from '../orchestrate/worker-verify.js';
+import { HYGIENE_SCAN_INTERVAL_MS } from './hygiene-scan.js';
 import { DRIFT_SCAN_INTERVAL_MS } from './stage-drift-tick.js';
 import {
   incrementStats,
@@ -230,6 +231,25 @@ export interface TickOptions {
    * @task T1635
    */
   stageDriftIntervalMs?: number;
+  /**
+   * Override for the hygiene scan function. Injected by tests to avoid opening
+   * a real tasks.db or brain.db. When omitted, the default
+   * {@link safeRunHygieneScan} from `./hygiene-scan.js` is used.
+   *
+   * Pass `null` to disable the hygiene scan entirely (e.g. unit tests that
+   * don't exercise the hygiene path).
+   *
+   * @task T1636
+   */
+  hygieneScan?: ((projectRoot: string, statePath: string) => Promise<void>) | null;
+  /**
+   * Interval (ms) between hygiene scan passes.
+   * Defaults to {@link HYGIENE_SCAN_INTERVAL_MS} (4 hours).
+   * Pass 0 to scan on every tick (useful for integration tests).
+   *
+   * @task T1636
+   */
+  hygieneScanIntervalMs?: number;
 }
 
 /** Result of a spawn invocation. */
@@ -410,6 +430,18 @@ let _worktreePruneTickCount = 0;
  * @internal
  */
 let _lastStageDriftScanAt = 0;
+
+// ---------------------------------------------------------------------------
+// Hygiene scan state (T1636)
+// ---------------------------------------------------------------------------
+
+/**
+ * Unix-epoch-ms timestamp of the last hygiene scan pass.
+ * Used to gate the scan to at most once every {@link HYGIENE_SCAN_INTERVAL_MS}.
+ * Set to 0 so the first tick always triggers an initial scan.
+ * @internal
+ */
+let _lastHygieneScanAt = 0;
 
 /**
  * Evaluate volume + idle dream triggers and call `checkAndDream` when either
@@ -772,6 +804,50 @@ async function maybeTriggerStageDriftScan(
 }
 
 /**
+ * Evaluate the hygiene scan cadence and fire {@link safeRunHygieneScan}
+ * when enough time has elapsed since the last scan.
+ *
+ * Respects the injectable `options.hygieneScan` override (null = disabled).
+ * Errors are swallowed — hygiene scan must never crash the tick.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param statePath   - Path to sentient-state.json.
+ * @param options     - Tick options (provides injectable and interval override).
+ *
+ * @internal
+ * @task T1636
+ */
+async function maybeTriggerHygieneScan(
+  projectRoot: string,
+  statePath: string,
+  options: TickOptions,
+): Promise<void> {
+  // Null explicitly disables the scan (test escape hatch).
+  if (options.hygieneScan === null) return;
+
+  const intervalMs = options.hygieneScanIntervalMs ?? HYGIENE_SCAN_INTERVAL_MS;
+  const now = Date.now();
+
+  if (now - _lastHygieneScanAt < intervalMs) return;
+
+  // Update the timestamp before awaiting so concurrent ticks don't double-fire.
+  _lastHygieneScanAt = now;
+
+  try {
+    if (options.hygieneScan) {
+      // Injected override (tests).
+      await options.hygieneScan(projectRoot, statePath);
+    } else {
+      // Default: lazy-import and run.
+      const { safeRunHygieneScan } = await import('./hygiene-scan.js');
+      await safeRunHygieneScan({ projectRoot, statePath });
+    }
+  } catch {
+    // Hygiene scan is best-effort: errors must never propagate to the tick caller.
+  }
+}
+
+/**
  * Convenience wrapper used by the daemon cron handler and the `cleo sentient
  * tick` CLI command. Reads state, runs a tick, swallows any unexpected
  * exception so the cron scheduler never sees a rejection.
@@ -835,6 +911,13 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
   // Stage-drift scan: fire when enough time has elapsed (T1635).
   // Best-effort: errors never affect tick outcome.
   maybeTriggerStageDriftScan(options.projectRoot, options.statePath, options).catch(() => {
+    // Ignore.
+  });
+
+  // Hygiene scan: fire when enough time has elapsed (T1636).
+  // Runs once per dream cycle (default 4 h) — longer cadence than stage-drift.
+  // Best-effort: errors never affect tick outcome.
+  maybeTriggerHygieneScan(options.projectRoot, options.statePath, options).catch(() => {
     // Ignore.
   });
 
@@ -950,6 +1033,31 @@ export function _resetStageDriftScanAt(): void {
  */
 export function _getLastStageDriftScanAt(): number {
   return _lastStageDriftScanAt;
+}
+
+/**
+ * Reset the hygiene scan timestamp.
+ *
+ * Intended for test teardown only — allows tests to reset the scan cadence
+ * so successive test cases start from a clean slate (next tick fires immediately).
+ *
+ * @internal
+ * @task T1636
+ */
+export function _resetHygieneScanAt(): void {
+  _lastHygieneScanAt = 0;
+}
+
+/**
+ * Return the unix-epoch-ms timestamp of the last hygiene scan.
+ *
+ * Read-only accessor for test assertions.
+ *
+ * @internal
+ * @task T1636
+ */
+export function _getLastHygieneScanAt(): number {
+  return _lastHygieneScanAt;
 }
 
 // ---------------------------------------------------------------------------
