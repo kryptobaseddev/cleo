@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] — T1635 sentient stage-drift auto-detector
+
+### Sentient hygiene: stage-drift detector (T1635)
+
+Catches the T1232 bug class where an epic's stored `pipelineStage` diverges from
+its actual child-progress-based stage.
+
+**New modules:**
+- `packages/core/src/lifecycle/effective-stage.ts` — pure `computeEffectiveStage`
+  helper + `fetchEpicProgressBatch` (batch DB query, child progress + gate status).
+  Maps child completion % to one of four coarse stages: research / implementation /
+  testing / release.
+- `packages/core/src/sentient/stage-drift-tick.ts` — `runStageDriftScan` +
+  `safeRunStageDriftScan`. Scans all active epics, computes effective stage, emits
+  a `[T2-DRIFT]` Tier-2 proposal when |effective_index - stored_index| > 2.
+  Uses the existing transactional INSERT path (daily rate-limit + per-parent dedup
+  enforced automatically).
+
+**Wiring:**
+- `safeRunTick` in `tick.ts` fires `maybeTriggerStageDriftScan` (fire-and-forget,
+  best-effort) on a configurable cadence (default 30 min). Fully injectable for
+  tests: `options.stageDriftScan = null` disables, `options.stageDriftIntervalMs = 0`
+  forces every-tick scans.
+
+**Owner workflow:**
+  `cleo sentient propose accept <id>` applies the correction via
+  `cleo update <epicId> --pipeline-stage <effectiveStage>`.
+
+**Tests:** 18 vitest tests covering no-drift path, single-stage drift (no proposal),
+multi-stage drift (proposal emitted), kill-switch, tier2 guard, and dedup guard.
+Biome CI + all existing sentient tests green.
+
+---
+
 ## [2026.5.0] (2026-05-01) — T1566 ENG-MIG epic complete + ADR-062 cherry-pick purge
 
 Major architectural milestone: ~16,433 LOC of business logic migrated from CLI engines into `@cleocode/core`, plus full purge of legacy cherry-pick worktree-integration doctrine.
