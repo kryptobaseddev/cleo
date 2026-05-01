@@ -73,6 +73,49 @@ reboots. The installer is cross-platform and idempotent.
 - `packages/cleo/src/cli/commands/daemon.ts` — adds `install`, `uninstall`
   subcommands; adds `--foreground` flag to `start`.
 
+### T-LW-W5: Tiered semantic duplicate detection BM25 → Jaccard → LLM (T1681)
+
+Upgrades T1633's BRAIN duplicate detection in `packages/core/src/tasks/add.ts` to
+use three-tier escalation instead of a single-pass Jaccard/vector score.
+
+#### Algorithm
+
+**Tier 1 — BM25 / vector** (current behaviour, extended with escalation):
+- Score >= 0.92: reject immediately (clear match, 0 LLM calls).
+- Score < 0.50: insert immediately (clear different, 0 LLM calls).
+- Score in [0.50, 0.92): ambiguous → escalate to Tier 2.
+
+**Tier 2 — Jaccard word n-grams** (title + description + labels):
+- Score >= 0.85: reject (0 LLM calls).
+- Score < 0.40: insert (0 LLM calls).
+- Score in [0.40, 0.85): ambiguous → escalate to Tier 3.
+
+**Tier 3 — LLM reasoning** (max 1 call per `cleo add`):
+- Daemon provider (`llm.daemon.provider` config) called with structured-output
+  schema `{ are_duplicate: boolean, confidence: 0..1, distinction: string|null, suggestion: "merge"|"keep-both"|"block-new" }`.
+- LLM error / timeout (15 s) → fallback to BM25-only decision, never blocks insert.
+- Credentials resolved via `resolveCredentials()` from the T1677 centralized resolver.
+
+#### Changed files
+
+- **`packages/core/src/tasks/duplicate-detector.ts`** — three-tier escalation logic:
+  - `computeJaccardWordSimilarity()` — new Tier-2 word n-gram Jaccard (title+desc+labels).
+  - `callLlmDuplicateReasoning()` — new Tier-3 LLM call returning `DuplicateReasoning | null`.
+  - `DuplicateReasoningSchema` — zod schema for the structured-output contract.
+  - `checkDuplicates()` — accepts `labels?: string[]` and `cwd?: string`; returns `tier?: 'bm25'|'jaccard'|'llm'` provenance.
+  - All existing exports, thresholds, and message builders preserved (T1633 backward compat).
+- **`packages/core/src/tasks/add.ts`** — `checkDuplicates` call updated to pass `options.labels` and `cwd`.
+
+#### Test coverage added
+
+- `(e)` BM25 ambiguous + Jaccard decides → 0 LLM calls.
+- `(f)` BM25 + Jaccard both ambiguous → LLM call, is_duplicate=true → reject.
+- `(f2)` LLM says not duplicate → insert.
+- `(g)` LLM returns null (error/timeout) → fallback to BM25 decision, no throw.
+- `(h)` `--force-duplicate` bypasses all tiers regardless of LLM.
+- Max-1-LLM-call budget enforced: 3 ambiguous seeds → exactly 1 LLM invocation.
+- `callLlmDuplicateReasoning` unit: returns null when no API key is available.
+
 ### T-LW-W1: Centralize LLM credentials resolver + provider config — CORE SDK SSoT (T1677)
 
 #### Added
