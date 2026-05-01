@@ -649,7 +649,7 @@ describe('MoonshotBackend', () => {
       extraParams: null,
     });
     expect(result.content).toBe('Hello from Kimi!');
-    expect(result.finishReasons).toContain('stop');
+    expect(result.finishReason).toBe('stop');
   });
 
   it('complete — rejects thinkingBudgetTokens', async () => {
