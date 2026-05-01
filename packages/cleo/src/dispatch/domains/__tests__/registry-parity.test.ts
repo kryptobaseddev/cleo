@@ -89,27 +89,7 @@ vi.mock('../../lib/engine.js', () => {
     sessionChainShow: mockFn(),
     sessionFind: mockFn(),
     sessionContextInject: mockSync(),
-    // System engine
-    systemDash: mockFn(),
-    systemStats: mockFn(),
-    systemLog: mockFn(),
-    systemContext: mockSync(),
-    systemRuntime: mockFn(),
-    systemSequence: mockFn(),
-    systemHealth: mockSync(),
-    systemDoctor: mockFn(),
-    systemFix: mockFn(),
-    systemInjectGenerate: mockFn(),
-    // T5158: systemBackup is async so tasks.db + brain.db can be opened
-    // before VACUUM INTO runs.
-    systemBackup: mockFn(),
-    systemRestore: mockSync(),
-    backupRestore: mockFn(),
-    systemMigrate: mockFn(),
-    systemCleanup: mockFn(),
-    systemSafestop: mockFn(),
-    systemSync: mockSync(),
-    systemArchiveStats: mockFn(),
+    // T1571: system engine functions removed from barrel (moved to @cleocode/core/internal)
     // Config engine
     configGet: mockFn(),
     configSet: mockFn(),
@@ -497,10 +477,7 @@ vi.mock('../../engines/sticky-engine.js', () => ({
   stickyPurge: vi.fn().mockResolvedValue({ success: true, data: {} }),
 }));
 
-// System engine (direct import for tools domain)
-vi.mock('../../engines/system-engine.js', () => ({
-  systemSync: vi.fn().mockReturnValue({ success: true, data: {} }),
-}));
+// T1571: system-engine.ts deleted — no longer mocked here
 
 // Hooks engine
 vi.mock('../../engines/hooks-engine.js', () => ({
