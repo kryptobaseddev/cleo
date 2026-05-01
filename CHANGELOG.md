@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased]
+
+### Core invariant: epic auto-close gating + premature-close prevention (T1632 · epic T1627)
+
+Prevents the T1467+T1603 bug class where `cleo complete <epicId>` could silently succeed
+while children were still pending or active.
+
+**New `ExitCode.EPIC_HAS_PENDING_CHILDREN` (49)**
+
+- `cleo complete <epicId>` now REJECTs with `E_EPIC_HAS_PENDING_CHILDREN` when any child is
+  in `pending` or `active` status, regardless of lifecycle mode.
+- Pass `--override-reason "<reason>"` to bypass the guard; the reason is audited to
+  `.cleo/audit/premature-close.jsonl` (ADR-051 pattern, mirrors nexus-risk-ack).
+
+**Auto-close rollup hardened**
+
+- When a task's completion makes the parent epic's last non-terminal child done, the epic
+  auto-closes as before — but now also gates on `verifyEpicHasEvidence` in strict mode so
+  epics with no evidence never roll up to done silently.
+- Evidence check is skipped when `lifecycle.mode` is advisory/off to preserve existing
+  permissive behaviour.
+
+**New types exported from `@cleocode/core/internal`**
+
+- `TaskCompleteEngineOptions` — carries `notes`, `overrideReason`, `acknowledgeRisk` through
+  the EngineResult layer; replaces the positional `notes?: string` parameter on
+  `taskComplete` and `completeTaskStrict` (backward-compatible via union type).
+
+**CLI**
+
+- `cleo complete` gains `--override-reason <reason>` flag.
+- `TasksCompleteQueryParams` (contracts) gains `overrideReason?: string` and
+  `acknowledgeRisk?: string` (the latter was previously only wired at core level).
+
+**Tests (13 new vitest cases)**
+
+- `(a)` auto-close happy path: last child done → parent auto-closes
+- `(b)` premature-close blocked: direct `complete <epicId>` rejects with `EPIC_HAS_PENDING_CHILDREN`
+- `(c)` override audit: `--override-reason` bypasses AND writes to `premature-close.jsonl`
+- `(d)` re-open after auto-close: epic can be set back to active
+
+---
+
 ## [2026.5.0] (2026-05-01) — T1566 ENG-MIG epic complete + ADR-062 cherry-pick purge
 
 Major architectural milestone: ~16,433 LOC of business logic migrated from CLI engines into `@cleocode/core`, plus full purge of legacy cherry-pick worktree-integration doctrine.

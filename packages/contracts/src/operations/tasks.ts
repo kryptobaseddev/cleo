@@ -329,6 +329,18 @@ export interface TasksCompleteQueryParams {
   taskId: string;
   notes?: string;
   force?: unknown;
+  /**
+   * Reason for overriding the `E_EPIC_HAS_PENDING_CHILDREN` guard.
+   *
+   * When provided, `cleo complete <epicId>` is allowed even if the epic
+   * still has pending or active children. The reason is appended to
+   * `.cleo/audit/premature-close.jsonl` (ADR-051 pattern).
+   *
+   * @task T1632
+   */
+  overrideReason?: string;
+  /** Reason for acknowledging CRITICAL nexus impact risk (bypasses nexusImpact gate). */
+  acknowledgeRisk?: string;
 }
 export type TasksCompleteQueryResult = unknown;
 
