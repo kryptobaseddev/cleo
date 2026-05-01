@@ -136,6 +136,36 @@ export interface SentientState {
    * T1030: Rolling counters for Tier-3 ritual outcomes.
    */
   tier3Stats: Tier3Stats;
+  /**
+   * T1637: ISO-8601 timestamp of the last completed cross-project hygiene loop.
+   * Null when the loop has never run. Surfaced by `cleo daemon status`.
+   */
+  hygieneLastRunAt: string | null;
+  /**
+   * T1637: One-line human-readable summary of the last hygiene run.
+   * Surfaced by `cleo daemon status` for quick diagnostics.
+   */
+  hygieneSummary: string | null;
+  /**
+   * T1637: Rolling counts from the last hygiene loop.
+   */
+  hygieneStats: HygieneStats;
+}
+
+/**
+ * T1637: Rolling counts from the last cross-project hygiene loop.
+ */
+export interface HygieneStats {
+  /** Total projects checked in the last NEXUS integrity scan. */
+  projectsChecked: number;
+  /** Projects reported healthy in the last scan. */
+  projectsHealthy: number;
+  /** Temp-project GC candidates flagged in the last scan. */
+  tempGcCandidates: number;
+  /** Duplicate-epic groups detected in the last scan. */
+  duplicateEpicGroups: number;
+  /** Stale agent worktrees pruned in the last scan. */
+  worktreesPruned: number;
 }
 
 /**
@@ -182,6 +212,15 @@ export const DEFAULT_SENTIENT_STATE: SentientState = {
     ticksKilled: 0,
     abortsTotal: 0,
     mergesCompleted: 0,
+  },
+  hygieneLastRunAt: null,
+  hygieneSummary: null,
+  hygieneStats: {
+    projectsChecked: 0,
+    projectsHealthy: 0,
+    tempGcCandidates: 0,
+    duplicateEpicGroups: 0,
+    worktreesPruned: 0,
   },
 };
 
@@ -238,6 +277,12 @@ export async function readSentientState(statePath: string): Promise<SentientStat
       tier3Enabled: parsed.tier3Enabled ?? false,
       tier3LastTickAt: parsed.tier3LastTickAt ?? null,
       tier3Stats: { ...DEFAULT_SENTIENT_STATE.tier3Stats, ...(parsed.tier3Stats ?? {}) },
+      hygieneLastRunAt: parsed.hygieneLastRunAt ?? null,
+      hygieneSummary: parsed.hygieneSummary ?? null,
+      hygieneStats: {
+        ...DEFAULT_SENTIENT_STATE.hygieneStats,
+        ...(parsed.hygieneStats ?? {}),
+      },
     };
   } catch {
     return { ...DEFAULT_SENTIENT_STATE };
