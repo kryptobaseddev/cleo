@@ -8,6 +8,7 @@
  * @task T1570
  * @task T4478
  * @task T4632
+ * @task T1634 — LOOM auto-init helper
  */
 
 import type { BrainState } from '@cleocode/contracts';
@@ -29,6 +30,50 @@ import { resolveProjectRoot } from '../store/file-utils.js';
 import { loadTasks } from './query-ops.js';
 
 export type { EngineResult };
+
+/**
+ * Idempotently initialize the LOOM (RCASD-IVTR) lifecycle pipeline for an
+ * epic at the 'research' stage.
+ *
+ * This is the canonical LOOM-init primitive shared by `orchestrateStartup`
+ * (called via `cleo orchestrate start`) and the `addTask` epic creation hook
+ * (T1634 — LOOM auto-init for new epics). Extracted to eliminate duplication
+ * and ensure a single source of truth for the initialization invariant.
+ *
+ * Behaviour:
+ * - If no pipeline exists for `epicId`, creates one at 'research/in_progress'.
+ * - If a pipeline already exists, this is a no-op — returns `{ initialized: false }`.
+ * - Never throws; failures are swallowed so callers (especially fire-and-forget hooks)
+ *   can treat this as best-effort. Errors are returned via the result shape.
+ *
+ * @param epicId - Epic task ID to initialize LOOM for.
+ * @param projectRoot - Project root path for DB resolution.
+ * @returns Result indicating whether LOOM was freshly initialized.
+ * @task T1634
+ */
+export async function initLoomForEpic(
+  epicId: string,
+  projectRoot: string,
+): Promise<{ initialized: boolean; alreadyInitialized: boolean; error?: string }> {
+  try {
+    const lifecycleStatus = await getLifecycleStatus(projectRoot, { epicId });
+    if (lifecycleStatus.initialized) {
+      return { initialized: false, alreadyInitialized: true };
+    }
+    await recordStageProgress(projectRoot, {
+      taskId: epicId,
+      stage: 'research',
+      status: 'in_progress',
+    });
+    return { initialized: true, alreadyInitialized: false };
+  } catch (err: unknown) {
+    return {
+      initialized: false,
+      alreadyInitialized: false,
+      error: (err as Error).message,
+    };
+  }
+}
 
 /**
  * orchestrate.startup - Initialize orchestration for an epic.
@@ -70,20 +115,10 @@ export async function orchestrateStartup(
     const ready = readyTasks.filter((t) => t.ready);
 
     // Auto-initialize lifecycle at 'research' stage if not already initialized.
-    // getLifecycleStatus returns initialized:false when no pipeline exists.
-    // recordStageProgress creates the pipeline + stage record idempotently via
-    // ensureLifecycleContext, so re-invoking orchestrateStartup is safe.
-    const lifecycleStatus = await getLifecycleStatus(root, { epicId });
-    let autoInitialized = false;
-    let currentStage: string;
-
-    if (!lifecycleStatus.initialized) {
-      await recordStageProgress(root, { taskId: epicId, stage: 'research', status: 'in_progress' });
-      autoInitialized = true;
-      currentStage = 'research';
-    } else {
-      currentStage = 'already-initialized';
-    }
+    // initLoomForEpic is idempotent — re-invoking orchestrateStartup is safe.
+    const loomResult = await initLoomForEpic(root, epicId);
+    const autoInitialized = loomResult.initialized;
+    const currentStage = autoInitialized ? 'research' : 'already-initialized';
 
     const summary = computeStartupSummary(epicId, epic.title, children, ready.length);
     return { success: true, data: { ...summary, autoInitialized, currentStage } };
