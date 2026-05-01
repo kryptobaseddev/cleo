@@ -5,6 +5,7 @@
  *
  * @task T5709
  * @epic T5701
+ * @task T1572 — engine-ops migration (ENG-MIG-5)
  */
 
 // Artifact management
@@ -44,7 +45,24 @@ export {
   validateCIConfig,
   writeCIConfig,
 } from './ci.js';
-
+// Engine operations — CLI-callable release operations migrated from dispatch layer (T1572)
+export {
+  releaseCancel,
+  releaseChangelog,
+  releaseChangelogSince,
+  releaseCommit,
+  releaseGateCheck,
+  releaseGatesRun,
+  releaseIvtrAutoSuggest,
+  releaseList,
+  releasePrepare,
+  releasePush,
+  releaseRollback,
+  releaseRollbackFull,
+  releaseShip,
+  releaseShow,
+  releaseTag,
+} from './engine-ops.js';
 // GitHub PR management
 export type {
   BranchProtectionResult,
@@ -60,7 +78,6 @@ export {
   formatManualPRInstructions,
   isGhCliAvailable,
 } from './github-pr.js';
-
 // Release guards
 export type { DoubleListingResult, EpicCompletenessResult } from './guards.js';
 export { checkDoubleListing, checkEpicCompleteness } from './guards.js';
