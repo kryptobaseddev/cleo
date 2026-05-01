@@ -2275,3 +2275,20 @@ export function checkLogDir(projectRoot: string): CheckResult {
     fix: null,
   };
 }
+
+/**
+ * Result of scaffolding the CleoOS Hub.
+ *
+ * Mirrors the shape returned by `ensureCleoOsHub()` but with a
+ * simplified union for the action field — suitable for CLI presentation.
+ *
+ * @task T1571
+ */
+export interface ScaffoldHubData {
+  /** What action was taken on the hub. */
+  action: 'created' | 'repaired' | 'skipped';
+  /** Absolute path to the hub root. */
+  path: string;
+  /** Optional detail message. */
+  details?: string;
+}

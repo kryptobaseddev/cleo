@@ -150,3 +150,113 @@ export function computeHelp(
         : 'Full operation set displayed. Pass verbose:true for detailed object list.',
   };
 }
+
+/** Help topic content and related commands (system-level static help). */
+export interface HelpData {
+  /** Topic identifier. */
+  topic?: string;
+  /** Human-readable help content. */
+  content: string;
+  /** Related CLI commands for cross-reference. */
+  relatedCommands?: string[];
+}
+
+/** Static help topic dictionary for the system domain. */
+export const SYSTEM_HELP_TOPICS: Record<string, HelpData> = {
+  session: {
+    topic: 'session',
+    content: [
+      'Session Management',
+      '',
+      '  cleo session list                        - List all sessions',
+      '  cleo session start --scope epic:T001     - Start session',
+      '  cleo session end --note "Progress"       - End session',
+      '  cleo session resume <id>                 - Resume session',
+    ].join('\n'),
+    relatedCommands: ['cleo session list', 'cleo session start', 'cleo session end'],
+  },
+  tasks: {
+    topic: 'tasks',
+    content: [
+      'Task Operations',
+      '',
+      '  cleo add "Title" --desc "Description"    - Create task',
+      '  cleo update T1234 --status active        - Update task',
+      '  cleo complete T1234                      - Complete task',
+      '  cleo find "query"                        - Search tasks',
+      '  cleo show T1234                          - Show task details',
+    ].join('\n'),
+    relatedCommands: ['cleo add', 'cleo update', 'cleo complete', 'cleo find', 'cleo show'],
+  },
+  focus: {
+    topic: 'focus',
+    content: [
+      'Task Work Management',
+      '',
+      '  cleo start T1234    - Start working on task',
+      '  cleo current        - Show current task',
+      '  cleo stop           - Stop working on current task',
+    ].join('\n'),
+    relatedCommands: ['cleo start', 'cleo current', 'cleo stop'],
+  },
+  labels: {
+    topic: 'labels',
+    content: [
+      'Label Operations',
+      '',
+      '  cleo labels              - List all labels',
+      '  cleo labels show <name>  - Show tasks with label',
+    ].join('\n'),
+    relatedCommands: ['cleo labels'],
+  },
+  compliance: {
+    topic: 'compliance',
+    content: [
+      'Compliance Monitoring',
+      '',
+      '  cleo compliance summary     - Compliance overview',
+      '  cleo compliance violations  - List violations',
+      '  cleo compliance trend       - Compliance trend',
+    ].join('\n'),
+    relatedCommands: ['cleo compliance summary', 'cleo compliance violations'],
+  },
+};
+
+/**
+ * Get static system help content for a given topic or general overview.
+ *
+ * Replaces `systemHelp` from system-engine.ts, moving the static HELP_TOPICS
+ * dictionary and lookup logic into core/admin/help.ts.
+ *
+ * @param topic - Optional topic name to look up; returns overview if omitted
+ * @returns Help content for the requested topic or general overview
+ *
+ * @task T1571
+ */
+export function getSystemHelp(topic?: string): HelpData {
+  if (topic) {
+    const topicHelp = SYSTEM_HELP_TOPICS[topic];
+    if (topicHelp) return topicHelp;
+    return {
+      content: `Unknown help topic: ${topic}. Available topics: ${Object.keys(SYSTEM_HELP_TOPICS).join(', ')}`,
+    };
+  }
+
+  return {
+    content: [
+      'CLEO Task Management System',
+      '',
+      'Essential Commands:',
+      '  cleo find "query"    - Fuzzy search tasks',
+      '  cleo show T1234      - Full task details',
+      '  cleo add "Task"      - Create task',
+      '  cleo done <id>       - Complete task',
+      '  cleo start <id>      - Start working on task',
+      '  cleo dash            - Project overview',
+      '  cleo session list    - List sessions',
+      '',
+      'Help Topics: session, tasks, focus, labels, compliance',
+    ].join('\n'),
+    relatedCommands: ['cleo find', 'cleo show', 'cleo add', 'cleo done', 'cleo dash'],
+  };
+}

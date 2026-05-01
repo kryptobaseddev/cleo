@@ -346,3 +346,68 @@ export function restoreBackup(
     filesRestored: restored,
   };
 }
+
+/** Result of restoring an individual file from backup. */
+export interface FileRestoreResult {
+  /** Whether the file was actually restored. */
+  restored: boolean;
+  /** The filename that was restored. */
+  file: string;
+  /** The backup file path restored from. */
+  from: string;
+  /** The target path that was written. */
+  targetPath: string;
+  /** Whether this was a dry-run. */
+  dryRun?: boolean;
+}
+
+/**
+ * Restore an individual file (tasks.db or config.json) from the most recent backup.
+ *
+ * Moves the backing logic from `backupRestore` in system-engine.ts into core.
+ * Uses `getTaskPath` / `getConfigPath` from `../paths.js` (respects CLEO_DIR).
+ * Imports `listBackups` and `restoreFromBackup` from the store layer.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param fileName - File to restore: 'tasks.db' or 'config.json'
+ * @param opts - Optional restore flags
+ * @returns Result of the restore operation
+ *
+ * @task T5329
+ * @task T1571
+ */
+export async function fileRestore(
+  projectRoot: string,
+  fileName: string,
+  opts?: { dryRun?: boolean },
+): Promise<FileRestoreResult> {
+  const { getTaskPath, getConfigPath, getBackupDir } = await import('../paths.js');
+  const { listBackups, restoreFromBackup } = await import('../store/backup.js');
+
+  const backupDir = getBackupDir(projectRoot);
+
+  const targetPathMap: Record<string, () => string> = {
+    'tasks.db': getTaskPath,
+    'config.json': getConfigPath,
+  };
+
+  const pathGetter = targetPathMap[fileName];
+  if (!pathGetter) {
+    throw new Error(`Unknown file: ${fileName}. Valid files: tasks.db, config.json`);
+  }
+
+  const targetPath = pathGetter();
+  const backups = await listBackups(fileName, backupDir);
+
+  if (backups.length === 0) {
+    throw new Error(`No backups found for ${fileName}`);
+  }
+
+  if (opts?.dryRun) {
+    return { restored: false, file: fileName, from: backups[0]!, targetPath, dryRun: true };
+  }
+
+  const restoredFrom = await restoreFromBackup(fileName, backupDir, targetPath);
+
+  return { restored: true, file: fileName, from: restoredFrom, targetPath };
+}
