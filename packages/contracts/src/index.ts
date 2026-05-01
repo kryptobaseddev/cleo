@@ -160,7 +160,6 @@ export type {
   OwnerOverrideAuditRecord,
   OwnerOverrideConfig,
   WorktreeCleanupResult,
-  WorktreeCompleteResult,
   WorktreeMergeResult,
   WorktreeSpawnResult,
 } from './branch-lock.js';

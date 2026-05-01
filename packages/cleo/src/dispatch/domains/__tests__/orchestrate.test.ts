@@ -100,7 +100,9 @@ describe('OrchestrateHandler.mutate("worktree.complete") — ADR-062 merge wirin
     handler = new OrchestrateHandler();
   });
 
-  it('invokes completeAgentWorktreeViaMerge (NOT the legacy cherry-pick variant)', async () => {
+  it('invokes completeAgentWorktreeViaMerge (ADR-062 merge path)', async () => {
+    // T1624: legacy completeAgentWorktree (cherry-pick) has been deleted.
+    // This test verifies the merge-based path is the only integration route.
     const internal = await import('@cleocode/core/internal');
     const mergeSpy = vi.spyOn(internal, 'completeAgentWorktreeViaMerge').mockReturnValue({
       taskId: 'T1601',
@@ -112,13 +114,11 @@ describe('OrchestrateHandler.mutate("worktree.complete") — ADR-062 merge wirin
       worktreeRemoved: true,
       branchDeleted: true,
     });
-    const cherrySpy = vi.spyOn(internal, 'completeAgentWorktree');
 
     const result = await handler.mutate('worktree.complete', { taskId: 'T1601' });
 
     expect(mergeSpy).toHaveBeenCalledTimes(1);
     expect(mergeSpy).toHaveBeenCalledWith('T1601', '/mock/project');
-    expect(cherrySpy).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     const data = result.data as { merged: boolean; targetBranch: string; mergeCommit: string };
     expect(data.merged).toBe(true);

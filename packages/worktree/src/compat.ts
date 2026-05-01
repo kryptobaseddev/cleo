@@ -155,8 +155,8 @@ export function legacyCreateWorktree(
 /**
  * Merge a worktree's branch back into the current branch (legacy API).
  *
- * @deprecated Use `destroyWorktree` with `cherryPickFirst: true` from
- * `@cleocode/worktree`.
+ * @deprecated Use `completeAgentWorktreeViaMerge` from `@cleocode/core`
+ * followed by `destroyWorktree` from `@cleocode/worktree` (ADR-062).
  * @param handle - Legacy worktree handle.
  * @param config - Legacy worktree config.
  * @param options - Merge strategy options.

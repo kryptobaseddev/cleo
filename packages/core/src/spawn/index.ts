@@ -22,7 +22,6 @@ export {
   applyFsHarden,
   buildAgentEnv,
   buildWorktreeSpawnResult,
-  completeAgentWorktree,
   completeAgentWorktreeViaMerge,
   createAgentWorktree,
   detectFsHardenCapabilities,
