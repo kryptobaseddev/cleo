@@ -77,6 +77,19 @@ export enum ExitCode {
    */
   AC_LOCKED = 48,
 
+  /**
+   * E_EPIC_HAS_PENDING_CHILDREN — `cleo complete <epicId>` was called while
+   * the epic still has one or more children in `pending` or `active` status.
+   *
+   * Prevents the T1467+T1603 premature-close bug class: epics may not be
+   * marked done while children remain in-flight. Pass `--override-reason`
+   * to bypass (audited to `.cleo/audit/premature-close.jsonl`).
+   *
+   * @epic T1627
+   * @task T1632
+   */
+  EPIC_HAS_PENDING_CHILDREN = 49,
+
   // === CONTEXT SAFEGUARD (50-54) ===
   CONTEXT_WARNING = 50,
   CONTEXT_CAUTION = 51,
