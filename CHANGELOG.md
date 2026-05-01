@@ -56,6 +56,74 @@ reboots. The installer is cross-platform and idempotent.
 - **`cleo daemon uninstall`**: disables and removes the unit/plist cleanly.
   Idempotent — safe to run even when the service is not installed.
 
+### T-LW-W7: Daemon unification — Studio supervision + SDK control API + paths.ts audit (T1683)
+
+Three follow-up concerns from T1682 (W6 daemon auto-start), all shipped together:
+
+**Concern 1 — paths.ts compliance audit**
+
+`packages/cleo/scripts/install-daemon-service.mjs` previously contained three hardcoded
+path segments (`~/.config/systemd`, `~/Library/LaunchAgents`, `~/.local/state`). All
+filesystem paths now go through `env-paths` (the same library as
+`packages/core/src/system/platform-paths.ts`) so cross-OS resolution is consistent.
+
+- **Linux systemd unit path**: derived from env-paths config directory → parent →
+  `systemd/user/` (XDG-compliant).
+- **macOS launchd plist path**: derived from env-paths data directory → parent → parent →
+  `Library/LaunchAgents/` (macOS convention; not XDG-configurable).
+- **Daemon log path**: derived from env-paths log directory → `daemon/cleo-daemon.log`.
+- **WSL detection**: `isWSL()` reads `/proc/version` for `microsoft`/`WSL` strings; WSL
+  is treated as Linux for systemd path resolution per T1683 spec.
+- **`resolveDaemonPaths()`**: new export for test verification and `cleo admin paths`
+  introspection — returns `{ logDir, logFile, systemdUnitFile, launchdPlistFile }` with
+  all null-safe platform branching.
+
+**Concern 2 — Studio supervision**
+
+The sentient daemon now supervises the Cleo Studio web server as a child process
+(one daemon = sentient ticks + dreams + Studio HTTP server). The supervisor is optional
+and defaults to enabled.
+
+- **`StudioSupervisor`** (new class, `packages/core/src/sentient/daemon.ts`): manages the
+  Studio child process lifecycle. Spawns `node build/index.js` inside the Studio package
+  dir; on crash, waits with exponential backoff (1 s → 30 s max) then respawns. `stop()`
+  sends SIGTERM with a 10 s grace period then SIGKILL.
+- **`bootstrapDaemon(projectRoot, opts?)`**: extended with a `BootstrapDaemonOptions`
+  parameter. `opts.superviseStudio` overrides the config flag;
+  `opts.globalConfigPath` overrides the config file path.
+- **Config flag**: `~/.cleo/config.json { "daemon": { "superviseStudio": true } }` (default
+  `true`). Set to `false` to run Studio independently.
+- **Graceful shutdown**: SIGTERM/SIGINT handlers now call `studioSupervisor.stop()` FIRST,
+  then release the lock and exit — Studio has 10 s to drain before SIGKILL.
+- **`SentientStatus`**: two new fields: `supervisesStudio: boolean` (from config),
+  `studioStatus: StudioStatus` (`'running' | 'stopped' | 'crashed' | 'disabled'`).
+
+**Concern 3 — SDK control API**
+
+Public SDK in `@cleocode/core` (NOT just internal) now exports programmatic equivalents
+of every `cleo daemon <subcommand>` CLI command.
+
+- **`installDaemon(opts?)`** — installs the systemd/launchd unit; persists
+  `daemon.superviseStudio` to global config when `opts.superviseStudio` is provided.
+- **`uninstallDaemon()`** — disables and removes unit/plist.
+- **`updateDaemon(opts?)`** — idempotent re-install (alias for `installDaemon`).
+- **`getDaemonStatus(projectRoot)`** — returns `DaemonStatus` with `running`, `pid`,
+  `uptime`, `lastHygieneRun`, `lastDreamCycle`, `supervisesStudio`, `studioStatus`,
+  and full `sentient` snapshot.
+- **`startDaemon(projectRoot, opts?)`** — spawns GC + sentient daemons; persists
+  `superviseStudio` preference to global config before spawning.
+- **`stopDaemon(projectRoot, reason?)`** — flips kill-switch + SIGTERM; also stops GC daemon.
+
+All six functions plus their option/result types (`InstallDaemonOptions`, `DaemonInstallResult`,
+`DaemonStatus`) are exported from `@cleocode/core` at the top level.
+
+New test files:
+- `packages/core/src/sentient/__tests__/daemon-api.test.ts` — SDK export presence + shape
+- `packages/core/src/sentient/__tests__/daemon-supervision.test.ts` — StudioSupervisor
+  lifecycle + SentientStatus fields
+- `packages/cleo/src/cli/__tests__/daemon-paths-compliance.test.ts` — paths.ts audit:
+  no hardcoded home dirs; env-paths log/systemd/launchd paths correct per platform
+
 - **Logs**: both platforms route stdout/stderr to
   `~/.local/state/cleo/daemon/cleo-daemon.log` (append mode, directory
   pre-created by installer).
