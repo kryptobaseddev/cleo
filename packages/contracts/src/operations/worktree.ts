@@ -6,8 +6,12 @@
  * and pruneWorktrees operations with XDG path canon (D029) and declarative
  * hooks (D030 native lift of worktrunk missing features).
  *
+ * Worktree integration uses `git merge --no-ff` per ADR-062. The legacy
+ * cherry-pick integration path was removed in T1624.
+ *
  * @task T1161
  * @adr ADR-055
+ * @adr ADR-062
  */
 
 // ---------------------------------------------------------------------------
@@ -175,7 +179,12 @@ export interface CreateWorktreeResult {
 /**
  * Options for destroying a worktree.
  *
+ * Integration (cherry-pick or merge) is performed separately via
+ * `completeAgentWorktreeViaMerge` before calling destroy. Destroy only
+ * removes the worktree filesystem entry and optionally the task branch.
+ *
  * @task T1161
+ * @adr ADR-062
  */
 export interface DestroyWorktreeOptions {
   /** Task ID whose worktree to destroy. */
@@ -186,13 +195,6 @@ export interface DestroyWorktreeOptions {
    * @default true
    */
   deleteBranch?: boolean;
-  /**
-   * When true, cherry-pick any commits on the task branch back to the
-   * orchestrator's current branch before destroying.
-   *
-   * @default false
-   */
-  cherryPickFirst?: boolean;
 }
 
 /**
@@ -207,10 +209,6 @@ export interface DestroyWorktreeResult {
   worktreeRemoved: boolean;
   /** Whether the task branch was deleted. */
   branchDeleted: boolean;
-  /** Whether cherry-pick was attempted and succeeded. */
-  cherryPicked: boolean;
-  /** Number of commits cherry-picked (0 if none or not requested). */
-  commitCount: number;
   /** Error message if any step failed (non-fatal — caller decides). */
   error?: string;
 }

@@ -4,13 +4,17 @@
  * Defines types, error codes, and interfaces for the four-layer agent
  * branch-protection system:
  *
- * - L1: Git worktree isolation per spawned agent
+ * - L1: Git worktree isolation per spawned agent (create + merge-complete + cleanup)
  * - L2: git-shim binary on PATH for harness-agnostic enforcement
  * - L3: Filesystem hardening via chmod (+ optional chattr on Linux)
  * - L4: Owner-override HMAC session authentication with TTY + rate-limit gates
  *
+ * Worktree integration uses `git merge --no-ff` per ADR-062. The legacy
+ * cherry-pick path was removed in T1624.
+ *
  * @task T1118
  * @adr ADR-055
+ * @adr ADR-062
  */
 
 // ---------------------------------------------------------------------------
@@ -58,32 +62,10 @@ export interface WorktreeSpawnResult {
 }
 
 /**
- * Result from the orchestrate.worktree.complete operation.
+ * Result from the orchestrate.worktree.complete operation (ADR-062 merge path).
  *
- * @task T1118
- * @task T1120
- */
-export interface WorktreeCompleteResult {
-  /** Task ID that was completed. */
-  taskId: string;
-  /** Whether the cherry-pick succeeded. */
-  cherryPicked: boolean;
-  /** Number of commits cherry-picked. */
-  commitCount: number;
-  /** Whether the worktree was removed. */
-  worktreeRemoved: boolean;
-  /** Whether the task branch was deleted. */
-  branchDeleted: boolean;
-  /** Error message if any step failed (non-fatal — caller decides). */
-  error?: string;
-}
-
-/**
- * Result from the orchestrate.worktree.complete-via-merge operation.
- *
- * Replaces {@link WorktreeCompleteResult} (cherry-pick) per ADR-062.
- * Preserves the full agent commit graph instead of rewriting SHAs, so
- * `git log --grep "T<id>"` returns full provenance.
+ * Integration uses `git merge --no-ff` to preserve the full agent commit graph.
+ * `git log --grep "T<id>"` returns full provenance without SHA rewriting.
  *
  * @task T1587
  * @adr ADR-062
@@ -268,8 +250,8 @@ export const BRANCH_LOCK_ERROR_CODES = {
   E_WORKTREE_REQUIRED: 'E_WORKTREE_REQUIRED',
   /** L1: worktree path does not exist or is not a valid git worktree. */
   E_WORKTREE_INVALID: 'E_WORKTREE_INVALID',
-  /** L1: cherry-pick failed during worktree.complete. */
-  E_CHERRY_PICK_FAILED: 'E_CHERRY_PICK_FAILED',
+  /** L1: merge --no-ff failed during worktree.complete (ADR-062). */
+  E_MERGE_FAILED: 'E_MERGE_FAILED',
   /** L3: filesystem harden failed. */
   E_FS_HARDEN_FAILED: 'E_FS_HARDEN_FAILED',
   /** L4a: HMAC token invalid or missing. */
