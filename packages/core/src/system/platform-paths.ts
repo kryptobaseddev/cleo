@@ -22,12 +22,12 @@ import envPaths from 'env-paths';
 import {
   getCleoCantWorkflowsDir,
   getCleoConfigDir,
+  getCleoDirAbsolute,
   getCleoGlobalAgentsDir,
   getCleoGlobalJustfilePath,
   getCleoGlobalRecipesDir,
   getCleoHome,
   getCleoPiExtensionsDir,
-  getCleoDirAbsolute,
 } from '../paths.js';
 
 const APP_NAME = 'cleo';

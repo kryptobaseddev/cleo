@@ -21,11 +21,11 @@
 
 import type { admin as coreAdmin } from '@cleocode/core';
 import {
-  clearTokenUsage,
+  checkSequence,
   cleanupSystem,
+  clearTokenUsage,
   computeHelp,
   coreDoctorReport,
-  systemCreateBackup,
   deleteTokenUsage,
   ensureCleoOsHub,
   exportSnapshot,
@@ -61,10 +61,10 @@ import {
   safestop,
   showAdr,
   showSequence,
-  checkSequence,
   showTokenUsage,
   summarizeTokenUsage,
   syncAdrsToDb,
+  systemCreateBackup,
   validateAllAdrs,
   writeSnapshot,
 } from '@cleocode/core/internal';
@@ -151,7 +151,12 @@ async function runSystemSmoke(): Promise<SmokeResult> {
       const response = await dispatchRaw('query', probe.domain, probe.operation, probe.params);
       const elapsed = Date.now() - start;
       if (response.success) {
-        probes.push({ domain: probe.domain, operation: probe.operation, status: 'pass', timeMs: elapsed });
+        probes.push({
+          domain: probe.domain,
+          operation: probe.operation,
+          status: 'pass',
+          timeMs: elapsed,
+        });
       } else {
         const code = response.error?.code ?? '';
         const isCrash = code === 'E_INTERNAL' || code === 'E_NO_HANDLER';
@@ -185,14 +190,34 @@ async function runSystemSmoke(): Promise<SmokeResult> {
       await getDb(projectRoot);
       const nativeDb = getNativeDb();
       if (nativeDb) {
-        const result = nativeDb.prepare('PRAGMA integrity_check').get() as Record<string, unknown> | undefined;
+        const result = nativeDb.prepare('PRAGMA integrity_check').get() as
+          | Record<string, unknown>
+          | undefined;
         const ok = result?.integrity_check === 'ok';
-        dbChecks.push({ domain: 'db', operation: 'tasks.db', status: ok ? 'pass' : 'fail', timeMs: Date.now() - start, ...(!ok ? { error: 'SQLite integrity check failed' } : {}) });
+        dbChecks.push({
+          domain: 'db',
+          operation: 'tasks.db',
+          status: ok ? 'pass' : 'fail',
+          timeMs: Date.now() - start,
+          ...(!ok ? { error: 'SQLite integrity check failed' } : {}),
+        });
       } else {
-        dbChecks.push({ domain: 'db', operation: 'tasks.db', status: 'fail', timeMs: Date.now() - start, error: 'Native DB handle unavailable' });
+        dbChecks.push({
+          domain: 'db',
+          operation: 'tasks.db',
+          status: 'fail',
+          timeMs: Date.now() - start,
+          error: 'Native DB handle unavailable',
+        });
       }
     } catch (err) {
-      dbChecks.push({ domain: 'db', operation: 'tasks.db', status: 'fail', timeMs: Date.now() - start, error: err instanceof Error ? err.message : String(err) });
+      dbChecks.push({
+        domain: 'db',
+        operation: 'tasks.db',
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -204,12 +229,29 @@ async function runSystemSmoke(): Promise<SmokeResult> {
       const projectRoot = getProjectRoot();
       const brainDb = await getBrainDb(projectRoot);
       if (brainDb) {
-        dbChecks.push({ domain: 'db', operation: 'brain.db', status: 'pass', timeMs: Date.now() - start });
+        dbChecks.push({
+          domain: 'db',
+          operation: 'brain.db',
+          status: 'pass',
+          timeMs: Date.now() - start,
+        });
       } else {
-        dbChecks.push({ domain: 'db', operation: 'brain.db', status: 'fail', timeMs: Date.now() - start, error: 'brain.db not initialized' });
+        dbChecks.push({
+          domain: 'db',
+          operation: 'brain.db',
+          status: 'fail',
+          timeMs: Date.now() - start,
+          error: 'brain.db not initialized',
+        });
       }
     } catch (err) {
-      dbChecks.push({ domain: 'db', operation: 'brain.db', status: 'fail', timeMs: Date.now() - start, error: err instanceof Error ? err.message : String(err) });
+      dbChecks.push({
+        domain: 'db',
+        operation: 'brain.db',
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -218,15 +260,28 @@ async function runSystemSmoke(): Promise<SmokeResult> {
     const start = Date.now();
     try {
       const migrationStatus = await getMigrationStatus(getProjectRoot());
-      const hasPending = migrationStatus.migrations.some((m) => !(m as Record<string, unknown>).applied);
+      const hasPending = migrationStatus.migrations.some(
+        (m) => !(m as Record<string, unknown>).applied,
+      );
       dbChecks.push({
-        domain: 'db', operation: 'migrations',
+        domain: 'db',
+        operation: 'migrations',
         status: hasPending ? 'fail' : 'pass',
         timeMs: Date.now() - start,
-        ...(hasPending ? { error: `Unapplied migrations detected (${migrationStatus.from} → ${migrationStatus.to}). Run: cleo upgrade` } : {}),
+        ...(hasPending
+          ? {
+              error: `Unapplied migrations detected (${migrationStatus.from} → ${migrationStatus.to}). Run: cleo upgrade`,
+            }
+          : {}),
       });
     } catch (err) {
-      dbChecks.push({ domain: 'db', operation: 'migrations', status: 'fail', timeMs: Date.now() - start, error: err instanceof Error ? err.message : String(err) });
+      dbChecks.push({
+        domain: 'db',
+        operation: 'migrations',
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -270,14 +325,20 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     if (params.mode === 'diagnose') {
       try {
         const data = await coreDoctorReport(projectRoot);
-        return lafsSuccess(data ?? { healthy: false, errors: 0, warnings: 0, checks: [] }, 'health');
+        return lafsSuccess(
+          data ?? { healthy: false, errors: 0, warnings: 0, checks: [] },
+          'health',
+        );
       } catch (err) {
         return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'health');
       }
     }
     try {
       const data = await getSystemHealth(projectRoot, { detailed: params.detailed });
-      return lafsSuccess(data ?? { overall: 'error', checks: [], version: '', installation: 'degraded' }, 'health');
+      return lafsSuccess(
+        data ?? { overall: 'error', checks: [], version: '', installation: 'degraded' },
+        'health',
+      );
     } catch (err) {
       return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'health');
     }
@@ -321,7 +382,10 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   context: async (params) => {
     const projectRoot = getProjectRoot();
     try {
-      const data = getContextWindow(projectRoot, params.session !== undefined ? { session: params.session } : undefined);
+      const data = getContextWindow(
+        projectRoot,
+        params.session !== undefined ? { session: params.session } : undefined,
+      );
       return lafsSuccess(data, 'context');
     } catch (err) {
       return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'context');
@@ -405,7 +469,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       const data = getSystemPaths(projectRoot);
       return lafsSuccess(data, 'paths');
     } catch (err) {
-      return lafsError('E_PATHS_RESOLVE_FAILED', err instanceof Error ? err.message : String(err), 'paths');
+      return lafsError(
+        'E_PATHS_RESOLVE_FAILED',
+        err instanceof Error ? err.message : String(err),
+        'paths',
+      );
     }
   },
 
@@ -461,31 +529,41 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     const projectRoot = getProjectRoot();
     try {
       const accessor = await getAccessor(projectRoot);
-      const raw = await getDashboard({ cwd: projectRoot, blockedTasksLimit: params.blockedTasksLimit }, accessor);
+      const raw = await getDashboard(
+        { cwd: projectRoot, blockedTasksLimit: params.blockedTasksLimit },
+        accessor,
+      );
       const data = raw as Record<string, unknown>;
       const summary = data.summary as Record<string, number>;
-      return lafsSuccess({
-        project: data.project as string,
-        currentPhase: data.currentPhase as string | null,
-        summary: {
-          pending: summary.pending,
-          active: summary.active,
-          blocked: summary.blocked,
-          done: summary.done,
-          cancelled: summary.cancelled ?? 0,
-          total: summary.total,
-          archived: summary.archived ?? 0,
-          grandTotal: summary.grandTotal ?? summary.total,
+      return lafsSuccess(
+        {
+          project: data.project as string,
+          currentPhase: data.currentPhase as string | null,
+          summary: {
+            pending: summary.pending,
+            active: summary.active,
+            blocked: summary.blocked,
+            done: summary.done,
+            cancelled: summary.cancelled ?? 0,
+            total: summary.total,
+            archived: summary.archived ?? 0,
+            grandTotal: summary.grandTotal ?? summary.total,
+          },
+          taskWork: (data.focus ?? data.taskWork) as Record<string, unknown>,
+          activeSession: (data.activeSession as string | null) ?? null,
+          highPriority: data.highPriority as Record<string, unknown>,
+          blockedTasks: data.blockedTasks as Record<string, unknown>,
+          recentCompletions: (data.recentCompletions ?? []) as unknown[],
+          topLabels: data.topLabels as unknown[],
         },
-        taskWork: (data.focus ?? data.taskWork) as Record<string, unknown>,
-        activeSession: (data.activeSession as string | null) ?? null,
-        highPriority: data.highPriority as Record<string, unknown>,
-        blockedTasks: data.blockedTasks as Record<string, unknown>,
-        recentCompletions: (data.recentCompletions ?? []) as unknown[],
-        topLabels: data.topLabels as unknown[],
-      }, 'dash');
+        'dash',
+      );
     } catch (err) {
-      return lafsError('E_NOT_INITIALIZED', err instanceof Error ? err.message : String(err), 'dash');
+      return lafsError(
+        'E_NOT_INITIALIZED',
+        err instanceof Error ? err.message : String(err),
+        'dash',
+      );
     }
   },
 
@@ -518,12 +596,15 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
         return lafsSuccess(data, 'sequence');
       }
       const seq = await showSequence(projectRoot);
-      return lafsSuccess({
-        counter: Number(seq.counter ?? 0),
-        lastId: String(seq.lastId ?? ''),
-        checksum: String(seq.checksum ?? ''),
-        nextId: String(seq.nextId ?? ''),
-      }, 'sequence');
+      return lafsSuccess(
+        {
+          counter: Number(seq.counter ?? 0),
+          lastId: String(seq.lastId ?? ''),
+          checksum: String(seq.checksum ?? ''),
+          nextId: String(seq.nextId ?? ''),
+        },
+        'sequence',
+      );
     } catch (err) {
       return lafsError('E_NOT_FOUND', err instanceof Error ? err.message : String(err), 'sequence');
     }
@@ -681,10 +762,21 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     const projectRoot = getProjectRoot();
     try {
       const accessor = await getAccessor(projectRoot);
-      const data = await getRoadmap({ includeHistory: params.includeHistory, upcomingOnly: params.upcomingOnly, cwd: projectRoot }, accessor);
+      const data = await getRoadmap(
+        {
+          includeHistory: params.includeHistory,
+          upcomingOnly: params.upcomingOnly,
+          cwd: projectRoot,
+        },
+        accessor,
+      );
       return lafsSuccess(data, 'roadmap');
     } catch (err) {
-      return lafsError('E_NOT_INITIALIZED', err instanceof Error ? err.message : String(err), 'roadmap');
+      return lafsError(
+        'E_NOT_INITIALIZED',
+        err instanceof Error ? err.message : String(err),
+        'roadmap',
+      );
     }
   },
 
@@ -693,7 +785,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     if (smokeResult.failed === 0) {
       return lafsSuccess(smokeResult, 'smoke');
     }
-    return lafsError('E_SMOKE_FAILURES', `${smokeResult.failed} probe(s) failed smoke test`, 'smoke');
+    return lafsError(
+      'E_SMOKE_FAILURES',
+      `${smokeResult.failed} probe(s) failed smoke test`,
+      'smoke',
+    );
   },
 
   'smoke.provider': async (params) => {
@@ -750,7 +846,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       const data = await ensureCleoOsHub();
       return lafsSuccess(data, 'scaffold-hub');
     } catch (err) {
-      return lafsError('E_SCAFFOLD_HUB_FAILED', err instanceof Error ? err.message : String(err), 'scaffold-hub');
+      return lafsError(
+        'E_SCAFFOLD_HUB_FAILED',
+        err instanceof Error ? err.message : String(err),
+        'scaffold-hub',
+      );
     }
   },
 
@@ -759,16 +859,27 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     if (params.mode === 'diagnose') {
       try {
         const data = await coreDoctorReport(projectRoot);
-        return lafsSuccess(data ?? { healthy: false, errors: 0, warnings: 0, checks: [] }, 'health.mutate');
+        return lafsSuccess(
+          data ?? { healthy: false, errors: 0, warnings: 0, checks: [] },
+          'health.mutate',
+        );
       } catch (err) {
-        return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'health.mutate');
+        return lafsError(
+          'E_INTERNAL',
+          err instanceof Error ? err.message : String(err),
+          'health.mutate',
+        );
       }
     }
     try {
       const data = await runDoctorFixes(projectRoot);
       return lafsSuccess(data, 'health.mutate');
     } catch (err) {
-      return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'health.mutate');
+      return lafsError(
+        'E_INTERNAL',
+        err instanceof Error ? err.message : String(err),
+        'health.mutate',
+      );
     }
   },
 
@@ -816,7 +927,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
         const data = restoreBackup(projectRoot, { backupId, force: params.force });
         return lafsSuccess(data, 'backup.mutate');
       } catch (err) {
-        return lafsError('E_RESTORE_FAILED', err instanceof Error ? err.message : String(err), 'backup.mutate');
+        return lafsError(
+          'E_RESTORE_FAILED',
+          err instanceof Error ? err.message : String(err),
+          'backup.mutate',
+        );
       }
     }
 
@@ -829,7 +944,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
         const data = await fileRestore(projectRoot, file, { dryRun: params.dryRun });
         return lafsSuccess(data, 'backup.mutate');
       } catch (err) {
-        return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'backup.mutate');
+        return lafsError(
+          'E_GENERAL',
+          err instanceof Error ? err.message : String(err),
+          'backup.mutate',
+        );
       }
     }
 
@@ -838,17 +957,28 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       const data = await systemCreateBackup(projectRoot, { type: params.type, note: params.note });
       return lafsSuccess(data, 'backup.mutate');
     } catch (err) {
-      return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'backup.mutate');
+      return lafsError(
+        'E_GENERAL',
+        err instanceof Error ? err.message : String(err),
+        'backup.mutate',
+      );
     }
   },
 
   migrate: async (params) => {
     const projectRoot = getProjectRoot();
     try {
-      const data = await getMigrationStatus(projectRoot, { target: params.target, dryRun: params.dryRun });
+      const data = await getMigrationStatus(projectRoot, {
+        target: params.target,
+        dryRun: params.dryRun,
+      });
       return lafsSuccess(data, 'migrate');
     } catch (err) {
-      return lafsError('E_MIGRATE_FAILED', err instanceof Error ? err.message : String(err), 'migrate');
+      return lafsError(
+        'E_MIGRATE_FAILED',
+        err instanceof Error ? err.message : String(err),
+        'migrate',
+      );
     }
   },
 
@@ -867,7 +997,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       });
       return lafsSuccess(data, 'cleanup');
     } catch (err) {
-      return lafsError('E_CLEANUP_FAILED', err instanceof Error ? err.message : String(err), 'cleanup');
+      return lafsError(
+        'E_CLEANUP_FAILED',
+        err instanceof Error ? err.message : String(err),
+        'cleanup',
+      );
     }
   },
 
@@ -911,7 +1045,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       const data = await generateInjection(projectRoot, accessor);
       return lafsSuccess(data, 'inject.generate');
     } catch (err) {
-      return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'inject.generate');
+      return lafsError(
+        'E_GENERAL',
+        err instanceof Error ? err.message : String(err),
+        'inject.generate',
+      );
     }
   },
 

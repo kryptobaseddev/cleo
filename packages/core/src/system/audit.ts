@@ -5,8 +5,8 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getAccessor } from '../store/data-accessor.js';
 import { getTaskPath } from '../paths.js';
+import { getAccessor } from '../store/data-accessor.js';
 
 export interface AuditIssue {
   severity: 'error' | 'warning' | 'info';
