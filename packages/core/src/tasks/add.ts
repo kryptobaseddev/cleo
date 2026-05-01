@@ -2,6 +2,7 @@
  * Task creation logic.
  * @task T4460
  * @epic T4454
+ * @task T1633 — BRAIN-powered duplicate detection
  */
 
 import { randomBytes } from 'node:crypto';
@@ -76,6 +77,16 @@ export interface AddTaskOptions {
    * @task T944
    */
   severity?: TaskSeverity;
+  /**
+   * Bypass the E_DUPLICATE_TASK_LIKELY rejection guard.
+   *
+   * When true, task creation proceeds even when BRAIN similarity scoring
+   * determines the incoming task is very likely a duplicate (score >= 0.92).
+   * The bypass is audited to `.cleo/audit/duplicate-bypass.jsonl`.
+   *
+   * @task T1633
+   */
+  forceDuplicate?: boolean;
 }
 
 /** Result of adding a task. */
@@ -1018,7 +1029,52 @@ export async function addTask(
     validatePipelineStage(options.pipelineStage);
   }
 
-  // Duplicate detection using targeted query
+  // BRAIN-powered duplicate detection (T1633) — query active tasks for semantic similarity.
+  // Runs before the exact-title duplicate check so warnings/rejections surface early.
+  // Skip on dry-run (no data written) and skip when forceDuplicate bypasses rejection.
+  if (!options.dryRun) {
+    const { checkDuplicates, buildWarnMessage, buildRejectMessage } = await import(
+      './duplicate-detector.js'
+    );
+
+    const dupCheck = await checkDuplicates(options.title, options.description ?? '', dataAccessor);
+
+    if (dupCheck.shouldReject && !options.forceDuplicate) {
+      throw new CleoError(ExitCode.DUPLICATE_TASK_LIKELY, buildRejectMessage(dupCheck.candidates), {
+        fix: 'cleo add ... --force-duplicate',
+        details: {
+          field: 'title',
+          candidates: dupCheck.candidates,
+          maxScore: dupCheck.maxScore,
+          threshold: 0.92,
+        },
+      });
+    }
+
+    if (dupCheck.shouldReject && options.forceDuplicate) {
+      // User forced past the rejection — audit the bypass
+      const { appendDuplicateBypassAudit } = await import('./duplicate-bypass-audit.js');
+      await appendDuplicateBypassAudit(
+        {
+          incomingTitle: options.title,
+          incomingDescription: options.description ?? '',
+          matchedCandidates: dupCheck.candidates,
+          maxScore: dupCheck.maxScore,
+          timestamp: new Date().toISOString(),
+          agent: 'system',
+        },
+        cwd ?? process.cwd(),
+      );
+    }
+
+    if (dupCheck.shouldWarn) {
+      // Emit warning to stderr; does not block insertion.
+      process.stderr.write(`${buildWarnMessage(dupCheck.candidates)}\n`);
+      warnings.push(buildWarnMessage(dupCheck.candidates));
+    }
+  }
+
+  // Exact-title duplicate detection using targeted query
   const { tasks: candidateDupes } = await dataAccessor.queryTasks({
     search: options.title,
     limit: 50,
