@@ -64,6 +64,9 @@ export { exportTasks } from './admin/export.js';
 export { exportTasksPackage } from './admin/export-tasks.js';
 // Admin
 export { computeHelp } from './admin/help.js';
+// Admin — system help (T1571)
+export type { HelpData } from './admin/help.js';
+export { getSystemHelp, SYSTEM_HELP_TOPICS } from './admin/help.js';
 export { importTasks } from './admin/import.js';
 export { importFromPackage, importTasksPackage } from './admin/import-tasks.js';
 // ADRs
@@ -759,6 +762,9 @@ export { computeBriefing } from './sessions/briefing.js';
 export { getCurrentSessionId } from './sessions/context-alert.js';
 export type { ContextInjectionData } from './sessions/context-inject.js';
 export { injectContext } from './sessions/context-inject.js';
+// Context window monitoring (T1571)
+export type { ContextData } from './context/index.js';
+export { getContextStatus, getContextWindow, listContextSessions } from './context/index.js';
 export { getDecisionLog, recordDecision } from './sessions/decisions.js';
 export type { FindSessionsParams, MinimalSessionRecord } from './sessions/find.js';
 export type { DebriefData, HandoffData } from './sessions/handoff.js';
@@ -797,6 +803,9 @@ export {
 } from './snapshot/index.js';
 // System
 export { getDashboard, getProjectStats } from './stats/index.js';
+// Stats — extended types and function (T1571)
+export type { DashboardData, StatsData } from './stats/index.js';
+export { getProjectStatsExtended } from './stats/index.js';
 // Workflow telemetry (T065)
 export {
   getWorkflowComplianceReport,
@@ -919,10 +928,10 @@ export type {
 export { analyzeArchive } from './system/archive-analytics.js';
 export type { ArchiveStatsResult } from './system/archive-stats.js';
 export { getArchiveStats } from './system/archive-stats.js';
-export type { AuditResult } from './system/audit.js';
-export { auditData } from './system/audit.js';
-export type { BackupEntry, BackupResult, RestoreResult } from './system/backup.js';
-export { listSystemBackups, restoreBackup } from './system/backup.js';
+export type { AuditResult, LogQueryData } from './system/audit.js';
+export { auditData, queryAuditLog } from './system/audit.js';
+export type { BackupEntry, BackupResult, FileRestoreResult, RestoreResult } from './system/backup.js';
+export { fileRestore, listSystemBackups, restoreBackup } from './system/backup.js';
 export type { CleanupResult } from './system/cleanup.js';
 export { cleanupSystem } from './system/cleanup.js';
 // System — dependency registry
@@ -936,8 +945,10 @@ export { getSystemDiagnostics, getSystemHealth, startupHealthCheck } from './sys
 export type {
   InjectGenerateResult,
   LabelsResult,
+  PathsData,
   RuntimeDiagnostics,
   SafestopResult,
+  SyncData,
   SystemMetricsResult,
   UncancelResult,
 } from './system/index.js';
@@ -948,7 +959,9 @@ export {
   getMigrationStatus,
   getRuntimeDiagnostics,
   getSystemMetrics,
+  getSystemPaths,
   safestop,
+  systemSync,
   uncancelTask,
 } from './system/index.js';
 // Cross-project registered-project health probe (T-PROJECT-HEALTH)
@@ -1475,6 +1488,9 @@ export {
 export { mapCodebase } from './codebase-map/index.js';
 // Compliance (additional)
 export { syncComplianceMetrics } from './compliance/index.js';
+// Compliance — system stats (T1571)
+export type { ComplianceData } from './compliance/index.js';
+export { getComplianceStats } from './compliance/index.js';
 // Compliance — protocol types
 export { ProtocolType } from './compliance/protocol-enforcement.js';
 export type { BuildConfig } from './config/build-config.js';
@@ -1638,7 +1654,9 @@ export {
 // Paths (additional)
 export { getBackupDir, getCleoHome, getConfigPath, getTaskPath } from './paths.js';
 // Scaffold (additional)
-export { ensureContributorMcp, ensureGlobalTemplates, ensureProjectContext } from './scaffold.js';
+export { ensureContributorMcp, ensureCleoOsHub, ensureGlobalTemplates, ensureProjectContext } from './scaffold.js';
+// Scaffold — hub data type (T1571)
+export type { ScaffoldHubData } from './scaffold.js';
 // Worktree dispatch — SDK-first wrapper for orchestrate.spawn (T1140 / ADR-055)
 export {
   listProjectWorktrees,
