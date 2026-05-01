@@ -97,7 +97,8 @@ vi.mock('../../../../../core/src/tasks/pipeline-stage.js', () => ({
 
 // Mock gate-audit.ts (engine-ops.ts uses getForceBypassPath from here)
 vi.mock('../../../../../core/src/tasks/gate-audit.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../../core/src/tasks/gate-audit.js')>();
+  const actual =
+    await importOriginal<typeof import('../../../../../core/src/tasks/gate-audit.js')>();
   return {
     ...actual,
     // Keep getForceBypassPath to allow audit file writes in test 7
