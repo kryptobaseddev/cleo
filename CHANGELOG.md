@@ -2,7 +2,6 @@
 
 ## [Unreleased] — T1676 LLM Wiring (real LLM intelligence into sentient/dream/daemon)
 
-<<<<<<< HEAD
 ### T-LW-W3: Tiered hygiene scan — filesystem → SQL → Jaccard → LLM (T1679)
 
 Upgraded `packages/core/src/sentient/hygiene-scan.ts` from flat SQL-only scanning to a
