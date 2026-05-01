@@ -1,6 +1,10 @@
 # Changelog
 
-## [Unreleased] — T1676 LLM Wiring (real LLM intelligence into sentient/dream/daemon)
+## [2026.5.2] (2026-05-01) — T1676 LLM Wiring: real LLM intelligence + cost-disciplined tiered escalation + multi-provider + daemon supervision
+
+The sentient harness now uses **real LLM reasoning** with cost discipline — only escalates to LLM API calls when cheaper deterministic tiers (filesystem, SQL, Jaccard similarity) cannot decide. Multi-provider support (Anthropic, OpenAI, Gemini, Moonshot Kimi K2) configurable per-daemon. Centralized 5-tier credential resolution. One daemon supervises both sentient ticks/dreams AND the Cleo Studio web server. Cross-OS daemon auto-install via systemd (Linux) / launchd (macOS) on `npm install -g`.
+
+T1676 epic auto-closed via T1632 invariant (7/7 children done — auto-close gating proving itself in production for the second consecutive release).
 
 ### T-LW-W3: Tiered hygiene scan — filesystem → SQL → Jaccard → LLM (T1679)
 
