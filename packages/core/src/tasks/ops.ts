@@ -168,6 +168,11 @@ export async function tasksAddOp(
     role?: TaskRole;
     scope?: TaskScope;
     severity?: TaskSeverity;
+    /**
+     * Bypass the BRAIN duplicate-detection rejection guard (T1633).
+     * Audited to `.cleo/audit/duplicate-bypass.jsonl`.
+     */
+    forceDuplicate?: boolean;
   },
 ): Promise<AddTaskResult> {
   return addTask(
@@ -189,6 +194,7 @@ export async function tasksAddOp(
       role: params.role,
       scope: params.scope,
       severity: params.severity,
+      forceDuplicate: params.forceDuplicate,
     },
     projectRoot,
   );
