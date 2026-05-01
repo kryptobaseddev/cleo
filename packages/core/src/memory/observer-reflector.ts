@@ -238,7 +238,7 @@ interface AnthropicResponse {
  * @returns The assistant response text, or null on failure.
  */
 async function callAnthropicLlm(systemPrompt: string, userContent: string): Promise<string | null> {
-  const { resolveAnthropicApiKey } = await import('./anthropic-key-resolver.js');
+  const { resolveAnthropicApiKey } = await import('../llm/credentials.js');
   const apiKey = resolveAnthropicApiKey();
   if (!apiKey) {
     return null;
@@ -572,7 +572,7 @@ export async function runObserver(
   const empty: ObserverResult = { ran: false, stored: 0, compressedIds: [], notes: [] };
 
   // Gate 1: API key must be present
-  const { resolveAnthropicApiKey: resolveKey } = await import('./anthropic-key-resolver.js');
+  const { resolveAnthropicApiKey: resolveKey } = await import('../llm/credentials.js');
   if (!resolveKey()) return empty;
 
   // Gate 2: Configuration must allow observer
@@ -706,7 +706,7 @@ export async function runReflector(
   };
 
   // Gate 1: API key must be present
-  const { resolveAnthropicApiKey: resolveKey } = await import('./anthropic-key-resolver.js');
+  const { resolveAnthropicApiKey: resolveKey } = await import('../llm/credentials.js');
   if (!resolveKey()) return empty;
 
   // Gate 2: Configuration must allow reflector

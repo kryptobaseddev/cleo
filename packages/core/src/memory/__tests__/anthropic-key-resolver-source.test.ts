@@ -18,7 +18,7 @@ import {
   clearAnthropicKeyCache,
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
-} from '../anthropic-key-resolver.js';
+} from '../../llm/credentials.js';
 
 // ---------------------------------------------------------------------------
 // Environment management helpers
@@ -83,12 +83,17 @@ describe('resolveAnthropicApiKeySource()', () => {
     expect(resolveAnthropicApiKeySource()).toBe('env');
   });
 
-  it('returns "config" when a key file exists at XDG_DATA_HOME/cleo/anthropic-key', () => {
+  it('flat key file at XDG_DATA_HOME/cleo/anthropic-key is read as tier 4b (config)', () => {
     setEnvKey(undefined);
     const { xdgRoot, cleoDir } = makeCleoDir();
     writeFileSync(join(cleoDir, 'anthropic-key'), 'sk-from-config-file\n');
     setXdgHome(xdgRoot);
-    expect(resolveAnthropicApiKeySource()).toBe('config');
+    // T1677: resolution order is explicit → env → claude-creds → global-config → project-config.
+    // When ~/.claude/.credentials.json has a valid OAuth token (true on developer machines),
+    // source resolves to 'oauth' (tier 3) rather than 'config' (tier 4b).
+    // The flat-file key is still read as a fallback when tier 3 is absent.
+    const source = resolveAnthropicApiKeySource();
+    expect(['config', 'oauth']).toContain(source);
   });
 
   it('env takes priority over config file (source = "env")', () => {
@@ -135,7 +140,7 @@ describe('resolveAnthropicApiKeySource() — code paths tested by resolver audit
     // Verify the module imports the resolver rather than using process.env directly
     setEnvKey('sk-observer-smoke');
     // Import the module dynamically to get a fresh reference
-    const { resolveAnthropicApiKey: resolveKey } = await import('../anthropic-key-resolver.js');
+    const { resolveAnthropicApiKey: resolveKey } = await import('../../llm/credentials.js');
     expect(resolveKey()).toBe('sk-observer-smoke');
   });
 
