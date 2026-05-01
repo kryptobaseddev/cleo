@@ -1783,6 +1783,38 @@ export { listLabels, showLabelTasks } from './tasks/labels.js';
 // Tasks — plan, labels, suggests
 export { coreTaskPlan } from './tasks/plan.js';
 export { suggestRelated } from './tasks/relates.js';
+// Tools engine ops — ENG-MIG-8 / T1575
+export {
+  toolsAdapterActivate,
+  toolsAdapterDetect,
+  toolsAdapterDispose,
+  toolsAdapterHealth,
+  toolsAdapterList,
+  toolsAdapterShow,
+  toolsIssueDiagnostics,
+  toolsProviderDetect,
+  toolsProviderHooks,
+  toolsProviderInject,
+  toolsProviderInjectStatus,
+  toolsProviderList,
+  toolsProviderSupports,
+  toolsSkillCatalogInfo,
+  toolsSkillCatalogProfiles,
+  toolsSkillCatalogProtocols,
+  toolsSkillCatalogResources,
+  toolsSkillDependencies,
+  toolsSkillDispatch,
+  toolsSkillFind,
+  toolsSkillInstall,
+  toolsSkillList,
+  toolsSkillPrecedenceResolve,
+  toolsSkillPrecedenceShow,
+  toolsSkillRefresh,
+  toolsSkillShow,
+  toolsSkillSpawnProviders,
+  toolsSkillUninstall,
+  toolsSkillVerify,
+} from './tools/engine-ops.js';
 // Verification gates — enums/classes
 export { GateStatus, VerificationGate } from './validation/operation-verification-gates.js';
 
