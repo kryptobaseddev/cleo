@@ -10,10 +10,11 @@
 
 import type { ToolCallParams } from '@cleocode/contracts/operations/llm';
 
+export type { DaemonLLMConfig, LlmConfig, LlmProviderEntry } from '@cleocode/contracts';
 export type { LLMCallParams, ToolCallParams, ToolResult } from '@cleocode/contracts/operations/llm';
 
 /** Supported provider transport names. */
-export type ModelTransport = 'anthropic' | 'openai' | 'gemini';
+export type ModelTransport = 'anthropic' | 'openai' | 'gemini' | 'moonshot';
 
 /** Cache policy mode for prompt prefix caching. */
 export type PromptCachePolicyMode = 'gemini_cached_content';
