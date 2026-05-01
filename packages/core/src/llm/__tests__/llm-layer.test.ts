@@ -18,7 +18,7 @@
  * @epic T1386
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CompletionResult } from '../backend.js';
 import { makeCompletionResult } from '../backend.js';
@@ -26,6 +26,13 @@ import { makeCompletionResult } from '../backend.js';
 import { AnthropicBackend } from '../backends/anthropic.js';
 // --- Gemini backend ---
 import { GeminiBackend } from '../backends/gemini.js';
+// --- Moonshot backend ---
+import {
+  isMoonshotModel,
+  MOONSHOT_BASE_URL,
+  MOONSHOT_DEFAULT_MODEL,
+  MoonshotBackend,
+} from '../backends/moonshot.js';
 // --- OpenAI backend ---
 import { usesMaxCompletionTokens } from '../backends/openai.js';
 // --- Cache key determinism ---
@@ -554,5 +561,137 @@ describe('selectModelConfigForAttempt', () => {
   it('returns primary when no fallback configured', () => {
     const result = selectModelConfigForAttempt(primary, 3, 3);
     expect(result.model).toBe('claude-sonnet-4-6');
+  });
+});
+
+// ============================================================================
+// MoonshotBackend — unit tests (T1678 · T-LW-W2)
+// ============================================================================
+
+describe('isMoonshotModel', () => {
+  it('returns true for kimi-k2-0905-preview', () => {
+    expect(isMoonshotModel('kimi-k2-0905-preview')).toBe(true);
+  });
+
+  it('returns true for kimi-* variants', () => {
+    expect(isMoonshotModel('kimi-k1-32k')).toBe(true);
+    expect(isMoonshotModel('kimi-k2-latest')).toBe(true);
+  });
+
+  it('returns true for moonshot-v1-* variants', () => {
+    expect(isMoonshotModel('moonshot-v1-8k')).toBe(true);
+    expect(isMoonshotModel('moonshot-v1-128k')).toBe(true);
+  });
+
+  it('returns false for gpt-4o', () => {
+    expect(isMoonshotModel('gpt-4o')).toBe(false);
+  });
+
+  it('returns false for claude-sonnet-4-6', () => {
+    expect(isMoonshotModel('claude-sonnet-4-6')).toBe(false);
+  });
+});
+
+describe('MOONSHOT_DEFAULT_MODEL', () => {
+  it('is kimi-k2-0905-preview', () => {
+    expect(MOONSHOT_DEFAULT_MODEL).toBe('kimi-k2-0905-preview');
+  });
+
+  it('is a kimi model (satisfies isMoonshotModel)', () => {
+    expect(isMoonshotModel(MOONSHOT_DEFAULT_MODEL)).toBe(true);
+  });
+});
+
+describe('MOONSHOT_BASE_URL', () => {
+  it('points to the Moonshot OpenAI-compatible endpoint', () => {
+    expect(MOONSHOT_BASE_URL).toBe('https://api.moonshot.ai/v1');
+  });
+});
+
+describe('MoonshotBackend', () => {
+  /** Build a minimal mock OpenAI client that returns a preset response. */
+  function makeMockClient(content: string): OpenAI {
+    const mockCreate = vi.fn().mockResolvedValue({
+      id: 'chatcmpl-test',
+      object: 'chat.completion',
+      created: 1_700_000_000,
+      model: MOONSHOT_DEFAULT_MODEL,
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content },
+          finish_reason: 'stop',
+          delta: {},
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    });
+    return {
+      chat: { completions: { create: mockCreate } },
+    } as unknown as OpenAI;
+  }
+
+  it('complete — roundtrips a simple prompt via mock client', async () => {
+    const client = makeMockClient('Hello from Kimi!');
+    const backend = new MoonshotBackend(client);
+    const result = await backend.complete({
+      model: MOONSHOT_DEFAULT_MODEL,
+      messages: [{ role: 'user', content: 'Say hello' }],
+      maxTokens: 100,
+      temperature: 0,
+      stop: null,
+      tools: null,
+      toolChoice: null,
+      responseFormat: null,
+      thinkingBudgetTokens: null,
+      thinkingEffort: null,
+      maxOutputTokens: null,
+      extraParams: null,
+    });
+    expect(result.content).toBe('Hello from Kimi!');
+    expect(result.finishReasons).toContain('stop');
+  });
+
+  it('complete — rejects thinkingBudgetTokens', async () => {
+    const client = makeMockClient('');
+    const backend = new MoonshotBackend(client);
+    await expect(
+      backend.complete({
+        model: MOONSHOT_DEFAULT_MODEL,
+        messages: [{ role: 'user', content: 'hi' }],
+        maxTokens: 100,
+        temperature: null,
+        stop: null,
+        tools: null,
+        toolChoice: null,
+        responseFormat: null,
+        thinkingBudgetTokens: 1024,
+        thinkingEffort: null,
+        maxOutputTokens: null,
+        extraParams: null,
+      }),
+    ).rejects.toThrow('MoonshotBackend does not support thinkingBudgetTokens');
+  });
+
+  it('stream — rejects thinkingBudgetTokens', async () => {
+    const client = makeMockClient('');
+    const backend = new MoonshotBackend(client);
+    const gen = backend.stream({
+      model: MOONSHOT_DEFAULT_MODEL,
+      messages: [{ role: 'user', content: 'hi' }],
+      maxTokens: 100,
+      temperature: null,
+      stop: null,
+      tools: null,
+      toolChoice: null,
+      responseFormat: null,
+      thinkingBudgetTokens: 512,
+      thinkingEffort: null,
+      maxOutputTokens: null,
+      extraParams: null,
+    });
+    await expect(gen.next()).rejects.toThrow(
+      'MoonshotBackend does not support thinkingBudgetTokens',
+    );
   });
 });
