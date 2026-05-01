@@ -124,6 +124,20 @@ vi.mock('@cleocode/core/internal', async () => {
     resolveAnthropicApiKeySource: () => mockResolveAnthropicApiKeySource(),
     resolveAnthropicApiKey: () => mockResolveAnthropicApiKey(),
     generateMemoryBridgeContent: (...args: unknown[]) => mockGenerateMemoryBridgeContent(...args),
+    // Gate verification + protocol ops (ENG-MIG-7 / T1574 — migrated from engine layer)
+    validateGateVerify: vi.fn(),
+    validateProtocolConsensus: vi.fn(),
+    validateProtocolContribution: vi.fn(),
+    validateProtocolDecomposition: vi.fn(),
+    validateProtocolImplementation: vi.fn(),
+    validateProtocolSpecification: vi.fn(),
+    validateProtocolResearch: vi.fn(),
+    validateProtocolArchitectureDecision: vi.fn(),
+    validateProtocolValidation: vi.fn(),
+    validateProtocolTesting: vi.fn(),
+    validateProtocolRelease: vi.fn(),
+    validateProtocolArtifactPublish: vi.fn(),
+    validateProtocolProvenance: vi.fn(),
   };
 });
 
@@ -144,7 +158,8 @@ vi.mock('../../engines/nexus-engine.js', async () => {
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { memoryObserve, validateGateVerify } from '../../lib/engine.js';
+import { validateGateVerify } from '@cleocode/core/internal';
+import { memoryObserve } from '../../lib/engine.js';
 import { CheckHandler } from '../check.js';
 import { MemoryHandler } from '../memory.js';
 import { NexusHandler } from '../nexus.js';
