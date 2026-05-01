@@ -16,7 +16,7 @@
  */
 
 import { getLogger, getProjectRoot } from '@cleocode/core';
-import { codeOutline, codeParse, codeSearch, codeUnfold } from '../engines/code-engine.js';
+import { codeOutline, codeParse, codeSearch, codeUnfold } from '@cleocode/core/internal';
 import {
   toolsAdapterActivate,
   toolsAdapterDetect,
@@ -611,19 +611,19 @@ export class ToolsHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     switch (sub) {
       case 'outline': {
-        const result = await codeOutline(params);
+        const result = await codeOutline(this.projectRoot, params);
         return wrapResult(result, 'query', 'tools', 'code.outline', startTime);
       }
       case 'search': {
-        const result = await codeSearch(params);
+        const result = await codeSearch(this.projectRoot, params);
         return wrapResult(result, 'query', 'tools', 'code.search', startTime);
       }
       case 'unfold': {
-        const result = await codeUnfold(params);
+        const result = await codeUnfold(this.projectRoot, params);
         return wrapResult(result, 'query', 'tools', 'code.unfold', startTime);
       }
       case 'parse': {
-        const result = await codeParse(params);
+        const result = await codeParse(this.projectRoot, params);
         return wrapResult(result, 'query', 'tools', 'code.parse', startTime);
       }
       default:
