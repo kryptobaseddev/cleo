@@ -684,7 +684,12 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(true);
       // T832/ADR-051: completeTaskStrict no longer accepts the force parameter.
-      expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', 'Done');
+      // T1632: notes/overrideReason/acknowledgeRisk now passed as options object.
+      expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', {
+        notes: 'Done',
+        overrideReason: undefined,
+        acknowledgeRisk: undefined,
+      });
     });
 
     it('complete - rejects --force with E_FLAG_REMOVED (T832/ADR-051)', async () => {
@@ -720,7 +725,12 @@ describe('TasksHandler', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_IVTR_INCOMPLETE');
       // T832/ADR-051: force parameter removed from completeTaskStrict signature.
-      expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', undefined);
+      // T1632: notes/overrideReason/acknowledgeRisk now passed as options object.
+      expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', {
+        notes: undefined,
+        overrideReason: undefined,
+        acknowledgeRisk: undefined,
+      });
     });
 
     it('update - forwards pipelineStage to engine (T832 / T834)', async () => {
