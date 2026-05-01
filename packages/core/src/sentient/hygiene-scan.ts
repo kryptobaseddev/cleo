@@ -215,7 +215,7 @@ function queryWorkingTasks(db: DatabaseSync): TaskRow[] {
     ORDER BY id ASC
   `;
   try {
-    return db.prepare(sql).all() as TaskRow[];
+    return db.prepare(sql).all() as unknown as TaskRow[];
   } catch {
     return [];
   }
@@ -237,7 +237,7 @@ function queryRecentlyDoneTasks(db: DatabaseSync): TaskRow[] {
     LIMIT 500
   `;
   try {
-    return db.prepare(sql).all() as TaskRow[];
+    return db.prepare(sql).all() as unknown as TaskRow[];
   } catch {
     return [];
   }
@@ -351,7 +351,7 @@ async function scanTopLevelOrphanTasks(
   `;
   let rows: TaskRow[];
   try {
-    rows = db.prepare(sql).all() as TaskRow[];
+    rows = db.prepare(sql).all() as unknown as TaskRow[];
   } catch {
     return { found: 0, observed: 0, detail: 'db error in top-level scan' };
   }
