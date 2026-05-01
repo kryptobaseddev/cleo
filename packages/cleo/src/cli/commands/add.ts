@@ -171,6 +171,20 @@ export const addCommand = defineCommand({
       type: 'string',
       description: 'Bug severity (P0|P1|P2|P3) — only valid with --role bug (T944)',
     },
+    /**
+     * Bypass the E_DUPLICATE_TASK_LIKELY rejection guard.
+     *
+     * When passed, `cleo add` proceeds even if BRAIN similarity scoring
+     * determines the task is very likely a duplicate (score >= 0.92).
+     * The bypass is audited to `.cleo/audit/duplicate-bypass.jsonl`.
+     *
+     * @task T1633
+     */
+    'force-duplicate': {
+      type: 'boolean',
+      description:
+        'Bypass BRAIN duplicate-task rejection (audited to .cleo/audit/duplicate-bypass.jsonl) (T1633)',
+    },
   },
   async run({ args, cmd }) {
     if (!args.title) {
@@ -208,6 +222,8 @@ export const addCommand = defineCommand({
       params['role'] = (params['role'] as string | undefined) ?? args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
     if (args.severity !== undefined) params['severity'] = args.severity;
+    // T1633: BRAIN duplicate-bypass flag
+    if (args['force-duplicate'] !== undefined) params['forceDuplicate'] = args['force-duplicate'];
 
     // T1490: Delegate file inference, acceptance parsing, and parent inference
     // to Core so the CLI layer stays a thin parse-and-delegate shell.
