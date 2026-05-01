@@ -101,9 +101,8 @@ export async function queryHookProviders(
       id: (p as { id: string }).id,
       name: (p as { name?: string }).name,
       supportedHooks:
-        (
-          p as { capabilities?: { hooks?: { supported?: string[] } } }
-        ).capabilities?.hooks?.supported ?? [],
+        (p as { capabilities?: { hooks?: { supported?: string[] } } }).capabilities?.hooks
+          ?.supported ?? [],
     })),
   });
 }
@@ -155,39 +154,37 @@ export async function systemHooksMatrix(params?: {
     }
 
     // Build per-provider summary
-    const summary: ProviderMatrixEntry[] = (raw.providers as string[]).map(
-      (providerId: string) => {
-        const provSummary = getProviderSummary(providerId);
-        if (provSummary) {
-          return {
-            providerId,
-            supportedCount: provSummary.supportedCount,
-            totalCanonical: provSummary.totalCanonical,
-            coverage: provSummary.coverage,
-            supported: provSummary.supported as string[],
-            unsupported: provSummary.unsupported as string[],
-          };
-        }
-        // Derive from matrix if no summary profile available
-        const supported = (raw.events as string[]).filter(
-          (ev: string) => boolMatrix[ev]?.[providerId] === true,
-        );
-        const unsupported = (raw.events as string[]).filter(
-          (ev: string) => boolMatrix[ev]?.[providerId] !== true,
-        );
-        const totalCanonical = raw.events.length;
-        const coverage =
-          totalCanonical > 0 ? Math.round((supported.length / totalCanonical) * 100) : 0;
+    const summary: ProviderMatrixEntry[] = (raw.providers as string[]).map((providerId: string) => {
+      const provSummary = getProviderSummary(providerId);
+      if (provSummary) {
         return {
           providerId,
-          supportedCount: supported.length,
-          totalCanonical,
-          coverage,
-          supported,
-          unsupported,
+          supportedCount: provSummary.supportedCount,
+          totalCanonical: provSummary.totalCanonical,
+          coverage: provSummary.coverage,
+          supported: provSummary.supported as string[],
+          unsupported: provSummary.unsupported as string[],
         };
-      },
-    );
+      }
+      // Derive from matrix if no summary profile available
+      const supported = (raw.events as string[]).filter(
+        (ev: string) => boolMatrix[ev]?.[providerId] === true,
+      );
+      const unsupported = (raw.events as string[]).filter(
+        (ev: string) => boolMatrix[ev]?.[providerId] !== true,
+      );
+      const totalCanonical = raw.events.length;
+      const coverage =
+        totalCanonical > 0 ? Math.round((supported.length / totalCanonical) * 100) : 0;
+      return {
+        providerId,
+        supportedCount: supported.length,
+        totalCanonical,
+        coverage,
+        supported,
+        unsupported,
+      };
+    });
 
     // Detect current provider if requested (default: true)
     let detectedProvider: string | null = null;
