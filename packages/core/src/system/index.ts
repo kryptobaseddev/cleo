@@ -34,10 +34,10 @@ export {
 } from './archive-analytics.js';
 export type { ArchiveStatsResult } from './archive-stats.js';
 export { getArchiveStats } from './archive-stats.js';
-export type { AuditIssue, AuditResult } from './audit.js';
-export { auditData } from './audit.js';
-export type { BackupResult, RestoreResult } from './backup.js';
-export { createBackup, restoreBackup } from './backup.js';
+export type { AuditIssue, AuditResult, LogQueryData } from './audit.js';
+export { auditData, queryAuditLog } from './audit.js';
+export type { BackupResult, FileRestoreResult, RestoreResult } from './backup.js';
+export { createBackup, fileRestore, restoreBackup } from './backup.js';
 export { resolveBridgeMode } from './bridge-mode.js';
 export type { CleanupResult } from './cleanup.js';
 export { cleanupSystem } from './cleanup.js';
@@ -58,6 +58,8 @@ export type { SystemMetricsResult } from './metrics.js';
 export { getSystemMetrics } from './metrics.js';
 export type { MigrateResult } from './migrate.js';
 export { getMigrationStatus } from './migrate.js';
+export type { PathsData } from './platform-paths.js';
+export { getSystemPaths } from './platform-paths.js';
 export type {
   CheckAllOptions,
   DbProbeResult,
@@ -79,3 +81,6 @@ export type { SafestopResult, UncancelResult } from './safestop.js';
 export { safestop, uncancelTask } from './safestop.js';
 export type { PreflightResult } from './storage-preflight.js';
 export { checkStorageMigration } from './storage-preflight.js';
+// Wave 2: new system exports (T1571)
+export type { SyncData } from './sync.js';
+export { systemSync } from './sync.js';

@@ -19,7 +19,7 @@ vi.mock('../../lib/engine.js', () => ({
   validateProtocolImplementation: vi.fn(),
   validateProtocolSpecification: vi.fn(),
   validateGateVerify: vi.fn(),
-  systemArchiveStats: vi.fn(),
+  // T1571: systemArchiveStats removed from barrel (moved to @cleocode/core/internal as getArchiveStats)
 }));
 
 vi.mock('../../../../../core/src/paths.js', async () => {

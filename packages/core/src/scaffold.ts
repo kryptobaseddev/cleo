@@ -1891,6 +1891,7 @@ function resolveCleoOsHubTemplateRoot(): string | null {
  * console.log(result.action); // "created" or "skipped"
  * ```
  */
+// SSoT-EXEMPT:engine-migration-T1571
 export async function ensureCleoOsHub(): Promise<ScaffoldResult> {
   const recipesDir = getCleoGlobalRecipesDir();
   const piExtDir = getCleoPiExtensionsDir();
@@ -2274,4 +2275,21 @@ export function checkLogDir(projectRoot: string): CheckResult {
     details: { path: logDir, exists: true },
     fix: null,
   };
+}
+
+/**
+ * Result of scaffolding the CleoOS Hub.
+ *
+ * Mirrors the shape returned by `ensureCleoOsHub()` but with a
+ * simplified union for the action field — suitable for CLI presentation.
+ *
+ * @task T1571
+ */
+export interface ScaffoldHubData {
+  /** What action was taken on the hub. */
+  action: 'created' | 'repaired' | 'skipped';
+  /** Absolute path to the hub root. */
+  path: string;
+  /** Optional detail message. */
+  details?: string;
 }

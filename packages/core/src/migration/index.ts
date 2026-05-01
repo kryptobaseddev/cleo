@@ -233,6 +233,7 @@ export function compareSemver(a: string, b: string): number {
  * Get migration status for all data files.
  * @task T4468
  */
+// SSoT-EXEMPT:engine-migration-T1571
 export async function getMigrationStatus(cwd?: string): Promise<MigrationStatus> {
   const result: MigrationStatus = {
     todoJson: null,

@@ -38,7 +38,7 @@ describe('Import Graph Verification (T4796)', () => {
     // task-engine.ts deleted — moved to src/dispatch/engines/task-engine.ts (T5100)
     // session-engine.ts deleted — moved to src/dispatch/engines/session-engine.ts
     // lifecycle-engine.ts deleted — moved to src/dispatch/engines/lifecycle-engine.ts
-    // system-engine.ts deleted — moved to src/dispatch/engines/system-engine.ts (T5107)
+    // system-engine.ts FULLY DELETED in T1571 — all ops moved to @cleocode/core/internal
     // orchestrate-engine.ts deleted — moved to src/dispatch/engines/orchestrate-engine.ts (T5108)
     // validate-engine.ts deleted — moved to src/dispatch/engines/validate-engine.ts (T5109-T5111)
   ];
@@ -147,14 +147,20 @@ describe('Import Graph Verification (T4796)', () => {
     expect(content).toContain('coreValidateTask');
   });
 
-  it('system-engine.ts imports core system functions via @cleocode/core', async () => {
-    // T5718: imports rewired from relative ../../core/ to @cleocode/core
-    const dispatchEngineDir = join(process.cwd(), 'packages', 'cleo', 'src', 'dispatch', 'engines');
-    const content = await readFile(join(dispatchEngineDir, 'system-engine.ts'), 'utf-8');
-
-    expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
-    expect(content).toContain('getProjectStats');
-    expect(content).toContain('getSystemHealth');
+  it('@cleocode/core/internal exports core system functions (T1571: system-engine.ts deleted)', async () => {
+    // T1571: system-engine.ts deleted (1855 LOC); all ops moved to packages/core/src/system/.
+    // Verify that @cleocode/core/internal exports the expected system functions directly.
+    const core = await import('@cleocode/core/internal');
+    expect(typeof core.getSystemHealth).toBe('function');
+    expect(typeof core.getDashboard).toBe('function');
+    expect(typeof core.queryAuditLog).toBe('function');
+    expect(typeof core.getContextWindow).toBe('function');
+    expect(typeof core.getSystemPaths).toBe('function');
+    expect(typeof core.getProjectStatsExtended).toBe('function');
+    expect(typeof core.getComplianceStats).toBe('function');
+    expect(typeof core.getSystemHelp).toBe('function');
+    expect(typeof core.fileRestore).toBe('function');
+    expect(typeof core.systemSync).toBe('function');
   });
 
   it('@cleocode/core/internal exports core orchestration functions (T1570: orchestrate-engine.ts deleted)', async () => {
