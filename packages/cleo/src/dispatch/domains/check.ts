@@ -58,9 +58,6 @@ import {
   checkWorkflowCompliance,
   getLogger,
   getProjectRoot,
-} from '@cleocode/core/internal';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
-import {
   validateGateVerify,
   validateProtocolArchitectureDecision,
   validateProtocolArtifactPublish,
@@ -74,7 +71,8 @@ import {
   validateProtocolSpecification,
   validateProtocolTesting,
   validateProtocolValidation,
-} from '../lib/engine.js';
+} from '@cleocode/core/internal';
+import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
@@ -231,13 +229,10 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     // Dispatch to specific protocol validators
     switch (protocolType) {
       case 'consensus': {
-        const result = await validateProtocolConsensus(
-          {
-            ...protocolParams,
-            votingMatrixFile: params.votingMatrixFile,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolConsensus(projectRoot, {
+          ...protocolParams,
+          votingMatrixFile: params.votingMatrixFile,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -248,7 +243,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
       case 'contribution': {
-        const result = await validateProtocolContribution(protocolParams, projectRoot);
+        const result = await validateProtocolContribution(projectRoot, protocolParams);
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -259,13 +254,10 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
       case 'decomposition': {
-        const result = await validateProtocolDecomposition(
-          {
-            ...protocolParams,
-            epicId: params.epicId,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolDecomposition(projectRoot, {
+          ...protocolParams,
+          epicId: params.epicId,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -276,7 +268,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
       case 'implementation': {
-        const result = await validateProtocolImplementation(protocolParams, projectRoot);
+        const result = await validateProtocolImplementation(projectRoot, protocolParams);
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -287,13 +279,10 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
       case 'specification': {
-        const result = await validateProtocolSpecification(
-          {
-            ...protocolParams,
-            specFile: params.specFile,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolSpecification(projectRoot, {
+          ...protocolParams,
+          specFile: params.specFile,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -304,13 +293,10 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
       case 'research': {
-        const result = await validateProtocolResearch(
-          {
-            ...protocolParams,
-            hasCodeChanges: params.hasCodeChanges,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolResearch(projectRoot, {
+          ...protocolParams,
+          hasCodeChanges: params.hasCodeChanges,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -322,17 +308,14 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       }
       case 'architecture-decision':
       case 'architecture_decision': {
-        const result = await validateProtocolArchitectureDecision(
-          {
-            ...protocolParams,
-            adrContent: params.adrContent,
-            status: params.status,
-            hitlReviewed: params.hitlReviewed,
-            downstreamFlagged: params.downstreamFlagged,
-            persistedInDb: params.persistedInDb,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolArchitectureDecision(projectRoot, {
+          ...protocolParams,
+          adrContent: params.adrContent,
+          status: params.status,
+          hitlReviewed: params.hitlReviewed,
+          downstreamFlagged: params.downstreamFlagged,
+          persistedInDb: params.persistedInDb,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -343,15 +326,12 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
       case 'validation': {
-        const result = await validateProtocolValidation(
-          {
-            ...protocolParams,
-            specMatchConfirmed: params.specMatchConfirmed,
-            testSuitePassed: params.testSuitePassed,
-            protocolComplianceChecked: params.protocolComplianceChecked,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolValidation(projectRoot, {
+          ...protocolParams,
+          specMatchConfirmed: params.specMatchConfirmed,
+          testSuitePassed: params.testSuitePassed,
+          protocolComplianceChecked: params.protocolComplianceChecked,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -362,20 +342,17 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
       case 'testing': {
-        const result = await validateProtocolTesting(
-          {
-            ...protocolParams,
-            framework: params.framework,
-            testsRun: params.testsRun,
-            testsPassed: params.testsPassed,
-            testsFailed: params.testsFailed,
-            coveragePercent: params.coveragePercent,
-            coverageThreshold: params.coverageThreshold,
-            ivtLoopConverged: params.ivtLoopConverged,
-            ivtLoopIterations: params.ivtLoopIterations,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolTesting(projectRoot, {
+          ...protocolParams,
+          framework: params.framework,
+          testsRun: params.testsRun,
+          testsPassed: params.testsPassed,
+          testsFailed: params.testsFailed,
+          coveragePercent: params.coveragePercent,
+          coverageThreshold: params.coverageThreshold,
+          ivtLoopConverged: params.ivtLoopConverged,
+          ivtLoopIterations: params.ivtLoopIterations,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -386,14 +363,11 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
       case 'release': {
-        const result = await validateProtocolRelease(
-          {
-            ...protocolParams,
-            version: params.version,
-            hasChangelog: params.hasChangelog,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolRelease(projectRoot, {
+          ...protocolParams,
+          version: params.version,
+          hasChangelog: params.hasChangelog,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -405,14 +379,11 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       }
       case 'artifact-publish':
       case 'artifact_publish': {
-        const result = await validateProtocolArtifactPublish(
-          {
-            ...protocolParams,
-            artifactType: params.artifactType,
-            buildPassed: params.buildPassed,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolArtifactPublish(projectRoot, {
+          ...protocolParams,
+          artifactType: params.artifactType,
+          buildPassed: params.buildPassed,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -423,14 +394,11 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         return lafsSuccess(result.data ?? { taskId: '', protocol: '', passed: false }, 'protocol');
       }
       case 'provenance': {
-        const result = await validateProtocolProvenance(
-          {
-            ...protocolParams,
-            hasAttestation: params.hasAttestation,
-            hasSbom: params.hasSbom,
-          },
-          projectRoot,
-        );
+        const result = await validateProtocolProvenance(projectRoot, {
+          ...protocolParams,
+          hasAttestation: params.hasAttestation,
+          hasSbom: params.hasSbom,
+        });
         if (!result.success) {
           return lafsError(
             String(result.error?.code ?? 'E_INTERNAL'),
@@ -467,7 +435,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'gate.status');
     }
     // Read-only access
-    const result = await validateGateVerify({ taskId: params.taskId }, projectRoot);
+    const result = await validateGateVerify(projectRoot, { taskId: params.taskId });
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -488,7 +456,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     }
 
     // Reuse gate.status read-only view for the raw data
-    const raw = await validateGateVerify({ taskId: params.taskId }, projectRoot);
+    const raw = await validateGateVerify(projectRoot, { taskId: params.taskId });
     if (!raw.success) {
       return lafsError(
         String(raw.error?.code ?? 'E_INTERNAL'),
@@ -658,7 +626,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       sessionId: params.sessionId,
       sharedEvidence: params.sharedEvidence,
     };
-    const result = await validateGateVerify(gateParams, projectRoot);
+    const result = await validateGateVerify(projectRoot, gateParams);
     // T994: Track memory usage on gate verification (fire-and-forget; must not block).
     setImmediate(async () => {
       try {

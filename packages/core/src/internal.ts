@@ -1135,6 +1135,27 @@ export type { DiagnoseFinding, DiagnoseResult, UpgradeSummary } from './upgrade.
 export { diagnoseUpgrade, runUpgrade } from './upgrade.js';
 // Validation — chain validation
 export { validateChain } from './validation/chain-validation.js';
+// Validation — engine operations (ENG-MIG-7 / T1574)
+export type {
+  GateVerifyParams,
+  GateVerifyResult,
+  ProtocolValidationParams,
+} from './validation/engine-ops.js';
+export {
+  validateGateVerify,
+  validateProtocolArchitectureDecision,
+  validateProtocolArtifactPublish,
+  validateProtocolConsensus,
+  validateProtocolContribution,
+  validateProtocolDecomposition,
+  validateProtocolImplementation,
+  validateProtocolProvenance,
+  validateProtocolRelease,
+  validateProtocolResearch,
+  validateProtocolSpecification,
+  validateProtocolTesting,
+  validateProtocolValidation,
+} from './validation/engine-ops.js';
 // Validation — operation gates
 export {
   GATE_VALIDATION_RULES,

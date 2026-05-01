@@ -33,12 +33,7 @@ vi.mock('@cleocode/core/internal', () => ({
   checkWorkflowCompliance: vi.fn(),
   getLogger: vi.fn(() => ({ error: vi.fn() })),
   getProjectRoot: vi.fn(() => '/mock/project'),
-}));
-
-// ---------------------------------------------------------------------------
-// Mock engine.js — only sub-protocol ops remain in the engine layer
-// ---------------------------------------------------------------------------
-vi.mock('../../lib/engine.js', () => ({
+  // Gate verification + protocol ops (ENG-MIG-7 / T1574 — migrated from engine layer)
   validateGateVerify: vi.fn(),
   validateProtocolArchitectureDecision: vi.fn(),
   validateProtocolArtifactPublish: vi.fn(),
@@ -61,8 +56,9 @@ import {
   checkTestCoverage,
   checkTestStatus,
   checkValidateProtocol,
+  validateGateVerify,
+  validateProtocolConsensus,
 } from '@cleocode/core/internal';
-import { validateGateVerify, validateProtocolConsensus } from '../../lib/engine.js';
 
 describe('CheckHandler Operations', () => {
   let handler: CheckHandler;
@@ -166,34 +162,31 @@ describe('CheckHandler Operations', () => {
 
     it('calls validateProtocolConsensus when type is consensus', async () => {
       await handler.query('protocol', { protocolType: 'consensus', taskId: 'T1', strict: true });
-      expect(validateProtocolConsensus).toHaveBeenCalledWith(
-        {
-          mode: 'task',
-          taskId: 'T1',
-          manifestFile: undefined,
-          strict: true,
-          votingMatrixFile: undefined,
-        },
-        '/mock/project',
-      );
+      expect(validateProtocolConsensus).toHaveBeenCalledWith('/mock/project', {
+        mode: 'task',
+        taskId: 'T1',
+        manifestFile: undefined,
+        strict: true,
+        votingMatrixFile: undefined,
+      });
     });
   });
 
   describe('gate operations', () => {
     it('gate.status calls validateGateVerify with read-only context', async () => {
       await handler.query('gate.status', { taskId: 'T1' });
-      expect(validateGateVerify).toHaveBeenCalledWith({ taskId: 'T1' }, '/mock/project');
+      expect(validateGateVerify).toHaveBeenCalledWith('/mock/project', { taskId: 'T1' });
     });
 
     it('gate.set calls validateGateVerify with write params', async () => {
       await handler.mutate('gate.set', { taskId: 'T1', gate: 'testsPassed', value: true });
       expect(validateGateVerify).toHaveBeenCalledWith(
+        '/mock/project',
         expect.objectContaining({
           taskId: 'T1',
           gate: 'testsPassed',
           value: true,
         }),
-        '/mock/project',
       );
     });
   });
