@@ -113,17 +113,18 @@ describe('Import Graph Verification (T4796)', () => {
   });
 
   it('dispatch session-engine.ts imports core session/task-work functions via @cleocode/core', async () => {
-    // T5718: imports rewired from relative ../../core/ to @cleocode/core
+    // T1573 (ENG-MIG-6): session-engine.ts is now a pure re-export shim.
+    // All business logic has migrated to packages/core/src/session/engine-ops.ts.
     const dispatchEngineDir = join(process.cwd(), 'packages', 'cleo', 'src', 'dispatch', 'engines');
     const content = await readFile(join(dispatchEngineDir, 'session-engine.ts'), 'utf-8');
 
+    // Must import exclusively from @cleocode/core/internal (the canonical SSoT)
     expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
-    // Verify session and task-work functions are present
-    // (session engine builds sessions via parseScope/generateSessionId rather than startSession/endSession)
-    expect(content).toContain('parseScope');
-    expect(content).toContain('computeHandoff');
-    expect(content).toContain('startTask');
-    expect(content).toContain('stopTask');
+    // Re-exports session and task-work functions (now migrated to core)
+    expect(content).toContain('sessionStart');
+    expect(content).toContain('sessionEnd');
+    expect(content).toContain('taskStart');
+    expect(content).toContain('taskStop');
   });
 
   it('lifecycle-engine.ts imports core lifecycle functions via @cleocode/core', async () => {

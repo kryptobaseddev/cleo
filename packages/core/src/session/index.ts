@@ -1,17 +1,15 @@
 /**
- * Session Engine — re-export shim.
+ * Session engine operations barrel.
  *
- * All business logic has been migrated to `@cleocode/core/session/engine-ops`
- * (ENG-MIG-6 / T1573). This file is a pure re-export shim kept to avoid
- * breaking existing imports in tests and internal tooling.
+ * Re-exports all EngineResult-wrapped session functions migrated from
+ * `packages/cleo/src/dispatch/engines/session-engine.ts` (ENG-MIG-6 / T1573).
+ *
+ * Import from `@cleocode/core/internal` for CLI dispatch layer access.
  *
  * @task T1573 — ENG-MIG-6
  * @epic T1566
  */
 
-export type { Session as SessionRecord } from '@cleocode/contracts';
-export type { EngineResult } from '@cleocode/core';
-export type { DecisionRecord } from '@cleocode/core/internal';
 export {
   sessionArchive,
   sessionBriefing,
@@ -42,4 +40,4 @@ export {
   taskStart,
   taskStop,
   taskWorkHistory,
-} from '@cleocode/core/internal';
+} from './engine-ops.js';

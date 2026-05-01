@@ -1322,6 +1322,38 @@ export {
   VALID_LIFECYCLE_STAGE_STATUSES,
   VALID_MANIFEST_STATUSES,
 } from './security/input-sanitization.js';
+// Session engine ops — EngineResult-wrapped session functions (ENG-MIG-6 / T1573)
+export {
+  sessionArchive,
+  sessionBriefing,
+  sessionChainShow,
+  sessionCleanup,
+  sessionComputeDebrief,
+  sessionComputeHandoff,
+  sessionContextDrift,
+  sessionContextInject,
+  sessionDebriefShow,
+  sessionDecisionLog,
+  sessionEnd,
+  sessionFind,
+  sessionGc,
+  sessionHandoff,
+  sessionHistory,
+  sessionList,
+  sessionRecordAssumption,
+  sessionRecordDecision,
+  sessionResume,
+  sessionShow,
+  sessionStart,
+  sessionStats,
+  sessionStatus,
+  sessionSuspend,
+  sessionSwitch,
+  taskCurrentGet,
+  taskStart,
+  taskStop,
+  taskWorkHistory,
+} from './session/index.js';
 // Sessions (additional)
 export { findSessions } from './sessions/find.js';
 export { getSessionStats, suspendSession } from './sessions/index.js';
