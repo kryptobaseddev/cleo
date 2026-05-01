@@ -21,28 +21,50 @@
 
 import type { admin as coreAdmin } from '@cleocode/core';
 import {
+  checkSequence,
+  cleanupSystem,
   clearTokenUsage,
   computeHelp,
+  coreDoctorReport,
   deleteTokenUsage,
+  ensureCleoOsHub,
   exportSnapshot,
   exportTasks,
   exportTasksPackage,
+  fileRestore,
   findAdrs,
+  generateInjection,
+  getAccessor,
+  getContextWindow,
+  getDashboard,
   getDefaultSnapshotPath,
   getLogger,
+  getMigrationStatus,
   getProjectRoot,
+  getProjectStatsExtended,
+  getRoadmap,
+  getRuntimeDiagnostics,
+  getSystemHealth,
+  getSystemPaths,
   importSnapshot,
   importTasks,
   importTasksPackage,
   listAdrs,
+  listSystemBackups,
   listTokenUsage,
   paginate,
+  queryAuditLog,
   readSnapshot,
   recordTokenExchange,
+  restoreBackup,
+  runDoctorFixes,
+  safestop,
   showAdr,
+  showSequence,
   showTokenUsage,
   summarizeTokenUsage,
   syncAdrsToDb,
+  systemCreateBackup,
   validateAllAdrs,
   writeSnapshot,
 } from '@cleocode/core/internal';
@@ -54,7 +76,6 @@ import {
   typedDispatch,
 } from '../adapters/typed.js';
 import {
-  backupRestore,
   configGet,
   configListPresets,
   configSet,
@@ -62,27 +83,7 @@ import {
   getVersion,
   initProject,
   sessionContextInject,
-  systemBackup,
-  systemCleanup,
-  systemContext,
-  systemDash,
-  systemDoctor,
-  systemFix,
-  systemHealth,
   systemHooksMatrix,
-  systemInjectGenerate,
-  systemListBackups,
-  systemLog,
-  systemMigrate,
-  systemPaths,
-  systemRestore,
-  systemRoadmap,
-  systemRuntime,
-  systemSafestop,
-  systemScaffoldHub,
-  systemSequence,
-  systemSmoke,
-  systemStats,
 } from '../lib/engine.js';
 import { OPERATIONS } from '../registry.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
@@ -90,6 +91,208 @@ import { getListParams, handleErrorResult, unsupportedOp, wrapResult } from './_
 import { dispatchMeta } from './_meta.js';
 
 type AdminOps = OpsFromCore<typeof coreAdmin.adminCoreOps>;
+
+// ---------------------------------------------------------------------------
+// Smoke test helpers (Q3: systemSmoke inlined here — uses dispatchRaw which
+// would create core→cleo circular dep if moved to core)
+// ---------------------------------------------------------------------------
+
+/** Result for a single domain smoke probe. */
+interface SmokeProbe {
+  domain: string;
+  operation: string;
+  status: 'pass' | 'fail' | 'skip';
+  timeMs: number;
+  error?: string;
+}
+
+/** Aggregate smoke test result. */
+interface SmokeResult {
+  probes: SmokeProbe[];
+  dbChecks: SmokeProbe[];
+  passed: number;
+  failed: number;
+  skipped: number;
+  totalMs: number;
+}
+
+const SMOKE_PROBES: Array<{ domain: string; operation: string; params?: Record<string, unknown> }> =
+  [
+    { domain: 'admin', operation: 'version' },
+    { domain: 'tasks', operation: 'find', params: { query: '__smoke_probe__', limit: 1 } },
+    { domain: 'session', operation: 'status' },
+    { domain: 'memory', operation: 'find', params: { query: '__smoke_probe__' } },
+    { domain: 'pipeline', operation: 'list' },
+    { domain: 'check', operation: 'schema' },
+    { domain: 'tools', operation: 'list', params: { limit: 1 } },
+    { domain: 'sticky', operation: 'list', params: { limit: 1 } },
+    { domain: 'nexus', operation: 'status' },
+    { domain: 'orchestrate', operation: 'status' },
+    { domain: 'adapter', operation: 'list' },
+  ];
+
+/**
+ * Run operational smoke tests across all domains.
+ *
+ * Inlined from system-engine.ts (Q3 decision: cannot move to core because
+ * it imports `dispatchRaw` from the cleo adapter layer, which would create
+ * a core→cleo circular dependency).
+ *
+ * @returns Aggregate smoke result with per-domain probe outcomes
+ */
+async function runSystemSmoke(): Promise<SmokeResult> {
+  const { dispatchRaw } = await import('../adapters/cli.js');
+  const totalStart = Date.now();
+  const probes: SmokeProbe[] = [];
+
+  for (const probe of SMOKE_PROBES) {
+    const start = Date.now();
+    try {
+      const response = await dispatchRaw('query', probe.domain, probe.operation, probe.params);
+      const elapsed = Date.now() - start;
+      if (response.success) {
+        probes.push({
+          domain: probe.domain,
+          operation: probe.operation,
+          status: 'pass',
+          timeMs: elapsed,
+        });
+      } else {
+        const code = response.error?.code ?? '';
+        const isCrash = code === 'E_INTERNAL' || code === 'E_NO_HANDLER';
+        probes.push({
+          domain: probe.domain,
+          operation: probe.operation,
+          status: isCrash ? 'fail' : 'pass',
+          timeMs: elapsed,
+          ...(isCrash ? { error: response.error?.message } : {}),
+        });
+      }
+    } catch (err) {
+      probes.push({
+        domain: probe.domain,
+        operation: probe.operation,
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? `${err.constructor.name}: ${err.message}` : String(err),
+      });
+    }
+  }
+
+  const dbChecks: SmokeProbe[] = [];
+
+  // tasks.db connectivity + integrity
+  {
+    const start = Date.now();
+    try {
+      const { getDb, getNativeDb } = await import('@cleocode/core/internal');
+      const projectRoot = getProjectRoot();
+      await getDb(projectRoot);
+      const nativeDb = getNativeDb();
+      if (nativeDb) {
+        const result = nativeDb.prepare('PRAGMA integrity_check').get() as
+          | Record<string, unknown>
+          | undefined;
+        const ok = result?.integrity_check === 'ok';
+        dbChecks.push({
+          domain: 'db',
+          operation: 'tasks.db',
+          status: ok ? 'pass' : 'fail',
+          timeMs: Date.now() - start,
+          ...(!ok ? { error: 'SQLite integrity check failed' } : {}),
+        });
+      } else {
+        dbChecks.push({
+          domain: 'db',
+          operation: 'tasks.db',
+          status: 'fail',
+          timeMs: Date.now() - start,
+          error: 'Native DB handle unavailable',
+        });
+      }
+    } catch (err) {
+      dbChecks.push({
+        domain: 'db',
+        operation: 'tasks.db',
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // brain.db connectivity
+  {
+    const start = Date.now();
+    try {
+      const { getBrainDb } = await import('@cleocode/core/internal');
+      const projectRoot = getProjectRoot();
+      const brainDb = await getBrainDb(projectRoot);
+      if (brainDb) {
+        dbChecks.push({
+          domain: 'db',
+          operation: 'brain.db',
+          status: 'pass',
+          timeMs: Date.now() - start,
+        });
+      } else {
+        dbChecks.push({
+          domain: 'db',
+          operation: 'brain.db',
+          status: 'fail',
+          timeMs: Date.now() - start,
+          error: 'brain.db not initialized',
+        });
+      }
+    } catch (err) {
+      dbChecks.push({
+        domain: 'db',
+        operation: 'brain.db',
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Migration state validation
+  {
+    const start = Date.now();
+    try {
+      const migrationStatus = await getMigrationStatus(getProjectRoot());
+      const hasPending = migrationStatus.migrations.some(
+        (m) => !(m as Record<string, unknown>).applied,
+      );
+      dbChecks.push({
+        domain: 'db',
+        operation: 'migrations',
+        status: hasPending ? 'fail' : 'pass',
+        timeMs: Date.now() - start,
+        ...(hasPending
+          ? {
+              error: `Unapplied migrations detected (${migrationStatus.from} → ${migrationStatus.to}). Run: cleo upgrade`,
+            }
+          : {}),
+      });
+    } catch (err) {
+      dbChecks.push({
+        domain: 'db',
+        operation: 'migrations',
+        status: 'fail',
+        timeMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const allProbes = [...probes, ...dbChecks];
+  const totalMs = Date.now() - totalStart;
+  const passed = allProbes.filter((p) => p.status === 'pass').length;
+  const failed = allProbes.filter((p) => p.status === 'fail').length;
+  const skipped = allProbes.filter((p) => p.status === 'skip').length;
+
+  return { probes, dbChecks, passed, failed, skipped, totalMs };
+}
 
 // ---------------------------------------------------------------------------
 // Typed inner handler (Wave D · T1426, Core-derived · T1437)
@@ -120,31 +323,25 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   health: async (params) => {
     const projectRoot = getProjectRoot();
     if (params.mode === 'diagnose') {
-      const result = await systemDoctor(projectRoot);
-      if (!result.success) {
-        return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
+      try {
+        const data = await coreDoctorReport(projectRoot);
+        return lafsSuccess(
+          data ?? { healthy: false, errors: 0, warnings: 0, checks: [] },
           'health',
         );
+      } catch (err) {
+        return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'health');
       }
+    }
+    try {
+      const data = await getSystemHealth(projectRoot, { detailed: params.detailed });
       return lafsSuccess(
-        result.data ?? { healthy: false, errors: 0, warnings: 0, checks: [] },
+        data ?? { overall: 'error', checks: [], version: '', installation: 'degraded' },
         'health',
       );
+    } catch (err) {
+      return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'health');
     }
-    const result = await systemHealth(projectRoot, { detailed: params.detailed });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'health',
-      );
-    }
-    return lafsSuccess(
-      result.data ?? { overall: 'error', checks: [], version: '', installation: 'degraded' },
-      'health',
-    );
   },
 
   'config.show': async (params) => {
@@ -174,30 +371,25 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
   stats: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await systemStats(projectRoot, { period: params.period });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'stats',
-      );
+    try {
+      const data = await getProjectStatsExtended(projectRoot, { period: params.period });
+      return lafsSuccess(data, 'stats');
+    } catch (err) {
+      return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'stats');
     }
-    return lafsSuccess(result.data, 'stats');
   },
 
   context: async (params) => {
     const projectRoot = getProjectRoot();
-    // Pass undefined when no session filter is provided to match engine expectations.
-    const sessionFilter = params.session !== undefined ? { session: params.session } : undefined;
-    const result = systemContext(projectRoot, sessionFilter);
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'context',
+    try {
+      const data = getContextWindow(
+        projectRoot,
+        params.session !== undefined ? { session: params.session } : undefined,
       );
+      return lafsSuccess(data, 'context');
+    } catch (err) {
+      return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'context');
     }
-    return lafsSuccess(result.data, 'context');
   },
 
   'context.pull': async (params) => {
@@ -263,29 +455,26 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   },
 
   runtime: async (params) => {
-    const projectRoot = getProjectRoot();
-    const result = await systemRuntime(projectRoot, { detailed: params.detailed });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'runtime',
-      );
+    try {
+      const data = await getRuntimeDiagnostics({ detailed: params.detailed ?? false });
+      return lafsSuccess(data, 'runtime');
+    } catch (err) {
+      return lafsError('E_INTERNAL', err instanceof Error ? err.message : String(err), 'runtime');
     }
-    return lafsSuccess(result.data, 'runtime');
   },
 
   paths: async (_params) => {
     const projectRoot = getProjectRoot();
-    const result = await systemPaths(projectRoot);
-    if (!result.success) {
+    try {
+      const data = getSystemPaths(projectRoot);
+      return lafsSuccess(data, 'paths');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_PATHS_RESOLVE_FAILED',
+        err instanceof Error ? err.message : String(err),
         'paths',
       );
     }
-    return lafsSuccess(result.data, 'paths');
   },
 
   job: async (params) => {
@@ -338,37 +527,61 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
   dash: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await systemDash(projectRoot, {
-      blockedTasksLimit: params.blockedTasksLimit,
-    });
-    if (!result.success) {
+    try {
+      const accessor = await getAccessor(projectRoot);
+      const raw = await getDashboard(
+        { cwd: projectRoot, blockedTasksLimit: params.blockedTasksLimit },
+        accessor,
+      );
+      const data = raw as Record<string, unknown>;
+      const summary = data.summary as Record<string, number>;
+      return lafsSuccess(
+        {
+          project: data.project as string,
+          currentPhase: data.currentPhase as string | null,
+          summary: {
+            pending: summary.pending,
+            active: summary.active,
+            blocked: summary.blocked,
+            done: summary.done,
+            cancelled: summary.cancelled ?? 0,
+            total: summary.total,
+            archived: summary.archived ?? 0,
+            grandTotal: summary.grandTotal ?? summary.total,
+          },
+          taskWork: (data.focus ?? data.taskWork) as Record<string, unknown>,
+          activeSession: (data.activeSession as string | null) ?? null,
+          highPriority: data.highPriority as Record<string, unknown>,
+          blockedTasks: data.blockedTasks as Record<string, unknown>,
+          recentCompletions: (data.recentCompletions ?? []) as unknown[],
+          topLabels: data.topLabels as unknown[],
+        },
+        'dash',
+      );
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_NOT_INITIALIZED',
+        err instanceof Error ? err.message : String(err),
         'dash',
       );
     }
-    return lafsSuccess(result.data, 'dash');
   },
 
   log: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await systemLog(projectRoot, {
-      operation: params.operation,
-      taskId: params.taskId,
-      since: params.since,
-      until: params.until,
-      limit: params.limit,
-      offset: params.offset,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'log',
-      );
+    try {
+      const data = await queryAuditLog(projectRoot, {
+        operation: params.operation,
+        taskId: params.taskId,
+        since: params.since,
+        until: params.until,
+        limit: params.limit,
+        offset: params.offset,
+      });
+      return lafsSuccess(data, 'log');
+    } catch (err) {
+      return lafsError('E_FILE_ERROR', err instanceof Error ? err.message : String(err), 'log');
     }
-    return lafsSuccess(result.data, 'log');
   },
 
   sequence: async (params) => {
@@ -377,15 +590,24 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     if (action && action !== 'show' && action !== 'check') {
       return lafsError('E_INVALID_INPUT', 'action must be show or check', 'sequence');
     }
-    const result = await systemSequence(projectRoot, { action });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+    try {
+      if (action === 'check') {
+        const data = await checkSequence(projectRoot);
+        return lafsSuccess(data, 'sequence');
+      }
+      const seq = await showSequence(projectRoot);
+      return lafsSuccess(
+        {
+          counter: Number(seq.counter ?? 0),
+          lastId: String(seq.lastId ?? ''),
+          checksum: String(seq.checksum ?? ''),
+          nextId: String(seq.nextId ?? ''),
+        },
         'sequence',
       );
+    } catch (err) {
+      return lafsError('E_NOT_FOUND', err instanceof Error ? err.message : String(err), 'sequence');
     }
-    return lafsSuccess(result.data, 'sequence');
   },
 
   help: async (params) => {
@@ -486,12 +708,12 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
   backup: async (_params) => {
     const projectRoot = getProjectRoot();
-    const result = systemListBackups(projectRoot);
-    if (!result.success) {
-      return lafsError(String(result.error.code), result.error.message, 'backup');
+    try {
+      const backups = listSystemBackups(projectRoot);
+      return lafsSuccess({ backups, count: backups.length }, 'backup');
+    } catch (err) {
+      return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'backup');
     }
-    const backups = result.data;
-    return lafsSuccess({ backups, count: backups.length }, 'backup');
   },
 
   export: async (params) => {
@@ -538,30 +760,36 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
   roadmap: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await systemRoadmap(projectRoot, {
-      includeHistory: params.includeHistory,
-      upcomingOnly: params.upcomingOnly,
-    });
-    if (!result.success) {
+    try {
+      const accessor = await getAccessor(projectRoot);
+      const data = await getRoadmap(
+        {
+          includeHistory: params.includeHistory,
+          upcomingOnly: params.upcomingOnly,
+          cwd: projectRoot,
+        },
+        accessor,
+      );
+      return lafsSuccess(data, 'roadmap');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_NOT_INITIALIZED',
+        err instanceof Error ? err.message : String(err),
         'roadmap',
       );
     }
-    return lafsSuccess(result.data, 'roadmap');
   },
 
   smoke: async (_params) => {
-    const result = await systemSmoke();
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'smoke',
-      );
+    const smokeResult = await runSystemSmoke();
+    if (smokeResult.failed === 0) {
+      return lafsSuccess(smokeResult, 'smoke');
     }
-    return lafsSuccess(result.data, 'smoke');
+    return lafsError(
+      'E_SMOKE_FAILURES',
+      `${smokeResult.failed} probe(s) failed smoke test`,
+      'smoke',
+    );
   },
 
   'smoke.provider': async (params) => {
@@ -614,43 +842,45 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   },
 
   'scaffold-hub': async (_params) => {
-    const result = await systemScaffoldHub();
-    if (!result.success) {
+    try {
+      const data = await ensureCleoOsHub();
+      return lafsSuccess(data, 'scaffold-hub');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_SCAFFOLD_HUB_FAILED',
+        err instanceof Error ? err.message : String(err),
         'scaffold-hub',
       );
     }
-    return lafsSuccess(result.data, 'scaffold-hub');
   },
 
   'health.mutate': async (params) => {
     const projectRoot = getProjectRoot();
     if (params.mode === 'diagnose') {
-      const result = await systemDoctor(projectRoot);
-      if (!result.success) {
+      try {
+        const data = await coreDoctorReport(projectRoot);
+        return lafsSuccess(
+          data ?? { healthy: false, errors: 0, warnings: 0, checks: [] },
+          'health.mutate',
+        );
+      } catch (err) {
         return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
+          'E_INTERNAL',
+          err instanceof Error ? err.message : String(err),
           'health.mutate',
         );
       }
-      return lafsSuccess(
-        result.data ?? { healthy: false, errors: 0, warnings: 0, checks: [] },
-        'health.mutate',
-      );
     }
-    // Default: repair mode
-    const result = await systemFix(projectRoot);
-    if (!result.success) {
+    try {
+      const data = await runDoctorFixes(projectRoot);
+      return lafsSuccess(data, 'health.mutate');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_INTERNAL',
+        err instanceof Error ? err.message : String(err),
         'health.mutate',
       );
     }
-    return lafsSuccess(result.data, 'health.mutate');
   },
 
   'config.set': async (params) => {
@@ -693,18 +923,16 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       if (!backupId) {
         return lafsError('E_INVALID_INPUT', 'backupId is required', 'backup.mutate');
       }
-      const result = systemRestore(projectRoot, {
-        backupId,
-        force: params.force,
-      });
-      if (!result.success) {
+      try {
+        const data = restoreBackup(projectRoot, { backupId, force: params.force });
+        return lafsSuccess(data, 'backup.mutate');
+      } catch (err) {
         return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
+          'E_RESTORE_FAILED',
+          err instanceof Error ? err.message : String(err),
           'backup.mutate',
         );
       }
-      return lafsSuccess(result.data, 'backup.mutate');
     }
 
     if (action === 'restore.file') {
@@ -712,48 +940,46 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       if (!file) {
         return lafsError('E_INVALID_INPUT', 'file is required', 'backup.mutate');
       }
-      const result = await backupRestore(projectRoot, file, {
-        dryRun: params.dryRun,
-      });
-      if (!result.success) {
+      try {
+        const data = await fileRestore(projectRoot, file, { dryRun: params.dryRun });
+        return lafsSuccess(data, 'backup.mutate');
+      } catch (err) {
         return lafsError(
-          String(result.error?.code ?? 'E_INTERNAL'),
-          result.error?.message ?? 'Unknown error',
+          'E_GENERAL',
+          err instanceof Error ? err.message : String(err),
           'backup.mutate',
         );
       }
-      return lafsSuccess(result.data, 'backup.mutate');
     }
 
     // Default: create backup
-    const result = await systemBackup(projectRoot, {
-      type: params.type,
-      note: params.note,
-    });
-    if (!result.success) {
+    try {
+      const data = await systemCreateBackup(projectRoot, { type: params.type, note: params.note });
+      return lafsSuccess(data, 'backup.mutate');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_GENERAL',
+        err instanceof Error ? err.message : String(err),
         'backup.mutate',
       );
     }
-    return lafsSuccess(result.data, 'backup.mutate');
   },
 
   migrate: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await systemMigrate(projectRoot, {
-      target: params.target,
-      dryRun: params.dryRun,
-    });
-    if (!result.success) {
+    try {
+      const data = await getMigrationStatus(projectRoot, {
+        target: params.target,
+        dryRun: params.dryRun,
+      });
+      return lafsSuccess(data, 'migrate');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_MIGRATE_FAILED',
+        err instanceof Error ? err.message : String(err),
         'migrate',
       );
     }
-    return lafsSuccess(result.data, 'migrate');
   },
 
   cleanup: async (params) => {
@@ -763,19 +989,20 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     if (!params.target) {
       return lafsError('E_INVALID_INPUT', 'target is required', 'cleanup');
     }
-    const result = await systemCleanup(projectRoot, {
-      target: params.target,
-      olderThan: params.olderThan,
-      dryRun: params.dryRun,
-    });
-    if (!result.success) {
+    try {
+      const data = await cleanupSystem(projectRoot, {
+        target: params.target,
+        olderThan: params.olderThan,
+        dryRun: params.dryRun,
+      });
+      return lafsSuccess(data, 'cleanup');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_CLEANUP_FAILED',
+        err instanceof Error ? err.message : String(err),
         'cleanup',
       );
     }
-    return lafsSuccess(result.data, 'cleanup');
   },
 
   'job.cancel': async (params) => {
@@ -797,34 +1024,33 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
   safestop: async (params) => {
     const projectRoot = getProjectRoot();
-    const result = await systemSafestop(projectRoot, {
-      reason: params.reason,
-      commit: params.commit,
-      handoff: params.handoff,
-      noSessionEnd: params.noSessionEnd,
-      dryRun: params.dryRun,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'safestop',
-      );
+    try {
+      const data = await safestop(projectRoot, {
+        reason: params.reason,
+        commit: params.commit,
+        handoff: params.handoff,
+        noSessionEnd: params.noSessionEnd,
+        dryRun: params.dryRun,
+      });
+      return lafsSuccess(data, 'safestop');
+    } catch (err) {
+      return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'safestop');
     }
-    return lafsSuccess(result.data, 'safestop');
   },
 
   'inject.generate': async (_params) => {
     const projectRoot = getProjectRoot();
-    const result = await systemInjectGenerate(projectRoot);
-    if (!result.success) {
+    try {
+      const accessor = await getAccessor(projectRoot);
+      const data = await generateInjection(projectRoot, accessor);
+      return lafsSuccess(data, 'inject.generate');
+    } catch (err) {
       return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
+        'E_GENERAL',
+        err instanceof Error ? err.message : String(err),
         'inject.generate',
       );
     }
-    return lafsSuccess(result.data, 'inject.generate');
   },
 
   'adr.sync': async (params) => {

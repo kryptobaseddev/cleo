@@ -36,6 +36,7 @@ export async function createDataAccessor(
   return wrapWithSafety(inner, cwd);
 }
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Convenience: get a DataAccessor with auto-detected engine. */
 export async function getAccessor(
   cwd?: string,

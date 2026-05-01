@@ -16,6 +16,7 @@ export interface MigrateResult {
   dryRun: boolean;
 }
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Check/report schema migration status. */
 export async function getMigrationStatus(
   projectRoot: string,

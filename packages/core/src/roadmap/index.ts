@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Get roadmap from pending epics and CHANGELOG history. */
 export async function getRoadmap(
   opts: {

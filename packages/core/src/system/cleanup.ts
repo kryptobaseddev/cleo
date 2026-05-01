@@ -20,6 +20,7 @@ export interface CleanupResult {
   archivePath?: string;
 }
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Cleanup stale data (sessions, backups, logs). */
 export async function cleanupSystem(
   projectRoot: string,

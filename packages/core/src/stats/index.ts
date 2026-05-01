@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskRecord } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getProjectInfoSync } from '../project-info.js';
@@ -255,6 +255,7 @@ const PRIORITY_ORDER: Record<string, number> = {
   low: 3,
 };
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Get project dashboard data. */
 export async function getDashboard(
   opts: {
@@ -431,3 +432,179 @@ export {
   type WorkflowComplianceReport,
   type WorkflowRuleMetric,
 } from './workflow-telemetry.js';
+
+/**
+ * Dashboard data shape for the system dash command.
+ *
+ * @task T1571
+ */
+export interface DashboardData {
+  /** Project name or directory basename. */
+  project: string;
+  /** Currently active project phase, or null. */
+  currentPhase: string | null;
+  /** Task count breakdown by status. */
+  summary: {
+    pending: number;
+    active: number;
+    blocked: number;
+    done: number;
+    cancelled: number;
+    total: number;
+    archived: number;
+    grandTotal: number;
+  };
+  /** Currently focused task work state. */
+  taskWork: {
+    currentTask: string | null;
+    task: TaskRecord | null;
+  };
+  /** Active session ID, or null. */
+  activeSession: string | null;
+  /** High-priority tasks summary. */
+  highPriority: { count: number; tasks: TaskRecord[] };
+  /** Blocked tasks summary. */
+  blockedTasks: {
+    count: number;
+    limit: number;
+    tasks: TaskRecord[];
+  };
+  /** Recently completed task records. */
+  recentCompletions: TaskRecord[];
+  /** Most frequently used labels with counts. */
+  topLabels: Array<{ label: string; count: number }>;
+}
+
+/**
+ * Project statistics data shape including extended breakdowns.
+ *
+ * @task T1571
+ */
+export interface StatsData {
+  /** Current task counts by status. */
+  currentState: {
+    pending: number;
+    active: number;
+    done: number;
+    blocked: number;
+    cancelled: number;
+    totalActive: number;
+    archived: number;
+    grandTotal: number;
+  };
+  /** Task counts grouped by priority level. */
+  byPriority: Record<string, number>;
+  /** Task counts grouped by task type. */
+  byType: Record<string, number>;
+  /** Task counts grouped by project phase (pipelineStage). */
+  byPhase: Record<string, number>;
+  /** Completion rate metrics over the configured period. */
+  completionMetrics: {
+    periodDays: number;
+    completedInPeriod: number;
+    createdInPeriod: number;
+    completionRate: number;
+  };
+  /** Activity metrics over the configured period. */
+  activityMetrics: {
+    createdInPeriod: number;
+    completedInPeriod: number;
+    archivedInPeriod: number;
+  };
+  /** Lifetime metrics across all time. */
+  allTime: {
+    totalCreated: number;
+    totalCompleted: number;
+    totalCancelled: number;
+    totalArchived: number;
+    archivedCompleted: number;
+  };
+  /** Average time from creation to completion. */
+  cycleTimes: {
+    averageDays: number | null;
+    samples: number;
+  };
+}
+
+/**
+ * Get extended project statistics including breakdowns by priority, type, phase,
+ * and cycle time computation.
+ *
+ * Extends `getProjectStats` with the additional fields that system-engine.ts
+ * computed via accessor queries. Moving this logic into core ensures a single
+ * source of truth for stats computation.
+ *
+ * @param cwd - Absolute path to the project root
+ * @param params - Optional period and accessor
+ * @param accessor - Optional pre-opened DataAccessor
+ * @returns Extended stats data
+ *
+ * @task T1571
+ */
+// SSoT-EXEMPT:engine-migration-T1571
+export async function getProjectStatsExtended(
+  cwd: string,
+  params?: { period?: number },
+  accessor?: DataAccessor,
+): Promise<StatsData> {
+  const acc = accessor ?? (await getAccessor(cwd));
+  const coreResult = await getProjectStats({ period: String(params?.period ?? 30), cwd }, acc);
+
+  const queryResult = await acc.queryTasks({});
+  const tasks = (queryResult?.tasks as Task[]) ?? [];
+
+  const activeTasks = tasks.filter((t) => t.status !== 'cancelled');
+  const byPriority: Record<string, number> = {};
+  for (const t of activeTasks) {
+    byPriority[t.priority] = (byPriority[t.priority] ?? 0) + 1;
+  }
+  const byType: Record<string, number> = {};
+  for (const t of activeTasks) {
+    const ttype = t.type ?? 'task';
+    byType[ttype] = (byType[ttype] ?? 0) + 1;
+  }
+  const byPhase: Record<string, number> = {};
+  for (const t of activeTasks) {
+    const phase = t.pipelineStage ?? 'unassigned';
+    byPhase[phase] = (byPhase[phase] ?? 0) + 1;
+  }
+
+  const completedTasks = tasks.filter((t) => t.status === 'done' && t.completedAt && t.createdAt);
+  let totalCycleDays = 0;
+  let samples = 0;
+  for (const t of completedTasks) {
+    const created = new Date(t.createdAt).getTime();
+    const completed = new Date(t.completedAt!).getTime();
+    if (completed > created) {
+      totalCycleDays += (completed - created) / 86400000;
+      samples++;
+    }
+  }
+  const averageDays = samples > 0 ? Math.round((totalCycleDays / samples) * 100) / 100 : null;
+
+  const coreData = coreResult as Record<string, unknown>;
+  const currentState = coreData.currentState as Record<string, number>;
+  const completionMetrics = coreData.completionMetrics as Record<string, number>;
+  const activityMetrics = coreData.activityMetrics as Record<string, number>;
+  const allTime = coreData.allTime as Record<string, number>;
+
+  return {
+    currentState: {
+      pending: currentState.pending ?? 0,
+      active: currentState.active ?? 0,
+      done: currentState.done ?? 0,
+      blocked: currentState.blocked ?? 0,
+      cancelled: tasks.filter((t) => t.status === 'cancelled').length,
+      totalActive: currentState.totalActive ?? 0,
+      archived: currentState.archived ?? 0,
+      grandTotal: currentState.grandTotal ?? currentState.totalActive ?? 0,
+    },
+    byPriority,
+    byType,
+    byPhase,
+    completionMetrics: completionMetrics as StatsData['completionMetrics'],
+    activityMetrics: activityMetrics as StatsData['activityMetrics'],
+    allTime: allTime as StatsData['allTime'],
+    cycleTimes: { averageDays, samples },
+  };
+}
