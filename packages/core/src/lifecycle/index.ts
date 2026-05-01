@@ -44,6 +44,15 @@ import { ensureStageArtifact } from './stage-artifacts.js';
 // CANONICAL RE-EXPORTS from stages.ts (single source of truth)
 // =============================================================================
 
+// T1635 — effective-stage computation for sentient drift detector
+export {
+  computeEffectiveStage,
+  EFFECTIVE_STAGE_INDEX,
+  type EffectiveStage,
+  type EpicProgressInput,
+  fetchEpicProgressBatch,
+} from './effective-stage.js';
+
 // Phase 2 — stage-aware prompt guidance for Pi extensions
 // Phase 4 — refactored to load from real SKILL.md files via prepareSpawnMulti
 export {

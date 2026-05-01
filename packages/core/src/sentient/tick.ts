@@ -29,6 +29,7 @@ import {
   reVerifyWorkerReport,
   type WorkerReport,
 } from '../orchestrate/worker-verify.js';
+import { DRIFT_SCAN_INTERVAL_MS } from './stage-drift-tick.js';
 import {
   incrementStats,
   patchSentientState,
@@ -40,6 +41,8 @@ import {
 // NOTE: `checkAndDream` is lazy-imported inside `maybeTriggerDream` to keep the
 // test surface small — tests that don't exercise the dream path never load
 // the brain.db stack.
+// NOTE: `safeRunStageDriftScan` is lazy-imported inside `maybeTriggerStageDriftScan`
+// for the same reason — tests that don't exercise drift never load that module.
 
 // ---------------------------------------------------------------------------
 // Dream-cycle trigger constants (T996)
@@ -208,6 +211,25 @@ export interface TickOptions {
    * @task T1589
    */
   skipReVerify?: boolean;
+  /**
+   * Override for the stage-drift scan function.  Injected by tests to avoid
+   * opening a real tasks.db.  When omitted the default
+   * {@link safeRunStageDriftScan} from `./stage-drift-tick.js` is used.
+   *
+   * Pass `null` to disable the drift scan entirely (e.g. unit tests that
+   * don't exercise the drift path).
+   *
+   * @task T1635
+   */
+  stageDriftScan?: ((projectRoot: string, statePath: string) => Promise<void>) | null;
+  /**
+   * Interval (ms) between stage-drift scan passes.
+   * Defaults to {@link DRIFT_SCAN_INTERVAL_MS} (30 min).
+   * Pass 0 to scan on every tick (useful for integration tests).
+   *
+   * @task T1635
+   */
+  stageDriftIntervalMs?: number;
 }
 
 /** Result of a spawn invocation. */
@@ -376,6 +398,18 @@ export const WORKTREE_PRUNE_INTERVAL_TICKS = 10;
  * @internal
  */
 let _worktreePruneTickCount = 0;
+
+// ---------------------------------------------------------------------------
+// Stage-drift scan state (T1635)
+// ---------------------------------------------------------------------------
+
+/**
+ * Unix-epoch-ms timestamp of the last stage-drift scan pass.
+ * Used to gate the scan to at most once every {@link DRIFT_SCAN_INTERVAL_MS}.
+ * Set to 0 so the first tick always triggers an initial scan.
+ * @internal
+ */
+let _lastStageDriftScanAt = 0;
 
 /**
  * Evaluate volume + idle dream triggers and call `checkAndDream` when either
@@ -694,6 +728,50 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
 }
 
 /**
+ * Evaluate the stage-drift scan cadence and fire {@link safeRunStageDriftScan}
+ * when enough time has elapsed since the last scan.
+ *
+ * Respects the injectable `options.stageDriftScan` override (null = disabled).
+ * Errors are swallowed — drift scan must never crash the tick.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param statePath   - Path to sentient-state.json.
+ * @param options     - Tick options (provides injectable and interval override).
+ *
+ * @internal
+ * @task T1635
+ */
+async function maybeTriggerStageDriftScan(
+  projectRoot: string,
+  statePath: string,
+  options: TickOptions,
+): Promise<void> {
+  // Null explicitly disables the scan (test escape hatch).
+  if (options.stageDriftScan === null) return;
+
+  const intervalMs = options.stageDriftIntervalMs ?? DRIFT_SCAN_INTERVAL_MS;
+  const now = Date.now();
+
+  if (now - _lastStageDriftScanAt < intervalMs) return;
+
+  // Update the timestamp before awaiting so concurrent ticks don't double-fire.
+  _lastStageDriftScanAt = now;
+
+  try {
+    if (options.stageDriftScan) {
+      // Injected override (tests).
+      await options.stageDriftScan(projectRoot, statePath);
+    } else {
+      // Default: lazy-import and run.
+      const { safeRunStageDriftScan } = await import('./stage-drift-tick.js');
+      await safeRunStageDriftScan({ projectRoot, statePath });
+    }
+  } catch {
+    // Drift scan is best-effort: errors must never propagate to the tick caller.
+  }
+}
+
+/**
  * Convenience wrapper used by the daemon cron handler and the `cleo sentient
  * tick` CLI command. Reads state, runs a tick, swallows any unexpected
  * exception so the cron scheduler never sees a rejection.
@@ -753,6 +831,12 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
         // Ignore.
       });
   }
+
+  // Stage-drift scan: fire when enough time has elapsed (T1635).
+  // Best-effort: errors never affect tick outcome.
+  maybeTriggerStageDriftScan(options.projectRoot, options.statePath, options).catch(() => {
+    // Ignore.
+  });
 
   // Worktree prune: run every WORKTREE_PRUNE_INTERVAL_TICKS ticks (T1161).
   _worktreePruneTickCount += 1;
@@ -841,6 +925,31 @@ export function _getWorktreePruneTickCount(): number {
  */
 export function _getConsecutiveIdleTicks(): number {
   return consecutiveIdleTicks;
+}
+
+/**
+ * Reset the stage-drift scan timestamp.
+ *
+ * Intended for test teardown only — allows tests to reset the scan cadence
+ * so successive test cases start from a clean slate (next tick fires immediately).
+ *
+ * @internal
+ * @task T1635
+ */
+export function _resetStageDriftScanAt(): void {
+  _lastStageDriftScanAt = 0;
+}
+
+/**
+ * Return the unix-epoch-ms timestamp of the last stage-drift scan.
+ *
+ * Read-only accessor for test assertions.
+ *
+ * @internal
+ * @task T1635
+ */
+export function _getLastStageDriftScanAt(): number {
+  return _lastStageDriftScanAt;
 }
 
 // ---------------------------------------------------------------------------
