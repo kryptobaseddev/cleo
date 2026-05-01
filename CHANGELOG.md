@@ -1,6 +1,5 @@
 # Changelog
 
-<<<<<<< HEAD
 ## [Unreleased] — T1676 LLM Wiring (real LLM intelligence into sentient/dream/daemon)
 
 ### T-LW-W2: Moonshot Kimi K2 backend (T1678)
