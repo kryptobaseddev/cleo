@@ -6,12 +6,17 @@
  * `../config.ts`; this module only adds the `EngineResult` envelope so the
  * CLI dispatch layer can call core directly per ADR-057 D1.
  *
+ * Includes T1677 additions: `configLlmDaemonProvider` + `configLlmDaemonModel`
+ * for reading and writing the daemon LLM provider/model to the global config.
+ *
  * Importable from `@cleocode/core/internal` — no intermediate engine file
  * required in the CLI layer.
  *
  * @module config/engine-ops
  * @task T1582 — ENG-MIG-15
+ * @task T1677 — LLM daemon config commands
  * @epic T1566
+ * @epic T1676
  */
 
 import {
@@ -23,6 +28,15 @@ import {
   setConfigValue,
 } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import type { ModelTransport } from '../llm/types-config.js';
+
+/** Allowed daemon provider transport names (T1677). */
+const VALID_DAEMON_PROVIDERS: ReadonlyArray<ModelTransport> = [
+  'anthropic',
+  'openai',
+  'gemini',
+  'moonshot',
+];
 
 /** Valid strictness preset names. */
 const VALID_PRESETS: StrictnessPreset[] = ['strict', 'standard', 'minimal'];
@@ -142,4 +156,69 @@ export async function configSetPreset(
  */
 export function configListPresets(): EngineResult<unknown> {
   return engineSuccess(listStrictnessPresets());
+}
+
+// ---------------------------------------------------------------------------
+// LLM daemon config commands (T1677)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set the daemon LLM provider in the global config (`~/.cleo/config.json`).
+ *
+ * Writes `llm.daemon.provider = <provider>`. Valid providers:
+ * `anthropic` | `openai` | `gemini` | `moonshot`.
+ *
+ * @param provider - The provider transport name to set.
+ * @returns EngineResult with the updated provider value.
+ * @task T1677
+ * @epic T1676
+ */
+export async function configLlmDaemonProvider(
+  provider: string,
+): Promise<EngineResult<{ key: string; value: unknown }>> {
+  if (!VALID_DAEMON_PROVIDERS.includes(provider as ModelTransport)) {
+    return engineError(
+      'E_INVALID_INPUT',
+      `Invalid daemon provider '${provider}'. Valid values: ${VALID_DAEMON_PROVIDERS.join(', ')}`,
+    );
+  }
+  try {
+    const result = await setConfigValue('llm.daemon.provider', provider, undefined, {
+      global: true,
+    });
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return engineError('E_CONFIG_WRITE_FAILED', (err as Error).message);
+  }
+}
+
+/**
+ * Set the daemon LLM model in the global config (`~/.cleo/config.json`).
+ *
+ * Writes `llm.daemon.model = <modelId>`. The model string is provider-specific
+ * (e.g. `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.0-flash`).
+ * No validation is done on the model string itself — the provider is
+ * responsible for reporting unknown model errors at call time.
+ *
+ * Default: `claude-sonnet-4-6` (used when no value is configured).
+ *
+ * @param model - The full model identifier string to set.
+ * @returns EngineResult with the updated model value.
+ * @task T1677
+ * @epic T1676
+ */
+export async function configLlmDaemonModel(
+  model: string,
+): Promise<EngineResult<{ key: string; value: unknown }>> {
+  if (!model.trim()) {
+    return engineError('E_INVALID_INPUT', 'Model ID cannot be empty');
+  }
+  try {
+    const result = await setConfigValue('llm.daemon.model', model.trim(), undefined, {
+      global: true,
+    });
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return engineError('E_CONFIG_WRITE_FAILED', (err as Error).message);
+  }
 }
