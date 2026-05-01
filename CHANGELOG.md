@@ -2,6 +2,7 @@
 
 ## [Unreleased] — T1676 LLM Wiring (real LLM intelligence into sentient/dream/daemon)
 
+<<<<<<< HEAD
 ### T-LW-W3: Tiered hygiene scan — filesystem → SQL → Jaccard → LLM (T1679)
 
 Upgraded `packages/core/src/sentient/hygiene-scan.ts` from flat SQL-only scanning to a
@@ -80,6 +81,36 @@ New test groups:
 - `LLM call arguments` — 1 test (finding text and task context content)
 - Existing Scan 1–4 tests updated with `callLlm: neverCallLlm` to verify no unexpected LLM calls
 - `llmStats` included in all `scanned` outcomes
+
+### T-LW-W4: Real LLM dream cycle — BRAIN observation synthesis (T1680)
+
+- **`packages/core/src/sentient/dream-cycle.ts`** (NEW) — `runDreamCycle` + `safeRunDreamCycle`
+  implementing autonomous cognitive dreaming. Cycle (default every 4 h):
+  (1) collect last-24 h `brain_observations` across all type tags via direct DB query;
+  (2) cluster by Jaccard n-gram similarity (title+narrative) using greedy single-linkage;
+  (3) for each cluster with ≥ 5 observations, call daemon LLM with structured-output schema
+      (`{decisions, patterns, learnings, constraints}`) mirroring `llm-extraction.ts` exactly;
+  (4) verify-and-store extracted memories through existing `verifyAndStore` gate in
+      `extraction-gate.ts` — no new pipeline;
+  (5) emit dream-cycle digest as BRAIN observation tagged `sentient:dream-cycle-<runId>`.
+  Reads `llm.daemon.provider` and `llm.daemon.model` from global config; credentials resolved
+  via `resolveCredentials` (T1677). All side-effects injectable for tests (no real API calls).
+  Exports: `runDreamCycle`, `safeRunDreamCycle`, `maybeTriggerDreamCycle`,
+  `DREAM_CYCLE_INTERVAL_MS`, `DREAM_CLUSTER_MIN_SIZE`, `DREAM_LOOKBACK_MS`,
+  `DREAM_MIN_IMPORTANCE`, `_resetDreamCycleAt`, `_getLastDreamCycleAt`,
+  and all public types (`CollectedObservation`, `ObservationCluster`, `DreamCycleDigest`,
+  `DreamCycleOutcome`, `DreamCycleOptions`, `DreamCycleTickOptions`).
+- **`packages/core/src/sentient/tick.ts`** — wired `maybeTriggerDreamCycleScan` into
+  `safeRunTick` alongside `maybeTriggerStageDriftScan` and `maybeTriggerHygieneScan`.
+  Fire-and-forget, best-effort (errors never affect tick outcome). `TickOptions` extended with:
+  `dreamCycle` (injectable override, null to disable), `dreamCycleIntervalMs` (default 4 h).
+  Test reset helpers added: `_resetDreamCycleScanAt`, `_getLastDreamCycleScanAt`.
+- **`packages/core/src/sentient/__tests__/dream-cycle.test.ts`** (NEW) — 20 vitest tests
+  (DC-01 through DC-20) covering kill-switch, no-api-key, no-observations, no-clusters,
+  collection, Jaccard clustering, minimum cluster size, LLM stub call, importance filtering,
+  candidate routing to verifyAndStoreFn, digest emission, safeRunDreamCycle error swallowing,
+  cadence interval gating, null-disable, TickOptions injection, dedup merge counting,
+  warning capture, and reset helpers. Zero real API calls.
 
 ### T-LW-W2: Moonshot Kimi K2 backend (T1678)
 
