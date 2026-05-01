@@ -102,6 +102,14 @@ export { PROTOCOL_RULES } from './compliance/protocol-rules.js';
 // Context window monitoring (T1571)
 export type { ContextData } from './context/index.js';
 export { getContextStatus, getContextWindow, listContextSessions } from './context/index.js';
+// Diagnostics engine-ops (ENG-MIG-13 / T1580)
+export {
+  diagnosticsAnalyze,
+  diagnosticsDisable,
+  diagnosticsEnable,
+  diagnosticsExport,
+  diagnosticsStatus,
+} from './diagnostics/engine-ops.js';
 // Docs generator — llms.txt format generation (T798)
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
@@ -150,18 +158,18 @@ export type {
   HarnessSpawnProviderSelectionResult,
 } from './harness/index.js';
 export { selectHarnessSpawnProvider } from './harness/index.js';
+// Hooks engine-ops (ENG-MIG-12 / T1579) — EngineResult wrappers for hook capability queries
+export type { HookMatrixResult, ProviderMatrixEntry } from './hooks/engine-ops.js';
+export { queryCommonHooks, queryHookProviders, systemHooksMatrix } from './hooks/engine-ops.js';
 export type { PayloadValidationResult } from './hooks/payload-schemas.js';
 export { validatePayload } from './hooks/payload-schemas.js';
 // Hooks
 export type { HookEvent, ProviderHookEvent } from './hooks/provider-hooks.js';
 export { isProviderHookEvent } from './hooks/types.js';
-// Hooks engine-ops (ENG-MIG-12 / T1579) — EngineResult wrappers for hook capability queries
-export type { HookMatrixResult, ProviderMatrixEntry } from './hooks/engine-ops.js';
-export { queryCommonHooks, queryHookProviders, systemHooksMatrix } from './hooks/engine-ops.js';
-// Init (additional)
-export { isAutoInitEnabled } from './init.js';
 // Init engine-ops (ENG-MIG-14 / T1581) — EngineResult wrappers for init operations
 export { ensureInitialized, getVersion, initProject } from './init/engine-ops.js';
+// Init (additional)
+export { isAutoInitEnabled } from './init.js';
 export type {
   AdaptiveValidationSuggestion,
   GateFocusRecommendation,
@@ -653,8 +661,6 @@ export { getCriticalPath as depsCriticalPath } from './phases/deps.js';
 export type { ListPhasesResult } from './phases/index.js';
 // Phases
 export { advancePhase, deletePhase, renamePhase, setPhase, startPhase } from './phases/index.js';
-// Pipeline
-export { listPhases, showPhase } from './pipeline/index.js';
 // Pipeline engine-ops (ENG-MIG-11 / T1578) — EngineResult wrappers for phase operations
 export {
   phaseAdvance,
@@ -666,6 +672,8 @@ export {
   phaseShow,
   phaseStart,
 } from './pipeline/engine-ops.js';
+// Pipeline
+export { listPhases, showPhase } from './pipeline/index.js';
 // Platform (additional)
 export { getNodeUpgradeInstructions, getNodeVersionInfo } from './platform.js';
 // Reconciliation (additional)
@@ -1168,14 +1176,6 @@ export {
   loadTelemetryConfig,
   recordTelemetryEvent,
 } from './telemetry/index.js';
-// Diagnostics engine-ops (ENG-MIG-13 / T1580)
-export {
-  diagnosticsAnalyze,
-  diagnosticsDisable,
-  diagnosticsEnable,
-  diagnosticsExport,
-  diagnosticsStatus,
-} from './diagnostics/engine-ops.js';
 export type { IssueTemplate, TemplateConfig, TemplateSection } from './templates/parser.js';
 // Templates
 export {
@@ -1622,6 +1622,8 @@ export { ProtocolType } from './compliance/protocol-enforcement.js';
 export type { BuildConfig } from './config/build-config.js';
 // Build config
 export { BUILD_CONFIG } from './config/build-config.js';
+// Config engine-ops (ENG-MIG-15 / T1582) — EngineResult wrappers for config operations
+export { configGet, configListPresets, configSet, configSetPreset } from './config/engine-ops.js';
 // Init (additional)
 export { initCoreSkills, installHandoffRedirectStubs } from './init.js';
 // Memory — anthropic key resolver (additional)
