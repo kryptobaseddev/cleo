@@ -88,6 +88,16 @@ export {
   orchestrateUnblockOpportunities,
   orchestrateValidate,
   orchestrateWaves,
+  // Pipeline engine-ops (ENG-MIG-11 / T1578 — migrated to @cleocode/core/internal)
+  // pipeline-engine.ts shrunk to a shim; all symbols now live in core/pipeline/engine-ops.ts.
+  phaseAdvance,
+  phaseComplete,
+  phaseDelete,
+  phaseList,
+  phaseRename,
+  phaseSet,
+  phaseShow,
+  phaseStart,
   pipelineManifestAppend,
   pipelineManifestArchive,
   pipelineManifestFind,
@@ -244,17 +254,6 @@ export {
   memoryTimeline,
   memoryUnlink,
 } from '../engines/memory-engine.js';
-// Pipeline engine (Phase operations)
-export {
-  phaseAdvance,
-  phaseComplete,
-  phaseDelete,
-  phaseList,
-  phaseRename,
-  phaseSet,
-  phaseShow,
-  phaseStart,
-} from '../engines/pipeline-engine.js';
 // Template parser engine
 export {
   generateTemplateConfig,
