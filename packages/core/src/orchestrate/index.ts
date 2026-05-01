@@ -3,7 +3,7 @@
  *
  * Re-exports from all 7 orchestrate sub-modules:
  * - query-ops.ts   — status, analyze, ready, next, waves, context, validate
- * - lifecycle-ops.ts — startup, bootstrap, criticalPath, unblock, check, skillInject, parallel*
+ * - lifecycle-ops.ts — initLoomForEpic, startup, bootstrap, criticalPath, unblock, check, skillInject, parallel*
  * - spawn-ops.ts   — spawnSelectProvider, spawnExecute, spawn, sendConduitEvent, composeSpawnForTask
  * - handoff-ops.ts — handoff + HandoffStep types
  * - plan.ts        — orchestratePlan + 4 interfaces + plan helpers
@@ -11,6 +11,7 @@
  * - worker-verify.ts — reVerifyWorkerReport (existing)
  *
  * @task T1570
+ * @task T1634 — LOOM auto-init export
  */
 
 export type {
@@ -22,6 +23,7 @@ export type {
 } from './handoff-ops.js';
 export { orchestrateHandoff } from './handoff-ops.js';
 export {
+  initLoomForEpic,
   orchestrateBootstrap,
   orchestrateCheck,
   orchestrateCriticalPath,
