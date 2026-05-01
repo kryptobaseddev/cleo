@@ -396,6 +396,27 @@ export {
 } from './mvi-helpers.js';
 // Reconciliation
 export { reconcile } from './reconciliation/index.js';
+export type {
+  BootstrapDaemonOptions,
+  StudioStatus,
+  StudioSupervisorOptions,
+} from './sentient/daemon.js';
+export { StudioSupervisor } from './sentient/daemon.js';
+// Daemon control API (T1683) — SDK-level programmatic daemon management.
+// Equivalent to every `cleo daemon <subcommand>` without the CLI.
+export type {
+  DaemonInstallResult,
+  DaemonStatus,
+  InstallDaemonOptions,
+} from './sentient/daemon-api.js';
+export {
+  getDaemonStatus,
+  installDaemon,
+  startDaemon,
+  stopDaemon,
+  uninstallDaemon,
+  updateDaemon,
+} from './sentient/daemon-api.js';
 export type { DriftReport } from './sessions/index.js';
 // Sessions
 export {

@@ -11,6 +11,9 @@
  *   - Advisory locking via an OS-level lockfile (two daemons cannot coexist)
  *   - Stuck detection + self-pause on stuck-rate threshold
  *   - fs.watch-based fast kill propagation
+ *   - Studio supervision: daemon spawns and restarts the Studio web server
+ *     child process (T1683). Enabled by default; disable via
+ *     `daemon.superviseStudio = false` in `~/.cleo/config.json`.
  *
  * Scoped OUT (separate epics):
  *   - Tier-2 proposal queue (`cleo propose` / status='proposed' generation)
@@ -19,13 +22,14 @@
  *
  * @see ADR-054 — Sentient Loop Tier-1
  * @task T946
+ * @task T1683 — Studio supervision + SDK control API
  */
 
-import { spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import type { FSWatcher } from 'node:fs';
 import { createWriteStream, constants as fsConstants, watch } from 'node:fs';
-import { type FileHandle, open as fsOpen, mkdir } from 'node:fs/promises';
+import { type FileHandle, open as fsOpen, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
@@ -75,6 +79,266 @@ export const SENTIENT_LOG = 'sentient.log' as const;
 
 /** Log filename (stderr). */
 export const SENTIENT_ERR = 'sentient.err' as const;
+
+// ---------------------------------------------------------------------------
+// Studio supervision constants (T1683)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default port for the Cleo Studio web server.
+ * Matches the `dev` script in packages/studio/package.json.
+ */
+export const STUDIO_DEFAULT_PORT = 3456;
+
+/**
+ * Initial restart delay (ms) for Studio crash-restart backoff.
+ * Doubles on each consecutive crash up to {@link STUDIO_MAX_RESTART_DELAY_MS}.
+ */
+export const STUDIO_INITIAL_RESTART_DELAY_MS = 1_000;
+
+/**
+ * Maximum restart delay (ms) — caps the exponential backoff to 30 seconds.
+ * Prevents infinite tight-loop crashes from consuming resources.
+ */
+export const STUDIO_MAX_RESTART_DELAY_MS = 30_000;
+
+// ---------------------------------------------------------------------------
+// Studio supervisor (T1683)
+// ---------------------------------------------------------------------------
+
+/**
+ * Options for the Studio supervision loop.
+ *
+ * @public
+ */
+export interface StudioSupervisorOptions {
+  /**
+   * Absolute path to the Studio package root.
+   * The supervisor runs `node build/index.js` inside this directory.
+   * Defaults to locating the `@cleocode/studio` package relative to this file.
+   */
+  studioPackageDir?: string;
+  /**
+   * Port the Studio server should listen on.
+   * @default 3456
+   */
+  port?: number;
+  /**
+   * Initial backoff delay (ms) after the first crash.
+   * @default 1000
+   */
+  initialRestartDelayMs?: number;
+  /**
+   * Maximum backoff delay (ms) after repeated crashes.
+   * @default 30000
+   */
+  maxRestartDelayMs?: number;
+}
+
+/**
+ * Studio status returned by the supervisor.
+ *
+ * @public
+ */
+export type StudioStatus = 'running' | 'stopped' | 'crashed' | 'disabled';
+
+/**
+ * StudioSupervisor manages the Cleo Studio web server as a child process
+ * of the sentient daemon.
+ *
+ * One daemon = sentient ticks + Studio HTTP server (T1683).
+ *
+ * Lifecycle:
+ *   - `start()` — spawn Studio; attach crash handler
+ *   - On crash: wait (with exponential backoff), then respawn
+ *   - `stop()` — send SIGTERM with 10 s grace period, then SIGKILL
+ *
+ * @public
+ */
+export class StudioSupervisor {
+  readonly #studioPackageDir: string;
+  readonly #port: number;
+  #initialDelay: number;
+  readonly #maxDelay: number;
+
+  #child: ChildProcess | null = null;
+  #status: StudioStatus = 'stopped';
+  #currentDelay: number;
+  #restartTimer: NodeJS.Timeout | null = null;
+  #stopped = false;
+
+  /**
+   * @param opts - Optional configuration overrides.
+   */
+  constructor(opts: StudioSupervisorOptions = {}) {
+    this.#studioPackageDir = opts.studioPackageDir ?? StudioSupervisor.#resolveStudioPackageDir();
+    this.#port = opts.port ?? STUDIO_DEFAULT_PORT;
+    this.#initialDelay = opts.initialRestartDelayMs ?? STUDIO_INITIAL_RESTART_DELAY_MS;
+    this.#maxDelay = opts.maxRestartDelayMs ?? STUDIO_MAX_RESTART_DELAY_MS;
+    this.#currentDelay = this.#initialDelay;
+  }
+
+  /**
+   * Current status of the Studio child process.
+   */
+  get status(): StudioStatus {
+    return this.#status;
+  }
+
+  /**
+   * PID of the current Studio child process, or null if not running.
+   */
+  get pid(): number | null {
+    return this.#child?.pid ?? null;
+  }
+
+  /**
+   * Start the Studio server and enable crash-restart supervision.
+   *
+   * Safe to call when already running — a no-op in that case.
+   */
+  start(): void {
+    if (this.#stopped) return;
+    if (this.#child !== null) return; // already running
+    this.#spawn();
+  }
+
+  /**
+   * Stop the Studio server gracefully.
+   *
+   * Sends SIGTERM to the Studio child, waits up to 10 seconds for it to
+   * exit, then sends SIGKILL if it has not exited.
+   *
+   * @returns Promise that resolves when the child has exited.
+   */
+  async stop(): Promise<void> {
+    this.#stopped = true;
+    if (this.#restartTimer !== null) {
+      clearTimeout(this.#restartTimer);
+      this.#restartTimer = null;
+    }
+    const child = this.#child;
+    if (child === null) {
+      this.#status = 'stopped';
+      return;
+    }
+    this.#status = 'stopped';
+    child.removeAllListeners('exit');
+
+    await new Promise<void>((resolve) => {
+      const killTimer = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* ignore */
+        }
+      }, 10_000);
+
+      child.once('exit', () => {
+        clearTimeout(killTimer);
+        this.#child = null;
+        resolve();
+      });
+
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        clearTimeout(killTimer);
+        this.#child = null;
+        resolve();
+      }
+    });
+  }
+
+  /** Spawn the Studio child process. */
+  #spawn(): void {
+    if (this.#stopped) return;
+
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: String(this.#port),
+      NODE_ENV: 'production',
+    };
+
+    const child = spawn(process.execPath, [join(this.#studioPackageDir, 'build', 'index.js')], {
+      cwd: this.#studioPackageDir,
+      env,
+      stdio: 'inherit',
+      detached: false,
+    });
+
+    this.#child = child;
+    this.#status = 'running';
+
+    process.stdout.write(
+      `[CLEO STUDIO] Started Studio server (pid=${child.pid ?? '?'} port=${this.#port})\n`,
+    );
+
+    child.on('exit', (code, signal) => {
+      this.#child = null;
+      if (this.#stopped) {
+        this.#status = 'stopped';
+        return;
+      }
+      this.#status = 'crashed';
+      process.stderr.write(
+        `[CLEO STUDIO] Studio exited (code=${code ?? 'null'} signal=${signal ?? 'null'}) — restarting in ${this.#currentDelay}ms\n`,
+      );
+      this.#restartTimer = setTimeout(() => {
+        this.#restartTimer = null;
+        // Reset delay on successful long-run (>= 30 s uptime handled by caller).
+        this.#spawn();
+      }, this.#currentDelay);
+      // Exponential backoff: double up to max.
+      this.#currentDelay = Math.min(this.#currentDelay * 2, this.#maxDelay);
+    });
+  }
+
+  /**
+   * Resolve the Studio package directory relative to this compiled module.
+   * Walks from packages/core/dist/sentient/ up to the workspace root,
+   * then into packages/studio/.
+   */
+  static #resolveStudioPackageDir(): string {
+    // __file: dist/sentient/daemon.js → ../../.. → packages/core/ → ../../ → workspace root
+    const selfDir = join(fileURLToPath(import.meta.url), '..');
+    const workspaceRoot = join(selfDir, '..', '..', '..', '..', '..');
+    return join(workspaceRoot, 'packages', 'studio');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Config helpers (Studio supervision opt-out)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the `daemon.superviseStudio` flag from `~/.cleo/config.json`.
+ *
+ * Returns `true` (default on) when the flag is absent or when the config
+ * file cannot be read. Callers can explicitly set `false` to disable:
+ *
+ * ```json
+ * { "daemon": { "superviseStudio": false } }
+ * ```
+ *
+ * @param globalConfigPath - Absolute path to `~/.cleo/config.json`.
+ * @returns Whether the daemon should supervise Studio.
+ */
+async function readSuperviseStudioConfig(globalConfigPath: string): Promise<boolean> {
+  try {
+    const raw = await readFile(globalConfigPath, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const daemonCfg = parsed['daemon'];
+    if (typeof daemonCfg === 'object' && daemonCfg !== null) {
+      const flag = (daemonCfg as Record<string, unknown>)['superviseStudio'];
+      if (typeof flag === 'boolean') return flag;
+    }
+  } catch {
+    // Config absent or parse error — use default (true).
+  }
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // Advisory lock
@@ -165,18 +429,52 @@ export async function releaseLock(lock: LockHandle): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Options for {@link bootstrapDaemon}.
+ *
+ * @public
+ */
+export interface BootstrapDaemonOptions {
+  /**
+   * Whether the daemon should supervise the Cleo Studio web server.
+   *
+   * When `true` (default), Studio is spawned as a child process inside the
+   * daemon and restarted on crash. Set to `false` to run Studio independently.
+   * Overrides the `daemon.superviseStudio` flag in `~/.cleo/config.json` when
+   * supplied explicitly.
+   */
+  superviseStudio?: boolean;
+  /**
+   * Path to the global CLEO config file.
+   * Defaults to `~/.cleo/config.json` (resolved via getCleoHome()).
+   * Used to read `daemon.superviseStudio` when `opts.superviseStudio` is not
+   * supplied explicitly.
+   */
+  globalConfigPath?: string;
+  /**
+   * Studio supervisor options (port, restart delays, package dir).
+   * Only used when Studio supervision is enabled.
+   */
+  studioOptions?: StudioSupervisorOptions;
+}
+
+/**
  * Bootstrap the sentient daemon process.
  *
  * Steps:
  *   1. Acquire advisory lock (fail fast if another daemon is running)
  *   2. Persist our pid + startedAt to state.json
- *   3. Watch state.json for killSwitch changes (fast propagation)
- *   4. Register a SIGTERM handler for graceful shutdown
- *   5. Schedule cron with noOverlap so long ticks don't stack
+ *   3. Optionally start Studio supervision (T1683)
+ *   4. Watch state.json for killSwitch changes (fast propagation)
+ *   5. Register a SIGTERM handler for graceful shutdown (cascades to Studio)
+ *   6. Schedule cron with noOverlap so long ticks don't stack
  *
  * @param projectRoot - Absolute path to the project (contains `.cleo/`)
+ * @param opts - Optional overrides for Studio supervision and config path.
  */
-export async function bootstrapDaemon(projectRoot: string): Promise<void> {
+export async function bootstrapDaemon(
+  projectRoot: string,
+  opts: BootstrapDaemonOptions = {},
+): Promise<void> {
   const statePath = join(projectRoot, SENTIENT_STATE_FILE);
   const lockPath = join(projectRoot, SENTIENT_LOCK_FILE);
 
@@ -195,6 +493,45 @@ export async function bootstrapDaemon(projectRoot: string): Promise<void> {
     // resume. Owner explicitly clears via `cleo sentient resume`.
   });
 
+  // ---------------------------------------------------------------------------
+  // Studio supervision (T1683)
+  // ---------------------------------------------------------------------------
+
+  // Determine whether to supervise Studio.
+  // Priority: explicit opts.superviseStudio > config file > default (true).
+  let shouldSuperviseStudio: boolean;
+  if (typeof opts.superviseStudio === 'boolean') {
+    shouldSuperviseStudio = opts.superviseStudio;
+  } else {
+    // Resolve global config path: ~/.cleo/config.json
+    const { getCleoHome } = await import('../paths.js');
+    const defaultConfigPath = join(getCleoHome(), 'config.json');
+    const configPath = opts.globalConfigPath ?? defaultConfigPath;
+    shouldSuperviseStudio = await readSuperviseStudioConfig(configPath);
+  }
+
+  let studioSupervisor: StudioSupervisor | null = null;
+  if (shouldSuperviseStudio) {
+    studioSupervisor = new StudioSupervisor(opts.studioOptions ?? {});
+    try {
+      studioSupervisor.start();
+      process.stdout.write('[CLEO DAEMON] Studio supervision enabled.\n');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[CLEO DAEMON] Studio supervision start failed: ${msg}\n`);
+      // Non-fatal — sentient ticks continue without Studio.
+      studioSupervisor = null;
+    }
+  } else {
+    process.stdout.write(
+      '[CLEO DAEMON] Studio supervision disabled (daemon.superviseStudio=false).\n',
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // State file watcher
+  // ---------------------------------------------------------------------------
+
   // fs.watch on state file — lets us surface kill very quickly.
   let watcher: FSWatcher | null = null;
   try {
@@ -208,8 +545,19 @@ export async function bootstrapDaemon(projectRoot: string): Promise<void> {
     watcher = null;
   }
 
-  // Graceful shutdown.
+  // ---------------------------------------------------------------------------
+  // Graceful shutdown — cascades SIGTERM to Studio child (T1683)
+  // ---------------------------------------------------------------------------
   const shutdown = async (reason: string): Promise<void> => {
+    // 1. Stop Studio first (SIGTERM with 10 s grace period).
+    if (studioSupervisor !== null) {
+      process.stdout.write('[CLEO DAEMON] Forwarding shutdown to Studio (SIGTERM)…\n');
+      try {
+        await studioSupervisor.stop();
+      } catch {
+        // ignore
+      }
+    }
     try {
       watcher?.close();
     } catch {
@@ -509,10 +857,24 @@ export interface SentientStatus {
    * T1637: Summary counts from the last hygiene loop.
    */
   hygieneStats: SentientState['hygieneStats'];
+  /**
+   * T1683: Whether the daemon is configured to supervise the Studio web server.
+   * Read from `daemon.superviseStudio` in `~/.cleo/config.json` (default: true).
+   */
+  supervisesStudio: boolean;
+  /**
+   * T1683: Current status of the Studio child process.
+   * `'disabled'` when Studio supervision is off.
+   */
+  studioStatus: StudioStatus;
 }
 
 /**
  * Return a diagnostic snapshot for `cleo sentient status`.
+ *
+ * Includes T1683 Studio supervision fields: `supervisesStudio` and `studioStatus`.
+ * Studio status is determined from the config file (not live process state, since
+ * the supervisor runs inside the daemon process, not the status caller).
  *
  * @param projectRoot - Absolute path to the project root
  */
@@ -530,6 +892,11 @@ export async function getSentientDaemonStatus(projectRoot: string): Promise<Sent
     }
   }
 
+  // T1683: resolve Studio supervision flag from global config.
+  const { getCleoHome } = await import('../paths.js');
+  const globalConfigPath = join(getCleoHome(), 'config.json');
+  const supervisesStudio = await readSuperviseStudioConfig(globalConfigPath);
+
   return {
     running,
     pid: running ? state.pid : null,
@@ -543,5 +910,10 @@ export async function getSentientDaemonStatus(projectRoot: string): Promise<Sent
     hygieneLastRunAt: state.hygieneLastRunAt,
     hygieneSummary: state.hygieneSummary,
     hygieneStats: state.hygieneStats,
+    supervisesStudio,
+    // Studio status is 'running' only if daemon is alive and supervises Studio.
+    // We can't inspect the in-process supervisor from outside, so we report
+    // 'running' when the daemon is up + superviseStudio=true, else the appropriate state.
+    studioStatus: !supervisesStudio ? 'disabled' : running ? 'running' : 'stopped',
   };
 }
