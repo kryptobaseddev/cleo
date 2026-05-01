@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — T1677: Centralize LLM credentials resolver + provider config (CORE SDK SSoT)
+
+### Added
+
+- **`packages/core/src/llm/credentials.ts`** — unified 5-tier credential resolver:
+  - `resolveCredentials(provider, options)` returns `CredentialResult { provider, apiKey, source }`.
+  - Resolution chain: explicit → env var → `~/.claude/.credentials.json` → `~/.cleo/config.json` → `.cleo/config.json`.
+  - Supports all four providers: `anthropic`, `openai`, `gemini`, `moonshot` (reserved env var `MOONSHOT_API_KEY`).
+  - Backward-compat shims preserved: `resolveAnthropicApiKey()`, `resolveAnthropicApiKeySource()`, `storeAnthropicApiKey()`, `clearAnthropicKeyCache()`.
+- **`packages/core/src/config/engine-ops.ts`** — `configLlmDaemonProvider(provider)` and `configLlmDaemonModel(model)` engine-ops writing to global `~/.cleo/config.json`.
+- **`packages/contracts/src/config.ts`** — `DaemonLLMConfig`, `LlmConfig`, `LlmProviderEntry` types added to `CleoConfig`.
+- **`packages/core/src/llm/types-config.ts`** — `ModelTransport` extended with `'moonshot'`; `DaemonLLMConfig`, `LlmConfig`, `LlmProviderEntry` re-exported from contracts.
+- **49 new vitest tests** covering all 5 resolution tiers and the config engine-ops.
+
+### Removed
+
+- `packages/core/src/memory/anthropic-key-resolver.ts` — deleted outright (no @deprecated). All 8 callers migrated to `packages/core/src/llm/credentials.ts`.
+
+### Migrated
+
+- `llm-extraction.ts`, `llm-backend-resolver.ts`, `observer-reflector.ts`, `sleep-consolidation.ts`, `deriver.ts` all import from `../llm/credentials.js` instead of the deleted module.
+- `packages/core/src/internal.ts` exports `resolveCredentials` + `resolveModelCredentials` + credential types from `./llm/credentials.js`.
+- Test mocks updated in `llm-extraction.test.ts`, `dedup-gates.test.ts`, `sleep-consolidation.test.ts`, `observer-reflector.test.ts`, `anthropic-key-resolver-source.test.ts`.
+
 ## [2026.5.1] (2026-05-01) — T1627 Hygiene Reset: 6 systemic safeguards + task-graph cleanup
 
 The system harness now self-organizes. The T1467/T1603 premature-close bug class, the T1232 stage-drift class, and the T1337/T1354/T1376 duplicate-epic class are all permanently prevented at the core invariant level. Sentient hygiene loops + daemon cross-project GC mean LLM agents never need to perform manual hygiene audits again — the harness does it autonomously.

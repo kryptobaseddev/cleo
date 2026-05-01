@@ -27,7 +27,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { resolveAnthropicApiKey } from './anthropic-key-resolver.js';
+import { resolveAnthropicApiKey } from '../llm/credentials.js';
 import { checkHashDedup, type MemoryCandidate, verifyAndStore } from './extraction-gate.js';
 
 // ---------------------------------------------------------------------------

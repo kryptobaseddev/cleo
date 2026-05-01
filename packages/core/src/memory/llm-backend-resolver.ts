@@ -248,7 +248,7 @@ async function tryTransformers(): Promise<ResolvedBackend | null> {
  */
 async function tryAnthropic(modelId: string): Promise<ResolvedBackend | null> {
   try {
-    const { resolveAnthropicApiKey } = await import('./anthropic-key-resolver.js');
+    const { resolveAnthropicApiKey } = await import('../llm/credentials.js');
     const apiKey = resolveAnthropicApiKey();
     if (!apiKey) return null;
 

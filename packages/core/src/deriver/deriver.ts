@@ -86,7 +86,7 @@ function generateObsId(): string {
 async function tryResolveApiKey(): Promise<string | null> {
   try {
     // Lazy import to avoid SDK load in tests
-    const { resolveAnthropicApiKey } = await import('../memory/anthropic-key-resolver.js');
+    const { resolveAnthropicApiKey } = await import('../llm/credentials.js');
     return resolveAnthropicApiKey();
   } catch {
     return null;
