@@ -71,6 +71,56 @@ its actual child-progress-based stage.
 multi-stage drift (proposal emitted), kill-switch, tier2 guard, and dedup guard.
 Biome CI + all existing sentient tests green.
 
+### Daemon cross-project hygiene + GC system-wide (T1637)
+
+Extends the sentient daemon with a nightly (default 02:00 local, configurable via
+`CLEO_HYGIENE_CRON`) cross-project hygiene loop that runs system-wide across all
+projects registered in the NEXUS global registry.
+
+**Five sequential steps (each independently guarded):**
+1. **NEXUS integrity check** — verifies every registered project's `tasks.db`,
+   `brain.db`, and `project-info.json` are accessible and parseable. Updates
+   `project_registry.health_status` via the existing write-back path.
+2. **Temp-project GC** — projects with no `.git` AND `lastSeen` older than 30 days
+   are flagged in `~/.local/share/cleo/audit/temp-gc.jsonl`. Deletion is NOT
+   automatic; owner must approve via `cleo daemon hygiene apply <batchId>`.
+3. **Duplicate-epic detection** — uses Jaccard similarity on title n-grams to
+   surface epics with ≥ 0.8 similarity across multiple projects (shared-library
+   candidate signal). Findings logged to sentient state for `cleo daemon status`.
+4. **Stale agent-worktree pruning** — delegates to the existing
+   `pruneOrphanedWorktrees` per project, with active task IDs resolved from
+   each project's tasks.db to prevent pruning in-flight worktrees.
+5. **Aggregate digest** — summary counts persisted to `sentient-state.json`
+   (new fields: `hygieneLastRunAt`, `hygieneSummary`, `hygieneStats`).
+
+**New modules:**
+- `packages/core/src/sentient/cross-project-hygiene.ts` — 5-step hygiene engine
+  with full public API: `runNexusIntegrityCheck`, `runTempProjectGc`,
+  `runDuplicateEpicDetection`, `runWorktreePrune`, `runCrossProjectHygiene`,
+  `safeRunCrossProjectHygiene`, `applyGcBatch`.
+
+**State extensions:**
+- `SentientState` gains `hygieneLastRunAt`, `hygieneSummary`, `hygieneStats`
+  (new `HygieneStats` type). `readSentientState` and `DEFAULT_SENTIENT_STATE`
+  updated with safe defaults for pre-T1637 state files.
+
+**Daemon wiring:**
+- `bootstrapDaemon` schedules a third cron (`cleo-sentient-hygiene`) after the
+  Tier-1 and Tier-2 crons. Kill-switch is checked before each hygiene run.
+  `SENTIENT_HYGIENE_CRON_EXPR` exported as a public constant.
+
+**`cleo daemon status` extended:**
+- `SentientStatus` gains `hygieneLastRunAt`, `hygieneSummary`, `hygieneStats`.
+  `getSentientDaemonStatus` populates these from sentient state.
+  `showDaemonStatus` in `packages/cleo/src/cli/commands/daemon.ts` now accepts
+  a `projectRoot` argument and renders a `Hygiene Loop (cross-project)` section.
+
+**Tests:** 19 vitest tests (all passing) covering each step's happy path, skip
+conditions (`.git` presence, recent `lastSeen`, unreachable directories), audit
+JSONL write, `applyGcBatch` state transition, and `safeRunCrossProjectHygiene`
+error-swallowing. Zero dynamic imports in source — all static for testability.
+Biome CI green.
+
 ---
 
 ## [2026.5.0] (2026-05-01) — T1566 ENG-MIG epic complete + ADR-062 cherry-pick purge

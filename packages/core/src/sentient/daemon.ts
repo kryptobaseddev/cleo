@@ -29,6 +29,7 @@ import { type FileHandle, open as fsOpen, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
+import { safeRunCrossProjectHygiene } from './cross-project-hygiene.js';
 import { type ProposeTickOptions, safeRunProposeTick } from './propose-tick.js';
 import { patchSentientState, readSentientState, type SentientState } from './state.js';
 import { safeRunTick, type TickOptions } from './tick.js';
@@ -55,6 +56,16 @@ export const SENTIENT_CRON_EXPR = '*/5 * * * *';
  * @task T1008
  */
 export const SENTIENT_PROPOSE_CRON_EXPR = '0 */2 * * *';
+
+/**
+ * Cron expression: nightly at 02:00 local time (cross-project hygiene loop).
+ *
+ * Runs after the usual low-traffic window. Configurable via
+ * `CLEO_HYGIENE_CRON` environment variable override.
+ *
+ * @task T1637
+ */
+export const SENTIENT_HYGIENE_CRON_EXPR = process.env['CLEO_HYGIENE_CRON'] ?? '0 2 * * *';
 
 /** Subdirectory for daemon logs. */
 export const SENTIENT_LOG_DIR = '.cleo/logs' as const;
@@ -272,6 +283,39 @@ export async function bootstrapDaemon(projectRoot: string): Promise<void> {
       name: 'cleo-sentient-propose',
     },
   );
+
+  // Nightly cross-project hygiene loop (T1637).
+  // Runs at 02:00 local time (or CLEO_HYGIENE_CRON override).
+  // Checks kill-switch before starting — daemon shutdown prevents mid-loop runs.
+  cron.schedule(
+    SENTIENT_HYGIENE_CRON_EXPR,
+    async () => {
+      const hygieneState = await readSentientState(statePath);
+      if (hygieneState.killSwitch) return;
+
+      process.stdout.write('[CLEO SENTIENT HYGIENE] nightly cross-project hygiene loop starting\n');
+      const digest = await safeRunCrossProjectHygiene();
+
+      // Persist digest counts to sentient state so `cleo daemon status` can read them.
+      await patchSentientState(statePath, {
+        hygieneLastRunAt: digest.completedAt,
+        hygieneSummary: digest.summary,
+        hygieneStats: {
+          projectsChecked: digest.nexusIntegrity.total,
+          projectsHealthy: digest.nexusIntegrity.healthy,
+          tempGcCandidates: digest.tempGc.candidates.length,
+          duplicateEpicGroups: digest.duplicateEpics.groups.length,
+          worktreesPruned: digest.worktreePrune.totalPruned,
+        },
+      });
+
+      process.stdout.write(`[CLEO SENTIENT HYGIENE] complete: ${digest.summary}\n`);
+    },
+    {
+      noOverlap: true,
+      name: 'cleo-sentient-hygiene',
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +496,19 @@ export interface SentientStatus {
   stuckCount: number;
   /** Currently active task id (set mid-tick). */
   activeTaskId: string | null;
+  /**
+   * T1637: ISO-8601 timestamp of the last cross-project hygiene loop run.
+   * Null when the hygiene loop has never executed.
+   */
+  hygieneLastRunAt: string | null;
+  /**
+   * T1637: One-line summary of the last hygiene run (for `cleo daemon status`).
+   */
+  hygieneSummary: string | null;
+  /**
+   * T1637: Summary counts from the last hygiene loop.
+   */
+  hygieneStats: SentientState['hygieneStats'];
 }
 
 /**
@@ -483,5 +540,8 @@ export async function getSentientDaemonStatus(projectRoot: string): Promise<Sent
     stats: state.stats,
     stuckCount: Object.keys(state.stuckTasks).length,
     activeTaskId: state.activeTaskId,
+    hygieneLastRunAt: state.hygieneLastRunAt,
+    hygieneSummary: state.hygieneSummary,
+    hygieneStats: state.hygieneStats,
   };
 }
