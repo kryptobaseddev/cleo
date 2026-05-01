@@ -57,6 +57,7 @@ export type {
 // Init engine-ops — migrated to @cleocode/core/internal (ENG-MIG-14 / T1581 / ADR-057)
 // Config engine-ops — migrated to @cleocode/core/internal (ENG-MIG-15 / T1582 / ADR-057)
 // config-engine.ts shrunk to a shim; all symbols now live in core/config/engine-ops.ts.
+// Codebase map — re-exported from core (engine shim deleted, T1584)
 export {
   addTaskWithSessionScope,
   completeTaskStrict,
@@ -82,6 +83,7 @@ export {
   lifecycleSkip,
   lifecycleStatus,
   type ManifestEntry as ResearchManifestEntry,
+  mapCodebase,
   orchestrateAnalyze,
   orchestrateBootstrap,
   orchestrateCheck,
@@ -214,8 +216,6 @@ export {
   taskUpdate,
   taskWorkHistory,
 } from '@cleocode/core/internal';
-// Codebase map engine
-export { mapCodebase } from '../engines/codebase-map-engine.js';
 // Memory engine — brain.db cognitive memory (T5241 cutover)
 export {
   memoryBrainStats,
