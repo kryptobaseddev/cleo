@@ -154,6 +154,29 @@ async function runPostinstall() {
       console.error('CLEO: Bootstrap detail:', err);
     }
   }
+
+  // Register the CLEO daemon as a user-level system service (systemd / launchd).
+  // This is non-blocking and never fails the install — errors are caught and logged.
+  await installDaemonServiceFromScript();
+}
+
+/**
+ * Install the CLEO daemon as a user-level system service after global install.
+ *
+ * Delegates to the cross-platform installer in scripts/install-daemon-service.mjs.
+ * Always exits cleanly — installation failures are non-fatal.
+ */
+async function installDaemonServiceFromScript() {
+  try {
+    const scriptPath = join(getPackageRoot(), 'scripts', 'install-daemon-service.mjs');
+    const { installDaemonService } = await import(scriptPath);
+    await installDaemonService();
+  } catch (err) {
+    console.log('CLEO: Daemon service registration deferred (will retry on first "cleo daemon install")');
+    if (process.env.CLEO_DEBUG) {
+      console.error('CLEO: Daemon install detail:', err);
+    }
+  }
 }
 
 runPostinstall().catch((err) => {
