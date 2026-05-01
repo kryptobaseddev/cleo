@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased]
+
+### T-LW-W2: Moonshot Kimi K2 backend (T1678)
+
+- **`packages/core/src/llm/backends/moonshot.ts`** (NEW) — `MoonshotBackend` implementing
+  `ProviderBackend` via delegation to `OpenAIBackend`. Moonshot AI exposes an OpenAI-compatible
+  API at `https://api.moonshot.ai/v1`; the backend reuses all wire-format logic from
+  `OpenAIBackend` and overrides only Moonshot-specific concerns (fixed `baseURL`, rejection of
+  `thinkingBudgetTokens`). Default coding model: `kimi-k2-0905-preview`. Exports
+  `isMoonshotModel`, `MOONSHOT_BASE_URL`, `MOONSHOT_DEFAULT_MODEL`.
+- **`packages/core/src/llm/types-config.ts`** — `ModelTransport` union extended with `'moonshot'`.
+- **`packages/contracts/src/operations/llm.ts`** — `ModelTransport` union extended with
+  `'moonshot'` (contracts canonical source).
+- **`packages/core/src/llm/registry.ts`** — `initDefaultClients` initializes a Moonshot OpenAI
+  client when `MOONSHOT_API_KEY` is set; `getMoonshotOverrideClient` cached override factory added;
+  `clientForModelConfig` and `backendForProvider` both handle `'moonshot'`.
+- **`packages/core/src/llm/credentials.ts`** — `defaultTransportApiKey` switch handles
+  `'moonshot'` case, reading `MOONSHOT_API_KEY`.
+- **`packages/core/src/llm/backends/index.ts`** — barrel exports for `MoonshotBackend`,
+  `isMoonshotModel`, `MOONSHOT_BASE_URL`, `MOONSHOT_DEFAULT_MODEL`.
+- **`packages/core/src/llm/__tests__/llm-layer.test.ts`** — 8 new tests covering `isMoonshotModel`,
+  `MOONSHOT_DEFAULT_MODEL`, `MOONSHOT_BASE_URL`, `MoonshotBackend.complete` mock roundtrip,
+  `thinkingBudgetTokens` rejection on `complete` and `stream`.
+
 ## [2026.5.1] (2026-05-01) — T1627 Hygiene Reset: 6 systemic safeguards + task-graph cleanup
 
 The system harness now self-organizes. The T1467/T1603 premature-close bug class, the T1232 stage-drift class, and the T1337/T1354/T1376 duplicate-epic class are all permanently prevented at the core invariant level. Sentient hygiene loops + daemon cross-project GC mean LLM agents never need to perform manual hygiene audits again — the harness does it autonomously.
