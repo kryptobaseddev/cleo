@@ -1,5 +1,56 @@
 # Changelog
 
+## [2026.5.0] (2026-05-01) — T1566 ENG-MIG epic complete + ADR-062 cherry-pick purge
+
+Major architectural milestone: ~16,433 LOC of business logic migrated from CLI engines into `@cleocode/core`, plus full purge of legacy cherry-pick worktree-integration doctrine.
+
+### Engine migration epic (T1566 — 17 tasks complete)
+
+The CLI engine surface is now thin shims (or fully deleted where handlers route directly to core). All business logic lives in `@cleocode/core` per the T-THIN-WRAPPER design. Engines migrated this release:
+
+- **T1572** (ENG-MIG-5): `release-engine.ts` 1517 LOC → `core/release/engine-ops.ts` (14 exports). CLI shim 29 LOC.
+- **T1573** (ENG-MIG-6): `session-engine.ts` 1299 LOC → `core/session/engine-ops.ts`. CLI shim ~50 LOC.
+- **T1574** (ENG-MIG-7): `validate-engine.ts` 1245 LOC → `core/validation/engine-ops.ts` (14 exports). CLI shim 45 LOC. ADR-057 D1 uniform `(projectRoot, params)` signature enforced.
+- **T1575** (ENG-MIG-8): `tools-engine.ts` 878 LOC → `core/tools/engine-ops.ts` (28 exports). CLI shim 45 LOC.
+- **T1576** (ENG-MIG-9): `lifecycle-engine.ts` 496 LOC → `core/lifecycle/engine-ops.ts` (563 LOC). CLI shim 28 LOC.
+- **T1577** (ENG-MIG-10): `sticky-engine.ts` 268 LOC → `core/sticky/engine-ops.ts`. CLI shim 26 LOC.
+- **T1578** (ENG-MIG-11): `pipeline-engine.ts` 224 LOC → `core/pipeline/engine-ops.ts`. CLI shim 24 LOC.
+- **T1579** (ENG-MIG-12): `hooks-engine.ts` 224 LOC → `core/hooks/engine-ops.ts`. CLI shim ~20 LOC.
+- **T1580** (ENG-MIG-13): `diagnostics-engine.ts` 215 LOC → `core/diagnostics/engine-ops.ts`. CLI shim trimmed.
+- **T1581** (ENG-MIG-14): `init-engine.ts` 112 LOC → `core/init/engine-ops.ts`. CLI shim 19 LOC.
+- **T1582** (ENG-MIG-15): `config-engine.ts` 91 LOC → `core/config/engine-ops.ts`. CLI shim 19 LOC.
+- **T1583** (ENG-MIG-16): `code-engine.ts` 77 LOC → `core/code/engine-ops.ts`. CLI shim trimmed.
+- **T1584** (ENG-MIG-17): `codebase-map-engine.ts` 59 LOC → `core/codebase-map/index.ts` (handlers route directly; engine file DELETED). ADR-057 D1 signature.
+
+T1568–T1571 (ENG-MIG 1–4) shipped in v2026.4.16x prior to this release. Total epic: 17 sequential migrations, ~16,433 LOC consolidated.
+
+### ADR-062 cherry-pick doctrine purge
+
+The legacy cherry-pick worktree-integration doctrine has been fully expunged from instructions, code, and contracts. ADR-062 (`git merge --no-ff` preserves agent commit SHAs and authorship) is now the only canonical integration path.
+
+- **T1623** (instructions): replaced cherry-pick instructional language with merge --no-ff in `CLEO-INJECTION.md` template, `spawn-prompt.ts` worktree block, and `worktree-destroy.ts` comments.
+- **T1624** (code+contracts): DELETED legacy `completeAgentWorktree` (cherry-pick) function from `core/spawn/branch-lock.ts`. Removed `WorktreeCompleteResult` from contracts (replaced by `WorktreeMergeResult`). Removed `cherryPicked`, `cherryPickFirst`, `commitsCherryPicked` fields from `DestroyWorktreeOptions`/`DestroyWorktreeResult` and operation surfaces. `destroyWorktree` is now integration-free (pure separation-of-concerns: `completeAgentWorktreeViaMerge` handles integration; `destroyWorktree` handles teardown). Replaced `E_CHERRY_PICK_FAILED` with `E_MERGE_FAILED`.
+
+Owner directive enforced: ZERO `@deprecated` markers, ZERO backwards-compat shims — legacy paths DELETED outright, not deprecated.
+
+### New CLI surface
+
+- **T1625** (T-FOUND-2): New command `cleo orchestrate worktree-complete <taskId>` exposes the existing `worktree.complete` dispatch handler. Orchestrators previously had to fall back to `git merge --no-ff task/<id>` manually because the dispatch operation was registered (`registry.ts:6516`) and handler existed (`orchestrate.ts:1442` `handleWorktreeComplete`) but no CLI subcommand was wired up. Pure CLI surface addition, zero new business logic. Help text references ADR-062.
+
+### Test infrastructure
+
+- Bumped vitest `testTimeout`/`hookTimeout` from 60s to 120s to accommodate the `nexus.diff` query (registry-parity test); was timing out at 60s on slower test machines.
+
+### Migration notes for downstream consumers
+
+- `import { completeAgentWorktree } from '@cleocode/core/internal'` → `import { completeAgentWorktreeViaMerge } from '@cleocode/core/internal'`
+- `WorktreeCompleteResult` (contracts) → `WorktreeMergeResult`
+- `WorktreeCompleteResult.cherryPicked` → `WorktreeMergeResult.mergedSha`
+- `DestroyWorktreeOptions.cherryPickFirst` → REMOVED. Run `completeAgentWorktreeViaMerge` separately before `destroyWorktree` (separation of concerns).
+- `destroyWorktree` no longer accepts integration-related options — it's pure teardown now.
+- `E_CHERRY_PICK_FAILED` → `E_MERGE_FAILED`
+- All engine-level imports (`*-engine.ts` exports) still work via re-export shims, but new code should import canonical implementations from `@cleocode/core/internal` directly.
+
 ## [2026.4.161] (2026-04-30) — hotfix CI ripgrep + CHANGELOG
 
 CI hotfix:
