@@ -160,6 +160,8 @@ export type { HookMatrixResult, ProviderMatrixEntry } from './hooks/engine-ops.j
 export { queryCommonHooks, queryHookProviders, systemHooksMatrix } from './hooks/engine-ops.js';
 // Init (additional)
 export { isAutoInitEnabled } from './init.js';
+// Init engine-ops (ENG-MIG-14 / T1581) — EngineResult wrappers for init operations
+export { ensureInitialized, getVersion, initProject } from './init/engine-ops.js';
 export type {
   AdaptiveValidationSuggestion,
   GateFocusRecommendation,
