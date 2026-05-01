@@ -834,6 +834,19 @@ export {
   convertStickyToTask,
   convertStickyToTaskNote,
 } from './sticky/convert.js';
+// Sticky engine-ops (ENG-MIG-10 / T1577) — EngineResult wrappers
+export {
+  stickyAdd,
+  stickyArchive,
+  stickyConvertToMemory,
+  stickyConvertToSessionNote,
+  stickyConvertToTask,
+  stickyConvertToTaskNote,
+  stickyList,
+  stickyListFiltered,
+  stickyPurge,
+  stickyShow,
+} from './sticky/engine-ops.js';
 export { listStickies, purgeSticky } from './sticky/index.js';
 export type {
   StickyConvertMemoryParams,
