@@ -650,6 +650,17 @@ export type { ListPhasesResult } from './phases/index.js';
 export { advancePhase, deletePhase, renamePhase, setPhase, startPhase } from './phases/index.js';
 // Pipeline
 export { listPhases, showPhase } from './pipeline/index.js';
+// Pipeline engine-ops (ENG-MIG-11 / T1578) — EngineResult wrappers for phase operations
+export {
+  phaseAdvance,
+  phaseComplete,
+  phaseDelete,
+  phaseList,
+  phaseRename,
+  phaseSet,
+  phaseShow,
+  phaseStart,
+} from './pipeline/engine-ops.js';
 // Platform (additional)
 export { getNodeUpgradeInstructions, getNodeVersionInfo } from './platform.js';
 // Reconciliation (additional)
