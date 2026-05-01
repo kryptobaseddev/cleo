@@ -52,6 +52,7 @@ import {
   listAdrs,
   listSystemBackups,
   listTokenUsage,
+  mapCodebase,
   paginate,
   queryAuditLog,
   readSnapshot,
@@ -743,19 +744,12 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
   map: async (params) => {
     const projectRoot = getProjectRoot();
-    const { mapCodebase } = await import('../engines/codebase-map-engine.js');
-    const result = await mapCodebase(projectRoot, {
-      focus: params.focus,
-      storeToBrain: false,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'map',
-      );
+    try {
+      const data = await mapCodebase(projectRoot, { focus: params.focus, storeToBrain: false });
+      return lafsSuccess(data, 'map');
+    } catch (err) {
+      return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'map');
     }
-    return lafsSuccess(result.data, 'map');
   },
 
   roadmap: async (params) => {
@@ -1184,19 +1178,12 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
   'map.mutate': async (params) => {
     const projectRoot = getProjectRoot();
-    const { mapCodebase } = await import('../engines/codebase-map-engine.js');
-    const result = await mapCodebase(projectRoot, {
-      focus: params.focus,
-      storeToBrain: true,
-    });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'map.mutate',
-      );
+    try {
+      const data = await mapCodebase(projectRoot, { focus: params.focus, storeToBrain: true });
+      return lafsSuccess(data, 'map.mutate');
+    } catch (err) {
+      return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'map.mutate');
     }
-    return lafsSuccess(result.data, 'map.mutate');
   },
 
   'install.global': async (_params) => {
