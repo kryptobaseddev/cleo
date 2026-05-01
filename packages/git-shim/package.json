@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/git-shim",
-  "version": "2026.5.2",
+  "version": "2026.5.3",
   "private": false,
   "type": "module",
   "description": "Harness-agnostic git shim for CLEO agent branch-protection (T1118)",
