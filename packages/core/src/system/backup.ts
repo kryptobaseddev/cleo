@@ -376,6 +376,7 @@ export interface FileRestoreResult {
  * @task T5329
  * @task T1571
  */
+// SSoT-EXEMPT:engine-migration-T1571
 export async function fileRestore(
   projectRoot: string,
   fileName: string,

@@ -153,6 +153,7 @@ export interface DiagnosticsResult {
   };
 }
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Run system health checks (SQLite-first per ADR-006). */
 export async function getSystemHealth(
   projectRoot: string,
@@ -734,6 +735,7 @@ async function checkAdapterHealth(projectRoot: string): Promise<DoctorCheck[]> {
  * directory checks, data file checks, gitignore checks, and environment info.
  * @task T4795
  */
+// SSoT-EXEMPT:engine-migration-T1571
 export async function coreDoctorReport(projectRoot: string): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
 
@@ -1042,6 +1044,7 @@ export interface FixResult {
  * Run auto-fix for failed doctor checks by calling the corresponding ensure* functions.
  * Returns a list of fix results for each attempted repair.
  */
+// SSoT-EXEMPT:engine-migration-T1571
 export async function runDoctorFixes(projectRoot: string): Promise<FixResult[]> {
   const {
     ensureCleoStructure,

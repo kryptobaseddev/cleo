@@ -1891,6 +1891,7 @@ function resolveCleoOsHubTemplateRoot(): string | null {
  * console.log(result.action); // "created" or "skipped"
  * ```
  */
+// SSoT-EXEMPT:engine-migration-T1571
 export async function ensureCleoOsHub(): Promise<ScaffoldResult> {
   const recipesDir = getCleoGlobalRecipesDir();
   const piExtDir = getCleoPiExtensionsDir();
