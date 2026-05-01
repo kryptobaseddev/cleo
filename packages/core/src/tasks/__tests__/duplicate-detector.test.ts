@@ -377,10 +377,7 @@ describe('checkDuplicates (integration)', () => {
 
   it('(e) Tier 2: BM25 ambiguous, Jaccard provides high score → reject without LLM', async () => {
     // We mock the LLM call to verify it is NOT invoked when Jaccard decides.
-    const llmSpy = vi.spyOn(
-      await import('../duplicate-detector.js'),
-      'callLlmDuplicateReasoning',
-    );
+    const llmSpy = vi.spyOn(await import('../duplicate-detector.js'), 'callLlmDuplicateReasoning');
 
     // Seed a task with similar title+desc but use same labels to make Jaccard
     // score high enough. We rely on the tiered logic: if Jaccard >= 0.85 the LLM
@@ -661,14 +658,12 @@ describe('Tier-3 LLM escalation (T1681)', () => {
   it('(f) LLM tier: LLM says duplicate → shouldReject=true, tier=llm', async () => {
     // Mock callLlmDuplicateReasoning to return "duplicate"
     const dupDetectorModule = await import('../duplicate-detector.js');
-    const llmSpy = vi
-      .spyOn(dupDetectorModule, 'callLlmDuplicateReasoning')
-      .mockResolvedValue({
-        are_duplicate: true,
-        confidence: 0.91,
-        distinction: null,
-        suggestion: 'block-new',
-      });
+    const llmSpy = vi.spyOn(dupDetectorModule, 'callLlmDuplicateReasoning').mockResolvedValue({
+      are_duplicate: true,
+      confidence: 0.91,
+      distinction: null,
+      suggestion: 'block-new',
+    });
 
     // Seed a task that will be BM25-ambiguous but Jaccard-ambiguous too.
     // We use slightly similar but not clearly matching content.
@@ -697,14 +692,12 @@ describe('Tier-3 LLM escalation (T1681)', () => {
 
   it('(f2) LLM tier: LLM says not duplicate → shouldReject=false, tier=llm', async () => {
     const dupDetectorModule = await import('../duplicate-detector.js');
-    const llmSpy = vi
-      .spyOn(dupDetectorModule, 'callLlmDuplicateReasoning')
-      .mockResolvedValue({
-        are_duplicate: false,
-        confidence: 0.85,
-        distinction: 'Task A targets infrastructure setup; Task B focuses on deployment pipelines',
-        suggestion: 'keep-both',
-      });
+    const llmSpy = vi.spyOn(dupDetectorModule, 'callLlmDuplicateReasoning').mockResolvedValue({
+      are_duplicate: false,
+      confidence: 0.85,
+      distinction: 'Task A targets infrastructure setup; Task B focuses on deployment pipelines',
+      suggestion: 'keep-both',
+    });
 
     await seedTask(
       'T001',
@@ -729,9 +722,7 @@ describe('Tier-3 LLM escalation (T1681)', () => {
 
   it('(g) LLM error/timeout → fallback to BM25-only decision, never block', async () => {
     const dupDetectorModule = await import('../duplicate-detector.js');
-    const llmSpy = vi
-      .spyOn(dupDetectorModule, 'callLlmDuplicateReasoning')
-      .mockResolvedValue(null); // simulates timeout / error
+    const llmSpy = vi.spyOn(dupDetectorModule, 'callLlmDuplicateReasoning').mockResolvedValue(null); // simulates timeout / error
 
     await seedTask(
       'T001',
@@ -764,14 +755,12 @@ describe('Tier-3 LLM escalation (T1681)', () => {
   it('(h) --force-duplicate bypasses all tiers regardless of LLM', async () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const dupDetectorModule = await import('../duplicate-detector.js');
-    const llmSpy = vi
-      .spyOn(dupDetectorModule, 'callLlmDuplicateReasoning')
-      .mockResolvedValue({
-        are_duplicate: true,
-        confidence: 0.99,
-        distinction: null,
-        suggestion: 'block-new',
-      });
+    const llmSpy = vi.spyOn(dupDetectorModule, 'callLlmDuplicateReasoning').mockResolvedValue({
+      are_duplicate: true,
+      confidence: 0.99,
+      distinction: null,
+      suggestion: 'block-new',
+    });
 
     await seedTask(
       'T001',
@@ -800,14 +789,12 @@ describe('Tier-3 LLM escalation (T1681)', () => {
 
   it('max 1 LLM call per checkDuplicates invocation', async () => {
     const dupDetectorModule = await import('../duplicate-detector.js');
-    const llmSpy = vi
-      .spyOn(dupDetectorModule, 'callLlmDuplicateReasoning')
-      .mockResolvedValue({
-        are_duplicate: false,
-        confidence: 0.6,
-        distinction: 'Different scope',
-        suggestion: 'keep-both',
-      });
+    const llmSpy = vi.spyOn(dupDetectorModule, 'callLlmDuplicateReasoning').mockResolvedValue({
+      are_duplicate: false,
+      confidence: 0.6,
+      distinction: 'Different scope',
+      suggestion: 'keep-both',
+    });
 
     // Seed multiple ambiguous tasks
     await seedTask(
