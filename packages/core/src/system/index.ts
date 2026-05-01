@@ -79,3 +79,12 @@ export type { SafestopResult, UncancelResult } from './safestop.js';
 export { safestop, uncancelTask } from './safestop.js';
 export type { PreflightResult } from './storage-preflight.js';
 export { checkStorageMigration } from './storage-preflight.js';
+// Wave 2: new system exports (T1571)
+export type { SyncData } from './sync.js';
+export { systemSync } from './sync.js';
+export type { LogQueryData } from './audit.js';
+export { queryAuditLog } from './audit.js';
+export type { PathsData } from './platform-paths.js';
+export { getSystemPaths } from './platform-paths.js';
+export type { FileRestoreResult } from './backup.js';
+export { fileRestore } from './backup.js';
