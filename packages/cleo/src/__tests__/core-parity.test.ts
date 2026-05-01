@@ -127,15 +127,37 @@ describe('Import Graph Verification (T4796)', () => {
     expect(content).toContain('taskStop');
   });
 
-  it('lifecycle-engine.ts imports core lifecycle functions via @cleocode/core', async () => {
-    // lifecycle-engine.ts moved to src/dispatch/engines/lifecycle-engine.ts
-    // T5718: imports rewired from relative ../../core/ to @cleocode/core
+  it('lifecycle-engine.ts is a pure re-export shim (ENG-MIG-9 / T1576)', async () => {
+    // ENG-MIG-9 (T1576): lifecycle-engine.ts shrunk to <100 LOC pure re-export shim.
+    // All business logic (getLifecycleStatus, recordStageProgress, scope guard) has been
+    // migrated to packages/core/src/lifecycle/engine-ops.ts.
+    // The shim re-exports EngineResult wrapper functions from @cleocode/core/internal.
     const dispatchEngineDir = join(process.cwd(), 'packages', 'cleo', 'src', 'dispatch', 'engines');
     const content = await readFile(join(dispatchEngineDir, 'lifecycle-engine.ts'), 'utf-8');
 
+    // Shim must import exclusively from @cleocode/core/internal (canonical SSoT)
     expect(content).toMatch(/from '@cleocode\/core(\/internal)?'/);
-    expect(content).toContain('getLifecycleStatus');
-    expect(content).toContain('recordStageProgress');
+    // Re-exports lifecycle EngineResult wrapper functions (migrated to core/lifecycle/engine-ops.ts)
+    expect(content).toContain('lifecycleStatus');
+    expect(content).toContain('lifecycleProgress');
+    expect(content).toContain('lifecycleGatePass');
+  });
+
+  it('@cleocode/core/internal exports lifecycle engine ops (T1576 ENG-MIG-9)', async () => {
+    // T1576: lifecycle engine ops migrated to packages/core/src/lifecycle/engine-ops.ts.
+    // Verify that @cleocode/core/internal exports the expected lifecycle functions directly.
+    const core = await import('../../../core/src/internal.js');
+    expect(typeof core.lifecycleStatus).toBe('function');
+    expect(typeof core.lifecycleProgress).toBe('function');
+    expect(typeof core.lifecycleSkip).toBe('function');
+    expect(typeof core.lifecycleReset).toBe('function');
+    expect(typeof core.lifecycleCheck).toBe('function');
+    expect(typeof core.lifecycleHistory).toBe('function');
+    expect(typeof core.lifecycleGates).toBe('function');
+    expect(typeof core.lifecyclePrerequisites).toBe('function');
+    expect(typeof core.lifecycleGatePass).toBe('function');
+    expect(typeof core.lifecycleGateFail).toBe('function');
+    expect(typeof core.enforceScopeForLifecycleMutation).toBe('function');
   });
 
   it('validate-engine.ts imports core validation functions via @cleocode/core', async () => {
