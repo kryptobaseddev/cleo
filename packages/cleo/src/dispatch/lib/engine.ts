@@ -53,11 +53,18 @@ export type {
 // Session engine (T1573 — ENG-MIG-6: migrated to @cleocode/core/internal)
 // Lifecycle engine ops — re-exported from @cleocode/core/internal (T1576 / ENG-MIG-9 / ADR-057)
 // lifecycle-engine.ts shrunk to a shim; all symbols now live in core/lifecycle/engine-ops.ts.
+// Hooks engine (ENG-MIG-12 / T1579 — logic in @cleocode/core/internal)
+// Init engine-ops — migrated to @cleocode/core/internal (ENG-MIG-14 / T1581 / ADR-057)
 export {
   addTaskWithSessionScope,
   completeTaskStrict,
   type DecisionRecord,
+  ensureInitialized,
   filterEntries as filterManifestEntries,
+  getVersion,
+  type HookMatrixResult,
+  initProject,
+  isAutoInitEnabled,
   lifecycleCheck,
   lifecycleGateFail,
   lifecycleGatePass,
@@ -88,6 +95,7 @@ export {
   orchestrateUnblockOpportunities,
   orchestrateValidate,
   orchestrateWaves,
+  type ProviderMatrixEntry,
   // Pipeline engine-ops (ENG-MIG-11 / T1578 — migrated to @cleocode/core/internal)
   // pipeline-engine.ts shrunk to a shim; all symbols now live in core/pipeline/engine-ops.ts.
   phaseAdvance,
@@ -105,6 +113,8 @@ export {
   pipelineManifestPending,
   pipelineManifestShow,
   pipelineManifestStats,
+  queryCommonHooks,
+  queryHookProviders,
   readManifestEntries,
   releaseCancel,
   releaseChangelog,
@@ -148,6 +158,7 @@ export {
   sessionStatus,
   sessionSuspend,
   sessionSwitch,
+  systemHooksMatrix,
   taskAnalyze,
   taskArchive,
   taskBatchValidate,
@@ -206,21 +217,6 @@ export {
   configSet,
   configSetPreset,
 } from '../engines/config-engine.js';
-// Hooks engine (ENG-MIG-12 / T1579 — logic in @cleocode/core/internal)
-export {
-  type HookMatrixResult,
-  type ProviderMatrixEntry,
-  queryCommonHooks,
-  queryHookProviders,
-  systemHooksMatrix,
-} from '@cleocode/core/internal';
-// Init engine
-export {
-  ensureInitialized,
-  getVersion,
-  initProject,
-  isAutoInitEnabled,
-} from '../engines/init-engine.js';
 // Memory engine — brain.db cognitive memory (T5241 cutover)
 export {
   memoryBrainStats,
