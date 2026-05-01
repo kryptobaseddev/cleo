@@ -21,5 +21,6 @@ export * from './ops.js';
 export * from './proposal-dedup.js';
 export * from './proposal-rate-limiter.js';
 export * from './propose-tick.js';
+export * from './stage-drift-tick.js';
 export * from './state.js';
 export * from './tick.js';
