@@ -155,6 +155,9 @@ export { validatePayload } from './hooks/payload-schemas.js';
 // Hooks
 export type { HookEvent, ProviderHookEvent } from './hooks/provider-hooks.js';
 export { isProviderHookEvent } from './hooks/types.js';
+// Hooks engine-ops (ENG-MIG-12 / T1579) — EngineResult wrappers for hook capability queries
+export type { HookMatrixResult, ProviderMatrixEntry } from './hooks/engine-ops.js';
+export { queryCommonHooks, queryHookProviders, systemHooksMatrix } from './hooks/engine-ops.js';
 // Init (additional)
 export { isAutoInitEnabled } from './init.js';
 export type {
