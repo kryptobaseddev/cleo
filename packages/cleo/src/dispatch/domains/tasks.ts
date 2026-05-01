@@ -283,6 +283,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         role: params.role,
         scope: params.scope,
         severity: params.severity,
+        // T1633: BRAIN duplicate-bypass flag
+        forceDuplicate: params.forceDuplicate,
       }),
       'add',
     );
