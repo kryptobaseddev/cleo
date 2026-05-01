@@ -1166,6 +1166,14 @@ export {
   loadTelemetryConfig,
   recordTelemetryEvent,
 } from './telemetry/index.js';
+// Diagnostics engine-ops (ENG-MIG-13 / T1580)
+export {
+  diagnosticsAnalyze,
+  diagnosticsDisable,
+  diagnosticsEnable,
+  diagnosticsExport,
+  diagnosticsStatus,
+} from './diagnostics/engine-ops.js';
 export type { IssueTemplate, TemplateConfig, TemplateSection } from './templates/parser.js';
 // Templates
 export {
