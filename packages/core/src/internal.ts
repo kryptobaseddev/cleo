@@ -1611,6 +1611,8 @@ export {
   loadProjectContext,
   substituteCantAgentBody,
 } from './agents/variable-substitution.js';
+// Code engine-ops (ENG-MIG-16 / T1583) — EngineResult wrappers for code analysis operations
+export { codeOutline, codeParse, codeSearch, codeUnfold } from './code/engine-ops.js';
 // Codebase map (additional)
 export { mapCodebase } from './codebase-map/index.js';
 // Compliance — system stats (T1571)
