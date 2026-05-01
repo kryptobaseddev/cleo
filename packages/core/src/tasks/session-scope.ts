@@ -124,6 +124,11 @@ export async function addTaskWithSessionScope(
     role?: string;
     scope?: string;
     severity?: string;
+    /**
+     * Bypass the BRAIN duplicate-detection rejection guard (T1633).
+     * Audited to `.cleo/audit/duplicate-bypass.jsonl`.
+     */
+    forceDuplicate?: boolean;
   },
 ): Promise<
   EngineResult<{ task: TaskRecord; duplicate: boolean; dryRun?: boolean; warnings?: string[] }>
@@ -163,6 +168,7 @@ export async function addTaskWithSessionScope(
         role: params.role as TaskRole | undefined,
         scope: params.scope as TaskScope | undefined,
         severity: params.severity as TaskSeverity | undefined,
+        forceDuplicate: params.forceDuplicate,
       },
       projectRoot,
       accessor,

@@ -2,6 +2,42 @@
 
 ## [Unreleased] — T1627 Hygiene Reset (systemic safeguards in core)
 
+### BRAIN-powered duplicate-task detection on `cleo add` (T1633)
+
+Prevents the T1337/T1354/T1376 "multiple Auth API epics" duplicate-work bug class where
+semantically identical tasks were created across sessions without detection.
+
+**New `ExitCode.DUPLICATE_TASK_LIKELY` (105)**
+
+- `cleo add` now queries non-terminal active tasks (pending/active/blocked) and computes
+  similarity against the incoming title and description before inserting.
+- Score >= 0.85 (warn threshold): a non-blocking warning is emitted to stderr listing
+  the top-3 candidate tasks with their IDs, titles, and similarity percentages. Task
+  creation proceeds.
+- Score >= 0.92 (reject threshold): `cleo add` REJECTS with `E_DUPLICATE_TASK_LIKELY`,
+  listing the candidate duplicates. Pass `--force-duplicate` to bypass.
+- `--force-duplicate` flag: bypasses the rejection guard; the bypass is audited to
+  `.cleo/audit/duplicate-bypass.jsonl` (ADR-051 pattern, mirrors nexus-risk-ack and
+  premature-close bypass).
+
+**Similarity algorithm**
+
+- Primary: cosine similarity over BRAIN vector embeddings when an embedding provider is
+  registered (`isEmbeddingAvailable()`). Gracefully falls back when no provider is set.
+- Fallback: Jaccard similarity over character trigrams of a weighted blob (title 2×,
+  description 1×). Zero-dependency, deterministic, always available.
+
+**New modules**
+
+- `packages/core/src/tasks/duplicate-detector.ts` — similarity check + threshold constants
+- `packages/core/src/tasks/duplicate-bypass-audit.ts` — audit trail writer
+
+**Wire-format additions**
+
+- `TasksAddParams.forceDuplicate?: boolean` in `@cleocode/contracts`
+- `ExitCode.DUPLICATE_TASK_LIKELY = 105` in `@cleocode/contracts`
+- `--force-duplicate` flag on `cleo add` CLI command
+
 ### Core invariant: epic auto-close gating + premature-close prevention (T1632)
 
 Prevents the T1467+T1603 bug class where `cleo complete <epicId>` could silently succeed
