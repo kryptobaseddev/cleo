@@ -195,6 +195,23 @@ export {
   validateTask,
   validateTitle,
 } from './engine.js';
+// Engine operations — gate verification + protocol validation (ENG-MIG-7 / T1574)
+export type { GateVerifyParams, GateVerifyResult, ProtocolValidationParams } from './engine-ops.js';
+export {
+  validateGateVerify,
+  validateProtocolArchitectureDecision,
+  validateProtocolArtifactPublish,
+  validateProtocolConsensus,
+  validateProtocolContribution,
+  validateProtocolDecomposition,
+  validateProtocolImplementation,
+  validateProtocolProvenance,
+  validateProtocolRelease,
+  validateProtocolResearch,
+  validateProtocolSpecification,
+  validateProtocolTesting,
+  validateProtocolValidation,
+} from './engine-ops.js';
 // Gap analysis
 export {
   analyzeCoverage,
