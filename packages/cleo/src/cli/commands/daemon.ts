@@ -21,34 +21,104 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { getGCDaemonStatus, spawnGCDaemon, stopGCDaemon } from '@cleocode/core/gc/daemon.js';
+import { getSentientDaemonStatus } from '@cleocode/core/sentient';
 import { defineCommand } from 'citty';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 
 /**
  * Display the daemon status to stdout.
  *
- * @param cleoDir - Absolute path to the `.cleo/` directory
+ * Renders both the GC daemon status and the cross-project hygiene loop
+ * summary (T1637) in a single call. JSON mode returns a combined payload.
+ *
+ * @param cleoDir - Absolute path to the `.cleo/` directory (GC daemon)
+ * @param projectRoot - Absolute path to the project root (sentient state)
  * @param json - Output as JSON when true
  */
-async function showDaemonStatus(cleoDir: string, json: boolean): Promise<void> {
+async function showDaemonStatus(
+  cleoDir: string,
+  projectRoot: string,
+  json: boolean,
+): Promise<void> {
   try {
-    const status = await getGCDaemonStatus(cleoDir);
-    const result = { success: true, data: status };
+    const gcStatus = await getGCDaemonStatus(cleoDir);
+
+    // Sentient status (includes T1637 hygiene fields). Best-effort — sentient
+    // daemon may not be running; missing state file yields sensible defaults.
+    let hygieneLastRunAt: string | null = null;
+    let hygieneSummary: string | null = null;
+    let hygieneStats: {
+      projectsChecked: number;
+      projectsHealthy: number;
+      tempGcCandidates: number;
+      duplicateEpicGroups: number;
+      worktreesPruned: number;
+    } = {
+      projectsChecked: 0,
+      projectsHealthy: 0,
+      tempGcCandidates: 0,
+      duplicateEpicGroups: 0,
+      worktreesPruned: 0,
+    };
+    try {
+      const sentientStatus = await getSentientDaemonStatus(projectRoot);
+      hygieneLastRunAt = sentientStatus.hygieneLastRunAt;
+      hygieneSummary = sentientStatus.hygieneSummary;
+      hygieneStats = sentientStatus.hygieneStats;
+    } catch {
+      // Sentient not initialised — hygiene fields remain null/default.
+    }
+
+    const result = {
+      success: true,
+      data: {
+        gc: gcStatus,
+        hygiene: {
+          lastRunAt: hygieneLastRunAt,
+          summary: hygieneSummary,
+          stats: hygieneStats,
+        },
+      },
+    };
 
     if (json) {
       process.stdout.write(JSON.stringify(result) + '\n');
     } else {
-      const runningStr = status.running ? `running (PID ${status.pid})` : 'stopped';
-      process.stdout.write(`Daemon:       ${runningStr}\n`);
-      process.stdout.write(`Started at:   ${status.startedAt ?? 'never'}\n`);
-      process.stdout.write(`Last GC run:  ${status.lastRunAt ?? 'never'}\n`);
+      const runningStr = gcStatus.running ? `running (PID ${gcStatus.pid})` : 'stopped';
+      process.stdout.write(`GC Daemon:       ${runningStr}\n`);
+      process.stdout.write(`Started at:      ${gcStatus.startedAt ?? 'never'}\n`);
+      process.stdout.write(`Last GC run:     ${gcStatus.lastRunAt ?? 'never'}\n`);
       const diskStr =
-        status.lastDiskUsedPct !== null ? `${status.lastDiskUsedPct.toFixed(1)}%` : 'unknown';
-      process.stdout.write(`Disk used:    ${diskStr}\n`);
-      if (status.escalationNeeded) {
+        gcStatus.lastDiskUsedPct !== null ? `${gcStatus.lastDiskUsedPct.toFixed(1)}%` : 'unknown';
+      process.stdout.write(`Disk used:       ${diskStr}\n`);
+      if (gcStatus.escalationNeeded) {
         process.stdout.write(
           `\nWARNING: Disk threshold breached. Run 'cleo gc run' to reclaim space.\n`,
         );
+      }
+      // T1637: hygiene section
+      process.stdout.write(`\nHygiene Loop (cross-project):\n`);
+      process.stdout.write(`  Last run:        ${hygieneLastRunAt ?? 'never'}\n`);
+      process.stdout.write(`  Summary:         ${hygieneSummary ?? 'not yet run'}\n`);
+      if (hygieneStats.projectsChecked > 0) {
+        process.stdout.write(
+          `  Projects:        ${hygieneStats.projectsHealthy}/${hygieneStats.projectsChecked} healthy\n`,
+        );
+        if (hygieneStats.tempGcCandidates > 0) {
+          process.stdout.write(
+            `  Temp GC:         ${hygieneStats.tempGcCandidates} candidate(s) pending approval\n`,
+          );
+        }
+        if (hygieneStats.duplicateEpicGroups > 0) {
+          process.stdout.write(
+            `  Duplicate epics: ${hygieneStats.duplicateEpicGroups} group(s) detected\n`,
+          );
+        }
+        if (hygieneStats.worktreesPruned > 0) {
+          process.stdout.write(
+            `  Worktrees:       ${hygieneStats.worktreesPruned} stale worktree(s) pruned\n`,
+          );
+        }
       }
     }
   } catch (err) {
@@ -169,11 +239,12 @@ const stopCommand = defineCommand({
   },
 });
 
-/** cleo daemon status — show daemon running state, PID, last GC run, and disk usage */
+/** cleo daemon status — show daemon running state, PID, last GC run, disk usage, and hygiene */
 const statusCommand = defineCommand({
   meta: {
     name: 'status',
-    description: 'Show daemon running state, PID, last GC run, and disk usage',
+    description:
+      'Show daemon running state, PID, last GC run, disk usage, and cross-project hygiene summary',
   },
   args: {
     'cleo-dir': {
@@ -187,7 +258,7 @@ const statusCommand = defineCommand({
   },
   async run({ args }) {
     const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
-    await showDaemonStatus(cleoDir, args.json ?? false);
+    await showDaemonStatus(cleoDir, process.cwd(), args.json ?? false);
   },
 });
 
@@ -222,6 +293,6 @@ export const daemonCommand = defineCommand({
     // status print so `cleo daemon start` doesn't also run status. T1187-followup.
     if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
-    await showDaemonStatus(cleoDir, args.json ?? false);
+    await showDaemonStatus(cleoDir, process.cwd(), args.json ?? false);
   },
 });
