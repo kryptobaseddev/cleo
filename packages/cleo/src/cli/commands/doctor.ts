@@ -13,7 +13,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
-import type { HookMatrixResult } from '../../dispatch/engines/hooks-engine.js';
+import type { HookMatrixResult } from '@cleocode/core/internal';
 import { createDoctorProgress } from '../progress.js';
 import { runDoctorProjects } from './doctor-projects.js';
 
