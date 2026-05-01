@@ -29,6 +29,7 @@ import {
   reVerifyWorkerReport,
   type WorkerReport,
 } from '../orchestrate/worker-verify.js';
+import { DREAM_CYCLE_INTERVAL_MS } from './dream-cycle.js';
 import { HYGIENE_SCAN_INTERVAL_MS } from './hygiene-scan.js';
 import { DRIFT_SCAN_INTERVAL_MS } from './stage-drift-tick.js';
 import {
@@ -250,6 +251,29 @@ export interface TickOptions {
    * @task T1636
    */
   hygieneScanIntervalMs?: number;
+  /**
+   * Override for the dream cycle function. Injected by tests to avoid opening
+   * a real brain.db or making real LLM calls. When omitted, the default
+   * {@link safeRunDreamCycle} from `./dream-cycle.js` is used.
+   *
+   * Pass `null` to disable the dream cycle entirely (e.g. unit tests that
+   * don't exercise the dream cycle path).
+   *
+   * @task T1680
+   */
+  dreamCycle?:
+    | ((
+        options: import('./dream-cycle.js').DreamCycleOptions,
+      ) => Promise<import('./dream-cycle.js').DreamCycleOutcome>)
+    | null;
+  /**
+   * Interval (ms) between dream cycle runs.
+   * Defaults to {@link DREAM_CYCLE_INTERVAL_MS} (4 hours).
+   * Pass 0 to run on every tick (useful for integration tests).
+   *
+   * @task T1680
+   */
+  dreamCycleIntervalMs?: number;
 }
 
 /** Result of a spawn invocation. */
@@ -442,6 +466,18 @@ let _lastStageDriftScanAt = 0;
  * @internal
  */
 let _lastHygieneScanAt = 0;
+
+// ---------------------------------------------------------------------------
+// Dream cycle state (T1680)
+// ---------------------------------------------------------------------------
+
+/**
+ * Unix-epoch-ms timestamp of the last real-LLM dream cycle run.
+ * Used to gate the cycle to at most once every {@link DREAM_CYCLE_INTERVAL_MS}.
+ * Set to 0 so the first tick always triggers an initial run.
+ * @internal
+ */
+let _lastDreamCycleScanAt = 0;
 
 /**
  * Evaluate volume + idle dream triggers and call `checkAndDream` when either
@@ -848,6 +884,50 @@ async function maybeTriggerHygieneScan(
 }
 
 /**
+ * Evaluate the dream cycle cadence and fire {@link safeRunDreamCycle}
+ * when enough time has elapsed since the last run.
+ *
+ * Respects the injectable `options.dreamCycle` override (null = disabled).
+ * Errors are swallowed — dream cycle must never crash the tick.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param statePath   - Path to sentient-state.json.
+ * @param options     - Tick options (provides injectable and interval override).
+ *
+ * @internal
+ * @task T1680
+ */
+async function maybeTriggerDreamCycleScan(
+  projectRoot: string,
+  statePath: string,
+  options: TickOptions,
+): Promise<void> {
+  // Null explicitly disables the dream cycle (test escape hatch).
+  if (options.dreamCycle === null) return;
+
+  const intervalMs = options.dreamCycleIntervalMs ?? DREAM_CYCLE_INTERVAL_MS;
+  const now = Date.now();
+
+  if (now - _lastDreamCycleScanAt < intervalMs) return;
+
+  // Update the timestamp before awaiting so concurrent ticks don't double-fire.
+  _lastDreamCycleScanAt = now;
+
+  try {
+    if (options.dreamCycle) {
+      // Injected override (tests).
+      await options.dreamCycle({ projectRoot, statePath });
+    } else {
+      // Default: lazy-import and run.
+      const { safeRunDreamCycle } = await import('./dream-cycle.js');
+      await safeRunDreamCycle({ projectRoot, statePath });
+    }
+  } catch {
+    // Dream cycle is best-effort: errors must never propagate to the tick caller.
+  }
+}
+
+/**
  * Convenience wrapper used by the daemon cron handler and the `cleo sentient
  * tick` CLI command. Reads state, runs a tick, swallows any unexpected
  * exception so the cron scheduler never sees a rejection.
@@ -918,6 +998,13 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
   // Runs once per dream cycle (default 4 h) — longer cadence than stage-drift.
   // Best-effort: errors never affect tick outcome.
   maybeTriggerHygieneScan(options.projectRoot, options.statePath, options).catch(() => {
+    // Ignore.
+  });
+
+  // Real-LLM dream cycle: collect + cluster + synthesise BRAIN observations (T1680).
+  // Default cadence: 4 h (same as hygiene scan). Fire-and-forget.
+  // Best-effort: errors never affect tick outcome.
+  maybeTriggerDreamCycleScan(options.projectRoot, options.statePath, options).catch(() => {
     // Ignore.
   });
 
@@ -1058,6 +1145,31 @@ export function _resetHygieneScanAt(): void {
  */
 export function _getLastHygieneScanAt(): number {
   return _lastHygieneScanAt;
+}
+
+/**
+ * Reset the dream cycle scan timestamp.
+ *
+ * Intended for test teardown only — allows tests to reset the scan cadence
+ * so successive test cases start from a clean slate (next tick fires immediately).
+ *
+ * @internal
+ * @task T1680
+ */
+export function _resetDreamCycleScanAt(): void {
+  _lastDreamCycleScanAt = 0;
+}
+
+/**
+ * Return the unix-epoch-ms timestamp of the last dream cycle scan.
+ *
+ * Read-only accessor for test assertions.
+ *
+ * @internal
+ * @task T1680
+ */
+export function _getLastDreamCycleScanAt(): number {
+  return _lastDreamCycleScanAt;
 }
 
 // ---------------------------------------------------------------------------
