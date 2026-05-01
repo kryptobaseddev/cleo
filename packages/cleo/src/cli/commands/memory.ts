@@ -2518,22 +2518,66 @@ const backfillCommand = defineCommand({
  * `memory.digest` dispatch operation which sorts by citation_count +
  * quality_score DESC.
  */
-const digestCommand = makeMemorySubcommand({
-  name: 'digest',
-  description:
-    'Summarized top-N brain observations for session briefing (T1006). Sorted by citation_count + quality_score.',
+/**
+ * cleo memory digest — T1006.
+ *
+ * Summarized top-N observations as a session-briefing digest. Wraps the
+ * `memory.digest` dispatch operation which sorts by citation_count +
+ * quality_score DESC.
+ *
+ * When `--hygiene` is passed, aggregates only the latest hygiene observations
+ * (tagged 'hygiene:*') emitted by the sentient background loop (T1636).
+ */
+const digestCommand = defineCommand({
+  meta: {
+    name: 'digest',
+    description:
+      'Summarized top-N brain observations for session briefing (T1006). ' +
+      'Pass --hygiene to show latest hygiene scan results from the sentient background loop (T1636).',
+  },
   args: {
     limit: {
       type: 'string',
       description: 'Maximum number of observations to include (default: 10).',
     },
+    hygiene: {
+      type: 'boolean',
+      description:
+        'Show only hygiene observations (hygiene:orphan, hygiene:top-level-orphan, ' +
+        'hygiene:content-defect, hygiene:premature-close-leak) from the sentient background loop (T1636).',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
   },
-  gateway: 'query',
-  operation: 'digest',
-  output: { command: 'memory-digest', operation: 'memory.digest' },
-  paramBuilder: (args) => ({
-    ...(args['limit'] !== undefined && { limit: parseInt(args['limit'] as string, 10) }),
-  }),
+  async run({ args }) {
+    if (args.hygiene) {
+      // Hygiene digest: search brain.db for observations tagged 'hygiene:' and
+      // render a concise summary. The sentient loop emits these with titles
+      // prefixed 'hygiene:*', so a targeted find on 'hygiene:' surfaces them.
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'find',
+        {
+          query: 'hygiene:',
+          limit: args.limit !== undefined ? parseInt(args.limit, 10) : 20,
+        },
+        { command: 'memory-hygiene-digest', operation: 'memory.find' },
+      );
+    } else {
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'digest',
+        {
+          ...(args['limit'] !== undefined && { limit: parseInt(args['limit'], 10) }),
+        },
+        { command: 'memory-digest', operation: 'memory.digest' },
+      );
+    }
+  },
 });
 
 /**

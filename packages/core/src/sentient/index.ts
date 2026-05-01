@@ -13,6 +13,7 @@ export * from './allowlist.js';
 export * from './baseline.js';
 export * from './daemon.js';
 export * from './events.js';
+export * from './hygiene-scan.js';
 export * from './ingesters/brain-ingester.js';
 export * from './ingesters/nexus-ingester.js';
 export * from './ingesters/test-ingester.js';

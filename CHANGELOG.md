@@ -71,6 +71,54 @@ its actual child-progress-based stage.
 multi-stage drift (proposal emitted), kill-switch, tier2 guard, and dedup guard.
 Biome CI + all existing sentient tests green.
 
+### Sentient hygiene: background loop (T1636)
+
+Replaces manual hygiene audits with autonomous LLM-agent-under-the-hood.
+Every dream cycle (default 4h) the sentient tick runs 4 hygiene scans and emits
+BRAIN observations so the system self-organises without human intervention.
+
+**New module: `packages/core/src/sentient/hygiene-scan.ts`**
+
+Four scans, each tagged with a `hygiene:*` prefix:
+
+- **Scan 1 — orphan tasks** (`hygiene:orphan`): Tasks whose `parent_id` references a
+  done/cancelled/missing parent. These tasks are invisible to the scheduler and will
+  never be picked.
+- **Scan 2 — top-level type=task** (`hygiene:top-level-orphan`): Root-level tasks with
+  no parent epic. Observation recommends `cleo update --parent <epicId>` or
+  `cleo update --type epic`.
+- **Scan 3 — content defects** (`hygiene:content-defect`): Tasks missing acceptance
+  criteria, tasks with vague AC (< 20 chars), or type=task tasks with no files listed.
+- **Scan 4 — premature-close leaks** (`hygiene:premature-close-leak` — CRITICAL):
+  Defensive shadow of the T1632 invariant. Done tasks whose parent epic is still
+  active/pending with no remaining siblings — the epic should have auto-closed.
+
+Both `runHygieneScan` and `safeRunHygieneScan` are exported. Fully injectable:
+`db`, `observeMemory`, and `isKilled` can be overridden by tests without opening
+a real DB or brain.db.
+
+**Wiring:**
+- `safeRunTick` in `tick.ts` fires `maybeTriggerHygieneScan` (fire-and-forget,
+  best-effort) on a configurable cadence (default 4h via `HYGIENE_SCAN_INTERVAL_MS`).
+  Fully injectable for tests: `options.hygieneScan = null` disables,
+  `options.hygieneScanIntervalMs = 0` forces every-tick scans.
+- `tick.ts` exports `_resetHygieneScanAt()` and `_getLastHygieneScanAt()` for test
+  teardown, matching the stage-drift pattern.
+- `sentient/index.ts` re-exports all hygiene-scan symbols.
+
+**CLI: `cleo memory digest --hygiene`**
+- `cleo memory digest` gains a `--hygiene` flag. When set, searches brain.db for
+  observations tagged `hygiene:` and returns them as the digest, giving a concise
+  view of the current hygiene state.
+
+**CLI: `cleo dash` hygiene section**
+- After the main dashboard output, a small note links users to
+  `cleo memory digest --hygiene`. Suppressible via `--no-hygiene`.
+
+**Tests:** 27 vitest tests covering all 4 scans (each with happy path + defect
+detection), kill-switch guard, no-db guard, observe injection, `safeRunHygieneScan`
+error swallowing, and constant values. Biome CI + all existing sentient tests green.
+
 ---
 
 ## [2026.5.0] (2026-05-01) — T1566 ENG-MIG epic complete + ADR-062 cherry-pick purge
