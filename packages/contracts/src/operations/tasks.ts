@@ -297,6 +297,16 @@ export interface TasksAddParams {
   role?: string;
   scope?: string;
   severity?: string;
+  /**
+   * Bypass the E_DUPLICATE_TASK_LIKELY guard.
+   *
+   * When true, `cleo add` will proceed even if the new task's title and
+   * description score >= 0.92 similarity against active tasks. The bypass
+   * is audited to `.cleo/audit/duplicate-bypass.jsonl` (ADR-051 pattern).
+   *
+   * @task T1633
+   */
+  forceDuplicate?: boolean;
 }
 export type TasksAddResult = unknown;
 

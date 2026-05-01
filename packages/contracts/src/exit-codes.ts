@@ -176,6 +176,19 @@ export enum ExitCode {
   NO_CHANGE = 102,
   TESTS_SKIPPED = 103,
 
+  /**
+   * E_DUPLICATE_TASK_LIKELY — `cleo add` was rejected because the new task's
+   * title and description are semantically very similar (score >= 0.92) to one
+   * or more active tasks detected by BRAIN-powered duplicate detection.
+   *
+   * Pass `--force-duplicate` to bypass; the bypass is audited to
+   * `.cleo/audit/duplicate-bypass.jsonl` (ADR-051 pattern).
+   *
+   * @epic T1627
+   * @task T1633
+   */
+  DUPLICATE_TASK_LIKELY = 105,
+
   // === LAFS ENVELOPE VALIDATION (Phase 6) ===
   /**
    * E_LAFS_VIOLATION — CLI output did not conform to the LAFS envelope
