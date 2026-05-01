@@ -273,6 +273,20 @@ vi.mock('@cleocode/core/internal', async () => {
       _projectRoot: string,
       taskId: string,
     ) => mockCheckExplainVerification(rawData, _projectRoot, taskId),
+    // Gate verification (ENG-MIG-7 / T1574 — migrated from engine layer to core)
+    validateGateVerify: vi.fn(),
+    validateProtocolConsensus: vi.fn(),
+    validateProtocolContribution: vi.fn(),
+    validateProtocolDecomposition: vi.fn(),
+    validateProtocolImplementation: vi.fn(),
+    validateProtocolSpecification: vi.fn(),
+    validateProtocolResearch: vi.fn(),
+    validateProtocolArchitectureDecision: vi.fn(),
+    validateProtocolValidation: vi.fn(),
+    validateProtocolTesting: vi.fn(),
+    validateProtocolRelease: vi.fn(),
+    validateProtocolArtifactPublish: vi.fn(),
+    validateProtocolProvenance: vi.fn(),
   };
 });
 
@@ -280,8 +294,8 @@ vi.mock('@cleocode/core/internal', async () => {
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { validateGateVerify } from '@cleocode/core/internal';
 import { CheckHandler } from '../../../dispatch/domains/check.js';
-import { validateGateVerify } from '../../../dispatch/lib/engine.js';
 import { verifyCommand } from '../verify.js';
 
 // ---------------------------------------------------------------------------

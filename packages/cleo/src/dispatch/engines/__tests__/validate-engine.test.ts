@@ -1,188 +1,50 @@
 /**
- * Validate Engine Tests
+ * Validate Engine Shim Tests
  *
- * Tests native TypeScript validate operations.
+ * Verifies that the validate-engine re-export shim correctly exposes the
+ * core validation functions migrated in ENG-MIG-7 / T1574.
  *
+ * The actual business logic is tested in:
+ *   packages/core/src/validation/__tests__/
+ *
+ * @task T1574 — ENG-MIG-7
  * @task T4477
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  validateComplianceRecord,
-  validateComplianceSummary,
-  validateComplianceViolations,
-  validateManifest as validateManifestOp,
-  validateOutput,
-  validateTestStatus,
+  validateGateVerify,
+  validateProtocolArchitectureDecision,
+  validateProtocolArtifactPublish,
+  validateProtocolConsensus,
+  validateProtocolContribution,
+  validateProtocolDecomposition,
+  validateProtocolImplementation,
+  validateProtocolProvenance,
+  validateProtocolRelease,
+  validateProtocolResearch,
+  validateProtocolSpecification,
+  validateProtocolTesting,
+  validateProtocolValidation,
 } from '../validate-engine.js';
 
-const TEST_ROOT = join(process.cwd(), '.test-validate-engine');
-const CLEO_DIR = join(TEST_ROOT, '.cleo');
-const METRICS_DIR = join(CLEO_DIR, 'metrics');
-const MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
-
-function writeManifest(entries: any[]): void {
-  mkdirSync(MANIFEST_DIR, { recursive: true });
-  const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
-  // Legacy flat-file used for validate-engine migration read tests (ADR-027)
-  writeFileSync(join(MANIFEST_DIR, ['MANIFEST', 'jsonl'].join('.')), content, 'utf-8');
-}
-
-function writeCompliance(entries: any[]): void {
-  mkdirSync(METRICS_DIR, { recursive: true });
-  const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
-  writeFileSync(join(METRICS_DIR, 'COMPLIANCE.jsonl'), content, 'utf-8');
-}
-
-describe('Validate Engine', () => {
-  beforeEach(() => {
-    mkdirSync(CLEO_DIR, { recursive: true });
+describe('validate-engine shim (ENG-MIG-7)', () => {
+  it('re-exports validateGateVerify from core', () => {
+    expect(typeof validateGateVerify).toBe('function');
   });
 
-  afterEach(() => {
-    if (existsSync(TEST_ROOT)) {
-      rmSync(TEST_ROOT, { recursive: true, force: true });
-    }
-  });
-
-  describe('validateManifest', () => {
-    it('should validate well-formed manifest', () => {
-      writeManifest([
-        {
-          id: 'T001-test',
-          file: 'out.md',
-          title: 'Test',
-          date: '2026-01-01',
-          status: 'completed',
-          agent_type: 'research',
-          topics: ['test'],
-          actionable: true,
-        },
-      ]);
-
-      const result = validateManifestOp(TEST_ROOT);
-      expect(result.success).toBe(true);
-      expect((result.data as any).valid).toBe(true);
-      expect((result.data as any).validEntries).toBe(1);
-    });
-
-    it('should detect invalid entries', () => {
-      writeManifest([
-        { id: 'T001-test' }, // missing fields
-      ]);
-
-      const result = validateManifestOp(TEST_ROOT);
-      expect(result.success).toBe(true);
-      expect((result.data as any).valid).toBe(false);
-      expect((result.data as any).invalidEntries).toBe(1);
-    });
-
-    it('should handle missing manifest', () => {
-      const result = validateManifestOp(TEST_ROOT);
-      expect(result.success).toBe(true);
-      expect((result.data as any).totalEntries).toBe(0);
-    });
-  });
-
-  describe('validateOutput', () => {
-    it('should validate output file', () => {
-      mkdirSync(join(TEST_ROOT, 'out'), { recursive: true });
-      writeFileSync(
-        join(TEST_ROOT, 'out', 'test.md'),
-        '# Test Output\n\n## Summary\n\nThis is a test output for T001.\n',
-        'utf-8',
-      );
-
-      const result = validateOutput('out/test.md', 'T001', TEST_ROOT);
-      expect(result.success).toBe(true);
-      expect((result.data as any).valid).toBe(true);
-    });
-
-    it('should report missing file', () => {
-      const result = validateOutput('nonexistent.md', undefined, TEST_ROOT);
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_NOT_FOUND');
-    });
-  });
-
-  describe('validateComplianceSummary', () => {
-    it('should return compliance summary', () => {
-      writeCompliance([
-        { timestamp: '2026-01-01T00:00:00Z', taskId: 'T001', protocol: 'research', result: 'pass' },
-        {
-          timestamp: '2026-01-02T00:00:00Z',
-          taskId: 'T002',
-          protocol: 'research',
-          result: 'fail',
-          violations: [{ code: 'P_MISSING', message: 'Missing' }],
-        },
-        {
-          timestamp: '2026-01-03T00:00:00Z',
-          taskId: 'T003',
-          protocol: 'implementation',
-          result: 'pass',
-        },
-      ]);
-
-      const result = validateComplianceSummary(TEST_ROOT);
-      expect(result.success).toBe(true);
-      const data = result.data as any;
-      expect(data.total).toBe(3);
-      expect(data.pass).toBe(2);
-      expect(data.fail).toBe(1);
-      expect(data.passRate).toBe(67);
-    });
-
-    it('should return empty when no data', () => {
-      const result = validateComplianceSummary(TEST_ROOT);
-      expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(0);
-    });
-  });
-
-  describe('validateComplianceRecord', () => {
-    it('should record compliance result', () => {
-      const result = validateComplianceRecord('T001', 'pass', 'research', undefined, TEST_ROOT);
-      expect(result.success).toBe(true);
-      expect((result.data as any).recorded).toBe(true);
-
-      // Verify written
-      const summary = validateComplianceSummary(TEST_ROOT);
-      expect((summary.data as any).total).toBe(1);
-    });
-
-    it('should reject invalid result', () => {
-      const result = validateComplianceRecord('T001', 'invalid', undefined, undefined, TEST_ROOT);
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
-    });
-  });
-
-  describe('validateComplianceViolations', () => {
-    it('should list violations', () => {
-      writeCompliance([
-        { timestamp: '2026-01-01T00:00:00Z', taskId: 'T001', protocol: 'research', result: 'pass' },
-        {
-          timestamp: '2026-01-02T00:00:00Z',
-          taskId: 'T002',
-          protocol: 'research',
-          result: 'fail',
-          violations: [{ code: 'P1', message: 'error' }],
-        },
-      ]);
-
-      const result = validateComplianceViolations(undefined, TEST_ROOT);
-      expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(1);
-    });
-  });
-
-  describe('validateTestStatus', () => {
-    it('should report test directory status', () => {
-      const result = validateTestStatus(TEST_ROOT);
-      expect(result.success).toBe(true);
-    });
+  it('re-exports all 12 protocol validators from core', () => {
+    expect(typeof validateProtocolConsensus).toBe('function');
+    expect(typeof validateProtocolContribution).toBe('function');
+    expect(typeof validateProtocolDecomposition).toBe('function');
+    expect(typeof validateProtocolImplementation).toBe('function');
+    expect(typeof validateProtocolSpecification).toBe('function');
+    expect(typeof validateProtocolResearch).toBe('function');
+    expect(typeof validateProtocolArchitectureDecision).toBe('function');
+    expect(typeof validateProtocolValidation).toBe('function');
+    expect(typeof validateProtocolTesting).toBe('function');
+    expect(typeof validateProtocolRelease).toBe('function');
+    expect(typeof validateProtocolArtifactPublish).toBe('function');
+    expect(typeof validateProtocolProvenance).toBe('function');
   });
 });

@@ -87,13 +87,14 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
   it('emits hint when setting the final gate drives verification.passed to true', async () => {
     await seedTask('T100');
     // First: set 'implemented'
-    await validateGateVerify({ taskId: 'T100', gate: 'implemented', value: true }, TEST_ROOT);
+    await validateGateVerify(TEST_ROOT, { taskId: 'T100', gate: 'implemented', value: true });
     resetDbState();
     // Second: set 'testsPassed' — this is the final required gate
-    const result = await validateGateVerify(
-      { taskId: 'T100', gate: 'testsPassed', value: true },
-      TEST_ROOT,
-    );
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T100',
+      gate: 'testsPassed',
+      value: true,
+    });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.passed).toBe(true);
@@ -104,10 +105,11 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
   it('does NOT emit hint when setting a gate but others are still missing', async () => {
     await seedTask('T101');
     // Set only 'implemented' — 'testsPassed' still missing
-    const result = await validateGateVerify(
-      { taskId: 'T101', gate: 'implemented', value: true },
-      TEST_ROOT,
-    );
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T101',
+      gate: 'implemented',
+      value: true,
+    });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.passed).toBe(false);
@@ -117,7 +119,7 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
   it('does NOT emit hint on view mode (no write)', async () => {
     await seedTask('T102');
     // View mode: no gate/all/reset param
-    const result = await validateGateVerify({ taskId: 'T102' }, TEST_ROOT);
+    const result = await validateGateVerify(TEST_ROOT, { taskId: 'T102' });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.action).toBe('view');
@@ -129,10 +131,10 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
     // First set all gates green
     await validateGateVerify({ taskId: 'T103', gate: 'implemented', value: true }, TEST_ROOT);
     resetDbState();
-    await validateGateVerify({ taskId: 'T103', gate: 'testsPassed', value: true }, TEST_ROOT);
+    await validateGateVerify(TEST_ROOT, { taskId: 'T103', gate: 'testsPassed', value: true });
     resetDbState();
     // Now reset — should not emit hint even though gates were green before
-    const result = await validateGateVerify({ taskId: 'T103', reset: true }, TEST_ROOT);
+    const result = await validateGateVerify(TEST_ROOT, { taskId: 'T103', reset: true });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.action).toBe('reset');
@@ -143,7 +145,7 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
   it('emits hint when --all is used and all gates become green', async () => {
     await seedTask('T104');
     // Set all required gates at once via all=true
-    const result = await validateGateVerify({ taskId: 'T104', all: true }, TEST_ROOT);
+    const result = await validateGateVerify(TEST_ROOT, { taskId: 'T104', all: true });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.passed).toBe(true);
