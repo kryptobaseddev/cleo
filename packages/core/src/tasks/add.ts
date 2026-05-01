@@ -1037,7 +1037,13 @@ export async function addTask(
       './duplicate-detector.js'
     );
 
-    const dupCheck = await checkDuplicates(options.title, options.description ?? '', dataAccessor);
+    const dupCheck = await checkDuplicates(
+      options.title,
+      options.description ?? '',
+      dataAccessor,
+      options.labels ?? [],
+      cwd,
+    );
 
     if (dupCheck.shouldReject && !options.forceDuplicate) {
       throw new CleoError(ExitCode.DUPLICATE_TASK_LIKELY, buildRejectMessage(dupCheck.candidates), {
