@@ -2,10 +2,15 @@
  * Diagnostics Domain Handler (Dispatch Layer)
  *
  * Handles operations for `cleo diagnostics`:
- *   query:  status
- *   mutate: enable, disable, analyze, export
+ *   query:  status, analyze, export
+ *   mutate: enable, disable
+ *
+ * All business logic lives in `@cleocode/core/diagnostics/engine-ops`
+ * (ENG-MIG-13 / T1580). Each handler body is ≤5 LOC per acceptance criteria.
  *
  * @task T624
+ * @task T1580 — ENG-MIG-13
+ * @epic T1566
  */
 
 import {
@@ -14,7 +19,7 @@ import {
   diagnosticsEnable,
   diagnosticsExport,
   diagnosticsStatus,
-} from '../engines/diagnostics-engine.js';
+} from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
