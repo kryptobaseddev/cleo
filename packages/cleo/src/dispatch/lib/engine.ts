@@ -55,9 +55,15 @@ export type {
 // lifecycle-engine.ts shrunk to a shim; all symbols now live in core/lifecycle/engine-ops.ts.
 // Hooks engine (ENG-MIG-12 / T1579 — logic in @cleocode/core/internal)
 // Init engine-ops — migrated to @cleocode/core/internal (ENG-MIG-14 / T1581 / ADR-057)
+// Config engine-ops — migrated to @cleocode/core/internal (ENG-MIG-15 / T1582 / ADR-057)
+// config-engine.ts shrunk to a shim; all symbols now live in core/config/engine-ops.ts.
 export {
   addTaskWithSessionScope,
   completeTaskStrict,
+  configGet,
+  configListPresets,
+  configSet,
+  configSetPreset,
   type DecisionRecord,
   ensureInitialized,
   filterEntries as filterManifestEntries,
@@ -210,13 +216,6 @@ export {
 } from '@cleocode/core/internal';
 // Codebase map engine
 export { mapCodebase } from '../engines/codebase-map-engine.js';
-// Config engine
-export {
-  configGet,
-  configListPresets,
-  configSet,
-  configSetPreset,
-} from '../engines/config-engine.js';
 // Memory engine — brain.db cognitive memory (T5241 cutover)
 export {
   memoryBrainStats,
