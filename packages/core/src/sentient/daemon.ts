@@ -28,7 +28,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import type { FSWatcher } from 'node:fs';
-import { createWriteStream, constants as fsConstants, watch } from 'node:fs';
+import { createWriteStream, existsSync, constants as fsConstants, watch } from 'node:fs';
 import { type FileHandle, open as fsOpen, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -138,9 +138,16 @@ export interface StudioSupervisorOptions {
 /**
  * Studio status returned by the supervisor.
  *
+ * - `'running'`       — Studio child process is active.
+ * - `'stopped'`       — Supervisor was stopped cleanly.
+ * - `'crashed'`       — Studio child exited unexpectedly; restart pending.
+ * - `'disabled'`      — Studio supervision is disabled in config.
+ * - `'not-available'` — Studio package is not installed (graceful degrade,
+ *                       T1684 hotfix). Daemon continues without Studio.
+ *
  * @public
  */
-export type StudioStatus = 'running' | 'stopped' | 'crashed' | 'disabled';
+export type StudioStatus = 'running' | 'stopped' | 'crashed' | 'disabled' | 'not-available';
 
 /**
  * StudioSupervisor manages the Cleo Studio web server as a child process
@@ -254,6 +261,18 @@ export class StudioSupervisor {
   #spawn(): void {
     if (this.#stopped) return;
 
+    // T1684 hotfix: verify Studio entrypoint exists before spawning.
+    // When @cleocode/studio is not installed (e.g. global install without the
+    // package), degrade gracefully rather than crash-looping on ENOENT.
+    const studioEntry = join(this.#studioPackageDir, 'build', 'index.js');
+    if (!existsSync(studioEntry)) {
+      this.#status = 'not-available';
+      process.stderr.write(
+        `[CLEO STUDIO] Studio entrypoint not found at ${studioEntry} — supervision disabled (not-available).\n`,
+      );
+      return;
+    }
+
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       HOST: '127.0.0.1',
@@ -261,7 +280,7 @@ export class StudioSupervisor {
       NODE_ENV: 'production',
     };
 
-    const child = spawn(process.execPath, [join(this.#studioPackageDir, 'build', 'index.js')], {
+    const child = spawn(process.execPath, [studioEntry], {
       cwd: this.#studioPackageDir,
       env,
       stdio: 'inherit',
@@ -296,12 +315,36 @@ export class StudioSupervisor {
   }
 
   /**
-   * Resolve the Studio package directory relative to this compiled module.
-   * Walks from packages/core/dist/sentient/ up to the workspace root,
-   * then into packages/studio/.
+   * Resolve the Studio package directory for the installed `@cleocode/studio`
+   * package.
+   *
+   * Resolution strategy (in order):
+   *   1. `import.meta.resolve('@cleocode/studio')` — resolves the package
+   *      entrypoint as installed by npm/pnpm (works in both global npm installs
+   *      and workspace dev setups).
+   *   2. Walk from this file's directory up to the workspace root and into
+   *      `packages/studio/` — dev-only fallback (T1684 hotfix).
+   *
+   * Returns an empty string on total failure; callers MUST handle graceful
+   * degradation when the path is empty (Studio supervision disabled).
    */
   static #resolveStudioPackageDir(): string {
-    // __file: dist/sentient/daemon.js → ../../.. → packages/core/ → ../../ → workspace root
+    // Strategy 1: use import.meta.resolve to find the installed package.
+    try {
+      // import.meta.resolve('@cleocode/studio') returns the URL of the
+      // package's main export (e.g. file:///…/build/index.js). We walk
+      // up one level to get the package root (build/index.js → package root).
+      const resolved = import.meta.resolve('@cleocode/studio');
+      // resolved is a file URL to build/index.js — go up to package root.
+      const indexPath = fileURLToPath(resolved);
+      // build/index.js → .. (build/) → .. (package root)
+      return join(indexPath, '..', '..');
+    } catch {
+      // import.meta.resolve not available or package not found — fall through.
+    }
+
+    // Strategy 2: dev workspace fallback — walk to workspace root.
+    // packages/core/dist/sentient/daemon.js → up 5 → workspace root → packages/studio/
     const selfDir = join(fileURLToPath(import.meta.url), '..');
     const workspaceRoot = join(selfDir, '..', '..', '..', '..', '..');
     return join(workspaceRoot, 'packages', 'studio');
