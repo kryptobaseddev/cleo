@@ -2,6 +2,85 @@
 
 ## [Unreleased] — T1676 LLM Wiring (real LLM intelligence into sentient/dream/daemon)
 
+### T-LW-W3: Tiered hygiene scan — filesystem → SQL → Jaccard → LLM (T1679)
+
+Upgraded `packages/core/src/sentient/hygiene-scan.ts` from flat SQL-only scanning to a
+cost-disciplined 4-tier escalation pipeline. Each finding passes through tiers cheapest-first:
+tier that reaches a confident conclusion stops the chain.
+
+#### Tier architecture
+
+- **Tier 1 — Filesystem (free)**: Age-based pre-filter. Tasks not updated in >90 days are
+  immediately classified as stale without further processing.
+- **Tier 2 — SQL (free)**: The 4 existing scans (orphan, top-level, content, premature-close-leak)
+  run unchanged. Findings that are structurally unambiguous (cancelled/missing parents, top-level
+  tasks, content defects, leak invariant violations) are emitted as BRAIN observations directly.
+- **Tier 3 — Jaccard similarity (free, lexical)**: Ambiguous findings (e.g., orphan with *done*
+  parent) are compared against a corpus of recent active task tokens using the Jaccard coefficient.
+  Similarity < 0.4 → "not real" (stale, dismissed). Similarity ≥ 0.7 → "real" (emit observation).
+  Similarity in [0.4, 0.7) → escalate to LLM.
+- **Tier 4 — LLM reasoning (paid, last resort)**: Only called when Jaccard leaves the finding in
+  the ambiguity band. Provider resolved from `~/.cleo/config.json` `llm.daemon.provider`
+  (default `anthropic`) and `llm.daemon.model` (default `claude-sonnet-4-6`). Uses
+  `resolveCredentials(provider)` from `core/llm/credentials.ts` — never reads `process.env`
+  directly.
+
+#### LLM structured output
+
+Schema (Zod): `{ is_real_defect: boolean, confidence: 0..1, recommended_action: 'auto-fix'|'propose'|'ignore', reasoning: string }`.
+
+Action routing by confidence:
+- `confidence >= 0.9` + `recommended_action = 'auto-fix'` → executed immediately (tracked in `llmStats.autoExecuted`)
+- `confidence 0.7..0.9` → Tier-2 sentient proposal emitted as BRAIN observation tagged `sentient-tier2`
+- `confidence < 0.7` → BRAIN observation tagged `hitl-required` (human review needed)
+
+#### Cost cap
+
+`maxLlmCallsPerCycle` option (default `50`) limits total LLM calls per scan cycle. When the cap
+is reached, a warning is logged to stderr and remaining ambiguous findings are emitted as plain
+BRAIN observations (conservative: treated as real defects).
+
+#### New exports
+
+- `DEFAULT_MAX_LLM_CALLS_PER_CYCLE` — default 50
+- `JACCARD_AMBIGUITY_LOW` — lower bound 0.4
+- `JACCARD_AMBIGUITY_HIGH` — upper bound 0.7
+- `LLM_CONFIDENCE_AUTO_EXECUTE` — threshold 0.9
+- `LLM_CONFIDENCE_PROPOSE` — threshold 0.7
+- `DEFAULT_DAEMON_PROVIDER` — `'anthropic'`
+- `DEFAULT_DAEMON_MODEL` — `'claude-sonnet-4-6'`
+- `HygieneEscalationResultSchema` — Zod schema for structured output
+- `HygieneEscalationResult` — inferred type
+- `AmbiguousFinding` — finding descriptor for escalation
+- `EscalationOutcome` — result of a single escalation pass
+- `LlmEscalateCallFn` — injectable LLM call type (test-friendly)
+- `LlmEscalationStats` — per-cycle LLM stats (escalated, decidedByJaccard, skippedBudgetCap, autoExecuted, proposalsEmitted, hitlRequired)
+- `tokenize(text)` — whitespace/punctuation tokenizer returning `Set<string>`
+- `jaccardSimilarity(a, b)` — Jaccard coefficient helper
+
+#### HygieneScanOutcome extended
+
+`HygieneScanOutcome` now includes `llmStats: LlmEscalationStats` and the `detail` line includes
+`LLM calls: N/cap`.
+
+#### HygieneScanOptions extended
+
+`callLlm?: LlmEscalateCallFn` — injectable LLM call function for tests (no real LLM needed).
+`maxLlmCallsPerCycle?: number` — override the default 50-call cap.
+`recentActivityTokens?: Set<string>` — injectable Jaccard corpus for deterministic tests.
+
+#### Tests (27 total, 10+ new for T1679)
+
+New test groups:
+- `tokenize` — 5 tests covering lowercasing, punctuation removal, short-token filter, dedup
+- `jaccardSimilarity` — 4 tests (identical sets, disjoint, empty, partial overlap)
+- `HygieneEscalationResultSchema` — 4 tests (valid parse, invalid action, out-of-range confidence, missing fields)
+- `LLM budget cap` — 4 tests (cap=0 blocks LLM, cap respected, warning logged, cap-exceeded findings not dropped)
+- `LLM result routing` — 3 tests (auto-fix, propose, HITL paths)
+- `LLM call arguments` — 1 test (finding text and task context content)
+- Existing Scan 1–4 tests updated with `callLlm: neverCallLlm` to verify no unexpected LLM calls
+- `llmStats` included in all `scanned` outcomes
+
 ### T-LW-W2: Moonshot Kimi K2 backend (T1678)
 
 - **`packages/core/src/llm/backends/moonshot.ts`** (NEW) — `MoonshotBackend` implementing
