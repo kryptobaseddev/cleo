@@ -326,6 +326,63 @@ export interface SessionSummaryInput {
   nextActions: string[];
 }
 
+// ---------------------------------------------------------------------------
+// LLM daemon + provider config (T1677)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-provider API key override in ~/.cleo/config.json or .cleo/config.json.
+ *
+ * Stored as `llm.providers[<provider>].apiKey`. The centralised
+ * `resolveCredentials()` reads this as resolution tier 4 (global-config) or
+ * tier 5 (project-config).
+ */
+export interface LlmProviderEntry {
+  /** Override API key for this provider (stored in config, not env). */
+  apiKey?: string;
+}
+
+/**
+ * Daemon LLM configuration — which provider + model the CLEO daemon
+ * (sentient tick, dream-cycle, BRAIN extraction, etc.) uses by default.
+ *
+ * Written via:
+ *   cleo config llm.daemon.provider <provider>
+ *   cleo config llm.daemon.model <model-id>
+ *
+ * @defaultValue { provider: 'anthropic', model: 'claude-sonnet-4-6' }
+ */
+export interface DaemonLLMConfig {
+  /**
+   * LLM provider transport used by daemon loops.
+   * @defaultValue 'anthropic'
+   */
+  provider: 'anthropic' | 'openai' | 'gemini' | 'moonshot';
+  /**
+   * Full model identifier for the selected provider.
+   * @defaultValue 'claude-sonnet-4-6'
+   */
+  model: string;
+}
+
+/**
+ * Top-level LLM configuration block inside CleoConfig.
+ *
+ * Stored at `llm` in config.json.
+ */
+export interface LlmConfig {
+  /**
+   * Daemon LLM settings (provider + model for background loops).
+   * @defaultValue { provider: 'anthropic', model: 'claude-sonnet-4-6' }
+   */
+  daemon?: DaemonLLMConfig;
+  /**
+   * Per-provider API key overrides.
+   * Keys are provider names: 'anthropic' | 'openai' | 'gemini' | 'moonshot'.
+   */
+  providers?: Record<string, LlmProviderEntry>;
+}
+
 /** SignalDock transport mode. */
 export type SignalDockMode = 'http' | 'native';
 
@@ -383,6 +440,12 @@ export interface CleoConfig {
    * @defaultValue undefined
    */
   provider?: ProviderConfig;
+  /**
+   * LLM configuration — daemon provider/model and per-provider API key overrides.
+   *
+   * @defaultValue undefined
+   */
+  llm?: LlmConfig;
 }
 
 /**
