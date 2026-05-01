@@ -470,7 +470,7 @@ function buildWorktreeSetupBlock(
     'git worktree add/remove, git rebase, git stash pop, git push --force',
     '```',
     '',
-    'All commits MUST land on YOUR branch only. Cherry-pick to main is handled by the orchestrator.',
+    'All commits MUST land on YOUR branch only. The orchestrator integrates via `git merge --no-ff` (ADR-062), preserving your commit SHAs and authorship.',
   ].join('\n');
 }
 

@@ -107,7 +107,7 @@ Every `cleo orchestrate spawn` automatically provisions a git worktree for the a
 
 Agents MUST `cd` to the worktree path as their first action. All reads, writes, and git operations MUST occur inside the worktree boundary. A git shim on the PATH blocks forbidden operations (checkout, switch, force-push, etc.).
 
-The orchestrator cherry-picks commits from the worktree branch back to main after the agent completes — agents NEVER merge directly. To skip provisioning (e.g. for meta-tasks that only run CLI commands), pass `--no-worktree`. The opt-out is always logged to the audit log.
+The orchestrator integrates the worktree branch back to the project's target branch with `git merge --no-ff` after the agent completes (ADR-062) — preserving every original commit SHA, the author's identity, and `git log --grep "<task-id>"` traceability. Agents NEVER touch the target branch directly. To skip provisioning (e.g. for meta-tasks that only run CLI commands), pass `--no-worktree`. The opt-out is always logged to the audit log.
 
 ## Playbook Domain (v2026.4.93 · T910 Orchestration Coherence v4)
 
