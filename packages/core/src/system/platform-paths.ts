@@ -16,8 +16,19 @@
  * with existing ~/.cleo installations.
  */
 
+import { existsSync } from 'node:fs';
 import { arch, hostname, platform, release } from 'node:os';
 import envPaths from 'env-paths';
+import {
+  getCleoCantWorkflowsDir,
+  getCleoConfigDir,
+  getCleoGlobalAgentsDir,
+  getCleoGlobalJustfilePath,
+  getCleoGlobalRecipesDir,
+  getCleoHome,
+  getCleoPiExtensionsDir,
+  getCleoDirAbsolute,
+} from '../paths.js';
 
 const APP_NAME = 'cleo';
 
@@ -93,4 +104,71 @@ export function getSystemInfo(): SystemInfo {
  */
 export function _resetPlatformPathsCache(): void {
   _sysInfo = null;
+}
+
+/** Summary of all resolved CleoOS paths (project + global hub). */
+export interface PathsData {
+  /** Project-local .cleo directory (absolute). */
+  projectCleoDir: string;
+  /** XDG-compliant global data root (Linux: ~/.local/share/cleo). */
+  cleoHome: string;
+  /** XDG config dir (Linux: ~/.config/cleo). */
+  configDir: string;
+  /** CleoOS Hub subdirectories under cleoHome. */
+  hub: {
+    globalRecipes: string;
+    globalJustfile: string;
+    piExtensions: string;
+    cantWorkflows: string;
+    globalAgents: string;
+  };
+  /** Scaffolding status — true if hub directories + seed files exist. */
+  scaffolded: {
+    globalRecipes: boolean;
+    globalJustfile: boolean;
+    piExtensions: boolean;
+    cantWorkflows: boolean;
+    globalAgents: boolean;
+  };
+}
+
+/**
+ * Report all resolved CleoOS paths (project + global hub).
+ *
+ * Read-only: reports current state without mutating the filesystem.
+ * Backs the `cleo admin paths` CLI command.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @returns Aggregated path data for all CLEO directories
+ *
+ * @task T1571
+ */
+export function getSystemPaths(projectRoot: string): PathsData {
+  const cleoHome = getCleoHome();
+  const configDir = getCleoConfigDir();
+  const globalRecipes = getCleoGlobalRecipesDir();
+  const globalJustfile = getCleoGlobalJustfilePath();
+  const piExtensions = getCleoPiExtensionsDir();
+  const cantWorkflows = getCleoCantWorkflowsDir();
+  const globalAgents = getCleoGlobalAgentsDir();
+
+  return {
+    projectCleoDir: getCleoDirAbsolute(projectRoot),
+    cleoHome,
+    configDir,
+    hub: {
+      globalRecipes,
+      globalJustfile,
+      piExtensions,
+      cantWorkflows,
+      globalAgents,
+    },
+    scaffolded: {
+      globalRecipes: existsSync(globalRecipes),
+      globalJustfile: existsSync(globalJustfile),
+      piExtensions: existsSync(piExtensions),
+      cantWorkflows: existsSync(cantWorkflows),
+      globalAgents: existsSync(globalAgents),
+    },
+  };
 }
