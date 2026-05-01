@@ -10,7 +10,7 @@
  */
 
 /** Supported provider transport names. */
-export type ModelTransport = 'anthropic' | 'openai' | 'gemini';
+export type ModelTransport = 'anthropic' | 'openai' | 'gemini' | 'moonshot';
 
 /** Cache policy mode for prompt prefix caching. */
 export type PromptCachePolicyMode = 'gemini_cached_content';
