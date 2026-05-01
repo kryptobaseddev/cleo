@@ -19,9 +19,11 @@
     "test:integration": "cd ../.. && vitest run --config packages/cleo/vitest.integration.config.ts",
     "postinstall": "node bin/postinstall.js && node scripts/postinstall-check-core.mjs"
   },
+  "optionalDependencies": {
+    "@cleocode/studio": "workspace:^"
+  },
   "dependencies": {
     "@cleocode/caamp": "workspace:*",
-    "@cleocode/studio": "workspace:^",
     "@cleocode/cant": "workspace:*",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
