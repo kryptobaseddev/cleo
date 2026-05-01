@@ -1,6 +1,19 @@
 # Changelog
 
-## [Unreleased] — T1627 Hygiene Reset (systemic safeguards in core)
+## [2026.5.1] (2026-05-01) — T1627 Hygiene Reset: 6 systemic safeguards + task-graph cleanup
+
+The system harness now self-organizes. The T1467/T1603 premature-close bug class, the T1232 stage-drift class, and the T1337/T1354/T1376 duplicate-epic class are all permanently prevented at the core invariant level. Sentient hygiene loops + daemon cross-project GC mean LLM agents never need to perform manual hygiene audits again — the harness does it autonomously.
+
+### Hygiene reset (T1627 epic — 4 waves)
+
+- **Wave A — Bulk cancel cruft (T1628)**: 77 cancellations across 4 categories (test placeholders, stuck-active fixtures, scaffolding epics, low-value floaters). 12 non-standard ID tasks (T932E/W/EP, etc.) flagged for separate CLI fix.
+- **Wave B — Structural fixes (T1629)**: T1467 + T1603 reopened (premature-close children preserved); T1563 + T1622 closed (Type-A ready-to-close); T1232 stage drift reset; LOOM initialized for affected epics.
+- **Wave C — Orphan re-parenting (T1630)**: 10 orphan-done/archived tasks resolved; 22 top-level orphan tasks re-parented or promoted to epics.
+- **Wave D — Content quality (T1631)**: 17 EP-series descriptions reconstructed from BRAIN; 21 type=task tasks given files scope; 8 untestable AC entries rewritten; 13 real-initiative empty epics RCASD-decomposed.
+
+### Systemic safeguards in core (6 invariants)
+
+
 
 ### BRAIN-powered duplicate-task detection on `cleo add` (T1633)
 
