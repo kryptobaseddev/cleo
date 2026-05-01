@@ -50,9 +50,11 @@ export type {
 } from '@cleocode/core/internal';
 // Pipeline manifest functions (moved from memory domain in T5241)
 // Release engine (T1572 — ENG-MIG-5: migrated to @cleocode/core/internal)
+// Session engine (T1573 — ENG-MIG-6: migrated to @cleocode/core/internal)
 export {
   addTaskWithSessionScope,
   completeTaskStrict,
+  type DecisionRecord,
   filterEntries as filterManifestEntries,
   type ManifestEntry as ResearchManifestEntry,
   orchestrateAnalyze,
@@ -97,6 +99,33 @@ export {
   releaseShip,
   releaseShow,
   releaseTag,
+  sessionArchive,
+  sessionBriefing,
+  sessionChainShow,
+  sessionCleanup,
+  // T4959: Rich debrief + chain
+  sessionComputeDebrief,
+  sessionComputeHandoff,
+  sessionContextDrift,
+  sessionContextInject,
+  sessionDebriefShow,
+  sessionDecisionLog,
+  sessionEnd,
+  // T5119: Lightweight session discovery
+  sessionFind,
+  sessionGc,
+  sessionHandoff,
+  sessionHistory,
+  sessionList,
+  sessionRecordAssumption,
+  sessionRecordDecision,
+  sessionResume,
+  sessionShow,
+  sessionStart,
+  sessionStats,
+  sessionStatus,
+  sessionSuspend,
+  sessionSwitch,
   taskAnalyze,
   taskArchive,
   taskBatchValidate,
@@ -105,6 +134,7 @@ export {
   taskClaim,
   taskComplete,
   taskComplexityEstimate,
+  taskCurrentGet,
   taskDelete,
   taskDepends,
   taskDeps,
@@ -133,7 +163,9 @@ export {
   taskShow,
   taskShowIvtrHistory,
   taskShowWithHistory,
+  taskStart,
   taskStats,
+  taskStop,
   taskSyncLinks,
   taskSyncLinksRemove,
   taskSyncReconcile,
@@ -141,6 +173,7 @@ export {
   taskUnarchive,
   taskUnclaim,
   taskUpdate,
+  taskWorkHistory,
 } from '@cleocode/core/internal';
 // Codebase map engine
 export { mapCodebase } from '../engines/codebase-map-engine.js';
@@ -223,41 +256,6 @@ export {
   phaseShow,
   phaseStart,
 } from '../engines/pipeline-engine.js';
-// Session engine
-export {
-  type DecisionRecord,
-  sessionArchive,
-  sessionBriefing,
-  sessionChainShow,
-  sessionCleanup,
-  // T4959: Rich debrief + chain
-  sessionComputeDebrief,
-  sessionComputeHandoff,
-  sessionContextDrift,
-  sessionContextInject,
-  sessionDebriefShow,
-  sessionDecisionLog,
-  sessionEnd,
-  // T5119: Lightweight session discovery
-  sessionFind,
-  sessionGc,
-  sessionHandoff,
-  sessionHistory,
-  sessionList,
-  sessionRecordAssumption,
-  sessionRecordDecision,
-  sessionResume,
-  sessionShow,
-  sessionStart,
-  sessionStats,
-  sessionStatus,
-  sessionSuspend,
-  sessionSwitch,
-  taskCurrentGet,
-  taskStart,
-  taskStop,
-  taskWorkHistory,
-} from '../engines/session-engine.js';
 // Template parser engine
 export {
   generateTemplateConfig,
