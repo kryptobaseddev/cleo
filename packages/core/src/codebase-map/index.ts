@@ -71,7 +71,8 @@ export interface CodebaseMapResult {
   analyzedAt: string;
 }
 
-export interface MapCodebaseOptions {
+/** ADR-057 D1 uniform params type for mapCodebase (T1584). */
+export interface MapCodebaseParams {
   focus?:
     | 'stack'
     | 'architecture'
@@ -85,7 +86,7 @@ export interface MapCodebaseOptions {
 
 export async function mapCodebase(
   projectRoot: string,
-  options?: MapCodebaseOptions,
+  params: MapCodebaseParams = {},
 ): Promise<CodebaseMapResult> {
   const projectContext = detectProjectType(projectRoot);
 
@@ -107,7 +108,7 @@ export async function mapCodebase(
     import('./analyzers/concerns.js'),
   ]);
 
-  const focus = options?.focus;
+  const focus = params.focus;
 
   const result: CodebaseMapResult = {
     projectContext,
@@ -149,7 +150,7 @@ export async function mapCodebase(
     analyzedAt: new Date().toISOString(),
   };
 
-  if (options?.storeToBrain) {
+  if (params.storeToBrain) {
     const { storeMapToBrain } = await import('./store.js');
     await storeMapToBrain(projectRoot, result);
   }
