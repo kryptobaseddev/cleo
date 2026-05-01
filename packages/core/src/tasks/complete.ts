@@ -41,6 +41,16 @@ export interface CompleteTaskOptions {
   changeset?: string;
   /** Reason for acknowledging CRITICAL impact risk (bypasses nexusImpact gate). */
   acknowledgeRisk?: string;
+  /**
+   * Reason for overriding the `E_EPIC_HAS_PENDING_CHILDREN` guard.
+   *
+   * When provided, `cleo complete <epicId>` is allowed even if the epic still
+   * has pending or active children. The override is audited to
+   * `.cleo/audit/premature-close.jsonl` (ADR-051 pattern).
+   *
+   * @task T1632
+   */
+  overrideReason?: string;
 }
 
 /**
@@ -343,19 +353,47 @@ export async function completeTask(
     }
   }
 
-  // Check if task has incomplete children
+  // ---- T1632: Premature-close guard (E_EPIC_HAS_PENDING_CHILDREN) ----
+  // Prevent the T1467+T1603 bug class: reject direct `cleo complete <epicId>`
+  // when any child is still pending or active.  --override-reason bypasses the
+  // guard but ALWAYS appends an audit entry to .cleo/audit/premature-close.jsonl
+  // so the decision is traceable.  This supersedes the legacy `noAutoComplete`
+  // path which silently skipped the check — that field only suppresses
+  // the *auto*-complete rollup (triggered by sibling completion), not a direct
+  // `complete` call on the epic itself.
   const children = await acc.getChildren(options.taskId);
-  const incompleteChildren = children.filter(
-    (c) => c.status !== 'done' && c.status !== 'cancelled',
-  );
-  if (incompleteChildren.length > 0 && task.type === 'epic') {
-    if (!task.noAutoComplete) {
+  const pendingChildren = children.filter((c) => c.status !== 'done' && c.status !== 'cancelled');
+  if (pendingChildren.length > 0 && task.type === 'epic') {
+    if (!options.overrideReason) {
       throw new CleoError(
-        ExitCode.HAS_CHILDREN,
-        `Epic ${options.taskId} has ${incompleteChildren.length} incomplete children: ${incompleteChildren.map((c) => c.id).join(', ')}`,
+        ExitCode.EPIC_HAS_PENDING_CHILDREN,
+        `Epic ${options.taskId} has ${pendingChildren.length} pending/active children: ${pendingChildren.map((c) => c.id).join(', ')}`,
         {
-          fix: `Complete children first or use 'cleo update ${options.taskId} --no-auto-complete'`,
+          fix:
+            `Complete all children first, or pass --override-reason "<reason>" to bypass ` +
+            `(audited to .cleo/audit/premature-close.jsonl).`,
         },
+      );
+    }
+
+    // Override supplied — audit the decision before proceeding.
+    try {
+      const { appendPrematureCloseAudit } = await import('./premature-close-audit.js');
+      await appendPrematureCloseAudit(
+        {
+          epicId: options.taskId,
+          pendingChildIds: pendingChildren.map((c) => c.id),
+          overrideReason: options.overrideReason,
+          timestamp: new Date().toISOString(),
+          agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+        },
+        cwd,
+      );
+    } catch (err) {
+      // Audit write failure must not block the completion — warn only.
+      console.warn(
+        '[complete] failed to write premature-close audit:',
+        err instanceof Error ? err.message : String(err),
       );
     }
   }
@@ -436,6 +474,10 @@ export async function completeTask(
       }
 
       // Check if parent epic should auto-complete
+      // T1632: auto-complete fires only when ALL siblings are terminal AND
+      // the epic's own verification evidence is satisfied (verifyEpicHasEvidence).
+      // This closes the gap where an epic with no verification would silently
+      // roll up to done just because its last child finished.
       if (task.parentId) {
         const parent = await acc.loadSingleTask(task.parentId);
         if (parent && parent.type === 'epic' && !parent.noAutoComplete) {
@@ -450,15 +492,49 @@ export async function completeTask(
               (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
             );
           if (allDone) {
-            parent.status = 'done';
-            parent.completedAt = now;
-            parent.updatedAt = now;
-            // T871: Auto-completed epics must also reach a terminal pipelineStage.
-            if (!isTerminalPipelineStage(parent.pipelineStage)) {
-              parent.pipelineStage = 'contribution';
+            // T1632: When enforcement is strict + verification enabled, only
+            // auto-close if the epic's evidence gates are satisfied.
+            // `verifyEpicHasEvidence` returns true when:
+            //   (a) the epic has direct evidence atoms on any gate, OR
+            //   (b) all non-cancelled children will be done+verified after this write.
+            // For the rollup case the current task is not yet persisted, so we
+            // must check condition (b) with the updated siblings view — treat the
+            // current task as done+verified for this check.
+            // When enforcement is off or advisory, skip the check (preserve existing
+            // behaviour where any terminal-sibling rollup closes the epic).
+            const needsEvidenceCheck =
+              enforcement.verificationEnabled && enforcement.lifecycleMode === 'strict';
+
+            const epicEvidencePassed = needsEvidenceCheck
+              ? await verifyEpicHasEvidence(parent, {
+                  ...acc,
+                  getChildren: async (parentId: string) => {
+                    if (parentId !== parent.id) return acc.getChildren(parentId);
+                    // Overlay the current task as done+verified so the check sees the
+                    // post-write state without a DB round-trip.
+                    return siblings.map((c) => {
+                      if (c.id !== task.id) return c;
+                      return {
+                        ...c,
+                        status: 'done' as const,
+                        verification: c.verification ?? task.verification ?? undefined,
+                      };
+                    });
+                  },
+                } as typeof acc)
+              : true;
+
+            if (epicEvidencePassed) {
+              parent.status = 'done';
+              parent.completedAt = now;
+              parent.updatedAt = now;
+              // T871: Auto-completed epics must also reach a terminal pipelineStage.
+              if (!isTerminalPipelineStage(parent.pipelineStage)) {
+                parent.pipelineStage = 'contribution';
+              }
+              autoCompleted.push(parent.id);
+              autoCompletedTasks.push(parent);
             }
-            autoCompleted.push(parent.id);
-            autoCompletedTasks.push(parent);
           }
         }
       }
@@ -622,6 +698,28 @@ type CompleteEngineResult = EngineResult<{
 }>;
 
 /**
+ * Options forwarded through the EngineResult-returning wrappers.
+ *
+ * These mirror the fields in {@link CompleteTaskOptions} that need to flow
+ * from CLI → dispatch domain → core. Adding them here keeps the two layers
+ * in sync without requiring a breaking change to the public `CompleteTaskOptions`
+ * interface.
+ *
+ * @task T1632
+ */
+export interface TaskCompleteEngineOptions {
+  /** Completion notes. */
+  notes?: string;
+  /**
+   * Reason for overriding the `E_EPIC_HAS_PENDING_CHILDREN` guard.
+   * @see CompleteTaskOptions.overrideReason
+   */
+  overrideReason?: string;
+  /** Reason for acknowledging CRITICAL nexus impact risk. */
+  acknowledgeRisk?: string;
+}
+
+/**
  * Complete a task (set status to done), wrapped in EngineResult.
  *
  * Stamps modified_by + session_id provenance on successful completion
@@ -629,20 +727,32 @@ type CompleteEngineResult = EngineResult<{
  *
  * @param projectRoot - Absolute path to the project root
  * @param taskId - Task identifier to complete
- * @param notes - Optional completion notes
+ * @param notesOrOptions - Completion notes (string, legacy) OR an options object
  * @returns EngineResult with the completed task, auto-completed parents, and unblocked tasks
  *
  * @task T1568
+ * @task T1632
  * @epic T1566
  */
 export async function taskComplete(
   projectRoot: string,
   taskId: string,
-  notes?: string,
+  notesOrOptions?: string | TaskCompleteEngineOptions,
 ): Promise<CompleteEngineResult> {
+  const opts: TaskCompleteEngineOptions =
+    typeof notesOrOptions === 'string' ? { notes: notesOrOptions } : (notesOrOptions ?? {});
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await completeTask({ taskId, notes }, projectRoot, accessor);
+    const result = await completeTask(
+      {
+        taskId,
+        notes: opts.notes,
+        overrideReason: opts.overrideReason,
+        acknowledgeRisk: opts.acknowledgeRisk,
+      },
+      projectRoot,
+      accessor,
+    );
 
     // T1222 / CLEO-VALID-27: stamp modified_by + session_id on every successful completion.
     // Best-effort — failure here must not roll back the completion that already landed.
@@ -685,18 +795,21 @@ export async function taskComplete(
  *
  * @param projectRoot - Absolute path to the project root
  * @param taskId - Task identifier to complete
- * @param notes - Optional completion notes
+ * @param notesOrOptions - Completion notes (string, legacy) OR an options object
  * @returns EngineResult with the completed task, auto-completed parents, and unblocked tasks
  *
  * @task T1568
+ * @task T1632
  * @adr ADR-051
  * @epic T1566
  */
 export async function completeTaskStrict(
   projectRoot: string,
   taskId: string,
-  notes?: string,
+  notesOrOptions?: string | TaskCompleteEngineOptions,
 ): Promise<CompleteEngineResult> {
+  const opts: TaskCompleteEngineOptions =
+    typeof notesOrOptions === 'string' ? { notes: notesOrOptions } : (notesOrOptions ?? {});
   try {
     const config = await loadConfig(projectRoot);
     const lifecycleMode = config.lifecycle?.mode ?? 'strict';
@@ -850,7 +963,7 @@ export async function completeTaskStrict(
     }
 
     // No IVTR state, or lifecycle not strict, or already released — delegate normally.
-    return taskComplete(projectRoot, taskId, notes);
+    return taskComplete(projectRoot, taskId, opts);
   } catch (err: unknown) {
     const e = err as { message?: string };
     return engineError('E_INTERNAL', e?.message ?? 'Failed to complete task (strict mode)');
