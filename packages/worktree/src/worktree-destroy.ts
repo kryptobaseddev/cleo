@@ -1,9 +1,11 @@
 /**
  * Worktree destroy operation for @cleocode/worktree.
  *
- * Removes the git worktree for a completed task. Optionally cherry-picks
- * commits from the task branch back to the orchestrator's current branch
- * before destroying.
+ * Removes the git worktree for a completed task. The canonical integration
+ * path per ADR-062 is `git merge --no-ff` (via `completeAgentWorktreeViaMerge`)
+ * which preserves commit SHAs and authorship. The `cherryPickFirst` option on
+ * {@link DestroyWorktreeOptions} is a legacy path retained for backward
+ * compatibility — prefer the merge-based flow for all new orchestration.
  *
  * @task T1161
  */
@@ -17,7 +19,10 @@ import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
  * Destroy the git worktree for a task.
  *
  * Steps:
- * 1. Optionally cherry-pick commits from the task branch to the base ref.
+ * 1. Optionally run the legacy cherry-pick path from the task branch to the
+ *    base ref (only when `options.cherryPickFirst` is true — a legacy option
+ *    retained for backward compatibility; the canonical integration per ADR-062
+ *    is `git merge --no-ff` via `completeAgentWorktreeViaMerge`).
  * 2. Unlock the worktree (`git worktree unlock`).
  * 3. Remove the worktree directory (`git worktree remove --force`).
  * 4. Optionally delete the task branch.
@@ -26,7 +31,7 @@ import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
  * decides whether to propagate them.
  *
  * @param projectRoot - Absolute path to the project root directory.
- * @param options - Destroy options including task ID and optional cherry-pick.
+ * @param options - Destroy options including task ID and optional legacy cherry-pick.
  * @returns Structured result of the destroy operation.
  *
  * @task T1161
@@ -49,7 +54,8 @@ export function destroyWorktree(
   let branchDeleted = false;
   let error: string | undefined;
 
-  // Step 1: Cherry-pick if requested.
+  // Step 1: Legacy cherry-pick path (only when cherryPickFirst is set).
+  // ADR-062 canonical: orchestrator uses git merge --no-ff instead.
   if (cherryPickFirst) {
     try {
       const branchExists = gitSync(['branch', '--list', branch], gitRoot);
@@ -75,7 +81,7 @@ export function destroyWorktree(
     }
   }
 
-  // Step 2: Unlock + remove the worktree (even if cherry-pick failed — caller decided).
+  // Step 2: Unlock + remove the worktree (even if legacy cherry-pick failed — caller decided).
   if (existsSync(worktreePath)) {
     gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
     if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
