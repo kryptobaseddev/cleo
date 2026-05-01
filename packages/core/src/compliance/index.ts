@@ -443,7 +443,12 @@ export function getComplianceStats(
   );
 
   if (params?.subcommand !== 'trend') {
-    return { totalEntries, averagePassRate: avgPassRate, averageAdherence: avgAdherence, totalViolations };
+    return {
+      totalEntries,
+      averagePassRate: avgPassRate,
+      averageAdherence: avgAdherence,
+      totalViolations,
+    };
   }
 
   // Trend mode: group by date and compute trend direction
