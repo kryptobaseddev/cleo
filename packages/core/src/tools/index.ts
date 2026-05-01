@@ -1,17 +1,20 @@
 /**
- * Tools Engine — re-export shim.
+ * Tools system barrel exports.
  *
- * All business logic has been migrated to `@cleocode/core/tools/engine-ops`
- * (ENG-MIG-8 / T1575). This file is a pure re-export shim kept to avoid
- * breaking existing imports in the dispatch domain layer.
+ * Provides the complete tools system ported from
+ * `packages/cleo/src/dispatch/engines/tools-engine.ts` (ENG-MIG-8 / T1575).
+ *
+ * Sub-domains exposed:
+ *   issue.*      - Issue diagnostics
+ *   skill.*      - Skill discovery, dispatch, catalog, precedence
+ *   provider.*   - CAAMP provider registry
+ *   adapter.*    - Provider adapter management
  *
  * @task T1575 — ENG-MIG-8
  * @epic T1566
  */
 
-// Re-export EngineResult for consumers (canonical location: @cleocode/core)
-export type { EngineResult } from '@cleocode/core';
-
+// Engine operations — tools domain (ENG-MIG-8 / T1575)
 export {
   toolsAdapterActivate,
   toolsAdapterDetect,
@@ -42,4 +45,4 @@ export {
   toolsSkillSpawnProviders,
   toolsSkillUninstall,
   toolsSkillVerify,
-} from '@cleocode/core/internal';
+} from './engine-ops.js';
