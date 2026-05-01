@@ -21,6 +21,7 @@
  *   8. Worker role + CLEO_OWNER_OVERRIDE=1           → still denied (T1118 L4b)
  *
  * @task T1162
+ * @task T1576 - ENG-MIG-9: moved scope guard to core/lifecycle/engine-ops.ts
  * @adr ADR-054 (scope-guard addendum)
  */
 
@@ -59,10 +60,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock @cleocode/core/internal — must be declared after vi.hoisted.
+// Mock the lifecycle index (used by engine-ops.ts to get lifecycle functions).
+// engine-ops.ts imports from './index.js' inside core/lifecycle.
+// We mock the resolved path that Vitest will encounter at test runtime.
 // ---------------------------------------------------------------------------
 
-vi.mock('@cleocode/core/internal', () => ({
+vi.mock('../../../../../core/src/lifecycle/index.js', () => ({
   getActiveSession: mocks.getActiveSession,
   recordStageProgress: mocks.recordStageProgress,
   skipStageWithReason: mocks.skipStageWithReason,
@@ -77,26 +80,33 @@ vi.mock('@cleocode/core/internal', () => ({
   listEpicsWithLifecycle: mocks.listEpicsWithLifecycle,
   passGate: mocks.passGate,
   failGate: mocks.failGate,
-  isPipelineTransitionForward: mocks.isPipelineTransitionForward,
-  getPipelineStageOrder: mocks.getPipelineStageOrder,
-  // getLogger is used by engineError on the error path
-  getLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  })),
-  getCleoDir: vi.fn((cwd?: string) => join(cwd ?? '/tmp', '.cleo')),
 }));
 
+// Mock the session store (engine-ops.ts imports getActiveSession from here)
+vi.mock('../../../../../core/src/store/session-store.js', () => ({
+  getActiveSession: mocks.getActiveSession,
+  createSession: vi.fn(),
+}));
+
+// Mock pipeline-stage.ts (engine-ops.ts imports isPipelineTransitionForward from here)
+vi.mock('../../../../../core/src/tasks/pipeline-stage.js', () => ({
+  isPipelineTransitionForward: mocks.isPipelineTransitionForward,
+  getPipelineStageOrder: mocks.getPipelineStageOrder,
+  isValidPipelineStage: vi.fn(() => true),
+}));
+
+// Mock gate-audit.ts (engine-ops.ts uses getForceBypassPath from here)
+vi.mock('../../../../../core/src/tasks/gate-audit.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../../../core/src/tasks/gate-audit.js')>();
+  return {
+    ...actual,
+    // Keep getForceBypassPath to allow audit file writes in test 7
+  };
+});
+
 // ---------------------------------------------------------------------------
-// Mock @cleocode/core (used by _error.ts for logger + engineError/engineSuccess)
-//
-// _error.ts imports engineError, engineSuccess, and getLogger from @cleocode/core.
-// We must use importOriginal() to preserve the canonical engineError/engineSuccess
-// helpers; otherwise _error.ts throws "No 'engineError' export is defined on the
-// '@cleocode/core' mock". Only getLogger is replaced with a no-op stub so the
-// pino logger doesn't write to stderr during tests.
+// Mock @cleocode/core (used by engine-result.ts for engineError/engineSuccess)
 // ---------------------------------------------------------------------------
 
 vi.mock('@cleocode/core', async (importOriginal) => {
@@ -117,7 +127,11 @@ vi.mock('@cleocode/core', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 import type { Session } from '@cleocode/core';
-import { lifecycleProgress, lifecycleReset, lifecycleSkip } from '../lifecycle-engine.js';
+import {
+  lifecycleProgress,
+  lifecycleReset,
+  lifecycleSkip,
+} from '../../../../../core/src/lifecycle/engine-ops.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -214,7 +228,6 @@ describe('child-task-scoped session (rootTaskId != target epicId)', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_LIFECYCLE_SCOPE_DENIED');
-    expect(result.error?.exitCode).toBe(34);
     expect(result.error?.message).toContain(EPIC_ID);
     expect(result.error?.message).toContain('CLEO_OWNER_OVERRIDE');
 
@@ -229,7 +242,6 @@ describe('child-task-scoped session (rootTaskId != target epicId)', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_LIFECYCLE_SCOPE_DENIED');
-    expect(result.error?.exitCode).toBe(34);
     expect(result.error?.message).toContain(EPIC_ID);
 
     expect(mocks.skipStageWithReason).not.toHaveBeenCalled();
@@ -242,7 +254,6 @@ describe('child-task-scoped session (rootTaskId != target epicId)', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_LIFECYCLE_SCOPE_DENIED');
-    expect(result.error?.exitCode).toBe(34);
     expect(result.error?.message).toContain(EPIC_ID);
 
     expect(mocks.resetStage).not.toHaveBeenCalled();

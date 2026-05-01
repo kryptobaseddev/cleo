@@ -7,6 +7,10 @@
  * backed by `lifecycle_pipelines`, `lifecycle_stages`, and
  * `lifecycle_gate_results` tables.
  *
+ * Engine operations (EngineResult wrappers + scope guard) live in
+ * `engine-ops.ts` — migrated from `packages/cleo/src/dispatch/engines/lifecycle-engine.ts`
+ * (ENG-MIG-9 / T1576).
+ *
  * @task T4467
  * @task T4800 - Unified lifecycle barrel export
  * @task T4798 - RCASD rename (Phase 1: code-only, no disk paths)
