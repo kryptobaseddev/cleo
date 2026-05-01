@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [Unreleased] — T1676 LLM Wiring (real LLM intelligence into sentient/dream/daemon)
 
 ### T-LW-W2: Moonshot Kimi K2 backend (T1678)
 
@@ -23,6 +23,55 @@
 - **`packages/core/src/llm/__tests__/llm-layer.test.ts`** — 8 new tests covering `isMoonshotModel`,
   `MOONSHOT_DEFAULT_MODEL`, `MOONSHOT_BASE_URL`, `MoonshotBackend.complete` mock roundtrip,
   `thinkingBudgetTokens` rejection on `complete` and `stream`.
+
+### T-LW-W6: Daemon system service auto-registration (T1682)
+
+`npm install -g @cleocode/cleo` now registers the CLEO sentient daemon as a
+user-level persistent system service so it auto-starts on login and survives
+reboots. The installer is cross-platform and idempotent.
+
+- **Linux (systemd)**: writes `~/.config/systemd/user/cleo-daemon.service`
+  with `Restart=on-failure`, `StandardOutput=append:~/.local/state/cleo/daemon/cleo-daemon.log`,
+  and `WantedBy=default.target`. Runs `systemctl --user enable --now cleo-daemon`
+  automatically. Gracefully skips enable step when `systemctl` is unavailable
+  (containers, minimal environments) — unit file is still written.
+
+- **macOS (launchd)**: writes `~/Library/LaunchAgents/io.cleocode.daemon.plist`
+  with `KeepAlive=true`, `RunAtLoad=true`, and shared log routing. Runs
+  `launchctl bootstrap gui/$UID` (macOS 10.13+) with `launchctl load` fallback.
+
+- **Windows**: stub with note; filed as followup task T1683.
+
+- **Idempotent**: SHA-256 content hash comparison prevents redundant writes and
+  unnecessary service restarts on re-install.
+
+- **`CLEO_DAEMON_DISABLE=1`**: skips service activation (CI/container path).
+  Unit/plist file is still written so operators can enable manually.
+
+- **`cleo daemon start --foreground`**: new flag runs the sentient daemon
+  in-process (no detached child) so systemd/launchd own the process lifecycle.
+
+- **`cleo daemon install`**: installs the service unit/plist on demand.
+
+- **`cleo daemon uninstall`**: disables and removes the unit/plist cleanly.
+  Idempotent — safe to run even when the service is not installed.
+
+- **Logs**: both platforms route stdout/stderr to
+  `~/.local/state/cleo/daemon/cleo-daemon.log` (append mode, directory
+  pre-created by installer).
+
+### New files
+
+- `packages/cleo/scripts/install-daemon-service.mjs` — cross-platform installer
+  (Linux/macOS/Windows stub). Exports `installDaemonService()` and
+  `uninstallDaemonService()`. Callable standalone or as an ESM module.
+
+### Changed files
+
+- `packages/cleo/bin/postinstall.js` — calls `installDaemonService()` after
+  global bootstrap during `npm install -g`.
+- `packages/cleo/src/cli/commands/daemon.ts` — adds `install`, `uninstall`
+  subcommands; adds `--foreground` flag to `start`.
 
 ## [2026.5.1] (2026-05-01) — T1627 Hygiene Reset: 6 systemic safeguards + task-graph cleanup
 
