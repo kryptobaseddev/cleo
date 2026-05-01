@@ -60,7 +60,7 @@ vi.mock('../../config.js', () => ({
 
 // Mock the key resolver so tests don't depend on filesystem state
 // (~/.claude/.credentials.json, ~/.local/share/cleo/anthropic-key).
-vi.mock('../anthropic-key-resolver.js', () => ({
+vi.mock('../../llm/credentials.js', () => ({
   resolveAnthropicApiKey: (...args: unknown[]) => mockResolveKey(...args),
   clearAnthropicKeyCache: vi.fn(),
 }));
