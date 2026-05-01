@@ -45,10 +45,17 @@ const repairCommand = defineCommand({
   meta: { name: 'repair', description: 'Reset counter to max + 1 if behind' },
   async run() {
     // admin.sequence (mutate) was removed in T5615 with no CLI path retained.
-    // Call the engine function directly, mirroring the detect command pattern.
-    const { systemSequenceRepair } = await import('../../dispatch/engines/system-engine.js');
+    // Call core directly, mirroring the detect command pattern (T1571: system-engine.ts deleted).
+    const { repairSequence } = await import('@cleocode/core/internal');
     const projectRoot = getProjectRoot();
-    const result = await systemSequenceRepair(projectRoot);
+    const repair = await repairSequence(projectRoot);
+    const result = {
+      repaired: repair.repaired,
+      message: repair.message,
+      counter: repair.counter,
+      oldCounter: repair.oldCounter,
+      newCounter: repair.newCounter,
+    };
     cliOutput(result, { command: 'sequence', operation: 'admin.sequence.repair' });
   },
 });
