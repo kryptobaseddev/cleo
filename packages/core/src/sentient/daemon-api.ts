@@ -324,9 +324,14 @@ export async function getDaemonStatus(projectRoot: string): Promise<DaemonStatus
 
 /**
  * Resolve and import the daemon service installer module.
- * The installer lives in `@cleocode/cleo/scripts/install-daemon-service.mjs`
- * which is in a sibling package. We walk from this compiled module's directory
- * up to the workspace root and then into the cleo package.
+ *
+ * The installer lives in `@cleocode/cleo/scripts/install-daemon-service.mjs`.
+ * We resolve it via `import.meta.resolve('@cleocode/cleo')` (which returns the
+ * package main entrypoint) and walk from there to `scripts/` — this works for
+ * both global npm installs and workspace dev setups (T1684 hotfix).
+ *
+ * Fallback: if `import.meta.resolve` is unavailable, walk from this compiled
+ * module's directory up to the workspace root (dev-only path).
  */
 async function _resolveInstallerModule(): Promise<{
   installDaemonService: () => Promise<void>;
@@ -337,18 +342,25 @@ async function _resolveInstallerModule(): Promise<{
     message: string;
   }>;
 }> {
-  // packages/core/dist/sentient/daemon-api.js
-  //   → ../../../../ → workspace root
-  //   → packages/cleo/scripts/install-daemon-service.mjs
-  const selfDir = join(fileURLToPath(import.meta.url), '..');
-  const workspaceRoot = join(selfDir, '..', '..', '..', '..');
-  const scriptPath = join(
-    workspaceRoot,
-    'packages',
-    'cleo',
-    'scripts',
-    'install-daemon-service.mjs',
-  );
+  let scriptPath: string;
+
+  // Strategy 1: use import.meta.resolve to find @cleocode/cleo's install root.
+  try {
+    // import.meta.resolve('@cleocode/cleo') → e.g. file:///…/@cleocode/cleo/dist/cli/index.js
+    // Walk up from main entrypoint to pkg root: dist/cli/index.js → ../../.. = pkg root
+    const cleoMain = import.meta.resolve('@cleocode/cleo');
+    const cleoMainPath = fileURLToPath(cleoMain);
+    // dist/cli/index.js → up 3 levels → pkg root
+    const cleoRoot = join(cleoMainPath, '..', '..', '..');
+    scriptPath = join(cleoRoot, 'scripts', 'install-daemon-service.mjs');
+  } catch {
+    // import.meta.resolve unavailable — dev workspace fallback.
+    // packages/core/dist/sentient/daemon-api.js → up 4 → workspace root → packages/cleo/scripts/
+    const selfDir = join(fileURLToPath(import.meta.url), '..');
+    const workspaceRoot = join(selfDir, '..', '..', '..', '..');
+    scriptPath = join(workspaceRoot, 'packages', 'cleo', 'scripts', 'install-daemon-service.mjs');
+  }
+
   return import(scriptPath) as Promise<{
     installDaemonService: () => Promise<void>;
     uninstallDaemonService: () => Promise<{
