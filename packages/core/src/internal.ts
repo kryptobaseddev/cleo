@@ -1483,7 +1483,11 @@ export type {
 } from './store/restore-json-merge.js';
 export { regenerateAndCompare, regenerateAndCompareAll } from './store/restore-json-merge.js';
 export { taskArchive } from './tasks/archive.js';
-export { completeTaskStrict, taskComplete } from './tasks/complete.js';
+export {
+  completeTaskStrict,
+  type TaskCompleteEngineOptions,
+  taskComplete,
+} from './tasks/complete.js';
 export { taskDelete } from './tasks/delete.js';
 // Engine-layer converters and types (T1568 / ADR-057 / ADR-058)
 export {
