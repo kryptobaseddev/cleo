@@ -51,11 +51,23 @@ export type {
 // Pipeline manifest functions (moved from memory domain in T5241)
 // Release engine (T1572 — ENG-MIG-5: migrated to @cleocode/core/internal)
 // Session engine (T1573 — ENG-MIG-6: migrated to @cleocode/core/internal)
+// Lifecycle engine ops — re-exported from @cleocode/core/internal (T1576 / ENG-MIG-9 / ADR-057)
+// lifecycle-engine.ts shrunk to a shim; all symbols now live in core/lifecycle/engine-ops.ts.
 export {
   addTaskWithSessionScope,
   completeTaskStrict,
   type DecisionRecord,
   filterEntries as filterManifestEntries,
+  lifecycleCheck,
+  lifecycleGateFail,
+  lifecycleGatePass,
+  lifecycleGates,
+  lifecycleHistory,
+  lifecyclePrerequisites,
+  lifecycleProgress,
+  lifecycleReset,
+  lifecycleSkip,
+  lifecycleStatus,
   type ManifestEntry as ResearchManifestEntry,
   orchestrateAnalyze,
   orchestrateBootstrap,
@@ -199,19 +211,6 @@ export {
   initProject,
   isAutoInitEnabled,
 } from '../engines/init-engine.js';
-// Lifecycle engine
-export {
-  lifecycleCheck,
-  lifecycleGateFail,
-  lifecycleGatePass,
-  lifecycleGates,
-  lifecycleHistory,
-  lifecyclePrerequisites,
-  lifecycleProgress,
-  lifecycleReset,
-  lifecycleSkip,
-  lifecycleStatus,
-} from '../engines/lifecycle-engine.js';
 // Memory engine — brain.db cognitive memory (T5241 cutover)
 export {
   memoryBrainStats,

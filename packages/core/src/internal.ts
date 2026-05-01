@@ -230,6 +230,22 @@ export {
   listChains,
   showChain,
 } from './lifecycle/chain-store.js';
+// Lifecycle engine ops (ENG-MIG-9 / T1576 — EngineResult wrappers + scope guard)
+// Imported from engine-ops.ts directly (not via index.js) to avoid circular deps.
+export {
+  enforceScopeForLifecycleMutation,
+  lifecycleCheck,
+  lifecycleGateFail,
+  lifecycleGatePass,
+  lifecycleGates,
+  lifecycleHistory,
+  lifecyclePrerequisites,
+  lifecycleProgress,
+  lifecycleReset,
+  lifecycleSkip,
+  lifecycleStatus,
+  listRcsdEpics,
+} from './lifecycle/engine-ops.js';
 // Lifecycle
 export {
   buildStageGuidance,
