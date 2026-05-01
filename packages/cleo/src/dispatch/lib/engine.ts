@@ -49,6 +49,7 @@ export type {
   UncancelResult as UncancelData,
 } from '@cleocode/core/internal';
 // Pipeline manifest functions (moved from memory domain in T5241)
+// Release engine (T1572 — ENG-MIG-5: migrated to @cleocode/core/internal)
 export {
   addTaskWithSessionScope,
   completeTaskStrict,
@@ -81,6 +82,21 @@ export {
   pipelineManifestShow,
   pipelineManifestStats,
   readManifestEntries,
+  releaseCancel,
+  releaseChangelog,
+  releaseChangelogSince,
+  releaseCommit,
+  releaseGateCheck,
+  releaseGatesRun,
+  releaseIvtrAutoSuggest,
+  releaseList,
+  releasePrepare,
+  releasePush,
+  releaseRollback,
+  releaseRollbackFull,
+  releaseShip,
+  releaseShow,
+  releaseTag,
   taskAnalyze,
   taskArchive,
   taskBatchValidate,
@@ -207,24 +223,6 @@ export {
   phaseShow,
   phaseStart,
 } from '../engines/pipeline-engine.js';
-// Release engine
-export {
-  releaseCancel,
-  releaseChangelog,
-  releaseChangelogSince,
-  releaseCommit,
-  releaseGateCheck,
-  releaseGatesRun,
-  releaseIvtrAutoSuggest,
-  releaseList,
-  releasePrepare,
-  releasePush,
-  releaseRollback,
-  releaseRollbackFull,
-  releaseShip,
-  releaseShow,
-  releaseTag,
-} from '../engines/release-engine.js';
 // Session engine
 export {
   type DecisionRecord,
