@@ -38,6 +38,8 @@ export function defaultTransportApiKey(transport: ModelTransport): string | null
       return process.env['OPENAI_API_KEY'] ?? null;
     case 'gemini':
       return process.env['GEMINI_API_KEY'] ?? null;
+    case 'moonshot':
+      return process.env['MOONSHOT_API_KEY'] ?? null;
     default:
       throw new Error(`Unknown transport: ${transport as string}`);
   }

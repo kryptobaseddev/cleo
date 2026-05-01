@@ -15,6 +15,7 @@ import { OpenAI } from 'openai';
 import type { ProviderBackend } from './backend.js';
 import { AnthropicBackend } from './backends/anthropic.js';
 import { GeminiBackend } from './backends/gemini.js';
+import { MOONSHOT_BASE_URL, MoonshotBackend } from './backends/moonshot.js';
 import { OpenAIBackend } from './backends/openai.js';
 import { defaultTransportApiKey } from './credentials.js';
 import type { HistoryAdapter } from './history-adapters.js';
@@ -34,6 +35,7 @@ function initDefaultClients(): void {
   const anthropicKey = process.env['ANTHROPIC_API_KEY'];
   const openaiKey = process.env['OPENAI_API_KEY'];
   const geminiKey = process.env['GEMINI_API_KEY'];
+  const moonshotKey = process.env['MOONSHOT_API_KEY'];
 
   if (anthropicKey) {
     CLIENTS['anthropic'] = new Anthropic({ apiKey: anthropicKey, timeout: 600_000 });
@@ -43,6 +45,9 @@ function initDefaultClients(): void {
   }
   if (geminiKey) {
     CLIENTS['gemini'] = new GoogleGenerativeAI(geminiKey);
+  }
+  if (moonshotKey) {
+    CLIENTS['moonshot'] = new OpenAI({ apiKey: moonshotKey, baseURL: MOONSHOT_BASE_URL });
   }
 }
 
@@ -54,6 +59,7 @@ initDefaultClients();
 const _anthropicOverrideCache = new Map<string, Anthropic>();
 const _openaiOverrideCache = new Map<string, OpenAI>();
 const _geminiOverrideCache = new Map<string, GoogleGenerativeAI>();
+const _moonshotOverrideCache = new Map<string, OpenAI>();
 
 function makeOverrideKey(
   baseUrl: string | null | undefined,
@@ -109,6 +115,29 @@ export function getGeminiOverrideClient(
 }
 
 /**
+ * Get (or create) a cached Moonshot client for a specific (baseUrl, apiKey) pair.
+ *
+ * Moonshot uses an OpenAI-compatible API. When no baseUrl override is provided
+ * the default {@link MOONSHOT_BASE_URL} is used so all traffic targets
+ * `api.moonshot.ai/v1`.
+ */
+export function getMoonshotOverrideClient(
+  baseUrl: string | null | undefined,
+  apiKey: string | null | undefined,
+): OpenAI {
+  const effectiveBaseUrl = baseUrl ?? MOONSHOT_BASE_URL;
+  const key = makeOverrideKey(effectiveBaseUrl, apiKey);
+  const cached = _moonshotOverrideCache.get(key);
+  if (cached) return cached;
+  const client = new OpenAI({
+    apiKey: apiKey ?? undefined,
+    baseURL: effectiveBaseUrl,
+  });
+  _moonshotOverrideCache.set(key, client);
+  return client;
+}
+
+/**
  * Resolve the provider client for a ModelConfig.
  *
  * Fast path: no overrides → reuse the module-level default client from
@@ -133,6 +162,7 @@ export function clientForModelConfig(
   if (provider === 'anthropic') return getAnthropicOverrideClient(baseUrl, apiKey);
   if (provider === 'openai') return getOpenAIOverrideClient(baseUrl, apiKey);
   if (provider === 'gemini') return getGeminiOverrideClient(baseUrl, apiKey);
+  if (provider === 'moonshot') return getMoonshotOverrideClient(baseUrl, apiKey);
 
   throw new Error(`Unknown provider: ${provider as string}`);
 }
@@ -148,6 +178,7 @@ export function backendForProvider(
   if (provider === 'anthropic') return new AnthropicBackend(client as Anthropic);
   if (provider === 'openai') return new OpenAIBackend(client as OpenAI);
   if (provider === 'gemini') return new GeminiBackend(client as GoogleGenerativeAI, modelConfig);
+  if (provider === 'moonshot') return new MoonshotBackend(client as OpenAI);
 
   throw new Error(`Unknown provider: ${provider as string}`);
 }
