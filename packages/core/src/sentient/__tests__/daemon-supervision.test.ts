@@ -194,11 +194,9 @@ describe('getSentientDaemonStatus — Studio supervision fields', () => {
 
   it('studioStatus is "disabled" when config.daemon.superviseStudio=false', async () => {
     // Write a global config that disables Studio supervision.
-    // We use CLEO_HOME override to point to our temp dir.
-    const configDir = join(root, '.cleo');
-    const { mkdir } = await import('node:fs/promises');
-    await mkdir(configDir, { recursive: true });
-    const configPath = join(root, '.cleo', 'config.json');
+    // CLEO_HOME points to root; readSuperviseStudioConfig reads ${CLEO_HOME}/config.json
+    // (NOT ${CLEO_HOME}/.cleo/config.json — global config lives at CLEO_HOME root).
+    const configPath = join(root, 'config.json');
     await writeFile(configPath, JSON.stringify({ daemon: { superviseStudio: false } }), 'utf-8');
 
     // Override CLEO_HOME to point to our temp root.
