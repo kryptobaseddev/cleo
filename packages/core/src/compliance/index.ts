@@ -367,3 +367,129 @@ export async function getValueMetrics(
     },
   };
 }
+
+/** Compliance monitoring data shape. */
+export interface ComplianceData {
+  /** Total compliance audit entries. */
+  totalEntries: number;
+  /** Average pass rate (0-100). */
+  averagePassRate: number;
+  /** Average adherence score (0-100). */
+  averageAdherence: number;
+  /** Total violation count. */
+  totalViolations: number;
+  /** Trend direction (improving, declining, stable, insufficient_data). */
+  trend?: string;
+  /** Historical data points for charting. */
+  dataPoints?: Array<{
+    date: string;
+    entries: number;
+    avgPassRate: number;
+    violations: number;
+  }>;
+}
+
+/**
+ * Get aggregated compliance statistics, optionally including trend data.
+ *
+ * Replaces `systemCompliance` from system-engine.ts, using `readComplianceJsonl`
+ * from the compliance store (respects `getCleoDirAbsolute`). Supports 'trend'
+ * subcommand for time-series data or defaults to summary mode.
+ *
+ * @param cwd - Absolute path to the project root
+ * @param params - Optional subcommand, days filter, and epic filter
+ * @returns Aggregated compliance statistics
+ *
+ * @task T1571
+ */
+export function getComplianceStats(
+  cwd: string,
+  params?: { subcommand?: string; days?: number; epic?: string },
+): ComplianceData {
+  let entries = readComplianceJsonl(cwd);
+
+  if (params?.epic) {
+    entries = entries.filter((e) => {
+      const ctx = (e._context ?? {}) as Record<string, unknown>;
+      return ctx.epic_id === params.epic || ctx.task_id === params.epic;
+    });
+  }
+  if (params?.days) {
+    const cutoff = new Date(Date.now() - params.days * 86400000).toISOString();
+    entries = entries.filter((e) => (e.timestamp as string) >= cutoff);
+  }
+
+  const totalEntries = entries.length;
+  const compliance = entries.map((e) => (e.compliance ?? {}) as Record<string, unknown>);
+  const avgPassRate =
+    totalEntries > 0
+      ? Math.round(
+          (compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) /
+            totalEntries) *
+            1000,
+        ) / 1000
+      : 0;
+  const avgAdherence =
+    totalEntries > 0
+      ? Math.round(
+          (compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) /
+            totalEntries) *
+            1000,
+        ) / 1000
+      : 0;
+  const totalViolations = compliance.reduce(
+    (sum, c) => sum + ((c.violation_count as number) ?? 0),
+    0,
+  );
+
+  if (params?.subcommand !== 'trend') {
+    return {
+      totalEntries,
+      averagePassRate: avgPassRate,
+      averageAdherence: avgAdherence,
+      totalViolations,
+    };
+  }
+
+  // Trend mode: group by date and compute trend direction
+  const byDate: Record<string, Record<string, unknown>[]> = {};
+  for (const e of entries) {
+    const date = (e.timestamp as string).split('T')[0]!;
+    if (!byDate[date]) byDate[date] = [];
+    byDate[date]!.push(e);
+  }
+
+  const dataPoints = Object.entries(byDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, dayEntries]) => {
+      const dayCompliance = dayEntries.map(
+        (de) => (de.compliance ?? {}) as Record<string, unknown>,
+      );
+      return {
+        date,
+        entries: dayEntries.length,
+        avgPassRate:
+          dayCompliance.reduce((s, c) => s + ((c.compliance_pass_rate as number) ?? 0), 0) /
+          dayEntries.length,
+        violations: dayCompliance.reduce((s, c) => s + ((c.violation_count as number) ?? 0), 0),
+      };
+    });
+
+  let trend: string;
+  if (dataPoints.length >= 2) {
+    const first = dataPoints[0]!.avgPassRate;
+    const last = dataPoints[dataPoints.length - 1]!.avgPassRate;
+    trend = last > first ? 'improving' : last < first ? 'declining' : 'stable';
+  } else {
+    trend = 'insufficient_data';
+  }
+
+  return {
+    totalEntries,
+    averagePassRate: avgPassRate,
+    averageAdherence: avgAdherence,
+    totalViolations,
+    trend,
+    dataPoints,
+  };
+}

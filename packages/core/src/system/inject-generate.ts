@@ -14,6 +14,7 @@ export interface InjectGenerateResult {
   version: string;
 }
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Generate Minimum Viable Injection (MVI) markdown. */
 export async function generateInjection(
   projectRoot: string,

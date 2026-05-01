@@ -26,6 +26,7 @@ export interface UncancelResult {
   dryRun: boolean;
 }
 
+// SSoT-EXEMPT:engine-migration-T1571
 /** Safe stop: signal clean shutdown for agents. */
 export async function safestop(
   projectRoot: string,
