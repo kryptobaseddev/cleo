@@ -184,8 +184,21 @@ export interface ConduitSendParams {
   /** Send as this agent. Omit to use the active agent from the registry. */
   agentId?: string;
 }
-/** Result of `conduit.send`. */
-export interface ConduitSendResult {
+
+/**
+ * Operation result of `conduit.send`.
+ *
+ * @remarks
+ * This is the wire-format result for the `conduit.send` CLI/HTTP dispatch
+ * operation. It carries transport metadata (`from`, `to`, `transport`,
+ * `sentAt`) not present in the transport-layer {@link ConduitSendResult}
+ * defined in `../conduit.ts`.
+ *
+ * The transport-layer type (`@cleocode/contracts` top-level `ConduitSendResult`)
+ * covers the `Conduit` interface (ConduitClient / publishToTopic). This type
+ * covers the CLI dispatch surface.
+ */
+export interface ConduitSendOperationResult {
   /** The assigned message id. */
   messageId: string;
   /** Sender agent id. */
@@ -329,7 +342,7 @@ export type ConduitOps = {
   listen: [ConduitListenParams, ConduitListenResult];
   start: [ConduitStartParams, ConduitStartResult];
   stop: [ConduitStopParams, ConduitStopResult];
-  send: [ConduitSendParams, ConduitSendResult];
+  send: [ConduitSendParams, ConduitSendOperationResult];
   subscribe: [ConduitSubscribeParams, ConduitSubscribeResult];
   publish: [ConduitPublishParams, ConduitPublishResult];
 };
