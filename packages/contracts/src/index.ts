@@ -1176,6 +1176,26 @@ export {
   assertArchiveReason,
   isArchiveTombstoneAllowed,
 } from './tasks/archive.js';
+// === Task Domain Result Types (T1703 — canonical shapes for operations/tasks.ts stubs) ===
+export type {
+  TaskComplexityFactor,
+  TaskDependsRef,
+  TaskDependsResult,
+  TaskLabelInfo,
+  TaskPlanBlockedTask,
+  TaskPlanInProgressEpic,
+  TaskPlanMetrics,
+  TaskPlanOpenBug,
+  TaskPlanReadyTask,
+  TaskPlanResult,
+  TaskTreeNode,
+  TaskView,
+  TaskViewChildRollup,
+  TaskViewGatesStatus,
+  TaskViewLifecycleProgress,
+  TaskViewNextAction,
+  TaskViewPipelineStage,
+} from './tasks.js';
 // === Tessera Types ===
 export type {
   TesseraInstantiationInput,
