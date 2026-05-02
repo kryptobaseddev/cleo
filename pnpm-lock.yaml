@@ -319,10 +319,6 @@ importers:
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
-    optionalDependencies:
-      '@cleocode/studio':
-        specifier: workspace:^
-        version: link:../studio
 
   packages/cleo-os:
     dependencies:
@@ -354,6 +350,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@cleocode/lafs':
+        specifier: workspace:*
+        version: link:../lafs
       zod-to-json-schema:
         specifier: ^3.25.2
         version: 3.25.2(zod@4.3.6)
@@ -504,6 +503,9 @@ importers:
         specifier: ^4.0.3
         version: 4.0.3
     optionalDependencies:
+      '@cleocode/studio':
+        specifier: workspace:^
+        version: link:../studio
       llmtxt:
         specifier: ^2026.4.13
         version: 2026.4.13(@cleocode/lafs@packages+lafs)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
