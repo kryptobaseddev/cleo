@@ -85,7 +85,9 @@ export function envelopeToEngineResult(envelope: RichEnvelope): EngineResult<unk
       ...(e?.exitCode !== undefined ? { exitCode: e.exitCode } : {}),
       ...(e?.details !== undefined ? { details: e.details } : {}),
       ...(e?.fix !== undefined ? { fix: e.fix } : {}),
-      ...(e?.alternatives ? { alternatives: e.alternatives as Array<{ action: string; command: string }> } : {}),
+      ...(e?.alternatives
+        ? { alternatives: e.alternatives as Array<{ action: string; command: string }> }
+        : {}),
       ...(e?.problemDetails !== undefined ? { problemDetails: e.problemDetails } : {}),
     },
   };
@@ -267,76 +269,6 @@ export function paramStringArray(
   const v = params?.[key];
   if (!Array.isArray(v)) return undefined;
   return v.filter((item): item is string => typeof item === 'string');
-}
-
-// ---------------------------------------------------------------------------
-// Envelope-to-EngineResult adapter (T1710 — canonical shared helper)
-//
-// Converts a LafsEnvelope into the minimal EngineResult shape accepted by
-// wrapResult. The error.code is coerced to string since LafsErrorDetail.code
-// is typed as `number | string` but EngineResult.error.code requires string.
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a LAFS envelope into the minimal EngineResult shape expected by
- * {@link wrapResult}.
- *
- * @param envelope - The LAFS envelope returned by a typed op function.
- * @returns An object compatible with the `EngineResult` type.
- */
-export function envelopeToEngineResult(envelope: {
-  readonly success: boolean;
-  readonly data?: unknown;
-  readonly error?: { readonly code: number | string; readonly message: string };
-}): { success: boolean; data?: unknown; error?: { code: string; message: string } } {
-  if (envelope.success) {
-    return { success: true, data: envelope.data };
-  }
-  return {
-    success: false,
-    error: {
-      code: String(envelope.error?.code ?? 'E_INTERNAL'),
-      message: envelope.error?.message ?? 'Unknown error',
-    },
-  };
-}
-
-/**
- * Convert a LAFS envelope into the minimal EngineResult shape expected by
- * {@link wrapResult}.
- *
- * Accepts the canonical LafsEnvelope shape where `error.code` is
- * `string | number`. The dispatch wire format requires a string `code`;
- * coercion happens here at the boundary so callers never need to cast.
- *
- * The optional `page` field is forwarded when present so paginated
- * domains (e.g. tasks) preserve pagination metadata through the pipeline.
- *
- * @param envelope - The LAFS envelope returned by a typed op function.
- * @returns An object compatible with the `EngineResult` type consumed by
- *   {@link wrapResult}.
- */
-export function envelopeToEngineResult(envelope: {
-  readonly success: boolean;
-  readonly data?: unknown;
-  readonly page?: import('@cleocode/lafs').LAFSPage;
-  readonly error?: { readonly code: string | number; readonly message: string };
-}): {
-  success: boolean;
-  data?: unknown;
-  page?: import('@cleocode/lafs').LAFSPage;
-  error?: { code: string; message: string };
-} {
-  if (envelope.success) {
-    return { success: true, data: envelope.data, page: envelope.page };
-  }
-  return {
-    success: false,
-    error: {
-      code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
-      message: envelope.error?.message ?? 'Unknown error',
-    },
-  };
 }
 
 /**
