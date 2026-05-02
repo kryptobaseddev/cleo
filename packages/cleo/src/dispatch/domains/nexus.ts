@@ -99,7 +99,13 @@ import {
   wrapCoreResult,
 } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import {
+  envelopeToEngineResult,
+  errorResult,
+  handleErrorResult,
+  unsupportedOp,
+  wrapResult,
+} from './_base.js';
 
 // ---------------------------------------------------------------------------
 // Core-derived operation type (T1440 — OpsFromCore inference)
@@ -726,12 +732,12 @@ function nexusQueryEnvelopeToResponse(
     }
   }
   return wrapResult(
-    {
+    envelopeToEngineResult({
       success: env.success,
       data: resultData,
       page: pageMetadata,
-      error: env.error ? { code: String(env.error.code), message: env.error.message } : undefined,
-    },
+      error: env.error,
+    }),
     'query',
     'nexus',
     operation,
@@ -751,11 +757,11 @@ function nexusMutateEnvelopeToResponse(
     error?: { code: string | number; message: string };
   };
   return wrapResult(
-    {
+    envelopeToEngineResult({
       success: env.success,
       data: env.data,
-      error: env.error ? { code: String(env.error.code), message: env.error.message } : undefined,
-    },
+      error: env.error,
+    }),
     'mutate',
     'nexus',
     operation,
