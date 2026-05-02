@@ -49,7 +49,7 @@ import {
   typedDispatch,
 } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import { envelopeToEngineResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
 // Core operation registry
@@ -200,41 +200,6 @@ const _sentientTypedHandler = defineTypedHandler<SentientOps>('sentient', {
     }
   },
 });
-
-// ---------------------------------------------------------------------------
-// Envelope-to-EngineResult adapter
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a LAFS envelope into the minimal EngineResult shape expected by
- * {@link wrapResult}.
- *
- * T1434: accept the canonical LafsEnvelope shape from contracts where
- * `error.code` is `string | number`. The dispatch wire format requires a
- * string `code`; stringify on the boundary.
- *
- * @internal
- */
-function envelopeToEngineResult(envelope: {
-  readonly success: boolean;
-  readonly data?: unknown;
-  readonly error?: { readonly code: string | number; readonly message: string };
-}): {
-  success: boolean;
-  data?: unknown;
-  error?: { code: string; message: string };
-} {
-  if (envelope.success) {
-    return { success: true, data: envelope.data };
-  }
-  return {
-    success: false,
-    error: {
-      code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
-      message: envelope.error?.message ?? 'Unknown error',
-    },
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Op sets
