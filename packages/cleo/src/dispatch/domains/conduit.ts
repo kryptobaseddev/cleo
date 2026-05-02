@@ -32,7 +32,7 @@ import {
   wrapConduitImpl,
 } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import { envelopeToEngineResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 // ---------------------------------------------------------------------------
 // OpsFromCore inference — derive typed operation record from Core signatures.
@@ -209,40 +209,6 @@ export class ConduitHandler implements DomainHandler {
       mutate: ['start', 'stop', 'send', 'subscribe', 'publish'],
     };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Envelope-to-EngineResult adapter
-//
-// Converts a LafsEnvelope into the minimal EngineResult shape accepted by
-// wrapResult. The error.code is coerced to string since LafsErrorDetail.code
-// is typed as `number | string` but EngineResult.error.code requires string.
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a LAFS envelope into the minimal EngineResult shape expected by
- * {@link wrapResult}.
- *
- * @param envelope - The LAFS envelope returned by the typed op function.
- * @returns An object compatible with the `EngineResult` type in `_base.ts`.
- *
- * @internal
- */
-function envelopeToEngineResult(envelope: {
-  readonly success: boolean;
-  readonly data?: unknown;
-  readonly error?: { readonly code: string | number; readonly message: string };
-}): { success: boolean; data?: unknown; error?: { code: string; message: string } } {
-  if (envelope.success) {
-    return { success: true, data: envelope.data };
-  }
-  return {
-    success: false,
-    error: {
-      code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
-      message: envelope.error?.message ?? 'Unknown error',
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------
