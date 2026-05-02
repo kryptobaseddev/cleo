@@ -13,6 +13,9 @@
  */
 
 import type { LAFSPage } from '@cleocode/lafs';
+import type { ProblemDetails } from './errors.js';
+
+export type { ProblemDetails };
 
 /**
  * Successful engine result branch — carries `data` and optional `page`.
@@ -25,7 +28,10 @@ export interface EngineSuccess<T = unknown> {
 
 /**
  * Structured engine error — carries machine-readable code + human message
- * plus optional exitCode, details, fix hint, and alternative actions.
+ * plus optional exitCode, details, fix hint, alternative actions, and
+ * RFC 7807 problem details.
+ *
+ * @task T1707 — problemDetails field added (RFC 7807 activation)
  */
 export interface EngineErrorPayload {
   code: string;
@@ -34,6 +40,14 @@ export interface EngineErrorPayload {
   details?: unknown;
   fix?: string;
   alternatives?: Array<{ action: string; command: string }>;
+  /**
+   * RFC 7807 problem details for structured error reporting.
+   * Populated when the caller supplies richer diagnostic context.
+   *
+   * @see ProblemDetails
+   * @see https://www.rfc-editor.org/rfc/rfc7807
+   */
+  problemDetails?: ProblemDetails;
 }
 
 /**
