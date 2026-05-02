@@ -5,9 +5,9 @@
  * Mutate operations: 5
  */
 
-import type { StageStatus } from '../status-registry.js';
+import type { GateStatus, StageStatus } from '../status-registry.js';
 
-export type { StageStatus };
+export type { GateStatus, StageStatus };
 
 /**
  * Common lifecycle types
@@ -22,8 +22,6 @@ export type LifecycleStage =
   | 'validation'
   | 'testing'
   | 'release';
-
-export type GateStatus = 'passed' | 'failed' | 'blocked' | null;
 
 export interface StageRecord {
   stage: LifecycleStage;
@@ -85,7 +83,7 @@ export interface LifecycleCheckResult {
   /** Ordered list of stages that must complete first. @task T963 */
   missingPrerequisites: LifecycleStage[];
   /** Current gate status for the target stage. @task T963 */
-  gateStatus: 'passed' | 'failed' | 'pending';
+  gateStatus: GateStatus;
 }
 
 // lifecycle.status

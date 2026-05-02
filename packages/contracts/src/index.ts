@@ -534,10 +534,10 @@ export type {
 export * as ops from './operations/index.js';
 // === Lifecycle Operation Types (T1455 — ADR-057 D1 Core normalization) ===
 // Re-exported at top level so @cleocode/core/lifecycle can import without the `ops.` namespace hop.
-// Note: Gate and GateStatus are omitted here — GateStatus conflicts with the
-// status-registry export (different shape). Consumers needing the lifecycle
-// Gate/GateStatus should import via `ops.Gate` / `ops.GateStatus`.
+// Note: Gate is included here — GateStatus conflict resolved (T1694): lifecycle.ts now re-exports
+// the canonical GateStatus from status-registry.ts (single source of truth, ADR-018).
 export type {
+  Gate,
   LifecycleCheckParams,
   LifecycleCheckResult,
   LifecycleGateFailParams,
