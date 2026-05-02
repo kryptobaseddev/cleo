@@ -19,6 +19,7 @@
  * @task T1538 — OpsFromCore migration per ADR-058
  */
 
+import type { EngineResult } from '@cleocode/core';
 import {
   getLogger,
   getProjectRoot,
@@ -565,7 +566,13 @@ export class OrchestrateHandler implements DomainHandler {
             mode: params?.mode as string | undefined,
             taskIds: params?.taskIds as string[] | undefined,
           };
-          return wrapResult(await coreOps.analyze(p), 'query', 'orchestrate', 'analyze', startTime);
+          return wrapResult(
+            (await coreOps.analyze(p)) as EngineResult<unknown>,
+            'query',
+            'orchestrate',
+            'analyze',
+            startTime,
+          );
         }
 
         case 'classify': {
@@ -583,7 +590,7 @@ export class OrchestrateHandler implements DomainHandler {
             context: params.context as string | undefined,
           };
           return wrapResult(
-            await coreOps.classify(p),
+            (await coreOps.classify(p)) as EngineResult<unknown>,
             'query',
             'orchestrate',
             operation,
@@ -895,7 +902,13 @@ export class OrchestrateHandler implements DomainHandler {
             reason: params.reason as string,
             blocksFrom: params.blocksFrom as boolean | undefined,
           };
-          return wrapResult(await coreOps.pivot(p), 'mutate', 'orchestrate', operation, startTime);
+          return wrapResult(
+            (await coreOps.pivot(p)) as EngineResult<unknown>,
+            'mutate',
+            'orchestrate',
+            operation,
+            startTime,
+          );
         }
 
         case 'worktree.complete': {
@@ -910,7 +923,7 @@ export class OrchestrateHandler implements DomainHandler {
             );
           const p: OrchestrateWorktreeCompleteParams = { taskId: params.taskId as string };
           return wrapResult(
-            await coreOps['worktree.complete'](p),
+            (await coreOps['worktree.complete'](p)) as EngineResult<unknown>,
             'mutate',
             'orchestrate',
             operation,
@@ -923,7 +936,7 @@ export class OrchestrateHandler implements DomainHandler {
             taskIds: params?.taskIds as string[] | undefined,
           };
           return wrapResult(
-            await coreOps['worktree.cleanup'](p),
+            (await coreOps['worktree.cleanup'](p)) as EngineResult<unknown>,
             'mutate',
             'orchestrate',
             operation,
@@ -936,7 +949,7 @@ export class OrchestrateHandler implements DomainHandler {
             taskId: params?.taskId as string | undefined,
           };
           return wrapResult(
-            await coreOps['worktree.prune'](p),
+            (await coreOps['worktree.prune'](p)) as EngineResult<unknown>,
             'mutate',
             'orchestrate',
             operation,
@@ -1021,7 +1034,13 @@ export class OrchestrateHandler implements DomainHandler {
               startTime,
             );
           const p: OrchestrateFanoutParams = { items };
-          return wrapResult(await coreOps.fanout(p), 'mutate', 'orchestrate', operation, startTime);
+          return wrapResult(
+            (await coreOps.fanout(p)) as EngineResult<unknown>,
+            'mutate',
+            'orchestrate',
+            operation,
+            startTime,
+          );
         }
 
         case 'tessera.instantiate': {
