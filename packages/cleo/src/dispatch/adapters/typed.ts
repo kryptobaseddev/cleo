@@ -398,29 +398,57 @@ export function lafsError(
  * return wrapCoreResult(await coreOps.foo(params), 'foo', fallback);
  * ```
  *
+ * All EngineErrorPayload fields (exitCode, details, fix, alternatives,
+ * problemDetails) are preserved on the returned error envelope so that
+ * {@link envelopeToEngineResult} in _base.ts can restore them without loss.
+ *
  * @param result   - Result returned by a Core op wrapper function.
  * @param opName   - Operation name forwarded to {@link lafsError} / {@link lafsSuccess}.
  * @param fallback - Optional default when `result.data` is `null`/`undefined` on success.
  * @returns A `LafsEnvelope` for the operation.
  *
  * @task T1484
+ * @task T1712 — preserve all EngineErrorPayload fields on error path
  */
 // biome-ignore lint/suspicious/noExplicitAny: fallback must accept any data shape
 export function wrapCoreResult<T = any>(
   result: {
     success: boolean;
     data?: T;
-    error?: { code?: string | number; message?: string };
+    error?: {
+      code?: string | number;
+      message?: string;
+      exitCode?: number;
+      details?: unknown;
+      fix?: string;
+      alternatives?: ReadonlyArray<{ action: string; command: string }>;
+      problemDetails?: unknown;
+    };
   },
   opName: string,
   fallback?: T,
 ): LafsEnvelope<T> {
   if (!result.success) {
-    return lafsError(
-      String(result.error?.code ?? 'E_INTERNAL'),
-      result.error?.message ?? 'Unknown error',
-      opName,
-    ) as LafsEnvelope<T>;
+    const e = result.error;
+    // Build the error object with all fields preserved.
+    // LafsErrorDetail formally has code/message/fix/alternatives/details;
+    // exitCode and problemDetails are CLEO extensions passed through as
+    // extra properties so envelopeToEngineResult can recover them.
+    const errorObj: LafsError['error'] & {
+      exitCode?: number;
+      problemDetails?: unknown;
+    } = {
+      code: String(e?.code ?? 'E_INTERNAL'),
+      message: e?.message ?? 'Unknown error',
+    };
+    if (e?.exitCode !== undefined) errorObj.exitCode = e.exitCode;
+    if (e?.details !== undefined) errorObj.details = e.details as Record<string, unknown>;
+    if (e?.fix !== undefined) errorObj.fix = e.fix;
+    if (e?.alternatives) {
+      errorObj.alternatives = e.alternatives as Array<{ action: string; command: string }>;
+    }
+    if (e?.problemDetails !== undefined) errorObj.problemDetails = e.problemDetails;
+    return { success: false, error: errorObj } as LafsEnvelope<T>;
   }
   return lafsSuccess((result.data ?? fallback) as T, opName);
 }
