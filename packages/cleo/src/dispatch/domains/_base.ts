@@ -8,11 +8,88 @@
  * @epic T5671
  * @task T1427 — typed param narrowing helpers (Wave D · T962)
  * @task T1709 — delete local EngineResult duplicate, import from @cleocode/core
+ * @task T1712 — envelopeToEngineResult canonical helper preserving all error fields
  */
 
-import type { EngineResult } from '@cleocode/core';
+import type { EngineResult, ProblemDetails } from '@cleocode/core';
+import type { LAFSPage } from '@cleocode/lafs';
 import type { DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
+
+// ---------------------------------------------------------------------------
+// Extended envelope error shape — carries all EngineErrorPayload fields.
+// LafsErrorDetail only has code/message/fix/alternatives/details; exitCode and
+// problemDetails are CLEO-specific extensions written by wrapCoreResult and
+// read back here.
+// ---------------------------------------------------------------------------
+
+/**
+ * Extended error object shape accepted by {@link envelopeToEngineResult}.
+ * Superset of LafsErrorDetail — carries the additional fields written by
+ * {@link wrapCoreResult} in typed.ts so they survive the LafsEnvelope hop.
+ *
+ * @task T1712
+ */
+interface ExtendedEnvelopeError {
+  readonly code: number | string;
+  readonly message: string;
+  readonly exitCode?: number;
+  readonly details?: unknown;
+  readonly fix?: string;
+  readonly alternatives?: ReadonlyArray<{ action: string; command: string }>;
+  readonly problemDetails?: ProblemDetails;
+}
+
+/**
+ * Envelope shape accepted by {@link envelopeToEngineResult}.
+ * Superset of LafsEnvelope — preserves page and extended error fields.
+ *
+ * @task T1712
+ */
+interface RichEnvelope {
+  readonly success: boolean;
+  readonly data?: unknown;
+  readonly page?: LAFSPage;
+  readonly error?: ExtendedEnvelopeError;
+}
+
+/**
+ * Convert a rich LafsEnvelope back to a canonical EngineResult, preserving
+ * ALL error fields: exitCode, details, fix, alternatives, problemDetails.
+ *
+ * This is the canonical inverse of {@link wrapResult}. Domain handlers that
+ * call `typedDispatch` receive a `LafsEnvelope` and must convert it back to
+ * an `EngineResult` before passing to `wrapResult`. Previously, five per-file
+ * duplicates of this function only preserved `code` and `message`, silently
+ * dropping the other fields. This canonical version fixes that.
+ *
+ * @param envelope - A rich envelope (LafsEnvelope + CLEO extensions).
+ * @returns An {@link EngineResult} with all error fields preserved.
+ *
+ * @task T1712
+ */
+export function envelopeToEngineResult(envelope: RichEnvelope): EngineResult<unknown> {
+  if (envelope.success) {
+    return {
+      success: true,
+      data: envelope.data,
+      ...(envelope.page ? { page: envelope.page } : {}),
+    };
+  }
+  const e = envelope.error;
+  return {
+    success: false,
+    error: {
+      code: String(e?.code ?? 'E_INTERNAL'),
+      message: e?.message ?? 'Unknown error',
+      ...(e?.exitCode !== undefined ? { exitCode: e.exitCode } : {}),
+      ...(e?.details !== undefined ? { details: e.details } : {}),
+      ...(e?.fix !== undefined ? { fix: e.fix } : {}),
+      ...(e?.alternatives ? { alternatives: e.alternatives as Array<{ action: string; command: string }> } : {}),
+      ...(e?.problemDetails !== undefined ? { problemDetails: e.problemDetails } : {}),
+    },
+  };
+}
 
 // Re-export so existing domain files that import EngineResult via _base.ts keep resolving.
 export type { EngineResult } from '@cleocode/core';
