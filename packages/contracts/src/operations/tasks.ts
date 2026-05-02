@@ -9,10 +9,10 @@
  * were removed in T1446 (T1435-W2). Use the dispatch-level types
  * (`TasksAddParams`, `TasksUpdateQueryParams`, etc.) that appear in `TasksOps`.
  *
- * SYNC: Canonical type definitions live in the CLI package at:
- *   src/types/task.ts (TaskStatus, TaskPriority, Task, etc.)
+ * Canonical type definitions live in the contracts package at:
+ *   packages/contracts/src/task.ts (TaskStatus, TaskPriority, Task, etc.)
  * These operation types are the API contract (wire format).
- * Internal domain types must stay aligned with CLI definitions.
+ * Internal domain types import from the canonical location above.
  *
  * @task T1446 — strip redundant Params/Result aliases (T1435-W2)
  */
@@ -21,9 +21,9 @@
  * Common task types (API contract — matches CLI src/types/task.ts)
  */
 import type { TaskStatus } from '../status-registry.js';
+import type { TaskPriority } from '../task.js';
 
-export type { TaskStatus };
-export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
+export type { TaskPriority, TaskStatus };
 
 export interface TaskOp {
   id: string;
