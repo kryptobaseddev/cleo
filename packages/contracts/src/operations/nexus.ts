@@ -19,6 +19,8 @@
  * @see packages/cleo/src/dispatch/domains/nexus.ts
  */
 
+// NexusWikiResult is canonical in nexus-wiki-ops.ts (T1699 dedup)
+import type { NexusWikiResult } from '../nexus-wiki-ops.js';
 // Profile types are now canonical in nexus-user-profile.ts (T1424 dedup)
 import type { SigilCard } from './memory.js';
 import type {
@@ -899,8 +901,8 @@ export interface NexusWikiParams {
   /** Incremental mode (optional). */
   incremental?: boolean;
 }
-/** Result of `nexus.wiki`. */
-export type NexusWikiResult = unknown;
+// NexusWikiResult re-exported from canonical nexus-wiki-ops.ts (T1699 dedup — single source of truth)
+export type { NexusWikiResult };
 
 /** Parameters for `nexus.contracts-show`. */
 export interface NexusContractsShowParams {
