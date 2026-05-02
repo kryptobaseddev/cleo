@@ -91,7 +91,7 @@ export function engineSuccess<T>(data: T, page?: LAFSPage): EngineResult<T> {
  *
  * @param code - stable machine-readable error code (e.g. `'E_NOT_FOUND'`)
  * @param message - human-readable error description
- * @param options - optional `exitCode`, `details`, `fix`, `alternatives`
+ * @param options - optional `exitCode`, `details`, `fix`, `alternatives`, `problemDetails`
  *
  * @example
  * ```ts
@@ -107,6 +107,8 @@ export function engineError<T = unknown>(
     details?: unknown;
     fix?: string;
     alternatives?: Array<{ action: string; command: string }>;
+    /** RFC 7807 problem details for structured error reporting. */
+    problemDetails?: ProblemDetails;
   },
 ): EngineResult<T> {
   return {
@@ -118,6 +120,7 @@ export function engineError<T = unknown>(
       ...(options?.details !== undefined ? { details: options.details } : {}),
       ...(options?.fix !== undefined ? { fix: options.fix } : {}),
       ...(options?.alternatives ? { alternatives: options.alternatives } : {}),
+      ...(options?.problemDetails !== undefined ? { problemDetails: options.problemDetails } : {}),
     },
   };
 }
