@@ -192,6 +192,38 @@ export function paramStringArray(
   return v.filter((item): item is string => typeof item === 'string');
 }
 
+// ---------------------------------------------------------------------------
+// Envelope-to-EngineResult adapter (T1710 — canonical shared helper)
+//
+// Converts a LafsEnvelope into the minimal EngineResult shape accepted by
+// wrapResult. The error.code is coerced to string since LafsErrorDetail.code
+// is typed as `number | string` but EngineResult.error.code requires string.
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a LAFS envelope into the minimal EngineResult shape expected by
+ * {@link wrapResult}.
+ *
+ * @param envelope - The LAFS envelope returned by a typed op function.
+ * @returns An object compatible with the `EngineResult` type.
+ */
+export function envelopeToEngineResult(envelope: {
+  readonly success: boolean;
+  readonly data?: unknown;
+  readonly error?: { readonly code: number | string; readonly message: string };
+}): { success: boolean; data?: unknown; error?: { code: string; message: string } } {
+  if (envelope.success) {
+    return { success: true, data: envelope.data };
+  }
+  return {
+    success: false,
+    error: {
+      code: String(envelope.error?.code ?? 'E_INTERNAL'),
+      message: envelope.error?.message ?? 'Unknown error',
+    },
+  };
+}
+
 /**
  * Handle a caught error: extract message and return an internal error response.
  * Callers should log the error themselves (with their domain-specific logger)
