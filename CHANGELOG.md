@@ -1,5 +1,23 @@
 # Changelog
 
+## [2026.5.6] (2026-05-02) — T1689 hotfix: typecheck regressions exposed by W2
+
+Hotfix for v2026.5.5. Wave 2 closed multiple typecheck regressions that local `pnpm run build` (esbuild) missed but CI's `tsc -b` (project-references, strict) caught:
+
+- **`packages/cleo/src/dispatch/engines/_error.ts`** — local `engineError` wrapper signature missing `exitCode` and `problemDetails` options. T1708 added the wiring but didn't extend the local wrapper's `options` type. Fixed: extended options to include `exitCode` (carried through) and `problemDetails` (forwarded to canonical core `engineError`).
+- **`packages/cleo/src/dispatch/domains/nexus.ts`** — `nexusQueryEnvelopeToResponse` and `nexusMutateEnvelopeToResponse` constructed inline `{ success: env.success, ... }` objects with `success: boolean` (widened literal). T1709's switch to `@cleocode/core`'s discriminated `EngineResult<T>` union no longer accepts the widened type. Fixed: route through `envelopeToEngineResult` helper from `_base.ts`.
+- **`packages/cleo/src/dispatch/domains/orchestrate.ts`** — 7 `wrapResult(await coreOps.X(p), ...)` call sites with widened `success: boolean` returns from inline-literal-returning op functions. Fixed: explicit `as EngineResult<unknown>` cast at each call site (structurally compatible; cast preserves intent without churning 11 inline-literal patterns).
+
+### Hotfix acceptance gates (all green)
+
+- ✅ `pnpm run typecheck` clean (`tsc -b` strict project references — same as CI)
+- ✅ `pnpm biome ci .` clean
+- ✅ `pnpm run build` clean (full monorepo)
+
+### Lesson (filed in memory)
+
+`pnpm run build` uses esbuild and skips strict TypeScript project-reference type checks. `pnpm run typecheck` (`tsc -b`) is the actual CI gate. ALWAYS run `pnpm run typecheck` before tagging — not just `pnpm run build`.
+
 ## [2026.5.5] (2026-05-02) — T-CSL-RESET Wave 2: EngineResult unification
 
 Second wave of T-CSL-RESET. Eliminates the parallel-shape divergence between cleo's local `EngineResult` interface and `@cleocode/core`'s canonical type, activates RFC 7807 problem-details across the error path, consolidates 5 duplicate `envelopeToEngineResult` copies into one canonical helper, and fixes the silent field-loss bug across the EngineResult ↔ LafsEnvelope ↔ DispatchResponse round-trip.

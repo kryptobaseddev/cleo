@@ -22,7 +22,12 @@
  * - 100+: Special informational codes (not errors)
  */
 
-import { engineError as coreEngineError, type EngineResult, getLogger } from '@cleocode/core';
+import {
+  engineError as coreEngineError,
+  type EngineResult,
+  getLogger,
+  type ProblemDetails,
+} from '@cleocode/core';
 import { mapNumericExitCodeToString } from '../lib/exit-codes.js';
 
 // Re-export EngineResult from core (canonical location)
@@ -228,13 +233,15 @@ export function engineError<T>(
   code: string,
   message: string,
   options?: {
+    exitCode?: number;
     details?: Record<string, unknown>;
     fix?: string;
     alternatives?: Array<{ action: string; command: string }>;
+    problemDetails?: ProblemDetails;
   },
 ): EngineResult<T> {
-  const exitCode = STRING_TO_EXIT[code] ?? 1;
-  const level = logLevel(exitCode);
+  const resolvedExitCode = options?.exitCode ?? STRING_TO_EXIT[code] ?? 1;
+  const level = logLevel(resolvedExitCode);
 
   // Keep test output clean: skip engine logging under Vitest.
   const isVitest = process.env['VITEST'] === 'true';
@@ -244,14 +251,14 @@ export function engineError<T>(
     // This prevents the double-output envelope bug (T5148).
     const logger = getLogger('engine');
     logger[level](
-      { code, exitCode, ...(options?.details && { details: options.details }) },
+      { code, exitCode: resolvedExitCode, ...(options?.details && { details: options.details }) },
       message,
     );
   }
 
   // Delegate construction to canonical core helper (DRY).
   // The dispatch-layer wrapper adds: numeric exitCode resolution + structured logging.
-  return coreEngineError<T>(code, message, { exitCode, ...options });
+  return coreEngineError<T>(code, message, { ...options, exitCode: resolvedExitCode });
 }
 
 /**
