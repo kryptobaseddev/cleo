@@ -193,6 +193,44 @@ export function paramStringArray(
 }
 
 /**
+ * Convert a LAFS envelope into the minimal EngineResult shape expected by
+ * {@link wrapResult}.
+ *
+ * Accepts the canonical LafsEnvelope shape where `error.code` is
+ * `string | number`. The dispatch wire format requires a string `code`;
+ * coercion happens here at the boundary so callers never need to cast.
+ *
+ * The optional `page` field is forwarded when present so paginated
+ * domains (e.g. tasks) preserve pagination metadata through the pipeline.
+ *
+ * @param envelope - The LAFS envelope returned by a typed op function.
+ * @returns An object compatible with the `EngineResult` type consumed by
+ *   {@link wrapResult}.
+ */
+export function envelopeToEngineResult(envelope: {
+  readonly success: boolean;
+  readonly data?: unknown;
+  readonly page?: import('@cleocode/lafs').LAFSPage;
+  readonly error?: { readonly code: string | number; readonly message: string };
+}): {
+  success: boolean;
+  data?: unknown;
+  page?: import('@cleocode/lafs').LAFSPage;
+  error?: { code: string; message: string };
+} {
+  if (envelope.success) {
+    return { success: true, data: envelope.data, page: envelope.page };
+  }
+  return {
+    success: false,
+    error: {
+      code: envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
+      message: envelope.error?.message ?? 'Unknown error',
+    },
+  };
+}
+
+/**
  * Handle a caught error: extract message and return an internal error response.
  * Callers should log the error themselves (with their domain-specific logger)
  * before or after calling this.
