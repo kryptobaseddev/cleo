@@ -324,6 +324,7 @@
     "directory": "packages/core"
   },
   "optionalDependencies": {
+    "@cleocode/studio": "workspace:^",
     "llmtxt": "^2026.4.13"
   }
 }
