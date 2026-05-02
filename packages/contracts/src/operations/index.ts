@@ -5,8 +5,12 @@
  * to avoid name collisions with canonical domain types.
  */
 
+export * from './admin.js';
 export * from './brain.js';
 export * from './conduit.js';
+export * from './dialectic.js';
+export * from './docs.js';
+export * from './intelligence.js';
 export * from './issues.js';
 export * from './lifecycle.js';
 export * from './llm.js';
@@ -22,6 +26,7 @@ export * from './research.js';
 export * from './sentient.js';
 export * from './session.js';
 export * from './skills.js';
+export * from './sticky.js';
 export * from './system.js';
 export * from './tasks.js';
 export * from './validate.js';
