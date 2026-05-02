@@ -11,6 +11,7 @@
  */
 
 import type { Session } from '../session.js';
+import type { MemoryCompactHit, RetrievalBundle } from './memory.js';
 
 // ---------------------------------------------------------------------------
 // Common session types (simplified wire-format representation)
@@ -80,13 +81,57 @@ export interface SessionShowParams {
   include?: string;
 }
 /**
+ * Wire-format debrief payload returned by `session.show` when
+ * `include='debrief'` is specified (T5615 — debrief.show absorption).
+ *
+ * Mirrors the fields of `DebriefData` from
+ * `packages/core/src/sessions/handoff.ts` that are exposed over the wire.
+ * The nested `handoff` field is kept opaque (`Record<string, unknown>`) to
+ * avoid pulling `HandoffData` internals into the contracts package.
+ */
+export interface SessionDebriefData {
+  /** The session that produced this debrief. */
+  sessionId: string;
+  /** Agent / conversation identifier (if known). */
+  agentIdentifier: string | null;
+  /** Session start time (ISO 8601). */
+  startedAt: string;
+  /** Session end time (ISO 8601). */
+  endedAt: string;
+  /** Duration in minutes. */
+  durationMinutes: number;
+  /** Decisions captured during the session. */
+  decisions: Array<{
+    /** Decision statement. */
+    decision: string;
+    /** Rationale for the decision. */
+    rationale: string;
+    /** Alternatives considered. */
+    alternatives?: string[];
+    /** ISO 8601 timestamp. */
+    timestamp: string;
+  }>;
+  /** Standard handoff payload (backward-compat opaque shape). */
+  handoff: Record<string, unknown>;
+  /** Git state at session end (best-effort; null when git unavailable). */
+  gitState: Record<string, unknown> | null;
+  /** Position of this session in the session chain (1-based). */
+  chainPosition: number;
+  /** Total length of the session chain. */
+  chainLength: number;
+}
+
+/**
  * Result of `session.show`.
  *
  * @remarks
- * `unknown` because `show` with `include='debrief'` returns opaque debrief
- * data (DebriefData | fallback object) rather than a Session record.
+ * Returns the raw `Session` record for standard queries. When
+ * `include='debrief'` is specified, returns a `SessionDebriefData` envelope
+ * instead (T5615 — `debrief.show` was absorbed into `session.show`).
+ *
+ * @see SessionDebriefData
  */
-export type SessionShowResult = unknown;
+export type SessionShowResult = Session | SessionDebriefData;
 
 // session.find
 /** Parameters for `session.find` — lightweight session discovery. */
@@ -164,11 +209,172 @@ export interface SessionBriefingShowParams {
   maxEpics?: number;
   scope?: string;
 }
+
+/** Compact task entry in a session briefing's next-tasks list. */
+export interface SessionBriefingTask {
+  /** Task identifier. */
+  id: string;
+  /** Task title. */
+  title: string;
+  /** Leverage-derived priority score (higher = higher priority). */
+  leverage: number;
+  /** Composite relevance score used for ordering. */
+  score: number;
+}
+
+/** Compact bug entry in a session briefing. */
+export interface SessionBriefingBug {
+  /** Task identifier. */
+  id: string;
+  /** Bug title. */
+  title: string;
+  /** Priority level. */
+  priority: string;
+}
+
+/** Compact blocked-task entry in a session briefing. */
+export interface SessionBriefingBlockedTask {
+  /** Task identifier. */
+  id: string;
+  /** Task title. */
+  title: string;
+  /** IDs of tasks blocking this one. */
+  blockedBy: string[];
+}
+
+/** Compact active-epic entry in a session briefing. */
+export interface SessionBriefingEpic {
+  /** Epic task identifier. */
+  id: string;
+  /** Epic title. */
+  title: string;
+  /** Completion percentage [0–100]. */
+  completionPercent: number;
+}
+
+/** Pipeline stage snapshot surfaced in a session briefing. */
+export interface SessionBriefingPipelineStage {
+  /** Current pipeline stage name (e.g. `'implementation'`). */
+  currentStage: string;
+  /** Stage lifecycle status. */
+  stageStatus: string;
+}
+
+/** A single document reference included in the briefing docs-context pillar. */
+export interface SessionBriefingDocRef {
+  /** Task that owns this attachment. */
+  taskId: string;
+  /** Attachment identifier. */
+  attachmentId: string;
+  /** Attachment kind (local-file, url, blob, llms-txt, llmtxt-doc). */
+  kind: string;
+  /** Optional human-readable description. */
+  description?: string;
+  /** Optional categorisation labels. */
+  labels?: string[];
+  /** ISO 8601 creation timestamp. */
+  createdAt: string;
+}
+
+/** Docs-context pillar of the session briefing (T1616). */
+export interface SessionBriefingDocsContext {
+  /** Document references for the currently focused task. */
+  currentTaskDocs: SessionBriefingDocRef[];
+  /** Document references for other in-scope tasks. */
+  relatedDocs: SessionBriefingDocRef[];
+  /** Total document references surfaced. */
+  totalDocs: number;
+}
+
+/** Brain memory context included in the session briefing when available. */
+export interface SessionBriefingMemoryContext {
+  /** Recent decisions relevant to the current scope. */
+  recentDecisions: MemoryCompactHit[];
+  /** Patterns relevant to the current scope. */
+  relevantPatterns: MemoryCompactHit[];
+  /** Recent observations from prior sessions. */
+  recentObservations: MemoryCompactHit[];
+  /** Recent learnings relevant to the current scope. */
+  recentLearnings: MemoryCompactHit[];
+  /** Estimated token weight of this context block. */
+  tokensEstimated: number;
+}
+
+/** Info about the last ended session, for session-start continuity. */
+export interface SessionBriefingLastSession {
+  /** ISO 8601 end timestamp. */
+  endedAt: string;
+  /** Duration in minutes. */
+  duration: number;
+  /** Handoff data (opaque shape from `HandoffData`). */
+  handoff: Record<string, unknown>;
+}
+
+/** Info about the currently active task in the briefing. */
+export interface SessionBriefingCurrentTask {
+  /** Task identifier. */
+  id: string;
+  /** Task title. */
+  title: string;
+  /** Current lifecycle status. */
+  status: string;
+  /** IDs of tasks blocking this one, if any. */
+  blockedBy?: string[];
+}
+
 /**
- * Result of `session.briefing.show` — composite session-start context.
- * The full shape is defined in `@cleocode/core/internal.SessionBriefing`.
+ * Result of `session.briefing.show`.
+ *
+ * @remarks
+ * Mirrors `SessionBriefing` from
+ * `packages/core/src/sessions/briefing.ts`. Three pillars:
+ * - state: `currentTask` + `nextTasks` + `blockedTasks` + `activeEpics` + `openBugs`
+ * - rationale: `memoryContext` + `bundle` (PSYCHE Wave 4 retrieval)
+ * - references: `docsContext` (T1616)
+ *
+ * All optional fields (`pipelineStage`, `warnings`, `memoryContext`, `bundle`,
+ * `docsContext`) are omitted when the data source is unavailable or empty.
+ *
+ * @task T1091 — PSYCHE Wave 4 `bundle`
+ * @task T1616 — docs context pillar
  */
-export type SessionBriefingShowResult = unknown;
+export interface SessionBriefingShowResult {
+  /** Last ended session info, or null when no previous session exists. */
+  lastSession: SessionBriefingLastSession | null;
+  /** Currently active task, or null when no task is focused. */
+  currentTask: SessionBriefingCurrentTask | null;
+  /** Ordered list of next tasks to work on (leverage-sorted). */
+  nextTasks: SessionBriefingTask[];
+  /** Open bugs relevant to the current scope. */
+  openBugs: SessionBriefingBug[];
+  /** Tasks currently blocked (up to `maxBlocked`). */
+  blockedTasks: SessionBriefingBlockedTask[];
+  /** Active epics with completion rollup. */
+  activeEpics: SessionBriefingEpic[];
+  /** Current pipeline stage snapshot (omitted when no lifecycle active). */
+  pipelineStage?: SessionBriefingPipelineStage;
+  /** Non-fatal warnings emitted during briefing computation. */
+  warnings?: string[];
+  /** Brain memory context (omitted when memory store unavailable). */
+  memoryContext?: SessionBriefingMemoryContext;
+  /**
+   * PSYCHE Wave 4 multi-pass retrieval bundle.
+   *
+   * Contains cold (user-profile + peer instructions), warm (peer-scoped
+   * memory), and hot (live session state) passes. Present when the active
+   * session and peer ID are resolvable; omitted otherwise.
+   *
+   * @task T1091
+   */
+  bundle?: RetrievalBundle;
+  /**
+   * Docs-context pillar — task-attached document references (T1616).
+   *
+   * Present when at least one in-scope task has attachments; omitted
+   * when the attachment store is unavailable or no attachments exist.
+   */
+  docsContext?: SessionBriefingDocsContext;
+}
 
 // session.history (query — not in primary handler but exported for completeness)
 /** Parameters for `session.history`. */
