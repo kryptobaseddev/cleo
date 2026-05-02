@@ -193,8 +193,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         attachments: attachments.map((m) => ({
           id: m.id,
           sha256: `${m.sha256.slice(0, 8)}…`,
-          // Cast: contracts AttachmentKind doesn't include 'llmtxt-doc' (contracts gap T1529)
-          kind: m.attachment.kind as DocsListResult['attachments'][0]['kind'],
+          kind: m.attachment.kind,
           mime:
             m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
               ? m.attachment.mime
@@ -335,10 +334,25 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     return lafsSuccess<DocsFetchResult>(
       {
-        // Cast: core's AttachmentMetadata vs contracts/operations/docs AttachmentMetadata differ
-        // in their nested attachment field structure (T1529 contracts gap). The runtime
-        // value is compatible for all callers; the two interfaces diverged at the type level.
-        metadata: metadata as unknown as DocsFetchResult['metadata'],
+        // Project the domain AttachmentMetadata (nested `attachment` object) into the
+        // flat DocsAttachmentRow wire format consumed by CLI + HTTP callers.
+        metadata: {
+          id: metadata.id,
+          sha256: metadata.sha256,
+          kind: metadata.attachment.kind,
+          mime:
+            metadata.attachment.kind === 'local-file' || metadata.attachment.kind === 'blob'
+              ? metadata.attachment.mime
+              : (metadata.attachment as UrlAttachment).mime,
+          size:
+            metadata.attachment.kind === 'local-file' || metadata.attachment.kind === 'blob'
+              ? metadata.attachment.size
+              : undefined,
+          description: metadata.attachment.description,
+          labels: metadata.attachment.labels,
+          createdAt: metadata.createdAt,
+          refCount: metadata.refCount,
+        },
         path: storagePath,
         sizeBytes: fetchResult.bytes.length,
         ...(bytesBase64 !== undefined ? { bytesBase64 } : {}),
