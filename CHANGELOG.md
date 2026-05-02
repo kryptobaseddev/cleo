@@ -1,5 +1,52 @@
 # Changelog
 
+## [2026.5.4] (2026-05-02) — T-CSL-RESET Wave 1: Contracts canonicalization
+
+First wave of the T-CSL-RESET (Contracts/SDK/LAFS Reset) epic. Foundation wave — contracts package is now the single SSoT for all shared types, with zero internal conflicts and unified LAFS shape boundary.
+
+### Type-conflict reconciliation (T1694–T1699 — 6 tasks)
+
+- **T1694 GateStatus** — duplicate in `operations/lifecycle.ts` removed; canonical in `status-registry.ts`.
+- **T1695 TaskPriority** — duplicate in `operations/tasks.ts` removed; canonical in `tasks.ts`.
+- **T1696 ConduitSendResult** — duplicate in `operations/conduit.ts` removed; canonical in `conduit.ts`.
+- **T1697 AttachmentKind + AttachmentMetadata** — paired reconcile across `attachment.ts` and `attachment-schema.ts`.
+- **T1698 SessionStartResult** — duplicate removed; canonical in `session.ts`.
+- **T1699 NexusWikiResult** — duplicate removed; canonical in `nexus-wiki-ops.ts`.
+
+All 6 reconciles per ADR pattern: top-level domain modules own primary types; `operations/*` files import from canonical (no inline redefinitions).
+
+### LAFS unification (T1706 — R2 outcome)
+
+Per R2 research: 4 envelope layers (`EngineResult` core / `DispatchResponse` cleo / `CliEnvelope` wire / `LAFSEnvelope` SDK protocol) each serve distinct purposes — keep the dual structure but DELETE the rogue 4th variant in contracts that diverged silently from `@cleocode/lafs`.
+
+- **T1706**: Removed contracts-internal `LAFSEnvelope`, `LAFSMeta`, `LAFSError` inlines (the 4th rogue variant). Now re-exported from `@cleocode/lafs` (canonical owner per ADR-039). `LAFSErrorCategory` casing drift (lowercase in contracts vs SCREAMING_SNAKE_CASE in `@cleocode/lafs`) eliminated. `@cleocode/lafs` added as contracts dependency.
+
+### Contracts surface improvements
+
+- **T1700**: Added 5 missing barrel exports to `operations/index.ts` (admin, dialectic, docs, intelligence, sticky) — all 18 dispatch domains now visible under the `ops.*` namespace.
+- **T1701**: `zod` declared as `dependencies` in `contracts/package.json` (was undeclared despite shipping zod schemas).
+- **T1702**: Fixed `task.schema.json` emission pipeline. The script was emitting an empty `{ "Task": {} }` stub due to legacy `zod-to-json-schema` interaction. Replaced with native Zod v4 `toJSONSchema()` — full Task schema (and all 5 other emitted schemas) now generate cleanly.
+
+### Result-type completeness (T1703, T1704, T1705)
+
+- **T1703**: 20 `Result = unknown` placeholders in `operations/tasks.ts` filled with proper typed shapes derived from core function returns (taskShow, taskList, taskFind, taskTree, taskBlockers, taskDepends, taskAnalyze, taskImpact, taskNext, taskPlan, taskRelates, taskComplexityEstimate, taskHistory, taskCurrent, taskLabelList, taskSyncLinks, taskAdd, taskUpdate, taskComplete, taskCancel, taskDelete, taskArchive, taskRestore, taskReparent, taskReorder, taskRelatesAdd, taskStart, taskStop, taskSyncReconcile, taskSyncLinksRemove, taskClaim, taskUnclaim, taskReopen). Net +413 LOC of typed shapes in new `packages/contracts/src/tasks.ts` domain module.
+- **T1704**: 22 `Result = unknown` placeholders in `operations/nexus.ts` filled with full typed shapes — largest untyped surface in contracts now fully typed.
+- **T1705**: Worker discovered the audit's "11 stubs in admin/memory/orchestrate" estimate was inaccurate (those files had 0 stubs); 2 actual stubs in `operations/session.ts` filled with `SessionShowResult`, `SessionBriefingShowResult`, and 11 supporting interfaces (SessionDebriefData, SessionBriefingTask, SessionBriefingBug, SessionBriefingBlockedTask, SessionBriefingEpic, SessionBriefingPipelineStage, SessionBriefingDocRef, SessionBriefingDocsContext, SessionBriefingMemoryContext, SessionBriefingLastSession, SessionBriefingCurrentTask).
+
+### Wave 1 acceptance gates (all green)
+
+- ✅ Zero internal type conflicts in `@cleocode/contracts`
+- ✅ Schema emission working (`pnpm --filter @cleocode/contracts run build` produces all 6 schemas correctly)
+- ✅ All 18 dispatch domains visible under `ops.*` namespace
+- ✅ LAFS types unified — only `@cleocode/lafs` defines envelope shapes
+- ✅ pnpm biome ci clean
+- ✅ pnpm run build clean (full monorepo)
+- ✅ Test suite: 12229 passed / 21 skipped (2 pre-existing flakes in `epic-enforcement.test.ts` + `specialists.test.ts` documented in prior session — not introduced by W1)
+
+### Next: Wave 2 (T1689) — EngineResult unification
+
+Will land as v2026.5.5 after sandbox 7/7 verification of v2026.5.4. Wave 2 implements R1 ACTIVATE recommendation for problemDetails (single-point activation in `cleoErrorToEngineError()` + add field to core's `EngineErrorPayload`), deletes cleo's `_base.ts` `EngineResult` interface duplicate, consolidates 5 duplicate `envelopeToEngineResult` copies, and fixes the round-trip field-loss bug (preserve exitCode/details/fix/alternatives).
+
 ## [2026.5.3] (2026-05-01) — T1684 HOTFIX: daemon crash-loop + Studio bundling
 
 Fixes the v2026.5.2 daemon crash-loop discovered in production. Daemon now starts cleanly, supervises Studio when available, degrades gracefully to `studio: not-available` when not.
