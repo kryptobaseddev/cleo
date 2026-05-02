@@ -10,8 +10,8 @@
  * @epic T1689
  */
 
-import { describe, expect, it } from 'vitest';
 import { engineError, engineSuccess } from '@cleocode/core';
+import { describe, expect, it } from 'vitest';
 import { wrapCoreResult } from '../../adapters/typed.js';
 import { envelopeToEngineResult, wrapResult } from '../_base.js';
 
