@@ -87,6 +87,7 @@
     "directory": "packages/contracts"
   },
   "dependencies": {
+    "zod": "^4.3.6",
     "zod-to-json-schema": "^3.25.2"
   }
 }
