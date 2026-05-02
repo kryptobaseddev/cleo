@@ -15,13 +15,26 @@
  * Internal domain types import from the canonical location above.
  *
  * @task T1446 — strip redundant Params/Result aliases (T1435-W2)
+ * @task T1703 — Fill Result=unknown stubs with canonical typed shapes
  */
 
+import type { ImpactReport } from '../facade.js';
+import type { TaskAnalysisResult, TaskRef } from '../results.js';
 /**
  * Common task types (API contract — matches CLI src/types/task.ts)
  */
 import type { TaskStatus } from '../status-registry.js';
 import type { TaskPriority } from '../task.js';
+import type { TaskRecord } from '../task-record.js';
+import type { ExternalTask, ExternalTaskLink, ReconcileResult } from '../task-sync.js';
+import type {
+  TaskComplexityFactor,
+  TaskDependsResult,
+  TaskLabelInfo,
+  TaskPlanResult,
+  TaskTreeNode,
+  TaskView,
+} from '../tasks.js';
 
 export type { TaskPriority, TaskStatus };
 
@@ -132,21 +145,64 @@ export interface TasksShowParams {
   /** When true, include IVTR phase history. */
   ivtrHistory?: boolean;
 }
-export type TasksShowResult = unknown;
+/**
+ * Result of `tasks.show` — the full task record plus its canonical view
+ * projection. `view` is null when the task has no lifecycle pipeline.
+ *
+ * @task T1703
+ */
+export interface TasksShowResult {
+  /** Full task record (string-widened for dispatch layer serialization). */
+  task: TaskRecord;
+  /** Canonical task view projection produced by `computeTaskView`. Null when unavailable. */
+  view: TaskView | null;
+}
 
 // tasks.tree dispatch params (with optional withBlockers flag — dispatch alias)
 export interface TasksTreeDispatchParams {
   taskId?: string;
   withBlockers?: boolean;
 }
-export type TasksTreeDispatchResult = unknown;
+/**
+ * Result of `tasks.tree` — the hierarchical task tree.
+ *
+ * @task T1703
+ */
+export interface TasksTreeDispatchResult {
+  /** Hierarchical tree of task nodes. */
+  tree: TaskTreeNode[];
+  /** Total number of nodes (tasks) in the tree. */
+  totalNodes: number;
+}
 
 // tasks.blockers dispatch params (with optional analyze/limit)
 export interface TasksBlockersQueryParams {
   analyze?: boolean;
   limit?: number;
 }
-export type TasksBlockersQueryResult = unknown;
+/**
+ * Result of `tasks.blockers` — blocked tasks with blocking chain analysis.
+ *
+ * @task T1703
+ */
+export interface TasksBlockersQueryResult {
+  /** Tasks that are currently blocked. */
+  blockedTasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    depends?: string[];
+    blockingChain: string[];
+  }>;
+  /** Tasks that block the most other tasks (critical path). */
+  criticalBlockers: Array<{ id: string; title: string; blocksCount: number }>;
+  /** Human-readable summary of the blocking situation. */
+  summary: string;
+  /** Total number of blocked tasks. */
+  total: number;
+  /** Maximum number of blocked tasks returned. */
+  limit: number;
+}
 
 // tasks.depends (with action routing for overview/cycles)
 export interface TasksDependsParams {
@@ -155,32 +211,77 @@ export interface TasksDependsParams {
   tree?: boolean;
   action?: 'overview' | 'cycles';
 }
-export type TasksDependsResult = unknown;
+/**
+ * Result of `tasks.depends` — dependency analysis for a task or the full project.
+ *
+ * When `action='overview'` or `action='cycles'` is used, returns a different
+ * shape (overview or cycle-detection result). The base shape covers the
+ * per-task dependency analysis case.
+ *
+ * @task T1703
+ */
+export type TasksDependsResult = TaskDependsResult;
 
 // tasks.analyze dispatch params (with optional taskId and tierLimit)
 export interface TasksAnalyzeQueryParams {
   taskId?: string;
   tierLimit?: number;
 }
-export type TasksAnalyzeQueryResult = unknown;
+/**
+ * Result of `tasks.analyze` — task quality analysis with tier breakdown.
+ *
+ * Extends `TaskAnalysisResult` (from contracts/results.ts) with the
+ * `tierLimit` used for the analysis.
+ *
+ * @task T1703
+ */
+export type TasksAnalyzeQueryResult = TaskAnalysisResult & { tierLimit: number };
 
 // tasks.impact
 export interface TasksImpactParams {
   change: string;
   matchLimit?: number;
 }
-export type TasksImpactResult = unknown;
+/**
+ * Result of `tasks.impact` — impact prediction report for a free-text change.
+ *
+ * @task T1703
+ */
+export type TasksImpactResult = ImpactReport;
 
 // tasks.next dispatch params (with count and explain)
 export interface TasksNextQueryParams {
   count?: number;
   explain?: boolean;
 }
-export type TasksNextQueryResult = unknown;
+/**
+ * Result of `tasks.next` — suggested tasks to work on next.
+ *
+ * @task T1703
+ */
+export interface TasksNextQueryResult {
+  /** Ranked list of suggested tasks. */
+  suggestions: Array<{
+    id: string;
+    title: string;
+    priority: string;
+    phase: string | null;
+    score: number;
+    /** Reasons this task is recommended. Only present when `explain: true`. */
+    reasons?: string[];
+  }>;
+  /** Total number of candidate tasks considered before ranking. */
+  totalCandidates: number;
+}
 
 // tasks.plan
 export type TasksPlanParams = Record<string, never>;
-export type TasksPlanResult = unknown;
+/**
+ * Result of `tasks.plan` — composite planning view.
+ *
+ * @task T1703
+ */
+export type TasksPlanResult = TaskPlanResult;
 
 // tasks.relates (with mode routing for suggest/discover)
 export interface TasksRelatesParams {
@@ -188,55 +289,143 @@ export interface TasksRelatesParams {
   mode?: 'suggest' | 'discover';
   threshold?: number;
 }
-export type TasksRelatesResult = unknown;
+/**
+ * Result of `tasks.relates` — task relations list.
+ *
+ * @task T1703
+ */
+export interface TasksRelatesResult {
+  /** The task ID whose relations were loaded. */
+  taskId: string;
+  /** All relations for this task. */
+  relations: Array<{ taskId: string; type: string; reason?: string }>;
+  /** Total number of relations. */
+  count: number;
+}
 
 // tasks.complexity.estimate
 export interface TasksComplexityEstimateParams {
   taskId: string;
 }
-export type TasksComplexityEstimateResult = unknown;
+/**
+ * Result of `tasks.complexity.estimate` — complexity score breakdown.
+ *
+ * @task T1703
+ */
+export interface TasksComplexityEstimateResult {
+  /** Normalized size category. */
+  size: 'small' | 'medium' | 'large';
+  /** Raw numeric complexity score. */
+  score: number;
+  /** Individual factors contributing to the score. */
+  factors: TaskComplexityFactor[];
+  /** Maximum depth of the dependency graph. */
+  dependencyDepth: number;
+  /** Number of direct subtasks. */
+  subtaskCount: number;
+  /** Number of associated files. */
+  fileCount: number;
+}
 
 // tasks.history
 export interface TasksHistoryParams {
   taskId?: string;
   limit?: number;
 }
-export type TasksHistoryResult = unknown;
+/**
+ * Result of `tasks.history` — audit log entries for a task.
+ *
+ * Each entry is a structured audit record; fields are consistent across
+ * entries but the `details`, `before`, and `after` sub-objects are
+ * operation-specific.
+ *
+ * @task T1703
+ */
+export type TasksHistoryResult = Array<Record<string, unknown>>;
 
 // tasks.label.list
 export type TasksLabelListParams = Record<string, never>;
-export type TasksLabelListResult = unknown;
+/**
+ * Result of `tasks.label.list` — all labels with task counts.
+ *
+ * @task T1703
+ */
+export interface TasksLabelListResult {
+  /** All labels used in active tasks, sorted by count descending. */
+  labels: TaskLabelInfo[];
+  /** Total number of distinct labels. */
+  count: number;
+}
 
 // tasks.sync.links
 export interface TasksSyncLinksParams {
   providerId?: string;
   taskId?: string;
 }
-export type TasksSyncLinksResult = unknown;
+/**
+ * Result of `tasks.sync.links` — external task links for a provider or task.
+ *
+ * @task T1703
+ */
+export interface TasksSyncLinksResult {
+  /** All matching external task links. */
+  links: ExternalTaskLink[];
+  /** Total number of links returned. */
+  count: number;
+}
 
 // tasks.sync.reconcile
 export interface TasksSyncReconcileParams {
   providerId: string;
-  externalTasks: import('../task-sync.js').ExternalTask[];
+  externalTasks: ExternalTask[];
   dryRun?: boolean;
   conflictPolicy?: string;
   defaultPhase?: string;
   defaultLabels?: string[];
 }
-export type TasksSyncReconcileResult = unknown;
+/**
+ * Result of `tasks.sync.reconcile` — reconciliation summary.
+ *
+ * @task T1703
+ */
+export type TasksSyncReconcileResult = ReconcileResult;
 
 // tasks.sync.links.remove
 export interface TasksSyncLinksRemoveParams {
   providerId: string;
 }
-export type TasksSyncLinksRemoveResult = unknown;
+/**
+ * Result of `tasks.sync.links.remove` — count of removed links.
+ *
+ * @task T1703
+ */
+export interface TasksSyncLinksRemoveResult {
+  /** The provider whose links were removed. */
+  providerId: string;
+  /** Number of links removed. */
+  removed: number;
+}
 
 // tasks.cancel
 export interface TasksCancelParams {
   taskId: string;
   reason?: string;
 }
-export type TasksCancelResult = unknown;
+/**
+ * Result of `tasks.cancel` — cancellation confirmation.
+ *
+ * @task T1703
+ */
+export interface TasksCancelResult {
+  /** The task ID that was cancelled. */
+  task: string;
+  /** Whether the cancellation succeeded. */
+  cancelled: boolean;
+  /** The reason for cancellation, if provided. @defaultValue undefined */
+  reason?: string;
+  /** ISO 8601 timestamp of cancellation. */
+  cancelledAt: string;
+}
 
 // tasks.restore (with from routing: done → reopen, archived → unarchive)
 export interface TasksRestoreParams {
@@ -248,7 +437,19 @@ export interface TasksRestoreParams {
   cascade?: boolean;
   notes?: string;
 }
-export type TasksRestoreResult = unknown;
+/**
+ * Result of `tasks.restore` — restore confirmation with cascade details.
+ *
+ * @task T1703
+ */
+export interface TasksRestoreResult {
+  /** The primary task ID that was restored. */
+  task: string;
+  /** All task IDs that were restored (includes cascade). */
+  restored: string[];
+  /** Number of tasks restored. */
+  count: number;
+}
 
 // tasks.reparent (dispatch-level params include newParentId)
 export interface TasksReparentQueryParams {
@@ -256,14 +457,44 @@ export interface TasksReparentQueryParams {
   /** New parent ID, or null/undefined to promote to root. */
   newParentId: string | null | undefined;
 }
-export type TasksReparentDispatchResult = unknown;
+/**
+ * Result of `tasks.reparent` — reparent confirmation.
+ *
+ * @task T1703
+ */
+export interface TasksReparentDispatchResult {
+  /** The task ID that was reparented. */
+  task: string;
+  /** Whether the reparent succeeded. */
+  reparented: boolean;
+  /** Previous parent ID, or null if was root. */
+  oldParent: string | null;
+  /** New parent ID, or null if promoted to root. */
+  newParent: string | null;
+  /** New task type if it changed during reparent. @defaultValue undefined */
+  newType?: string;
+}
 
 // tasks.reorder (dispatch-level params)
 export interface TasksReorderQueryParams {
   taskId: string;
   position: number;
 }
-export type TasksReorderDispatchResult = unknown;
+/**
+ * Result of `tasks.reorder` — reorder confirmation.
+ *
+ * @task T1703
+ */
+export interface TasksReorderDispatchResult {
+  /** The task ID that was reordered. */
+  task: string;
+  /** Whether the reorder succeeded. */
+  reordered: boolean;
+  /** The new position within sibling scope. */
+  newPosition: number;
+  /** Total number of siblings after reorder. */
+  totalSiblings: number;
+}
 
 // tasks.relates.add — relatedId is canonical; targetId kept for backward compat (T5149)
 export interface TasksRelatesAddParams {
@@ -274,7 +505,21 @@ export interface TasksRelatesAddParams {
   type: string;
   reason?: string;
 }
-export type TasksRelatesAddResult = unknown;
+/**
+ * Result of `tasks.relates.add` — relation creation confirmation.
+ *
+ * @task T1703
+ */
+export interface TasksRelatesAddResult {
+  /** Source task ID. */
+  from: string;
+  /** Target (related) task ID. */
+  to: string;
+  /** Relation type (e.g. "blocks", "related-to"). */
+  type: string;
+  /** Whether the relation was newly created (false if it already existed). */
+  added: boolean;
+}
 
 // tasks.add (dispatch-level params — extends TasksCreateParams)
 export interface TasksAddParams {
@@ -308,7 +553,21 @@ export interface TasksAddParams {
    */
   forceDuplicate?: boolean;
 }
-export type TasksAddResult = unknown;
+/**
+ * Result of `tasks.add` — the newly created task.
+ *
+ * @task T1703
+ */
+export interface TasksAddResult {
+  /** The created task record. */
+  task: TaskRecord;
+  /** Whether a duplicate was detected (but bypassed via forceDuplicate). */
+  duplicate: boolean;
+  /** Whether this was a dry run (task not actually saved). @defaultValue undefined */
+  dryRun?: boolean;
+  /** Non-blocking validation warnings. @defaultValue undefined */
+  warnings?: string[];
+}
 
 // tasks.update (dispatch-level params — extends TasksUpdateParams)
 export interface TasksUpdateQueryParams {
@@ -332,7 +591,17 @@ export interface TasksUpdateQueryParams {
   files?: string[];
   pipelineStage?: string;
 }
-export type TasksUpdateQueryResult = unknown;
+/**
+ * Result of `tasks.update` — the updated task record with change list.
+ *
+ * @task T1703
+ */
+export interface TasksUpdateQueryResult {
+  /** Updated task record. */
+  task: TaskRecord;
+  /** Human-readable list of fields that were changed. @defaultValue undefined */
+  changes?: string[];
+}
 
 // tasks.complete (dispatch-level params)
 export interface TasksCompleteQueryParams {
@@ -352,14 +621,38 @@ export interface TasksCompleteQueryParams {
   /** Reason for acknowledging CRITICAL nexus impact risk (bypasses nexusImpact gate). */
   acknowledgeRisk?: string;
 }
-export type TasksCompleteQueryResult = unknown;
+/**
+ * Result of `tasks.complete` — completion confirmation with unblocked tasks.
+ *
+ * @task T1703
+ */
+export interface TasksCompleteQueryResult {
+  /** The completed task record. */
+  task: TaskRecord;
+  /** IDs of parent epics that were automatically completed. @defaultValue undefined */
+  autoCompleted?: string[];
+  /** Tasks that became unblocked by this completion. @defaultValue undefined */
+  unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
+}
 
 // tasks.delete (dispatch-level params)
 export interface TasksDeleteQueryParams {
   taskId: string;
   force?: boolean;
 }
-export type TasksDeleteQueryResult = unknown;
+/**
+ * Result of `tasks.delete` — deletion confirmation with cascade details.
+ *
+ * @task T1703
+ */
+export interface TasksDeleteQueryResult {
+  /** The deleted task record. */
+  deletedTask: TaskRecord;
+  /** Whether the deletion was applied (always true on success). */
+  deleted: boolean;
+  /** IDs of child tasks cascade-deleted along with the parent. @defaultValue undefined */
+  cascadeDeleted?: string[];
+}
 
 // tasks.archive (dispatch-level params)
 export interface TasksArchiveQueryParams {
@@ -369,30 +662,78 @@ export interface TasksArchiveQueryParams {
   includeCancelled?: boolean;
   dryRun?: boolean;
 }
-export type TasksArchiveQueryResult = unknown;
+/**
+ * Result of `tasks.archive` — archive operation summary.
+ *
+ * @task T1703
+ */
+export interface TasksArchiveQueryResult {
+  /** Number of tasks archived. */
+  archivedCount: number;
+  /** IDs of tasks that were archived. */
+  archivedTasks: Array<{ id: string }>;
+}
 
 // tasks.claim
 export interface TasksClaimParams {
   taskId: string;
   agentId: string;
 }
-export type TasksClaimResult = unknown;
+/**
+ * Result of `tasks.claim` — agent claim confirmation.
+ *
+ * @task T1703
+ */
+export interface TasksClaimResult {
+  /** The task ID that was claimed. */
+  taskId: string;
+  /** The agent ID that now holds the claim. */
+  agentId: string;
+}
 
 // tasks.unclaim
 export interface TasksUnclaimParams {
   taskId: string;
 }
-export type TasksUnclaimResult = unknown;
+/**
+ * Result of `tasks.unclaim` — agent release confirmation.
+ *
+ * @task T1703
+ */
+export interface TasksUnclaimResult {
+  /** The task ID whose claim was released. */
+  taskId: string;
+}
 
 // tasks.start (dispatch-level)
 export interface TasksStartQueryParams {
   taskId: string;
 }
-export type TasksStartQueryResult = unknown;
+/**
+ * Result of `tasks.start` — work-start confirmation.
+ *
+ * @task T1703
+ */
+export interface TasksStartQueryResult {
+  /** The task ID that is now active. */
+  taskId: string;
+  /** The task ID that was previously active (auto-stopped), or null. */
+  previousTask: string | null;
+}
 
 // tasks.stop (dispatch-level)
 export type TasksStopQueryParams = Record<string, never>;
-export type TasksStopQueryResult = unknown;
+/**
+ * Result of `tasks.stop` — work-stop confirmation.
+ *
+ * @task T1703
+ */
+export interface TasksStopQueryResult {
+  /** Whether the active task was successfully cleared. */
+  cleared: boolean;
+  /** The task ID that was active before stopping, or null if none. */
+  previousTask: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Typed operation record (Wave D adapter — T1425)
