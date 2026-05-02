@@ -10,7 +10,7 @@
  * @task T975 — typed-dispatch migration (Wave D · T962)
  */
 
-import type { Session } from '../session.js';
+import type { Session, SessionStartResult } from '../session.js';
 import type { MemoryCompactHit, RetrievalBundle } from './memory.js';
 
 // ---------------------------------------------------------------------------
@@ -418,9 +418,6 @@ export interface SessionStartParams {
    */
   ownerAuthToken?: string;
 }
-/** Result of `session.start` — the newly created session. */
-export type SessionStartResult = Session;
-
 // session.end
 /** Parameters for `session.end`. */
 export interface SessionEndParams {
