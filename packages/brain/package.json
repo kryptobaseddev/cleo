@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/brain",
-  "version": "2026.5.4",
+  "version": "2026.5.5",
   "private": false,
   "type": "module",
   "description": "CLEO unified-graph Brain substrate — BRAIN + NEXUS + TASKS + CONDUIT + SIGNALDOCK projection",
