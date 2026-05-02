@@ -1,5 +1,28 @@
 # Changelog
 
+## [2026.5.7] (2026-05-02) — T1689 hotfix-2: tsc project-reference fix for contracts → lafs
+
+Hotfix on hotfix. v2026.5.6 closed 12 type errors locally but CI's `Type Check` job still failed on a pre-existing issue:
+
+```
+packages/contracts/src/lafs.ts:35,142 — Cannot find module '@cleocode/lafs'
+```
+
+W1 (T1706) added a re-export of LAFS types from `@cleocode/lafs` into `packages/contracts/src/lafs.ts`, but `packages/contracts/tsconfig.json` did not declare `@cleocode/lafs` as a project reference. Locally the dist existed (built by prior `pnpm run build`); CI's `pnpm run typecheck` (just `tsc -b`) on a fresh checkout couldn't resolve it.
+
+### Fix
+
+- **`packages/contracts/tsconfig.json`**: Added `references: [{ "path": "../lafs/tsconfig.build.json" }]` so `tsc -b` builds `@cleocode/lafs` before contracts.
+
+### CI-parity verification
+
+```
+rm -rf packages/*/dist
+find packages -name "*.tsbuildinfo" -delete
+pnpm run typecheck   # exit 0 — no dist, no tsbuildinfo, fresh tsc -b
+pnpm run build       # exit 0
+```
+
 ## [2026.5.6] (2026-05-02) — T1689 hotfix: typecheck regressions exposed by W2
 
 Hotfix for v2026.5.5. Wave 2 closed multiple typecheck regressions that local `pnpm run build` (esbuild) missed but CI's `tsc -b` (project-references, strict) caught:
