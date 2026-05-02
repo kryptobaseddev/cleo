@@ -2,7 +2,7 @@
  * emit-schemas.mjs — JSON Schema emitter for @cleocode/contracts
  *
  * Emits JSON Schema files at packages/contracts/schemas/*.schema.json
- * for LLM agent consumption via zod-to-json-schema.
+ * for LLM agent consumption. Uses Zod v4's native toJSONSchema() method.
  *
  * Schemas emitted:
  *   - Task            → task.schema.json          (built from Zod-compatible subset)
@@ -13,19 +13,19 @@
  *
  * @epic T760
  * @task T803
+ * @fix T1702 — replaced broken zod-to-json-schema (Zod v3 only) with native Zod v4 toJSONSchema()
  */
 
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 
-// ─── Locate the dist directory (built schemas from compiled output) ───────────
+// ─── Locate the schemas output directory ─────────────────────────────────────
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const schemasDir = resolve(__dirname, '..', 'schemas');
 
-// Import schemas from compiled dist (this script runs post-build)
+// Import Zod schemas from compiled dist (this script runs post-build)
 const {
   acceptanceGateSchema,
   acceptanceGateResultSchema,
@@ -93,15 +93,25 @@ const schemaMap = {
 
 mkdirSync(schemasDir, { recursive: true });
 
+/** @param {unknown} schema */
+function toJsonSchema(schema) {
+  // Zod v4 exposes toJSONSchema() natively — use it directly.
+  // This replaces the broken zod-to-json-schema v3 bridge which returned
+  // empty `{}` stubs for every Zod v4 schema object (T1702).
+  if (schema && typeof schema === 'object' && typeof schema.toJSONSchema === 'function') {
+    return schema.toJSONSchema({ unrepresentable: 'any' });
+  }
+  throw new Error(
+    `Schema does not expose toJSONSchema(). ` +
+    `Ensure all schemas are Zod v4 objects (zod >= 4.0.0).`,
+  );
+}
+
 let emitted = 0;
 for (const [filename, { schema, title, description }] of Object.entries(schemaMap)) {
-  const jsonSchema = zodToJsonSchema(schema, {
-    name: title,
-    $refStrategy: 'none', // inline all refs for portability
-    markdownDescription: true,
-  });
+  const jsonSchema = toJsonSchema(schema);
 
-  // Augment top-level metadata
+  // Augment top-level metadata (title/description may not be in the Zod schema itself)
   const output = {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     title,

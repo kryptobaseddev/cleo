@@ -1,9 +1,240 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "GateResult",
   "description": "Result of running one acceptance gate — persisted to lifecycle_gate_results",
-  "$ref": "#/definitions/GateResult",
-  "definitions": {
-    "GateResult": {}
-  }
+  "type": "object",
+  "properties": {
+    "index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "req": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "test",
+        "file",
+        "command",
+        "lint",
+        "http",
+        "manual"
+      ]
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "warn",
+        "skipped",
+        "error"
+      ]
+    },
+    "durationMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "details": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "test"
+            },
+            "exitCode": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "stdout": {
+              "type": "string"
+            },
+            "stderr": {
+              "type": "string"
+            },
+            "duration": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "exitCode",
+            "stdout",
+            "stderr",
+            "duration"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "file"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "passedAssertions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "failedAssertions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "passedAssertions",
+            "failedAssertions"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "command"
+            },
+            "cmd": {
+              "type": "string",
+              "minLength": 1
+            },
+            "exitCode": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "stdout": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "cmd",
+            "exitCode",
+            "stdout"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "lint"
+            },
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            },
+            "warnings": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "errors": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "kind",
+            "tool",
+            "warnings",
+            "errors"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "http"
+            },
+            "url": {
+              "type": "string"
+            },
+            "status": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            },
+            "body": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url",
+            "status",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "manual"
+            },
+            "prompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "accepted": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "prompt",
+            "accepted"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "evidence": {
+      "type": "string"
+    },
+    "errorMessage": {
+      "type": "string"
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+    },
+    "checkedBy": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "index",
+    "kind",
+    "result",
+    "durationMs",
+    "checkedAt",
+    "checkedBy"
+  ],
+  "additionalProperties": false
 }
