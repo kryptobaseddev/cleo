@@ -7,60 +7,52 @@
  *
  * @epic T5671
  * @task T1427 — typed param narrowing helpers (Wave D · T962)
+ * @task T1709 — delete local EngineResult duplicate, import from @cleocode/core
  */
 
-import type { ProblemDetails } from '@cleocode/core';
+import type { EngineResult } from '@cleocode/core';
 import type { DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 
-/**
- * Engine result shape accepted by wrapResult.
- * Matches the union of what all engine functions return.
- */
-export interface EngineResult {
-  success: boolean;
-  data?: unknown;
-  page?: import('@cleocode/lafs').LAFSPage;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-    exitCode?: number;
-    fix?: string;
-    alternatives?: Array<{ action: string; command: string }>;
-    problemDetails?: ProblemDetails;
-  };
-}
+// Re-export so existing domain files that import EngineResult via _base.ts keep resolving.
+export type { EngineResult } from '@cleocode/core';
 
 /**
  * Wrap a native engine result into a DispatchResponse.
  * Handles success data, page metadata, and structured errors.
+ *
+ * Accepts the canonical discriminated-union {@link EngineResult} from
+ * `@cleocode/core`.  Branches on `result.success` so TypeScript narrows
+ * each side of the union correctly (no `data` on failure, no `error` on
+ * success).
  */
 export function wrapResult(
-  result: EngineResult,
+  result: EngineResult<unknown>,
   gateway: string,
   domain: string,
   operation: string,
   startTime: number,
 ): DispatchResponse {
+  if (result.success) {
+    return {
+      meta: dispatchMeta(gateway, domain, operation, startTime),
+      success: true,
+      data: result.data,
+      ...(result.page ? { page: result.page } : {}),
+    };
+  }
   return {
     meta: dispatchMeta(gateway, domain, operation, startTime),
-    success: result.success,
-    ...(result.success ? { data: result.data } : {}),
-    ...(result.page ? { page: result.page } : {}),
-    ...(result.error
-      ? {
-          error: {
-            code: result.error.code,
-            message: result.error.message,
-            details: result.error.details as Record<string, unknown> | undefined,
-            exitCode: result.error.exitCode,
-            fix: result.error.fix,
-            alternatives: result.error.alternatives,
-            ...(result.error.problemDetails ? { problemDetails: result.error.problemDetails } : {}),
-          },
-        }
-      : {}),
+    success: false,
+    error: {
+      code: result.error.code,
+      message: result.error.message,
+      details: result.error.details as Record<string, unknown> | undefined,
+      exitCode: result.error.exitCode,
+      fix: result.error.fix,
+      alternatives: result.error.alternatives,
+      ...(result.error.problemDetails ? { problemDetails: result.error.problemDetails } : {}),
+    },
   };
 }
 
