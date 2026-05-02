@@ -1,5 +1,42 @@
 # Changelog
 
+## [2026.5.5] (2026-05-02) — T-CSL-RESET Wave 2: EngineResult unification
+
+Second wave of T-CSL-RESET. Eliminates the parallel-shape divergence between cleo's local `EngineResult` interface and `@cleocode/core`'s canonical type, activates RFC 7807 problem-details across the error path, consolidates 5 duplicate `envelopeToEngineResult` copies into one canonical helper, and fixes the silent field-loss bug across the EngineResult ↔ LafsEnvelope ↔ DispatchResponse round-trip.
+
+### R1 ACTIVATE — RFC 7807 problem details (T1707, T1708)
+
+- **T1707**: Added optional `problemDetails?: ProblemDetails` field to `@cleocode/core`'s `EngineErrorPayload`. Reused existing RFC 9457 `ProblemDetails` type from `errors.ts` rather than duplicating. Foundation task — additive, zero breaking impact.
+- **T1708**: Wired `problemDetails` in `cleoErrorToEngineError()` (single-point activation). Every CleoError now carries RFC 7807-compliant fields: `type` (namespace URI), `title` (codeName), `status` (exitCode), `detail` (message), `instance` (requestId from meta). 6 new round-trip tests verify full propagation.
+
+### Single canonical EngineResult (T1709)
+
+- **T1709**: DELETED the parallel `interface EngineResult<T>` in `packages/cleo/src/dispatch/domains/_base.ts`. Now imports from `@cleocode/core` and re-exports for backwards compatibility. `wrapResult()` rewritten to use the canonical discriminated-union type so TypeScript narrows `data`/`error` correctly. All field shapes from the deleted local interface covered by core's `EngineResult` / `EngineErrorPayload`.
+
+### Helper consolidation (T1710, T1711)
+
+- **T1710**: Extracted canonical `envelopeToEngineResult` to `_base.ts`; removed local copies from `admin.ts` and `conduit.ts`.
+- **T1711**: Removed local copies from `sentient.ts`, `session.ts`, and `tasks.ts`. Helper supports `LAFSPage` for pagination.
+
+### Round-trip field-loss fix (T1712)
+
+- **T1712**: Canonical `envelopeToEngineResult` in `_base.ts` now preserves `exitCode`, `details`, `fix`, `alternatives`, and `problemDetails` across the LafsEnvelope hop (previously silently dropped). `wrapCoreResult` in `typed.ts` updated to propagate fields onto the LafsError object so they survive the round-trip. New `round-trip-fields.test.ts` adds 12 assertions covering the full EngineResult → LafsEnvelope → EngineResult → DispatchResponse pipeline.
+
+### Wave 2 acceptance gates (all green)
+
+- ✅ Only one `EngineResult<T>` in source (cleo `_base.ts` interface DELETED, re-export retained)
+- ✅ R1 ACTIVATE implemented — `problemDetails` populated in `cleoErrorToEngineError()`
+- ✅ 5 duplicate `envelopeToEngineResult` copies consolidated into one canonical helper in `_base.ts`
+- ✅ Field-loss bug fixed — `exitCode`/`details`/`fix`/`alternatives`/`problemDetails` preserved through round-trip
+- ✅ Round-trip lossless verified by `round-trip-fields.test.ts` (12 assertions)
+- ✅ `pnpm biome ci .` clean
+- ✅ `pnpm run build` clean (full monorepo)
+- ✅ Test suite: 12249 passed / 21 skipped / 35 todo (1 pre-existing flake in `pipeline-stage.test.ts` "database is not open" — unrelated to W2; W2 doesn't touch tasks/store paths)
+
+### Next: Wave 3 (T1690) — Migrate cleo inline types to contracts
+
+Will land as v2026.5.6. 10 cleo dispatch types migrate to contracts; 15+ contracts coverage gaps filled (HealthReport, BackfillResult, retry types, etc.); 88 contracts+core type duplicates removed.
+
 ## [2026.5.4] (2026-05-02) — T-CSL-RESET Wave 1: Contracts canonicalization
 
 First wave of the T-CSL-RESET (Contracts/SDK/LAFS Reset) epic. Foundation wave — contracts package is now the single SSoT for all shared types, with zero internal conflicts and unified LAFS shape boundary.
