@@ -19,6 +19,22 @@
  * @see packages/cleo/src/dispatch/domains/nexus.ts
  */
 
+// API contract result types (T1065)
+import type { ContractCompatibilityMatrix } from '../nexus-contract-ops.js';
+// Living-brain result types (T1068)
+import type {
+  CodeAnchorResult,
+  CodeReasonTrace,
+  ImpactFullReport,
+  SymbolFullContext,
+  TaskCodeImpact,
+} from '../nexus-living-brain-ops.js';
+// CTE query result type (T1057)
+import type { NexusCteResult } from '../nexus-query-ops.js';
+// Route analysis result types (T1064)
+import type { RouteMapResult, ShapeCheckResult } from '../nexus-route-ops.js';
+// Task-symbol bridge result types (T1067)
+import type { GitLogLinkerResult, SymbolReference } from '../nexus-tasks-bridge-ops.js';
 // NexusWikiResult is canonical in nexus-wiki-ops.ts (T1699 dedup)
 import type { NexusWikiResult } from '../nexus-wiki-ops.js';
 // Profile types are now canonical in nexus-user-profile.ts (T1424 dedup)
@@ -736,8 +752,42 @@ export interface NexusAugmentParams {
   /** Max results (default 5). */
   limit?: number;
 }
+/**
+ * A single augmented symbol result from `nexus.augment` / `nexus.search-code`.
+ *
+ * Mirrors the AugmentResult shape produced by core's augmentSymbol().
+ */
+export interface NexusAugmentSymbol {
+  /** Nexus node ID. */
+  id: string;
+  /** Human-readable symbol name. */
+  label: string;
+  /** Node kind (function, method, class, …). */
+  kind: string;
+  /** Source file path (relative to project root), or undefined. */
+  filePath?: string;
+  /** Start line (1-based), or undefined. */
+  startLine?: number;
+  /** End line (1-based), or undefined. */
+  endLine?: number;
+  /** Count of callers of this symbol. */
+  callersCount: number;
+  /** Count of callees (symbols this one calls). */
+  calleesCount: number;
+  /** Louvain community ID, or undefined. */
+  communityId?: number;
+  /** Size of the community, or undefined. */
+  communitySize?: number;
+}
 /** Result of `nexus.augment`. */
-export type NexusAugmentResult = unknown;
+export interface NexusAugmentResult {
+  /** Search pattern that was applied. */
+  pattern: string;
+  /** Ranked matching symbols. */
+  results: NexusAugmentSymbol[];
+  /** Human-readable plain-text rendering of the results. */
+  text: string;
+}
 
 /** Parameters for `nexus.top-entries`. */
 export interface NexusTopEntriesParams {
@@ -829,48 +879,90 @@ export interface NexusFullContextParams {
   /** Symbol name (required). */
   symbol: string;
 }
-/** Result of `nexus.full-context`. */
-export type NexusFullContextResult = unknown;
+/**
+ * Result of `nexus.full-context`.
+ *
+ * Cross-substrate context for a code symbol: callers/callees, brain memories,
+ * tasks, sentient proposals, and conduit threads.
+ *
+ * @see SymbolFullContext in nexus-living-brain-ops.ts (T1068)
+ */
+export type NexusFullContextResult = SymbolFullContext;
 
 /** Parameters for `nexus.task-footprint`. */
 export interface NexusTaskFootprintParams {
   /** Task ID (required). */
   taskId: string;
 }
-/** Result of `nexus.task-footprint`. */
-export type NexusTaskFootprintResult = unknown;
+/**
+ * Result of `nexus.task-footprint`.
+ *
+ * Code impact analysis for a task: files, symbols, blast radius,
+ * brain observations, decisions, and risk tier.
+ *
+ * @see TaskCodeImpact in nexus-living-brain-ops.ts (T1068)
+ */
+export type NexusTaskFootprintResult = TaskCodeImpact;
 
 /** Parameters for `nexus.brain-anchors`. */
 export interface NexusBrainAnchorsParams {
   /** Entry ID (required). */
   entryId: string;
 }
-/** Result of `nexus.brain-anchors`. */
-export type NexusBrainAnchorsResult = unknown;
+/**
+ * Result of `nexus.brain-anchors`.
+ *
+ * Nexus nodes anchored to a brain memory entry via code-reference edges,
+ * and tasks that touched those nodes.
+ *
+ * @see CodeAnchorResult in nexus-living-brain-ops.ts (T1068)
+ */
+export type NexusBrainAnchorsResult = CodeAnchorResult;
 
 /** Parameters for `nexus.why`. */
 export interface NexusWhyParams {
   /** Symbol name (required). */
   symbol: string;
 }
-/** Result of `nexus.why`. */
-export type NexusWhyResult = unknown;
+/**
+ * Result of `nexus.why`.
+ *
+ * Causal trace from a code symbol through brain decisions to tasks:
+ * symbolId, narrative, and chain of reasoning steps.
+ *
+ * @see CodeReasonTrace in nexus-living-brain-ops.ts (T1069)
+ */
+export type NexusWhyResult = CodeReasonTrace;
 
 /** Parameters for `nexus.impact-full`. */
 export interface NexusImpactFullParams {
   /** Symbol name (required). */
   symbol: string;
 }
-/** Result of `nexus.impact-full`. */
-export type NexusImpactFullResult = unknown;
+/**
+ * Result of `nexus.impact-full`.
+ *
+ * Full merged impact report for a code symbol: structural blast radius,
+ * open tasks, brain risk notes, merged risk score, and narrative.
+ *
+ * @see ImpactFullReport in nexus-living-brain-ops.ts (T1069)
+ */
+export type NexusImpactFullResult = ImpactFullReport;
 
 /** Parameters for `nexus.route-map`. */
 export interface NexusRouteMapParams {
   /** Project ID (optional, auto-generated from projectRoot). */
   projectId?: string;
 }
-/** Result of `nexus.route-map`. */
-export type NexusRouteMapResult = unknown;
+/**
+ * Result of `nexus.route-map`.
+ *
+ * All route nodes with their handlers, downstream dependencies,
+ * and distinct fetched modules.
+ *
+ * @see RouteMapResult in nexus-route-ops.ts (T1064)
+ */
+export type NexusRouteMapResult = RouteMapResult;
 
 /** Parameters for `nexus.shape-check`. */
 export interface NexusShapeCheckParams {
@@ -879,8 +971,15 @@ export interface NexusShapeCheckParams {
   /** Project ID (optional, auto-generated from projectRoot). */
   projectId?: string;
 }
-/** Result of `nexus.shape-check`. */
-export type NexusShapeCheckResult = unknown;
+/**
+ * Result of `nexus.shape-check`.
+ *
+ * Route's declared response shape versus all callers' expected shapes:
+ * compatibility verdict and recommendation.
+ *
+ * @see ShapeCheckResult in nexus-route-ops.ts (T1064)
+ */
+export type NexusShapeCheckResult = ShapeCheckResult;
 
 /** Parameters for `nexus.search-code`. */
 export interface NexusSearchCodeParams {
@@ -889,8 +988,13 @@ export interface NexusSearchCodeParams {
   /** Max results (default 10). */
   limit?: number;
 }
-/** Result of `nexus.search-code`. */
-export type NexusSearchCodeResult = unknown;
+/**
+ * Result of `nexus.search-code`.
+ *
+ * Same shape as `NexusAugmentResult` — nexusSearchCode delegates
+ * directly to nexusAugment in core (T1061).
+ */
+export type NexusSearchCodeResult = NexusAugmentResult;
 
 /** Parameters for `nexus.wiki`. */
 export interface NexusWikiParams {
@@ -911,8 +1015,15 @@ export interface NexusContractsShowParams {
   /** Project B identifier (required). */
   projectB: string;
 }
-/** Result of `nexus.contracts-show`. */
-export type NexusContractsShowResult = unknown;
+/**
+ * Result of `nexus.contracts-show`.
+ *
+ * Compatibility matrix between two projects' HTTP/gRPC/topic contracts:
+ * matched contracts, counts, and overall compatibility percentage.
+ *
+ * @see ContractCompatibilityMatrix in nexus-contract-ops.ts (T1065)
+ */
+export type NexusContractsShowResult = ContractCompatibilityMatrix;
 
 /** Parameters for `nexus.task-symbols`. */
 export interface NexusTaskSymbolsParams {
@@ -920,7 +1031,14 @@ export interface NexusTaskSymbolsParams {
   taskId: string;
 }
 /** Result of `nexus.task-symbols`. */
-export type NexusTaskSymbolsResult = unknown;
+export interface NexusTaskSymbolsResult {
+  /** Task ID that was queried. */
+  taskId: string;
+  /** Count of symbols found. */
+  count: number;
+  /** Code symbols touched by this task (via task_touches_symbol forward-lookup). */
+  symbols: SymbolReference[];
+}
 
 /** Parameters for `nexus.sigil.list`. */
 export interface NexusSigilListParams {
@@ -938,12 +1056,30 @@ export interface NexusSigilListResult {
 /** Parameters for `nexus.sigil.sync` — none. */
 export type NexusSigilSyncParams = Record<string, never>;
 /** Result of `nexus.sigil.sync`. */
-export type NexusSigilSyncResult = unknown;
+export interface NexusSigilSyncResult {
+  /** Total number of sigils upserted (created + updated). */
+  count: number;
+  /** Peer IDs that were upserted, sorted alphabetically. */
+  peerIds: string[];
+  /** Absolute path to the seed-agents directory used for the sync (or null). */
+  seedAgentsDir: string | null;
+  /** Absolute path to the cleo-subagent.cant file used for the sync (or null). */
+  cleoSubagentFile: string | null;
+  /** Absolute path to the meta agents directory used for the sync (or null). */
+  metaDir: string | null;
+  /** Warnings encountered during sync (missing files, parse failures). */
+  warnings: string[];
+}
 
 /** Parameters for `nexus.conduit-scan`. */
 export type NexusConduitScanParams = Record<string, never>;
 /** Result of `nexus.conduit-scan`. */
-export type NexusConduitScanResult = unknown;
+export interface NexusConduitScanResult {
+  /** Count of conduit messages scanned. */
+  scanned: number;
+  /** Count of conduit_mentions_symbol edges written. */
+  linked: number;
+}
 
 /** Parameters for `nexus.contracts-sync`. */
 export interface NexusContractsSyncParams {
@@ -953,7 +1089,20 @@ export interface NexusContractsSyncParams {
   projectId?: string;
 }
 /** Result of `nexus.contracts-sync`. */
-export type NexusContractsSyncResult = unknown;
+export interface NexusContractsSyncResult {
+  /** Project ID that was synced. */
+  projectId: string;
+  /** Absolute repository path that was analyzed. */
+  repoPath: string;
+  /** Count of HTTP contracts extracted. */
+  http: number;
+  /** Count of gRPC contracts extracted. */
+  grpc: number;
+  /** Count of pub/sub topic contracts extracted. */
+  topic: number;
+  /** Total contracts extracted (http + grpc + topic). */
+  totalCount: number;
+}
 
 /** Parameters for `nexus.contracts-link-tasks`. */
 export interface NexusContractsLinkTasksParams {
@@ -962,8 +1111,15 @@ export interface NexusContractsLinkTasksParams {
   /** Project ID (optional). */
   projectId?: string;
 }
-/** Result of `nexus.contracts-link-tasks`. */
-export type NexusContractsLinkTasksResult = unknown;
+/**
+ * Result of `nexus.contracts-link-tasks`.
+ *
+ * Outcome of the git-log linker sweep that links contracts to tasks via
+ * task_touches_symbol edges.
+ *
+ * @see GitLogLinkerResult in nexus-tasks-bridge-ops.ts (T1067)
+ */
+export type NexusContractsLinkTasksResult = GitLogLinkerResult;
 
 // ============================================================================
 // T1510 — Phase 2 dispatch ops (clusters, flows, context, projects.*, diff,
@@ -1026,13 +1182,95 @@ export interface NexusContextParams {
   /** When true, fetch source code content. */
   content?: boolean;
 }
+/** A single caller or callee relationship from `nexus.context`. */
+export interface NexusContextRelation {
+  /** Relation type (calls, imports, accesses). */
+  relationType: string;
+  /** Node ID of the related symbol. */
+  nodeId: string | null;
+  /** Human-readable symbol name. */
+  name: string;
+  /** Node kind (function, method, class, …). */
+  kind: string;
+  /** Relative file path, or null. */
+  filePath: string | null;
+}
+
+/** Process participation entry from `nexus.context`. */
+export interface NexusContextProcess {
+  /** Process node ID. */
+  processId: string | null;
+  /** Human-readable process label. */
+  label: string | null;
+  /** Role of this symbol in the process. */
+  role: string;
+  /** Step order within the process, or null. */
+  step: number | null;
+}
+
+/** Extracted source code content for a symbol. */
+export interface NexusContextSourceContent {
+  /** Extracted source text. */
+  source: string;
+  /** Start line (1-based). */
+  startLine: number;
+  /** End line (1-based). */
+  endLine: number;
+  /** Any parse errors encountered. */
+  errors: string[];
+}
+
+/** Per-node context entry from `nexus.context`. */
+export interface NexusContextNode {
+  /** Node ID. */
+  nodeId: string;
+  /** Symbol name. */
+  name: string | null;
+  /** Node kind (function, method, class, …). */
+  kind: string | null;
+  /** Relative file path. */
+  filePath: string | null;
+  /** Start line (1-based), or null. */
+  startLine: number | null;
+  /** End line (1-based), or null. */
+  endLine: number | null;
+  /** Whether the symbol is exported. */
+  isExported: boolean | null;
+  /** One-line doc summary (if present). */
+  docSummary: string | null;
+  /** Community membership, or null. */
+  community: { id: string | null; label: string | null } | null;
+  /** Incoming call/import edges (callers). */
+  callers: NexusContextRelation[];
+  /** Outgoing call/import edges (callees). */
+  callees: NexusContextRelation[];
+  /** Process participation records. */
+  processes: NexusContextProcess[];
+  /** Source content (populated when opts.showContent is true). */
+  source?: NexusContextSourceContent;
+}
+
 /** Result of `nexus.context`. */
-export type NexusContextResult = unknown;
+export interface NexusContextResult {
+  /** Original symbol query. */
+  query: string;
+  /** Project ID. */
+  projectId: string;
+  /** Total matching nodes count. */
+  matchCount: number;
+  /** Per-node context entries (up to 5). */
+  results: NexusContextNode[];
+}
 
 /** Parameters for `nexus.projects.list`. */
 export type NexusProjectsListParams = Record<string, never>;
 /** Result of `nexus.projects.list`. */
-export type NexusProjectsListResult = unknown;
+export interface NexusProjectsListResult {
+  /** All registered projects. */
+  projects: NexusProjectRecord[];
+  /** Count of projects returned. */
+  count: number;
+}
 
 /** Parameters for `nexus.projects.register`. */
 export interface NexusProjectsRegisterParams {
@@ -1068,8 +1306,28 @@ export interface NexusProjectsScanParams {
   /** Also report already-registered projects. */
   includeExisting?: boolean;
 }
+/** Auto-register error entry from `nexus.projects.scan`. */
+export interface NexusScanAutoRegisterError {
+  /** Project path that failed to auto-register. */
+  path: string;
+  /** Error message. */
+  error: string;
+}
 /** Result of `nexus.projects.scan`. */
-export type NexusProjectsScanResult = unknown;
+export interface NexusProjectsScanResult {
+  /** Search roots actually walked. */
+  roots: string[];
+  /** Unregistered project paths found. */
+  unregistered: string[];
+  /** Already-registered project paths (only populated when includeExisting). */
+  registered: string[];
+  /** Summary counts. */
+  tally: { total: number; unregistered: number; registered: number };
+  /** Paths auto-registered (only when autoRegister). */
+  autoRegistered: string[];
+  /** Auto-register errors (only when autoRegister). */
+  autoRegisterErrors: NexusScanAutoRegisterError[];
+}
 
 /** Parameters for `nexus.projects.clean`. */
 export interface NexusProjectsCleanParams {
@@ -1087,7 +1345,20 @@ export interface NexusProjectsCleanParams {
   matchNeverIndexed?: boolean;
 }
 /** Result of `nexus.projects.clean`. */
-export type NexusProjectsCleanResult = unknown;
+export interface NexusProjectsCleanResult {
+  /** Whether this was a dry-run (no deletions performed). */
+  dryRun: boolean;
+  /** Number of rows matching criteria. */
+  matched: number;
+  /** Number of rows actually deleted (0 when dryRun is true). */
+  purged: number;
+  /** Rows remaining after deletion. */
+  remaining: number;
+  /** Sample of matched project paths (first 10). */
+  sample: string[];
+  /** Total registry rows scanned. */
+  totalCount: number;
+}
 
 /** Parameters for `nexus.refresh-bridge`. */
 export interface NexusRefreshBridgeParams {
@@ -1115,8 +1386,49 @@ export interface NexusDiffParams {
   /** Override the project ID. */
   projectId?: string;
 }
+/** Health classification for a nexus index diff result. */
+export type NexusDiffHealth =
+  | 'STABLE'
+  | 'RELATIONS_ADDED'
+  | 'RELATIONS_REDUCED'
+  | 'REGRESSIONS_DETECTED';
 /** Result of `nexus.diff`. */
-export type NexusDiffResult = unknown;
+export interface NexusDiffResult {
+  /** Resolved "before" ref. */
+  beforeRef: string;
+  /** Resolved "after" ref. */
+  afterRef: string;
+  /** Short SHA for beforeRef. */
+  beforeSha: string;
+  /** Short SHA for afterRef. */
+  afterSha: string;
+  /** Project ID. */
+  projectId: string;
+  /** Absolute repository path. */
+  repoPath: string;
+  /** Changed files detected between the refs. */
+  changedFiles: string[];
+  /** Node count before the incremental run. */
+  nodesBefore: number;
+  /** Node count after. */
+  nodesAfter: number;
+  /** New nodes added. */
+  newNodes: number;
+  /** Nodes removed. */
+  removedNodes: number;
+  /** Relation count before. */
+  relationsBefore: number;
+  /** Relation count after. */
+  relationsAfter: number;
+  /** New relations added. */
+  newRelations: number;
+  /** Relations removed. */
+  removedRelations: number;
+  /** Health classification. */
+  healthStatus: NexusDiffHealth;
+  /** Regression messages (empty if none). */
+  regressions: string[];
+}
 
 /** Parameters for `nexus.query-cte`. */
 export interface NexusQueryCteParams {
@@ -1125,8 +1437,15 @@ export interface NexusQueryCteParams {
   /** Positional parameters for the CTE (optional). */
   params?: string[];
 }
-/** Result of `nexus.query-cte`. */
-export type NexusQueryCteResult = unknown;
+/**
+ * Result of `nexus.query-cte`.
+ *
+ * Rows returned from a recursive CTE query against nexus.db,
+ * plus execution metadata.
+ *
+ * @see NexusCteResult in nexus-query-ops.ts (T1057)
+ */
+export type NexusQueryCteResult = NexusCteResult;
 
 /** One hot-path relation edge. */
 export interface NexusHotPath {
