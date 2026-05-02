@@ -269,6 +269,18 @@ export function engineError<T>(
 export { engineSuccess } from '@cleocode/core';
 
 /**
+ * Minimal meta shape carrying the request ID for RFC 7807 `instance` population.
+ *
+ * Callers may pass the dispatch-layer `DispatchRequest.requestId` (or any
+ * other correlation identifier) so that the resulting `problemDetails.instance`
+ * URI uniquely identifies the specific error occurrence.
+ */
+export interface ErrorMeta {
+  /** Unique request identifier (used as the RFC 7807 `instance` field). */
+  requestId?: string;
+}
+
+/**
  * Shape of a caught value that may be a `CleoError` instance.
  *
  * We cannot import `CleoError` from `@cleocode/core` here without risking a
@@ -301,9 +313,14 @@ interface CaughtCleoErrorShape {
  * the {@link STRING_TO_EXIT} mapping (e.g. unknown exit codes, plain `Error`
  * instances, or values thrown by non-CLEO code).
  *
+ * RFC 7807 `problemDetails` is always populated from the resolved code, message,
+ * and exit code. The optional `meta.requestId` is forwarded to the `instance`
+ * field so every error occurrence is uniquely identifiable.
+ *
  * @param err - The caught value (unknown type)
  * @param fallbackCode - String error code to use when mapping fails
  * @param fallbackMessage - Human-readable message when `err.message` is absent
+ * @param meta - Optional dispatch meta carrying `requestId` for RFC 7807 `instance`
  * @returns EngineResult with all available rich fields propagated
  *
  * @example
@@ -314,28 +331,67 @@ interface CaughtCleoErrorShape {
  *   return cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
  * }
  * ```
+ *
+ * @example With requestId for RFC 7807 instance field:
+ * ```typescript
+ * } catch (err: unknown) {
+ *   return cleoErrorToEngineError(err, 'E_NOT_FOUND', 'Not found', { requestId });
+ * }
+ * ```
  */
 export function cleoErrorToEngineError<T>(
   err: unknown,
   fallbackCode: string,
   fallbackMessage: string,
+  meta?: ErrorMeta,
 ): EngineResult<T> {
   // Non-Error thrown values: a raw string is its own message; other primitives
   // coerce to their String() form. Structured CleoError-like objects are
   // handled in the branch below via `CaughtCleoErrorShape`.
   if (typeof err === 'string') {
-    return engineError<T>(fallbackCode, err);
+    const exitCode = STRING_TO_EXIT[fallbackCode] ?? 1;
+    return engineError<T>(fallbackCode, err, {
+      exitCode,
+      problemDetails: {
+        type: `https://cleocode.dev/errors/${fallbackCode}`,
+        title: fallbackCode,
+        status: exitCode,
+        detail: err,
+        ...(meta?.requestId !== undefined ? { instance: meta.requestId } : {}),
+      },
+    });
   }
   if (err !== null && typeof err !== 'object') {
-    return engineError<T>(fallbackCode, String(err));
+    const exitCode = STRING_TO_EXIT[fallbackCode] ?? 1;
+    const message = String(err);
+    return engineError<T>(fallbackCode, message, {
+      exitCode,
+      problemDetails: {
+        type: `https://cleocode.dev/errors/${fallbackCode}`,
+        title: fallbackCode,
+        status: exitCode,
+        detail: message,
+        ...(meta?.requestId !== undefined ? { instance: meta.requestId } : {}),
+      },
+    });
   }
 
   const e = err as CaughtCleoErrorShape;
   const code = mapNumericExitCodeToString(e.code) ?? fallbackCode;
   const message = e.message ?? fallbackMessage;
+  const exitCode = STRING_TO_EXIT[code] ?? 1;
+
   return engineError<T>(code, message, {
+    exitCode,
     ...(e.fix !== undefined && { fix: e.fix }),
     ...(e.details !== undefined && { details: e.details }),
     ...(e.alternatives !== undefined && { alternatives: e.alternatives }),
+    problemDetails: {
+      type: `https://cleocode.dev/errors/${code}`,
+      title: code,
+      status: exitCode,
+      detail: message,
+      ...(meta?.requestId !== undefined ? { instance: meta.requestId } : {}),
+    },
   });
 }
