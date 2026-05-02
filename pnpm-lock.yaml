@@ -350,6 +350,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@cleocode/lafs':
+        specifier: workspace:*
+        version: link:../lafs
       zod:
         specifier: ^4.3.6
         version: 4.3.6
