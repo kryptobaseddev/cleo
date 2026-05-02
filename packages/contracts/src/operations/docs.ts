@@ -28,6 +28,8 @@
  * @see packages/contracts/src/operations/index.ts
  */
 
+import type { AttachmentKind } from '../attachment.js';
+
 // ============================================================================
 // Shared Attachment Types (API wire format)
 // ============================================================================
@@ -45,22 +47,26 @@ export type AttachmentOwnerType =
   | 'learning'
   | 'pattern';
 
-/**
- * Supported attachment kind (storage mode).
- *
- * - `local-file` — file path tracked in metadata; bytes stored in blob
- * - `blob`       — inline content uploaded; bytes stored in blob
- * - `url`        — URL-only reference; no bytes stored
- * - `llms-txt`   — generated content from `docs.generate --attach`
- */
-export type AttachmentKind = 'local-file' | 'blob' | 'url' | 'llms-txt';
+// Re-export the canonical AttachmentKind so consumers of this module do not
+// need a separate import from `../attachment.js`.
+export type { AttachmentKind } from '../attachment.js';
 
 /**
- * Attachment metadata fragment returned by query operations.
+ * Flattened wire-format attachment row returned by docs query operations.
  *
- * Includes kind, mime type, size (when applicable), description, and labels.
+ * This is the **API response shape** — a denormalised projection of the domain
+ * {@link import('../attachment.js').AttachmentMetadata} registry row suitable for
+ * CLI/HTTP serialisation.  Key differences from the domain type:
+ *
+ * - `kind` is lifted from the nested `attachment` object to the top level.
+ * - `mime` and `size` are lifted and made optional (not all kinds carry them).
+ * - The full `attachment` discriminated-union value is NOT included (too verbose
+ *   for list/fetch wire responses).
+ *
+ * @see {@link import('../attachment.js').AttachmentMetadata} — the full domain
+ *   registry row stored in `.cleo/attachments/index.db`.
  */
-export interface AttachmentMetadata {
+export interface DocsAttachmentRow {
   /** Attachment identifier (UUID-like string). */
   id: string;
   /** SHA-256 hash of content; truncated to 8 chars in list views. */
@@ -96,7 +102,7 @@ export type AttachmentBackend = 'legacy' | 'llmstxt-v2';
  */
 export interface AttachmentRecord {
   /** Attachment metadata. */
-  metadata: AttachmentMetadata;
+  metadata: DocsAttachmentRow;
   /** File system path where bytes are stored (if applicable). */
   path?: string;
   /** Size in bytes. */
@@ -140,7 +146,7 @@ export interface DocsListResult {
   /** Count of attachments for this owner. */
   count: number;
   /** Attachment metadata array. */
-  attachments: AttachmentMetadata[];
+  attachments: DocsAttachmentRow[];
   /** Current attachment backend in use. */
   attachmentBackend?: AttachmentBackend;
 }
@@ -161,8 +167,8 @@ export interface DocsFetchParams {
  * Result of `docs.fetch`.
  */
 export interface DocsFetchResult {
-  /** Attachment record with metadata and optional inline bytes. */
-  metadata: AttachmentMetadata;
+  /** Flattened attachment metadata row for this attachment. */
+  metadata: DocsAttachmentRow;
   /** File system path where bytes are stored (if applicable). */
   path?: string;
   /** Total size in bytes. */
