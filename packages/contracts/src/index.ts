@@ -354,6 +354,7 @@ export type {
   LAFSErrorCategory,
   LAFSMeta,
   LAFSPage,
+  LAFSPageCursor,
   LAFSPageNone,
   LAFSPageOffset,
   LAFSTransport,

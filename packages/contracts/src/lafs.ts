@@ -1,175 +1,44 @@
 /**
  * LAFS (LLM-Agent-First Schema) unified envelope types.
  *
- * Defines canonical LAFS types inline (contracts has ZERO external dependencies).
- * In the main CLEO codebase these are re-exported from @cleocode/lafs;
- * here they are defined as plain interfaces for maximum portability.
+ * Protocol-level types (`LAFSEnvelope`, `LAFSMeta`, `LAFSError`,
+ * `LAFSErrorCategory`, `LAFSTransport`, `LAFSPage*`, `MVILevel`, `Warning`)
+ * are owned by `@cleocode/lafs` (ADR-039) and re-exported here so that
+ * downstream consumers can import from a single well-known contracts path.
+ *
+ * Contracts-specific types (`LafsEnvelope`, `LafsSuccess`, `LafsError`,
+ * `LafsErrorDetail`, `LafsAlternative`, `GatewayMeta`, `GatewayEnvelope`,
+ * `CleoResponse`) are defined here because they represent CLEO's CLI-layer
+ * and gateway-layer response contracts that depend on the protocol types but
+ * are not part of the LAFS SDK itself.
  *
  * @epic T4654
- * @task T4655
+ * @task T1706
  */
 
 // ---------------------------------------------------------------------------
-// Canonical LAFS types (inlined from @cleocode/lafs)
+// Re-export canonical LAFS protocol types from @cleocode/lafs (ADR-039)
 // ---------------------------------------------------------------------------
 
-/** LAFS error category. */
-export type LAFSErrorCategory =
-  | 'validation'
-  | 'not_found'
-  | 'conflict'
-  | 'authorization'
-  | 'internal'
-  | 'rate_limit'
-  | 'timeout'
-  | 'dependency';
+export type {
+  LAFSEnvelope,
+  LAFSError,
+  LAFSErrorCategory,
+  LAFSMeta,
+  LAFSPage,
+  LAFSPageCursor,
+  LAFSPageNone,
+  LAFSPageOffset,
+  LAFSTransport,
+  MVILevel,
+  Warning,
+} from '@cleocode/lafs';
 
-/** LAFS error object. */
-export interface LAFSError {
-  /** Stable error code (numeric HTTP status or string identifier). */
-  code: number | string;
-  /** High-level error classification category. */
-  category: LAFSErrorCategory;
-  /** Human-readable error description. */
-  message: string;
-  /**
-   * Suggested fix or recovery action for the caller.
-   *
-   * @defaultValue undefined
-   */
-  fix?: string;
-  /**
-   * Arbitrary key-value pairs with additional error context.
-   *
-   * @defaultValue undefined
-   */
-  details?: Record<string, unknown>;
-}
+// ---------------------------------------------------------------------------
+// Contracts-specific types (not part of the LAFS SDK)
+// ---------------------------------------------------------------------------
 
-/** LAFS warning. */
-export interface Warning {
-  /** Machine-readable warning code. */
-  code: string;
-  /** Human-readable warning description. */
-  message: string;
-}
-
-/** LAFS transport metadata. */
-export type LAFSTransport = 'cli' | 'http' | 'sdk';
-
-/** MVI (Minimal Viable Information) level. */
-export type MVILevel = 'minimal' | 'standard' | 'full';
-
-/**
- * LAFS page — no pagination.
- *
- * Discriminator field is `mode` to match the canonical {@link "@cleocode/lafs"}
- * spec (LAFSPageNone). Contracts cannot depend on `@cleocode/lafs` directly
- * (zero external deps invariant) so the type is inlined with matching shape.
- */
-export interface LAFSPageNone {
-  /** Discriminant indicating no pagination. */
-  mode: 'none';
-}
-
-/**
- * LAFS page — offset-based pagination.
- *
- * Discriminator field is `mode` to match the canonical {@link "@cleocode/lafs"}
- * spec (LAFSPageOffset).
- */
-export interface LAFSPageOffset {
-  /** Discriminant identifying offset-based pagination. */
-  mode: 'offset';
-  /** Maximum number of items per page. */
-  limit: number;
-  /** Zero-based index of the first item in this page. */
-  offset: number;
-  /** Whether additional pages exist beyond the current one. */
-  hasMore: boolean;
-  /** Total number of items across all pages, or `null` if unknown. */
-  total?: number | null;
-}
-
-/**
- * LAFS page — cursor-based pagination.
- *
- * Discriminator field is `mode` to match the canonical {@link "@cleocode/lafs"}
- * spec (LAFSPageCursor).
- */
-export interface LAFSPageCursor {
-  /** Discriminant identifying cursor-based pagination. */
-  mode: 'cursor';
-  /** Opaque cursor for fetching the next page, or `null` when at the end. */
-  nextCursor: string | null;
-  /** Whether additional pages exist beyond the current one. */
-  hasMore: boolean;
-  /** Maximum number of items per page. */
-  limit?: number;
-  /** Total number of items across all pages, or `null` if unknown. */
-  total?: number | null;
-}
-
-/**
- * LAFS page union.
- *
- * Structurally compatible with `@cleocode/lafs` `LAFSPage` so that values
- * flow freely between dispatch (which uses contracts) and core (which uses
- * lafs). Both export the same three variants discriminated on `mode`.
- */
-export type LAFSPage = LAFSPageNone | LAFSPageOffset | LAFSPageCursor;
-
-/** LAFS metadata block. */
-export interface LAFSMeta {
-  /** Transport protocol used for this envelope. */
-  transport: LAFSTransport;
-  /** Minimum Viable Information level controlling verbosity. */
-  mvi: MVILevel;
-  /**
-   * Pagination metadata when the result is a paginated collection.
-   *
-   * @defaultValue undefined
-   */
-  page?: LAFSPage;
-  /**
-   * Non-fatal warnings to surface to the consuming agent.
-   *
-   * @defaultValue undefined
-   */
-  warnings?: Warning[];
-  /**
-   * Operation duration in milliseconds.
-   *
-   * @defaultValue undefined
-   */
-  durationMs?: number;
-}
-
-/** LAFS envelope (canonical protocol type). */
-export interface LAFSEnvelope<T = unknown> {
-  /** Whether the operation completed successfully. */
-  success: boolean;
-  /**
-   * Operation result payload on success.
-   *
-   * @defaultValue undefined
-   */
-  data?: T;
-  /**
-   * Structured error payload on failure.
-   *
-   * @defaultValue undefined
-   */
-  error?: LAFSError;
-  /**
-   * Protocol and transport metadata.
-   *
-   * @defaultValue undefined
-   */
-  _meta?: LAFSMeta;
-}
-
-/** Flag input for conformance checks. */
+/** Input for conformance checks. */
 export interface FlagInput {
   /** Name of the flag being checked. */
   flag: string;
@@ -267,12 +136,15 @@ export interface LafsError {
 export type LafsEnvelope<T = unknown> = LafsSuccess<T> | LafsError;
 
 // ---------------------------------------------------------------------------
-// Gateway envelope extension (extends LAFSMeta)
+// Gateway envelope extension (extends LAFSMeta from @cleocode/lafs)
 // ---------------------------------------------------------------------------
+
+import type { LAFSMeta } from '@cleocode/lafs';
 
 /**
  * Metadata attached to every gateway response.
- * Extends the canonical LAFSMeta with CLEO gateway-specific fields.
+ * Extends the canonical LAFSMeta from @cleocode/lafs with CLEO
+ * gateway-specific fields.
  *
  * @task T4655
  */
