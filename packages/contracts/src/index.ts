@@ -497,10 +497,11 @@ export type {
 } from './operations/admin.js';
 // === Conduit Operation Types (T1422 — typed-dispatch migration) ===
 // Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
-// Note: ConduitSendResult from operations/conduit.ts is intentionally NOT re-exported
-// here because conduit.ts (transport-layer) already exports a ConduitSendResult of a
-// different shape. Consumers needing the operation-result variant should import via
-// `import type { ConduitOps } from '@cleocode/contracts'` and reference `ConduitOps['send'][1]`.
+// Note: The transport-layer ConduitSendResult (in ./conduit.ts) carries { messageId, deliveredAt }
+// and is the canonical type for the Conduit interface (ConduitClient / publishToTopic).
+// ConduitSendOperationResult (below) is the wire-format type for the conduit.send CLI/HTTP
+// dispatch operation and carries { messageId, from, to, transport, sentAt }.
+// The two types serve different layers and are intentionally distinct.
 export type {
   ConduitInboxMessage,
   ConduitListenParams,
@@ -510,6 +511,7 @@ export type {
   ConduitPeekResult,
   ConduitPublishParams,
   ConduitPublishResult,
+  ConduitSendOperationResult,
   ConduitSendParams,
   ConduitStartParams,
   ConduitStartResult,
