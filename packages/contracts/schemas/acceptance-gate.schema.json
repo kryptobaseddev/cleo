@@ -1,9 +1,488 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "AcceptanceGate",
   "description": "Machine-verifiable acceptance gate attached to a CLEO task",
-  "$ref": "#/definitions/AcceptanceGate",
-  "definitions": {
-    "AcceptanceGate": {}
-  }
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "req": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "advisory": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "const": "test"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expect": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "exit0"
+          ]
+        },
+        "minCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "env": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "description",
+        "kind",
+        "command",
+        "expect"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "req": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "advisory": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "const": "file"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachmentSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "assertions": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "exists"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "absent"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "nonEmpty"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "maxBytes"
+                  },
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "type",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "minBytes"
+                  },
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "type",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "contains"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "matches"
+                  },
+                  "regex": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "flags": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "regex"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "sha256"
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 64,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "type",
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "description",
+        "kind",
+        "assertions"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "req": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "advisory": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "const": "command"
+        },
+        "cmd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "stdoutMatches": {
+          "type": "string"
+        },
+        "stderrMatches": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "env": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "description",
+        "kind",
+        "cmd"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "req": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "advisory": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "const": "lint"
+        },
+        "tool": {
+          "type": "string",
+          "enum": [
+            "biome",
+            "eslint",
+            "tsc",
+            "prettier",
+            "rustc",
+            "clippy"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expect": {
+          "type": "string",
+          "enum": [
+            "clean",
+            "noErrors"
+          ]
+        },
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "kind",
+        "tool",
+        "expect"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "req": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "advisory": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "const": "http"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "HEAD",
+            "POST",
+            "PUT",
+            "DELETE"
+          ]
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "bodyMatches": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "startCommand": {
+          "type": "string"
+        },
+        "startupDelayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "description",
+        "kind",
+        "url",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "req": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "advisory": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "const": "manual"
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verdicts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "warn"
+            ]
+          }
+        }
+      },
+      "required": [
+        "description",
+        "kind",
+        "prompt"
+      ],
+      "additionalProperties": false
+    }
+  ]
 }
