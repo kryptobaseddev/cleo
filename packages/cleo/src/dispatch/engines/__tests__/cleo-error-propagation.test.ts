@@ -9,8 +9,13 @@
  * functions now live in core and use a different (simpler) error-mapping path.
  * The unit tests for cleoErrorToEngineError are preserved here.
  *
+ * T1708: RFC 7807 problemDetails round-trip tests added — verifies that
+ * cleoErrorToEngineError populates problemDetails with correct RFC 7807 fields.
+ *
  * @task T374
+ * @task T1708
  * @epic T335
+ * @epic T1689
  */
 
 import { describe, expect, it } from 'vitest';
@@ -128,5 +133,88 @@ describe('cleoErrorToEngineError', () => {
       const result = cleoErrorToEngineError(err, 'E_FALLBACK', 'fallback message');
       expect(result.error?.code, `code ${numericCode}`).toBe(expectedStringCode);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RFC 7807 problemDetails round-trip tests (T1708)
+// ---------------------------------------------------------------------------
+
+describe('cleoErrorToEngineError — problemDetails (RFC 7807)', () => {
+  it('populates problemDetails with correct RFC 7807 fields for a CleoError', () => {
+    const err = makeCleoError(4, 'Task T42 not found');
+
+    const result = cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'fallback');
+
+    expect(result.success).toBe(false);
+    expect(result.error?.problemDetails).toBeDefined();
+    expect(result.error?.problemDetails?.type).toBe('https://cleocode.dev/errors/E_NOT_FOUND');
+    expect(result.error?.problemDetails?.title).toBe('E_NOT_FOUND');
+    expect(result.error?.problemDetails?.status).toBe(4); // exit code for E_NOT_FOUND
+    expect(result.error?.problemDetails?.detail).toBe('Task T42 not found');
+    expect(result.error?.problemDetails?.instance).toBeUndefined();
+  });
+
+  it('sets instance from meta.requestId when provided', () => {
+    const err = makeCleoError(4, 'Task not found');
+    const meta = { requestId: 'req-abc-123' };
+
+    const result = cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'fallback', meta);
+
+    expect(result.error?.problemDetails?.instance).toBe('req-abc-123');
+  });
+
+  it('omits instance field when meta.requestId is absent', () => {
+    const err = makeCleoError(6, 'Validation failed');
+
+    const result = cleoErrorToEngineError(err, 'E_GENERAL', 'fallback');
+
+    expect(result.error?.problemDetails?.instance).toBeUndefined();
+    expect('instance' in (result.error?.problemDetails ?? {})).toBe(false);
+  });
+
+  it('uses fallbackCode namespace URI when no numeric code maps', () => {
+    // Plain Error with no .code property → fallback code path
+    const err = new Error('Something exploded');
+
+    const result = cleoErrorToEngineError(err, 'E_GENERAL', 'fallback message');
+
+    expect(result.error?.problemDetails?.type).toBe('https://cleocode.dev/errors/E_GENERAL');
+    expect(result.error?.problemDetails?.title).toBe('E_GENERAL');
+    expect(result.error?.problemDetails?.detail).toBe('Something exploded');
+  });
+
+  it('populates problemDetails for string thrown values', () => {
+    const result = cleoErrorToEngineError('raw string error', 'E_GENERAL', 'fallback');
+
+    expect(result.error?.problemDetails?.type).toBe('https://cleocode.dev/errors/E_GENERAL');
+    expect(result.error?.problemDetails?.detail).toBe('raw string error');
+  });
+
+  it('round-trip: EngineErrorPayload preserves all problemDetails fields end-to-end', () => {
+    const err = makeCleoError(10, 'Parent task P1 not found', {
+      fix: 'cleo show P1',
+      details: { parentId: 'P1' },
+    });
+    const meta = { requestId: 'req-round-trip-001' };
+
+    const result = cleoErrorToEngineError(err, 'E_NOT_INITIALIZED', 'fallback', meta);
+
+    // Verify the full error payload
+    expect(result.success).toBe(false);
+    const { error } = result;
+    expect(error?.code).toBe('E_PARENT_NOT_FOUND');
+    expect(error?.exitCode).toBe(10);
+    expect(error?.message).toBe('Parent task P1 not found');
+    expect(error?.fix).toBe('cleo show P1');
+    expect(error?.details).toEqual({ parentId: 'P1' });
+
+    // RFC 7807 fields preserved in problemDetails
+    const pd = error?.problemDetails;
+    expect(pd?.type).toBe('https://cleocode.dev/errors/E_PARENT_NOT_FOUND');
+    expect(pd?.title).toBe('E_PARENT_NOT_FOUND');
+    expect(pd?.status).toBe(10);
+    expect(pd?.detail).toBe('Parent task P1 not found');
+    expect(pd?.instance).toBe('req-round-trip-001');
   });
 });
