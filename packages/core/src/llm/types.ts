@@ -13,6 +13,8 @@ import type { Anthropic } from '@anthropic-ai/sdk';
 import type { OpenAI } from 'openai';
 import type { z } from 'zod';
 
+export type { ModelTransport } from '@cleocode/contracts/operations/llm';
+
 // --- Reasoning effort / verbosity literals ---
 
 /** OpenAI GPT-5 reasoning effort levels. */
@@ -29,9 +31,6 @@ export type ReasoningEffortType =
 
 /** Output verbosity levels for supported models. */
 export type VerbosityType = 'low' | 'medium' | 'high' | null | undefined;
-
-/** Supported provider transport names. */
-export type ModelTransport = 'anthropic' | 'openai' | 'gemini';
 
 /** Raw SDK client union used by the provider-selection layer. */
 export type ProviderClient =
