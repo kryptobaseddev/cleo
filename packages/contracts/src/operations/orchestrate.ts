@@ -15,15 +15,29 @@
 /**
  * Common orchestration types
  */
+
+/**
+ * A single execution wave grouping tasks by dependency depth.
+ *
+ * @remarks
+ * Canonical shape matches the implementation in
+ * `packages/core/src/orchestration/waves.ts`. The fields align exactly so
+ * that dispatch adapters can forward core results without conversion.
+ *
+ * T1719: reconciled from prior contracts shape (`wave`/`taskIds`/`canRunParallel`/
+ * `dependencies`) to match the core implementation shape
+ * (`waveNumber`/`tasks`/`status`).
+ *
+ * @task T963
+ * @task T1719 — shape-divergence reconciliation
+ */
 export interface Wave {
   /** 1-based wave number. @task T963 */
-  wave: number;
+  waveNumber: number;
   /** Task IDs scheduled in this wave. @task T963 */
-  taskIds: string[];
-  /** True when every task in the wave can run in parallel. @task T963 */
-  canRunParallel: boolean;
-  /** Upstream wave/task dependencies. @task T963 */
-  dependencies: string[];
+  tasks: string[];
+  /** Computed lifecycle status of this wave. @task T1719 */
+  status: 'pending' | 'in_progress' | 'completed';
 }
 
 export interface SkillDefinition {
