@@ -124,12 +124,20 @@ describe('cliError signature compatibility (T4808 regression)', () => {
   // 7. Verify output includes message and code
   // -----------------------------------------------------------------------
   it('outputs message and code in JSON format', () => {
-    const spy = vi.spyOn(console, 'log');
-    spy.mockClear();
-    cliError('Not found', 4);
+    let written = '';
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: unknown): boolean => {
+      written += String(chunk);
+      return true;
+    };
 
-    expect(spy).toHaveBeenCalledTimes(1);
-    const output = JSON.parse(spy.mock.calls[0]![0] as string);
+    try {
+      cliError('Not found', 4);
+    } finally {
+      process.stdout.write = origWrite;
+    }
+
+    const output = JSON.parse(written);
     expect(output.success).toBe(false);
     expect(output.error.message).toBe('Not found');
     expect(output.error.code).toBe(4);
@@ -140,18 +148,25 @@ describe('cliError signature compatibility (T4808 regression)', () => {
   // -----------------------------------------------------------------------
 
   it('emits codeName, fix, details, and alternatives when all are provided', () => {
-    const spy = vi.spyOn(console, 'log');
-    spy.mockClear();
+    let written = '';
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: unknown): boolean => {
+      written += String(chunk);
+      return true;
+    };
 
-    cliError('Validation failed', 6, {
-      name: 'E_VALIDATION',
-      fix: 'do X',
-      details: { field: 'title' },
-      alternatives: [{ action: 'A', command: 'c' }],
-    });
+    try {
+      cliError('Validation failed', 6, {
+        name: 'E_VALIDATION',
+        fix: 'do X',
+        details: { field: 'title' },
+        alternatives: [{ action: 'A', command: 'c' }],
+      });
+    } finally {
+      process.stdout.write = origWrite;
+    }
 
-    expect(spy).toHaveBeenCalledTimes(1);
-    const output = JSON.parse(spy.mock.calls[0]![0] as string);
+    const output = JSON.parse(written);
     expect(output.success).toBe(false);
     expect(output.error.codeName).toBe('E_VALIDATION');
     expect(output.error.fix).toBe('do X');
@@ -160,12 +175,20 @@ describe('cliError signature compatibility (T4808 regression)', () => {
   });
 
   it('omits optional fields from JSON when they are not provided', () => {
-    const spy = vi.spyOn(console, 'log');
-    spy.mockClear();
+    let written = '';
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: unknown): boolean => {
+      written += String(chunk);
+      return true;
+    };
 
-    cliError('Something failed', 1);
+    try {
+      cliError('Something failed', 1);
+    } finally {
+      process.stdout.write = origWrite;
+    }
 
-    const output = JSON.parse(spy.mock.calls[0]![0] as string);
+    const output = JSON.parse(written);
     expect('codeName' in output.error).toBe(false);
     expect('fix' in output.error).toBe(false);
     expect('alternatives' in output.error).toBe(false);
@@ -173,17 +196,25 @@ describe('cliError signature compatibility (T4808 regression)', () => {
   });
 
   it('omits optional fields when details object has all-undefined values', () => {
-    const spy = vi.spyOn(console, 'log');
-    spy.mockClear();
+    let written = '';
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: unknown): boolean => {
+      written += String(chunk);
+      return true;
+    };
 
-    cliError('Validation error', 6, {
-      name: undefined,
-      details: undefined,
-      fix: undefined,
-      alternatives: undefined,
-    });
+    try {
+      cliError('Validation error', 6, {
+        name: undefined,
+        details: undefined,
+        fix: undefined,
+        alternatives: undefined,
+      });
+    } finally {
+      process.stdout.write = origWrite;
+    }
 
-    const output = JSON.parse(spy.mock.calls[0]![0] as string);
+    const output = JSON.parse(written);
     expect('codeName' in output.error).toBe(false);
     expect('fix' in output.error).toBe(false);
     expect('alternatives' in output.error).toBe(false);
@@ -197,15 +228,24 @@ describe('cliError signature compatibility (T4808 regression)', () => {
       quiet: false,
     });
 
-    const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    stderrSpy.mockClear();
+    let stderrBuf = '';
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk: unknown): boolean => {
+      stderrBuf += String(chunk);
+      return true;
+    };
 
-    cliError('Bad input', 6, { fix: 'run cleo doctor' });
+    try {
+      cliError('Bad input', 6, { fix: 'run cleo doctor' });
+    } finally {
+      process.stderr.write = origWrite;
+    }
 
-    const calls = stderrSpy.mock.calls;
-    expect(calls.length).toBeGreaterThanOrEqual(2);
-    expect(calls[0]![0]).toContain('Bad input');
-    expect(calls[1]![0]).toBe('Fix: run cleo doctor');
+    // Each write ends with '\n'; split to get individual lines (filter empty)
+    const lines = stderrBuf.split('\n').filter((l) => l.length > 0);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    expect(lines[0]).toContain('Bad input');
+    expect(lines[1]).toBe('Fix: run cleo doctor');
   });
 
   it('does not print Fix hint in human format when fix is not a string', () => {
@@ -215,13 +255,21 @@ describe('cliError signature compatibility (T4808 regression)', () => {
       quiet: false,
     });
 
-    const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    stderrSpy.mockClear();
+    let stderrBuf = '';
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk: unknown): boolean => {
+      stderrBuf += String(chunk);
+      return true;
+    };
 
-    cliError('Bad input', 6, { fix: { nested: 'object' } });
+    try {
+      cliError('Bad input', 6, { fix: { nested: 'object' } });
+    } finally {
+      process.stderr.write = origWrite;
+    }
 
-    const calls = stderrSpy.mock.calls;
-    // Only one call — the error line; no Fix: line
-    expect(calls.length).toBe(1);
+    // Only one line — the error line; no Fix: line
+    const lines = stderrBuf.split('\n').filter((l) => l.length > 0);
+    expect(lines.length).toBe(1);
   });
 });
