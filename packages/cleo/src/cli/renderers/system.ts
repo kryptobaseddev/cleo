@@ -735,6 +735,285 @@ export function renderBriefing(data: Record<string, unknown>, quiet: boolean): s
 }
 
 // ---------------------------------------------------------------------------
+// brain-maintenance: brain maintenance results
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the result of `cleo brain maintenance`.
+ *
+ * @task T1722
+ */
+export function renderBrainMaintenance(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) return String(data['duration'] ?? '');
+
+  const lines: string[] = [];
+  lines.push(`${GREEN}${BOLD}Maintenance complete.${NC}`);
+  lines.push(`  ${DIM}Duration:${NC} ${data['duration']}ms`);
+
+  const decay = data['decay'] as Record<string, unknown> | undefined;
+  if (decay) {
+    lines.push(`  ${DIM}Decay:${NC}         ${decay['affected']} learning(s) updated`);
+  }
+
+  const consolidation = data['consolidation'] as Record<string, unknown> | undefined;
+  if (consolidation) {
+    lines.push(
+      `  ${DIM}Consolidation:${NC} ${consolidation['merged']} merged, ${consolidation['removed']} archived`,
+    );
+  }
+
+  const tierPromotion = data['tierPromotion'] as Record<string, unknown> | undefined;
+  if (tierPromotion) {
+    lines.push(
+      `  ${DIM}Tier promotion:${NC} ${tierPromotion['promoted']} promoted, ${tierPromotion['evicted']} evicted`,
+    );
+  }
+
+  const reconciliation = data['reconciliation'] as Record<string, unknown> | undefined;
+  if (reconciliation) {
+    lines.push(
+      `  ${DIM}Reconcile:${NC}     ${reconciliation['decisionsFixed']} decisions, ${reconciliation['observationsFixed']} observations, ${reconciliation['linksRemoved']} links`,
+    );
+  }
+
+  const embeddings = data['embeddings'] as Record<string, unknown> | undefined;
+  if (embeddings) {
+    lines.push(
+      `  ${DIM}Embeddings:${NC}    ${embeddings['processed']} processed, ${embeddings['skipped']} skipped, ${embeddings['errors']} errors`,
+    );
+  }
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// brain-backfill: brain graph backfill results
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the result of `cleo brain backfill`.
+ *
+ * @task T1722
+ */
+export function renderBrainBackfill(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) return String(data['nodesInserted'] ?? '');
+
+  const lines: string[] = [];
+  const before = data['before'] as Record<string, unknown> | undefined;
+  const after = data['after'] as Record<string, unknown> | undefined;
+  const byType = data['byType'] as Record<string, unknown> | undefined;
+
+  lines.push(`${GREEN}${BOLD}Back-fill complete.${NC}`);
+  if (before) {
+    lines.push(`  ${DIM}Before:${NC} ${before['nodes']} nodes, ${before['edges']} edges`);
+    lines.push(
+      `  ${DIM}Source:${NC} ${before['decisions']} decisions, ${before['patterns']} patterns, ${before['learnings']} learnings, ${before['observations']} observations, ${before['stickyNotes']} stickies`,
+    );
+  }
+  lines.push(
+    `  ${DIM}Nodes inserted:${NC} ${data['nodesInserted']} (including ${data['stubsCreated']} stub nodes)`,
+  );
+  lines.push(`  ${DIM}Edges inserted:${NC} ${data['edgesInserted']}`);
+  if (after) {
+    lines.push(`  ${DIM}After:${NC}  ${after['nodes']} nodes, ${after['edges']} edges`);
+  }
+
+  if (byType && Object.keys(byType).length > 0) {
+    lines.push('\n  By type:');
+    for (const [type, count] of Object.entries(byType)) {
+      lines.push(`    ${DIM}${type}:${NC} ${count}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// brain-purge: brain purge results
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the result of `cleo brain purge`.
+ *
+ * @task T1722
+ */
+export function renderBrainPurge(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) {
+    const total =
+      ((data['patternsDeleted'] as number) ?? 0) +
+      ((data['learningsDeleted'] as number) ?? 0) +
+      ((data['decisionsDeleted'] as number) ?? 0) +
+      ((data['observationsDeleted'] as number) ?? 0);
+    return String(total);
+  }
+
+  const lines: string[] = [];
+  const after = data['after'] as Record<string, unknown> | undefined;
+
+  lines.push(`${GREEN}${BOLD}Purge complete.${NC}`);
+  lines.push(`  ${DIM}Patterns deleted:${NC}     ${data['patternsDeleted']}`);
+  lines.push(`  ${DIM}Learnings deleted:${NC}    ${data['learningsDeleted']}`);
+  lines.push(`  ${DIM}Decisions deleted:${NC}    ${data['decisionsDeleted']}`);
+  lines.push(`  ${DIM}Observations deleted:${NC} ${data['observationsDeleted']}`);
+
+  if (after) {
+    lines.push('');
+    lines.push(`${BOLD}Post-purge counts:${NC}`);
+    lines.push(`  ${DIM}Patterns:${NC}     ${after['patterns']}`);
+    lines.push(`  ${DIM}Learnings:${NC}    ${after['learnings']}`);
+    lines.push(`  ${DIM}Decisions:${NC}    ${after['decisions']}`);
+    lines.push(`  ${DIM}Observations:${NC} ${after['observations']}`);
+  }
+  lines.push(`  ${DIM}FTS5 rebuilt:${NC} ${data['fts5Rebuilt']}`);
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// brain-plasticity-stats: STDP plasticity stats
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the result of `cleo brain plasticity stats`.
+ *
+ * @task T1722
+ */
+export function renderBrainPlasticityStats(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) return String(data['totalEvents'] ?? '');
+
+  const lines: string[] = [];
+  const recentEvents = data['recentEvents'] as Array<Record<string, unknown>> | undefined;
+  const limit = data['limit'] as number | undefined;
+
+  lines.push(`${BOLD}Brain Plasticity Stats (STDP)${NC}`);
+  lines.push('═'.repeat(41));
+  lines.push(`  ${DIM}Total events:${NC}       ${data['totalEvents']}`);
+  lines.push(`  ${DIM}LTP (potentiation):${NC} ${data['ltpCount']}`);
+  lines.push(`  ${DIM}LTD (depression):${NC}   ${data['ltdCount']}`);
+
+  const netDeltaW = (data['netDeltaW'] as number) ?? 0;
+  const sign = netDeltaW >= 0 ? '+' : '';
+  lines.push(`  ${DIM}Net Δw:${NC}             ${sign}${netDeltaW.toFixed(4)}`);
+  lines.push(`  ${DIM}Last event:${NC}         ${data['lastEventAt'] ?? '(none)'}`);
+
+  if (recentEvents && recentEvents.length > 0) {
+    lines.push(`\n${BOLD}Recent Events (newest first, limit=${limit ?? 20})${NC}`);
+    for (const ev of recentEvents) {
+      const evSign = (ev['deltaW'] as number) >= 0 ? '+' : '';
+      const src = String(ev['sourceNode'] ?? '')
+        .slice(0, 30)
+        .padEnd(30);
+      const tgt = String(ev['targetNode'] ?? '')
+        .slice(0, 30)
+        .padEnd(30);
+      lines.push(
+        `  ${DIM}[${String(ev['kind'] ?? '').toUpperCase()}]${NC} ${src} → ${tgt}  ${DIM}Δw=${evSign}${(ev['deltaW'] as number).toFixed(4)}${NC}  ${ev['timestamp']}`,
+      );
+    }
+  } else {
+    lines.push('');
+    lines.push(`  ${DIM}No plasticity events recorded yet.${NC}`);
+    lines.push(
+      `  ${DIM}Run \`cleo brain maintenance\` or \`cleo session end\` to trigger STDP.${NC}`,
+    );
+  }
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// brain-quality: memory quality report
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the result of `cleo brain quality`.
+ *
+ * @task T1722
+ */
+export function renderBrainQuality(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) {
+    const usageRate = (data['usageRate'] as number) ?? 0;
+    return `${(usageRate * 100).toFixed(1)}%`;
+  }
+
+  const lines: string[] = [];
+  const qualityDistribution = data['qualityDistribution'] as Record<string, unknown> | undefined;
+  const tierDistribution = data['tierDistribution'] as Record<string, unknown> | undefined;
+  const topRetrieved = data['topRetrieved'] as Array<Record<string, unknown>> | undefined;
+  const neverRetrieved = data['neverRetrieved'] as Array<Record<string, unknown>> | undefined;
+
+  const usageRate = (data['usageRate'] as number) ?? 0;
+  const noiseRatio = (data['noiseRatio'] as number) ?? 0;
+
+  lines.push(`${BOLD}Brain Memory Quality Report${NC}`);
+  lines.push('═'.repeat(42));
+  lines.push(`  ${DIM}Total retrievals:${NC}       ${data['totalRetrievals']}`);
+  lines.push(`  ${DIM}Unique entries hit:${NC}     ${data['uniqueEntriesRetrieved']}`);
+  lines.push(`  ${DIM}Usage rate:${NC}             ${(usageRate * 100).toFixed(1)}%`);
+  lines.push(`  ${DIM}Noise ratio:${NC}            ${(noiseRatio * 100).toFixed(1)}%`);
+
+  if (qualityDistribution) {
+    lines.push('');
+    lines.push(`${BOLD}Quality Distribution${NC}`);
+    lines.push(`  ${DIM}Low  (<0.3):${NC}    ${qualityDistribution['low']}`);
+    lines.push(`  ${DIM}Med  (0.3-0.6):${NC} ${qualityDistribution['medium']}`);
+    lines.push(`  ${DIM}High (>0.6):${NC}    ${qualityDistribution['high']}`);
+  }
+
+  if (tierDistribution) {
+    lines.push('');
+    lines.push(`${BOLD}Tier Distribution${NC}`);
+    lines.push(`  ${DIM}Short:${NC}   ${tierDistribution['short']}`);
+    lines.push(`  ${DIM}Medium:${NC}  ${tierDistribution['medium']}`);
+    lines.push(`  ${DIM}Long:${NC}    ${tierDistribution['long']}`);
+    if ((tierDistribution['unknown'] as number) > 0) {
+      lines.push(`  ${DIM}Unknown:${NC} ${tierDistribution['unknown']}`);
+    }
+  }
+
+  if (topRetrieved && topRetrieved.length > 0) {
+    lines.push('');
+    lines.push(`${BOLD}Top 10 Most Retrieved${NC}`);
+    for (const e of topRetrieved) {
+      lines.push(
+        `  ${CYAN}[${e['citationCount']}x]${NC} ${DIM}${e['id']}${NC}  ${String(e['title'] ?? '').slice(0, 60)}`,
+      );
+    }
+  }
+
+  if (neverRetrieved && neverRetrieved.length > 0) {
+    lines.push('');
+    lines.push(`${YELLOW}${BOLD}Never Retrieved (pruning candidates)${NC}`);
+    for (const e of neverRetrieved) {
+      lines.push(
+        `  ${DIM}q=${(e['qualityScore'] as number).toFixed(2)}${NC}  ${DIM}${e['id']}${NC}  ${String(e['title'] ?? '').slice(0, 60)}`,
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// brain-export: export result (file-write path only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the result of `cleo brain export` when writing to a file.
+ *
+ * @task T1722
+ */
+export function renderBrainExport(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) return String(data['outputFile'] ?? '');
+
+  return (
+    `${GREEN}Exported to ${data['outputFile']}:${NC} ` +
+    `${data['nodeCount']} nodes, ${data['edgeCount']} edges ` +
+    `(${String(data['format'] ?? '').toUpperCase()})`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Generic fallback renderer
 // ---------------------------------------------------------------------------
 
