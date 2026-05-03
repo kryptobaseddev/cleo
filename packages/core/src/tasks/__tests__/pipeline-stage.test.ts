@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { resetDbState } from '../../store/sqlite.js';
 import { addTask } from '../add.js';
 
 /** Config that disables session, acceptance, and lifecycle enforcement for test isolation. */
@@ -249,11 +250,14 @@ describe('addTask pipeline stage auto-assignment', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     // Disable session enforcement so tests run without an active session
     await writeFile(join(env.cleoDir, 'config.json'), NO_SESSION_CONFIG);
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -357,11 +361,14 @@ describe('updateTask pipeline stage transitions', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     // Disable session enforcement so tests run without an active session
     await writeFile(join(env.cleoDir, 'config.json'), NO_SESSION_CONFIG);
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
