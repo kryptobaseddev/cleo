@@ -25,6 +25,10 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 120000,
     hookTimeout: 120000,
+    // Force deterministic color output: disable ANSI codes so renderer snapshots
+    // are stable regardless of CI environment (FORCE_COLOR=1 on GitHub Actions).
+    // Without this, brain-renderers snapshot tests fail in CI (T1731).
+    env: { NO_COLOR: '1', FORCE_COLOR: '0' },
     // ---------------------------------------------------------------------------
     // Pool strategy: 'forks' (child_process) with per-file module isolation.
     //
@@ -85,6 +89,7 @@ export default defineConfig({
       // The Svelte plugin (above) handles .svelte/.svelte.ts compilation; this
       // alias is still required so vitest resolves $lib/server/* imports correctly.
       '$lib': new URL('./packages/studio/src/lib', import.meta.url).pathname,
+      '@cleocode/caamp': new URL('./packages/caamp/src/index.ts', import.meta.url).pathname,
       '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
       // T1187-followup / v2026.4.113: specific subpath alias for

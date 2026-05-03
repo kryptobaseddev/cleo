@@ -82,6 +82,7 @@ import {
   renderNexusImpact,
   renderNexusImpactFull,
   renderNexusProjectsClean,
+  renderNexusProjectsCleanPreview,
   renderNexusProjectsList,
   renderNexusProjectsRegister,
   renderNexusProjectsRemove,
@@ -182,6 +183,7 @@ const renderers: Record<string, HumanRenderer> = {
   'nexus-projects-remove': renderNexusProjectsRemove,
   'nexus-projects-scan': renderNexusProjectsScan,
   'nexus-projects-clean': renderNexusProjectsClean,
+  'nexus-projects-clean-preview': renderNexusProjectsCleanPreview,
   'nexus-refresh-bridge': renderNexusRefreshBridge,
   'nexus-diff': renderNexusDiff,
   'nexus-query': renderNexusQuery,
@@ -258,7 +260,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
       }
       // If extracted is a primitive, render directly
       if (typeof extracted !== 'object' || extracted === null) {
-        console.log(String(extracted));
+        process.stdout.write(String(extracted) + '\n');
         return;
       }
       // If extracted is an array, wrap it for renderGeneric
@@ -276,7 +278,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     const renderer = fieldExtracted ? renderGeneric : (renderers[opts.command] ?? renderGeneric);
     const text = renderer(normalized, ctx.quiet);
     if (text) {
-      console.log(text);
+      process.stdout.write(text + '\n');
     }
     return;
   }
@@ -371,7 +373,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     }
   }
 
-  console.log(envelopeString);
+  process.stdout.write(envelopeString + '\n');
 }
 
 /**
@@ -424,9 +426,9 @@ export function cliError(
   const ctx = getFormatContext();
 
   if (ctx.format === 'human') {
-    console.error(`Error: ${message}${code ? ` (${code})` : ''}`);
+    process.stderr.write(`Error: ${message}${code ? ` (${code})` : ''}\n`);
     if (typeof details?.fix === 'string') {
-      console.error(`Fix: ${details.fix}`);
+      process.stderr.write(`Fix: ${details.fix}\n`);
     }
     return;
   }
@@ -461,5 +463,5 @@ export function cliError(
     meta: errorMeta,
   };
 
-  console.log(JSON.stringify(envelope));
+  process.stdout.write(JSON.stringify(envelope) + '\n');
 }

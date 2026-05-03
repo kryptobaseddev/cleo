@@ -17,7 +17,7 @@ import { mkdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setFormatContext } from '../../format-context.js';
 import {
   renderNexusClusters,
@@ -271,10 +271,12 @@ describe('cliOutput — LAFS envelope shape for nexus commands', () => {
     const { cliOutput } = await import('../../renderers/index.js');
     setFormatContext({ format: 'json', source: 'flag', quiet: false });
 
-    const captured: string[] = [];
-    const spy = vi.spyOn(console, 'log').mockImplementation((msg: string) => {
-      captured.push(msg);
-    });
+    let written = '';
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: unknown): boolean => {
+      written += String(chunk);
+      return true;
+    };
 
     try {
       cliOutput(
@@ -282,11 +284,11 @@ describe('cliOutput — LAFS envelope shape for nexus commands', () => {
         { command: 'nexus-hot-paths', operation: 'nexus.hot-paths' },
       );
     } finally {
-      spy.mockRestore();
+      process.stdout.write = origWrite;
     }
 
-    expect(captured).toHaveLength(1);
-    const envelope = JSON.parse(captured[0] ?? '{}') as Record<string, unknown>;
+    expect(written.length).toBeGreaterThan(0);
+    const envelope = JSON.parse(written.trim()) as Record<string, unknown>;
     expect(envelope['success']).toBe(true);
     expect(envelope['meta']).toBeDefined();
     const meta = envelope['meta'] as Record<string, unknown>;
@@ -298,10 +300,12 @@ describe('cliOutput — LAFS envelope shape for nexus commands', () => {
     const { cliOutput } = await import('../../renderers/index.js');
     setFormatContext({ format: 'human', source: 'flag', quiet: false });
 
-    const captured: string[] = [];
-    const spy = vi.spyOn(console, 'log').mockImplementation((msg: string) => {
-      captured.push(msg);
-    });
+    let written = '';
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: unknown): boolean => {
+      written += String(chunk);
+      return true;
+    };
 
     try {
       cliOutput(
@@ -309,22 +313,24 @@ describe('cliOutput — LAFS envelope shape for nexus commands', () => {
         { command: 'nexus-hot-paths', operation: 'nexus.hot-paths' },
       );
     } finally {
-      spy.mockRestore();
+      process.stdout.write = origWrite;
       setFormatContext({ format: 'json', source: 'default', quiet: false });
     }
 
-    expect(captured).toHaveLength(1);
-    expect(captured[0]).toContain('[nexus] No hot paths found');
+    expect(written.length).toBeGreaterThan(0);
+    expect(written).toContain('[nexus] No hot paths found');
   });
 
   it('emits human clusters output via nexus-clusters renderer', async () => {
     const { cliOutput } = await import('../../renderers/index.js');
     setFormatContext({ format: 'human', source: 'flag', quiet: false });
 
-    const captured: string[] = [];
-    const spy = vi.spyOn(console, 'log').mockImplementation((msg: string) => {
-      captured.push(msg);
-    });
+    let written = '';
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: unknown): boolean => {
+      written += String(chunk);
+      return true;
+    };
 
     try {
       cliOutput(
@@ -335,13 +341,13 @@ describe('cliOutput — LAFS envelope shape for nexus commands', () => {
         { command: 'nexus-clusters', operation: 'nexus.clusters' },
       );
     } finally {
-      spy.mockRestore();
+      process.stdout.write = origWrite;
       setFormatContext({ format: 'json', source: 'default', quiet: false });
     }
 
-    expect(captured).toHaveLength(1);
-    expect(captured[0]).toContain('test-proj');
-    expect(captured[0]).toContain('core');
-    expect(captured[0]).toContain('0.800');
+    expect(written.length).toBeGreaterThan(0);
+    expect(written).toContain('test-proj');
+    expect(written).toContain('core');
+    expect(written).toContain('0.800');
   });
 });

@@ -68,8 +68,10 @@ describe('cliOutput flag behavior', () => {
         { command: 'show' },
       );
 
-      expect(consoleSpy).toHaveBeenCalled();
-      const output = consoleSpy.mock.calls[0]?.[0] as string;
+      // cliOutput (human format) now uses process.stdout.write to bypass
+      // vitest's console hijack (T1731). Check stdoutSpy instead of consoleSpy.
+      expect(stdoutSpy).toHaveBeenCalled();
+      const output = (stdoutSpy.mock.calls[0]?.[0] as string) ?? '';
       // Human renderer output should contain task info (not JSON envelope)
       expect(output).toBeDefined();
       expect(output).not.toContain('"$schema"');
@@ -90,7 +92,8 @@ describe('cliOutput flag behavior', () => {
       cliOutput({ key: 'value' }, { command: 'unknown-command' });
 
       // Should not throw — falls back to renderGeneric
-      expect(consoleSpy).toHaveBeenCalled();
+      // cliOutput (human format) now uses process.stdout.write (T1731)
+      expect(stdoutSpy).toHaveBeenCalled();
     });
   });
 
@@ -109,8 +112,9 @@ describe('cliOutput flag behavior', () => {
 
       cliOutput({ id: 'T001', title: 'Test' }, { command: 'show' });
 
-      expect(consoleSpy).toHaveBeenCalled();
-      const output = consoleSpy.mock.calls[0]?.[0] as string;
+      // cliOutput (json format) now uses process.stdout.write (T1731)
+      expect(stdoutSpy).toHaveBeenCalled();
+      const output = (stdoutSpy.mock.calls[0]?.[0] as string) ?? '';
       const parsed = JSON.parse(output);
       expect(parsed.success).toBe(true);
     });
@@ -170,8 +174,9 @@ describe('cliOutput flag behavior', () => {
 
       cliOutput({ id: 'T001', title: 'Test Task', status: 'pending' }, { command: 'show' });
 
-      // For primitive extracted values, it should print directly
-      expect(consoleSpy).toHaveBeenCalledWith('Test Task');
+      // For primitive extracted values, cliOutput uses process.stdout.write
+      // (T1731: bypasses vitest console hijack). Value written with trailing '\n'.
+      expect(stdoutSpy).toHaveBeenCalledWith('Test Task\n');
     });
   });
 });
