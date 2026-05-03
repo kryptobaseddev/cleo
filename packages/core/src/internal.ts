@@ -690,6 +690,14 @@ export { channelToDistTag, describeChannel, resolveChannelFromBranch } from './r
 export type { PRResult } from './release/github-pr.js';
 export { buildPRBody, createPullRequest, isGhCliAvailable } from './release/github-pr.js';
 export { checkDoubleListing, checkEpicCompleteness } from './release/guards.js';
+// T1726: canonical 4-step release pipeline (ADR-063 / T1597) — exposed via internal for dispatch layer
+export {
+  loadActiveReleaseHandle,
+  releasePublish,
+  releaseReconcile,
+  releaseStart,
+  releaseVerify,
+} from './release/pipeline.js';
 export type { ProjectReleaseConfig, ReleaseConfig, ReleaseGate } from './release/release-config.js';
 export {
   getGitFlowConfig,

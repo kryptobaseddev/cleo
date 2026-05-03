@@ -6568,6 +6568,399 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+
+  // ---------------------------------------------------------------------------
+  // Sentient domain — T1726 SDK surface parity
+  //
+  // Sentient ops were dispatched via SentientHandler (registered under 'sentient'
+  // in the DomainHandler map) but absent from OPERATIONS, making them invisible
+  // to public SDK consumers using @cleocode/core. Adding all 10 ops here.
+  // ---------------------------------------------------------------------------
+
+  // sentient query: propose.list
+  {
+    gateway: 'query',
+    domain: 'sentient',
+    operation: 'propose.list',
+    description:
+      'sentient.propose.list (query) — list all pending Tier-2 proposals (status=proposed)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number' as const,
+        required: false,
+        description: 'Maximum number of proposals to return (default: 50)',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // sentient query: propose.diff
+  {
+    gateway: 'query',
+    domain: 'sentient',
+    operation: 'propose.diff',
+    description: 'sentient.propose.diff (query) — show what a proposal would change (Tier-3 stub)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['id'],
+    params: [
+      {
+        name: 'id',
+        type: 'string',
+        required: true,
+        description: 'Proposal task ID',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // sentient query: allowlist.list
+  {
+    gateway: 'query',
+    domain: 'sentient',
+    operation: 'allowlist.list',
+    description: 'sentient.allowlist.list (query) — list owner pubkeys in the sentient allowlist',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [] satisfies ParamDef[],
+  },
+
+  // sentient mutate: propose.accept
+  {
+    gateway: 'mutate',
+    domain: 'sentient',
+    operation: 'propose.accept',
+    description:
+      'sentient.propose.accept (mutate) — accept a Tier-2 proposal, transitioning proposed → pending',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['id'],
+    params: [
+      {
+        name: 'id',
+        type: 'string',
+        required: true,
+        description: 'Proposal task ID to accept',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // sentient mutate: propose.reject
+  {
+    gateway: 'mutate',
+    domain: 'sentient',
+    operation: 'propose.reject',
+    description:
+      'sentient.propose.reject (mutate) — reject a Tier-2 proposal, transitioning proposed → cancelled',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['id'],
+    params: [
+      {
+        name: 'id',
+        type: 'string',
+        required: true,
+        description: 'Proposal task ID to reject',
+        cli: { positional: true },
+      },
+      {
+        name: 'reason',
+        type: 'string',
+        required: false,
+        description: 'Human-readable reason for rejection',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // sentient mutate: propose.run
+  {
+    gateway: 'mutate',
+    domain: 'sentient',
+    operation: 'propose.run',
+    description:
+      'sentient.propose.run (mutate) — manually trigger a single Tier-2 propose tick in-process',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [] satisfies ParamDef[],
+  },
+
+  // sentient mutate: propose.enable
+  {
+    gateway: 'mutate',
+    domain: 'sentient',
+    operation: 'propose.enable',
+    description:
+      'sentient.propose.enable (mutate) — enable Tier-2 autonomous proposal generation (M7 gate)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [] satisfies ParamDef[],
+  },
+
+  // sentient mutate: propose.disable
+  {
+    gateway: 'mutate',
+    domain: 'sentient',
+    operation: 'propose.disable',
+    description:
+      'sentient.propose.disable (mutate) — disable Tier-2 autonomous proposal generation',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [] satisfies ParamDef[],
+  },
+
+  // sentient mutate: allowlist.add
+  {
+    gateway: 'mutate',
+    domain: 'sentient',
+    operation: 'allowlist.add',
+    description:
+      'sentient.allowlist.add (mutate) — add a base64-encoded owner pubkey to the sentient allowlist',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['pubkey'],
+    params: [
+      {
+        name: 'pubkey',
+        type: 'string',
+        required: true,
+        description: 'Base64-encoded public key to add',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // sentient mutate: allowlist.remove
+  {
+    gateway: 'mutate',
+    domain: 'sentient',
+    operation: 'allowlist.remove',
+    description:
+      'sentient.allowlist.remove (mutate) — remove a base64-encoded owner pubkey from the sentient allowlist',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['pubkey'],
+    params: [
+      {
+        name: 'pubkey',
+        type: 'string',
+        required: true,
+        description: 'Base64-encoded public key to remove',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Release domain — T1726 SDK surface parity
+  //
+  // Release ops dispatched via ReleaseHandler (registered under 'release' in
+  // the DomainHandler map) were absent from OPERATIONS. Adding gate +
+  // ivtr-suggest (the two ops ReleaseHandler serves) plus the canonical
+  // 4-step pipeline ops (start, verify, publish, reconcile) introduced by
+  // T1597 / ADR-063 that route through the core release module directly.
+  // ---------------------------------------------------------------------------
+
+  // release query: gate
+  {
+    gateway: 'query',
+    domain: 'release',
+    operation: 'gate',
+    description:
+      'release.gate (query) — check all IVTR loops in a release epic have reached the released phase before allowing release.ship (T820 RELEASE-03)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['epicId'],
+    params: [
+      {
+        name: 'epicId',
+        type: 'string',
+        required: true,
+        description: 'Epic ID whose child tasks should be inspected',
+      },
+      {
+        name: 'force',
+        type: 'boolean',
+        required: false,
+        description: 'Bypass the IVTR gate — requires explicit owner confirmation',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // release mutate: gate
+  {
+    gateway: 'mutate',
+    domain: 'release',
+    operation: 'gate',
+    description:
+      'release.gate (mutate) — same IVTR gate check as query.gate; safe in both gateways (no DB writes)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['epicId'],
+    params: [
+      {
+        name: 'epicId',
+        type: 'string',
+        required: true,
+        description: 'Epic ID whose child tasks should be inspected',
+      },
+      {
+        name: 'force',
+        type: 'boolean',
+        required: false,
+        description: 'Bypass the IVTR gate — requires explicit owner confirmation',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // release query: ivtr-suggest
+  {
+    gateway: 'query',
+    domain: 'release',
+    operation: 'ivtr-suggest',
+    description:
+      'release.ivtr-suggest (query) — check if all epic tasks are released and suggest cleo release ship (T820 RELEASE-07)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task ID that just reached the released phase',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // release mutate: ivtr-suggest
+  {
+    gateway: 'mutate',
+    domain: 'release',
+    operation: 'ivtr-suggest',
+    description:
+      'release.ivtr-suggest (mutate) — same auto-suggest as query.ivtr-suggest; safe in both gateways (no DB writes)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task ID that just reached the released phase',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // release mutate: start (T1597 / ADR-063 canonical step 1)
+  {
+    gateway: 'mutate',
+    domain: 'release',
+    operation: 'start',
+    description:
+      'release.start (mutate) — Step 1 of 4: validate version, capture branch, persist release handle (T1597 / ADR-063)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Version to release (e.g. 2026.5.4)',
+        cli: { positional: true },
+      },
+      {
+        name: 'epicId',
+        type: 'string',
+        required: false,
+        description: 'Epic ID this release ships',
+      },
+      {
+        name: 'branch',
+        type: 'string',
+        required: false,
+        description: 'Override detected branch',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // release query: verify (T1597 / ADR-063 canonical step 2)
+  {
+    gateway: 'query',
+    domain: 'release',
+    operation: 'verify',
+    description:
+      'release.verify (query) — Step 2 of 4: run gates + audit child tasks of the active release epic (T1597 / ADR-063)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [] satisfies ParamDef[],
+  },
+
+  // release mutate: publish (T1597 / ADR-063 canonical step 3)
+  {
+    gateway: 'mutate',
+    domain: 'release',
+    operation: 'publish',
+    description:
+      'release.publish (mutate) — Step 3 of 4: invoke project-context publish.command to publish the release artifact (T1597 / ADR-063)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Print command without executing',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // release mutate: reconcile (T1597 / ADR-063 canonical step 4)
+  {
+    gateway: 'mutate',
+    domain: 'release',
+    operation: 'reconcile',
+    description:
+      'release.reconcile (mutate) — Step 4 of 4: run post-release invariants, auto-complete tasks for the active release (T1597 / ADR-063)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Preview without mutations',
+      },
+    ] satisfies ParamDef[],
+  },
 ];
 
 // ---------------------------------------------------------------------------
