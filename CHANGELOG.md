@@ -1,5 +1,44 @@
 # Changelog
 
+## [2026.5.13] (2026-05-03) — T-CSL-RESET Wave 5 (FINAL): SDK surface parity
+
+W5 (T1692) — final wave of T-CSL-RESET. 3 atomic children completed bringing the public `@cleocode/core` SDK surface to parity with the `cleo --json` CLI output.
+
+### W5 children (T1725–T1727)
+
+- **T1725 (W5.A) — `unwrap()` helper** — Added `unwrap<T>(result: EngineResult<T>): T` to `@cleocode/core`. Public consumers using the SDK can write `const data = unwrap(await someOp())` and get a familiar throw-style API. Throws `CleoError`-shaped error on failure (preserves `code`/`message`/`exitCode`/`details`/`fix`/`alternatives`/`problemDetails`). Internal code keeps the discriminated `EngineResult<T>` union for narrowing.
+- **T1726 (W5.B) — sentient + release ops registered** — Added `OperationSpec` entries for all sentient subcommands and all release subcommands to the public `OPERATIONS` registry. Audit-E found these were reachable via `cleo` CLI but invisible to public SDK consumers.
+- **T1727 (W5.C) — release/engine-ops.ts side-effect cleanup** — Removed `console.log` step-progress writes from `packages/core/src/release/engine-ops.ts`. Routed through `getLogger('release')` with structured fields. Stdout is now clean when consumed via the SDK.
+
+### W5 acceptance gates
+
+- ✅ pnpm run typecheck clean (CI parity — `tsc -b` strict project references)
+- ✅ pnpm biome ci . clean
+- ✅ pnpm run build clean (full monorepo)
+
+### T-CSL-RESET COMPLETE
+
+This release marks the **final wave** of T-CSL-RESET (T1685). The 5-wave epic took 10 patch releases (v2026.5.4 → v2026.5.13) and addressed 3 foundational defects identified by the 5 parallel audits on 2026-05-01:
+
+1. ✅ **W1 (v2026.5.4)** — Contracts canonicalization (zero internal conflicts, schema emission, LAFS unified, all 18 domains in barrel)
+2. ✅ **W2 (v2026.5.5–5.7)** — EngineResult unification (single canonical shape, RFC 7807 `problemDetails`, 5 duplicates consolidated, round-trip field-loss fix)
+3. ✅ **W3 (v2026.5.10) partial** — 4 of 5 type families migrated to contracts SSoT (13 duplications removed). T1719 followup filed for shape divergence.
+4. ✅ **W4 (v2026.5.11–5.12)** — 5 highest-impact CLI commands migrated to LAFS-compliant `cliOutput()` (~511 raw stdout writes eliminated). T1728 followup filed for biome lint hard-block. T1729 followup filed for remaining 8 commands.
+5. ✅ **W5 (v2026.5.13)** — SDK surface parity (`unwrap()` helper, sentient + release ops in registry, release side-effects removed)
+
+Sandbox baseline: 4/7 → 7/7 PASS across the wave releases. The 3 sandbox-related bugs discovered during validation (pre-commit hook ADR-013 contradiction, T1609 trigger SQLite syntax, scenario read-only filesystem) all fixed in CLEO core.
+
+### Followups filed
+
+- **T1718** — Pre-existing CI flakes (epic-enforcement.test.ts, pipeline-stage.test.ts)
+- **T1719** — W3.E shape-divergence reconciliation
+- **T1728** — W4.F biome lint hard-block rule
+- **T1729** — W4.G remaining 8 CLI commands
+
+## [2026.5.12] (2026-05-03) — T1720 followup: restore nexus task-symbol sweep stderr message
+
+Hotfix for v2026.5.11. T1720 worker added a `ctx.format !== 'json'` guard around the `[nexus] Task-symbol sweep` stderr write. Pre-W4 the message was always emitted regardless of stdout format. Removing the guard restores the pre-W4 behavior — stderr is a separate stream from `--json` stdout and does not pollute LAFS envelope output. Sandbox `living-brain-e2e` regression on v2026.5.11 fixed.
+
 ## [2026.5.11] (2026-05-03) — T-CSL-RESET Wave 4: 5 CLI commands migrated to LAFS-compliant cliOutput
 
 W4 (T1691) wave 1: 5 atomic children completed. ~511 raw `process.stdout.write` / `console.log` calls migrated to `cliOutput()` across the 5 highest-impact CLI command files. Every migrated command now produces a LAFS-conformant envelope on `--json` and routes through the human renderer for `--human`.
