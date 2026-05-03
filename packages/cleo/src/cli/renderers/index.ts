@@ -35,6 +35,7 @@ import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs
 import { normalizeForHuman } from './normalizer.js';
 // System renderers
 import {
+  renderAuditReconstruct,
   renderBlockers,
   renderBrainBackfill,
   renderBrainExport,
@@ -48,6 +49,7 @@ import {
   renderGeneric,
   renderNext,
   renderPlan,
+  renderSchemaCommand,
   renderSession,
   renderStart,
   renderStats,
@@ -160,6 +162,12 @@ const renderers: Record<string, HumanRenderer> = {
   'brain-plasticity-stats': renderBrainPlasticityStats,
   'brain-quality': renderBrainQuality,
   'brain-export': renderBrainExport,
+
+  // Audit subcommand renderers (T1729)
+  'audit-reconstruct': renderAuditReconstruct,
+
+  // Schema command renderer (T1729)
+  schema: renderSchemaCommand,
 
   // Nexus subcommand renderers (T1720)
   'nexus-status': renderNexusStatus,
