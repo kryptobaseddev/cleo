@@ -76,7 +76,10 @@ describe('nexus clusters — human renderer', () => {
   });
 
   it('returns empty string in quiet mode', () => {
-    const data = { projectId: 'proj', communities: [{ id: '1', label: 'a', symbolCount: 1, cohesion: 0.5 }] };
+    const data = {
+      projectId: 'proj',
+      communities: [{ id: '1', label: 'a', symbolCount: 1, cohesion: 0.5 }],
+    };
     expect(renderNexusClusters(data, true)).toBe('');
   });
 });
@@ -90,7 +93,7 @@ describe('nexus context — human renderer', () => {
     const data = { matchCount: 0, results: [], _symbolName: 'unknownFn' };
     const output = renderNexusContext(data, false);
     expect(output).toContain("No symbol found matching 'unknownFn'");
-    expect(output).toContain("cleo nexus analyze");
+    expect(output).toContain('cleo nexus analyze');
   });
 
   it('renders symbol details with callers and callees', () => {
@@ -126,10 +129,20 @@ describe('nexus context — human renderer', () => {
     const data = {
       matchCount: 1,
       _symbolName: 'myFn',
-      results: [{
-        name: 'myFn', kind: 'function', filePath: 'a.ts', startLine: 1,
-        docSummary: null, community: null, callers: [], callees: [], processes: [], source: null,
-      }],
+      results: [
+        {
+          name: 'myFn',
+          kind: 'function',
+          filePath: 'a.ts',
+          startLine: 1,
+          docSummary: null,
+          community: null,
+          callers: [],
+          callees: [],
+          processes: [],
+          source: null,
+        },
+      ],
     };
     const output = renderNexusContext(data, false);
     expect(output).toContain('1 match)');
@@ -156,8 +169,20 @@ describe('nexus hot-paths — human renderer', () => {
   it('renders markdown table header and edge rows', () => {
     const data = {
       paths: [
-        { sourceId: 'src/a.ts::fnA', targetId: 'src/b.ts::fnB', type: 'calls', weight: 0.75, coAccessedCount: 12 },
-        { sourceId: 'src/c.ts::fnC', targetId: 'src/d.ts::fnD', type: 'imports', weight: 0.25, coAccessedCount: 3 },
+        {
+          sourceId: 'src/a.ts::fnA',
+          targetId: 'src/b.ts::fnB',
+          type: 'calls',
+          weight: 0.75,
+          coAccessedCount: 12,
+        },
+        {
+          sourceId: 'src/c.ts::fnC',
+          targetId: 'src/d.ts::fnD',
+          type: 'imports',
+          weight: 0.25,
+          coAccessedCount: 3,
+        },
       ],
       count: 2,
     };
@@ -176,7 +201,10 @@ describe('nexus hot-paths — human renderer', () => {
   });
 
   it('returns empty string in quiet mode', () => {
-    const data = { paths: [{ sourceId: 'a', targetId: 'b', type: 'calls', weight: 0.5, coAccessedCount: 1 }], count: 1 };
+    const data = {
+      paths: [{ sourceId: 'a', targetId: 'b', type: 'calls', weight: 0.5, coAccessedCount: 1 }],
+      count: 1,
+    };
     expect(renderNexusHotPaths(data, true)).toBe('');
   });
 });
@@ -191,7 +219,7 @@ describe('nexus status — human renderer', () => {
     const output = renderNexusStatus(data, false);
     expect(output).toContain('NOT INDEXED');
     expect(output).toContain('/my/repo');
-    expect(output).toContain("cleo nexus analyze");
+    expect(output).toContain('cleo nexus analyze');
   });
 
   it('renders full stats when indexed is true', () => {
@@ -215,9 +243,14 @@ describe('nexus status — human renderer', () => {
 
   it('shows "up to date" when staleFileCount is 0', () => {
     const data = {
-      projectId: 'p', repoPath: '/r', indexed: true,
-      nodeCount: 10, relationCount: 20, fileCount: 5,
-      lastIndexedAt: '2026-05-01T00:00:00Z', staleFileCount: 0,
+      projectId: 'p',
+      repoPath: '/r',
+      indexed: true,
+      nodeCount: 10,
+      relationCount: 20,
+      fileCount: 5,
+      lastIndexedAt: '2026-05-01T00:00:00Z',
+      staleFileCount: 0,
     };
     const output = renderNexusStatus(data, false);
     expect(output).toContain('up to date');
@@ -297,9 +330,7 @@ describe('cliOutput — LAFS envelope shape for nexus commands', () => {
       cliOutput(
         {
           projectId: 'test-proj',
-          communities: [
-            { id: 'c1', label: 'core', symbolCount: 100, cohesion: 0.8 },
-          ],
+          communities: [{ id: 'c1', label: 'core', symbolCount: 100, cohesion: 0.8 }],
         },
         { command: 'nexus-clusters', operation: 'nexus.clusters' },
       );
