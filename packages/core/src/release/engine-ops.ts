@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { type EngineResult, engineError } from '../engine-result.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
+import { getLogger } from '../logger.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import { getDb } from '../store/sqlite.js';
@@ -49,6 +50,8 @@ import {
   getVersionBumpConfig,
   type VersionBumpTarget,
 } from './version-bump.js';
+
+const log = getLogger('release');
 
 // ---------------------------------------------------------------------------
 // Private helpers
@@ -305,7 +308,7 @@ export async function releaseGateCheck(
     const warning =
       `IVTR gate check BYPASSED via --force for epic ${epicId}. ` +
       'This is an owner-level override. All tasks should have reached IVTR released phase before shipping.';
-    console.warn(`  ! ${warning}`);
+    log.warn({ epicId, forcedBypass: true }, warning);
     return {
       success: true,
       data: {
@@ -1028,7 +1031,7 @@ export async function releaseShip(
   /** Collected step log messages, included in every return value for CLI visibility. */
   const steps: string[] = [];
 
-  /** Emit a step line for each release stage. Pushes to steps[] and console.log for CLI. */
+  /** Emit a step line for each release stage. Pushes to steps[] and logs via structured logger. */
   const logStep = (
     n: number,
     total: number,
@@ -1039,13 +1042,15 @@ export async function releaseShip(
     let msg: string;
     if (done === undefined) {
       msg = `[Step ${n}/${total}] ${label}...`;
+      log.info({ step: n, total, label, phase: 'start' }, msg);
     } else if (done) {
       msg = `  ✓ ${label}`;
+      log.info({ step: n, total, label, phase: 'done' }, msg);
     } else {
       msg = `  ✗ ${label}: ${error ?? 'failed'}`;
+      log.warn({ step: n, total, label, phase: 'failed', error }, msg);
     }
     steps.push(msg);
-    console.log(msg);
   };
 
   const bumpTargets: VersionBumpTarget[] = getVersionBumpConfig(cwd);
@@ -1157,7 +1162,7 @@ export async function releaseShip(
           // Warn but don't block — tasks without IVTR are allowed (e.g. docs tasks)
           const w = `  ! IVTR gate: ${unchecked.length} task(s) have no IVTR state (non-blocking): ${unchecked.join(', ')}`;
           steps.push(w);
-          console.log(w);
+          log.warn({ epicId, unchecked, count: unchecked.length }, w);
         }
         logStep(1, 8, 'Check IVTR gate for epic tasks', true);
       } else {
@@ -1166,7 +1171,7 @@ export async function releaseShip(
     } else {
       const w = `  ! --force: IVTR gate check BYPASSED. Owner-level override only.`;
       steps.push(w);
-      console.warn(w);
+      log.warn({ epicId, forcedBypass: true }, w);
     }
 
     // Resolve release channel from current branch (after gates, which read the branch)
@@ -1434,21 +1439,24 @@ export async function releaseShip(
         const m2 = `  PR created: ${prResult.prUrl}`;
         const m3 = `  → Next: merge the PR, then CI will publish to npm @${resolvedChannel}`;
         steps.push(m1, m2, m3);
-        console.log(m1);
-        console.log(m2);
-        console.log(m3);
+        log.info(
+          { step: 7, prMode: 'created', prUrl: prResult.prUrl, channel: resolvedChannel },
+          m1,
+        );
+        log.info({ step: 7, prUrl: prResult.prUrl }, m2);
+        log.info({ step: 7, channel: resolvedChannel }, m3);
       } else if (prResult.mode === 'skipped') {
         const m1 = `  ✓ Push / create PR`;
         const m2 = `  PR already exists: ${prResult.prUrl}`;
         steps.push(m1, m2);
-        console.log(m1);
-        console.log(m2);
+        log.info({ step: 7, prMode: 'skipped', prUrl: prResult.prUrl }, m1);
+        log.info({ step: 7, prUrl: prResult.prUrl }, m2);
       } else {
         const m1 = `  ! Push / create PR — manual PR required:`;
         const m2 = prResult.instructions ?? '';
         steps.push(m1, m2);
-        console.log(m1);
-        console.log(m2);
+        log.warn({ step: 7, prMode: 'manual', instructions: prResult.instructions }, m1);
+        log.warn({ step: 7 }, m2);
       }
     } else {
       // Direct push path (pushRelease already ran, but it skips the actual push
@@ -1476,18 +1484,25 @@ export async function releaseShip(
       const list = compositionChain.subProtocols.join(' → ');
       const m = `  ✓ Composition chain expected: release → ${list}`;
       steps.push(m);
-      console.log(m);
+      log.info(
+        {
+          step: 8,
+          subProtocols: compositionChain.subProtocols,
+          artifactType: compositionChain.artifactType,
+        },
+        m,
+      );
       if (compositionChain.notes.length > 0) {
         for (const note of compositionChain.notes) {
           const n = `    · ${note}`;
           steps.push(n);
-          console.log(n);
+          log.info({ step: 8, note }, n);
         }
       }
     } else {
       const m = `  · Source-only release — no artifact-publish or provenance sub-protocols`;
       steps.push(m);
-      console.log(m);
+      log.info({ step: 8, subProtocols: [], artifactType: compositionChain.artifactType }, m);
     }
 
     return {
