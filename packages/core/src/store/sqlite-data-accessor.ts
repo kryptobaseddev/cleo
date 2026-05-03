@@ -801,11 +801,15 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     },
 
     async transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T> {
+      // Await getDb first so _nativeDb is guaranteed to be the correct instance
+      // before we capture it. Capturing before the await is a race condition:
+      // another async cleanup could close the DB during the await, leaving us
+      // with a stale (closed) nativeDb reference. (T1718 flake fix)
+      const db = await getDb(cwd);
       const nativeDb = getNativeTasksDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
-      const db = await getDb(cwd);
 
       nativeDb.prepare('BEGIN IMMEDIATE').run();
       try {
