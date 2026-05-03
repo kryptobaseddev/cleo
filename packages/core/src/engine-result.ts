@@ -10,6 +10,7 @@
  * @epic T5701
  * @task T-ENGINE-DISCRIMINATED — refactor to discriminated union (proper
  *       discrimination so success branch cannot have error and vice versa).
+ * @task T1725 — unwrap() helper added for ergonomic SDK consumers
  */
 
 import type { LAFSPage } from '@cleocode/lafs';
@@ -123,4 +124,75 @@ export function engineError<T = unknown>(
       ...(options?.problemDetails !== undefined ? { problemDetails: options.problemDetails } : {}),
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// unwrap() — throw-style ergonomic helper for SDK consumers.
+// ---------------------------------------------------------------------------
+
+/**
+ * Error thrown by {@link unwrap} when an {@link EngineResult} carries a
+ * failure. Preserves the full {@link EngineErrorPayload} shape so callers
+ * can inspect `code`, `message`, `exitCode`, `details`, `fix`,
+ * `alternatives`, and `problemDetails` after catching.
+ *
+ * @task T1725
+ */
+export class EngineResultError extends Error {
+  /** Machine-readable error code (e.g. `'E_NOT_FOUND'`). */
+  readonly code: string;
+  /** Numeric process exit code, if present. */
+  readonly exitCode?: number;
+  /** Structured field-level details, if present. */
+  readonly details?: unknown;
+  /** Human-readable fix hint, if present. */
+  readonly fix?: string;
+  /** Alternative actions the caller may take, if present. */
+  readonly alternatives?: Array<{ action: string; command: string }>;
+  /**
+   * RFC 7807 problem details for structured error reporting.
+   *
+   * @see ProblemDetails
+   */
+  readonly problemDetails?: ProblemDetails;
+
+  constructor(payload: EngineErrorPayload) {
+    super(payload.message);
+    this.name = 'EngineResultError';
+    this.code = payload.code;
+    if (payload.exitCode !== undefined) this.exitCode = payload.exitCode;
+    if (payload.details !== undefined) this.details = payload.details;
+    if (payload.fix !== undefined) this.fix = payload.fix;
+    if (payload.alternatives !== undefined) this.alternatives = payload.alternatives;
+    if (payload.problemDetails !== undefined) this.problemDetails = payload.problemDetails;
+  }
+}
+
+/**
+ * Unwrap an {@link EngineResult}, returning the payload data on success or
+ * throwing an {@link EngineResultError} (CleoError-shaped) on failure.
+ *
+ * Intended for public SDK consumers who prefer a throw-style API over the
+ * internal discriminated-union pattern. Internal dispatch code SHOULD
+ * continue using the `if (result.success)` pattern directly.
+ *
+ * @param result - an {@link EngineResult} to unwrap
+ * @returns the `data` value when `result.success` is `true`
+ * @throws {@link EngineResultError} when `result.success` is `false`,
+ *         preserving all error fields (`code`, `message`, `exitCode`,
+ *         `details`, `fix`, `alternatives`, `problemDetails`).
+ *
+ * @example
+ * ```ts
+ * import { unwrap } from '@cleocode/core';
+ * const task = unwrap(await engine.getTask(id));
+ * ```
+ *
+ * @task T1725
+ */
+export function unwrap<T>(result: EngineResult<T>): T {
+  if (result.success) {
+    return result.data;
+  }
+  throw new EngineResultError(result.error);
 }
