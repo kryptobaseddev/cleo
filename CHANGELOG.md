@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
-### T1728 — biome lint hard-block on raw stdout outside renderers
+## [2026.5.14] (2026-05-03) — T-CSL-RESET wave followups: lint guardrail, CLI migration, type reconciliation, CI flakes
+
+Four parallel followups completed and merged in one orchestrated batch (T1718, T1719, T1728, T1729). All four task branches integrated via `git merge --no-ff` per ADR-062, preserving original commit SHAs and authorship.
+
+### T1728 — biome lint hard-block on raw stdout outside renderers (W4.F followup)
 
 Added `lint/suspicious/noConsole` as a repo-wide `error`-level rule to `biome.json`. The rule blocks `console.log` in all files scanned by biome. Two exemption layers are in place:
 
@@ -11,7 +15,36 @@ Added `lint/suspicious/noConsole` as a repo-wide `error`-level rule to `biome.js
 
 **Note on `process.stdout.write`**: biome has no built-in rule to block raw `process.stdout.write`. Detection of this pattern requires a custom plugin or manual review until biome adds support. The LAFS-compliance guardrail for `process.stdout.write` remains a code-review responsibility until then.
 
-`pnpm biome ci .` is clean on main after this change.
+### T1729 — migrate `audit` and `schema` CLI commands to `cliOutput` (W4.G followup)
+
+Continued W4 LAFS-compliance migration. Two more CLI commands now route through the `cliOutput` renderer pipeline instead of writing raw stdout:
+
+- `packages/cleo/src/cli/commands/audit.ts` — replaced 2 raw `process.stdout.write` calls with `cliOutput()` and `cliError()`. Both `--json` and human paths now route through `cliOutput('audit-reconstruct', ...)`.
+- `packages/cleo/src/cli/commands/schema.ts` — removed inline `renderSchemaHuman()` function and direct `console.log` bypass for `--format=human`. Now calls `setFormatContext()` then routes through `cliOutput('schema', ...)`.
+- `packages/cleo/src/cli/renderers/system.ts` — added `renderAuditReconstruct()` and `renderSchemaCommand()` human renderers.
+- `packages/cleo/src/cli/renderers/index.ts` — registered `audit-reconstruct` and `schema` keys.
+- `packages/cleo/src/cli/help-renderer.ts` — annotated `--help` console.log as `SSoT-EXEMPT` (help text output is not subject to LAFS envelope requirements per ADR-039).
+- New tests: `audit-clioutput.test.ts` (12 assertions) plus updated `schema.test.ts` (16 assertions).
+
+### T1719 — reconcile SpawnContext / Wave / LifecycleHistoryEntry shape divergence (W3.E followup)
+
+T1717 had documented legitimate structural divergence between contracts and core for three orchestration types. T1719 reconciles them so `@cleocode/contracts` is canonical for each:
+
+- **`Wave`** — `packages/contracts/src/operations/orchestrate.ts` updated to match the core shape: `wave → waveNumber`, `taskIds → tasks`, dropped `canRunParallel`/`dependencies` in favor of `status`. (Commit `21de3c3cd`.)
+- **`SpawnContext`** — core's internal-only `SpawnContext` renamed to `OrchestratorSpawnContext` to free the canonical name for the cross-package contracts type. (Commit `5d957b614`.)
+- **`LifecycleHistoryEntry`** — `packages/contracts/src/operations/lifecycle.ts` updated to match the core shape (richer field set including `byAgent`, `evidenceRefs`, `note`). (Commit `35a3c8bd6`.)
+
+All callers updated. Typecheck + build + test green for the affected paths.
+
+### T1718 — fix `epic-enforcement` and `pipeline-stage` CI test flakes
+
+Two pre-existing test flakes that had caused multiple wave releases to ship with intermittent red CI. Both root-caused to real production bugs (not just test isolation):
+
+1. **`epic-enforcement` flake** — `initLoomForEpic` (fire-and-forget call inside `addTask`) called `recordStageProgress` with `stage='research'`, which unconditionally overwrote `tasks.pipeline_stage` for the epic — rolling back an epic explicitly created at a later stage (e.g. `implementation`) to `research`. **Fix**: `recordStageProgress` now only updates `tasks.pipeline_stage` when the new stage order is `>=` the current stage order (forward-only, never regress).
+2. **`pipeline-stage` flake** — `transaction()` in `packages/core/src/store/sqlite-data-accessor.ts` captured `_nativeDb` via `getNativeTasksDb()` BEFORE `await getDb(cwd)`, opening a window where another async cleanup could close that DB instance and leave a stale closed reference. **Fix**: `await getDb(cwd)` first, then capture the native DB reference.
+3. **Test isolation hardening** — `epic-enforcement.test.ts` and `pipeline-stage.test.ts` now set `process.env['CLEO_DIR']` in `beforeEach` and clear it in `afterEach`, matching the pattern used by other tests that touch `CLEO_DIR`.
+
+Verified 10x passes locally on each target test with the full `tasks/__tests__` suite running concurrently. Net repo-wide test impact: **17 fewer failing tests** vs the v2026.5.13 baseline (regression count: **0**).
 
 ## [2026.5.13] (2026-05-03) — T-CSL-RESET Wave 5 (FINAL): SDK surface parity
 
