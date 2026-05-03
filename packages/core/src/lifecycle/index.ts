@@ -990,12 +990,30 @@ export async function recordStageProgress(
   // authoritative stage without lifting the lifecycle_stages table.
   // Only advance on in_progress / completed — skipped and failed do not move
   // the canonical stage.
+  // T1718 fix: only update pipeline_stage when the new stage is >= the current
+  // stage. This prevents initLoomForEpic (which always records 'research') from
+  // rolling back a task that was explicitly created at a later stage (e.g.
+  // 'implementation'). The lifecycle init is idempotent and fire-and-forget; it
+  // should never regress an already-advanced canonical stage.
   if (status === 'in_progress' || status === 'completed') {
-    await db
-      .update(schema.tasks)
-      .set({ pipelineStage: stage })
+    const { getPipelineStageOrder } = await import('../tasks/pipeline-stage.js');
+    const newOrder = getPipelineStageOrder(stage);
+    // Load current pipeline_stage to avoid regressing it
+    const currentRows = await db
+      .select({ pipelineStage: schema.tasks.pipelineStage })
+      .from(schema.tasks)
       .where(eq(schema.tasks.id, epicId))
-      .run();
+      .limit(1)
+      .all();
+    const currentStage = currentRows[0]?.pipelineStage ?? null;
+    const currentOrder = currentStage ? getPipelineStageOrder(currentStage) : -1;
+    if (newOrder >= currentOrder) {
+      await db
+        .update(schema.tasks)
+        .set({ pipelineStage: stage })
+        .where(eq(schema.tasks.id, epicId))
+        .run();
+    }
   }
 
   return { epicId, stage, status, timestamp: now };

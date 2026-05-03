@@ -16,6 +16,7 @@ import { unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { resetDbState } from '../../store/sqlite.js';
 
 // Epic enforcement tests NEED enforcement active — temporarily clear VITEST
 const savedVitest = process.env.VITEST;
@@ -73,9 +74,12 @@ describe('getLifecycleMode', () => {
 
   beforeEach(async () => {
     env = await createTestDb();
+    process.env['CLEO_DIR'] = env.cleoDir;
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -109,10 +113,13 @@ describe('validateEpicCreation (strict mode)', () => {
 
   beforeEach(async () => {
     env = await createTestDb();
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('strict'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -164,10 +171,13 @@ describe('validateEpicCreation (advisory mode)', () => {
 
   beforeEach(async () => {
     env = await createTestDb();
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('advisory'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -186,10 +196,13 @@ describe('validateEpicCreation (off mode)', () => {
 
   beforeEach(async () => {
     env = await createTestDb();
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('off'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -211,10 +224,13 @@ describe('validateChildStageCeiling (strict)', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('strict'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -278,10 +294,13 @@ describe('validateChildStageCeiling (advisory)', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('advisory'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -319,10 +338,13 @@ describe('validateEpicStageAdvancement (strict)', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('strict'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -493,10 +515,13 @@ describe('validateEpicStageAdvancement (advisory)', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('advisory'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -547,9 +572,12 @@ describe('findEpicAncestor', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -641,10 +669,13 @@ describe('addTask epic creation enforcement (strict)', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('strict'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -686,10 +717,13 @@ describe('addTask child stage ceiling (strict)', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('strict'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -761,10 +795,13 @@ describe('updateTask epic stage advancement gate (strict)', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('strict'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
@@ -833,10 +870,13 @@ describe('updateTask child stage ceiling on update (strict)', () => {
   beforeEach(async () => {
     env = await createTestDb();
     accessor = env.accessor;
+    process.env['CLEO_DIR'] = env.cleoDir;
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('strict'));
   });
 
   afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
     await env.cleanup();
   });
 
