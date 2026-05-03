@@ -1,0 +1,93 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderBrainBackfill > snapshot — full result 1`] = `
+"Back-fill complete.
+  Before: 100 nodes, 50 edges
+  Source: 20 decisions, 15 patterns, 30 learnings, 35 observations, 0 stickies
+  Nodes inserted: 25 (including 5 stub nodes)
+  Edges inserted: 18
+  After:  125 nodes, 68 edges
+
+  By type:
+    decision: 20
+    pattern: 5"
+`;
+
+exports[`renderBrainExport > snapshot — GEXF export 1`] = `"Exported to /tmp/brain-export.gexf: 150 nodes, 300 edges (GEXF)"`;
+
+exports[`renderBrainMaintenance > snapshot — full result 1`] = `
+"Maintenance complete.
+  Duration: 1234ms
+  Decay:         3 learning(s) updated
+  Consolidation: 2 merged, 1 archived
+  Tier promotion: 5 promoted, 1 evicted
+  Reconcile:     2 decisions, 4 observations, 1 links
+  Embeddings:    10 processed, 2 skipped, 0 errors"
+`;
+
+exports[`renderBrainPlasticityStats > snapshot — empty result 1`] = `
+"Brain Plasticity Stats (STDP)
+═════════════════════════════════════════
+  Total events:       0
+  LTP (potentiation): 0
+  LTD (depression):   0
+  Net Δw:             +0.0000
+  Last event:         (none)
+
+  No plasticity events recorded yet.
+  Run \`cleo brain maintenance\` or \`cleo session end\` to trigger STDP."
+`;
+
+exports[`renderBrainPlasticityStats > snapshot — full result with events 1`] = `
+"Brain Plasticity Stats (STDP)
+═════════════════════════════════════════
+  Total events:       42
+  LTP (potentiation): 30
+  LTD (depression):   12
+  Net Δw:             +0.1234
+  Last event:         2026-05-01T10:00:00Z
+
+Recent Events (newest first, limit=20)
+  [LTP] obs-001                        → dec-002                         Δw=+0.0500  2026-05-01T10:00:00Z"
+`;
+
+exports[`renderBrainPurge > snapshot — full result 1`] = `
+"Purge complete.
+  Patterns deleted:     10
+  Learnings deleted:    25
+  Decisions deleted:    3
+  Observations deleted: 8
+
+Post-purge counts:
+  Patterns:     5
+  Learnings:    0
+  Decisions:    17
+  Observations: 42
+  FTS5 rebuilt: true"
+`;
+
+exports[`renderBrainQuality > snapshot — full report 1`] = `
+"Brain Memory Quality Report
+══════════════════════════════════════════
+  Total retrievals:       500
+  Unique entries hit:     80
+  Usage rate:             75.0%
+  Noise ratio:            12.0%
+
+Quality Distribution
+  Low  (<0.3):    10
+  Med  (0.3-0.6): 30
+  High (>0.6):    40
+
+Tier Distribution
+  Short:   20
+  Medium:  35
+  Long:    25
+
+Top 10 Most Retrieved
+  [15x] O-001  Key architectural decision on brain design
+  [10x] D-002  Resolved: migration strategy for v2
+
+Never Retrieved (pruning candidates)
+  q=0.20  O-099  Old stale note from onboarding"
+`;
