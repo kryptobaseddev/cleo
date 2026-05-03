@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [2026.5.15] (2026-05-03) — CI green: vitest console hijack + FORCE_COLOR snapshot drift
+
+CI has been red since v2026.5.12 due to two test-infrastructure issues finally root-caused and fixed in T1731. After this release: **`pnpm run test` reports 12366 passed, 0 failed across 748 test files** (vs ~26 failing before).
+
+### T1731 (epic T1730) — fix CI flakes
+
+**Root cause #1 — vitest hijacks `console.log`/`console.error`** (17 nexus-projects-clean failures): Vitest reroutes `console.*` methods to its own reporter, so test mocks of `process.stdout.write` / `process.stderr.write` never see CLI output. `cliOutput` and `cliError` in `packages/cleo/src/cli/renderers/index.ts` were emitting via `console.log`/`console.error`. **Fix**: switched the four emission sites in `cliOutput` (field-extracted primitive, human-mode rendered text, JSON envelope) and `cliError` (human stderr line, JSON envelope) to `process.stdout.write(s + '\n')` / `process.stderr.write(s + '\n')`. Five other test files that were spying on `console.*` also updated (`cli-output-flags`, `cli-error-signature`, `audit-clioutput`, `nexus-clioutput`, `restore-finalize`).
+
+**Root cause #2 — `FORCE_COLOR=1` in CI** (7 brain-renderers snapshot mismatches): GitHub Actions runners set `FORCE_COLOR=1`. The `colors.ts` module determines `colorsEnabled` at module-load time from `FORCE_COLOR`/`NO_COLOR`/`stdout.isTTY`. With colors enabled, ANSI escape codes leak into rendered output but saved snapshots have no ANSI codes. **Fix**: added `env: { NO_COLOR: '1', FORCE_COLOR: '0' }` to the `test:` block in root `vitest.config.ts` so renderers always emit deterministic plain text under vitest. (The default GitHub Actions environment is unchanged; only the test runner is fixed.)
+
+**Bonus fixes shipped in T1731**:
+- `mental-model.test.ts > consolidate > enforces token cap dropping oldest first` — fixed by switching from hardcoded April 2026 dates to relative timestamps (the previous absolute dates fell outside the consolidation cutoff window after the calendar advanced).
+- `nexus-projects-clean.test.ts` — `invokeClean` now sets the format context per `--json` flag; `error.codeName` expectations re-aligned with the LAFS envelope shape.
+- `nexus-projects-clean-preview` renderer registered in `packages/cleo/src/cli/renderers/index.ts` (was missing from the registry).
+- `@cleocode/caamp` added to vitest aliases.
+
+### CI green check
+- `pnpm biome ci .` clean
+- `pnpm run typecheck` clean
+- `pnpm run build` clean
+- `pnpm run test` — **748 test files passed, 0 failed**; 12366 tests passed, 21 skipped, 35 todo
+- `FORCE_COLOR=1 pnpm vitest run packages/cleo/src/cli/renderers/__tests__/brain-renderers.test.ts` — 32/32 (simulates CI)
+
 ## [2026.5.14] (2026-05-03) — T-CSL-RESET wave followups: lint guardrail, CLI migration, type reconciliation, CI flakes
 
 Four parallel followups completed and merged in one orchestrated batch (T1718, T1719, T1728, T1729). All four task branches integrated via `git merge --no-ff` per ADR-062, preserving original commit SHAs and authorship.
