@@ -1,5 +1,29 @@
 # Changelog
 
+## [2026.5.11] (2026-05-03) — T-CSL-RESET Wave 4: 5 CLI commands migrated to LAFS-compliant cliOutput
+
+W4 (T1691) wave 1: 5 atomic children completed. ~511 raw `process.stdout.write` / `console.log` calls migrated to `cliOutput()` across the 5 highest-impact CLI command files. Every migrated command now produces a LAFS-conformant envelope on `--json` and routes through the human renderer for `--human`.
+
+### Migrations (T1720–T1724)
+
+- **T1720 (W4.A) — nexus.ts** — 218 raw writes migrated. 30 new human renderer functions in `packages/cleo/src/cli/renderers/nexus.ts` (1039 LOC); 18 snapshot/output tests added. Largest single migration in the wave.
+- **T1721 (W4.B) — memory.ts** — 96 raw writes migrated. Snapshot tests added for representative subcommands.
+- **T1722 (W4.C) — brain.ts** — 77 raw writes migrated. 6 new brain renderer functions registered (`brain-maintenance`, `-backfill`, `-purge`, `-plasticity-stats`, `-quality`, `-export`).
+- **T1723 (W4.D) — transcript.ts** — 43 raw writes migrated.
+- **T1724 (W4.E) — daemon.ts + sentient.ts + gc.ts** — remaining raw writes across 3 files migrated.
+
+### Wave 4 acceptance gates
+
+- ✅ pnpm run typecheck clean (CI parity — `tsc -b` strict project references)
+- ✅ pnpm biome ci . clean
+- ✅ pnpm run build clean (full monorepo)
+- ✅ ~511 raw stdout writes eliminated across 5 CLI command files
+
+### Outstanding W4 work (followup)
+
+- biome lint hard-block rule (`no-raw-stdout-outside-renderers`) — gates regression at lint time. Filed as W4.F followup.
+- Remaining 8 CLI commands (`help-renderer`, `schema.ts`, `audit.ts`, etc.) below the top-5 — filed as W4.G followup.
+
 ## [2026.5.10] (2026-05-03) — T-CSL-RESET Wave 3 partial: 4 type-family migrations to contracts SSoT
 
 W3 (T1690) wave 1: 4 of 5 atomic children completed. Net effect: 13 type duplications removed across 4 type families. The 5th child (T1717) returned "partial" with legitimate shape divergence — followup tracked at T1719.
