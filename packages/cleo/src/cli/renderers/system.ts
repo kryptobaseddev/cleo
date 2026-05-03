@@ -1017,6 +1017,165 @@ export function renderBrainExport(data: Record<string, unknown>, quiet: boolean)
 // Generic fallback renderer
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// audit reconstruct: lineage summary (T1729)
+// ---------------------------------------------------------------------------
+
+/**
+ * Human renderer for `cleo audit reconstruct` output.
+ *
+ * Renders the {@link ReconstructResult} fields as a readable lineage summary
+ * including direct commits, inferred children, child commits, and release tags.
+ *
+ * @task T1729
+ * @epic T1691
+ */
+export function renderAuditReconstruct(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) return '';
+
+  const taskId = data['taskId'] as string | undefined;
+  const directCommits = (data['directCommits'] as Array<Record<string, unknown>>) ?? [];
+  const childIdRange = data['childIdRange'] as { min: string; max: string } | null | undefined;
+  const childCommits = (data['childCommits'] as Record<string, Array<Record<string, unknown>>>) ?? {};
+  const releaseTags = (data['releaseTags'] as Array<Record<string, unknown>>) ?? [];
+  const inferredChildren = (data['inferredChildren'] as string[]) ?? [];
+  const firstSeenAt = data['firstSeenAt'] as string | null | undefined;
+  const lastSeenAt = data['lastSeenAt'] as string | null | undefined;
+
+  const lines: string[] = [
+    `${BOLD}Lineage for ${taskId ?? '?'}${NC}`,
+    '='.repeat(40),
+    '',
+    `${DIM}Direct commits:${NC} ${directCommits.length}`,
+  ];
+
+  for (const c of directCommits) {
+    const sha = typeof c['sha'] === 'string' ? c['sha'].slice(0, 10) : '?';
+    const subject = typeof c['subject'] === 'string' ? c['subject'] : '';
+    lines.push(`  ${CYAN}${sha}${NC}  ${subject}`);
+  }
+
+  lines.push('');
+  if (childIdRange) {
+    lines.push(
+      `${DIM}Inferred children:${NC} ${inferredChildren.join(', ')} (${childIdRange.min} → ${childIdRange.max})`,
+    );
+  } else {
+    lines.push(`${DIM}Inferred children:${NC} none`);
+  }
+
+  const childEntries = Object.entries(childCommits);
+  if (childEntries.length > 0) {
+    lines.push('');
+    lines.push(`${BOLD}Child commits:${NC}`);
+    for (const [childId, commits] of childEntries) {
+      lines.push(`  ${CYAN}${childId}${NC}: ${commits.length} commit(s)`);
+      for (const c of commits) {
+        const sha = typeof c['sha'] === 'string' ? c['sha'].slice(0, 10) : '?';
+        const subject = typeof c['subject'] === 'string' ? c['subject'] : '';
+        lines.push(`    ${DIM}${sha}${NC}  ${subject}`);
+      }
+    }
+  }
+
+  lines.push('');
+  if (releaseTags.length > 0) {
+    lines.push(`${BOLD}Release tags (${releaseTags.length}):${NC}`);
+    for (const t of releaseTags) {
+      const tag = typeof t['tag'] === 'string' ? t['tag'] : '?';
+      const sha = typeof t['commitSha'] === 'string' ? t['commitSha'].slice(0, 10) : '?';
+      const subject = typeof t['subject'] === 'string' ? t['subject'] : '';
+      lines.push(`  ${GREEN}${tag}${NC}  ${DIM}${sha}${NC}  ${subject}`);
+    }
+  } else {
+    lines.push(`${DIM}Release tags:${NC} none found`);
+  }
+
+  lines.push('');
+  lines.push(`${DIM}First seen:${NC} ${firstSeenAt ?? 'n/a'}`);
+  lines.push(`${DIM}Last seen: ${NC} ${lastSeenAt ?? 'n/a'}`);
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// schema: operation introspection (T1729)
+// ---------------------------------------------------------------------------
+
+/**
+ * Human renderer for `cleo schema <operation>` output.
+ *
+ * Renders the OperationSchema as a formatted summary table including params,
+ * gates, and examples — matching the inline `renderSchemaHuman` logic previously
+ * in commands/schema.ts.
+ *
+ * @task T1729
+ * @epic T1691
+ */
+export function renderSchemaCommand(data: Record<string, unknown>, quiet: boolean): string {
+  if (quiet) return '';
+
+  const lines: string[] = [];
+
+  lines.push(`Operation : ${String(data['operation'] ?? '')}`);
+  lines.push(`Gateway   : ${String(data['gateway'] ?? '')}`);
+  lines.push(`Description: ${String(data['description'] ?? '')}`);
+  lines.push('');
+
+  const params = (data['params'] as Array<Record<string, unknown>>) ?? [];
+  lines.push('Parameters:');
+  if (params.length === 0) {
+    lines.push('  (none declared)');
+  } else {
+    for (const p of params) {
+      const req = p['required'] ? '[required]' : '[optional]';
+      const enumVal = p['enum'] as string[] | undefined;
+      const enumStr = enumVal ? `  enum: ${enumVal.join(' | ')}` : '';
+      const cli = p['cli'] as Record<string, unknown> | undefined;
+      let cliStr = '';
+      if (cli) {
+        const parts: string[] = [];
+        if (cli['positional']) parts.push('positional');
+        if (cli['short']) parts.push(`short: ${String(cli['short'])}`);
+        if (cli['flag']) parts.push(`flag: --${String(cli['flag'])}`);
+        if (parts.length > 0) cliStr = `  cli: ${parts.join(', ')}`;
+      }
+      lines.push(`  ${String(p['name'] ?? '')} (${String(p['type'] ?? '')}) ${req}`);
+      lines.push(`    ${String(p['description'] ?? '')}${enumStr}${cliStr}`);
+    }
+  }
+
+  const gates = data['gates'] as Array<Record<string, unknown>> | undefined;
+  if (gates !== undefined) {
+    lines.push('');
+    lines.push('Gates:');
+    if (gates.length === 0) {
+      lines.push('  (none declared — see note on static gate table)');
+    } else {
+      for (const g of gates) {
+        lines.push(`  ${String(g['name'] ?? '')} → ${String(g['errorCode'] ?? '')}`);
+        lines.push(`    ${String(g['description'] ?? '')}`);
+        const triggers = (g['triggers'] as string[]) ?? [];
+        for (const t of triggers) {
+          lines.push(`    - ${t}`);
+        }
+      }
+    }
+  }
+
+  const examples = data['examples'] as Array<Record<string, unknown>> | undefined;
+  if (examples !== undefined && examples.length > 0) {
+    lines.push('');
+    lines.push('Examples:');
+    for (const ex of examples) {
+      lines.push(`  ${String(ex['command'] ?? '')}`);
+      lines.push(`    ${String(ex['description'] ?? '')}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 /**
  * Generic human renderer for commands that don't have a specific renderer.
  * Renders data as indented key-value pairs.
