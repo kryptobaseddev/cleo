@@ -213,7 +213,7 @@ export type {
   EngineResult,
   EngineSuccess,
 } from './engine-result.js';
-export { engineError, engineSuccess } from './engine-result.js';
+export { EngineResultError, engineError, engineSuccess, unwrap } from './engine-result.js';
 export type { ErrorDefinition } from './error-catalog.js';
 // Error catalog (RFC 9457)
 export {
