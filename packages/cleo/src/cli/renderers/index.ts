@@ -36,6 +36,12 @@ import { normalizeForHuman } from './normalizer.js';
 // System renderers
 import {
   renderBlockers,
+  renderBrainBackfill,
+  renderBrainExport,
+  renderBrainMaintenance,
+  renderBrainPlasticityStats,
+  renderBrainPurge,
+  renderBrainQuality,
   renderBriefing,
   renderCurrent,
   renderDoctor,
@@ -110,6 +116,14 @@ const renderers: Record<string, HumanRenderer> = {
   version: renderVersion,
   // T1593 — `cleo briefing` reads tasks.db + brain.db (NEVER markdown handoffs).
   briefing: renderBriefing,
+
+  // Brain subcommands (T1722)
+  'brain-maintenance': renderBrainMaintenance,
+  'brain-backfill': renderBrainBackfill,
+  'brain-purge': renderBrainPurge,
+  'brain-plasticity-stats': renderBrainPlasticityStats,
+  'brain-quality': renderBrainQuality,
+  'brain-export': renderBrainExport,
 };
 
 // ---------------------------------------------------------------------------

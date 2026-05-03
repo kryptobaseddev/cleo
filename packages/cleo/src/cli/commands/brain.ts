@@ -10,7 +10,9 @@
  *   cleo brain export        — export brain graph as GEXF or JSON
  *
  * @task T143
+ * @task T1722
  * @epic T134
+ * @epic T1691
  * @why Provide a single CLI entry point for brain optimization operations
  * @what Parent command group with subcommands and progress reporting
  */
@@ -26,6 +28,7 @@ import {
   runBrainMaintenance,
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /** cleo brain maintenance — temporal decay, consolidation, and embedding backfill */
 const maintenanceCommand = defineCommand({
@@ -48,7 +51,7 @@ const maintenanceCommand = defineCommand({
     },
     'skip-tier-promotion': {
       type: 'boolean',
-      description: 'Skip the tier promotion step (short\u2192medium, medium\u2192long promotion)',
+      description: 'Skip the tier promotion step (short→medium, medium→long promotion)',
     },
     'skip-embeddings': {
       type: 'boolean',
@@ -58,11 +61,6 @@ const maintenanceCommand = defineCommand({
   },
   async run({ args }) {
     const root = getProjectRoot();
-    const isJson = !!args.json;
-
-    if (!isJson) {
-      console.log('Running brain maintenance...');
-    }
 
     try {
       const result = await runBrainMaintenance(root, {
@@ -71,73 +69,68 @@ const maintenanceCommand = defineCommand({
         skipReconciliation: !!args['skip-reconciliation'],
         skipTierPromotion: !!args['skip-tier-promotion'],
         skipEmbeddings: !!args['skip-embeddings'],
-        onProgress: isJson
-          ? undefined
-          : (step, current, total) => {
-              if (step === 'embeddings' && total > 0) {
-                if (process.stdout.isTTY) {
-                  process.stdout.clearLine(0);
-                  process.stdout.cursorTo(0);
-                  process.stdout.write(`  [embeddings] ${current}/${total}...`);
-                } else if (current === 1 || current === total) {
-                  console.log(`  [embeddings] ${current}/${total}...`);
-                }
-              } else if (current === 0) {
-                console.log(`  [${step}] starting...`);
-              } else if (current === total && total > 0) {
-                if (step === 'embeddings' && process.stdout.isTTY) {
-                  process.stdout.write('\n');
-                }
-                console.log(`  [${step}] done`);
-              }
-            },
+        onProgress: (step, current, total) => {
+          if (step === 'embeddings' && total > 0) {
+            if (process.stdout.isTTY) {
+              process.stdout.clearLine(0);
+              process.stdout.cursorTo(0);
+              process.stdout.write(`  [embeddings] ${current}/${total}...`);
+            } else if (current === 1 || current === total) {
+              process.stderr.write(`  [embeddings] ${current}/${total}...\n`);
+            }
+          } else if (current === 0) {
+            process.stderr.write(`  [${step}] starting...\n`);
+          } else if (current === total && total > 0) {
+            if (step === 'embeddings' && process.stdout.isTTY) {
+              process.stdout.write('\n');
+            }
+            process.stderr.write(`  [${step}] done\n`);
+          }
+        },
       });
 
-      if (isJson) {
-        console.log(JSON.stringify(result, null, 2));
-        return;
-      }
-
-      console.log('\nMaintenance complete.');
-      console.log(`  Duration: ${result.duration}ms`);
+      const data: Record<string, unknown> = {
+        duration: result.duration,
+      };
 
       if (!args['skip-decay']) {
-        console.log(`  Decay:         ${result.decay.affected} learning(s) updated`);
+        data['decay'] = result.decay;
       }
       if (!args['skip-consolidation']) {
-        console.log(
-          `  Consolidation: ${result.consolidation.merged} merged, ${result.consolidation.removed} archived`,
-        );
+        data['consolidation'] = result.consolidation;
       }
       if (!args['skip-tier-promotion']) {
-        console.log(
-          `  Tier promotion: ${result.tierPromotion.promoted} promoted, ${result.tierPromotion.evicted} evicted`,
-        );
+        data['tierPromotion'] = result.tierPromotion;
       }
       if (!args['skip-reconciliation']) {
-        console.log(
-          `  Reconcile:     ${result.reconciliation.decisionsFixed} decisions, ${result.reconciliation.observationsFixed} observations, ${result.reconciliation.linksRemoved} links`,
-        );
+        data['reconciliation'] = result.reconciliation;
       }
       if (!args['skip-embeddings']) {
-        console.log(
-          `  Embeddings:    ${result.embeddings.processed} processed, ${result.embeddings.skipped} skipped, ${result.embeddings.errors} errors`,
-        );
+        data['embeddings'] = result.embeddings;
       }
+
+      cliOutput(data, {
+        command: 'brain-maintenance',
+        operation: 'brain.maintenance',
+        message: `Maintenance complete in ${result.duration}ms`,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ error: message }));
-      } else {
-        console.error(`Brain maintenance failed: ${message}`);
-      }
+      cliError(
+        `Brain maintenance failed: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        {
+          operation: 'brain.maintenance',
+        },
+      );
       process.exit(1);
     }
   },
 });
 
 /** cleo brain backfill — back-fill brain graph from surviving typed table rows */
-const backfillCommand = defineCommand({
+const backfillBrainCommand = defineCommand({
   meta: {
     name: 'backfill',
     description:
@@ -146,53 +139,37 @@ const backfillCommand = defineCommand({
   args: {
     json: { type: 'boolean', description: 'Output results as JSON' },
   },
-  async run({ args }) {
+  async run({ args: _args }) {
     const root = getProjectRoot();
-    const isJson = !!args.json;
-
-    if (!isJson) {
-      console.log('Running brain graph back-fill...');
-    }
 
     try {
       const result = await backfillBrainGraph(root);
 
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: { operation: 'brain.backfill', timestamp: new Date().toISOString() },
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      console.log('\nBack-fill complete.');
-      console.log(`  Before: ${result.before.nodes} nodes, ${result.before.edges} edges`);
-      console.log(
-        `  Source: ${result.before.decisions} decisions, ${result.before.patterns} patterns, ${result.before.learnings} learnings, ${result.before.observations} observations, ${result.before.stickyNotes} stickies`,
+      cliOutput(
+        {
+          before: result.before,
+          nodesInserted: result.nodesInserted,
+          stubsCreated: result.stubsCreated,
+          edgesInserted: result.edgesInserted,
+          after: result.after,
+          byType: result.byType,
+        },
+        {
+          command: 'brain-backfill',
+          operation: 'brain.backfill',
+          message: `Back-fill complete: ${result.nodesInserted} nodes, ${result.edgesInserted} edges inserted`,
+        },
       );
-      console.log(
-        `  Nodes inserted: ${result.nodesInserted} (including ${result.stubsCreated} stub nodes)`,
-      );
-      console.log(`  Edges inserted: ${result.edgesInserted}`);
-      console.log(`  After:  ${result.after.nodes} nodes, ${result.after.edges} edges`);
-      console.log('\n  By type:');
-      for (const [type, count] of Object.entries(result.byType)) {
-        console.log(`    ${type}: ${count}`);
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Brain backfill failed: ${message}`);
-      }
+      cliError(
+        `Brain backfill failed: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        {
+          operation: 'brain.backfill',
+        },
+      );
       process.exit(1);
     }
   },
@@ -208,51 +185,37 @@ const purgeCommand = defineCommand({
   args: {
     json: { type: 'boolean', description: 'Output results as JSON' },
   },
-  async run({ args }) {
+  async run({ args: _args }) {
     const root = getProjectRoot();
-    const isJson = !!args.json;
-
-    if (!isJson) {
-      console.log('Running brain noise purge...');
-      console.log('Safety check: verifying D-mntpeeer exists before any deletes...');
-    }
 
     try {
       const result = await purgeBrainNoise(root);
 
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: { operation: 'brain.purge', timestamp: new Date().toISOString() },
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      console.log('\nPurge complete.');
-      console.log(`  Patterns deleted:     ${result.patternsDeleted}`);
-      console.log(`  Learnings deleted:    ${result.learningsDeleted}`);
-      console.log(`  Decisions deleted:    ${result.decisionsDeleted}`);
-      console.log(`  Observations deleted: ${result.observationsDeleted}`);
-      console.log('\nPost-purge counts:');
-      console.log(`  Patterns:     ${result.after.patterns}`);
-      console.log(`  Learnings:    ${result.after.learnings}`);
-      console.log(`  Decisions:    ${result.after.decisions}`);
-      console.log(`  Observations: ${result.after.observations}`);
-      console.log(`  FTS5 rebuilt: ${result.fts5Rebuilt}`);
+      cliOutput(
+        {
+          patternsDeleted: result.patternsDeleted,
+          learningsDeleted: result.learningsDeleted,
+          decisionsDeleted: result.decisionsDeleted,
+          observationsDeleted: result.observationsDeleted,
+          after: result.after,
+          fts5Rebuilt: result.fts5Rebuilt,
+        },
+        {
+          command: 'brain-purge',
+          operation: 'brain.purge',
+          message: 'Purge complete',
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Brain purge failed: ${message}`);
-      }
+      cliError(
+        `Brain purge failed: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        {
+          operation: 'brain.purge',
+        },
+      );
       process.exit(1);
     }
   },
@@ -275,59 +238,35 @@ const plasticityStatsCommand = defineCommand({
   },
   async run({ args }) {
     const root = getProjectRoot();
-    const isJson = !!args.json;
     const limit = Number.parseInt(args.limit, 10) || 20;
 
     try {
       const stats = await getPlasticityStats(root, limit);
 
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: stats,
-              meta: { operation: 'brain.plasticity.stats', timestamp: new Date().toISOString() },
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      console.log('\nBrain Plasticity Stats (STDP)');
-      console.log(
-        '\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550',
+      cliOutput(
+        {
+          totalEvents: stats.totalEvents,
+          ltpCount: stats.ltpCount,
+          ltdCount: stats.ltdCount,
+          netDeltaW: stats.netDeltaW,
+          lastEventAt: stats.lastEventAt,
+          recentEvents: stats.recentEvents,
+          limit,
+        },
+        {
+          command: 'brain-plasticity-stats',
+          operation: 'brain.plasticity.stats',
+          message: `${stats.totalEvents} plasticity event(s) recorded`,
+        },
       );
-      console.log(`  Total events:       ${stats.totalEvents}`);
-      console.log(`  LTP (potentiation): ${stats.ltpCount}`);
-      console.log(`  LTD (depression):   ${stats.ltdCount}`);
-      const sign = stats.netDeltaW >= 0 ? '+' : '';
-      console.log(`  Net \u0394w:             ${sign}${stats.netDeltaW.toFixed(4)}`);
-      console.log(`  Last event:         ${stats.lastEventAt ?? '(none)'}`);
-
-      if (stats.recentEvents.length > 0) {
-        console.log(`\nRecent Events (newest first, limit=${limit})`);
-        for (const ev of stats.recentEvents) {
-          const evSign = ev.deltaW >= 0 ? '+' : '';
-          const src = ev.sourceNode.slice(0, 30).padEnd(30);
-          const tgt = ev.targetNode.slice(0, 30).padEnd(30);
-          console.log(
-            `  [${ev.kind.toUpperCase()}] ${src} \u2192 ${tgt}  \u0394w=${evSign}${ev.deltaW.toFixed(4)}  ${ev.timestamp}`,
-          );
-        }
-      } else {
-        console.log('\n  No plasticity events recorded yet.');
-        console.log('  Run `cleo brain maintenance` or `cleo session end` to trigger STDP.');
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Brain plasticity stats failed: ${message}`);
-      }
+      cliError(
+        `Brain plasticity stats failed: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        { operation: 'brain.plasticity.stats' },
+      );
       process.exit(1);
     }
   },
@@ -354,70 +293,37 @@ const qualityCommand = defineCommand({
   args: {
     json: { type: 'boolean', description: 'Output results as JSON' },
   },
-  async run({ args }) {
+  async run({ args: _args }) {
     const root = getProjectRoot();
-    const isJson = !!args.json;
 
     try {
       const report = await getMemoryQualityReport(root);
 
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: report,
-              meta: { operation: 'brain.quality', timestamp: new Date().toISOString() },
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      console.log('\nBrain Memory Quality Report');
-      console.log(
-        '\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550',
+      cliOutput(
+        {
+          totalRetrievals: report.totalRetrievals,
+          uniqueEntriesRetrieved: report.uniqueEntriesRetrieved,
+          usageRate: report.usageRate,
+          noiseRatio: report.noiseRatio,
+          qualityDistribution: report.qualityDistribution,
+          tierDistribution: report.tierDistribution,
+          topRetrieved: report.topRetrieved,
+          neverRetrieved: report.neverRetrieved,
+        },
+        {
+          command: 'brain-quality',
+          operation: 'brain.quality',
+          message: `Quality report: ${(report.usageRate * 100).toFixed(1)}% usage rate, ${(report.noiseRatio * 100).toFixed(1)}% noise`,
+        },
       );
-      console.log(`  Total retrievals:       ${report.totalRetrievals}`);
-      console.log(`  Unique entries hit:     ${report.uniqueEntriesRetrieved}`);
-      console.log(`  Usage rate:             ${(report.usageRate * 100).toFixed(1)}%`);
-      console.log(`  Noise ratio:            ${(report.noiseRatio * 100).toFixed(1)}%`);
-
-      console.log('\nQuality Distribution');
-      console.log(`  Low  (<0.3):    ${report.qualityDistribution.low}`);
-      console.log(`  Med  (0.3-0.6): ${report.qualityDistribution.medium}`);
-      console.log(`  High (>0.6):    ${report.qualityDistribution.high}`);
-
-      console.log('\nTier Distribution');
-      console.log(`  Short:   ${report.tierDistribution.short}`);
-      console.log(`  Medium:  ${report.tierDistribution.medium}`);
-      console.log(`  Long:    ${report.tierDistribution.long}`);
-      if (report.tierDistribution.unknown > 0) {
-        console.log(`  Unknown: ${report.tierDistribution.unknown}`);
-      }
-
-      if (report.topRetrieved.length > 0) {
-        console.log('\nTop 10 Most Retrieved');
-        for (const e of report.topRetrieved) {
-          console.log(`  [${e.citationCount}x] ${e.id}  ${e.title.slice(0, 60)}`);
-        }
-      }
-
-      if (report.neverRetrieved.length > 0) {
-        console.log('\nNever Retrieved (pruning candidates)');
-        for (const e of report.neverRetrieved) {
-          console.log(`  q=${e.qualityScore.toFixed(2)}  ${e.id}  ${e.title.slice(0, 60)}`);
-        }
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Brain quality report failed: ${message}`);
-      }
+      cliError(
+        `Brain quality report failed: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        { operation: 'brain.quality' },
+      );
       process.exit(1);
     }
   },
@@ -445,7 +351,9 @@ const exportCommand = defineCommand({
     const format = (args.format as string) ?? 'gexf';
 
     if (format !== 'gexf' && format !== 'json') {
-      console.error(`Invalid format: ${format}. Use 'gexf' or 'json'.`);
+      cliError(`Invalid format: ${format}. Use 'gexf' or 'json'.`, 'E_VALIDATION', {
+        name: 'E_VALIDATION',
+      });
       process.exit(1);
     }
 
@@ -469,15 +377,33 @@ const exportCommand = defineCommand({
       if (args.output) {
         const fs = await import('node:fs');
         fs.writeFileSync(args.output as string, content, 'utf-8');
-        console.log(
-          `Exported to ${args.output}: ${nodeCount} nodes, ${edgeCount} edges (${format.toUpperCase()})`,
+        cliOutput(
+          {
+            outputFile: args.output,
+            nodeCount,
+            edgeCount,
+            format,
+          },
+          {
+            command: 'brain-export',
+            operation: 'brain.export',
+            message: `Exported to ${args.output}: ${nodeCount} nodes, ${edgeCount} edges (${format.toUpperCase()})`,
+          },
         );
       } else {
-        console.log(content);
+        // Raw content output (GEXF/JSON) goes directly to stdout — not a LAFS envelope
+        process.stdout.write(content + '\n');
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`Brain export failed: ${message}`);
+      cliError(
+        `Brain export failed: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        {
+          operation: 'brain.export',
+        },
+      );
       process.exit(1);
     }
   },
@@ -490,7 +416,9 @@ const exportCommand = defineCommand({
  * subcommands for brain.db operations.
  *
  * @task T143
+ * @task T1722
  * @epic T134
+ * @epic T1691
  *
  * @example
  * ```ts
@@ -506,7 +434,7 @@ export const brainCommand = defineCommand({
   meta: { name: 'brain', description: 'Brain memory optimization operations' },
   subCommands: {
     maintenance: maintenanceCommand,
-    backfill: backfillCommand,
+    backfill: backfillBrainCommand,
     purge: purgeCommand,
     plasticity: plasticityCommand,
     quality: qualityCommand,
