@@ -1,21 +1,23 @@
 /**
  * Release Domain Handler (Dispatch Layer)
  *
- * Handles `cleo release <operation>` dispatch for the two RELEASE-03/RELEASE-07
- * acceptance criteria that were not implemented in the original T820 epic:
+ * Handles `cleo release <operation>` dispatch operations:
  *
  * QUERY operations:
  *   gate           — check all IVTR loops in a release epic are `released`
  *   ivtr-suggest   — query whether all sibling tasks in an epic are
  *                    released and emit a `cleo release ship` suggestion
+ *   verify         — Step 2 of 4: run gates + audit child tasks (T1597 / ADR-063)
  *
- * MUTATE operations (same as query — no DB writes):
+ * MUTATE operations:
  *   gate           — same semantics as query.gate; safe in both gateways
  *   ivtr-suggest   — same semantics as query.ivtr-suggest; safe in both gateways
+ *   start          — Step 1 of 4: validate version, capture branch, persist handle
+ *   publish        — Step 3 of 4: invoke project-context publish.command
+ *   reconcile      — Step 4 of 4: run post-release invariants, auto-complete tasks
  *
- * All other release operations (prepare, changelog, commit, tag, push, ship,
- * rollback) are handled by the CLI command layer directly and are NOT routed
- * through this dispatch handler.
+ * Ship, list, show, cancel, changelog, rollback, channel are handled by the
+ * pipeline domain handler (via `pipeline.release.*` operations).
  *
  * Type-safe dispatch via OpsFromCore<typeof coreOps> per ADR-058.
  * Param extraction inferred by coreOps — zero `params?.x as Type` casts.
@@ -25,14 +27,24 @@
  * @task T820 RELEASE-07
  * @task T1416
  * @task T1543 — OpsFromCore migration per ADR-058
+ * @task T1726 — Register release domain in OPERATIONS (SDK surface parity)
  */
 
 import type { ReleaseGateCheckParams } from '@cleocode/contracts/operations/release';
 import { getLogger, getProjectRoot } from '@cleocode/core/internal';
 import type { OpsFromCore } from '../adapters/typed.js';
-import { releaseGateCheck, releaseIvtrAutoSuggest } from '../lib/engine.js';
+import {
+  loadActiveReleaseHandle,
+  releaseGateCheck,
+  releaseIvtrAutoSuggest,
+  releasePublish,
+  releaseReconcile,
+  releaseStart,
+  releaseVerify,
+} from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import { dispatchMeta } from './_meta.js';
 
 const log = getLogger('domain:release');
 
@@ -118,6 +130,7 @@ export class ReleaseHandler implements DomainHandler {
    * Supported operations:
    * - `gate`         — check IVTR phase state for all tasks in a release epic
    * - `ivtr-suggest` — check if all epic tasks are released and suggest `release ship`
+   * - `verify`       — Step 2 of 4: run gates + audit child tasks (T1597 / ADR-063)
    */
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
@@ -163,6 +176,17 @@ export class ReleaseHandler implements DomainHandler {
           );
         }
 
+        // release.verify — Step 2 of 4: run gates + audit child tasks (T1597 / ADR-063)
+        case 'verify': {
+          const handle = loadActiveReleaseHandle(getProjectRoot());
+          const result = await releaseVerify(handle);
+          return {
+            success: true,
+            data: result,
+            meta: dispatchMeta('query', 'release', operation, startTime),
+          };
+        }
+
         default:
           return unsupportedOp('query', 'release', operation, startTime);
       }
@@ -186,6 +210,9 @@ export class ReleaseHandler implements DomainHandler {
    * Supported operations:
    * - `gate`         — same IVTR gate check as query.gate (no DB writes)
    * - `ivtr-suggest` — same auto-suggest as query.ivtr-suggest (no DB writes)
+   * - `start`        — Step 1 of 4: validate version, capture branch, persist handle
+   * - `publish`      — Step 3 of 4: invoke project-context publish.command
+   * - `reconcile`    — Step 4 of 4: run post-release invariants, auto-complete tasks
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
@@ -231,6 +258,55 @@ export class ReleaseHandler implements DomainHandler {
           );
         }
 
+        // release.start — Step 1 of 4 (T1597 / ADR-063)
+        case 'start': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version)
+            return errorResult(
+              'mutate',
+              'release',
+              operation,
+              'E_INVALID_INPUT',
+              'version is required',
+              startTime,
+            );
+          const result = await releaseStart(version, {
+            epicId: typeof params?.epicId === 'string' ? params.epicId : undefined,
+            branch: typeof params?.branch === 'string' ? params.branch : undefined,
+          });
+          return {
+            success: true,
+            data: result,
+            meta: dispatchMeta('mutate', 'release', operation, startTime),
+          };
+        }
+
+        // release.publish — Step 3 of 4 (T1597 / ADR-063)
+        case 'publish': {
+          const handle = loadActiveReleaseHandle(getProjectRoot());
+          const result = await releasePublish(handle, {
+            dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
+          });
+          return {
+            success: true,
+            data: result,
+            meta: dispatchMeta('mutate', 'release', operation, startTime),
+          };
+        }
+
+        // release.reconcile — Step 4 of 4 (T1597 / ADR-063)
+        case 'reconcile': {
+          const handle = loadActiveReleaseHandle(getProjectRoot());
+          const result = await releaseReconcile(handle, {
+            dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
+          });
+          return {
+            success: true,
+            data: result,
+            meta: dispatchMeta('mutate', 'release', operation, startTime),
+          };
+        }
+
         default:
           return unsupportedOp('mutate', 'release', operation, startTime);
       }
@@ -247,8 +323,8 @@ export class ReleaseHandler implements DomainHandler {
   /** Return declared operations for introspection and registry validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['gate', 'ivtr-suggest'],
-      mutate: ['gate', 'ivtr-suggest'],
+      query: ['gate', 'ivtr-suggest', 'verify'],
+      mutate: ['gate', 'ivtr-suggest', 'start', 'publish', 'reconcile'],
     };
   }
 }
