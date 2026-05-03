@@ -24,6 +24,7 @@ import type {
   LifecycleGateFailParams,
   LifecycleGatePassParams,
   LifecycleGatesParams,
+  LifecycleHistoryEntry,
   LifecycleHistoryParams,
   LifecycleProgressParams,
   LifecycleResetParams,
@@ -550,13 +551,13 @@ export async function getLifecycleStatus(
   };
 }
 
-/** History entry for stage transitions. */
-export interface LifecycleHistoryEntry {
-  stage: string;
-  action: string;
-  timestamp: string;
-  notes?: string;
-}
+/**
+ * History entry for stage transitions.
+ *
+ * T1719: type now sourced from `@cleocode/contracts` (canonical cross-package
+ * shape). Re-exported here for backward compatibility with existing importers.
+ */
+export type { LifecycleHistoryEntry };
 
 /**
  * Get lifecycle history for an epic.
