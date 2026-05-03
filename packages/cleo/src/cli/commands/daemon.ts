@@ -41,26 +41,24 @@ import {
 } from '@cleocode/core/sentient';
 import { defineCommand } from 'citty';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Display the daemon status to stdout.
+ * Display the daemon status via cliOutput.
  *
  * Renders both the GC daemon status and the cross-project hygiene loop
- * summary (T1637) in a single call. JSON mode returns a combined payload.
+ * summary (T1637) in a single call. JSON mode returns a combined payload
+ * via formatSuccess; human mode via renderGeneric.
  *
  * @param cleoDir - Absolute path to the `.cleo/` directory (GC daemon)
  * @param projectRoot - Absolute path to the project root (sentient state)
- * @param json - Output as JSON when true
+ * @task T1724
  */
-async function showDaemonStatus(
-  cleoDir: string,
-  projectRoot: string,
-  json: boolean,
-): Promise<void> {
+async function showDaemonStatus(cleoDir: string, projectRoot: string): Promise<void> {
   try {
     const gcStatus = await getGCDaemonStatus(cleoDir);
 
@@ -95,77 +93,40 @@ async function showDaemonStatus(
       // Sentient not initialised — hygiene and Studio fields remain null/default.
     }
 
-    const result = {
-      success: true,
-      data: {
-        gc: gcStatus,
-        hygiene: {
-          lastRunAt: hygieneLastRunAt,
-          summary: hygieneSummary,
-          stats: hygieneStats,
-        },
-        studio: {
-          supervises: supervisesStudio,
-          status: studioStatus,
-        },
+    const data = {
+      gc: gcStatus,
+      hygiene: {
+        lastRunAt: hygieneLastRunAt,
+        summary: hygieneSummary,
+        stats: hygieneStats,
+      },
+      studio: {
+        supervises: supervisesStudio,
+        status: studioStatus,
       },
     };
 
-    if (json) {
-      process.stdout.write(JSON.stringify(result) + '\n');
-    } else {
-      const runningStr = gcStatus.running ? `running (PID ${gcStatus.pid})` : 'stopped';
-      process.stdout.write(`GC Daemon:       ${runningStr}\n`);
-      process.stdout.write(`Started at:      ${gcStatus.startedAt ?? 'never'}\n`);
-      process.stdout.write(`Last GC run:     ${gcStatus.lastRunAt ?? 'never'}\n`);
-      const diskStr =
-        gcStatus.lastDiskUsedPct !== null ? `${gcStatus.lastDiskUsedPct.toFixed(1)}%` : 'unknown';
-      process.stdout.write(`Disk used:       ${diskStr}\n`);
-      if (gcStatus.escalationNeeded) {
-        process.stdout.write(
-          `\nWARNING: Disk threshold breached. Run 'cleo gc run' to reclaim space.\n`,
-        );
-      }
-      // T1683/T1684: Studio supervision section
-      if (supervisesStudio !== null) {
-        process.stdout.write(`\nStudio Supervision:\n`);
-        process.stdout.write(`  Enabled:         ${supervisesStudio ? 'yes' : 'no'}\n`);
-        process.stdout.write(`  Status:          ${studioStatus ?? 'unknown'}\n`);
-      }
-      // T1637: hygiene section
-      process.stdout.write(`\nHygiene Loop (cross-project):\n`);
-      process.stdout.write(`  Last run:        ${hygieneLastRunAt ?? 'never'}\n`);
-      process.stdout.write(`  Summary:         ${hygieneSummary ?? 'not yet run'}\n`);
-      if (hygieneStats.projectsChecked > 0) {
-        process.stdout.write(
-          `  Projects:        ${hygieneStats.projectsHealthy}/${hygieneStats.projectsChecked} healthy\n`,
-        );
-        if (hygieneStats.tempGcCandidates > 0) {
-          process.stdout.write(
-            `  Temp GC:         ${hygieneStats.tempGcCandidates} candidate(s) pending approval\n`,
-          );
-        }
-        if (hygieneStats.duplicateEpicGroups > 0) {
-          process.stdout.write(
-            `  Duplicate epics: ${hygieneStats.duplicateEpicGroups} group(s) detected\n`,
-          );
-        }
-        if (hygieneStats.worktreesPruned > 0) {
-          process.stdout.write(
-            `  Worktrees:       ${hygieneStats.worktreesPruned} stale worktree(s) pruned\n`,
-          );
-        }
-      }
-    }
+    const runningStr = gcStatus.running ? `running (PID ${gcStatus.pid})` : 'stopped';
+    const diskStr =
+      gcStatus.lastDiskUsedPct !== null ? `${gcStatus.lastDiskUsedPct.toFixed(1)}%` : 'unknown';
+    const escalationNote = gcStatus.escalationNeeded
+      ? " — WARNING: Disk threshold breached. Run 'cleo gc run' to reclaim space."
+      : '';
+    cliOutput(data, {
+      command: 'daemon',
+      operation: 'daemon.status',
+      message: `GC Daemon: ${runningStr}, Disk: ${diskStr}${escalationNote}`,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (json) {
-      process.stdout.write(
-        JSON.stringify({ success: false, error: { code: 'E_INTERNAL', message } }) + '\n',
-      );
-    } else {
-      process.stderr.write(`Error reading daemon status: ${message}\n`);
-    }
+    cliError(
+      `Error reading daemon status: ${message}`,
+      'E_INTERNAL',
+      { name: 'E_INTERNAL' },
+      {
+        operation: 'daemon.status',
+      },
+    );
     process.exit(1);
   }
 }
@@ -226,15 +187,23 @@ const startCommand = defineCommand({
   },
   async run({ args }) {
     const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
-    const jsonMode = (args.json as boolean | undefined) ?? false;
     const foreground = (args.foreground as boolean | undefined) ?? false;
 
     // --foreground: run the sentient daemon bootstrap in-process so that
     // systemd / launchd can own the process lifecycle.
     if (foreground) {
       const projectRoot = process.cwd();
-      process.stdout.write(
-        `[CLEO DAEMON] Starting sentient daemon in foreground mode (PID ${process.pid})\n`,
+      cliOutput(
+        {
+          pid: process.pid,
+          mode: 'foreground',
+          message: 'Starting sentient daemon in foreground mode',
+        },
+        {
+          command: 'daemon',
+          operation: 'daemon.start',
+          message: `[CLEO DAEMON] Starting sentient daemon in foreground mode (PID ${process.pid})`,
+        },
       );
       // bootstrapDaemon never returns — it schedules cron jobs and blocks.
       await bootstrapSentientDaemon(projectRoot);
@@ -245,42 +214,41 @@ const startCommand = defineCommand({
     try {
       const status = await getGCDaemonStatus(cleoDir);
       if (status.running && status.pid) {
-        const result = {
-          success: false,
-          data: {
-            running: true,
-            pid: status.pid,
+        cliOutput(
+          { running: true, pid: status.pid, message: `Daemon already running (PID ${status.pid})` },
+          {
+            command: 'daemon',
+            operation: 'daemon.start',
             message: `Daemon already running (PID ${status.pid})`,
           },
-        };
-        if (jsonMode) {
-          process.stdout.write(JSON.stringify(result) + '\n');
-        } else {
-          process.stdout.write(`Daemon already running (PID ${status.pid})\n`);
-        }
+        );
         return;
       }
 
       const pid = await spawnGCDaemon(cleoDir);
-      const result = {
-        success: true,
-        data: { pid, cleoDir, message: `GC daemon started (PID ${pid})` },
-      };
-
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        process.stdout.write(`GC daemon started (PID ${pid})\n`);
-        process.stdout.write(`Logs: ${join(cleoDir, 'logs', 'gc.log')}\n`);
-      }
+      cliOutput(
+        {
+          pid,
+          cleoDir,
+          logs: join(cleoDir, 'logs', 'gc.log'),
+          message: `GC daemon started (PID ${pid})`,
+        },
+        {
+          command: 'daemon',
+          operation: 'daemon.start',
+          message: `GC daemon started (PID ${pid}) — Logs: ${join(cleoDir, 'logs', 'gc.log')}`,
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const result = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        process.stderr.write(`Error starting daemon: ${message}\n`);
-      }
+      cliError(
+        `Error starting daemon: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        {
+          operation: 'daemon.start',
+        },
+      );
       process.exit(1);
     }
   },
@@ -301,30 +269,26 @@ const stopCommand = defineCommand({
   },
   async run({ args }) {
     const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
-    const jsonMode = (args.json as boolean | undefined) ?? false;
 
     try {
       const stopResult = await stopGCDaemon(cleoDir);
-      const result = {
-        success: stopResult.stopped,
-        data: stopResult,
-      };
-
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else if (stopResult.stopped) {
-        process.stdout.write(`GC daemon stopped (${stopResult.reason})\n`);
-      } else {
-        process.stdout.write(`${stopResult.reason}\n`);
-      }
+      cliOutput(stopResult, {
+        command: 'daemon',
+        operation: 'daemon.stop',
+        message: stopResult.stopped
+          ? `GC daemon stopped (${stopResult.reason})`
+          : stopResult.reason,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const result = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        process.stderr.write(`Error stopping daemon: ${message}\n`);
-      }
+      cliError(
+        `Error stopping daemon: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        {
+          operation: 'daemon.stop',
+        },
+      );
       process.exit(1);
     }
   },
@@ -349,7 +313,7 @@ const statusCommand = defineCommand({
   },
   async run({ args }) {
     const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
-    await showDaemonStatus(cleoDir, process.cwd(), (args.json as boolean | undefined) ?? false);
+    await showDaemonStatus(cleoDir, process.cwd());
   },
 });
 
@@ -371,9 +335,7 @@ const installCommand = defineCommand({
       description: 'Output result as JSON',
     },
   },
-  async run({ args }) {
-    const jsonMode = (args.json as boolean | undefined) ?? false;
-
+  async run({ args: _args }) {
     try {
       const scriptPath = resolveDaemonInstallerScript();
       const { installDaemonService } = (await import(scriptPath)) as {
@@ -381,26 +343,22 @@ const installCommand = defineCommand({
       };
       await installDaemonService();
 
-      const result = {
-        success: true,
-        data: {
-          platform: process.platform,
-          message: 'Daemon service installation complete.',
+      cliOutput(
+        { platform: process.platform, message: 'Daemon service installation complete.' },
+        {
+          command: 'daemon',
+          operation: 'daemon.install',
+          message: 'CLEO: Daemon service installation complete.',
         },
-      };
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        process.stdout.write('CLEO: Daemon service installation complete.\n');
-      }
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const result = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        process.stderr.write(`Error installing daemon service: ${message}\n`);
-      }
+      cliError(
+        `Error installing daemon service: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        { operation: 'daemon.install' },
+      );
       process.exit(1);
     }
   },
@@ -423,9 +381,7 @@ const uninstallCommand = defineCommand({
       description: 'Output result as JSON',
     },
   },
-  async run({ args }) {
-    const jsonMode = (args.json as boolean | undefined) ?? false;
-
+  async run({ args: _args }) {
     try {
       const scriptPath = resolveDaemonInstallerScript();
       const { uninstallDaemonService } = (await import(scriptPath)) as {
@@ -438,22 +394,21 @@ const uninstallCommand = defineCommand({
       };
       const result = await uninstallDaemonService();
 
-      const envelope = { success: result.success, data: result };
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        process.stdout.write(`CLEO: ${result.message}\n`);
-      }
+      cliOutput(result, {
+        command: 'daemon',
+        operation: 'daemon.uninstall',
+        message: `CLEO: ${result.message}`,
+      });
 
       if (!result.success) process.exit(1);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const result = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (jsonMode) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        process.stderr.write(`Error uninstalling daemon service: ${message}\n`);
-      }
+      cliError(
+        `Error uninstalling daemon service: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        { operation: 'daemon.uninstall' },
+      );
       process.exit(1);
     }
   },
@@ -497,6 +452,6 @@ export const daemonCommand = defineCommand({
     // status print so `cleo daemon start` doesn't also run status. T1187-followup.
     if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
-    await showDaemonStatus(cleoDir, process.cwd(), (args.json as boolean | undefined) ?? false);
+    await showDaemonStatus(cleoDir, process.cwd());
   },
 });
