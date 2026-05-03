@@ -10,14 +10,17 @@
  *   cleo schema tasks.add --format human
  *   cleo schema tasks.add --include-examples
  *
- * @task T340
- * @epic T335
+ * All output routes through cliOutput() — no raw console.log / stdout writes.
+ *
+ * @task T340, T1729
+ * @epic T335, T1691
  */
 
 import { describeOperation, type OperationSchema } from '@cleocode/lafs';
 import { defineCommand, showUsage } from 'citty';
 import type { OperationDef } from '../../dispatch/registry.js';
 import { OPERATIONS } from '../../dispatch/registry.js';
+import { setFormatContext } from '../format-context.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
@@ -51,68 +54,6 @@ function resolveOperationDef(operationArg: string): OperationDef | null {
   return OPERATIONS.find((op) => op.domain === domain && op.operation === operation) ?? null;
 }
 
-/**
- * Format an `OperationSchema` as a human-readable summary table.
- *
- * @param schema - The operation schema to render.
- * @returns Multi-line human-readable string.
- */
-function renderSchemaHuman(schema: OperationSchema): string {
-  const lines: string[] = [];
-
-  lines.push(`Operation : ${schema.operation}`);
-  lines.push(`Gateway   : ${schema.gateway}`);
-  lines.push(`Description: ${schema.description}`);
-  lines.push('');
-
-  lines.push('Parameters:');
-  if (schema.params.length === 0) {
-    lines.push('  (none declared)');
-  } else {
-    for (const p of schema.params) {
-      const req = p.required ? '[required]' : '[optional]';
-      const enumStr = p.enum ? `  enum: ${p.enum.join(' | ')}` : '';
-      let cliStr = '';
-      if (p.cli) {
-        const parts: string[] = [];
-        if (p.cli.positional) parts.push('positional');
-        if (p.cli.short) parts.push(`short: ${p.cli.short}`);
-        if (p.cli.flag) parts.push(`flag: --${p.cli.flag}`);
-        if (parts.length > 0) cliStr = `  cli: ${parts.join(', ')}`;
-      }
-      lines.push(`  ${p.name} (${p.type}) ${req}`);
-      lines.push(`    ${p.description}${enumStr}${cliStr}`);
-    }
-  }
-
-  if (schema.gates !== undefined) {
-    lines.push('');
-    lines.push('Gates:');
-    if (schema.gates.length === 0) {
-      lines.push('  (none declared — see note on static gate table)');
-    } else {
-      for (const g of schema.gates) {
-        lines.push(`  ${g.name} → ${g.errorCode}`);
-        lines.push(`    ${g.description}`);
-        for (const t of g.triggers) {
-          lines.push(`    - ${t}`);
-        }
-      }
-    }
-  }
-
-  if (schema.examples !== undefined && schema.examples.length > 0) {
-    lines.push('');
-    lines.push('Examples:');
-    for (const ex of schema.examples) {
-      lines.push(`  ${ex.command}`);
-      lines.push(`    ${ex.description}`);
-    }
-  }
-
-  return lines.join('\n');
-}
-
 // ---------------------------------------------------------------------------
 // Command
 // ---------------------------------------------------------------------------
@@ -122,6 +63,11 @@ function renderSchemaHuman(schema: OperationSchema): string {
  *
  * Does NOT dispatch through the main dispatcher — schema introspection is
  * pure metadata over the registry and does not require a live session or DB.
+ *
+ * Human rendering is delegated to `renderSchemaCommand` in
+ * `packages/cleo/src/cli/renderers/system.ts` (registered under `'schema'`
+ * in the renderer registry). JSON output follows the standard LAFS envelope
+ * via `cliOutput`.
  */
 export const schemaCommand = defineCommand({
   meta: {
@@ -159,6 +105,11 @@ export const schemaCommand = defineCommand({
     const includeGates = args['include-gates'] !== false;
     const includeExamples = args['include-examples'] === true;
 
+    // Apply --format flag to the global format context so cliOutput routes correctly.
+    if (format === 'human') {
+      setFormatContext({ format: 'human', source: 'flag', quiet: false });
+    }
+
     const def = resolveOperationDef(args.operation);
 
     if (def === null) {
@@ -178,11 +129,6 @@ export const schemaCommand = defineCommand({
       includeGates,
       includeExamples,
     });
-
-    if (format === 'human') {
-      console.log(renderSchemaHuman(schema));
-      return;
-    }
 
     cliOutput(schema, {
       command: 'schema',
