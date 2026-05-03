@@ -1036,7 +1036,8 @@ export function renderAuditReconstruct(data: Record<string, unknown>, quiet: boo
   const taskId = data['taskId'] as string | undefined;
   const directCommits = (data['directCommits'] as Array<Record<string, unknown>>) ?? [];
   const childIdRange = data['childIdRange'] as { min: string; max: string } | null | undefined;
-  const childCommits = (data['childCommits'] as Record<string, Array<Record<string, unknown>>>) ?? {};
+  const childCommits =
+    (data['childCommits'] as Record<string, Array<Record<string, unknown>>>) ?? {};
   const releaseTags = (data['releaseTags'] as Array<Record<string, unknown>>) ?? [];
   const inferredChildren = (data['inferredChildren'] as string[]) ?? [];
   const firstSeenAt = data['firstSeenAt'] as string | null | undefined;

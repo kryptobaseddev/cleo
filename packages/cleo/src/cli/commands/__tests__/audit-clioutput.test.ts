@@ -34,7 +34,12 @@ describe('renderAuditReconstruct — human renderer (T1729)', () => {
     const data = {
       taskId: 'T991',
       directCommits: [
-        { sha: 'abc1234567890', subject: 'feat(T991): initial work', authorDate: '2026-05-01', author: 'test' },
+        {
+          sha: 'abc1234567890',
+          subject: 'feat(T991): initial work',
+          authorDate: '2026-05-01',
+          author: 'test',
+        },
       ],
       childIdRange: null,
       childCommits: {},
@@ -132,10 +137,20 @@ describe('renderAuditReconstruct — human renderer (T1729)', () => {
       childIdRange: { min: 'T1001', max: 'T1002' },
       childCommits: {
         T1001: [
-          { sha: 'aaaa1111bbbb', subject: 'feat(T1001): child work', authorDate: '2026-05-02', author: 'dev' },
+          {
+            sha: 'aaaa1111bbbb',
+            subject: 'feat(T1001): child work',
+            authorDate: '2026-05-02',
+            author: 'dev',
+          },
         ],
         T1002: [
-          { sha: 'cccc2222dddd', subject: 'fix(T1002): patch', authorDate: '2026-05-02', author: 'dev' },
+          {
+            sha: 'cccc2222dddd',
+            subject: 'fix(T1002): patch',
+            authorDate: '2026-05-02',
+            author: 'dev',
+          },
         ],
       },
       releaseTags: [],
@@ -230,7 +245,11 @@ describe('cliOutput — LAFS envelope shape for audit-reconstruct', () => {
           firstSeenAt: null,
           lastSeenAt: null,
         },
-        { command: 'audit-reconstruct', operation: 'audit.reconstruct', message: 'Lineage for T991' },
+        {
+          command: 'audit-reconstruct',
+          operation: 'audit.reconstruct',
+          message: 'Lineage for T991',
+        },
       );
     } finally {
       spy.mockRestore();
@@ -259,7 +278,12 @@ describe('cliOutput — LAFS envelope shape for audit-reconstruct', () => {
         {
           taskId: 'T991',
           directCommits: [
-            { sha: 'abc123456789', subject: 'feat(T991): ship it', authorDate: '2026-05-01', author: 'dev' },
+            {
+              sha: 'abc123456789',
+              subject: 'feat(T991): ship it',
+              authorDate: '2026-05-01',
+              author: 'dev',
+            },
           ],
           childIdRange: null,
           childCommits: {},
@@ -269,7 +293,11 @@ describe('cliOutput — LAFS envelope shape for audit-reconstruct', () => {
           firstSeenAt: '2026-05-01T00:00:00Z',
           lastSeenAt: '2026-05-01T00:00:00Z',
         },
-        { command: 'audit-reconstruct', operation: 'audit.reconstruct', message: 'Lineage for T991' },
+        {
+          command: 'audit-reconstruct',
+          operation: 'audit.reconstruct',
+          message: 'Lineage for T991',
+        },
       );
     } finally {
       spy.mockRestore();
