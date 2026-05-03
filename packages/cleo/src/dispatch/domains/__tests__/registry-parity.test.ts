@@ -499,6 +499,23 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(() => 'main\n'),
 }));
 
+// T1726: Mock @cleocode/core release namespace for release domain handler
+// (ReleaseHandler now imports release.releaseStart/releaseVerify/releasePublish/releaseReconcile)
+vi.mock('@cleocode/core', async () => {
+  const actual = await vi.importActual<typeof import('@cleocode/core')>('@cleocode/core');
+  return {
+    ...actual,
+    release: {
+      ...(actual.release as object),
+      releaseStart: vi.fn().mockResolvedValue({ version: '2026.5.0', tag: 'v2026.5.0' }),
+      releaseVerify: vi.fn().mockResolvedValue({ passed: true, gates: [], ungreenChildren: [] }),
+      releasePublish: vi.fn().mockResolvedValue({ success: true }),
+      releaseReconcile: vi.fn().mockResolvedValue({ success: true, completedTasks: [] }),
+      loadActiveReleaseHandle: vi.fn().mockReturnValue({ version: '2026.5.0', tag: 'v2026.5.0' }),
+    },
+  };
+});
+
 // ===========================================================================
 // Imports (AFTER mocks)
 // ===========================================================================
@@ -672,6 +689,19 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     stop: {},
     send: { to: 'agent-b', content: 'hello', agentId: 'agent-a' },
   },
+  // T1726: sentient and release promoted to canonical domains (SDK surface parity)
+  sentient: {
+    'propose.diff': { id: 'P001' },
+    'propose.accept': { id: 'P001' },
+    'propose.reject': { id: 'P001' },
+    'allowlist.add': { pubkey: 'dGVzdA==' },
+    'allowlist.remove': { pubkey: 'dGVzdA==' },
+  },
+  release: {
+    gate: { epicId: 'T001' },
+    'ivtr-suggest': { taskId: 'T001' },
+    start: { version: '2026.5.1' },
+  },
 };
 
 // ===========================================================================
@@ -731,7 +761,7 @@ describe('Registry-Handler Parity (T5671)', () => {
   }
 
   // Verify all canonical domains have handlers
-  it('should have handlers for all 15 canonical domains', () => {
+  it('should have handlers for all canonical domains', () => {
     const expectedDomains = [
       'tasks',
       'session',
@@ -747,6 +777,9 @@ describe('Registry-Handler Parity (T5671)', () => {
       'docs',
       // T964: conduit promoted to first-class domain (supersedes ADR-042)
       'conduit',
+      // T1726: sentient and release promoted to canonical domains (SDK surface parity)
+      'sentient',
+      'release',
     ];
     for (const domain of expectedDomains) {
       expect(handlers.has(domain), `Missing handler for domain: ${domain}`).toBe(true);

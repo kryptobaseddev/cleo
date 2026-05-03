@@ -72,11 +72,11 @@ describe('deriveGatewayMatrix', () => {
   });
 
   describe('legacy alias entries', () => {
+    // T1726: `release` promoted to canonical domain — removed from this list.
     it('does not expose legacy alias domains in query matrix', () => {
       expect(queryMatrix.research).toBeUndefined();
       expect(queryMatrix.validate).toBeUndefined();
       expect(queryMatrix.lifecycle).toBeUndefined();
-      expect(queryMatrix.release).toBeUndefined();
       expect(queryMatrix.system).toBeUndefined();
       expect(queryMatrix.skills).toBeUndefined();
       expect(queryMatrix.providers).toBeUndefined();
@@ -87,7 +87,6 @@ describe('deriveGatewayMatrix', () => {
       expect(mutateMatrix.research).toBeUndefined();
       expect(mutateMatrix.validate).toBeUndefined();
       expect(mutateMatrix.lifecycle).toBeUndefined();
-      expect(mutateMatrix.release).toBeUndefined();
       expect(mutateMatrix.system).toBeUndefined();
       expect(mutateMatrix.skills).toBeUndefined();
       expect(mutateMatrix.providers).toBeUndefined();
