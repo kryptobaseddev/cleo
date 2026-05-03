@@ -10,13 +10,15 @@
  * It treats git as the immutable ledger (no parallel `.jsonl` emission) per
  * the FP peer note and T1322 council verdict (2026-04-24).
  *
- * @task T1322
- * @epic T1216
+ * All output routes through cliOutput() / cliError() — no raw stdout writes.
+ *
+ * @task T1322, T1729
+ * @epic T1216, T1691
  */
 
-import type { CommitEntry } from '@cleocode/contracts';
 import { getProjectRoot, reconstructLineage } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * cleo audit reconstruct <taskId> — reconstruct git-backed lineage for a task.
@@ -56,8 +58,11 @@ const reconstructCommand = defineCommand({
     const taskId = args['taskId'] as string;
 
     if (!taskId || !/^T\d+$/i.test(taskId)) {
-      process.stderr.write(
-        `Error: taskId must match /^T\\d+$/ (e.g. T991). Got: ${JSON.stringify(taskId)}\n`,
+      cliError(
+        `taskId must match /^T\\d+$/ (e.g. T991). Got: ${JSON.stringify(taskId)}`,
+        1,
+        { name: 'E_VALIDATION' },
+        { operation: 'audit.reconstruct' },
       );
       process.exit(1);
     }
@@ -76,59 +81,11 @@ const reconstructCommand = defineCommand({
 
     const result = await reconstructLineage(taskId, repoRoot);
 
-    if (args['json']) {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-      return;
-    }
-
-    // Human-readable summary output
-    const lines: string[] = [
-      `Lineage for ${result.taskId}`,
-      `${'='.repeat(40)}`,
-      '',
-      `Direct commits: ${result.directCommits.length}`,
-    ];
-
-    for (const c of result.directCommits) {
-      lines.push(`  ${c.sha.slice(0, 10)}  ${c.subject}`);
-    }
-
-    lines.push('');
-    if (result.childIdRange) {
-      lines.push(
-        `Inferred children: ${result.inferredChildren.join(', ')} (${result.childIdRange.min} → ${result.childIdRange.max})`,
-      );
-    } else {
-      lines.push('Inferred children: none');
-    }
-
-    const childEntries: [string, CommitEntry[]][] = Object.entries(result.childCommits);
-    if (childEntries.length > 0) {
-      lines.push('');
-      lines.push('Child commits:');
-      for (const [childId, commits] of childEntries) {
-        lines.push(`  ${childId}: ${commits.length} commit(s)`);
-        for (const c of commits) {
-          lines.push(`    ${c.sha.slice(0, 10)}  ${c.subject}`);
-        }
-      }
-    }
-
-    lines.push('');
-    if (result.releaseTags.length > 0) {
-      lines.push(`Release tags (${result.releaseTags.length}):`);
-      for (const t of result.releaseTags) {
-        lines.push(`  ${t.tag}  ${t.commitSha.slice(0, 10)}  ${t.subject}`);
-      }
-    } else {
-      lines.push('Release tags: none found');
-    }
-
-    lines.push('');
-    lines.push(`First seen: ${result.firstSeenAt ?? 'n/a'}`);
-    lines.push(`Last seen:  ${result.lastSeenAt ?? 'n/a'}`);
-
-    process.stdout.write(`${lines.join('\n')}\n`);
+    cliOutput(result, {
+      command: 'audit-reconstruct',
+      operation: 'audit.reconstruct',
+      message: `Lineage for ${result.taskId}`,
+    });
   },
 });
 
