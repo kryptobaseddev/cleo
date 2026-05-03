@@ -54,7 +54,7 @@ import {
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON } from '../paths.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Memory import helpers (T629 — provider-agnostic migration)
@@ -219,7 +219,9 @@ const storeCommand = defineCommand({
         { command: 'memory', operation: 'memory.learning.store' },
       );
     } else {
-      console.error(`Unknown memory type: ${memType}. Use 'pattern' or 'learning'.`);
+      cliError(`Unknown memory type: ${memType}. Use 'pattern' or 'learning'.`, 'E_VALIDATION', {
+        name: 'E_VALIDATION',
+      });
       process.exit(1);
     }
   },
@@ -1058,68 +1060,16 @@ const consolidateCommand = defineCommand({
       'contradiction detection, soft eviction, graph strengthening, summary generation. ' +
       'Equivalent to the session-end sleep-time consolidation but triggered on demand.',
   },
-  args: {
-    json: {
-      type: 'boolean',
-      description: 'Output results as JSON',
-    },
-  },
-  async run({ args }) {
+  args: {},
+  async run() {
     const root = getProjectRoot();
-    const isJson = !!args.json;
-
-    if (!isJson) {
-      console.log('Running memory consolidation (including tier promotion)...');
-    }
 
     try {
       const result = await runConsolidation(root);
-
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: {
-                operation: 'memory.consolidate',
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      // Human-readable output
-      console.log('\nConsolidation complete.');
-      console.log(`  Deduplicated:    ${result.deduplicated}`);
-      console.log(`  Quality recomp:  ${result.qualityRecomputed}`);
-      console.log(`  Tier promoted:   ${result.tierPromotions.promoted.length} entries promoted`);
-      console.log(`  Tier evicted:    ${result.tierPromotions.evicted.length} entries evicted`);
-      console.log(`  Contradictions:  ${result.contradictions}`);
-      console.log(`  Soft evicted:    ${result.softEvicted}`);
-      console.log(`  Edges strength:  ${result.edgesStrengthened}`);
-      console.log(`  Summaries gen:   ${result.summariesGenerated}`);
-      if (result.graphLinksCreated !== undefined) {
-        console.log(`  Graph links:     ${result.graphLinksCreated}`);
-      }
-
-      if (result.tierPromotions.promoted.length > 0) {
-        console.log('\nTier promotions:');
-        for (const p of result.tierPromotions.promoted) {
-          console.log(`  [${p.table}] ${p.id}: ${p.fromTier} → ${p.toTier} (${p.reason})`);
-        }
-      }
+      cliOutput(result, { command: 'memory-consolidate', operation: 'memory.consolidate' });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Memory consolidation failed: ${message}`);
-      }
+      cliError(`Memory consolidation failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
       process.exit(1);
     }
   },
@@ -1135,80 +1085,16 @@ const dreamCommand = defineCommand({
       'decay (Step 9c). Equivalent to autonomous nightly consolidation but ' +
       'triggered on demand. Idempotent — safe to run multiple times.',
   },
-  args: {
-    json: {
-      type: 'boolean',
-      description: 'Output results as JSON',
-    },
-  },
-  async run({ args }) {
+  args: {},
+  async run() {
     const root = getProjectRoot();
-    const isJson = !!args.json;
-
-    if (!isJson) {
-      console.log('Triggering dream cycle (full consolidation including STDP plasticity)...');
-    }
 
     try {
       const result = await triggerManualDream(root);
-
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: result,
-              meta: {
-                operation: 'memory.dream',
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      // Human-readable output
-      console.log('\nDream cycle complete.');
-      console.log(`  Deduplicated:    ${result.deduplicated}`);
-      console.log(`  Quality recomp:  ${result.qualityRecomputed}`);
-      console.log(`  Tier promoted:   ${result.tierPromotions.promoted.length} entries promoted`);
-      console.log(`  Tier evicted:    ${result.tierPromotions.evicted.length} entries evicted`);
-      console.log(`  Contradictions:  ${result.contradictions}`);
-      console.log(`  Soft evicted:    ${result.softEvicted}`);
-      console.log(`  Edges strength:  ${result.edgesStrengthened}`);
-      console.log(`  Summaries gen:   ${result.summariesGenerated}`);
-      if (result.graphLinksCreated !== undefined) {
-        console.log(`  Graph links:     ${result.graphLinksCreated}`);
-      }
-      if (result.rewardBackfilled !== undefined) {
-        console.log(
-          `  Reward backfill: ${result.rewardBackfilled.rowsLabeled} labeled, ` +
-            `${result.rewardBackfilled.rowsSkipped} skipped`,
-        );
-      }
-      if (result.stdpPlasticity !== undefined) {
-        console.log(
-          `  STDP plasticity: ${result.stdpPlasticity.ltpEvents} LTP, ` +
-            `${result.stdpPlasticity.ltdEvents} LTD, ` +
-            `${result.stdpPlasticity.edgesCreated} edges created`,
-        );
-      }
-      if (result.homeostaticDecay !== undefined) {
-        console.log(
-          `  Decay/pruning:   ${result.homeostaticDecay.edgesDecayed} decayed, ` +
-            `${result.homeostaticDecay.edgesPruned} pruned`,
-        );
-      }
+      cliOutput(result, { command: 'memory-dream', operation: 'memory.dream' });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Dream cycle failed: ${message}`);
-      }
+      cliError(`Dream cycle failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
       process.exit(1);
     }
   },
@@ -1228,18 +1114,9 @@ const reflectCommand = defineCommand({
       type: 'string',
       description: 'Run against a specific session ID (default: most recent session)',
     },
-    json: {
-      type: 'boolean',
-      description: 'Output results as JSON',
-    },
   },
   async run({ args }) {
     const root = getProjectRoot();
-    const isJson = !!args.json;
-
-    if (!isJson) {
-      console.log('Running Observer + Reflector pipeline...');
-    }
 
     try {
       const { runObserver, runReflector } = await import('@cleocode/core/internal');
@@ -1263,48 +1140,10 @@ const reflectCommand = defineCommand({
         },
       };
 
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data,
-              meta: {
-                operation: 'memory.reflect',
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      console.log('\nReflection complete.');
-      if (!observerResult.ran) {
-        console.log('  Observer: skipped (no API key, disabled in config, or no observations)');
-      } else {
-        console.log(`  Observer: compressed ${observerResult.stored} notes`);
-        console.log(`    Source IDs: ${observerResult.compressedIds.length} observations`);
-      }
-      if (!reflectorResult.ran) {
-        console.log('  Reflector: skipped (no API key, disabled in config, or < 3 observations)');
-      } else {
-        console.log(
-          `  Reflector: ${reflectorResult.patternsStored} patterns, ${reflectorResult.learningsStored} learnings`,
-        );
-        if (reflectorResult.supersededIds.length > 0) {
-          console.log(`    Superseded: ${reflectorResult.supersededIds.length} observations`);
-        }
-      }
+      cliOutput(data, { command: 'memory-reflect', operation: 'memory.reflect' });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Reflect failed: ${message}`);
-      }
+      cliError(`Reflect failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
       process.exit(1);
     }
   },
@@ -1325,18 +1164,9 @@ const dedupScanCommand = defineCommand({
       description:
         'Run full consolidation to merge duplicates (calls cleo memory consolidate internally)',
     },
-    json: {
-      type: 'boolean',
-      description: 'Output results as JSON',
-    },
   },
   async run({ args }) {
     const root = getProjectRoot();
-    const isJson = !!args.json;
-
-    if (!isJson) {
-      console.log('Scanning brain.db for duplicate entries...');
-    }
 
     try {
       const { getBrainDb: getBrainDbInner, getBrainNativeDb: getBrainNativeDbInner } = await import(
@@ -1346,12 +1176,7 @@ const dedupScanCommand = defineCommand({
       const nativeDb = getBrainNativeDbInner();
 
       if (!nativeDb) {
-        const msg = 'brain.db is unavailable';
-        if (isJson) {
-          console.log(JSON.stringify({ success: false, error: msg }));
-        } else {
-          console.error(msg);
-        }
+        cliError('brain.db is unavailable', 'E_INTERNAL', { name: 'E_INTERNAL' });
         process.exit(1);
         return;
       }
@@ -1418,76 +1243,28 @@ const dedupScanCommand = defineCommand({
 
       const totalDups = groups.reduce((sum, g) => sum + (g.count - 1), 0);
 
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: {
-                totalDuplicateRows: totalDups,
-                groups,
-                applied: false,
-              },
-              meta: {
-                operation: 'memory.dedup-scan',
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ),
-        );
-      } else {
-        if (groups.length === 0) {
-          console.log('No hash-duplicate entries found.');
-        } else {
-          console.log(`\nFound ${totalDups} duplicate rows across ${groups.length} groups:`);
-          for (const g of groups) {
-            console.log(`\n  [${g.table}] hash=${g.hash.slice(0, 12)}... (${g.count} copies)`);
-            for (const s of g.samples) {
-              console.log(`    - ${s}`);
-            }
-          }
-        }
-      }
-
       // Optionally merge duplicates via the consolidation pipeline
       if (args.apply) {
-        if (!isJson) console.log('\nApplying — running consolidation to merge duplicates...');
         const { runConsolidation: runConsolidationInner } = await import('@cleocode/core/internal');
         const result = await runConsolidationInner(root);
-        if (isJson) {
-          // Reprint with applied=true
-          console.log(
-            JSON.stringify(
-              {
-                success: true,
-                data: {
-                  totalDuplicateRows: totalDups,
-                  groups,
-                  applied: true,
-                  consolidation: { deduplicated: result.deduplicated },
-                },
-                meta: {
-                  operation: 'memory.dedup-scan',
-                  timestamp: new Date().toISOString(),
-                },
-              },
-              null,
-              2,
-            ),
-          );
-        } else {
-          console.log(`Consolidation merged ${result.deduplicated} duplicate entries.`);
-        }
+        cliOutput(
+          {
+            totalDuplicateRows: totalDups,
+            groups,
+            applied: true,
+            consolidation: { deduplicated: result.deduplicated },
+          },
+          { command: 'memory-dedup-scan', operation: 'memory.dedup-scan' },
+        );
+      } else {
+        cliOutput(
+          { totalDuplicateRows: totalDups, groups, applied: false },
+          { command: 'memory-dedup-scan', operation: 'memory.dedup-scan' },
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Dedup scan failed: ${message}`);
-      }
+      cliError(`Dedup scan failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
       process.exit(1);
     }
   },
@@ -1512,27 +1289,18 @@ const importCommand = defineCommand({
       type: 'boolean',
       description: 'Print what would be imported without writing to brain.db',
     },
-    json: {
-      type: 'boolean',
-      description: 'Output results as JSON',
-    },
   },
   async run({ args }) {
     const sourceDir =
       args.from ?? join(homedir(), '.claude', 'projects', '-mnt-projects-cleocode', 'memory');
     const isDryRun = !!args['dry-run'];
-    const isJson = !!args.json;
     const projectRoot = getProjectRoot();
     const stateFile = join(projectRoot, CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON);
 
     if (!existsSync(sourceDir)) {
-      const msg = `Source directory not found: ${sourceDir}`;
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: msg }));
-      } else {
-        console.error(msg);
-      }
+      cliError(`Source directory not found: ${sourceDir}`, 'E_NOT_FOUND', { name: 'E_NOT_FOUND' });
       process.exit(1);
+      return;
     }
 
     const files = readdirSync(sourceDir)
@@ -1544,13 +1312,6 @@ const importCommand = defineCommand({
     const importedEntries: Array<{ file: string; type: string; title: string }> = [];
     const skippedEntries: Array<{ file: string; reason: string }> = [];
     const errorEntries: Array<{ file: string; error: string }> = [];
-
-    if (!isJson) {
-      console.log(`Importing memory from: ${sourceDir}`);
-      console.log(`Files found: ${files.length}`);
-      if (isDryRun) console.log('Mode: DRY RUN');
-      console.log('');
-    }
 
     for (const filePath of files) {
       const fileName = filePath.split('/').pop() ?? filePath;
@@ -1578,16 +1339,10 @@ const importCommand = defineCommand({
         if (!isDryRun && importedHashes.has(hash)) {
           stats.skipped++;
           skippedEntries.push({ file: fileName, reason: `already imported (hash: ${hash})` });
-          if (!isJson) console.log(`  [SKIP] ${fileName}`);
           continue;
         }
 
         const entryType = type ?? 'project';
-
-        if (!isJson) {
-          const prefix = isDryRun ? '[DRY-RUN]' : '[IMPORT]';
-          console.log(`  ${prefix} ${fileName} (type: ${entryType})`);
-        }
 
         if (!isDryRun) {
           // Route by frontmatter type
@@ -1639,7 +1394,6 @@ const importCommand = defineCommand({
         stats.errors++;
         const message = err instanceof Error ? err.message : String(err);
         errorEntries.push({ file: fileName, error: message });
-        if (!isJson) console.error(`  [ERROR] ${fileName}: ${message}`);
       }
     }
 
@@ -1647,35 +1401,16 @@ const importCommand = defineCommand({
       saveImportHashes(stateFile, importedHashes);
     }
 
-    if (isJson) {
-      console.log(
-        JSON.stringify(
-          {
-            success: stats.errors === 0,
-            data: {
-              ...stats,
-              dryRun: isDryRun,
-              imported: importedEntries,
-              skipped: skippedEntries,
-              errors: errorEntries,
-            },
-            meta: {
-              operation: 'memory.import',
-              timestamp: new Date().toISOString(),
-            },
-          },
-          null,
-          2,
-        ),
-      );
-    } else {
-      console.log('');
-      console.log('=== Import Complete ===');
-      console.log(`Total:   ${stats.total}`);
-      console.log(`Imported: ${stats.imported}`);
-      console.log(`Skipped:  ${stats.skipped}`);
-      console.log(`Errors:   ${stats.errors}`);
-    }
+    cliOutput(
+      {
+        ...stats,
+        dryRun: isDryRun,
+        imported: importedEntries,
+        skipped: skippedEntries,
+        errors: errorEntries,
+      },
+      { command: 'memory-import', operation: 'memory.import' },
+    );
 
     if (stats.errors > 0) process.exit(1);
   },
@@ -1838,27 +1573,17 @@ const tierStatsCommand = defineCommand({
     description:
       'Show tier distribution across all brain tables + countdown to next long-tier promotions (top-10)',
   },
-  args: {
-    json: {
-      type: 'boolean',
-      description: 'Output as JSON',
-    },
-  },
-  async run({ args }) {
+  args: {},
+  async run() {
     const root = getProjectRoot();
-    const isJson = !!args.json;
 
     try {
       await getBrainDb(root);
       const nativeDb = getBrainNativeDb();
       if (!nativeDb) {
-        const msg = 'brain.db not available';
-        if (isJson) {
-          console.log(JSON.stringify({ success: false, error: msg }));
-        } else {
-          console.error(msg);
-        }
+        cliError('brain.db not available', 'E_INTERNAL', { name: 'E_INTERNAL' });
         process.exit(1);
+        return;
       }
 
       // Per-table tier distributions
@@ -1942,52 +1667,13 @@ const tierStatsCommand = defineCommand({
       countdown.sort((a, b) => a.daysUntil - b.daysUntil);
       const top10 = countdown.slice(0, 10);
 
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: { distribution, upcomingLongPromotions: top10 },
-              meta: {
-                operation: 'memory.tier.stats',
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      // Human-readable output
-      console.log('\nMemory Tier Distribution');
-      console.log('========================');
-      for (const [tbl, counts] of Object.entries(distribution)) {
-        const shortName = tbl.replace('brain_', '');
-        console.log(
-          `  ${shortName.padEnd(14)} short=${counts['short']}  medium=${counts['medium']}  long=${counts['long']}`,
-        );
-      }
-
-      if (top10.length > 0) {
-        console.log('\nTop-10 Upcoming Long-Tier Promotions (medium → long):');
-        console.log('-----------------------------------------------------');
-        for (const entry of top10) {
-          const days = entry.daysUntil.toFixed(1);
-          const table = entry.table.replace('brain_', '');
-          console.log(`  [${table}] ${entry.id}  in ${days}d  via ${entry.track}`);
-        }
-      } else {
-        console.log('\nNo entries currently qualifying for long-tier promotion.');
-      }
+      cliOutput(
+        { distribution, upcomingLongPromotions: top10 },
+        { command: 'memory-tier-stats', operation: 'memory.tier.stats' },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Tier stats failed: ${message}`);
-      }
+      cliError(`Tier stats failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
       process.exit(1);
     }
   },
@@ -2015,39 +1701,30 @@ const tierPromoteCommand = defineCommand({
       description: 'Reason for manual promotion (required)',
       required: true,
     },
-    json: {
-      type: 'boolean',
-      description: 'Output as JSON',
-    },
   },
   async run({ args }) {
     const root = getProjectRoot();
-    const isJson = !!args.json;
     const targetTier = args.to;
     const reason = args.reason;
 
     const validTiers = ['medium', 'long'];
     if (!validTiers.includes(targetTier)) {
-      const msg = `Invalid target tier: ${targetTier}. Must be one of: ${validTiers.join(', ')}`;
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: msg }));
-      } else {
-        console.error(msg);
-      }
+      cliError(
+        `Invalid target tier: ${targetTier}. Must be one of: ${validTiers.join(', ')}`,
+        'E_VALIDATION',
+        { name: 'E_VALIDATION' },
+      );
       process.exit(1);
+      return;
     }
 
     try {
       await getBrainDb(root);
       const nativeDb = getBrainNativeDb();
       if (!nativeDb) {
-        const msg = 'brain.db not available';
-        if (isJson) {
-          console.log(JSON.stringify({ success: false, error: msg }));
-        } else {
-          console.error(msg);
-        }
+        cliError('brain.db not available', 'E_INTERNAL', { name: 'E_INTERNAL' });
         process.exit(1);
+        return;
       }
 
       const tables = ['brain_observations', 'brain_learnings', 'brain_patterns', 'brain_decisions'];
@@ -2070,12 +1747,9 @@ const tierPromoteCommand = defineCommand({
             foundTable = tbl;
 
             if (fromTier === targetTier) {
-              const msg = `Entry ${args.id} is already at tier '${targetTier}'`;
-              if (isJson) {
-                console.log(JSON.stringify({ success: false, error: msg }));
-              } else {
-                console.error(msg);
-              }
+              cliError(`Entry ${args.id} is already at tier '${targetTier}'`, 'E_VALIDATION', {
+                name: 'E_VALIDATION',
+              });
               process.exit(1);
             }
 
@@ -2083,12 +1757,11 @@ const tierPromoteCommand = defineCommand({
             const fromOrd = tierOrder[fromTier] ?? 0;
             const toOrd = tierOrder[targetTier] ?? 0;
             if (toOrd <= fromOrd) {
-              const msg = `Cannot promote: '${targetTier}' is not higher than current tier '${fromTier}'. Use 'demote' to lower tiers.`;
-              if (isJson) {
-                console.log(JSON.stringify({ success: false, error: msg }));
-              } else {
-                console.error(msg);
-              }
+              cliError(
+                `Cannot promote: '${targetTier}' is not higher than current tier '${fromTier}'. Use 'demote' to lower tiers.`,
+                'E_VALIDATION',
+                { name: 'E_VALIDATION' },
+              );
               process.exit(1);
             }
 
@@ -2104,50 +1777,21 @@ const tierPromoteCommand = defineCommand({
       }
 
       if (!found) {
-        const msg = `Entry '${args.id}' not found in any brain table (or is invalidated)`;
-        if (isJson) {
-          console.log(JSON.stringify({ success: false, error: msg }));
-        } else {
-          console.error(msg);
-        }
+        cliError(
+          `Entry '${args.id}' not found in any brain table (or is invalidated)`,
+          'E_NOT_FOUND',
+          { name: 'E_NOT_FOUND' },
+        );
         process.exit(1);
       }
 
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: {
-                id: args.id,
-                table: foundTable,
-                fromTier,
-                toTier: targetTier,
-                reason,
-                promotedAt: now,
-              },
-              meta: {
-                operation: 'memory.tier.promote',
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ),
-        );
-      } else {
-        const shortTable = foundTable.replace('brain_', '');
-        console.log(
-          `Promoted [${shortTable}] ${args.id}: ${fromTier} → ${targetTier} (reason: ${reason})`,
-        );
-      }
+      cliOutput(
+        { id: args.id, table: foundTable, fromTier, toTier: targetTier, reason, promotedAt: now },
+        { command: 'memory-tier-promote', operation: 'memory.tier.promote' },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Tier promote failed: ${message}`);
-      }
+      cliError(`Tier promote failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
       process.exit(1);
     }
   },
@@ -2179,39 +1823,30 @@ const tierDemoteCommand = defineCommand({
       type: 'boolean',
       description: 'Required when demoting from long tier',
     },
-    json: {
-      type: 'boolean',
-      description: 'Output as JSON',
-    },
   },
   async run({ args }) {
     const root = getProjectRoot();
-    const isJson = !!args.json;
     const targetTier = args.to;
     const reason = args.reason;
 
     const validTiers = ['short', 'medium'];
     if (!validTiers.includes(targetTier)) {
-      const msg = `Invalid target tier for demotion: ${targetTier}. Must be one of: ${validTiers.join(', ')}`;
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: msg }));
-      } else {
-        console.error(msg);
-      }
+      cliError(
+        `Invalid target tier for demotion: ${targetTier}. Must be one of: ${validTiers.join(', ')}`,
+        'E_VALIDATION',
+        { name: 'E_VALIDATION' },
+      );
       process.exit(1);
+      return;
     }
 
     try {
       await getBrainDb(root);
       const nativeDb = getBrainNativeDb();
       if (!nativeDb) {
-        const msg = 'brain.db not available';
-        if (isJson) {
-          console.log(JSON.stringify({ success: false, error: msg }));
-        } else {
-          console.error(msg);
-        }
+        cliError('brain.db not available', 'E_INTERNAL', { name: 'E_INTERNAL' });
         process.exit(1);
+        return;
       }
 
       const tables = ['brain_observations', 'brain_learnings', 'brain_patterns', 'brain_decisions'];
@@ -2234,22 +1869,18 @@ const tierDemoteCommand = defineCommand({
             foundTable = tbl;
 
             if (fromTier === 'long' && !args.force) {
-              const msg = `Entry ${args.id} is in long tier. Long-tier entries are permanent. Use --force to override.`;
-              if (isJson) {
-                console.log(JSON.stringify({ success: false, error: msg }));
-              } else {
-                console.error(msg);
-              }
+              cliError(
+                `Entry ${args.id} is in long tier. Long-tier entries are permanent. Use --force to override.`,
+                'E_VALIDATION',
+                { name: 'E_VALIDATION' },
+              );
               process.exit(1);
             }
 
             if (fromTier === targetTier) {
-              const msg = `Entry ${args.id} is already at tier '${targetTier}'`;
-              if (isJson) {
-                console.log(JSON.stringify({ success: false, error: msg }));
-              } else {
-                console.error(msg);
-              }
+              cliError(`Entry ${args.id} is already at tier '${targetTier}'`, 'E_VALIDATION', {
+                name: 'E_VALIDATION',
+              });
               process.exit(1);
             }
 
@@ -2257,12 +1888,11 @@ const tierDemoteCommand = defineCommand({
             const fromOrd = tierOrder[fromTier] ?? 0;
             const toOrd = tierOrder[targetTier] ?? 0;
             if (toOrd >= fromOrd) {
-              const msg = `Cannot demote: '${targetTier}' is not lower than current tier '${fromTier}'. Use 'promote' to raise tiers.`;
-              if (isJson) {
-                console.log(JSON.stringify({ success: false, error: msg }));
-              } else {
-                console.error(msg);
-              }
+              cliError(
+                `Cannot demote: '${targetTier}' is not lower than current tier '${fromTier}'. Use 'promote' to raise tiers.`,
+                'E_VALIDATION',
+                { name: 'E_VALIDATION' },
+              );
               process.exit(1);
             }
 
@@ -2278,50 +1908,21 @@ const tierDemoteCommand = defineCommand({
       }
 
       if (!found) {
-        const msg = `Entry '${args.id}' not found in any brain table (or is invalidated)`;
-        if (isJson) {
-          console.log(JSON.stringify({ success: false, error: msg }));
-        } else {
-          console.error(msg);
-        }
+        cliError(
+          `Entry '${args.id}' not found in any brain table (or is invalidated)`,
+          'E_NOT_FOUND',
+          { name: 'E_NOT_FOUND' },
+        );
         process.exit(1);
       }
 
-      if (isJson) {
-        console.log(
-          JSON.stringify(
-            {
-              success: true,
-              data: {
-                id: args.id,
-                table: foundTable,
-                fromTier,
-                toTier: targetTier,
-                reason,
-                demotedAt: now,
-              },
-              meta: {
-                operation: 'memory.tier.demote',
-                timestamp: new Date().toISOString(),
-              },
-            },
-            null,
-            2,
-          ),
-        );
-      } else {
-        const shortTable = foundTable.replace('brain_', '');
-        console.log(
-          `Demoted [${shortTable}] ${args.id}: ${fromTier} → ${targetTier} (reason: ${reason})`,
-        );
-      }
+      cliOutput(
+        { id: args.id, table: foundTable, fromTier, toTier: targetTier, reason, demotedAt: now },
+        { command: 'memory-tier-demote', operation: 'memory.tier.demote' },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (isJson) {
-        console.log(JSON.stringify({ success: false, error: message }));
-      } else {
-        console.error(`Tier demote failed: ${message}`);
-      }
+      cliError(`Tier demote failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
       process.exit(1);
     }
   },
