@@ -103,12 +103,35 @@ export interface LifecycleStatusResult {
 export interface LifecycleHistoryParams {
   taskId: string;
 }
+/**
+ * A single entry in the lifecycle history for an epic.
+ *
+ * @remarks
+ * Canonical shape matches the implementation in
+ * `packages/core/src/lifecycle/index.ts`. The prior contracts shape
+ * used `from`/`to` transition fields that were never populated by the
+ * SQLite-native implementation. The core stores an `action` string that
+ * encodes the event kind:
+ *
+ *  - Stage events: `'completed'` | `'skipped'`
+ *  - Gate events: `'gate.pass: <gateName>'` | `'gate.fail: <gateName>'`
+ *
+ * T1719: reconciled from prior `{ stage, from, to, timestamp, agent?, notes? }`
+ * to match the core implementation shape `{ stage, action, timestamp, notes? }`.
+ *
+ * @task T1719 — shape-divergence reconciliation
+ */
 export interface LifecycleHistoryEntry {
-  stage: LifecycleStage;
-  from: StageStatus;
-  to: StageStatus;
+  /** Stage name this event belongs to. */
+  stage: string;
+  /**
+   * Event kind: `'completed'`, `'skipped'`, or a gate event like
+   * `'gate.pass: <gateName>'` / `'gate.fail: <gateName>'`.
+   */
+  action: string;
+  /** ISO 8601 timestamp of the event. */
   timestamp: string;
-  agent?: string;
+  /** Optional free-text notes or reason attached to the event. */
   notes?: string;
 }
 export type LifecycleHistoryResult = LifecycleHistoryEntry[];
