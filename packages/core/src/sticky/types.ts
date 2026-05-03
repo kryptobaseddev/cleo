@@ -19,6 +19,7 @@ import type {
   StickyNotePriority,
   StickyNoteStatus,
 } from '@cleocode/contracts/operations/sticky';
+
 export type { StickyNoteColor, StickyNotePriority, StickyNoteStatus };
 
 /**
