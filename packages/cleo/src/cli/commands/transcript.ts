@@ -20,7 +20,7 @@
  *
  * @see packages/core/src/gc/transcript.ts for scan/prune logic
  * @see docs/specs/memory-architecture-spec.md §6 and §9.1
- * @task T728 T730 T732 T733
+ * @task T728 T730 T732 T733 T1723
  * @epic T726
  */
 
@@ -33,6 +33,7 @@ import {
   scanTranscripts,
 } from '@cleocode/core/gc/transcript.js';
 import { defineCommand, showUsage } from 'citty';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /** cleo transcript scan — inventory all session transcripts with hot/warm/cold tier breakdown */
 const scanCommand = defineCommand({
@@ -49,10 +50,6 @@ const scanCommand = defineCommand({
       type: 'boolean',
       description: 'List sessions queued for warm-tier extraction (T732)',
     },
-    json: {
-      type: 'boolean',
-      description: 'Output result as JSON (LAFS envelope)',
-    },
   },
   async run({ args }) {
     if (args.pending) {
@@ -62,25 +59,22 @@ const scanCommand = defineCommand({
           '@cleocode/core/memory/transcript-scanner.js'
         );
         const pending = await scanPendingTranscripts(projectRoot);
-        const envelope = { success: true, data: { count: pending.length, pending } };
-        if (args.json) {
-          process.stdout.write(JSON.stringify(envelope) + '\n');
-        } else {
-          process.stdout.write(`Sessions pending extraction: ${pending.length}\n`);
-          for (const p of pending) {
-            process.stdout.write(
-              `  ${p.sessionId}  ${p.filePath || '(file not found)'}  queued: ${p.createdAt}\n`,
-            );
-          }
-        }
+        cliOutput(
+          { count: pending.length, pending },
+          {
+            command: 'transcript',
+            operation: 'transcript.scan',
+            message: `Sessions pending extraction: ${pending.length}`,
+          },
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        const envelope = { success: false, error: { code: 'E_INTERNAL', message } };
-        if (args.json) {
-          process.stdout.write(JSON.stringify(envelope) + '\n');
-        } else {
-          process.stderr.write(`Pending scan failed: ${message}\n`);
-        }
+        cliError(
+          'Pending scan failed',
+          'E_INTERNAL',
+          { name: 'E_INTERNAL', details: message },
+          { operation: 'transcript.scan' },
+        );
         process.exit(1);
       }
       return;
@@ -91,9 +85,8 @@ const scanCommand = defineCommand({
     try {
       const result = await scanTranscripts(projectsDir);
 
-      const envelope = {
-        success: true,
-        data: {
+      cliOutput(
+        {
           totalSessions: result.totalSessions,
           totalBytes: result.totalBytes,
           totalMB: Number.parseFloat((result.totalBytes / 1024 / 1024).toFixed(2)),
@@ -117,31 +110,16 @@ const scanCommand = defineCommand({
           },
           projectsDir: result.projectsDir,
         },
-      };
-
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        process.stdout.write(`Transcript scan results\n`);
-        process.stdout.write(`=======================\n`);
-        process.stdout.write(`Projects dir:  ${result.projectsDir}\n`);
-        process.stdout.write(`Total sessions: ${result.totalSessions}\n`);
-        process.stdout.write(
-          `Total size:     ${(result.totalBytes / 1024 / 1024).toFixed(1)} MB\n`,
-        );
-        process.stdout.write(`\nTier breakdown:\n`);
-        process.stdout.write(`  HOT  (0–24h): ${result.hot.length} sessions\n`);
-        process.stdout.write(`  WARM (1–7d):  ${result.warm.length} sessions\n`);
-        process.stdout.write(`  COLD (>7d):   (transcripts deleted; brain.db entries only)\n`);
-      }
+        { command: 'transcript', operation: 'transcript.scan' },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const envelope = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        process.stderr.write(`Scan failed: ${message}\n`);
-      }
+      cliError(
+        'Scan failed',
+        'E_INTERNAL',
+        { name: 'E_INTERNAL', details: message },
+        { operation: 'transcript.scan' },
+      );
       process.exit(1);
     }
   },
@@ -176,10 +154,6 @@ const extractCommand = defineCommand({
       type: 'string',
       description: 'Override ~/.claude/projects/ path',
     },
-    json: {
-      type: 'boolean',
-      description: 'Output result as JSON (LAFS envelope)',
-    },
   },
   async run({ args }) {
     const tier = (args.tier ?? 'warm') as 'warm' | 'cold';
@@ -202,18 +176,12 @@ const extractCommand = defineCommand({
       } else if (args['session-id']) {
         const path = await findSessionTranscriptPath(args['session-id']);
         if (!path) {
-          const envelope = {
-            success: false,
-            error: {
-              code: 'E_NOT_FOUND',
-              message: `Session JSONL not found for: ${args['session-id']}`,
-            },
-          };
-          if (args.json) {
-            process.stdout.write(JSON.stringify(envelope) + '\n');
-          } else {
-            process.stderr.write(`Session not found: ${args['session-id']}\n`);
-          }
+          cliError(
+            `Session JSONL not found for: ${args['session-id']}`,
+            4,
+            { name: 'E_NOT_FOUND' },
+            { operation: 'transcript.extract' },
+          );
           process.exit(4);
           return;
         }
@@ -245,9 +213,9 @@ const extractCommand = defineCommand({
         totalBytesFreed += result.bytesFreed;
       }
 
-      const envelope = {
-        success: true,
-        data: {
+      const dryLabel = dryRun ? ' (dry run)' : '';
+      cliOutput(
+        {
           sessionsProcessed: sessions.length,
           memoriesExtracted: totalExtracted,
           memoriesStored: totalStored,
@@ -255,26 +223,20 @@ const extractCommand = defineCommand({
           dryRun,
           results,
         },
-      };
-
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        const dryLabel = dryRun ? ' (dry run)' : '';
-        process.stdout.write(`Transcript extraction complete${dryLabel}\n`);
-        process.stdout.write(`Sessions:  ${sessions.length}\n`);
-        process.stdout.write(`Extracted: ${totalExtracted} memories\n`);
-        process.stdout.write(`Stored:    ${totalStored} memories\n`);
-        process.stdout.write(`Freed:     ${(totalBytesFreed / 1024 / 1024).toFixed(1)} MB\n`);
-      }
+        {
+          command: 'transcript',
+          operation: 'transcript.extract',
+          message: `Transcript extraction complete${dryLabel}`,
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const envelope = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        process.stderr.write(`Extract failed: ${message}\n`);
-      }
+      cliError(
+        'Extract failed',
+        'E_INTERNAL',
+        { name: 'E_INTERNAL', details: message },
+        { operation: 'transcript.extract' },
+      );
       process.exit(1);
     }
   },
@@ -309,10 +271,6 @@ const migrateCommand = defineCommand({
       type: 'string',
       description: 'Maximum number of sessions to process',
     },
-    json: {
-      type: 'boolean',
-      description: 'Output result as JSON (LAFS envelope)',
-    },
   },
   async run({ args }) {
     const tier = (args.tier ?? 'warm') as 'warm' | 'cold';
@@ -333,18 +291,15 @@ const migrateCommand = defineCommand({
         limit,
       });
 
-      if (args.json) {
-        process.stdout.write(
-          JSON.stringify({
-            success: true,
-            data: { discovered: transcripts.length, message: 'Starting migration...' },
-          }) + '\n',
-        );
-      } else {
-        process.stdout.write(
-          `Migrating ${transcripts.length} session transcripts${dryRun ? ' (dry run)' : ''}...\n`,
-        );
-      }
+      // Emit discovery count immediately so callers know how many sessions will be processed
+      cliOutput(
+        { discovered: transcripts.length, message: 'Starting migration...' },
+        {
+          command: 'transcript',
+          operation: 'transcript.migrate',
+          message: `Migrating ${transcripts.length} session transcripts${dryRun ? ' (dry run)' : ''}...`,
+        },
+      );
 
       let memoriesExtracted = 0;
       let memoriesStored = 0;
@@ -376,9 +331,9 @@ const migrateCommand = defineCommand({
         }
       }
 
-      const envelope = {
-        success: true,
-        data: {
+      const dryLabel = dryRun ? ' (dry run — no changes written)' : '';
+      cliOutput(
+        {
           sessionsProcessed: processed,
           sessionsSkipped: skipped,
           sessionsFailed: failed,
@@ -388,26 +343,20 @@ const migrateCommand = defineCommand({
           mbFreed: Number.parseFloat((bytesFreed / 1024 / 1024).toFixed(2)),
           dryRun,
         },
-      };
-
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        const dryLabel = dryRun ? ' (dry run — no changes written)' : '';
-        process.stdout.write(`Migration complete${dryLabel}\n`);
-        process.stdout.write(`Processed: ${processed}  Skipped: ${skipped}  Failed: ${failed}\n`);
-        process.stdout.write(`Memories extracted: ${memoriesExtracted}\n`);
-        process.stdout.write(`Memories stored:    ${memoriesStored}\n`);
-        process.stdout.write(`Bytes freed:        ${(bytesFreed / 1024 / 1024).toFixed(1)} MB\n`);
-      }
+        {
+          command: 'transcript',
+          operation: 'transcript.migrate',
+          message: `Migration complete${dryLabel}`,
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const envelope = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        process.stderr.write(`Migration failed: ${message}\n`);
-      }
+      cliError(
+        'Migration failed',
+        'E_INTERNAL',
+        { name: 'E_INTERNAL', details: message },
+        { operation: 'transcript.migrate' },
+      );
       process.exit(1);
     }
   },
@@ -433,32 +382,19 @@ const pruneCommand = defineCommand({
       type: 'string',
       description: 'Override ~/.claude/projects/ path',
     },
-    json: {
-      type: 'boolean',
-      description: 'Output result as JSON (LAFS envelope)',
-    },
   },
   async run({ args }) {
     const isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY);
     const confirm = args.confirm ?? false;
 
     if (!confirm && !isTTY) {
-      const envelope = {
-        success: false,
-        error: {
-          code: 'E_INVALID_INPUT',
-          message:
-            'Non-interactive mode requires --confirm flag to perform deletion. ' +
-            'Use --confirm to bypass the dry-run. Without --confirm, a dry-run report is printed.',
-        },
-      };
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        process.stderr.write(
-          `Deletion requires --confirm in non-interactive mode. Re-run with --confirm to delete.\n`,
-        );
-      }
+      cliError(
+        'Non-interactive mode requires --confirm flag to perform deletion. ' +
+          'Use --confirm to bypass the dry-run. Without --confirm, a dry-run report is printed.',
+        'E_INVALID_INPUT',
+        { name: 'E_INVALID_INPUT' },
+        { operation: 'transcript.prune' },
+      );
       process.exit(0);
     }
 
@@ -467,12 +403,12 @@ const pruneCommand = defineCommand({
       olderThanMs = parseDurationMs(args['older-than']);
     } catch (parseErr) {
       const message = parseErr instanceof Error ? parseErr.message : String(parseErr);
-      const envelope = { success: false, error: { code: 'E_INVALID_INPUT', message } };
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        process.stderr.write(`Invalid duration: ${message}\n`);
-      }
+      cliError(
+        `Invalid duration: ${message}`,
+        'E_INVALID_INPUT',
+        { name: 'E_INVALID_INPUT' },
+        { operation: 'transcript.prune' },
+      );
       process.exit(2);
       return;
     }
@@ -486,45 +422,29 @@ const pruneCommand = defineCommand({
         projectsDir,
       });
 
-      const envelope = {
-        success: true,
-        data: {
+      const dryLabel = pruneResult.dryRun ? ' (dry run — use --confirm to delete)' : '';
+      cliOutput(
+        {
           pruned: pruneResult.pruned,
           bytesFreed: pruneResult.bytesFreed,
           mbFreed: Number.parseFloat((pruneResult.bytesFreed / 1024 / 1024).toFixed(2)),
           dryRun: pruneResult.dryRun,
           deletedPaths: pruneResult.deletedPaths,
         },
-      };
-
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        const dryLabel = pruneResult.dryRun ? ' (dry run — use --confirm to delete)' : '';
-        process.stdout.write(`Transcript prune${dryLabel}\n`);
-        process.stdout.write(`Older than:   ${args['older-than']}\n`);
-        process.stdout.write(`Sessions:     ${pruneResult.pruned}\n`);
-        process.stdout.write(
-          `Bytes freed:  ${(pruneResult.bytesFreed / 1024 / 1024).toFixed(1)} MB\n`,
-        );
-        if (pruneResult.deletedPaths.length > 0 && pruneResult.dryRun) {
-          process.stdout.write(`\nWould delete (${pruneResult.deletedPaths.length} paths):\n`);
-          for (const p of pruneResult.deletedPaths.slice(0, 10)) {
-            process.stdout.write(`  ${p}\n`);
-          }
-          if (pruneResult.deletedPaths.length > 10) {
-            process.stdout.write(`  ... and ${pruneResult.deletedPaths.length - 10} more\n`);
-          }
-        }
-      }
+        {
+          command: 'transcript',
+          operation: 'transcript.prune',
+          message: `Transcript prune${dryLabel}`,
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const envelope = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (args.json) {
-        process.stdout.write(JSON.stringify(envelope) + '\n');
-      } else {
-        process.stderr.write(`Prune failed: ${message}\n`);
-      }
+      cliError(
+        'Prune failed',
+        'E_INTERNAL',
+        { name: 'E_INTERNAL', details: message },
+        { operation: 'transcript.prune' },
+      );
       process.exit(1);
     }
   },
