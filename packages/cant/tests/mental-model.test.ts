@@ -225,21 +225,30 @@ describe('consolidate', () => {
   it('enforces token cap dropping oldest first', async () => {
     const existing = createEmptyModel('test-agent', 'proj-abc', 'project', 25);
 
-    // Three observations totaling 30 tokens, cap is 25
+    // Three observations totaling 30 tokens, cap is 25.
+    // Use relative timestamps (1, 2, 3 days ago) to avoid decay-cutoff flakes:
+    // with decayAfterDays:30 any hardcoded past date eventually falls outside
+    // the retention window as real time advances (T1731 root-cause fix).
+    const daysAgo = (n: number): string => {
+      const d = new Date();
+      d.setDate(d.getDate() - n);
+      return d.toISOString();
+    };
+
     const obs1 = createObs({
       content: 'Oldest observation',
       tokens: 10,
-      timestamp: '2026-04-01T00:00:00Z',
+      timestamp: daysAgo(3),
     });
     const obs2 = createObs({
       content: 'Middle observation',
       tokens: 10,
-      timestamp: '2026-04-03T00:00:00Z',
+      timestamp: daysAgo(2),
     });
     const obs3 = createObs({
       content: 'Newest observation',
       tokens: 10,
-      timestamp: '2026-04-05T00:00:00Z',
+      timestamp: daysAgo(1),
     });
 
     existing.observations = [obs1, obs2, obs3];

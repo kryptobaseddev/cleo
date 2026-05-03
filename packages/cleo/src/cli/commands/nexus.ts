@@ -1379,7 +1379,7 @@ const projectsCleanCommand = defineCommand({
       if (ctx.format !== 'json') {
         cliOutput(
           { matched: matchCount, totalCount, sample: samplePaths },
-          { command: 'nexus-projects-clean', operation: 'nexus.projects.clean' },
+          { command: 'nexus-projects-clean-preview', operation: 'nexus.projects.clean' },
         );
       }
 

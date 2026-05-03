@@ -25,6 +25,7 @@
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nexusCommand } from '../commands/nexus.js';
+import { setFormatContext } from '../format-context.js';
 
 /**
  * Subset of the dispatcher response shape that the CLI handler reads.  The
@@ -301,6 +302,18 @@ async function invokeClean(
 ): Promise<{ stdout: string; stderr: string; exitCode: number | undefined }> {
   deletedIds = [];
   auditInserts = [];
+
+  // Set format context to match what the CLI entry-point would resolve.
+  // Without --json the CLI resolves to 'json' (non-TTY default), but when
+  // tests do NOT pass json:true they are exercising the human-error path.
+  // Explicitly mirror the flag resolution here so cliOutput/cliError behave
+  // consistently regardless of residual module-level state from prior tests.
+  setFormatContext(
+    args['json'] === true
+      ? { format: 'json', source: 'flag', quiet: false }
+      : { format: 'human', source: 'flag', quiet: false },
+  );
+
   dispatchRawMock.mockImplementation(
     async (
       _gateway: string,
@@ -402,10 +415,11 @@ describe('nexus projects clean', () => {
     const result = await invokeClean(ALL_ROWS, { json: true });
     const envelope = JSON.parse(result.stdout) as {
       success: boolean;
-      error: { code: string };
+      error: { code: number; codeName?: string };
     };
     expect(envelope.success).toBe(false);
-    expect(envelope.error.code).toBe('E_NO_CRITERIA');
+    // error.codeName carries the symbolic code; error.code is the numeric exit code
+    expect(envelope.error.codeName).toBe('E_NO_CRITERIA');
     expect(result.exitCode).toBe(6);
   });
 
@@ -519,9 +533,13 @@ describe('nexus projects clean', () => {
       'dry-run': true,
       json: true,
     });
-    const envelope = JSON.parse(result.stdout) as { success: boolean; error: { code: string } };
+    const envelope = JSON.parse(result.stdout) as {
+      success: boolean;
+      error: { code: number; codeName?: string };
+    };
     expect(envelope.success).toBe(false);
-    expect(envelope.error.code).toBe('E_INVALID_PATTERN');
+    // error.codeName carries the symbolic code; error.code is the numeric exit code
+    expect(envelope.error.codeName).toBe('E_INVALID_PATTERN');
   });
 
   // ── --unhealthy + --never-indexed combo ───────────────────────────────────
