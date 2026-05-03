@@ -13,6 +13,7 @@
  * @see packages/core/src/gc/runner.ts for GC logic
  * @see ADR-047 — Autonomous GC and Disk Safety
  * @task T731
+ * @task T1724
  * @epic T726
  */
 
@@ -21,6 +22,7 @@ import { join } from 'node:path';
 import { runGC } from '@cleocode/core/gc/runner.js';
 import { readGCState } from '@cleocode/core/gc/state.js';
 import { defineCommand, showUsage } from 'citty';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Format a byte count into a human-readable string.
@@ -64,31 +66,29 @@ const runCommand = defineCommand({
 
     try {
       const gcResult = await runGC({ cleoDir, dryRun });
-      const result = { success: true, data: gcResult };
-
-      if (args.json) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        const dryLabel = dryRun ? ' (dry run)' : '';
-        process.stdout.write(`GC run complete${dryLabel}\n`);
-        process.stdout.write(
-          `Disk: ${gcResult.diskUsedPct.toFixed(1)}% (${gcResult.threshold.toUpperCase()})\n`,
-        );
-        process.stdout.write(
-          `Pruned: ${gcResult.pruned.length} paths, ${formatBytes(gcResult.bytesFreed)} freed\n`,
-        );
-        if (gcResult.escalationSet && gcResult.escalationReason) {
-          process.stdout.write(`\nWARNING: ${gcResult.escalationReason}\n`);
-        }
-      }
+      const dryLabel = dryRun ? ' (dry run)' : '';
+      const humanMsg =
+        `GC run complete${dryLabel} — ` +
+        `Disk: ${gcResult.diskUsedPct.toFixed(1)}% (${gcResult.threshold.toUpperCase()}), ` +
+        `Pruned: ${gcResult.pruned.length} paths, ${formatBytes(gcResult.bytesFreed)} freed` +
+        (gcResult.escalationSet && gcResult.escalationReason
+          ? ` — WARNING: ${gcResult.escalationReason}`
+          : '');
+      cliOutput(gcResult, {
+        command: 'gc',
+        operation: 'gc.run',
+        message: humanMsg,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const result = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (args.json) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        process.stderr.write(`GC run failed: ${message}\n`);
-      }
+      cliError(
+        `GC run failed: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        {
+          operation: 'gc.run',
+        },
+      );
       process.exit(1);
     }
   },
@@ -117,33 +117,26 @@ const statusCommand = defineCommand({
 
     try {
       const state = await readGCState(statePath);
-      const result = { success: true, data: state };
-
-      if (args.json) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        process.stdout.write(`Last run:     ${state.lastRunAt ?? 'never'}\n`);
-        process.stdout.write(`Last result:  ${state.lastRunResult ?? 'none'}\n`);
-        process.stdout.write(`Bytes freed:  ${formatBytes(state.lastRunBytesFreed)}\n`);
-        const diskStr =
-          state.lastDiskUsedPct !== null ? `${state.lastDiskUsedPct.toFixed(1)}%` : 'unknown';
-        process.stdout.write(`Disk used:    ${diskStr}\n`);
-        process.stdout.write(`Failures:     ${state.consecutiveFailures}\n`);
-        process.stdout.write(
-          `Escalation:   ${state.escalationNeeded ? 'YES — run cleo gc run' : 'no'}\n`,
-        );
-        if (state.escalationReason) {
-          process.stdout.write(`Reason:       ${state.escalationReason}\n`);
-        }
-      }
+      const diskStr =
+        state.lastDiskUsedPct !== null ? `${state.lastDiskUsedPct.toFixed(1)}%` : 'unknown';
+      cliOutput(state, {
+        command: 'gc',
+        operation: 'gc.status',
+        message:
+          `Last run: ${state.lastRunAt ?? 'never'}, ` +
+          `Disk: ${diskStr}, ` +
+          `Escalation: ${state.escalationNeeded ? 'YES — run cleo gc run' : 'no'}`,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const result = { success: false, error: { code: 'E_INTERNAL', message } };
-      if (args.json) {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      } else {
-        process.stderr.write(`Error reading GC status: ${message}\n`);
-      }
+      cliError(
+        `Error reading GC status: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        {
+          operation: 'gc.status',
+        },
+      );
       process.exit(1);
     }
   },

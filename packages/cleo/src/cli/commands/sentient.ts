@@ -42,6 +42,7 @@ import { patchSentientState, readSentientState } from '@cleocode/core/sentient/s
 import { safeRunTick } from '@cleocode/core/sentient/tick.js';
 import { defineCommand } from 'citty';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Shared arg spec
@@ -63,22 +64,36 @@ function resolveProjectRoot(arg: string | undefined): string {
   return arg && arg.length > 0 ? arg : processCwd();
 }
 
-/** Emit a LAFS-shaped success envelope as JSON or human text. */
-function emitSuccess(payload: unknown, jsonMode: boolean, humanLine: string): void {
-  if (jsonMode) {
-    process.stdout.write(`${JSON.stringify({ success: true, data: payload })}\n`);
-  } else {
-    process.stdout.write(`${humanLine}\n`);
-  }
+/**
+ * Emit a LAFS-shaped success envelope via cliOutput.
+ *
+ * Delegates to cliOutput so both --json and --human paths flow through the
+ * canonical renderer pipeline (ADR-039 / T1724).
+ *
+ * @param payload - Data payload for the envelope.
+ * @param _jsonMode - Kept for call-site compatibility; format resolved by cliOutput.
+ * @param message - Human-readable summary line (used as JSON meta.message).
+ * @param operation - Optional LAFS operation name for the JSON envelope.
+ */
+function emitSuccess(
+  payload: unknown,
+  _jsonMode: boolean,
+  message: string,
+  operation?: string,
+): void {
+  cliOutput(payload, { command: 'sentient', message, ...(operation ? { operation } : {}) });
 }
 
-/** Emit a LAFS-shaped failure envelope. */
-function emitFailure(code: string, message: string, jsonMode: boolean): void {
-  if (jsonMode) {
-    process.stdout.write(`${JSON.stringify({ success: false, error: { code, message } })}\n`);
-  } else {
-    process.stderr.write(`Error: ${message}\n`);
-  }
+/**
+ * Emit a LAFS-shaped failure envelope via cliError, then exit.
+ *
+ * @param code - Machine-readable error code.
+ * @param message - Human-readable error description.
+ * @param _jsonMode - Kept for call-site compatibility; format resolved by cliError.
+ * @param operation - Optional LAFS operation name for the JSON envelope.
+ */
+function emitFailure(code: string, message: string, _jsonMode: boolean, operation?: string): void {
+  cliError(message, code, { name: code }, operation ? { operation } : undefined);
   process.exit(1);
 }
 
@@ -186,33 +201,22 @@ const statusSub = defineCommand({
 
     try {
       const status = await getSentientDaemonStatus(projectRoot);
-      if (jsonMode) {
-        process.stdout.write(`${JSON.stringify({ success: true, data: status })}\n`);
-        return;
-      }
-
-      process.stdout.write(
-        `Daemon:       ${status.running ? `running (pid ${status.pid})` : 'stopped'}\n`,
-      );
-      process.stdout.write(`Started at:   ${status.startedAt ?? 'never'}\n`);
-      process.stdout.write(`Last tick:    ${status.lastTickAt ?? 'never'}\n`);
-      process.stdout.write(`Kill switch:  ${status.killSwitch ? 'ACTIVE' : 'inactive'}`);
-      if (status.killSwitchReason) {
-        process.stdout.write(` (${status.killSwitchReason})`);
-      }
-      process.stdout.write('\n');
-      process.stdout.write(`Active task:  ${status.activeTaskId ?? 'none'}\n`);
-      process.stdout.write(`Stuck tasks:  ${status.stuckCount}\n`);
-      process.stdout.write(
-        `Stats:        picked=${status.stats.tasksPicked} ` +
+      const runStr = status.running ? `running (pid ${status.pid})` : 'stopped';
+      const ksStr = status.killSwitch
+        ? `ACTIVE${status.killSwitchReason ? ` (${status.killSwitchReason})` : ''}`
+        : 'inactive';
+      emitSuccess(
+        status,
+        jsonMode,
+        `Daemon: ${runStr} | killSwitch=${ksStr} | ` +
+          `picked=${status.stats.tasksPicked} ` +
           `completed=${status.stats.tasksCompleted} ` +
-          `failed=${status.stats.tasksFailed} ` +
-          `ticks=${status.stats.ticksExecuted} ` +
-          `killed-ticks=${status.stats.ticksKilled}\n`,
+          `failed=${status.stats.tasksFailed}`,
+        'sentient.status',
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      emitFailure('E_SENTIENT_STATUS', message, jsonMode);
+      emitFailure('E_SENTIENT_STATUS', message, jsonMode, 'sentient.status');
     }
   },
 });
@@ -819,20 +823,20 @@ export const sentientCommand = defineCommand({
 
     try {
       const status = await getSentientDaemonStatus(projectRoot);
-      if (jsonMode) {
-        process.stdout.write(`${JSON.stringify({ success: true, data: status })}\n`);
-      } else {
-        process.stdout.write(
-          `Daemon: ${status.running ? `running (pid ${status.pid})` : 'stopped'} ` +
-            `| killSwitch=${status.killSwitch ? 'ACTIVE' : 'inactive'} ` +
-            `| picked=${status.stats.tasksPicked} ` +
-            `completed=${status.stats.tasksCompleted} ` +
-            `failed=${status.stats.tasksFailed}\n`,
-        );
-      }
+      const ksStr = status.killSwitch ? 'ACTIVE' : 'inactive';
+      emitSuccess(
+        status,
+        jsonMode,
+        `Daemon: ${status.running ? `running (pid ${status.pid})` : 'stopped'} ` +
+          `| killSwitch=${ksStr} ` +
+          `| picked=${status.stats.tasksPicked} ` +
+          `completed=${status.stats.tasksCompleted} ` +
+          `failed=${status.stats.tasksFailed}`,
+        'sentient.status',
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      emitFailure('E_SENTIENT_STATUS', message, jsonMode);
+      emitFailure('E_SENTIENT_STATUS', message, jsonMode, 'sentient.status');
     }
   },
 });
