@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/adapters",
-  "version": "2026.5.11",
+  "version": "2026.5.12",
   "description": "Unified provider adapters for CLEO (Claude Code, OpenCode, Cursor)",
   "type": "module",
   "main": "dist/index.js",

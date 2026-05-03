@@ -1056,7 +1056,12 @@ const analyzeCommand = defineCommand({
       try {
         const { runGitLogTaskLinker } = await import('@cleocode/core/nexus' as string);
         const sweeperResult = await runGitLogTaskLinker(repoPath);
-        if (ctx.format !== 'json' && sweeperResult.commitsProcessed > 0) {
+        // Diagnostic stderr message — emit unconditionally regardless of
+        // ctx.format. Stderr does NOT pollute --json stdout (separate stream)
+        // and sandbox/CI assertions parse the combined stdout+stderr stream.
+        // Removing this conditional preserves pre-W4 behavior the
+        // living-brain-e2e scenario depends on.
+        if (sweeperResult.commitsProcessed > 0) {
           process.stderr.write(
             `[nexus] Task-symbol sweep: ${sweeperResult.commitsProcessed} commit(s), ${sweeperResult.tasksFound} task(s), ${sweeperResult.linked} edge(s) linked.\n`,
           );
