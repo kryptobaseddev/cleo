@@ -1,5 +1,33 @@
 # Changelog
 
+## [2026.5.10] (2026-05-03) — T-CSL-RESET Wave 3 partial: 4 type-family migrations to contracts SSoT
+
+W3 (T1690) wave 1: 4 of 5 atomic children completed. Net effect: 13 type duplications removed across 4 type families. The 5th child (T1717) returned "partial" with legitimate shape divergence — followup tracked at T1719.
+
+### Type-family migrations (T1713-T1716)
+
+- **T1713 (W3.A) — TaskRole/TaskScope/TaskSeverity** — Drizzle schema in `core/store/tasks-schema.ts` now imports from `@cleocode/contracts`; `TASK_ROLES`/`TASK_SCOPES`/`TASK_SEVERITIES` const arrays retained for column enum narrowing. 3 type duplications removed.
+- **T1714 (W3.B) — StickyNote types** — `core/sticky/types.ts` now re-exports `StickyNoteStatus`/`StickyNotePriority`/`StickyNoteColor`/`StickyConvertResult` from `@cleocode/contracts/operations/sticky`. 4 type duplications removed.
+- **T1715 (W3.C) — Brain memory schema types** — `core/store/memory-schema.ts` now imports `BrainMemoryTier`/`BrainCognitiveType`/`BrainSourceConfidence` from `@cleocode/contracts/brain`. 3 duplications removed (BrainNodeType found shape-divergent and left for followup).
+- **T1716 (W3.D) — LLM types** — `core/llm/types-config.ts` and `core/llm/types.ts` now import `ModelTransport`/`ModelConfig`/`PromptCachePolicy`/`PromptCachePolicyMode`/`LLMCallResult` from `@cleocode/contracts/operations/llm`. 5 duplications removed.
+
+### Partial / followup (T1717 → T1719)
+
+T1717 (W3.E) found that `SpawnContext`, `Wave`, and `LifecycleHistoryEntry` have legitimate **structural divergence** between contracts and core (different field names, different shapes). Direct import-replace would break tests. T1717 cancelled, followup filed as T1719 for proper rename-side reconciliation.
+
+### Wave 3 acceptance gates
+
+- ✅ pnpm run typecheck clean (CI parity — `tsc -b` strict project references)
+- ✅ pnpm biome ci . clean
+- ✅ pnpm run build clean (full monorepo)
+- ✅ 13 type duplications removed across 4 type families
+- ⚠️ T1717's 3 types deferred to T1719 (shape divergence requires rename, not just dedup)
+
+### Followups filed
+
+- **T1718** — Pre-existing CI flakes (`epic-enforcement.test.ts`, `pipeline-stage.test.ts`)
+- **T1719** — W3.E shape-divergence reconciliation (SpawnContext / Wave / LifecycleHistoryEntry)
+
 ## [2026.5.9] (2026-05-03) — T1718: Fix trg_session_handoff_no_update trigger schema-malformed bug
 
 Sandbox jumps from 5/7 → 7/7 PASS. Both remaining `living-brain-e2e` and `sentient-anomaly-proof` failures traced to a single root cause: the T1609 migration created a SQLite trigger with `||` string concatenation in `RAISE(ABORT, msg)`. SQLite expects a STRING LITERAL there — the concatenation expression caused `malformed database schema` errors when ANY tool other than the creating connection (e.g. the `sqlite3` CLI used by sandbox assertions) opened the database.
