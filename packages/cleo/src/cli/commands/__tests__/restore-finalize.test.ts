@@ -47,11 +47,13 @@ vi.mock('@cleocode/core/internal', async (importOriginal) => {
 let mockGetProjectRoot: () => string = () => os.tmpdir();
 
 // ---------------------------------------------------------------------------
-// Console capture
+// Console / stdout capture
 // ---------------------------------------------------------------------------
 
 let consoleOutput: string[] = [];
 let consoleErrors: string[] = [];
+let origStdoutWrite: typeof process.stdout.write;
+let origStderrWrite: typeof process.stderr.write;
 
 beforeEach(() => {
   consoleOutput = [];
@@ -62,11 +64,26 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
     consoleErrors.push(args.map(String).join(' '));
   });
+  // Also capture process.stdout/stderr writes so cliOutput/cliError are
+  // intercepted regardless of whether they use console.log or process.stdout.write
+  // (T1731: cliOutput now uses process.stdout.write to bypass vitest console hijack).
+  origStdoutWrite = process.stdout.write.bind(process.stdout);
+  origStderrWrite = process.stderr.write.bind(process.stderr);
+  process.stdout.write = (chunk: unknown): boolean => {
+    consoleOutput.push(String(chunk).replace(/\n$/, ''));
+    return true;
+  };
+  process.stderr.write = (chunk: unknown): boolean => {
+    consoleErrors.push(String(chunk).replace(/\n$/, ''));
+    return true;
+  };
   process.exitCode = undefined;
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  process.stdout.write = origStdoutWrite;
+  process.stderr.write = origStderrWrite;
   process.exitCode = undefined;
 });
 
