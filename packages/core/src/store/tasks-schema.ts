@@ -10,7 +10,7 @@
  * @task T1609 session_handoff_entries — write-once handoff table
  */
 
-import type { ArchiveReasonValue } from '@cleocode/contracts';
+import type { ArchiveReasonValue, TaskRole, TaskScope, TaskSeverity } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import {
   type AnySQLiteColumn,
@@ -95,8 +95,8 @@ export const TASK_TYPES = ['epic', 'task', 'subtask'] as const;
  */
 export const TASK_ROLES = ['work', 'research', 'experiment', 'bug', 'spike', 'release'] as const;
 
-/** Union type for {@link TASK_ROLES}. */
-export type TaskRole = (typeof TASK_ROLES)[number];
+/** Union type for {@link TASK_ROLES}. Re-exported from `@cleocode/contracts`. */
+export type { TaskRole };
 
 /**
  * Task scope axis — describes the granularity of the work (project-wide vs.
@@ -111,8 +111,8 @@ export type TaskRole = (typeof TASK_ROLES)[number];
  */
 export const TASK_SCOPES = ['project', 'feature', 'unit'] as const;
 
-/** Union type for {@link TASK_SCOPES}. */
-export type TaskScope = (typeof TASK_SCOPES)[number];
+/** Union type for {@link TASK_SCOPES}. Re-exported from `@cleocode/contracts`. */
+export type { TaskScope };
 
 /**
  * Bug severity axis — ONLY applies when `role='bug'`. Enforced by a composite
@@ -127,8 +127,8 @@ export type TaskScope = (typeof TASK_SCOPES)[number];
  */
 export const TASK_SEVERITIES = ['P0', 'P1', 'P2', 'P3'] as const;
 
-/** Union type for {@link TASK_SEVERITIES}. */
-export type TaskSeverity = (typeof TASK_SEVERITIES)[number];
+/** Union type for {@link TASK_SEVERITIES}. Re-exported from `@cleocode/contracts`. */
+export type { TaskSeverity };
 
 /** Task size values matching DB CHECK constraint on tasks.size. */
 export const TASK_SIZES = ['small', 'medium', 'large'] as const;
