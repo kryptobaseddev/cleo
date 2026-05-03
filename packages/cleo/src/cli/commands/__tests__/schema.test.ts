@@ -260,10 +260,7 @@ describe('cleo schema command (T340)', () => {
     it('cliOutput receives schema data with params', async () => {
       await invokeSchema('tasks.add', { format: 'human' });
 
-      const [data] = mockCliOutput.mock.calls[0] as [
-        { params: Array<{ name: string }> },
-        unknown,
-      ];
+      const [data] = mockCliOutput.mock.calls[0] as [{ params: Array<{ name: string }> }, unknown];
 
       const paramNames = data.params.map((p) => p.name);
       expect(paramNames).toContain('title');
