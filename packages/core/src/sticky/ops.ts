@@ -39,6 +39,7 @@ import type {
   StickyAddResult,
   StickyArchiveParams,
   StickyArchiveResult,
+  StickyConvertResult,
   StickyListParams,
   StickyListResult,
   StickyPurgeParams,
@@ -46,6 +47,10 @@ import type {
   StickyShowParams,
   StickyShowResult,
 } from '@cleocode/contracts/operations/sticky';
+
+// Re-export StickyConvertResult so callers can import it from this module.
+// T1714: SSoT is @cleocode/contracts/operations/sticky; no local redeclaration.
+export type { StickyConvertResult };
 
 // ---------------------------------------------------------------------------
 // Sub-operation param types for convert (T1537 split)
@@ -97,13 +102,6 @@ export interface StickyConvertTaskNoteParams {
   stickyId: string;
   /** Target task ID (required for task_note conversion). */
   taskId: string;
-}
-
-/** Shared result shape for all sticky convert sub-operations. */
-export interface StickyConvertResult {
-  taskId?: string;
-  memoryId?: string;
-  sessionId?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -3,24 +3,23 @@
  *
  * Type definitions for sticky note domain operations.
  *
+ * `StickyNoteStatus`, `StickyNoteColor`, and `StickyNotePriority` are canonical
+ * in `@cleocode/contracts/operations/sticky` (SSoT per ADR-057 / T1714).
+ * Re-exported here for backwards compatibility with core-internal consumers.
+ *
  * @task T5280
  * @epic T5267
+ * @task T1714 — deduplicated; re-exports from contracts
  */
 
-/**
- * Sticky note status values.
- */
-export type StickyNoteStatus = 'active' | 'converted' | 'archived';
-
-/**
- * Sticky note color options.
- */
-export type StickyNoteColor = 'yellow' | 'blue' | 'green' | 'red' | 'purple';
-
-/**
- * Sticky note priority levels.
- */
-export type StickyNotePriority = 'low' | 'medium' | 'high';
+// Import + re-export canonical types from contracts (SSoT — do NOT redeclare here).
+// T1714: canonical shape lives in @cleocode/contracts/operations/sticky.
+import type {
+  StickyNoteColor,
+  StickyNotePriority,
+  StickyNoteStatus,
+} from '@cleocode/contracts/operations/sticky';
+export type { StickyNoteColor, StickyNotePriority, StickyNoteStatus };
 
 /**
  * Converted target type.
