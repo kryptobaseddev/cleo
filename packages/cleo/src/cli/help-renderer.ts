@@ -352,6 +352,10 @@ export function createCustomShowUsage(
     if (!parent) {
       const meta = await (typeof cmd.meta === 'function' ? cmd.meta() : cmd.meta);
       if (meta?.name === 'cleo') {
+        // SSoT-EXEMPT: help-text rendering — this is the `--help` flag output,
+        // not structured command data. It is always human-readable plain text
+        // and is not subject to LAFS envelope requirements (ADR-039).
+        // Mirrors citty's own internal showUsage which also calls console.log.
         console.log(renderGroupedHelp(version, subCommands, aliasMap) + '\n');
         return;
       }

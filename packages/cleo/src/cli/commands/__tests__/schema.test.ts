@@ -5,14 +5,14 @@
  *  1. tasks.add returns correct params and gates
  *  2. tasks.complete returns dependency/verification/children gates
  *  3. tasks.unknownop returns E_NOT_FOUND exit 4
- *  4. --format=human is NOT valid JSON but contains param names
+ *  4. --format=human routes through cliOutput (T1729 migration)
  *  5. Snapshot of full tasks.add schema output
  *
- * @task T340
- * @epic T335
+ * @task T340, T1729
+ * @epic T335, T1691
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { schemaCommand } from '../schema.js';
 
 // ---------------------------------------------------------------------------
@@ -27,13 +27,20 @@ vi.mock('../../renderers/index.js', () => ({
   cliError: (...args: unknown[]) => mockCliError(...args),
 }));
 
+// Mock format-context so setFormatContext calls are tracked and don't persist
+const mockSetFormatContext = vi.fn();
+vi.mock('../../format-context.js', () => ({
+  setFormatContext: (...args: unknown[]) => mockSetFormatContext(...args),
+  getFormatContext: () => ({ format: 'json', source: 'default', quiet: false }),
+}));
+
 // Mock process.exit so tests don't terminate the runner
 const mockProcessExit = vi.spyOn(process, 'exit').mockImplementation((() => {
   // noop — let tests assert on the error call then continue
 }) as (code?: number | string | null) => never);
 
-// Capture console.log output for human format tests
-const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+// Suppress console.log noise during tests
+vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
 // ---------------------------------------------------------------------------
 // Helper — invoke the schema command action directly
@@ -71,6 +78,10 @@ async function invokeSchema(
 
 describe('cleo schema command (T340)', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
     vi.clearAllMocks();
   });
 
@@ -225,39 +236,50 @@ describe('cleo schema command (T340)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 4. --format=human — not JSON, contains param names
+  // 4. --format=human — routes through cliOutput with format context set (T1729)
   // -------------------------------------------------------------------------
 
   describe('--format=human', () => {
-    it('prints to console.log (not through cliOutput)', async () => {
+    it('calls cliOutput (routes through renderer pipeline)', async () => {
       await invokeSchema('tasks.add', { format: 'human' });
 
-      // cliOutput should NOT be called — human goes direct to console.log
-      expect(mockCliOutput).not.toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalled();
+      // T1729: human format now routes through cliOutput — no direct console.log bypass
+      expect(mockCliOutput).toHaveBeenCalledOnce();
     });
 
-    it('output is NOT valid JSON', async () => {
+    it('sets format context to human before calling cliOutput', async () => {
       await invokeSchema('tasks.add', { format: 'human' });
 
-      const printed = consoleLogSpy.mock.calls.map((c) => c[0]).join('\n');
-      expect(() => JSON.parse(printed)).toThrow();
+      expect(mockSetFormatContext).toHaveBeenCalledWith({
+        format: 'human',
+        source: 'flag',
+        quiet: false,
+      });
     });
 
-    it('output contains the param names', async () => {
+    it('cliOutput receives schema data with params', async () => {
       await invokeSchema('tasks.add', { format: 'human' });
 
-      const printed = consoleLogSpy.mock.calls.map((c) => c[0]).join('\n');
-      expect(printed).toContain('title');
-      expect(printed).toContain('priority');
-      expect(printed).toContain('description');
+      const [data] = mockCliOutput.mock.calls[0] as [
+        { params: Array<{ name: string }> },
+        unknown,
+      ];
+
+      const paramNames = data.params.map((p) => p.name);
+      expect(paramNames).toContain('title');
+      expect(paramNames).toContain('priority');
+      expect(paramNames).toContain('description');
     });
 
-    it('output contains "Parameters:" section header', async () => {
+    it('cliOutput receives command: "schema" for renderer dispatch', async () => {
       await invokeSchema('tasks.add', { format: 'human' });
 
-      const printed = consoleLogSpy.mock.calls.map((c) => c[0]).join('\n');
-      expect(printed).toContain('Parameters:');
+      const [, opts] = mockCliOutput.mock.calls[0] as [
+        unknown,
+        { command: string; operation: string },
+      ];
+
+      expect(opts.command).toBe('schema');
     });
   });
 
