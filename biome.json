@@ -31,7 +31,31 @@
       },
       "suspicious": {
         "noExplicitAny": "warn",
-        "noControlCharactersInRegex": "off"
+        "noControlCharactersInRegex": "off",
+        "noConsole": {
+          "level": "error",
+          "options": {
+            "allow": [
+              "error",
+              "warn",
+              "info",
+              "debug",
+              "trace",
+              "assert",
+              "dir",
+              "table",
+              "time",
+              "timeEnd",
+              "timeLog",
+              "group",
+              "groupEnd",
+              "groupCollapsed",
+              "count",
+              "countReset",
+              "clear"
+            ]
+          }
+        }
       }
     }
   },
@@ -55,7 +79,8 @@
             "noBannedTypes": "off"
           },
           "suspicious": {
-            "noExplicitAny": "off"
+            "noExplicitAny": "off",
+            "noConsole": "off"
           },
           "correctness": {
             "noUnusedVariables": "off"
@@ -69,6 +94,36 @@
         "rules": {
           "style": {
             "noDefaultExport": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/cleo/src/cli/renderers/**", "packages/cleo/src/cli/help-renderer.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/adapters/src/**",
+        "packages/caamp/src/**",
+        "packages/cant/src/**",
+        "packages/cleo-os/src/**",
+        "packages/cleo/src/**",
+        "packages/core/src/**",
+        "packages/lafs/src/**",
+        "packages/nexus/src/**",
+        "scripts/**"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
           }
         }
       }

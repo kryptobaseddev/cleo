@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### T1728 — biome lint hard-block on raw stdout outside renderers
+
+Added `lint/suspicious/noConsole` as a repo-wide `error`-level rule to `biome.json`. The rule blocks `console.log` in all files scanned by biome. Two exemption layers are in place:
+
+- **Renderer allowlist**: `packages/cleo/src/cli/renderers/**` and `packages/cleo/src/cli/help-renderer.ts` are explicitly exempted — these are the approved output sinks for CLI rendering.
+- **Legacy suppression**: 8 packages with pre-existing violations (`adapters`, `caamp`, `cant`, `cleo-os`, `cleo`, `core`, `lafs`, `nexus`) and `scripts/**` have `noConsole: "off"` overrides pending full T1729 cleanup. New code added to packages NOT in this list (e.g. `brain`, `mcp-adapter`, `agents`, `playbooks`) will fail `pnpm biome ci .`.
+
+**Note on `process.stdout.write`**: biome has no built-in rule to block raw `process.stdout.write`. Detection of this pattern requires a custom plugin or manual review until biome adds support. The LAFS-compliance guardrail for `process.stdout.write` remains a code-review responsibility until then.
+
+`pnpm biome ci .` is clean on main after this change.
+
 ## [2026.5.13] (2026-05-03) — T-CSL-RESET Wave 5 (FINAL): SDK surface parity
 
 W5 (T1692) — final wave of T-CSL-RESET. 3 atomic children completed bringing the public `@cleocode/core` SDK surface to parity with the `cleo --json` CLI output.
