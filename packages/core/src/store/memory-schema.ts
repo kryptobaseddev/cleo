@@ -9,8 +9,18 @@
  * @task T5127
  */
 
+// Import canonical type aliases from contracts — T1715 deduplication.
+// The local const arrays (BRAIN_MEMORY_TIERS, etc.) are kept because Drizzle
+// requires runtime values for { enum: ... } column constraints.
+import type {
+  BrainCognitiveType,
+  BrainMemoryTier,
+  BrainSourceConfidence,
+} from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+export type { BrainCognitiveType, BrainMemoryTier, BrainSourceConfidence };
 
 // === ENUM CONSTANTS ===
 
@@ -25,9 +35,6 @@ import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm
  * (Legacy rows survived the T523 purge, so medium is a safe tier assumption.)
  */
 export const BRAIN_MEMORY_TIERS = ['short', 'medium', 'long'] as const;
-
-/** Discriminated union of all memory retention tiers. */
-export type BrainMemoryTier = (typeof BRAIN_MEMORY_TIERS)[number];
 
 /**
  * Cognitive type taxonomy for the tiered memory model (T549).
@@ -44,9 +51,6 @@ export type BrainMemoryTier = (typeof BRAIN_MEMORY_TIERS)[number];
  */
 export const BRAIN_COGNITIVE_TYPES = ['semantic', 'episodic', 'procedural'] as const;
 
-/** Discriminated union of all cognitive memory types. */
-export type BrainCognitiveType = (typeof BRAIN_COGNITIVE_TYPES)[number];
-
 /**
  * Source reliability levels for the tiered memory model (T549).
  *
@@ -61,9 +65,6 @@ export type BrainCognitiveType = (typeof BRAIN_COGNITIVE_TYPES)[number];
  * | `speculative` | Agent hypothesis, not yet corroborated  | 0.40               |
  */
 export const BRAIN_SOURCE_CONFIDENCE = ['owner', 'task-outcome', 'agent', 'speculative'] as const;
-
-/** Discriminated union of all source confidence levels. */
-export type BrainSourceConfidence = (typeof BRAIN_SOURCE_CONFIDENCE)[number];
 
 /** Decision types from ADR-009. */
 export const BRAIN_DECISION_TYPES = [
