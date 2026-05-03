@@ -112,8 +112,22 @@ export interface OrchestratorSession {
   spawnedAgents: string[];
 }
 
-/** Spawn context for a subagent. */
-export interface SpawnContext {
+/**
+ * Internal orchestrator spawn context for a subagent.
+ *
+ * @remarks
+ * Distinct from the adapter-layer `SpawnContext` in `@cleocode/contracts`
+ * (`{ taskId, prompt, workingDirectory?, options? }`). This type carries the
+ * richer orchestration metadata (protocol, tokenResolution) used internally
+ * by `prepareSpawn` and the skill dispatch layer before it is converted to the
+ * contracts-level shape at the adapter boundary.
+ *
+ * T1719: renamed from `SpawnContext` → `OrchestratorSpawnContext` to eliminate
+ * the name collision with `@cleocode/contracts#SpawnContext`.
+ *
+ * @task T1719 — shape-divergence reconciliation
+ */
+export interface OrchestratorSpawnContext {
   taskId: string;
   protocol: string;
   prompt: string;
@@ -288,7 +302,7 @@ export async function prepareSpawn(
   cwd?: string,
   accessor?: DataAccessor,
   options?: { tier?: SpawnTier; sessionId?: string | null },
-): Promise<SpawnContext> {
+): Promise<OrchestratorSpawnContext> {
   const task = await accessor!.loadSingleTask(taskId);
 
   if (!task) {
