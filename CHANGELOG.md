@@ -1,5 +1,38 @@
 # Changelog
 
+## [2026.5.9] (2026-05-03) — T1718: Fix trg_session_handoff_no_update trigger schema-malformed bug
+
+Sandbox jumps from 5/7 → 7/7 PASS. Both remaining `living-brain-e2e` and `sentient-anomaly-proof` failures traced to a single root cause: the T1609 migration created a SQLite trigger with `||` string concatenation in `RAISE(ABORT, msg)`. SQLite expects a STRING LITERAL there — the concatenation expression caused `malformed database schema` errors when ANY tool other than the creating connection (e.g. the `sqlite3` CLI used by sandbox assertions) opened the database.
+
+### Bug
+
+`packages/core/migrations/drizzle-tasks/20260429000000_t1609-handoff-append-only/migration.sql`:
+
+```sql
+CREATE TRIGGER trg_session_handoff_no_update
+BEFORE UPDATE ON session_handoff_entries
+FOR EACH ROW
+BEGIN
+  SELECT RAISE(
+    ABORT,
+    'T1609_HANDOFF_IMMUTABLE: ... '
+    || 'session_id=' || OLD.session_id || ').'
+  );
+END;
+```
+
+`node:sqlite` (used by CLEO) accepted the trigger creation but the persisted SQL stored in `sqlite_schema` couldn't be re-parsed by other SQLite consumers. Sandbox assertions ran `sqlite3 .cleo/tasks.db 'SELECT COUNT(*) FROM tasks'` and got `Error: in prepare, malformed database schema (trg_session_handoff_no_update) - near "||": syntax error (11)` → COUNT returned 0 → assertion `tasks.db: at least 1 task created` failed even though tasks DID exist.
+
+### Fix
+
+New migration `20260503000000_t1718-handoff-trigger-syntax-fix`: drops the broken trigger and recreates it with a static string literal (no dynamic `OLD.session_id` interpolation in the abort message). Existing databases self-heal on next `cleo init` / migration run; new installs get the fixed trigger from the start.
+
+### Sandbox impact
+
+- v2026.5.7 baseline: 4/7 PASS
+- v2026.5.8 (pre-commit hook fix): 5/7 PASS
+- v2026.5.9 (this release, trigger syntax fix): 7/7 PASS expected
+
 ## [2026.5.8] (2026-05-02) — Sandbox-validation fix: pre-commit hook contradicted ADR-013 §9 / T5158
 
 Sandbox baseline jumped from 4/7 → 6/7 after this release. Two of the three "pre-existing" sandbox failures (`harness-e2e`, `living-brain-e2e`) were caused by CLEO's own pre-commit hook contradicting ADR-013 §9.
