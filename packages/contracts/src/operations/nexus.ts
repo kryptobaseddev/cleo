@@ -774,8 +774,14 @@ export interface NexusAugmentSymbol {
   callersCount: number;
   /** Count of callees (symbols this one calls). */
   calleesCount: number;
-  /** Louvain community ID, or undefined. */
-  communityId?: number;
+  /**
+   * Community identifier string (e.g. "comm_3"), or undefined.
+   *
+   * Stored as text in nexus_nodes.community_id. Typed as string to match
+   * the Leiden community processor output format. (T1765: was incorrectly
+   * typed as number.)
+   */
+  communityId?: string;
   /** Size of the community, or undefined. */
   communitySize?: number;
 }
