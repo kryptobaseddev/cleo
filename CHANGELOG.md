@@ -2,6 +2,98 @@
 
 ## [Unreleased]
 
+## [2026.5.18] (2026-05-04) — Augmenter 18x faster + axis-1/2 research + 16 LLM tests + SDK Tools decomp + honest T1042 audit
+
+A correctness + visibility release. Three silent SQL/precedence/init bugs in `cleo nexus augment` made it return `[]` on every codebase — fixed (T1765). Two parallel research efforts (T1762 axis 1 + T1763 axis 2) produced the first complete root-cause map of the cleo-vs-gitnexus delta and exposed that 96% of gitnexus's IMPORTS lead is synthetic SPM noise. SDK Tools surface formally scoped (T1768). Honest T1042 close-out audit found four critical gaps still open — epic stays open with explicit gate.
+
+### T1765 — Nexus augmenter rebuild (closed)
+
+`cleo nexus augment` and `cleo nexus search-code` returned 0 results on every codebase due to three bugs in `packages/core/src/nexus/augment.ts`:
+
+1. Wrong column names in callers/callees subqueries (`target_node_id`/`source_node_id`/`relation_type` — schema is `target_id`/`source_id`/`type`). `prepare()` threw silently and `augmentSymbol()` returned `[]`.
+2. SQL operator precedence: `WHERE label LIKE ? OR file_path LIKE ? AND kind IN (...)` — `AND` bound tighter than `OR`, so `label` matches bypassed the `kind` filter. Fixed with explicit parentheses.
+3. DB singleton uninitialized in CLI path — `runtime.getDb()` returned `null` for the CLI invocation.
+
+Result: **p50 = 17.6ms** (gitnexus = 317ms). 18x faster than gitnexus, 28x under the 500ms target. 6 new integration tests asserting non-empty results + measuring p50 latency. (`dfeb95138`)
+
+T1832 was filed by the T1042 audit identifying the same SQL bug — closed as duplicate-fixed-by-T1765.
+
+### T1735 — LLM test backfill (closed)
+
+16 new tests in `packages/core/src/llm/backends/__tests__/openai.test.ts` covering the 5 paths the openai SDK 4→6 migration left untested:
+
+- `complete` mocked-client: `max_tokens` (gpt-4o) vs `max_completion_tokens` (o1/gpt-5) routing
+- `stream` async-generator: content chunks yielded, `isDone:true` triggered from usage chunk, fallback `isDone` from `finishReason` when no usage chunk arrives
+- `_normalizeResponse` tool_calls branch: name + parsed input extracted, non-function types filtered, malformed JSON args fall back to empty object
+- `json_schema` structured-output: `response_format.type` set, parsed content returned
+- `new OpenAI({ apiKey, baseURL })` constructor smoke (v6 API stability)
+
+Test count went from 12,515 → 12,531. Future SDK bumps now caught by tests, not just typecheck. (`2291b8724`)
+
+### T1762 — Symbol coverage gap research (closed)
+
+454-line root-cause spec at `.cleo/rcasd/T1762/research/symbol-coverage-gap.md`. Confirmed via direct gitnexus comparison on `/mnt/projects/openclaw`:
+
+- DEFINES gap: pure omission — type declared in `packages/contracts/src/graph.ts` but never emitted by any extractor (~20-line fix). Filed as T1836, re-parented to edge-completeness epic T1844.
+- MEMBER_OF gap: was downstream of T1764 Leiden bug — auto-resolved by T1733 AFL swap.
+- ACCESSES gap: needs new `access-extractor.ts` + `PropertyIndex`. Filed as T1837 → T1844.
+- Function gap: 3 root causes — `CONTAINER_TYPES` scope limit, tree-sitter 32K char file limit, object-literal methods not extracted.
+- 390k unresolved calls: missing function nodes + no Tier 2b type-annotation resolver.
+
+Far-exceed strategy: Brain-anchored DEFINES, cross-package MEMBER_OF heritage, semantic ACCESSES (read/write discrimination), Tier 2b cuts unresolved by 30-50%. (`bd44304a8`)
+
+### T1763 — IMPORTS axis 2 research (closed) — the headline finding
+
+Of gitnexus's 390,924 IMPORTS edges on `/mnt/projects/openclaw`, **383,780 (98.2%) are synthetic Swift implicit all-pairs wiring** (620 files × 619 peers — `O(m²)` SPM module visibility). Cleo has no Swift extractor. **Stripping Swift, cleo leads non-Swift IMPORTS 6.5x; on TypeScript specifically cleo leads 7.3x.** Cleo uniquely tracks 10,711 external module imports (gitnexus: 0). 6 far-exceed vectors documented in axis 2 of SUPERSESSION-EVIDENCE.md.
+
+Important caveat (owner reframe): "reject 98.2% noise" is about the `O(m²)` anti-pattern, NOT Swift itself. Swift support is required and constitutes a real coverage gap — filed as T1843 (Swift explicit-import extractor) under multi-language epic T1840.
+
+T1763 worker landed via direct commit to `main` (worktree isolation breach — filed as P0 T1823 against T1768 / T1817). (`48ce794d7`)
+
+### T1768 — SDK Tools surface (alignment review complete; epic open)
+
+3-tier alignment review delivered: T1768 is **NOT** a duplicate of T1737. Three distinct meanings of "tools" coexist in `packages/core/src/tools/`:
+
+- **Category A: Agent Tool** (T1737) — LLM-callable runtime utilities in `tools/agents/`
+- **Category B: SDK Tool** (T1768) — harness-agnostic infra utilities in `tools/sdk/`
+- **Category C/D: Domain Utility / Harness Internal** — internal helpers, not promoted
+
+ADR-063 draft + decomposition plan committed. **Note**: ADR-063 number was incorrectly proposed — `docs/adr/ADR-063-release-pipeline.md` already owns it. Renumbering deferred to T1827 (programmatic ADR sequencing under Decision Storage epic T1824). 4 owner decisions accepted (D1=new sdk/ sub-dir, D2=re-export in place, D3=T1739 owns agents/, D4=ADR number deferred). 9 children filed: T1814–T1822. (`a9b738413`)
+
+### T1042 — Far-exceed close-out audit (epic STAYS OPEN)
+
+Lead auditor ran fresh comparison on `/mnt/projects/openclaw` (cleo v2026.5.17 vs gitnexus 1.6.3). Audit doc at `.cleo/rcasd/T1042/architecture/far-exceed-final-audit.md`.
+
+**Confirmed wins** (in main):
+- Leiden modularity = 0.594 (3,179 communities) post-T1733
+- CALLS edges 57% ahead of gitnexus
+- Non-Swift IMPORTS 7.7x ahead
+- Full analyze 14x faster (76s vs 18min)
+- Living Brain cross-substrate (unique capability)
+
+**Critical gaps remaining (audit found silent failures)**:
+- T1832 (closed via T1765): `augment.ts` SQL column names — fixed.
+- T1833: `wiki-index.ts` groups by `community_id` on community nodes (NULL) — wiki shows 0 communities despite 3,179 detected. 5-line fix.
+- T1834: `context.ts`/`impact.ts`/`clusters.ts` load entire nexus.db (89k nodes / 4,668 projects) before filtering — 3.6x slower than gitnexus.
+- T1839: no FTS5 index — `search-code` uses `LIKE` (slow + imprecise).
+
+**Owner reframe (post-audit)**: "exceeds gitnexus" is partially unproven — every benchmark is from a single ad-hoc measurement; no reproducer scripts; no parity tests; no CI gates. Modularity computed at `pipeline/index.ts:707` then logged and forgotten. If `call-processor.ts` regressed tier-2a tomorrow, tests would still pass.
+
+### Filed for next session (carry-forward — none shipped this release)
+
+- **T1823 (P0)** under T1768: worktree isolation breach — Edit/Write absolute paths bypass git-shim's cwd boundary check (T1761). Coordinate with T1817.
+- **T1824 epic + T1825-T1830**: Decision Storage Consolidation (DB-first, `.cleo/adrs/` canonical, programmatic ADR numbering, schema-enforced supersession + LLM-validator hook + backfill walker + AGT-* separation).
+- **T1838 reframed**: decision-only — reject gitnexus `O(m²)` implicit wiring; explicit-import Swift required as follow-up.
+- **T1840 epic + T1841/T1843/T1844/T1845/T1846/T1847**: Multi-language extractor parity + coverage expansion. T1841 regression infrastructure (fixtures + snapshot tests + CI gate + `pnpm bench:nexus` script + reproducer-based JSON diff vs gitnexus). T1843 Swift extractor (blocked on T1841). T1844 edge completeness epic (DEFINES T1836 + ACCESSES T1837 + METHOD_OVERRIDES T1846 + METHOD_IMPLEMENTS T1847 — currently declared in graph.ts but 0 emission). T1845 reproducible benchmark harness.
+
+### Quality
+
+- typecheck clean (tsc -b exit 0)
+- biome ci clean (1 expected symlink warning)
+- 12,537 tests passed (vs 12,515 in v2026.5.17, +22 from T1735 +16 / T1765 +6)
+- build clean (full dep graph)
+- 8 commits ahead of v2026.5.17
+
 ## [2026.5.17] (2026-05-04) — T1042 close-out + T1056 Living Brain shipped + worktree isolation enforcement
 
 A multi-front release closing the Cleo-Nexus far-exceed thread (T1042) on the implementation side, shipping the entire Living Brain v2 epic (T1056), and remediating a worktree-isolation bug discovered mid-orchestration.
