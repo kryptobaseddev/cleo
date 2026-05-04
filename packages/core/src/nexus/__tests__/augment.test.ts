@@ -7,6 +7,11 @@
  *   - Wrong column names in callers/callees subqueries no longer produce empty results
  *   - Operator precedence bug in WHERE clause fixed (label LIKE OR file_path LIKE AND kind)
  *   - communityId typed as string (matching nexus_nodes.community_id text column)
+ *
+ * T1849 skip-guard:
+ *   - Integration tests skip in CI environments (process.env.CI === 'true')
+ *   - Integration tests also skip when the specific label pattern has no matches
+ *     in nexus_nodes (belt-and-suspenders: guards against polluted-but-mismatched DB)
  */
 
 import { existsSync } from 'node:fs';
@@ -15,34 +20,57 @@ import { openNativeDatabase } from '../../store/sqlite.js';
 import { augmentSymbol, formatAugmentResults } from '../augment.js';
 
 // ---------------------------------------------------------------------------
-// Integration tests — only run when nexus.db is populated with rows
+// Integration skip-guard — approach (A)+(B) combined (T1849)
 // ---------------------------------------------------------------------------
 
 const nexusDbPath = `${process.env.HOME}/.local/share/cleo/nexus.db`;
 
 /**
- * Returns true only when nexus.db exists AND contains at least one row in
- * nexus_nodes. A mere file-existence check is insufficient: CI runners may
- * have an empty nexus.db created by prior tool-chain steps, which would cause
- * the integration suite to run and immediately fail the row-count assertions.
+ * Returns true if this integration test should be skipped.
  *
- * Skips gracefully on any DB error (missing table, locked file, etc.).
+ * Skips when EITHER:
+ *   (A) Running in a CI environment — CI runners may have a polluted nexus.db
+ *       from prior test-suite steps that does NOT contain the symbols these
+ *       tests need. Detected via process.env.CI, GITHUB_ACTIONS, or
+ *       CONTINUOUS_INTEGRATION env vars.
+ *   (B) The specific label pattern has zero matches in nexus_nodes — guards
+ *       against developers who have a nexus.db but haven't indexed the right
+ *       codebase, and against any future CI leakage not covered by (A).
+ *
+ * Never throws: any DB error returns true (skip safely).
+ *
+ * @param labelPattern - The label pattern the test will search for (e.g. 'load')
  */
-function nexusDbHasData(): boolean {
-  if (!existsSync(nexusDbPath)) return false;
+function shouldSkipNexusIntegration(labelPattern: string): boolean {
+  // (A) CI environment detection — belt
+  if (
+    process.env.CI === 'true' ||
+    process.env.CI === '1' ||
+    process.env.GITHUB_ACTIONS === 'true' ||
+    process.env.CONTINUOUS_INTEGRATION === 'true'
+  ) {
+    return true;
+  }
+
+  // (B) Pattern-specific presence check — suspenders
+  if (!existsSync(nexusDbPath)) return true;
   try {
     const db = openNativeDatabase(nexusDbPath, { readonly: true });
-    const row = db.prepare('SELECT COUNT(*) AS c FROM nexus_nodes').get() as
-      | { c: number }
-      | undefined;
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM nexus_nodes WHERE label LIKE ? AND kind IN ('function', 'method', 'constructor', 'class', 'interface', 'type_alias') LIMIT 1`,
+      )
+      .get(`%${labelPattern}%`) as { c: number } | undefined;
     db.close();
-    return (row?.c ?? 0) > 0;
+    return (row?.c ?? 0) === 0;
   } catch {
-    return false;
+    return true;
   }
 }
 
-const hasNexusData = nexusDbHasData();
+// ---------------------------------------------------------------------------
+// Unit tests — no DB dependency
+// ---------------------------------------------------------------------------
 
 describe('augmentSymbol — unit (no DB dependency)', () => {
   it('returns empty array if nexus.db does not exist', () => {
@@ -61,31 +89,41 @@ describe('augmentSymbol — unit (no DB dependency)', () => {
   });
 });
 
-describe.skipIf(!hasNexusData)(
-  'augmentSymbol — integration (requires populated nexus.db, skipped when empty or absent)',
-  () => {
-    it('returns non-empty results for common symbol patterns', () => {
+// ---------------------------------------------------------------------------
+// Integration tests — per-test skip guards (T1849)
+//
+// Each test uses shouldSkipNexusIntegration with its own label pattern so that
+// a DB populated with different symbols doesn't cause false failures.
+// ---------------------------------------------------------------------------
+
+describe('augmentSymbol — integration (requires populated nexus.db, skipped in CI or when absent)', () => {
+  it.skipIf(shouldSkipNexusIntegration('load'))(
+    'returns non-empty results for common symbol patterns',
+    () => {
       // "load" is a common pattern that should exist in any indexed TypeScript codebase.
       const results = augmentSymbol('load', 5);
       expect(results.length).toBeGreaterThan(0);
-    });
+    },
+  );
 
-    it('results contain only callable kinds', () => {
-      const callableKinds = new Set([
-        'function',
-        'method',
-        'constructor',
-        'class',
-        'interface',
-        'type_alias',
-      ]);
-      const results = augmentSymbol('load', 10);
-      for (const r of results) {
-        expect(callableKinds.has(r.kind)).toBe(true);
-      }
-    });
+  it.skipIf(shouldSkipNexusIntegration('load'))('results contain only callable kinds', () => {
+    const callableKinds = new Set([
+      'function',
+      'method',
+      'constructor',
+      'class',
+      'interface',
+      'type_alias',
+    ]);
+    const results = augmentSymbol('load', 10);
+    for (const r of results) {
+      expect(callableKinds.has(r.kind)).toBe(true);
+    }
+  });
 
-    it('callersCount and calleesCount are non-negative integers', () => {
+  it.skipIf(shouldSkipNexusIntegration('load'))(
+    'callersCount and calleesCount are non-negative integers',
+    () => {
       const results = augmentSymbol('load', 5);
       for (const r of results) {
         expect(typeof r.callersCount).toBe('number');
@@ -93,9 +131,12 @@ describe.skipIf(!hasNexusData)(
         expect(r.callersCount).toBeGreaterThanOrEqual(0);
         expect(r.calleesCount).toBeGreaterThanOrEqual(0);
       }
-    });
+    },
+  );
 
-    it('communityId is a string when present (not a number)', () => {
+  it.skipIf(shouldSkipNexusIntegration('load'))(
+    'communityId is a string when present (not a number)',
+    () => {
       // Regression: communityId was typed as number but DB stores text like "comm_3".
       const results = augmentSymbol('load', 10);
       for (const r of results) {
@@ -103,9 +144,12 @@ describe.skipIf(!hasNexusData)(
           expect(typeof r.communityId).toBe('string');
         }
       }
-    });
+    },
+  );
 
-    it('p50 latency is under 500ms (T1765 perf target)', () => {
+  it.skipIf(shouldSkipNexusIntegration('load'))(
+    'p50 latency is under 500ms (T1765 perf target)',
+    () => {
       const patterns = ['load', 'get', 'set', 'create', 'handle'];
       const timings: number[] = [];
 
@@ -119,14 +163,14 @@ describe.skipIf(!hasNexusData)(
       const p50 = timings[Math.floor(timings.length / 2)];
       // p50 must be under 500ms (gitnexus baseline: 317ms)
       expect(p50).toBeLessThan(500);
-    });
+    },
+  );
 
-    it('returns up to `limit` results', () => {
-      const results = augmentSymbol('load', 3);
-      expect(results.length).toBeLessThanOrEqual(3);
-    });
-  },
-);
+  it.skipIf(shouldSkipNexusIntegration('load'))('returns up to `limit` results', () => {
+    const results = augmentSymbol('load', 3);
+    expect(results.length).toBeLessThanOrEqual(3);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // formatAugmentResults — unit
