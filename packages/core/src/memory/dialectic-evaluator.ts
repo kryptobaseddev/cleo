@@ -41,12 +41,16 @@ import type { DialecticInsights, DialecticTurn } from '@cleocode/contracts';
 import { generateObject } from 'ai';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
+import { getLogger } from '../logger.js';
 import { upsertUserProfileTrait } from '../nexus/user-profile.js';
 import type * as memorySchema from '../store/memory-schema.js';
 import type * as nexusSchema from '../store/nexus-schema.js';
 import { observeBrain } from './brain-retrieval.js';
 import { resolveLlmBackend } from './llm-backend-resolver.js';
 import { appendNarrativeDelta } from './session-narrative.js';
+
+// Module-level logger for dialectic subsystem telemetry (T1533).
+const log = getLogger('dialectic');
 
 // ============================================================================
 // Private: Zod schema for structured LLM output
@@ -305,6 +309,39 @@ higher confidence because it describes a concrete, verifiable result.`;
  *
  * The result is intended to be immediately passed to `applyInsights`.
  *
+ * ## Telemetry (T1533)
+ *
+ * Two structured log events are emitted via the `'dialectic'` subsystem logger:
+ *
+ * ### `dialectic.no_backend` (level: warn)
+ *
+ * Emitted when `resolveLlmBackend` returns `null` or a backend with
+ * `name === 'none'`.  The field shape is:
+ *
+ * ```jsonc
+ * {
+ *   "event": "dialectic.no_backend",
+ *   "backend": "none",           // ExtractionBackendName or "none"
+ *   "sessionId": "ses_...",      // from DialecticTurn.sessionId
+ *   "activePeerId": "cleo-prime" // from DialecticTurn.activePeerId
+ * }
+ * ```
+ *
+ * ### `dialectic.generate_object_failed` (level: error)
+ *
+ * Emitted when `generateObject` throws.  The field shape is:
+ *
+ * ```jsonc
+ * {
+ *   "event": "dialectic.generate_object_failed",
+ *   "errorCode": "Error",        // err.code ?? err.name ?? "UNKNOWN"
+ *   "modelId": "claude-sonnet-4-6", // ResolvedBackend.modelId
+ *   "backendName": "anthropic",  // ResolvedBackend.name
+ *   "sessionId": "ses_...",      // from DialecticTurn.sessionId
+ *   "activePeerId": "cleo-prime" // from DialecticTurn.activePeerId
+ * }
+ * ```
+ *
  * @param turn - The conversational turn to evaluate.
  * @returns Extracted dialectic insights (empty arrays when no backend available).
  *
@@ -319,6 +356,7 @@ higher confidence because it describes a concrete, verifiable result.`;
  * ```
  *
  * @task T1087
+ * @task T1533
  */
 export async function evaluateDialectic(turn: DialecticTurn): Promise<DialecticInsights> {
   const EMPTY: DialecticInsights = { globalTraits: [], peerInsights: [] };
@@ -330,7 +368,15 @@ export async function evaluateDialectic(turn: DialecticTurn): Promise<DialecticI
 
   const backend = await resolveLlmBackend('cold');
   if (!backend || backend.name === 'none') {
-    // T1533: log telemetry when no backend is available
+    log.warn(
+      {
+        event: 'dialectic.no_backend',
+        backend: backend?.name ?? 'none',
+        sessionId: turn.sessionId,
+        activePeerId: turn.activePeerId,
+      },
+      'evaluateDialectic: no LLM backend available — skipping extraction',
+    );
     return EMPTY;
   }
 
@@ -369,8 +415,22 @@ export async function evaluateDialectic(turn: DialecticTurn): Promise<DialecticI
       peerInsights,
       sessionNarrativeDelta: object.sessionNarrativeDelta,
     };
-  } catch {
-    // T1533: surface errors via telemetry
+  } catch (err) {
+    const errorCode =
+      err instanceof Error
+        ? ((err as { code?: string }).code ?? err.name ?? 'UNKNOWN')
+        : 'UNKNOWN';
+    log.error(
+      {
+        event: 'dialectic.generate_object_failed',
+        errorCode,
+        modelId: backend.modelId,
+        backendName: backend.name,
+        sessionId: turn.sessionId,
+        activePeerId: turn.activePeerId,
+      },
+      'evaluateDialectic: generateObject failed — returning empty insights',
+    );
     return EMPTY;
   }
 }

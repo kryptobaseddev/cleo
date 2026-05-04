@@ -10,11 +10,15 @@
  *    - High-confidence traits and insights pass through unchanged
  *  - Empty-turn fast path (no LLM call when both messages are blank)
  *  - No-backend fast path (returns empty insights without throwing)
+ *  - Telemetry emission (T1533):
+ *    - `dialectic.no_backend` warn log when backend is unavailable
+ *    - `dialectic.generate_object_failed` error log when generateObject throws
  *
- * The LLM backend (`resolveLlmBackend`) and `generateObject` are mocked so
- * these tests run without network access or API keys.
+ * The LLM backend (`resolveLlmBackend`), `generateObject`, and `getLogger` are
+ * mocked so these tests run without network access or API keys.
  *
  * @task T1532
+ * @task T1533
  * @epic T1056
  */
 
@@ -30,6 +34,20 @@ vi.mock('../llm-backend-resolver.js', () => ({
 
 vi.mock('ai', () => ({
   generateObject: vi.fn(),
+}));
+
+// Stub the logger so we can assert telemetry calls without spinning up pino.
+// vi.hoisted ensures the spy references are created before vi.mock hoisting runs,
+// preventing "Cannot access before initialization" TDZ errors.
+const { mockLogWarn, mockLogError } = vi.hoisted(() => ({
+  mockLogWarn: vi.fn(),
+  mockLogError: vi.fn(),
+}));
+vi.mock('../../logger.js', () => ({
+  getLogger: vi.fn(() => ({
+    warn: mockLogWarn,
+    error: mockLogError,
+  })),
 }));
 
 // ============================================================================
@@ -278,5 +296,120 @@ describe('evaluateDialectic — happy path', () => {
 
     expect(result.globalTraits).toEqual([]);
     expect(result.peerInsights).toEqual([]);
+  });
+});
+
+// ============================================================================
+// Telemetry emission tests (T1533)
+// ============================================================================
+
+describe('evaluateDialectic — telemetry: no backend available', () => {
+  it('emits dialectic.no_backend warn log when resolveLlmBackend returns null', async () => {
+    (resolveLlmBackend as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await evaluateDialectic(
+      makeTurn({ sessionId: 'ses_telem_null', activePeerId: 'peer-a' }),
+    );
+
+    expect(mockLogWarn).toHaveBeenCalledOnce();
+    const [fields, message] = mockLogWarn.mock.calls[0] as [Record<string, unknown>, string];
+    expect(fields).toMatchObject({
+      event: 'dialectic.no_backend',
+      backend: 'none',
+      sessionId: 'ses_telem_null',
+      activePeerId: 'peer-a',
+    });
+    expect(message).toContain('no LLM backend available');
+  });
+
+  it('emits dialectic.no_backend warn log with backend="none" when backend name is "none"', async () => {
+    (resolveLlmBackend as ReturnType<typeof vi.fn>).mockResolvedValue({
+      model: {} as never,
+      name: 'none',
+      modelId: '',
+    });
+
+    await evaluateDialectic(
+      makeTurn({ sessionId: 'ses_telem_none', activePeerId: 'peer-b' }),
+    );
+
+    expect(mockLogWarn).toHaveBeenCalledOnce();
+    const [fields] = mockLogWarn.mock.calls[0] as [Record<string, unknown>, string];
+    expect(fields).toMatchObject({
+      event: 'dialectic.no_backend',
+      backend: 'none',
+      sessionId: 'ses_telem_none',
+      activePeerId: 'peer-b',
+    });
+  });
+
+  it('does NOT emit a warn log for a successful backend resolution', async () => {
+    mockBackendAvailable();
+    (generateObject as ReturnType<typeof vi.fn>).mockResolvedValue({
+      object: { globalTraits: [], peerInsights: [], sessionNarrativeDelta: undefined },
+    });
+
+    await evaluateDialectic(makeTurn({}));
+
+    expect(mockLogWarn).not.toHaveBeenCalled();
+  });
+});
+
+describe('evaluateDialectic — telemetry: generateObject failure', () => {
+  it('emits dialectic.generate_object_failed error log on generateObject throw', async () => {
+    mockBackendAvailable();
+    const simulatedError = new Error('API rate limited');
+    (generateObject as ReturnType<typeof vi.fn>).mockRejectedValueOnce(simulatedError);
+
+    await evaluateDialectic(
+      makeTurn({ sessionId: 'ses_telem_err', activePeerId: 'peer-c' }),
+    );
+
+    expect(mockLogError).toHaveBeenCalledOnce();
+    const [fields, message] = mockLogError.mock.calls[0] as [Record<string, unknown>, string];
+    expect(fields).toMatchObject({
+      event: 'dialectic.generate_object_failed',
+      modelId: 'claude-sonnet-4-6',
+      backendName: 'anthropic',
+      sessionId: 'ses_telem_err',
+      activePeerId: 'peer-c',
+    });
+    expect(typeof fields['errorCode']).toBe('string');
+    expect(message).toContain('generateObject failed');
+  });
+
+  it('includes the error name in errorCode when the thrown error has no .code', async () => {
+    mockBackendAvailable();
+    const err = new TypeError('schema mismatch');
+    (generateObject as ReturnType<typeof vi.fn>).mockRejectedValueOnce(err);
+
+    await evaluateDialectic(makeTurn({}));
+
+    expect(mockLogError).toHaveBeenCalledOnce();
+    const [fields] = mockLogError.mock.calls[0] as [Record<string, unknown>, string];
+    expect(fields['errorCode']).toBe('TypeError');
+  });
+
+  it('includes the .code property in errorCode when the thrown error has one', async () => {
+    mockBackendAvailable();
+    const err = Object.assign(new Error('network failure'), { code: 'ECONNRESET' });
+    (generateObject as ReturnType<typeof vi.fn>).mockRejectedValueOnce(err);
+
+    await evaluateDialectic(makeTurn({}));
+
+    expect(mockLogError).toHaveBeenCalledOnce();
+    const [fields] = mockLogError.mock.calls[0] as [Record<string, unknown>, string];
+    expect(fields['errorCode']).toBe('ECONNRESET');
+  });
+
+  it('does NOT emit an error log when generateObject succeeds', async () => {
+    mockBackendAvailable();
+    (generateObject as ReturnType<typeof vi.fn>).mockResolvedValue({
+      object: { globalTraits: [], peerInsights: [], sessionNarrativeDelta: undefined },
+    });
+
+    await evaluateDialectic(makeTurn({}));
+
+    expect(mockLogError).not.toHaveBeenCalled();
   });
 });
