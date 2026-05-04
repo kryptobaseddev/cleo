@@ -146,12 +146,104 @@ Ordered by leverage (highest first):
 
 ## Open questions / decisions needed
 
+> **STATUS UPDATE (2026-05-04)** — These questions were originally framed as 5 open owner decisions. After Council review (5-advisor + peer-review + Chairman synthesis, all 4/4 gates passed, run id `20260504T051843Z-a36ef96d`), **only one** turns out to be a genuine owner decision. The other four are derivable from the supersession-via-architecture frame already approved in `RECOMMENDATION-v2.md`. See "Council Decisions (2026-05-04)" section below for the operational dispositions; the original framings are kept here for traceability.
+
 - **T1055/T1056 lifecycle close**: Now that EP2-T1 through EP2-T4 are closed, can T1055 auto-close? EP3-T1 through EP3-T7 are closed but T1073 is still pending — T1056 cannot close until T1073 ships. Owner should decide whether to scope-cut T1073 or schedule it.
 
 - **T1647/T1648/T1649 disposition**: These three tasks overlap with work already done in T1043-T1048. T1647 wants `.cleo/agent-outputs/T1042-gap-analysis.md` which doesn't exist, but `gitnexus-surface.md` + `RECOMMENDATION-v2.md` contain the same information. Owner should confirm: close T1647 against existing artifacts, or create the gap-analysis.md as a brief redirect document?
 
-- **EP1 epic creation**: RECOMMENDATION-v2.md §8 specifies EP1 (Core Query Power) as a set of 5 tasks. These tasks have NOT been created in the task DB. Next session should create them before spawning workers.
+- **EP1 epic creation**: RECOMMENDATION-v2.md §8 specifies EP1 (Core Query Power) as a set of 5 tasks. These tasks have NOT been created in the task DB. Next session should create them before spawning workers. (**Council finding: this is wrong — T1057-T1061 ARE the EP1 tasks and they are CLOSED. The brief was authored partly stale; see Decision 2 below.**)
 
-- **Leiden vs Louvain decision**: T1063 closed with Louvain resolution tuning + `member_of` edge documentation. The Leiden swap is still on the far-exceed list. Owner should confirm whether T1063 closing means Leiden is descoped or still wanted.
+- **Leiden vs Louvain decision**: T1063 closed with Louvain resolution tuning + `member_of` edge documentation. The Leiden swap is still on the far-exceed list. Owner should confirm whether T1063 closing means Leiden is descoped or still wanted. (**Council finding: T1063 record and brief contradict each other on Leiden vs Louvain — must read `community-processor.ts` source for canonical answer.**)
 
 - **T1534 scope**: AST shape inference is deferred in source code. Owner should confirm whether to keep T1534 as a medium-priority task or deprioritize in favor of the P0 wave.
+
+---
+
+## Council Decisions (2026-05-04)
+
+**Source**: 5-advisor Council run `20260504T051843Z-a36ef96d` (all 4/4 gates passed, no convergence flag, confidence: high). Full transcript at `.claude/skills/council/.cleo/council-runs/20260504T051843Z-a36ef96d/output.md`. Verdict at `…/verdict.md`.
+
+**Headline**: Of the 5 outstanding decisions, **only Decision 3 (functional validation) genuinely requires owner direction**; Decisions 1, 2, 4, 5 are execution-derivable from the supersession-via-architecture frame and current task state. The brief's framing of all 5 as escalation points reflected bookkeeping caution, not actual ambiguity.
+
+### Decision 1 — T1055/T1056 epic-close discipline → **Option (b): ship T1073, mechanically close T1055**
+
+**Recommendation**: Ship T1073 next session as the focused unblocker. Mechanically close T1055 against its 4/5 children with T1534 demoted to non-blocking residual.
+
+**Rationale**: First Principles is decisive — T1055's EP2 children (T1062-T1065) are all `done`, making this execution-derivable, not an owner decision. T1534 is parity (matches gitnexus `shape_check`), which the supersession frame defers without owner input. T1056 is genuinely blocked by T1073 (IVTR `nexusImpact` gate validator); ship that one task and the epic closes naturally. Scope-cutting T1073 contradicts the supersession strategy because IVTR is differentiation-adjacent.
+
+**Conditional**: IF `cleo complete T1055` returns `E_LIFECYCLE_GATE_FAILED`, demote T1534 to medium priority + `p1.5-residual` label first, then retry.
+
+**Operational step**:
+```bash
+cleo verify T1055 --gate cleanupDone --evidence "note:EP2 done; T1534 → P1.5 residual per Council 2026-05-04"
+cleo complete T1055   # if E_LIFECYCLE_GATE_FAILED:
+cleo update T1534 --priority medium --label p1.5-residual
+cleo complete T1055
+cleo orchestrate spawn T1073 --tier 1
+```
+
+### Decision 2 — T1647/T1648/T1649 disposition → **Hybrid (a)+(b): redirect stub + close all three**
+
+**Recommendation**: Write the 8-line redirect stub at `.cleo/agent-outputs/T1042-gap-analysis.md`, then close T1647 + T1648 + T1649 against existing artifacts.
+
+**Rationale**: Outsider documented that T1648's AC ("≥5 child tasks created under T1042") is met by T1057-T1061 + T1062-T1072 in `done` status. T1647's required artifact is a strict subset of `gitnexus-surface.md` + `RECOMMENDATION-v2.md`. T1649's "implement top-3 gaps" was operationalized by T1057-T1061. The stub costs 8 lines, converts a fictional blocker into a real audit-trail link, and is execution work, not owner work.
+
+**Conditional**: Unconditional. Highest-leverage immediate action; entire sequence runs in <20 minutes wall-clock.
+
+**Operational step**: Run Executor's exact paste-ready command sequence from `phase1-executor.md` §"The action (one)" — the stub + 9 `cleo verify` + 3 `cleo complete` calls.
+
+### Decision 3 — Functional validation gap → **Option (a): full re-run + side-by-side comparison** ⚠️ owner decision
+
+**Recommendation**: Full re-run of both pipelines on `/mnt/projects/openclaw` with v2026.5.15+, gated to a single new task before any P1/P2 supersession claim propagates.
+
+**Rationale**: Both Contrarian and First Principles independently flagged this as the most substantive uncorrected error in the closed-task record. ADR-051 `tool:test` evidence proves unit-test green, NOT capability parity. The closures of T1062-T1072 are valid as completion claims but **invalid as supersession-vs-gitnexus proofs**. The artifacts in `cleo-nexus-runs/` and `gitnexus-runs/` predate v2026.5.15. Spot-check (b) is insufficient because the gap is systematic across 11 tasks; trust-records (c) propagates a false claim.
+
+**Conditional** ⚠️ **owner choice**: spot-check (b) is acceptable IF the owner explicitly downgrades the supersession claim to "structurally distinct, not benchmark-equivalent." Otherwise, full (a). **This is the one genuine owner decision in the 5.**
+
+**Operational step**:
+```bash
+cleo add --parent T1042 --type task --priority high --size medium \
+  --title "T1042 functional validation: re-run gitnexus + cleo nexus side-by-side on /mnt/projects/openclaw with v2026.5.15+; produce diff at .cleo/agent-outputs/T1042-nexus-gap/v2026.5.15-side-by-side.md" \
+  --description "ADR-051 tool:test evidence proves unit-test green, NOT side-by-side capability parity. Run both pipelines fresh; capture: (1) symbol counts, (2) IMPORTS edge counts, (3) community counts (Leiden vs Louvain disposition), (4) callers/callees parity for 10 sample symbols, (5) wiki output diff, (6) hook augmenter latency. Output a SUPERSESSION-EVIDENCE.md and update task records on T1062-T1072 with structured 'parity-verified' note." \
+  --acceptance "Both pipelines run cleanly on /mnt/projects/openclaw|6-axis comparison table produced|Each axis tagged exceeds/matches/falls-behind|Falls-behind axes filed as new tasks|Update T1062-T1072 records with parity outcome note"
+```
+
+### Decision 4 — Leiden vs Louvain → **Option (a): descope Leiden** (subject to Decision 3)
+
+**Recommendation**: Descope Leiden in favor of differentiation work, BUT only after Decision 3 confirms the 13× community-count gap doesn't materially harm differentiation use cases.
+
+**Rationale**: First Principles is decisive: under supersession-via-architecture, parity features (Leiden swap to match gitnexus' 6,797 communities) are lower priority than differentiation features (5-substrate traversal, plasticity, TASKS↔NEXUS bridge). The 13× community-count gap is only a quality issue if differentiation use cases regress on coarser communities. T1063 closed with `member_of` edges — the differentiation contract is met.
+
+**Conditional**: Re-open Leiden as a P1.5 task IF Decision 3's diff document shows >2× regression in differentiation-use-case quality (sentient detector recall, plasticity heat localization) attributable to coarser communities.
+
+**Operational step**: Resolve the brief's internal contradiction (line 23 says Leiden, line 155 says Louvain) by reading the actual code, then update T1063 record:
+```bash
+grep -n "leiden\|louvain\|cluster_algorithm" packages/nexus/src/pipeline/community-processor.ts | head
+# Then update T1063 with the canonical answer found in source
+```
+
+### Decision 5 — T1534 AST shape inference scope → **Hybrid (a)+(c): keep medium, P1.5 residual**
+
+**Recommendation**: Keep at medium priority in P1.5 residual queue. Do NOT escalate to P0.
+
+**Rationale**: First Principles: T1534 (real shape-check via TypeScript compiler API or ts-morph) is parity with gitnexus' `shape_check`. Under supersession-via-architecture, this is differentiation-adjacent only because route-map exists; the bare CLI verb (string-equality fallback) is functionally degraded but present. Escalating contradicts the approved strategy. Descoping reads as accepting a half-built capability.
+
+**Conditional**: Escalate IF Decision 3's validation shows users invoking `cleo nexus shape-check` and getting wrong answers (false-equal or false-different) — at that point the deferred-comment becomes a bug.
+
+**Operational step**:
+```bash
+cleo update T1534 --priority medium --size large --label p1.5-residual
+```
+
+### Carried-forward sharpest findings (for next-session orchestrator awareness)
+
+- **Contrarian**: T1063/Leiden contradiction will silently resolve as "done" when the next session reads the closed-task record, shipping EP1 against a Louvain-partitioned graph while the task DB claims Leiden — undetected until a benchmark that no gate currently requires.
+- **First Principles**: Supersession-via-architecture is the approved strategy, not a preference; it already answers Q4 and Q5 without escalation.
+- **Expansionist**: Wire `getSymbolFullContext()` (EP3-T5) into the CAAMP PreToolUse hook augmenter (EP1-T5) as one compound primitive (conditional on non-empty task/brain/plasticity provenance) — permanently separates cleo from any static code-intelligence tool.
+- **Outsider**: The brief's "next-session entry point" section is stale — recommends spawning on T1059 (`--content` flag) which is already on main.
+- **Executor**: 60-minute action — write redirect stub, close T1647/T1648/T1649, drain false-critical backlog, expose the real three open items.
+
+### Sole owner question
+
+**Decision 3 supersession-claim strength**: stronger (benchmark-equivalent — requires full side-by-side re-run) or weaker (structurally distinct — spot-check sufficient)? This is the only question the Council could not resolve from the strategy frame alone.
