@@ -10,6 +10,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ALL_SPAWN_PROTOCOL_PHASES,
@@ -386,7 +387,7 @@ describe('buildSpawnPrompt — worktree setup section (T1140)', () => {
     expect(result.prompt).toContain('## Worktree Setup (REQUIRED)');
     expect(result.prompt).toContain('/home/user/.local/share/cleo/worktrees/abc123/T9000');
     expect(result.prompt).toContain('task/T9000');
-    expect(result.prompt).toContain('authorized only within');
+    expect(result.prompt).toContain('Authorized only within');
     expect(result.prompt).toContain('FIRST ACTION');
   });
 
@@ -521,6 +522,65 @@ describe('buildSpawnPrompt — worktree setup hardening (T1758)', () => {
       tier: 0,
     });
     expect(result.prompt).toContain('CRITICAL — WORKTREE ISOLATION');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T1760 — Export block verbatim snapshot + ISOLATION_ENV_KEYS drift detection
+// ---------------------------------------------------------------------------
+
+describe('buildSpawnPrompt — export block snapshot and drift detection (T1760)', () => {
+  const WORKTREE = '/home/user/.local/share/cleo/worktrees/abc123/T9000';
+  const BRANCH = 'task/T9000';
+  const PROJECT_HASH = 'abc123'; // second-to-last segment of the worktree path
+
+  it('export block in rendered prompt matches provisionIsolatedShell preamble verbatim', () => {
+    // Compute the expected export block directly from the utility (single source of truth).
+    const isolation = provisionIsolatedShell({
+      worktreePath: WORKTREE,
+      branch: BRANCH,
+      role: 'worker',
+      projectHash: PROJECT_HASH,
+    });
+
+    // Extract the export lines from the preamble (the canonical output).
+    const expectedExportLines = ISOLATION_ENV_KEYS.map(
+      (k) => `export ${k}="${isolation.env[k]}"`,
+    );
+
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: WORKTREE,
+      worktreeBranch: BRANCH,
+      tier: 0,
+    });
+
+    // Every export line from the utility MUST appear verbatim in the rendered prompt.
+    for (const line of expectedExportLines) {
+      expect(result.prompt, `rendered prompt must contain verbatim export line: ${line}`).toContain(
+        line,
+      );
+    }
+  });
+
+  it('ISOLATION_ENV_KEYS drift: prompt references every key in the canonical list', () => {
+    // This test imports ISOLATION_ENV_KEYS dynamically from @cleocode/contracts.
+    // If a new key is added to the canonical list without updating the spawn-prompt
+    // render path, this assertion will fail — ensuring no silent drift.
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: WORKTREE,
+      worktreeBranch: BRANCH,
+      tier: 0,
+    });
+
+    for (const key of ISOLATION_ENV_KEYS) {
+      expect(result.prompt, `prompt must reference canonical env key ${key}`).toContain(key);
+    }
   });
 });
 
