@@ -7,19 +7,32 @@
  * somehow drifts to the main project root, any mutation subcommand is blocked
  * with exit code 77 and a structured `cwd-outside-worktree` error.
  *
+ * Also exposes `enforceAbsolutePathBoundary` (T1852), which closes the T1763
+ * bypass vector: worker agents using Edit/Write SDK tool calls with absolute
+ * paths outside their worktree. This check operates at the SDK tool interception
+ * level rather than the git binary level, enforcing path rules from a
+ * {@link BoundaryContract} produced by `provisionIsolatedShell`.
+ *
  * Design:
  *  - Reads env keys via `ISOLATION_ENV_KEYS` from `@cleocode/contracts` —
  *    the single source of truth — so the key names are never duplicated here.
  *  - Pure functions: no I/O, no spawning, easy to unit-test.
- *  - Only `CLEO_AGENT_ROLE=worker` (exact match) triggers the check — lead /
- *    subagent / orchestrator are not subject to this isolation constraint.
+ *  - Only `CLEO_AGENT_ROLE=worker` (exact match) triggers the cwd check —
+ *    lead / subagent / orchestrator are not subject to this isolation constraint.
+ *  - `enforceAbsolutePathBoundary` respects the `deniedOutsideWorktree` flag
+ *    from the contract — callers with `false` (orchestrator opt-out) pass through.
  *
  * @task T1761
+ * @task T1852
  * @adr ADR-055
  */
 
 import { resolve } from 'node:path';
-import { ISOLATION_ENV_KEYS } from '@cleocode/contracts';
+import {
+  type BoundaryContract,
+  ISOLATION_ENV_KEYS,
+  validateAbsolutePath,
+} from '@cleocode/contracts';
 import type { BoundaryViolation } from './boundary.js';
 
 /**
@@ -110,6 +123,58 @@ export function evaluateIsolationBoundary(subcommand: string): BoundaryViolation
       cwd,
       worktree_root: worktreeRoot,
       role: 'worker',
+    },
+  };
+}
+
+/**
+ * Enforce the absolute-path isolation boundary for Edit/Write SDK tool operations.
+ *
+ * Closes the T1763 bypass vector: a worker agent that uses Edit/Write with an
+ * absolute path pointing outside its worktree (e.g. into `/mnt/projects/...`)
+ * could circumvent the git-shim, which only intercepts `git` binary calls.
+ * This function enforces the `absolutePathRules` from the agent's
+ * {@link BoundaryContract} — the same contract produced by `provisionIsolatedShell`
+ * and consumed by the SDK tool interception layer.
+ *
+ * This check is ADDITIVE — it does not replace or modify the T1761 cwd boundary
+ * check ({@link evaluateIsolationBoundary}), which remains unchanged.
+ *
+ * Implementation delegates to `validateAbsolutePath` from `@cleocode/contracts`,
+ * which is the canonical pure-function enforcement point for this rule. The
+ * wrapper maps the result to a {@link BoundaryViolation} so callers consume a
+ * uniform type across all shim enforcement layers.
+ *
+ * @param absolutePath - The absolute path supplied to the Edit or Write operation.
+ * @param contract - The boundary contract for the current agent session, produced
+ *   by `provisionIsolatedShell`. When `contract.absolutePathRules.deniedOutsideWorktree`
+ *   is `false`, the call always returns `null` (orchestrator opt-out).
+ * @returns A {@link BoundaryViolation} when the path is outside the permitted
+ *   boundary, or `null` when the path is allowed.
+ *
+ * @task T1852
+ * @see {@link validateAbsolutePath} in `@cleocode/contracts` (canonical enforcer)
+ */
+export function enforceAbsolutePathBoundary(
+  absolutePath: string,
+  contract: BoundaryContract,
+): BoundaryViolation | null {
+  const result = validateAbsolutePath(absolutePath, contract);
+  if (result.allowed) return null;
+
+  return {
+    code: 'E_BOUNDARY_VIOLATION',
+    boundary: 'absolute-path',
+    message: result.message,
+    remediation:
+      'Use a path within your assigned worktree. ' +
+      'To allow additional write targets, add the prefix to AbsolutePathRules.allowedPrefixes ' +
+      'when provisioning the isolated shell. ' +
+      'Emergency bypass: set CLEO_ALLOW_GIT=1 (audited).',
+    context: {
+      attempted_path: absolutePath,
+      worktree_root: contract.worktreeRoot,
+      allowed_prefixes: contract.absolutePathRules.allowedPrefixes.join(', '),
     },
   };
 }

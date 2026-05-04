@@ -16,6 +16,7 @@
  *    `<ref>` matches `task/T\d+` (T1587 anti-pattern).
  *
  * @task T1591
+ * @task T1852
  * @adr ADR-062
  */
 import { isAbsolute, resolve } from 'node:path';
@@ -29,19 +30,28 @@ import { isPathInsideWorktree } from './worktree-path.js';
  * @task T1591
  */
 export interface BoundaryViolation {
-  /** CLEO error code (`E_GIT_BOUNDARY_*`). */
+  /**
+   * CLEO error code.
+   *
+   * `E_GIT_BOUNDARY_*` codes are emitted by the T1591 L2 fence predicates and
+   * the T1761 cwd-isolation check. `E_BOUNDARY_VIOLATION` is emitted by the
+   * T1852 absolute-path enforcement layer that closes the T1763 bypass vector
+   * (Edit/Write SDK tool calls with absolute paths outside the worktree).
+   */
   code:
     | 'E_GIT_BOUNDARY_WORKTREE_PATH'
     | 'E_GIT_BOUNDARY_COMMIT_TASK_ID'
     | 'E_GIT_BOUNDARY_MERGE_FORBIDDEN'
     | 'E_GIT_BOUNDARY_CHERRY_PICK_TASK_BRANCH'
-    | 'E_GIT_BOUNDARY_CWD_OUTSIDE_WORKTREE';
+    | 'E_GIT_BOUNDARY_CWD_OUTSIDE_WORKTREE'
+    | 'E_BOUNDARY_VIOLATION';
   /**
    * Which boundary fired — kept in audit log for grouping.
    * Letters a-d are T1591 fence predicates; "isolation" is the T1761
-   * cwd-outside-worktree check that fires before all others.
+   * cwd-outside-worktree check that fires before all others; "absolute-path"
+   * is the T1852 Edit/Write absolute-path check.
    */
-  boundary: 'a' | 'b' | 'c' | 'd' | 'isolation';
+  boundary: 'a' | 'b' | 'c' | 'd' | 'isolation' | 'absolute-path';
   /** Short human-readable summary of the violation. */
   message: string;
   /** Suggested operator action (always includes the override path). */
