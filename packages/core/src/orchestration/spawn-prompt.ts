@@ -42,8 +42,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Task } from '@cleocode/contracts';
-import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '../worktree/isolation.js';
 import { resolveSkillPath } from '../skills/skill-paths.js';
+import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '../worktree/isolation.js';
 
 /**
  * Locate `packages/core/templates/CLEO-INJECTION.md` at runtime.
@@ -466,7 +466,8 @@ function buildWorktreeSetupBlock(
   //   ~/.local/share/cleo/worktrees/<projectHash>/<taskId>
   // Falls back gracefully when the path does not match this layout.
   const pathParts = worktreePath.replace(/\/$/, '').split('/');
-  const projectHash = pathParts.length >= 2 ? (pathParts[pathParts.length - 2] ?? 'unknown') : 'unknown';
+  const projectHash =
+    pathParts.length >= 2 ? (pathParts[pathParts.length - 2] ?? 'unknown') : 'unknown';
 
   // Use the utility as the single source of truth for the preamble snippet.
   // The returned preamble includes: cd || exit 1, pwd prefix-guard, export block.
