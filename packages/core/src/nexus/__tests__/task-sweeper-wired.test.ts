@@ -136,28 +136,11 @@ afterEach(() => {
 // Suites (run sequentially to avoid CLEO_HOME mutation racing between tests)
 // ---------------------------------------------------------------------------
 
-// REGRESSION-RESTORE — 2026-04-24
-//
-// T1093 (commit 9e4db6fb6) deliberately marked this suite `describe.skip` with
-// the comment "post-analyze wiring not fully landed (0 edges vs expected 3)".
-// The skip was approved as the right disposition until the post-analyze
-// git-synthetic fixture wiring lands.
-//
-// T1113 (commit 5abf9f486) — whose declared scope was "add ./code/unfold and
-// ./code/search to @cleocode/nexus exports" — unintentionally REVERTED the
-// `.skip` here as collateral damage from a stale working copy / bad rebase.
-// The exact same regression hit `brain-stdp-wave3.test.ts T695-1` and was
-// repaired in commit 8d9a39709.
-//
-// Restoring the skip is the correct fix — matches T1093's owner-approved
-// disposition. The actual resolution (completing the post-analyze sweeper
-// wiring so this suite goes green without skip) is tracked under T1106 /
-// T1110 follow-up work and is OUT OF SCOPE for this regression repair.
-//
-// T1517 / T1110: re-enable once `runGitLogTaskLinker` produces the
-// expected `task_touches_symbol` edges against a synthetic git fixture
-// (currently emits 0 edges; expected 3 per the it() assertions below).
-describe.skip('task-sweeper post-analyze wiring', { sequential: true }, () => {
+// T1110: skip removed — runGitLogTaskLinker is wired to cleo nexus analyze
+// post-hook (commit 473f7a8ff) and correctly produces task_touches_symbol
+// edges for synthetic git repos with T### commit messages. All 3 acceptance
+// criteria verified: edges produced, idempotency enforced, non-git graceful.
+describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
   it('produces task_touches_symbol edges for commits tagged T### in a synthetic git repo', async () => {
     // Arrange: synthetic repo with 3 commits, each tagged T001 / T002 / T003
     const repoDir = join(tmpDir, 'repo');
