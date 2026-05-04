@@ -395,7 +395,7 @@ export async function generateNexusWikiIndex(
             community_id,
             COUNT(*) as member_count
           FROM nexus_nodes
-          WHERE kind = 'community' AND community_id = ?
+          WHERE kind != 'community' AND community_id = ?
           GROUP BY community_id`,
         )
         .all(communityFilter) as Array<{ community_id: string; member_count: number }>;
@@ -413,14 +413,16 @@ export async function generateNexusWikiIndex(
         }
       }
     } else {
-      // All communities
+      // All communities — query symbol/member nodes (kind != 'community') because
+      // community-kind nodes do not have a community_id of their own (they ARE the
+      // community); their community_id column is NULL, so grouping on them yields 0 rows.
       communityRows = db
         .prepare(
-          `SELECT DISTINCT
+          `SELECT
             community_id,
             COUNT(*) as member_count
           FROM nexus_nodes
-          WHERE kind = 'community'
+          WHERE kind != 'community' AND community_id IS NOT NULL
           GROUP BY community_id
           ORDER BY member_count DESC`,
         )
