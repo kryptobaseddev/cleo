@@ -35,8 +35,11 @@ export interface AuditRecord {
   ts: string;
   /** What happened. */
   outcome: AuditOutcome;
-  /** Boundary letter (a-d) or "denylist" for legacy denylist hits. */
-  boundary: 'a' | 'b' | 'c' | 'd' | 'denylist';
+  /**
+   * Boundary letter (a-d), "denylist" for legacy denylist hits, or
+   * "isolation" for the T1761 cwd-outside-worktree check.
+   */
+  boundary: 'a' | 'b' | 'c' | 'd' | 'denylist' | 'isolation';
   /** CLEO error code, when blocked. */
   code: string;
   /** Git subcommand. */
