@@ -75,6 +75,13 @@ const VALID_GATES: VerificationGate[] = [
   'cleanupDone',
   'securityPassed',
   'documented',
+  /**
+   * IVTR Breaking-Change Gate — opt-in via CLEO_NEXUS_IMPACT_GATE=1.
+   * Blocks completion when task touches CRITICAL-risk symbols.
+   *
+   * @task T1073
+   */
+  'nexusImpact',
 ];
 
 const DEFAULT_REQUIRED_GATES: VerificationGate[] = [

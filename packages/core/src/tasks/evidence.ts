@@ -120,6 +120,19 @@ export const GATE_EVIDENCE_MINIMUMS: Record<VerificationGate, EvidenceAtom['kind
   documented: [['files'], ['url']],
   securityPassed: [['tool'], ['note']],
   cleanupDone: [['note']],
+  /**
+   * nexusImpact gate accepts `tool:nexus-impact-full` or a `note:` waiver.
+   *
+   * `tool:nexus-impact-full` runs `reasonImpactOfChange()` across all symbols
+   * in the task's files list and fails if any symbol has risk=CRITICAL.
+   *
+   * A `note:` waiver is accepted when nexus is not available or the gate
+   * is disabled via `CLEO_NEXUS_IMPACT_GATE` not being set to '1'.
+   *
+   * @task T1073
+   * @epic T1042
+   */
+  nexusImpact: [['tool'], ['note']],
 };
 
 /**
