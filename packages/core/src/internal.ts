@@ -1665,6 +1665,27 @@ export {
 export { extractFromTranscript } from './memory/auto-extract.js';
 // Memory — brain embedding (additional)
 export { initDefaultProvider } from './memory/brain-embedding.js';
+export type {
+  CanonicalSentienceEdgeType,
+  GetImpactParams,
+  GetRelatedParams,
+  MaterializeXfkResult,
+  SentienceGraphEdge,
+  SentienceGraphNode,
+  SentienceGraphResponse,
+  SentienceNodeType,
+} from './memory/brain-page-nodes.js';
+// Memory — sentience layer SDK (T945 universal semantic graph)
+export {
+  checkNexusForeignKeys,
+  getContext,
+  getImpact,
+  getRelated,
+  listEdgeTypes,
+  materializeXfkEdges,
+  queryGraphNodes,
+  validateEdgeTypes,
+} from './memory/brain-page-nodes.js';
 // Memory — brain row types
 export type {
   BrainAnchor,
@@ -1693,27 +1714,6 @@ export {
   queryCodeForMemory,
   queryMemoriesForCode,
 } from './memory/graph-memory-bridge.js';
-// Memory — sentience layer SDK (T945 universal semantic graph)
-export {
-  checkNexusForeignKeys,
-  getContext,
-  getImpact,
-  getRelated,
-  listEdgeTypes,
-  materializeXfkEdges,
-  queryGraphNodes,
-  validateEdgeTypes,
-} from './memory/brain-page-nodes.js';
-export type {
-  CanonicalSentienceEdgeType,
-  GetImpactParams,
-  GetRelatedParams,
-  MaterializeXfkResult,
-  SentienceGraphEdge,
-  SentienceGraphNode,
-  SentienceGraphResponse,
-  SentienceNodeType,
-} from './memory/brain-page-nodes.js';
 // Memory — LLM extraction gate (additional)
 export type {
   ExtractedMemory,
