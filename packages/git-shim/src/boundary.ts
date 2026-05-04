@@ -34,9 +34,14 @@ export interface BoundaryViolation {
     | 'E_GIT_BOUNDARY_WORKTREE_PATH'
     | 'E_GIT_BOUNDARY_COMMIT_TASK_ID'
     | 'E_GIT_BOUNDARY_MERGE_FORBIDDEN'
-    | 'E_GIT_BOUNDARY_CHERRY_PICK_TASK_BRANCH';
-  /** Which boundary letter (a/b/c/d) — kept in audit log for grouping. */
-  boundary: 'a' | 'b' | 'c' | 'd';
+    | 'E_GIT_BOUNDARY_CHERRY_PICK_TASK_BRANCH'
+    | 'E_GIT_BOUNDARY_CWD_OUTSIDE_WORKTREE';
+  /**
+   * Which boundary fired — kept in audit log for grouping.
+   * Letters a-d are T1591 fence predicates; "isolation" is the T1761
+   * cwd-outside-worktree check that fires before all others.
+   */
+  boundary: 'a' | 'b' | 'c' | 'd' | 'isolation';
   /** Short human-readable summary of the violation. */
   message: string;
   /** Suggested operator action (always includes the override path). */
