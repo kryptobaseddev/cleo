@@ -11,14 +11,38 @@
 
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { openNativeDatabase } from '../../store/sqlite.js';
 import { augmentSymbol, formatAugmentResults } from '../augment.js';
 
 // ---------------------------------------------------------------------------
-// Integration tests — only run when nexus.db is populated
+// Integration tests — only run when nexus.db is populated with rows
 // ---------------------------------------------------------------------------
 
 const nexusDbPath = `${process.env.HOME}/.local/share/cleo/nexus.db`;
-const hasNexusDb = existsSync(nexusDbPath);
+
+/**
+ * Returns true only when nexus.db exists AND contains at least one row in
+ * nexus_nodes. A mere file-existence check is insufficient: CI runners may
+ * have an empty nexus.db created by prior tool-chain steps, which would cause
+ * the integration suite to run and immediately fail the row-count assertions.
+ *
+ * Skips gracefully on any DB error (missing table, locked file, etc.).
+ */
+function nexusDbHasData(): boolean {
+  if (!existsSync(nexusDbPath)) return false;
+  try {
+    const db = openNativeDatabase(nexusDbPath, { readonly: true });
+    const row = db.prepare('SELECT COUNT(*) AS c FROM nexus_nodes').get() as
+      | { c: number }
+      | undefined;
+    db.close();
+    return (row?.c ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+const hasNexusData = nexusDbHasData();
 
 describe('augmentSymbol — unit (no DB dependency)', () => {
   it('returns empty array if nexus.db does not exist', () => {
@@ -37,69 +61,72 @@ describe('augmentSymbol — unit (no DB dependency)', () => {
   });
 });
 
-describe.skipIf(!hasNexusDb)('augmentSymbol — integration (requires populated nexus.db)', () => {
-  it('returns non-empty results for common symbol patterns', () => {
-    // "load" is a common pattern that should exist in any indexed TypeScript codebase.
-    const results = augmentSymbol('load', 5);
-    expect(results.length).toBeGreaterThan(0);
-  });
+describe.skipIf(!hasNexusData)(
+  'augmentSymbol — integration (requires populated nexus.db, skipped when empty or absent)',
+  () => {
+    it('returns non-empty results for common symbol patterns', () => {
+      // "load" is a common pattern that should exist in any indexed TypeScript codebase.
+      const results = augmentSymbol('load', 5);
+      expect(results.length).toBeGreaterThan(0);
+    });
 
-  it('results contain only callable kinds', () => {
-    const callableKinds = new Set([
-      'function',
-      'method',
-      'constructor',
-      'class',
-      'interface',
-      'type_alias',
-    ]);
-    const results = augmentSymbol('load', 10);
-    for (const r of results) {
-      expect(callableKinds.has(r.kind)).toBe(true);
-    }
-  });
-
-  it('callersCount and calleesCount are non-negative integers', () => {
-    const results = augmentSymbol('load', 5);
-    for (const r of results) {
-      expect(typeof r.callersCount).toBe('number');
-      expect(typeof r.calleesCount).toBe('number');
-      expect(r.callersCount).toBeGreaterThanOrEqual(0);
-      expect(r.calleesCount).toBeGreaterThanOrEqual(0);
-    }
-  });
-
-  it('communityId is a string when present (not a number)', () => {
-    // Regression: communityId was typed as number but DB stores text like "comm_3".
-    const results = augmentSymbol('load', 10);
-    for (const r of results) {
-      if (r.communityId !== undefined) {
-        expect(typeof r.communityId).toBe('string');
+    it('results contain only callable kinds', () => {
+      const callableKinds = new Set([
+        'function',
+        'method',
+        'constructor',
+        'class',
+        'interface',
+        'type_alias',
+      ]);
+      const results = augmentSymbol('load', 10);
+      for (const r of results) {
+        expect(callableKinds.has(r.kind)).toBe(true);
       }
-    }
-  });
+    });
 
-  it('p50 latency is under 500ms (T1765 perf target)', () => {
-    const patterns = ['load', 'get', 'set', 'create', 'handle'];
-    const timings: number[] = [];
+    it('callersCount and calleesCount are non-negative integers', () => {
+      const results = augmentSymbol('load', 5);
+      for (const r of results) {
+        expect(typeof r.callersCount).toBe('number');
+        expect(typeof r.calleesCount).toBe('number');
+        expect(r.callersCount).toBeGreaterThanOrEqual(0);
+        expect(r.calleesCount).toBeGreaterThanOrEqual(0);
+      }
+    });
 
-    for (const pat of patterns) {
-      const start = performance.now();
-      augmentSymbol(pat, 5);
-      timings.push(performance.now() - start);
-    }
+    it('communityId is a string when present (not a number)', () => {
+      // Regression: communityId was typed as number but DB stores text like "comm_3".
+      const results = augmentSymbol('load', 10);
+      for (const r of results) {
+        if (r.communityId !== undefined) {
+          expect(typeof r.communityId).toBe('string');
+        }
+      }
+    });
 
-    timings.sort((a, b) => a - b);
-    const p50 = timings[Math.floor(timings.length / 2)];
-    // p50 must be under 500ms (gitnexus baseline: 317ms)
-    expect(p50).toBeLessThan(500);
-  });
+    it('p50 latency is under 500ms (T1765 perf target)', () => {
+      const patterns = ['load', 'get', 'set', 'create', 'handle'];
+      const timings: number[] = [];
 
-  it('returns up to `limit` results', () => {
-    const results = augmentSymbol('load', 3);
-    expect(results.length).toBeLessThanOrEqual(3);
-  });
-});
+      for (const pat of patterns) {
+        const start = performance.now();
+        augmentSymbol(pat, 5);
+        timings.push(performance.now() - start);
+      }
+
+      timings.sort((a, b) => a - b);
+      const p50 = timings[Math.floor(timings.length / 2)];
+      // p50 must be under 500ms (gitnexus baseline: 317ms)
+      expect(p50).toBeLessThan(500);
+    });
+
+    it('returns up to `limit` results', () => {
+      const results = augmentSymbol('load', 3);
+      expect(results.length).toBeLessThanOrEqual(3);
+    });
+  },
+);
 
 // ---------------------------------------------------------------------------
 // formatAugmentResults — unit
