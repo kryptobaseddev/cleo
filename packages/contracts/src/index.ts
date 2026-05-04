@@ -152,11 +152,15 @@ export type {
 } from './brain-graph.js';
 export type {
   AgentWorktreeState,
+  BoundaryContract,
   BranchLockErrorCode,
   DeniedGitOp,
   FsHardenCapabilities,
   FsHardenState,
   GitShimEnv,
+  IsolationEnvKey,
+  IsolationOptions,
+  IsolationResult,
   OwnerOverrideAuditRecord,
   OwnerOverrideConfig,
   WorktreeCleanupResult,
@@ -164,7 +168,11 @@ export type {
   WorktreeSpawnResult,
 } from './branch-lock.js';
 // === Branch-Lock + Owner-Auth Types (T1118) ===
-export { BRANCH_LOCK_ERROR_CODES } from './branch-lock.js';
+export {
+  BRANCH_LOCK_ERROR_CODES,
+  ISOLATION_ENV_KEYS,
+  provisionIsolatedShell,
+} from './branch-lock.js';
 export type { AdapterCapabilities } from './capabilities.js';
 // === Code Symbol Types (tree-sitter AST) ===
 export type {

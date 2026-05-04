@@ -111,7 +111,19 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       };
 
       if (context.workingDirectory) {
+        // T1759: workingDirectory is the isolation cwd from provisionIsolatedShell,
+        // not the project root. orchestrateSpawnExecute sets this via the
+        // centralized isolation utility.
         spawnOpts.cwd = context.workingDirectory;
+      }
+
+      // T1759: Merge isolation env vars (from options.env) into the spawn
+      // environment so CLEO_WORKTREE_ROOT, CLEO_AGENT_ROLE, CLEO_WORKTREE_BRANCH,
+      // and CLEO_PROJECT_HASH are visible to the spawned agent process.
+      // Per-call options.env overrides win over process.env.
+      const optionsEnv = context.options?.env as Record<string, string> | undefined;
+      if (optionsEnv !== undefined && Object.keys(optionsEnv).length > 0) {
+        spawnOpts.env = { ...process.env, ...optionsEnv };
       }
 
       const child = nodeSpawn('claude', args, spawnOpts);
