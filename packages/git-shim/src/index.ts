@@ -1,5 +1,5 @@
 /**
- * @cleocode/git-shim — Harness-agnostic git fence (T1118 + T1591).
+ * @cleocode/git-shim — Harness-agnostic git fence (T1118 + T1591 + T1761).
  *
  * Re-exports the denylist + boundary predicates so other packages can inspect
  * the shim's enforcement without executing the binary. The shim binary itself
@@ -9,6 +9,7 @@
  * @task T1118
  * @task T1121
  * @task T1591
+ * @task T1761
  * @packageDocumentation
  */
 
@@ -24,6 +25,11 @@ export {
   validateMergeAllowed,
 } from './boundary.js';
 export { findDeniedOp, GIT_OP_DENYLIST, RESTRICTED_ROLES } from './denylist.js';
+export {
+  evaluateIsolationBoundary,
+  isCwdInsideWorktree,
+  MUTATION_SUBCOMMANDS,
+} from './isolation-boundary.js';
 export {
   extractTaskIdFromWorktreePath,
   isInsideWorktreesRoot,

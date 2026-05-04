@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * git-shim — harness-agnostic git fence (T1118 L2 + T1591 boundary fence).
+ * git-shim — harness-agnostic git fence (T1118 L2 + T1591 boundary fence + T1761 isolation).
  *
  * Usage: place this binary on PATH BEFORE real git, and export:
  *   CLEO_AGENT_ROLE=worker   (or lead|subagent)
@@ -8,6 +8,11 @@
  *   CLEO_TASK_ID=T<NUM>        (optional — auto-detected from worktree path)
  *
  * Layered enforcement (in order, all under restricted-role gate):
+ *   0. T1761 isolation fence (FIRST — fires before denylist):
+ *      When CLEO_AGENT_ROLE=worker AND CLEO_WORKTREE_ROOT is set AND the
+ *      mutation subcommand (add/commit/rm/…) is invoked, verify that cwd is
+ *      inside CLEO_WORKTREE_ROOT. Exits 77 with `cwd-outside-worktree` error.
+ *      Bypass: `CLEO_ALLOW_GIT=1` (audited).
  *   1. T1118 denylist (branch-mutation ops). Bypass: `CLEO_ALLOW_BRANCH_OPS=1`.
  *   2. T1591 boundary fence:
  *      (a) git add path inside worktree
@@ -27,6 +32,7 @@
  * @task T1118
  * @task T1121
  * @task T1591
+ * @task T1761
  */
 
 import { spawnSync } from 'node:child_process';
@@ -41,6 +47,7 @@ import {
   validateMergeAllowed,
 } from './boundary.js';
 import { findDeniedOp, RESTRICTED_ROLES } from './denylist.js';
+import { evaluateIsolationBoundary } from './isolation-boundary.js';
 import { resolveActiveWorktree } from './worktree-path.js';
 
 /** Sentinel exit code for a shim-blocked git operation. */
@@ -168,7 +175,7 @@ function evaluateBoundaries(subcommand: string, args: string[]): BoundaryViolati
  * Build a structured audit record for the current invocation.
  *
  * @param outcome - "blocked" | "bypassed-allow-git" | "bypassed-orchestrate-merge".
- * @param boundary - Which boundary fired (a-d, or "denylist").
+ * @param boundary - Which boundary fired (a-d, denylist, or isolation).
  * @param code - CLEO error code.
  * @param subcommand - Git subcommand.
  * @param args - Argv tail.
@@ -203,8 +210,8 @@ function buildAuditRecord(
 /**
  * Main shim entry point.
  *
- * Reads argv, env, applies the denylist + the boundary fence, and either
- * blocks or passes through to the real git binary.
+ * Reads argv, env, applies the isolation fence + denylist + boundary fence,
+ * and either blocks or passes through to the real git binary.
  */
 function main(): void {
   const argv = process.argv.slice(2);
@@ -239,6 +246,48 @@ function main(): void {
   const remainingArgs = argv.slice(1);
   const allowBranchOps = process.env['CLEO_ALLOW_BRANCH_OPS'] === '1';
   const allowGit = process.env['CLEO_ALLOW_GIT'] === '1';
+
+  // ---------------------------------------------------------------------------
+  // Layer 0 — T1761 isolation fence (cwd-outside-worktree, BEFORE denylist).
+  //
+  // This is the "last line of defense" — even if T1759's structural preamble
+  // and T1758's prompt hardening both fail, a worker agent that has been
+  // injected with CLEO_WORKTREE_ROOT but somehow drifted to the main project
+  // root is caught here before it can mutate the primary repository.
+  // ---------------------------------------------------------------------------
+  const isolationViolation = evaluateIsolationBoundary(subcommand);
+  if (isolationViolation && !allowGit) {
+    emitBoundaryViolation(isolationViolation, subcommand);
+    writeAuditRecord(
+      buildAuditRecord(
+        'blocked',
+        'isolation',
+        isolationViolation.code,
+        subcommand,
+        remainingArgs,
+        isolationViolation.context,
+      ),
+    );
+    process.exit(BLOCKED_EXIT_CODE);
+    return;
+  }
+
+  if (isolationViolation && allowGit) {
+    process.stderr.write(
+      `[git-shim] WARNING: CLEO_ALLOW_GIT=1 bypassed isolation boundary ` +
+        `(${isolationViolation.code}) for 'git ${subcommand}' (role=${role}). This bypass is audited.\n`,
+    );
+    writeAuditRecord(
+      buildAuditRecord(
+        'bypassed-allow-git',
+        'isolation',
+        isolationViolation.code,
+        subcommand,
+        remainingArgs,
+        isolationViolation.context,
+      ),
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Layer 1 — T1118 denylist (branch-mutation ops).
