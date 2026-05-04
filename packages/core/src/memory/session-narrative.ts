@@ -29,10 +29,14 @@
  *
  * ## Pivot Detection
  *
- * `detectPivot(delta)` uses a simple heuristic: a topic shift is detected when
- * the new delta contains > 50% new keyword tokens relative to the existing
- * narrative.  A future iteration (T1082.followup) can replace this with an
- * embedding cosine similarity check once the vec extension is reliably present.
+ * `detectPivot(delta, existingNarrative)` uses cosine similarity over text
+ * embeddings when the sqlite-vec extension and an embedding provider are both
+ * available.  A pivot is signalled when the cosine similarity between the two
+ * texts falls below `PIVOT_COSINE_THRESHOLD`.
+ *
+ * When embeddings are unavailable the function falls back to a keyword-overlap
+ * heuristic: a topic shift is detected when the new delta contains fewer than
+ * `PIVOT_KEYWORD_OVERLAP_THRESHOLD` of its tokens in the existing narrative.
  *
  * ## PSYCHE Reference
  *
@@ -40,11 +44,12 @@
  * derivation) — PSYCHE maintains a rolling representation of what a session
  * "is about" that informs future retrieval and sigil generation.
  *
- * @task T1089
- * @epic T1082
+ * @task T1531
+ * @epic T1056
  */
 
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
+import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 
 // ============================================================================
 // Constants
@@ -54,12 +59,34 @@ import { getBrainNativeDb } from '../store/memory-sqlite.js';
 const MAX_NARRATIVE_CHARS = 2000;
 
 /**
- * Keyword-overlap threshold above which a turn is classified as a pivot.
- * When fewer than this fraction of delta keywords appear in the narrative,
- * the topic is considered to have shifted significantly.
+ * Cosine similarity threshold below which a turn is classified as a pivot
+ * when embedding-based detection is available (sqlite-vec + embedding provider
+ * both loaded).
  *
- * T1531: replace with cosine similarity < 0.3 once embedding
- * vec extension is reliably loaded.
+ * A score of 0.0 means orthogonal vectors (completely unrelated topics);
+ * 1.0 means identical direction (same topic).  Empirically, topic shifts
+ * tend to produce similarity < 0.3.
+ *
+ * **Tradeoffs vs keyword fallback**:
+ * - Higher accuracy on paraphrase and synonym pivots the keyword heuristic
+ *   misses (e.g. "switch to Rust" vs "rewrite in a systems language").
+ * - Requires the embedding model to be loaded (~50–80 MB), which adds latency
+ *   on first use and is unavailable in cold environments.
+ * - The fallback keyword heuristic is zero-cost and always available but
+ *   cannot detect pivots expressed through semantically related but
+ *   lexically different phrasing.
+ *
+ * @task T1531
+ */
+export const PIVOT_COSINE_THRESHOLD = 0.3;
+
+/**
+ * Keyword-overlap threshold used by the fallback heuristic when embeddings
+ * are unavailable.  When fewer than this fraction of delta keywords appear in
+ * the existing narrative, the topic is considered to have shifted.
+ *
+ * Kept alongside `PIVOT_COSINE_THRESHOLD` so callers and tests can reference
+ * both strategies explicitly.
  */
 const PIVOT_KEYWORD_OVERLAP_THRESHOLD = 0.5;
 
@@ -120,6 +147,36 @@ function ensureTable(): import('node:sqlite').DatabaseSync {
   }
 
   return db;
+}
+
+// ============================================================================
+// Private: cosine similarity
+// ============================================================================
+
+/**
+ * Compute the cosine similarity between two Float32 vectors.
+ *
+ * Returns a value in [-1, 1] where 1 means identical direction and 0 means
+ * orthogonal.  Returns 0 when either vector has zero magnitude to avoid
+ * division by zero.
+ *
+ * @param a - First embedding vector.
+ * @param b - Second embedding vector (must be same length as `a`).
+ * @returns Cosine similarity in [-1, 1].
+ *
+ * @task T1531
+ */
+export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  let dot = 0;
+  let magA = 0;
+  let magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += (a[i] ?? 0) * (b[i] ?? 0);
+    magA += (a[i] ?? 0) ** 2;
+    magB += (b[i] ?? 0) ** 2;
+  }
+  const denom = Math.sqrt(magA) * Math.sqrt(magB);
+  return denom === 0 ? 0 : dot / denom;
 }
 
 // ============================================================================
@@ -185,7 +242,7 @@ export async function getSessionNarrative(
  *
  * @param sessionId   - The session to update.
  * @param delta       - New narrative content from the current turn.
- * @param _projectRoot - Project root (reserved for future embedding-based pivot; unused now).
+ * @param _projectRoot - Project root (reserved for future use; unused now).
  *
  * @example
  * ```ts
@@ -219,7 +276,7 @@ export async function appendNarrativeDelta(
     newPivotCount = 0;
   } else {
     // Detect pivot before composing new narrative
-    const isPivot = detectPivot(delta, existing.narrative);
+    const isPivot = await detectPivot(delta, existing.narrative);
     newPivotCount = existing.pivotCount + (isPivot ? 1 : 0);
 
     // Compose and trim to max length (keep newest content)
@@ -246,32 +303,55 @@ export async function appendNarrativeDelta(
 /**
  * Detect whether a new narrative delta represents a significant topic pivot.
  *
- * Uses a keyword-overlap heuristic: if fewer than `PIVOT_KEYWORD_OVERLAP_THRESHOLD`
- * of the delta's content words appear in the existing narrative, the topic is
- * considered to have shifted (pivot = true).
+ * ## Strategy selection
  *
- * Short deltas (< 5 tokens) never trigger a pivot to avoid false positives from
- * acknowledgement messages.
+ * **Embedding path** (preferred): when an embedding provider is available
+ * (via `isEmbeddingAvailable()`), both `delta` and `existingNarrative` are
+ * embedded into float vectors and compared with cosine similarity.  A score
+ * below `PIVOT_COSINE_THRESHOLD` (default 0.3) indicates a pivot.  This path
+ * catches paraphrase pivots and synonym-based topic changes that the keyword
+ * heuristic misses, at the cost of requiring the embedding model to be loaded.
  *
- * T1531: replace with embedding cosine < 0.3 once vec extension
- * is reliably available.
+ * **Keyword fallback** (no embedding provider / vec extension): if
+ * `embedText()` returns `null` for either input, the function falls back to a
+ * keyword-overlap heuristic.  A pivot is declared when fewer than
+ * `PIVOT_KEYWORD_OVERLAP_THRESHOLD` (0.5) of the delta's content tokens appear
+ * in the existing narrative.
+ *
+ * Short deltas (< 5 tokens in the keyword path) never trigger a pivot to avoid
+ * false positives from acknowledgement messages.  The embedding path has no
+ * minimum-length guard because the model handles short inputs gracefully.
  *
  * @param delta            - Incoming narrative text from the new turn.
  * @param existingNarrative - Current rolling narrative content.
- * @returns `true` when a topic pivot is detected.
+ * @returns Promise resolving to `true` when a topic pivot is detected.
  *
  * @example
  * ```ts
- * detectPivot("switching to Rust implementation", "TypeScript type system discussion"); // true
- * detectPivot("continuing the TypeScript work", "TypeScript type system discussion");   // false
+ * await detectPivot("switching to Rust implementation", "TypeScript type system discussion"); // true
+ * await detectPivot("continuing the TypeScript work", "TypeScript type system discussion");   // false
  * ```
  *
- * @task T1089
+ * @task T1531
  */
-export function detectPivot(delta: string, existingNarrative: string): boolean {
+export async function detectPivot(delta: string, existingNarrative: string): Promise<boolean> {
   if (!existingNarrative.trim()) return false;
 
-  // Tokenise: lowercase alpha-only tokens of length >= 4 (ignores stop words)
+  // --- Embedding-based cosine similarity (preferred) ---
+  if (isEmbeddingAvailable()) {
+    const [deltaVec, narrativeVec] = await Promise.all([
+      embedText(delta),
+      embedText(existingNarrative),
+    ]);
+
+    if (deltaVec !== null && narrativeVec !== null) {
+      const similarity = cosineSimilarity(deltaVec, narrativeVec);
+      return similarity < PIVOT_COSINE_THRESHOLD;
+    }
+    // Fall through to keyword heuristic if embedText returned null for either
+  }
+
+  // --- Keyword-overlap heuristic fallback ---
   const tokenise = (text: string): Set<string> => {
     const tokens = text
       .toLowerCase()
