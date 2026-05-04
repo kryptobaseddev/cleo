@@ -788,6 +788,39 @@ export interface MemoryDecisionStoreParams {
   contextEpicId?: string;
   /** Phase context. */
   contextPhase?: string;
+  /**
+   * Relative or absolute path to the ADR document on disk (e.g. `"docs/adr/ADR-027.md"`).
+   *
+   * @see T1826 Decision Storage Consolidation
+   */
+  adrPath?: string | null;
+  /**
+   * ID of the `brain_decisions` row this decision supersedes.
+   *
+   * When provided, the older row's `supersededBy` will be updated to this decision's ID
+   * and its `confirmationState` set to `'superseded'`.
+   */
+  supersedes?: string | null;
+  /**
+   * Lifecycle state in the confirmation workflow.
+   *
+   * - `'proposed'`   — Newly filed; awaiting owner/council review.
+   * - `'accepted'`   — Formally approved and active.
+   * - `'superseded'` — Replaced by a newer decision (see `supersededBy`).
+   *
+   * Defaults to `'proposed'` when not specified.
+   */
+  confirmationState?: 'proposed' | 'accepted' | 'superseded';
+  /**
+   * Who approved / originated this decision.
+   *
+   * - `'owner'`   — Directly authored or approved by the project owner.
+   * - `'council'` — Approved via multi-agent consensus (council vote).
+   * - `'agent'`   — Agent-inferred; not yet owner/council confirmed.
+   *
+   * Defaults to `'agent'` when not specified.
+   */
+  decidedBy?: 'owner' | 'council' | 'agent';
 }
 /** Result of `memory.decision.store`. */
 export interface MemoryDecisionStoreResult {
