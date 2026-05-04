@@ -60,6 +60,7 @@
   },
   "dependencies": {
     "@cleocode/cant": "workspace:*",
+    "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@iarna/toml": "^2.2.5",
     "commander": "^14.0.0",
