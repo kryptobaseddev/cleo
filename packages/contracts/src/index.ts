@@ -151,6 +151,8 @@ export type {
   BrainSubstrate,
 } from './brain-graph.js';
 export type {
+  AbsolutePathRules,
+  AbsolutePathValidationResult,
   AgentWorktreeState,
   BoundaryContract,
   BranchLockErrorCode,
@@ -172,6 +174,7 @@ export {
   BRANCH_LOCK_ERROR_CODES,
   ISOLATION_ENV_KEYS,
   provisionIsolatedShell,
+  validateAbsolutePath,
 } from './branch-lock.js';
 export type { AdapterCapabilities } from './capabilities.js';
 // === Code Symbol Types (tree-sitter AST) ===

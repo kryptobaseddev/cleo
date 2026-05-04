@@ -17,17 +17,28 @@
  *    future adapter — no harness-specific imports here.
  *  - Single source of truth: `ISOLATION_ENV_KEYS` is the only canonical list
  *    of env keys injected into every isolated agent process.
- *  - Composable: the returned `BoundaryContract` is consumed by the git-shim
- *    and other enforcement layers without taking a runtime dep on core.
- *  - Pure: `provisionIsolatedShell` is deterministic — identical inputs always
- *    produce identical outputs, making it trivially testable.
+ *  - Composable: the returned `BoundaryContract` is consumed by the git-shim,
+ *    `validateAbsolutePath`, and other enforcement layers without taking a
+ *    runtime dep on core.
+ *  - Pure: `provisionIsolatedShell` and `validateAbsolutePath` are deterministic
+ *    — identical inputs always produce identical outputs, making them trivially
+ *    testable.
+ *
+ * T1851 extension: `validateAbsolutePath` closes the bypass vector discovered
+ * in T1763 — a worker used Edit/Write with absolute paths outside its worktree,
+ * which the git-shim alone could not prevent (it only intercepts `git` binary
+ * calls). The `BoundaryContract.absolutePathRules` field carries the per-spawn
+ * enforcement configuration.
  *
  * @task T1759
+ * @task T1851
  * @adr ADR-055
  * @adr ADR-062
  */
 
 export type {
+  AbsolutePathRules,
+  AbsolutePathValidationResult,
   BoundaryContract,
   IsolationEnvKey,
   IsolationOptions,
@@ -36,4 +47,5 @@ export type {
 export {
   ISOLATION_ENV_KEYS,
   provisionIsolatedShell,
+  validateAbsolutePath,
 } from '@cleocode/contracts';
