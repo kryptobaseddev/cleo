@@ -32,6 +32,7 @@ import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-regis
 import { getAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import { getActiveSession } from '../store/session-store.js';
+import { provisionIsolatedShell } from '../worktree/isolation.js';
 import { openSignaldockDbForComposer } from './plan.js';
 
 export type { EngineResult };
@@ -416,6 +417,34 @@ export async function orchestrateSpawnExecute(
       ? `${templateSubstitution.resolvedBody}\n\n${payload.prompt}`
       : payload.prompt;
 
+    // T1759 — Worktree provisioning + centralized isolation.
+    //
+    // Provision a worktree for the task so the agent runs in its own isolated
+    // branch. On success, `provisionIsolatedShell` computes the authoritative
+    // cwd, env-var block, and preamble from the single source of truth. On
+    // failure (non-git repo, git not installed, etc.) we degrade gracefully and
+    // fall back to the project root so spawn continues without isolation.
+    let agentWorkingDirectory = cwd;
+    let agentEnvOverride: Record<string, string> | undefined;
+    try {
+      const worktreeResult = await spawnWorktree(cwd, { taskId });
+      const isolation = provisionIsolatedShell({
+        worktreePath: worktreeResult.path,
+        branch: worktreeResult.branch,
+        role: 'worker',
+        projectHash: worktreeResult.projectHash,
+      });
+      agentWorkingDirectory = isolation.cwd;
+      agentEnvOverride = isolation.env;
+    } catch {
+      // Worktree provisioning failure — spawn continues without isolation.
+      // This matches the graceful-degradation policy of orchestrateSpawn.
+      getLogger('engine:orchestrate').warn(
+        { taskId },
+        'T1759 worktree provisioning failed in orchestrateSpawnExecute — spawning without isolation',
+      );
+    }
+
     const cleoSpawnContext: CLEOSpawnContext = {
       taskId: payload.taskId,
       protocol: protocolType || payload.meta.protocol,
@@ -423,8 +452,9 @@ export async function orchestrateSpawnExecute(
       provider: provider.id,
       options: {
         prompt: rawPrompt,
+        ...(agentEnvOverride !== undefined ? { env: agentEnvOverride } : {}),
       },
-      workingDirectory: cwd,
+      workingDirectory: agentWorkingDirectory,
       tokenResolution: {
         resolved: [],
         unresolved: [],

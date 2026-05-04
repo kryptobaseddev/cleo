@@ -278,3 +278,179 @@ export const BRANCH_LOCK_ERROR_CODES = {
 /** Union of all branch-lock error code strings. */
 export type BranchLockErrorCode =
   (typeof BRANCH_LOCK_ERROR_CODES)[keyof typeof BRANCH_LOCK_ERROR_CODES];
+
+// ---------------------------------------------------------------------------
+// Centralized worktree isolation contract (T1759)
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical set of environment variable keys injected into every isolated
+ * agent shell by `provisionIsolatedShell`.
+ *
+ * Exported as a frozen const tuple so git-shim, harness adapters, and test
+ * utilities can reference the authoritative key list without duplication.
+ *
+ * @task T1759
+ */
+export const ISOLATION_ENV_KEYS = [
+  'CLEO_WORKTREE_ROOT',
+  'CLEO_AGENT_ROLE',
+  'CLEO_WORKTREE_BRANCH',
+  'CLEO_PROJECT_HASH',
+] as const satisfies readonly string[];
+
+/** Union of all isolation env key strings. */
+export type IsolationEnvKey = (typeof ISOLATION_ENV_KEYS)[number];
+
+/**
+ * Boundary contract returned by `provisionIsolatedShell`.
+ *
+ * Consumed by git-shim and other enforcement layers to verify that the agent
+ * is operating within its authorized boundary.
+ *
+ * @task T1759
+ */
+export interface BoundaryContract {
+  /** Absolute path to the worktree root the agent is authorized within. */
+  worktreeRoot: string;
+  /** Role of the agent — drives git-shim denylist enforcement. */
+  role: 'worker' | 'orchestrator';
+  /** The canonical set of env keys that were injected (mirrors ISOLATION_ENV_KEYS). */
+  envKeys: typeof ISOLATION_ENV_KEYS;
+}
+
+/**
+ * Input options for `provisionIsolatedShell`.
+ *
+ * All fields are required — the utility never falls back to implicit CWD so
+ * callers must be explicit about their isolation intent.
+ *
+ * @task T1759
+ */
+export interface IsolationOptions {
+  /** Absolute path to the provisioned worktree directory. */
+  worktreePath: string;
+  /** Branch name for the worktree (e.g. `task/T1759`). */
+  branch: string;
+  /**
+   * Agent role — drives git-shim denylist enforcement.
+   *
+   * Worker agents are denied branch-mutating git operations. Orchestrators
+   * retain branch-mutation rights but are still confined to their worktree CWD.
+   */
+  role: 'worker' | 'orchestrator';
+  /** Project hash scoping this worktree under the XDG root (sha256(projectRoot)[:16]). */
+  projectHash: string;
+}
+
+/**
+ * Result of `provisionIsolatedShell`.
+ *
+ * All fields are deterministic for the same inputs — callers may cache the
+ * result and pass it through the spawn pipeline without re-computing.
+ *
+ * @task T1759
+ */
+export interface IsolationResult {
+  /**
+   * The working directory the agent MUST be started in.
+   *
+   * Always equals `options.worktreePath`. Exposed explicitly so callers
+   * never re-derive it from other fields.
+   */
+  cwd: string;
+  /**
+   * Environment variables to merge into the agent's process environment.
+   *
+   * Keys are the canonical set from `ISOLATION_ENV_KEYS`. The object is a
+   * fresh value each call — mutating it does not affect re-calls.
+   */
+  env: Record<(typeof ISOLATION_ENV_KEYS)[number], string>;
+  /**
+   * Shell preamble snippet to prepend to the agent's spawn prompt.
+   *
+   * The snippet:
+   *  1. `cd`s to `worktreePath` (exits 1 on failure so the agent never runs
+   *     in an unexpected directory).
+   *  2. Verifies the resulting `$PWD` starts with `worktreePath` (guards
+   *     against symlink traversal and shell quirks).
+   *  3. Exports the isolation env vars so they are visible to child processes.
+   *
+   * The trailing newline is included so callers can concatenate directly.
+   */
+  preamble: string;
+  /**
+   * Boundary contract for downstream enforcement layers (git-shim, tests).
+   *
+   * The contract is a pure-data snapshot — it carries no runtime state.
+   */
+  boundaryContract: BoundaryContract;
+}
+
+/**
+ * Provision an isolated shell context for an agent worktree.
+ *
+ * This is the single entry point for worktree isolation across all harness
+ * adapters and spawn paths in CLEO. Callers MUST use the returned `cwd` and
+ * `env` when starting an agent process, and MUST include the returned
+ * `preamble` in the agent's spawn prompt.
+ *
+ * This function is pure — identical inputs always produce identical outputs,
+ * with no I/O or side effects. It lives in `@cleocode/contracts` so that
+ * harness adapters that cannot take a runtime dependency on `@cleocode/core`
+ * (due to circular dep constraints) can still call the canonical implementation.
+ * `packages/core/src/worktree/isolation.ts` re-exports this function as the
+ * public API surface.
+ *
+ * @param options - Isolation input parameters.
+ * @returns Fully-resolved isolation context.
+ * @task T1759
+ */
+export function provisionIsolatedShell(options: IsolationOptions): IsolationResult {
+  const { worktreePath, branch, role, projectHash } = options;
+
+  // --- cwd -----------------------------------------------------------------
+  const cwd = worktreePath;
+
+  // --- env -----------------------------------------------------------------
+  const env: Record<(typeof ISOLATION_ENV_KEYS)[number], string> = {
+    CLEO_WORKTREE_ROOT: worktreePath,
+    CLEO_AGENT_ROLE: role,
+    CLEO_WORKTREE_BRANCH: branch,
+    CLEO_PROJECT_HASH: projectHash,
+  };
+
+  // --- preamble ------------------------------------------------------------
+  // Shell snippet injected into the agent's spawn prompt. The guard pattern
+  // (cd || exit 1) + pwd-verify combo defends against:
+  //   - The worktree directory having been pruned before the agent starts.
+  //   - A future change where cwd is silently coerced to something else.
+  //   - Symlink traversal producing a path that doesn't share the prefix.
+  const exportBlock = ISOLATION_ENV_KEYS.map((k) => `export ${k}="${env[k]}"`).join('\n');
+
+  const preamble = [
+    '## Worktree Isolation (REQUIRED — do not skip)',
+    '',
+    '# Step 1: Enter the worktree (exits immediately if path is missing)',
+    `cd "${worktreePath}" || exit 1`,
+    '',
+    '# Step 2: Verify working directory (guards against shell/symlink quirks)',
+    'case "$PWD" in',
+    `  "${worktreePath}"*) ;;`,
+    '  *) echo "ISOLATION ERROR: pwd=$PWD expected prefix=' + worktreePath + '" >&2; exit 1 ;;',
+    'esac',
+    '',
+    '# Step 3: Export isolation env vars',
+    exportBlock,
+    '',
+  ].join('\n');
+
+  // --- boundaryContract ----------------------------------------------------
+  const boundaryContract: BoundaryContract = {
+    worktreeRoot: worktreePath,
+    role,
+    envKeys: ISOLATION_ENV_KEYS,
+  };
+
+  return { cwd, env, preamble, boundaryContract };
+}
