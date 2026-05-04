@@ -259,6 +259,8 @@ pnpm --filter @cleocode/nexus test community-process --run
 
 **Validation question that supersedes the original D4**: now that we know both tools run Leiden, does cleo's pure-TS Leiden produce the same partition (or better) as gitnexus' Leiden on `/mnt/projects/openclaw`? This is the right Decision 3 axis — the original D4 ("descope or keep") was based on a false premise.
 
+**Residual filed (T1733)**: `@aflsolutions/graphology-communities-leiden` v1.1.1 was published to npm 2026-04-26 (6 days after cleo's pure-TS leiden.ts was written). T1733 evaluates whether to swap, gated on Decision 3's partition-quality data. If cleo's pure-TS lags gitnexus' Leiden meaningfully, the maintained package is a cheap fix. If parity is close, the 405 zero-dep lines stay (matches operator's prefers-zero-deps trait).
+
 ### Decision 5 — T1534 AST shape inference scope → **Hybrid (a)+(c): keep medium, P1.5 residual**
 
 **Recommendation**: Keep at medium priority in P1.5 residual queue. Do NOT escalate to P0.
