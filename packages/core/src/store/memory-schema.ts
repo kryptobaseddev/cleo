@@ -18,7 +18,15 @@ import type {
   BrainSourceConfidence,
 } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  type AnySQLiteColumn,
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+} from 'drizzle-orm/sqlite-core';
 
 export type { BrainCognitiveType, BrainMemoryTier, BrainSourceConfidence };
 
@@ -260,6 +268,89 @@ export const brainDecisions = sqliteTable(
      * - `"peer"` — strict per-peer isolation; only the owning peer can retrieve.
      */
     peerScope: text('peer_scope').notNull().default('project'),
+
+    // T1826: Decision Storage Consolidation — ADR tracking + governance columns
+
+    /**
+     * Monotonically-increasing ADR sequence number for this decision.
+     *
+     * Populated at insert time via an app-level MAX(adr_number)+1 sequence helper
+     * (SQLite does not natively auto-increment arbitrary integer columns with UNIQUE).
+     * NULL for decisions that have not been assigned an ADR number (informal decisions).
+     *
+     * The UNIQUE constraint prevents collisions when concurrent writes race; the
+     * insert helper should use a `SELECT MAX(adr_number) + 1` within the same
+     * transaction to minimise gaps.
+     */
+    adrNumber: integer('adr_number').unique(),
+
+    /**
+     * Relative or absolute path to the ADR document on disk (e.g. `"docs/adr/ADR-027.md"`).
+     *
+     * NULL when the decision has no associated file (informal, ephemeral, or pre-ADR).
+     */
+    adrPath: text('adr_path'),
+
+    /**
+     * ID of the `brain_decisions` row that this decision supersedes.
+     *
+     * Self-referential FK. NULL when this decision does not replace a prior one.
+     * The referenced row's `supersededBy` should be set to this row's ID on write.
+     *
+     * @see supersededBy — reverse pointer stored on the older row
+     */
+    supersedes: text('supersedes').references((): AnySQLiteColumn => brainDecisions.id),
+
+    /**
+     * ID of the `brain_decisions` row that has superseded this decision.
+     *
+     * Self-referential FK. NULL while this decision is still active.
+     * Set when a newer decision's `supersedes` points to this row.
+     *
+     * @see supersedes — forward pointer stored on the newer row
+     */
+    supersededBy: text('superseded_by').references((): AnySQLiteColumn => brainDecisions.id),
+
+    /**
+     * Lifecycle state of this decision in the confirmation workflow.
+     *
+     * - `'proposed'`   — Newly filed; awaiting owner/council review.
+     * - `'accepted'`   — Formally approved and active.
+     * - `'superseded'` — Replaced by a newer decision (see `supersededBy`).
+     *
+     * Defaults to `'proposed'` for new rows. Existing rows backfilled to `'accepted'`
+     * by the T1826 migration (see `20260504000001_t1826-decisions-v2/migration.sql`).
+     */
+    confirmationState: text('confirmation_state', {
+      enum: ['proposed', 'accepted', 'superseded'],
+    })
+      .notNull()
+      .default('proposed'),
+
+    /**
+     * Who approved / originated this decision.
+     *
+     * - `'owner'`   — Directly authored or approved by the project owner.
+     * - `'council'` — Approved via multi-agent consensus (council vote).
+     * - `'agent'`   — Agent-inferred; not yet owner/council confirmed.
+     *
+     * Defaults to `'agent'` so that existing legacy rows receive a safe value
+     * during backfill without a write-path change.
+     */
+    decidedBy: text('decided_by', {
+      enum: ['owner', 'council', 'agent'],
+    })
+      .notNull()
+      .default('agent'),
+
+    /**
+     * Epoch millisecond timestamp of the most recent LLM-validator run against
+     * this decision row (T1828 hook).
+     *
+     * NULL = never validated. Set by the validator on each successful run so
+     * T1829 backfill walker can skip already-processed rows.
+     */
+    validatorRunAt: integer('validator_run_at'),
   },
   (table) => [
     index('idx_brain_decisions_type').on(table.type),
@@ -279,6 +370,10 @@ export const brainDecisions = sqliteTable(
     index('idx_brain_decisions_content_hash').on(table.contentHash),
     // T1084: peer isolation index
     index('idx_brain_decisions_peer_scope').on(table.peerId, table.peerScope),
+    // T1826: ADR governance indexes
+    index('idx_brain_decisions_adr_number').on(table.adrNumber),
+    index('idx_brain_decisions_confirmation_state').on(table.confirmationState),
+    index('idx_brain_decisions_decided_by').on(table.decidedBy),
   ],
 );
 
