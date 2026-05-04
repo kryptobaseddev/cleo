@@ -417,9 +417,7 @@ export async function evaluateDialectic(turn: DialecticTurn): Promise<DialecticI
     };
   } catch (err) {
     const errorCode =
-      err instanceof Error
-        ? ((err as { code?: string }).code ?? err.name ?? 'UNKNOWN')
-        : 'UNKNOWN';
+      err instanceof Error ? ((err as { code?: string }).code ?? err.name ?? 'UNKNOWN') : 'UNKNOWN';
     log.error(
       {
         event: 'dialectic.generate_object_failed',

@@ -307,9 +307,7 @@ describe('evaluateDialectic — telemetry: no backend available', () => {
   it('emits dialectic.no_backend warn log when resolveLlmBackend returns null', async () => {
     (resolveLlmBackend as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
-    await evaluateDialectic(
-      makeTurn({ sessionId: 'ses_telem_null', activePeerId: 'peer-a' }),
-    );
+    await evaluateDialectic(makeTurn({ sessionId: 'ses_telem_null', activePeerId: 'peer-a' }));
 
     expect(mockLogWarn).toHaveBeenCalledOnce();
     const [fields, message] = mockLogWarn.mock.calls[0] as [Record<string, unknown>, string];
@@ -329,9 +327,7 @@ describe('evaluateDialectic — telemetry: no backend available', () => {
       modelId: '',
     });
 
-    await evaluateDialectic(
-      makeTurn({ sessionId: 'ses_telem_none', activePeerId: 'peer-b' }),
-    );
+    await evaluateDialectic(makeTurn({ sessionId: 'ses_telem_none', activePeerId: 'peer-b' }));
 
     expect(mockLogWarn).toHaveBeenCalledOnce();
     const [fields] = mockLogWarn.mock.calls[0] as [Record<string, unknown>, string];
@@ -361,9 +357,7 @@ describe('evaluateDialectic — telemetry: generateObject failure', () => {
     const simulatedError = new Error('API rate limited');
     (generateObject as ReturnType<typeof vi.fn>).mockRejectedValueOnce(simulatedError);
 
-    await evaluateDialectic(
-      makeTurn({ sessionId: 'ses_telem_err', activePeerId: 'peer-c' }),
-    );
+    await evaluateDialectic(makeTurn({ sessionId: 'ses_telem_err', activePeerId: 'peer-c' }));
 
     expect(mockLogError).toHaveBeenCalledOnce();
     const [fields, message] = mockLogError.mock.calls[0] as [Record<string, unknown>, string];
