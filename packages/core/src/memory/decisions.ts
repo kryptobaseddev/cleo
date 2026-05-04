@@ -31,6 +31,31 @@ export interface StoreDecisionParams {
   contextTaskId?: string;
   contextPhase?: string;
   /**
+   * Relative or absolute path to the ADR document on disk.
+   *
+   * @see T1826 Decision Storage Consolidation
+   */
+  adrPath?: string;
+  /**
+   * ID of the `brain_decisions` row this decision supersedes.
+   *
+   * When provided, the referenced row's `supersededBy` is updated and its
+   * `confirmationState` is set to `'superseded'`.
+   */
+  supersedes?: string;
+  /**
+   * Lifecycle state in the confirmation workflow.
+   *
+   * Defaults to `'proposed'` for new rows.
+   */
+  confirmationState?: BrainDecisionRow['confirmationState'];
+  /**
+   * Who approved / originated this decision.
+   *
+   * Defaults to `'agent'` for new rows.
+   */
+  decidedBy?: BrainDecisionRow['decidedBy'];
+  /**
    * T992: Internal flag — when true, bypasses the verifyAndStore gate.
    * Set only by storeVerifiedCandidate in extraction-gate.ts to avoid
    * infinite recursion (gate → storeVerifiedCandidate → storeDecision → gate).
@@ -238,6 +263,11 @@ export async function storeDecision(
     verified,
     // T737: content hash for dedup gating
     contentHash: contentHashValue,
+    // T1826: Decision Storage Consolidation — ADR tracking + governance columns
+    adrPath: params.adrPath,
+    supersedes: params.supersedes,
+    confirmationState: params.confirmationState,
+    decidedBy: params.decidedBy,
   };
 
   const saved = await accessor.addDecision(row);
