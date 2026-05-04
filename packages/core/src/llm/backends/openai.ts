@@ -350,6 +350,10 @@ export class OpenAIBackend implements ProviderBackend {
 
     if (message && 'tool_calls' in message && Array.isArray(message.tool_calls)) {
       for (const tc of message.tool_calls) {
+        // openai v6: ChatCompletionMessageToolCall is a discriminated union
+        // (ChatCompletionMessageFunctionToolCall | ChatCompletionMessageCustomToolCall).
+        // We only handle function tool calls — custom tools are not used by CLEO.
+        if (tc.type !== 'function') continue;
         let toolInput: Record<string, unknown> = {};
         if (tc.function.arguments) {
           try {
