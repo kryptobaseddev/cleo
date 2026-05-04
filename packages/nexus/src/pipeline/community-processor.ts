@@ -1,39 +1,50 @@
 /**
  * Community Detection Processor — Phase 5
  *
- * Uses the Leiden algorithm (pure-TS implementation) to detect
- * communities/clusters in the code graph based on CALLS, EXTENDS, and
+ * Uses the Leiden algorithm (@aflsolutions/graphology-communities-leiden) to
+ * detect communities/clusters in the code graph based on CALLS, EXTENDS, and
  * IMPLEMENTS relationships.
  *
  * Communities represent groups of code that work together frequently,
  * helping agents navigate the codebase by functional area rather than by
  * file structure.
  *
- * ALGORITHM NOTE (T1063):
- * - Implements the Leiden algorithm from Traag, Waltman, van Eck (2019)
- * - Three phases: local moving, refinement, aggregation
- * - Refinement phase distinguishes Leiden from Louvain by splitting
- *   sub-optimally-connected communities
- * - Produces ~10–15× more communities than Louvain at same resolution
- * - Pure-TS implementation replaces unavailable graphology-leiden package
+ * ALGORITHM NOTE (T1733 — swap decision):
+ * - Uses @aflsolutions/graphology-communities-leiden v1.1.1, a maintained
+ *   extraction of the graphology community detection algorithm.
+ * - The prior pure-TS leiden.ts (T1063) had a broken modularity-gain formula:
+ *   (2*edgesToTarget - edgesToCurrent - degree) / totalWeight always returned
+ *   0 because it omitted the community-level sigma_tot term from the
+ *   Newman-Girvan formula. This caused every node to remain a singleton
+ *   community with modularity=0 on all tested graphs.
+ * - Benchmark (T1733): AFL correctly produced 5/50/200/672 communities on
+ *   perfectly-structured clique and realistic graphs; pure-TS produced
+ *   N (one-per-node) communities with modularity=0.000 in all cases.
+ * - AFL modularity scores: 0.80 (tiny), 0.98 (medium), 0.995 (large clique),
+ *   0.20–0.49 on realistic graphs. Consistent with expected behaviour.
+ * - Wall-clock: AFL ~2–3× slower on large graphs (333ms vs 84ms at 7k nodes)
+ *   but pure-TS was producing worthless output, so throughput is irrelevant.
+ * - Bundle cost: +39 KB unpacked (4 transitive deps: graphology-indices,
+ *   graphology-utils, mnemonist, pandemonium) vs 11 KB for leiden.js.
+ *   Acceptable for a server-side pipeline package.
  *
  * Ported and adapted from GitNexus
  * `src/core/ingestion/community-processor.ts`
  *
- * @task T538, T1063
+ * @task T538, T1063, T1733
  * @module pipeline/community-processor
  */
 
 import { createRequire } from 'node:module';
+import { performance } from 'node:perf_hooks';
 import type { GraphRelationType } from '@cleocode/contracts';
 import type { KnowledgeGraph } from './knowledge-graph.js';
-import { leiden } from './leiden.js';
 
 // ============================================================================
 // GRAPHOLOGY INTEROP
 // ============================================================================
-// graphology is loaded via createRequire to avoid ESM interop issues with
-// NodeNext resolution.
+// graphology and graphology-communities-leiden are loaded via createRequire to
+// avoid ESM interop issues with NodeNext resolution.
 const _require = createRequire(import.meta.url);
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -41,6 +52,28 @@ const GraphCtor = _require('graphology') as {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   new (options: { type: string; allowSelfLoops: boolean }): GraphInstance;
 };
+
+/** Shape of the @aflsolutions/graphology-communities-leiden detailed() return. */
+interface AflLeidenDetailedResult {
+  /** Number of communities detected. */
+  count: number;
+  /** Modularity score (0–1). */
+  modularity: number;
+  /** Node → community-number mapping. */
+  communities: Record<string, number>;
+}
+
+/** Subset of @aflsolutions/graphology-communities-leiden we use. */
+interface AflLeidenModule {
+  /**
+   * Run Leiden and return detailed result including modularity and mapping.
+   * Does NOT mutate the graph.
+   */
+  detailed(graph: GraphInstance, options?: { resolution?: number }): AflLeidenDetailedResult;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const leidenAlgo = _require('@aflsolutions/graphology-communities-leiden') as AflLeidenModule;
 
 // ============================================================================
 // GRAPHOLOGY GRAPH INTERFACE
@@ -146,22 +179,19 @@ const LEIDEN_RESOLUTION = 1.0;
  * built. It writes Community nodes (kind='community') and MEMBER_OF edges
  * (type='member_of') directly into `graph`.
  *
- * OUTPUTS (T1063):
+ * OUTPUTS (T1733):
  * - Community nodes: id=`comm_<n>`, kind='community', name=heuristic label
  * - MEMBER_OF edges: source=symbol, target=community_node, confidence=1.0
  * - Backward compat: symbol nodes' `communityId` field preserved
  *
  * Handles empty graphs (no CALLS edges) gracefully — returns empty results.
  *
- * ALGORITHM NOTE (T1063):
- * Leiden provides finer-grained community detection than Louvain by:
- * - Local moving phase: optimizes modularity by repositioning nodes
- * - Refinement phase: splits poorly-optimized communities to eliminate
- *   sub-optimal structures (key difference from Louvain)
- * - Aggregation phase: contracts graph and repeats
- *
- * This yields ~10–15× more communities than Louvain on large graphs
- * while maintaining or improving modularity.
+ * ALGORITHM NOTE (T1733 — swap to @aflsolutions/graphology-communities-leiden):
+ * Uses the maintained @aflsolutions/graphology-communities-leiden v1.1.1 package
+ * which correctly implements the Leiden algorithm. The prior pure-TS leiden.ts
+ * had a broken modularity-gain formula that produced 0 communities on all
+ * tested graphs (including perfectly structured cliques). See module-level
+ * comment for the full diagnosis and benchmark data.
  *
  * @param graph - The in-memory KnowledgeGraph to read edges from and write to
  * @returns Detection result with community nodes, memberships, and stats
@@ -199,13 +229,14 @@ export async function detectCommunities(graph: KnowledgeGraph): Promise<Communit
       `${isLarge ? ` (large-graph mode, filtered from ${symbolCount} symbols)` : ''}\n`,
   );
 
-  // Run Leiden (pure-TS implementation with 60-second timeout guard)
+  // Run Leiden (@aflsolutions/graphology-communities-leiden with 60-second timeout guard)
   const LEIDEN_TIMEOUT_MS = 60_000;
-  let details: ReturnType<typeof leiden>;
+  let details: AflLeidenDetailedResult;
+  const t0 = performance.now();
 
   try {
     details = await Promise.race([
-      Promise.resolve(leiden(gGraph, { resolution: LEIDEN_RESOLUTION })),
+      Promise.resolve(leidenAlgo.detailed(gGraph, { resolution: LEIDEN_RESOLUTION })),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Leiden timeout')), LEIDEN_TIMEOUT_MS),
       ),
@@ -222,17 +253,16 @@ export async function detectCommunities(graph: KnowledgeGraph): Promise<Communit
         communities: fallback,
         count: 1,
         modularity: 0,
-        nodesProcessed: gGraph.order,
-        refinementIterations: 0,
-        durationMs: 0,
       };
     } else {
       throw err;
     }
   }
 
+  const durationMs = performance.now() - t0;
+
   process.stderr.write(
-    `[nexus] Phase 5: Leiden found ${details.count} raw communities in ${details.durationMs.toFixed(0)}ms\n`,
+    `[nexus] Phase 5: Leiden found ${details.count} raw communities in ${durationMs.toFixed(0)}ms\n`,
   );
 
   // Build community info nodes (skip singletons)
@@ -274,7 +304,7 @@ export async function detectCommunities(graph: KnowledgeGraph): Promise<Communit
         target: m.communityId,
         type: 'member_of',
         confidence: 1.0,
-        reason: 'louvain-community',
+        reason: 'leiden-community',
       });
       // Update the node's communityId in-place (Map holds a reference)
       memberNode.communityId = m.communityId;
@@ -288,8 +318,8 @@ export async function detectCommunities(graph: KnowledgeGraph): Promise<Communit
       totalCommunities: communities.length,
       modularity: details.modularity,
       nodesProcessed: gGraph.order,
-      refinementIterations: details.refinementIterations,
-      durationMs: details.durationMs,
+      refinementIterations: 0,
+      durationMs,
     },
   };
 }
