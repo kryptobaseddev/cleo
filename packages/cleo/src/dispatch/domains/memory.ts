@@ -1491,6 +1491,8 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
+          const confirmationStateRaw = paramString(params, 'confirmationState');
+          const decidedByRaw = paramString(params, 'decidedBy');
           const result = await memoryDecisionStore(
             {
               decision,
@@ -1498,6 +1500,18 @@ export class MemoryHandler implements DomainHandler {
               alternatives: paramStringArray(params, 'alternatives'),
               taskId: paramString(params, 'taskId'),
               sessionId: paramString(params, 'sessionId'),
+              adrPath: paramString(params, 'adrPath'),
+              supersedes: paramString(params, 'supersedes'),
+              confirmationState:
+                confirmationStateRaw === 'proposed' ||
+                confirmationStateRaw === 'accepted' ||
+                confirmationStateRaw === 'superseded'
+                  ? confirmationStateRaw
+                  : undefined,
+              decidedBy:
+                decidedByRaw === 'owner' || decidedByRaw === 'council' || decidedByRaw === 'agent'
+                  ? decidedByRaw
+                  : undefined,
             },
             projectRoot,
           );
