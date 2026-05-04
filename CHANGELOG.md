@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [2026.5.16] (2026-05-04) — Eliminate DEP0040 punycode warning: openai SDK 4 → 6
+
+Bumps `openai` SDK from `^4.0.0` (resolved to 4.104.0) to `^6.0.0` (resolved to 6.26.0) in `packages/core` to remove the `node-fetch@2 → whatwg-url@5 → tr46@0.0.3 → require('punycode')` transitive chain that emitted Node 21+ DEP0040 deprecation warnings on every cleo CLI invocation.
+
+`openai@6` has zero runtime dependencies (native fetch). 8 transitive packages drop from the lockfile: `node-fetch@2.7.0`, `whatwg-url@5.0.0`, `tr46@0.0.3`, `agentkeepalive@4.6.0`, `formdata-node@4.4.1`, `form-data-encoder@1.7.2`, `abort-controller@3.0.0` (was openai-pinned), `@types/node-fetch@2.6.13`.
+
+### Wider engagement (T1734 + 4 parallel auditors)
+
+The migration ran with one implementation worker plus four parallel read-only auditors covering migration-guide research, monorepo consumer sweep, dependency-tree hygiene, and LLM test coverage. Findings cross-referenced before merge:
+
+- **Audit cross-reference revealed one breaking change the migration guide missed**: v6 made `ChatCompletionMessageToolCall` a discriminated union (`Function | Custom`). The migration-guide auditor's checklist marked v6 as "only the Responses API change affects callers." TypeScript's typecheck caught the actual break in `_normalizeResponse`; worker added a `tc.type !== 'function'` guard. **Wider engagement was supposed to catch this; the typecheck did. Documented as a Council-process learning.**
+- **Test-coverage audit verdict: insufficient** — 8 gaps where green tests would not have caught a botched migration (streaming, constructor, tool-calling normalization, json_schema branch, stream_options usage chunk). Backfill filed as **T1735** (followup, P2). The migration shipped because (a) typecheck caught the one real break, (b) hygiene audit confirmed lockfile cleanup is complete, (c) consumer-sweep confirmed touched files are sufficient. Test backfill is hardening for the next SDK bump, not a blocker for this one.
+- **Deprecation hygiene audit confirms 100% kill** of DEP0040. No other deprecated chains exist in the tree.
+
+### Breaking changes consumed
+
+- `ChatCompletionMessageToolCall` is now a discriminated union (`Function | Custom`). `packages/core/src/llm/backends/openai.ts` adds a type guard so the existing tool-call extraction path continues to work for `Function` tool calls (cleo does not use Custom tool calls).
+
+### Verification
+
+- `pnpm why punycode` no longer shows the openai chain
+- `NODE_OPTIONS='--trace-deprecation' node packages/cleo/dist/cli/index.js --version` emits **zero DEP0040 warnings** (was 1 prior to merge)
+- `pnpm run test` — 748 test files passed, 12366 tests passed, 0 failed (unchanged from v2026.5.15 baseline; migration introduced no regressions)
+- `pnpm biome ci .` clean, `pnpm run typecheck` clean, `pnpm run build` clean
+
+### Followups filed
+
+- **T1735** — backfill 5 LLM tests covering the paths the audit flagged as zero-coverage (small task; gated separately)
+- **T1733** (carryover) — evaluate `@aflsolutions/graphology-communities-leiden` v1.1.1 swap for the 405-line pure-TS Leiden after T1042's functional validation campaign
+
 ## [2026.5.15] (2026-05-03) — CI green: vitest console hijack + FORCE_COLOR snapshot drift
 
 CI has been red since v2026.5.12 due to two test-infrastructure issues finally root-caused and fixed in T1731. After this release: **`pnpm run test` reports 12366 passed, 0 failed across 748 test files** (vs ~26 failing before).
