@@ -335,6 +335,42 @@ function runBrainMigrations(
   ensureColumns(nativeDb, 'brain_learnings', provenanceColumn, 'brain');
   ensureColumns(nativeDb, 'brain_observations', provenanceColumn, 'brain');
 
+  // T1826: Decision Storage Consolidation — ADR tracking + governance columns.
+  // Drizzle migration 20260504000001_t1826-decisions-v2 handles fresh installs, BUT
+  // node:sqlite's prepare() only executes the first SQL statement when multiple
+  // statements are joined without "--> statement-breakpoint" separators. The migration
+  // file has 7+ ALTER TABLE statements with no breakpoints, so only adr_number gets
+  // applied by Drizzle. ensureColumns here is the safety-net that guarantees all 7
+  // new columns exist, matching the pattern used by T1084, T1260, T1145, etc.
+  ensureColumns(
+    nativeDb,
+    'brain_decisions',
+    [
+      { name: 'adr_number', ddl: 'integer' },
+      { name: 'adr_path', ddl: 'text' },
+      { name: 'supersedes', ddl: 'text' },
+      { name: 'superseded_by', ddl: 'text' },
+      { name: 'confirmation_state', ddl: "text NOT NULL DEFAULT 'proposed'" },
+      { name: 'decided_by', ddl: "text NOT NULL DEFAULT 'agent'" },
+      { name: 'validator_run_at', ddl: 'integer' },
+    ],
+    'brain',
+  );
+  // T1826: Idempotent companion indexes for the new columns.
+  nativeDb.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_decisions_adr_number
+      ON brain_decisions(adr_number)
+      WHERE adr_number IS NOT NULL`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_decisions_confirmation_state
+      ON brain_decisions(confirmation_state)`,
+  );
+  nativeDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_brain_decisions_decided_by
+      ON brain_decisions(decided_by)`,
+  );
+
   // T1001: brain_promotion_log — typed promotion audit trail.
   // One row per observation evaluated (and promoted) by promoteObservationsToTyped().
   nativeDb.exec(
