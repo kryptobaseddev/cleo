@@ -506,7 +506,12 @@ describe('buildSpawnPrompt — worktree setup hardening (T1758)', () => {
       worktreeBranch: BRANCH,
       tier: 0,
     });
-    const expectedKeys = ['CLEO_WORKTREE_ROOT', 'CLEO_AGENT_ROLE', 'CLEO_WORKTREE_BRANCH', 'CLEO_PROJECT_HASH'];
+    const expectedKeys = [
+      'CLEO_WORKTREE_ROOT',
+      'CLEO_AGENT_ROLE',
+      'CLEO_WORKTREE_BRANCH',
+      'CLEO_PROJECT_HASH',
+    ];
     for (const key of expectedKeys) {
       expect(result.prompt, `prompt must reference env key ${key}`).toContain(key);
     }
@@ -544,9 +549,7 @@ describe('buildSpawnPrompt — export block snapshot and drift detection (T1760)
     });
 
     // Extract the export lines from the preamble (the canonical output).
-    const expectedExportLines = ISOLATION_ENV_KEYS.map(
-      (k) => `export ${k}="${isolation.env[k]}"`,
-    );
+    const expectedExportLines = ISOLATION_ENV_KEYS.map((k) => `export ${k}="${isolation.env[k]}"`);
 
     const result = buildSpawnPrompt({
       task: BASE_TASK,
