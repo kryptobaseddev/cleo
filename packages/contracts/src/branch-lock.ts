@@ -273,6 +273,14 @@ export const BRANCH_LOCK_ERROR_CODES = {
    * `--shared-evidence` was not passed (or CLEO_STRICT_EVIDENCE=1 is set in CI).
    */
   E_SHARED_EVIDENCE_FLAG_REQUIRED: 'E_SHARED_EVIDENCE_FLAG_REQUIRED',
+  /**
+   * T1851 / P0: an absolute path provided to an Edit/Write SDK tool operation
+   * does not start with the agent's `worktreeRoot` prefix. This closes the
+   * bypass vector discovered in T1763 where a worker used Edit/Write with
+   * absolute paths into `/mnt/projects/cleocode/.cleo/rcasd/...`, circumventing
+   * the git-shim which only intercepts `git` binary calls.
+   */
+  E_BOUNDARY_VIOLATION: 'E_BOUNDARY_VIOLATION',
 } as const;
 
 /** Union of all branch-lock error code strings. */
@@ -303,12 +311,44 @@ export const ISOLATION_ENV_KEYS = [
 export type IsolationEnvKey = (typeof ISOLATION_ENV_KEYS)[number];
 
 /**
+ * Absolute-path validation rules enforced for Edit/Write SDK tool operations.
+ *
+ * Closes the bypass vector discovered in T1763: a worker used Edit/Write with
+ * absolute paths pointing outside its worktree (into `/mnt/projects/...`),
+ * which the git-shim could not catch because it only intercepts `git` binary
+ * calls. This contract layer enforces path restrictions at the SDK tool level.
+ *
+ * @task T1851
+ */
+export interface AbsolutePathRules {
+  /**
+   * List of absolute path prefixes the agent is permitted to write to.
+   *
+   * The worktree root is always included as the first entry by
+   * `provisionIsolatedShell`. Additional prefixes (e.g. `/tmp`) may be added
+   * by the caller when the task genuinely requires writes outside the worktree
+   * (test fixtures, CI artefacts, etc.).
+   */
+  allowedPrefixes: readonly string[];
+  /**
+   * When `true` (the default), any absolute path that does NOT start with one
+   * of the `allowedPrefixes` entries is rejected with `E_BOUNDARY_VIOLATION`.
+   *
+   * Set to `false` only for orchestrator-role agents that legitimately need
+   * write access to the full project tree (e.g. the merge-complete flow).
+   * Audit logs should record any `false` instance.
+   */
+  deniedOutsideWorktree: boolean;
+}
+
+/**
  * Boundary contract returned by `provisionIsolatedShell`.
  *
- * Consumed by git-shim and other enforcement layers to verify that the agent
- * is operating within its authorized boundary.
+ * Consumed by git-shim, SDK tool validators, and other enforcement layers to
+ * verify that the agent is operating within its authorized boundary.
  *
  * @task T1759
+ * @task T1851
  */
 export interface BoundaryContract {
   /** Absolute path to the worktree root the agent is authorized within. */
@@ -317,6 +357,16 @@ export interface BoundaryContract {
   role: 'worker' | 'orchestrator';
   /** The canonical set of env keys that were injected (mirrors ISOLATION_ENV_KEYS). */
   envKeys: typeof ISOLATION_ENV_KEYS;
+  /**
+   * Absolute-path validation rules for Edit/Write SDK tool operations.
+   *
+   * Enforcement closes the T1763 bypass vector: workers MUST NOT use Edit/Write
+   * with paths outside their `worktreeRoot`. The git-shim alone was insufficient
+   * because it only intercepts `git` binary calls.
+   *
+   * @task T1851
+   */
+  absolutePathRules: AbsolutePathRules;
 }
 
 /**
@@ -446,11 +496,101 @@ export function provisionIsolatedShell(options: IsolationOptions): IsolationResu
   ].join('\n');
 
   // --- boundaryContract ----------------------------------------------------
+  const absolutePathRules: AbsolutePathRules = {
+    // Worktree root is always the first (and, for workers, only) allowed prefix.
+    allowedPrefixes: [worktreePath],
+    // Workers are always denied writes outside their worktree.
+    // Orchestrator-role spawns may loosen this via explicit overrides, but the
+    // default remains `true` to follow the principle of least privilege.
+    deniedOutsideWorktree: true,
+  };
+
   const boundaryContract: BoundaryContract = {
     worktreeRoot: worktreePath,
     role,
     envKeys: ISOLATION_ENV_KEYS,
+    absolutePathRules,
   };
 
   return { cwd, env, preamble, boundaryContract };
+}
+
+// ---------------------------------------------------------------------------
+// Absolute-path validation (T1851)
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of validating an absolute path against a BoundaryContract.
+ *
+ * @task T1851
+ */
+export type AbsolutePathValidationResult =
+  | { allowed: true }
+  | {
+      allowed: false;
+      /** Always `E_BOUNDARY_VIOLATION`. */
+      code: typeof BRANCH_LOCK_ERROR_CODES.E_BOUNDARY_VIOLATION;
+      /** Human-readable rejection message for log output and error surfaces. */
+      message: string;
+    };
+
+/**
+ * Validate that an absolute path is permitted by the given BoundaryContract.
+ *
+ * This is the primary enforcement point for the P0 isolation fix (T1851).
+ * It closes the bypass vector discovered in T1763: a worker committed files to
+ * `/mnt/projects/cleocode/.cleo/rcasd/...` by passing absolute paths directly
+ * to Edit/Write SDK tool calls, bypassing the git-shim (which only intercepts
+ * `git` binary invocations).
+ *
+ * Rules:
+ * - If `contract.absolutePathRules.deniedOutsideWorktree` is `false`, the path
+ *   is always allowed (opt-out is explicitly recorded in the contract).
+ * - Otherwise, the path MUST start with at least one entry in
+ *   `contract.absolutePathRules.allowedPrefixes`. The check uses exact prefix
+ *   matching with a trailing-slash normalisation to prevent the path
+ *   `/home/user/.local/.../T1234-extra` from matching prefix
+ *   `/home/user/.local/.../T1234`.
+ *
+ * This function is pure — no I/O, no side effects, deterministic.
+ *
+ * @param absolutePath - The absolute path to validate.
+ * @param contract - The boundary contract for the agent.
+ * @returns `{ allowed: true }` or `{ allowed: false, code, message }`.
+ * @task T1851
+ */
+export function validateAbsolutePath(
+  absolutePath: string,
+  contract: BoundaryContract,
+): AbsolutePathValidationResult {
+  const { absolutePathRules } = contract;
+
+  // Fast-path: enforcement is disabled for this contract (orchestrator opt-out).
+  if (!absolutePathRules.deniedOutsideWorktree) {
+    return { allowed: true };
+  }
+
+  // Normalise the candidate path once so all prefix comparisons are consistent.
+  // Ensure the prefix check uses a trailing slash so a path like
+  //   /worktrees/T1234-extra
+  // does NOT match the allowed prefix
+  //   /worktrees/T1234
+  const normPath = absolutePath.endsWith('/') ? absolutePath : `${absolutePath}/`;
+
+  for (const prefix of absolutePathRules.allowedPrefixes) {
+    const normPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
+    if (normPath.startsWith(normPrefix) || absolutePath === prefix) {
+      return { allowed: true };
+    }
+  }
+
+  return {
+    allowed: false,
+    code: BRANCH_LOCK_ERROR_CODES.E_BOUNDARY_VIOLATION,
+    message:
+      `E_BOUNDARY_VIOLATION: absolute path "${absolutePath}" is outside the ` +
+      `permitted boundary. worktreeRoot="${contract.worktreeRoot}", ` +
+      `allowedPrefixes=[${absolutePathRules.allowedPrefixes.map((p) => `"${p}"`).join(', ')}]. ` +
+      `Use a path within the worktree or update AbsolutePathRules.allowedPrefixes.`,
+  };
 }
