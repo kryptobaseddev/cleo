@@ -2,6 +2,77 @@
 
 ## [Unreleased]
 
+## [2026.5.17] (2026-05-04) — T1042 close-out + T1056 Living Brain shipped + worktree isolation enforcement
+
+A multi-front release closing the Cleo-Nexus far-exceed thread (T1042) on the implementation side, shipping the entire Living Brain v2 epic (T1056), and remediating a worktree-isolation bug discovered mid-orchestration.
+
+### T1056 — Nexus P2: Living Brain Completion (epic closed, 17/17)
+
+Six implementation tasks merged in one wave:
+
+- **T945** — Universal Semantic Graph: `brain_page_nodes` promoted to sentience layer with auto-population triggers (tasks/decisions/nexus/conduit/llmtxt), edge-type canonicalization (documents/applies_to/blocks/derives_from/touches_code/discusses/cites/supersedes), SDK traversal surface (`getRelated`/`getImpact`/`getContext`), `GET /api/v1/graph` endpoint, cross-DB soft-FKs materialized as hard graph edges. (`6adb822d1`)
+- **T1073** — IVTR Breaking-Change Gate: new `nexusImpact` acceptance gate validates against `analyzeImpact()` and blocks `cleo complete` on CRITICAL risk. `--acknowledge-risk <reason>` bypass with audit log. Opt-in via `CLEO_NEXUS_IMPACT_GATE=1`. (`3f0edc750`)
+- **T1110** — Wired `runGitLogTaskLinker` into `cleo nexus analyze` post-hook (was test-only). (`3ef60e636`)
+- **T1531** — Replaced keyword-overlap pivot detection with cosine similarity in `session-narrative.ts`, vec-extension fallback preserved. (`9e86fefd8`)
+- **T1532** — Strengthened `dialectic-evaluator.ts buildDialecticSystemPrompt` with 3 annotated few-shot examples + confidence threshold filtering. (`4d6a1bfac`)
+- **T1533** — Added structured telemetry to `evaluateDialectic` (backend=none log, generateObject error capture). (`e0399710e`)
+
+### T1055 — Nexus P1: Competitive Closure (epic closed, 4/5)
+
+T1534 (AST shape inference) cancelled per Council D5 — descoped as p1.5-residual under supersession-via-architecture frame.
+
+### T1042 — D3 supersession validation campaign (T1736)
+
+Council Decision 3 (owner-ratified): full re-run validation on `/mnt/projects/openclaw` produced `SUPERSESSION-EVIDENCE.md`. Honest 6-axis comparison vs gitnexus 1.6.3:
+
+| Axis | Verdict |
+|------|---------|
+| Symbol counts (252k vs 64k) | **falls-behind** — T1762 filed |
+| IMPORTS edges (391k vs 47k, 8.4x gap) | **falls-behind** — T1763 filed |
+| Leiden communities (7,183 vs 0) | **falls-behind** — T1764 filed (cleo's pure-TS Leiden produces zero communities on production-sized graphs) |
+| Callers/callees (8/10 sample) | **matches** |
+| Wiki | **falls-behind** (both blocked — gitnexus needs LLM key, cleo blocked by Leiden=0) |
+| Hook augmenter latency (317ms vs 1979ms) | **falls-behind** — T1765 filed |
+
+T1062-T1072 records updated with `parity-verified` notes to maintain audit trail. The supersession-via-architecture frame still holds (cleo's 5-substrate living brain has no gitnexus equivalent), but raw code-intelligence parity claims are formally downgraded — close-gap work tracked in T1762-T1765 as next-session epics.
+
+### T1647/T1648/T1649 — Council D2 close-out
+
+Closed against existing artifacts in `T1042-nexus-gap/` (`gitnexus-surface.md`, `cleo-nexus-surface.md`, `RECOMMENDATION-v2.md`) and the redirect stub at `.cleo/agent-outputs/T1042-gap-analysis.md`. T1054 (Nexus P0 Core Query Power) had already shipped 2026-05-03, so T1649 (implement top-3) was already met.
+
+### Worktree-isolation enforcement (T1756 epic)
+
+**Bug discovered mid-orchestration**: 3 of 6 cleo-subagent workers leaked work into the orchestrator's main project tree instead of their assigned worktree. T1110 created a direct commit on `main` bypassing ADR-062 `git merge --no-ff`. Investigation traced the root cause: `orchestrateSpawn()` returns `worktreeCwd`/`worktreeEnv` but the Claude Code Agent SDK dispatch path **never injects them into the subagent process**. The `## Worktree Setup (REQUIRED)` section in tier-1 spawn prompts is documentation-only.
+
+Filed as T1756 with 4 child impl tasks rescoped per owner direction toward a centralized harness-agnostic utility:
+
+- **T1759** — `packages/core/src/worktree/isolation.ts` `provisionIsolatedShell({worktreePath, branch, role, projectHash})` returning `{cwd, env, preamble, boundaryContract}`. Single source of truth consumed by both `orchestrateSpawnExecute` and `PiHarness.spawnSubagent`. Eliminates the dual-path divergence.
+- **T1758** — Tier-1 spawn prompt hardened (per-call `cd` guard documenting Bash fresh-shell semantics).
+- **T1760** — Export block in spawn prompt generated from utility preamble (no inline duplication).
+- **T1761** — git-shim boundary check fires before denylist when `CLEO_AGENT_ROLE=worker` and cwd outside `CLEO_WORKTREE_ROOT`.
+
+Plus **T1768** (SDK Tools meta-epic): owner-directed exploration of Cleo Core SDK's "Tools" surface — centralized harness-agnostic utilities like `WorktreeIsolation`, `EvidenceCapture`, `ToolResolver`, `ManifestAppend` — defining the architectural pattern so harnesses consume rather than duplicate.
+
+### T1757 — Errant nested directories cleanup
+
+- `packages/core/packages/core/` (4KB stale duplicate of `suppress-sqlite-warning.ts` from 2026-04-28 errant agent CWD) — backed up to `.cleo/backups/errant-core-nested-20260504-094433.tar.gz` then `rm -rf`.
+- `packages/skills/skills/ct-council/` — committed (`fcc27392d`) and registered in `skills.json` (`af3fd1ebb`). The Council skill from T1406 (2026-04-24) was the only skill never tracked in git — discovery via T1757 investigation.
+
+### Verification
+
+- `pnpm run typecheck` — clean
+- `pnpm biome ci .` — clean (3 files auto-sorted in `a7f008812`)
+- `pnpm run test` — 753 test files passed, 12,451 tests passed, 0 failed (vs 12,366 before)
+- v2026.5.16 baseline regressions: zero
+
+### Followups filed
+
+- T1733 (Leiden swap eval — gated on T1736, **active**)
+- T1762/T1763/T1764/T1765 (parity gap fixes — symbol counts, IMPORTS, Leiden, augmenter)
+- T1735 (LLM test backfill — carried from v2026.5.16, still open)
+- T1768 (SDK Tools surface meta-epic)
+
+
 ## [2026.5.16] (2026-05-04) — Eliminate DEP0040 punycode warning: openai SDK 4 → 6
 
 Bumps `openai` SDK from `^4.0.0` (resolved to 4.104.0) to `^6.0.0` (resolved to 6.26.0) in `packages/core` to remove the `node-fetch@2 → whatwg-url@5 → tr46@0.0.3 → require('punycode')` transitive chain that emitted Node 21+ DEP0040 deprecation warnings on every cleo CLI invocation.
