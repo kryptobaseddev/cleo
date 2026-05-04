@@ -443,6 +443,88 @@ describe('buildSpawnPrompt — worktree setup section (T1140)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// T1758 — Hardened worktree setup: cwd-reset warning + provisionIsolatedShell preamble
+// ---------------------------------------------------------------------------
+
+describe('buildSpawnPrompt — worktree setup hardening (T1758)', () => {
+  const WORKTREE = '/home/user/.local/share/cleo/worktrees/abc123/T9000';
+  const BRANCH = 'task/T9000';
+
+  it('warns that cwd does not persist between Bash calls', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: WORKTREE,
+      worktreeBranch: BRANCH,
+      tier: 0,
+    });
+    expect(result.prompt).toContain('cwd does NOT persist between Bash calls');
+    expect(result.prompt).toContain('new shell');
+  });
+
+  it('embeds the cd-guard snippet with worktree path', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: WORKTREE,
+      worktreeBranch: BRANCH,
+      tier: 0,
+    });
+    // The ready-to-use snippet must contain the cd-guard pattern
+    expect(result.prompt).toContain(`WORKTREE=${WORKTREE}`);
+    expect(result.prompt).toContain(`cd "$WORKTREE" || exit 1`);
+    expect(result.prompt).toContain(`pwd | grep -q "$WORKTREE" || exit 1`);
+  });
+
+  it('embeds provisionIsolatedShell preamble with export block (single source of truth)', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: WORKTREE,
+      worktreeBranch: BRANCH,
+      tier: 0,
+    });
+    // The preamble from provisionIsolatedShell exports isolation env keys
+    expect(result.prompt).toContain('export CLEO_WORKTREE_ROOT=');
+    expect(result.prompt).toContain('export CLEO_AGENT_ROLE=');
+    expect(result.prompt).toContain('export CLEO_WORKTREE_BRANCH=');
+    expect(result.prompt).toContain('export CLEO_PROJECT_HASH=');
+  });
+
+  it('lists ISOLATION_ENV_KEYS in the prompt — drift detection', () => {
+    // This test will fail if ISOLATION_ENV_KEYS shape changes without prompt update.
+    // The prompt must mention each canonical env key from the utility.
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: WORKTREE,
+      worktreeBranch: BRANCH,
+      tier: 0,
+    });
+    const expectedKeys = ['CLEO_WORKTREE_ROOT', 'CLEO_AGENT_ROLE', 'CLEO_WORKTREE_BRANCH', 'CLEO_PROJECT_HASH'];
+    for (const key of expectedKeys) {
+      expect(result.prompt, `prompt must reference env key ${key}`).toContain(key);
+    }
+  });
+
+  it('includes CRITICAL WORKTREE ISOLATION section header', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      worktreePath: WORKTREE,
+      worktreeBranch: BRANCH,
+      tier: 0,
+    });
+    expect(result.prompt).toContain('CRITICAL — WORKTREE ISOLATION');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // T1614 — Task Documents section (spawn auto-attaches docs)
 // ---------------------------------------------------------------------------
 
