@@ -268,6 +268,55 @@ export interface MemoryDecisionEntry {
   contextPhase?: string;
   /** Source confidence (T549). */
   sourceConfidence?: BrainSourceConfidence;
+  /**
+   * Monotonically-increasing ADR sequence number assigned to this decision.
+   *
+   * `undefined` / `null` for informal decisions that have not been assigned an ADR
+   * number. Populated at insert time via an app-level MAX+1 sequence helper.
+   *
+   * @see T1826 Decision Storage Consolidation
+   */
+  adrNumber?: number | null;
+  /**
+   * Relative or absolute path to the ADR document on disk (e.g. `"docs/adr/ADR-027.md"`).
+   *
+   * `undefined` / `null` when the decision has no associated file.
+   */
+  adrPath?: string | null;
+  /**
+   * ID of the `brain_decisions` row this decision supersedes.
+   *
+   * Self-referential back-pointer. `undefined` when this decision does not replace a prior one.
+   */
+  supersedes?: string | null;
+  /**
+   * ID of the `brain_decisions` row that has superseded this decision.
+   *
+   * `undefined` while this decision is still active.
+   */
+  supersededBy?: string | null;
+  /**
+   * Lifecycle state in the confirmation workflow.
+   *
+   * - `'proposed'`   — Newly filed; awaiting owner/council review.
+   * - `'accepted'`   — Formally approved and active.
+   * - `'superseded'` — Replaced by a newer decision (see `supersededBy`).
+   */
+  confirmationState?: 'proposed' | 'accepted' | 'superseded';
+  /**
+   * Who approved / originated this decision.
+   *
+   * - `'owner'`   — Directly authored or approved by the project owner.
+   * - `'council'` — Approved via multi-agent consensus (council vote).
+   * - `'agent'`   — Agent-inferred; not yet owner/council confirmed.
+   */
+  decidedBy?: 'owner' | 'council' | 'agent';
+  /**
+   * Epoch millisecond timestamp of the most recent LLM-validator run (T1828 hook).
+   *
+   * `undefined` / `null` when the decision has never been validated.
+   */
+  validatorRunAt?: number | null;
 }
 /** Result of `memory.decision.find`. */
 export type MemoryDecisionFindResult = MemoryDecisionEntry[];
