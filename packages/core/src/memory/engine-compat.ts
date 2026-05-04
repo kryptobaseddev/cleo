@@ -336,6 +336,10 @@ export async function memoryDecisionStore(
     alternatives?: string[];
     taskId?: string;
     sessionId?: string;
+    adrPath?: string | null;
+    supersedes?: string | null;
+    confirmationState?: 'proposed' | 'accepted' | 'superseded';
+    decidedBy?: 'owner' | 'council' | 'agent';
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
@@ -363,6 +367,10 @@ export async function memoryDecisionStore(
       outcome: 'pending',
       alternatives: params.alternatives,
       contextTaskId: params.taskId,
+      adrPath: params.adrPath ?? undefined,
+      supersedes: params.supersedes ?? undefined,
+      confirmationState: params.confirmationState,
+      decidedBy: params.decidedBy,
     });
 
     return {
