@@ -227,6 +227,25 @@
       "metadata": {}
     },
     {
+      "name": "ct-council",
+      "description": "Convene \"The Council\" — a 5-advisor, shuffled gate-based peer-review, chairman-synthesis workflow for reviewing a plan, decision, architecture, or piece of work inside the current project. Use when the user says \"convene the council\" (or \"counsel\"), \"get the council on this\", \"council review\", \"run the five advisors\", \"stress-test this\", \"get multiple perspectives\", or asks for a rigorous multi-angle challenge of a proposal (Contrarian, First Principles, Expansionist, Outsider, Executor → shuffled peer review with pass/fail gates → convergence detector → Chairman verdict). Operates on the current codebase — each advisor grounds their analysis in actual files/commits before opining. Output is validated by scripts/validate.py.",
+      "version": "1.0.0",
+      "path": "skills/ct-council/SKILL.md",
+      "references": ["skills/ct-council/references/chairman.md", "skills/ct-council/references/contrarian.md", "skills/ct-council/references/evidence-pack.md", "skills/ct-council/references/examples.md", "skills/ct-council/references/executor.md", "skills/ct-council/references/expansionist.md", "skills/ct-council/references/first-principles.md", "skills/ct-council/references/outsider.md", "skills/ct-council/references/peer-review.md"],
+      "core": false,
+      "category": "specialist",
+      "tier": 2,
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": ["claude-code", "cursor", "windsurf", "gemini-cli"],
+      "license": "MIT",
+      "metadata": {
+        "triggers": ["convene the council", "council review", "run the five advisors", "stress-test this", "get multiple perspectives"],
+        "advisors": ["Contrarian", "First Principles", "Expansionist", "Outsider", "Executor"]
+      }
+    },
+    {
       "name": "ct-skill-creator",
       "description": "Guide for creating effective skills. Use when creating a new skill or updating an existing skill that extends agent capabilities.",
       "version": "1.0.0",
