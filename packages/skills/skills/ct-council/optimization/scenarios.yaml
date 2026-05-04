@@ -1,0 +1,121 @@
+# Council shakedown scenarios — campaign.py loads this at runtime.
+#
+# Each entry must have: id, number, title, dimension, shape, learn, briefing.
+# The `id` is the slug used everywhere (CLI, manifest, runs/<scenario>).
+# The `number` controls run order (lowest first; gaps are OK).
+#
+# To add a new scenario: append an entry below. No code changes required.
+# To change a briefing: edit the `briefing` field. campaign.py picks it up
+# on the next invocation.
+#
+# Keep `briefing` to multi-line text (use YAML's `|` literal block style).
+# It's printed verbatim by `campaign.py next` to brief the orchestrator.
+#
+# Schema version: 1.0.0
+
+schema_version: "1.0.0"
+
+scenarios:
+  - id: baseline
+    number: 1
+    title: Narrow binary, dense evidence
+    dimension: Control run
+    shape: "Binary decision, 5-7 path:line / sha citations, no llmtxt:"
+    learn: Baseline cost / wall-clock / gate-pass distribution all subsequent runs compare against.
+    briefing: |
+      Pick a real, current cleocode (or active-project) decision with a clean binary shape:
+        - 'Should we X or stay with Y?'
+        - 'Is Z ready to ship?'
+      Evidence pack: 5-7 items, all path:line or sha citations from the live codebase. NO llmtxt:.
+      This run sets the campaign's baseline gate-pass distribution and token cost.
+
+  - id: external-doc-heavy
+    number: 2
+    title: External-doc heavy
+    dimension: "Live llmtxt: integration"
+    shape: "Binary, ≥3 of 7 evidence items as llmtxt:<slug>"
+    learn: Does the wrapper survive real subagent distribution under auth/rate-limit conditions?
+    briefing: |
+      Pick a question that genuinely depends on external docs (libraries, APIs, specs).
+      Evidence pack: ≥3 items as `llmtxt:<slug>` with concise inline rationale; 1-3 local citations.
+      If `llmtxt_ref.py` cannot fetch (auth/network), inline rationales are the ground-truth fallback.
+
+  - id: three-way
+    number: 3
+    title: Three-way trade-off
+    dimension: Chairman ranking, not binary approve
+    shape: "'Which of A / B / C?'"
+    learn: "Does the verdict template hold for N-way? Is `### Recommendation` flexible enough?"
+    briefing: |
+      Pose a genuinely 3-way question — three implementation choices, three vendors, three patterns.
+      The Chairman MUST produce a ranking (A >> B > C), not just 'pick A.' Watch for:
+        - Does the verdict cleanly state the rank?
+        - Does it justify the 2nd place's reason for not being 1st?
+        - Does at least one advisor argue for each option?
+
+  - id: sparse-ops
+    number: 4
+    title: Sparse / ops question
+    dimension: Advisors with no code to grep
+    shape: Configs + external docs only; no executable-code citations
+    learn: Do advisors honestly say "insufficient" or hallucinate to fill gaps?
+    briefing: |
+      Pick an ops/config question: CI matrix, package.json field, env var, deployment policy.
+      Evidence pack: only config files (yaml, json, toml) + external doc references. NO src/ citations.
+      In each subagent briefing, explicitly note: 'punish fabricated specificity, not honest abstention.'
+      Watch Outsider especially — sparse evidence is their highest-leverage scenario.
+
+  - id: contradictory
+    number: 5
+    title: Contradictory evidence
+    dimension: Contradiction handling
+    shape: Pack contains 2 items that disagree on purpose
+    learn: Does Outsider catch it? Does FP re-derive cleanly under conflicting overlay?
+    briefing: |
+      Plant a deliberate contradiction in the pack:
+        - Item N says X (e.g. an ADR / AGENTS.md rule)
+        - Item N+1 shows ¬X exists on disk (e.g. a directory listing or commit)
+      Do NOT signal the contradiction in the question — let the advisors find it.
+      Outsider's frame is the canonical antibody; FP must classify which side is load-bearing truth.
+
+  - id: non-cleo
+    number: 6
+    title: Non-CLEO project
+    dimension: Portability beyond cleocode conventions
+    shape: External small repo + bug report; council run inside it
+    learn: Does the skill work on any project, or has it accumulated cleocode-isms?
+    briefing: |
+      Clone a small external repo to /tmp (e.g. a popular OSS utility under <500 files).
+      Pose a real-looking bug report or design question against THAT repo's actual files.
+      Run the council with NO cleocode-specific evidence. Watch for:
+        - Persona files referencing 'CLEO' / 'BRAIN' / 'NEXUS' (cleocode-isms)
+        - Validator failures on conventions that don't apply outside cleocode
+        - llmtxt_ref / cleo CLI references that don't exist in the foreign repo
+
+  - id: mini
+    number: 7
+    title: Small-scope stress (3 items)
+    dimension: Overhead-vs-signal ratio
+    shape: Exactly 3 evidence items (the validator floor)
+    learn: Is a "mini-council" variant worth shipping? Can the gates fire on thin packs?
+    briefing: |
+      Pose a tightly-scoped question and discipline yourself to EXACTLY 3 evidence items.
+      Watch for:
+        - Gate-pass distribution (does G1 Rigor still fire reasonably?)
+        - Token cost (should be 60-70% of full-council baseline)
+        - Chairman confidence (does it stay ≥medium?)
+      If all three hold, document a 'mini-council' variant in SKILL.md.
+
+  - id: contention
+    number: 8
+    title: High-contention
+    dimension: Chairman reconciliation under genuine disagreement
+    shape: Question designed to produce a 3-vs-2 advisor split
+    learn: Does the Chairman template handle real contention rather than directional convergence?
+    briefing: |
+      Pose a question where 2-3 advisors will plausibly disagree with the other 2-3:
+        - Speed-vs-safety trade-offs (Executor/Expansionist vs Contrarian/FP)
+        - Autonomy-vs-control questions (Outsider / Contrarian split is common)
+        - The Council voting on its own composition / process
+      If the verdict converges directionally instead of splitting, the contention test failed —
+      consider a re-run with a sharper question.
