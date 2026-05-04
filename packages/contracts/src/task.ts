@@ -110,7 +110,15 @@ export type VerificationGate =
   | 'qaPassed'
   | 'cleanupDone'
   | 'securityPassed'
-  | 'documented';
+  | 'documented'
+  /**
+   * IVTR Breaking-Change Gate — blocks completion when task touches symbols
+   * with CRITICAL nexus impact risk. Opt-in via `CLEO_NEXUS_IMPACT_GATE=1`.
+   *
+   * @task T1073
+   * @epic T1042
+   */
+  | 'nexusImpact';
 
 /** Verification failure log entry. */
 export interface VerificationFailure {
