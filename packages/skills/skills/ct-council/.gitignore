@@ -1,0 +1,15 @@
+# Council run artifacts — local-only telemetry / per-run materials.
+# Distilled findings get promoted into references/*.md or scripts/, which IS committed.
+.runs/
+.cleo/
+
+# Optimization scratch
+optimization/campaigns/
+optimization/.active-campaign
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo
+__pycache__/
+*.pyc
