@@ -162,6 +162,9 @@ Ordered by leverage (highest first):
 
 ## Council Decisions (2026-05-04)
 
+> ⚠️ **Decision 4 was REVERSED on owner pushback** — Council R4 ("descope Leiden, Louvain is enough") was based on a false brief premise. Source-code reads confirm **Leiden is already shipped** in `packages/nexus/src/pipeline/community-processor.ts` + `leiden.ts` (pure-TS impl). Owner correctly identified that Louvain has a published correctness bug (internally disconnected communities) that Leiden's refinement phase fixes — this is correctness, not parity. See Decision 4 section below for the corrected disposition. **Process lesson: when source code is the canonical answer, the Chairman should read it during synthesis, not punt it to the operational step.**
+
+
 **Source**: 5-advisor Council run `20260504T051843Z-a36ef96d` (all 4/4 gates passed, no convergence flag, confidence: high). Full transcript at `.claude/skills/council/.cleo/council-runs/20260504T051843Z-a36ef96d/output.md`. Verdict at `…/verdict.md`.
 
 **Headline**: Of the 5 outstanding decisions, **only Decision 3 (functional validation) genuinely requires owner direction**; Decisions 1, 2, 4, 5 are execution-derivable from the supersession-via-architecture frame and current task state. The brief's framing of all 5 as escalation points reflected bookkeeping caution, not actual ambiguity.
@@ -209,19 +212,52 @@ cleo add --parent T1042 --type task --priority high --size medium \
   --acceptance "Both pipelines run cleanly on /mnt/projects/openclaw|6-axis comparison table produced|Each axis tagged exceeds/matches/falls-behind|Falls-behind axes filed as new tasks|Update T1062-T1072 records with parity outcome note"
 ```
 
-### Decision 4 — Leiden vs Louvain → **Option (a): descope Leiden** (subject to Decision 3)
+### Decision 4 — Leiden vs Louvain → **CORRECTION (2026-05-04 owner pushback)**
 
-**Recommendation**: Descope Leiden in favor of differentiation work, BUT only after Decision 3 confirms the 13× community-count gap doesn't materially harm differentiation use cases.
+> ⚠️ **The original Council recommendation here was WRONG.** Council R4 said "descope Leiden, Louvain is enough" based on the brief's false framing of Leiden as a parity-only feature. Owner pushback identified the actual atomic truth the Council missed: **Louvain has a known correctness bug** (internally disconnected communities — Traag, Waltman & van Eck 2019). Leiden adds a refinement phase that guarantees connected communities, runs in O(n log n), and is *strictly better*. This is not parity vs differentiation — it's correct vs buggy substrate. Differentiation features (sentient detectors, plasticity heat localization, getSymbolFullContext) all consume community membership; if those communities are internally disconnected, every feature built on top of them is operating on a flawed substrate.
 
-**Rationale**: First Principles is decisive: under supersession-via-architecture, parity features (Leiden swap to match gitnexus' 6,797 communities) are lower priority than differentiation features (5-substrate traversal, plasticity, TASKS↔NEXUS bridge). The 13× community-count gap is only a quality issue if differentiation use cases regress on coarser communities. T1063 closed with `member_of` edges — the differentiation contract is met.
+**Source-of-truth finding (read from the actual code, not the brief)**:
 
-**Conditional**: Re-open Leiden as a P1.5 task IF Decision 3's diff document shows >2× regression in differentiation-use-case quality (sentient detector recall, plasticity heat localization) attributable to coarser communities.
+```text
+packages/nexus/src/pipeline/community-processor.ts:4
+  "Uses the Leiden algorithm (pure-TS implementation) to detect..."
 
-**Operational step**: Resolve the brief's internal contradiction (line 23 says Leiden, line 155 says Louvain) by reading the actual code, then update T1063 record:
-```bash
-grep -n "leiden\|louvain\|cluster_algorithm" packages/nexus/src/pipeline/community-processor.ts | head
-# Then update T1063 with the canonical answer found in source
+packages/nexus/src/pipeline/community-processor.ts:13
+  "Implements the Leiden algorithm from Traag, Waltman, van Eck (2019)"
+
+packages/nexus/src/pipeline/community-processor.ts:15
+  "Refinement phase distinguishes Leiden from Louvain by splitting..."
+
+packages/nexus/src/pipeline/community-processor.ts:17
+  "Produces ~10–15× more communities than Louvain at same resolution"
+
+packages/nexus/src/pipeline/community-processor.ts:30
+  import { leiden } from './leiden.js';
 ```
+
+There's a dedicated `packages/nexus/src/pipeline/leiden.ts` (pure-TS implementation, written because `graphology-leiden` was unavailable). **Leiden is the canonical algorithm and is already shipped.**
+
+**Corrected recommendation**: **Leiden is correct, shipped, and required — keep it.** Update T1063's task description to match the source code. The brief's line 155 "T1063 closed with Louvain resolution tuning" was a sloppy closed-task description that the brief inherited. The 13× community-count gap is **not** a gap — it's the expected effect of using the more granular and correctness-guaranteed algorithm. The "513 vs 6,797" benchmark in `gitnexus-surface.md` predates Leiden's adoption in cleo.
+
+**Why the Council got this wrong**:
+1. Outsider correctly flagged the brief's internal contradiction (line 23 says Leiden, line 155 says Louvain) but did not read source.
+2. Chairman punted with "read source for canonical answer" instead of doing it.
+3. First Principles applied "parity defers under supersession" without checking whether Louvain is actually correct — which it isn't, by published proof. **Atomic truth missed**: an algorithm with a known correctness bug is never lower priority than the algorithm that fixes it, regardless of strategy frame.
+
+**Conditional**: None. Leiden stays. Louvain is not an option.
+
+**Operational steps**:
+```bash
+# 1. Update T1063's description to reflect the source-code truth
+cleo update T1063 --description "Leiden community detection + member_of edges. Pure-TS Leiden implementation in packages/nexus/src/pipeline/leiden.ts (replaces unavailable graphology-leiden package). Per Traag, Waltman & van Eck 2019 — refinement phase guarantees internally connected communities (Louvain's known correctness bug). Produces ~10-15x more communities than Louvain at same resolution. Source-of-truth: packages/nexus/src/pipeline/community-processor.ts. Brief's prior 'Louvain resolution tuning' description was incorrect."
+
+# 2. The Decision 3 validation campaign should now compare gitnexus' Leiden vs cleo's Leiden (not gitnexus' Leiden vs cleo's Louvain). Update the validation task's acceptance criteria accordingly when filing it.
+
+# 3. Verify the implementation handles the same correctness invariants gitnexus relies on:
+pnpm --filter @cleocode/nexus test community-process --run
+```
+
+**Validation question that supersedes the original D4**: now that we know both tools run Leiden, does cleo's pure-TS Leiden produce the same partition (or better) as gitnexus' Leiden on `/mnt/projects/openclaw`? This is the right Decision 3 axis — the original D4 ("descope or keep") was based on a false premise.
 
 ### Decision 5 — T1534 AST shape inference scope → **Hybrid (a)+(c): keep medium, P1.5 residual**
 
