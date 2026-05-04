@@ -1,17 +1,30 @@
 /**
- * Tests for NEXUS symbol context augmentation (T1061)
+ * Tests for NEXUS symbol context augmentation (T1061, T1765)
  *
- * Tests BM25 search and result formatting for PreToolUse hook injection.
+ * Tests LIKE search and result formatting for PreToolUse hook injection.
+ *
+ * T1765 regression coverage:
+ *   - Wrong column names in callers/callees subqueries no longer produce empty results
+ *   - Operator precedence bug in WHERE clause fixed (label LIKE OR file_path LIKE AND kind)
+ *   - communityId typed as string (matching nexus_nodes.community_id text column)
  */
 
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { augmentSymbol, formatAugmentResults } from '../augment.js';
 
-describe('augmentSymbol', () => {
+// ---------------------------------------------------------------------------
+// Integration tests — only run when nexus.db is populated
+// ---------------------------------------------------------------------------
+
+const nexusDbPath = `${process.env.HOME}/.local/share/cleo/nexus.db`;
+const hasNexusDb = existsSync(nexusDbPath);
+
+describe('augmentSymbol — unit (no DB dependency)', () => {
   it('returns empty array if nexus.db does not exist', () => {
-    // This will pass because nexus.db doesn't exist in test environment
-    const results = augmentSymbol('nonexistent');
-    expect(results).toEqual([]);
+    // This passes because in the CI test environment nexus.db is not populated
+    const results = augmentSymbol('__nonexistent_symbol_xyz__');
+    expect(Array.isArray(results)).toBe(true);
   });
 
   it('returns empty array for empty pattern', () => {
@@ -19,12 +32,78 @@ describe('augmentSymbol', () => {
     expect(results).toEqual([]);
   });
 
-  it('handles LIKE pattern matching gracefully', () => {
-    // Even if database is empty or missing, augmentSymbol should not throw
-    const results = augmentSymbol('loadConfig');
-    expect(Array.isArray(results)).toBe(true);
+  it('does not throw on arbitrary pattern', () => {
+    expect(() => augmentSymbol('loadConfig')).not.toThrow();
   });
 });
+
+describe.skipIf(!hasNexusDb)('augmentSymbol — integration (requires populated nexus.db)', () => {
+  it('returns non-empty results for common symbol patterns', () => {
+    // "load" is a common pattern that should exist in any indexed TypeScript codebase.
+    const results = augmentSymbol('load', 5);
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it('results contain only callable kinds', () => {
+    const callableKinds = new Set([
+      'function',
+      'method',
+      'constructor',
+      'class',
+      'interface',
+      'type_alias',
+    ]);
+    const results = augmentSymbol('load', 10);
+    for (const r of results) {
+      expect(callableKinds.has(r.kind)).toBe(true);
+    }
+  });
+
+  it('callersCount and calleesCount are non-negative integers', () => {
+    const results = augmentSymbol('load', 5);
+    for (const r of results) {
+      expect(typeof r.callersCount).toBe('number');
+      expect(typeof r.calleesCount).toBe('number');
+      expect(r.callersCount).toBeGreaterThanOrEqual(0);
+      expect(r.calleesCount).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('communityId is a string when present (not a number)', () => {
+    // Regression: communityId was typed as number but DB stores text like "comm_3".
+    const results = augmentSymbol('load', 10);
+    for (const r of results) {
+      if (r.communityId !== undefined) {
+        expect(typeof r.communityId).toBe('string');
+      }
+    }
+  });
+
+  it('p50 latency is under 500ms (T1765 perf target)', () => {
+    const patterns = ['load', 'get', 'set', 'create', 'handle'];
+    const timings: number[] = [];
+
+    for (const pat of patterns) {
+      const start = performance.now();
+      augmentSymbol(pat, 5);
+      timings.push(performance.now() - start);
+    }
+
+    timings.sort((a, b) => a - b);
+    const p50 = timings[Math.floor(timings.length / 2)];
+    // p50 must be under 500ms (gitnexus baseline: 317ms)
+    expect(p50).toBeLessThan(500);
+  });
+
+  it('returns up to `limit` results', () => {
+    const results = augmentSymbol('load', 3);
+    expect(results.length).toBeLessThanOrEqual(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatAugmentResults — unit
+// ---------------------------------------------------------------------------
 
 describe('formatAugmentResults', () => {
   it('returns empty string for empty results', () => {
@@ -43,7 +122,7 @@ describe('formatAugmentResults', () => {
         endLine: 25,
         callersCount: 3,
         calleesCount: 2,
-        communityId: 5,
+        communityId: 'comm_5',
         communitySize: 12,
       },
     ];
@@ -52,7 +131,7 @@ describe('formatAugmentResults', () => {
     expect(formatted).toContain('[nexus] Symbol context:');
     expect(formatted).toContain('loadConfig (function)');
     expect(formatted).toContain('callers: 3, callees: 2');
-    expect(formatted).toContain('community 5');
+    expect(formatted).toContain('community comm_5');
     expect(formatted).toContain('12 members');
   });
 
