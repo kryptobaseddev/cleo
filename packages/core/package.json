@@ -292,7 +292,7 @@
     "write-file-atomic": "^7.0.1",
     "yaml": "^2.8.3",
     "zod": "^4.3.6",
-    "openai": "^4.0.0",
+    "openai": "^6.0.0",
     "@google/generative-ai": "^0.21.0",
     "p-retry": "^6.2.0",
     "jsonrepair": "^3.8.0"
