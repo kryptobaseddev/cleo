@@ -520,6 +520,26 @@ const decisionStoreCommand = defineCommand({
       type: 'string',
       description: 'Task ID to associate with this decision',
     },
+    'adr-path': {
+      type: 'string',
+      description: 'Path to the ADR document on disk (e.g. docs/adr/ADR-027.md)',
+    },
+    supersedes: {
+      type: 'string',
+      description: 'Decision ID that this decision supersedes (e.g. D001)',
+    },
+    'superseded-by': {
+      type: 'string',
+      description: 'Decision ID that has superseded this decision (e.g. D002)',
+    },
+    'confirmation-state': {
+      type: 'string',
+      description: 'Lifecycle state: proposed | accepted | superseded (default: proposed)',
+    },
+    'decided-by': {
+      type: 'string',
+      description: 'Who originated this decision: owner | council | agent (default: agent)',
+    },
     json: {
       type: 'boolean',
       description: 'Output as JSON',
@@ -535,6 +555,13 @@ const decisionStoreCommand = defineCommand({
         rationale: args.rationale,
         ...(args.alternatives !== undefined && { alternatives: args.alternatives }),
         ...(args['linked-task'] !== undefined && { taskId: args['linked-task'] }),
+        ...(args['adr-path'] !== undefined && { adrPath: args['adr-path'] }),
+        ...(args.supersedes !== undefined && { supersedes: args.supersedes }),
+        ...(args['superseded-by'] !== undefined && { supersededBy: args['superseded-by'] }),
+        ...(args['confirmation-state'] !== undefined && {
+          confirmationState: args['confirmation-state'],
+        }),
+        ...(args['decided-by'] !== undefined && { decidedBy: args['decided-by'] }),
       },
       { command: 'memory', operation: 'memory.decision.store' },
     );
