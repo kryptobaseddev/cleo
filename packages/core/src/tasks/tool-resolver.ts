@@ -52,6 +52,16 @@ export const CANONICAL_TOOLS = [
   'typecheck',
   'audit',
   'security-scan',
+  /**
+   * Runs a full nexus impact analysis on all symbols in the task's files list.
+   * Used as evidence for the `nexusImpact` gate (T1073 / EP3-T8).
+   *
+   * Resolves to `cleo nexus impact-full <symbol>` on the project, which
+   * calls `reasonImpactOfChange()` and returns the ImpactFullReport.
+   *
+   * @task T1073
+   */
+  'nexus-impact-full',
 ] as const;
 
 /**
@@ -190,6 +200,8 @@ const LANGUAGE_DEFAULTS: Record<ProjectType, Partial<Record<CanonicalTool, Comma
     typecheck: { cmd: 'npx', args: ['tsc', '--noEmit'] },
     audit: { cmd: 'npm', args: ['audit'] },
     'security-scan': { cmd: 'npm', args: ['audit'] },
+    // nexus-impact-full is project-type-agnostic; cleo is always available.
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   python: {
     test: { cmd: 'pytest', args: [] },
@@ -198,6 +210,7 @@ const LANGUAGE_DEFAULTS: Record<ProjectType, Partial<Record<CanonicalTool, Comma
     typecheck: { cmd: 'mypy', args: ['.'] },
     audit: { cmd: 'pip-audit', args: [] },
     'security-scan': { cmd: 'pip-audit', args: [] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   rust: {
     test: { cmd: 'cargo', args: ['test'] },
@@ -206,48 +219,60 @@ const LANGUAGE_DEFAULTS: Record<ProjectType, Partial<Record<CanonicalTool, Comma
     typecheck: { cmd: 'cargo', args: ['check'] },
     audit: { cmd: 'cargo', args: ['audit'] },
     'security-scan': { cmd: 'cargo', args: ['audit'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   go: {
     test: { cmd: 'go', args: ['test', './...'] },
     build: { cmd: 'go', args: ['build', './...'] },
     lint: { cmd: 'go', args: ['vet', './...'] },
     typecheck: { cmd: 'go', args: ['build', '-o', '/dev/null', './...'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   ruby: {
     test: { cmd: 'bundle', args: ['exec', 'rspec'] },
     build: { cmd: 'bundle', args: ['install'] },
     lint: { cmd: 'bundle', args: ['exec', 'rubocop'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   java: {
     test: { cmd: 'mvn', args: ['test'] },
     build: { cmd: 'mvn', args: ['package'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   dotnet: {
     test: { cmd: 'dotnet', args: ['test'] },
     build: { cmd: 'dotnet', args: ['build'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   bash: {
     test: { cmd: 'bats', args: ['tests'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   elixir: {
     test: { cmd: 'mix', args: ['test'] },
     build: { cmd: 'mix', args: ['compile'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   php: {
     test: { cmd: 'composer', args: ['test'] },
     build: { cmd: 'composer', args: ['install'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   deno: {
     test: { cmd: 'deno', args: ['test'] },
     build: { cmd: 'deno', args: ['compile'] },
     lint: { cmd: 'deno', args: ['lint'] },
     typecheck: { cmd: 'deno', args: ['check'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
   bun: {
     test: { cmd: 'bun', args: ['test'] },
     build: { cmd: 'bun', args: ['run', 'build'] },
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
   },
-  unknown: {},
+  unknown: {
+    'nexus-impact-full': { cmd: 'cleo', args: ['nexus', 'impact-full'] },
+  },
 };
 
 // ---------------------------------------------------------------------------
