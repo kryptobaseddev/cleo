@@ -39,6 +39,7 @@ import {
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseDocument, validateDocument } from '@cleocode/cant';
+import { provisionIsolatedShell } from '@cleocode/contracts';
 import type { Provider } from '../../types.js';
 import type { HarnessTier } from './scope.js';
 import { resolveAllTiers, resolveTierDir } from './scope.js';
@@ -511,23 +512,31 @@ export class PiHarness implements Harness {
     const startedAt = new Date();
     const startedAtIso = startedAt.toISOString();
 
-    // T380/ADR-041 §D2 — worktree handle drives cwd and env injection.
-    // When opts.worktree is set, the worktree path wins over opts.cwd and
-    // task.cwd, and three CLEO_WORKTREE_* env vars are injected at the
-    // lowest priority so per-call opts.env overrides still win.
-    const worktreeCwd = opts.worktree?.path;
-    const worktreeEnv: Record<string, string> =
-      opts.worktree !== undefined
-        ? {
-            CLEO_WORKTREE_ROOT: opts.worktree.path,
-            CLEO_WORKTREE_BRANCH: opts.worktree.branch,
-            CLEO_PROJECT_HASH: opts.worktree.projectHash,
-          }
-        : {};
+    // T1759/T380/ADR-041 §D2 — worktree handle drives cwd and env injection.
+    //
+    // When opts.worktree is set, `provisionIsolatedShell` (centralized utility,
+    // T1759) computes the authoritative cwd, env-var block, and boundary
+    // contract from a single source of truth. This eliminates the inline env
+    // building that previously lived here so PiHarness and orchestrateSpawnExecute
+    // share exactly the same implementation.
+    //
+    // Per-call opts.env overrides still win (merge order below).
+    let isolatedCwd: string | undefined;
+    let isolatedEnv: Record<string, string> = {};
+    if (opts.worktree !== undefined) {
+      const isolation = provisionIsolatedShell({
+        worktreePath: opts.worktree.path,
+        branch: opts.worktree.branch,
+        role: 'worker',
+        projectHash: opts.worktree.projectHash,
+      });
+      isolatedCwd = isolation.cwd;
+      isolatedEnv = isolation.env;
+    }
 
     // Write the child session header so `listSessions` and `showSession`
     // can attribute the file even before the child has produced output.
-    const resolvedCwd = worktreeCwd ?? opts.cwd ?? task.cwd ?? process.cwd();
+    const resolvedCwd = isolatedCwd ?? opts.cwd ?? task.cwd ?? process.cwd();
     const sessionHeader = {
       type: 'session',
       version: 3,
@@ -541,14 +550,14 @@ export class PiHarness implements Harness {
     await writeFile(childSessionPath, `${JSON.stringify(sessionHeader)}\n`, 'utf8');
 
     // Spawn the child. Merge order (lowest to highest priority):
-    //   process.env < worktreeEnv < task.env < opts.env
+    //   process.env < isolatedEnv < task.env < opts.env
     // This ensures per-call secrets win but worktree vars are always present
     // when a worktree handle is supplied. See ADR-041 §D2.
     const baseArgs = cmd.slice(1);
     const args = [...baseArgs, task.prompt];
     const child = spawn(program, args, {
-      cwd: worktreeCwd ?? opts.cwd ?? task.cwd,
-      env: { ...process.env, ...worktreeEnv, ...task.env, ...opts.env },
+      cwd: isolatedCwd ?? opts.cwd ?? task.cwd,
+      env: { ...process.env, ...isolatedEnv, ...task.env, ...opts.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
