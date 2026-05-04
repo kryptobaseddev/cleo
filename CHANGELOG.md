@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [2026.5.19] (2026-05-04) — Hotfix: T1848 augment integration tests skipIf nexus.db empty (CI green)
+
+v2026.5.18 published successfully but the CI workflow failed on `packages/core/src/nexus/__tests__/augment.test.ts:44` because the integration test required a populated `nexus.db` — true locally, false in CI. The test self-described as "requires populated nexus.db" but only checked `existsSync`, not whether the DB had any rows.
+
+T1848 fix: replaced `existsSync(nexusDbPath)` probe with `nexusDbHasData()` — opens nexus.db read-only, queries `SELECT COUNT(*) AS c FROM nexus_nodes`, returns `false` on missing file / missing table / 0 rows / DB error. `describe.skipIf(!hasNexusData)` now skips the integration suite gracefully in CI while still validating locally when the DB is populated.
+
+Commit `881451c80` on `task/T1848`, merged at `9b26c0485`. 88 insertions, 61 deletions in `packages/core/src/nexus/__tests__/augment.test.ts`. 12,537 tests still pass (no behavior regression on populated state).
+
+Lesson recorded in BRAIN: CI tests that depend on populated state must guard on data presence, not just file existence. Integration tests should default-skip and explicitly opt-in via populated DB.
+
 ## [2026.5.18] (2026-05-04) — Augmenter 18x faster + axis-1/2 research + 16 LLM tests + SDK Tools decomp + honest T1042 audit
 
 A correctness + visibility release. Three silent SQL/precedence/init bugs in `cleo nexus augment` made it return `[]` on every codebase — fixed (T1765). Two parallel research efforts (T1762 axis 1 + T1763 axis 2) produced the first complete root-cause map of the cleo-vs-gitnexus delta and exposed that 96% of gitnexus's IMPORTS lead is synthetic SPM noise. SDK Tools surface formally scoped (T1768). Honest T1042 close-out audit found four critical gaps still open — epic stays open with explicit gate.
