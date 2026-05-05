@@ -1,9 +1,9 @@
 {
-  "name": "@cleocode/worktree",
-  "version": "2026.5.25",
+  "name": "@cleocode/paths",
+  "version": "2026.5.26",
   "private": false,
   "type": "module",
-  "description": "Native CLEO worktree backend SDK — createWorktree, destroyWorktree, listWorktrees, pruneWorktrees with XDG path canon and declarative hooks (T1161)",
+  "description": "CLEO XDG/env-paths SSoT — createPlatformPathsResolver factory, cleo-bound platform paths, project hash + worktree root primitives, isAbsolutePath. Zero-dep leaf package consumed by core, worktree, brain, adapters, and caamp.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -23,11 +23,10 @@
   },
   "keywords": [
     "cleo",
-    "worktree",
-    "git",
-    "agent",
-    "sdk",
-    "isolation"
+    "paths",
+    "xdg",
+    "env-paths",
+    "platform"
   ],
   "engines": {
     "node": ">=24.0.0"
@@ -35,17 +34,19 @@
   "author": "CLEO Code <hello@cleocode.dev>",
   "license": "MIT",
   "dependencies": {
-    "@cleocode/contracts": "workspace:*",
-    "@cleocode/paths": "workspace:*"
+    "env-paths": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.4"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/kryptobaseddev/cleo",
-    "directory": "packages/worktree"
+    "url": "git+https://github.com/kryptobaseddev/cleo.git",
+    "directory": "packages/paths"
   }
 }
