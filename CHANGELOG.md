@@ -1,5 +1,36 @@
 # Changelog
 
+## [2026.5.29] (2026-05-05)
+
+Wave 1+2 Nexus, SDK Tools surface, Decision Storage canonization, deps guardrails, 4 hotfixes.
+
+### Features
+- **Nexus SQL WHERE filter perf**: Only query nodes matching symbol name instead of full-scan (T1834)
+- **Nexus benchmark harness**: Automated performance benchmarking for graph queries (T1845)
+- **METHOD_OVERRIDES edge emission**: Heritage-processor emits method_overrides edges with EXTRACTED confidence; fix pre-existing extractHeritage bug for nested class_heritage nodes (T1846)
+- **Nexus confidence labels**: Three-state EXTRACTED|INFERRED|AMBIGUOUS labels on graph edges (T1862)
+- **DEFINES+ACCESSES edges**: Emit DEFINES and ACCESSES relationship edges from extractors (T1865)
+- **LanguageConfig + Java support**: Extensible LanguageConfig interface + Java extractor scaffolding (T1861)
+- **SDK Tools scaffold**: Scaffold packages/core/src/tools/sdk/ surface for ADR-064 promotion (T1815)
+- **ADR-064 written**: SDK Tools public surface architectural decision recorded (T1816)
+- **WorktreeIsolation SDK promotion**: Re-export WorktreeIsolation types+functions via tools/sdk/isolation.ts; update spawn-ops.ts + spawn-prompt.ts callers to canonical SDK path (T1817)
+- **ToolResolver+ToolCache SDK promotion**: Promote ToolResolver and ToolCache to SDK Tools re-export surface (T1818)
+- **pipelineManifestAppend SDK promotion**: Export pipelineManifestAppend as SDK Tool (T1819)
+- **Decision storage schema gate**: Schema validation gate for brain_decisions table (T1826)
+- **publishAdr + ADR sequence**: Sequential ADR numbering and publishAdr CLI (T1827)
+- **LLM-validator hook**: Hook for LLM-based ADR content validation (T1828)
+- **ADR backfill walker**: Populate brain_decisions for 60 real ADRs from docs/adr/ (T1829)
+- **decision_category column**: Add decision_category to brain_decisions — separate AGT-* dispatch from architectural decisions (T1830)
+- **deps validate/tree CLI**: cleo deps validate and cleo deps tree commands (T1857)
+- **orchestrate ready guard**: Dep-graph validation guard before spawning orchestrate-ready wave (T1858)
+- **deps audit operational**: Deps audit command fully operational (T1859)
+
+### Bug Fixes
+- **Registry hotfix**: Add deps.validate + deps.tree to TasksHandler dispatch registry (T1923)
+- **memory-brain test align**: Align decision.find test assertion with T1830 includeAgentDispatch param (T1925)
+- **T1923 finalize**: Add deps.validate + deps.tree to TasksHandler.getSupportedOperations() — closes 3-source-of-truth gap (T1923-finalize)
+- **tasks.test.ts array align**: Align hardcoded query array with deps.validate + deps.tree (T1859-test-fix)
+
 ## [2026.5.28] (2026-05-05)
 
 Auto-prepared by release.ship (T1890)
