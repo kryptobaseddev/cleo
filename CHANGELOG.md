@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2026.5.23] (2026-05-04) — Hotfix: T1856 test case-sensitivity (CI green)
+
+T1856's `add-critical-depends.test.ts:122` and `update-critical-depends.test.ts:123` asserted `message.toContain('critical-priority')` but the actual error message is `'Critical-priority tasks must declare...'` (capitalized). Pre-existing failure from when T1856 merged in v2026.5.18 — unrelated to v2026.5.21/v2026.5.22 council fixes but kept the CI red.
+
+One-line fix: `expect(message.toLowerCase()).toContain('critical-priority')` in both test files. CI now green for the v2026.5.21+ council architecture work.
+
 ## [2026.5.22] (2026-05-04) — Hotfix: widen `AuditRecord.boundary` union to include `'absolute-path'`
 
 v2026.5.21 CI failed because T1852's `'absolute-path'` boundary value (added to `BoundaryViolation.boundary` for the T1763 breach-vector closure) wasn't reflected in the older `AuditRecord.boundary` union in `packages/git-shim/src/audit-log.ts`. The build error surfaced where `shim.ts` threads `violation.boundary` into `buildAuditRecord` — type widening was incomplete.
