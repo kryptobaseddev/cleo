@@ -247,6 +247,16 @@ export interface MemoryDecisionFindParams {
   taskId?: string;
   /** Max results. */
   limit?: number;
+  /**
+   * T1830: when true, include AGT-* agent dispatch rows in results.
+   *
+   * By default `decision-find` excludes `decision_category = 'agent_dispatch'`
+   * rows so that architectural decisions are not buried by execution noise.
+   * Set to true to surface agent execution history.
+   *
+   * @default false
+   */
+  includeAgentDispatch?: boolean;
 }
 /** A single decision entry returned by the API. */
 export interface MemoryDecisionEntry {
@@ -317,6 +327,16 @@ export interface MemoryDecisionEntry {
    * `undefined` / `null` when the decision has never been validated.
    */
   validatorRunAt?: number | null;
+  /**
+   * Decision category (T1830).
+   *
+   * - `'architectural'`  — Architectural or technical decision (default).
+   * - `'agent_dispatch'` — AGT-* agent execution dispatch outcome.
+   * - `'other'`          — Miscellaneous.
+   *
+   * Defaults to `'architectural'` for rows written before T1830.
+   */
+  decisionCategory?: 'architectural' | 'agent_dispatch' | 'other';
 }
 /** Result of `memory.decision.find`. */
 export type MemoryDecisionFindResult = MemoryDecisionEntry[];

@@ -212,6 +212,8 @@ export async function _recordAgentExecutionWithAccessor(
     contextPhase: null,
     createdAt: nowSql(),
     updatedAt: null,
+    // T1830: tag AGT-* rows as agent dispatch, excluded from default decision-find results
+    decisionCategory: 'agent_dispatch',
   });
 
   return row;
@@ -260,9 +262,11 @@ export async function _getAgentPerformanceHistoryWithAccessor(
   },
   brain: BrainDataAccessor,
 ): Promise<AgentPerformanceSummary[]> {
+  // T1830: agent dispatch rows are tagged as 'agent_dispatch' category — opt-in required
   const decisions = await brain.findDecisions({
     type: 'tactical',
     limit: filters.limit ?? 500,
+    includeAgentDispatch: true,
   });
 
   // Only process rows that were written by recordAgentExecution
