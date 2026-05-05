@@ -8,6 +8,7 @@
  * @task T1473
  */
 
+import { and, eq, notInArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite.js';
 
@@ -104,21 +105,27 @@ export async function getSymbolImpact(
   const { sortMatchingNodes } = await import('./symbol-ranking.js');
   const db = await getNexusDb();
 
-  let allNodes: Array<Record<string, unknown>> = [];
+  // Fetch only symbol nodes for this project (exclude community/process structural nodes).
+  // SQL WHERE pushes projectId + kind exclusion into the indexed path, avoiding full-table scan.
+  let projectSymbolNodes: Array<Record<string, unknown>> = [];
   try {
-    allNodes = db.select().from(nexusSchema.nexusNodes).all() as Array<Record<string, unknown>>;
+    projectSymbolNodes = db
+      .select()
+      .from(nexusSchema.nexusNodes)
+      .where(
+        and(
+          eq(nexusSchema.nexusNodes.projectId, projectId),
+          notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']),
+        ),
+      )
+      .all() as Array<Record<string, unknown>>;
   } catch {
-    allNodes = [];
+    projectSymbolNodes = [];
   }
 
   const lowerSymbol = symbolName.toLowerCase();
-  const rawMatchingNodes = allNodes.filter(
-    (n) =>
-      n['projectId'] === projectId &&
-      n['name'] != null &&
-      String(n['name']).toLowerCase().includes(lowerSymbol) &&
-      n['kind'] !== 'community' &&
-      n['kind'] !== 'process',
+  const rawMatchingNodes = projectSymbolNodes.filter(
+    (n) => n['name'] != null && String(n['name']).toLowerCase().includes(lowerSymbol),
   );
   const matchingNodes = sortMatchingNodes(rawMatchingNodes, symbolName);
 
@@ -128,17 +135,20 @@ export async function getSymbolImpact(
     throw err;
   }
 
+  // Fetch project-scoped relations filtered by projectId and BFS-relevant types.
   let allRelations: Array<Record<string, unknown>> = [];
   try {
-    allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
-      Record<string, unknown>
-    >;
+    allRelations = db
+      .select()
+      .from(nexusSchema.nexusRelations)
+      .where(eq(nexusSchema.nexusRelations.projectId, projectId))
+      .all() as Array<Record<string, unknown>>;
   } catch {
     allRelations = [];
   }
 
   const nodeById = new Map<string, Record<string, unknown>>();
-  for (const n of allNodes) {
+  for (const n of projectSymbolNodes) {
     nodeById.set(String(n['id']), n);
   }
 
@@ -153,10 +163,7 @@ export async function getSymbolImpact(
   >();
   const incomingCount = new Map<string, number>();
   for (const r of allRelations) {
-    if (
-      r['projectId'] === projectId &&
-      (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses')
-    ) {
+    if (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses') {
       const tid = String(r['targetId']);
       const sid = String(r['sourceId']);
       const typ = String(r['type']);

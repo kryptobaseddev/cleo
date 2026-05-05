@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { and, eq, notInArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 
@@ -130,21 +131,27 @@ export async function getSymbolContext(
   const { sortMatchingNodes } = await import('./symbol-ranking.js');
   const db = await getNexusDb();
 
-  let allNodes: Array<Record<string, unknown>> = [];
+  // Fetch only symbol nodes for this project (exclude community/process structural nodes).
+  // The SQL filter pushes projectId + kind exclusion into the index, avoiding the 89k full scan.
+  let projectSymbolNodes: Array<Record<string, unknown>> = [];
   try {
-    allNodes = db.select().from(nexusSchema.nexusNodes).all() as Array<Record<string, unknown>>;
+    projectSymbolNodes = db
+      .select()
+      .from(nexusSchema.nexusNodes)
+      .where(
+        and(
+          eq(nexusSchema.nexusNodes.projectId, projectId),
+          notInArray(nexusSchema.nexusNodes.kind, ['community', 'process']),
+        ),
+      )
+      .all() as Array<Record<string, unknown>>;
   } catch {
-    allNodes = [];
+    projectSymbolNodes = [];
   }
 
   const lowerSymbol = symbolName.toLowerCase();
-  const rawMatchingNodes = allNodes.filter(
-    (n) =>
-      n['projectId'] === projectId &&
-      n['name'] != null &&
-      String(n['name']).toLowerCase().includes(lowerSymbol) &&
-      n['kind'] !== 'community' &&
-      n['kind'] !== 'process',
+  const rawMatchingNodes = projectSymbolNodes.filter(
+    (n) => n['name'] != null && String(n['name']).toLowerCase().includes(lowerSymbol),
   );
   const matchingNodes = sortMatchingNodes(rawMatchingNodes, symbolName);
 
@@ -154,17 +161,33 @@ export async function getSymbolContext(
     throw err;
   }
 
+  // Fetch all project-scoped relations for callers/callees/process edges in one indexed query.
   let allRelations: Array<Record<string, unknown>> = [];
   try {
-    allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
-      Record<string, unknown>
-    >;
+    allRelations = db
+      .select()
+      .from(nexusSchema.nexusRelations)
+      .where(eq(nexusSchema.nexusRelations.projectId, projectId))
+      .all() as Array<Record<string, unknown>>;
   } catch {
     allRelations = [];
   }
 
+  // Fetch ALL project nodes (including community/process) for the nodeById map so community
+  // labels and process names resolve correctly.
+  let allProjectNodes: Array<Record<string, unknown>> = [];
+  try {
+    allProjectNodes = db
+      .select()
+      .from(nexusSchema.nexusNodes)
+      .where(eq(nexusSchema.nexusNodes.projectId, projectId))
+      .all() as Array<Record<string, unknown>>;
+  } catch {
+    allProjectNodes = projectSymbolNodes;
+  }
+
   const nodeById = new Map<string, Record<string, unknown>>();
-  for (const n of allNodes) {
+  for (const n of allProjectNodes) {
     nodeById.set(String(n['id']), n);
   }
 
@@ -176,7 +199,6 @@ export async function getSymbolContext(
         .filter(
           (r) =>
             r['targetId'] === nodeId &&
-            r['projectId'] === projectId &&
             (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses'),
         )
         .slice(0, limit)
@@ -195,7 +217,6 @@ export async function getSymbolContext(
         .filter(
           (r) =>
             r['sourceId'] === nodeId &&
-            r['projectId'] === projectId &&
             (r['type'] === 'calls' || r['type'] === 'imports' || r['type'] === 'accesses'),
         )
         .slice(0, limit)
@@ -216,7 +237,6 @@ export async function getSymbolContext(
       const processRelations = allRelations.filter(
         (r) =>
           r['sourceId'] === nodeId &&
-          r['projectId'] === projectId &&
           (r['type'] === 'step_in_process' || r['type'] === 'entry_point_of'),
       );
       const processes = processRelations
