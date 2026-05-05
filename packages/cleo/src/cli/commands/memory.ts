@@ -479,6 +479,11 @@ const decisionFindCommand = defineCommand({
       type: 'string',
       description: 'Maximum results',
     },
+    'include-agent-dispatch': {
+      type: 'boolean',
+      description:
+        'Include AGT-* agent dispatch rows (excluded by default — use to surface execution history)',
+    },
     json: {
       type: 'boolean',
       description: 'Output as JSON',
@@ -492,6 +497,8 @@ const decisionFindCommand = defineCommand({
       {
         query: args.query ?? '',
         limit: args.limit !== undefined ? parseInt(args.limit, 10) : undefined,
+        // T1830: pass flag so the engine can filter by decision_category
+        includeAgentDispatch: args['include-agent-dispatch'] === true,
       },
       { command: 'memory', operation: 'memory.decision.find' },
     );
