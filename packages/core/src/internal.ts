@@ -592,7 +592,11 @@ export {
 } from './orchestrate/plan.js';
 // Orchestrate query ops (T1570 Wave 1 — migrated from orchestrate-engine.ts)
 export {
+  appendDepsValidateBypassAudit,
   loadTasks,
+  ORCHESTRATE_DEPS_BYPASS_AUDIT_FILE,
+  type OrchestrateDepsAuditEntry,
+  type OrchestrateReadyOptions,
   orchestrateAnalyze,
   orchestrateContext,
   orchestrateNext,
