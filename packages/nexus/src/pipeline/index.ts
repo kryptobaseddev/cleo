@@ -117,6 +117,13 @@ export type {
   ProcessStep,
 } from './process-processor.js';
 export { detectProcesses } from './process-processor.js';
+// Access processor (T1837)
+export type {
+  AccessMode,
+  AccessResolutionResult,
+  ExtractedAccess,
+} from './processors/access-processor.js';
+export { extractAccesses, resolveAccesses } from './processors/access-processor.js';
 // Resolution context (T533)
 export type {
   ImportMap,
@@ -158,6 +165,7 @@ import type { KnowledgeGraph, NexusDbInsert, NexusTables } from './knowledge-gra
 import { createKnowledgeGraph } from './knowledge-graph.js';
 import { runParseLoop } from './parse-loop.js';
 import { detectProcesses } from './process-processor.js';
+import { resolveAccesses } from './processors/access-processor.js';
 import { createResolutionContext } from './resolution-context.js';
 import { processStructure } from './structure-processor.js';
 
@@ -271,6 +279,10 @@ export interface PipelineResult {
   hasMethodCount: number;
   /** Number of HAS_PROPERTY edges emitted. */
   hasPropertyCount: number;
+  /** Number of ACCESSES edges emitted at Tier 1 (Phase 3f — T1837). */
+  accessesTier1Count: number;
+  /** Number of ACCESSES edges emitted at Tier 3 (Phase 3f — T1837). */
+  accessesTier3Count: number;
   /** Number of communities detected by Phase 5 (Louvain). */
   communityCount: number;
   /** Louvain modularity score for the community partition (0 – 1). */
@@ -613,6 +625,8 @@ export async function runPipeline(
           callsTier3Count: 0,
           hasMethodCount: 0,
           hasPropertyCount: 0,
+          accessesTier1Count: 0,
+          accessesTier3Count: 0,
           communityCount: 0,
           communityModularity: 0,
           processCount: 0,
@@ -668,7 +682,7 @@ export async function runPipeline(
   // Heritage + call resolution still runs on the full in-memory graph so
   // cross-file call edges across the changed/unchanged boundary are preserved.
   process.stderr.write('[nexus] Phase 3: Parsing files...\n');
-  const { allHeritage, allCalls, barrelMap } = await runParseLoop(
+  const { allHeritage, allCalls, allAccesses, barrelMap } = await runParseLoop(
     filesToParse,
     graph,
     symbolTable,
@@ -698,6 +712,15 @@ export async function runPipeline(
   );
   process.stderr.write(
     `[nexus] Class members: has_method=${callResult.hasMethodCount}, has_property=${callResult.hasPropertyCount}\n`,
+  );
+
+  // Phase 3f: Access resolution — emit ACCESSES edges (T1837)
+  // Runs after call resolution so the SymbolTable is fully populated with all
+  // class members and properties. Same-file and global tiers are used.
+  process.stderr.write('[nexus] Phase 3f: Resolving member accesses...\n');
+  const accessResult = await resolveAccesses(allAccesses, graph, symbolTable);
+  process.stderr.write(
+    `[nexus] Accesses: tier1=${accessResult.tier1Count}, tier3=${accessResult.tier3Count}, unresolved=${accessResult.unresolvedCount}\n`,
   );
 
   // Phase 5: Community detection (Louvain)
@@ -735,6 +758,8 @@ export async function runPipeline(
     callsTier3Count: callResult.tier3Count,
     hasMethodCount: callResult.hasMethodCount,
     hasPropertyCount: callResult.hasPropertyCount,
+    accessesTier1Count: accessResult.tier1Count,
+    accessesTier3Count: accessResult.tier3Count,
     communityCount: communityResult.stats.totalCommunities,
     communityModularity: communityResult.stats.modularity,
     processCount: processResult.stats.totalProcesses,

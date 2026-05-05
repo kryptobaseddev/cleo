@@ -34,7 +34,7 @@
 
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import type { GraphNode, GraphNodeKind } from '@cleocode/contracts';
+import type { GraphNode, GraphNodeKind, GraphRelation } from '@cleocode/contracts';
 import { extractGo } from './extractors/go-extractor.js';
 import { extractPython } from './extractors/python-extractor.js';
 import { extractRust } from './extractors/rust-extractor.js';
@@ -61,6 +61,7 @@ import {
 } from './import-processor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { detectLanguageFromPath } from './language-detection.js';
+import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
 import type { ParseWorkerResult, WorkerParsedSymbol } from './workers/parse-worker.js';
 import { createWorkerPool } from './workers/worker-pool.js';
@@ -227,6 +228,9 @@ function grammarKeyForLanguage(language: string): string | null {
  *
  * `reExports` is optional: only TypeScript/JavaScript extractors produce re-export
  * records. Python, Go, and Rust extractors omit this field.
+ *
+ * `accesses` is populated by the access-processor after the language extractor
+ * runs. It is optional here so existing extractors need not be modified.
  */
 interface CommonExtractionResult {
   definitions: GraphNode[];
@@ -234,6 +238,7 @@ interface CommonExtractionResult {
   heritage: ExtractedHeritage[];
   calls: ExtractedCall[];
   reExports?: ExtractedReExport[];
+  accesses?: ExtractedAccess[];
 }
 
 /**
@@ -255,19 +260,32 @@ function runExtractor(
   // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
   const node = rootNode as any;
 
+  let result: CommonExtractionResult;
+
   switch (language) {
     case 'typescript':
     case 'javascript':
-      return extractTypeScript(node, filePath, language);
+      result = extractTypeScript(node, filePath, language);
+      break;
     case 'python':
-      return extractPython(node, filePath);
+      result = extractPython(node, filePath);
+      break;
     case 'go':
-      return extractGo(node, filePath);
+      result = extractGo(node, filePath);
+      break;
     case 'rust':
-      return extractRust(node, filePath);
+      result = extractRust(node, filePath);
+      break;
     default:
-      return { definitions: [], imports: [], heritage: [], calls: [], reExports: [] };
+      return { definitions: [], imports: [], heritage: [], calls: [], reExports: [], accesses: [] };
   }
+
+  // Run access extraction on the parsed AST (Phase 3f — T1837).
+  // Supports all languages with member_expression / attribute / field_expression /
+  // selector_expression AST node types (TS, JS, Python, Go, Rust).
+  result.accesses = extractAccesses(node, filePath);
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +306,75 @@ function registerInSymbolTable(nodes: GraphNode[], symbolTable: SymbolTable): vo
       parameterCount: node.parameters?.length,
       returnType: node.returnType,
       ownerId: node.parent,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Defines edge emission helpers (T1836)
+// ---------------------------------------------------------------------------
+
+/**
+ * Symbol kinds that qualify for a `defines` edge from their containing file.
+ *
+ * Mirrors the set emitted by GitNexus: every named, top-level or class-member
+ * symbol that is directly declared in the source file. Structural containers
+ * (file, folder, module, namespace) and synthetic graph nodes (community,
+ * process, route, tool, section) are excluded.
+ */
+const DEFINES_SYMBOL_KINDS: ReadonlySet<GraphNodeKind> = new Set<GraphNodeKind>([
+  'function',
+  'method',
+  'constructor',
+  'class',
+  'interface',
+  'struct',
+  'trait',
+  'impl',
+  'type_alias',
+  'enum',
+  'property',
+  'constant',
+  'variable',
+  'static',
+  'record',
+  'delegate',
+  'macro',
+  'union',
+  'typedef',
+  'annotation',
+  'template',
+  'type', // legacy kind kept for T506 compatibility
+]);
+
+/**
+ * Emit `defines` edges from the file node to every symbol node it declares.
+ *
+ * For each symbol whose kind is in {@link DEFINES_SYMBOL_KINDS} and whose
+ * `filePath` matches `fileNodeId`, a directed edge of type `'defines'` is
+ * added to the knowledge graph with confidence 1.0.
+ *
+ * This is the CLEO equivalent of the 223,627 DEFINES edges emitted by
+ * GitNexus during `npx gitnexus analyze`. Closing the gap was tracked as
+ * T1836 (T1042 audit gap T1844-1).
+ *
+ * @param fileNodeId - The file node ID (equals the relative file path)
+ * @param symbols - Symbol nodes extracted from the file
+ * @param graph - KnowledgeGraph to receive the new edges
+ */
+function emitDefinesEdges(
+  fileNodeId: string,
+  symbols: GraphNode[],
+  graph: { addRelation(rel: GraphRelation): void },
+): void {
+  for (const sym of symbols) {
+    if (!DEFINES_SYMBOL_KINDS.has(sym.kind)) continue;
+    graph.addRelation({
+      source: fileNodeId,
+      target: sym.id,
+      type: 'defines',
+      confidence: 1.0,
+      reason: 'file declares symbol',
     });
   }
 }
@@ -314,14 +401,17 @@ export interface ParseLoopOptions {
 /**
  * Result returned by the parse loop.
  *
- * Callers that perform Phase 3c (heritage) and Phase 3e (call resolution)
- * can consume the accumulated records directly without re-reading the graph.
+ * Callers that perform Phase 3c (heritage), Phase 3e (call resolution),
+ * and Phase 3f (access resolution) can consume the accumulated records
+ * directly without re-reading the graph.
  */
 export interface ParseLoopResult {
   /** All heritage records accumulated during the parse loop (for Phase 3c). */
   allHeritage: ExtractedHeritage[];
   /** All call expression records accumulated during the parse loop (for Phase 3e). */
   allCalls: ExtractedCall[];
+  /** All member-access records accumulated during the parse loop (for Phase 3f). */
+  allAccesses: ExtractedAccess[];
   /**
    * Barrel export map built from re-export statements (T617).
    * Used by the call resolution phase to trace imports through barrel index files.
@@ -446,13 +536,29 @@ async function runParallelParseLoop(
   const allParallelReExports: ExtractedReExportRecord[] = [];
   const allHeritage: ExtractedHeritage[] = [];
   const allCalls: ExtractedCall[] = [];
+  // Note: access extraction (Phase 3f) runs on the parsed AST in the main thread
+  // only. Workers do not transport ASTs, so parallel mode does not accumulate
+  // accesses via this path — the sequential fallback handles small repos and
+  // fixture tests. A future wave can add worker support for access extraction.
+  const allParallelAccesses: ExtractedAccess[] = [];
 
   for (const workerResult of workerResults) {
     // Register symbols into SymbolTable and add graph nodes
+    const fileGraphNodes: Map<string, GraphNode[]> = new Map();
     for (const sym of workerResult.symbols) {
       const graphNode = workerSymbolToGraphNode(sym);
       registerInSymbolTable([graphNode], symbolTable);
       graph.addNode(graphNode);
+      // Group by filePath for defines edge emission below
+      if (graphNode.filePath) {
+        const bucket = fileGraphNodes.get(graphNode.filePath) ?? [];
+        bucket.push(graphNode);
+        fileGraphNodes.set(graphNode.filePath, bucket);
+      }
+    }
+    // Emit defines edges: file → each symbol it declares
+    for (const [filePath, nodes] of fileGraphNodes) {
+      emitDefinesEdges(filePath, nodes, graph);
     }
 
     // Collect imports (including named bindings for Tier 2a resolution — T617)
@@ -547,7 +653,7 @@ async function runParallelParseLoop(
     `[nexus] Barrel map: ${parallelBarrelMap.size} barrel files with re-export chains\n`,
   );
 
-  return { allHeritage, allCalls, barrelMap: parallelBarrelMap };
+  return { allHeritage, allCalls, allAccesses: allParallelAccesses, barrelMap: parallelBarrelMap };
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +712,7 @@ export async function runParseLoop(
     return {
       allHeritage: [],
       allCalls: [],
+      allAccesses: [],
       barrelMap: buildBarrelExportMap([], importCtx, tsconfigPaths),
     };
 
@@ -642,6 +749,7 @@ export async function runParseLoop(
   const allReExports: ExtractedReExportRecord[] = [];
   const allHeritage: ExtractedHeritage[] = [];
   const allCalls: ExtractedCall[] = [];
+  const allAccesses: ExtractedAccess[] = [];
 
   const parser = getParser();
   if (!parser) {
@@ -651,6 +759,7 @@ export async function runParseLoop(
     return {
       allHeritage: [],
       allCalls: [],
+      allAccesses: [],
       barrelMap: buildBarrelExportMap([], importCtx, tsconfigPaths),
     };
   }
@@ -745,6 +854,9 @@ export async function runParseLoop(
       graph.addNode(node);
     }
 
+    // Emit defines edges: file → each symbol it declares (T1836)
+    emitDefinesEdges(file.path, extracted.definitions, graph);
+
     // Collect imports for batch resolution
     for (const imp of extracted.imports) {
       allExtractedImports.push(imp);
@@ -765,6 +877,13 @@ export async function runParseLoop(
     // Collect calls for deferred Phase 3e resolution
     for (const c of extracted.calls) {
       allCalls.push(c);
+    }
+
+    // Collect access sites for deferred Phase 3f resolution (T1837)
+    if (extracted.accesses) {
+      for (const a of extracted.accesses) {
+        allAccesses.push(a);
+      }
     }
 
     // Yield to event loop periodically on large repos
@@ -796,6 +915,6 @@ export async function runParseLoop(
     `[nexus] Barrel map: ${barrelMap.size} barrel files with re-export chains\n`,
   );
 
-  // Return accumulated heritage, calls, and barrel map
-  return { allHeritage, allCalls, barrelMap };
+  // Return accumulated heritage, calls, accesses, and barrel map
+  return { allHeritage, allCalls, allAccesses, barrelMap };
 }
