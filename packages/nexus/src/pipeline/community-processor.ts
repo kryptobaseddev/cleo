@@ -38,6 +38,7 @@
 import { createRequire } from 'node:module';
 import { performance } from 'node:perf_hooks';
 import type { GraphRelationType } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 
 // ============================================================================
@@ -299,11 +300,13 @@ export async function detectCommunities(graph: KnowledgeGraph): Promise<Communit
 
     // Only create MEMBER_OF if the community node exists (non-singleton)
     if (graph.nodes.has(m.communityId)) {
+      const memberOfConf = 1.0;
       graph.addRelation({
         source: m.nodeId,
         target: m.communityId,
         type: 'member_of',
-        confidence: 1.0,
+        confidence: memberOfConf,
+        confidenceLabel: confidenceLabelFromNumeric(memberOfConf),
         reason: 'leiden-community',
       });
       // Update the node's communityId in-place (Map holds a reference)

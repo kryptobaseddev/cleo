@@ -519,6 +519,91 @@ describe('DEFINES edges regression (parse-loop, T1836)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Confidence label regression (T1862)
+//
+// Asserts that >70% of edges emitted by the parse-loop carry
+// confidenceLabel === 'EXTRACTED'. Edges emitted at confidence ≥ 0.90 (defines,
+// imports, has_method, has_property, same-file calls) qualify.
+//
+// The TypeScript fixture generates mostly defines edges (confidence 1.0) so
+// the floor is conservative at 70%. Any shift toward AMBIGUOUS/INFERRED would
+// indicate a regression in label annotation coverage.
+// ---------------------------------------------------------------------------
+
+describe('Confidence label regression — parse-loop edges (T1862)', () => {
+  let tmpRepo: string;
+
+  beforeAll(() => {
+    tmpRepo = mkdtempSync(join(tmpdir(), 'nexus-confidence-label-test-'));
+    const fixtureDir = join(tmpRepo, 'fixtures', 'typescript');
+    mkdirSync(fixtureDir, { recursive: true });
+    copyFileSync(join(__dirname, 'fixtures/typescript/sample.ts'), join(fixtureDir, 'sample.ts'));
+  });
+
+  afterAll(() => {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  });
+
+  it('skips gracefully when tree-sitter is unavailable', () => {
+    if (!ParserClass) return;
+    expect(true).toBe(true);
+  });
+
+  it('>70% of emitted edges carry confidenceLabel EXTRACTED', async () => {
+    if (!ParserClass) return;
+
+    const fixturePath = 'fixtures/typescript/sample.ts';
+    const graph = createKnowledgeGraph();
+    const symbolTable = createSymbolTable();
+    const importCtx = buildImportResolutionContext([fixturePath]);
+
+    const scannedFiles = [{ path: fixturePath, size: 0, language: 'typescript' }];
+
+    await runParseLoop(scannedFiles, graph, symbolTable, importCtx, tmpRepo);
+
+    const allEdges = graph.relations;
+    // All edges emitted by the parse-loop MUST have a confidenceLabel
+    const labelledEdges = allEdges.filter((r) => r.confidenceLabel !== undefined);
+    assertFloor(
+      'labelled edges (all parse-loop edges must carry confidenceLabel)',
+      labelledEdges.length,
+      allEdges.length,
+    );
+
+    // >70% must be EXTRACTED
+    const extractedEdges = allEdges.filter((r) => r.confidenceLabel === 'EXTRACTED');
+    const ratio = allEdges.length > 0 ? extractedEdges.length / allEdges.length : 0;
+    expect(
+      ratio,
+      `Expected >70% EXTRACTED edges, got ${Math.round(ratio * 100)}% (${extractedEdges.length}/${allEdges.length})`,
+    ).toBeGreaterThan(0.7);
+  });
+
+  it('all defines edges carry confidenceLabel EXTRACTED', async () => {
+    if (!ParserClass) return;
+
+    const fixturePath = 'fixtures/typescript/sample.ts';
+    const graph = createKnowledgeGraph();
+    const symbolTable = createSymbolTable();
+    const importCtx = buildImportResolutionContext([fixturePath]);
+
+    const scannedFiles = [{ path: fixturePath, size: 0, language: 'typescript' }];
+
+    await runParseLoop(scannedFiles, graph, symbolTable, importCtx, tmpRepo);
+
+    const definesEdges = graph.relations.filter((r) => r.type === 'defines');
+    assertFloor('defines edge count', definesEdges.length, 1);
+
+    for (const edge of definesEdges) {
+      expect(
+        edge.confidenceLabel,
+        `defines edge ${edge.source}→${edge.target} missing confidenceLabel`,
+      ).toBe('EXTRACTED');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Access extractor regression (T1837)
 //
 // Asserts that extractAccesses() emits ACCESSES > 0 for TypeScript and Python

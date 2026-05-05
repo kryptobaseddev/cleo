@@ -26,6 +26,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import {
   buildSuffixIndex,
@@ -565,11 +566,13 @@ function fileNodeId(filePath: string): string {
  * Emit an `imports` edge in the KnowledgeGraph for a resolved import.
  */
 function addImportEdge(graph: KnowledgeGraph, fromFile: string, toFile: string): void {
+  const confidence = 1.0;
   graph.addRelation({
     source: fileNodeId(fromFile),
     target: fileNodeId(toFile),
     type: 'imports',
-    confidence: 1.0,
+    confidence,
+    confidenceLabel: confidenceLabelFromNumeric(confidence),
     reason: 'static import',
   });
 }
@@ -779,11 +782,13 @@ export async function processExtractedImports(options: ProcessImportsOptions): P
         }
 
         // Emit imports relation from source file to external module
+        const extConfidence = 1.0;
         graph.addRelation({
           source: fileNodeId(filePath),
           target: externalModuleId,
           type: 'imports',
-          confidence: 1.0,
+          confidence: extConfidence,
+          confidenceLabel: confidenceLabelFromNumeric(extConfidence),
           reason: 'unresolved external import',
         });
         edgesEmitted++;

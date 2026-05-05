@@ -28,6 +28,7 @@
  */
 
 import type { GraphRelation } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { ExtractedHeritage } from './extractors/typescript-extractor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import type { ResolutionContext } from './resolution-context.js';
@@ -318,6 +319,7 @@ export function processHeritage(
       target: parentId,
       type: relType,
       confidence,
+      confidenceLabel: confidenceLabelFromNumeric(confidence),
       reason: `${h.kind} clause in ${h.filePath}`,
     };
 
