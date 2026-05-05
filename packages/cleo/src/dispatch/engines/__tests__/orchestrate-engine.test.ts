@@ -223,7 +223,7 @@ describe('Orchestrate Engine', () => {
 
   describe('orchestrateSpawn', () => {
     it('should generate spawn context for ready task', async () => {
-      const result = await orchestrateSpawn('T102', undefined, TEST_ROOT);
+      const result = await orchestrateSpawn('T102', undefined, TEST_ROOT, undefined, true);
       expect(result.success).toBe(true);
       expect((result.data as any).taskId).toBe('T102');
       // T932: response envelope surfaces composer meta + atomicity verdict.
@@ -426,6 +426,7 @@ describe('Orchestrate Engine', () => {
           taskId: 'T102',
           protocolType: 'implementation',
           note: 'handoff complete',
+          noWorktree: true,
         },
         { sessionStatus, sessionEnd, sessionContextInject },
         TEST_ROOT,
