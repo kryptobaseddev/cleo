@@ -1,12 +1,17 @@
 /**
- * Tests for NEXUS symbol context augmentation (T1061, T1765)
+ * Tests for NEXUS symbol context augmentation (T1061, T1765, T1839)
  *
- * Tests LIKE search and result formatting for PreToolUse hook injection.
+ * Tests FTS5 MATCH search, LIKE fallback, and result formatting for PreToolUse hook injection.
  *
  * T1765 regression coverage:
  *   - Wrong column names in callers/callees subqueries no longer produce empty results
  *   - Operator precedence bug in WHERE clause fixed (label LIKE OR file_path LIKE AND kind)
  *   - communityId typed as string (matching nexus_nodes.community_id text column)
+ *
+ * T1839 FTS5 coverage:
+ *   - escapeFts5Pattern correctly escapes and wraps tokens for MATCH
+ *   - FTS5 in-memory integration: MATCH returns BM25-ranked results
+ *   - FTS5 backfill: pre-existing rows are indexed at table creation time
  *
  * T1849 skip-guard:
  *   - Integration tests skip in CI environments (process.env.CI === 'true')
@@ -15,9 +20,10 @@
  */
 
 import { existsSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openNativeDatabase } from '../../store/sqlite.js';
-import { augmentSymbol, formatAugmentResults } from '../augment.js';
+import { augmentSymbol, escapeFts5Pattern, formatAugmentResults } from '../augment.js';
 
 // ---------------------------------------------------------------------------
 // Integration skip-guard — approach (A)+(B) combined (T1849)
@@ -86,6 +92,270 @@ describe('augmentSymbol — unit (no DB dependency)', () => {
 
   it('does not throw on arbitrary pattern', () => {
     expect(() => augmentSymbol('loadConfig')).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// escapeFts5Pattern — unit tests (T1839)
+// ---------------------------------------------------------------------------
+
+describe('escapeFts5Pattern', () => {
+  it('wraps a simple token in double-quotes with trailing *', () => {
+    expect(escapeFts5Pattern('loadConfig')).toBe('"loadConfig"*');
+  });
+
+  it('handles multiple whitespace-separated tokens', () => {
+    expect(escapeFts5Pattern('load config')).toBe('"load"* "config"*');
+  });
+
+  it('escapes embedded double-quotes in the token', () => {
+    expect(escapeFts5Pattern('say"hello')).toBe('"say""hello"*');
+  });
+
+  it('trims leading/trailing whitespace', () => {
+    expect(escapeFts5Pattern('  trim  ')).toBe('"trim"*');
+  });
+
+  it('returns a safe default for an empty string', () => {
+    // Empty pattern is guarded upstream, but escapeFts5Pattern must not throw.
+    expect(() => escapeFts5Pattern('')).not.toThrow();
+    expect(escapeFts5Pattern('')).toBe('""*');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FTS5 in-memory integration tests (T1839)
+//
+// These tests create an in-memory SQLite database with nexus_nodes + FTS5
+// virtual table to verify:
+//   1. MATCH returns BM25-ranked results (bm25() score is visible and negative).
+//   2. Prefix matching ("loadC"*) correctly finds "loadConfig".
+//   3. INSERT trigger keeps FTS5 in sync with nexus_nodes.
+//   4. Backfill: pre-existing rows indexed when FTS5 is created after nodes exist.
+// ---------------------------------------------------------------------------
+
+describe('FTS5 — in-memory integration (T1839)', () => {
+  let db: InstanceType<typeof DatabaseSync>;
+
+  beforeEach(() => {
+    db = new DatabaseSync(':memory:');
+
+    // Minimal nexus_nodes schema (subset sufficient for FTS5 tests).
+    db.exec(`
+      CREATE TABLE nexus_nodes (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        label TEXT NOT NULL,
+        name TEXT,
+        file_path TEXT,
+        is_exported INTEGER NOT NULL DEFAULT 0,
+        community_id TEXT,
+        start_line INTEGER,
+        end_line INTEGER
+      )
+    `);
+
+    // FTS5 virtual table mirroring label + file_path.
+    db.exec(`
+      CREATE VIRTUAL TABLE nexus_symbols_fts USING fts5(
+        node_id UNINDEXED,
+        label,
+        file_path,
+        tokenize = 'unicode61 remove_diacritics 1'
+      )
+    `);
+
+    // INSERT trigger.
+    db.exec(`
+      CREATE TRIGGER nexus_nodes_fts_ai
+      AFTER INSERT ON nexus_nodes
+      BEGIN
+        INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path)
+        VALUES (new.rowid, new.id, new.label, new.file_path);
+      END
+    `);
+
+    // DELETE trigger — plain DELETE is required; the FTS5 content-virtual-table
+    // `INSERT INTO fts(fts, rowid, ...) VALUES ('delete', ...)` syntax is not
+    // supported by node:sqlite's bundled SQLite version.
+    db.exec(`
+      CREATE TRIGGER nexus_nodes_fts_ad
+      AFTER DELETE ON nexus_nodes
+      BEGIN
+        DELETE FROM nexus_symbols_fts WHERE rowid = old.rowid;
+      END
+    `);
+
+    // UPDATE trigger — delete old entry, insert new entry.
+    db.exec(`
+      CREATE TRIGGER nexus_nodes_fts_au
+      AFTER UPDATE ON nexus_nodes
+      BEGIN
+        DELETE FROM nexus_symbols_fts WHERE rowid = old.rowid;
+        INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path)
+        VALUES (new.rowid, new.id, new.label, new.file_path);
+      END
+    `);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('MATCH returns results for an exact token', () => {
+    db.exec(`
+      INSERT INTO nexus_nodes (id, project_id, kind, label, file_path, is_exported)
+      VALUES ('src/config.ts::loadConfig', 'proj1', 'function', 'loadConfig', 'src/config.ts', 1)
+    `);
+
+    const rows = db
+      .prepare(`SELECT node_id, label FROM nexus_symbols_fts WHERE nexus_symbols_fts MATCH ?`)
+      .all('"loadConfig"*') as Array<{ node_id: string; label: string }>;
+
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.label).toBe('loadConfig');
+  });
+
+  it('MATCH returns a negative bm25() score (confirming BM25 ranking is active)', () => {
+    // Note: FTS5 with the unicode61 tokenizer treats camelCase like "loadConfig"
+    // as a single token — it does not split on case boundaries. Prefix search
+    // works from the token start, so '"load"*' matches "loadConfig".
+    // Two rows with different labels are inserted; both are found by a shared
+    // prefix '"' that the tokenizer sees as the start of any token.
+    db.exec(`
+      INSERT INTO nexus_nodes (id, project_id, kind, label, file_path, is_exported)
+      VALUES
+        ('a::loadConfig', 'proj1', 'function', 'loadConfig', 'src/config.ts', 1),
+        ('b::loadSchema', 'proj1', 'function', 'loadSchema', 'src/parser.ts', 0)
+    `);
+
+    const rows = db
+      .prepare(
+        `SELECT node_id, bm25(nexus_symbols_fts) AS score FROM nexus_symbols_fts WHERE nexus_symbols_fts MATCH ? ORDER BY score`,
+      )
+      .all('"load"*') as Array<{ node_id: string; score: number }>;
+
+    expect(rows.length).toBe(2);
+    // bm25() returns negative values — lower (more negative) means more relevant.
+    for (const row of rows) {
+      expect(row.score).toBeLessThan(0);
+    }
+  });
+
+  it('prefix MATCH finds symbols by partial name', () => {
+    db.exec(`
+      INSERT INTO nexus_nodes (id, project_id, kind, label, file_path, is_exported)
+      VALUES
+        ('a::loadConfigFromFile', 'proj1', 'function', 'loadConfigFromFile', null, 1),
+        ('b::parseSchema', 'proj1', 'function', 'parseSchema', null, 0)
+    `);
+
+    const ftsPattern = escapeFts5Pattern('loadC');
+    const rows = db
+      .prepare(`SELECT node_id FROM nexus_symbols_fts WHERE nexus_symbols_fts MATCH ?`)
+      .all(ftsPattern) as Array<{ node_id: string }>;
+
+    expect(rows.some((r) => r.node_id === 'a::loadConfigFromFile')).toBe(true);
+    expect(rows.some((r) => r.node_id === 'b::parseSchema')).toBe(false);
+  });
+
+  it('INSERT trigger keeps FTS5 in sync with nexus_nodes', () => {
+    // Insert directly via trigger (no manual FTS5 insert).
+    db.exec(`
+      INSERT INTO nexus_nodes (id, project_id, kind, label, file_path, is_exported)
+      VALUES ('src/utils.ts::helper', 'proj1', 'function', 'helper', 'src/utils.ts', 0)
+    `);
+
+    const rows = db
+      .prepare(`SELECT node_id FROM nexus_symbols_fts WHERE nexus_symbols_fts MATCH '"helper"*'`)
+      .all() as Array<{ node_id: string }>;
+
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.node_id).toBe('src/utils.ts::helper');
+  });
+
+  it('DELETE trigger removes rows from FTS5', () => {
+    db.exec(`
+      INSERT INTO nexus_nodes (id, project_id, kind, label, file_path, is_exported)
+      VALUES ('src/utils.ts::helper', 'proj1', 'function', 'helper', 'src/utils.ts', 0)
+    `);
+    db.exec(`DELETE FROM nexus_nodes WHERE id = 'src/utils.ts::helper'`);
+
+    const rows = db
+      .prepare(`SELECT node_id FROM nexus_symbols_fts WHERE nexus_symbols_fts MATCH '"helper"*'`)
+      .all() as Array<{ node_id: string }>;
+
+    expect(rows.length).toBe(0);
+  });
+
+  it('UPDATE trigger reflects renamed label in FTS5', () => {
+    // Use distinct non-prefix-overlapping labels so results are unambiguous.
+    db.exec(`
+      INSERT INTO nexus_nodes (id, project_id, kind, label, file_path, is_exported)
+      VALUES ('src/utils.ts::alpha', 'proj1', 'function', 'alpha', 'src/utils.ts', 0)
+    `);
+    db.exec(`UPDATE nexus_nodes SET label = 'beta' WHERE id = 'src/utils.ts::alpha'`);
+
+    // New label should be findable.
+    const newRows = db
+      .prepare(`SELECT node_id FROM nexus_symbols_fts WHERE nexus_symbols_fts MATCH '"beta"*'`)
+      .all() as Array<{ node_id: string }>;
+    expect(newRows.length).toBe(1);
+    expect(newRows[0]?.node_id).toBe('src/utils.ts::alpha');
+
+    // Old label should be gone (no overlap with 'beta').
+    const oldRows = db
+      .prepare(`SELECT node_id FROM nexus_symbols_fts WHERE nexus_symbols_fts MATCH '"alpha"*'`)
+      .all() as Array<{ node_id: string }>;
+    expect(oldRows.length).toBe(0);
+  });
+
+  it('backfill: pre-existing nexus_nodes rows are indexed when FTS5 is created', () => {
+    // Create a fresh DB with data BEFORE FTS5 is set up (simulates upgrade path).
+    const freshDb = new DatabaseSync(':memory:');
+    freshDb.exec(`
+      CREATE TABLE nexus_nodes (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        label TEXT NOT NULL,
+        name TEXT,
+        file_path TEXT,
+        is_exported INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    freshDb.exec(`
+      INSERT INTO nexus_nodes (id, project_id, kind, label, is_exported)
+      VALUES ('legacy::fn', 'proj1', 'function', 'legacyFunction', 0)
+    `);
+
+    // Now create FTS5 and backfill.
+    freshDb.exec(`
+      CREATE VIRTUAL TABLE nexus_symbols_fts USING fts5(
+        node_id UNINDEXED,
+        label,
+        file_path,
+        tokenize = 'unicode61 remove_diacritics 1'
+      )
+    `);
+    freshDb.exec(`
+      INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path)
+      SELECT rowid, id, label, file_path
+      FROM nexus_nodes
+      WHERE rowid NOT IN (SELECT rowid FROM nexus_symbols_fts)
+    `);
+
+    const rows = freshDb
+      .prepare(
+        `SELECT node_id FROM nexus_symbols_fts WHERE nexus_symbols_fts MATCH '"legacyFunction"*'`,
+      )
+      .all() as Array<{ node_id: string }>;
+
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.node_id).toBe('legacy::fn');
+
+    freshDb.close();
   });
 });
 
