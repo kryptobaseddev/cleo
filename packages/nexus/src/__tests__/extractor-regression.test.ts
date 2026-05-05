@@ -31,13 +31,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { extractGo } from '../pipeline/extractors/go-extractor.js';
+import { extractJava } from '../pipeline/extractors/java-extractor.js';
 import { extractPython } from '../pipeline/extractors/python-extractor.js';
 import { extractRust } from '../pipeline/extractors/rust-extractor.js';
 import { extractTypeScript } from '../pipeline/extractors/typescript-extractor.js';
-import { extractAccesses } from '../pipeline/processors/access-processor.js';
 import { buildImportResolutionContext } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { runParseLoop } from '../pipeline/parse-loop.js';
+import { extractAccesses } from '../pipeline/processors/access-processor.js';
 import { createSymbolTable } from '../pipeline/symbol-table.js';
 
 // ---------------------------------------------------------------------------
@@ -183,6 +184,26 @@ const RUST_SNAPSHOT = {
   ]),
   imports: 8,
   heritage: 4,
+} as const;
+
+/**
+ * Snapshot floor values for the Java extractor (via LanguageConfig / generic-extractor).
+ * Fixture: packages/nexus/src/__tests__/fixtures/java/sample.java
+ *
+ * Captured 2026-05-05 as part of T1861 (LanguageConfig pattern port, Java demo).
+ * Fixture: 6 classes/interfaces/enum, 22 methods, 5 constructors, 6 imports, 5 heritage edges.
+ */
+const JAVA_SNAPSHOT = {
+  total: 35,
+  byKind: new Map<string, number>([
+    ['interface', 2],
+    ['class', 5],
+    ['enum', 1],
+    ['method', 22],
+    ['constructor', 5],
+  ]),
+  imports: 6,
+  heritage: 5,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -597,5 +618,68 @@ describe('Access extractor regression — Python fixture (T1837)', () => {
         `Expected accessMode to be 'read'|'write'|'readwrite', got '${acc.accessMode}'`,
       ).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Java extractor regression (T1861 — LanguageConfig / generic-extractor demo)
+// ---------------------------------------------------------------------------
+
+describe('Java extractor regression (fixture snapshot, T1861)', () => {
+  let grammar: unknown | null = null;
+  let source: string;
+
+  beforeAll(() => {
+    grammar = loadGrammar('tree-sitter-java');
+    source = readFileSync(join(__dirname, 'fixtures/java/sample.java'), 'utf8');
+  });
+
+  it('skips gracefully when tree-sitter is unavailable', () => {
+    if (!ParserClass || !grammar) return;
+    expect(true).toBe(true);
+  });
+
+  it('total definition count meets snapshot floor', () => {
+    if (!ParserClass || !grammar) return;
+    const root = parseSource(source, grammar);
+    if (!root) return;
+
+    const result = extractJava(root, 'fixtures/java/sample.java');
+    assertFloor('Java total definitions', result.definitions.length, JAVA_SNAPSHOT.total);
+  });
+
+  it('definition count by kind meets snapshot floor', () => {
+    if (!ParserClass || !grammar) return;
+    const root = parseSource(source, grammar);
+    if (!root) return;
+
+    const result = extractJava(root, 'fixtures/java/sample.java');
+    const counts = countByKind(result.definitions);
+
+    for (const [kind, floor] of JAVA_SNAPSHOT.byKind) {
+      assertFloor(`Java kind '${kind}'`, counts.get(kind) ?? 0, floor);
+    }
+  });
+
+  it('explicit import count meets snapshot floor', () => {
+    if (!ParserClass || !grammar) return;
+    const root = parseSource(source, grammar);
+    if (!root) return;
+
+    const result = extractJava(root, 'fixtures/java/sample.java');
+    assertFloor('Java imports', result.imports.length, JAVA_SNAPSHOT.imports);
+  });
+
+  it('heritage edge count (extends / implements) meets snapshot floor', () => {
+    if (!ParserClass || !grammar) return;
+    const root = parseSource(source, grammar);
+    if (!root) return;
+
+    const result = extractJava(root, 'fixtures/java/sample.java');
+    assertFloor(
+      'Java heritage (extends/implements)',
+      result.heritage.length,
+      JAVA_SNAPSHOT.heritage,
+    );
   });
 });
