@@ -216,6 +216,7 @@ export type {
   HierarchyConfig,
   LifecycleConfig,
   LifecycleEnforcementMode,
+  DepsRequiredAt,
   LlmConfig,
   LlmProviderEntry,
   LoggingConfig,
@@ -852,6 +853,13 @@ export type {
   TasksDeleteQueryResult,
   TasksDependsParams,
   TasksDependsResult,
+  TasksDepsValidateParams,
+  TasksDepsValidateResult,
+  TasksDepsTreeParams,
+  TasksDepsTreeResult,
+  DepGraphIssue,
+  DepsTreeNode,
+  DepsTreeEdge,
   TasksFindParams,
   TasksFindResult,
   TasksHistoryParams,
@@ -1035,6 +1043,8 @@ export type {
   TaskRefPriority,
   TaskSummary,
 } from './results.js';
+// === SDK Tool Contract (Category B harness-agnostic SDK utilities — T1768 / ADR-064) ===
+export type { SdkTool, SdkToolIdentity } from './sdk-tool.js';
 // === Sentient Tier-2 Types (T1008) ===
 export type {
   ProposalCandidate,
