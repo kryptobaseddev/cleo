@@ -19,6 +19,7 @@
  */
 
 import type { GraphNode, GraphNodeKind, GraphRelation } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { LanguageProvider, SyntaxNode, SyntaxTree } from '../language-provider.js';
 
 // ---------------------------------------------------------------------------
@@ -519,11 +520,13 @@ function extractImportsFromRoot(root: SyntaxNode, filePath: string): GraphRelati
     const moduleSpecifier = rawSource.replace(/^['"]|['"]$/g, '');
     if (!moduleSpecifier) continue;
 
+    const importConf = 0.9;
     relations.push({
       source: fileNodeId,
       target: moduleSpecifier,
       type: 'imports',
-      confidence: 0.9,
+      confidence: importConf,
+      confidenceLabel: confidenceLabelFromNumeric(importConf),
       reason: `import statement in ${filePath}`,
     });
   }
@@ -574,11 +577,13 @@ function walkCalls(
         if (prop) calleeName = prop.text;
       }
       if (calleeName) {
+        const callConf = 0.9;
         results.push({
           source: ctx.enclosingId,
           target: calleeName,
           type: 'calls',
-          confidence: 0.9,
+          confidence: callConf,
+          confidenceLabel: confidenceLabelFromNumeric(callConf),
           reason: `call expression in ${filePath}`,
         });
       }
@@ -590,11 +595,13 @@ function walkCalls(
     if (constructorNode) {
       const calleeName = constructorNode.text;
       if (calleeName) {
+        const newConf = 0.85;
         results.push({
           source: ctx.enclosingId,
           target: calleeName,
           type: 'calls',
-          confidence: 0.85,
+          confidence: newConf,
+          confidenceLabel: confidenceLabelFromNumeric(newConf),
           reason: `new expression in ${filePath}`,
         });
       }
