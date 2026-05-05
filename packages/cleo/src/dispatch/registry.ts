@@ -173,6 +173,56 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tasks',
+    operation: 'deps.validate',
+    description:
+      'tasks.deps.validate (query) — validate dependency graph integrity for an epic or all tasks',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'epicId',
+        type: 'string',
+        required: false,
+        description: 'Scope validation to direct children of this epic (optional)',
+      },
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: "Which tasks to include: 'all', 'open', or 'critical' (default: 'all')",
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'deps.tree',
+    description:
+      'tasks.deps.tree (query) — render dependency tree for an epic in text, mermaid, or json format',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['epicId'],
+    params: [
+      {
+        name: 'epicId',
+        type: 'string',
+        required: true,
+        description: 'Epic ID to visualize (required)',
+      },
+      {
+        name: 'format',
+        type: 'string',
+        required: false,
+        description: "Output format: 'text', 'mermaid', or 'json' (default: 'text')",
+      },
+    ],
+  },
+  {
+    gateway: 'query',
+    domain: 'tasks',
     operation: 'analyze',
     description: 'tasks.analyze (query)',
     tier: 1,
