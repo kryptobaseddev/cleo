@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+## [2026.5.21] (2026-05-04) — P0 ARCH FIX: cleo project-root resolution refuses auto-init outside `cleo init` (closes #102)
+
+The most critical architectural fix in months. Workers running cleo from worktree paths were silently creating their own dead-end `.cleo/tasks.db` databases, absorbing manifest writes and gate verifies that the orchestrator never saw. Seven rogue `.cleo/` directories were found at `packages/{adapters,cleo,cleo-os,core,lafs,runtime,studio}/` and quarantined. PR #103 (Windows path mismatch in brain/studio) is superseded by a deeper fix using `env-paths` properly. The Council convened (run `20260505T025150Z-6ad1b9b0`) and unanimously voted refuse-with-error.
+
+### T1864 — Project-root resolution: refuse-with-error policy
+
+**`packages/core/src/paths.ts`**: `validateProjectRoot()` now requires `.cleo/project-info.json` (orchestrator-issued `projectId`) as the primary marker. Legacy `.cleo/` + `.git/` sibling still accepted with a one-time stderr warning. **Bare `package.json` no longer sufficient** — that was the monorepo-package bug where every workspace dir self-anchored as a project root. New exported function `assertProjectInitialized(projectRoot)` throws `E_NOT_INITIALIZED` with `fix: cleo init` hint.
+
+**`packages/core/src/sentient/events.ts`** + **`packages/core/src/sessions/session-journal.ts`**: replaced silent `mkdir(.cleo, recursive: true)` with `assertProjectInitialized()` guard before mkdir. The two callsites that bypassed the doc contract.
+
+### T1873 — env→ALS bridge in core (Package-Boundary fix)
+
+**`packages/core/src/paths.ts`**: new exported `runWithWorktreeScopeFromEnv<T>(fn: () => T): T` reads `CLEO_WORKTREE_ROOT` env var, wraps `fn` in `worktreeScope.run()` AsyncLocalStorage frame. The bridge that makes `cleo orchestrate spawn`'s exported env vars actually reach `getProjectRoot()`'s ALS check.
+
+**`packages/cleo/src/cli/index.ts`**: now a thin wrapper invoking `runWithWorktreeScopeFromEnv(() => startCli())`. Zero direct `worktreeScope` references in the CLI package per AGENTS.md Package-Boundary Check — all ALS plumbing lives in core.
+
+### T1874 — brain + studio use `env-paths` (closes Issue #102, supersedes PR #103)
+
+**`packages/brain/src/cleo-home.ts`**: replaced hand-rolled `process.platform` branching with `envPaths('cleo').data`. Brain's Windows path now matches CLEO core (`%LOCALAPPDATA%\cleo\Data`).
+
+**`packages/studio/src/lib/server/cleo-home.ts`**: now imports `getCleoHome` from `@cleocode/core` (already a dep) and drops the hand-rolled function entirely. Three packages, one source of truth.
+
+**`packages/brain/package.json`**: adds `env-paths` ^4.0.0.
+
+Brain: 69/69 tests pass. Studio: 655/655 tests pass.
+
+### T1868 — Rogue `.cleo/` forensic + quarantine tool
+
+New `packages/core/src/system/rogue-cleo-detector.ts` exports `scanRogueCleoDirs(projectRoot)` and `quarantineRogueCleoDir(report, projectRoot)`. Each `RogueDirReport` includes file manifest with sha256, DB row counts, and `__drizzle_migrations` snapshot. New CLI subcommands: `cleo doctor scan-rogue-cleo-dirs` and `cleo doctor quarantine-rogue-cleo-dirs [--dry-run]`. Quarantine moves to `.cleo/quarantine/<pkg>-<ISO-timestamp>/` — never `rm -rf`. The 7 rogue dirs found at the start of v2026.5.21 work were fingerprinted and quarantined to `.cleo/quarantine/` (preserved on disk for forensic study; can be reviewed with `cleo doctor scan-rogue-cleo-dirs`).
+
+### T1869 — ADR-067 + regression tests
+
+`.cleo/adrs/ADR-067-project-root-resolution.md` documents the resolver algorithm and policy. `packages/core/src/store/__tests__/project-root-resolution.test.ts` ships 11 regression tests reproducing the 2026-05-04 incident: walk-up from worktree paths, monorepo-package skip, E_NOT_INITIALIZED on missing markers, backwards-compat for legacy single-marker.
+
+### Council deliberation
+
+Five advisors (Contrarian, First Principles, Expansionist, Outsider, Executor) convened, peer-reviewed in fixed rotation. 4/5 verdicts at 4/4 PASS Accept; Executor 3/4 (G3 frame-bleed) Modify. Convergence detector: no semantic 3-clique (advisors stayed in lane). Chairman verdict at HIGH confidence: refuse-with-error policy, three mechanical changes (validator, mkdir guards, env→ALS bridge), fingerprint-before-quarantine of rogue dirs, defer `@cleocode/project-context` library extraction to follow-up. Full transcript at `.cleo/council-runs/20260505T025150Z-6ad1b9b0/output.md`.
+
+### Recovery context
+
+This release ships in the wake of a session-time incident where the project DB at `/mnt/projects/cleocode/.cleo/tasks.db` was rendered inaccessible by a duplicate `__drizzle_migrations` entry (same hash at IDs #15 and #18 — a corruption that re-triggered the t1408 archive-reason-enum migration on every cleo invocation). Recovery from `.cleo/backups/sqlite/tasks-20260504-180408.db` succeeded; 1879 tasks intact. The architectural fix shipped here ensures workers in worktrees never again write to dead-end DBs that diverge from the project DB.
+
+### Tasks shipped in v2026.5.21
+- T1864 — paths.ts validator + assertProjectInitialized + 2 mkdir guards (commit `3145bee0c`)
+- T1868 — rogue scanner + quarantine tool (commit `2e1ded45d`)
+- T1869 — ADR-067 + 11 regression tests (commit `c930d7496`)
+- T1873 — env→ALS bridge in core, CLI thin wrapper (commit `fce99405e`)
+- T1874 — brain/studio use env-paths, closes #102, supersedes #103 (commit `907a1de86`)
+
+12,602 tests pass. 11 pre-existing flake (sentient revert-walker, mental-model consolidate, T1856 self-tests, brain-stdp-functional) — none regressions from this release.
+
 ## [2026.5.20] (2026-05-04) — Hotfix #2: T1849 robust CI skip for augment integration tests (belt-and-suspenders)
 
 v2026.5.19's T1848 fix used `describe.skipIf(!nexusDbHasData)` based on row count — but in CI, prior tests in the same run populate `nexus.db` with rows that don't include the test's expected "load" symbols, so the skip didn't fire. T1849 hardens the guard with two independent triggers:
