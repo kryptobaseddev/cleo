@@ -1,7 +1,318 @@
 # Changelog
 
-## [Unreleased]
+## [2026.5.26] (2026-05-05)
 
+Auto-prepared by release.ship (T1878)
+
+### Features
+- **Implement embedding cosine similarity for session pivot detection in session-narrative.ts**: Replace keyword-overlap heuristic in session-narrative.ts detectPivot() with cosine similarity over embeddings via sqlite-vec extension when availa... (T1531)
+- **Add telemetry logging to evaluateDialectic: log when no LLM backend available + surface structured errors from generateObject failures**: Add structured telemetry to dialectic-evaluator.ts evaluateDialectic(): emit a structured log when no LLM backend is available (backend='none') AND... (T1533)
+- **Add CLEO_WORKTREE_ROOT/CLEO_AGENT_ROLE export block to spawn prompt for git-shim env activation**: Wire the export block from T1759's utility preamble into the tier-1 spawn prompt. The export block teaches the subagent shell to set CLEO_WORKTREE_... (T1760)
+- **T-FOUND-4: Acceptance criteria immutability after implementation stage**: Once task pipeline_stage >= implementation cleo update --acceptance is REJECTED unless --reason <X> provided AND audit-logged. Prevents predecessor... (T1590)
+- Schema enhancement: implemented gate needs deletion-safe evidence alternative — add [commit, note] alternative to GATE_EVIDENCE_MINIMUMS.implemented (T1514 systemic finding) (T1515)
+- **Implement top-3 priority Cleo Nexus capability gaps identified in T1042 analysis**: After gap analysis and decomposition, implement the 3 highest-impact missing Cleo Nexus capabilities. Exact scope determined by T1042 gap analysis ... (T1649)
+- **Add releaseCoreOps + migrate dispatch/release.ts to OpsFromCore (ADR-058)**: release.ts does not use OpsFromCore. The contracts file already defines ReleaseGateCheckParams, ReleaseGateCheckResult, and IvtrAutoSuggestResult. ... (T1543)
+
+### Bug Fixes
+- **Worktree leak — auto-cleanup on cleo complete + add 'cleo orchestrate prune'**: cleo orchestrate spawn locks each worktree under ~/.local/share/cleo/worktrees/<projectHash>/<taskId>/ with reason 'cleo-agent-T###' and never unlo... (T1462)
+- Add 'sweep' to mutate[] routing in memory dispatch — getOperationConfig() in memory.ts ~line 1994 (1 LOC) (T1496)
+- Fix pipeline.integration.test.ts — 7 failing passGate tests crash on undefined gateName (T1497)
+- **T-LW-W8: HOTFIX — daemon crash-loop bugs (Studio path, node spawn, install import)**: v2026.5.2 daemon installed via systemctl --user enable but immediately crash-loops. Three real bugs found in production: (1) Studio supervision tri... (T1684)
+- **Fix CI failures — cliOutput console.log hijack + FORCE_COLOR snapshot drift**: Three surgical fixes to make GitHub Actions CI green. ROOT CAUSES (already diagnosed): (1) cliOutput at packages/cleo/src/cli/renderers/index.ts li... (T1731)
+- **T1823-1: Define isolation boundary contract + core enforcement + regression test**: Subtask 1 of T1823 P0 worktree isolation breach. Define BoundaryContract path-validation interface in branch-lock.ts (declare absolute-path rules) ... (T1851)
+- **Fix CLEO-INJECTION.md size regression (288 lines, 8 over 280; blocks T1402)**: injection-mvi-tiers.test.ts asserts at most 280 lines for token budget. After 3c96e37db (Decision Lookup Protocol migration), file grew to 288. Tri... (T1414)
+- **GetProjectRoot trap — refuse parent .cleo dirs lacking sibling .git or with projectHash mismatch**: getProjectRoot() in packages/core/src/paths.ts walks up from cwd looking for .cleo/ and explicitly guards against $HOME and / (T889/T909). It does ... (T1463)
+- **Fix orchestrateSpawnExecute to pass worktreePath as workingDirectory to adapter spawn context**: FOUNDATIONAL centralized utility per owner direction 2026-05-04: build packages/core/src/worktree/isolation.ts that exposes a harness-agnostic 'Wor... (T1759)
+- **T1864-4: ADR-067 + regression tests for project-root resolution**: Document the council verdict as ADR-067. Add regression tests reproducing the 2026-05-04 incident: cd into ~/.local/share/cleo/worktrees/.../T####/... (T1869)
+- Fix backup-pack.test.ts ENOTEMPTY race — isolate staging dir per-test via unique mkdtemp prefix (T1516)
+- **Fix circular import DatabaseSync TDZ — lazy-init in sqlite.ts**: Root-cause fix for CI failure. T1325 dispatch-trace added dynamic import in agent-resolver.ts that Vitest eagerly traces, creating cycle: spawn tes... (T1331)
+- Fix runtime bug in T310-shim callers — upgrade.ts + cross-db-cleanup.ts pass cwd instead of expected projectHash to ensureSignaldockDb/getSignaldockDbPath (will throw at runtime per T1512 finding) (T1513)
+- **W2.E: Fix EngineResult round-trip field-loss bug (preserve exitCode/details/fix/alternatives)**: Fix the silent field-loss bug where EngineResult ↔ LafsEnvelope ↔ DispatchResponse round-trip drops exitCode, details, fix, and alternatives fields... (T1712)
+- **EP3-T7: Hebbian BUG-2 Fix + STDP Wire-Up**: Child of EP3 (T1056: Nexus P2 Living Brain Completion). Fixes BUG-2 in Hebbian plasticity: strengthenCoRetrievedEdges() in brain-lifecycle.ts incor... (T1072)
+- **Pre-existing CI flake cleanup — epic-enforcement and pipeline-stage tests**: Two pre-existing test flakes have caused multiple wave releases to ship with red CI: (1) epic-enforcement.test.ts > 'allows updating child to a sta... (T1718)
+- **T1449-DOC: ADR + regression-prevention CI gate for Contracts→Core SSoT**: T1449 cleanup wave — documentation + structural enforcement. Runs after all 9 domain refactors land. Prevents drift recurrence. (T1459)
+- **T1435-W3b: Regression-prevention — biome lint rule rejecting type/interface declarations in dispatch domains**: Wave 3b — make drift impossible to reintroduce. Pure preventative work; ensures the architectural invariant is enforced by tooling, not just by fut... (T1448)
+- BUG: augment.ts SQL bug — wrong column names cause augment+search-code to return 0 results (T1832)
+- **BUG: wiki-index.ts community query returns 0 communities — groups by community_id on community nodes (which is NULL) instead of member nodes**: BUG (T1042 audit): wiki-index.ts community query returns 0 because it groups by community_id on community-kind nodes where community_id is NULL. Th... (T1833)
+- **BUG: Worktree provisioner silent failure — fix exception swallow in spawn-ops.ts + reuse existing branch in worktree-create.ts**: Researcher 2026-05-05 (.cleo/agent-outputs/T1042-orchestration-2026-05-05/researcher-worktree-utility.md) identified root cause: createWorktree() i... (T1878)
+
+### Documentation
+- **T1622a: Cherry-pick instructions purge — CLEO-INJECTION.md template + spawn-prompt.ts + worktree-destroy.ts**: Purge cherry-pick instructional language from CLEO-INJECTION.md template (line ~110), spawn-prompt.ts worktree block, and worktree-destroy.ts comme... (T1623)
+
+### Tests
+- **CI unblock — fix T1329 add.ts TS error + T1322 reconstruct test git history**: CI failing on main (run 24912593361) with 2 regressions from prior work. T1329 imported getActiveSession incorrectly — it's accessor.getActiveSessi... (T1385)
+- Add tests for currentTask/stopTask/getWorkHistory in task-work namespace (T1542)
+
+### Chores
+- **T-TW-FOLLOWUP-4 MCP adapter migrate to public SDK**: Codex re-audit found packages/mcp-adapter/src/cli-runner.ts shells out to cleo subprocess instead of using @cleocode/core SDK. Migrate to direct SD... (T1485)
+- **ENG-MIG-1: Migrate task-engine.ts (2233 LOC) to packages/core/tasks**: Move all business logic from packages/cleo/src/dispatch/engines/task-engine.ts to packages/core/tasks/. Update packages/cleo/src/dispatch/domains/t... (T1568)
+- **T-KNOWLEDGE-V1-1: migrate ADRs into cleo docs registration**: Every ADR in docs/adr/*.md must be discoverable via cleo docs system. For each ADR file: cleo docs add (or attach to a relevant task as a docs entr... (T1612)
+- **W3.A: Migrate TaskRole/TaskScope/TaskSeverity Drizzle schema imports**: Drizzle schema in core/store/tasks-schema.ts redeclares TaskRole, TaskScope, TaskSeverity verbatim from contracts/task.ts. Update schema to import ... (T1713)
+- **W4.A: Migrate nexus.ts CLI command to cliOutput (218 raw stdout writes)**: packages/cleo/src/cli/commands/nexus.ts has 218 raw process.stdout.write calls bypassing the LAFS envelope. Replace each call with cliOutput(envelo... (T1720)
+- **T1734 followup: backfill LLM test coverage for migrated openai paths**: Test-coverage audit (during T1734) flagged 8 gaps: a green pnpm-test run does not currently prove the openai 4→6 migration is correct because the e... (T1735)
+- **T1435-W1-admin: refactor admin dispatch to OpsFromCore inference (no contract param imports)**: Wave 1 of T1435 — admin domain refactor. Depends on T1436 OpsFromCore helper landing. Touches dispatch admin.ts + contracts admin.ts only (atomicit... (T1437)
+- **ENG-MIG-2: Migrate nexus-engine.ts (2016 LOC) to packages/core/nexus**: Move all business logic from packages/cleo/src/dispatch/engines/nexus-engine.ts to packages/core/nexus/. Update packages/cleo/src/dispatch/domains/... (T1569)
+- **T1622b: Cherry-pick code/contracts purge — delete legacy completeAgentWorktree + rename cherryPicked field**: Purge legacy cherry-pick code paths from packages/core/src/spawn/branch-lock.ts (delete completeAgentWorktree — only completeAgentWorktreeViaMerge ... (T1624)
+- **W3.B: Migrate StickyNote types — single SSoT in contracts**: core/sticky/types.ts redeclares StickyNoteStatus, StickyNotePriority, StickyNoteColor, StickyConvertResult — all 4 already in contracts/operations/... (T1714)
+- **W4.B: Migrate memory.ts CLI command to cliOutput (96 raw writes)**: packages/cleo/src/cli/commands/memory.ts has 96 raw process.stdout.write calls bypassing LAFS. Replace with cliOutput. Second-largest after nexus. (T1721)
+- **T1435-W1-check: refactor check dispatch to OpsFromCore inference (no contract param imports)**: Wave 1 of T1435 — check domain refactor. Depends on T1436 OpsFromCore helper landing. Touches dispatch check.ts + contracts check.ts only (atomicit... (T1438)
+- **ENG-MIG-3: Migrate orchestrate-engine.ts (1962 LOC) to packages/core/orchestrate**: Move all business logic from packages/cleo/src/dispatch/engines/orchestrate-engine.ts to packages/core/orchestrate/. Update packages/cleo/src/dispa... (T1570)
+- **T-FOUND-2: Add 'cleo orchestrate worktree-complete <taskId>' CLI command — exposes existing dispatch handler**: Bug discovered 2026-05-01 during T1623 merge: the worktree.complete dispatch operation is registered (registry.ts:6516) and the handler exists (orc... (T1625)
+- **W3.C: Migrate Brain memory schema types from contracts**: core/store/memory-schema.ts redeclares BrainMemoryTier, BrainCognitiveType, BrainSourceConfidence, BrainNodeType. All 4 already in contracts (brain... (T1715)
+- **W4.C: Migrate brain.ts CLI command to cliOutput (77 raw writes)**: packages/cleo/src/cli/commands/brain.ts has 77 raw process.stdout.write calls bypassing LAFS. Replace with cliOutput. (T1722)
+- **W5.C: Remove side effects from release/engine-ops.ts (console.log → structured logger)**: Audit-E found release/engine-ops.ts has console.log step-progress writes — these break SDK consumers because they pollute stdout when consumed prog... (T1727)
+- **T1435-W1-conduit: refactor conduit dispatch to OpsFromCore inference (no contract param imports)**: Wave 1 of T1435 — conduit domain refactor. Depends on T1436 OpsFromCore helper landing. Touches dispatch conduit.ts + contracts conduit.ts only (at... (T1439)
+- P2-NEW-2: Remove stale deprecation cleanup — 4 T310 shims in signaldock-sqlite.ts + 5 ADR-027 flat-file functions in memory/index.ts (T1512)
+- **ENG-MIG-4: Migrate system-engine.ts (1855 LOC) to packages/core/system**: Move all business logic from packages/cleo/src/dispatch/engines/system-engine.ts to packages/core/system/. Update packages/cleo/src/dispatch/domain... (T1571)
+- **W3.D: Migrate LLM types — single SSoT in contracts**: core/llm/types-config.ts and core/llm/types.ts redeclare ModelTransport, PromptCachePolicyMode, PromptCachePolicy, LLMCallResult, ModelConfig — all... (T1716)
+- **W4.D: Migrate transcript.ts CLI command to cliOutput (43 raw writes)**: packages/cleo/src/cli/commands/transcript.ts has 43 raw process.stdout.write calls bypassing LAFS. Replace with cliOutput. (T1723)
+- **T1435-W1-nexus: refactor nexus dispatch to OpsFromCore inference (no contract param imports)**: Wave 1 of T1435 — nexus domain refactor. Depends on T1436 OpsFromCore helper landing. Touches dispatch nexus.ts + contracts nexus.ts only (atomicit... (T1440)
+- **ENG-MIG-5: Migrate release-engine.ts (1517 LOC) to packages/core/release**: Move all business logic from packages/cleo/src/dispatch/engines/release-engine.ts to packages/core/release/. Update packages/cleo/src/dispatch/doma... (T1572)
+- **W4.E: Migrate daemon+sentient+gc CLI commands to cliOutput**: packages/cleo/src/cli/commands/{daemon,sentient,gc}.ts collectively have raw stdout writes bypassing LAFS. Replace with cliOutput. ≤3 files. (T1724)
+- **T1435-W1-pipeline: refactor pipeline dispatch to OpsFromCore inference (no contract param imports)**: Wave 1 of T1435 — pipeline domain refactor. Depends on T1436 OpsFromCore helper landing. Touches dispatch pipeline.ts + contracts pipeline.ts only ... (T1441)
+- **ENG-MIG-6: Migrate session-engine.ts (1299 LOC) to packages/core/session**: Move all business logic from packages/cleo/src/dispatch/engines/session-engine.ts to packages/core/session/. Update packages/cleo/src/dispatch/doma... (T1573)
+- **T1435-W1-playbook: refactor playbook dispatch to OpsFromCore inference (no contract param imports)**: Wave 1 of T1435 — playbook domain refactor. Depends on T1436 OpsFromCore helper landing. Touches dispatch playbook.ts + contracts playbook.ts only ... (T1442)
+- **ENG-MIG-7: Migrate validate-engine.ts (1245 LOC) to packages/core/check**: Move all business logic from packages/cleo/src/dispatch/engines/validate-engine.ts to packages/core/check/. Update packages/cleo/src/dispatch/domai... (T1574)
+- **W4.G followup: Migrate remaining 8 CLI commands to cliOutput (help-renderer, schema, audit, ...)**: Below-top-5 CLI commands still have raw stdout writes per Audit-B: help-renderer, schema.ts, audit.ts, and 5 others. Migrate to cliOutput per W4.A-... (T1729)
+- **T1435-W1-sentient: refactor sentient dispatch to OpsFromCore inference (no contract param imports)**: Wave 1 of T1435 — sentient domain refactor. Depends on T1436 OpsFromCore helper landing. Touches dispatch sentient.ts + contracts sentient.ts only ... (T1443)
+- **ENG-MIG-8: Migrate tools-engine.ts (878 LOC) to packages/core/tools**: Move all business logic from packages/cleo/src/dispatch/engines/tools-engine.ts to packages/core/tools/. Update packages/cleo/src/dispatch/domains/... (T1575)
+- **T1435-W1-session: refactor session dispatch to OpsFromCore inference (no contract param imports)**: Wave 1 of T1435 — session domain refactor. Depends on T1436 OpsFromCore helper landing. Touches dispatch session.ts + contracts session.ts only (at... (T1444)
+- **ENG-MIG-9: Migrate lifecycle-engine.ts (496 LOC) to packages/core/lifecycle**: Move all business logic from packages/cleo/src/dispatch/engines/lifecycle-engine.ts to packages/core/lifecycle/. Update packages/cleo/src/dispatch/... (T1576)
+- **T1435-W1-tasks: refactor tasks dispatch to OpsFromCore inference (no contract param imports)**: Wave 1 of T1435 — tasks domain refactor. Depends on T1436 OpsFromCore helper landing. Touches dispatch tasks.ts + contracts tasks.ts only (atomicit... (T1445)
+- **ENG-MIG-10: Migrate sticky-engine.ts (268 LOC) to packages/core/sticky**: Move all business logic from packages/cleo/src/dispatch/engines/sticky-engine.ts to packages/core/sticky/. Update packages/cleo/src/dispatch/domain... (T1577)
+- **GAP: cleo upgrade must include agent registry reconciliation**: Owner v2026.4.112 verification: cleo upgrade has 7 actions (storage_preflight fix_missing_sizes fix_completed_at fix_missing_columns gitignore_inte... (T1243)
+- Migrate dispatch/sticky.ts to OpsFromCore typed handler pattern (ADR-058) (T1535)
+- **ENG-MIG-11: Migrate pipeline-engine.ts (224 LOC) to packages/core/pipeline**: Move all business logic from packages/cleo/src/dispatch/engines/pipeline-engine.ts to packages/core/pipeline/. Update packages/cleo/src/dispatch/do... (T1578)
+- Remove deprecated type aliases from core/sessions/index.ts re-exports (T1536)
+- **ENG-MIG-12: Migrate hooks-engine.ts (224 LOC) to packages/core/hooks**: Move all business logic from packages/cleo/src/dispatch/engines/hooks-engine.ts to packages/core/hooks/. Update packages/cleo/src/dispatch/domains/... (T1579)
+- **ENG-MIG-13: Migrate diagnostics-engine.ts (215 LOC) to packages/core/diagnostics**: Move all business logic from packages/cleo/src/dispatch/engines/diagnostics-engine.ts to packages/core/diagnostics/. Update packages/cleo/src/dispa... (T1580)
+- Migrate dispatch/orchestrate.ts to OpsFromCore typed handler pattern (ADR-058) (T1538)
+- **ENG-MIG-14: Migrate init-engine.ts (112 LOC) to packages/core/init**: Move all business logic from packages/cleo/src/dispatch/engines/init-engine.ts to packages/core/init/. Update packages/cleo/src/dispatch/domains/in... (T1581)
+- **ENG-MIG-15: Migrate config-engine.ts (91 LOC) to packages/core/config**: Move all business logic from packages/cleo/src/dispatch/engines/config-engine.ts to packages/core/config/. Update packages/cleo/src/dispatch/domain... (T1582)
+- **ENG-MIG-16: Migrate code-engine.ts (77 LOC) to packages/core/code**: Move all business logic from packages/cleo/src/dispatch/engines/code-engine.ts to packages/core/code/. Update packages/cleo/src/dispatch/domains/co... (T1583)
+- **ENG-MIG-17: Migrate codebase-map-engine.ts (59 LOC) to packages/core/codebase-map**: Move all business logic from packages/cleo/src/dispatch/engines/codebase-map-engine.ts to packages/core/codebase-map/. Update packages/cleo/src/dis... (T1584)
+- **Migrate dispatch/docs.ts to TypedDomainHandler<DocsOps> per ADR-058**: docs.ts is the only remaining dispatch domain handler not migrated to TypedDomainHandler<DocsOps> + OpsFromCore pattern. DocsOps discriminated unio... (T1548)
+- **Add FTS5 virtual table to nexus.db for BM25 search — enables semantic search-code and augment at gitnexus speed (currently LIKE-only with process spawn overhead)**: T1042 audit perf gap: augmenter currently uses LIKE %pattern% on shared nexus.db — O(n) full scan, no index, poor precision. gitnexus uses BM25+HNS... (T1839)
+
+### Changes
+- **GitNexus CLI deep-dive: feature matrix, data model, storage, query surface**: Explore gitnexus CLI exhaustively. Use 'gitnexus --help' and 'gitnexus <cmd> --help' for each subcommand. Read the gitnexus npm package source if n... (T1043)
+- **EP1-T1: SQLite Recursive CTE Query DSL**: Child of EP1 (T1054: Nexus P0 Core Query Power). Exposes SQLite Recursive CTE queries as a typed DSL in packages/core/src/nexus/query-dsl.ts. Uses ... (T1057)
+- **EP2-T1: External Module Nodes (IMPORTS persistence)**: Child of EP2 (T1055: Nexus P1 Competitive Closure). Adds persistence of unresolved import specifiers as ExternalModule nodes in nexus.db. Implement... (T1062)
+- **EP3-T1: Complete BRAIN→NEXUS Edge Writers**: Child of EP3 (T1056: Nexus P2 Living Brain Completion). Extends graph-memory-bridge.ts with three missing edge writers linking BRAIN observations a... (T1066)
+- Wave-1 Task A (W1T1)
+- T1386-W1: Port llm/types.ts — public response/stream/iteration types (T1387)
+- **Rename brain_v2_candidate → brain_observations_staging (schema semantic clarity)**: Rename the T1147 W7 shadow-write staging table. Prior name 'brain_v2_candidate' read like a schema version (v2); the correct semantic is 'staging' ... (T1402)
+- Suppress node:sqlite ExperimentalWarning for programmatic consumers of @cleocode/core (T1406)
+- **T820 follow-on — RELEASE-03 IVTR gate check + RELEASE-07 IVTR→release auto-suggest**: Audit found T820 verified-incomplete (5/7 ACs). Original task archived. This follow-on implements RELEASE-03 (release.gate IVTR-completion check be... (T1416)
+- **T988 follow-on — sentient domain typed narrowing (~11 casts)**: Eliminate type casts in dispatch domain 'sentient'. Original count: ~11 casts. Refer to .cleo/agent-outputs/T1216-audits/T988-verdict.md. Use prope... (T1421)
+- **T1430-A: Restore dispatch domain test contracts — nexus + tasks + check-ops handlers**: Subtask 1 of 2 from T1430 split (atomicity: ≤3 files per task). Covers TypedDomainHandler regressions in nexus (T1424), tasks (T1425), check (T1423... (T1432)
+- **T1435-W0: Add OpsFromCore<T> helper to TypedDomainHandler infrastructure**: Wave 0 of T1435 — establish the inference primitive that all 9 domain refactors will use. Must land first; sequential gate before Wave 1 parallel d... (T1436)
+- **T1449-PROOF: session domain — Core API alignment with Contracts (proof of concept)**: PROOF-OF-CONCEPT for T1449. Session is smallest dispatch domain (~670 LOC), well-bounded (start/end/status/list/resume), few internal callers. Esta... (T1450)
+- **T-TW-1 fix lint L4 wildcard re-export shortcut**: scripts/lint-contracts-core-ssot.mjs:301-303 treats any export * from line as proof-of-public, masking violations (T1469)
+- Re-parent 51 orphaned tasks: scripted cleo update calls — EP1/EP2/EP3 + agents-arch + sandbox/tier3 groups (excludes T1106 CLOSE-ALL pending owner decision) (T1503)
+- P1-2: brain-stdp-functional deflake — 3 ENV-flaky tests (T695-1 class) (T1506)
+- P2-NEW-1: Clean up 20 stale SSoT-EXEMPT annotations (14x T1488 in nexus.ts + 6x T1451 in token-service.ts) (T1509)
+- Teammate 1: Audit Tasks-Lifecycle (dispatch:tasks/ivtr/check + core:tasks/taskWork/lifecycle/validation/check) (T1521)
+- V1: Fresh-install + smoke matrix — npm pack + tmp install + cleo --version + cleo dash basic ops (T1557)
+- **T-PRE-EXISTING-FAILURES: Fix 26 pre-existing test failures in lifecycle/task-complete/task-engine**: Pre-existing predecessor debt (NOT introduced by this session's audit work). 26 failures across 3 files: lifecycle-scope-guard.test.ts (12), task-c... (T1585)
+- **T-FOUND-1: Worktree integration via git merge --no-ff (replace cherry-pick doctrine)**: Replace ALL cherry-pick references in CLEO with git merge --no-ff doctrine. Update cleo orchestrate complete to: rebase worktree on target → re-run... (T1587)
+- **T-FOUND-V2-1: LOC-reduction gate for engine-migration tasks**: Tasks with label engine-migration MUST show wc -l drop ≥X% on the migrated engine before complete. Prevents structural-only claims like predecessor... (T1604)
+- **T-HR-A: Wave A — Bulk cancel cruft (test placeholders + scaffolding + stuck-active + low-value floaters)**: Cancel ~85-100 cruft items per H2/H1 audit findings. Categories: (1) 52 test/placeholder tasks per H2 §9; (2) 14 stuck-active test tasks per H2 §10... (T1628)
+- **T-LW-W1: Centralize LLM credentials resolver + provider config (CORE SDK SSoT)**: ONE canonical credentials resolver in packages/core/src/llm/credentials.ts. Every LLM consumer (llm-extraction, hygiene-scan, dream-cycle, dup-dete... (T1677)
+- **W1-A1: Reconcile GateStatus shape mismatch (operations/lifecycle.ts vs status-registry.ts)**: Audit-A: GateStatus defined with different shapes in two files within contracts. Pick canonical (status-registry.ts) and remove or alias the duplic... (T1694)
+- **W2.A: Add problemDetails to core EngineErrorPayload (RFC 7807 activation)**: Activate problemDetails field in @cleocode/core EngineErrorPayload per R1 ACTIVATE recommendation (RFC 7807 problem details for error reporting). F... (T1707)
+- **W5.A: Add unwrap() helper to @cleocode/core for ergonomic SDK consumers**: Add unwrap<T>(result: EngineResult<T>): T helper to @cleocode/core. Throws on failure (preserving CleoError shape with code/message/exitCode/detail... (T1725)
+- **Harden tier-1 spawn prompt: document Bash cwd-reset behavior and require per-call cd guard**: Harden tier-1 spawn prompt to reduce leakage even before full enforcement (T1759) lands. Document that Claude Code Bash tool calls start fresh shel... (T1758)
+- **T1757-C: register ct-council in packages/skills/skills.json manifest**: Now that ct-council is committed to git (commit fcc27392d via T1757-B), register it in the central skills registry at packages/skills/skills.json s... (T1766)
+- **T1826-1: Extend brain_decisions Drizzle schema + Decision contract type**: Subtask 1 of T1826 decision-storage Drizzle schema extension. Extend brain_decisions table in memory-schema.ts with adrNumber INTEGER UNIQUE auto-i... (T1853)
+- **T1855-1: Mandatory --depends for critical-priority tasks + auto-suggest from sibling topology**: T1855 guardrail #1: any task created with --priority critical MUST also receive --depends OR explicitly waive via --depends-waiver flag. Critical-p... (T1856)
+- **Cleo Nexus CLI deep-dive: feature matrix, data model, storage, query surface**: Explore cleo nexus CLI exhaustively. Use 'cleo nexus --help' and 'cleo nexus <cmd> --help' for each subcommand. Read the cleo nexus source: package... (T1044)
+- **EP1-T2: Semantic Code Symbol Search**: Child of EP1 (T1054: Nexus P0 Core Query Power). Wires the existing smartSearch() function into a cleo nexus search-code CLI command. Returns symbo... (T1058)
+- **EP2-T2: Leiden Community Detection + member_of edges**: Leiden community detection + member_of edges. Pure-TS Leiden implementation in packages/nexus/src/pipeline/leiden.ts (replaces unavailable grapholo... (T1063)
+- **EP3-T2: TASKS→NEXUS Bridge (task_touches_symbol)**: Child of EP3 (T1056: Nexus P2 Living Brain Completion). Creates packages/core/src/nexus/tasks-bridge.ts that links task IDs to the code symbols the... (T1067)
+- **RB: Build hot-paths and cold-symbols (SDK + CLI + tests + dispatch reg)**: Owner-flagged: V2 RECOMMENDATION §7.6 specified these three verbs. Never shipped. Must ship now with full CLI + SDK + dispatch + tests. (T1108)
+- Wave-1 Task B (W1T2)
+- T1386-W2: Port llm/backend.ts — ProviderBackend interface, ToolCallResult, CompletionResult, StreamChunk (T1388)
+- **T988 follow-on — conduit domain typed narrowing (~26 casts)**: Eliminate type casts in dispatch domain 'conduit'. Original count: ~26 casts. Refer to .cleo/agent-outputs/T1216-audits/T988-verdict.md. Use proper... (T1422)
+- **Sqlite-warning-suppress CLI invocation failing in v2026.4.142**: Discovered during v2026.4.142 repo-wide test run as the only test failure outside the typed-narrowing-wave dispatch regressions. Pre-existing on ma... (T1431)
+- **T1430-B: Restore nexus CLI + intel + cli-missing-commands dispatch test contracts**: Subtask 2 of 2 from T1430 split (atomicity: ≤3 files per task). Covers nexus-CLI-surface regressions from typed-narrowing wave T1424 — top-entries ... (T1433)
+- **T1449-D-admin: admin domain — Core API alignment with Contracts**: T1449 child — admin domain. Follow pattern established by T1450 PROOF. Atomicity: dispatch + contracts + Core (with worker latitude to touch tests ... (T1451)
+- **T-TW-2 add Core index namespace exports for check session playbook**: packages/core/src/index.ts missing explicit namespace exports for check, session, playbook domains per codex audit (T1470)
+- **T-TW-FOLLOWUP-5 cleo-os decouple from cleo CLI binary**: Codex re-audit found cleo-os/package.json:8-10,25 binds bins+dependency to @cleocode/cleo. Decouple — cleo-os should depend on @cleocode/core SDK o... (T1486)
+- Pump: cap CLEO_OWNER_OVERRIDE invocations per session — require ADR-style waiver doc above N (246 in 4 days, 665 total) (T1501)
+- Sqlite-warning-suppress deflake — 2 worktree-context flaky tests (T1507)
+- Phase 2 nexus dispatch ops (descoped from T1488) — add dispatch ops for clusters/flows/context/projects variants/refresh-bridge/diff/query-cte/hot-paths/hot-nodes/cold-symbols (T1510)
+- Teammate 2: Audit Orchestration-Pipeline (dispatch:orchestrate/pipeline + core:orchestration/spawn/pipeline/sequence/phases) (T1522)
+- **Iterate on dialectic evaluator: add few-shot examples + tune confidence thresholds in buildDialecticSystemPrompt**: Strengthen dialectic-evaluator.ts buildDialecticSystemPrompt() with at least 3 few-shot examples for global trait extraction, and document the conf... (T1532)
+- V2: SDK consumer test — write fresh script using @cleocode/core public surface, verify task/memory/conduit ops (T1558)
+- **T-LAYERING-FIX: Eliminate 56 cleo→@cleocode/contracts direct imports**: Operator-mandated foundational rule: packages/cleo/ MUST only import from @cleocode/core. Current state: 56 direct contracts imports across package... (T1565)
+- **T-FOUND-2: Pre-commit + pre-push T-ID enforcement (verify T1410, ship if missing)**: Verify T1410 commit-msg lint claim from predecessor (commit ee0e55592 — UNVERIFIED). If shipped: confirm enforced project-agnostically. If not ship... (T1588)
+- **T-FOUND-V2-2: production-callsite coverage gate (exported fn must have non-test caller)**: Static check: exported function/class added by a task must have ≥1 grep hit outside its own file + tests + dist before task completes. Catches T160... (T1605)
+- **T-KNOWLEDGE-V1-2: audit + absorb .cleo/agent-outputs/*.md into BRAIN+docs**: Existing .cleo/agent-outputs/ has dozens of .md reports (audits, plans, deliberations, handoffs). Audit each: substantive insights become BRAIN obs... (T1613)
+- **T-HR-B: Wave B — Structural fixes (premature-closed epics, ready-to-close, stage drift, LOOM init)**: Fix structural defects per H1 audit. Specifically: (1) REOPEN T1467 + complete pending children T1491, T1495 (preserve work, no half-done); (2) REO... (T1629)
+- **T-LW-W2: Moonshot Kimi backend (Kimi K2 coding model)**: Add MoonshotBackend implementing ProviderBackend interface (matching Anthropic/OpenAI/Gemini patterns) for Moonshot AI's Kimi K2 coding model. Moon... (T1678)
+- **W1-A2: Reconcile TaskPriority duplicate definition within contracts**: Audit-A: TaskPriority defined twice within contracts. (T1695)
+- **W2.B: Wire problemDetails in cleoErrorToEngineError (single-point activation)**: Single-point activation of problemDetails in cleo's error conversion path. Per R1 recommendation — populate problemDetails when converting CleoErro... (T1708)
+- **W5.B: Register sentient + release ops in OPERATIONS array for SDK surface parity**: Audit-E: sentient and release domains are reachable via cleo CLI but missing from the public OPERATIONS array (=0 each). Public SDK consumers using... (T1726)
+- **T1757-D: CWD discipline audit (RELATED to T1756)**: Provenance trace from T1757 found that the errant packages/core/packages/core/ directory was created 2026-04-28 by an agent with confused CWD (oper... (T1767)
+- **T1823-2: Enforce isolation boundary in git-shim**: Subtask 2 of T1823. Wire git-shim/boundary.ts and isolation-boundary.ts to consume the BoundaryContract from T1851 — block absolute-path Edit/Write... (T1852)
+- **T1826-2: Expose decision fields via memory CLI + operations contract**: Subtask 2 of T1826. Expose new Decision schema fields via cleo memory decision-store CLI (--adr-path --supersedes --confirmation-state --decided-by... (T1854)
+- **T1864-3: Rogue .cleo dirs forensic fingerprint + quarantine tool**: Per council verdict: before deletion of the 7 rogue .cleo/ dirs at packages/*/, fingerprint them (sha256 of each file + DB row counts + __drizzle_m... (T1868)
+- **Universal Semantic Graph — promote brain_page_nodes to sentience layer**: brain_page_nodes already implements cross-system graph but unused by Studio. Promote to THE sentience layer. Auto-populate via hooks. SDK traversal... (T945)
+- **Execute gitnexus full pipeline on /mnt/projects/openclaw, capture all outputs**: Run gitnexus end-to-end on /mnt/projects/openclaw. Target represents a mid-size monorepo. Use 'gitnexus analyze /mnt/projects/openclaw' first. Then... (T1045)
+- **EP1-T3: Source Content Retrieval**: Child of EP1 (T1054: Nexus P0 Core Query Power). Adds --content flag to cleo nexus context command, appending full source text via smartUnfold(). L... (T1059)
+- **EP2-T3: Route-Map and Shape-Check Commands**: Child of EP2 (T1055: Nexus P1 Competitive Closure). Adds cleo nexus route-map command that surfaces all HTTP route nodes, their handler functions, ... (T1064)
+- **EP3-T3: Living Brain SDK Traversal Primitives**: Child of EP3 (T1056: Nexus P2 Living Brain Completion). Creates packages/core/src/nexus/living-brain.ts with four SDK primitives: getSymbolFullCont... (T1068)
+- **RC: T1060 wiki FULL acceptance — LOOM LLM + --community flag + diff-incremental**: Owner-rejected the scope-reduction. Original acceptance had 3 elements agents silently dropped: LOOM integration (not no-LLM scaffold), --community... (T1109)
+- T1386-W3: Port llm/backends/anthropic.ts — AnthropicBackend with Claude 4 prefill rejection (T1389)
+- **T1013 follow-on — RELEASE-04 dep-pruning doc + ADR-051 override-pattern doc**: Audit found T1013 verified-incomplete (3/5 ACs; missing 2 doc files). Refer to .cleo/agent-outputs/T1216-audits/T1013-verdict.md. (T1418)
+- **T988 follow-on — check domain typed narrowing (~76 casts)**: Eliminate type casts in dispatch domain 'check'. Original count: ~76 casts. Refer to .cleo/agent-outputs/T1216-audits/T988-verdict.md. Use proper t... (T1423)
+- **T1449-D-check: check domain — Core API alignment with Contracts**: T1449 child — check domain. Follow pattern established by T1450 PROOF. Atomicity: dispatch + contracts + Core (with worker latitude to touch tests ... (T1452)
+- **T-TW-3 dedupe 17 exact Params Result types across Core and cleo**: Worst offenders: core/llm/types-config.ts:53 LLMCallParams; core/nexus/discover.ts:127 NexusDiscoverResult; cleo/dispatch/domains/nexus.ts:1410 Nex... (T1471)
+- Pump: require --shared-evidence flag when same evidence atom closes >3 child tasks (enables 36-task bypass pattern) (T1502)
+- ADR-057 D1 normalization for metrics/token-service.ts — standardize params naming (filters→params, Omit<>→named *Params contract) (T1511)
+- P2-NEW-6: Delete T659 orphan test files (caamp/tests/unit/coverage-final-push.test.ts + core-coverage-gaps.test.ts) (T1514)
+- Teammate 3: Audit Session-Sticky (dispatch:session/sticky + core:session/sessions/identity/sticky) (T1523)
+- V3: CLI smoke matrix — exercise key commands across all 18 dispatch domains (T1559)
+- **T-FOUND-3: Subagent return re-verification gate (orchestrator-side)**: Orchestrator MUST re-run cleo verify --gate testsPassed (using cached evidence per ADR-061) on subagent output before accepting completion. Refuse ... (T1589)
+- **T-FOUND-V2-3: ESM module-load smoke test in CI**: Pre-publish step runs node -e import('@cleocode/cleo') and node -e import('@cleocode/core') against the BUILT dist (not src). Catches export declar... (T1606)
+- **T-KNOWLEDGE-V1-3: cleo orchestrate spawn auto-attaches docs to subagent task**: cleo orchestrate spawn currently emits a prompt with task identity + files. Extend: auto-call cleo docs list --task <id> and embed relevant docs as... (T1614)
+- **T-HR-C: Wave C — Orphan re-parenting (10 orphan-done + 22 top-level orphans)**: Re-parent or cancel orphan tasks per H2 audit. Specifically: (1) 10 pending tasks under done/archived parents (per H2 §5) — re-parent under active ... (T1630)
+- **T-LW-W3: Tiered hygiene scan — filesystem → SQL → Jaccard → LLM**: Upgrade T1636's hygiene-scan.ts to tier-escalate. The 4 existing scans (orphan, top-level, content, premature-close-leak) currently emit BRAIN obse... (T1679)
+- **W1-A3: Reconcile ConduitSendResult duplicate definition within contracts**: Audit-A: ConduitSendResult defined twice within contracts. (T1696)
+- **W2.C: DELETE cleo _base.ts EngineResult interface duplicate**: Delete the duplicate EngineResult<T> interface declared in packages/cleo/src/dispatch/domains/_base.ts. Replace with import from @cleocode/core. Th... (T1709)
+- **T1853-FIX: brain test DB initialization missing T1826 migration columns — 86 tests failing on main**: HOTFIX for T1853 regression. T1853 added 7 columns to brain_decisions schema (adr_number adr_path supersedes superseded_by confirmation_state decid... (T1860)
+- **Execute cleo nexus full pipeline on /mnt/projects/openclaw, capture all outputs**: Run cleo nexus end-to-end on /mnt/projects/openclaw. Coordinate with T1045 to use the SAME representative symbols for apples-to-apples comparison. ... (T1046)
+- **EP1-T4: Wiki Generator**: Child of EP1 (T1054: Nexus P0 Core Query Power). Implements cleo nexus wiki command that groups all indexed symbols by community_id and uses smartU... (T1060)
+- **EP2-T4: Contract Registry**: Child of EP2 (T1055: Nexus P1 Competitive Closure). Creates packages/core/src/nexus/contracts/ module with extractors for HTTP routes, gRPC methods... (T1065)
+- **EP3-T4: Extended Code Reasoning (why + impact-full)**: Child of EP3 (T1056: Nexus P2 Living Brain Completion). Extends brain-reasoning.ts with reasonWhySymbol() which traverses BRAIN observations, decis... (T1069)
+- **RD: Wire git-log task-symbol sweeper to cleo nexus analyze post-hook**: Previous audit found runGitLogTaskLinker has zero callers outside tests. V2 spec required: cleo nexus analyze post-hook runs git log sweep. (T1110)
+- T1386-W4: Port llm/backends/openai.ts — OpenAIBackend with max_completion_tokens distinction (T1390)
+- **T991 DB parent-child link repair — set T992-T999 parentId to T991**: Audit found T991 schema-artifact-not-work-defect (Council flagship case). 16 commits across T994-T999 shipped in v2026.4.98 but cleo list --parent ... (T1419)
+- **T988 follow-on — nexus domain typed narrowing (~83 casts)**: Eliminate type casts in dispatch domain 'nexus'. Original count: ~83 casts. Refer to .cleo/agent-outputs/T1216-audits/T988-verdict.md. Use proper t... (T1424)
+- **T1449-D-conduit: conduit domain — Core API alignment with Contracts**: T1449 child — conduit domain. Follow pattern established by T1450 PROOF. Atomicity: dispatch + contracts + Core (with worker latitude to touch test... (T1453)
+- **T-TW-4 file missing cli/commands/tasks.ts**: T1458 worker claimed CLI alias-aware layer was moved to commands/tasks.ts but file does not exist. Audit cleo tasks subcommand wiring; create canon... (T1472)
+- Tune CLEO_OWNER_OVERRIDE cap default for worktree-orchestrate workflows — audit found 39 by-design overrides until evidence system understands worktree branches (T1500 audit finding) (T1504)
+- Teammate 4: Audit Memory-Sentient (dispatch:memory/sentient + core:memory/gc/sentient/llm) (T1524)
+- V4: 5-DB integrity — schema + WAL validation for tasks/brain/conduit/nexus/signaldock (T1560)
+- **T-FOUND-V2-4: pin biome version in package.json engines field**: Local biome version must match CI biome version. Currently CI runs 2.4.11, local 2.4.8 — caused 3 release-workflow failures this session. Fix: lock... (T1607)
+- **T-KNOWLEDGE-V1-4: cleo session end auto-creates session-summary BRAIN observation**: Currently cleo session end stores a free-form note in session.handoffJson. Extend: auto-create a BRAIN observation of type 'session-summary' linked... (T1615)
+- **T-LW-W4: Real LLM dream cycle — BRAIN observation synthesis**: Build packages/core/src/sentient/dream-cycle.ts implementing real cognitive dreaming. The cycle (default every 4h, configurable via DREAM_CYCLE_INT... (T1680)
+- **W1-A4: Reconcile AttachmentKind + AttachmentMetadata duplicate definitions**: Audit-A: AttachmentKind and AttachmentMetadata each defined twice. Related pair. (T1697)
+- **W2.D-1: Consolidate envelopeToEngineResult in admin + conduit domains**: Consolidate 2 of 5 envelopeToEngineResult duplicate copies (admin + conduit) — delete in-domain helpers and import canonical helper from core (or _... (T1710)
+- **Extend git-shim to block mutations when CLEO_AGENT_ROLE=worker but cwd is outside CLEO_WORKTREE_ROOT**: Extend git-shim with a boundary check that fires BEFORE the existing denylist. When CLEO_AGENT_ROLE=worker AND CLEO_WORKTREE_ROOT is set AND cwd is... (T1761)
+- **EP1-T5: Hook Augmenter (PreToolUse)**: Child of EP1 (T1054: Nexus P0 Core Query Power). Implements a PreToolUse hook augmenter shell script that uses BM25 search to inject top-5 relevant... (T1061)
+- **EP3-T5: Sentient Nexus Ingester Extensions**: Child of EP3 (T1056: Nexus P2 Living Brain Completion). Extends nexus-ingester.ts in packages/core/src/sentient/ with three new Sentient detectors ... (T1070)
+- **RE: Real-world sandbox scenario proving 5-substrate Living Brain end-to-end**: Owner demands REAL sandbox proof not unit tests. Must exercise all 5 substrates end-to-end on freshly-created sandbox project with evidence per cap... (T1111)
+- T1386-W5: Port llm/backends/gemini.ts — GeminiBackend with schema sanitization and caching (T1391)
+- **T988 follow-on — tasks domain typed narrowing (~115 casts)**: Eliminate type casts in dispatch domain 'tasks'. Original count: ~115 casts. Refer to .cleo/agent-outputs/T1216-audits/T988-verdict.md. Use proper ... (T1425)
+- **T1449-D-nexus: nexus domain — Core API alignment with Contracts**: T1449 child — nexus domain. Follow pattern established by T1450 PROOF. Atomicity: dispatch + contracts + Core (with worker latitude to touch tests ... (T1454)
+- **T-TW-5 decompose cli/commands/nexus.ts 5366 lines**: Move graph traversal GEXF generation indexing formatting into Core. CLI keeps flag parsing plus dispatch.mutate query plus result rendering only. C... (T1473)
+- Resolve T1093-followup skipped tests: re-enable or permanently close brain-stdp-wave3:T695-1 + task-sweeper-wired:runGitLogTaskLinker (T1517)
+- Teammate 5: Audit Nexus-CodeIntel (dispatch:nexus/intelligence + core:nexus/code/codebaseMap/research/intelligence) (T1525)
+- V5: Full test suite + per-domain tests + ADR enforcement validation (T1561)
+- **T-FOUND-5: Worktree-bound file-write enforcement (full git shim activation)**: Audit current git shim usage. Extend shim to (a) refuse writes outside agent worktree path; (b) refuse commits without T-ID in subject; (c) refuse ... (T1591)
+- **T-FOUND-V2-5: commit-T-ID-matches-diff validation (deepens T1588)**: T1588 commit-msg hook only validates T-ID is PRESENT. Does not validate the T-ID matches the diff content. Predecessor commit 3be46af09 said T1541 ... (T1608)
+- **T-KNOWLEDGE-V1-5: cleo briefing reads from all 3 pillars (tasks+brain+docs)**: Current cleo briefing reads tasks.db (state) + brain.db (memory). Extend to also surface relevant cleo docs entries — task-attached references, ADR... (T1616)
+- **T-HR-S1: Epic auto-close gating + premature-close prevention in core**: Build core invariant: when ALL children of an epic are done/cancelled AND parent's verification gates pass, AUTO-MARK the epic done. Conversely: wh... (T1632)
+- **T-LW-W5: Tiered semantic duplicate detection (BM25 → Jaccard → LLM)**: Upgrade T1633's BRAIN duplicate detection on cleo add to tier-escalate. Current behavior: BM25/RRF score from memory.find. Add: (1) when BM25 score... (T1681)
+- **W1-A5: Reconcile SessionStartResult duplicate definition within contracts**: Audit-A: SessionStartResult defined twice. (T1698)
+- **W2.D-2: Consolidate envelopeToEngineResult in sentient + session + tasks domains**: Consolidate 3 of 5 envelopeToEngineResult duplicate copies (sentient + session + tasks) — delete in-domain helpers and import canonical helper. ≤3 ... (T1711)
+- **REVISED synthesis: core-native, no-MCP, living-brain cross-substrate decomposition**: Owner pushback on T1047 v1: (1) No MCP — core SDK primitives + CLI dispatch only. (2) Audit existing system integration before proposing new work —... (T1048)
+- **EP3-T6: Conduit→Symbol Ingestion Pipeline**: Child of EP3 (T1056: Nexus P2 Living Brain Completion). Extends graph-memory-bridge.ts with linkConduitMessagesToSymbols() to ingest Conduit messag... (T1071)
+- **RF: Sentient Tier-2 real-world proof — injected anomaly generates ProposalCandidate**: Owner asks: does sentient even work? Must PROVE Tier-2 proposal generation with injected-anomaly sandbox test. Not theoretical — actual data flowin... (T1112)
+- T1386-W6: Port llm/registry.ts — singleton clients via Map, backend/history-adapter factories (T1392)
+- **T988 follow-on — admin domain typed narrowing (~116 casts)**: Eliminate type casts in dispatch domain 'admin'. Original count: ~116 casts. Refer to .cleo/agent-outputs/T1216-audits/T988-verdict.md. Use proper ... (T1426)
+- **T1449-D-pipeline: pipeline domain — Core API alignment with Contracts**: T1449 child — pipeline domain. Follow pattern established by T1450 PROOF. Atomicity: dispatch + contracts + Core (with worker latitude to touch tes... (T1455)
+- P2-NEW-3: Resolve 6 TODO(T1082.followup) markers in BRAIN sources (T1518)
+- Teammate 6: Audit Conduit-Remote (dispatch:conduit + core:conduit/remote/otel) (T1526)
+- Pre-release fix pack for v2026.4.154 — 5 P1 items from V2/V4 HOLD verdicts (T1562)
+- **T-FOUND-6: Sentient proposer dedup gate (per-parent ID-hash)**: Before sentient propose insert check parent task children for ID-hash collision. T1555 dup-burst (T1544/T1550 T1546/T1552 etc) demonstrated lack of... (T1592)
+- **T-FOUND-V2-6: handoffJson append-only at SQL level**: Operator's anti-lying rule says session.handoffJson is append-only. Currently rule + audit catches violations post-hoc. Make it physically impossib... (T1609)
+- **T-KNOWLEDGE-V1-6: lint rule forbidding new .md in agent-outputs/ without CLEO registration**: Custom lint script (scripts/lint-agent-outputs-registration.mjs): for every .md file added to .cleo/agent-outputs/ in a commit, require either (a) ... (T1617)
+- **T-HR-S2: BRAIN-powered duplicate-task detection on cleo add**: Build core safeguard: before creating a new task via cleo add, query BRAIN for semantically similar active tasks (title + description + labels). If... (T1633)
+- **T-LW-W6: Daemon auto-start on cleo install (systemd / launchd)**: When 'npm install -g @cleocode/cleo' runs, postinstall MUST register the daemon as a user-level system service so it auto-starts and persists acros... (T1682)
+- **W1-A6: Reconcile NexusWikiResult duplicate definition within contracts**: Audit-A: NexusWikiResult defined twice. (T1699)
+- **W3.E followup: SpawnContext/Wave/LifecycleHistoryEntry shape divergence reconciliation**: T1717 found that SpawnContext, Wave, and LifecycleHistoryEntry have legitimate structural divergence between contracts and core (different field na... (T1719)
+- **W4.F followup: biome lint hard-block rule — no raw stdout outside renderers/**: Add biome lint rule that REJECTS process.stdout.write and console.log calls outside of packages/cleo/src/cli/renderers/* and other allowlisted path... (T1728)
+- **RH: T1059 exports-map fix — add ./dist/src/code/unfold.js to @cleocode/nexus exports**: Revalidator F found T1059 still PARTIAL: --content flag warns ./dist/src/code/unfold.js not in nexus exports. One-line fix to package.json exports ... (T1113)
+- T1386-W7: Port llm/caching.ts — InMemoryGeminiCacheStore, buildCacheKey, GeminiCacheHandle (T1393)
+- **T988 follow-on — memory domain typed narrowing (~136 casts)**: Eliminate type casts in dispatch domain 'memory'. Original count: ~136 casts. Refer to .cleo/agent-outputs/T1216-audits/T988-verdict.md. Use proper... (T1427)
+- **T1449-D-playbook: playbook domain — Core API alignment with Contracts**: T1449 child — playbook domain. Follow pattern established by T1450 PROOF. Atomicity: dispatch + contracts + Core (with worker latitude to touch tes... (T1456)
+- P2-NEW-4: Replace T1XXX placeholder in nexus/route-analysis.ts:162 with real task ID (T1519)
+- Teammate 7: Audit Playbook-Release-UI (dispatch:playbook/release + core:playbook/playbooks/release/roadmap/ui) (T1527)
+- **T-FOUND-7: Deprecate NEXT-SESSION-HANDOFF.md as canonical (replace with cleo briefing from TASKS + BRAIN)**: Markdown handoff is bandaid — operator confirmed 2026-04-29. SSoT MUST come from TASKS + BRAIN only. Implementation: enhance cleo briefing to produ... (T1593)
+- **T-FOUND-V2-7: physically prevent reading deprecated markdown handoff as canonical state**: Fresh agent test 2026-04-29 caught: orchestrator read NEXT-SESSION-HANDOFF.md + HONEST-HANDOFF-2026-04-28.md as canonical state INSTEAD of running ... (T1610)
+- **T-KNOWLEDGE-V1-7: fresh-agent acceptance test (markdown-blocked orchestrator scores 10/10)**: Independent zero-context auditor brief is updated to PHYSICALLY block reading any .md under .cleo/agent-outputs/ (file-read denylist). Auditor must... (T1618)
+- **T-HR-S3: LOOM auto-init for new epics**: Build core invariant: every cleo add with type=epic AUTOMATICALLY initializes LOOM stages (research/spec/impl/test/release per RCASD-IVTR model) so... (T1634)
+- **Research: Map full GitNexus capability surface and identify gaps vs Cleo Nexus**: Produce a side-by-side capability matrix comparing GitNexus (gitnexus_query, gitnexus_context, gitnexus_impact, gitnexus_rename, gitnexus_cypher, g... (T1647)
+- **T-LW-W7: Daemon unification — Studio supervision, SDK control API, paths.ts compliance audit**: Followup to T1682 (W6 daemon auto-start). Three concerns the W6 prompt didn't explicitly require: (1) the daemon must SUPERVISE Cleo Studio's web s... (T1683)
+- **W1-B: Add 5 missing operations barrel exports (admin, dialectic, docs, intelligence, sticky)**: Audit-D finding: 5 ops files exist in operations/ but are not in operations/index.ts barrel — invisible under ops.* namespace. Add them. (T1700)
+- **EP3-T8: IVTR Breaking-Change Gate**: Child of EP3 (T1056: Nexus P2 Living Brain Completion). Adds a nexusImpact acceptance gate to packages/core/src/engine/gate-validators.ts. Before c... (T1073)
+- **RI: T1065 verb-alias fix — cleo nexus group sync as alias for contracts sync**: Revalidator F found T1065 acceptance mismatch: V2 spec said 'cleo nexus group sync --extract-contracts' but shipped as 'cleo nexus contracts sync'.... (T1114)
+- T1386-W8: Port credentials+history-adapters+conversation+request-builder (combined 466 LOC) (T1394)
+- **T1449-D-sentient: sentient domain — Core API alignment with Contracts**: T1449 child — sentient domain. Follow pattern established by T1450 PROOF. Atomicity: dispatch + contracts + Core (with worker latitude to touch tes... (T1457)
+- Teammate 8: Audit Admin-Tools-Diagnostics-Observability (dispatch:admin/tools/diagnostics + core:admin/observability/metrics/telemetry/stats/system) (T1528)
+- **T-FOUND-8: Session-drift watchdog (files-touched vs. active task scope)**: Every N tool calls (configurable) cleo runs a diff: files modified in working tree vs. files declared in active task scope (task.files[]). Mismatch... (T1594)
+- **T-HR-S4: Stage drift auto-detector (sentient tick) — flag and optionally auto-correct**: Build sentient hygiene check: every N minutes (configurable, default 30min) sentient tick computes for each active epic the 'effective stage' from ... (T1635)
+- **Decompose gap analysis into actionable Cleo Nexus enhancement tasks**: From T1042 gap analysis output, create CLEO tasks for each identified capability gap. Each task must have specific AC, files scope, and parent T104... (T1648)
+- **W1-C: Declare zod as runtime dependency in contracts/package.json**: Audit-D finding: contracts ships zod schemas to consumers but does not declare zod as a dependency. Works in monorepo via hoisted node_modules but ... (T1701)
+- RA1: Dispatch registry — Living Brain traversal + reasoning (5 verbs) (T1115)
+- T1386-W9: Port llm/executor.ts — honcho_llm_call_inner single-call executor (T1395)
+- **T1449-D-tasks: tasks domain — Core API alignment with Contracts**: T1449 child — tasks domain. Follow pattern established by T1450 PROOF. Atomicity: dispatch + contracts + Core (with worker latitude to touch tests ... (T1458)
+- Teammate 9: Audit Docs-Compliance-Agents-Skills (dispatch:docs + core:adrs/compliance/issue/templates/agents/caamp/harness/skills) (T1529)
+- **T-FOUND-9: Pre-push reconcile gate (refuse push if drift > 0)**: git pre-push hook runs cleo reconcile release --tag <next-tag> in dry-run mode. If drift > 0 (shipped-but-pending tasks detected for the version ra... (T1595)
+- **T-HR-S5: Sentient hygiene background loop (dreams + sleep cycles)**: Wire BRAIN dream/sleep cycles to perform full hygiene reviews automatically. Each dream cycle (sentient tick): (1) scan for orphan tasks (parentId ... (T1636)
+- **W1-D: Fix task.schema.json emission pipeline (currently emits empty stub)**: Audit-D finding: task.schema.json contains only Task: empty object. The schema emission pipeline broke and was committed in broken state. (T1702)
+- RA2: Dispatch registry — Code intelligence CLI surface (4 verbs) (T1116)
+- **GAP: cleo init must force-reinstall agents at project tier after deploy**: Owner v2026.4.112 verification: fresh cleo init deploys starter-bundle files correctly BUT leaves signaldock.db project-tier rows stale from prior ... (T1242)
+- T1386-W10: Port llm/structured-output.ts — 3-tier fallback (direct+jsonrepair+policy) (T1396)
+- Teammate 10: Audit Foundation-Crosscutting (core:adapters/context/inject/lib/migration/reconciliation/routing/snapshot/security/coreHooks) (T1530)
+- **T-FOUND-10: cleo pivot <fromTask> <toTask> --reason — first-class context-switch**: First-class primitive for mid-session context switches. Auto-pauses parent task creates blocker link emits audit entry. Replaces silent reframes (t... (T1596)
+- **T-HR-S6: Daemon cross-project hygiene + GC (cleo-os system-wide)**: Extend cleo-os daemon with system-wide hygiene loop. Daemon runs nightly: (1) cross-project NEXUS integrity check (signaldock global registry consi... (T1637)
+- **W1-E1: Fill 20 Result=unknown stubs in operations/tasks.ts**: Audit-D finding: 20 Result = unknown stubs in operations/tasks.ts make consumer-facing types untyped. Fill them with real shapes derived from core ... (T1703)
+- **Nexus-thread close-out + T1042 next-session brief**: Bookkeeping debt sweep for the Cleo Nexus thread (T1042 + T1054 + T1055 + T1056) to clear the dashboard for next session's T1042 far-exceed-GitNexu... (T1732)
+- RA3: Dispatch registry — Contracts + ingestion bridges (5 verbs) (T1117)
+- T1386-W11: Port llm/tool-loop.ts — executeToolLoop with p-retry, sequential tool exec, empty-response retry (T1397)
+- **T1435-W2: Strip redundant Params/Result types from packages/contracts/src/operations/* + refresh root index.ts**: Wave 2 cleanup — runs after all W1.x domain refactors land. The contracts package becomes a thin wire-format layer. Per-op typing belongs to Core f... (T1446)
+- **T1449-RELEASE: ship v2026.4.146+ with Core-Contracts SSoT alignment + green CI**: Final release wave for T1449. Sequential gate after all 9 domains + ADR + lint land. Per owner: 'must release fully green in CI'. (T1460)
+- **T-FOUND-11: Canonical release pipeline — cleo release start/verify/publish/reconcile**: Single command sequence for release. cleo release start <version> begins release task; cleo release verify runs all gates; cleo release publish tri... (T1597)
+- **W1-E2: Fill 22 Result=unknown stubs in operations/nexus.ts**: Audit-D finding: 22 Result = unknown stubs in operations/nexus.ts (largest unsigned surface in contracts). (T1704)
+- **P2 residual: evaluate swap of pure-TS leiden.ts → @aflsolutions/graphology-communities-leiden**: Currently packages/nexus/src/pipeline/leiden.ts is a 405-line pure-TS Leiden implementation, written 2026-04-20 because graphology-leiden was 404 o... (T1733)
+- **GAP: worktree provisioning needs initial commit on fresh git init**: Owner v2026.4.112 verification: fresh git init + cleo init + cleo orchestrate spawn hits worktree creation failure (fatal: invalid reference: main ... (T1244)
+- T1386-W12: Port llm/runtime.ts — AttemptPlan, planAttempt, effectiveConfigForCall, currentAttempt (T1398)
+- **T1435-W3a: ADR — Dispatch type inference from Core function signatures (drift elimination)**: Wave 3a — architectural decision record. The whole reason this refactor exists is that future agents/operators understand the new pattern at a glan... (T1447)
+- **T-FOUND-12: Markdown-to-CLEO sync linter (ban claim drift)**: Linter scans .cleo/agent-outputs/*.md for shipped/complete/done claims that dont match task state in tasks.db. Surfaces mismatches. Optional CI gat... (T1598)
+- **W1-E3: Fill 11 remaining Result=unknown stubs across other ops files**: Audit-D finding: 11 stubs remain across admin/memory/orchestrate/etc. Fill them. If scope expands beyond these 3 files, file follow-up tasks. (T1705)
+- T1386-W13: Add contracts/operations/llm.ts — Params/Result/ToolCall types for new LLM layer (T1399)
+- Split sticky dispatch convert handler into sub-operations (T1535 follow-up) (T1537)
+- **T-FOUND-13: Contracts hygiene — ALL type definitions live in @cleocode/contracts (cleo/core never define cross-package types inline)**: Operator-mandated foundational rule 2026-04-29: all CONTRACTS (type definitions used across packages) MUST live in @cleocode/contracts. packages/co... (T1599)
+- **W1-F: DELETE contracts-internal LAFSEnvelope/LAFSMeta divergent inlines + re-export from @cleocode/lafs**: R2 outcome: HYBRID — keep 4 envelope layers (EngineResult, DispatchResponse, CliEnvelope, LAFSEnvelope) but DELETE the rogue 4th variant in contrac... (T1706)
+- **T1042 functional validation: re-run gitnexus + cleo nexus side-by-side on /mnt/projects/openclaw with v2026.5.16+; produce SUPERSESSION-EVIDENCE.md**: Council Decision 3 owner-ratified 2026-05-04: full re-run validation. ADR-051 tool:test evidence proves unit-test green NOT side-by-side capability... (T1736)
+- T1386-W14: Port llm/api.ts + index.ts barrels — cleoLlmCall public entrypoint (T1400)
+- **T-TW-FOLLOWUP-1 dedupe engine result/param types**: Codex re-audit 2026-04-27 found NexusSigilListResult duplicate at nexus-engine.ts:1586 and OrchestrateHandoffParams at orchestrate-engine.ts:140. R... (T1482)
+- **T1736-F1: cleo nexus symbol count gap — investigate 20k node deficit vs gitnexus (function coverage + DEFINES/MEMBER_OF/ACCESSES relation types)**: T1736 D3 validation found cleo nexus indexes 64,230 nodes vs gitnexus 84,530 (-24%). Key gaps: 9,662 fewer functions (35,163 vs 44,825); missing DE... (T1762)
+- T1386-W15: Write 30+ unit tests for PSYCHE LLM layer in packages/core/src/llm/__tests__/ (T1401)
+- **T-TW-FOLLOWUP-2 add root namespace exports for sentient gc llm**: Codex re-audit 2026-04-27 noted no matching root namespace exports for sentient/gc/llm barrels in packages/core/src/index.ts. Add export * as names... (T1483)
+- IVTR dispatch: apply OpsFromCore migration + extract next/loop-back Core helpers (T1539)
+- **T-FOUND-1B: T1587 production wiring — orchestrate dispatch still uses cherry-pick**: Independent zero-context audit 2026-04-29 caught: completeAgentWorktreeViaMerge() shipped to core/spawn/branch-lock.ts but packages/cleo/src/dispat... (T1601)
+- **T1736-F2: cleo nexus IMPORTS edge gap — 8.4x deficit vs gitnexus (390,924 vs 46,674)**: T1736 D3 validation found cleo nexus records 46,674 IMPORTS edges vs gitnexus 390,924 (8.4x gap). Total edge gap: 150,770 vs 615,963 (-76%). gitnex... (T1763)
+- **T-TW-FOLLOWUP-3 thin session pipeline conduit dispatch handlers**: Codex re-audit found dispatch/domains/session.ts:191-205 status wraps errors+default, pipeline.ts:456-469 stage.validate validates+maps, conduit.ts... (T1484)
+- **T-FOUND-VERIFY-RESWEEP: re-verify T1586 children with non-override evidence**: All 13 T1586 children + 5 dogfooding/test tasks completed via CLEO_OWNER_OVERRIDE_WAIVER 2026-04-29 because pre-existing flaky tests (brain-stdp-fu... (T1602)
+- **T1736-F3: fix cleo nexus Leiden community detection — 0 communities detected on openclaw (modularity=0.000) vs gitnexus 6,193**: T1736 D3 validation confirmed: cleo nexus Leiden runs on openclaw but produces 0 communities (modularity=0.000). Log: 'Leiden found 26945 raw commu... (T1764)
+- **T-TW-FU6 further thin tasks/nexus/playbook dispatch handlers**: Audit #3 claim 3 still FALSE. Move remaining business logic from dispatch handlers into Core ops.ts. Worst: tasks.ts:100-133 show 33 lines, playboo... (T1487)
+- Extract verify.explain logic to Core checkExplainVerification() (T1541)
+- **T1736-F4: fix cleo nexus augmenter — 6.3x slower than gitnexus and returns empty results**: T1736 D3 validation found cleo nexus augment returns empty results for all patterns ('results':[],'text':'') at p50 1,979ms vs gitnexus 317ms. gitn... (T1765)
+- **T-TW-FU7 further decompose nexus CLI 4084 to under 500 LOC**: Audit #3 claim 2 PARTIAL. nexus.ts CLI at 4084 LOC still imports core/nexus pipeline directly (e.g. line 132-146 1208-1215). Decompose remaining by... (T1488)
+- **T-TW-FU8 sole-source Params/Result aliases via contracts re-exports**: Audit #3 claim 5 PARTIAL. Local aliases in core/admin/ops.ts:12-17, core/conduit/ops.ts:12-17, core/nexus/ops.ts:24-33, dispatch/domains/session.ts... (T1489)
+- **T-TW-FU9 thin add.ts CLI pre-dispatch logic**: Audit #3 found packages/cleo/src/cli/commands/add.ts:198-272 performs file/task inference before dispatch. Move inference to Core or dispatch handl... (T1490)
+- **T-FU11 thin remaining fat dispatch handlers memory sticky orchestrate release**: Audit #4 found memory.ts:91-115 sticky.ts:43-80 orchestrate.ts:127-151 release.ts:69-85 pipeline.ts:861-900 nexus.ts:569-623 still >5 lines per op. (T1492)
+- **Verify conduit messaging end-to-end (Phase 4)**: Conduit is connected but has zero messages. Verify LocalTransport can send and receive messages between agent and daemon. (T1131)
+- **P0 hotfix v2026.5.19: T1765 augment integration test fails in CI — must skipIf nexus.db not populated**: v2026.5.19 hotfix. CI red on v2026.5.18 due to integration test brittleness. (T1848)
+- **V2026.5.20 hotfix: augment integration test still fails in CI — must skip on CI env or check 'load' specifically**: v2026.5.19 hotfix (T1848) replaced existsSync with nexusDbHasData() but in CI other tests populate nexus.db with rows that don't match the test's e... (T1849)
+- **Backfill 176 audit-column-gap tasks — modified_by/session_id NULL cohort**: Split from T1216 per 2026-04-24 Council verdict. Systemic remediation track — all 176 pre-ADR-051 completions have modified_by=NULL + session_id=NU... (T1321)
+- **T1402 task-record close-out — verify gates + complete (rename already shipped in v2026.4.139)**: T1402 schema rename brain_v2_candidate→brain_observations_staging shipped in v2026.4.139 commit 932fad3d4 but task DB record still status=pending w... (T1420)
+---
 ## [2026.5.25] (2026-05-05) — Release pipeline hardening: studio publish + Sigstore TLOG retry + #103 contributor attribution
 
 Three operational fixes uncovered while shipping v2026.5.21–v2026.5.24:
@@ -275,7 +586,6 @@ Plus **T1768** (SDK Tools meta-epic): owner-directed exploration of Cleo Core SD
 - T1762/T1763/T1764/T1765 (parity gap fixes — symbol counts, IMPORTS, Leiden, augmenter)
 - T1735 (LLM test backfill — carried from v2026.5.16, still open)
 - T1768 (SDK Tools surface meta-epic)
-
 
 ## [2026.5.16] (2026-05-04) — Eliminate DEP0040 punycode warning: openai SDK 4 → 6
 
@@ -1020,8 +1330,6 @@ The system harness now self-organizes. The T1467/T1603 premature-close bug class
 - **Wave D — Content quality (T1631)**: 17 EP-series descriptions reconstructed from BRAIN; 21 type=task tasks given files scope; 8 untestable AC entries rewritten; 13 real-initiative empty epics RCASD-decomposed.
 
 ### Systemic safeguards in core (6 invariants)
-
-
 
 ### BRAIN-powered duplicate-task detection on `cleo add` (T1633)
 
@@ -1881,8 +2189,6 @@ The implementing worker dry-ran the reconciler against the previously-shipped `v
 - T1410: commit-msg lint requiring T-IDs in release commits (upstream convention this hook depends on).
 - Council 2026-04-24 verdict: `.cleo/council-runs/20260425T033945Z-57a941ca/verdict.md` — the canonical mandate this release closes out.
 
-
-
 ## [2026.4.145] — 2026-04-25 — Type Check green: 104 TS errors eliminated + T1408/T1409 archive-reason follow-through
 
 Closes the v2026.4.144 release-CI failure (104 TypeScript errors at the `Type Check` step) and integrates parallel-agent T1408/T1409 archive-reason work that landed mid-flight, restoring the full quality gate (`pnpm exec tsc -b`, `pnpm biome ci`, `pnpm run build`, `pnpm exec vitest run`) to green.
@@ -2426,7 +2732,6 @@ Fixes the CI shard-1/2 Vitest uncaught-exception flake that was producing `ENOEN
 - `pnpm run build` — full dep graph green
 - `pnpm run test` — **11,180 pass / 0 failures / 0 unhandled errors** (vs .124 which had 11,177 pass + 1 unhandled error in shard 1/2). Includes a targeted re-run of `packages/cleo/src/__tests__/core-parity.test.ts` confirming the specific reproducer is gone.
 
-
 ## [2026.4.124] — 2026-04-23
 
 Completes v2026.4.123 ship — fills two missing `package.json` fields so npm provenance validation accepts `@cleocode/worktree` and `@cleocode/git-shim`, and wires `@cleocode/git-shim` into the root build pipeline.
@@ -2441,7 +2746,6 @@ Completes v2026.4.123 ship — fills two missing `package.json` fields so npm pr
 - `pnpm biome ci .` strict — 0 errors (1849 files)
 - `pnpm run build` — full dep graph green, now including git-shim
 - 14 of 16 packages already at 2026.4.123 on npm; this bump syncs all 16 to 2026.4.124 and completes the cycle
-
 
 ## [2026.4.123] — 2026-04-23
 
@@ -2463,7 +2767,6 @@ Directory rename + Release workflow shell-bug fix. Enables v2026.4.122 patch int
 - `pnpm vitest run packages/git-shim/` — 38 tests pass (no-op rename; all deny-list checks still green)
 - Workflow validation: 15 of 15 `@cleocode/*` packages now enumerated in publish sequence
 
-
 ## [2026.4.122] — 2026-04-23
 
 Release-workflow patch — adds `@cleocode/worktree` and `@cleocode/git-shim` to the Release workflow publish list. Both packages existed in the tree but were absent from `.github/workflows/release.yml` hardcoded package enumeration, so every release since their introduction published 13 of 15 packages. Verified gap after v2026.4.121: `npm view @cleocode/worktree version` returned `2026.4.118` (stuck) and `@cleocode/git-shim` returned 404.
@@ -2478,7 +2781,6 @@ Release-workflow patch — adds `@cleocode/worktree` and `@cleocode/git-shim` to
 
 - `pnpm biome ci .` strict — 0 errors (1849 files)
 - No source-code changes; workflow-only patch
-
 
 ## [2026.4.121] — 2026-04-23
 
@@ -4471,7 +4773,6 @@ ADR-052 filed (T867). Rationale: (1) `preAction` hook with `optsWithGlobals()` h
 - **T867** — ADR-052: Document caamp commander divergence
 - Phase 5 registry backfill — file as child of T864 (183 operations)
 
-
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
@@ -4538,7 +4839,6 @@ Removes the `commander-shim` bridge entirely. All 112 CLI command files now use 
 ### Filed Follow-ups
 
 - **T836**: `task.pipelineStage` field not synced when lifecycle service advances stages (independent CLEO engine bug discovered during this work; reparented to T569 tracking).
-
 
 All notable changes to this project will be documented in this file.
 
@@ -7138,7 +7438,6 @@ After the swap, `pnpm why -r prebuild-install` returns no results,
 build succeeds, and the 7013-test suite remains at 6966 pass / 0
 fail. Verified with the intended `Xenova/all-MiniLM-L6-v2` model
 name still resolvable (no model-hub rename).
-
 
 End-to-end pipeline repair after the ADR-039 envelope migration and T310
 conduit separation left residual drift in tests and dispatch layers. The
