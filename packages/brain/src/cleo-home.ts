@@ -3,48 +3,49 @@
  *
  * Resolution order:
  *   1. `CLEO_HOME` env var — explicit override
- *   2. XDG_DATA_HOME / platform default (`~/.local/share/cleo` on Linux)
+ *   2. OS-appropriate data path via `env-paths` (XDG on Linux,
+ *      `~/Library/Application Support/cleo` on macOS,
+ *      `%LOCALAPPDATA%\cleo\Data` on Windows)
  *
  * Project data (tasks.db, brain.db, conduit.db) is resolved from:
  *   1. `CLEO_ROOT` env var (project root)
  *   2. `process.cwd()/.cleo/`
  *
- * This module is a trimmed mirror of `packages/studio/src/lib/server/cleo-home.ts`
- * that contains only the path helpers required by the Living Brain substrate
- * adapters. Kept in sync manually; both files are small and stable.
+ * Previously this module hand-rolled platform detection which caused a
+ * Windows path mismatch: the CLI used env-paths (returning `%LOCALAPPDATA%\cleo\Data`)
+ * while brain used a bare `%LOCALAPPDATA%\cleo`, causing nexus.db to be
+ * looked up one directory shallower than where it was written.
+ * Fixed in T1874 (Closes #102, supersedes #103).
  *
- * @task T969
+ * @task T1874
  */
 
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import envPaths from 'env-paths';
 
 /**
  * Returns the CLEO home directory (where global DBs live).
  *
  * Resolution order:
  *   1. `CLEO_HOME` env var
- *   2. Platform default:
- *      - macOS: `~/Library/Application Support/cleo`
- *      - Windows: `%LOCALAPPDATA%\cleo`
- *      - Linux: `$XDG_DATA_HOME/cleo` (defaults to `~/.local/share/cleo`)
+ *   2. OS-appropriate data directory via `env-paths`:
+ *      - Linux:   `$XDG_DATA_HOME/cleo` (defaults to `~/.local/share/cleo`)
+ *      - macOS:   `~/Library/Application Support/cleo`
+ *      - Windows: `%LOCALAPPDATA%\cleo\Data`
+ *
+ * @returns Absolute path to the global CLEO data directory
+ *
+ * @example
+ * ```typescript
+ * const home = getCleoHome(); // e.g. "/home/user/.local/share/cleo"
+ * ```
  */
 export function getCleoHome(): string {
   if (process.env['CLEO_HOME']) {
     return process.env['CLEO_HOME'];
   }
-  const platform = process.platform;
-  const home = homedir();
-  if (platform === 'darwin') {
-    return join(home, 'Library', 'Application Support', 'cleo');
-  }
-  if (platform === 'win32') {
-    const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
-    return join(localAppData, 'cleo');
-  }
-  const xdgDataHome = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-  return join(xdgDataHome, 'cleo');
+  return envPaths('cleo').data;
 }
 
 /**
