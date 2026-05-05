@@ -648,6 +648,14 @@ export interface OrchestrateHandoffParams {
   tier?: 0 | 1 | 2;
   /** Client-supplied idempotency key for handoff retries. @task T963 */
   idempotencyKey?: string;
+  /**
+   * Skip worktree provisioning for the successor spawn (T1878 follow-up).
+   *
+   * Set to `true` in test fixtures that run in non-git temp directories.
+   * Passed through to {@link orchestrateSpawn} as the `noWorktree` flag.
+   * @task T1880
+   */
+  noWorktree?: boolean;
 }
 /** Result of `orchestrate.handoff`. @task T963 */
 export interface OrchestrateHandoffResult {
