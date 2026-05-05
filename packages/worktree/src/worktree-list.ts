@@ -11,10 +11,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ListWorktreesOptions, WorktreeListEntry } from '@cleocode/contracts';
-import envPaths from 'env-paths';
-import { computeProjectHash, resolveWorktreeRootForHash } from './paths.js';
-
-const APP_NAME = 'cleo';
+import {
+  computeProjectHash,
+  getCleoWorktreesRoot,
+  resolveWorktreeRootForHash,
+} from '@cleocode/paths';
 
 /**
  * Resolve the worktree root directory for a given project hash.
@@ -39,9 +40,7 @@ export function resolveWorktreeRoot(projectHash: string, worktreeRoot?: string):
  * @returns Array of worktree entries.
  */
 export function listWorktrees(options: ListWorktreesOptions = {}): WorktreeListEntry[] {
-  const ep = envPaths(APP_NAME, { suffix: '' });
-  const dataDir = process.env['CLEO_HOME'] ?? ep.data;
-  const worktreesBase = join(dataDir, 'worktrees');
+  const worktreesBase = getCleoWorktreesRoot();
 
   if (!existsSync(worktreesBase)) return [];
 

@@ -49,7 +49,7 @@
   "license": "MIT",
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
-    "env-paths": "^4.0.0"
+    "@cleocode/paths": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
