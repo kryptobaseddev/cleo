@@ -18,7 +18,7 @@ import { getManifestPath as getCentralManifestPath } from '../paths.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { computeChecksum } from '../store/json.js';
 import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
-import { resolveToolCommand } from '../tasks/tool-resolver.js';
+import { resolveToolCommand } from '../tools/sdk/tool-resolver.js';
 import { validateSchema as ajvValidateSchema } from './schema-validator.js';
 import {
   hasErrors,
