@@ -24,15 +24,21 @@
  * @module __tests__/extractor-regression
  */
 
-import { readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { extractGo } from '../pipeline/extractors/go-extractor.js';
 import { extractPython } from '../pipeline/extractors/python-extractor.js';
 import { extractRust } from '../pipeline/extractors/rust-extractor.js';
 import { extractTypeScript } from '../pipeline/extractors/typescript-extractor.js';
+import { extractAccesses } from '../pipeline/processors/access-processor.js';
+import { buildImportResolutionContext } from '../pipeline/import-processor.js';
+import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
+import { runParseLoop } from '../pipeline/parse-loop.js';
+import { createSymbolTable } from '../pipeline/symbol-table.js';
 
 // ---------------------------------------------------------------------------
 // Tree-sitter loading
@@ -415,5 +421,181 @@ describe('Rust extractor regression (fixture snapshot)', () => {
 
     const result = extractRust(root, 'fixtures/rust/sample.rs');
     assertFloor('Rust heritage (trait impls)', result.heritage.length, RUST_SNAPSHOT.heritage);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DEFINES edge regression — parse-loop emits file→symbol edges (T1836)
+// ---------------------------------------------------------------------------
+
+/**
+ * Snapshot floor for DEFINES edges emitted by the TypeScript parse loop.
+ * The TypeScript fixture declares 30 symbols — each eligible kind gets
+ * one defines edge from its file node.  Floor is set conservatively at the
+ * total definition count from TS_SNAPSHOT so any future extractor improvement
+ * can only increase it.
+ */
+const DEFINES_FLOOR = TS_SNAPSHOT.total; // 30
+
+describe('DEFINES edges regression (parse-loop, T1836)', () => {
+  let tmpRepo: string;
+
+  beforeAll(() => {
+    // Create a minimal temp repo with just the TypeScript fixture
+    tmpRepo = mkdtempSync(join(tmpdir(), 'nexus-defines-test-'));
+    const fixtureDir = join(tmpRepo, 'fixtures', 'typescript');
+    mkdirSync(fixtureDir, { recursive: true });
+    copyFileSync(join(__dirname, 'fixtures/typescript/sample.ts'), join(fixtureDir, 'sample.ts'));
+  });
+
+  afterAll(() => {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  });
+
+  it('skips gracefully when tree-sitter is unavailable', () => {
+    if (!ParserClass) return;
+    expect(true).toBe(true);
+  });
+
+  it('defines edge count meets snapshot floor after runParseLoop', async () => {
+    if (!ParserClass) return;
+
+    const fixturePath = 'fixtures/typescript/sample.ts';
+    const graph = createKnowledgeGraph();
+    const symbolTable = createSymbolTable();
+    const importCtx = buildImportResolutionContext([fixturePath]);
+
+    const scannedFiles = [{ path: fixturePath, size: 0, language: 'typescript' }];
+
+    await runParseLoop(scannedFiles, graph, symbolTable, importCtx, tmpRepo);
+
+    const definesEdges = graph.relations.filter((r) => r.type === 'defines');
+
+    assertFloor('DEFINES edge count (TypeScript fixture)', definesEdges.length, DEFINES_FLOOR);
+  });
+
+  it('defines edges have correct source (file node) and target (symbol node)', async () => {
+    if (!ParserClass) return;
+
+    const fixturePath = 'fixtures/typescript/sample.ts';
+    const graph = createKnowledgeGraph();
+    const symbolTable = createSymbolTable();
+    const importCtx = buildImportResolutionContext([fixturePath]);
+
+    const scannedFiles = [{ path: fixturePath, size: 0, language: 'typescript' }];
+
+    await runParseLoop(scannedFiles, graph, symbolTable, importCtx, tmpRepo);
+
+    const definesEdges = graph.relations.filter((r) => r.type === 'defines');
+
+    // Every defines edge must originate from the file node
+    for (const edge of definesEdges) {
+      expect(edge.source).toBe(fixturePath);
+      // Target must exist as a graph node
+      expect(graph.nodes.has(edge.target)).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Access extractor regression (T1837)
+//
+// Asserts that extractAccesses() emits ACCESSES > 0 for TypeScript and Python
+// fixtures. These are snapshot floors (not exact counts) — any increase is
+// acceptable; a drop to 0 is a regression.
+// ---------------------------------------------------------------------------
+
+describe('Access extractor regression — TypeScript fixture (T1837)', () => {
+  let grammar: unknown | null = null;
+  let source: string;
+
+  beforeAll(() => {
+    grammar = loadGrammar('tree-sitter-typescript', 'typescript');
+    source = readFileSync(join(__dirname, 'fixtures/typescript/sample.ts'), 'utf8');
+  });
+
+  it('skips gracefully when tree-sitter is unavailable', () => {
+    if (!ParserClass || !grammar) return;
+    expect(true).toBe(true);
+  });
+
+  it('extracts at least 1 ACCESSES record from the TypeScript fixture', () => {
+    if (!ParserClass || !grammar) return;
+    const root = parseSource(source, grammar);
+    if (!root) return;
+
+    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
+    const accesses = extractAccesses(root as any, 'fixtures/typescript/sample.ts');
+    assertFloor('TypeScript ACCESSES count', accesses.length, 1);
+  });
+
+  it('all TypeScript access records have a valid accessMode', () => {
+    if (!ParserClass || !grammar) return;
+    const root = parseSource(source, grammar);
+    if (!root) return;
+
+    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
+    const accesses = extractAccesses(root as any, 'fixtures/typescript/sample.ts');
+    const validModes = new Set(['read', 'write', 'readwrite']);
+    for (const acc of accesses) {
+      expect(
+        validModes.has(acc.accessMode),
+        `Expected accessMode to be 'read'|'write'|'readwrite', got '${acc.accessMode}'`,
+      ).toBe(true);
+    }
+  });
+
+  it('TypeScript fixture contains at least one write-mode access', () => {
+    if (!ParserClass || !grammar) return;
+    const root = parseSource(source, grammar);
+    if (!root) return;
+
+    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
+    const accesses = extractAccesses(root as any, 'fixtures/typescript/sample.ts');
+    const writtenAccesses = accesses.filter(
+      (a) => a.accessMode === 'write' || a.accessMode === 'readwrite',
+    );
+    assertFloor('TypeScript write-mode ACCESSES count', writtenAccesses.length, 1);
+  });
+});
+
+describe('Access extractor regression — Python fixture (T1837)', () => {
+  let grammar: unknown | null = null;
+  let source: string;
+
+  beforeAll(() => {
+    grammar = loadGrammar('tree-sitter-python');
+    source = readFileSync(join(__dirname, 'fixtures/python/sample.py'), 'utf8');
+  });
+
+  it('skips gracefully when tree-sitter is unavailable', () => {
+    if (!ParserClass || !grammar) return;
+    expect(true).toBe(true);
+  });
+
+  it('extracts at least 1 ACCESSES record from the Python fixture', () => {
+    if (!ParserClass || !grammar) return;
+    const root = parseSource(source, grammar);
+    if (!root) return;
+
+    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
+    const accesses = extractAccesses(root as any, 'fixtures/python/sample.py');
+    assertFloor('Python ACCESSES count', accesses.length, 1);
+  });
+
+  it('all Python access records have a valid accessMode', () => {
+    if (!ParserClass || !grammar) return;
+    const root = parseSource(source, grammar);
+    if (!root) return;
+
+    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
+    const accesses = extractAccesses(root as any, 'fixtures/python/sample.py');
+    const validModes = new Set(['read', 'write', 'readwrite']);
+    for (const acc of accesses) {
+      expect(
+        validModes.has(acc.accessMode),
+        `Expected accessMode to be 'read'|'write'|'readwrite', got '${acc.accessMode}'`,
+      ).toBe(true);
+    }
   });
 });
