@@ -64,6 +64,27 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
+// Binary resolution helpers (T1845-ci-fix)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the gitnexus binary.
+ * Returns the binary name if available on PATH, or null if absent.
+ * Never throws — callers check for null and run cleo-only mode.
+ *
+ * @returns {string | null}
+ */
+function resolveGitnexusBin() {
+  if (process.env.GITNEXUS_BIN) return process.env.GITNEXUS_BIN;
+  try {
+    execSync('command -v gitnexus', { stdio: 'ignore' });
+    return 'gitnexus';
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
@@ -273,12 +294,33 @@ function runCleoNexus(fixture) {
 
   const startMs = Date.now();
 
+  // Resolve cleo binary: CLEO_BIN env → local dist → PATH
+  /** @type {string} */
+  let cleoCmd;
+  /** @type {string[]} */
+  let cleoBaseArgs;
+
+  if (process.env.CLEO_BIN) {
+    cleoCmd = process.env.CLEO_BIN;
+    cleoBaseArgs = [];
+  } else {
+    const localCli = resolve(REPO_ROOT, 'packages/cleo/dist/cli/index.js');
+    if (existsSync(localCli)) {
+      log(`Using local cleo build at ${localCli}`);
+      cleoCmd = 'node';
+      cleoBaseArgs = [localCli];
+    } else {
+      cleoCmd = 'cleo';
+      cleoBaseArgs = [];
+    }
+  }
+
   /** @type {string} */
   let stdout = '';
   /** @type {string} */
   let stderr = '';
 
-  const result = spawnSync('cleo', ['nexus', 'analyze', '--json', fixture.path], {
+  const result = spawnSync(cleoCmd, [...cleoBaseArgs, 'nexus', 'analyze', '--json', fixture.path], {
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
     timeout: 300_000,
@@ -409,6 +451,7 @@ function resolveGitnexusRepoName(fixturePath) {
 
 /**
  * Run `gitnexus analyze --force --skip-agents-md <fixtureDir>` and extract stats.
+ * Returns null when gitnexus is not installed, so callers can run in cleo-only mode.
  *
  * @param {{ path: string; kind: string }} fixture
  * @returns {{
@@ -417,16 +460,17 @@ function resolveGitnexusRepoName(fixturePath) {
  *   communities: number;
  *   modularity: null;
  *   duration_ms: number;
- * }}
+ * } | null}
  */
 function runGitnexus(fixture) {
-  // Verify gitnexus is installed
-  const whichResult = spawnSync('which', ['gitnexus'], { encoding: 'utf8' });
-  if (whichResult.status !== 0) {
-    fatal(
-      'gitnexus not found in PATH. Install with: npm install -g gitnexus\n' +
-        'Or set BENCH_FIXTURE_PATH to a path only used for cleo and skip gitnexus.',
+  // Verify gitnexus is installed — if not, return null so callers can run cleo-only.
+  const gitnexusBin = resolveGitnexusBin();
+  if (!gitnexusBin) {
+    log(
+      'gitnexus not found in PATH — running in cleo-only mode. ' +
+        'Install with: npm install -g gitnexus  (or set GITNEXUS_BIN env var)',
     );
+    return null;
   }
 
   log(`Running gitnexus analyze on ${fixture.path} ...`);
@@ -441,7 +485,7 @@ function runGitnexus(fixture) {
   }
   args.push(fixture.path);
 
-  const result = spawnSync('gitnexus', args, {
+  const result = spawnSync(gitnexusBin, args, {
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
     timeout: 600_000,
@@ -450,6 +494,14 @@ function runGitnexus(fixture) {
   const durationMs = Date.now() - startMs;
 
   if (result.error) {
+    // ENOENT means binary not found — fall through to cleo-only mode gracefully
+    if (result.error.code === 'ENOENT') {
+      log(
+        `gitnexus binary not executable at "${gitnexusBin}" — running in cleo-only mode. ` +
+          'Install with: npm install -g gitnexus',
+      );
+      return null;
+    }
     fatal(`gitnexus analyze failed to spawn: ${result.error.message}`);
   }
 
@@ -487,7 +539,7 @@ function runGitnexus(fixture) {
   // Node counts by label
   try {
     const nodeResult = spawnSync(
-      'gitnexus',
+      gitnexusBin,
       ['cypher', '-r', repoName, 'MATCH (n) RETURN labels(n) as labels, count(*) as count'],
       { encoding: 'utf8', timeout: 30_000 },
     );
@@ -506,7 +558,7 @@ function runGitnexus(fixture) {
   // Edge counts by type
   try {
     const edgeResult = spawnSync(
-      'gitnexus',
+      gitnexusBin,
       ['cypher', '-r', repoName, 'MATCH ()-[r]->() RETURN r.type as relType, count(*) as count'],
       { encoding: 'utf8', timeout: 30_000 },
     );
@@ -664,9 +716,15 @@ async function main() {
     `Fixture: ${fixture.path} (${fixture.kind}, sha:${fixture.sha.slice(0, 12)}, ${fixture.fileCount} source files)`,
   );
 
-  // Run both tools
+  // Run cleo — always required
   const cleoStats = runCleoNexus(fixture);
+
+  // Run gitnexus — optional; returns null when not installed (cleo-only mode)
   const gitnexusStats = runGitnexus(fixture);
+  const cleoOnlyMode = gitnexusStats === null;
+  if (cleoOnlyMode) {
+    log('cleo-only mode: gitnexus not available, skipping cross-tool comparison');
+  }
 
   // Clean up temp dir
   if (fixture.tmpDir) {
@@ -678,7 +736,7 @@ async function main() {
     }
   }
 
-  const delta = buildDelta(cleoStats, gitnexusStats);
+  const delta = cleoOnlyMode ? null : buildDelta(cleoStats, gitnexusStats);
 
   // Load baseline
   const baselinePath = process.env.BENCH_BASELINE_PATH ?? DEFAULT_BASELINE_PATH;
@@ -701,8 +759,8 @@ async function main() {
 
   // Strip internal fields from output
   const { _total_nodes: cleoTotalNodes, _total_edges: cleoTotalEdges, ...cleoPublic } = cleoStats;
-  const { _total_nodes: gnTotalNodes, _total_edges: gnTotalEdges, ...gnPublic } = gitnexusStats;
 
+  /** @type {Record<string, unknown>} */
   const output = {
     timestamp: new Date().toISOString(),
     fixture: {
@@ -716,11 +774,16 @@ async function main() {
       _total_nodes: cleoTotalNodes,
       _total_edges: cleoTotalEdges,
     },
-    gitnexus: {
-      ...gnPublic,
-      _total_nodes: gnTotalNodes,
-      _total_edges: gnTotalEdges,
-    },
+    gitnexus: cleoOnlyMode
+      ? null
+      : (() => {
+          const {
+            _total_nodes: gnTotalNodes,
+            _total_edges: gnTotalEdges,
+            ...gnPublic
+          } = gitnexusStats;
+          return { ...gnPublic, _total_nodes: gnTotalNodes, _total_edges: gnTotalEdges };
+        })(),
     delta,
     regression,
   };
@@ -737,11 +800,16 @@ async function main() {
     process.exit(1);
   }
 
-  log(
-    `Done. cleo: ${cleoTotalNodes} nodes in ${cleoStats.duration_ms}ms | gitnexus: ${gnTotalNodes} nodes in ${gitnexusStats.duration_ms}ms`,
-  );
-  if (delta.duration_speedup_x != null) {
-    log(`Speed: cleo is ${delta.duration_speedup_x}x faster than gitnexus`);
+  if (cleoOnlyMode) {
+    log(`Done (cleo-only). cleo: ${cleoTotalNodes} nodes in ${cleoStats.duration_ms}ms`);
+  } else {
+    const gnTotalNodes = gitnexusStats._total_nodes;
+    log(
+      `Done. cleo: ${cleoTotalNodes} nodes in ${cleoStats.duration_ms}ms | gitnexus: ${gnTotalNodes} nodes in ${gitnexusStats.duration_ms}ms`,
+    );
+    if (delta !== null && delta.duration_speedup_x != null) {
+      log(`Speed: cleo is ${delta.duration_speedup_x}x faster than gitnexus`);
+    }
   }
 }
 
