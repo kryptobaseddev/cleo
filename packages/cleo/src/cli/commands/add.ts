@@ -16,7 +16,7 @@
 import { getProjectRoot, inferTaskAddParams } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * cleo add — create a new task.
@@ -185,6 +185,22 @@ export const addCommand = defineCommand({
       description:
         'Bypass BRAIN duplicate-task rejection (audited to .cleo/audit/duplicate-bypass.jsonl) (T1633)',
     },
+    /**
+     * Waiver for the critical-priority dependency declaration requirement.
+     *
+     * Critical-priority tasks without declared dependencies silently break
+     * wave-order spawning when downstream work assumes they are load-bearing.
+     * Provide a justification string to waive the `--depends` requirement.
+     * The waiver is stored in task metadata for auditability.
+     *
+     * @task T1856
+     * @epic T1855
+     */
+    'depends-waiver': {
+      type: 'string',
+      description:
+        'Justification for creating a critical-priority task without --depends (T1856). Records waiver in task metadata.',
+    },
   },
   async run({ args, cmd }) {
     if (!args.title) {
@@ -224,6 +240,26 @@ export const addCommand = defineCommand({
     if (args.severity !== undefined) params['severity'] = args.severity;
     // T1633: BRAIN duplicate-bypass flag
     if (args['force-duplicate'] !== undefined) params['forceDuplicate'] = args['force-duplicate'];
+
+    // T1856: Critical-priority tasks MUST declare dependencies or provide a waiver.
+    // Undeclared dependencies on critical tasks silently break wave-order spawning
+    // when downstream work assumes they are load-bearing (T1855 guardrail #1).
+    if (args.priority === 'critical' && !args.depends && args['depends-waiver'] === undefined) {
+      cliError(
+        'Critical-priority tasks must declare at least one dependency (--depends) or provide a waiver (--depends-waiver "<reason>").',
+        'E_VALIDATION',
+        {
+          name: 'E_VALIDATION',
+          fix:
+            'Add --depends <taskId> to declare a dependency, or use --depends-waiver "<reason>" ' +
+            'to waive the requirement. Use `cleo find "<topic>"` to discover candidate dependencies.',
+        },
+        { operation: 'tasks.add' },
+      );
+      process.exit(6);
+      return;
+    }
+    if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
 
     // T1490: Delegate file inference, acceptance parsing, and parent inference
     // to Core so the CLI layer stays a thin parse-and-delegate shell.
