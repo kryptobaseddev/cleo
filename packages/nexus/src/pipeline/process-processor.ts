@@ -14,6 +14,7 @@
  * @module pipeline/process-processor
  */
 
+import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { CommunityMembership } from './community-processor.js';
 import { calculateEntryPointScore, isTestFile } from './entry-point-scoring.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
@@ -431,23 +432,27 @@ export async function detectProcesses(
   }
 
   // Write STEP_IN_PROCESS edges and ENTRY_POINT_OF edge
+  const stepConf = 1.0;
   for (const step of steps) {
     graph.addRelation({
       source: step.nodeId,
       target: step.processId,
       type: 'step_in_process',
-      confidence: 1.0,
+      confidence: stepConf,
+      confidenceLabel: confidenceLabelFromNumeric(stepConf),
       reason: `step:${step.step}`,
     });
   }
 
   // Write ENTRY_POINT_OF edges (entry point node → process node)
+  const epConf = 1.0;
   for (const proc of processes) {
     graph.addRelation({
       source: proc.entryPointId,
       target: proc.id,
       type: 'entry_point_of',
-      confidence: 1.0,
+      confidence: epConf,
+      confidenceLabel: confidenceLabelFromNumeric(epConf),
       reason: 'bfs-entry-point',
     });
   }

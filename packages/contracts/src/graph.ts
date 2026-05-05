@@ -159,6 +159,52 @@ export interface GraphNode {
 }
 
 // ---------------------------------------------------------------------------
+// Confidence label
+// ---------------------------------------------------------------------------
+
+/**
+ * Three-state confidence label for extracted edges.
+ *
+ * Complements the numeric `confidence` field with a categorical classification
+ * that maps to the pipeline's resolution tiers:
+ *
+ * - **`EXTRACTED`** (Tier 1): Statically verifiable from the AST — the
+ *   relationship is directly present in source. Covers `defines`, `imports`,
+ *   structural containment (`has_method`, `has_property`), and same-file
+ *   `calls` / `extends` / `implements`. Numeric confidence ≥ 0.90.
+ *
+ * - **`INFERRED`** (Tier 2a): Resolved through import-scoped analysis — the
+ *   target is reachable via a known import but requires cross-file name
+ *   resolution. Covers `accesses`, cross-file `calls`, and cross-file
+ *   `extends` / `implements`. Numeric confidence in range 0.80 – 0.89.
+ *
+ * - **`AMBIGUOUS`** (Tier 3): Global fallback resolution — the target was
+ *   found by scanning the entire repository index with no direct import
+ *   path. Multiple candidates may exist. Numeric confidence < 0.80.
+ *
+ * @since T1862
+ */
+export type GraphEdgeConfidenceLabel = 'EXTRACTED' | 'INFERRED' | 'AMBIGUOUS';
+
+/**
+ * Map a numeric confidence value to a {@link GraphEdgeConfidenceLabel}.
+ *
+ * Thresholds align with the pipeline resolution tiers defined in
+ * `resolution-context.ts`:
+ * - ≥ 0.90 → `EXTRACTED`  (same-file 0.95, import-scoped 0.90, defines 1.0)
+ * - 0.80 – 0.89 → `INFERRED`   (accesses 0.80, heritage import-scoped 0.85)
+ * - < 0.80 → `AMBIGUOUS`  (global 0.50, speculative)
+ *
+ * @param confidence - Numeric confidence in range [0.0, 1.0]
+ * @returns The corresponding three-state label
+ */
+export function confidenceLabelFromNumeric(confidence: number): GraphEdgeConfidenceLabel {
+  if (confidence >= 0.9) return 'EXTRACTED';
+  if (confidence >= 0.8) return 'INFERRED';
+  return 'AMBIGUOUS';
+}
+
+// ---------------------------------------------------------------------------
 // Relation interface
 // ---------------------------------------------------------------------------
 
@@ -168,6 +214,11 @@ export interface GraphNode {
  * The `source` and `target` fields reference node IDs (see {@link GraphNode.id}).
  * Confidence reflects how certain the extractor is about this relationship,
  * from 0.0 (speculative) to 1.0 (statically verified).
+ *
+ * The `confidenceLabel` field provides a categorical three-state classification
+ * (see {@link GraphEdgeConfidenceLabel}) derived from the numeric `confidence`.
+ * Both fields are kept for backward compatibility: existing consumers that read
+ * the numeric field are unaffected; new consumers can use the label directly.
  */
 export interface GraphRelation {
   /** ID of the originating node. */
@@ -186,6 +237,15 @@ export interface GraphRelation {
    * - `accesses`: 0.8 (field read/write, may be indirect)
    */
   confidence: number;
+  /**
+   * Three-state categorical label derived from the numeric `confidence` tier.
+   *
+   * Optional for backward compatibility with callers that construct
+   * `GraphRelation` objects directly. Pipeline code SHOULD populate this
+   * field. See {@link GraphEdgeConfidenceLabel} and
+   * {@link confidenceLabelFromNumeric} for values and thresholds.
+   */
+  confidenceLabel?: GraphEdgeConfidenceLabel;
   /** Human-readable note explaining why this relation was emitted. */
   reason?: string;
 }

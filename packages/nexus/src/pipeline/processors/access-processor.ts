@@ -32,6 +32,7 @@
  */
 
 import type { GraphRelation } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { KnowledgeGraph } from '../knowledge-graph.js';
 import { TIER_CONFIDENCE } from '../resolution-context.js';
 import type { SymbolTable } from '../symbol-table.js';
@@ -458,6 +459,7 @@ export async function resolveAccesses(
       target: resolved.nodeId,
       type: 'accesses',
       confidence: resolved.confidence,
+      confidenceLabel: confidenceLabelFromNumeric(resolved.confidence),
       reason: `${access.accessMode} access to ${access.memberName} (tier: ${resolved.tier})`,
     };
 

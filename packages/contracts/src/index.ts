@@ -339,9 +339,10 @@ export {
   AGENT_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from './facade.js';
-// === Graph Intelligence Types (T512, T529) ===
+// === Graph Intelligence Types (T512, T529, T1862) ===
 export type {
   CommunityNode,
+  GraphEdgeConfidenceLabel,
   GraphNode,
   GraphNodeKind,
   GraphRelation,
@@ -351,6 +352,7 @@ export type {
   ProcessNode,
   SymbolIndex,
 } from './graph.js';
+export { confidenceLabelFromNumeric } from './graph.js';
 export type { AdapterHookProvider } from './hooks.js';
 export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';
 export type {
