@@ -129,7 +129,7 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
   });
 
   it('emits payload with composerVersion 3.0.0 meta', async () => {
-    const result = await orchestrateSpawn('T932W', undefined, TEST_ROOT);
+    const result = await orchestrateSpawn('T932W', undefined, TEST_ROOT, undefined, true);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -166,7 +166,7 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
   });
 
   it('rejects worker spawn when AC.files is missing (E_ATOMICITY_NO_SCOPE)', async () => {
-    const result = await orchestrateSpawn('T932WX', undefined, TEST_ROOT);
+    const result = await orchestrateSpawn('T932WX', undefined, TEST_ROOT, undefined, true);
 
     // Composer rejects; engine surfaces the atomicity code as a first-class
     // LAFS envelope.
@@ -183,7 +183,7 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     // worker (cleo-subagent.orchLevel = 2). With the fix the engine detects
     // task.type === 'epic' and forces role=lead before entering the atomicity
     // gate (leads pass through unconditionally).
-    const result = await orchestrateSpawn('T932EP', undefined, TEST_ROOT);
+    const result = await orchestrateSpawn('T932EP', undefined, TEST_ROOT, undefined, true);
 
     expect(result.success).toBe(true);
     const data = result.data as {
