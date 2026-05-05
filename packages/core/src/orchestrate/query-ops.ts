@@ -6,9 +6,13 @@
  *
  * @task T1570
  * @task T4478
+ * @task T1858
  */
 
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
+import { loadConfig } from '../config.js';
 import { type EngineResult, engineError } from '../engine-result.js';
 import { analyzeDependencies } from '../orchestration/analyze.js';
 import { estimateContext } from '../orchestration/context.js';
@@ -18,6 +22,73 @@ import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
+import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
+import { runValidation } from '../tasks/dep-graph-validator.js';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Project-relative path for the orchestrate deps-validate bypass audit log.
+ *
+ * @task T1858
+ */
+export const ORCHESTRATE_DEPS_BYPASS_AUDIT_FILE = '.cleo/audit/orchestrate-deps-bypass.jsonl';
+
+// ---------------------------------------------------------------------------
+// Audit entry type
+// ---------------------------------------------------------------------------
+
+/**
+ * A single audit entry written to {@link ORCHESTRATE_DEPS_BYPASS_AUDIT_FILE}
+ * when `--ignore-deps-validate` is used on `cleo orchestrate ready`.
+ *
+ * @task T1858
+ */
+export interface OrchestrateDepsAuditEntry {
+  /** ISO-8601 timestamp of the bypass. */
+  ts: string;
+  /** The epic ID passed to `cleo orchestrate ready`. */
+  epicId: string;
+  /** Where the bypass originated: 'cli' (flag) or 'sentient' (programmatic). */
+  source: 'cli' | 'sentient';
+  /** Number of dep-graph issues that were bypassed. */
+  issueCount: number;
+  /** The actual issues that were bypassed (may be empty when valid). */
+  issues: Pick<DepGraphIssue, 'code' | 'taskId' | 'epicA' | 'epicB'>[];
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Append one {@link OrchestrateDepsAuditEntry} to
+ * `.cleo/audit/orchestrate-deps-bypass.jsonl`.
+ *
+ * Errors are swallowed: an audit-write failure MUST NOT change the ready-set
+ * response (follows the same pattern as `appendContractViolation` /
+ * `appendWorkerMismatchAudit`).
+ *
+ * @param projectRoot - Absolute project root path.
+ * @param entry - Audit entry to append.
+ *
+ * @internal
+ * @task T1858
+ */
+export function appendDepsValidateBypassAudit(
+  projectRoot: string,
+  entry: OrchestrateDepsAuditEntry,
+): void {
+  try {
+    const filePath = join(projectRoot, ORCHESTRATE_DEPS_BYPASS_AUDIT_FILE);
+    mkdirSync(dirname(filePath), { recursive: true });
+    appendFileSync(filePath, `${JSON.stringify(entry)}\n`, { encoding: 'utf-8' });
+  } catch {
+    // non-fatal — audit must not block the ready-set response
+  }
+}
 
 export type { EngineResult };
 
@@ -128,16 +199,47 @@ export async function orchestrateAnalyze(
 }
 
 /**
+ * Options for {@link orchestrateReady}.
+ *
+ * @task T1858
+ */
+export interface OrchestrateReadyOptions {
+  /**
+   * When true, skip the dep-graph validation pre-check and proceed with
+   * advertising the ready set regardless of graph health. The bypass is
+   * audit-logged to `.cleo/audit/orchestrate-deps-bypass.jsonl`.
+   *
+   * CLI-only: programmatic callers (sentient tick, worktree-dispatch) MUST
+   * NOT pass this flag. Bypass logic lives here so the sentinel is enforced
+   * at the call-site closest to the source of truth.
+   */
+  ignoreDepsValidate?: boolean;
+}
+
+/**
  * orchestrate.ready - Get parallel-safe tasks (ready to execute)
+ *
+ * Before advertising the ready set, runs dep-graph validation over the epic's
+ * children and respects `LifecycleConfig.mode`:
+ *
+ * - `strict`   — if `!valid`, refuse with `E_DEP_GRAPH_INVALID` + issues
+ * - `advisory` — if `!valid`, warn in the response but proceed
+ * - `off`      — skip validation entirely
+ *
+ * The `opts.ignoreDepsValidate` flag (CLI-only, audit-logged) bypasses the
+ * check regardless of mode.
  *
  * @param epicId - Epic to find ready tasks for.
  * @param projectRoot - Optional project root path.
+ * @param opts - Optional behaviour flags (see {@link OrchestrateReadyOptions}).
  * @returns Engine result with ready tasks data.
  * @task T4478
+ * @task T1858
  */
 export async function orchestrateReady(
   epicId: string,
   projectRoot?: string,
+  opts?: OrchestrateReadyOptions,
 ): Promise<EngineResult> {
   if (!epicId) {
     return engineError('E_INVALID_INPUT', 'epicId is required');
@@ -152,6 +254,69 @@ export async function orchestrateReady(
     if (!epic) {
       return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
     }
+
+    // ---------------------------------------------------------------------------
+    // T1858: dep-graph validation pre-step
+    // ---------------------------------------------------------------------------
+    const config = await loadConfig(root);
+    const lifecycleMode = config.lifecycle?.mode ?? 'strict';
+
+    let depsWarning: string | undefined;
+
+    // Helper: filter issues to only those that are actionable blockers for
+    // the epic ready-set check. Excludes:
+    //   - E_ORPHAN: project-level concern, not specific to the epic ready-check.
+    //   - E_MISSING_REF where the referenced task EXISTS project-wide (cross-epic
+    //     deps that are outside the scoped set are not truly missing).
+    const projectTaskIds = new Set(tasks.map((t) => t.id));
+    const toBlockerIssues = (issues: ReturnType<typeof runValidation>['issues']) =>
+      issues.filter((i) => {
+        if (i.code === 'E_ORPHAN') return false;
+        if (i.code === 'E_MISSING_REF') {
+          // relatedIds contains the dep ID that was reported missing in the scope.
+          // If it actually exists project-wide, it's just a cross-epic dep — not a
+          // true missing reference.
+          return (i.relatedIds ?? []).some((depId) => !projectTaskIds.has(depId));
+        }
+        return true;
+      });
+
+    if (opts?.ignoreDepsValidate) {
+      // Bypass requested — audit-log it regardless of mode, then skip check.
+      const validation = runValidation(tasks, { epicId });
+      const blockerIssues = toBlockerIssues(validation.issues);
+      appendDepsValidateBypassAudit(root, {
+        ts: new Date().toISOString(),
+        epicId,
+        source: 'cli',
+        issueCount: blockerIssues.length,
+        issues: blockerIssues.map(({ code, taskId, epicA, epicB }) => ({
+          code,
+          taskId,
+          epicA,
+          epicB,
+        })),
+      });
+    } else if (lifecycleMode !== 'off') {
+      const validation = runValidation(tasks, { epicId });
+      const blockerIssues = toBlockerIssues(validation.issues);
+      const isValid = blockerIssues.length === 0;
+
+      if (!isValid) {
+        const summary = `Dep graph has ${blockerIssues.length} issue(s): ${[...new Set(blockerIssues.map((i) => i.code))].join(', ')}`;
+
+        if (lifecycleMode === 'strict') {
+          return engineError('E_DEP_GRAPH_INVALID', summary, {
+            details: { issueCount: blockerIssues.length, issues: blockerIssues },
+          });
+        }
+        // advisory: warn + proceed
+        depsWarning = summary;
+      }
+    }
+    // mode === 'off': skip validation entirely
+    // ---------------------------------------------------------------------------
+
     const accessor = await getAccessor(root);
     const readyTasks = await getReadyTasks(epicId, root, accessor);
     const ready = readyTasks.filter((t) => t.ready);
@@ -183,6 +348,7 @@ export async function orchestrateReady(
         })),
         total: ready.length,
         ...(reason !== undefined && { reason }),
+        ...(depsWarning !== undefined && { depsWarning }),
       },
     };
   } catch (err: unknown) {

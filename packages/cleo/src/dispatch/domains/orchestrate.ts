@@ -80,6 +80,8 @@ interface OrchestrateNextParams {
 
 interface OrchestrateReadyParams {
   epicId: string;
+  /** CLI-only bypass flag. When true, skips dep-graph validation and audit-logs the bypass. */
+  ignoreDepsValidate?: boolean;
 }
 
 interface OrchestrateAnalyzeParams {
@@ -284,7 +286,9 @@ async function orchestrateNextOp(params: OrchestrateNextParams) {
 }
 
 async function orchestrateReadyOp(params: OrchestrateReadyParams) {
-  return orchestrateReady(params.epicId, getProjectRoot());
+  return orchestrateReady(params.epicId, getProjectRoot(), {
+    ignoreDepsValidate: params.ignoreDepsValidate,
+  });
 }
 
 async function orchestrateAnalyzeOp(params: OrchestrateAnalyzeParams) {
@@ -556,7 +560,10 @@ export class OrchestrateHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
-          const p: OrchestrateReadyParams = { epicId: params.epicId as string };
+          const p: OrchestrateReadyParams = {
+            epicId: params.epicId as string,
+            ignoreDepsValidate: params.ignoreDepsValidate as boolean | undefined,
+          };
           return wrapResult(await coreOps.ready(p), 'query', 'orchestrate', operation, startTime);
         }
 
