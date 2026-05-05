@@ -1,0 +1,48 @@
+{
+  "timestamp": "2026-05-05T19:20:58.182Z",
+  "fixture": {
+    "path": "/home/keatonhoskins/.local/share/cleo/worktrees/4f2a513f66dcb422/T1845/packages/nexus/src/__tests__/fixtures",
+    "sha": "81602eeac6304329e4cb88ee3b63e90328ad3ad8",
+    "kind": "custom",
+    "fileCount": 4
+  },
+  "cleo": {
+    "node_count_by_kind": {},
+    "edge_count_by_kind": {
+      "has_method": 60,
+      "calls": 30,
+      "has_property": 23,
+      "member_of": 22,
+      "imports": 19,
+      "step_in_process": 6,
+      "extends": 5,
+      "contains": 4,
+      "implements": 4,
+      "entry_point_of": 2
+    },
+    "communities": 9,
+    "modularity": 0.852,
+    "duration_ms": 314,
+    "_total_nodes": 179,
+    "_total_edges": 175
+  },
+  "gitnexus": {
+    "node_count_by_kind": {},
+    "edge_count_by_kind": {},
+    "communities": 0,
+    "modularity": null,
+    "duration_ms": 1816,
+    "_total_nodes": 0,
+    "_total_edges": 0
+  },
+  "delta": {
+    "total_nodes_pct": null,
+    "total_edges_pct": null,
+    "communities_pct": null,
+    "duration_speedup_x": 5.8
+  },
+  "regression": {
+    "failed": false,
+    "violations": []
+  }
+}
