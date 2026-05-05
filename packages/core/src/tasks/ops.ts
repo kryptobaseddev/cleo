@@ -381,6 +381,8 @@ export declare const tasksCoreOps: {
   readonly tree: TaskCoreOperation<'tree'>;
   readonly blockers: TaskCoreOperation<'blockers'>;
   readonly depends: TaskCoreOperation<'depends'>;
+  readonly 'deps.validate': TaskCoreOperation<'deps.validate'>;
+  readonly 'deps.tree': TaskCoreOperation<'deps.tree'>;
   readonly analyze: TaskCoreOperation<'analyze'>;
   readonly impact: TaskCoreOperation<'impact'>;
   readonly next: TaskCoreOperation<'next'>;
