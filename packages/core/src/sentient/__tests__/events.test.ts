@@ -12,7 +12,7 @@
  * @task T1022
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentIdentity } from 'llmtxt/identity';
@@ -102,6 +102,14 @@ let identity: AgentIdentity;
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'cleo-events-test-'));
+  // Write .cleo/project-info.json so assertProjectInitialized() accepts this
+  // temp dir as a valid project root (T1864 guard).
+  await mkdir(join(tmpDir, '.cleo'), { recursive: true });
+  await writeFile(
+    join(tmpDir, '.cleo', 'project-info.json'),
+    JSON.stringify({ projectId: 'test-events', monorepoRoot: false }),
+    'utf-8',
+  );
   // Generate a fresh identity for each test.
   const seed = new Uint8Array(32);
   for (let i = 0; i < 32; i++) seed[i] = i + 1;

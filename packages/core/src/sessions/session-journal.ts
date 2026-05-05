@@ -38,6 +38,7 @@
 import { appendFile, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionJournalEntry } from '@cleocode/contracts';
+import { assertProjectInitialized } from '../paths.js';
 
 // ============================================================================
 // Constants
@@ -129,6 +130,11 @@ export async function appendSessionJournalEntry(
   date?: Date,
 ): Promise<void> {
   const filePath = getSessionJournalPath(projectRoot, date);
+  // Guard: refuse to create .cleo/ subdirectories in uninitialized roots
+  // (e.g. git worktree paths that lack project-info.json). This prevents
+  // workers from creating rogue empty .cleo/ session-journals directories
+  // that diverge from the real project database. (T1864)
+  assertProjectInitialized(projectRoot);
   // Ensure directory exists — idempotent
   await mkdir(join(projectRoot, '.cleo', SESSION_JOURNALS_DIR), { recursive: true });
   const line = `${JSON.stringify(entry)}\n`;
