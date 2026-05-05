@@ -406,9 +406,13 @@ jobs:
               && cp -r "packages/cleo/$extra" "$STAGING/packages/cleo/" || true
           done
 
-          # Make executables runnable
-          chmod +x "$STAGING/packages/cleo/dist/cli/index.js" \
-                   "$STAGING/packages/cleo/dist/mcp/index.js" 2>/dev/null || true
+          # Make executables runnable. The historical second path
+          # (packages/cleo/dist/mcp/index.js) was removed when internal MCP
+          # dispatch was deleted in commit 480fa01a — the external MCP bridge
+          # now lives at packages/mcp-adapter/dist/cli.js and is published as
+          # its own @cleocode/mcp-adapter package, NOT bundled into this
+          # cleocode tarball. Do NOT re-add a path that does not exist.
+          chmod +x "$STAGING/packages/cleo/dist/cli/index.js"
 
           tar -czf "cleocode-${VERSION}.tar.gz" -C staging "cleocode-${VERSION}"
 
