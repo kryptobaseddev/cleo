@@ -276,6 +276,7 @@ export {
   getProjectRoot,
   isProjectInitialized,
   resolveProjectPath,
+  runWithWorktreeScopeFromEnv,
   validateProjectRoot,
 } from './paths.js';
 export type { Platform, SystemInfo } from './platform.js';
