@@ -598,6 +598,25 @@ async function build() {
   await chmod('packages/cleo/dist/cli/index.js', 0o755);
   console.log('  -> packages/cleo/dist/cli/index.js');
 
+  // MCP-ADAPTER (@cleocode/mcp-adapter) is the external-only MCP bridge.
+  // It depends on @cleocode/contracts + @cleocode/core (both built above) and
+  // is consumed only by external MCP clients (Claude Code, generic MCP tools)
+  // via subprocess — never via internal dispatch (see package README + memory
+  // "MCP Removal + external-bridge carve-out", 2026-04-04).
+  //
+  // Without this step, `pnpm publish` ships a tarball containing only
+  // package.json + README + LICENSE (dist is in .gitignore), leaving the
+  // `cleo-mcp-server` bin pointing at a missing dist/cli.js — the regression
+  // that v2026.5.25 / v2026.5.26 silently shipped to npm.
+  await rm(resolve(__dirname, 'packages/mcp-adapter/tsconfig.tsbuildinfo'), { force: true });
+  console.log('Building @cleocode/mcp-adapter...');
+  execFileSync('pnpm', ['--filter', '@cleocode/mcp-adapter', 'run', 'build'], {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+  await chmod('packages/mcp-adapter/dist/cli.js', 0o755).catch(() => {});
+  console.log('  -> packages/mcp-adapter/dist/');
+
   // CleoOS wraps @cleocode/cleo + Pi — depends on cleo and cant (both built above).
   // Uses full `build` (src + extensions + postinstall) — no more `build:src`-only
   // shortcut that hid extension type errors v2026.4.66-73. If extensions break,

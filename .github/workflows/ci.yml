@@ -372,10 +372,26 @@ jobs:
       - name: Verify CLI binary
         shell: bash
         run: node packages/cleo/dist/cli/index.js version
-      - name: Verify MCP server starts
+      - name: Verify mcp-adapter dist exists
+        shell: bash
+        run: |
+          test -f packages/mcp-adapter/dist/cli.js || (echo "packages/mcp-adapter/dist/cli.js missing — build.mjs did not build @cleocode/mcp-adapter" && exit 1)
+      - name: Verify MCP adapter server starts and responds
         if: matrix.os != 'windows-latest'
         shell: bash
-        run: timeout 5 node packages/cleo/dist/mcp/index.js 2>&1 || true
+        # Real smoke test: pipe a JSON-RPC 2.0 `initialize` request, close
+        # stdin, and assert the response carries the expected serverInfo.name.
+        # Catches regressions like:
+        #   - missing dist (MODULE_NOT_FOUND on cli.js / server.js)
+        #   - broken transitive imports (@cleocode/core load failure)
+        #   - protocol-handler crashes on initialize
+        # Failing exit code FAILS the job — no `|| true` masking.
+        run: |
+          OUTPUT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+            | timeout 10 node packages/mcp-adapter/dist/cli.js)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q '"name":"cleo-mcp-adapter"' \
+            || (echo "MCP adapter did not return expected initialize response" && exit 1)
 
   validate-json:
     name: Validate JSON Schemas
