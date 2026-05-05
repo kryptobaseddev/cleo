@@ -661,6 +661,8 @@ export class TasksHandler implements DomainHandler {
         'tree',
         'blockers',
         'depends',
+        'deps.validate',
+        'deps.tree',
         'analyze',
         'impact',
         'next',
