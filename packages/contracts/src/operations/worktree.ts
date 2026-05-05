@@ -162,6 +162,14 @@ export interface CreateWorktreeResult {
   createdAt: string;
   /** Whether git worktree lock was applied. */
   locked: boolean;
+  /**
+   * Whether the worktree was attached to a pre-existing `task/<taskId>` branch
+   * instead of creating a fresh one. True when a prior aborted spawn left the
+   * branch behind; false on a clean first-time creation.
+   *
+   * @task T1878
+   */
+  reused: boolean;
   /** Environment variables to inject into the spawned agent process. */
   envVars: Record<string, string>;
   /** Prompt preamble text for agent isolation context. */

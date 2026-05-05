@@ -31,11 +31,19 @@ import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-in
  * Steps:
  * 1. Resolve paths and project hash from the project root.
  * 2. Remove stale worktree at the same path if it exists.
- * 3. Run `git worktree add <path> -b <branch> <baseRef>`.
+ * 3. If `task/<taskId>` branch already exists (leftover from a prior aborted
+ *    spawn), attach to it via `git worktree add <path> <branch>` (no `-b`).
+ *    Otherwise create a new branch via `git worktree add -b <branch> <path> <baseRef>`.
  * 4. Optionally apply `git worktree lock` to prevent pruning.
  * 5. Run declarative `post-create` hooks.
  * 6. Apply `.cleo/worktree-include` glob patterns (symlinks).
  * 7. Build and return the {@link CreateWorktreeResult}.
+ *
+ * Branch-reuse semantics: when a prior spawn aborted after creating the branch
+ * but before the worker committed anything, the branch still points to
+ * `baseRef`. Reattaching is safe — the worker continues from a clean state.
+ * The returned result includes {@link CreateWorktreeResult.reused} so callers
+ * can distinguish between a fresh branch and a reattached one if needed.
  *
  * @param projectRoot - Absolute path to the project root directory.
  * @param options - Options controlling the worktree creation.
@@ -43,6 +51,7 @@ import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-in
  * @throws Error if git worktree add fails.
  *
  * @task T1161
+ * @task T1878
  */
 export async function createWorktree(
   projectRoot: string,
@@ -66,12 +75,31 @@ export async function createWorktree(
     if (!gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
       rmSync(worktreePath, { recursive: true, force: true });
     }
-    // Best-effort: delete the stale branch.
+    // Best-effort: delete the stale branch so we always start fresh when the
+    // directory existed (the branch-reuse path below handles the case where
+    // only the branch survives without a directory).
     gitSilent(['branch', '-D', branch], gitRoot);
   }
 
-  // Create the worktree with a new branch.
-  gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot);
+  // Check whether the branch already exists without a worktree directory.
+  // This happens when a prior spawn created the branch but the worktree
+  // directory was cleaned up (e.g. aborted after `git worktree add` but
+  // before the agent ran). Attaching to the existing branch avoids the
+  // "branch already exists" error from `git worktree add -b`.
+  // `git branch --list <branch>` exits 0 regardless; non-empty output means
+  // the branch exists.
+  const branchExists = gitSync(['branch', '--list', branch], gitRoot).trim() !== '';
+
+  let reused: boolean;
+  if (branchExists) {
+    // Attach to the existing branch — no -b flag.
+    gitSync(['worktree', 'add', worktreePath, branch], gitRoot);
+    reused = true;
+  } else {
+    // Create the worktree with a new branch.
+    gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
+    reused = false;
+  }
 
   // Apply git worktree lock to prevent accidental pruning.
   let locked = false;
@@ -140,6 +168,7 @@ export async function createWorktree(
     projectHash,
     createdAt,
     locked,
+    reused,
     envVars,
     preamble,
     hookResults,
