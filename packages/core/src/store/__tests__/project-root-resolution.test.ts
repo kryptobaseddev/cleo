@@ -269,10 +269,11 @@ describe('T1869: ADR-067 Project Root Resolution Regression Tests', () => {
     // For now, assert the CURRENT (broken) behavior so the test is not silently
     // skipped, and document the expected fix clearly.
     // When T1867 ships, replace this with the block above.
-    const resolvedPreT1867 = getProjectRoot(deepStart);
-    // Pre-T1867: pkgCore is accepted because it has package.json (current behavior).
-    // This is the bug. After T1867, this line should assert monorepoRoot instead.
-    expect(resolvedPreT1867).toBe(pkgCore); // BUG: should be monorepoRoot after T1867
+    const resolvedPostT1864 = getProjectRoot(deepStart);
+    // T1864/T1873 SHIPPED: validator requires project-info.json, so walk-up
+    // correctly skips pkgCore (rogue .cleo/ without marker) and continues
+    // to monorepoRoot.
+    expect(resolvedPostT1864).toBe(monorepoRoot);
   });
 
   // -------------------------------------------------------------------------
@@ -367,13 +368,10 @@ describe('T1869: ADR-067 Project Root Resolution Regression Tests', () => {
     writeFileSync(join(packageDir, 'package.json'), '{"name":"@cleocode/some-pkg"}', 'utf8');
     // Intentionally NOT writing project-info.json
 
-    // TODO(T1867): Uncomment this assertion when validateProjectRoot() is hardened:
-    // expect(validateProjectRoot(packageDir)).toBe(false);
-
-    // Document the CURRENT (pre-T1867) behavior: returns true because package.json exists.
-    // This is the bug that ADR-067 is fixing.
+    // T1864/T1873 SHIPPED: validator now requires project-info.json (or
+    // .cleo+.git legacy fallback). package.json alone is no longer sufficient.
     const currentResult = validateProjectRoot(packageDir);
-    expect(currentResult).toBe(true); // BUG: should be false after T1867
+    expect(currentResult).toBe(false);
   });
 
   it('Scenario 5b: validateProjectRoot returns true for dir with .cleo/project-info.json (post-T1867 strong marker)', () => {
