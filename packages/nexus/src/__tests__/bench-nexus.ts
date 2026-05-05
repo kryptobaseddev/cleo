@@ -10,7 +10,7 @@
  *   "timestamp": "2026-05-04T...",
  *   "treeParserAvailable": true,
  *   "extractors": {
- *     "typescript": { "definitions": 30, "imports": 3, "heritage": 0, "delta": {...} },
+ *     "typescript": { "definitions": 30, "imports": 3, "heritage": 0, "defines": 30, "delta": {...} },
  *     "python":     { ... },
  *     "go":         { ... },
  *     "rust":       { ... }
@@ -21,6 +21,10 @@
  *   }
  * }
  *
+ * The `defines` field counts how many extracted definitions would receive a
+ * `defines` edge from their file node (i.e. qualify under DEFINES_SYMBOL_KINDS
+ * in parse-loop.ts, T1836).
+ *
  * Exit code 0 = all parity floors met.
  * Exit code 1 = one or more parity violations (use as CI gate).
  *
@@ -28,6 +32,7 @@
  *   pnpm --filter @cleocode/nexus run bench:nexus
  *
  * @task T1841
+ * @task T1836
  * @module __tests__/bench-nexus
  */
 
@@ -43,6 +48,40 @@ import { extractTypeScript } from '../pipeline/extractors/typescript-extractor.j
 const _require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(__dirname, 'fixtures');
+
+// ---------------------------------------------------------------------------
+// DEFINES_SYMBOL_KINDS — must stay in sync with parse-loop.ts (T1836)
+// ---------------------------------------------------------------------------
+
+/**
+ * Symbol kinds that receive a `defines` edge from their containing file node.
+ * Mirrors the constant in `parse-loop.ts` so the bench reflects what the
+ * live parse loop emits.
+ */
+const DEFINES_SYMBOL_KINDS: ReadonlySet<string> = new Set([
+  'function',
+  'method',
+  'constructor',
+  'class',
+  'interface',
+  'struct',
+  'trait',
+  'impl',
+  'type_alias',
+  'enum',
+  'property',
+  'constant',
+  'variable',
+  'static',
+  'record',
+  'delegate',
+  'macro',
+  'union',
+  'typedef',
+  'annotation',
+  'template',
+  'type',
+]);
 
 // ---------------------------------------------------------------------------
 // Snapshot baselines (must match extractor-regression.test.ts)
@@ -118,6 +157,11 @@ interface ExtractorResult {
   imports: number;
   /** Heritage edge count. */
   heritage: number;
+  /**
+   * Number of definitions that would receive a `defines` edge from their
+   * containing file node (T1836 — DEFINES_SYMBOL_KINDS filter).
+   */
+  defines: number;
   /** Delta vs baseline (positive = improvement, negative = regression). */
   delta: {
     definitions: number;
@@ -164,6 +208,7 @@ const violations: string[] = [];
       byKind: {},
       imports: -1,
       heritage: -1,
+      defines: -1,
       delta: { definitions: 0, imports: 0, heritage: 0 },
       parserAvailable: false,
     };
@@ -172,12 +217,14 @@ const violations: string[] = [];
     const defs = r.definitions.length;
     const imps = r.imports.length;
     const her = r.heritage.length;
+    const def = r.definitions.filter((d) => DEFINES_SYMBOL_KINDS.has(d.kind)).length;
 
     results.extractors['typescript'] = {
       definitions: defs,
       byKind: countByKind(r.definitions),
       imports: imps,
       heritage: her,
+      defines: def,
       delta: {
         definitions: defs - baseline.total,
         imports: imps - baseline.imports,
@@ -208,6 +255,7 @@ const violations: string[] = [];
       byKind: {},
       imports: -1,
       heritage: -1,
+      defines: -1,
       delta: { definitions: 0, imports: 0, heritage: 0 },
       parserAvailable: false,
     };
@@ -216,12 +264,14 @@ const violations: string[] = [];
     const defs = r.definitions.length;
     const imps = r.imports.length;
     const her = r.heritage.length;
+    const def = r.definitions.filter((d) => DEFINES_SYMBOL_KINDS.has(d.kind)).length;
 
     results.extractors['python'] = {
       definitions: defs,
       byKind: countByKind(r.definitions),
       imports: imps,
       heritage: her,
+      defines: def,
       delta: {
         definitions: defs - baseline.total,
         imports: imps - baseline.imports,
@@ -252,6 +302,7 @@ const violations: string[] = [];
       byKind: {},
       imports: -1,
       heritage: -1,
+      defines: -1,
       delta: { definitions: 0, imports: 0, heritage: 0 },
       parserAvailable: false,
     };
@@ -260,12 +311,14 @@ const violations: string[] = [];
     const defs = r.definitions.length;
     const imps = r.imports.length;
     const her = r.heritage.length;
+    const def = r.definitions.filter((d) => DEFINES_SYMBOL_KINDS.has(d.kind)).length;
 
     results.extractors['go'] = {
       definitions: defs,
       byKind: countByKind(r.definitions),
       imports: imps,
       heritage: her,
+      defines: def,
       delta: {
         definitions: defs - baseline.total,
         imports: imps - baseline.imports,
@@ -296,6 +349,7 @@ const violations: string[] = [];
       byKind: {},
       imports: -1,
       heritage: -1,
+      defines: -1,
       delta: { definitions: 0, imports: 0, heritage: 0 },
       parserAvailable: false,
     };
@@ -304,12 +358,14 @@ const violations: string[] = [];
     const defs = r.definitions.length;
     const imps = r.imports.length;
     const her = r.heritage.length;
+    const def = r.definitions.filter((d) => DEFINES_SYMBOL_KINDS.has(d.kind)).length;
 
     results.extractors['rust'] = {
       definitions: defs,
       byKind: countByKind(r.definitions),
       imports: imps,
       heritage: her,
+      defines: def,
       delta: {
         definitions: defs - baseline.total,
         imports: imps - baseline.imports,
