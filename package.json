@@ -19,6 +19,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "lint:cleo-errors": "node scripts/lint-cleo-errors.mjs",
+    "bench:nexus": "BENCH_FIXTURE_PATH=packages/nexus/src/__tests__/fixtures node scripts/bench/nexus-vs-gitnexus.mjs",
     "docs:check": "forge-ts check",
     "docs:test": "forge-ts test",
     "docs:build": "forge-ts build",
