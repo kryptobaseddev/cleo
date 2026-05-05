@@ -10,7 +10,7 @@
  */
 
 import type { SQL } from 'drizzle-orm';
-import { and, asc, desc, eq, gte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ne, or } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import type {
   BrainConsolidationEventRow,
@@ -69,6 +69,12 @@ export class BrainDataAccessor {
       outcome?: (typeof brainSchema.BRAIN_OUTCOME_TYPES)[number];
       contextTaskId?: string;
       limit?: number;
+      /**
+       * T1830: when false (default), AGT-* agent dispatch rows
+       * (`decision_category = 'agent_dispatch'`) are excluded from results.
+       * Pass true to include all categories.
+       */
+      includeAgentDispatch?: boolean;
     } = {},
   ): Promise<BrainDecisionRow[]> {
     const conditions: SQL[] = [];
@@ -84,6 +90,10 @@ export class BrainDataAccessor {
     }
     if (params.contextTaskId) {
       conditions.push(eq(brainSchema.brainDecisions.contextTaskId, params.contextTaskId));
+    }
+    // T1830: exclude agent_dispatch rows unless explicitly opted-in
+    if (!params.includeAgentDispatch) {
+      conditions.push(ne(brainSchema.brainDecisions.decisionCategory, 'agent_dispatch'));
     }
 
     let query = this.db

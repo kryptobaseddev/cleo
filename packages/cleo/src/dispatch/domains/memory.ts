@@ -172,6 +172,8 @@ export class MemoryHandler implements DomainHandler {
               query: paramString(params, 'query'),
               taskId: paramString(params, 'taskId'),
               limit: paramNumber(params, 'limit'),
+              // T1830: opt-in to AGT-* dispatch rows; excluded by default
+              includeAgentDispatch: paramBool(params, 'includeAgentDispatch') ?? false,
             },
             projectRoot,
           );
