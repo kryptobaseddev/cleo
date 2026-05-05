@@ -484,3 +484,47 @@ jobs:
         run: pnpm exec forge-ts check --human || true
       - name: Build documentation
         run: pnpm exec forge-ts build || true
+
+  nexus-bench:
+    # T1845: Reproducible benchmark gate — runs cleo-nexus vs gitnexus against
+    # internal fixtures and checks for regressions vs the checked-in baseline
+    # (scripts/bench/nexus-baseline.json). Triggers only when nexus packages or
+    # the bench script itself change. Marked continue-on-error because gitnexus
+    # is an external tool not available in the standard CI image; failures are
+    # surfaced as annotations rather than blocking the build.
+    # No untrusted input used — reads only checked-in fixture files.
+    name: Nexus Benchmark (T1845)
+    needs: [biome, changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Build packages (required for cleo nexus analyze)
+        run: pnpm run build
+      - name: Install gitnexus (best-effort)
+        run: npm install -g gitnexus || true
+      - name: Run nexus benchmark against internal fixtures
+        # BENCH_FIXTURE_PATH is set to the checked-in fixtures dir (4 source files).
+        # BENCH_NO_BASELINE=1 skips regression check in CI where baseline fixture
+        # SHA may differ from the developer machine that generated the baseline.
+        # Regression checks are intended for local runs where openclaw is available.
+        run: BENCH_FIXTURE_PATH=packages/nexus/src/__tests__/fixtures BENCH_NO_BASELINE=1 node scripts/bench/nexus-vs-gitnexus.mjs
