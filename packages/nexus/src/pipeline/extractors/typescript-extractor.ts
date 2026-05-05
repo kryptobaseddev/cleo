@@ -694,12 +694,28 @@ export function extractHeritage(root: SyntaxNode, filePath: string): ExtractedHe
 
       const typeNodeIdStr = nodeId(filePath, typeName);
 
-      // Walk children for `extends_clause` and `implements_clause`
+      // Walk children for `extends_clause` and `implements_clause`.
+      // tree-sitter TypeScript grammar sometimes wraps extends/implements clauses
+      // inside a nested `class_heritage` node (grammar version dependent). We
+      // flatten one level of nesting so both layouts are handled uniformly.
+      const directChildren: SyntaxNode[] = [];
       for (let i = 0; i < node.namedChildCount; i++) {
         const child = node.namedChild(i);
         if (!child) continue;
+        if (child.type === 'class_heritage') {
+          // Flatten: collect grandchildren so extends_clause / implements_clause
+          // are visible at the same iteration depth regardless of nesting.
+          for (let k = 0; k < child.namedChildCount; k++) {
+            const gc = child.namedChild(k);
+            if (gc) directChildren.push(gc);
+          }
+        } else {
+          directChildren.push(child);
+        }
+      }
 
-        if (child.type === 'extends_clause' || child.type === 'class_heritage') {
+      for (const child of directChildren) {
+        if (child.type === 'extends_clause') {
           // class A extends B — extract parent class name(s)
           for (let j = 0; j < child.namedChildCount; j++) {
             const parent = child.namedChild(j);

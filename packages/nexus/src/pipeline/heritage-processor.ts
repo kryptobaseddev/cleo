@@ -27,7 +27,7 @@
  * @module pipeline/heritage-processor
  */
 
-import type { GraphRelation } from '@cleocode/contracts';
+import type { GraphNode, GraphRelation } from '@cleocode/contracts';
 import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { ExtractedHeritage } from './extractors/typescript-extractor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
@@ -259,6 +259,8 @@ export interface HeritageProcessingResult {
   extendsCount: number;
   /** Number of IMPLEMENTS edges emitted. */
   implementsCount: number;
+  /** Number of METHOD_OVERRIDES edges emitted. */
+  methodOverridesCount: number;
   /** Number of records skipped (unresolvable child or self-reference). */
   skippedCount: number;
 }
@@ -332,5 +334,120 @@ export function processHeritage(
     }
   }
 
-  return { extendsCount, implementsCount, skippedCount };
+  // Emit METHOD_OVERRIDES edges for extends relationships
+  const methodOverridesCount = emitMethodOverrides(heritage, graph, ctx);
+
+  return { extendsCount, implementsCount, methodOverridesCount, skippedCount };
+}
+
+// ---------------------------------------------------------------------------
+// Method override detection (T1846)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit METHOD_OVERRIDES edges for each (subclass method, parent method) pair
+ * where the method names match across an `extends` relationship.
+ *
+ * Resolution strategy:
+ * 1. Build an index of `classNodeId → method GraphNodes` from `graph.nodes`
+ *    for every class encountered in the extends heritage records.
+ * 2. For each resolved (child class, parent class) pair, find child methods
+ *    whose names also appear in the parent class.
+ * 3. Emit a `method_overrides` edge from child method → parent method with
+ *    EXTRACTED confidence (≥ 0.90, same-file child + Tier 1 parent lookup).
+ *
+ * This function is called automatically by {@link processHeritage} and should
+ * not be invoked separately.
+ *
+ * Confidence: uses the same geometric-mean formula as EXTENDS edges, anchored
+ * to the child confidence (0.95, same-file) and parent confidence from the
+ * resolution tier. In practice this yields EXTRACTED (≥ 0.90) for same-repo
+ * parent classes and INFERRED/AMBIGUOUS for external stubs.
+ *
+ * @param heritage - All heritage records accumulated during the parse loop
+ * @param graph - KnowledgeGraph to write METHOD_OVERRIDES edges into
+ * @param ctx - Fully-populated ResolutionContext
+ * @returns Number of METHOD_OVERRIDES edges emitted
+ *
+ * @task T1846
+ */
+function emitMethodOverrides(
+  heritage: readonly ExtractedHeritage[],
+  graph: KnowledgeGraph,
+  ctx: ResolutionContext,
+): number {
+  // Only process `extends` records — `implements` clauses produce METHOD_IMPLEMENTS (T1847)
+  const extendsRecords = heritage.filter((h) => h.kind === 'extends');
+  if (extendsRecords.length === 0) return 0;
+
+  // Build a map: classNodeId → Map<methodName, GraphNode>
+  // One-time pass over graph.nodes — O(N) where N is total node count.
+  const classMethods = new Map<string, Map<string, GraphNode>>();
+  for (const node of graph.nodes.values()) {
+    if (node.kind !== 'method' || !node.parent || !node.name) continue;
+    let methodMap = classMethods.get(node.parent);
+    if (!methodMap) {
+      methodMap = new Map();
+      classMethods.set(node.parent, methodMap);
+    }
+    // First match wins — same behaviour as methodByOwner in SymbolTable
+    if (!methodMap.has(node.name)) {
+      methodMap.set(node.name, node);
+    }
+  }
+
+  let emittedCount = 0;
+
+  for (const h of extendsRecords) {
+    // Resolve child class — MUST be in the current file
+    const childClassId = resolveChildId(h.typeName, h.filePath, ctx);
+    if (!childClassId) continue;
+
+    // Resolve parent class via tiered lookup
+    const { id: parentClassId, confidence: parentConf } = resolveParentId(
+      h.parentName,
+      h.filePath,
+      ctx,
+    );
+
+    // Skip self-references and unresolvable parents that mapped to the same node
+    if (childClassId === parentClassId) continue;
+
+    // Skip stub parents — synthetic __heritage__ nodes have no real methods
+    if (parentClassId.startsWith('__heritage__')) continue;
+
+    const childMethods = classMethods.get(childClassId);
+    const parentMethods = classMethods.get(parentClassId);
+
+    // No methods on either side → nothing to compare
+    if (!childMethods || !parentMethods) continue;
+
+    // Child confidence: same-file lookup = 0.95
+    const childConf = TIER_CONFIDENCE['same-file'];
+
+    for (const [methodName, childMethodNode] of childMethods) {
+      // Skip constructors — they are not overrides in the classical sense
+      if (methodName === 'constructor') continue;
+
+      const parentMethodNode = parentMethods.get(methodName);
+      if (!parentMethodNode) continue;
+
+      // Geometric-mean confidence consistent with GitNexus / processHeritage convention
+      const confidence = Math.sqrt(childConf * parentConf);
+
+      const rel: GraphRelation = {
+        source: childMethodNode.id,
+        target: parentMethodNode.id,
+        type: 'method_overrides',
+        confidence,
+        confidenceLabel: confidenceLabelFromNumeric(confidence),
+        reason: `${h.typeName}.${methodName} overrides ${h.parentName}.${methodName} via extends in ${h.filePath}`,
+      };
+
+      graph.addRelation(rel);
+      emittedCount++;
+    }
+  }
+
+  return emittedCount;
 }
