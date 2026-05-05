@@ -696,7 +696,7 @@ export async function runPipeline(
   process.stderr.write('[nexus] Phase 3c: Resolving heritage...\n');
   const heritageResult = processHeritage(allHeritage, graph, resolutionCtx);
   process.stderr.write(
-    `[nexus] Heritage: ${heritageResult.extendsCount} extends, ${heritageResult.implementsCount} implements, ${heritageResult.skippedCount} skipped\n`,
+    `[nexus] Heritage: ${heritageResult.extendsCount} extends, ${heritageResult.implementsCount} implements, ${heritageResult.methodOverridesCount} method_overrides, ${heritageResult.skippedCount} skipped\n`,
   );
 
   // Build HeritageMap from accumulated records (for future virtual dispatch)

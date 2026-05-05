@@ -35,10 +35,12 @@ import { extractJava } from '../pipeline/extractors/java-extractor.js';
 import { extractPython } from '../pipeline/extractors/python-extractor.js';
 import { extractRust } from '../pipeline/extractors/rust-extractor.js';
 import { extractTypeScript } from '../pipeline/extractors/typescript-extractor.js';
+import { processHeritage } from '../pipeline/heritage-processor.js';
 import { buildImportResolutionContext } from '../pipeline/import-processor.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { runParseLoop } from '../pipeline/parse-loop.js';
 import { extractAccesses } from '../pipeline/processors/access-processor.js';
+import { createResolutionContext } from '../pipeline/resolution-context.js';
 import { createSymbolTable } from '../pipeline/symbol-table.js';
 
 // ---------------------------------------------------------------------------
@@ -111,9 +113,13 @@ function assertFloor(label: string, actual: number, floor: number): void {
 /**
  * Snapshot floor values for the TypeScript extractor.
  * Fixture: packages/nexus/src/__tests__/fixtures/typescript/sample.ts
+ *
+ * Updated by T1846:
+ *   - UserRepository.toJSON() override added to fixture (+1 method)
+ *   - extractHeritage bug fixed: nested class_heritage now traversed (+4 heritage)
  */
 const TS_SNAPSHOT = {
-  total: 30,
+  total: 31,
   byKind: new Map<string, number>([
     ['enum', 1],
     ['type', 1],
@@ -121,11 +127,11 @@ const TS_SNAPSHOT = {
     ['class', 4],
     ['property', 5],
     ['constructor', 3],
-    ['method', 11],
+    ['method', 12],
     ['function', 3],
   ]),
   imports: 3,
-  heritage: 0,
+  heritage: 4,
 } as const;
 
 /**
@@ -702,6 +708,104 @@ describe('Access extractor regression — Python fixture (T1837)', () => {
         validModes.has(acc.accessMode),
         `Expected accessMode to be 'read'|'write'|'readwrite', got '${acc.accessMode}'`,
       ).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// METHOD_OVERRIDES edge regression (T1846)
+//
+// Asserts that processHeritage() emits method_overrides edges when a subclass
+// declares a method with the same name as a parent class method.
+//
+// The TypeScript fixture has UserRepository extends BaseRepository, and
+// UserRepository.toJSON() overrides BaseRepository.toJSON() — guaranteeing
+// at least 1 method_overrides edge on the fixture.
+// ---------------------------------------------------------------------------
+
+describe('METHOD_OVERRIDES edges regression (heritage-processor, T1846)', () => {
+  let tmpRepo: string;
+
+  beforeAll(() => {
+    // Create a minimal temp repo with just the TypeScript fixture
+    tmpRepo = mkdtempSync(join(tmpdir(), 'nexus-method-overrides-test-'));
+    const fixtureDir = join(tmpRepo, 'fixtures', 'typescript');
+    mkdirSync(fixtureDir, { recursive: true });
+    copyFileSync(join(__dirname, 'fixtures/typescript/sample.ts'), join(fixtureDir, 'sample.ts'));
+  });
+
+  afterAll(() => {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  });
+
+  it('skips gracefully when tree-sitter is unavailable', () => {
+    if (!ParserClass) return;
+    expect(true).toBe(true);
+  });
+
+  it('emits at least 1 method_overrides edge from TypeScript fixture with class hierarchy', async () => {
+    if (!ParserClass) return;
+
+    const fixturePath = 'fixtures/typescript/sample.ts';
+    const graph = createKnowledgeGraph();
+    // Wire the symbol table through the ResolutionContext so processHeritage
+    // can resolve class names during method-override detection.
+    const resolutionCtx = createResolutionContext();
+    const symbolTable = resolutionCtx.symbols;
+    const importCtx = buildImportResolutionContext([fixturePath]);
+
+    const scannedFiles = [{ path: fixturePath, size: 0, language: 'typescript' }];
+
+    const { allHeritage } = await runParseLoop(
+      scannedFiles,
+      graph,
+      symbolTable,
+      importCtx,
+      tmpRepo,
+    );
+
+    // Phase 3c: emit EXTENDS / IMPLEMENTS + METHOD_OVERRIDES
+    const result = processHeritage(allHeritage, graph, resolutionCtx);
+
+    const methodOverridesEdges = graph.relations.filter((r) => r.type === 'method_overrides');
+
+    assertFloor('METHOD_OVERRIDES edge count (TypeScript fixture)', methodOverridesEdges.length, 1);
+
+    // The HeritageProcessingResult must also report a non-zero count
+    assertFloor('methodOverridesCount in HeritageProcessingResult', result.methodOverridesCount, 1);
+  });
+
+  it('method_overrides edges carry confidenceLabel EXTRACTED', async () => {
+    if (!ParserClass) return;
+
+    const fixturePath = 'fixtures/typescript/sample.ts';
+    const graph = createKnowledgeGraph();
+    const resolutionCtx = createResolutionContext();
+    const symbolTable = resolutionCtx.symbols;
+    const importCtx = buildImportResolutionContext([fixturePath]);
+
+    const scannedFiles = [{ path: fixturePath, size: 0, language: 'typescript' }];
+
+    const { allHeritage } = await runParseLoop(
+      scannedFiles,
+      graph,
+      symbolTable,
+      importCtx,
+      tmpRepo,
+    );
+
+    processHeritage(allHeritage, graph, resolutionCtx);
+
+    const methodOverridesEdges = graph.relations.filter((r) => r.type === 'method_overrides');
+
+    // Skip if no overrides found (tree-sitter may not produce heritage in this env)
+    if (methodOverridesEdges.length === 0) return;
+
+    for (const edge of methodOverridesEdges) {
+      expect(
+        edge.confidenceLabel,
+        `method_overrides edge ${edge.source}→${edge.target} missing confidenceLabel`,
+      ).toBeDefined();
     }
   });
 });

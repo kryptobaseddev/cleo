@@ -84,6 +84,11 @@ export class UserRepository extends BaseRepository<User> {
   findByEmail(email: string): User | undefined {
     return this.findAll().find((u) => u.email === email);
   }
+
+  /** Override toJSON to include the entity type name. */
+  toJSON(): Record<string, unknown> {
+    return { type: 'UserRepository', count: this.items.size };
+  }
 }
 
 // --- Standalone functions ---
