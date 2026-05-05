@@ -83,6 +83,15 @@ export const BRAIN_DECISION_TYPES = [
   'tactical',
 ] as const;
 
+/**
+ * Decision category values for T1830 AGT-* dispatch / architectural separation.
+ *
+ * - `'architectural'`  — Architectural or technical decisions (default; excludes AGT-* rows).
+ * - `'agent_dispatch'` — Agent execution dispatch outcomes (AGT-prefixed rows).
+ * - `'other'`          — Miscellaneous decisions not fitting the above categories.
+ */
+export const BRAIN_DECISION_CATEGORIES = ['architectural', 'agent_dispatch', 'other'] as const;
+
 /** Confidence levels for decisions. */
 export const BRAIN_CONFIDENCE_LEVELS = ['low', 'medium', 'high'] as const;
 
@@ -351,6 +360,26 @@ export const brainDecisions = sqliteTable(
      * T1829 backfill walker can skip already-processed rows.
      */
     validatorRunAt: integer('validator_run_at'),
+
+    // T1830: Decision category separation — AGT-* dispatch vs architectural decisions
+
+    /**
+     * Category of this decision entry (T1830).
+     *
+     * Separates AGT-* agent dispatch outcomes from genuine architectural decisions
+     * so that `cleo memory decision-find` can exclude noisy dispatch rows by default.
+     *
+     * - `'architectural'`  — Default for all new decisions written via `cleo memory decision-store`
+     *                        or direct `storeDecision()` calls.
+     * - `'agent_dispatch'` — Set by `recordAgentExecution()` for AGT-prefixed rows.
+     * - `'other'`          — Miscellaneous decisions not fitting the above categories.
+     *
+     * The column is NOT NULL with DEFAULT 'architectural', so all legacy rows
+     * receive `'architectural'` unless they match the AGT-* backfill in the migration.
+     */
+    decisionCategory: text('decision_category', { enum: BRAIN_DECISION_CATEGORIES })
+      .notNull()
+      .default('architectural'),
   },
   (table) => [
     index('idx_brain_decisions_type').on(table.type),
@@ -374,6 +403,8 @@ export const brainDecisions = sqliteTable(
     index('idx_brain_decisions_adr_number').on(table.adrNumber),
     index('idx_brain_decisions_confirmation_state').on(table.confirmationState),
     index('idx_brain_decisions_decided_by').on(table.decidedBy),
+    // T1830: decision category index
+    index('idx_brain_decisions_decision_category').on(table.decisionCategory),
   ],
 );
 
