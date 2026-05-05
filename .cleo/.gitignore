@@ -50,6 +50,10 @@
 !agent-outputs/
 !agent-outputs/**
 
+# Step 7: Allow specs directory (formal RFC 2119 specs for epics — T1929+)
+!specs/
+!specs/**
+
 # =============================================================================
 # EXPLICIT DENY — safety net that overrides allow rules above
 # =============================================================================
