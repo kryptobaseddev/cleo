@@ -32,7 +32,7 @@ import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-regis
 import { getAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import { getActiveSession } from '../store/session-store.js';
-import { provisionIsolatedShell } from '../worktree/isolation.js';
+import { provisionIsolatedShell } from '../tools/sdk/isolation.js';
 import { openSignaldockDbForComposer } from './plan.js';
 
 export type { EngineResult };
