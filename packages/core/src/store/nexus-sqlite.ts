@@ -96,6 +96,96 @@ function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
 }
 
 /**
+ * Check whether a virtual table (or any object) exists in the SQLite database.
+ *
+ * sqlite_master covers virtual tables, triggers, and regular tables alike.
+ */
+function objectExists(nativeDb: DatabaseSync, type: string, name: string): boolean {
+  const result = nativeDb
+    .prepare('SELECT name FROM sqlite_master WHERE type=? AND name=?')
+    .get(type, name) as Record<string, unknown> | undefined;
+  return !!result;
+}
+
+/**
+ * Idempotent FTS5 setup for nexus_symbols_fts (T1839).
+ *
+ * Creates the FTS5 virtual table indexed on label + file_path, installs the
+ * three nexus_nodes triggers (INSERT/UPDATE/DELETE), and backfills any existing
+ * nexus_nodes rows that are not yet represented in the FTS5 table.
+ *
+ * Called before drizzle migrations so existing DBs are covered. Each DDL
+ * statement is guarded by IF NOT EXISTS / DROP IF EXISTS — safe to re-run.
+ *
+ * Uses nativeDb.exec() (not prepare().run()) to avoid the node:sqlite
+ * first-statement-only limitation.
+ *
+ * @task T1839
+ */
+function ensureNexusFts5(nativeDb: DatabaseSync): void {
+  // Only run if nexus_nodes exists (it is populated before FTS5 is useful).
+  if (!tableExists(nativeDb, 'nexus_nodes')) return;
+
+  // 1. FTS5 virtual table — skip if already present.
+  if (!objectExists(nativeDb, 'table', 'nexus_symbols_fts')) {
+    nativeDb.exec(`
+      CREATE VIRTUAL TABLE nexus_symbols_fts USING fts5(
+        node_id UNINDEXED,
+        label,
+        file_path,
+        tokenize = 'unicode61 remove_diacritics 1'
+      )
+    `);
+  }
+
+  // 2. INSERT trigger.
+  nativeDb.exec(`DROP TRIGGER IF EXISTS nexus_nodes_fts_ai`);
+  nativeDb.exec(`
+    CREATE TRIGGER nexus_nodes_fts_ai
+    AFTER INSERT ON nexus_nodes
+    BEGIN
+      INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path)
+      VALUES (new.rowid, new.id, new.label, new.file_path);
+    END
+  `);
+
+  // 3. DELETE trigger.
+  // Note: node:sqlite does not support the FTS5 content-table delete syntax
+  // `INSERT INTO fts(fts, rowid, ...) VALUES ('delete', ...)`.
+  // Instead, a plain `DELETE FROM nexus_symbols_fts WHERE rowid = old.rowid`
+  // removes the row from the FTS5 index reliably across all supported SQLite versions.
+  nativeDb.exec(`DROP TRIGGER IF EXISTS nexus_nodes_fts_ad`);
+  nativeDb.exec(`
+    CREATE TRIGGER nexus_nodes_fts_ad
+    AFTER DELETE ON nexus_nodes
+    BEGIN
+      DELETE FROM nexus_symbols_fts WHERE rowid = old.rowid;
+    END
+  `);
+
+  // 4. UPDATE trigger — delete old entry then insert new one.
+  nativeDb.exec(`DROP TRIGGER IF EXISTS nexus_nodes_fts_au`);
+  nativeDb.exec(`
+    CREATE TRIGGER nexus_nodes_fts_au
+    AFTER UPDATE ON nexus_nodes
+    BEGIN
+      DELETE FROM nexus_symbols_fts WHERE rowid = old.rowid;
+      INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path)
+      VALUES (new.rowid, new.id, new.label, new.file_path);
+    END
+  `);
+
+  // 5. Backfill existing nexus_nodes rows not yet in the FTS5 table.
+  // The NOT IN guard makes this idempotent across repeated calls.
+  nativeDb.exec(`
+    INSERT INTO nexus_symbols_fts(rowid, node_id, label, file_path)
+    SELECT rowid, id, label, file_path
+    FROM nexus_nodes
+    WHERE rowid NOT IN (SELECT rowid FROM nexus_symbols_fts)
+  `);
+}
+
+/**
  * Run drizzle migrations to create/update nexus.db tables.
  *
  * Uses IMMEDIATE transactions to prevent concurrent migration races.
@@ -220,6 +310,12 @@ function runNexusMigrations(
       )
       .run();
   }
+
+  // T1839: idempotent safety net for FTS5 virtual table + triggers.
+  // Covers existing nexus.db instances that were created before this migration.
+  // Each statement uses nativeDb.exec() (not prepare().run()) so that the entire
+  // DDL block executes atomically without the node:sqlite first-statement-only limit.
+  ensureNexusFts5(nativeDb);
 
   // Run pending migrations via drizzle-orm/node-sqlite/migrator (synchronous).
   const MAX_RETRIES = 5;
