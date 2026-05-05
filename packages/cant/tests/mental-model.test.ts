@@ -162,12 +162,20 @@ describe('consolidate', () => {
   });
 
   it('deduplicates and reinforces matching content', async () => {
+    // Use sliding timestamps relative to "now" so the test does not collide
+    // with the 30-day `decayAfterDays` window when wall-clock advances.
+    // Hardcoded '2026-04-05T00:00:00Z' previously matched the cutoff
+    // boundary on 2026-05-05 (cutoff = 2026-04-05T<current-time>) and the
+    // obs at midnight got filtered. Sliding timestamps avoid that drift.
+    const reinforceTimestamp = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+    const originalTimestamp = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+
     const existing = createEmptyModel('test-agent', 'proj-abc', 'project', 1000);
     const originalObs = createObs({
       content: 'DRY principle applies',
       tokens: 10,
       reinforceCount: 2,
-      timestamp: '2026-04-01T00:00:00Z',
+      timestamp: originalTimestamp,
     });
     existing.observations = [originalObs];
     existing.totalTokens = 10;
@@ -176,7 +184,7 @@ describe('consolidate', () => {
       createObs({
         content: 'DRY principle applies',
         tokens: 10,
-        timestamp: '2026-04-05T00:00:00Z',
+        timestamp: reinforceTimestamp,
       }),
     ];
 
@@ -186,7 +194,7 @@ describe('consolidate', () => {
     // Should NOT add a duplicate -- just reinforce the existing one
     expect(result.observations).toHaveLength(1);
     expect(result.observations[0].reinforceCount).toBe(3);
-    expect(result.observations[0].timestamp).toBe('2026-04-05T00:00:00Z');
+    expect(result.observations[0].timestamp).toBe(reinforceTimestamp);
     expect(result.totalTokens).toBe(10);
   });
 
