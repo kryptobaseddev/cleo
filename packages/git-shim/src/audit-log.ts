@@ -36,10 +36,11 @@ export interface AuditRecord {
   /** What happened. */
   outcome: AuditOutcome;
   /**
-   * Boundary letter (a-d), "denylist" for legacy denylist hits, or
-   * "isolation" for the T1761 cwd-outside-worktree check.
+   * Boundary letter (a-d), "denylist" for legacy denylist hits,
+   * "isolation" for the T1761 cwd-outside-worktree check, or
+   * "absolute-path" for the T1852 absolute-path enforcement layer.
    */
-  boundary: 'a' | 'b' | 'c' | 'd' | 'denylist' | 'isolation';
+  boundary: 'a' | 'b' | 'c' | 'd' | 'denylist' | 'isolation' | 'absolute-path';
   /** CLEO error code, when blocked. */
   code: string;
   /** Git subcommand. */
