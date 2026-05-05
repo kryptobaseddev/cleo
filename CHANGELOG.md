@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2026.5.24] (2026-05-04) — Hotfix: revert-walker + revert-executor test fixtures need `project-info.json`
+
+T1864's `assertProjectInitialized` guard fires before `mkdir(.cleo/audit)` in `appendSentientEvent`. Test fixtures using `mkdtemp(.../cleo-rw-test-*)` and `mkdtemp(.../cleo-exec-test-*)` weren't writing `.cleo/project-info.json` so the assertion correctly threw `E_NOT_INITIALIZED` for fixture paths. T1864 worker updated 6 test files but missed these two sentient revert tests.
+
+Two-file fix: each `beforeEach` now writes `.cleo/project-info.json` with a deterministic `projectId` after `mkdtemp`. CI green.
+
 ## [2026.5.23] (2026-05-04) — Hotfix: T1856 test case-sensitivity (CI green)
 
 T1856's `add-critical-depends.test.ts:122` and `update-critical-depends.test.ts:123` asserted `message.toContain('critical-priority')` but the actual error message is `'Critical-priority tasks must declare...'` (capitalized). Pre-existing failure from when T1856 merged in v2026.5.18 — unrelated to v2026.5.21/v2026.5.22 council fixes but kept the CI red.
