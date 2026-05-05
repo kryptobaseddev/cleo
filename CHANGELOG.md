@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [2026.5.25] (2026-05-05) — Release pipeline hardening: studio publish + Sigstore TLOG retry + #103 contributor attribution
+
+Three operational fixes uncovered while shipping v2026.5.21–v2026.5.24:
+
+### 1. `@cleocode/studio` was missing from the publish list
+
+`.github/workflows/release.yml` line 117 (the version-sync loop) and the `publish_pkg` invocation block (lines 561–584) both omitted `packages/studio`. Result: studio's npm versions stalled at v2026.5.4 even though the source has been versioned in lockstep with every release since. Fix: studio added to both the version-sync iterator and the `publish_pkg studio` call (positioned LAST, after `mcp-adapter`, since studio depends on `@cleocode/core` + `@cleocode/brain`). Owner authorized npm trusted-publisher for `@cleocode/studio` on 2026-05-05 in parallel.
+
+### 2. Sigstore TLOG transient failures break full-release lockstep
+
+`@cleocode/worktree@2026.5.24` failed first publish with `TLOG_CREATE_ENTRY_ERROR: Invalid response body while trying to fetch https://rekor.sigstore.dev/api/v1/log/entries: aborted` — a transient Sigstore transparency-log network failure during the OIDC-provenance signing step. Trusted publisher was correctly configured; the rekor service simply timed out. The original workflow had no retry, so the entire release was marked failed and v2026.5.24 shipped with worktree missing (which broke `npm install -g @cleocode/cleo@2026.5.24` because cleo's transitive deps could not resolve worktree).
+
+Fix: `publish_pkg` now wraps `pnpm publish` in a 3-attempt retry loop with 10-second backoff, gated on the specific signature `TLOG_CREATE_ENTRY_ERROR | rekor.sigstore.dev.*aborted | tlog entry`. Real OIDC/permission errors still surface immediately. `gh run rerun --failed` was sufficient to recover v2026.5.24; this hardening prevents recurrence.
+
+### 3. Contributor attribution for [@calabresejordan-Caljord](https://github.com/calabresejordan-Caljord)
+
+The v2026.5.21 changelog entry has been updated to credit the external contributor who filed [Issue #102](https://github.com/kryptobaseddev/cleo/issues/102) and [PR #103](https://github.com/kryptobaseddev/cleo/pull/103). Their report and proposed fix are what made the deeper env-paths refactor obvious. Credit was missing from the original release notes — corrected here.
+
 ## [2026.5.24] (2026-05-04) — Hotfix: revert-walker + revert-executor test fixtures need `project-info.json`
 
 T1864's `assertProjectInitialized` guard fires before `mkdir(.cleo/audit)` in `appendSentientEvent`. Test fixtures using `mkdtemp(.../cleo-rw-test-*)` and `mkdtemp(.../cleo-exec-test-*)` weren't writing `.cleo/project-info.json` so the assertion correctly threw `E_NOT_INITIALIZED` for fixture paths. T1864 worker updated 6 test files but missed these two sentient revert tests.
@@ -38,7 +56,9 @@ The most critical architectural fix in months. Workers running cleo from worktre
 
 **`packages/cleo/src/cli/index.ts`**: now a thin wrapper invoking `runWithWorktreeScopeFromEnv(() => startCli())`. Zero direct `worktreeScope` references in the CLI package per AGENTS.md Package-Boundary Check — all ALS plumbing lives in core.
 
-### T1874 — brain + studio use `env-paths` (closes Issue #102, supersedes PR #103)
+### T1874 — brain + studio use `env-paths` (closes Issue #102, supersedes PR #103) — thanks to @calabresejordan-Caljord
+
+External contributor [**@calabresejordan-Caljord**](https://github.com/calabresejordan-Caljord) identified the Windows path mismatch in [Issue #102](https://github.com/kryptobaseddev/cleo/issues/102) and proposed a fix in [PR #103](https://github.com/kryptobaseddev/cleo/pull/103). Their forensic of `cleo admin paths --json` vs `getCleoHome()` from `@cleocode/brain` is what surfaced the bug and the deeper layering smell. We landed a more substantial fix per their analysis (replace hand-rolled platform branching with `env-paths` package — same library cleo-core uses internally), which preserves the spirit of their PR while eliminating the future drift risk between brain/studio/core. Credit and thanks.
 
 **`packages/brain/src/cleo-home.ts`**: replaced hand-rolled `process.platform` branching with `envPaths('cleo').data`. Brain's Windows path now matches CLEO core (`%LOCALAPPDATA%\cleo\Data`).
 
@@ -69,7 +89,7 @@ This release ships in the wake of a session-time incident where the project DB a
 - T1868 — rogue scanner + quarantine tool (commit `2e1ded45d`)
 - T1869 — ADR-067 + 11 regression tests (commit `c930d7496`)
 - T1873 — env→ALS bridge in core, CLI thin wrapper (commit `fce99405e`)
-- T1874 — brain/studio use env-paths, closes #102, supersedes #103 (commit `907a1de86`)
+- T1874 — brain/studio use env-paths, closes #102, supersedes #103 (commit `907a1de86`) — credit @calabresejordan-Caljord
 
 12,602 tests pass. 11 pre-existing flake (sentient revert-walker, mental-model consolidate, T1856 self-tests, brain-stdp-functional) — none regressions from this release.
 
