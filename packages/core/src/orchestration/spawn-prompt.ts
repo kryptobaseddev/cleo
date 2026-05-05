@@ -43,7 +43,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Task } from '@cleocode/contracts';
 import { resolveSkillPath } from '../skills/skill-paths.js';
-import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '../worktree/isolation.js';
+import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '../tools/sdk/isolation.js';
 
 /**
  * Locate `packages/core/templates/CLEO-INJECTION.md` at runtime.
