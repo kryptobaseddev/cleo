@@ -448,6 +448,19 @@ export { addTask } from './tasks/add.js';
 export { archiveTasks } from './tasks/archive.js';
 export { completeTask } from './tasks/complete.js';
 export { deleteTask } from './tasks/delete.js';
+// Dep-graph validation helpers (T1857 — T1855 guardrails)
+export {
+  type DepGraphIssue,
+  type DepGraphIssueCode,
+  type DepGraphValidateResult,
+  type DepValidateScope,
+  detectCrossEpicGaps,
+  detectOrphans,
+  detectStaleDeps,
+  nearestEpic,
+  runValidation,
+  validateDepGraph,
+} from './tasks/dep-graph-validator.js';
 export { findTasks } from './tasks/find.js';
 export { normalizeTaskId } from './tasks/id-generator.js';
 export {
