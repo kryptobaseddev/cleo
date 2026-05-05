@@ -156,6 +156,50 @@ export class ClassifierUnregisteredAgentError extends Error {
 }
 
 /**
+ * Thrown when an ADR-typed decision write is rejected by the LLM
+ * conflict-validator hook because the overall confidence score fell below the
+ * configured threshold (`decisions.validatorConfidenceThreshold`, default 0.7).
+ *
+ * The hook runs before the `verifyCandidate` gate and checks for:
+ *   - Collision: near-identical decisions already stored
+ *   - Contradiction: decisions that contradict existing architectural choices
+ *   - Supersession-graph violations: circular or inconsistent supersedes chains
+ *
+ * Exit code aligns with {@link ExitCode.DECISION_VALIDATOR_FAILED} (106).
+ *
+ * @example
+ * ```typescript
+ * throw new DecisionValidatorFailedError('D042', 0.45, ['collision:D017']);
+ * ```
+ *
+ * @task T1828
+ */
+export class DecisionValidatorFailedError extends Error {
+  /** Stable LAFS error code string for envelope emission. */
+  readonly code = 'E_DECISION_VALIDATOR_FAILED';
+  /** Numeric exit code. */
+  readonly exitCode = 106;
+
+  /**
+   * @param decisionText  - The decision text that was rejected (truncated for safety).
+   * @param confidence    - The computed confidence score from the LLM validator.
+   * @param violations    - Short labels describing detected violations (e.g. 'collision:D017').
+   */
+  constructor(
+    public readonly decisionText: string,
+    public readonly confidence: number,
+    public readonly violations: string[],
+  ) {
+    super(
+      `E_DECISION_VALIDATOR_FAILED: decision write rejected (confidence=${confidence.toFixed(3)}). ` +
+        `Violations: [${violations.join(', ')}]. ` +
+        `Revise the decision/rationale or explicitly supersede conflicting entries.`,
+    );
+    this.name = 'DecisionValidatorFailedError';
+  }
+}
+
+/**
  * Normalize any thrown value into a standardized error object.
  *
  * Handles:
