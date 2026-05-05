@@ -253,25 +253,34 @@ export async function memoryBrainStats(projectRoot?: string): Promise<EngineResu
 /**
  * Search decisions in brain.db.
  *
- * @param params - Search parameters (query, limit, etc.)
+ * By default, AGT-* agent dispatch rows are excluded from results so that
+ * `cleo memory decision-find` returns only architectural/technical decisions.
+ * Pass `includeAgentDispatch: true` to surface execution history as well.
+ *
+ * @param params - Search parameters (query, limit, includeAgentDispatch, etc.)
  * @param projectRoot - Optional project root path; defaults to resolved root
  * @returns EngineResult with matching decision entries
  *
  * @remarks
  * Queries the brain.db decisions table with optional text filtering and pagination.
+ * T1830: adds `decision_category != 'agent_dispatch'` filter by default.
  *
  * @example
  * ```typescript
+ * // Architectural decisions only (default):
  * const result = await memoryDecisionFind({ query: 'auth' }, '/project');
+ * // Include AGT-* dispatch rows:
+ * const all = await memoryDecisionFind({ query: 'auth', includeAgentDispatch: true }, '/project');
  * ```
  */
 export async function memoryDecisionFind(
-  params: { query?: string; taskId?: string; limit?: number },
+  params: { query?: string; taskId?: string; limit?: number; includeAgentDispatch?: boolean },
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
     const accessor = await getBrainAccessor(root);
+    const includeAgentDispatch = params.includeAgentDispatch === true;
 
     if (params.query) {
       const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
@@ -284,13 +293,18 @@ export async function memoryDecisionFind(
 
       const likePattern = `%${params.query}%`;
       const limit = params.limit ?? 20;
+      // T1830: exclude agent_dispatch rows unless explicitly opted-in
+      const categoryClause = includeAgentDispatch
+        ? ''
+        : "AND (decision_category IS NULL OR decision_category != 'agent_dispatch')";
       const rows = nativeDb
-        .prepare(`
-        SELECT * FROM brain_decisions
-        WHERE decision LIKE ? OR rationale LIKE ?
+        .prepare(
+          `SELECT * FROM brain_decisions
+        WHERE (decision LIKE ? OR rationale LIKE ?)
+        ${categoryClause}
         ORDER BY created_at DESC
-        LIMIT ?
-      `)
+        LIMIT ?`,
+        )
         .all(likePattern, likePattern, limit);
 
       return { success: true, data: { decisions: rows, total: rows.length } };
@@ -299,6 +313,7 @@ export async function memoryDecisionFind(
     const decisions = await accessor.findDecisions({
       contextTaskId: params.taskId,
       limit: params.limit ?? 20,
+      includeAgentDispatch,
     });
 
     return { success: true, data: { decisions, total: decisions.length } };
