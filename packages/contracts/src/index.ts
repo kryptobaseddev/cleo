@@ -212,6 +212,7 @@ export type {
   ConfigSource,
   DaemonLLMConfig,
   DateFormat,
+  DepsRequiredAt,
   EnforcementProfile,
   HierarchyConfig,
   LifecycleConfig,
@@ -830,6 +831,9 @@ export type {
 } from './operations/session.js';
 // === Task Operation Types (T1425 — typed-dispatch migration) ===
 export type {
+  DepGraphIssue,
+  DepsTreeEdge,
+  DepsTreeNode,
   TasksAddParams,
   TasksAddResult,
   TasksAnalyzeQueryParams,
@@ -852,6 +856,10 @@ export type {
   TasksDeleteQueryResult,
   TasksDependsParams,
   TasksDependsResult,
+  TasksDepsTreeParams,
+  TasksDepsTreeResult,
+  TasksDepsValidateParams,
+  TasksDepsValidateResult,
   TasksFindParams,
   TasksFindResult,
   TasksHistoryParams,
@@ -1035,6 +1043,8 @@ export type {
   TaskRefPriority,
   TaskSummary,
 } from './results.js';
+// === SDK Tool Contract (Category B harness-agnostic SDK utilities — T1768 / ADR-064) ===
+export type { SdkTool, SdkToolIdentity } from './sdk-tool.js';
 // === Sentient Tier-2 Types (T1008) ===
 export type {
   ProposalCandidate,
