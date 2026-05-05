@@ -14,7 +14,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -117,6 +117,14 @@ let identity: AgentIdentity;
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'cleo-exec-test-'));
+  // T1864: write .cleo/project-info.json so assertProjectInitialized passes
+  // when sentient/events.ts mkdir guard fires during appendSentientEvent.
+  await mkdir(join(tmpDir, '.cleo'), { recursive: true });
+  await writeFile(
+    join(tmpDir, '.cleo', 'project-info.json'),
+    JSON.stringify({ projectId: 'test-revert-executor', monorepoRoot: false }),
+    'utf-8',
+  );
   const seed = new Uint8Array(32);
   for (let i = 0; i < 32; i++) seed[i] = i + 20;
   identity = await identityFromSeed(seed);
