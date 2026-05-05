@@ -7,6 +7,7 @@
  *
  * @task T4464
  * @epic T4454
+ * @task T1857 — deps validate + deps tree subcommands (T1855 guardrails)
  */
 
 import { ExitCode } from '@cleocode/contracts';
@@ -147,9 +148,94 @@ const cyclesCommand = defineCommand({
 });
 
 /**
+ * cleo deps validate [--epic <id>] [--scope all|open|critical]
+ *
+ * Runs orphan / circular / cross-epic-gap / stale-dep detection.
+ * Pure tier-0 (no LLM). Exit code 0 = clean, non-zero = issues found.
+ *
+ * @task T1857
+ * @epic T1855
+ */
+const validateCommand = defineCommand({
+  meta: {
+    name: 'validate',
+    description: 'Validate dep graph — orphan, circular, cross-epic gap, stale-dep detection',
+  },
+  args: {
+    epic: {
+      type: 'string',
+      description: 'Scope validation to direct children of this epic ID',
+    },
+    scope: {
+      type: 'string',
+      description: 'Which tasks to include: all (default), open, or critical',
+      default: 'all',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'deps.validate',
+      {
+        epicId: args.epic,
+        scope: args.scope as 'all' | 'open' | 'critical',
+      },
+      { command: 'deps', operation: 'tasks.deps.validate' },
+    );
+  },
+});
+
+/**
+ * cleo deps tree --epic <id> [--json | --mermaid | --text]
+ *
+ * Renders the dependency tree for an epic in text (default), Mermaid, or
+ * machine-readable JSON format. The critical path is highlighted.
+ *
+ * @task T1857
+ * @epic T1855
+ */
+const depsTreeCommand = defineCommand({
+  meta: {
+    name: 'tree',
+    description: 'Render the dep-graph tree for an epic (text/mermaid/json)',
+  },
+  args: {
+    epic: {
+      type: 'string',
+      description: 'Epic ID to visualize',
+      required: true,
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit machine-readable JSON tree',
+      default: false,
+    },
+    mermaid: {
+      type: 'boolean',
+      description: 'Emit Mermaid graph TD block',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const format = args.json ? 'json' : args.mermaid ? 'mermaid' : 'text';
+    await dispatchFromCli(
+      'query',
+      'tasks',
+      'deps.tree',
+      {
+        epicId: args.epic,
+        format,
+      },
+      { command: 'deps', operation: 'tasks.deps.tree' },
+    );
+  },
+});
+
+/**
  * Root deps command group — dependency visualization and analysis.
  *
- * Subcommands: overview, show, waves, critical-path, impact, cycles.
+ * Subcommands: overview, show, waves, critical-path, impact, cycles, validate, tree.
  */
 export const depsCommand = defineCommand({
   meta: { name: 'deps', description: 'Dependency visualization and analysis' },
@@ -160,6 +246,8 @@ export const depsCommand = defineCommand({
     'critical-path': criticalPathCommand,
     impact: impactCommand,
     cycles: cyclesCommand,
+    validate: validateCommand,
+    tree: depsTreeCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
