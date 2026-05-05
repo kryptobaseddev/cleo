@@ -20,6 +20,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
+import {
+  getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
+  isAbsolutePath as _isAbsolutePath,
+} from '@cleocode/paths';
 import { CleoError } from './errors.js';
 import { getPlatformPaths } from './system/platform-paths.js';
 
@@ -1061,13 +1065,7 @@ export function getManifestArchivePath(cwd?: string): string {
  * ```
  */
 export function isAbsolutePath(path: string): boolean {
-  // POSIX absolute
-  if (path.startsWith('/')) return true;
-  // Windows drive letter (C:\, D:/)
-  if (/^[A-Za-z]:[\\/]/.test(path)) return true;
-  // UNC path
-  if (path.startsWith('\\\\')) return true;
-  return false;
+  return _isAbsolutePath(path);
 }
 
 // ============================================================================
@@ -1169,14 +1167,7 @@ export function getCleoConfigDir(): string {
  * ```
  */
 export function getCleoTemplatesTildePath(): string {
-  const absPath = getCleoTemplatesDir();
-  const home = homedir();
-  if (absPath.startsWith(home)) {
-    // Always use forward slash after tilde for cross-platform @-reference resolution
-    const relative = absPath.slice(home.length).replace(/\\/g, '/');
-    return `~${relative}`;
-  }
-  return absPath;
+  return _getCleoTemplatesTildePath();
 }
 
 // ============================================================================

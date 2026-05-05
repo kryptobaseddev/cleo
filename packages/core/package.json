@@ -263,6 +263,7 @@
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/nexus": "workspace:*",
+    "@cleocode/paths": "workspace:*",
     "@cleocode/worktree": "workspace:*",
     "@cleocode/skills": "workspace:*",
     "@huggingface/transformers": "^4.0.1",

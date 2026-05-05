@@ -1,52 +1,25 @@
 /**
- * Resolves CLEO home and project data paths.
+ * CLEO home + project DB path resolution for `@cleocode/brain`.
  *
- * Resolution order:
- *   1. `CLEO_HOME` env var — explicit override
- *   2. OS-appropriate data path via `env-paths` (XDG on Linux,
- *      `~/Library/Application Support/cleo` on macOS,
- *      `%LOCALAPPDATA%\cleo\Data` on Windows)
+ * Path resolution delegates to the `@cleocode/paths` SSoT
+ * ({@link getCleoHome}). Project data (tasks.db, brain.db, conduit.db) is
+ * resolved from `CLEO_ROOT` (or `process.cwd()`).
  *
- * Project data (tasks.db, brain.db, conduit.db) is resolved from:
- *   1. `CLEO_ROOT` env var (project root)
- *   2. `process.cwd()/.cleo/`
+ * Previously this module imported `env-paths` directly which caused a Windows
+ * path mismatch with the rest of the CLEO ecosystem (the CLI used env-paths
+ * returning `%LOCALAPPDATA%\cleo\Data` while brain used a bare
+ * `%LOCALAPPDATA%\cleo`, looking up `nexus.db` one directory shallower than
+ * where it was written). Fixed in T1874 (Closes #102, supersedes #103).
  *
- * Previously this module hand-rolled platform detection which caused a
- * Windows path mismatch: the CLI used env-paths (returning `%LOCALAPPDATA%\cleo\Data`)
- * while brain used a bare `%LOCALAPPDATA%\cleo`, causing nexus.db to be
- * looked up one directory shallower than where it was written.
- * Fixed in T1874 (Closes #102, supersedes #103).
- *
- * @task T1874
+ * @task T1874 (original Windows fix)
+ * @task T1886 (migrated to @cleocode/paths SSoT)
  */
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import envPaths from 'env-paths';
+import { getCleoHome } from '@cleocode/paths';
 
-/**
- * Returns the CLEO home directory (where global DBs live).
- *
- * Resolution order:
- *   1. `CLEO_HOME` env var
- *   2. OS-appropriate data directory via `env-paths`:
- *      - Linux:   `$XDG_DATA_HOME/cleo` (defaults to `~/.local/share/cleo`)
- *      - macOS:   `~/Library/Application Support/cleo`
- *      - Windows: `%LOCALAPPDATA%\cleo\Data`
- *
- * @returns Absolute path to the global CLEO data directory
- *
- * @example
- * ```typescript
- * const home = getCleoHome(); // e.g. "/home/user/.local/share/cleo"
- * ```
- */
-export function getCleoHome(): string {
-  if (process.env['CLEO_HOME']) {
-    return process.env['CLEO_HOME'];
-  }
-  return envPaths('cleo').data;
-}
+export { getCleoHome };
 
 /**
  * Returns the project's `.cleo/` directory.

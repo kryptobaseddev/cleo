@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio; do
+          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -582,10 +582,14 @@ jobs:
           # playbooks depends on contracts + core, so it publishes after those.
           # brain depends on contracts only; publishes alongside nexus (both are graph substrates).
           publish_pkg contracts
+          # @cleocode/paths is the XDG / env-paths SSoT consumed by worktree,
+          # brain, adapters, caamp, AND core. Must publish BEFORE all of them
+          # so npm consumers can resolve the dep at install time. (T1882)
+          publish_pkg paths
           publish_pkg lafs
-          # worktree + git-shim depend only on contracts — publish early so
-          # packages/core (which consumes @cleocode/worktree) can resolve them
-          # at install time on npm.
+          # worktree + git-shim depend on contracts (+ paths for worktree) —
+          # publish early so packages/core (which consumes @cleocode/worktree)
+          # can resolve them at install time on npm.
           publish_pkg worktree
           publish_pkg git-shim
           publish_pkg core

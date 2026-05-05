@@ -19,9 +19,9 @@
 
 import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import type { Session, Task } from '@cleocode/contracts';
+import { getCleoHome } from '@cleocode/paths';
 import { getAccessor } from '../store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
@@ -190,18 +190,18 @@ function resolveActiveTaskId(session: Session | null, focusTask: string | null):
 /**
  * Return the audit-log path for the requested scope.
  * - `local` → `<projectRoot>/.cleo/audit/session-drift.jsonl`
- * - `global` → `~/.local/share/cleo/audit/session-drift.jsonl`
+ * - `global` → `<cleoHome>/audit/session-drift.jsonl`
  *
- * Mirrors the canonical D029 layout (env-paths) for the global location
- * but resolves it directly via `os.homedir()` to avoid pulling the
- * `env-paths` runtime into a watchdog hot path.
+ * Resolves the global path through the `@cleocode/paths` SSoT so the
+ * watchdog stays consistent with the rest of the CLEO ecosystem
+ * (XDG on Linux, Library/Application Support on macOS, %LOCALAPPDATA%
+ * on Windows — and `CLEO_HOME` overrides on every platform).
  */
 export function resolveDriftAuditPath(projectRoot: string, scope: 'global' | 'local'): string {
   if (scope === 'local') {
     return join(projectRoot, LOCAL_AUDIT_RELPATH);
   }
-  // env-paths returns ~/.local/share/cleo on Linux; we hard-resolve the same.
-  return join(homedir(), '.local', 'share', 'cleo', GLOBAL_AUDIT_RELPATH);
+  return join(getCleoHome(), GLOBAL_AUDIT_RELPATH);
 }
 
 /**
