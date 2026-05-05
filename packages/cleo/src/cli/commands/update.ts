@@ -20,7 +20,8 @@
  */
 
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { cliError } from '../renderers/index.js';
 
 /**
  * Update a task by ID, applying only the fields that are explicitly provided.
@@ -170,6 +171,22 @@ export const updateCommand = defineCommand({
       description:
         'Operator override reason for AC-immutability guard (required to mutate --acceptance once stage >= implementation; T1590)',
     },
+    /**
+     * Waiver for the critical-priority dependency declaration requirement.
+     *
+     * Critical-priority tasks without declared dependencies silently break
+     * wave-order spawning when downstream work assumes they are load-bearing.
+     * Provide a justification string to waive the `--depends` requirement.
+     * The waiver is stored in task metadata for auditability.
+     *
+     * @task T1856
+     * @epic T1855
+     */
+    'depends-waiver': {
+      type: 'string',
+      description:
+        'Justification for promoting a task to critical priority without --depends (T1856). Records waiver in task metadata.',
+    },
   },
   async run({ args, cmd }) {
     if (!args.taskId) {
@@ -214,6 +231,45 @@ export const updateCommand = defineCommand({
     if (args.scope !== undefined) params['scope'] = args.scope;
     // T1590: AC-immutability override reason — forwarded as `reason`.
     if (args.reason !== undefined) params['reason'] = args.reason;
+
+    // T1856: Critical-priority tasks MUST declare dependencies or provide a waiver.
+    // When --priority critical is being set, check if the caller is simultaneously
+    // declaring depends (via --depends or --add-depends) or providing a waiver.
+    // If neither is present, fetch the existing task to check for pre-existing depends
+    // before rejecting. Tasks created before this guard (with existing depends) pass.
+    if (
+      args.priority === 'critical' &&
+      !args.depends &&
+      !args['add-depends'] &&
+      args['depends-waiver'] === undefined
+    ) {
+      // Fetch the existing task to check for pre-existing dependency declarations.
+      const showResponse = await dispatchRaw('query', 'tasks', 'show', {
+        taskId: args.taskId,
+      });
+      const existingTask = showResponse.success
+        ? (showResponse.data as Record<string, unknown> | undefined)
+        : undefined;
+      const existingDepends = existingTask?.['depends'] as unknown[] | undefined;
+      const hasDependencies = Array.isArray(existingDepends) && existingDepends.length > 0;
+
+      if (!hasDependencies) {
+        cliError(
+          'Critical-priority tasks must declare at least one dependency (--depends) or provide a waiver (--depends-waiver "<reason>").',
+          'E_VALIDATION',
+          {
+            name: 'E_VALIDATION',
+            fix:
+              'Add --depends <taskId> to declare a dependency, or use --depends-waiver "<reason>" ' +
+              'to waive the requirement. Use `cleo find "<topic>"` to discover candidate dependencies.',
+          },
+          { operation: 'tasks.update' },
+        );
+        process.exit(6);
+        return;
+      }
+    }
+    if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
   },
