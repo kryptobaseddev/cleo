@@ -112,7 +112,11 @@ const analyzeCommand = defineCommand({
   },
 });
 
-/** cleo orchestrate ready — get parallel-safe ready tasks */
+/**
+ * cleo orchestrate ready — get parallel-safe ready tasks
+ *
+ * @task T1858
+ */
 const readyCommand = defineCommand({
   meta: { name: 'ready', description: 'Get parallel-safe ready tasks' },
   args: {
@@ -121,13 +125,21 @@ const readyCommand = defineCommand({
       description: 'Epic ID to query',
       required: true,
     },
+    'ignore-deps-validate': {
+      type: 'boolean',
+      description:
+        'Skip dep-graph validation and proceed even if issues exist (audit-logged bypass). CLI-only — sentient mode does not support this flag.',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
       'query',
       'orchestrate',
       'ready',
-      { epicId: args.epicId },
+      {
+        epicId: args.epicId,
+        ignoreDepsValidate: args['ignore-deps-validate'] === true,
+      },
       { command: 'orchestrate' },
     );
   },
