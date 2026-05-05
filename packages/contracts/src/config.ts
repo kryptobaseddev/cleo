@@ -424,6 +424,30 @@ export interface SignalDockConfig {
   privacyTier: 'public' | 'discoverable' | 'private';
 }
 
+/**
+ * Decision memory write-gate configuration.
+ *
+ * Controls the LLM conflict-validator hook that runs on every ADR-typed
+ * decision write (i.e. writes where `adrPath` is set or `adrNumber` is
+ * requested).  The hook calls the dialectic evaluator to detect collisions,
+ * contradictions, and supersession-graph violations before the decision is
+ * persisted.
+ *
+ * @task T1828
+ */
+export interface DecisionsConfig {
+  /**
+   * Minimum confidence score (0.0–1.0) returned by the LLM conflict-validator
+   * for an ADR-typed decision write to be accepted.
+   *
+   * Writes that fall below this threshold are rejected with
+   * `E_DECISION_VALIDATOR_FAILED`.
+   *
+   * @defaultValue 0.7
+   */
+  validatorConfidenceThreshold?: number;
+}
+
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   /** Configuration schema version string. */
@@ -470,6 +494,17 @@ export interface CleoConfig {
    * @defaultValue undefined
    */
   llm?: LlmConfig;
+  /**
+   * Decision memory write-gate configuration.
+   *
+   * When present, the LLM conflict-validator hook is applied to ADR-typed
+   * decision writes (`adrPath` set).  When absent, the validator uses its
+   * default threshold of 0.7.
+   *
+   * @defaultValue undefined
+   * @task T1828
+   */
+  decisions?: DecisionsConfig;
 }
 
 /**
