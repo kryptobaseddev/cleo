@@ -94,6 +94,45 @@ export interface WorktreeScope {
 export const worktreeScope = new AsyncLocalStorage<WorktreeScope>();
 
 /**
+ * Run `fn` inside a `worktreeScope.run()` AsyncLocalStorage frame derived
+ * from the `CLEO_WORKTREE_ROOT` and `CLEO_PROJECT_HASH` environment variables.
+ *
+ * This is the env-var → AsyncLocalStorage bridge that lets cleo binaries
+ * spawned from `cleo orchestrate spawn` (which exports those env vars in
+ * the worker shell) honour the orchestrator's authoritative worktree root.
+ *
+ * Without this bridge, `getProjectRoot()`'s ALS check at step 0 always
+ * returns `undefined` for subprocesses, falling through to env-var or
+ * walk-up — which created the rogue `.cleo/` dirs that T1864 was
+ * filed to prevent.
+ *
+ * Belongs in `@cleocode/core` (not `@cleocode/cleo`) per AGENTS.md
+ * Package-Boundary Check: cleo CLI is a thin wrapper; ALS plumbing is
+ * runtime substrate.
+ *
+ * @param fn - Callback to invoke (synchronously or asynchronously) within
+ *   the worktree scope. The return value is forwarded to the caller.
+ * @returns The return value of `fn`, whether or not a worktree scope is active.
+ *
+ * @example
+ * ```ts
+ * import { runWithWorktreeScopeFromEnv } from '@cleocode/core/internal';
+ *
+ * // In the CLI entrypoint:
+ * runWithWorktreeScopeFromEnv(() => runMain(main));
+ * ```
+ *
+ * @task T1873
+ * @related ADR-041 §D3 worktree scope, ADR-055 worktree-by-default
+ */
+export function runWithWorktreeScopeFromEnv<T>(fn: () => T): T {
+  const wtRoot = process.env['CLEO_WORKTREE_ROOT'];
+  if (!wtRoot) return fn();
+  const projHash = process.env['CLEO_PROJECT_HASH'] ?? '';
+  return worktreeScope.run({ worktreeRoot: wtRoot, projectHash: projHash }, fn);
+}
+
+/**
  * Check if a CLEO project is initialized at the given root.
  * Checks for tasks.db.
  *

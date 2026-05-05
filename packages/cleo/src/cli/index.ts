@@ -49,6 +49,7 @@ import {
   getProjectRoot,
   migrateSignaldockToConduit,
   needsSignaldockToConduitMigration,
+  runWithWorktreeScopeFromEnv,
   validateGlobalSalt,
 } from '@cleocode/core/internal';
 import { type CommandDef, defineCommand, runMain } from 'citty';
@@ -318,15 +319,48 @@ subCommands['tags'] = labelsCommand as CommandDef;
 subCommands['pipeline'] = phaseCommand as CommandDef;
 
 // ---------------------------------------------------------------------------
-// Global flag resolution (replaces Commander.js preAction hook)
+// worktreeScope ALS bridge (T1873 / ADR-041 §D3)
 //
-// LAFS format flags (--human, --json, --quiet) and field flags (--field,
-// --fields, --mvi) must be resolved BEFORE any command runs so that
-// cliOutput() and dispatchFromCli() can read the correct context.
-// This was previously done in a Commander.js preAction hook that was lost
-// during the citty migration — restoring it here fixes --human, --quiet, etc.
+// When a worker agent is spawned inside a git worktree the orchestrator
+// exports CLEO_WORKTREE_ROOT (and optionally CLEO_PROJECT_HASH) into the
+// process environment. The AsyncLocalStorage that backs `getProjectRoot()`
+// is checked FIRST in the resolution order — but ALS is process-local, so
+// env vars survive exec() while the store does not.
+//
+// `runWithWorktreeScopeFromEnv` (from @cleocode/core/internal) closes that
+// gap: if CLEO_WORKTREE_ROOT is present in env, the entire CLI startup and
+// dispatch is wrapped in `worktreeScope.run(...)` so that every downstream
+// call to `getProjectRoot()` transparently returns the worktree root without
+// any per-command awareness.
+//
+// The bridge logic lives in @cleocode/core (not @cleocode/cleo) per
+// AGENTS.md Package-Boundary Check: cleo CLI is a thin wrapper; ALS
+// plumbing is runtime substrate.
 // ---------------------------------------------------------------------------
-{
+
+/**
+ * Core CLI startup: resolves global flags, runs T310 startup sequence,
+ * wires commands, and hands off to citty's `runMain`.
+ *
+ * Extracted from module top-level so it can be wrapped in
+ * `runWithWorktreeScopeFromEnv()` when `CLEO_WORKTREE_ROOT` is present
+ * (ADR-041 §D3 / T1873).
+ *
+ * @remarks
+ * Top-level `await` statements from the previous block-scoped IIFE are
+ * preserved here as `await` expressions inside an `async` function, which
+ * is semantically equivalent for citty's `runMain` entry path.
+ */
+async function startCli(): Promise<void> {
+  // ---------------------------------------------------------------------------
+  // Global flag resolution (replaces Commander.js preAction hook)
+  //
+  // LAFS format flags (--human, --json, --quiet) and field flags (--field,
+  // --fields, --mvi) must be resolved BEFORE any command runs so that
+  // cliOutput() and dispatchFromCli() can read the correct context.
+  // This was previously done in a Commander.js preAction hook that was lost
+  // during the citty migration — restoring it here fixes --human, --quiet, etc.
+  // ---------------------------------------------------------------------------
   const argv = process.argv.slice(2);
 
   // Parse global format + field flags from argv
@@ -448,63 +482,76 @@ subCommands['pipeline'] = phaseCommand as CommandDef;
     cliOutput({ version: CLI_VERSION }, { command: 'version' });
     process.exit(0);
   }
-}
 
-const main = defineCommand({
-  meta: {
-    name: 'cleo',
-    version: CLI_VERSION,
-    description: 'CLEO V2 - Task management for AI coding agents',
-  },
-  subCommands,
-});
+  const main = defineCommand({
+    meta: {
+      name: 'cleo',
+      version: CLI_VERSION,
+      description: 'CLEO V2 - Task management for AI coding agents',
+    },
+    subCommands,
+  });
 
-// Build alias map for help rendering (alias name → primary command name)
-// Detects duplicate-value entries in subCommands (alias slots) automatically.
-const aliasMap = buildAliasMap(subCommands);
+  // Build alias map for help rendering (alias name → primary command name)
+  // Detects duplicate-value entries in subCommands (alias slots) automatically.
+  const aliasMap = buildAliasMap(subCommands);
 
-// Use custom grouped help renderer for root --help; sub-commands use citty's default
-const customShowUsage = createCustomShowUsage(CLI_VERSION, subCommands, aliasMap);
+  // Use custom grouped help renderer for root --help; sub-commands use citty's default
+  const customShowUsage = createCustomShowUsage(CLI_VERSION, subCommands, aliasMap);
 
-// Check for unknown command before running main
-{
-  const rawArgs = process.argv.slice(2);
-  const firstArg = rawArgs[0];
+  // Check for unknown command before running main
+  {
+    const rawArgs = process.argv.slice(2);
+    const firstArg = rawArgs[0];
 
-  // Only check if:
-  // 1. There is a first argument
-  // 2. It doesn't start with '-' (not a flag)
-  // 3. It's not a help request
-  // 4. It's not a version request
-  if (
-    firstArg &&
-    !firstArg.startsWith('-') &&
-    firstArg !== '--help' &&
-    firstArg !== '-h' &&
-    firstArg !== '--version' &&
-    firstArg !== '-V'
-  ) {
-    const availableCommands = Object.keys(subCommands);
+    // Only check if:
+    // 1. There is a first argument
+    // 2. It doesn't start with '-' (not a flag)
+    // 3. It's not a help request
+    // 4. It's not a version request
+    if (
+      firstArg &&
+      !firstArg.startsWith('-') &&
+      firstArg !== '--help' &&
+      firstArg !== '-h' &&
+      firstArg !== '--version' &&
+      firstArg !== '-V'
+    ) {
+      const availableCommands = Object.keys(subCommands);
 
-    // If the command is not in the list, handle it with did-you-mean
-    if (!availableCommands.includes(firstArg)) {
-      const suggestions = didYouMean(firstArg, availableCommands, 3);
+      // If the command is not in the list, handle it with did-you-mean
+      if (!availableCommands.includes(firstArg)) {
+        const suggestions = didYouMean(firstArg, availableCommands, 3);
 
-      // Print error to stderr
-      process.stderr.write(`Unknown command ${firstArg}\n`);
+        // Print error to stderr
+        process.stderr.write(`Unknown command ${firstArg}\n`);
 
-      // Print suggestions if found
-      if (suggestions.length > 0) {
-        process.stderr.write('\nDid you mean one of:\n');
-        for (const suggestion of suggestions) {
-          process.stderr.write(`  cleo ${suggestion}\n`);
+        // Print suggestions if found
+        if (suggestions.length > 0) {
+          process.stderr.write('\nDid you mean one of:\n');
+          for (const suggestion of suggestions) {
+            process.stderr.write(`  cleo ${suggestion}\n`);
+          }
         }
-      }
 
-      // Exit with code 127 (standard bash "command not found")
-      process.exit(127);
+        // Exit with code 127 (standard bash "command not found")
+        process.exit(127);
+      }
     }
   }
+
+  runMain(main, { showUsage: customShowUsage });
 }
 
-runMain(main, { showUsage: customShowUsage });
+// ---------------------------------------------------------------------------
+// Worktree ALS bridge invocation (T1873 / ADR-041 §D3)
+//
+// If CLEO_WORKTREE_ROOT is set, the entire startup runs inside a
+// `worktreeScope.run()` frame so that `getProjectRoot()` returns the
+// worktree root throughout the full async call graph — no per-command
+// changes required. The bridge is implemented in @cleocode/core to keep
+// this package boundary clean (cleo = thin CLI wrapper only).
+// ---------------------------------------------------------------------------
+runWithWorktreeScopeFromEnv(() => {
+  void startCli();
+});
