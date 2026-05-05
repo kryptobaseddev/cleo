@@ -7,6 +7,7 @@
  * @task T1473
  */
 
+import { and, eq } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 
@@ -51,14 +52,21 @@ export async function getProjectClusters(
 ): Promise<NexusClustersResult> {
   const db = await getNexusDb();
 
-  let rows: Array<Record<string, unknown>> = [];
+  let communities: Array<Record<string, unknown>> = [];
   try {
-    rows = db.select().from(nexusSchema.nexusNodes).all() as Array<Record<string, unknown>>;
+    communities = db
+      .select()
+      .from(nexusSchema.nexusNodes)
+      .where(
+        and(
+          eq(nexusSchema.nexusNodes.projectId, projectId),
+          eq(nexusSchema.nexusNodes.kind, 'community'),
+        ),
+      )
+      .all() as Array<Record<string, unknown>>;
   } catch {
-    rows = [];
+    communities = [];
   }
-
-  const communities = rows.filter((r) => r['kind'] === 'community' && r['projectId'] === projectId);
 
   return {
     projectId,
