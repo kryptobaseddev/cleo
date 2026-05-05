@@ -107,6 +107,8 @@ describe('TasksHandler', () => {
         'tree',
         'blockers',
         'depends',
+        'deps.validate',
+        'deps.tree',
         'analyze',
         'impact',
         'next',
