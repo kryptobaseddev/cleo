@@ -52,6 +52,19 @@ export {
 } from './compute-task-view.js';
 // Wave 4: Complex mutations + strict completion (T1568 / ADR-057 / ADR-058)
 export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask, taskDelete } from './delete.js';
+// Dep-graph validator (T1857 — orphan / cross-epic gap / stale-dep detection)
+export {
+  type DepGraphIssue as CoreDepGraphIssue,
+  type DepGraphIssueCode,
+  type DepGraphValidateResult,
+  type DepValidateScope,
+  detectCrossEpicGaps,
+  detectOrphans,
+  detectStaleDeps,
+  nearestEpic,
+  runValidation,
+  validateDepGraph,
+} from './dep-graph-validator.js';
 // Dependency graph helpers (sentient loop consumers).
 export {
   type DependencyCheckResult,
@@ -153,6 +166,8 @@ export {
   taskDeps,
   taskDepsCycles,
   taskDepsOverview,
+  taskDepsTree,
+  taskDepsValidate,
   taskExport,
   taskHistory,
   taskImpact,
