@@ -314,7 +314,6 @@ Auto-prepared by release.ship (T1881)
 - **Backfill 176 audit-column-gap tasks — modified_by/session_id NULL cohort**: Split from T1216 per 2026-04-24 Council verdict. Systemic remediation track — all 176 pre-ADR-051 completions have modified_by=NULL + session_id=NU... (T1321)
 - **T1402 task-record close-out — verify gates + complete (rename already shipped in v2026.4.139)**: T1402 schema rename brain_v2_candidate→brain_observations_staging shipped in v2026.4.139 commit 932fad3d4 but task DB record still status=pending w... (T1420)
 ---
-
 ## [2026.5.26] (2026-05-05)
 
 Auto-prepared by release.ship (T1878)
