@@ -199,6 +199,23 @@ export enum ExitCode {
    * @task Phase 6 — LAFS formalization + schema consolidation
    */
   LAFS_VIOLATION = 104,
+
+  // === DECISION VALIDATOR (106) ===
+  /**
+   * E_DECISION_VALIDATOR_FAILED — An ADR-typed decision write was rejected
+   * by the LLM conflict-validator hook because the overall confidence score
+   * fell below the configured threshold (`decisions.validatorConfidenceThreshold`,
+   * default 0.7).
+   *
+   * The validator checks for collision, contradiction, and supersession-graph
+   * integrity before allowing the write to proceed.  Callers should inspect
+   * the error message for the specific violation details and either:
+   *   (a) revise the decision / rationale to resolve conflicts, or
+   *   (b) explicitly supersede the conflicting entry via `supersedes:` param.
+   *
+   * @task T1828
+   */
+  DECISION_VALIDATOR_FAILED = 106,
 }
 
 /** Check if an exit code represents an error (1-99). */
