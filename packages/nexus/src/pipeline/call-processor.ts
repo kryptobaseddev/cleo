@@ -31,6 +31,7 @@
  */
 
 import type { GraphRelation } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { ExtractedCall } from './extractors/typescript-extractor.js';
 import type { BarrelExportMap, NamedImportMap } from './import-processor.js';
 import { resolveBarrelBinding } from './import-processor.js';
@@ -86,21 +87,25 @@ export function emitClassMemberEdges(graph: KnowledgeGraph): {
     if (!node.parent) continue;
 
     if (node.kind === 'method' || node.kind === 'constructor') {
+      const confidence = 0.99;
       const rel: GraphRelation = {
         source: node.parent,
         target: node.id,
         type: 'has_method',
-        confidence: 0.99,
+        confidence,
+        confidenceLabel: confidenceLabelFromNumeric(confidence),
         reason: `method definition in ${node.filePath}`,
       };
       graph.addRelation(rel);
       hasMethodCount++;
     } else if (node.kind === 'property') {
+      const confidence = 0.99;
       const rel: GraphRelation = {
         source: node.parent,
         target: node.id,
         type: 'has_property',
-        confidence: 0.99,
+        confidence,
+        confidenceLabel: confidenceLabelFromNumeric(confidence),
         reason: `property definition in ${node.filePath}`,
       };
       graph.addRelation(rel);
@@ -293,6 +298,7 @@ export async function resolveCalls(
         target: resolved.nodeId,
         type: 'calls',
         confidence: resolved.confidence,
+        confidenceLabel: confidenceLabelFromNumeric(resolved.confidence),
         reason: `${call.callForm} call to ${call.calledName} (tier: ${resolved.tier})`,
       };
 
