@@ -75,6 +75,14 @@ export {
   checkProjectHealth,
   probeDb,
 } from './project-health.js';
+// T1868: rogue .cleo/ directory forensic scanner
+export type {
+  DrizzleMigrationEntry,
+  RogueDbRowCounts,
+  RogueDirReport,
+  RogueFileEntry,
+} from './rogue-cleo-detector.js';
+export { quarantineRogueCleoDir, scanRogueCleoDirs } from './rogue-cleo-detector.js';
 export type { RuntimeDiagnostics } from './runtime.js';
 export { getRuntimeDiagnostics } from './runtime.js';
 export type { SafestopResult, UncancelResult } from './safestop.js';
@@ -84,11 +92,3 @@ export { checkStorageMigration } from './storage-preflight.js';
 // Wave 2: new system exports (T1571)
 export type { SyncData } from './sync.js';
 export { systemSync } from './sync.js';
-// T1868: rogue .cleo/ directory forensic scanner
-export type {
-  DrizzleMigrationEntry,
-  RogueDbRowCounts,
-  RogueDirReport,
-  RogueFileEntry,
-} from './rogue-cleo-detector.js';
-export { quarantineRogueCleoDir, scanRogueCleoDirs } from './rogue-cleo-detector.js';
