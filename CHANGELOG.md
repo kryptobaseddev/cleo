@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [2026.5.22] (2026-05-04) — Hotfix: widen `AuditRecord.boundary` union to include `'absolute-path'`
+
+v2026.5.21 CI failed because T1852's `'absolute-path'` boundary value (added to `BoundaryViolation.boundary` for the T1763 breach-vector closure) wasn't reflected in the older `AuditRecord.boundary` union in `packages/git-shim/src/audit-log.ts`. The build error surfaced where `shim.ts` threads `violation.boundary` into `buildAuditRecord` — type widening was incomplete.
+
+One-line fix: `audit-log.ts:42` union extended from `'a' | 'b' | 'c' | 'd' | 'denylist' | 'isolation'` to `'a' | 'b' | 'c' | 'd' | 'denylist' | 'isolation' | 'absolute-path'`. No behavior change — strictly type-alignment.
+
+Bumping per the never-reuse-tags rule rather than amending v2026.5.21's tag.
+
 ## [2026.5.21] (2026-05-04) — P0 ARCH FIX: cleo project-root resolution refuses auto-init outside `cleo init` (closes #102)
 
 The most critical architectural fix in months. Workers running cleo from worktree paths were silently creating their own dead-end `.cleo/tasks.db` databases, absorbing manifest writes and gate verifies that the orchestrator never saw. Seven rogue `.cleo/` directories were found at `packages/{adapters,cleo,cleo-os,core,lafs,runtime,studio}/` and quarantined. PR #103 (Windows path mismatch in brain/studio) is superseded by a deeper fix using `env-paths` properly. The Council convened (run `20260505T025150Z-6ad1b9b0`) and unanimously voted refuse-with-error.
