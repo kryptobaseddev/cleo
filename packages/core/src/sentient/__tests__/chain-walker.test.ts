@@ -13,7 +13,7 @@
  * @task T1025
  */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { identityFromSeed } from 'llmtxt/identity';
@@ -59,6 +59,14 @@ let identity: Awaited<ReturnType<typeof identityFromSeed>>;
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'cleo-chain-walker-test-'));
+  // Write .cleo/project-info.json so assertProjectInitialized() accepts this
+  // temp dir as a valid project root (T1864 guard).
+  await mkdir(join(tmpDir, '.cleo'), { recursive: true });
+  await writeFile(
+    join(tmpDir, '.cleo', 'project-info.json'),
+    JSON.stringify({ projectId: 'test-chain-walker', monorepoRoot: false }),
+    'utf-8',
+  );
   const seed = new Uint8Array(32);
   for (let i = 0; i < 32; i++) seed[i] = i + 7; // distinct from other tests
   identity = await identityFromSeed(seed);

@@ -239,46 +239,134 @@ export function getCleoDirAbsolute(cwd?: string): string {
 }
 
 /**
+ * Module-level flag: emit the legacy-fallback warning at most once per process.
+ * Prevents log spam when `validateProjectRoot` is called repeatedly in a session.
+ */
+let _legacyFallbackWarned = false;
+
+/**
  * Validate that a candidate project root directory is a legitimate CLEO
  * project root and not a stray parent `.cleo/` directory that happened to
  * be found by the walk-up algorithm.
  *
- * A candidate is considered valid when its `.cleo/` directory is accompanied
- * by at least one of the following sibling markers:
- *   - `.git/` (git-backed project — most common)
- *   - `package.json` (Node.js / monorepo project root)
+ * ## Primary path (T1864 — project-info.json contract)
  *
- * These markers establish that the directory is a deliberate project root
- * rather than an accidental `.cleo/` left in a non-project parent directory
- * (e.g., `$HOME/.cleo/` from a prior buggy run, or a user's Documents folder
- * that somehow acquired a `.cleo/` sub-directory).
+ * A candidate is **accepted** when `.cleo/project-info.json` exists and
+ * parses as JSON with a non-empty `projectId` string field.  This is the
+ * canonical form written by `cleo init` and is the only form that guarantees
+ * the directory is a proper CLEO project rather than a stray `.cleo/` left by
+ * an old installation or a git worktree that auto-created its own `.cleo/`.
+ *
+ * ## Legacy fallback (backwards-compatibility)
+ *
+ * Projects initialized before `project-info.json` was introduced are still
+ * accepted when **both** of the following are true:
+ *   1. `.cleo/` exists in `candidate`
+ *   2. `.git/` exists as a sibling of `.cleo/` in `candidate`
+ *
+ * A one-time stderr warning is emitted (guarded by `_legacyFallbackWarned`)
+ * so operators know to re-run `cleo init` to upgrade the project metadata.
+ *
+ * **Breaking change vs. prior implementation**: bare `package.json` alone is
+ * no longer sufficient.  The old check `existsSync(gitDir) || existsSync(pkgJson)`
+ * accepted any Node.js package directory as a valid project root, which caused
+ * the monorepo-package bug where sub-packages inside `packages/` created their
+ * own empty `.cleo/` databases.
  *
  * @param candidate - Absolute path to the directory being considered as the
  *   project root (parent of the `.cleo/` directory).
- * @returns `true` when the candidate has a `.cleo/` sibling marker; `false`
- *   when it has `.cleo/` but no recognised sibling markers.
- *
- * @remarks
- * Intentionally does **not** validate the contents of `.cleo/` itself
- * (e.g., `project-info.json` projectHash). Hash validation is an optional
- * caller concern; this function focuses on the lightweight sibling-presence
- * check that can be done with a single `existsSync` call per marker.
+ * @returns `true` when the candidate is a recognised CLEO project root.
  *
  * @example
  * ```typescript
- * // Project root with .git sibling — valid
+ * // Project root with project-info.json — valid (primary path)
  * validateProjectRoot('/home/user/myproject'); // true
  *
- * // Stray .cleo in home dir with no sibling markers — invalid
+ * // Legacy project root with .git/ but no project-info.json — valid + warning
+ * validateProjectRoot('/home/user/legacy-project'); // true (+ stderr warning)
+ *
+ * // Stray .cleo in home dir with no markers — invalid
  * validateProjectRoot('/home/user'); // false
  * ```
  *
  * @task T1463
+ * @task T1864
  */
 export function validateProjectRoot(candidate: string): boolean {
+  const cleoDir = join(candidate, '.cleo');
+  if (!existsSync(cleoDir)) {
+    return false;
+  }
+
+  // Primary: .cleo/project-info.json with a valid projectId string.
+  const projectInfoPath = join(cleoDir, 'project-info.json');
+  if (existsSync(projectInfoPath)) {
+    try {
+      const raw = readFileSync(projectInfoPath, 'utf-8');
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        'projectId' in parsed &&
+        typeof (parsed as Record<string, unknown>)['projectId'] === 'string' &&
+        (parsed as Record<string, unknown>)['projectId'] !== ''
+      ) {
+        return true;
+      }
+    } catch {
+      // JSON parse error or read error — fall through to legacy check.
+    }
+  }
+
+  // Legacy fallback: .cleo/ + .git/ sibling (no project-info.json required).
+  // Emits a one-time warning to prompt the operator to run `cleo init`.
   const gitDir = join(candidate, '.git');
-  const pkgJson = join(candidate, 'package.json');
-  return existsSync(gitDir) || existsSync(pkgJson);
+  if (existsSync(gitDir)) {
+    if (!_legacyFallbackWarned) {
+      _legacyFallbackWarned = true;
+      process.stderr.write(
+        `[cleo] WARNING: ${candidate}/.cleo/ lacks project-info.json. ` +
+          `Run \`cleo init\` to upgrade project metadata (T1864 legacy-fallback).\n`,
+      );
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Assert that the given directory is an initialized CLEO project root,
+ * throwing a `CleoError` if it is not.
+ *
+ * This guard MUST be called before any operation that writes into `.cleo/`
+ * (e.g. creating audit directories, session journals) to prevent workers
+ * running inside git worktrees from auto-creating empty `.cleo/` directories
+ * that diverge from the real project database.
+ *
+ * @param projectRoot - Absolute path to the directory that should contain
+ *   `.cleo/project-info.json` (or the legacy `.cleo/ + .git/` marker pair).
+ * @throws {CleoError} `ExitCode.CONFIG_ERROR` with code `E_NOT_INITIALIZED`
+ *   when `validateProjectRoot(projectRoot)` returns `false`.
+ *
+ * @example
+ * ```typescript
+ * assertProjectInitialized(projectRoot);
+ * await mkdir(join(projectRoot, '.cleo', 'audit'), { recursive: true });
+ * ```
+ *
+ * @task T1864
+ */
+export function assertProjectInitialized(projectRoot: string): void {
+  if (!validateProjectRoot(projectRoot)) {
+    throw new CleoError(
+      ExitCode.CONFIG_ERROR,
+      `E_NOT_INITIALIZED: ${projectRoot} is not a CLEO project root`,
+      {
+        fix: 'cleo init',
+      },
+    );
+  }
 }
 
 /**

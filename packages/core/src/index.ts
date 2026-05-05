@@ -257,6 +257,7 @@ export { formatError, formatOutput, formatSuccess, pushWarning } from './output.
 export { createPage, paginate } from './pagination.js';
 // Paths
 export {
+  assertProjectInitialized,
   getCleoCacheDir,
   getCleoCantWorkflowsDir,
   getCleoConfigDir,
