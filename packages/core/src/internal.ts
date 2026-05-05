@@ -1542,6 +1542,8 @@ export {
   taskDeps,
   taskDepsCycles,
   taskDepsOverview,
+  taskDepsTree,
+  taskDepsValidate,
   taskExport,
   taskHistory,
   taskImpact,

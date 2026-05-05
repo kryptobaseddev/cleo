@@ -186,6 +186,8 @@ export {
   taskDeps,
   taskDepsCycles,
   taskDepsOverview,
+  taskDepsTree,
+  taskDepsValidate,
   taskExists,
   taskExport,
   taskFind,

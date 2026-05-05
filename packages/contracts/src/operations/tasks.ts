@@ -237,6 +237,114 @@ export interface TasksAnalyzeQueryParams {
  */
 export type TasksAnalyzeQueryResult = TaskAnalysisResult & { tierLimit: number };
 
+// tasks.deps.validate
+/**
+ * Parameters for `tasks.deps.validate`.
+ *
+ * @task T1857
+ * @epic T1855
+ */
+export interface TasksDepsValidateParams {
+  /** Scope to direct children of this epic (optional). */
+  epicId?: string;
+  /** Which tasks to include: all, open, or critical-priority only. @defaultValue 'all' */
+  scope?: 'all' | 'open' | 'critical';
+}
+
+/**
+ * A single dep-graph issue found by `tasks.deps.validate`.
+ *
+ * @task T1857
+ * @epic T1855
+ */
+export interface DepGraphIssue {
+  /** Machine-readable issue code. */
+  code: 'E_ORPHAN' | 'E_CIRCULAR' | 'E_CROSS_EPIC_GAP' | 'E_STALE_DEP' | 'E_MISSING_REF';
+  /** The task ID where the issue originates. */
+  taskId: string;
+  /** Human-readable description. */
+  message: string;
+  /** Related task IDs (dep IDs, cycle members, etc.). */
+  relatedIds?: string[];
+  /** Source epic ID (for E_CROSS_EPIC_GAP issues). */
+  epicA?: string;
+  /** Target epic ID (for E_CROSS_EPIC_GAP issues). */
+  epicB?: string;
+}
+
+/**
+ * Result of `tasks.deps.validate`.
+ *
+ * @task T1857
+ * @epic T1855
+ */
+export interface TasksDepsValidateResult {
+  /** True when no issues were found. */
+  valid: boolean;
+  /** All detected issues. Empty when valid. */
+  issues: DepGraphIssue[];
+  /** Human-readable summary line. */
+  summary: string;
+}
+
+// tasks.deps.tree
+/**
+ * Parameters for `tasks.deps.tree`.
+ *
+ * @task T1857
+ * @epic T1855
+ */
+export interface TasksDepsTreeParams {
+  /** Epic ID to visualize (required). */
+  epicId: string;
+  /** Output format. @defaultValue 'text' */
+  format?: 'text' | 'mermaid' | 'json';
+}
+
+/** A node in the deps tree JSON output. */
+export interface DepsTreeNode {
+  /** Task ID. */
+  id: string;
+  /** Task title. */
+  title: string;
+  /** Task status. */
+  status: string;
+  /** Direct dependency IDs. */
+  depends: string[];
+}
+
+/** An edge in the deps tree JSON output. */
+export interface DepsTreeEdge {
+  /** Source task ID (dependency). */
+  from: string;
+  /** Target task ID (dependent). */
+  to: string;
+}
+
+/**
+ * Result of `tasks.deps.tree`.
+ *
+ * @task T1857
+ * @epic T1855
+ */
+export interface TasksDepsTreeResult {
+  /** The epic ID the tree is scoped to. */
+  epicId: string;
+  /** Output format that was rendered. */
+  format: 'text' | 'mermaid' | 'json';
+  /**
+   * Rendered text or Mermaid output (when format is 'text' or 'mermaid').
+   * Null when format is 'json'.
+   */
+  rendered: string | null;
+  /** Structured node list (always populated). */
+  nodes: DepsTreeNode[];
+  /** Directed edges in the graph (dependency → dependent). */
+  edges: DepsTreeEdge[];
+  /** Task IDs on the critical path (longest dep chain), or empty if none. */
+  criticalPath: string[];
+}
+
 // tasks.impact
 export interface TasksImpactParams {
   change: string;
@@ -756,6 +864,8 @@ export type TasksOps = {
   readonly tree: readonly [TasksTreeDispatchParams, TasksTreeDispatchResult];
   readonly blockers: readonly [TasksBlockersQueryParams, TasksBlockersQueryResult];
   readonly depends: readonly [TasksDependsParams, TasksDependsResult];
+  readonly 'deps.validate': readonly [TasksDepsValidateParams, TasksDepsValidateResult];
+  readonly 'deps.tree': readonly [TasksDepsTreeParams, TasksDepsTreeResult];
   readonly analyze: readonly [TasksAnalyzeQueryParams, TasksAnalyzeQueryResult];
   readonly impact: readonly [TasksImpactParams, TasksImpactResult];
   readonly next: readonly [TasksNextQueryParams, TasksNextQueryResult];

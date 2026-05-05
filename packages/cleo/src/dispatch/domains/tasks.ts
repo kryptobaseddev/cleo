@@ -44,6 +44,8 @@ import {
   taskDepends,
   taskDepsCycles,
   taskDepsOverview,
+  taskDepsTree,
+  taskDepsValidate,
   taskFind,
   taskHistory,
   taskImpact,
@@ -189,6 +191,25 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     return wrapCoreResult(
       await taskDepends(projectRoot, params.taskId, params.direction, params.tree),
       'depends',
+    );
+  },
+
+  'deps.validate': async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await taskDepsValidate(projectRoot, params.epicId, params.scope),
+      'deps.validate',
+    );
+  },
+
+  'deps.tree': async (params) => {
+    const projectRoot = getProjectRoot();
+    if (!params.epicId) {
+      return lafsError('E_INVALID_INPUT', 'epicId is required for deps.tree', 'deps.tree');
+    }
+    return wrapCoreResult(
+      await taskDepsTree(projectRoot, params.epicId, params.format),
+      'deps.tree',
     );
   },
 
@@ -490,6 +511,8 @@ const QUERY_OPS = new Set<string>([
   'tree',
   'blockers',
   'depends',
+  'deps.validate',
+  'deps.tree',
   'analyze',
   'impact',
   'next',

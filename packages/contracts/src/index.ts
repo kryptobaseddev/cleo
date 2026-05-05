@@ -856,6 +856,7 @@ export type {
   TasksDeleteQueryResult,
   TasksDependsParams,
   TasksDependsResult,
+  // T1857 — dep-graph validation + tree rendering (T1855 guardrails)
   TasksDepsTreeParams,
   TasksDepsTreeResult,
   TasksDepsValidateParams,
