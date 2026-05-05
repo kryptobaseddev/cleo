@@ -70,6 +70,9 @@ vi.mock('@cleocode/core/internal', () => ({
   validateGlobalSalt: validateGlobalSaltMock,
   getGlobalSalt: getGlobalSaltMock,
   getLogger: getLoggerMock,
+  // T1873: env→ALS bridge added in cleo CLI entrypoint. Test doesn't exercise
+  // worktree paths, so stub passthrough that just invokes the callback.
+  runWithWorktreeScopeFromEnv: <T>(fn: () => T): T => fn(),
 }));
 
 // Stub out citty to prevent runMain from actually doing anything
