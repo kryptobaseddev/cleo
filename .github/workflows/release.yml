@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter; do
+          for pkg in packages/contracts packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -528,8 +528,27 @@ jobs:
             # unreachable. `|| PUBLISH_EXIT=$?` catches the non-zero code so
             # we can classify (SKIP-CONFLICT / OIDC error / real failure)
             # and track via FAILED_PKGS instead of dying mid-publish.
+            # Retry up to 3x on transient Sigstore TLOG errors
+            # (rekor.sigstore.dev sometimes aborts mid-fetch — caused
+            # @cleocode/worktree@2026.5.24 to fail despite trusted publisher
+            # being correctly configured). Real OIDC/permission errors
+            # surface immediately; only TLOG_CREATE_ENTRY_ERROR retries.
             PUBLISH_EXIT=0
-            PUBLISH_OUTPUT=$(pnpm publish $PUBLISH_ARGS 2>&1) || PUBLISH_EXIT=$?
+            PUBLISH_OUTPUT=""
+            for attempt in 1 2 3; do
+              PUBLISH_EXIT=0
+              PUBLISH_OUTPUT=$(pnpm publish $PUBLISH_ARGS 2>&1) || PUBLISH_EXIT=$?
+              if [[ $PUBLISH_EXIT -eq 0 ]]; then
+                break
+              fi
+              if echo "$PUBLISH_OUTPUT" | grep -qi "TLOG_CREATE_ENTRY_ERROR\|rekor.sigstore.dev.*aborted\|tlog entry"; then
+                echo "  ⚠ Sigstore TLOG transient error (attempt $attempt/3) — retrying after 10s..."
+                sleep 10
+                continue
+              fi
+              # Non-transient error — break so classification logic below runs.
+              break
+            done
             echo "$PUBLISH_OUTPUT"
             if [[ $PUBLISH_EXIT -eq 0 ]]; then
               echo "✓ PUBLISHED: @cleocode/$npm_name@$VERSION"
@@ -582,6 +601,11 @@ jobs:
           # can publish independently. Position last so any failure here does
           # not block the spine packages above. (T1148 W8-9 / external bridge)
           publish_pkg mcp-adapter
+          # studio is the SvelteKit web frontend — depends on @cleocode/core
+          # and @cleocode/brain so must publish AFTER both. Added 2026-05-05
+          # after Issue #102 / PR #103 surfaced that studio was missing from
+          # this publish list (alongside the env-paths Windows fix).
+          publish_pkg studio
 
           if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
             echo "::error::Real publish failures for: ${FAILED_PKGS[*]}"
