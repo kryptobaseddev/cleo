@@ -268,7 +268,13 @@ export async function orchestrateHandoff(
   steps.sessionEnd.status = 'completed';
   steps.sessionEnd.message = `Ended session ${endedSessionId}`;
 
-  const spawnResult = await orchestrateSpawn(params.taskId, params.protocolType, root, params.tier);
+  const spawnResult = await orchestrateSpawn(
+    params.taskId,
+    params.protocolType,
+    root,
+    params.tier,
+    params.noWorktree,
+  );
   if (!spawnResult.success) {
     steps.spawn.status = 'failed';
     steps.spawn.message = spawnResult.error?.message;
