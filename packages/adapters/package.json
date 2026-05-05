@@ -21,6 +21,7 @@
     "@ai-sdk/openai": "^2.0.53",
     "@cleocode/caamp": "workspace:*",
     "@cleocode/contracts": "workspace:*",
+    "@cleocode/paths": "workspace:*",
     "ai": "^6.0.168"
   },
   "license": "MIT",

@@ -26,6 +26,7 @@
   "references": [
     { "path": "../contracts" },
     { "path": "../lafs/tsconfig.build.json" },
-    { "path": "../cant" }
+    { "path": "../cant" },
+    { "path": "../paths" }
   ]
 }
