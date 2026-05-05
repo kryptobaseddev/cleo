@@ -1,68 +1,68 @@
 {
-	"name": "@cleocode/studio",
-	"version": "2026.5.25",
-	"description": "CLEO Studio \u2014 unified web portal for Nexus, Brain, and Tasks visualization",
-	"type": "module",
-	"private": false,
-	"exports": {
-		".": "./build/index.js"
-	},
-	"files": [
-		"build",
-		"src"
-	],
-	"scripts": {
-		"dev": "vite dev --port 3456",
-		"build": "vite build",
-		"preview": "vite preview",
-		"start": "HOST=127.0.0.1 PORT=3456 node build/index.js",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"lint:style": "stylelint \"src/**/*.{svelte,css}\"",
-		"test": "vitest run",
-		"test:e2e": "playwright test"
-	},
-	"dependencies": {
-		"3d-force-graph": "^1.80.0",
-		"@cleocode/brain": "workspace:*",
-		"@cleocode/contracts": "workspace:*",
-		"@cleocode/core": "workspace:*",
-		"@cosmograph/cosmos": "^2.0.0-beta.26",
-		"@fontsource-variable/inter": "^5.2.8",
-		"@fontsource-variable/jetbrains-mono": "^5.2.8",
-		"@sveltejs/adapter-node": "^5.2.13",
-		"@sveltejs/kit": "^2.20.6",
-		"d3": "^7.9.0",
-		"d3-force-3d": "^3.0.6",
-		"graphology": "^0.26.0",
-		"graphology-layout-forceatlas2": "^0.10.1",
-		"hono": "^4.7.10",
-		"sigma": "^3.0.2",
-		"svelte": "^5.28.1",
-		"three": "^0.183.2",
-		"three-stdlib": "^2.36.1"
-	},
-	"devDependencies": {
-		"@axe-core/playwright": "^4.10.0",
-		"@playwright/test": "^1.59.1",
-		"@sveltejs/vite-plugin-svelte": "^5.0.3",
-		"@types/three": "^0.183.1",
-		"postcss-html": "^1.7.0",
-		"stylelint": "^16.10.0",
-		"stylelint-config-standard": "^36.0.1",
-		"svelte-check": "^4.1.6",
-		"typescript": "^5.8.3",
-		"vite": "^8.0.8"
-	},
-	"engines": {
-		"node": ">=24.0.0"
-	},
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/kryptobaseddev/cleo",
-		"directory": "packages/studio"
-	},
-	"publishConfig": {
-		"access": "public"
-	}
+  "name": "@cleocode/studio",
+  "version": "2026.5.29",
+  "description": "CLEO Studio — unified web portal for Nexus, Brain, and Tasks visualization",
+  "type": "module",
+  "private": false,
+  "exports": {
+    ".": "./build/index.js"
+  },
+  "files": [
+    "build",
+    "src"
+  ],
+  "scripts": {
+    "dev": "vite dev --port 3456",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "HOST=127.0.0.1 PORT=3456 node build/index.js",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "lint:style": "stylelint \"src/**/*.{svelte,css}\"",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "3d-force-graph": "^1.80.0",
+    "@cleocode/brain": "workspace:*",
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/core": "workspace:*",
+    "@cosmograph/cosmos": "^2.0.0-beta.26",
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@sveltejs/adapter-node": "^5.2.13",
+    "@sveltejs/kit": "^2.20.6",
+    "d3": "^7.9.0",
+    "d3-force-3d": "^3.0.6",
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "hono": "^4.7.10",
+    "sigma": "^3.0.2",
+    "svelte": "^5.28.1",
+    "three": "^0.183.2",
+    "three-stdlib": "^2.36.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "@playwright/test": "^1.59.1",
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@types/three": "^0.183.1",
+    "postcss-html": "^1.7.0",
+    "stylelint": "^16.10.0",
+    "stylelint-config-standard": "^36.0.1",
+    "svelte-check": "^4.1.6",
+    "typescript": "^5.8.3",
+    "vite": "^8.0.8"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/studio"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }
