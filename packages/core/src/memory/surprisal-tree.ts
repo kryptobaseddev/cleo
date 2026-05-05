@@ -22,7 +22,6 @@
  * @epic T1146
  */
 
-import { randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 
@@ -89,19 +88,31 @@ export interface BuildTreeResult {
 // Helpers
 // ============================================================================
 
-/** Generate a random unit vector of dimension `dim`. */
+/**
+ * Generate a random unit vector of dimension `dim` using Box-Muller transform.
+ *
+ * Uses Math.random() (uniform [0,1)) rather than raw randomBytes Float32 bit
+ * patterns — the previous implementation interpreted crypto byte sequences as
+ * Float32 values, which can produce NaN/Infinity components that propagate
+ * through dot products and corrupt the median split (T-spec-flake fix).
+ */
 function randomProjectionVector(dim: number): number[] {
-  const buf = randomBytes(dim * 4);
-  const floats = new Float32Array(buf.buffer);
-  // Standard normal approximation via Box-Muller
   const result: number[] = [];
   let norm = 0;
-  for (let i = 0; i < dim; i++) {
-    const v = floats[i] ?? 0;
-    // Map [0,1) uniform → normal using inverse CDF approx
-    const normal = v * 2 - 1; // rough uniform → [-1, 1]
-    result.push(normal);
-    norm += normal * normal;
+  // Box-Muller: pairs of uniform [0,1) → standard normal
+  for (let i = 0; i < dim; i += 2) {
+    const u1 = Math.random() || 1e-300; // avoid log(0)
+    const u2 = Math.random();
+    const r = Math.sqrt(-2 * Math.log(u1));
+    const theta = 2 * Math.PI * u2;
+    const z0 = r * Math.cos(theta);
+    const z1 = r * Math.sin(theta);
+    result.push(z0);
+    norm += z0 * z0;
+    if (i + 1 < dim) {
+      result.push(z1);
+      norm += z1 * z1;
+    }
   }
   const normSqrt = Math.sqrt(norm) || 1;
   return result.map((v) => v / normSqrt);
