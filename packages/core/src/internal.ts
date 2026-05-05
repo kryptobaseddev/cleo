@@ -1029,14 +1029,6 @@ export {
   systemSync,
   uncancelTask,
 } from './system/index.js';
-// T1868: rogue .cleo/ directory forensic scanner + quarantine
-export type {
-  DrizzleMigrationEntry,
-  RogueDbRowCounts,
-  RogueDirReport,
-  RogueFileEntry,
-} from './system/rogue-cleo-detector.js';
-export { quarantineRogueCleoDir, scanRogueCleoDirs } from './system/rogue-cleo-detector.js';
 // Cross-project registered-project health probe (T-PROJECT-HEALTH)
 export type {
   CheckAllOptions,
@@ -1053,6 +1045,14 @@ export {
   checkProjectHealth,
   probeDb,
 } from './system/project-health.js';
+// T1868: rogue .cleo/ directory forensic scanner + quarantine
+export type {
+  DrizzleMigrationEntry,
+  RogueDbRowCounts,
+  RogueDirReport,
+  RogueFileEntry,
+} from './system/rogue-cleo-detector.js';
+export { quarantineRogueCleoDir, scanRogueCleoDirs } from './system/rogue-cleo-detector.js';
 // Task work (additional)
 export type { TaskWorkHistoryEntry } from './task-work/index.js';
 export { getTaskHistory } from './task-work/index.js';
