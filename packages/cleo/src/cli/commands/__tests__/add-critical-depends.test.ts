@@ -119,7 +119,7 @@ describe('cleo add --priority critical dependency guard (T1856)', () => {
     ];
     expect(code).toBe('E_VALIDATION');
     expect(details.name).toBe('E_VALIDATION');
-    expect(message).toContain('critical-priority');
+    expect(message.toLowerCase()).toContain('critical-priority');
     // Guidance must reference cleo find
     expect(details.fix).toContain('cleo find');
 

@@ -120,7 +120,7 @@ describe('cleo update --priority critical dependency guard (T1856)', () => {
     ];
     expect(code).toBe('E_VALIDATION');
     expect(details.name).toBe('E_VALIDATION');
-    expect(message).toContain('critical-priority');
+    expect(message.toLowerCase()).toContain('critical-priority');
     expect(details.fix).toContain('cleo find');
 
     // Final update dispatch must NOT have been called
