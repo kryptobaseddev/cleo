@@ -704,15 +704,25 @@ export async function orchestrateSpawn(
     } else {
       // Default: provision via the SDK dispatch layer (worktree-dispatch.ts).
       // Routes through @cleocode/worktree per D023 SDK-first contract.
+      //
+      // T1878: Provisioning errors are no longer swallowed. A failure here
+      // means the spawn prompt's `## Worktree Setup` section would be omitted,
+      // causing workers to hallucinate paths. Surface the error as a structured
+      // LAFS envelope so callers can react programmatically.
       try {
         sdkWorktreeResult = await spawnWorktree(root, { taskId });
         worktreePath = sdkWorktreeResult.path;
         worktreeBranch = sdkWorktreeResult.branch;
       } catch (wtErr) {
-        getLogger('engine:orchestrate').warn(
+        const message = wtErr instanceof Error ? wtErr.message : String(wtErr);
+        getLogger('engine:orchestrate').error(
           { taskId, err: wtErr },
-          `T1140 worktree creation failed for ${taskId} — spawning without isolation: ${wtErr instanceof Error ? wtErr.message : String(wtErr)}`,
+          `T1878 worktree provisioning failed for ${taskId}: ${message}`,
         );
+        return engineError('E_WORKTREE_PROVISION_FAILED', message, {
+          details: { taskId, cause: message },
+          fix: 'Check git repository state, branch availability, and disk space. Run `git worktree list` and `git branch --list task/<taskId>` to diagnose.',
+        });
       }
     }
 
