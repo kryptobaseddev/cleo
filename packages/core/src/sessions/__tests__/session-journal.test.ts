@@ -96,6 +96,14 @@ beforeEach(async () => {
   tmpRoot = await mkdtemp(join(tmpdir(), 'cleo-journal-test-'));
   mocks.cleoDirAbsolute.value = join(tmpRoot, '.cleo');
   mocks.scanBrainNoise.mockResolvedValue(cleanDoctorResult());
+  // Write .cleo/project-info.json so assertProjectInitialized() accepts this
+  // temp dir as a valid project root (T1864 guard).
+  await mkdir(join(tmpRoot, '.cleo'), { recursive: true });
+  await writeFile(
+    join(tmpRoot, '.cleo', 'project-info.json'),
+    JSON.stringify({ projectId: 'test-journal', monorepoRoot: false }),
+    'utf-8',
+  );
 });
 
 afterEach(async () => {

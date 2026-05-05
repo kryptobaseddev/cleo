@@ -171,6 +171,11 @@ describe('T308: CleoOS Database Topology Integration', () => {
   it('Scenario 2: walk-up from a nested subdir finds the correct project root; git-only dir refuses with E_NOT_INITIALIZED', () => {
     // Set up: tmpRoot/.cleo/ (project sentinel) + tmpRoot/src/x/y/ (nested cwd)
     mkdirSync(join(tmpRoot, '.cleo'), { recursive: true });
+    // T1864: write project-info.json so the walk-up validator accepts tmpRoot.
+    writeFileSync(
+      join(tmpRoot, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'scenario2-root' }),
+    );
     const nestedCwd = join(tmpRoot, 'src', 'x', 'y');
     mkdirSync(nestedCwd, { recursive: true });
 
@@ -208,10 +213,20 @@ describe('T308: CleoOS Database Topology Integration', () => {
   it('Scenario 3: walk-up in a nested dir with two ancestor .cleo/ dirs STOPS at nearest (anti-drift)', () => {
     // Outer ancestor: tmpRoot/.cleo/
     mkdirSync(join(tmpRoot, '.cleo'), { recursive: true });
+    // T1864: project-info.json required for walk-up validation.
+    writeFileSync(
+      join(tmpRoot, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'scenario3-outer' }),
+    );
 
     // Closer ancestor: tmpRoot/inner/.cleo/
     const innerRoot = join(tmpRoot, 'inner');
     mkdirSync(join(innerRoot, '.cleo'), { recursive: true });
+    // T1864: project-info.json required for walk-up validation.
+    writeFileSync(
+      join(innerRoot, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'scenario3-inner' }),
+    );
 
     // Starting cwd: tmpRoot/inner/src/
     const startCwd = join(innerRoot, 'src');
@@ -400,6 +415,11 @@ describe('T308: CleoOS Database Topology Integration', () => {
   it('Scenario 7: nested .cleo/ is NEVER auto-created when cleo resolves project root from a subdirectory', () => {
     // Project root has .cleo/ (already initialized).
     mkdirSync(join(tmpRoot, '.cleo'), { recursive: true });
+    // T1864: project-info.json required for the walk-up validator to accept tmpRoot.
+    writeFileSync(
+      join(tmpRoot, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'scenario7-root' }),
+    );
 
     // Nested sub-package directory — no .cleo/ here.
     const subPkg = join(tmpRoot, 'packages', 'some-package');
