@@ -113,7 +113,18 @@ function fatal(msg) {
  * @returns {number}
  */
 function countSourceFiles(dir) {
-  const exts = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.swift', '.kt', '.java']);
+  const exts = new Set([
+    '.ts',
+    '.tsx',
+    '.js',
+    '.jsx',
+    '.py',
+    '.go',
+    '.rs',
+    '.swift',
+    '.kt',
+    '.java',
+  ]);
   let count = 0;
   function walk(d) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
@@ -267,15 +278,11 @@ function runCleoNexus(fixture) {
   /** @type {string} */
   let stderr = '';
 
-  const result = spawnSync(
-    'cleo',
-    ['nexus', 'analyze', '--json', fixture.path],
-    {
-      encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 300_000,
-    },
-  );
+  const result = spawnSync('cleo', ['nexus', 'analyze', '--json', fixture.path], {
+    encoding: 'utf8',
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 300_000,
+  });
 
   stdout = result.stdout ?? '';
   stderr = result.stderr ?? '';
@@ -294,7 +301,8 @@ function runCleoNexus(fixture) {
   let envelope;
   try {
     const jsonStart = stdout.indexOf('{"success"');
-    if (jsonStart < 0) fatal(`cleo nexus analyze: no JSON found in stdout.\nstdout: ${stdout.slice(0, 500)}`);
+    if (jsonStart < 0)
+      fatal(`cleo nexus analyze: no JSON found in stdout.\nstdout: ${stdout.slice(0, 500)}`);
     envelope = JSON.parse(stdout.slice(jsonStart));
   } catch (e) {
     fatal(`cleo nexus analyze: JSON parse error: ${e.message}\nstdout: ${stdout.slice(0, 500)}`);
@@ -334,7 +342,8 @@ function runCleoNexus(fixture) {
         'sqlite3',
         [
           nexusDbPath,
-          '-separator', ',',
+          '-separator',
+          ',',
           `SELECT kind, count(*) FROM nexus_nodes WHERE project_id='${projectId}' GROUP BY kind ORDER BY count(*) DESC`,
         ],
         { encoding: 'utf8' },
@@ -350,7 +359,8 @@ function runCleoNexus(fixture) {
         'sqlite3',
         [
           nexusDbPath,
-          '-separator', ',',
+          '-separator',
+          ',',
           `SELECT type, count(*) FROM nexus_relations WHERE project_id='${projectId}' GROUP BY type ORDER BY count(*) DESC`,
         ],
         { encoding: 'utf8' },
@@ -367,7 +377,9 @@ function runCleoNexus(fixture) {
     log(`Warning: nexus.db not found at ${nexusDbPath} — node/edge kind breakdown unavailable`);
   }
 
-  log(`cleo nexus: ${envelope.data.nodeCount} nodes, ${envelope.data.relationCount} edges, ${reportedDurationMs}ms`);
+  log(
+    `cleo nexus: ${envelope.data.nodeCount} nodes, ${envelope.data.relationCount} edges, ${reportedDurationMs}ms`,
+  );
 
   return {
     node_count_by_kind,
@@ -572,7 +584,7 @@ function parseGitnexusCypherMarkdown(output, colNames) {
  */
 function pctDelta(a, b) {
   if (b === 0) return null;
-  return parseFloat(((a - b) / b * 100).toFixed(1));
+  return parseFloat((((a - b) / b) * 100).toFixed(1));
 }
 
 /**
@@ -648,7 +660,9 @@ async function main() {
   log('=== cleo-nexus vs gitnexus benchmark ===');
 
   const fixture = resolveFixture();
-  log(`Fixture: ${fixture.path} (${fixture.kind}, sha:${fixture.sha.slice(0, 12)}, ${fixture.fileCount} source files)`);
+  log(
+    `Fixture: ${fixture.path} (${fixture.kind}, sha:${fixture.sha.slice(0, 12)}, ${fixture.fileCount} source files)`,
+  );
 
   // Run both tools
   const cleoStats = runCleoNexus(fixture);
@@ -723,7 +737,9 @@ async function main() {
     process.exit(1);
   }
 
-  log(`Done. cleo: ${cleoTotalNodes} nodes in ${cleoStats.duration_ms}ms | gitnexus: ${gnTotalNodes} nodes in ${gitnexusStats.duration_ms}ms`);
+  log(
+    `Done. cleo: ${cleoTotalNodes} nodes in ${cleoStats.duration_ms}ms | gitnexus: ${gnTotalNodes} nodes in ${gitnexusStats.duration_ms}ms`,
+  );
   if (delta.duration_speedup_x != null) {
     log(`Speed: cleo is ${delta.duration_speedup_x}x faster than gitnexus`);
   }
@@ -737,7 +753,7 @@ if (process.argv.includes('--update-baseline')) {
 
   // Monkey-patch process.stdout.write to capture and save
   const origWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = function (chunk, ...args) {
+  process.stdout.write = (chunk, ...args) => {
     const res = origWrite(chunk, ...args);
     if (typeof chunk === 'string' && chunk.trim().startsWith('{')) {
       try {
