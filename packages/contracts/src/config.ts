@@ -127,10 +127,34 @@ export interface VerificationConfig {
 /** Lifecycle enforcement mode. */
 export type LifecycleEnforcementMode = 'strict' | 'advisory' | 'off';
 
+/**
+ * Threshold controlling which tasks REQUIRE a declared dependency on creation.
+ *
+ * - `'critical'` — only critical-priority tasks require `--depends` (default, matches T1856 behaviour)
+ * - `'high'`     — critical + high-priority tasks require `--depends`
+ * - `'all'`      — all tasks require `--depends`
+ * - `'off'`      — no mandatory dep declaration
+ *
+ * Consumed by T1858 (`orchestrate ready` guard) to decide which tasks to gate.
+ *
+ * @task T1857
+ * @epic T1855
+ * @defaultValue 'critical'
+ */
+export type DepsRequiredAt = 'critical' | 'high' | 'all' | 'off';
+
 /** Lifecycle enforcement configuration. */
 export interface LifecycleConfig {
   /** Enforcement mode controlling how lifecycle rules are applied. */
   mode: LifecycleEnforcementMode;
+  /**
+   * Threshold for mandatory dependency declaration on task creation.
+   *
+   * @task T1857
+   * @epic T1855
+   * @defaultValue 'critical'
+   */
+  depsRequiredAt?: DepsRequiredAt;
 }
 
 /** Sharing mode: whether .cleo/ files are committed to the project git repo. */
