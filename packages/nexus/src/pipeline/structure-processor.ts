@@ -23,6 +23,7 @@
  */
 
 import type { GraphNode, GraphRelation } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { ScannedFile } from './filesystem-walker.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 
@@ -117,11 +118,13 @@ export function processStructure(files: ScannedFile[], graph: KnowledgeGraph): v
       graph.addNode(node);
 
       if (parentId) {
+        const confidence = 1.0;
         const relation: GraphRelation = {
           source: parentId,
           target: nodeId,
           type: 'contains',
-          confidence: 1.0,
+          confidence,
+          confidenceLabel: confidenceLabelFromNumeric(confidence),
           reason: 'filesystem structure',
         };
         graph.addRelation(relation);
