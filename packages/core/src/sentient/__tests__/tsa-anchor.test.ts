@@ -78,6 +78,14 @@ const originalSeed = process.env['CLEO_SIGNING_SEED'];
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'cleo-tsa-anchor-test-'));
+  // Write .cleo/project-info.json so assertProjectInitialized() accepts this
+  // temp dir as a valid project root (T1864 guard).
+  await mkdir(join(tmpDir, '.cleo'), { recursive: true });
+  await writeFile(
+    join(tmpDir, '.cleo', 'project-info.json'),
+    JSON.stringify({ projectId: 'test-tsa-anchor', monorepoRoot: false }),
+    'utf-8',
+  );
   const seed = new Uint8Array(32);
   for (let i = 0; i < 32; i++) seed[i] = i + 42;
   identity = await identityFromSeed(seed);
