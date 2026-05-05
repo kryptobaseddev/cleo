@@ -81,15 +81,29 @@ describe('validateProjectRoot', () => {
     expect(validateProjectRoot(tempBase)).toBe(true);
   });
 
-  it('returns true when package.json sibling exists', () => {
+  it('returns false when only package.json sibling exists (no project-info.json, no .git/) — T1864 breaking change', () => {
+    // T1864: bare package.json is no longer sufficient. Only project-info.json
+    // (primary) or .git/ legacy fallback is accepted.
     tempBase = makeTempBase('vpr-pkgjson');
     mkdirSync(join(tempBase, '.cleo'), { recursive: true });
     writeFileSync(join(tempBase, 'package.json'), '{"name":"test"}');
 
+    expect(validateProjectRoot(tempBase)).toBe(false);
+  });
+
+  it('returns true when project-info.json exists with valid projectId', () => {
+    tempBase = makeTempBase('vpr-pinfo');
+    mkdirSync(join(tempBase, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(tempBase, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'my-project' }),
+    );
+
     expect(validateProjectRoot(tempBase)).toBe(true);
   });
 
-  it('returns true when both .git/ and package.json exist', () => {
+  it('returns true when .git/ and package.json exist (legacy fallback via .git/)', () => {
+    // .git/ still triggers the legacy fallback path even alongside package.json.
     tempBase = makeTempBase('vpr-both');
     mkdirSync(join(tempBase, '.cleo'), { recursive: true });
     mkdirSync(join(tempBase, '.git'), { recursive: true });
@@ -204,18 +218,35 @@ describe('getProjectRoot — P1-7 parent .cleo/ trap guard', () => {
   });
 
   // -------------------------------------------------------------------------
-  // TC-3: Valid .cleo/ with package.json sibling — must be accepted
+  // TC-3: Valid .cleo/ with project-info.json — must be accepted (T1864)
   // -------------------------------------------------------------------------
-  describe('TC-3: valid .cleo/ with package.json sibling is accepted', () => {
-    it('returns the project root when package.json is present alongside .cleo/', () => {
-      tempBase = makeTempBase('tc3-pkg');
+  describe('TC-3: valid .cleo/ with project-info.json is accepted (T1864 primary path)', () => {
+    it('returns the project root when project-info.json is present inside .cleo/', () => {
+      tempBase = makeTempBase('tc3-pinfo');
+      const project = join(tempBase, 'project');
+      mkdirSync(join(project, '.cleo'), { recursive: true });
+      writeFileSync(
+        join(project, '.cleo', 'project-info.json'),
+        JSON.stringify({ projectId: 'tc3-project' }),
+      );
+      const cwd = join(project, 'src');
+      mkdirSync(cwd, { recursive: true });
+
+      expect(getProjectRoot(cwd)).toBe(project);
+    });
+
+    it('does NOT return project root when only package.json present (T1864 breaking change)', () => {
+      // bare package.json is no longer a valid marker — T1864 removes this path.
+      tempBase = makeTempBase('tc3-pkg-only');
       const project = join(tempBase, 'project');
       mkdirSync(join(project, '.cleo'), { recursive: true });
       writeFileSync(join(project, 'package.json'), '{"name":"test"}');
       const cwd = join(project, 'src');
       mkdirSync(cwd, { recursive: true });
 
-      expect(getProjectRoot(cwd)).toBe(project);
+      // Walk from cwd finds .cleo/ but no valid marker → rejects it;
+      // continues up, finds no sentinel → throws E_INVALID_PROJECT_ROOT.
+      expect(() => getProjectRoot(cwd)).toThrow();
     });
   });
 

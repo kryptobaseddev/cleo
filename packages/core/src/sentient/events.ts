@@ -41,6 +41,7 @@ import crypto from 'node:crypto';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentIdentity } from 'llmtxt/identity';
+import { assertProjectInitialized } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Event kind discriminants
@@ -381,6 +382,11 @@ export async function appendSentientEvent(
 ): Promise<SentientEvent> {
   const eventsPath = join(projectRoot, SENTIENT_EVENTS_FILE);
 
+  // Guard: refuse to create .cleo/ subdirectories in uninitialized roots
+  // (e.g. git worktree paths that lack project-info.json). This prevents
+  // workers from creating rogue empty .cleo/ audit directories that diverge
+  // from the real project database. (T1864)
+  assertProjectInitialized(projectRoot);
   // Ensure the audit directory exists.
   await mkdir(join(projectRoot, '.cleo', 'audit'), { recursive: true });
 
