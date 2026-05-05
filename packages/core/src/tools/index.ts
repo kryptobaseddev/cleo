@@ -46,3 +46,5 @@ export {
   toolsSkillUninstall,
   toolsSkillVerify,
 } from './engine-ops.js';
+// SDK Tools (Category B) — harness-agnostic infrastructure (T1768 / ADR-064)
+export * from './sdk/index.js';
