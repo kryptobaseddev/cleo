@@ -35,6 +35,7 @@
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { GraphNode, GraphNodeKind, GraphRelation } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import { extractGo } from './extractors/go-extractor.js';
 import { extractPython } from './extractors/python-extractor.js';
 import { extractRust } from './extractors/rust-extractor.js';
@@ -369,11 +370,13 @@ function emitDefinesEdges(
 ): void {
   for (const sym of symbols) {
     if (!DEFINES_SYMBOL_KINDS.has(sym.kind)) continue;
+    const confidence = 1.0;
     graph.addRelation({
       source: fileNodeId,
       target: sym.id,
       type: 'defines',
-      confidence: 1.0,
+      confidence,
+      confidenceLabel: confidenceLabelFromNumeric(confidence),
       reason: 'file declares symbol',
     });
   }
