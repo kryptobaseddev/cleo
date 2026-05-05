@@ -31,6 +31,11 @@ import { getAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
 import { canCancel } from './cancel-ops.js';
 import {
+  type DepGraphValidateResult,
+  type DepValidateScope,
+  runValidation,
+} from './dep-graph-validator.js';
+import {
   detectCircularDeps,
   getBlockedTasks,
   getLeafBlockers,
@@ -2877,6 +2882,275 @@ export async function taskDepsCycles(projectRoot: string): Promise<
   } catch (err: unknown) {
     return nonCrudEngineError(err, 'Failed to detect cycles');
   }
+}
+
+/**
+ * Run dep-graph validation — orphan, circular, cross-epic gap, stale-dep detection.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param epicId - Optional epic ID to scope validation to direct children only.
+ * @param scope - Which tasks to include: all, open, or critical-priority only.
+ * @returns EngineResult with validation issues and summary.
+ * @task T1857
+ * @epic T1855
+ */
+export async function taskDepsValidate(
+  projectRoot: string,
+  epicId?: string,
+  scope: DepValidateScope = 'all',
+): Promise<EngineResult<DepGraphValidateResult>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const { tasks } = await accessor.queryTasks({});
+    const result = runValidation(tasks, { epicId, scope });
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to run dep-graph validation');
+  }
+}
+
+/**
+ * Render a dep-graph tree for a given epic in text, Mermaid, or JSON format.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param epicId - Epic ID to visualise.
+ * @param format - Output format: 'text' | 'mermaid' | 'json'.
+ * @returns EngineResult with rendered output and structured node/edge data.
+ * @task T1857
+ * @epic T1855
+ */
+export async function taskDepsTree(
+  projectRoot: string,
+  epicId: string,
+  format: 'text' | 'mermaid' | 'json' = 'text',
+): Promise<EngineResult<import('@cleocode/contracts').TasksDepsTreeResult>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const { tasks } = await accessor.queryTasks({});
+
+    const taskMap = new Map(tasks.map((t) => [t.id, t]));
+    const epic = taskMap.get(epicId);
+    if (!epic) {
+      return engineError('E_NOT_FOUND', `Epic not found: ${epicId}`);
+    }
+
+    // Gather direct children (non-recursive — epic's immediate children only)
+    const children = tasks.filter((t) => t.parentId === epicId);
+    const scopedIds = new Set([epicId, ...children.map((t) => t.id)]);
+    const scopedTasks = tasks.filter((t) => scopedIds.has(t.id));
+
+    // Build nodes
+    const nodes = scopedTasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      depends: (t.depends ?? []).filter((d) => scopedIds.has(d)),
+    }));
+
+    // Build edges (dep → dependent, scoped to epic children)
+    const edges: Array<{ from: string; to: string }> = [];
+    for (const node of nodes) {
+      for (const depId of node.depends) {
+        if (scopedIds.has(depId)) {
+          edges.push({ from: depId, to: node.id });
+        }
+      }
+    }
+
+    // Compute critical path (longest chain) via longest-path in DAG
+    const criticalPath = computeCriticalPath(nodes, edges, epicId);
+
+    let rendered: string | null = null;
+    if (format === 'text') {
+      rendered = renderTextTree(nodes, edges, criticalPath);
+    } else if (format === 'mermaid') {
+      rendered = renderMermaidTree(nodes, edges, criticalPath);
+    }
+
+    return engineSuccess({
+      epicId,
+      format,
+      rendered,
+      nodes,
+      edges,
+      criticalPath,
+    });
+  } catch (err: unknown) {
+    return nonCrudEngineError(err, 'Failed to render dep tree');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tree rendering helpers (private to this module)
+// ---------------------------------------------------------------------------
+
+/** Node shape used by rendering helpers. */
+interface TreeNode {
+  id: string;
+  title: string;
+  status: string;
+  depends: string[];
+}
+
+/** Edge shape. */
+interface TreeEdge {
+  from: string;
+  to: string;
+}
+
+/**
+ * Compute the critical (longest) path through a dep DAG using topological DP.
+ * Returns task IDs from the path start to end.
+ */
+function computeCriticalPath(nodes: TreeNode[], edges: TreeEdge[], epicId: string): string[] {
+  // Build adjacency: from → [to, ...] (dependency → dependent)
+  const forward = new Map<string, string[]>();
+  const backward = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (!forward.has(n.id)) forward.set(n.id, []);
+    if (!backward.has(n.id)) backward.set(n.id, []);
+  }
+  for (const e of edges) {
+    (forward.get(e.from) ?? []).push(e.to);
+    (backward.get(e.to) ?? []).push(e.from);
+  }
+
+  // Topological sort (Kahn's)
+  const inDegree = new Map<string, number>();
+  for (const n of nodes) inDegree.set(n.id, (backward.get(n.id) ?? []).length);
+
+  const queue: string[] = [];
+  for (const [id, deg] of inDegree) {
+    if (deg === 0) queue.push(id);
+  }
+
+  const longest = new Map<string, number>();
+  const prev = new Map<string, string | null>();
+  for (const n of nodes) {
+    longest.set(n.id, 1);
+    prev.set(n.id, null);
+  }
+
+  const topo: string[] = [];
+  const remaining = new Map(inDegree);
+  const q = [...queue];
+  while (q.length > 0) {
+    const cur = q.shift()!;
+    topo.push(cur);
+    for (const next of forward.get(cur) ?? []) {
+      const curLen = (longest.get(cur) ?? 1) + 1;
+      if (curLen > (longest.get(next) ?? 1)) {
+        longest.set(next, curLen);
+        prev.set(next, cur);
+      }
+      const deg = (remaining.get(next) ?? 1) - 1;
+      remaining.set(next, deg);
+      if (deg === 0) q.push(next);
+    }
+  }
+
+  if (topo.length === 0) return []; // cycle — skip
+
+  // Find the node with the maximum longest-path value
+  let maxLen = 0;
+  let endNode = '';
+  for (const [id, len] of longest) {
+    if (id === epicId) continue; // exclude the epic root from end selection
+    if (len > maxLen) {
+      maxLen = len;
+      endNode = id;
+    }
+  }
+
+  if (!endNode) return [];
+
+  // Trace back from endNode
+  const path: string[] = [];
+  let cur: string | null = endNode;
+  while (cur) {
+    path.unshift(cur);
+    cur = prev.get(cur) ?? null;
+  }
+
+  return path;
+}
+
+/** Status symbol for text output. */
+function statusSymbol(status: string): string {
+  switch (status) {
+    case 'done':
+      return '[x]';
+    case 'cancelled':
+      return '[-]';
+    case 'active':
+      return '[>]';
+    default:
+      return '[ ]';
+  }
+}
+
+/**
+ * Render a simple ASCII dep tree.
+ * Groups tasks by their immediate deps (roots first, then dependents).
+ */
+function renderTextTree(nodes: TreeNode[], _edges: TreeEdge[], criticalPath: string[]): string {
+  const cpSet = new Set(criticalPath);
+  const lines: string[] = [];
+
+  // Roots (no deps inside the scoped set)
+  const roots = nodes.filter((n) => n.depends.length === 0);
+  // Non-roots
+  const nonRoots = nodes.filter((n) => n.depends.length > 0);
+
+  lines.push('Dep tree:');
+  for (const n of roots) {
+    const cp = cpSet.has(n.id) ? ' **' : '';
+    lines.push(`  ${statusSymbol(n.status)} ${n.id}: ${n.title}${cp}`);
+  }
+  if (nonRoots.length > 0) {
+    lines.push('  Dependencies:');
+    for (const n of nonRoots) {
+      const cp = cpSet.has(n.id) ? ' **' : '';
+      lines.push(`  ${statusSymbol(n.status)} ${n.id}: ${n.title}${cp}`);
+      for (const depId of n.depends) {
+        lines.push(`    <- ${depId}`);
+      }
+    }
+  }
+
+  if (criticalPath.length > 0) {
+    lines.push(`\nCritical path (** marked): ${criticalPath.join(' -> ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Render a Mermaid graph TD block.
+ * Escapes double-quotes in task titles to prevent parse errors.
+ */
+function renderMermaidTree(nodes: TreeNode[], edges: TreeEdge[], criticalPath: string[]): string {
+  const cpSet = new Set(criticalPath);
+  const lines: string[] = ['graph TD'];
+
+  for (const n of nodes) {
+    // Escape quotes and brackets in titles for Mermaid safety
+    const safeTitle = n.title.replace(/"/g, "'").replace(/[[\]]/g, '');
+    lines.push(`  ${n.id}["${n.id}: ${safeTitle} (${n.status})"]`);
+  }
+
+  for (const e of edges) {
+    lines.push(`  ${e.from} --> ${e.to}`);
+  }
+
+  if (cpSet.size > 0) {
+    lines.push('  classDef critical fill:#f96,stroke:#c00;');
+    for (const id of cpSet) {
+      lines.push(`  class ${id} critical;`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 /**
