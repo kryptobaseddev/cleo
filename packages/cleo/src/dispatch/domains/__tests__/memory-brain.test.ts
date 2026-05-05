@@ -295,7 +295,7 @@ describe('MemoryHandler (brain.db backed)', () => {
 
       await handler.query('decision.find', { taskId: 'T5241', limit: 10 });
       expect(memoryDecisionFind).toHaveBeenCalledWith(
-        { query: undefined, taskId: 'T5241', limit: 10 },
+        { query: undefined, taskId: 'T5241', limit: 10, includeAgentDispatch: false },
         '/mock/project',
       );
     });
