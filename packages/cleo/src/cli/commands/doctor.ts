@@ -19,7 +19,9 @@ import { getProjectRoot, quarantineRogueCleoDir, scanRogueCleoDirs } from '@cleo
 import { defineCommand } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { createDoctorProgress } from '../progress.js';
+import { cliError, humanLine } from '../renderers/index.js';
 import { runDoctorProjects } from './doctor-projects.js';
+import { readMigrationConflicts } from './migrate-agents-v2.js';
 
 /**
  * Render the hook matrix as a human-readable provider x event grid.
@@ -32,14 +34,14 @@ import { runDoctorProjects } from './doctor-projects.js';
 function renderHookMatrixHuman(data: HookMatrixResult): void {
   const { events, providers, matrix, summary, caampVersion, detectedProvider } = data;
 
-  process.stdout.write(`\nProvider Hook Matrix (CAAMP ${caampVersion} canonical taxonomy)\n\n`);
+  humanLine(`\nProvider Hook Matrix (CAAMP ${caampVersion} canonical taxonomy)\n`);
 
   if (detectedProvider) {
-    process.stdout.write(`Detected provider: ${detectedProvider}\n\n`);
+    humanLine(`Detected provider: ${detectedProvider}\n`);
   }
 
   if (providers.length === 0) {
-    process.stdout.write('No providers found in CAAMP registry.\n');
+    humanLine('No providers found in CAAMP registry.');
     return;
   }
 
@@ -50,10 +52,10 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
     'Event'.padEnd(EVENT_COL),
     ...providers.map((p, i) => p.padEnd(provCols[i]!)),
   ];
-  process.stdout.write(`  ${headerParts.join('  ')}\n`);
+  humanLine(`  ${headerParts.join('  ')}`);
 
   const sepParts = ['-'.repeat(EVENT_COL), ...provCols.map((w) => '-'.repeat(w))];
-  process.stdout.write(`  ${sepParts.join('  ')}\n`);
+  humanLine(`  ${sepParts.join('  ')}`);
 
   for (const event of events) {
     const cells = providers.map((p, i) => {
@@ -61,14 +63,14 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
       const symbol = supported ? '\u2713' : '-';
       return symbol.padEnd(provCols[i]!);
     });
-    process.stdout.write(`  ${event.padEnd(EVENT_COL)}  ${cells.join('  ')}\n`);
+    humanLine(`  ${event.padEnd(EVENT_COL)}  ${cells.join('  ')}`);
   }
 
-  process.stdout.write('\n');
+  humanLine('');
   const coverageParts = summary.map(
     (s) => `${s.providerId} ${s.supportedCount}/${s.totalCanonical} (${s.coverage}%)`,
   );
-  process.stdout.write(`Coverage: ${coverageParts.join(', ')}\n\n`);
+  humanLine(`Coverage: ${coverageParts.join(', ')}\n`);
 }
 
 /**
@@ -78,11 +80,11 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
  */
 function renderRogueReportHuman(report: RogueDirReport): void {
   const totalKb = (report.totalSize / 1024).toFixed(1);
-  process.stdout.write(`\n  Package: ${report.packageName}\n`);
-  process.stdout.write(`  Path:    ${report.path}\n`);
-  process.stdout.write(`  Size:    ${totalKb} KB (${report.fileManifest.length} files)\n`);
-  process.stdout.write(
-    `  Marker:  ${report.hasProjectInfoMarker ? 'has project-info.json (unexpected!)' : 'no project-info.json (rogue)'}\n`,
+  humanLine(`\n  Package: ${report.packageName}`);
+  humanLine(`  Path:    ${report.path}`);
+  humanLine(`  Size:    ${totalKb} KB (${report.fileManifest.length} files)`);
+  humanLine(
+    `  Marker:  ${report.hasProjectInfoMarker ? 'has project-info.json (unexpected!)' : 'no project-info.json (rogue)'}`,
   );
 
   const { tasks, brain_observations, brain_decisions } = report.dbRowCounts;
@@ -91,13 +93,13 @@ function renderRogueReportHuman(report: RogueDirReport): void {
     if (tasks !== undefined) parts.push(`tasks=${tasks}`);
     if (brain_observations !== undefined) parts.push(`brain_observations=${brain_observations}`);
     if (brain_decisions !== undefined) parts.push(`brain_decisions=${brain_decisions}`);
-    process.stdout.write(`  DB rows: ${parts.join(', ')}\n`);
+    humanLine(`  DB rows: ${parts.join(', ')}`);
   }
 
   if (report.drizzleMigrations.length > 0) {
-    process.stdout.write(`  Migrations (${report.drizzleMigrations.length}):\n`);
+    humanLine(`  Migrations (${report.drizzleMigrations.length}):`);
     for (const m of report.drizzleMigrations) {
-      process.stdout.write(`    [${m.id}] ${m.name ?? m.hash.slice(0, 16)}\n`);
+      humanLine(`    [${m.id}] ${m.name ?? m.hash.slice(0, 16)}`);
     }
   }
 }
@@ -197,9 +199,9 @@ export const doctorCommand = defineCommand({
           if (response.success && response.data) {
             renderHookMatrixHuman(response.data as HookMatrixResult);
           } else {
-            process.stderr.write(
-              `Error: ${response.error?.message ?? 'Failed to build hook matrix'}\n`,
-            );
+            cliError(response.error?.message ?? 'Failed to build hook matrix', 1, {
+              name: 'E_INTERNAL',
+            });
             process.exitCode = 1;
           }
         } else {
@@ -264,13 +266,13 @@ export const doctorCommand = defineCommand({
           process.stdout.write(JSON.stringify({ success: true, data: reports }, null, 2) + '\n');
         } else {
           if (reports.length === 0) {
-            process.stdout.write('\nNo rogue .cleo/ directories found.\n');
+            humanLine('\nNo rogue .cleo/ directories found.');
           } else {
-            process.stdout.write(`\nRogue .cleo/ directories (${reports.length}):\n`);
+            humanLine(`\nRogue .cleo/ directories (${reports.length}):`);
             for (const report of reports) {
               renderRogueReportHuman(report);
             }
-            process.stdout.write('\n');
+            humanLine('');
           }
         }
       } else if (args['quarantine-rogue-cleo-dirs']) {
@@ -282,7 +284,7 @@ export const doctorCommand = defineCommand({
         if (reports.length === 0) {
           progress.complete('No rogue .cleo/ directories found — nothing to quarantine');
           if (!args.json) {
-            process.stdout.write('\nNo rogue .cleo/ directories found.\n');
+            humanLine('\nNo rogue .cleo/ directories found.');
           } else {
             process.stdout.write(
               JSON.stringify({ success: true, data: { quarantined: [] } }, null, 2) + '\n',
@@ -336,18 +338,18 @@ export const doctorCommand = defineCommand({
             ) + '\n',
           );
         } else {
-          process.stdout.write(`\n${verb}:\n`);
+          humanLine(`\n${verb}:`);
           for (const q of quarantined) {
-            process.stdout.write(`  ${q.packageName}: ${q.from}\n    -> ${q.to}\n`);
+            humanLine(`  ${q.packageName}: ${q.from}\n    -> ${q.to}`);
           }
           if (errors.length > 0) {
-            process.stdout.write(`\nErrors (${errors.length}):\n`);
+            humanLine(`\nErrors (${errors.length}):`);
             for (const e of errors) {
-              process.stdout.write(`  ${e.packageName}: ${e.error}\n`);
+              humanLine(`  ${e.packageName}: ${e.error}`);
             }
             process.exitCode = 1;
           }
-          process.stdout.write('\n');
+          humanLine('');
         }
       } else {
         progress.step(0, 'Checking CLEO directory');
@@ -358,7 +360,39 @@ export const doctorCommand = defineCommand({
           { detailed: args.detailed },
           { command: 'doctor', operation: 'admin.health' },
         );
-        progress.complete('Health check complete');
+
+        // MIGRATE-AGENTS-V2-CONFLICT diagnostic: surface any unresolved
+        // agent migration conflicts logged by `cleo migrate agents-v2`.
+        // @task T1938 @epic T1929
+        try {
+          const projectRoot = getProjectRoot();
+          const conflicts = readMigrationConflicts(projectRoot);
+          if (conflicts.length > 0) {
+            progress.complete(
+              `Health check complete — ${conflicts.length} agent migration conflict(s) detected`,
+            );
+            humanLine(
+              `\n[MIGRATE-AGENTS-V2-CONFLICT] ${conflicts.length} agent(s) have conflicting .cant content between disk and signaldock.db:`,
+            );
+            for (const c of conflicts) {
+              humanLine(
+                `  - ${c.agentName} (${c.filePath})\n` +
+                  `    disk sha256:     ${c.newSha256 ?? 'unknown'}\n` +
+                  `    registry sha256: ${c.existingSha256 ?? 'unknown'}\n` +
+                  `    Resolve: inspect the conflict and either update the registry via\n` +
+                  `    'cleo agent install --force <path>' or remove the conflicting file.`,
+              );
+            }
+            humanLine(`  Audit log: .cleo/audit/migration-agents-v2.jsonl\n`);
+            if (process.exitCode === undefined || process.exitCode === 0) {
+              process.exitCode = 2;
+            }
+          } else {
+            progress.complete('Health check complete');
+          }
+        } catch {
+          progress.complete('Health check complete');
+        }
       }
     } catch (err) {
       progress.error('Health check failed');
