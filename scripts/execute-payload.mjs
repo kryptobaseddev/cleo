@@ -65,6 +65,7 @@ const { version, outputDir } = args;
 /** @type {string[]} */
 const PUBLISHED_PACKAGES = [
   'contracts',
+  'paths',
   'lafs',
   'worktree',
   'git-shim',
@@ -82,6 +83,7 @@ const PUBLISHED_PACKAGES = [
   'cleo',
   'cleo-os',
   'mcp-adapter',
+  'studio',
 ];
 
 // ---------------------------------------------------------------------------
