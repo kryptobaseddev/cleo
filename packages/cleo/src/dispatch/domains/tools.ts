@@ -16,8 +16,11 @@
  */
 
 import { getLogger, getProjectRoot } from '@cleocode/core';
-import { codeOutline, codeParse, codeSearch, codeUnfold } from '@cleocode/core/internal';
 import {
+  codeOutline,
+  codeParse,
+  codeSearch,
+  codeUnfold,
   toolsAdapterActivate,
   toolsAdapterDetect,
   toolsAdapterDispose,
@@ -47,7 +50,7 @@ import {
   toolsSkillSpawnProviders,
   toolsSkillUninstall,
   toolsSkillVerify,
-} from '../engines/tools-engine.js';
+} from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
   errorResult,

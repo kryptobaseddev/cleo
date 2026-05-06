@@ -16,7 +16,7 @@ vi.mock('../../../../../core/src/logger.js', () => ({
   })),
 }));
 
-vi.mock('../../engines/sticky-engine.js', () => ({
+vi.mock('@cleocode/core/internal', () => ({
   stickyAdd: vi.fn(),
   stickyList: vi.fn(),
   stickyListFiltered: vi.fn(),
@@ -29,7 +29,7 @@ vi.mock('../../engines/sticky-engine.js', () => ({
   stickyPurge: vi.fn(),
 }));
 
-import { stickyListFiltered } from '../../engines/sticky-engine.js';
+import { stickyListFiltered } from '@cleocode/core/internal';
 import { StickyHandler } from '../sticky.js';
 
 describe('StickyHandler list compliance', () => {
