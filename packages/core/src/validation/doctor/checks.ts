@@ -14,7 +14,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
-import { getCleoHome } from '../../paths.js';
+import { getCleoHome, getCleoTemplatesDir, getCleoTemplatesTildePath } from '../../paths.js';
 import {
   getNodeUpgradeInstructions,
   getNodeVersionInfo,
@@ -140,9 +140,9 @@ export function checkDocsAccessibility(cleoHome: string = getCleoHome()): CheckR
 // ============================================================================
 
 /** @task T4525 */
-export function checkAtReferenceResolution(cleoHome: string = getCleoHome()): CheckResult {
-  const docsFile = join(cleoHome, 'templates', 'CLEO-INJECTION.md');
-  const reference = '@~/.cleo/templates/CLEO-INJECTION.md';
+export function checkAtReferenceResolution(): CheckResult {
+  const docsFile = join(getCleoTemplatesDir(), 'CLEO-INJECTION.md');
+  const reference = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
 
   if (!existsSync(docsFile)) {
     return {
@@ -921,14 +921,14 @@ export function checkAtReferenceTargetExists(projectRoot?: string): CheckResult 
 // ============================================================================
 
 /**
- * Compare templates/CLEO-INJECTION.md vs ~/.cleo/templates/CLEO-INJECTION.md.
+ * Compare templates/CLEO-INJECTION.md vs the XDG-canonical deployed path.
  * @task T5153
  */
-export function checkTemplateFreshness(projectRoot?: string, cleoHome?: string): CheckResult {
+export function checkTemplateFreshness(projectRoot?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
-  const home = cleoHome ?? getCleoHome();
   const sourcePath = join(root, 'templates', 'CLEO-INJECTION.md');
-  const deployedPath = join(home, 'templates', 'CLEO-INJECTION.md');
+  const deployedPath = join(getCleoTemplatesDir(), 'CLEO-INJECTION.md');
+  const deployedTildePath = `${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
 
   if (!existsSync(sourcePath)) {
     return {
@@ -946,9 +946,9 @@ export function checkTemplateFreshness(projectRoot?: string, cleoHome?: string):
       id: 'template_freshness',
       category: 'configuration',
       status: 'warning',
-      message: 'Deployed template not found at ~/.cleo/templates/',
+      message: `Deployed template not found at ${deployedTildePath}`,
       details: { deployedPath, exists: false },
-      fix: 'cp templates/CLEO-INJECTION.md ~/.cleo/templates/CLEO-INJECTION.md',
+      fix: 'cleo install',
     };
   }
 
@@ -962,7 +962,7 @@ export function checkTemplateFreshness(projectRoot?: string, cleoHome?: string):
       status: 'warning',
       message: 'Deployed template differs from source — may be stale',
       details: { sourcePath, deployedPath, match: false },
-      fix: 'cp templates/CLEO-INJECTION.md ~/.cleo/templates/CLEO-INJECTION.md',
+      fix: 'cleo install',
     };
   }
 
@@ -984,9 +984,8 @@ export function checkTemplateFreshness(projectRoot?: string, cleoHome?: string):
  * Verify all 3 tier markers exist with matching close tags in deployed template.
  * @task T5153
  */
-export function checkTierMarkersPresent(cleoHome?: string): CheckResult {
-  const home = cleoHome ?? getCleoHome();
-  const templatePath = join(home, 'templates', 'CLEO-INJECTION.md');
+export function checkTierMarkersPresent(): CheckResult {
+  const templatePath = join(getCleoTemplatesDir(), 'CLEO-INJECTION.md');
 
   if (!existsSync(templatePath)) {
     return {
@@ -995,7 +994,7 @@ export function checkTierMarkersPresent(cleoHome?: string): CheckResult {
       status: 'warning',
       message: 'Template not found — cannot check tier markers',
       details: { path: templatePath, exists: false },
-      fix: 'Run install.sh to reinstall CLEO',
+      fix: 'cleo install',
     };
   }
 
@@ -1025,7 +1024,7 @@ export function checkTierMarkersPresent(cleoHome?: string): CheckResult {
       status: 'warning',
       message: `Tier marker issues: ${parts.join('; ')}`,
       details: { missing, unclosed },
-      fix: 'Regenerate template from source: cp templates/CLEO-INJECTION.md ~/.cleo/templates/',
+      fix: 'cleo install',
     };
   }
 
@@ -1263,7 +1262,7 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkCliInstallation(home),
     checkCliVersion(home),
     checkDocsAccessibility(home),
-    checkAtReferenceResolution(home),
+    checkAtReferenceResolution(),
     checkAgentsMdHub(projectRoot),
     checkRootGitignore(projectRoot),
     checkCleoGitignore(projectRoot),
@@ -1276,8 +1275,8 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     // Injection chain checks (T5153)
     checkCaampMarkerIntegrity(projectRoot),
     checkAtReferenceTargetExists(projectRoot),
-    checkTemplateFreshness(projectRoot, home),
-    checkTierMarkersPresent(home),
+    checkTemplateFreshness(projectRoot),
+    checkTierMarkersPresent(),
     // Global schema and local schema deprecation checks
     checkGlobalSchemaHealth(projectRoot),
     checkNoLocalSchemas(projectRoot),
