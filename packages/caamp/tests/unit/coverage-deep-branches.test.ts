@@ -29,6 +29,7 @@ vi.mock("node:fs", () => ({
 
 describe("coverage: lock-utils.ts lock guard branches", () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
     mockMkdir.mockResolvedValue(undefined);
     mockRm.mockResolvedValue(undefined);
