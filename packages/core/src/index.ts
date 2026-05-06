@@ -268,6 +268,7 @@ export { createPage, paginate } from './pagination.js';
 // Paths
 export {
   assertProjectInitialized,
+  getCanonicalTemplatesTildePath,
   getCleoCacheDir,
   getCleoCantWorkflowsDir,
   getCleoConfigDir,
@@ -280,7 +281,6 @@ export {
   getCleoLogDir,
   getCleoPiExtensionsDir,
   getCleoTempDir,
-  getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath,
   getConfigPath,
   getGlobalConfigPath,
