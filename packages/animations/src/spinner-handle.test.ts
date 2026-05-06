@@ -13,7 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import { createAnimateContext, SILENT_CONTEXT } from './animate-context.js';
-import { createSpinnerHandle } from './spinner-handle.js';
+import { __resetExitListenersForTesting, createSpinnerHandle } from './spinner-handle.js';
 
 const ENABLED_CTX = createAnimateContext({
   flagResolution: { format: 'human', quiet: false },
@@ -219,6 +219,98 @@ describe('createSpinnerHandle', () => {
       vi.advanceTimersByTime(200);
       const written = recordedChunks().join('');
       expect(written).toContain('new-label');
+    });
+  });
+
+  /**
+   * Process-level listener invariant.
+   *
+   * @remarks
+   * The previous implementation installed a fresh `process.once('SIGINT', …)`
+   * (plus `'SIGTERM'`, plus `'exit'`) for every started handle. With CLEO's
+   * orchestrator fan-out spawning 4–5 concurrent spinners, this hit Node's
+   * default 10-listener warning threshold and created the visible
+   * "MaxListenersExceededWarning" line in production logs. The fix hoists
+   * the listeners to a single module-scoped registry; this suite pins that
+   * contract so future refactors cannot regress it.
+   */
+  describe('process-level exit listeners are shared, not per-handle', () => {
+    /** Signals the SpinnerHandle module installs listeners on. */
+    const TRACKED_SIGNALS = ['exit', 'SIGINT', 'SIGTERM'] as const;
+
+    /** Snapshot of the listener counts on each tracked signal. */
+    function snapshotListenerCounts(): Record<(typeof TRACKED_SIGNALS)[number], number> {
+      return {
+        exit: process.listenerCount('exit'),
+        SIGINT: process.listenerCount('SIGINT'),
+        SIGTERM: process.listenerCount('SIGTERM'),
+      };
+    }
+
+    beforeEach(() => {
+      // Each invariant test starts from a clean module state so the
+      // assertion targets the new registration cycle, not residual
+      // listeners installed by earlier tests in the same vitest run.
+      __resetExitListenersForTesting();
+    });
+
+    it('installs at most one listener per signal regardless of how many handles start', () => {
+      const before = snapshotListenerCounts();
+
+      const handles = Array.from({ length: 15 }, (_, i) =>
+        createSpinnerHandle(ENABLED_CTX, 'weaving', `task ${i}`, { delayMs: 0 }),
+      );
+      for (const h of handles) h.start();
+      vi.advanceTimersByTime(50);
+
+      const after = snapshotListenerCounts();
+
+      // Every signal gains exactly one listener — the shared dispatcher.
+      // Per-handle leak would have added 15 listeners per signal.
+      for (const signal of TRACKED_SIGNALS) {
+        expect(after[signal] - before[signal]).toBe(1);
+      }
+
+      for (const h of handles) h.stop();
+    });
+
+    it('a single handle still installs exactly one listener per signal', () => {
+      const before = snapshotListenerCounts();
+
+      const handle = createSpinnerHandle(ENABLED_CTX, 'looming', 'one', { delayMs: 0 });
+      handle.start();
+      vi.advanceTimersByTime(50);
+
+      const after = snapshotListenerCounts();
+
+      for (const signal of TRACKED_SIGNALS) {
+        expect(after[signal] - before[signal]).toBe(1);
+      }
+
+      handle.stop();
+    });
+
+    it('starting and stopping many handles does not leak listeners across cycles', () => {
+      const before = snapshotListenerCounts();
+
+      // 5 sequential start/stop cycles — old design would have leaked
+      // (`process.once` removes itself when fired, but the registration
+      // happens once per start; without a shared dispatcher each new
+      // start re-registered, accumulating handlers when none had fired).
+      for (let cycle = 0; cycle < 5; cycle++) {
+        const h = createSpinnerHandle(ENABLED_CTX, 'weaving', `c${cycle}`, { delayMs: 0 });
+        h.start();
+        vi.advanceTimersByTime(50);
+        h.stop();
+      }
+
+      const after = snapshotListenerCounts();
+
+      // Cumulative listener delta still 1 per signal (the shared dispatcher
+      // installed during the first start; never reinstalled).
+      for (const signal of TRACKED_SIGNALS) {
+        expect(after[signal] - before[signal]).toBe(1);
+      }
     });
   });
 });

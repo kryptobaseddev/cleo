@@ -45,7 +45,11 @@ drives every version bump.
   owner of `\r` writes for this package. Wraps a `Spinner` with a managed
   timer, cursor hide/show, exit-handler restoration, idempotent `start()` /
   `stop()`, and `update(label)`. Returns a frozen no-op handle when
-  `AnimateContext.enabled` is `false`.
+  `AnimateContext.enabled` is `false`. Process-level `exit` / `SIGINT` /
+  `SIGTERM` listeners are installed exactly **once per process** via a
+  shared module-scoped registry, so N concurrent handles add 1 listener
+  per signal (not N) — well clear of Node's default 10-listener warning
+  threshold even with heavy orchestrator fan-out.
 - **`scripts/demo.html`** — Cleo-themed self-contained vitrine page (open
   in any browser, no build step). Previews every primitive animating live,
   with API tables, code samples, and a light/dark theme toggle.
@@ -58,9 +62,11 @@ drives every version bump.
   `./braille`, `./package.json` — for tree-shaking and discoverability.
 - **`README.md`** — install, quick start, AnimateContext, registries,
   canon mapping, full API surface, custom-spinner recipe, attribution.
-- 150 tests covering frame-data snapshots, canon contract, AnimateContext
-  precedence, progress-bar boundaries, spark decay, and SpinnerHandle
-  idempotency / cursor management / context-disabled no-op behavior.
+- 153 tests covering frame-data snapshots, canon contract, AnimateContext
+  precedence, progress-bar boundaries, spark decay, SpinnerHandle
+  idempotency / cursor management / context-disabled no-op behavior, and
+  the process-level listener-count invariant (≤ 1 listener per signal,
+  regardless of how many handles run concurrently).
 - LICENSE: MIT, dual-copyright (Gunnar Gray + CLEO Code).
 - ESM-only, built via `tsc -p tsconfig.build.json` (matches monorepo
   conventions; dropped upstream's `tsup` + CJS/IIFE bundling).
