@@ -17,6 +17,7 @@ vi.mock('node:fs', async (importOriginal) => {
     existsSync: vi.fn((path: string) => {
       if (typeof path === 'string' && path.includes('.cursor')) return true;
       if (typeof path === 'string' && path.includes('.cursorrules')) return false;
+      if (typeof path === 'string' && path.includes('AGENTS.md')) return false;
       return false;
     }),
     readFileSync: vi.fn((path: string) => {
@@ -29,6 +30,22 @@ vi.mock('node:fs', async (importOriginal) => {
     mkdirSync: vi.fn(),
   };
 });
+
+vi.mock('node:fs/promises', () => ({
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  readFile: vi.fn().mockResolvedValue(''),
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  unlink: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@cleocode/caamp', () => ({
+  ensureProviderInstructionFile: vi.fn().mockResolvedValue({
+    filePath: '/tmp/test-project/AGENTS.md',
+    instructFile: 'AGENTS.md',
+    action: 'added',
+    providerId: 'cursor',
+  }),
+}));
 
 describe('CursorAdapter', () => {
   let adapter: CursorAdapter;
