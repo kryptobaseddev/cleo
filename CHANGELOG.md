@@ -1,5 +1,20 @@
 # Changelog
 
+## [2026.5.37] — 2026-05-06
+
+### Fixed
+- **T1936**: Classifier vocabulary registry-validation hardening — DB-backed `getRegisteredAgentIds(db?)` queries `signaldock.db.agents` at runtime with static 5-template fallback; new `validateClassifierRules()` hook throws `ClassifierUnregisteredAgentError` on startup drift. Replaces previously-uncommitted work that should have shipped in v2026.5.36.
+
+### Changed
+- **T9021**: `applyPerfPragmas` helper centralized SQLite pragma application across all chokepoint DB opens (`conduit-sqlite.ts`, `init.ts`, `seed-install.ts`, `local-transport.ts` + new `sqlite-pragmas.ts`). Improves cold-start performance for read-only and one-shot writer DB sessions.
+
+### Tasks
+- T1936 (classifier registry sync — actually-shipped this time)
+- T9021 epic + children (perf-pragma centralization, parallel session)
+- T9032/T9033 (release-prep + pre-tag fix-ups, retroactive)
+
+(Note: this is a hotfix for v2026.5.36, which shipped without T1936's classifier work due to a worker-discipline drift. Followups T9035/T9036/T9038 remain filed separately.)
+
 ## [2026.5.36] — 2026-05-06
 
 P0 hotfix: universal-tier path resolution gap — `resolveDefaultUniversalBasePath()` in `packages/core/src/store/agent-resolver.ts` now uses `require.resolve('@cleocode/agents/package.json')` as its primary resolution strategy (matching `resolveAgentTemplates()` / `resolveMetaAgentsDir()` from T1935), falling back to the existing relative-path walk. This restores workspace + published-CLI parity: the function previously failed in globally-installed CLI mode because `fileURLToPath(import.meta.url)` relative climbing did not match the npm install directory layout, causing `V_AGENT_NOT_FOUND` on every `cleo orchestrate spawn` call despite T1933 wiring the universal tier into the pre-flight validator. `resolveDefaultUniversalBasePath()` is now exported for direct testability. Two new tests added: workspace-mode validation (require.resolve hits `packages/agents/cleo-subagent.cant`) and published-CLI simulation (temp node_modules tree verified via same require.resolve strategy). Fixes T9037, closes T1929 blocking issue. (T9037 / T1929)
