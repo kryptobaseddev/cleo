@@ -49,3 +49,10 @@ export {
 
 // === Sparks (one-shot accents) ===
 export { type Spark, type SparkName, sparkDurationMs, sparks } from './spark.js';
+
+// === Spinner handle (canonical owner of \r writes) ===
+export {
+  createSpinnerHandle,
+  type SpinnerHandle,
+  type SpinnerHandleOptions,
+} from './spinner-handle.js';
