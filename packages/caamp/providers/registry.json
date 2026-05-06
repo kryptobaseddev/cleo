@@ -1994,6 +1994,44 @@
           ]
         }
       }
+    },
+    "openai-sdk": {
+      "id": "openai-sdk",
+      "toolName": "OpenAI SDK (Vercel AI SDK)",
+      "vendor": "OpenAI",
+      "agentFlag": "openai-sdk",
+      "aliases": [
+        "openai-agents",
+        "vercel-ai-sdk"
+      ],
+      "pathGlobal": "$HOME/.config/openai",
+      "pathProject": ".openai",
+      "instructFile": "AGENTS.md",
+      "pathSkills": "$HOME/.config/openai/skills",
+      "pathProjectSkills": ".openai/skills",
+      "detection": {
+        "methods": [
+          "env"
+        ],
+        "env": "OPENAI_API_KEY"
+      },
+      "priority": "medium",
+      "status": "active",
+      "agentSkillsCompatible": true,
+      "capabilities": {
+        "skills": {
+          "precedence": "agents-canonical",
+          "agentsGlobalPath": "$HOME/.agents/skills",
+          "agentsProjectPath": ".agents/skills"
+        },
+        "spawn": {
+          "supportsSubagents": true,
+          "supportsProgrammaticSpawn": true,
+          "supportsInterAgentComms": false,
+          "supportsParallelSpawn": false,
+          "spawnMechanism": "sdk"
+        }
+      }
     }
   }
 }
