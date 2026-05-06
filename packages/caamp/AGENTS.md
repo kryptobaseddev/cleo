@@ -92,6 +92,7 @@ tests/
 3. **Canonical+symlink** - Skills stored once, symlinked to each agent
 4. **Per-agent transforms** - 5 agents need custom MCP config shapes
 5. **3 instruction files only** - CLAUDE.md, AGENTS.md, GEMINI.md (no CODEX.md/KIMI.md)
+6. **CAAMP↔Adapters ownership boundary** - CAAMP owns the registry and the injection engine; `@cleocode/adapters` owns provider-specific runtime only. See [ADR-064: CAAMP↔Adapters Boundary](../../docs/adr/ADR-064-caamp-adapters-boundary.md).
 
 ## Provider Config Key Mapping
 

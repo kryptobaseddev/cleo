@@ -358,6 +358,9 @@ importers:
       '@cleocode/core':
         specifier: workspace:*
         version: link:../core
+      '@cleocode/paths':
+        specifier: workspace:*
+        version: link:../paths
       '@mariozechner/pi-coding-agent':
         specifier: '>=0.60.0'
         version: 0.66.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(ws@8.20.0)(zod@4.3.6)
@@ -548,6 +551,9 @@ importers:
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@cleocode/paths':
+        specifier: workspace:*
+        version: link:../paths
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
