@@ -9,13 +9,17 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
+import {
+  createSqliteDataAccessor,
+  releasePrepare,
+  releasePush,
+  resetDbState,
+} from '@cleocode/core/internal';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
-import { releasePrepare, releasePush } from '../release-engine.js';
+import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 
 // TEST_ROOT is created per-test under os.tmpdir() so the vitest isolation
 // guard (sqlite-native.ts) lets the open through and concurrent test runs
