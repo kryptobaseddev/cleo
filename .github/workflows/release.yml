@@ -114,7 +114,7 @@ jobs:
             echo "package.json (root) synced to $VERSION"
           fi
           # Then every publishable workspace package.
-          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio; do
+          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/mcp-adapter packages/studio packages/animations; do
             if [[ -f "$pkg/package.json" ]]; then
               jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
                 && mv "$pkg/package.tmp" "$pkg/package.json"
@@ -592,6 +592,11 @@ jobs:
           # can resolve them at install time on npm.
           publish_pkg worktree
           publish_pkg git-shim
+          # @cleocode/animations is a zero-cleocode-dep utility (terminal
+          # spinners / progress / sparks). Placed alongside the other leaves
+          # so it ships before any future @cleocode/cleo or @cleocode/cleo-os
+          # consumer can import it via workspace:*.
+          publish_pkg animations
           publish_pkg core
           publish_pkg caamp
           publish_pkg cant
