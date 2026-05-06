@@ -1,0 +1,65 @@
+{
+  "name": "@cleocode/animations",
+  "version": "2026.5.29",
+  "type": "module",
+  "description": "CLEO terminal animations — braille spinners, progress bars, and sparks for the cleo CLI and CleoOS. Forked from gunnargray-dev/unicode-animations (MIT).",
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/kryptobaseddev/cleo/tree/main/packages/animations",
+  "bugs": {
+    "url": "https://github.com/kryptobaseddev/cleo/issues"
+  },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./braille": {
+      "types": "./dist/src/braille.d.ts",
+      "import": "./dist/src/braille.js"
+    }
+  },
+  "files": [
+    "dist",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "bin": {
+    "cleocode-animations": "./scripts/demo.cjs"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "cd ../.. && vitest run packages/animations/src"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kryptobaseddev/cleo.git",
+    "directory": "packages/animations"
+  },
+  "keywords": [
+    "cleo",
+    "animations",
+    "braille",
+    "spinner",
+    "unicode",
+    "terminal",
+    "cli"
+  ],
+  "author": "CLEO Code <hello@cleocode.dev> (https://cleocode.dev)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  }
+}
