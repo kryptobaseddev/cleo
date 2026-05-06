@@ -1,14 +1,18 @@
 # Changelog
 
-## [v2026.5.32] — 2026-05-06
+## [2026.5.33] — 2026-05-06
+
+Hotfix: correct CHANGELOG section header format — CI checks for `## [VERSION]` without `v` prefix; v2026.5.32 entry used `## [v2026.5.32]` which failed the Verify CHANGELOG section CI step.
+
+## [2026.5.32] — 2026-05-06
 
 Hotfix: sort getCanonicalTemplatesTildePath export in packages/core/src/index.ts — biome CI rejected unsorted exports on v2026.5.31.
 
-## [v2026.5.31] — 2026-05-06
+## [2026.5.31] — 2026-05-06
 
 Hotfix: update pnpm-lock.yaml to include @cleocode/animations workspace link in @cleocode/cleo dependencies — lockfile was missing this entry causing CI `pnpm install --frozen-lockfile` to fail on v2026.5.30 tag.
 
-## [v2026.5.30] — 2026-05-06
+## [2026.5.30] — 2026-05-06
 
 Wave: T1929 Phase 1 (Agent System Canonicalization v2) + animations + CAAMP provider refs + CI fixes.
 
