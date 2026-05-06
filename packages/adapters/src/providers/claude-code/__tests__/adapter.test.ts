@@ -49,8 +49,19 @@ vi.mock('node:fs', async (importOriginal) => {
 });
 
 vi.mock('node:fs/promises', () => ({
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  readFile: vi.fn().mockResolvedValue(''),
   writeFile: vi.fn().mockResolvedValue(undefined),
   unlink: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@cleocode/caamp', () => ({
+  ensureProviderInstructionFile: vi.fn().mockResolvedValue({
+    filePath: '/tmp/test-project/CLAUDE.md',
+    instructFile: 'CLAUDE.md',
+    action: 'added',
+    providerId: 'claude-code',
+  }),
 }));
 
 describe('ClaudeCodeAdapter', () => {

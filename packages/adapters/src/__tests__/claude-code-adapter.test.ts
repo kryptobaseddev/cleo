@@ -186,18 +186,18 @@ describe('ClaudeCodeInstallProvider — integration', () => {
     expect(content).toContain('@.cleo/memory-bridge.md');
   });
 
-  it('does not duplicate existing references', async () => {
-    // Pre-seed with the dynamically-resolved reference so dedup logic fires
-    const { getCleoTemplatesTildePath } = await import('../providers/shared/paths.js');
-    const injectionRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
-    const existing = `${injectionRef}\n@.cleo/memory-bridge.md\n`;
-    writeFileSync(join(testDir, 'CLAUDE.md'), existing, 'utf-8');
-
+  it('is idempotent — calling twice does not duplicate the CAAMP block', async () => {
+    // First call creates the CAAMP-managed block
     await install.ensureInstructionReferences(testDir);
-    const content = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
-    // Should not have duplicated lines
-    const injectionCount = (content.match(/@~\/.+\/CLEO-INJECTION\.md/g) ?? []).length;
-    expect(injectionCount).toBe(1);
+    const firstContent = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
+    const firstCount = (firstContent.match(/@~\/.+\/CLEO-INJECTION\.md/g) ?? []).length;
+    expect(firstCount).toBe(1);
+
+    // Second call must be idempotent — CAAMP detects existing block and returns 'intact'
+    await install.ensureInstructionReferences(testDir);
+    const secondContent = readFileSync(join(testDir, 'CLAUDE.md'), 'utf-8');
+    const secondCount = (secondContent.match(/@~\/.+\/CLEO-INJECTION\.md/g) ?? []).length;
+    expect(secondCount).toBe(1);
   });
 
   it('install returns expected shape', async () => {
