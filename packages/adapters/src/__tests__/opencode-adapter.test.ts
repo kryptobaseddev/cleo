@@ -219,17 +219,18 @@ describe('OpenCodeInstallProvider — integration', () => {
     expect(content).toContain('@.cleo/memory-bridge.md');
   });
 
-  it('does not duplicate existing references', async () => {
-    // Pre-seed with the dynamically-resolved reference so dedup logic fires
-    const { getCleoTemplatesTildePath } = await import('../providers/shared/paths.js');
-    const injectionRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
-    const existing = `${injectionRef}\n@.cleo/memory-bridge.md\n`;
-    writeFileSync(join(testDir, 'AGENTS.md'), existing, 'utf-8');
-
+  it('does not duplicate CAAMP block on repeated calls', async () => {
+    // First call: creates AGENTS.md with a CAAMP block containing the references.
     await install.ensureInstructionReferences(testDir);
-    const content = readFileSync(join(testDir, 'AGENTS.md'), 'utf-8');
-    const injectionCount = (content.match(/@~\/.+\/CLEO-INJECTION\.md/g) ?? []).length;
-    expect(injectionCount).toBe(1);
+    const afterFirst = readFileSync(join(testDir, 'AGENTS.md'), 'utf-8');
+    const blockCountFirst = (afterFirst.match(/<!-- CAAMP:START -->/g) ?? []).length;
+    expect(blockCountFirst).toBe(1);
+
+    // Second call: CAAMP detects the block is intact and does not duplicate it.
+    await install.ensureInstructionReferences(testDir);
+    const afterSecond = readFileSync(join(testDir, 'AGENTS.md'), 'utf-8');
+    const blockCountSecond = (afterSecond.match(/<!-- CAAMP:START -->/g) ?? []).length;
+    expect(blockCountSecond).toBe(1);
   });
 
   it('install returns expected shape', async () => {

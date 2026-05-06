@@ -15,12 +15,12 @@
 
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import type { UserProfileTrait } from '@cleocode/contracts';
 import { importFromPackage } from '../admin/import-tasks.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
+import { getCleoHome } from '../paths.js';
 import { createLink } from '../reconciliation/link-store.js';
 import {
   exportSnapshot,
@@ -72,8 +72,7 @@ interface UserProfileJson {
 
 /** Default path for the portable user-profile JSON file. */
 export function getDefaultUserProfilePath(): string {
-  const cleoHome = process.env['CLEO_HOME'] ?? `${homedir()}/.local/share/cleo`;
-  return resolve(cleoHome, 'user_profile.json');
+  return resolve(getCleoHome(), 'user_profile.json');
 }
 
 // ---------------------------------------------------------------------------

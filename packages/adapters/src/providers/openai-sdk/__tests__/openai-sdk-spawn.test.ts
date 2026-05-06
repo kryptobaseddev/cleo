@@ -23,11 +23,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Hoist shared state so vi.mock factories can reference it
 // ---------------------------------------------------------------------------
 
-const { generateTextCalls, mockRunState, mockFsState } = vi.hoisted(() => {
+const { generateTextCalls, mockRunState, mockFsState, mockCaampState } = vi.hoisted(() => {
   return {
     generateTextCalls: [] as Array<{ model: unknown; system?: string; prompt: string }>,
     mockRunState: { output: 'mock output', shouldThrow: false },
     mockFsState: { exists: false, content: '' },
+    mockCaampState: {
+      action: 'created' as 'created' | 'added' | 'consolidated' | 'updated' | 'intact',
+    },
   };
 });
 
@@ -52,7 +55,7 @@ vi.mock('ai', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock node:fs for install provider tests
+// Mock node:fs for install provider tests (ensureConfigDir + isInstalled)
 // ---------------------------------------------------------------------------
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -61,11 +64,29 @@ vi.mock('node:fs', async (importOriginal) => {
     ...actual,
     existsSync: vi.fn((path: string) => {
       if (typeof path === 'string' && path.includes('AGENTS.md')) return mockFsState.exists;
+      // .openai config dir: report not existing so we can test creation
       return false;
     }),
     readFileSync: vi.fn(() => mockFsState.content),
     writeFileSync: vi.fn(),
     mkdirSync: vi.fn(),
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Mock @cleocode/caamp for install provider tests
+// ---------------------------------------------------------------------------
+
+vi.mock('@cleocode/caamp', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/caamp')>();
+  return {
+    ...actual,
+    ensureProviderInstructionFile: vi.fn(async () => ({
+      filePath: '/tmp/project/AGENTS.md',
+      instructFile: 'AGENTS.md',
+      action: mockCaampState.action,
+      providerId: 'openai-sdk',
+    })),
   };
 });
 
@@ -558,6 +579,7 @@ describe('OpenAiSdkInstallProvider', () => {
     installProvider = new OpenAiSdkInstallProvider();
     mockFsState.exists = false;
     mockFsState.content = '';
+    mockCaampState.action = 'created';
   });
 
   afterEach(() => vi.clearAllMocks());
@@ -577,14 +599,13 @@ describe('OpenAiSdkInstallProvider', () => {
     });
 
     it('marks instructionFileUpdated when AGENTS.md is created', async () => {
-      mockFsState.exists = false;
+      mockCaampState.action = 'created';
       const result = await installProvider.install({ projectDir: '/tmp/project' });
       expect(result.instructionFileUpdated).toBe(true);
     });
 
-    it('does not mark updated when references already present', async () => {
-      mockFsState.exists = true;
-      mockFsState.content = '@~/.cleo/templates/CLEO-INJECTION.md\n@.cleo/memory-bridge.md\n';
+    it('does not mark updated when references already present (intact)', async () => {
+      mockCaampState.action = 'intact';
       const result = await installProvider.install({ projectDir: '/tmp/project' });
       expect(result.instructionFileUpdated).toBe(false);
     });
