@@ -16,6 +16,7 @@ import { buildManifestEntryFromShorthand } from '@cleocode/core/memory/manifest-
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
+import { cliError } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Subcommands
@@ -219,7 +220,7 @@ const appendCommand = defineCommand({
       try {
         entry = JSON.parse(args.entry);
       } catch (_err) {
-        console.error('Error: --entry must be valid JSON');
+        cliError('--entry must be valid JSON', 1, { name: 'E_VALIDATION' });
         process.exit(1);
       }
     } else if (args.file) {
@@ -229,7 +230,7 @@ const appendCommand = defineCommand({
         const fileContent = fs.readFileSync(args.file, 'utf-8');
         entry = JSON.parse(fileContent);
       } catch (_err) {
-        console.error(`Error: failed to read or parse ${args.file}`);
+        cliError(`failed to read or parse ${args.file}`, 1, { name: 'E_VALIDATION' });
         process.exit(1);
       }
     } else if (hasShorthand) {
@@ -250,16 +251,17 @@ const appendCommand = defineCommand({
       // Try to read from stdin
       const stdinData = await readStdin();
       if (!stdinData) {
-        console.error(
-          'Error: must provide --entry JSON, --file path, stdin, or shorthand ' +
-            '(--task + --type + --content)',
+        cliError(
+          'must provide --entry JSON, --file path, stdin, or shorthand (--task + --type + --content)',
+          1,
+          { name: 'E_VALIDATION' },
         );
         process.exit(1);
       }
       try {
         entry = JSON.parse(stdinData);
       } catch (_err) {
-        console.error('Error: stdin must be valid JSON');
+        cliError('stdin must be valid JSON', 1, { name: 'E_VALIDATION' });
         process.exit(1);
       }
     }
@@ -316,13 +318,17 @@ const archiveCommand = defineCommand({
   async run({ args }) {
     // Ensure either id or before-date is provided
     if (!args.id && !args['before-date']) {
-      console.error('Error: must provide either <id> positional argument or --before-date flag');
+      cliError('must provide either <id> positional argument or --before-date flag', 1, {
+        name: 'E_VALIDATION',
+      });
       process.exit(1);
     }
 
     // Ensure id and before-date are not both provided
     if (args.id && args['before-date']) {
-      console.error('Error: --before-date is mutually exclusive with <id> positional argument');
+      cliError('--before-date is mutually exclusive with <id> positional argument', 1, {
+        name: 'E_VALIDATION',
+      });
       process.exit(1);
     }
 

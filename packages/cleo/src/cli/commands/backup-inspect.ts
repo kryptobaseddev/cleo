@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { defineCommand } from 'citty';
+import { cliError, humanLine } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -262,7 +263,7 @@ function printInspectReport(
   lines.push('');
   lines.push(`Manifest integrity: [${integrityOk ? 'OK' : 'TAMPERED'}]`);
 
-  console.log(lines.join('\n'));
+  humanLine(lines.join('\n'));
 }
 
 // ---------------------------------------------------------------------------
@@ -315,12 +316,7 @@ async function inspectAction(bundlePath: string): Promise<void> {
   const resolved = path.resolve(bundlePath);
 
   if (!fs.existsSync(resolved)) {
-    console.error(
-      JSON.stringify({
-        success: false,
-        error: { code: 4, message: `Bundle not found: ${bundlePath}` },
-      }),
-    );
+    cliError(`Bundle not found: ${bundlePath}`, 4, { name: 'E_NOT_FOUND' });
     process.exitCode = 4;
     return;
   }
@@ -331,7 +327,7 @@ async function inspectAction(bundlePath: string): Promise<void> {
     const passphrase = process.env['CLEO_BACKUP_PASSPHRASE'];
     if (!passphrase) {
       // Spec §5.3 step 1: report encryption status, exit 0.
-      console.log(
+      humanLine(
         [
           `Bundle:    ${bundlePath}`,
           'Encrypted: yes',
@@ -353,25 +349,16 @@ async function inspectAction(bundlePath: string): Promise<void> {
 
     // Validate header version byte before attempting decryption.
     if (encrypted_buf.length < ENC_MIN_LENGTH) {
-      console.error(
-        JSON.stringify({
-          success: false,
-          error: { code: 70, message: 'Encrypted bundle payload too short' },
-        }),
-      );
+      cliError('Encrypted bundle payload too short', 70, { name: 'E_DECRYPT_FAILED' });
       process.exitCode = 70;
       return;
     }
     const versionByte = encrypted_buf[ENC_VERSION_OFFSET];
     if (versionByte !== ENC_VERSION_SUPPORTED) {
-      console.error(
-        JSON.stringify({
-          success: false,
-          error: {
-            code: 70,
-            message: `Unsupported encrypted bundle version ${versionByte ?? 'undefined'}; expected ${ENC_VERSION_SUPPORTED}`,
-          },
-        }),
+      cliError(
+        `Unsupported encrypted bundle version ${versionByte ?? 'undefined'}; expected ${ENC_VERSION_SUPPORTED}`,
+        70,
+        { name: 'E_DECRYPT_FAILED' },
       );
       process.exitCode = 70;
       return;
@@ -382,12 +369,10 @@ async function inspectAction(bundlePath: string): Promise<void> {
       decryptedBuf = decryptBundle(encrypted_buf, passphrase);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(
-        JSON.stringify({
-          success: false,
-          error: { code: 70, message: `Decryption failed: ${msg}` },
-        }),
-      );
+      cliError(`Decryption failed: ${msg}`, 70, {
+        name: 'E_DECRYPT_FAILED',
+        fix: 'Verify CLEO_BACKUP_PASSPHRASE matches the bundle.',
+      });
       process.exitCode = 70;
       return;
     }
@@ -433,24 +418,14 @@ async function inspectTarball(
     tarBuf = zlib.gunzipSync(compressedBuf);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({
-        success: false,
-        error: { code: 71, message: `Failed to decompress bundle: ${msg}` },
-      }),
-    );
+    cliError(`Failed to decompress bundle: ${msg}`, 71, { name: 'E_DECOMPRESS_FAILED' });
     process.exitCode = 71;
     return;
   }
 
   const manifestContent = extractManifestFromTar(tarBuf);
   if (!manifestContent) {
-    console.error(
-      JSON.stringify({
-        success: false,
-        error: { code: 74, message: 'manifest.json not found in bundle' },
-      }),
-    );
+    cliError('manifest.json not found in bundle', 74, { name: 'E_MANIFEST_MISSING' });
     process.exitCode = 74;
     return;
   }
@@ -460,12 +435,7 @@ async function inspectTarball(
     manifest = JSON.parse(manifestContent) as Record<string, unknown>;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({
-        success: false,
-        error: { code: 71, message: `Failed to parse manifest.json: ${msg}` },
-      }),
-    );
+    cliError(`Failed to parse manifest.json: ${msg}`, 71, { name: 'E_MANIFEST_PARSE' });
     process.exitCode = 71;
     return;
   }

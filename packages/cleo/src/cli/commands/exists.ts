@@ -6,7 +6,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { getTask, resolveProjectRoot } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 /** Native citty command for `cleo exists <task-id>`. */
 export const existsCommand = defineCommand({
   meta: { name: 'exists', description: 'Check if a task ID exists (exit 0=exists, 4=not found)' },
@@ -21,7 +21,13 @@ export const existsCommand = defineCommand({
     try {
       task = await getTask(taskId, cwd);
     } catch (err) {
-      console.error(`exists: ${err instanceof Error ? err.message : String(err)}`);
+      cliError(
+        `exists: ${err instanceof Error ? err.message : String(err)}`,
+        ExitCode.GENERAL_ERROR,
+        {
+          name: 'E_INTERNAL',
+        },
+      );
       process.exit(ExitCode.GENERAL_ERROR);
     }
     if (!task) {

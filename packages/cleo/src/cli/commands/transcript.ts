@@ -187,8 +187,11 @@ const extractCommand = defineCommand({
         }
         sessions.push({ sessionId: args['session-id'], path });
       } else {
-        process.stderr.write(
-          'Provide a session-id or use --all-warm to extract all warm sessions\n',
+        cliError(
+          'Provide a session-id or use --all-warm to extract all warm sessions',
+          2,
+          { name: 'E_INVALID_INPUT' },
+          { operation: 'transcript.extract' },
         );
         process.exit(2);
         return;

@@ -28,7 +28,7 @@ import {
   runBrainMaintenance,
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanInfo, humanProgress } from '../renderers/index.js';
 
 /** cleo brain maintenance — temporal decay, consolidation, and embedding backfill */
 const maintenanceCommand = defineCommand({
@@ -72,19 +72,17 @@ const maintenanceCommand = defineCommand({
         onProgress: (step, current, total) => {
           if (step === 'embeddings' && total > 0) {
             if (process.stdout.isTTY) {
-              process.stdout.clearLine(0);
-              process.stdout.cursorTo(0);
-              process.stdout.write(`  [embeddings] ${current}/${total}...`);
+              humanProgress(`\r  [embeddings] ${current}/${total}...`);
             } else if (current === 1 || current === total) {
-              process.stderr.write(`  [embeddings] ${current}/${total}...\n`);
+              humanInfo(`  [embeddings] ${current}/${total}...`);
             }
           } else if (current === 0) {
-            process.stderr.write(`  [${step}] starting...\n`);
+            humanInfo(`  [${step}] starting...`);
           } else if (current === total && total > 0) {
             if (step === 'embeddings' && process.stdout.isTTY) {
-              process.stdout.write('\n');
+              humanProgress('\n');
             }
-            process.stderr.write(`  [${step}] done\n`);
+            humanInfo(`  [${step}] done`);
           }
         },
       });

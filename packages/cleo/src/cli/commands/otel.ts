@@ -29,7 +29,7 @@ import {
   getRealTokenUsage,
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /** cleo otel status — show token tracking status and recent activity */
 const statusCommand = defineCommand({
@@ -40,7 +40,7 @@ const statusCommand = defineCommand({
       cliOutput(result, { command: 'otel' });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
         process.exit(err.code);
       }
       throw err;
@@ -57,7 +57,7 @@ const summaryCommand = defineCommand({
       cliOutput(result, { command: 'otel' });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
         process.exit(err.code);
       }
       throw err;
@@ -87,7 +87,7 @@ const sessionsCommand = defineCommand({
       cliOutput(result, { command: 'otel' });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
         process.exit(err.code);
       }
       throw err;
@@ -117,7 +117,7 @@ const spawnsCommand = defineCommand({
       cliOutput(result, { command: 'otel' });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
         process.exit(err.code);
       }
       throw err;
@@ -147,7 +147,7 @@ const realCommand = defineCommand({
       cliOutput(result, { command: 'otel' });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
         process.exit(err.code);
       }
       throw err;
@@ -164,7 +164,7 @@ const clearCommand = defineCommand({
       cliOutput(result, { command: 'otel' });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
         process.exit(err.code);
       }
       throw err;

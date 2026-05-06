@@ -25,7 +25,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanWarn } from '../renderers/index.js';
 
 /** cleo session start — start a new session */
 const startCommand = defineCommand({
@@ -77,7 +77,12 @@ const startCommand = defineCommand({
     if (args['owner-auth']) {
       ownerAuthToken = await promptOwnerAuthPassword(args.name ?? 'session');
       if (!ownerAuthToken) {
-        process.stderr.write('[cleo] --owner-auth: password prompt cancelled.\n');
+        cliError(
+          '--owner-auth: password prompt cancelled.',
+          ExitCode.GENERAL_ERROR,
+          { name: 'E_PROMPT_CANCELLED' },
+          { operation: 'session.start' },
+        );
         process.exit(ExitCode.GENERAL_ERROR);
       }
     }
@@ -112,9 +117,11 @@ const startCommand = defineCommand({
 async function promptOwnerAuthPassword(sessionName: string): Promise<string | null> {
   // T1118 L4c — must be a TTY.
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    process.stderr.write(
-      '[cleo] --owner-auth requires an interactive TTY. ' +
-        'stdin.isTTY or stderr.isTTY is false.\n',
+    cliError(
+      '--owner-auth requires an interactive TTY. stdin.isTTY or stderr.isTTY is false.',
+      ExitCode.GENERAL_ERROR,
+      { name: 'E_TTY_REQUIRED' },
+      { operation: 'session.start' },
     );
     return null;
   }
@@ -238,9 +245,7 @@ const endCommand = defineCommand({
         }
       } catch (err) {
         // Non-fatal: markdown emission is opt-in. Surface a warning to stderr.
-        process.stderr.write(
-          `[cleo] session end --emit-markdown failed: ${(err as Error).message}\n`,
-        );
+        humanWarn(`[cleo] session end --emit-markdown failed: ${(err as Error).message}`);
       }
 
       cliOutput(response.data ?? {}, { command: 'session', operation: 'session.end' });

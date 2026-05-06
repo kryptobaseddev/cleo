@@ -376,6 +376,67 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   process.stdout.write(envelopeString + '\n');
 }
 
+// ---------------------------------------------------------------------------
+// LAFS-aware human-chrome helpers (centralised here so every CLI write goes
+// through the same gate as cliOutput / cliError).
+//
+// Each helper consults the resolved FlagResolution (set once at CLI startup
+// via setFormatContext) and emits ONLY when the user has opted into human
+// output. JSON mode, --quiet, and (where appropriate) non-TTY runs become
+// silent automatically. This eliminates the need for command handlers to
+// hand-roll `if (ctx.format === 'human' && !ctx.quiet)` branches.
+//
+// | Helper          | Stream  | Silenced when                           |
+// | --------------- | ------- | --------------------------------------- |
+// | humanInfo(msg)     | stderr  | format !== 'human' OR quiet         |
+// | humanWarn(msg)     | stderr  | format !== 'human' OR quiet         |
+// | humanLine(msg)     | stdout  | format !== 'human' OR quiet         |
+// | humanProgress(text)| stdout  | format !== 'human' OR quiet OR !TTY |
+//
+// For real errors that change exit code, use cliError() above — these
+// helpers are for non-essential chrome only.
+// ---------------------------------------------------------------------------
+
+function humanEnabled(): boolean {
+  const ctx = getFormatContext();
+  return ctx.format === 'human' && !ctx.quiet;
+}
+
+/** Status message to stderr. Silent in --json / --quiet. */
+export function humanInfo(message: string): void {
+  if (!humanEnabled()) return;
+  process.stderr.write(`${message}\n`);
+}
+
+/** Warning to stderr. Silent in --json / --quiet. Use for non-fatal chrome. */
+export function humanWarn(message: string): void {
+  if (!humanEnabled()) return;
+  process.stderr.write(`${message}\n`);
+}
+
+/** Line to stdout. Silent in --json / --quiet. Use for ad-hoc human-only blocks. */
+export function humanLine(message: string): void {
+  if (!humanEnabled()) return;
+  process.stdout.write(`${message}\n`);
+}
+
+/**
+ * Inline progress write to stdout — no trailing newline, TTY-only.
+ * Silent in --json / --quiet / non-TTY.
+ *
+ * For \r-style overwrite-line animations, prefer createSpinnerHandle from
+ * @cleocode/animations which has cursor management built in.
+ */
+export function humanProgress(text: string): void {
+  if (!humanEnabled() || !process.stdout.isTTY) return;
+  process.stdout.write(text);
+}
+
+/** Read-only check: is the resolved format human-readable AND non-quiet? */
+export function isHumanOutput(): boolean {
+  return humanEnabled();
+}
+
 /**
  * Error details for structured error output.
  *

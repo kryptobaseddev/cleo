@@ -289,12 +289,15 @@ export function renderWaves(data: Record<string, unknown>, opts?: RenderWavesOpt
 /**
  * Render the task dependency tree or wave plan.
  *
- * Handles three data shapes returned by the `deps`/`tree` dispatcher:
- * - `data.waves`  — enriched wave array from `orchestrate.waves`
- * - `data.tree`   — recursive `FlatTreeNode[]` from `tasks.tree`
- * - `data.tasks`  — flat `Task[]` fallback
+ * Handles four data shapes returned by the `deps`/`tree` dispatcher:
+ * - `data.waves`     — enriched wave array from `orchestrate.waves`
+ * - `data.tree`      — recursive `FlatTreeNode[]` from `tasks.tree`
+ * - `data.rendered`  — pre-formatted text/mermaid string from `tasks.deps.tree`
+ * - `data.tasks`     — flat `Task[]` fallback
  *
  * When `data.waves` is present, delegates to {@link renderWaves}.
+ * When `data.rendered` is a string, emits it as-is — CORE has already produced
+ * the canonical text/mermaid output; the CLI is a thin wrapper that just prints it.
  *
  * @param data  - Normalised response payload.
  * @param quiet - When true, emit only IDs with no decoration.
@@ -303,6 +306,8 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
   const waves = data['waves'] as Array<Record<string, unknown>> | undefined;
   const tree = data['tree'] as FlatTreeNode[] | undefined;
   const tasks = data['tasks'] as Task[] | undefined;
+  const rendered = data['rendered'];
+  const nodes = data['nodes'] as Array<Record<string, unknown>> | undefined;
 
   if (waves) {
     const epicId = data['epicId'] as string | undefined;
@@ -331,6 +336,15 @@ export function renderTree(data: Record<string, unknown>, quiet: boolean): strin
       withDeps,
       withBlockers,
     });
+  }
+
+  // tasks.deps.tree shape: { epicId, format, rendered, nodes, edges, criticalPath }
+  // Core has already produced the formatted text or mermaid string — emit it directly.
+  if (typeof rendered === 'string' && rendered.length > 0) {
+    if (quiet) {
+      return nodes ? nodes.map((n) => String(n['id'])).join('\n') : '';
+    }
+    return rendered;
   }
 
   // Fallback: flat task list rendered as indented tree
