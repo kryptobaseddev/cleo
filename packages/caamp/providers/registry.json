@@ -13,6 +13,10 @@
       "pathGlobal": "$HOME/.claude",
       "pathProject": ".claude",
       "instructFile": "CLAUDE.md",
+      "instructionReferences": [
+        "@~/.cleo/templates/CLEO-INJECTION.md",
+        "@.cleo/memory-bridge.md"
+      ],
       "pathSkills": "$HOME/.claude/skills",
       "pathProjectSkills": ".claude/skills",
       "detection": {
@@ -87,6 +91,10 @@
       "pathGlobal": "$HOME/.cursor",
       "pathProject": ".cursor",
       "instructFile": "AGENTS.md",
+      "instructionReferences": [
+        "@~/.cleo/templates/CLEO-INJECTION.md",
+        "@.cleo/memory-bridge.md"
+      ],
       "pathSkills": "$HOME/.cursor/skills",
       "pathProjectSkills": ".cursor/skills",
       "detection": {
@@ -200,6 +208,10 @@
       "pathGlobal": "$HOME/.codex",
       "pathProject": ".codex",
       "instructFile": "AGENTS.md",
+      "instructionReferences": [
+        "@~/.cleo/templates/CLEO-INJECTION.md",
+        "@.cleo/memory-bridge.md"
+      ],
       "pathSkills": "$HOME/.codex/skills",
       "pathProjectSkills": ".codex/skills",
       "detection": {
@@ -262,6 +274,10 @@
       "pathGlobal": "$HOME/.gemini",
       "pathProject": ".gemini",
       "instructFile": "GEMINI.md",
+      "instructionReferences": [
+        "@~/.cleo/templates/CLEO-INJECTION.md",
+        "@.cleo/memory-bridge.md"
+      ],
       "pathSkills": "$HOME/.gemini/skills",
       "pathProjectSkills": ".gemini/skills",
       "detection": {
@@ -374,6 +390,10 @@
       "pathGlobal": "$CONFIG/opencode",
       "pathProject": ".opencode",
       "instructFile": "AGENTS.md",
+      "instructionReferences": [
+        "@~/.cleo/templates/CLEO-INJECTION.md",
+        "@.cleo/memory-bridge.md"
+      ],
       "pathSkills": "$CONFIG/opencode/skills",
       "pathProjectSkills": ".opencode/skills",
       "detection": {
@@ -479,6 +499,10 @@
       "pathGlobal": "$HOME/.kimi",
       "pathProject": ".kimi",
       "instructFile": "AGENTS.md",
+      "instructionReferences": [
+        "@~/.cleo/templates/CLEO-INJECTION.md",
+        "@.cleo/memory-bridge.md"
+      ],
       "pathSkills": "$HOME/.kimi/skills",
       "pathProjectSkills": ".kimi/skills",
       "detection": {
@@ -1844,6 +1868,10 @@
       "pathGlobal": "$HOME/.pi/agent",
       "pathProject": ".pi",
       "instructFile": "AGENTS.md",
+      "instructionReferences": [
+        "@~/.cleo/templates/CLEO-INJECTION.md",
+        "@.cleo/memory-bridge.md"
+      ],
       "pathSkills": "$HOME/.pi/agent/skills",
       "pathProjectSkills": ".pi/skills",
       "detection": {

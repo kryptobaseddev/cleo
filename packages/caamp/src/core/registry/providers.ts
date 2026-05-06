@@ -160,6 +160,7 @@ function resolveProvider(raw: RegistryProvider): Provider {
     pathGlobal: resolveRegistryTemplatePath(raw.pathGlobal),
     pathProject: raw.pathProject,
     instructFile: raw.instructFile,
+    instructionReferences: raw.instructionReferences ? [...raw.instructionReferences] : [],
     pathSkills: resolveRegistryTemplatePath(raw.pathSkills),
     pathProjectSkills: raw.pathProjectSkills,
     detection: {
