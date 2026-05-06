@@ -65,7 +65,7 @@ const mocks = vi.hoisted(() => ({
 // We mock the resolved path that Vitest will encounter at test runtime.
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../../../core/src/lifecycle/index.js', () => ({
+vi.mock('../index.js', () => ({
   getActiveSession: mocks.getActiveSession,
   recordStageProgress: mocks.recordStageProgress,
   skipStageWithReason: mocks.skipStageWithReason,
@@ -83,22 +83,21 @@ vi.mock('../../../../../core/src/lifecycle/index.js', () => ({
 }));
 
 // Mock the session store (engine-ops.ts imports getActiveSession from here)
-vi.mock('../../../../../core/src/store/session-store.js', () => ({
+vi.mock('../../store/session-store.js', () => ({
   getActiveSession: mocks.getActiveSession,
   createSession: vi.fn(),
 }));
 
 // Mock pipeline-stage.ts (engine-ops.ts imports isPipelineTransitionForward from here)
-vi.mock('../../../../../core/src/tasks/pipeline-stage.js', () => ({
+vi.mock('../../tasks/pipeline-stage.js', () => ({
   isPipelineTransitionForward: mocks.isPipelineTransitionForward,
   getPipelineStageOrder: mocks.getPipelineStageOrder,
   isValidPipelineStage: vi.fn(() => true),
 }));
 
 // Mock gate-audit.ts (engine-ops.ts uses getForceBypassPath from here)
-vi.mock('../../../../../core/src/tasks/gate-audit.js', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('../../../../../core/src/tasks/gate-audit.js')>();
+vi.mock('../../tasks/gate-audit.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../tasks/gate-audit.js')>();
   return {
     ...actual,
     // Keep getForceBypassPath to allow audit file writes in test 7
@@ -127,11 +126,7 @@ vi.mock('@cleocode/core', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 import type { Session } from '@cleocode/core';
-import {
-  lifecycleProgress,
-  lifecycleReset,
-  lifecycleSkip,
-} from '../../../../../core/src/lifecycle/engine-ops.js';
+import { lifecycleProgress, lifecycleReset, lifecycleSkip } from '../engine-ops.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -11,9 +11,8 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closeLogger, initLogger } from '@cleocode/core';
-import { closeDb, resetDbState } from '@cleocode/core/internal';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  closeDb,
   lifecycleCheck,
   lifecycleGateFail,
   lifecycleGatePass,
@@ -23,7 +22,9 @@ import {
   lifecycleReset,
   lifecycleSkip,
   lifecycleStatus,
-} from '../lifecycle-engine.js';
+  resetDbState,
+} from '@cleocode/core/internal';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let TEST_ROOT = '';
 let RCASD_DIR = '';
