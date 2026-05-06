@@ -28,6 +28,7 @@ import type {
   TransportConnectConfig,
 } from '@cleocode/contracts';
 import { getConduitDbPath } from '../store/conduit-sqlite.js';
+import { applyPerfPragmas } from '../store/sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync: DatabaseSyncClass } = _require('node:sqlite') as {
@@ -100,9 +101,7 @@ export class LocalTransport implements Transport {
     }
 
     const db = new DatabaseSyncClass(dbPath);
-    db.exec('PRAGMA journal_mode = WAL');
-    db.exec('PRAGMA busy_timeout = 5000');
-    db.exec('PRAGMA foreign_keys = ON');
+    applyPerfPragmas(db);
 
     // Verify the messages table exists
     const hasMessages = db

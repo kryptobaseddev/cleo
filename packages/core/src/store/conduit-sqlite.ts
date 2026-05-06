@@ -40,6 +40,7 @@ import { drizzle } from 'drizzle-orm/node-sqlite';
 import * as conduitSchema from './conduit-schema.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
+import { applyPerfPragmas, optimizeBeforeClose } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -516,11 +517,9 @@ export function ensureConduitDb(projectRoot: string): {
 
   const db = new DatabaseSync(dbPath);
 
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA busy_timeout = 5000');
-  db.exec('PRAGMA synchronous = NORMAL');
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA cache_size = -64000'); // 64 MB
+  // Canonical CLEO pragma set (WAL, busy_timeout, synchronous=NORMAL, FK on,
+  // 64MB cache, 256MB mmap, MEMORY temp store, wal_autocheckpoint).
+  applyPerfPragmas(db);
 
   // Check whether the schema sentinel table already exists before applying DDL.
   const hasSchema = (() => {
@@ -587,6 +586,9 @@ export function closeConduitDb(): void {
   if (_conduitNativeDb) {
     try {
       if (_conduitNativeDb.isOpen) {
+        // PRAGMA optimize before close so the next process inherits up-to-date
+        // table statistics for query planning (SQLite-recommended pattern).
+        optimizeBeforeClose(_conduitNativeDb);
         _conduitNativeDb.close();
       }
     } catch {
@@ -768,6 +770,11 @@ export function checkConduitDbHealth(projectRoot: string): {
   }
 
   const db = new DatabaseSync(dbPath);
+  // Health-check is a short-lived read of pragma + sqlite_master state.
+  // Apply the perf pragma set so the inspection itself benefits from mmap +
+  // cache, and the connection doesn't sit at SQLite defaults if the writer
+  // hasn't yet established WAL.
+  applyPerfPragmas(db);
   try {
     const tables = db
       .prepare(
