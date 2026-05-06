@@ -9,11 +9,8 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { Task } from '@cleocode/contracts';
-import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
-import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
 import {
+  createSqliteDataAccessor,
   releaseChangelog,
   releaseCommit,
   releaseGatesRun,
@@ -22,7 +19,11 @@ import {
   releaseRollback,
   releaseShow,
   releaseTag,
-} from '../release-engine.js';
+  resetDbState,
+} from '@cleocode/core/internal';
+import { join } from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 
 /** Per-test isolated temp directory. Assigned in beforeEach, cleaned in afterEach. */
 let TEST_ROOT: string;
