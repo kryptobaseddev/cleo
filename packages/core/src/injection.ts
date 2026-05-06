@@ -19,7 +19,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { getAgentsHome, getCleoHome, getCleoTemplatesTildePath } from './paths.js';
+import { getAgentsHome, getCanonicalTemplatesTildePath, getCleoHome } from './paths.js';
 import { getPackageRoot, stripCLEOBlocks } from './scaffold.js';
 import { resolveBridgeMode } from './system/bridge-mode.js';
 
@@ -216,7 +216,11 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
   try {
     const globalAgentsDir = getAgentsHome();
     const globalAgentsMd = join(globalAgentsDir, 'AGENTS.md');
-    const globalHubContent = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
+    // Use the canonical symlink path (@~/.cleo/templates) rather than the
+    // CLEO_HOME-derived path. CLEO_HOME may be a temp directory in test
+    // environments, which would write a stale temp-path block into the real
+    // ~/.agents/AGENTS.md on every test run (T9020 / T1929).
+    const globalHubContent = `@${getCanonicalTemplatesTildePath()}/CLEO-INJECTION.md`;
     await mkdir(globalAgentsDir, { recursive: true });
     // Direct call — CAAMP 1.8.0 handles idempotency
     await inject(globalAgentsMd, globalHubContent);

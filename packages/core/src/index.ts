@@ -280,6 +280,7 @@ export {
   getCleoLogDir,
   getCleoPiExtensionsDir,
   getCleoTempDir,
+  getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath,
   getConfigPath,
   getGlobalConfigPath,
