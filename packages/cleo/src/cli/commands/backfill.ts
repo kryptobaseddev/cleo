@@ -21,7 +21,7 @@
 
 import { backfillTasks, getProjectRoot, populateEmbeddings } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanLine, humanProgress, humanWarn } from '../renderers/index.js';
 
 /**
  * Native citty command for `cleo backfill`.
@@ -73,15 +73,13 @@ export const backfillCommand = defineCommand({
         let lastLine = '';
         const result = await populateEmbeddings(root, {
           onProgress: (current, total) => {
-            // Overwrite current line for progress display
+            // Overwrite current line for progress display (TTY) or non-TTY fallback
             if (process.stdout.isTTY) {
-              process.stdout.clearLine(0);
-              process.stdout.cursorTo(0);
-              process.stdout.write(`Embedding ${current}/${total}...`);
+              humanProgress(`\rEmbedding ${current}/${total}...`);
             } else {
               const line = `Embedding ${current}/${total}...`;
               if (line !== lastLine) {
-                console.log(line);
+                humanLine(line);
                 lastLine = line;
               }
             }
@@ -90,7 +88,7 @@ export const backfillCommand = defineCommand({
 
         // Move to new line after inline progress
         if (process.stdout.isTTY && result.processed + result.skipped + result.errors > 0) {
-          process.stdout.write('\n');
+          humanProgress('\n');
         }
 
         if (result.processed === 0 && result.skipped === 0 && result.errors === 0) {
@@ -141,9 +139,9 @@ export const backfillCommand = defineCommand({
 
     // Safety: require --dry-run or explicit confirmation for destructive backfill
     if (!dryRun && !rollback && !process.env['CLEO_NONINTERACTIVE']) {
-      process.stderr.write(
+      humanWarn(
         'Warning: Backfill will modify tasks in-place. Run with --dry-run first to preview changes.\n' +
-          '  Set CLEO_NONINTERACTIVE=1 or pass --dry-run to suppress this warning.\n\n',
+          '  Set CLEO_NONINTERACTIVE=1 or pass --dry-run to suppress this warning.\n',
       );
     }
 

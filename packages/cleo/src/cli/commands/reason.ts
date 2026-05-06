@@ -12,6 +12,7 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliError } from '../renderers/index.js';
 
 /** cleo reason impact — predict impact of a change or analyse downstream deps */
 const impactCommand = defineCommand({
@@ -69,8 +70,11 @@ const impactCommand = defineCommand({
         { command: 'reason', operation: 'tasks.depends' },
       );
     } else {
-      process.stderr.write(
-        'Error: reason impact requires either --change <description> or a <taskId>\n',
+      cliError(
+        'reason impact requires either --change <description> or a <taskId>',
+        1,
+        { name: 'E_INVALID_INPUT' },
+        { operation: 'tasks.impact' },
       );
       process.exit(1);
     }

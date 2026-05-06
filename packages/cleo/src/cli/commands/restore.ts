@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError, formatError, getAccessor } from '@cleocode/core';
+import { CleoError, getAccessor } from '@cleocode/core';
 import { getProjectRoot } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
@@ -27,7 +27,7 @@ import {
   RESTORE_DEFAULT_FILE,
   RESTORE_VALID_JSON_FILENAMES,
 } from '../paths.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Types for conflict report parsing
@@ -250,7 +250,7 @@ const finalizeCommand = defineCommand({
     const reportPath = path.join(projectRoot, CLEO_DIR_NAME, RESTORE_CONFLICTS_MD);
 
     if (!fs.existsSync(reportPath)) {
-      console.log('No pending restore conflicts. Nothing to finalize.');
+      humanLine('No pending restore conflicts. Nothing to finalize.');
       return;
     }
 
@@ -268,7 +268,7 @@ const finalizeCommand = defineCommand({
         (r) => r.section === 'manual' && r.resolution === 'manual-review',
       );
       if (stillPending.length > 0) {
-        console.log(
+        humanLine(
           'No manual resolutions found in .cleo/restore-conflicts.md.\n' +
             "Edit the file to mark resolutions, then re-run 'cleo restore finalize'.",
         );
@@ -401,7 +401,7 @@ const backupSubCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       throw err;
@@ -619,7 +619,7 @@ const taskSubCommand = defineCommand({
       }
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       throw err;

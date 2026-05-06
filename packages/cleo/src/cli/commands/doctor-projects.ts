@@ -29,6 +29,7 @@ import {
   type ProjectHealthStatus,
 } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
+import { humanLine } from '../renderers/index.js';
 
 /** Options understood by {@link runDoctorProjects}. */
 export interface RunDoctorProjectsOptions {
@@ -103,37 +104,35 @@ export function printDoctorProjectsReport(
   }
 
   // Default human table
-  process.stdout.write('\nCLEO Cross-Project Health Report\n');
-  process.stdout.write(`Generated: ${report.generatedAt}\n\n`);
+  humanLine('\nCLEO Cross-Project Health Report');
+  humanLine(`Generated: ${report.generatedAt}\n`);
 
-  process.stdout.write(
-    `Global: ${report.global.overall.toUpperCase()} (${report.global.cleoHome})\n`,
-  );
+  humanLine(`Global: ${report.global.overall.toUpperCase()} (${report.global.cleoHome})`);
   if (report.global.issues.length > 0) {
     for (const iss of report.global.issues) {
-      process.stdout.write(`  - ${iss}\n`);
+      humanLine(`  - ${iss}`);
     }
   }
-  process.stdout.write('\n');
+  humanLine('');
 
   if (report.projects.length === 0) {
-    process.stdout.write('No projects registered in nexus.db.\n');
-    process.stdout.write('Register projects with: cleo nexus register <path>\n\n');
+    humanLine('No projects registered in nexus.db.');
+    humanLine('Register projects with: cleo nexus register <path>\n');
     return;
   }
 
   const header = `${'hash'.padEnd(12)}  ${'name'.padEnd(24)}  ${'path'.padEnd(40)}  ${'status'.padEnd(12)}  issues`;
-  process.stdout.write(`${header}\n`);
-  process.stdout.write(`${'-'.repeat(header.length)}\n`);
+  humanLine(header);
+  humanLine('-'.repeat(header.length));
   for (const project of report.projects) {
     const name = nameLookup.get(project.projectHash) ?? '<unnamed>';
-    process.stdout.write(`${formatRow(project, name)}\n`);
+    humanLine(formatRow(project, name));
   }
-  process.stdout.write('\n');
-  process.stdout.write(
+  humanLine('');
+  humanLine(
     `Summary: ${summary.totalProjects} project(s) — ` +
       `${summary.healthy} healthy, ${summary.degraded} degraded, ` +
-      `${summary.unreachable} unreachable, ${summary.unknown} unknown\n\n`,
+      `${summary.unreachable} unreachable, ${summary.unknown} unknown\n`,
   );
 }
 

@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { defineCommand, showUsage } from 'citty';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanWarn } from '../renderers/index.js';
 
 interface MigrateModule {
   migrateMarkdown: (
@@ -46,7 +46,7 @@ function ensureExists(filePath: string, operation: string): boolean {
   if (existsSync(filePath)) return true;
   cliError(`File not found: ${filePath}`, 'E_FILE_READ');
   process.exitCode = 3;
-  if (process.env['CLEO_DEBUG']) console.error(`(operation: ${operation})`);
+  if (process.env['CLEO_DEBUG']) humanWarn(`(operation: ${operation})`);
   return false;
 }
 

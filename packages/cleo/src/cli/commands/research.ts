@@ -19,6 +19,7 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { humanWarn } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -349,7 +350,7 @@ const manifestCommand = defineCommand({
   },
   async run({ args }) {
     // Print deprecation warning to stderr before executing
-    console.error(
+    humanWarn(
       'DEPRECATED: `cleo research manifest` is deprecated and will be removed in v2026.6.x.\n' +
         'Use `cleo manifest list` instead. See docs/specs/T1096-manifest-unification-spec.md',
     );

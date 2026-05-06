@@ -19,7 +19,7 @@ import { generateGexf, getSymbolImpact } from '@cleocode/core/nexus';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -170,7 +170,7 @@ const statusCommand = defineCommand({
       if (ctx.format === 'json') {
         cliError(msg, 1, { name: 'E_STATUS_FAILED' }, { operation: 'nexus.status' });
       } else {
-        process.stderr.write(`[nexus] Error: ${msg}\n`);
+        humanWarn(`[nexus] Error: ${msg}`);
         await dispatchFromCli('query', 'nexus', 'status', {}, { command: 'nexus' });
       }
       process.exitCode = 1;
@@ -322,7 +322,7 @@ const setupCommand = defineCommand({
       cliOutput({ homeDir }, { command: 'nexus-setup', operation: 'nexus.setup' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[nexus setup] Error: ${msg}\n`);
+      cliError(msg, 1, { name: 'E_SETUP_FAILED' }, { operation: 'nexus.setup' });
       process.exitCode = 1;
     }
   },
@@ -950,11 +950,7 @@ const analyzeCommand = defineCommand({
     // Resolve target path
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
 
-    if (ctx.format !== 'json') {
-      process.stderr.write(
-        `[nexus] Analyzing: ${repoPath}${isIncremental ? ' (incremental)' : ''}\n`,
-      );
-    }
+    humanInfo(`[nexus] Analyzing: ${repoPath}${isIncremental ? ' (incremental)' : ''}`);
 
     try {
       // SSoT-EXEMPT:pipeline-progress — runPipeline requires a progress callback
@@ -984,9 +980,7 @@ const analyzeCommand = defineCommand({
       // For full (non-incremental) runs: delete existing index first.
       // NodeSQLiteDatabase uses sync Drizzle — no await, wrap in try-catch.
       if (!isIncremental) {
-        if (ctx.format !== 'json') {
-          process.stderr.write('[nexus] Clearing existing index for project...\n');
-        }
+        humanInfo('[nexus] Clearing existing index for project...');
         try {
           db.delete(nexusSchema.nexusNodes)
             .where(eq(nexusSchema.nexusNodes.projectId, projectId))
@@ -1014,9 +1008,7 @@ const analyzeCommand = defineCommand({
           : (current: number, total: number, filePath: string) => {
               if (current % 50 === 0 || current === total) {
                 const pct = total > 0 ? Math.round((current / total) * 100) : 100;
-                process.stderr.write(
-                  `[nexus] Progress: ${current}/${total} files (${pct}%) — ${filePath}\n`,
-                );
+                humanInfo(`[nexus] Progress: ${current}/${total} files (${pct}%) — ${filePath}`);
               }
             },
         { incremental: isIncremental },
@@ -1028,11 +1020,7 @@ const analyzeCommand = defineCommand({
       try {
         const { refreshNexusBridge } = await import('@cleocode/core/internal' as string);
         await refreshNexusBridge(repoPath, projectId);
-        if (ctx.format !== 'json') {
-          process.stderr.write(
-            `[nexus] nexus-bridge.md refreshed at ${repoPath}/.cleo/nexus-bridge.md\n`,
-          );
-        }
+        humanInfo(`[nexus] nexus-bridge.md refreshed at ${repoPath}/.cleo/nexus-bridge.md`);
       } catch {
         // Non-fatal — bridge refresh failure should not fail the analyze command
       }
@@ -1045,9 +1033,7 @@ const analyzeCommand = defineCommand({
           relationCount: result.relationCount,
           fileCount: result.fileCount,
         });
-        if (ctx.format !== 'json') {
-          process.stderr.write('[nexus] Project registered/updated in multi-project registry.\n');
-        }
+        humanInfo('[nexus] Project registered/updated in multi-project registry.');
       } catch {
         // Non-fatal — registry update must never fail the analyze command
       }
@@ -1121,7 +1107,13 @@ const projectsListCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'projects.list', {});
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      process.stderr.write(`[nexus] Error: ${response.error?.message ?? 'Unknown error'}\n`);
+      const msg = response.error?.message ?? 'Unknown error';
+      cliError(
+        msg,
+        1,
+        { name: response.error?.code ?? 'E_PROJECTS_LIST_FAILED' },
+        { operation: 'nexus.projects.list', duration_ms: durationMs },
+      );
       process.exitCode = 1;
       return;
     }
@@ -1263,12 +1255,7 @@ const projectsScanCommand = defineCommand({
     const autoRegister = !!args['auto-register'];
     const includeExisting = !!args['include-existing'];
     const maxDepth = Math.max(1, Math.min(parseInt(args['max-depth'] as string, 10), 20));
-    const ctx = getFormatContext();
-    if (ctx.format !== 'json') {
-      process.stderr.write(
-        `[nexus] Scanning up to depth ${maxDepth} for .cleo/ project roots...\n`,
-      );
-    }
+    humanInfo(`[nexus] Scanning up to depth ${maxDepth} for .cleo/ project roots...`);
     const response = await dispatchRaw('mutate', 'nexus', 'projects.scan', {
       roots: args.roots as string | undefined,
       maxDepth,
@@ -1277,7 +1264,13 @@ const projectsScanCommand = defineCommand({
     });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      process.stderr.write(`[nexus] Error: ${response.error?.message ?? 'Unknown error'}\n`);
+      const msg = response.error?.message ?? 'Unknown error';
+      cliError(
+        msg,
+        1,
+        { name: response.error?.code ?? 'E_PROJECTS_SCAN_FAILED' },
+        { operation: 'nexus.projects.scan', duration_ms: durationMs },
+      );
       process.exitCode = 1;
       return;
     }
@@ -1635,7 +1628,12 @@ const exportCommand = defineCommand({
         // GEXF format (Gephi standard)
         output = generateGexf(nodes, relations);
       } else {
-        process.stderr.write(`[nexus] Error: Unknown format '${format}'. Supported: gexf, json\n`);
+        cliError(
+          `Unknown format '${format}'. Supported: gexf, json`,
+          1,
+          { name: 'E_INVALID_INPUT' },
+          { operation: 'nexus.export' },
+        );
         process.exitCode = 1;
         return;
       }
@@ -1652,15 +1650,17 @@ const exportCommand = defineCommand({
             extensions: { duration_ms: durationMs },
           },
         );
-        process.stderr.write(`[nexus] Export completed in ${durationMs}ms\n`);
+        humanInfo(`[nexus] Export completed in ${durationMs}ms`);
       } else {
-        // Raw file output — write directly to stdout (binary/text graph data)
+        // Raw file output — write directly to stdout (binary/text graph data).
+        // Intentionally NOT routed through humanLine — this IS the command's
+        // primary stdout payload (the exported graph file content).
         process.stdout.write(output);
         if (!output.endsWith('\n')) process.stdout.write('\n');
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[nexus] Error: ${msg}\n`);
+      cliError(msg, 1, { name: 'E_EXPORT_FAILED' }, { operation: 'nexus.export' });
       process.exitCode = 1;
     }
   },
@@ -1700,10 +1700,7 @@ const diffCommand = defineCommand({
     const projectIdOverride = args['project-id'] as string | undefined;
     const beforeRef = (args.before as string | undefined) ?? 'HEAD~1';
     const afterRef = (args.after as string | undefined) ?? 'HEAD';
-    const ctx = getFormatContext();
-    if (ctx.format !== 'json') {
-      process.stderr.write(`[nexus] Diffing relations: ${beforeRef}..${afterRef} in ${repoPath}\n`);
-    }
+    humanInfo(`[nexus] Diffing relations: ${beforeRef}..${afterRef} in ${repoPath}`);
     const response = await dispatchRaw('query', 'nexus', 'diff', {
       repoPath,
       beforeRef,
@@ -1773,7 +1770,12 @@ const queryCommand = defineCommand({
       const code = response.error?.code;
       const msg = response.error?.message ?? 'Unknown error';
       const exitCode = code === 'E_INVALID_INPUT' ? 6 : 77;
-      process.stderr.write(`[nexus] Error: ${msg}\n`);
+      cliError(
+        msg,
+        exitCode,
+        { name: code ?? 'E_QUERY_FAILED' },
+        { operation: 'nexus.query-cte', duration_ms: durationMs },
+      );
       process.exitCode = exitCode;
       return;
     }
@@ -1785,7 +1787,12 @@ const queryCommand = defineCommand({
       error?: string;
     };
     if (!result.success) {
-      process.stderr.write(`[nexus] Query error: ${result.error ?? 'Unknown'}\n`);
+      cliError(
+        result.error ?? 'Unknown',
+        77,
+        { name: 'E_QUERY_FAILED' },
+        { operation: 'nexus.query-cte', duration_ms: durationMs },
+      );
       process.exitCode = 77;
       return;
     }
@@ -1952,8 +1959,11 @@ const fullContextCommand = defineCommand({
     const symbolId = args.symbol as string;
     const response = await dispatchRaw('query', 'nexus', 'full-context', { symbol: symbolId });
     if (!response.success) {
-      process.stderr.write(
-        `[nexus] Error running full-context: ${response.error?.message ?? 'Unknown error'}\n`,
+      cliError(
+        response.error?.message ?? 'Unknown error',
+        1,
+        { name: response.error?.code ?? 'E_FULL_CONTEXT_FAILED' },
+        { operation: 'nexus.full-context' },
       );
       process.exitCode = 1;
       return;
@@ -1994,8 +2004,11 @@ const taskFootprintCommand = defineCommand({
     const taskId = args.taskId as string;
     const response = await dispatchRaw('query', 'nexus', 'task-footprint', { taskId });
     if (!response.success) {
-      process.stderr.write(
-        `[nexus] Error running task-footprint: ${response.error?.message ?? 'Unknown error'}\n`,
+      cliError(
+        response.error?.message ?? 'Unknown error',
+        1,
+        { name: response.error?.code ?? 'E_TASK_FOOTPRINT_FAILED' },
+        { operation: 'nexus.task-footprint' },
       );
       process.exitCode = 1;
       return;
@@ -2036,8 +2049,11 @@ const brainAnchorsCommand = defineCommand({
     const entryId = args.entryId as string;
     const response = await dispatchRaw('query', 'nexus', 'brain-anchors', { entryId });
     if (!response.success) {
-      process.stderr.write(
-        `[nexus] Error running brain-anchors: ${response.error?.message ?? 'Unknown error'}\n`,
+      cliError(
+        response.error?.message ?? 'Unknown error',
+        1,
+        { name: response.error?.code ?? 'E_BRAIN_ANCHORS_FAILED' },
+        { operation: 'nexus.brain-anchors' },
       );
       process.exitCode = 1;
       return;
@@ -2082,8 +2098,11 @@ const whyCommand = defineCommand({
     const symbolId = args.symbol as string;
     const response = await dispatchRaw('query', 'nexus', 'why', { symbol: symbolId });
     if (!response.success) {
-      process.stderr.write(
-        `[nexus] Error running why: ${response.error?.message ?? 'Unknown error'}\n`,
+      cliError(
+        response.error?.message ?? 'Unknown error',
+        1,
+        { name: response.error?.code ?? 'E_WHY_FAILED' },
+        { operation: 'nexus.why' },
       );
       process.exitCode = 1;
       return;
@@ -2120,8 +2139,11 @@ const impactFullCommand = defineCommand({
     const symbolId = args.symbol as string;
     const response = await dispatchRaw('query', 'nexus', 'impact-full', { symbol: symbolId });
     if (!response.success) {
-      process.stderr.write(
-        `[nexus] Error running impact-full: ${response.error?.message ?? 'Unknown error'}\n`,
+      cliError(
+        response.error?.message ?? 'Unknown error',
+        1,
+        { name: response.error?.code ?? 'E_IMPACT_FULL_FAILED' },
+        { operation: 'nexus.impact-full' },
       );
       process.exitCode = 1;
       return;
@@ -2583,7 +2605,12 @@ const wikiCommand = defineCommand({
       const durationMs = Date.now() - startTime;
 
       if (!result.success) {
-        process.stderr.write(`[nexus] wiki generation failed: ${result.error}\n`);
+        cliError(
+          `wiki generation failed: ${result.error}`,
+          1,
+          { name: 'E_WIKI_GENERATION_FAILED' },
+          { operation: 'nexus.wiki' },
+        );
         process.exitCode = 1;
         return;
       }
@@ -2643,8 +2670,11 @@ const hotPathsCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'hot-paths', { limit });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      process.stderr.write(
-        `[nexus hot-paths] Error: ${response.error?.message ?? 'Unknown error'}\n`,
+      cliError(
+        response.error?.message ?? 'Unknown error',
+        1,
+        { name: response.error?.code ?? 'E_HOT_PATHS_FAILED' },
+        { operation: 'nexus.hot-paths', duration_ms: durationMs },
       );
       process.exitCode = 1;
       return;
@@ -2691,8 +2721,11 @@ const hotNodesCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'hot-nodes', { limit });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      process.stderr.write(
-        `[nexus hot-nodes] Error: ${response.error?.message ?? 'Unknown error'}\n`,
+      cliError(
+        response.error?.message ?? 'Unknown error',
+        1,
+        { name: response.error?.code ?? 'E_HOT_NODES_FAILED' },
+        { operation: 'nexus.hot-nodes', duration_ms: durationMs },
       );
       process.exitCode = 1;
       return;
@@ -2740,8 +2773,11 @@ const coldSymbolsCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'cold-symbols', { days: thresholdDays });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      process.stderr.write(
-        `[nexus cold-symbols] Error: ${response.error?.message ?? 'Unknown error'}\n`,
+      cliError(
+        response.error?.message ?? 'Unknown error',
+        1,
+        { name: response.error?.code ?? 'E_COLD_SYMBOLS_FAILED' },
+        { operation: 'nexus.cold-symbols', duration_ms: durationMs },
       );
       process.exitCode = 1;
       return;

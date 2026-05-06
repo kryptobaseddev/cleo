@@ -10,6 +10,7 @@
 
 import { getProjectRoot } from '@cleocode/core';
 import { defineCommand } from 'citty';
+import { humanLine } from '../renderers/index.js';
 
 /**
  * cleo refresh-memory — regenerate .cleo/memory-bridge.md from brain.db.
@@ -27,9 +28,9 @@ export const refreshMemoryCommand = defineCommand({
     const result = await writeMemoryBridge(projectDir);
 
     if (result.written) {
-      process.stdout.write(`Memory bridge refreshed at ${result.path}\n`);
+      humanLine(`Memory bridge refreshed at ${result.path}`);
     } else {
-      process.stdout.write(`Memory bridge unchanged at ${result.path}\n`);
+      humanLine(`Memory bridge unchanged at ${result.path}`);
     }
   },
 });

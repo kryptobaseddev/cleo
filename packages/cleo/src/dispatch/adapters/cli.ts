@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { catalog, registerSkillLibraryFromPath } from '@cleocode/caamp';
 import { autoRecordDispatchTokenUsage, getProjectRoot, hooks } from '@cleocode/core/internal';
+import { createDispatchSpinner } from '../../cli/animation-bridge.js';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
@@ -215,14 +216,23 @@ export async function dispatchFromCli(
       /* hook errors are non-fatal */
     });
 
-  const response = await dispatcher.dispatch({
-    gateway,
-    domain,
-    operation,
-    params,
-    source: 'cli',
-    requestId: randomUUID(),
-  });
+  // Spinner is silent on --json/--quiet/non-TTY/NO_COLOR — no branching needed.
+  const spinner = createDispatchSpinner(domain, operation);
+  spinner.start();
+
+  let response: DispatchResponse;
+  try {
+    response = await dispatcher.dispatch({
+      gateway,
+      domain,
+      operation,
+      params,
+      source: 'cli',
+      requestId: randomUUID(),
+    });
+  } finally {
+    spinner.stop();
+  }
 
   // Dispatch ResponseComplete hook (best-effort, fire-and-forget)
   hooks
@@ -348,14 +358,22 @@ export async function dispatchRaw(
       /* hook errors are non-fatal */
     });
 
-  const response = await dispatcher.dispatch({
-    gateway,
-    domain,
-    operation,
-    params,
-    source: 'cli',
-    requestId: randomUUID(),
-  });
+  const spinner = createDispatchSpinner(domain, operation);
+  spinner.start();
+
+  let response: DispatchResponse;
+  try {
+    response = await dispatcher.dispatch({
+      gateway,
+      domain,
+      operation,
+      params,
+      source: 'cli',
+      requestId: randomUUID(),
+    });
+  } finally {
+    spinner.stop();
+  }
 
   // Dispatch ResponseComplete hook (best-effort, fire-and-forget)
   hooks

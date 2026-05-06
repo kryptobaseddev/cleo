@@ -12,6 +12,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { defineCommand } from 'citty';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
+import { humanLine } from '../renderers/index.js';
 
 /** cleo caamp dedupe — deduplicate accumulated CAAMP injection blocks */
 const dedupeCommand = defineCommand({
@@ -87,17 +88,17 @@ const dedupeCommand = defineCommand({
       } else {
         for (const r of dryResults) {
           if (!r.exists) {
-            console.log(`  (skip) ${r.filePath} — file not found`);
+            humanLine(`  (skip) ${r.filePath} — file not found`);
           } else if (r.wouldRemove === 0) {
-            console.log(`  (clean) ${r.filePath} — ${r.blockCount} block(s), no duplicates`);
+            humanLine(`  (clean) ${r.filePath} — ${r.blockCount} block(s), no duplicates`);
           } else {
-            console.log(
+            humanLine(
               `  (would remove) ${r.filePath} — ${r.wouldRemove} duplicate(s) of ${r.blockCount} block(s)`,
             );
           }
         }
         const totalWould = dryResults.reduce((n, r) => n + r.wouldRemove, 0);
-        console.log(`\nDry run complete. Would remove ${totalWould} duplicate block(s).`);
+        humanLine(`\nDry run complete. Would remove ${totalWould} duplicate block(s).`);
       }
       return;
     }
@@ -128,14 +129,14 @@ const dedupeCommand = defineCommand({
     } else {
       for (const r of results) {
         if (r.removed === 0) {
-          console.log(`  (clean) ${r.filePath} — ${r.kept} block(s), no duplicates`);
+          humanLine(`  (clean) ${r.filePath} — ${r.kept} block(s), no duplicates`);
         } else {
-          console.log(
+          humanLine(
             `  (fixed) ${r.filePath} — removed ${r.removed} duplicate(s), kept ${r.kept} block(s)`,
           );
         }
       }
-      console.log(`\nRemoved ${totalRemoved} duplicate block(s) from ${filesModified} file(s).`);
+      humanLine(`\nRemoved ${totalRemoved} duplicate block(s) from ${filesModified} file(s).`);
     }
   },
 });
@@ -166,9 +167,9 @@ export const caampCommand = defineCommand({
   async run({ cmd, rawArgs }) {
     if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
     // Default: show help
-    console.log('Usage: cleo caamp <subcommand>');
-    console.log('');
-    console.log('Subcommands:');
-    console.log('  dedupe   Remove duplicate CAAMP injection blocks from AGENTS.md files');
+    humanLine('Usage: cleo caamp <subcommand>');
+    humanLine('');
+    humanLine('Subcommands:');
+    humanLine('  dedupe   Remove duplicate CAAMP injection blocks from AGENTS.md files');
   },
 });

@@ -15,6 +15,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { humanLine } from '../renderers/index.js';
 
 /**
  * Project health dashboard command.
@@ -58,11 +59,11 @@ export const dashCommand = defineCommand({
     // T1636: hygiene section note — always shown unless suppressed.
     // Keeps the main dashboard output unchanged; the note is informational only.
     if (!args['no-hygiene']) {
-      process.stdout.write(
+      humanLine(
         '\n--- Sentient Hygiene (T1636) ---\n' +
           'Background scan runs every 4h (dream cycle). ' +
           'Run `cleo memory digest --hygiene` to see the latest hygiene observations ' +
-          '(orphan tasks, top-level tasks without an epic, content defects, premature-close leaks).\n',
+          '(orphan tasks, top-level tasks without an epic, content defects, premature-close leaks).',
       );
     }
   },

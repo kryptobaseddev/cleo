@@ -14,7 +14,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { depsCriticalPath, resolveProjectRoot } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 import { setTreeContext } from '../tree-context.js';
 
 /** cleo deps overview — overview of all dependencies */
@@ -97,7 +97,7 @@ const criticalPathCommand = defineCommand({
       cliOutput(result, { command: 'deps', operation: 'tasks.criticalPath' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`critical-path: ${msg}`);
+      cliError(`critical-path: ${msg}`, ExitCode.NOT_FOUND, { name: 'E_NOT_FOUND' });
       process.exit(ExitCode.NOT_FOUND);
     }
   },

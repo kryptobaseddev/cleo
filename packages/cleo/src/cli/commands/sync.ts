@@ -20,6 +20,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliError } from '../renderers/index.js';
 
 /** cleo sync links remove — remove all external task links for a provider */
 const linksRemoveCommand = defineCommand({
@@ -62,7 +63,11 @@ const linksCommand = defineCommand({
     const providerId = args.provider as string | undefined;
     const taskId = args.task as string | undefined;
     if (!providerId && !taskId) {
-      console.error('Error: at least one of --provider or --task is required for sync links list');
+      cliError(
+        'at least one of --provider or --task is required for sync links list',
+        ExitCode.INVALID_INPUT,
+        { name: 'E_VALIDATION' },
+      );
       process.exit(ExitCode.INVALID_INPUT);
     }
     await dispatchFromCli(
@@ -106,11 +111,13 @@ const reconcileCommand = defineCommand({
       externalTasks = JSON.parse(readFileSync(args.file, 'utf8'));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`Failed to read or parse external tasks file: ${message}`);
+      cliError(`Failed to read or parse external tasks file: ${message}`, 2, {
+        name: 'E_VALIDATION',
+      });
       process.exit(2);
     }
     if (!Array.isArray(externalTasks)) {
-      console.error('External tasks file must contain a JSON array');
+      cliError('External tasks file must contain a JSON array', 2, { name: 'E_VALIDATION' });
       process.exit(2);
     }
     await dispatchFromCli(

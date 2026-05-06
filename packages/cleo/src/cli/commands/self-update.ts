@@ -29,14 +29,13 @@ import {
   checkAllRegisteredProjects,
   checkStorageMigration,
   type FullHealthReport,
-  formatError,
   getCleoHome,
   getRuntimeDiagnostics,
   runUpgrade,
 } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
 import { createSelfUpdateProgress } from '../progress.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
 const execAsync = promisify(execFile);
 
@@ -250,10 +249,10 @@ export const selfUpdateCommand = defineCommand({
         );
         if (preflight.migrationNeeded) {
           progress.error(`Storage migration needed: ${preflight.summary}`);
-          process.stderr.write(
+          humanWarn(
             `\n⚠ Storage migration needed: ${preflight.summary}\n` +
               `  Fix: ${preflight.fix}\n` +
-              `  Or run: cleo upgrade\n\n`,
+              `  Or run: cleo upgrade\n`,
           );
         } else {
           progress.complete('Dev environment check complete');
@@ -360,7 +359,12 @@ export const selfUpdateCommand = defineCommand({
     } catch (err) {
       if (err instanceof CleoError) {
         progress.error(err.message);
-        console.error(formatError(err));
+        cliError(
+          err.message,
+          err.code,
+          { name: 'CleoError', fix: err.fix },
+          { operation: 'self-update' },
+        );
         process.exit(err.code);
       }
       progress.error('Unexpected error during update');
@@ -388,10 +392,10 @@ async function runPostUpdateDiagnostics(opts?: {
 
   if (preflight.migrationNeeded) {
     if (opts?.skipUpgrade) {
-      process.stderr.write(
+      humanWarn(
         `\n⚠ Storage migration detected: ${preflight.summary}\n` +
           `  Auto-upgrade skipped (--no-auto-upgrade).\n` +
-          `  Run manually: cleo upgrade\n\n`,
+          `  Run manually: cleo upgrade\n`,
       );
       cliOutput(
         {
@@ -408,7 +412,7 @@ async function runPostUpdateDiagnostics(opts?: {
       return;
     }
 
-    process.stderr.write(`\n⚠ Storage migration detected: ${preflight.summary}\n`);
+    humanWarn(`\n⚠ Storage migration detected: ${preflight.summary}`);
 
     let shouldMigrate = !!opts?.autoMigrate;
 
@@ -428,23 +432,23 @@ async function runPostUpdateDiagnostics(opts?: {
     }
 
     if (!shouldMigrate) {
-      process.stderr.write(`\n  Upgrade skipped. Run manually later: cleo upgrade\n\n`);
+      humanWarn(`\n  Upgrade skipped. Run manually later: cleo upgrade\n`);
       return;
     }
 
-    process.stderr.write(`  Running upgrade...\n\n`);
+    humanInfo(`  Running upgrade...\n`);
 
     const result = await runUpgrade({ autoMigrate: true });
 
     // Show structured output of each action taken
     if (result.actions.length > 0) {
-      process.stderr.write('Upgrade actions:\n');
+      humanInfo('Upgrade actions:');
       for (const action of result.actions) {
         const icon =
           action.status === 'applied' ? '  ✓' : action.status === 'error' ? '  ✗' : '  -';
-        process.stderr.write(`${icon} ${action.action}: ${action.details}\n`);
+        humanInfo(`${icon} ${action.action}: ${action.details}`);
       }
-      process.stderr.write('\n');
+      humanInfo('');
     }
 
     cliOutput(
@@ -466,9 +470,7 @@ async function runPostUpdateDiagnostics(opts?: {
       },
     );
     if (!result.success) {
-      process.stderr.write(
-        `\n⚠ Some upgrade steps failed. Manual fix:\n` + `  ${preflight.fix}\n\n`,
-      );
+      humanWarn(`\n⚠ Some upgrade steps failed. Manual fix:\n  ${preflight.fix}\n`);
     }
   } else {
     // No storage migration needed, but still run structural upgrade to ensure
@@ -480,14 +482,14 @@ async function runPostUpdateDiagnostics(opts?: {
       if (result.applied > 0 || result.errors.length > 0) {
         // Show structured output of each action taken
         if (result.actions.length > 0) {
-          process.stderr.write('Post-update maintenance:\n');
+          humanInfo('Post-update maintenance:');
           for (const action of result.actions) {
             if (action.status === 'skipped') continue;
             const icon =
               action.status === 'applied' ? '  ✓' : action.status === 'error' ? '  ✗' : '  -';
-            process.stderr.write(`${icon} ${action.action}: ${action.details}\n`);
+            humanInfo(`${icon} ${action.action}: ${action.details}`);
           }
-          process.stderr.write('\n');
+          humanInfo('');
         }
 
         cliOutput(
@@ -578,8 +580,8 @@ async function runPostUpdateDiagnostics(opts?: {
       // Non-fatal — the probe itself is instrumented to never throw, but we
       // belt-and-suspenders here in case the import path fails in a novel
       // installation state.
-      process.stderr.write(
-        `\n⚠ Cross-project health probe failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      humanWarn(
+        `\n⚠ Cross-project health probe failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

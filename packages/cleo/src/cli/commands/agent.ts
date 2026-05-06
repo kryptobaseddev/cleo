@@ -43,7 +43,7 @@ import {
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { AGENTS_SUBDIR, CANT_AGENTS_SUBDIR, CLEO_DIR_NAME } from '../paths.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanLine, humanWarn } from '../renderers/index.js';
 import { computeProfileStatus, type ProfileValidation } from './agent-profile-status.js';
 
 /** cleo agent register — register a new agent credential in the local registry */
@@ -1056,7 +1056,7 @@ const workCommand = defineCommand({
 
           if (!executeMode) {
             // Watch-only legacy behaviour: advertise availability
-            console.log(
+            humanLine(
               `[${args.agentId}] Task available: ${taskId}. Pass --execute to run autonomously.`,
             );
             return;
@@ -1068,9 +1068,7 @@ const workCommand = defineCommand({
             spawnArgs.push('--adapter', adapterRestrict);
           }
           const spawnRaw = await runCleo(spawnArgs, 60000).catch((e) => {
-            console.error(
-              `[${args.agentId}] conductor-loop: spawn failed for ${taskId}: ${String(e)}`,
-            );
+            humanWarn(`[${args.agentId}] conductor-loop: spawn failed for ${taskId}: ${String(e)}`);
             return '';
           });
           const spawnData = parseLafs<{
@@ -1079,7 +1077,7 @@ const workCommand = defineCommand({
             status?: string;
           }>(spawnRaw);
           if (spawnData?.instanceId) {
-            console.log(
+            humanLine(
               `[${args.agentId}] conductor-loop spawned task=${taskId} instance=${spawnData.instanceId} status=${spawnData.status ?? 'unknown'}`,
             );
           }
@@ -1095,7 +1093,7 @@ const workCommand = defineCommand({
         runtime.stop();
         void registry.update(args.agentId, { isActive: false }).catch(() => {});
         if (executeMode) {
-          console.log(`[${args.agentId}] conductor-loop shutdown after ${iterations} iterations.`);
+          humanLine(`[${args.agentId}] conductor-loop shutdown after ${iterations} iterations.`);
         }
         process.exit(0);
       };
@@ -1491,7 +1489,7 @@ const removeCommand = defineCommand({
       const activeRef = getProjectAgentRef(projectRoot, args.agentId);
 
       if (activeRef && !args['force-global']) {
-        console.warn(
+        humanWarn(
           `NOTE: Safety scan is limited to the current project. Other projects may have ` +
             `dangling references after global removal.`,
         );
@@ -1514,7 +1512,7 @@ const removeCommand = defineCommand({
         return;
       }
 
-      console.warn(
+      humanWarn(
         `NOTE: Safety scan is limited to the current project. Other projects may have ` +
           `dangling references after global removal.`,
       );
@@ -2733,15 +2731,15 @@ const mintCommand = defineCommand({
 
       const specPath = resolve(args.spec);
       if (!existsSync(specPath)) {
-        const errEnv = {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `spec file not found: ${specPath}` },
-          meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
-        };
         if (args.json) {
+          const errEnv = {
+            success: false,
+            error: { code: 'E_NOT_FOUND', message: `spec file not found: ${specPath}` },
+            meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
+          };
           process.stdout.write(JSON.stringify(errEnv, null, 2) + '\n');
         } else {
-          process.stderr.write(`error: spec file not found: ${specPath}\n`);
+          cliError(`spec file not found: ${specPath}`, 4, { name: 'E_NOT_FOUND' });
         }
         process.exitCode = 4;
         return;
@@ -2796,9 +2794,9 @@ const mintCommand = defineCommand({
         if (args.json) {
           process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
         } else {
-          process.stdout.write(`minted ${result.outputs?.length ?? 0} agent(s) to ${outputDir}\n`);
+          humanLine(`minted ${result.outputs?.length ?? 0} agent(s) to ${outputDir}`);
           for (const out of result.outputs ?? []) {
-            process.stdout.write(`  + ${out}\n`);
+            humanLine(`  + ${out}`);
           }
         }
       } else {
@@ -2811,13 +2809,13 @@ const mintCommand = defineCommand({
         if (args.json) {
           process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
         } else {
-          process.stderr.write(`warn: ${fallbackMsg}\n`);
+          humanWarn(`warn: ${fallbackMsg}`);
         }
         process.exitCode = 1;
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`error: agent mint failed: ${message}\n`);
+      cliError(`agent mint failed: ${message}`, 1, { name: 'E_AGENT_MINT' });
       process.exitCode = 1;
     }
   },

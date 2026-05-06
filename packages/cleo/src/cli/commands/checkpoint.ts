@@ -19,7 +19,7 @@ import {
   isCleoGitInitialized,
 } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Check if inside a git repository.
@@ -126,7 +126,7 @@ export const checkpointCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_CHECKPOINT_FAILED' });
         process.exit(err.code);
       }
       throw err;
