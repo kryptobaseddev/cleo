@@ -8,16 +8,21 @@
  *   2. `global`    — rows tagged `tier='global'` installed from
  *                    `~/.local/share/cleo/cant/agents/`.
  *   3. `packaged`  — rows tagged `tier='packaged'` installed from the
- *                    bundled `@cleocode/agents/seed-agents/` tree.
+ *                    bundled `@cleocode/agents/templates/` tree.
  *   4. `fallback`  — no row exists; a synthetic `ResolvedAgent` is
  *                    synthesized on-the-fly from the bundled
- *                    `seed-agents/<id>.cant` file if one is on disk.
+ *                    `templates/<id>.cant` file if one is on disk.
+ *                    After ADR-068 D1+D2, filenames match declared names
+ *                    exactly (e.g. `project-docs-worker.cant`), so the
+ *                    classifier's `project-<role>` output resolves directly.
  *   5. `universal` — tiers 1-4 all missed; a synthetic `ResolvedAgent`
  *                    is synthesized from the universal protocol base at
  *                    `@cleocode/agents/cleo-subagent.cant`. Added in
  *                    v2026.4.111 (T1241 / D035) so classifier output can
  *                    never trigger `E_AGENT_NOT_FOUND` when the universal
  *                    base file is reachable. Emits a WARN log when taken.
+ *                    Wired into the spawn validator pre-flight by T1933
+ *                    (ADR-068 Decision 6 — supersedes ADR-055 D035).
  *
  * The GLOBAL `signaldock.db:agents` row is the single source of truth for
  * tier-aware metadata. The `agents.agent_id` column is UNIQUE across the
@@ -157,10 +162,14 @@ export interface ResolveAgentOptions {
    */
   skipAliasCheck?: boolean;
   /**
-   * Absolute path to the bundled `seed-agents/` directory used by the
+   * Absolute path to the bundled `templates/` directory used by the
    * `fallback` tier. When unset the resolver derives a default that climbs
-   * out of `packages/core/dist` into `packages/agents/seed-agents/`. Tests
+   * out of `packages/core/dist` into `packages/agents/templates/`. Tests
    * can pin this to an isolated fixture directory.
+   *
+   * Replaces the former `seed-agents/` path per ADR-068 Decision 1 + 2.
+   * The field name is preserved for backward compatibility with existing
+   * test call sites.
    */
   packagedSeedDir?: string;
   /**
@@ -409,8 +418,8 @@ function orderTiers(preferred: AgentTier | undefined): AgentTier[] {
  * to {@link rowToResolvedAgent}. Missing file (orphan row, D-002) returns
  * `null` so the caller can cascade.
  *
- * `fallback` — synthesise an envelope when `seed-agents/<id>.cant` exists
- * on disk but no DB row has been written.
+ * `fallback` — synthesise an envelope when `templates/<id>.cant` exists
+ * on disk but no DB row has been written (ADR-068 Decision 1 + 2).
  *
  * @param db      - Open handle to global `signaldock.db`.
  * @param agentId - Business id of the agent.
@@ -464,7 +473,7 @@ function tryResolveAtTier(
 }
 
 /**
- * Synthesise a `fallback`-tier envelope from a bundled seed `.cant` file.
+ * Synthesise a `fallback`-tier envelope from a bundled template `.cant` file.
  *
  * Used when no row exists at any registry tier AND the caller still wants a
  * spawnable agent envelope. Matches the design-doc contract: `canSpawn=false`,
@@ -472,14 +481,20 @@ function tryResolveAtTier(
  * `tier='fallback'` regardless of the file's origin so callers can emit a
  * "running from packaged defaults" notice in the UI.
  *
+ * After ADR-068 Decision 1 + 2, the fallback directory is
+ * `@cleocode/agents/templates/` (previously `seed-agents/`). Template
+ * filenames now match their declared agent name exactly (e.g.
+ * `project-docs-worker.cant` declares `agent project-docs-worker:`), so
+ * the classifier's `project-<role>` output resolves directly.
+ *
  * @param agentId - Business id of the agent to synthesise.
  * @param options - Options with optional `packagedSeedDir` override.
- * @returns Fallback envelope, or `null` when no seed file exists.
- * @task T889 / W2-4
+ * @returns Fallback envelope, or `null` when no template file exists.
+ * @task T889 / W2-4 / T1933
  */
 function tryResolveFallback(agentId: string, options: ResolveAgentOptions): ResolvedAgent | null {
-  const seedDir = options.packagedSeedDir ?? resolveDefaultSeedDir();
-  const path = join(seedDir, `${agentId}.cant`);
+  const templatesDir = options.packagedSeedDir ?? resolveDefaultTemplatesDir();
+  const path = join(templatesDir, `${agentId}.cant`);
   if (!fileExists(path)) return null;
   const bytes = readFileSync(path);
   const hash = createHash('sha256').update(bytes).digest('hex');
@@ -501,18 +516,36 @@ function tryResolveFallback(agentId: string, options: ResolveAgentOptions): Reso
  * Compute the default directory used by the `fallback` tier.
  *
  * Climbs out of the compiled `packages/core/dist/store/` location and into
- * the sibling `packages/agents/seed-agents/` directory shipped with the
+ * the sibling `packages/agents/templates/` directory shipped with the
  * workspace. Tests that need isolation should pass `packagedSeedDir`
  * explicitly rather than relying on this default.
  *
- * @returns Absolute path to the default seed directory.
- * @task T889 / W2-4
+ * Replaces `resolveDefaultSeedDir()` (ADR-068 Decision 2 — single `templates/`
+ * layout; `seed-agents/` directory deleted by T1932).
+ *
+ * @returns Absolute path to the default templates directory.
+ * @task T889 / W2-4 / T1933
  */
-function resolveDefaultSeedDir(): string {
+export function resolveDefaultTemplatesDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   // packages/core/src/store/agent-resolver.ts (or dist/store/agent-resolver.js)
-  // → climb to packages/, then into packages/agents/seed-agents/.
-  return resolve(here, '..', '..', '..', 'agents', 'seed-agents');
+  // → climb to packages/, then into packages/agents/templates/.
+  return resolve(here, '..', '..', '..', 'agents', 'templates');
+}
+
+/**
+ * @deprecated Use {@link resolveDefaultTemplatesDir} instead.
+ *
+ * Preserved as a shim for one major-version cycle. The `seed-agents/`
+ * directory was deleted by T1932 (ADR-068 Decision 2). Callers that relied
+ * on this function's return value for filesystem operations MUST migrate to
+ * `resolveDefaultTemplatesDir()`.
+ *
+ * @returns Absolute path to the (now-deleted) seed-agents directory.
+ * @task T1933
+ */
+export function resolveDefaultSeedDir(): string {
+  return resolveDefaultTemplatesDir();
 }
 
 /**
