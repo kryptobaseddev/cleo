@@ -636,7 +636,6 @@ describe('Access extractor regression — TypeScript fixture (T1837)', () => {
     const root = parseSource(source, grammar);
     if (!root) return;
 
-    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
     const accesses = extractAccesses(root as any, 'fixtures/typescript/sample.ts');
     assertFloor('TypeScript ACCESSES count', accesses.length, 1);
   });
@@ -646,7 +645,6 @@ describe('Access extractor regression — TypeScript fixture (T1837)', () => {
     const root = parseSource(source, grammar);
     if (!root) return;
 
-    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
     const accesses = extractAccesses(root as any, 'fixtures/typescript/sample.ts');
     const validModes = new Set(['read', 'write', 'readwrite']);
     for (const acc of accesses) {
@@ -662,7 +660,6 @@ describe('Access extractor regression — TypeScript fixture (T1837)', () => {
     const root = parseSource(source, grammar);
     if (!root) return;
 
-    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
     const accesses = extractAccesses(root as any, 'fixtures/typescript/sample.ts');
     const writtenAccesses = accesses.filter(
       (a) => a.accessMode === 'write' || a.accessMode === 'readwrite',
@@ -690,7 +687,6 @@ describe('Access extractor regression — Python fixture (T1837)', () => {
     const root = parseSource(source, grammar);
     if (!root) return;
 
-    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
     const accesses = extractAccesses(root as any, 'fixtures/python/sample.py');
     assertFloor('Python ACCESSES count', accesses.length, 1);
   });
@@ -700,7 +696,6 @@ describe('Access extractor regression — Python fixture (T1837)', () => {
     const root = parseSource(source, grammar);
     if (!root) return;
 
-    // biome-ignore lint/suspicious/noExplicitAny: tree-sitter rootNode has no shared TS type
     const accesses = extractAccesses(root as any, 'fixtures/python/sample.py');
     const validModes = new Set(['read', 'write', 'readwrite']);
     for (const acc of accesses) {
