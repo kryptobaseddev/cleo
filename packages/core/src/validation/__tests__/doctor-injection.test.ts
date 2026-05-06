@@ -12,6 +12,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { _resetPlatformPathsCache } from '../../system/platform-paths.js';
 import {
   checkAtReferenceTargetExists,
   checkCaampMarkerIntegrity,
@@ -156,13 +157,23 @@ describe('checkAtReferenceTargetExists', () => {
 describe('checkTemplateFreshness', () => {
   let tempDir: string;
   let fakeCleoHome: string;
+  let originalCleoHome: string | undefined;
 
   beforeEach(() => {
+    originalCleoHome = process.env['CLEO_HOME'];
     tempDir = makeTempDir();
     fakeCleoHome = makeTempDir();
+    process.env['CLEO_HOME'] = fakeCleoHome;
+    _resetPlatformPathsCache();
   });
 
   afterEach(() => {
+    if (originalCleoHome === undefined) {
+      delete process.env['CLEO_HOME'];
+    } else {
+      process.env['CLEO_HOME'] = originalCleoHome;
+    }
+    _resetPlatformPathsCache();
     try {
       rmSync(tempDir, { recursive: true, force: true });
     } catch {
@@ -176,7 +187,7 @@ describe('checkTemplateFreshness', () => {
   });
 
   it('returns info when source template does not exist', () => {
-    const result = checkTemplateFreshness(tempDir, fakeCleoHome);
+    const result = checkTemplateFreshness(tempDir);
     expect(result.status).toBe('info');
     expect(result.id).toBe('template_freshness');
   });
@@ -185,7 +196,7 @@ describe('checkTemplateFreshness', () => {
     mkdirSync(join(tempDir, 'templates'), { recursive: true });
     writeFileSync(join(tempDir, 'templates', 'CLEO-INJECTION.md'), '# Source\n');
 
-    const result = checkTemplateFreshness(tempDir, fakeCleoHome);
+    const result = checkTemplateFreshness(tempDir);
     expect(result.status).toBe('warning');
     expect(result.message).toContain('Deployed template not found');
   });
@@ -199,7 +210,7 @@ describe('checkTemplateFreshness', () => {
     mkdirSync(join(fakeCleoHome, 'templates'), { recursive: true });
     writeFileSync(join(fakeCleoHome, 'templates', 'CLEO-INJECTION.md'), content);
 
-    const result = checkTemplateFreshness(tempDir, fakeCleoHome);
+    const result = checkTemplateFreshness(tempDir);
     expect(result.status).toBe('passed');
     expect(result.details.match).toBe(true);
   });
@@ -211,7 +222,7 @@ describe('checkTemplateFreshness', () => {
     mkdirSync(join(fakeCleoHome, 'templates'), { recursive: true });
     writeFileSync(join(fakeCleoHome, 'templates', 'CLEO-INJECTION.md'), '# Source v1\n');
 
-    const result = checkTemplateFreshness(tempDir, fakeCleoHome);
+    const result = checkTemplateFreshness(tempDir);
     expect(result.status).toBe('warning');
     expect(result.message).toContain('differs from source');
     expect(result.details.match).toBe(false);
@@ -224,12 +235,22 @@ describe('checkTemplateFreshness', () => {
 
 describe('checkTierMarkersPresent', () => {
   let fakeCleoHome: string;
+  let originalCleoHome: string | undefined;
 
   beforeEach(() => {
+    originalCleoHome = process.env['CLEO_HOME'];
     fakeCleoHome = makeTempDir();
+    process.env['CLEO_HOME'] = fakeCleoHome;
+    _resetPlatformPathsCache();
   });
 
   afterEach(() => {
+    if (originalCleoHome === undefined) {
+      delete process.env['CLEO_HOME'];
+    } else {
+      process.env['CLEO_HOME'] = originalCleoHome;
+    }
+    _resetPlatformPathsCache();
     try {
       rmSync(fakeCleoHome, { recursive: true, force: true });
     } catch {
@@ -238,7 +259,7 @@ describe('checkTierMarkersPresent', () => {
   });
 
   it('warns when template does not exist', () => {
-    const result = checkTierMarkersPresent(fakeCleoHome);
+    const result = checkTierMarkersPresent();
     expect(result.status).toBe('warning');
     expect(result.id).toBe('tier_markers_present');
     expect(result.message).toContain('Template not found');
@@ -261,7 +282,7 @@ describe('checkTierMarkersPresent', () => {
       ].join('\n'),
     );
 
-    const result = checkTierMarkersPresent(fakeCleoHome);
+    const result = checkTierMarkersPresent();
     expect(result.status).toBe('passed');
     expect(result.message).toContain('All 3 tier markers');
   });
@@ -279,7 +300,7 @@ describe('checkTierMarkersPresent', () => {
       ].join('\n'),
     );
 
-    const result = checkTierMarkersPresent(fakeCleoHome);
+    const result = checkTierMarkersPresent();
     expect(result.status).toBe('warning');
     expect(result.message).toContain('missing: orchestrator');
     expect(result.details.missing as string[]).toContain('orchestrator');
@@ -299,7 +320,7 @@ describe('checkTierMarkersPresent', () => {
       ].join('\n'),
     );
 
-    const result = checkTierMarkersPresent(fakeCleoHome);
+    const result = checkTierMarkersPresent();
     expect(result.status).toBe('warning');
     expect(result.message).toContain('unclosed: standard');
     expect(result.details.unclosed as string[]).toContain('standard');
