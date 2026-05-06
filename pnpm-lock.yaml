@@ -261,6 +261,9 @@ importers:
 
   packages/cleo:
     dependencies:
+      '@cleocode/animations':
+        specifier: workspace:*
+        version: link:../animations
       '@cleocode/caamp':
         specifier: workspace:*
         version: link:../caamp

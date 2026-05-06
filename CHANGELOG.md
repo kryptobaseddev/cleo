@@ -1,5 +1,9 @@
 # Changelog
 
+## [v2026.5.31] — 2026-05-06
+
+Hotfix: update pnpm-lock.yaml to include @cleocode/animations workspace link in @cleocode/cleo dependencies — lockfile was missing this entry causing CI `pnpm install --frozen-lockfile` to fail on v2026.5.30 tag.
+
 ## [v2026.5.30] — 2026-05-06
 
 Wave: T1929 Phase 1 (Agent System Canonicalization v2) + animations + CAAMP provider refs + CI fixes.
