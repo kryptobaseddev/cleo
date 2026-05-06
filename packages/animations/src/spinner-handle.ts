@@ -69,6 +69,80 @@ const NOOP_HANDLE: SpinnerHandle = Object.freeze({
   enabled: false,
 });
 
+/* -------------------------------------------------------------------------
+   Process-wide exit-handler registry.
+
+   Every active handle registers a cleanup callback in `activeRestores`
+   when it starts, and removes it when it stops. The `exit` / `SIGINT` /
+   `SIGTERM` listeners are installed exactly ONCE per Node.js process
+   (the first time any handle starts) and iterate the registry on fire,
+   so N concurrent handles → 1 listener per signal regardless of N.
+
+   This avoids the per-handle listener leak that would otherwise hit
+   Node's default 10-listener warning threshold once 4–5 spinners run
+   concurrently (cleo orchestrate spawn fan-out, IVTR multi-agent loops).
+   ------------------------------------------------------------------------- */
+
+/** Cleanup callback contract — best-effort cursor / line restoration. */
+type RestoreCallback = () => void;
+
+/** Active handles whose cursor needs restoring on process exit. */
+const activeRestores = new Set<RestoreCallback>();
+
+/** Whether the process-level signal listeners have been installed yet. */
+let exitListenersInstalled = false;
+
+/**
+ * Lazily install the single set of process-level exit listeners.
+ *
+ * @remarks
+ * Idempotent — only the first call installs listeners; subsequent calls
+ * are no-ops. On `exit` / `SIGINT` / `SIGTERM`, every callback in
+ * {@link activeRestores} fires exactly once and the set is cleared.
+ * Errors thrown from a restore callback are swallowed so one bad handle
+ * cannot block others from cleaning up.
+ */
+function ensureProcessExitListeners(): void {
+  if (exitListenersInstalled) return;
+  exitListenersInstalled = true;
+
+  const restoreAll = (): void => {
+    for (const fn of activeRestores) {
+      try {
+        fn();
+      } catch {
+        // Best-effort cleanup — continue restoring siblings.
+      }
+    }
+    activeRestores.clear();
+  };
+
+  process.once('exit', restoreAll);
+  process.once('SIGINT', () => {
+    restoreAll();
+    process.exit(130);
+  });
+  process.once('SIGTERM', () => {
+    restoreAll();
+    process.exit(143);
+  });
+}
+
+/**
+ * Test-only: reset the process-exit listener install state and clear the
+ * active-handles registry.
+ *
+ * @internal
+ * @remarks
+ * Vitest reuses the same Node.js process across multiple test files.
+ * Without this hook, tests that assert listener-count invariants would
+ * see state from earlier files. Production code MUST NOT call this.
+ */
+export function __resetExitListenersForTesting(): void {
+  activeRestores.clear();
+  exitListenersInstalled = false;
+}
+
 /**
  * Create a managed spinner that obeys the {@link AnimateContext} gate.
  *
@@ -116,7 +190,7 @@ export function createSpinnerHandle(
   let frameIndex = 0;
   let currentLabel = label;
   let visible = false;
-  let exitHandlerInstalled = false;
+  let registeredRestore: RestoreCallback | null = null;
 
   function render(): void {
     const frame = spinner!.frames[frameIndex++ % spinner!.frames.length];
@@ -130,31 +204,25 @@ export function createSpinnerHandle(
     }
   }
 
-  function installExitHandler(): void {
-    if (exitHandlerInstalled) return;
-    exitHandlerInstalled = true;
-    // Restore cursor on abnormal exit (Ctrl-C, uncaught throw, etc.)
-    const restore = () => {
-      if (visible) {
-        process.stdout.write(`${CLEAR_LINE}${SHOW_CURSOR}`);
-      }
-    };
-    process.once('exit', restore);
-    process.once('SIGINT', () => {
-      restore();
-      process.exit(130);
-    });
-    process.once('SIGTERM', () => {
-      restore();
-      process.exit(143);
-    });
+  function deregister(): void {
+    if (registeredRestore) {
+      activeRestores.delete(registeredRestore);
+      registeredRestore = null;
+    }
   }
 
   return {
     enabled: true,
     start() {
       if (timer || delayTimer) return;
-      installExitHandler();
+      ensureProcessExitListeners();
+
+      // Register this handle's clear() with the module-scoped registry,
+      // so an abnormal exit cleans it up alongside every other active
+      // spinner — without installing a new process-level listener.
+      registeredRestore = clear;
+      activeRestores.add(registeredRestore);
+
       delayTimer = setTimeout(() => {
         delayTimer = null;
         process.stdout.write(HIDE_CURSOR);
@@ -173,6 +241,7 @@ export function createSpinnerHandle(
         timer = null;
       }
       clear();
+      deregister();
       if (finalLine !== undefined && finalLine.length > 0) {
         process.stdout.write(`${finalLine}\n`);
       }
