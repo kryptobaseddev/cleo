@@ -416,4 +416,47 @@ describe('inject() + dedupeFile() combined scenarios', () => {
     expect(dedupeResult.modified).toBe(false);
     expect(dedupeResult.removed).toBe(0);
   });
+
+  // ── T9020: 5 sessions with canonical path — 0 temp-path blocks ───────────
+
+  it('T9020: 5 sequential inject() calls with canonical @~/.cleo/templates path produce exactly 1 block and 0 temp-path blocks', async () => {
+    // This simulates what happens AFTER the T9020 fix is applied:
+    // every session injects the same stable @~/.cleo/templates/CLEO-INJECTION.md
+    // reference (via getCanonicalTemplatesTildePath()). The injector must remain
+    // idempotent — only 1 block in the file after N sessions.
+    const filePath = join(testDir, 'agents-hub.md');
+    const canonicalRef = '@~/.cleo/templates/CLEO-INJECTION.md';
+
+    for (let i = 0; i < 5; i++) {
+      await inject(filePath, canonicalRef);
+    }
+
+    const content = await readFile(filePath, 'utf-8');
+    const blockCount = (content.match(/<!-- CAAMP:START -->/g) ?? []).length;
+    expect(blockCount).toBe(1);
+    expect(content).toContain(canonicalRef);
+    // Zero temp-path references
+    expect(content).not.toMatch(/cleo-injection-chain-/);
+    expect(content).not.toMatch(/\/\.temp\//);
+  });
+
+  it('T9020: inject() with canonical ref replaces a pre-existing stale temp-path block (single block)', async () => {
+    // Simulate one stale block remaining from before the fix
+    const filePath = join(testDir, 'stale-agents-hub.md');
+    const staleTempRef =
+      '@~/.temp/cleo-injection-chain-STALE/.cleo-home/templates/CLEO-INJECTION.md';
+    const canonicalRef = '@~/.cleo/templates/CLEO-INJECTION.md';
+
+    // Pre-populate with a single stale block
+    await writeFile(filePath, block(staleTempRef) + '\n');
+
+    // New session injects the canonical ref — must UPDATE (replace) the stale block
+    const action = await inject(filePath, canonicalRef);
+    expect(action).toBe('updated');
+
+    const content = await readFile(filePath, 'utf-8');
+    expect(content).toContain(canonicalRef);
+    expect(content).not.toContain(staleTempRef);
+    expect((content.match(/<!-- CAAMP:START -->/g) ?? []).length).toBe(1);
+  });
 });

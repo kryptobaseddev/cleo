@@ -21,6 +21,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import {
+  getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,
   isAbsolutePath as _isAbsolutePath,
 } from '@cleocode/paths';
@@ -1168,6 +1169,29 @@ export function getCleoConfigDir(): string {
  */
 export function getCleoTemplatesTildePath(): string {
   return _getCleoTemplatesTildePath();
+}
+
+/**
+ * Get the CLEO templates directory as a stable tilde-prefixed path for use in
+ * `@`-references written into shared files (e.g. `~/.agents/AGENTS.md`).
+ *
+ * Unlike {@link getCleoTemplatesTildePath}, this function is immune to
+ * `CLEO_HOME` overrides. It always returns `"~/.cleo/templates"` — the stable
+ * symlink path that resolves to the OS-appropriate canonical data directory at
+ * runtime. Use this when writing template references into files that persist
+ * across sessions to prevent test environments from polluting shared files
+ * with stale temp-path blocks (T9020 / T1929).
+ *
+ * @returns `"~/.cleo/templates"` on all platforms
+ *
+ * @example
+ * ```typescript
+ * const ref = `@${getCanonicalTemplatesTildePath()}/CLEO-INJECTION.md`;
+ * // "@~/.cleo/templates/CLEO-INJECTION.md"
+ * ```
+ */
+export function getCanonicalTemplatesTildePath(): string {
+  return _getCanonicalTemplatesTildePath();
 }
 
 // ============================================================================
