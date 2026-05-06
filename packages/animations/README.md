@@ -26,21 +26,36 @@ ESM-only. Requires Node ≥ 22.
 
 ## Quick start
 
-### Spinner during async work
+### Spinner during async work — `createSpinnerHandle`
+
+`createSpinnerHandle` is the canonical owner of `\r` writes for this package.
+It manages the timer, hides/restores the cursor, installs an exit handler so
+`Ctrl-C` doesn't leave a hidden cursor, and routes everything through the
+LAFS render gate. **Calling `process.stdout.write` of a string starting with
+`\r` outside this package is a contract violation** — always go through the
+handle.
 
 ```ts
-import { canonSpinners } from '@cleocode/animations';
+import { resolveOutputFormat } from '@cleocode/lafs';
+import { createAnimateContext, createSpinnerHandle } from '@cleocode/animations';
 
-const { frames, interval } = canonSpinners.looming;
-let i = 0;
-const timer = setInterval(() => {
-  process.stdout.write(`\r\x1B[2K  ${frames[i++ % frames.length]} Weaving tasks…`);
-}, interval);
+const ctx = createAnimateContext({
+  flagResolution: resolveOutputFormat({ humanFlag: true }),
+});
 
-await doWork();
-clearInterval(timer);
-process.stdout.write('\r\x1B[2K  ✔ Tapestry complete.\n');
+const spinner = createSpinnerHandle(ctx, 'looming', 'Weaving tasks…');
+spinner.start();
+try {
+  await doWork();
+  spinner.stop('✔ Tapestry complete.');
+} catch (err) {
+  spinner.stop();
+  throw err;
+}
 ```
+
+Under `--json` / `--quiet` / non-TTY / `NO_COLOR` the handle is a frozen no-op
+and emits zero output — call sites stay branch-free.
 
 ### Progress bar with a known ratio
 
@@ -74,21 +89,23 @@ await playSpark('cascade');
 
 ## LAFS-aware rendering — `AnimateContext`
 
-Every primitive should route through an `AnimateContext` so the package obeys
-the LAFS protocol uniformly. The context is **pure data** — no I/O, no timers
-— derived from the LAFS `FlagResolution` plus environment signals.
+Every primitive routes through an `AnimateContext` so the package obeys the
+LAFS protocol uniformly. The context is **pure data** — no I/O, no timers —
+derived from the LAFS `FlagResolution` plus environment signals.
 
 ```ts
 import { resolveOutputFormat } from '@cleocode/lafs';
-import { createAnimateContext, canonSpinners } from '@cleocode/animations';
+import { createAnimateContext, createSpinnerHandle } from '@cleocode/animations';
 
 const flags = resolveOutputFormat({ humanFlag: true });
 const ctx = createAnimateContext({ flagResolution: flags });
 
-if (ctx.enabled) {
-  // render the spinner
-} else {
-  // ctx.reason ∈ 'format-json' | 'quiet' | 'no-tty' | 'no-color'
+// Hand `ctx` to any primitive — they all become no-ops when `ctx.enabled === false`.
+const spinner = createSpinnerHandle(ctx, 'looming', 'Loading…');
+
+if (!ctx.enabled) {
+  // ctx.reason ∈ 'format-json' | 'quiet' | 'no-tty' | 'no-color' | 'enabled'
+  console.log(`silent: ${ctx.reason}`);
 }
 ```
 
@@ -202,6 +219,14 @@ npx cleocode-animations --list       # list every registered spinner
 | `makeGrid(rows, cols)` | `(number, number) => boolean[][]` |
 | `Spinner` | `{ frames: readonly string[]; interval: number }` |
 | `BrailleSpinnerName` · `CanonSpinnerName` | TS string-literal unions |
+
+### SpinnerHandle (canonical `\r` owner)
+
+| Export | Type |
+|---|---|
+| `createSpinnerHandle(ctx, name, label, options?)` | `(AnimateContext, name, string, SpinnerHandleOptions?) => SpinnerHandle` |
+| `SpinnerHandle` | `{ start(); stop(finalLine?); update(label); enabled: boolean }` |
+| `SpinnerHandleOptions` | `{ delayMs?: number }` — defaults to `150` |
 
 ### AnimateContext
 

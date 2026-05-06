@@ -471,18 +471,40 @@
     <div class="section-label">6 · Usage Guide</div>
     <h2>How to render</h2>
 
-    <div class="sub-h">Spinner during async work</div>
-<pre class="code"><span class="kw">import</span> { spinners, canonSpinners } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
+    <p class="blurb">
+      <strong>Lint rule:</strong> any <code>process.stdout.write(...)</code> of a string starting with
+      <code>\r</code> outside <code>@cleocode/animations</code> is a contract violation.
+      Always route through <code>createSpinnerHandle</code> — it owns the timer, the cursor,
+      the exit handler, and the LAFS gate.
+    </p>
 
-<span class="kw">const</span> { frames, interval } = canonSpinners.looming; <span class="cm">// canon name → helix frames</span>
-<span class="kw">let</span> i = <span class="num">0</span>;
-<span class="kw">const</span> timer = setInterval(() =&gt; {
-  process.stdout.write(<span class="str">`\r\x1B[2K  ${frames[i++ % frames.length]} Weaving tasks…`</span>);
-}, interval);
+    <div class="sub-h">Spinner during async work — the canonical pattern</div>
+<pre class="code"><span class="kw">import</span> { resolveOutputFormat } <span class="kw">from</span> <span class="str">'@cleocode/lafs'</span>;
+<span class="kw">import</span> { createAnimateContext, createSpinnerHandle } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
 
-<span class="kw">await</span> doWork();
-clearInterval(timer);
-process.stdout.write(<span class="str">'\r\x1B[2K  ✔ Tapestry complete.\n'</span>);</pre>
+<span class="kw">const</span> ctx = createAnimateContext({
+  flagResolution: resolveOutputFormat({ humanFlag: <span class="kw">true</span> }),
+});
+
+<span class="kw">const</span> spinner = createSpinnerHandle(ctx, <span class="str">'looming'</span>, <span class="str">'Weaving tasks…'</span>);
+spinner.start();
+<span class="kw">try</span> {
+  <span class="kw">await</span> doWork();
+  spinner.stop(<span class="str">'✔ Tapestry complete.'</span>);
+} <span class="kw">catch</span> (err) {
+  spinner.stop();
+  <span class="kw">throw</span> err;
+}</pre>
+
+    <div class="sub-h">Multi-step pipeline with label updates</div>
+<pre class="code"><span class="kw">const</span> spinner = createSpinnerHandle(ctx, <span class="str">'weaving'</span>, <span class="str">'Connecting to database…'</span>);
+spinner.start();
+
+<span class="kw">const</span> db = <span class="kw">await</span> connect();
+spinner.update(<span class="str">`Running ${migrations.length} migrations…`</span>);
+
+<span class="kw">await</span> db.migrate(migrations);
+spinner.stop(<span class="str">'✔ Database ready.'</span>);</pre>
 
     <div class="sub-h">Progress bar with a known ratio</div>
 <pre class="code"><span class="kw">import</span> { renderProgressBar } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
@@ -490,13 +512,16 @@ process.stdout.write(<span class="str">'\r\x1B[2K  ✔ Tapestry complete.\n'</sp
 <span class="kw">function</span> tick(done, total) {
   <span class="kw">const</span> ratio = done / total;
   <span class="kw">const</span> bar = renderProgressBar(<span class="str">'refinery'</span>, ratio, <span class="num">36</span>);
-  process.stdout.write(<span class="str">`\r\x1B[2K  ${bar}  ${done}/${total}`</span>);
+  <span class="cm">// (progress bars are not yet routed through a handle —</span>
+  <span class="cm">//  gate manually with ctx.enabled until ProgressBarHandle ships)</span>
+  <span class="kw">if</span> (ctx.enabled) process.stdout.write(<span class="str">`\r\x1B[2K  ${bar}  ${done}/${total}`</span>);
 }</pre>
 
     <div class="sub-h">One-shot spark on success</div>
 <pre class="code"><span class="kw">import</span> { sparks, sparkDurationMs } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
 
 <span class="kw">async function</span> playSpark(name) {
+  <span class="kw">if</span> (!ctx.enabled) <span class="kw">return</span>;
   <span class="kw">const</span> { frames, interval } = sparks[name];
   <span class="kw">for</span> (<span class="kw">const</span> f <span class="kw">of</span> frames) {
     process.stdout.write(<span class="str">`\r\x1B[2K  ${f}`</span>);
@@ -506,25 +531,7 @@ process.stdout.write(<span class="str">'\r\x1B[2K  ✔ Tapestry complete.\n'</sp
 }
 
 <span class="kw">await</span> shipRelease();
-<span class="kw">await</span> playSpark(<span class="str">'cascade'</span>); <span class="cm">// total: ~980ms</span></pre>
-
-    <div class="sub-h">Reusable handle (LAFS-aware)</div>
-<pre class="code"><span class="kw">import</span> { resolveOutputFormat } <span class="kw">from</span> <span class="str">'@cleocode/lafs'</span>;
-<span class="kw">import</span> { createAnimateContext, canonSpinners } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
-
-<span class="kw">function</span> spinner(label, name = <span class="str">'looming'</span>) {
-  <span class="kw">const</span> ctx = createAnimateContext({ flagResolution: resolveOutputFormat({ humanFlag: <span class="kw">true</span> }) });
-  <span class="kw">if</span> (!ctx.enabled) <span class="kw">return</span> { update() {}, stop(msg) { msg &amp;&amp; console.log(msg); } };
-
-  <span class="kw">const</span> { frames, interval } = canonSpinners[name];
-  <span class="kw">let</span> i = <span class="num">0</span>, text = label;
-  <span class="kw">const</span> t = setInterval(() =&gt; process.stdout.write(<span class="str">`\r\x1B[2K  ${frames[i++ % frames.length]} ${text}`</span>), interval);
-
-  <span class="kw">return</span> {
-    update(msg) { text = msg; },
-    stop(msg) { clearInterval(t); process.stdout.write(<span class="str">`\r\x1B[2K  ✔ ${msg ?? text}\n`</span>); },
-  };
-}</pre>
+<span class="kw">await</span> playSpark(<span class="str">'cascade'</span>); <span class="cm">// total: ~980ms via sparkDurationMs('cascade')</span></pre>
   </section>
 
   <!-- ─────────────────────────  7. API reference  ──────────────────────── -->
@@ -556,6 +563,16 @@ process.stdout.write(<span class="str">'\r\x1B[2K  ✔ Tapestry complete.\n'</sp
         <tr><td><code>AnimateContext</code></td><td><code>{ enabled, reason, inputs }</code></td></tr>
         <tr><td><code>AnimateContextInput</code></td><td><code>{ flagResolution, isTTY?, noColor? }</code></td></tr>
         <tr><td><code>FlagResolutionLike</code></td><td><code>{ format: 'json'|'human'; quiet: boolean }</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="sub-h">SpinnerHandle (canonical <code>\r</code> owner)</div>
+    <table class="ref">
+      <thead><tr><th>Export</th><th>Type / Shape</th></tr></thead>
+      <tbody>
+        <tr><td><code>createSpinnerHandle(ctx, name, label, options?)</code></td><td><code>(AnimateContext, name, string, SpinnerHandleOptions?) =&gt; SpinnerHandle</code></td></tr>
+        <tr><td><code>SpinnerHandle</code></td><td><code>{ start(); stop(finalLine?); update(label); enabled: boolean }</code></td></tr>
+        <tr><td><code>SpinnerHandleOptions</code></td><td><code>{ delayMs?: number }</code> — defaults to <code>150</code></td></tr>
       </tbody>
     </table>
 
