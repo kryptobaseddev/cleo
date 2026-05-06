@@ -3038,10 +3038,10 @@ function inferTierFromRole(role: string): string {
  * @param params - Agent persona parameters.
  * @returns The complete persona.cant file content.
  *
- * @see packages/cleo-os/starter-bundle/agents/cleo-orchestrator.cant
- * @see packages/cleo-os/starter-bundle/agents/dev-lead.cant
- * @see packages/cleo-os/starter-bundle/agents/code-worker.cant
- * @see packages/cleo-os/starter-bundle/agents/docs-worker.cant
+ * @see packages/agents/templates/project-orchestrator.cant
+ * @see packages/agents/templates/project-dev-lead.cant
+ * @see packages/agents/templates/project-code-worker.cant
+ * @see packages/agents/templates/project-docs-worker.cant
  */
 function generatePersonaCant(params: PersonaParams): string {
   const { name, role, tier, team, domain, parent } = params;
@@ -3155,7 +3155,7 @@ function generateLeadPersona(
   domain?: string,
   parent?: string,
 ): string {
-  const parentLine = parent ? `\n  parent: ${parent}` : '\n  parent: cleo-orchestrator';
+  const parentLine = parent ? `\n  parent: ${parent}` : '\n  parent: project-orchestrator';
   const teamComment = team ? `\n# Team: ${team}` : '';
   const domainDesc = domain ? ` Specializes in ${domain}.` : '';
 

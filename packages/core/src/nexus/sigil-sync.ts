@@ -81,16 +81,15 @@ interface ParsedSigil {
 // ---------------------------------------------------------------------------
 
 /**
- * Filenames (under seed-agents/) that constitute the canonical seed roster.
- * Excludes `*-generic.cant` which are exact duplicates of the non-suffixed
- * variants kept for backwards-compat with older meta-agent prompts.
+ * Filenames (under templates/) that constitute the canonical worker template roster.
+ * Per ADR-068 Decision 1, filename basename equals the declared agent name.
  */
 const CANONICAL_SEED_FILES: readonly string[] = [
-  'orchestrator.cant',
-  'dev-lead.cant',
-  'code-worker.cant',
-  'docs-worker.cant',
-  'security-worker.cant',
+  'project-orchestrator.cant',
+  'project-dev-lead.cant',
+  'project-code-worker.cant',
+  'project-docs-worker.cant',
+  'project-security-worker.cant',
 ] as const;
 
 /**
@@ -267,7 +266,7 @@ function parsePromptValue(
  * Result of {@link resolveCanonicalCantFiles}.
  */
 export interface CanonicalCantFiles {
-  /** Absolute path to the seed-agents directory, or `null` if not found. */
+  /** Absolute path to the templates directory, or `null` if not found. */
   seedAgentsDir: string | null;
   /** Absolute path to cleo-subagent.cant, or `null` if not found. */
   cleoSubagentFile: string | null;
@@ -301,7 +300,8 @@ export async function resolveCanonicalCantFiles(): Promise<CanonicalCantFiles> {
     };
   }
 
-  const seedAgentsDir = join(agentsRoot, 'seed-agents');
+  // Per ADR-068 Decision 2: seed-agents/ renamed to templates/.
+  const templatesDir = join(agentsRoot, 'templates');
   const metaDir = join(agentsRoot, 'meta');
   const cleoSubagentFile = join(agentsRoot, 'cleo-subagent.cant');
 
@@ -311,9 +311,9 @@ export async function resolveCanonicalCantFiles(): Promise<CanonicalCantFiles> {
     files.push(cleoSubagentFile);
   }
 
-  if (existsSync(seedAgentsDir) && statSync(seedAgentsDir).isDirectory()) {
+  if (existsSync(templatesDir) && statSync(templatesDir).isDirectory()) {
     for (const f of CANONICAL_SEED_FILES) {
-      const candidate = join(seedAgentsDir, f);
+      const candidate = join(templatesDir, f);
       if (existsSync(candidate)) files.push(candidate);
     }
   }
@@ -326,7 +326,7 @@ export async function resolveCanonicalCantFiles(): Promise<CanonicalCantFiles> {
   }
 
   return {
-    seedAgentsDir: existsSync(seedAgentsDir) ? seedAgentsDir : null,
+    seedAgentsDir: existsSync(templatesDir) ? templatesDir : null,
     metaDir: existsSync(metaDir) ? metaDir : null,
     cleoSubagentFile: existsSync(cleoSubagentFile) ? cleoSubagentFile : null,
     files,
@@ -350,10 +350,10 @@ async function resolveAgentsPackageRoot(): Promise<string | null> {
     const { dirname } = await import('node:path');
     const candidate = dirname(agentsPkgMain);
     if (existsSync(candidate)) {
-      // Sanity check — the package root should contain seed-agents or
-      // cleo-subagent.cant.
+      // Sanity check — the package root should contain templates/ or
+      // cleo-subagent.cant (ADR-068: seed-agents/ renamed to templates/).
       if (
-        existsSync(join(candidate, 'seed-agents')) ||
+        existsSync(join(candidate, 'templates')) ||
         existsSync(join(candidate, 'cleo-subagent.cant'))
       ) {
         return candidate;

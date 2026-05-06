@@ -44,7 +44,7 @@ agent playbook-architect:
     - Have a unique, deterministic name matching PLAYBOOK_NAME
     - Include valid CANTBOOK syntax (multi-stage workflow graph with explicit edges)
     - Reference only agents that exist in the project's `.cleo/cant/agents/` or the canonical
-      @cleocode/agents starter-bundle
+      @cleocode/agents templates/
     - Model HITL gates using the signed-token resume protocol (see ADR-053)
     - Include at least one RESEARCH stage and one VALIDATION/REVIEW stage per RCASD pattern
     - Set appropriate timeouts per stage (research: 60m, implementation: 120m, validation: 30m)

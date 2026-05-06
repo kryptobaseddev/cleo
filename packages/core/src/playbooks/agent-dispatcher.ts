@@ -131,6 +131,9 @@ export interface AgentDispatcher {
  * `@cleocode/agents` has not shipped a `meta/` subtree yet).
  *
  * @task T1239
+ * @remarks T1935 will consolidate this local duplicate with the exported
+ *   `resolveMetaAgentsDir()` in packages/core/src/agents/resolveStarterBundle.ts
+ *   (to be renamed resolveAgentTemplates.ts per ADR-068).
  */
 function resolveMetaAgentsDir(): string | null {
   try {
