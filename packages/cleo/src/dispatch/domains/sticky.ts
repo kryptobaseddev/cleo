@@ -36,13 +36,6 @@ import type {
   StickyConvertTaskParams,
 } from '@cleocode/core/internal';
 import {
-  defineTypedHandler,
-  lafsError,
-  lafsSuccess,
-  type OpsFromCore,
-  typedDispatch,
-} from '../adapters/typed.js';
-import {
   stickyAdd,
   stickyArchive,
   stickyConvertToMemory,
@@ -52,7 +45,14 @@ import {
   stickyListFiltered,
   stickyPurge,
   stickyShow,
-} from '../engines/sticky-engine.js';
+} from '@cleocode/core/internal';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  type OpsFromCore,
+  typedDispatch,
+} from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
