@@ -24,16 +24,20 @@
  *
  * ## Invariant
  *
- * This file MUST import ONLY from `node:module` and type-only from `node:sqlite`.
- * Confirm at any time: `grep -n "^import " packages/core/src/store/sqlite-native.ts`
- * must show only those two entries.
+ * This file MUST NOT import any CLEO module — only `node:` builtins. The
+ * leaf-module rule prevents the agent-resolver TDZ cycle from re-entering
+ * partially-initialised state. Node builtins (fs, os, path, module) do not
+ * participate in any CLEO cycle and are therefore safe.
  *
  * @module sqlite-native
  * @task T1331
  * @epic T1323
  */
 
+import { realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { isAbsolute, resolve, sep } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 
 const _require = createRequire(import.meta.url);
@@ -77,6 +81,80 @@ export function getDbSyncConstructor(): new (
 }
 
 /**
+ * Resolve a path to its real, absolute form. Falls back to a non-realpath
+ * absolute resolution when the file does not exist yet (the common case for
+ * a fresh tasks.db about to be created).
+ */
+function resolveAbsoluteSafe(p: string): string {
+  const abs = isAbsolute(p) ? p : resolve(p);
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
+/** Returns true when `child` is the same path as `parent` or nested under it. */
+function isPathUnder(child: string, parent: string): boolean {
+  if (child === parent) return true;
+  const withSep = parent.endsWith(sep) ? parent : parent + sep;
+  return child.startsWith(withSep);
+}
+
+/**
+ * Vitest production-DB leak guard.
+ *
+ * Under `process.env.VITEST`, refuses to open any SQLite path that is not
+ * inside an isolated test root. The chokepoint lives here, in
+ * {@link openNativeDatabase}, so every CLEO database surface (tasks.db,
+ * brain.db, signaldock.db, nexus.db, telemetry.db, migration tmp dbs, …)
+ * is covered by a single check that no caller can bypass.
+ *
+ * Allowed paths:
+ *  - `:memory:` — in-memory dbs are inherently isolated.
+ *  - Anything below `os.tmpdir()` (canonicalised via realpath).
+ *  - Anything below a directory listed in `CLEO_TEST_ALLOWED_DB_ROOTS`
+ *    (`:`-separated list of absolute paths) — opt-in for integration tests.
+ *  - All paths when `CLEO_TEST_ALLOW_PROJECT_DB=true` — emergency override
+ *    for harness/integration suites that must touch a real project db.
+ *
+ * Anything else throws synchronously, BEFORE the SQLite handle is opened.
+ * Background: a vitest run leaked task fixtures (T9001…T9010) into the
+ * project's production tasks.db on 2026-05-06 because library helpers like
+ * `lifecycle/pipeline.ts` call `getDb()` with no `cwd`, silently falling
+ * back to `process.cwd()/.cleo/tasks.db`. This guard makes that class of
+ * leak fail loudly instead of silently mutating production state.
+ */
+function assertVitestSafePath(path: string): void {
+  if (process.env.VITEST !== 'true') return;
+  if (process.env.CLEO_TEST_ALLOW_PROJECT_DB === 'true') return;
+  if (path === ':memory:') return;
+  if (path === '' || path === '/dev/null') return;
+
+  const resolved = resolveAbsoluteSafe(path);
+  const tmpRoot = resolveAbsoluteSafe(tmpdir());
+  if (isPathUnder(resolved, tmpRoot)) return;
+
+  const allowList = (process.env.CLEO_TEST_ALLOWED_DB_ROOTS ?? '')
+    .split(':')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const root of allowList) {
+    if (isPathUnder(resolved, resolveAbsoluteSafe(root))) return;
+  }
+
+  throw new Error(
+    `[CLEO test isolation guard] Refusing to open SQLite at "${resolved}" ` +
+      `during a vitest run. Tests MUST use an isolated database under ` +
+      `os.tmpdir() (e.g. via fs.mkdtemp(os.tmpdir(), 'cleo-test-')). ` +
+      `If this open is intentional (integration/e2e suite), set ` +
+      `CLEO_TEST_ALLOW_PROJECT_DB=true or extend ` +
+      `CLEO_TEST_ALLOWED_DB_ROOTS=<absPath>:<absPath>. ` +
+      `Prevents the T9001-style production-fixture leak (2026-05-06).`,
+  );
+}
+
+/**
  * Open a node:sqlite DatabaseSync with CLEO standard pragmas.
  *
  * This function lives in the leaf module (zero CLEO imports) so that callers
@@ -88,6 +166,9 @@ export function getDbSyncConstructor(): new (
  * an EXCLUSIVE lock in DELETE mode, PRAGMA journal_mode=WAL silently returns
  * 'delete'. This caused data loss (T5173) when concurrent processes opened
  * the same database — writes were silently dropped under lock contention.
+ *
+ * Under vitest, {@link assertVitestSafePath} blocks any open against a
+ * path outside an isolated test root. See that function's doc for opt-outs.
  *
  * @param path - Absolute path to the SQLite database file.
  * @param options - Optional open settings.
@@ -103,6 +184,7 @@ export function openNativeDatabase(
     allowExtension?: boolean;
   },
 ): DatabaseSync {
+  assertVitestSafePath(path);
   const DatabaseSyncCtor = getDbSyncConstructor();
   const db = new DatabaseSyncCtor(path, {
     enableForeignKeyConstraints: true,
@@ -112,7 +194,22 @@ export function openNativeDatabase(
   });
 
   // Set busy_timeout FIRST so WAL pragma can wait for locks
-  db.exec('PRAGMA busy_timeout=5000');
+  db.exec(`PRAGMA busy_timeout=${options?.timeout ?? 5000}`);
+
+  // Performance pragmas — kept in sync with applyPerfPragmas() in
+  // sqlite-pragmas.ts. We inline rather than import because sqlite-native is
+  // the leaf-module chokepoint for the TDZ cycle (see file header) and must
+  // not depend on any other CLEO module.
+  //   synchronous=NORMAL       : durable on commit, no corruption risk under WAL
+  //   cache_size=-64000        : 64 MB page cache (default ~2 MB is too small)
+  //   mmap_size=268435456      : 256 MB read mmap window
+  //   temp_store=MEMORY        : keep temp tables in RAM
+  //   wal_autocheckpoint=1000  : ~4 MB WAL before checkpoint
+  db.exec('PRAGMA synchronous = NORMAL');
+  db.exec('PRAGMA cache_size = -64000');
+  db.exec('PRAGMA mmap_size = 268435456');
+  db.exec('PRAGMA temp_store = MEMORY');
+  db.exec('PRAGMA wal_autocheckpoint = 1000');
 
   // Enable WAL for concurrent multi-process access (ADR-006, ADR-010)
   if (options?.enableWal !== false) {

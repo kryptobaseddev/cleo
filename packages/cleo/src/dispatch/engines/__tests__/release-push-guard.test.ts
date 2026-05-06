@@ -10,14 +10,18 @@
 
 import type { Task } from '@cleocode/contracts';
 import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
 import { releasePrepare, releasePush } from '../release-engine.js';
 
-const TEST_ROOT = join(process.cwd(), '.test-release-push-guard');
-const CLEO_DIR = join(TEST_ROOT, '.cleo');
+// TEST_ROOT is created per-test under os.tmpdir() so the vitest isolation
+// guard (sqlite-native.ts) lets the open through and concurrent test runs
+// cannot collide on the same directory.
+let TEST_ROOT: string;
+let CLEO_DIR: string;
 
 function writeConfig(config: Record<string, unknown>): void {
   mkdirSync(CLEO_DIR, { recursive: true });
@@ -48,6 +52,8 @@ describe('release.push agent protocol guard', () => {
   const origEnv: Record<string, string | undefined> = {};
 
   beforeEach(async () => {
+    TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-release-push-guard-'));
+    CLEO_DIR = join(TEST_ROOT, '.cleo');
     await setupTestDb();
     writeConfig({ release: { push: { enabled: true, requireCleanTree: false } } });
     // Save original env values

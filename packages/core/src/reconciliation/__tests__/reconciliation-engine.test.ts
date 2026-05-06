@@ -75,7 +75,7 @@ describe('reconcile — dry-run mode', () => {
 
     const result = await reconcile(
       external,
-      { providerId: 'test-provider', dryRun: true },
+      { providerId: 'test-provider', dryRun: true, cwd: env.tempDir },
       env.accessor,
     );
 
@@ -98,7 +98,7 @@ describe('reconcile — dry-run mode', () => {
 
     const result = await reconcile(
       external,
-      { providerId: 'test-provider', dryRun: true },
+      { providerId: 'test-provider', dryRun: true, cwd: env.tempDir },
       env.accessor,
     );
 
@@ -110,7 +110,11 @@ describe('reconcile — dry-run mode', () => {
   it('does not create links in dry-run mode', async () => {
     const external = [makeExternalTask({ externalId: 'ext-001', status: 'pending' })];
 
-    await reconcile(external, { providerId: 'test-provider', dryRun: true }, env.accessor);
+    await reconcile(
+      external,
+      { providerId: 'test-provider', dryRun: true, cwd: env.tempDir },
+      env.accessor,
+    );
 
     const links = await getLinksByProvider('test-provider', env.tempDir);
     expect(links).toHaveLength(0);
@@ -340,13 +344,21 @@ describe('reconcile — summary counts', () => {
       makeExternalTask({ externalId: 'ext-003', status: 'removed' }),
     ];
 
-    const result = await reconcile(external, { providerId: 'test', dryRun: true }, env.accessor);
+    const result = await reconcile(
+      external,
+      { providerId: 'test', dryRun: true, cwd: env.tempDir },
+      env.accessor,
+    );
     expect(result.summary.total).toBe(result.actions.length);
   });
 
   it('linksAffected is 0 on dry-run', async () => {
     const external = [makeExternalTask({ externalId: 'ext-001', status: 'pending' })];
-    const result = await reconcile(external, { providerId: 'test', dryRun: true }, env.accessor);
+    const result = await reconcile(
+      external,
+      { providerId: 'test', dryRun: true, cwd: env.tempDir },
+      env.accessor,
+    );
     expect(result.linksAffected).toBe(0);
   });
 
