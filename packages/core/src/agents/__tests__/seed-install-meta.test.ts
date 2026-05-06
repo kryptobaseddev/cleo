@@ -161,8 +161,8 @@ describe('ensureSeedAgentsInstalled — meta-agent + substitution (T1239)', () =
 
   it('meta-agent path is used when dispatcher + projectRoot + context file exist', async () => {
     // NOTE: T1932 (ADR-068) deleted starter-bundle/ and seed-agents/ (renamed to templates/).
-    // resolveSeedDir() calls resolveStarterBundle() which returns null until T1935 wires
-    // the templates/ path. When seedDir is null, ensureSeedAgentsInstalled returns 'noop'
+    // resolveSeedDir() calls resolveAgentTemplates() (T1935) which resolves templates/.
+    // When seedDir is null, ensureSeedAgentsInstalled returns 'noop'
     // before reaching the meta-agent path. T1934 will re-wire the dispatcher path.
     writeProjectContext(env.projectRoot);
 
@@ -191,10 +191,10 @@ describe('ensureSeedAgentsInstalled — meta-agent + substitution (T1239)', () =
       destinationOverride: env.destination,
     });
 
-    // Until T1935 wires resolveStarterBundle → resolveAgentTemplates (templates/),
-    // seedDir is null and the call degrades to 'noop' (ADR-068 T1932 interim state).
+    // T1935 wired resolveAgentTemplates() → templates/. seedDir may be null if templates/
+    // is not present in the test environment; in that case the call degrades to 'noop'.
     expect(['meta-agent', 'noop']).toContain(result.source);
-    // dispatcher is called only when seedDir resolves (T1935 task).
+    // dispatcher is called only when seedDir resolves.
     if (result.source === 'meta-agent') {
       expect(dispatcher.dispatch).toHaveBeenCalledTimes(1);
       expect(result.installed).toEqual(['custom-lead', 'custom-worker']);

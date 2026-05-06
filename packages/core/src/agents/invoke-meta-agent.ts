@@ -24,7 +24,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveMetaAgentsDir } from './resolveStarterBundle.js';
+import { resolveMetaAgentsDir } from './resolveAgentTemplates.js';
 
 // ---------------------------------------------------------------------------
 // Public types
