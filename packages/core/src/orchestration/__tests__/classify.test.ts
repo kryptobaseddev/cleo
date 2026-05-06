@@ -1,5 +1,5 @@
 /**
- * Tests for the task-to-agent classifier — T891 / T1258 E1 / T1326.
+ * Tests for the task-to-agent classifier — T891 / T1258 E1 / T1326 / T1936.
  *
  * Verifies:
  *  - All 5 canonical role personas resolve correctly from labels and title keywords.
@@ -8,7 +8,9 @@
  *  - Confidence floor is respected.
  *  - Registry validation: classifier throws E_CLASSIFIER_UNREGISTERED_AGENT when
  *    the resolved agent ID is absent from the allowed vocabulary (T1326).
- *  - getRegisteredAgentIds() returns the full built-in vocabulary.
+ *  - getRegisteredAgentIds() returns the full built-in vocabulary (no DB).
+ *  - getRegisteredAgentIds(db) queries the live registry (T1936).
+ *  - validateClassifierRules() passes with full registry and throws on drift (T1936).
  *
  * Canonical persona IDs (ADR-055 D032 / T1258 E1):
  *  - project-orchestrator (orchestrator role)
@@ -20,8 +22,10 @@
  * @task T891 CANT persona wiring
  * @task T1258 E1 canonical naming refactor
  * @task T1326 classifier↔registry contract
+ * @task T1936 live-registry source for getRegisteredAgentIds + startup validation
  */
 
+import { DatabaseSync } from 'node:sqlite';
 import type { Task } from '@cleocode/contracts';
 import { ClassifierUnregisteredAgentError } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
@@ -30,6 +34,7 @@ import {
   CLASSIFY_FALLBACK_AGENT_ID,
   classifyTask,
   getRegisteredAgentIds,
+  validateClassifierRules,
 } from '../classify.js';
 
 // ---------------------------------------------------------------------------
@@ -325,6 +330,215 @@ describe('classifyTask — registry validation', () => {
       // Must not throw
       const result = classifyTask(task);
       expect(result.agentId, `routing for ${expectedId}`).toBe(expectedId);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRegisteredAgentIds with live DB — T1936
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal in-memory signaldock.db with only the `agents` table
+ * and the `tier` column so getRegisteredAgentIds(db) can query it.
+ *
+ * Uses `:memory:` to avoid any filesystem side-effects.
+ */
+function makeInMemoryAgentsDb(agentRows: Array<{ agent_id: string; tier: string }>): DatabaseSync {
+  const db = new DatabaseSync(':memory:');
+  db.exec(`
+    CREATE TABLE agents (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL UNIQUE,
+      tier TEXT NOT NULL DEFAULT 'fallback'
+    )
+  `);
+  const insert = db.prepare('INSERT INTO agents (id, agent_id, tier) VALUES (?, ?, ?)');
+  for (const row of agentRows) {
+    insert.run(crypto.randomUUID(), row.agent_id, row.tier);
+  }
+  return db;
+}
+
+describe('getRegisteredAgentIds — live DB (T1936)', () => {
+  it('returns IDs from the live agents table when DB has project-tier agents', () => {
+    const db = makeInMemoryAgentsDb([
+      { agent_id: 'project-orchestrator', tier: 'project' },
+      { agent_id: 'project-dev-lead', tier: 'project' },
+      { agent_id: 'project-code-worker', tier: 'project' },
+      { agent_id: 'project-docs-worker', tier: 'project' },
+      { agent_id: 'project-security-worker', tier: 'project' },
+    ]);
+    try {
+      const ids = getRegisteredAgentIds(db);
+      expect(ids).toContain('project-orchestrator');
+      expect(ids).toContain('project-dev-lead');
+      expect(ids).toContain('project-code-worker');
+      expect(ids).toContain('project-docs-worker');
+      expect(ids).toContain('project-security-worker');
+      // Fallback is always appended
+      expect(ids).toContain(CLASSIFY_FALLBACK_AGENT_ID);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('includes a custom extra agent registered in the DB alongside the 5 canonical ones', () => {
+    const db = makeInMemoryAgentsDb([
+      { agent_id: 'project-orchestrator', tier: 'project' },
+      { agent_id: 'project-dev-lead', tier: 'project' },
+      { agent_id: 'project-code-worker', tier: 'project' },
+      { agent_id: 'project-docs-worker', tier: 'project' },
+      { agent_id: 'project-security-worker', tier: 'project' },
+      { agent_id: 'project-rust-lead', tier: 'global' },
+    ]);
+    try {
+      const ids = getRegisteredAgentIds(db);
+      expect(ids).toContain('project-rust-lead');
+      // All canonical ones still present
+      expect(ids).toContain('project-orchestrator');
+      // No duplicates
+      expect(new Set(ids).size).toBe(ids.length);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('excludes agents with tier=fallback from the DB query result', () => {
+    const db = makeInMemoryAgentsDb([
+      { agent_id: 'project-orchestrator', tier: 'project' },
+      { agent_id: 'some-fallback-agent', tier: 'fallback' },
+    ]);
+    try {
+      const ids = getRegisteredAgentIds(db);
+      expect(ids).toContain('project-orchestrator');
+      expect(ids).not.toContain('some-fallback-agent');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('falls back to the static 5-template list when DB has no rows in queried tiers', () => {
+    // All rows have tier=fallback — query returns empty set
+    const db = makeInMemoryAgentsDb([{ agent_id: 'some-fallback-only-agent', tier: 'fallback' }]);
+    try {
+      const ids = getRegisteredAgentIds(db);
+      // Static fallback must kick in
+      expect(ids).toContain('project-orchestrator');
+      expect(ids).toContain('project-dev-lead');
+      expect(ids).toContain(CLASSIFY_FALLBACK_AGENT_ID);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('falls back to the static list when no DB is provided', () => {
+    const ids = getRegisteredAgentIds();
+    expect(ids).toContain('project-orchestrator');
+    expect(ids).toContain('project-dev-lead');
+    expect(ids).toContain('project-code-worker');
+    expect(ids).toContain('project-docs-worker');
+    expect(ids).toContain('project-security-worker');
+    expect(ids).toContain(CLASSIFY_FALLBACK_AGENT_ID);
+    // No duplicates
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('falls back gracefully when the agents table does not exist in the DB', () => {
+    // DB with no tables at all — query will throw, fallback expected
+    const db = new DatabaseSync(':memory:');
+    try {
+      const ids = getRegisteredAgentIds(db);
+      // Must not throw — must return static fallback
+      expect(ids).toContain('project-orchestrator');
+      expect(ids).toContain(CLASSIFY_FALLBACK_AGENT_ID);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateClassifierRules — startup drift detection (T1936)
+// ---------------------------------------------------------------------------
+
+describe('validateClassifierRules (T1936)', () => {
+  it('passes without throwing when all CLASSIFIER_RULES agentIds are in the registry (no DB)', () => {
+    // The static fallback includes all 5 canonical personas — should never throw
+    expect(() => validateClassifierRules()).not.toThrow();
+  });
+
+  it('passes without throwing when DB contains all CLASSIFIER_RULES agentIds', () => {
+    const db = makeInMemoryAgentsDb([
+      { agent_id: 'project-orchestrator', tier: 'project' },
+      { agent_id: 'project-dev-lead', tier: 'project' },
+      { agent_id: 'project-code-worker', tier: 'project' },
+      { agent_id: 'project-docs-worker', tier: 'project' },
+      { agent_id: 'project-security-worker', tier: 'project' },
+    ]);
+    try {
+      expect(() => validateClassifierRules(db)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('throws ClassifierUnregisteredAgentError when DB is missing a rule agentId', () => {
+    // DB is present but missing project-security-worker — drift scenario
+    const db = makeInMemoryAgentsDb([
+      { agent_id: 'project-orchestrator', tier: 'project' },
+      { agent_id: 'project-dev-lead', tier: 'project' },
+      { agent_id: 'project-code-worker', tier: 'project' },
+      { agent_id: 'project-docs-worker', tier: 'project' },
+      // project-security-worker intentionally omitted
+    ]);
+    try {
+      expect(() => validateClassifierRules(db)).toThrow(ClassifierUnregisteredAgentError);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('error fields correctly identify the missing agentId', () => {
+    const db = makeInMemoryAgentsDb([
+      { agent_id: 'project-orchestrator', tier: 'project' },
+      // project-dev-lead, project-code-worker, project-docs-worker, project-security-worker omitted
+    ]);
+    try {
+      let thrown: ClassifierUnregisteredAgentError | null = null;
+      try {
+        validateClassifierRules(db);
+      } catch (err) {
+        if (err instanceof ClassifierUnregisteredAgentError) {
+          thrown = err;
+        }
+      }
+      expect(thrown).not.toBeNull();
+      expect(thrown!.code).toBe('E_CLASSIFIER_UNREGISTERED_AGENT');
+      // The missing ID should be one of the rules not present in the DB
+      expect(thrown!.emittedAgentId).toMatch(/^project-/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('end-to-end: classify a docs task and verify resolved agentId is in live registry', () => {
+    const db = makeInMemoryAgentsDb([
+      { agent_id: 'project-orchestrator', tier: 'project' },
+      { agent_id: 'project-dev-lead', tier: 'project' },
+      { agent_id: 'project-code-worker', tier: 'project' },
+      { agent_id: 'project-docs-worker', tier: 'project' },
+      { agent_id: 'project-security-worker', tier: 'project' },
+    ]);
+    try {
+      const registeredIds = getRegisteredAgentIds(db);
+      const task = makeTask({ title: 'Write specification for the new protocol' });
+      const result = classifyTask(task, { allowedAgentIds: registeredIds });
+      expect(result.agentId).toBe('project-docs-worker');
+      expect(registeredIds).toContain(result.agentId);
+      expect(result.usedFallback).toBe(false);
+    } finally {
+      db.close();
     }
   });
 });
