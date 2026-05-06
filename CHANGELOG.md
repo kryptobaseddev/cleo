@@ -1,5 +1,59 @@
 # Changelog
 
+## [v2026.5.30] — 2026-05-06
+
+Wave: T1929 Phase 1 (Agent System Canonicalization v2) + animations + CAAMP provider refs + CI fixes.
+
+### Added
+- **@cleocode/animations package**: New package with canonical spinners, AnimateContext, ProgressBar/Spark components, demo, and README. Wired into release pipeline (T9011)
+- **resolvePlaybook() + listPlaybooks()**: 3-tier playbook resolver per ADR-068 Decision 4 — project-local, global XDG, bundled fallback (T1937)
+- **CAAMP injection-chain dedup**: parseCaampBlocks, dedupeFile, and `cleo caamp dedupe` command to remove duplicate CAAMP injection blocks (T1939)
+- **cleo migrate agents-v2**: Migration walker for existing agent installs — upgrades seed-agents to v2 templates layout (T1938)
+- **instructionReferences field**: CAAMP registry types now carry instructionReferences for 7 providers; exposed via getProviderInstructionReferences and ensureProviderInstructionFile default (T9013, T9014)
+- **Classifier vocabulary from live registry**: Agent classifier now sources vocabulary from the live CAAMP registry instead of static list (T1936)
+- **installTemplatesAtProjectTier tests**: Regression tests for project-tier auto-registration of agent templates (T1934)
+
+### Changed
+- **@cleocode/agents restructured**: Renamed `packages/agents/seed-agents/` to `packages/agents/templates/`; deleted legacy `starter-bundle` directory. `resolveStarterBundle()` renamed to `resolveAgentTemplates()` (T1932, T1935)
+- **CAAMP adapters refactored**: claude-code and cursor adapters migrated to `caamp.ensureProviderInstructionFile` — removes XDG duplication, delegates to canonical @cleocode/paths.getCleoHome (T9017/T1919, T1912)
+- **LAFS output centralized**: Lazy-load CLI commands and integrate animations into LAFS output pipeline (T1855)
+
+### Fixed
+- **CI bench script**: Resolve cleo binary from local dist in CI bench script — env/local/PATH priority with graceful gitnexus-missing fallback (T1845, T1928)
+- **PUBLISHED_PACKAGES**: Add missing @cleocode/paths and @cleocode/studio to execute-payload PUBLISHED_PACKAGES (T9012)
+- **Test isolation guard**: Hard-block production-DB writes from vitest via openNativeDatabase guard — prevents T9001-style production-fixture leaks (T9031)
+- **Module cache stale mock**: Add vi.resetModules() to coverage-deep-branches.test.ts to prevent stale module cache in test isolation (T1912)
+- **seed-persona-registry T1932 rename leak**: native-loader.ts now walks `templates/` not `seed-agents/`; test assertions updated accordingly (T9033)
+
+### Architecture
+- **ADR-068**: Canonical Agent System v2 — supersedes ADR-055 D032/D035; defines 3-tier resolver, canonical paths, migration contract (T1930)
+- **T1929 spec**: Phase 1 acceptance criteria document committed to docs/ (T1929)
+
+### Tasks
+- T1929 — epic: Agent System Canonicalization v2 (Phase 1 complete)
+- T1930 — docs: ADR-068 canonical agent system specification
+- T1931 — audit: starter-bundle caller inventory (13 source files, preconditions confirmed)
+- T1932 — feat: consolidate @cleocode/agents — rename seed-agents→templates, delete starter-bundle
+- T1934 — test: add installTemplatesAtProjectTier project-tier auto-registration tests
+- T1935 — refactor: rename resolveStarterBundle → resolveAgentTemplates
+- T1936 — feat: classifier vocabulary sourced from live registry
+- T1937 — feat: resolvePlaybook() + listPlaybooks() — 3-tier playbook resolver
+- T1938 — feat: cleo migrate agents-v2 migration walker
+- T1939 — feat: CAAMP injection-chain dedup
+- T1940 — test: Phase 1 pipeline regression suite + resolver-order shadowing tests (30/30 across 3 runs)
+- T1845 — fix: CI bench script binary resolution (archived after ship)
+- T1855 — feat: centralize LAFS output, lazy-load CLI commands, integrate animations
+- T1912 — refactor: delete CAAMP XDG duplicates; delegate to @cleocode/paths.getCleoHome
+- T1916 — feat: instructionReferences in CAAMP registry (prerequisite)
+- T1928 — fix: CI bench hotfix merge (archived after ship)
+- T9011 — feat: new @cleocode/animations package
+- T9012 — fix: PUBLISHED_PACKAGES paths + studio
+- T9013 — feat: instructionReferences field in CAAMP registry types
+- T9014 — feat: getProviderInstructionReferences + registry default
+- T9017 — refactor: migrate claude-code + cursor adapters to caamp.ensureProviderInstructionFile
+- T9031 — fix: hard-block production-DB writes from vitest
+- T9033 — fix: pre-tag fix-ups — biome CI, seed-persona-registry T1932 rename leak, gate clearance
+
 ## [2026.5.29] (2026-05-05)
 
 Wave 1+2 Nexus, SDK Tools surface, Decision Storage canonization, deps guardrails, 4 hotfixes.
