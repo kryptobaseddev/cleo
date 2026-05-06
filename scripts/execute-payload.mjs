@@ -68,6 +68,7 @@ const PUBLISHED_PACKAGES = [
   'lafs',
   'worktree',
   'git-shim',
+  'animations',
   'core',
   'caamp',
   'cant',
