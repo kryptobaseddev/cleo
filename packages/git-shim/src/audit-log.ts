@@ -15,8 +15,8 @@
  * @task T1591
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { getCleoHome } from '@cleocode/paths';
 
 /**
  * Outcome of a shim invocation that warrants an audit entry.
@@ -72,8 +72,7 @@ export interface AuditRecord {
 export function resolveAuditLogPath(): string {
   const override = process.env['CLEO_AUDIT_LOG_PATH'];
   if (override) return override;
-  const xdgData = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-  return join(xdgData, 'cleo', 'audit', 'git-shim.jsonl');
+  return join(getCleoHome(), 'audit', 'git-shim.jsonl');
 }
 
 /**
