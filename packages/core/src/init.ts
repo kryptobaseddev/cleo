@@ -73,14 +73,11 @@ export interface InitOptions {
   /** Run codebase analysis and store findings to brain.db. */
   mapCodebase?: boolean;
   /**
-   * Install the canonical ship-surface seed agents into the project's
-   * `.cleo/cant/agents/` directory. Default: false (operator opts in).
-   *
-   * Per ADR-055 D032 (T1258 E1 canonical naming refactor), `@cleocode/agents`
-   * ships the universal protocol base (`cleo-subagent.cant`) plus five
-   * canonical role templates under `seed-agents/` (orchestrator, dev-lead,
-   * code-worker, docs-worker, security-worker). Existing project files are
-   * never overwritten — operators are free to delete or fork any seed.
+   * @deprecated No-op since T1934 / ADR-068. All five worker templates are
+   * now automatically registered at project tier on every plain `cleo init`
+   * call via {@link installTemplatesAtProjectTier}. Passing this flag emits
+   * a deprecation warning and is otherwise ignored. The flag is preserved for
+   * one minor release to avoid breaking existing scripts.
    */
   installSeedAgents?: boolean;
 }
@@ -187,6 +184,119 @@ export async function resolveSeedAgentsDir(): Promise<string | null> {
     join(packageRoot, '..', '..', '..', 'packages', 'agents', 'seed-agents'),
   ];
   return candidates.find((p) => existsSync(p)) ?? null;
+}
+
+// ── Per-agent outcome of installTemplatesAtProjectTier ───────────────
+
+/**
+ * Per-agent outcome of {@link installTemplatesAtProjectTier}.
+ *
+ * @task T1934
+ */
+export interface TemplateInstallEntry {
+  /** Business identifier of the agent (kebab-case, filename sans `.cant`). */
+  readonly agentId: string;
+  /** Absolute source path of the `.cant` template file. */
+  readonly cantPath: string;
+  /** Whether the DB row was inserted (`true`) or updated (`false`). */
+  readonly inserted: boolean;
+}
+
+/**
+ * Result of {@link installTemplatesAtProjectTier}.
+ *
+ * @task T1934
+ */
+export interface TemplateInstallResult {
+  /** Agents that were successfully (re)registered. */
+  readonly installed: ReadonlyArray<TemplateInstallEntry>;
+  /** Agents that failed to install — paired with the error message. */
+  readonly failed: ReadonlyArray<{ readonly cantPath: string; readonly error: string }>;
+  /**
+   * Absolute path to the templates directory that was scanned.
+   * `null` when the templates directory could not be resolved.
+   */
+  readonly templatesDir: string | null;
+}
+
+/**
+ * Walk `@cleocode/agents/templates/` and register every `project-*.cant` file
+ * into the global `signaldock.db` registry with `tier = 'project'`.
+ *
+ * This is the load-bearing UX change introduced by T1934 (ADR-068): plain
+ * `cleo init` (no flags) now produces a fully working agent dispatch system.
+ * Each template is installed via the atomic {@link installAgentFromCant}
+ * pipeline — the `.cant` file is copied to `.cleo/cant/agents/` AND the
+ * `agents` row is written to `signaldock.db` in a single transaction.
+ *
+ * Idempotent: re-running init on an already-initialised project does not
+ * duplicate rows — `force: true` rewrites stale rows instead of throwing.
+ *
+ * Tolerant of per-file failures: a malformed template blocks only its own
+ * row and is reported in `failed`, leaving sibling installs intact.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @returns Per-file install outcomes and the directory that was scanned.
+ *
+ * @task T1934
+ */
+export async function installTemplatesAtProjectTier(
+  projectRoot: string,
+): Promise<TemplateInstallResult> {
+  const { resolveAgentTemplates } = await import('./agents/resolveAgentTemplates.js');
+  const templatesDir = resolveAgentTemplates();
+
+  if (!templatesDir) {
+    return { installed: [], failed: [], templatesDir: null };
+  }
+
+  const cantFiles = readdirSync(templatesDir).filter((f) => f.endsWith('.cant'));
+
+  if (cantFiles.length === 0) {
+    return { installed: [], failed: [], templatesDir };
+  }
+
+  const { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } = await import(
+    './store/signaldock-sqlite.js'
+  );
+  await ensureGlobalSignaldockDb();
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(getGlobalSignaldockDbPath());
+  db.exec('PRAGMA foreign_keys = ON');
+  db.exec('PRAGMA journal_mode = WAL');
+
+  const installed: TemplateInstallEntry[] = [];
+  const failed: Array<{ cantPath: string; error: string }> = [];
+
+  try {
+    const { installAgentFromCant } = await import('./store/agent-install.js');
+    for (const filename of cantFiles) {
+      const cantPath = join(templatesDir, filename);
+      try {
+        const result = installAgentFromCant(db, {
+          cantSource: cantPath,
+          targetTier: 'project',
+          installedFrom: 'seed',
+          projectRoot,
+          force: true,
+        });
+        installed.push({
+          agentId: result.agentId,
+          cantPath: result.cantPath,
+          inserted: result.inserted,
+        });
+      } catch (err) {
+        failed.push({
+          cantPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  } finally {
+    db.close();
+  }
+
+  return { installed, failed, templatesDir };
 }
 
 /**
@@ -972,18 +1082,41 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     warnings.push(`Starter bundle deploy: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // T1242: Force-reinstall project-tier agents into the registry. Without this
-  // step, `deployStarterBundle` lays down `.cant` files on disk but leaves the
-  // global `signaldock.db:agents` rows out of sync — producing D-002 / D-003
-  // findings the moment `cleo agent doctor` runs over a previously-init'd
-  // workspace. Force semantics ensure we overwrite stale rows from prior init
-  // runs (different project paths sharing the same global DB).
+  // T1934 / ADR-068: Register all 5 worker templates from @cleocode/agents/templates/
+  // directly into signaldock.db.agents at project tier. This replaces the old two-step
+  // flow (deployStarterBundle copies files → forceInstallProjectTierAgents registers them)
+  // with a single atomic pass that writes both the .cant file and the DB row per template.
+  // Force semantics ensure stale rows from prior init runs are overwritten (idempotent).
+  try {
+    const templateResult = await installTemplatesAtProjectTier(projRoot);
+    if (templateResult.installed.length > 0) {
+      created.push(
+        `agents: registered ${templateResult.installed.length} project-tier worker templates`,
+      );
+    }
+    for (const failure of templateResult.failed) {
+      warnings.push(`agent template install failed (${failure.cantPath}): ${failure.error}`);
+    }
+    if (templateResult.templatesDir === null) {
+      warnings.push(
+        'project-tier agent templates not found — ensure @cleocode/agents is installed',
+      );
+    }
+  } catch (err) {
+    warnings.push(
+      `project-tier template registration failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // T1242 (legacy): Force-reinstall any .cant files already on disk in .cleo/cant/agents/.
+  // Handles brownfield projects that had agents deployed by a prior init before T1934.
+  // New greenfield installs will have zero files here and this is a no-op.
   try {
     const { forceInstallProjectTierAgents } = await import('./agents/seed-install.js');
     const installResult = await forceInstallProjectTierAgents(projRoot);
     if (installResult.installed.length > 0) {
       created.push(
-        `agents: registered ${installResult.installed.length} project-tier .cant agents`,
+        `agents: registered ${installResult.installed.length} legacy project-tier .cant agents`,
       );
     }
     for (const failure of installResult.failed) {
@@ -995,65 +1128,15 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     );
   }
 
-  // T283 / T1272: Optional install of canonical CleoOS seed agent personas.
-  // E2 (T1259): invokes agent-architect meta-agent first; falls back to static copy.
+  // T283 / T1272 / T1934: --install-seed-agents is now a deprecated no-op alias.
+  // All 5 worker templates are auto-registered above on every plain `cleo init`.
+  // The flag is preserved for one minor release to avoid breaking existing scripts.
   if (opts.installSeedAgents) {
-    try {
-      const targetDir = join(projRoot, '.cleo', 'agents');
-      await mkdir(targetDir, { recursive: true });
-
-      // Attempt meta-agent invocation (ADR-055 D034 — agent-architect synthesizes
-      // project-specific agents from templates + context).
-      const { invokeAgentArchitect } = await import('./agents/invoke-meta-agent.js');
-      let bundleVersion = '0.0.0';
-      try {
-        const { createRequire } = await import('node:module');
-        const req = createRequire(import.meta.url);
-        const agentsPkg = req('@cleocode/agents/package.json') as { version?: string };
-        bundleVersion = agentsPkg.version ?? '0.0.0';
-      } catch {
-        // agents package not resolvable — use fallback version
-      }
-
-      const metaResult = await invokeAgentArchitect(projRoot, targetDir, bundleVersion);
-
-      if (metaResult.invoked && metaResult.outputs && metaResult.outputs.length > 0) {
-        created.push(
-          `seed-agents: agent-architect synthesized ${metaResult.outputs.length} custom agents`,
-        );
-      } else {
-        // Fallback: static copy from seed-agents/ directory
-        if (!metaResult.invoked) {
-          warnings.push(
-            `agent-architect unavailable (${metaResult.reason ?? 'unknown'}), falling back to static seed copy`,
-          );
-        }
-
-        const seedDir = await resolveSeedAgentsDir();
-        if (seedDir && existsSync(seedDir)) {
-          const seeds = readdirSync(seedDir).filter((f) => f.endsWith('.cant'));
-          let installed = 0;
-          for (const seed of seeds) {
-            const dst = join(targetDir, seed);
-            if (!existsSync(dst)) {
-              await copyFile(join(seedDir, seed), dst);
-              installed++;
-            }
-          }
-          if (installed > 0) {
-            created.push(
-              `seed-agents: ${installed} canonical .cant personas installed (static copy)`,
-            );
-          }
-        } else {
-          warnings.push('seed-agents install: bundled seed-agents/ directory not found');
-        }
-      }
-    } catch (err) {
-      warnings.push(
-        `seed-agents install failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    console.warn(
+      '[cleo][deprecated] --install-seed-agents is no longer required. ' +
+        'All worker templates are now auto-registered on plain `cleo init` (T1934 / ADR-068). ' +
+        'This flag will be removed in a future release.',
+    );
   }
 
   // ────────────────────────────────────────────────────────────────────
@@ -1249,13 +1332,13 @@ export async function deployStarterBundle(
 
   if (hasCantFiles) return; // Already deployed — idempotent
 
-  // Resolve the starter-bundle via the core SDK helper (T1241 / D035).
-  const { resolveStarterBundle } = await import('./agents/resolveStarterBundle.js');
-  const starterBundleSrc = resolveStarterBundle();
+  // Resolve the agent templates via the core SDK helper (T1935 / ADR-068).
+  const { resolveAgentTemplates } = await import('./agents/resolveAgentTemplates.js');
+  const starterBundleSrc = resolveAgentTemplates();
 
   if (!starterBundleSrc) {
     warnings.push(
-      'Starter bundle not found — .cleo/cant/ will remain empty. Ensure @cleocode/agents is installed.',
+      'Agent templates not found — .cleo/cant/ will remain empty. Ensure @cleocode/agents is installed.',
     );
     return;
   }
