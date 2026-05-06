@@ -45,6 +45,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import type { PlaybookApproval, PlaybookRun, PlaybookRunStatus } from '@cleocode/contracts';
 import type { playbook as corePlaybook } from '@cleocode/core';
+import { listPlaybooks, PlaybookNotFoundError, resolvePlaybook } from '@cleocode/core';
 import {
   type AgentDispatcher,
   type AgentDispatchInput,
@@ -95,10 +96,31 @@ export interface PlaybookRuntimeOverrides {
   /**
    * Directory resolver for starter playbooks. Defaults to
    * `packages/playbooks/starter` but tests can point to a fixture dir.
+   *
+   * @deprecated Use `packagedStarterDir` instead (T1937). Kept for existing
+   * tests that set `playbookBaseDirs` directly; falls back to the first entry
+   * if `packagedStarterDir` is also absent.
    */
   playbookBaseDirs?: readonly string[];
   /** Secret used for HMAC resume-token generation (tests pass a stable value). */
   approvalSecret?: string;
+  /**
+   * Override the packaged-tier starter directory used by {@link resolvePlaybook}
+   * and {@link listPlaybooks} (T1937). When set, the canonical resolver uses this
+   * directory instead of auto-detecting `@cleocode/playbooks/starter/`.
+   */
+  packagedStarterDir?: string;
+  /**
+   * Override the global-tier playbooks directory (T1937). When set, the
+   * canonical resolver uses this directory instead of `getCleoHome()/playbooks`.
+   */
+  globalPlaybooksDir?: string;
+  /**
+   * Override the project root used for project-tier lookup (T1937).
+   * Production code reads from `@cleocode/core/internal`; tests set this to
+   * a temp directory.
+   */
+  projectRoot?: string;
 }
 
 /**
@@ -185,10 +207,9 @@ function normalizeListStatus(raw: unknown): PlaybookRunStatus | undefined {
 /**
  * Resolve the list of directories to search for `<name>.cantbook` files.
  *
- * Order of precedence:
- *   1. `__playbookRuntimeOverrides.playbookBaseDirs` (tests only)
- *   2. `~/.local/share/cleo/playbooks` (user-installed)
- *   3. Sibling package starter dir (`packages/playbooks/starter`)
+ * Legacy helper retained so that existing tests that set `playbookBaseDirs`
+ * continue to work. New code should use {@link loadPlaybookByName} which
+ * delegates to the tier-aware `resolvePlaybook()` function (T1937).
  *
  * @internal
  */
@@ -207,21 +228,50 @@ function resolvePlaybookDirs(): readonly string[] {
 }
 
 /**
- * Load and parse a `.cantbook` by name. Returns `null` if the file does not
- * exist in any of the resolved directories.
+ * Load and parse a `.cantbook` by name using the 3-tier canonical resolver
+ * (T1937 — ADR-068 Decision 4).
+ *
+ * Falls back to the legacy `resolvePlaybookDirs()` search when the test
+ * override `playbookBaseDirs` is set, so existing tests remain hermetic.
+ *
+ * Returns `null` when the playbook cannot be found in any tier; callers
+ * should emit `E_NOT_FOUND`.
  *
  * @internal
  */
-function loadPlaybookByName(name: string): { sourcePath: string; source: string } | null {
-  const candidates = resolvePlaybookDirs();
-  const fileName = name.endsWith('.cantbook') ? name : `${name}.cantbook`;
-  for (const dir of candidates) {
-    const full = join(dir, fileName);
-    if (existsSync(full)) {
-      return { sourcePath: full, source: readFileSync(full, 'utf8') };
+async function loadPlaybookByName(
+  name: string,
+): Promise<{ sourcePath: string; source: string } | null> {
+  // Legacy test override path: if playbookBaseDirs is set, use the old linear
+  // search to keep existing tests hermetic without migration.
+  if (__playbookRuntimeOverrides.playbookBaseDirs) {
+    const candidates = resolvePlaybookDirs();
+    const fileName = name.endsWith('.cantbook') ? name : `${name}.cantbook`;
+    for (const dir of candidates) {
+      const full = join(dir, fileName);
+      if (existsSync(full)) {
+        return { sourcePath: full, source: readFileSync(full, 'utf8') };
+      }
     }
+    return null;
   }
-  return null;
+
+  // Canonical tier-aware resolver (T1937).
+  try {
+    const { getProjectRoot } = await import('@cleocode/core/internal');
+    const projectRoot = __playbookRuntimeOverrides.projectRoot ?? getProjectRoot();
+    const resolved = resolvePlaybook(name, {
+      projectRoot,
+      globalPlaybooksDir: __playbookRuntimeOverrides.globalPlaybooksDir,
+      packagedStarterDir: __playbookRuntimeOverrides.packagedStarterDir,
+    });
+    return { sourcePath: resolved.path, source: resolved.source };
+  } catch (err) {
+    if (err instanceof PlaybookNotFoundError) return null;
+    // Any unexpected error (e.g. getProjectRoot throws on uninitialised project)
+    // fall back to null so the caller can emit E_NOT_FOUND.
+    return null;
+  }
 }
 
 /**
@@ -421,8 +471,8 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
       sourcePath = resolved;
       source = readFileSync(resolved, 'utf8');
     } else {
-      // Resolve by name through the standard search path.
-      const loaded = loadPlaybookByName(name!);
+      // Resolve by name through the tier-aware resolver (T1937).
+      const loaded = await loadPlaybookByName(name!);
       if (loaded === null) {
         return lafsError(
           'E_NOT_FOUND',
@@ -467,6 +517,52 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
     }
   },
 
+  // SSoT-EXEMPT:filesystem-resolver — listPlaybooks() reads .cantbook files from the
+  // filesystem across three tiers (project / global / packaged). projectRoot comes
+  // from @cleocode/core/internal which is non-wire-serializable infrastructure (ADR-057 D1).
+  catalog: async (params: PlaybookOps['catalog'][0]) => {
+    const tierFilter = (params.tier ?? 'all') as 'project' | 'global' | 'packaged' | 'all';
+
+    let projectRoot: string | undefined;
+    if (tierFilter === 'all' || tierFilter === 'project') {
+      if (__playbookRuntimeOverrides.projectRoot) {
+        projectRoot = __playbookRuntimeOverrides.projectRoot;
+      } else {
+        try {
+          const { getProjectRoot } = await import('@cleocode/core/internal');
+          projectRoot = getProjectRoot();
+        } catch {
+          // Uninitialised project — project tier will be skipped.
+          projectRoot = undefined;
+        }
+      }
+    }
+
+    const allEntries = listPlaybooks({
+      projectRoot,
+      globalPlaybooksDir: __playbookRuntimeOverrides.globalPlaybooksDir,
+      packagedStarterDir: __playbookRuntimeOverrides.packagedStarterDir,
+    });
+
+    const filtered =
+      tierFilter === 'all'
+        ? allEntries
+        : allEntries.filter((entry) => entry.tier === tierFilter);
+
+    return lafsSuccess(
+      {
+        playbooks: filtered.map((entry) => ({
+          name: entry.name,
+          tier: entry.tier,
+          path: entry.path,
+        })),
+        count: filtered.length,
+        tierFilter,
+      },
+      'catalog',
+    );
+  },
+
   // -----------------------------------------------------------------------
   // Mutate ops
   // -----------------------------------------------------------------------
@@ -487,7 +583,7 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
       return lafsError('E_INVALID_INPUT', err instanceof Error ? err.message : String(err), 'run');
     }
 
-    const loaded = loadPlaybookByName(name);
+    const loaded = await loadPlaybookByName(name);
     if (loaded === null) {
       return lafsError('E_NOT_FOUND', `playbook "${name}" not found in any search path`, 'run');
     }
@@ -593,7 +689,7 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
     // Gate is approved — need the original playbook source to resume. The run
     // row carries `playbook_name` but not the source; re-resolve from the
     // on-disk search path so the hash is re-validated on every resume.
-    const loaded = loadPlaybookByName(run.playbookName);
+    const loaded = await loadPlaybookByName(run.playbookName);
     if (loaded === null) {
       return lafsError(
         'E_NOT_FOUND',
@@ -646,7 +742,7 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
 // Op sets — validated before dispatch to prevent unsupported-op errors
 // ---------------------------------------------------------------------------
 
-const QUERY_OPS = new Set<string>(['status', 'list', 'validate']);
+const QUERY_OPS = new Set<string>(['status', 'list', 'validate', 'catalog']);
 const MUTATE_OPS = new Set<string>(['run', 'resume']);
 
 // ---------------------------------------------------------------------------
@@ -740,7 +836,7 @@ export class PlaybookHandler implements DomainHandler {
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list', 'validate'],
+      query: ['catalog', 'list', 'status', 'validate'],
       mutate: ['run', 'resume'],
     };
   }
