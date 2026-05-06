@@ -10,7 +10,7 @@ vi.mock('@cleocode/caamp', () => ({
   getCommonHookEvents: getCommonHookEventsMock,
 }));
 
-import { queryCommonHooks, queryHookProviders } from '../hooks-engine.js';
+import { queryCommonHooks, queryHookProviders } from '@cleocode/core/internal';
 
 describe('hooks engine', () => {
   beforeEach(() => {
