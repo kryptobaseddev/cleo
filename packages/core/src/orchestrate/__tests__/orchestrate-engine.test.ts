@@ -18,18 +18,16 @@ import {
   orchestrateStatus,
   orchestrateValidate,
   orchestrateWaves,
+  sessionContextInject,
+  sessionEnd,
+  sessionStart,
+  sessionStatus,
 } from '@cleocode/core/internal';
 import { mkdirSync, writeFileSync } from 'fs';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  sessionContextInject,
-  sessionEnd,
-  sessionStart,
-  sessionStatus,
-} from '../session-engine.js';
 
 let TEST_ROOT: string;
 let CLEO_DIR: string;
