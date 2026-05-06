@@ -87,6 +87,40 @@ export function getCleoTemplatesTildePath(): string {
 }
 
 /**
+ * Get the CLEO templates directory as a stable tilde-prefixed path for use in
+ * `@`-references written into shared files (e.g. `~/.agents/AGENTS.md`).
+ *
+ * Unlike {@link getCleoTemplatesTildePath}, this function is **immune to
+ * `CLEO_HOME` overrides**. It derives the reference from `homedir()` alone
+ * via the canonical `~/.cleo` symlink path, which is always stable regardless
+ * of the current `CLEO_HOME` env var value.
+ *
+ * This is the correct function to use when writing a template reference into
+ * a file that persists across sessions (e.g. the global `~/.agents/AGENTS.md`
+ * hub). Using {@link getCleoTemplatesTildePath} there causes test environments
+ * — which override `CLEO_HOME` to a temp directory — to write stale temp-path
+ * blocks into the real AGENTS.md on every test run (T9020 / T1929).
+ *
+ * @returns `"~/.cleo/templates"` on all platforms — resolves via the `~/.cleo`
+ *   symlink to the OS-appropriate canonical data directory at runtime.
+ *
+ * @example
+ * ```typescript
+ * const ref = `@${getCanonicalTemplatesTildePath()}/CLEO-INJECTION.md`;
+ * // "@~/.cleo/templates/CLEO-INJECTION.md"
+ * ```
+ *
+ * @public
+ */
+export function getCanonicalTemplatesTildePath(): string {
+  // Always return the stable ~/.cleo symlink path. This symlink is created by
+  // bootstrapGlobalCleo() and always points to the OS-appropriate canonical data
+  // directory (e.g. ~/.local/share/cleo on Linux). Using this path here ensures
+  // that CLEO_HOME overrides in test environments do NOT pollute shared files.
+  return '~/.cleo/templates';
+}
+
+/**
  * Invalidate the cached CLEO system info snapshot. Use in tests after
  * mutating `CLEO_HOME` or related env vars.
  *

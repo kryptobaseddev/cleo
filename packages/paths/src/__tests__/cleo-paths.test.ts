@@ -4,6 +4,7 @@ import envPaths from 'env-paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   _resetCleoPlatformPathsCache,
+  getCanonicalTemplatesTildePath,
   getCleoHome,
   getCleoPlatformPaths,
   getCleoSystemInfo,
@@ -69,5 +70,39 @@ describe('cleo-paths', () => {
   it('getCleoTemplatesTildePath converts paths under homedir to tilde form', () => {
     process.env['CLEO_HOME'] = join(homedir(), 'custom-cleo');
     expect(getCleoTemplatesTildePath()).toBe('~/custom-cleo/templates');
+  });
+
+  // ── getCanonicalTemplatesTildePath (T9020) ─────────────────────────────────
+
+  describe('getCanonicalTemplatesTildePath()', () => {
+    it('always returns the stable ~/.cleo/templates path', () => {
+      expect(getCanonicalTemplatesTildePath()).toBe('~/.cleo/templates');
+    });
+
+    it('is immune to CLEO_HOME override — returns stable path even when CLEO_HOME is a temp dir', () => {
+      process.env['CLEO_HOME'] = join(
+        homedir(),
+        '.temp',
+        'cleo-injection-chain-XXXXXX',
+        '.cleo-home',
+      );
+      _resetCleoPlatformPathsCache();
+      // getCleoTemplatesTildePath would return the temp path here
+      expect(getCleoTemplatesTildePath()).toContain('cleo-injection-chain-XXXXXX');
+      // getCanonicalTemplatesTildePath must NOT be affected
+      expect(getCanonicalTemplatesTildePath()).toBe('~/.cleo/templates');
+    });
+
+    it('is immune to CLEO_HOME override — returns stable path even when CLEO_HOME is outside home', () => {
+      process.env['CLEO_HOME'] = '/opt/custom-cleo-data';
+      _resetCleoPlatformPathsCache();
+      expect(getCleoTemplatesTildePath()).toBe('/opt/custom-cleo-data/templates');
+      expect(getCanonicalTemplatesTildePath()).toBe('~/.cleo/templates');
+    });
+
+    it('produces the correct @-reference for CLEO-INJECTION.md', () => {
+      const ref = `@${getCanonicalTemplatesTildePath()}/CLEO-INJECTION.md`;
+      expect(ref).toBe('@~/.cleo/templates/CLEO-INJECTION.md');
+    });
   });
 });

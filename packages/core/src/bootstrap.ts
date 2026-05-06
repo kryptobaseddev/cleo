@@ -17,6 +17,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   getAgentsHome,
+  getCanonicalTemplatesTildePath,
   getCleoGlobalCantAgentsDir,
   getCleoHome,
   getCleoTemplatesDir,
@@ -325,8 +326,11 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
         }
       }
 
-      // CAAMP inject() is idempotent — writes the current XDG template reference
-      const templateRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
+      // Use the canonical symlink path (@~/.cleo/templates) rather than the
+      // CLEO_HOME-derived path. CLEO_HOME may be a temp directory in test
+      // environments, which would write a stale temp-path block into the real
+      // ~/.agents/AGENTS.md on every test run (T9020 / T1929).
+      const templateRef = `@${getCanonicalTemplatesTildePath()}/CLEO-INJECTION.md`;
       const action = await inject(globalAgentsMd, templateRef);
       ctx.created.push(`~/.agents/AGENTS.md (${action})`);
 
