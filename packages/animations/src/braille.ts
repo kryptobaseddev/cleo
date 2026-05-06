@@ -513,3 +513,101 @@ export const spinners: Record<BrailleSpinnerName, Spinner> = {
 };
 
 export default spinners;
+
+/* -------------------------------------------
+   Canon Spinner Aliases (CLEO Lore)
+
+   Maps CLEO workshop / Nexus vocabulary onto the underlying braille
+   animations. These are ALIASES — the same Spinner objects reused under
+   canon-friendly names. Generic names (helix, scan, breathe, …) remain
+   first-class so the registry is purely additive.
+
+   Canon vocabulary sources:
+     - docs/concepts/CLEO-VISION.md (six systems: TASKS LOOM BRAIN NEXUS CANT CONDUIT)
+     - docs/concepts/NEXUS-CORE-ASPECTS.md (workshop lexicon)
+     - docs/concepts/CLEO-MANIFESTO.md (mythic identity)
+
+   Mapping rationale:
+     looming      → helix       (twin strands weaving — task on the LOOM)
+     weaving      → braillewave (pattern threading across columns)
+     heartbeat    → breathe     (organic in-out pulse — Hearth presence)
+     awakening    → pulse       (radial bloom — first dream / cleo init)
+     sweeping     → scan        (left→right beam — BRAIN integrity Sweep)
+     watching     → orbit       (circular sentinel — sentient daemon tick)
+     cascade      → cascade     (diagonal fall — command-success accent)
+     tapestry     → waverows    (multi-row sinusoidal — wave-of-tasks shipping)
+     refinery     → columns     (filling stages — memory promotion pipeline)
+   ------------------------------------------- */
+
+/**
+ * Canon-themed spinner identifiers drawn from CLEO workshop vocabulary.
+ *
+ * @remarks
+ * Each canon name is an alias pointing at the same {@link Spinner} object
+ * registered in {@link spinners} under its generic name.
+ */
+export type CanonSpinnerName =
+  | 'looming'
+  | 'weaving'
+  | 'heartbeat'
+  | 'awakening'
+  | 'sweeping'
+  | 'watching'
+  | 'cascade'
+  | 'tapestry'
+  | 'refinery';
+
+/**
+ * Canon-name → generic-name lookup table.
+ *
+ * @remarks
+ * Exposed so consumers can render the underlying generic name in diagnostics
+ * (`looming → helix`) without hardcoding the relationship.
+ */
+export const CANON_TO_GENERIC: Record<CanonSpinnerName, BrailleSpinnerName> = {
+  looming: 'helix',
+  weaving: 'braillewave',
+  heartbeat: 'breathe',
+  awakening: 'pulse',
+  sweeping: 'scan',
+  watching: 'orbit',
+  cascade: 'cascade',
+  tapestry: 'waverows',
+  refinery: 'columns',
+};
+
+/**
+ * Canon-themed spinner registry — aliases on top of {@link spinners}.
+ *
+ * @remarks
+ * Each entry references the same {@link Spinner} object as the generic
+ * registry, so frame data is never duplicated. Renaming a generic spinner
+ * automatically updates the canon view.
+ */
+export const canonSpinners: Record<CanonSpinnerName, Spinner> = {
+  looming: spinners[CANON_TO_GENERIC.looming],
+  weaving: spinners[CANON_TO_GENERIC.weaving],
+  heartbeat: spinners[CANON_TO_GENERIC.heartbeat],
+  awakening: spinners[CANON_TO_GENERIC.awakening],
+  sweeping: spinners[CANON_TO_GENERIC.sweeping],
+  watching: spinners[CANON_TO_GENERIC.watching],
+  cascade: spinners[CANON_TO_GENERIC.cascade],
+  tapestry: spinners[CANON_TO_GENERIC.tapestry],
+  refinery: spinners[CANON_TO_GENERIC.refinery],
+};
+
+/**
+ * Resolve any spinner name (generic OR canon) to its {@link Spinner}.
+ *
+ * @param name - Either a {@link BrailleSpinnerName} or a {@link CanonSpinnerName}
+ * @returns The matching spinner, or `undefined` if the name is not registered.
+ */
+export function resolveSpinner(name: string): Spinner | undefined {
+  if (name in spinners) {
+    return spinners[name as BrailleSpinnerName];
+  }
+  if (name in canonSpinners) {
+    return canonSpinners[name as CanonSpinnerName];
+  }
+  return undefined;
+}
