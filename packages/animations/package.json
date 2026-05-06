@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/animations",
-  "version": "2026.5.31",
+  "version": "2026.5.29",
   "type": "module",
   "description": "CLEO terminal animations — braille spinners, progress bars, and sparks for the cleo CLI and CleoOS. Forked from gunnargray-dev/unicode-animations (MIT).",
   "publishConfig": {
@@ -20,12 +20,30 @@
     "./braille": {
       "types": "./dist/src/braille.d.ts",
       "import": "./dist/src/braille.js"
-    }
+    },
+    "./animate-context": {
+      "types": "./dist/src/animate-context.d.ts",
+      "import": "./dist/src/animate-context.js"
+    },
+    "./progress": {
+      "types": "./dist/src/progress.d.ts",
+      "import": "./dist/src/progress.js"
+    },
+    "./spark": {
+      "types": "./dist/src/spark.d.ts",
+      "import": "./dist/src/spark.js"
+    },
+    "./spinner-handle": {
+      "types": "./dist/src/spinner-handle.d.ts",
+      "import": "./dist/src/spinner-handle.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "scripts",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "sideEffects": false,
