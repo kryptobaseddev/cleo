@@ -24,7 +24,7 @@ const mockGetMetaValue = vi.fn();
 const mockSetMetaValue = vi.fn().mockResolvedValue(undefined);
 const mockLoadSingleTask = vi.fn();
 
-vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn().mockImplementation(() =>
     Promise.resolve({
       loadSessions: mockLoadSessions,
@@ -38,7 +38,7 @@ vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   ),
 }));
 
-vi.mock('../../../../../core/src/sessions/index.js', () => ({
+vi.mock('../index.js', () => ({
   parseScope: vi.fn().mockImplementation((scopeStr: string) => {
     if (scopeStr === 'global') return { type: 'global' };
     const match = scopeStr.match(/^epic:(T\d+)$/);
@@ -63,22 +63,22 @@ vi.mock('../../../../../core/src/sessions/index.js', () => ({
   findSessions: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/sessions/handoff.js', () => ({
+vi.mock('../handoff.js', () => ({
   computeDebrief: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/sessions/session-id.js', () => ({
+vi.mock('../session-id.js', () => ({
   generateSessionId: vi.fn().mockReturnValue('ses-test-scope-001'),
 }));
 
-vi.mock('../../../../../core/src/task-work/index.js', () => ({
+vi.mock('../../task-work/index.js', () => ({
   currentTask: vi.fn(),
   startTask: vi.fn(),
   stopTask: vi.fn(),
   getTaskHistory: vi.fn(),
 }));
 
-import { sessionStart } from '../session-engine.js';
+import { sessionStart } from '@cleocode/core/internal';
 
 // ---------------------------------------------------------------------------
 // Helpers
