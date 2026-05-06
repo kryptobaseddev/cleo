@@ -61,6 +61,10 @@ export default defineConfig({
     // Without this, workers with open SQLite handles or process.once('SIGTERM')
     // handlers that call async code can block the runner indefinitely.
     teardownTimeout: 10_000,
+    // T1914: Sweep stale cleo-injection-chain-* dirs from os.tmpdir() before
+    // and after the full suite.  Catches orphans left by crashed/aborted runs
+    // that bypassed per-test afterEach cleanup.
+    globalSetup: ['packages/core/src/__tests__/setup-global.ts'],
     // Note: VITEST env var is auto-set by vitest. Enforcement code checks
     // process.env.VITEST to disable enforcement during test runs.
     // Tests that validate enforcement directly must clear VITEST in beforeAll.
