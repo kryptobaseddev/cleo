@@ -98,14 +98,17 @@ export {
   type UpdateStatusOptions,
   updateAgentStatus,
 } from './registry.js';
-// Starter-bundle SDK helpers (T1241 / D035)
+// Agent-templates SDK helpers (ADR-068 / T1929 / T1935)
 export {
+  type AgentTemplatesLocation,
+  resolveAgentTemplates,
   resolveMetaAgentsDir,
+  // Deprecated aliases — back-compat until v2027.x (T1935)
   resolveStarterBundle,
   resolveStarterBundleAgentsDir,
   resolveStarterBundleIdentityFile,
   resolveStarterBundleTeamFile,
-} from './resolveStarterBundle.js';
+} from './resolveAgentTemplates.js';
 // Retry & self-healing
 export {
   type AgentRecoveryResult,

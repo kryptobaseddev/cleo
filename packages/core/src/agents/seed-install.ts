@@ -19,9 +19,9 @@
  *     placeholders are resolved via the canonical variable-substitution SDK
  *     (T1238) before the file is written.
  *
- * Per D035 (v2026.4.111) the starter-bundle lives in `@cleocode/agents/`
- * (not `@cleocode/cleo-os/`); the installer routes through the
- * {@link resolveStarterBundle} SDK helper so the path is resolved via the
+ * Per ADR-068 (T1929) the templates directory lives in `@cleocode/agents/templates/`
+ * (starter-bundle deleted by T1932); the installer routes through the
+ * {@link resolveAgentTemplates} SDK helper (T1935) so the path is resolved via the
  * module graph rather than hardcoded.
  *
  * Both paths are idempotent: `~/.local/share/cleo/.seed-version` stores the
@@ -50,7 +50,7 @@ import { fileURLToPath } from 'node:url';
 import { getCleoGlobalCantAgentsDir, getCleoHome } from '../paths.js';
 import { installAgentFromCant } from '../store/agent-install.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from '../store/signaldock-sqlite.js';
-import { resolveStarterBundle } from './resolveStarterBundle.js';
+import { resolveAgentTemplates } from './resolveAgentTemplates.js';
 import { loadProjectContext, substituteCantAgentBody } from './variable-substitution.js';
 
 // ---------------------------------------------------------------------------
@@ -161,19 +161,19 @@ export interface EnsureSeedAgentsInstalledOptions {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the canonical starter-bundle directory from the bundled
+ * Resolve the canonical agent-templates directory from the bundled
  * `@cleocode/agents` package.
  *
- * Delegates to the SDK helper {@link resolveStarterBundle} (T1241) so the
- * resolution strategy lives in a single place and both the installer and
+ * Delegates to the SDK helper {@link resolveAgentTemplates} (T1935 / ADR-068)
+ * so the resolution strategy lives in a single place and both the installer and
  * any future consumer share the same graph traversal.
  *
- * Returns `null` when the starter-bundle directory cannot be located.
+ * Returns `null` when the templates directory cannot be located.
  *
- * @task T897 / T1241
+ * @task T897 / T1241 / T1935
  */
 function resolveSeedDir(): string | null {
-  return resolveStarterBundle();
+  return resolveAgentTemplates();
 }
 
 /**
@@ -819,7 +819,7 @@ export function rerouteLegacyStarterBundlePaths(
     .prepare('SELECT id, agent_id, cant_path FROM agents WHERE cant_path LIKE ?')
     .all(`%${LEGACY_CLEO_OS_STARTER_BUNDLE_SUBSTR}%`) as LegacyStarterBundleAgentRow[];
 
-  const newBundleRoot = resolveStarterBundle();
+  const newBundleRoot = resolveAgentTemplates();
   const rewritten: Array<{ agentId: string; oldPath: string; newPath: string }> = [];
   const skipped: Array<{ agentId: string; oldPath: string; reason: string }> = [];
 
