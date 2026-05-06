@@ -27,11 +27,14 @@
  * @module orchestration/classify
  * @task T891 CANT persona wiring
  * @task T1258 E1 canonical naming refactor
- * @epic T889
+ * @task T1936 live-registry source for getRegisteredAgentIds + startup validation
+ * @epic T889 / T1929
  */
 
+import type { DatabaseSync } from 'node:sqlite';
 import type { Task } from '@cleocode/contracts';
 import { ClassifierUnregisteredAgentError } from '@cleocode/contracts';
+import { typedAll } from '../store/typed-query.js';
 
 // ============================================================================
 // Types
@@ -229,42 +232,142 @@ const CLASSIFIER_RULES: readonly ClassifierRule[] = [
 // ============================================================================
 
 /**
+ * Tiers queried when a live `signaldock.db` handle is provided to
+ * {@link getRegisteredAgentIds}. Only agents installed at these tiers are
+ * considered part of the "registered" vocabulary used for classifier validation.
+ *
+ * @task T1936
+ */
+const REGISTRY_QUERY_TIERS = ['project', 'global', 'packaged'] as const;
+
+/**
+ * Static fallback list of canonical agent IDs returned by
+ * {@link getRegisteredAgentIds} when no live DB is available.
+ *
+ * Mirrors the five worker template names installed by `cleo init` (ADR-068)
+ * plus the generic `cleo-subagent` fallback. Must be kept in sync with
+ * `packages/agents/templates/*.cant` filenames.
+ *
+ * @task T1936
+ * @epic T1929
+ */
+const STATIC_FALLBACK_AGENT_IDS: readonly string[] = [
+  'project-orchestrator',
+  'project-dev-lead',
+  'project-code-worker',
+  'project-docs-worker',
+  'project-security-worker',
+  CLASSIFY_FALLBACK_AGENT_ID,
+];
+
+/**
  * Returns the set of agent IDs that the classifier is allowed to emit.
  *
- * This is derived directly from {@link CLASSIFIER_RULES} plus the
- * {@link CLASSIFY_FALLBACK_AGENT_ID} so that the vocabulary and the rules
- * are always in sync. Any rule added to `CLASSIFIER_RULES` automatically
- * expands this set.
+ * When `db` is provided (an open handle to `signaldock.db`), the live
+ * `agents` table is queried for all rows whose `tier` is one of
+ * `'project'`, `'global'`, or `'packaged'`. The result set is unique
+ * and order-stable (alphabetical within tier groups). The generic
+ * `cleo-subagent` fallback is always appended last.
  *
- * Callers that validate classifier output against a live DB registry can
- * compare this set against `AgentRegistryAPI.list()` before dispatching.
+ * When `db` is omitted or the query fails, the function falls back to the
+ * five canonical worker template names (the ADR-068 install set). This
+ * preserves correctness in CI bootstrap scenarios and unit tests that run
+ * without a live registry.
  *
- * @returns Readonly array of valid agent IDs (unique, order matches rule order).
+ * Per ADR-068 (T1929): the canonical source-of-truth is the installed
+ * templates set registered in `signaldock.db.agents` by `cleo init` (T1934).
+ * Passing the open DB handle here wires that source to the classifier.
  *
- * @example
+ * @param db - Optional open `DatabaseSync` handle to `signaldock.db`.
+ *   When supplied the live `agents` table is used; when omitted the static
+ *   5-template fallback list is returned instead.
+ * @returns Readonly array of valid agent IDs (unique).
+ *
+ * @example Without DB (static fallback):
  * ```typescript
- * const valid = getRegisteredAgentIds();
- * // ['project-orchestrator', 'project-security-worker', 'project-docs-worker',
- * //  'project-dev-lead', 'project-code-worker', 'cleo-subagent']
+ * const ids = getRegisteredAgentIds();
+ * // ['project-orchestrator', 'project-dev-lead', 'project-code-worker',
+ * //  'project-docs-worker', 'project-security-worker', 'cleo-subagent']
+ * ```
+ *
+ * @example With live DB (registry-backed):
+ * ```typescript
+ * const db = new DatabaseSync(getGlobalSignaldockDbPath());
+ * const ids = getRegisteredAgentIds(db);
+ * // [...all installed agents..., 'cleo-subagent']
+ * db.close();
  * ```
  *
  * @task T1326
- * @epic T1323
+ * @task T1936
+ * @epic T1323 / T1929
  */
-export function getRegisteredAgentIds(): readonly string[] {
-  const seen = new Set<string>();
-  const ids: string[] = [];
-  for (const rule of CLASSIFIER_RULES) {
-    if (!seen.has(rule.agentId)) {
-      seen.add(rule.agentId);
-      ids.push(rule.agentId);
+export function getRegisteredAgentIds(db?: DatabaseSync): readonly string[] {
+  if (db) {
+    try {
+      const placeholders = REGISTRY_QUERY_TIERS.map(() => '?').join(', ');
+      const stmt = db.prepare(
+        `SELECT DISTINCT agent_id FROM agents WHERE tier IN (${placeholders}) ORDER BY agent_id ASC`,
+      );
+      const rows = typedAll<{ agent_id: string }>(stmt, ...REGISTRY_QUERY_TIERS);
+
+      if (rows.length > 0) {
+        const ids = rows.map((r) => r.agent_id);
+        // Always include the fallback — it resolves via the packaged/fallback tier.
+        if (!ids.includes(CLASSIFY_FALLBACK_AGENT_ID)) {
+          ids.push(CLASSIFY_FALLBACK_AGENT_ID);
+        }
+        return ids;
+      }
+    } catch {
+      // DB query failed (schema not yet migrated, table absent, etc.)
+      // Fall through to the static fallback list below.
     }
   }
-  // Fallback is always valid — it resolves via the packaged/fallback tier.
-  if (!seen.has(CLASSIFY_FALLBACK_AGENT_ID)) {
-    ids.push(CLASSIFY_FALLBACK_AGENT_ID);
+
+  // Static fallback: canonical 5-template set + generic fallback.
+  // Used when no DB is provided (CI bootstrap, unit tests without registry).
+  return STATIC_FALLBACK_AGENT_IDS;
+}
+
+/**
+ * Validate that every agent ID referenced in {@link CLASSIFIER_RULES} is
+ * present in the live registry. Throws {@link ClassifierUnregisteredAgentError}
+ * at the first rule whose `agentId` is absent from the registered set.
+ *
+ * Call this once on classifier init (e.g. at `cleo session start`) to catch
+ * drift between hardcoded classifier vocabulary and registered agents at startup
+ * time rather than at task-classification time. The static fallback is always
+ * accepted as a valid ID source when no DB is provided.
+ *
+ * Per T1326 contract: the error class, code (`E_CLASSIFIER_UNREGISTERED_AGENT`),
+ * and field names are unchanged — only the validation trigger point moves from
+ * per-classify-call to once-at-startup.
+ *
+ * @param db - Optional open `DatabaseSync` handle to `signaldock.db`.
+ *   When supplied the live registry is used for the registered-id lookup;
+ *   when omitted the static 5-template fallback is used (always passes for
+ *   the canonical rule set).
+ * @throws {@link ClassifierUnregisteredAgentError} when a rule references an
+ *   agent ID that is absent from the registered vocabulary.
+ *
+ * @example At session start:
+ * ```typescript
+ * const db = new DatabaseSync(getGlobalSignaldockDbPath());
+ * validateClassifierRules(db);  // throws immediately if rules are stale
+ * db.close();
+ * ```
+ *
+ * @task T1936
+ * @epic T1929
+ */
+export function validateClassifierRules(db?: DatabaseSync): void {
+  const registered = new Set(getRegisteredAgentIds(db));
+  for (const rule of CLASSIFIER_RULES) {
+    if (!registered.has(rule.agentId)) {
+      throw new ClassifierUnregisteredAgentError(rule.agentId, [...registered]);
+    }
   }
-  return ids;
 }
 
 /**

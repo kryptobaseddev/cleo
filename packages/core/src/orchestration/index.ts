@@ -36,6 +36,7 @@ export {
   CLASSIFY_FALLBACK_AGENT_ID,
   classifyTask,
   getRegisteredAgentIds,
+  validateClassifierRules,
 } from './classify.js';
 export type { ContextEstimation } from './context.js';
 export { countManifestEntries, estimateContext } from './context.js';
