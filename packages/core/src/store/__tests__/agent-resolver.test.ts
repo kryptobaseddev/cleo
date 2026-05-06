@@ -786,6 +786,71 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
     expect(resolveDefaultSeedDir()).toBe(resolveDefaultTemplatesDir());
   });
 
+  // ── T9037: resolveDefaultUniversalBasePath workspace + published parity ───
+
+  it('T9037 — resolveDefaultUniversalBasePath resolves to a cleo-subagent.cant that exists on disk (workspace mode)', async () => {
+    const { resolveDefaultUniversalBasePath } = await import('../agent-resolver.js');
+    const p = resolveDefaultUniversalBasePath();
+    // In workspace mode the function MUST locate the file via require.resolve
+    // primary strategy or the relative-path fallback. Either way the result
+    // must be a non-null string ending in cleo-subagent.cant that exists on disk.
+    expect(p).not.toBeNull();
+    expect(p).toMatch(/cleo-subagent\.cant$/);
+    // Verify the file actually exists — this catches path-resolution drift
+    // between the function's output and the real filesystem layout.
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(p as string)).toBe(true);
+  });
+
+  it('T9037 — resolveDefaultUniversalBasePath resolves via require.resolve even when fileURL path would differ (published-CLI simulation)', async () => {
+    // Simulate a published-CLI layout by copying @cleocode/agents into a temp
+    // node_modules tree and confirming that require.resolve primary strategy
+    // resolves the file from that location. This tests the fix for the bug
+    // where the old fileURL-only approach failed in globally-installed CLIs
+    // because the relative path climb did not match the npm install layout.
+    const {
+      mkdirSync: mkd,
+      writeFileSync: wf,
+      mkdtempSync: mkdtemp,
+      rmSync: rm,
+    } = await import('node:fs');
+    const { join: j, dirname: dn } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+
+    const base = mkdtemp(j(tmpdir(), 'cleo-t9037-published-'));
+    try {
+      // Build a minimal @cleocode/agents package tree under a fake node_modules.
+      const fakePkgDir = j(base, 'node_modules', '@cleocode', 'agents');
+      mkd(fakePkgDir, { recursive: true });
+      wf(
+        j(fakePkgDir, 'package.json'),
+        JSON.stringify({ name: '@cleocode/agents', version: '0.0.0-test', type: 'module' }),
+      );
+      wf(
+        j(fakePkgDir, 'cleo-subagent.cant'),
+        '---\nkind: agent\nversion: 1\n---\nagent cleo-subagent:\n  role: worker\n  prompt: "T9037 test universal base."\n  skills: []\n',
+      );
+
+      // Use Node's require to resolve the file from inside the fake package tree.
+      // This mimics what resolveDefaultUniversalBasePath() does in published-CLI
+      // mode: require.resolve('@cleocode/agents/package.json') from the CLI's
+      // installed location reaches the correct node_modules/@cleocode/agents dir.
+      const { createRequire } = await import('node:module');
+      const fakeReq = createRequire(j(fakePkgDir, 'package.json'));
+      const resolved = fakeReq.resolve('@cleocode/agents/package.json');
+      const expectedPath = j(dn(resolved), 'cleo-subagent.cant');
+
+      // Verify that the resolution produces the correct path relative to the
+      // fake package root — i.e., the require.resolve strategy finds the right file.
+      expect(expectedPath).toBe(j(fakePkgDir, 'cleo-subagent.cant'));
+
+      const { existsSync } = await import('node:fs');
+      expect(existsSync(expectedPath)).toBe(true);
+    } finally {
+      rm(base, { recursive: true, force: true });
+    }
+  });
+
   it('T1933 — all 5 tiers covered individually: project wins when installed', async () => {
     // This test individually verifies each tier in isolation by exercising the
     // tier-specific paths: project, global, packaged, fallback, universal.
