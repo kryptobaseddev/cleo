@@ -21,6 +21,7 @@
     "@cleocode/agents": "workspace:*",
     "@cleocode/cant": "workspace:*",
     "@cleocode/core": "workspace:*",
+    "@cleocode/paths": "workspace:*",
     "@mariozechner/pi-coding-agent": ">=0.60.0",
     "@sinclair/typebox": "^0.34.49",
     "env-paths": "^4.0.0"

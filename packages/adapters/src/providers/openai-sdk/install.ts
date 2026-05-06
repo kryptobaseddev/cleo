@@ -2,24 +2,25 @@
  * OpenAI SDK Install Provider.
  *
  * Handles CLEO installation into OpenAI SDK environments:
- * - Writes an AGENTS.md file with CLEO @-references
+ * - Writes an AGENTS.md file with CLEO @-references (via CAAMP registry)
  * - Creates a `.openai/` config stub if it does not exist
  *
  * @task T582
+ * @task T9018
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
-
-/** Lines that should appear in AGENTS.md to reference CLEO. */
-const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
+import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
 /**
  * Install provider for the OpenAI SDK adapter (Vercel AI SDK).
  *
  * Manages CLEO's integration with OpenAI SDK projects by:
  * 1. Ensuring AGENTS.md contains @-references to CLEO instruction files
+ *    (via CAAMP registry — single source of truth for instruction file name)
  * 2. Creating the `.openai/` config directory stub if absent
  *
  * @remarks
@@ -38,10 +39,15 @@ export class OpenAiSdkInstallProvider implements AdapterInstallProvider {
     const installedAt = new Date().toISOString();
     const details: Record<string, unknown> = {};
 
-    // Step 1: Ensure AGENTS.md has @-references
-    const instructionFileUpdated = this.updateInstructionFile(projectDir);
+    // Step 1: Ensure AGENTS.md has @-references via CAAMP registry
+    const instructionResult = await ensureProviderInstructionFile('openai-sdk', projectDir, {
+      references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
+      scope: 'project',
+    });
+
+    const instructionFileUpdated = instructionResult.action !== 'intact';
     if (instructionFileUpdated) {
-      details.instructionFile = join(projectDir, 'AGENTS.md');
+      details.instructionFile = instructionResult.filePath;
     }
 
     // Step 2: Create .openai config directory stub
@@ -68,7 +74,7 @@ export class OpenAiSdkInstallProvider implements AdapterInstallProvider {
   /**
    * Check whether CLEO is installed in the current OpenAI SDK environment.
    *
-   * Checks for `@~/.cleo/templates/CLEO-INJECTION.md` in AGENTS.md.
+   * Checks for `@~/.local/share/cleo/templates/CLEO-INJECTION.md` in AGENTS.md.
    */
   async isInstalled(): Promise<boolean> {
     // A project is considered installed when AGENTS.md contains the first reference.
@@ -82,43 +88,15 @@ export class OpenAiSdkInstallProvider implements AdapterInstallProvider {
    * @param projectDir - Project root directory.
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
-    this.updateInstructionFile(projectDir);
+    await ensureProviderInstructionFile('openai-sdk', projectDir, {
+      references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
+      scope: 'project',
+    });
   }
 
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
-
-  /**
-   * Update AGENTS.md with CLEO @-references.
-   *
-   * @returns `true` if the file was created or modified.
-   */
-  private updateInstructionFile(projectDir: string): boolean {
-    const agentsMdPath = join(projectDir, 'AGENTS.md');
-    let content = '';
-    let existed = false;
-
-    if (existsSync(agentsMdPath)) {
-      content = readFileSync(agentsMdPath, 'utf-8');
-      existed = true;
-    }
-
-    const missingRefs = INSTRUCTION_REFERENCES.filter((ref) => !content.includes(ref));
-    if (missingRefs.length === 0) return false;
-
-    const refsBlock = missingRefs.join('\n');
-
-    if (existed) {
-      const separator = content.endsWith('\n') ? '' : '\n';
-      content = content + separator + refsBlock + '\n';
-    } else {
-      content = refsBlock + '\n';
-    }
-
-    writeFileSync(agentsMdPath, content, 'utf-8');
-    return true;
-  }
 
   /**
    * Create the `.openai/` config directory if it does not exist.

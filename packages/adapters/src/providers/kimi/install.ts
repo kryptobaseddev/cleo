@@ -2,24 +2,25 @@
  * Kimi Install Provider
  *
  * Handles CLEO installation into Kimi environments:
- * - Ensures AGENTS.md has CLEO @-references
+ * - Ensures AGENTS.md has CLEO @-references (via CAAMP registry)
  *
  * @task T163
  * @epic T134
+ * @task T9018
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
-
-/** Lines that should appear in AGENTS.md to reference CLEO. */
-const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
+import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
 /**
  * Install provider for Kimi.
  *
  * Manages CLEO's integration with Kimi by:
  * 1. Ensuring AGENTS.md contains @-references to CLEO instruction files
+ *    (via CAAMP registry — single source of truth for instruction file name)
  *
  * @remarks
  * Installation is idempotent -- running install multiple times on the same
@@ -40,13 +41,16 @@ export class KimiInstallProvider implements AdapterInstallProvider {
   async install(options: InstallOptions): Promise<InstallResult> {
     const { projectDir } = options;
     const installedAt = new Date().toISOString();
-    let instructionFileUpdated = false;
     const details: Record<string, unknown> = {};
 
-    // Step 1: Ensure AGENTS.md has @-references
-    instructionFileUpdated = this.updateInstructionFile(projectDir);
+    const result = await ensureProviderInstructionFile('kimi', projectDir, {
+      references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
+      scope: 'project',
+    });
+
+    const instructionFileUpdated = result.action !== 'intact';
     if (instructionFileUpdated) {
-      details.instructionFile = join(projectDir, 'AGENTS.md');
+      details.instructionFile = result.filePath;
     }
 
     return {
@@ -74,11 +78,12 @@ export class KimiInstallProvider implements AdapterInstallProvider {
    * @task T163
    */
   async isInstalled(): Promise<boolean> {
+    const instructionRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
     const agentsMdPath = join(process.cwd(), 'AGENTS.md');
     if (existsSync(agentsMdPath)) {
       try {
         const content = readFileSync(agentsMdPath, 'utf-8');
-        if (INSTRUCTION_REFERENCES.some((ref) => content.includes(ref))) {
+        if (content.includes(instructionRef)) {
           return true;
         }
       } catch {
@@ -98,41 +103,9 @@ export class KimiInstallProvider implements AdapterInstallProvider {
    * @task T163
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
-    this.updateInstructionFile(projectDir);
-  }
-
-  /**
-   * Update AGENTS.md with CLEO @-references.
-   *
-   * @param projectDir - Project root directory
-   * @returns true if the file was created or modified
-   */
-  private updateInstructionFile(projectDir: string): boolean {
-    const agentsMdPath = join(projectDir, 'AGENTS.md');
-    let content = '';
-    let existed = false;
-
-    if (existsSync(agentsMdPath)) {
-      content = readFileSync(agentsMdPath, 'utf-8');
-      existed = true;
-    }
-
-    const missingRefs = INSTRUCTION_REFERENCES.filter((ref) => !content.includes(ref));
-
-    if (missingRefs.length === 0) {
-      return false;
-    }
-
-    const refsBlock = missingRefs.join('\n');
-
-    if (existed) {
-      const separator = content.endsWith('\n') ? '' : '\n';
-      content = content + separator + refsBlock + '\n';
-    } else {
-      content = refsBlock + '\n';
-    }
-
-    writeFileSync(agentsMdPath, content, 'utf-8');
-    return true;
+    await ensureProviderInstructionFile('kimi', projectDir, {
+      references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
+      scope: 'project',
+    });
   }
 }
