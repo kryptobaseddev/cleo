@@ -683,9 +683,9 @@ export async function forceInstallProjectTierAgents(
   // amortise the migration cost across every seed agent.
   await ensureGlobalSignaldockDb();
   const { DatabaseSync } = await import('node:sqlite');
+  const { applyPerfPragmas } = await import('../store/sqlite-pragmas.js');
   const db = new DatabaseSync(getGlobalSignaldockDbPath());
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA journal_mode = WAL');
+  applyPerfPragmas(db);
 
   try {
     for (const filename of cantFiles) {
