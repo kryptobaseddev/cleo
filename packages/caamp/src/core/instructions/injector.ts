@@ -19,6 +19,182 @@ const MARKER_END = '<!-- CAAMP:END -->';
 const MARKER_PATTERN = /<!-- CAAMP:START -->[\s\S]*?<!-- CAAMP:END -->/g;
 const MARKER_PATTERN_SINGLE = /<!-- CAAMP:START -->[\s\S]*?<!-- CAAMP:END -->/;
 
+// ── Block parsing ──────────────────────────────────────────────────────────
+
+/**
+ * A single parsed CAAMP block extracted from a file.
+ *
+ * @public
+ */
+export interface CaampBlock {
+  /** Raw text of the entire block including markers. */
+  raw: string;
+  /** Trimmed content between the markers. */
+  content: string;
+  /** Zero-based character offset of the start of the block in the file. */
+  startIndex: number;
+  /** Zero-based character offset immediately after the block in the file. */
+  endIndex: number;
+}
+
+/**
+ * Parse all CAAMP blocks from a file's content string.
+ *
+ * Returns an array of {@link CaampBlock} objects in order of appearance.
+ * Blocks with malformed markers (START without matching END) are silently
+ * skipped to avoid crashing on corrupted files.
+ *
+ * @param fileContent - Raw text content of the file
+ * @returns Array of parsed CAAMP blocks
+ *
+ * @public
+ */
+export function parseCaampBlocks(fileContent: string): CaampBlock[] {
+  const blocks: CaampBlock[] = [];
+  const pattern = /<!-- CAAMP:START -->([\s\S]*?)<!-- CAAMP:END -->/g;
+
+  for (let match = pattern.exec(fileContent); match !== null; match = pattern.exec(fileContent)) {
+    const raw = match[0];
+    const innerContent = match[1] ?? '';
+    blocks.push({
+      raw,
+      content: innerContent.trim(),
+      startIndex: match.index,
+      endIndex: match.index + raw.length,
+    });
+  }
+
+  return blocks;
+}
+
+/**
+ * Result of deduplicating CAAMP blocks in a single file.
+ *
+ * @public
+ */
+export interface DedupeResult {
+  /** Absolute path to the file that was processed. */
+  filePath: string;
+  /** Number of duplicate blocks removed. */
+  removed: number;
+  /** Number of unique blocks kept. */
+  kept: number;
+  /** `true` if the file was modified on disk; `false` if it was already clean. */
+  modified: boolean;
+}
+
+/**
+ * Deduplicate CAAMP blocks in a file by content.
+ *
+ * Groups all `<!-- CAAMP:START -->...<!-- CAAMP:END -->` blocks by their
+ * trimmed inner content. For each group that has more than one block, keeps
+ * only the **last** occurrence (most recently written) and removes the earlier
+ * duplicates. Blocks with distinct contents are preserved in their original
+ * relative order.
+ *
+ * Idempotent: calling this on an already-clean file returns `modified: false`
+ * and makes no filesystem writes.
+ *
+ * @param filePath - Absolute path to the file to deduplicate
+ * @returns Dedup summary
+ *
+ * @remarks
+ * "Last occurrence wins" matches the behaviour of CLEO's injection chain,
+ * which writes the canonical `@~/.local/share/cleo/…` path on every session.
+ * Stale temp-path blocks from earlier sessions therefore have earlier indices
+ * and are removed, leaving the canonical block.
+ *
+ * @example
+ * ```typescript
+ * const result = await dedupeFile("/home/user/.agents/AGENTS.md");
+ * console.log(`Removed ${result.removed} duplicate(s)`);
+ * ```
+ *
+ * @public
+ */
+export async function dedupeFile(filePath: string): Promise<DedupeResult> {
+  if (!existsSync(filePath)) {
+    return { filePath, removed: 0, kept: 0, modified: false };
+  }
+
+  const fileContent = await readFile(filePath, 'utf-8');
+  const blocks = parseCaampBlocks(fileContent);
+
+  if (blocks.length === 0) {
+    return { filePath, removed: 0, kept: 0, modified: false };
+  }
+
+  // Group by trimmed content — last occurrence wins
+  const lastByContent = new Map<string, CaampBlock>();
+  for (const block of blocks) {
+    lastByContent.set(block.content, block);
+  }
+
+  const keepSet = new Set<CaampBlock>(lastByContent.values());
+  const removed = blocks.length - keepSet.size;
+
+  if (removed === 0) {
+    // Already clean
+    return { filePath, removed: 0, kept: blocks.length, modified: false };
+  }
+
+  // Rebuild file content: walk through original text, emit blocks that are
+  // in keepSet and skip duplicates. Non-block text between blocks is preserved.
+  let result = '';
+  let cursor = 0;
+
+  for (const block of blocks) {
+    // Emit any non-block text before this block
+    result += fileContent.slice(cursor, block.startIndex);
+    cursor = block.endIndex;
+
+    if (keepSet.has(block)) {
+      result += block.raw;
+    }
+    // Removed duplicates contribute nothing — surrounding whitespace is
+    // normalized by the final collapse step below.
+  }
+
+  // Emit any trailing text after the last block
+  result += fileContent.slice(cursor);
+
+  // Normalize: collapse 3+ consecutive newlines → 2, trim trailing whitespace
+  result = result.replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+
+  await writeFile(filePath, result, 'utf-8');
+
+  return { filePath, removed, kept: keepSet.size, modified: true };
+}
+
+/**
+ * Deduplicate CAAMP blocks across multiple files.
+ *
+ * Runs {@link dedupeFile} on each path in order and collects results.
+ * Files that do not exist are skipped silently (their result has `removed: 0`).
+ *
+ * @param filePaths - Array of absolute file paths to process
+ * @returns Array of results, one per input path
+ *
+ * @example
+ * ```typescript
+ * const results = await dedupeFiles([
+ *   "/home/user/.agents/AGENTS.md",
+ *   "/project/AGENTS.md",
+ * ]);
+ * const totalRemoved = results.reduce((n, r) => n + r.removed, 0);
+ * console.log(`Removed ${totalRemoved} duplicate(s) across ${results.length} files`);
+ * ```
+ *
+ * @public
+ */
+export async function dedupeFiles(filePaths: string[]): Promise<DedupeResult[]> {
+  const results: DedupeResult[] = [];
+  for (const filePath of filePaths) {
+    results.push(await dedupeFile(filePath));
+  }
+  return results;
+}
+
 /**
  * Check the status of a CAAMP injection block in an instruction file.
  *
