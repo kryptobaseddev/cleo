@@ -377,7 +377,7 @@ export function cantExecutePipelineNative(
  * surface (plus `meta/agent-architect.cant`, the meta-agent, which the loader
  * does not currently walk — tracked as follow-up for a loader extension).
  *
- * Note: filenames under `seed-agents/` use canonical role names
+ * Note: filenames under `templates/` (renamed from `seed-agents/` by T1932) use canonical role names
  * (`orchestrator.cant`, `dev-lead.cant`, etc. — T1258 E1 clean-forward),
  * and the agent IDs DECLARED inside each template (via `agent <name>:`) are
  * `project-*`. This list reflects the
@@ -387,8 +387,8 @@ export function cantExecutePipelineNative(
  * templates (T1258 E1: orchestrator, dev-lead, code-worker, docs-worker,
  * security-worker). Used by the regression test and as documentation of the
  * expected registry contents. Any persona on this list MUST be resolvable
- * from the canonical seed-agents path (either `cleo-subagent.cant` at package
- * root or `seed-agents/<filename>.cant`).
+ * from the canonical templates path (either `cleo-subagent.cant` at package
+ * root or `templates/<filename>.cant`).
  *
  * @task T1257
  * @task T1258 E1 canonical naming refactor — security-worker added
@@ -562,8 +562,8 @@ function parseCantFileToIdentity(cantFile: string, fallbackId?: string): PeerIde
  * `packages/agents/` directory shipped with `@cleocode/agents`.
  *
  * Walk order:
- *  1. All `.cant` files inside `packages/agents/seed-agents/` (generic templates
- *     + any project-specific personas installed there).
+ *  1. All `.cant` files inside `packages/agents/templates/` (generic templates
+ *     + any project-specific personas installed there). Renamed from `seed-agents/` by T1932.
  *  2. `packages/agents/cleo-subagent.cant` — the universal protocol base.
  *
  * Files that cannot be parsed (unreadable, missing `agent <id>:` block) are
@@ -576,7 +576,7 @@ function parseCantFileToIdentity(cantFile: string, fallbackId?: string): PeerIde
  *   omitted the path is resolved automatically relative to this file. Tests
  *   should pass an absolute path to an isolated fixture directory.
  * @returns `PeerIdentity[]` for every successfully-parsed `.cant` file, in
- *   seed-agents-first, universal-base-last order.
+ *   templates-first, universal-base-last order.
  *
  * @example
  * ```ts
@@ -596,8 +596,8 @@ export function loadSeedAgentIdentities(agentsRoot?: string): PeerIdentity[] {
 
   const identities: PeerIdentity[] = [];
 
-  // 1. Walk seed-agents/ directory
-  const seedDir = join(root, 'seed-agents');
+  // 1. Walk templates/ directory (renamed from seed-agents/ by T1932)
+  const seedDir = join(root, 'templates');
   if (existsSync(seedDir)) {
     let entries: string[] = [];
     try {
