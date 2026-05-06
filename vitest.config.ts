@@ -61,6 +61,12 @@ export default defineConfig({
     // Without this, workers with open SQLite handles or process.once('SIGTERM')
     // handlers that call async code can block the runner indefinitely.
     teardownTimeout: 10_000,
+    // Per-fork global isolation. vitest.setup.ts redirects CLEO_HOME and
+    // NEXUS_HOME to a throwaway tmp dir so any test that resolves a "global"
+    // path (signaldock.db, nexus global registry, etc.) without explicit
+    // overrides cannot leak into ~/.local/share/cleo. Pairs with the
+    // path-isolation guard in packages/core/src/store/sqlite-native.ts.
+    setupFiles: ['./vitest.setup.ts'],
     // Note: VITEST env var is auto-set by vitest. Enforcement code checks
     // process.env.VITEST to disable enforcement during test runs.
     // Tests that validate enforcement directly must clear VITEST in beforeAll.
