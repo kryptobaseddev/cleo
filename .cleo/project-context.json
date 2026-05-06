@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "detectedAt": "2026-04-05T14:10:05.109Z",
+  "detectedAt": "2026-05-06T02:58:41.222Z",
   "projectTypes": [
     "node",
     "rust"
@@ -17,7 +17,8 @@
     ]
   },
   "build": {
-    "command": "pnpm run build"
+    "command": "pnpm run build",
+    "outputDir": "dist"
   },
   "directories": {
     "source": "src",
