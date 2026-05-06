@@ -25,6 +25,7 @@
     { "path": "../contracts" },
     { "path": "../core" },
     { "path": "../lafs" },
+    { "path": "../animations" },
     { "path": "../caamp" },
     { "path": "../adapters" },
     { "path": "../runtime" },
