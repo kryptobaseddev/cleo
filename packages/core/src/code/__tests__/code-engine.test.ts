@@ -12,14 +12,21 @@
  * @task T1583 — ENG-MIG-16
  */
 
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { codeOutline, codeParse, codeSearch, codeUnfold } from '@cleocode/core/internal';
 import { describe, expect, it } from 'vitest';
-import { codeOutline, codeParse, codeSearch, codeUnfold } from '../code-engine.js';
 
 describe('Code Engine', () => {
-  // Use a real test file from the codebase
+  // Use a real test file from the codebase. Derive the monorepo root from
+  // import.meta.url instead of process.cwd() — per T1889 plan §2c, the
+  // cwd-derived approach made fixture lookup brittle when this test moved
+  // from packages/cleo/src/dispatch/engines/__tests__/ to its current home.
+  // Path math: this file lives at packages/core/src/code/__tests__/, so
+  // five `..` segments reach the monorepo root.
   const testFile = 'packages/cleo/src/cli/commands/code.ts';
-  const projectRoot = process.cwd();
+  const __filename = fileURLToPath(import.meta.url);
+  const projectRoot = resolve(dirname(__filename), '../../../../..');
   const absPath = join(projectRoot, testFile);
 
   describe('codeOutline', () => {
