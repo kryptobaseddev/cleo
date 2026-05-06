@@ -72,10 +72,10 @@ export * as playbooks from './playbooks/index.js';
 export {
   listPlaybooks,
   PlaybookNotFoundError,
-  resolvePlaybook,
   type PlaybookTier,
-  type ResolvePlaybookOptions,
   type ResolvedPlaybook,
+  type ResolvePlaybookOptions,
+  resolvePlaybook,
 } from './playbooks/playbook-resolver.js';
 export * as reconciliation from './reconciliation/index.js';
 export * as release from './release/index.js';
