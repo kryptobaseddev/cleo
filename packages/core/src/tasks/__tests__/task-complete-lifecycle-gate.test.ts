@@ -28,20 +28,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // not through @cleocode/core/internal. We mock those source modules directly.
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/lifecycle/ivtr-loop.js', () => ({
+vi.mock('../../lifecycle/ivtr-loop.js', () => ({
   getIvtrState: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../../../../../core/src/config.js', () => ({
+vi.mock('../../config.js', () => ({
   loadConfig: vi.fn().mockResolvedValue({ lifecycle: { mode: 'strict' } }),
   getRawConfigValue: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../../../../core/src/logger.js', () => ({
+vi.mock('../../logger.js', () => ({
   getLogger: vi.fn(() => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -50,7 +50,7 @@ vi.mock('../../../../../core/src/logger.js', () => ({
   })),
 }));
 
-vi.mock('../../../../../core/src/tasks/evidence.js', () => ({
+vi.mock('../evidence.js', () => ({
   revalidateEvidence: vi.fn().mockResolvedValue({ stillValid: true, failedAtoms: [] }),
   parseEvidence: vi.fn(),
 }));
@@ -59,10 +59,10 @@ vi.mock('../../../../../core/src/tasks/evidence.js', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { loadConfig } from '../../../../../core/src/config.js';
-import { getIvtrState } from '../../../../../core/src/lifecycle/ivtr-loop.js';
-import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
-import { completeTaskStrict } from '../../../../../core/src/tasks/complete.js';
+import { loadConfig } from '../../config.js';
+import { getIvtrState } from '../../lifecycle/ivtr-loop.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { completeTaskStrict } from '../complete.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
