@@ -61,16 +61,17 @@ describe('resolveCanonicalCantFiles', () => {
     expect(resolved.files.length).toBe(8);
   });
 
-  it('includes every canonical peer (cleo-subagent + 5 seeds + 2 meta)', async () => {
+  it('includes every canonical peer (cleo-subagent + 5 templates + 2 meta)', async () => {
     const resolved = await resolveCanonicalCantFiles();
 
+    // Per ADR-068: seed-agents/ renamed to templates/, filenames use project-<role> prefix.
     const filenames = resolved.files.map((p) => p.split('/').pop());
     expect(filenames).toContain('cleo-subagent.cant');
-    expect(filenames).toContain('orchestrator.cant');
-    expect(filenames).toContain('dev-lead.cant');
-    expect(filenames).toContain('code-worker.cant');
-    expect(filenames).toContain('docs-worker.cant');
-    expect(filenames).toContain('security-worker.cant');
+    expect(filenames).toContain('project-orchestrator.cant');
+    expect(filenames).toContain('project-dev-lead.cant');
+    expect(filenames).toContain('project-code-worker.cant');
+    expect(filenames).toContain('project-docs-worker.cant');
+    expect(filenames).toContain('project-security-worker.cant');
     expect(filenames).toContain('agent-architect.cant');
     expect(filenames).toContain('playbook-architect.cant');
   });
@@ -95,9 +96,10 @@ describe('parseSigilFromCant', () => {
     expect(parsed?.systemPromptFragment).toContain('CLEO subagent');
   });
 
-  it('extracts the orchestrator from seed-agents/orchestrator.cant', async () => {
+  it('extracts the orchestrator from templates/project-orchestrator.cant', async () => {
+    // Per ADR-068: seed-agents/ renamed to templates/; file is project-orchestrator.cant.
     const resolved = await resolveCanonicalCantFiles();
-    const orchestratorFile = resolved.files.find((f) => f.endsWith('orchestrator.cant'));
+    const orchestratorFile = resolved.files.find((f) => f.endsWith('project-orchestrator.cant'));
     expect(orchestratorFile).toBeDefined();
 
     const parsed = parseSigilFromCant(orchestratorFile as string);
@@ -107,8 +109,9 @@ describe('parseSigilFromCant', () => {
   });
 
   it('falls back to description when no prompt block is present', async () => {
+    // Per ADR-068: file is now project-code-worker.cant in templates/.
     const resolved = await resolveCanonicalCantFiles();
-    const codeWorkerFile = resolved.files.find((f) => f.endsWith('code-worker.cant'));
+    const codeWorkerFile = resolved.files.find((f) => f.endsWith('project-code-worker.cant'));
     expect(codeWorkerFile).toBeDefined();
 
     const parsed = parseSigilFromCant(codeWorkerFile as string);

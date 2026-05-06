@@ -6,7 +6,7 @@
        **Amended by**: T1241 (v2026.4.111 systemic hotfix — D035)
 **Scope**: `packages/agents/`, `packages/core/src/agents/`, `packages/core/src/store/agent-resolver.ts`, `packages/core/src/paths.ts`, `packages/cant/src/native-loader.ts`, `.cleo/cant/agents/`
 **Supersedes (prose)**: D022 (seed-agents ship raw), D025 (packaged-tier resolver mandate), D026 (static seed-install copy)
-**Superseded-By**: none
+**Superseded-By**: ADR-068 (D032 — package layout; D035 — universal tier pre-flight) — 2026-05-05
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
 "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in

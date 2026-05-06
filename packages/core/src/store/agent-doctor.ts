@@ -306,8 +306,8 @@ export async function buildDoctorReport(
     findings.push({
       code: 'D-002',
       severity: 'warn',
-      subject: 'legacy-starter-bundle-reroute',
-      message: `Legacy starter-bundle reroute skipped: ${err instanceof Error ? err.message : String(err)}`,
+      subject: 'legacy-agent-bundle-reroute',
+      message: `Legacy agent-bundle reroute skipped: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
 
