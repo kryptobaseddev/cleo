@@ -30,6 +30,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getCleoHome } from '@cleocode/paths';
 
 /**
  * Three-tier scope identifier for Pi harness operations.
@@ -100,32 +101,11 @@ function getPiAgentDir(): string {
  * `$CLEO_HOME`.
  *
  * @remarks
- * Falls back to `~/.local/share/cleo` on non-Windows platforms (matching
- * XDG conventions) so that the hub is picked up consistently across
- * machines without requiring `$CLEO_HOME` to be set. On Windows falls
- * back to `%LOCALAPPDATA%/cleo/Data` when available, otherwise
- * `~/AppData/Local/cleo/Data`.
+ * Delegates to {@link getCleoHome} from `@cleocode/paths`, which is the
+ * canonical SSoT for XDG / platform-specific CLEO home resolution.
  */
 function getCleoHomeDir(): string {
-  const env = process.env['CLEO_HOME'];
-  if (env !== undefined && env.trim().length > 0) {
-    return env.trim();
-  }
-  if (process.platform === 'win32') {
-    const localAppData = process.env['LOCALAPPDATA'];
-    if (localAppData !== undefined && localAppData.length > 0) {
-      return join(localAppData, 'cleo', 'Data');
-    }
-    return join(homedir(), 'AppData', 'Local', 'cleo', 'Data');
-  }
-  if (process.platform === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'cleo');
-  }
-  const xdgData = process.env['XDG_DATA_HOME'];
-  if (xdgData !== undefined && xdgData.length > 0) {
-    return join(xdgData, 'cleo');
-  }
-  return join(homedir(), '.local', 'share', 'cleo');
+  return getCleoHome();
 }
 
 /**
