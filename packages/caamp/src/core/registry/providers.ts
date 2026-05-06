@@ -616,6 +616,39 @@ export function resetRegistry(): void {
   _aliasMap = null;
 }
 
+/**
+ * Get the default `@` instruction references for a provider from the registry.
+ *
+ * Returns the `instructionReferences` array declared in `providers/registry.json`
+ * for the given provider ID or alias. These references are the canonical defaults
+ * used by {@link ensureProviderInstructionFile} when no explicit `references`
+ * argument is supplied by the caller.
+ *
+ * @remarks
+ * The return value is a fresh copy of the registry array — mutating it has no
+ * effect on the cached registry state. If the provider is not found or it has
+ * no `instructionReferences` entry, an empty array is returned so callers
+ * never receive `undefined`.
+ *
+ * @param idOrAlias - Provider ID (e.g. `"claude-code"`) or alias (e.g. `"claude"`)
+ * @returns Array of `@`-prefixed instruction reference strings, or `[]` if none
+ *
+ * @example
+ * ```typescript
+ * const refs = getProviderInstructionReferences("claude-code");
+ * // ["@~/.cleo/templates/CLEO-INJECTION.md", "@.cleo/memory-bridge.md"]
+ *
+ * const unknown = getProviderInstructionReferences("no-such-provider");
+ * // []
+ * ```
+ *
+ * @public
+ */
+export function getProviderInstructionReferences(idOrAlias: string): string[] {
+  const provider = getProvider(idOrAlias);
+  return provider?.instructionReferences ? [...provider.instructionReferences] : [];
+}
+
 // ── Skills Query Functions ──────────────────────────────────────────
 
 /**
