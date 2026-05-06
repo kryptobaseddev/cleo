@@ -41,6 +41,7 @@ const ENV_KEYS = [
   'CLEO_ALLOW_GIT',
   'CLEO_ORCHESTRATE_MERGE',
   'CLEO_AUDIT_LOG_PATH',
+  'CLEO_HOME',
   'XDG_DATA_HOME',
 ];
 const savedEnv: Record<string, string | undefined> = {};
@@ -48,8 +49,11 @@ const savedEnv: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
   workspace = mkdtempSync(join(tmpdir(), 'cleo-git-shim-T1591-'));
-  // Treat the workspace as a fake XDG_DATA_HOME so worktree paths land here.
-  process.env['XDG_DATA_HOME'] = workspace;
+  // Set CLEO_HOME to the workspace so worktree/audit paths land here.
+  // @cleocode/paths cleoResolver binds to CLEO_HOME (not XDG_DATA_HOME) per
+  // createPlatformPathsResolver('cleo', 'CLEO_HOME'). env-paths reads the env
+  // var fresh on every getPlatformPaths() call so no module-reset is needed.
+  process.env['CLEO_HOME'] = workspace;
   auditLogPath = join(workspace, 'audit', 'git-shim.jsonl');
   process.env['CLEO_AUDIT_LOG_PATH'] = auditLogPath;
 });
@@ -68,13 +72,16 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('worktree-path resolution', () => {
-  it('resolveCleoWorktreesRoot uses XDG_DATA_HOME', () => {
+  it('resolveCleoWorktreesRoot honours CLEO_HOME override', () => {
     const root = resolveCleoWorktreesRoot();
-    expect(root).toBe(join(workspace, 'cleo', 'worktrees'));
+    // CLEO_HOME=workspace in beforeEach; getCleoHome() returns workspace
+    // directly, so worktrees root = <workspace>/worktrees.
+    expect(root).toBe(join(workspace, 'worktrees'));
   });
 
   it('extractTaskIdFromWorktreePath returns taskId from canonical layout', () => {
-    const wt = join(workspace, 'cleo', 'worktrees', 'abc123def4567890', 'T1591');
+    // CLEO_HOME=workspace, so worktrees root = <workspace>/worktrees.
+    const wt = join(workspace, 'worktrees', 'abc123def4567890', 'T1591');
     const taskId = extractTaskIdFromWorktreePath(wt);
     expect(taskId).toBe('T1591');
   });
@@ -100,7 +107,8 @@ describe('worktree-path resolution', () => {
   });
 
   it('resolveActiveWorktree walks up from cwd inside a worktree', () => {
-    const wt = join(workspace, 'cleo', 'worktrees', 'p1', 'T1591');
+    // CLEO_HOME=workspace, so worktrees root = <workspace>/worktrees.
+    const wt = join(workspace, 'worktrees', 'p1', 'T1591');
     mkdirSync(join(wt, 'src'), { recursive: true });
     const active = resolveActiveWorktree(join(wt, 'src'));
     expect(active?.taskId).toBe('T1591');
@@ -251,9 +259,11 @@ describe('audit log', () => {
     expect(resolveAuditLogPath()).toBe(auditLogPath);
   });
 
-  it('resolveAuditLogPath defaults to XDG-conformant path', () => {
+  it('resolveAuditLogPath defaults to CLEO_HOME-conformant path', () => {
     delete process.env['CLEO_AUDIT_LOG_PATH'];
-    expect(resolveAuditLogPath()).toBe(join(workspace, 'cleo', 'audit', 'git-shim.jsonl'));
+    // CLEO_HOME is set to workspace in beforeEach; getCleoHome() returns it
+    // directly, so the audit log lands at <cleoHome>/audit/git-shim.jsonl.
+    expect(resolveAuditLogPath()).toBe(join(workspace, 'audit', 'git-shim.jsonl'));
   });
 
   it('writeAuditRecord persists a JSONL entry', () => {
@@ -326,6 +336,8 @@ describe('project-agnostic verification', () => {
     delete process.env['CLEO_AUDIT_LOG_PATH'];
     const path = resolveAuditLogPath();
     expect(path.includes('cleocode')).toBe(false);
-    expect(path.endsWith(join('cleo', 'audit', 'git-shim.jsonl'))).toBe(true);
+    // With CLEO_HOME=workspace, getCleoHome() returns workspace directly so
+    // the path is <workspace>/audit/git-shim.jsonl — no extra "cleo" segment.
+    expect(path.endsWith(join('audit', 'git-shim.jsonl'))).toBe(true);
   });
 });
