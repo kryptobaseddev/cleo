@@ -1,8 +1,8 @@
 /**
  * Playbook Domain Operations — wire-format Params/Result types.
  *
- * This file provides the canonical wire-format types for the four playbook
- * operations exposed by the dispatch layer (`cleo playbook run|list|status|resume|validate`).
+ * This file provides the canonical wire-format types for the five playbook
+ * operations exposed by the dispatch layer (`cleo playbook run|list|status|resume|validate|catalog`).
  *
  * ## Architecture note (ADR-057 D1 exception — T1456)
  *
@@ -133,6 +133,46 @@ export interface PlaybookRunResult {
   playbookName: string;
   /** Resolved on-disk source path. */
   playbookSource: string;
+}
+
+// ---------------------------------------------------------------------------
+// playbook.catalog
+// ---------------------------------------------------------------------------
+
+/**
+ * Wire params for `cleo playbook catalog` — list available `.cantbook`
+ * definitions across all tiers with provenance.
+ *
+ * Added in T1937 (ADR-068 Decision 4 — symmetric playbook tier resolver).
+ */
+export interface PlaybookCatalogParams {
+  /**
+   * Filter by tier. Defaults to `'all'` which returns definitions from every
+   * tier (deduplicated — project shadows global, global shadows packaged).
+   */
+  tier?: 'project' | 'global' | 'packaged' | 'all';
+  /** Absolute path to the project root (required for project-tier lookup). */
+  projectRoot?: string;
+}
+
+/** A single playbook definition entry in the catalog result. */
+export interface PlaybookCatalogEntry {
+  /** Bare playbook name without extension. */
+  name: string;
+  /** Tier at which this playbook was resolved. */
+  tier: 'project' | 'global' | 'packaged';
+  /** Absolute path to the `.cantbook` file. */
+  path: string;
+}
+
+/** Wire result for `cleo playbook catalog`. */
+export interface PlaybookCatalogResult {
+  /** Playbook definitions, ordered by tier precedence then name. */
+  playbooks: PlaybookCatalogEntry[];
+  /** Total count. */
+  count: number;
+  /** Effective tier filter applied. */
+  tierFilter: 'project' | 'global' | 'packaged' | 'all';
 }
 
 // ---------------------------------------------------------------------------

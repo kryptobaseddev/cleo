@@ -67,6 +67,16 @@ export * as pipeline from './pipeline/index.js';
  */
 export * as playbook from './playbooks/index.js';
 export * as playbooks from './playbooks/index.js';
+// T1937: direct top-level exports for the tier-aware playbook resolver so the
+// CLI dispatch handler can import them as `from '@cleocode/core'`.
+export {
+  listPlaybooks,
+  PlaybookNotFoundError,
+  resolvePlaybook,
+  type PlaybookTier,
+  type ResolvePlaybookOptions,
+  type ResolvedPlaybook,
+} from './playbooks/playbook-resolver.js';
 export * as reconciliation from './reconciliation/index.js';
 export * as release from './release/index.js';
 export * as remote from './remote/index.js';
