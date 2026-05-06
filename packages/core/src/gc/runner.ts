@@ -39,6 +39,7 @@ const checkDiskSpace = checkDiskSpaceModule as unknown as (path: string) => Prom
   size: number;
 }>;
 
+import { getCleoHome } from '../paths.js';
 import { patchGCState, readGCState } from './state.js';
 
 // ---------------------------------------------------------------------------
@@ -280,7 +281,7 @@ async function gatherPruneCandidates(maxAgeMs: number, projectsDir?: string): Pr
  * @returns GC run results
  */
 export async function runGC(opts: GCRunOptions = {}): Promise<GCResult> {
-  const cleoDir = opts.cleoDir ?? join(homedir(), '.cleo');
+  const cleoDir = opts.cleoDir ?? getCleoHome();
   const statePath = join(cleoDir, 'gc-state.json');
   const dryRun = opts.dryRun ?? false;
   const projectsDir = opts.projectsDir;
