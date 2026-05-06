@@ -11,7 +11,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { InjectionCheckResult, InjectionStatus, Provider } from '../../types.js';
-import { getProvider } from '../registry/providers.js';
+import { getProvider, getProviderInstructionReferences } from '../registry/providers.js';
 import { buildInjectionContent, type InjectionTemplate } from './templates.js';
 
 const MARKER_START = '<!-- CAAMP:START -->';
@@ -493,8 +493,16 @@ export async function injectAll(
  * @public
  */
 export interface EnsureProviderInstructionFileOptions {
-  /** `\@` references to inject (e.g. `["\@AGENTS.md"]`). */
-  references: string[];
+  /**
+   * `@` references to inject (e.g. `["@AGENTS.md"]`).
+   *
+   * When omitted or `undefined`, the references declared in the CAAMP provider
+   * registry (`provider.instructionReferences`) are used as the default. Callers
+   * that supply an explicit array always take precedence over the registry default.
+   *
+   * @defaultValue Registry `instructionReferences` for the provider
+   */
+  references?: string[];
   /** Optional inline content blocks. @defaultValue `undefined` */
   content?: string[];
   /** Whether this is a global or project-level file. @defaultValue `"project"` */
@@ -563,8 +571,11 @@ export async function ensureProviderInstructionFile(
       ? join(provider.pathGlobal, provider.instructFile)
       : join(projectDir, provider.instructFile);
 
+  // Fall back to the registry default when the caller omits references.
+  const references = options.references ?? getProviderInstructionReferences(providerId);
+
   const template: InjectionTemplate = {
-    references: options.references,
+    references,
     content: options.content,
   };
 
@@ -630,8 +641,11 @@ export async function ensureAllProviderInstructionFiles(
     if (processed.has(filePath)) continue;
     processed.add(filePath);
 
+    // Fall back to the registry default when the caller omits references.
+    const references = options.references ?? getProviderInstructionReferences(providerId);
+
     const template: InjectionTemplate = {
-      references: options.references,
+      references,
       content: options.content,
     };
 
