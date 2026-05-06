@@ -1,17 +1,16 @@
 /**
- * Validate Engine Shim Tests
+ * Validate Engine — core export tests.
  *
- * Verifies that the validate-engine re-export shim correctly exposes the
- * core validation functions migrated in ENG-MIG-7 / T1574.
+ * Verifies that the core validation functions migrated in ENG-MIG-7 / T1574
+ * are exported from @cleocode/core/internal.
  *
- * The actual business logic is tested in:
- *   packages/core/src/validation/__tests__/
+ * Relocated from packages/cleo/src/dispatch/engines/__tests__/ per T1889 Wave 7.
  *
  * @task T1574 — ENG-MIG-7
  * @task T4477
+ * @task T9061 — T1889 Wave 7 relocation
  */
 
-import { describe, expect, it } from 'vitest';
 import {
   validateGateVerify,
   validateProtocolArchitectureDecision,
@@ -26,7 +25,8 @@ import {
   validateProtocolSpecification,
   validateProtocolTesting,
   validateProtocolValidation,
-} from '../validate-engine.js';
+} from '@cleocode/core/internal';
+import { describe, expect, it } from 'vitest';
 
 describe('validate-engine shim (ENG-MIG-7)', () => {
   it('re-exports validateGateVerify from core', () => {
