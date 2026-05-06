@@ -1,6 +1,13 @@
 /**
  * cleo-os Harness Registry.
  *
+ * Layering (ADR-069 D002): the harness is the top of the Workflow layer.
+ * Workflow MAY use Conduit (Messaging) for inter-agent DMs; Conduit MUST
+ * NOT know about the harness (ADR-069 D002). Reverse imports from
+ * `packages/core/src/conduit/` into `packages/cleo-os/` are forbidden.
+ *
+ * @see ADR-069 (CLEO Coordination Layers)
+ *
  * Centralises construction and lookup of {@link HarnessAdapter} implementations
  * available in cleo-os. Adding a new harness means:
  *
