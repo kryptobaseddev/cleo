@@ -18,10 +18,13 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
+import {
+  createSqliteDataAccessor,
+  resetDbState,
+  validateGateVerify,
+} from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { seedTasks } from '../../../../../core/src/store/__tests__/test-db-helper.js';
-import { validateGateVerify } from '../validate-engine.js';
+import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 
 /** Absolute project root for each test — recreated per test. */
 let TEST_ROOT: string;
