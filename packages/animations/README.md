@@ -184,25 +184,36 @@ sparkDurationMs('cascade'); // → ~980ms (frames * interval)
 
 ## Browser demo
 
-A self-contained vitrine page lives at `scripts/demo.html`. Open it in any
+A self-contained vitrine page ships at `scripts/demo.html`. Open it in any
 browser to preview every spinner, canon alias, progress style, and spark
 animating live, with API reference tables and code samples.
 
 ```bash
-# After cloning the repo:
-open packages/animations/scripts/demo.html        # macOS
-xdg-open packages/animations/scripts/demo.html    # Linux
+# From an npm install
+open node_modules/@cleocode/animations/scripts/demo.html        # macOS
+xdg-open node_modules/@cleocode/animations/scripts/demo.html    # Linux
+
+# From the cleo monorepo checkout
+open packages/animations/scripts/demo.html                       # macOS
+xdg-open packages/animations/scripts/demo.html                   # Linux
 ```
 
-The page is fully self-contained (no build step, no fetch, no node_modules) so
-it can be emailed or hosted as a static asset for design reviews.
+The page is fully self-contained (no build step, no fetch, no `node_modules`
+runtime requirement) so it can be emailed, dropped into a slide deck, or
+hosted as a static asset for design reviews.
 
 ## Terminal demo
 
 ```bash
-npx cleocode-animations              # cycle through every spinner
-npx cleocode-animations looming      # preview a single spinner
-npx cleocode-animations --list       # list every registered spinner
+npx cleocode-animations                  # cycle through generic + canon spinners
+npx cleocode-animations looming          # preview one spinner (generic OR canon)
+npx cleocode-animations spark cascade    # play one spark and exit
+npx cleocode-animations progress         # loop through all 3 progress styles
+
+npx cleocode-animations --list           # full listing — spinners + sparks + progress
+npx cleocode-animations --list-canon     # canon aliases only
+npx cleocode-animations --list-sparks    # sparks only
+npx cleocode-animations --list-progress  # progress styles only
 ```
 
 ## API surface
