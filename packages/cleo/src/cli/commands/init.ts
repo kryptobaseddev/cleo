@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CleoError, formatError, type InitOptions, initProject } from '@cleocode/core';
 import { defineCommand } from 'citty';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Load the gitignore template from the package's templates/ directory.
@@ -119,7 +119,7 @@ export const initCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
         process.exit(err.code);
       }
       throw err;

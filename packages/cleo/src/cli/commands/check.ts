@@ -11,6 +11,7 @@
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
+import { cliError } from '../renderers/index.js';
 
 /**
  * The 12 supported protocol types — must stay in sync with
@@ -119,7 +120,10 @@ const checkChainValidateCommand = defineCommand({
       chain = JSON.parse(readFileSync(args.file as string, 'utf8'));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`Failed to read or parse chain file: ${message}`);
+      cliError(`Failed to read or parse chain file: ${message}`, 2, {
+        name: 'E_FILE_READ',
+        fix: 'Verify the file exists and contains valid JSON.',
+      });
       process.exit(2);
     }
     await dispatchFromCli(
@@ -225,8 +229,13 @@ const checkProtocolCommand = defineCommand({
   async run({ args }) {
     const protocolType = args.protocolType as string;
     if (!(SUPPORTED_PROTOCOL_TYPES as readonly string[]).includes(protocolType)) {
-      console.error(
+      cliError(
         `Unknown protocol type "${protocolType}". Supported: ${SUPPORTED_PROTOCOL_TYPES.join(', ')}`,
+        2,
+        {
+          name: 'E_VALIDATION',
+          fix: `Use one of: ${SUPPORTED_PROTOCOL_TYPES.join(', ')}`,
+        },
       );
       process.exit(2);
     }

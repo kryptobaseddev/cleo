@@ -41,14 +41,12 @@ export {
   scanAllCommands,
   validateHeader,
 } from './command-registry.js';
-export type { ParsedFlags } from './flags.js';
-// CLI flags
-export {
-  defaultFlags,
-  isJsonOutput,
-  parseCommonFlags,
-  resolveFormat,
-} from './flags.js';
+// CLI flag parsing: DELETED — owned by @cleocode/lafs (resolveOutputFormat)
+// plus per-harness adapters (cleo CLI middleware, caamp/src/core/lafs.ts).
+// CORE is the SDK; programmatic consumers pass FlagResolution directly and
+// don't parse argv. The dead duplicate at core/src/ui/flags.ts had no
+// production callers — only its own test file imported it — and silently
+// violated LAFS's E_FORMAT_CONFLICT invariant via last-flag-wins parsing.
 
 // Injection config: DELETED (T4674, T4675, T4677)
 // All injection and provider detection is now

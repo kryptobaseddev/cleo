@@ -15,6 +15,7 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliError } from '../renderers/index.js';
 
 /** cleo admin version — show CLEO version */
 const versionCommand = defineCommand({
@@ -316,10 +317,10 @@ const contextInjectCommand = defineCommand({
   async run({ args }) {
     const protocolType = args.protocolType as string;
     if (!protocolType || protocolType.trim() === '') {
-      console.error('Error: missing required argument <protocolType>');
-      console.error(
-        'Usage: cleo admin context-inject <protocolType> [--task <id>] [--variant <variant>]',
-      );
+      cliError('missing required argument <protocolType>', 1, {
+        name: 'E_VALIDATION',
+        fix: 'Usage: cleo admin context-inject <protocolType> [--task <id>] [--variant <variant>]',
+      });
       process.exit(1);
     }
     await dispatchFromCli(

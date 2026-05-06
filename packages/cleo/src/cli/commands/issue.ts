@@ -18,7 +18,7 @@ import { execFileSync } from 'node:child_process';
 import { type AddIssueResult, addIssue, BUILD_CONFIG } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 const CLEO_REPO = BUILD_CONFIG.repository.fullName;
 
@@ -39,7 +39,9 @@ async function handleIssueType(issueType: string, opts: Record<string, unknown>)
       dryRun: !!opts['dryRun'],
     });
   } catch (err) {
-    console.error(`Failed to create issue: ${err instanceof Error ? err.message : String(err)}`);
+    cliError(`Failed to create issue: ${err instanceof Error ? err.message : String(err)}`, 1, {
+      name: 'E_ISSUE_CREATE',
+    });
     process.exitCode = 1;
     return;
   }

@@ -29,6 +29,7 @@ import { dirname, join } from 'node:path';
 import { getCleoDirAbsolute, getCleoIdentity, getConfigPath, signAuditLine } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliError } from '../renderers/index.js';
 
 /**
  * Severity mapping configuration.
@@ -186,8 +187,10 @@ export const bugCommand = defineCommand({
     const severity = args.severity ?? 'P2';
 
     if (!VALID_SEVERITIES.includes(severity)) {
-      console.error(
-        `Error: Invalid severity "${severity}". Must be one of: ${VALID_SEVERITIES.join(', ')}`,
+      cliError(
+        `Invalid severity "${severity}". Must be one of: ${VALID_SEVERITIES.join(', ')}`,
+        1,
+        { name: 'E_VALIDATION', fix: `Use one of: ${VALID_SEVERITIES.join(', ')}` },
       );
       process.exit(1);
     }
@@ -225,7 +228,7 @@ export const bugCommand = defineCommand({
       } catch (err) {
         const code = (err as { code?: string }).code;
         if (code === 'E_OWNER_ONLY') {
-          console.error((err as Error).message);
+          cliError((err as Error).message, 72, { name: 'E_OWNER_ONLY' });
           process.exit(72); // NEXUS_PERMISSION_DENIED — shared "forbidden" exit
         }
         // Any other failure (e.g. not inside a CLEO project) is non-fatal —

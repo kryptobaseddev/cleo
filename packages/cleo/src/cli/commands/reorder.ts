@@ -6,6 +6,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliError } from '../renderers/index.js';
 
 /** Sentinel value for --bottom: moves task to end of sibling list. */
 const BOTTOM_POSITION = 999999;
@@ -50,7 +51,12 @@ export const reorderCommand = defineCommand({
     }
 
     if (position === undefined) {
-      console.error('Error: Must specify --position <n>, --top, or --bottom.');
+      cliError(
+        'Must specify --position <n>, --top, or --bottom.',
+        2,
+        { name: 'E_INVALID_INPUT' },
+        { operation: 'tasks.reorder' },
+      );
       process.exitCode = 2;
       return;
     }

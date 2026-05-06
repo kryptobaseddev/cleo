@@ -16,7 +16,7 @@
 import { getProjectRoot, inferTaskAddParams } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
 /**
  * cleo add — create a new task.
@@ -276,8 +276,8 @@ export const addCommand = defineCommand({
 
     // Emit stderr notices (CLI responsibility — Core never writes to stderr)
     if (inferred.filesInferWarning) {
-      process.stderr.write(
-        '⚠ No files inferred by GitNexus. Use --files to specify files explicitly, or leave empty for atomicity check at spawn time.\n',
+      humanWarn(
+        '⚠ No files inferred by GitNexus. Use --files to specify files explicitly, or leave empty for atomicity check at spawn time.',
       );
     }
     if (inferred.files) params['files'] = inferred.files;
@@ -285,9 +285,7 @@ export const addCommand = defineCommand({
     // T1329: parent inference from active session's current task
     if (inferred.inferredParent) {
       params['parent'] = inferred.inferredParent;
-      process.stderr.write(
-        `[cleo add] inferred --parent from current task: ${inferred.inferredParent}\n`,
-      );
+      humanInfo(`[cleo add] inferred --parent from current task: ${inferred.inferredParent}`);
     }
 
     const response = await dispatchRaw('mutate', 'tasks', 'add', params);
@@ -302,7 +300,7 @@ export const addCommand = defineCommand({
     const dataWarnings = data?.warnings as string[] | undefined;
     if (dataWarnings?.length) {
       for (const w of dataWarnings) {
-        process.stderr.write(`⚠ ${w}\n`);
+        humanWarn(`⚠ ${w}`);
       }
     }
 

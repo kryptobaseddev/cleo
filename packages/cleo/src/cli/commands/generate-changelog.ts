@@ -13,7 +13,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError, formatError, getConfigPath, getProjectRoot } from '@cleocode/core';
 import { defineCommand } from 'citty';
 // CLI-only: implements local file generation from CHANGELOG.md, not a dispatch operation
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Platform output config shape from config.json.
@@ -306,7 +306,7 @@ export const generateChangelogCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
         process.exit(err.code);
       }
       throw err;

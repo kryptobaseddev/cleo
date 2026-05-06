@@ -12,14 +12,18 @@
     "ct": "bin/cleo.js"
   },
   "scripts": {
+    "gen:manifest": "node scripts/generate-command-manifest.mjs",
+    "prebuild": "node scripts/generate-command-manifest.mjs",
     "build": "tsc",
     "postbuild": "node scripts/assert-shebang.mjs",
+    "pretypecheck": "node scripts/generate-command-manifest.mjs",
     "typecheck": "tsc --noEmit",
     "test": "cd ../.. && vitest run packages/cleo/src",
     "test:integration": "cd ../.. && vitest run --config packages/cleo/vitest.integration.config.ts",
     "postinstall": "node bin/postinstall.js && node scripts/postinstall-check-core.mjs"
   },
   "dependencies": {
+    "@cleocode/animations": "workspace:*",
     "@cleocode/caamp": "workspace:*",
     "@cleocode/cant": "workspace:*",
     "@cleocode/contracts": "workspace:*",

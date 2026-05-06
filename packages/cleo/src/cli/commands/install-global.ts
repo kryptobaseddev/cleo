@@ -20,7 +20,7 @@
 
 import { type BootstrapContext, bootstrapGlobalCleo } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
-import { cliOutput } from '../renderers/index.js';
+import { cliOutput, humanLine } from '../renderers/index.js';
 
 /**
  * Render a BootstrapContext result in human-readable form.
@@ -30,25 +30,25 @@ import { cliOutput } from '../renderers/index.js';
  */
 function renderBootstrapHuman(ctx: BootstrapContext, dryRun: boolean): void {
   if (dryRun) {
-    process.stdout.write('Dry-run mode — no changes will be made.\n\n');
+    humanLine('Dry-run mode — no changes will be made.\n');
   }
 
   if (ctx.created.length > 0) {
-    process.stdout.write(`${dryRun ? 'Would create/update' : 'Created/updated'}:\n`);
+    humanLine(`${dryRun ? 'Would create/update' : 'Created/updated'}:`);
     for (const item of ctx.created) {
-      process.stdout.write(`  + ${item}\n`);
+      humanLine(`  + ${item}`);
     }
-    process.stdout.write('\n');
+    humanLine('');
   } else {
-    process.stdout.write('No changes needed — everything is already up to date.\n\n');
+    humanLine('No changes needed — everything is already up to date.\n');
   }
 
   if (ctx.warnings.length > 0) {
-    process.stdout.write('Warnings:\n');
+    humanLine('Warnings:');
     for (const w of ctx.warnings) {
-      process.stdout.write(`  ! ${w}\n`);
+      humanLine(`  ! ${w}`);
     }
-    process.stdout.write('\n');
+    humanLine('');
   }
 }
 

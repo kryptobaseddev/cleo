@@ -16,6 +16,7 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliError } from '../renderers/index.js';
 
 /** cleo req add <task-id> — add a typed AcceptanceGate (with REQ-ID) to a task */
 const addCommand = defineCommand({
@@ -41,9 +42,14 @@ const addCommand = defineCommand({
     const gate = args.gate;
 
     if (!gate) {
-      process.stderr.write(
-        'Error: --gate <json> is required.\n' +
-          'Example: cleo req add T42 --gate \'{"kind":"test","command":"pnpm test","expect":"pass","description":"Tests pass","req":"TIMER-01"}\'\n',
+      cliError(
+        '--gate <json> is required.',
+        6,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Example: cleo req add T42 --gate \'{"kind":"test","command":"pnpm test","expect":"pass","description":"Tests pass","req":"TIMER-01"}\'',
+        },
+        { operation: 'tasks.req.add' },
       );
       process.exit(6);
     }
