@@ -195,6 +195,7 @@ export {
   getProvider,
   getProviderCapabilities,
   getProviderCount,
+  getProviderInstructionReferences,
   getProvidersByHookEvent,
   getProvidersByInstructFile,
   getProvidersByPriority,

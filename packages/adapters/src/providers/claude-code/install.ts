@@ -21,22 +21,12 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 import {
   type InstallHookTemplatesResult,
   installProviderHookTemplates,
 } from '../shared/hook-template-installer.js';
-import { getCleoTemplatesTildePath } from '../shared/paths.js';
-
-/**
- * Lines that should appear in CLAUDE.md to reference CLEO.
- * The CLEO-INJECTION.md path is resolved dynamically to support non-default
- * XDG / OS installation locations (T916).
- */
-const INSTRUCTION_REFERENCES = [
-  `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
-  '@.cleo/memory-bridge.md',
-];
 
 /** Resolve the commands directory bundled with this adapter. */
 function getAdapterCommandsDir(): string {
@@ -72,10 +62,11 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
     let instructionFileUpdated = false;
     const details: Record<string, unknown> = {};
 
-    // Step 1: Ensure CLAUDE.md has @-references
-    instructionFileUpdated = this.updateInstructionFile(projectDir);
+    // Step 1: Ensure CLAUDE.md has @-references via CAAMP canonical API (T1919)
+    const instructionResult = await ensureProviderInstructionFile('claude-code', projectDir, {});
+    instructionFileUpdated = instructionResult.action !== 'intact';
     if (instructionFileUpdated) {
-      details.instructionFile = join(projectDir, 'CLAUDE.md');
+      details.instructionFile = instructionResult.filePath;
     }
 
     // Step 2: Install adapter-provided commands to .claude/commands/
@@ -138,48 +129,13 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
   /**
    * Ensure CLAUDE.md contains @-references to CLEO instruction files.
    *
-   * Creates CLAUDE.md if it does not exist. Appends any missing references.
+   * Delegates to CAAMP's canonical API which reads the instruction file name
+   * and default references from the provider registry (T1919).
    *
    * @param projectDir - Project root directory
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
-    this.updateInstructionFile(projectDir);
-  }
-
-  /**
-   * Update CLAUDE.md with CLEO @-references.
-   *
-   * @returns true if the file was created or modified
-   */
-  private updateInstructionFile(projectDir: string): boolean {
-    const claudeMdPath = join(projectDir, 'CLAUDE.md');
-    let content = '';
-    let existed = false;
-
-    if (existsSync(claudeMdPath)) {
-      content = readFileSync(claudeMdPath, 'utf-8');
-      existed = true;
-    }
-
-    const missingRefs = INSTRUCTION_REFERENCES.filter((ref) => !content.includes(ref));
-
-    if (missingRefs.length === 0) {
-      return false;
-    }
-
-    const refsBlock = missingRefs.join('\n');
-
-    if (existed) {
-      // Append missing references
-      const separator = content.endsWith('\n') ? '' : '\n';
-      content = content + separator + refsBlock + '\n';
-    } else {
-      // Create new CLAUDE.md with references
-      content = refsBlock + '\n';
-    }
-
-    writeFileSync(claudeMdPath, content, 'utf-8');
-    return true;
+    await ensureProviderInstructionFile('claude-code', projectDir, {});
   }
 
   /**

@@ -114,6 +114,20 @@ export interface RegistryProvider {
   /** Detection configuration for auto-discovering this provider. */
   detection: RegistryDetection;
 
+  /**
+   * Instruction file @-reference paths that CLEO injects into the provider's
+   * instruction file (e.g. `AGENTS.md` or `CLAUDE.md`) during installation.
+   *
+   * @remarks
+   * Values are static `@`-prefixed paths resolved at install time (e.g.
+   * `"@~/.cleo/templates/CLEO-INJECTION.md"`, `"@.cleo/memory-bridge.md"`).
+   * Providers that do not manage instruction files (e.g. `claude-sdk`) omit
+   * this field. T9014 exposes these values via the public CAAMP API.
+   *
+   * @defaultValue undefined
+   */
+  instructionReferences?: string[];
+
   /** Priority tier identifier. Exactly zero or one provider should be `"primary"`. */
   priority: ProviderPriority;
   /** Lifecycle status identifier. */
