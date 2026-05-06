@@ -54,6 +54,20 @@ vi.mock('node:fs/promises', () => ({
   unlink: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock CAAMP's ensureProviderInstructionFile to avoid registry I/O in unit tests.
+vi.mock('@cleocode/caamp', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/caamp')>();
+  return {
+    ...actual,
+    ensureProviderInstructionFile: vi.fn().mockResolvedValue({
+      filePath: '/tmp/test-project/AGENTS.md',
+      instructFile: 'AGENTS.md',
+      action: 'created',
+      providerId: 'opencode',
+    }),
+  };
+});
+
 describe('OpenCodeAdapter', () => {
   let adapter: OpenCodeAdapter;
 
