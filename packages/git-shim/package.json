@@ -37,7 +37,8 @@
   "author": "CLEO Code <hello@cleocode.dev>",
   "license": "MIT",
   "dependencies": {
-    "@cleocode/contracts": "workspace:*"
+    "@cleocode/contracts": "workspace:*",
+    "@cleocode/paths": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
