@@ -1,5 +1,9 @@
 # Changelog
 
+## [2026.5.35] — 2026-05-06
+
+Hotfix: inline @cleocode/animations into the cleo esbuild CLI bundle (build.mjs workspacePlugin map) so the published CLI works without requiring a separately-built animations dist/ — same pattern as @cleocode/playbooks. Resolves ERR_MODULE_NOT_FOUND for @cleocode/animations in Canon Drift Check and Build & Verify CI steps.
+
 ## [2026.5.34] — 2026-05-06
 
 Hotfix: add @cleocode/animations to tsconfig.json project references (root + packages/cleo) so tsc -b builds animations before cleo typecheck — resolves TS2307 Cannot find module '@cleocode/animations' in CI typecheck.
