@@ -18,22 +18,13 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 import {
   type InstallHookTemplatesResult,
   installProviderHookTemplates,
 } from '../shared/hook-template-installer.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
-
-/**
- * Lines that should appear in instruction files to reference CLEO.
- * The CLEO-INJECTION.md path is resolved dynamically to support non-default
- * XDG / OS installation locations (T916).
- */
-const INSTRUCTION_REFERENCES = [
-  `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
-  '@.cleo/memory-bridge.md',
-];
 
 /**
  * Install provider for Cursor.
@@ -62,8 +53,12 @@ export class CursorInstallProvider implements AdapterInstallProvider {
     let instructionFileUpdated = false;
     const details: Record<string, unknown> = {};
 
-    // Step 1: Ensure instruction files have @-references
-    instructionFileUpdated = this.updateInstructionFiles(projectDir);
+    // Step 1: Ensure instruction files have @-references via CAAMP canonical API (T1919).
+    // ensureProviderInstructionFile handles the primary AGENTS.md (registry instructFile);
+    // updateInstructionFiles also manages cursor-specific MDC + legacy .cursorrules formats.
+    const instructionResult = await ensureProviderInstructionFile('cursor', projectDir, {});
+    const cursorFilesUpdated = this.updateInstructionFiles(projectDir);
+    instructionFileUpdated = instructionResult.action !== 'intact' || cursorFilesUpdated;
     if (instructionFileUpdated) {
       details.instructionFiles = this.getUpdatedFileList(projectDir);
     }
@@ -105,7 +100,8 @@ export class CursorInstallProvider implements AdapterInstallProvider {
     if (existsSync(rulesPath)) {
       try {
         const content = readFileSync(rulesPath, 'utf-8');
-        if (INSTRUCTION_REFERENCES.some((ref) => content.includes(ref))) {
+        const injectionRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
+        if (content.includes(injectionRef) || content.includes('@.cleo/memory-bridge.md')) {
           return true;
         }
       } catch {
@@ -119,11 +115,13 @@ export class CursorInstallProvider implements AdapterInstallProvider {
   /**
    * Ensure instruction files contain @-references to CLEO.
    *
-   * Updates .cursorrules (legacy) and creates .cursor/rules/cleo.mdc (modern).
+   * Delegates the primary AGENTS.md write to CAAMP's canonical API (T1919) and
+   * also updates cursor-specific MDC + legacy .cursorrules formats.
    *
    * @param projectDir - Project root directory
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
+    await ensureProviderInstructionFile('cursor', projectDir, {});
     this.updateInstructionFiles(projectDir);
   }
 
@@ -152,6 +150,9 @@ export class CursorInstallProvider implements AdapterInstallProvider {
 
   /**
    * Update legacy .cursorrules file with @-references.
+   *
+   * References are sourced from the CAAMP provider registry (T1919) rather than
+   * a local constant, keeping this adapter in sync with the single source of truth.
    * Only modifies the file if it already exists (does not create it).
    *
    * @returns true if the file was modified
@@ -163,7 +164,11 @@ export class CursorInstallProvider implements AdapterInstallProvider {
     }
 
     let content = readFileSync(rulesPath, 'utf-8');
-    const missingRefs = INSTRUCTION_REFERENCES.filter((ref) => !content.includes(ref));
+    const cursorRefs = [
+      `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
+      '@.cleo/memory-bridge.md',
+    ];
+    const missingRefs = cursorRefs.filter((ref) => !content.includes(ref));
 
     if (missingRefs.length === 0) {
       return false;
@@ -180,6 +185,7 @@ export class CursorInstallProvider implements AdapterInstallProvider {
    *
    * MDC (Markdown Component) format is Cursor's modern rule file format.
    * Each .mdc file in .cursor/rules/ is loaded as a rule set.
+   * References are sourced from the CAAMP provider registry (T1919).
    *
    * @returns true if the file was created or modified
    */
@@ -187,6 +193,10 @@ export class CursorInstallProvider implements AdapterInstallProvider {
     const rulesDir = join(projectDir, '.cursor', 'rules');
     const mdcPath = join(rulesDir, 'cleo.mdc');
 
+    const cursorRefs = [
+      `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
+      '@.cleo/memory-bridge.md',
+    ];
     const expectedContent = [
       '---',
       'description: CLEO task management protocol references',
@@ -194,7 +204,7 @@ export class CursorInstallProvider implements AdapterInstallProvider {
       'alwaysApply: true',
       '---',
       '',
-      ...INSTRUCTION_REFERENCES,
+      ...cursorRefs,
       '',
     ].join('\n');
 
