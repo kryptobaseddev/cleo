@@ -1,5 +1,9 @@
 # Changelog
 
+## [2026.5.34] — 2026-05-06
+
+Hotfix: add @cleocode/animations to tsconfig.json project references (root + packages/cleo) so tsc -b builds animations before cleo typecheck — resolves TS2307 Cannot find module '@cleocode/animations' in CI typecheck.
+
 ## [2026.5.33] — 2026-05-06
 
 Hotfix: correct CHANGELOG section header format — CI checks for `## [VERSION]` without `v` prefix; v2026.5.32 entry used `## [v2026.5.32]` which failed the Verify CHANGELOG section CI step.

@@ -19,6 +19,7 @@
     { "path": "./packages/contracts" },
     { "path": "./packages/paths" },
     { "path": "./packages/lafs/tsconfig.build.json" },
+    { "path": "./packages/animations" },
     { "path": "./packages/worktree" },
     { "path": "./packages/cant" },
     { "path": "./packages/playbooks" },
