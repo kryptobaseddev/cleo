@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>@cleocode/animations · Workshop Vitrine</title>
+<style>
+  /* ──────────────────────────────────────────────────────────────────────
+     Cleo Workshop palette — dark default, light alt theme.
+     Colours map onto canon systems so the page reads as a workshop tour:
+       NEXUS slate, LOOM amber, BRAIN teal, CANT magenta, CONDUIT moss,
+       AWAKEN ember.
+     ────────────────────────────────────────────────────────────────────── */
+  :root[data-theme="dark"] {
+    --bg:        #07090d;
+    --surface:   #11161e;
+    --surface-2: #161c26;
+    --border:    #1f2733;
+    --border-hi: #2a3548;
+    --text:      #b8c2cf;
+    --text-hi:   #e5eaf1;
+    --text-dim:  #5a6573;
+    --code-bg:   #0d1117;
+    --kw:        #d3869b;
+    --str:       #a9b665;
+    --cm:        #5a6573;
+    --num:       #d8a657;
+    --nexus:     #4f93b8;
+    --loom:      #d8a657;
+    --brain:     #7daea3;
+    --cant:      #d3869b;
+    --conduit:   #a9b665;
+    --awaken:    #e78a4e;
+  }
+  :root[data-theme="light"] {
+    --bg:        #fafaf7;
+    --surface:   #ffffff;
+    --surface-2: #f3f3ee;
+    --border:    #e6e4dd;
+    --border-hi: #cdcbc2;
+    --text:      #2d2a26;
+    --text-hi:   #14110d;
+    --text-dim:  #6a6660;
+    --code-bg:   #f7f6f1;
+    --kw:        #a3464d;
+    --str:       #4f6b1b;
+    --cm:        #8a857c;
+    --num:       #8b6914;
+    --nexus:     #2c6d8f;
+    --loom:      #8b6914;
+    --brain:     #3d6e64;
+    --cant:      #a3464d;
+    --conduit:   #4f6b1b;
+    --awaken:    #b85e2c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    transition: background .25s, color .25s;
+  }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(79,147,184,0.10), transparent 55%),
+      radial-gradient(circle at 88% 100%, rgba(216,166,87,0.08), transparent 50%),
+      var(--bg);
+    background-attachment: fixed;
+  }
+  .mono {
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', 'Menlo', ui-monospace, monospace;
+  }
+
+  /* ── Top controls ────────────────────────────────────────────────────── */
+  .theme-toggle {
+    position: fixed; top: 16px; right: 24px; z-index: 100;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 500;
+    color: var(--text-dim); display: flex; align-items: center; gap: 6px;
+    transition: border-color .2s, color .2s;
+  }
+  .theme-toggle:hover { border-color: var(--text-dim); color: var(--text); }
+
+  /* ── Layout shell ────────────────────────────────────────────────────── */
+  main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 64px 28px 96px;
+  }
+  header.crest {
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  .crest-tag {
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .crest-tag .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--awaken); margin-right: 8px;
+    box-shadow: 0 0 10px var(--awaken);
+    animation: crestPulse 2.4s ease-in-out infinite;
+    vertical-align: 1px;
+  }
+  @keyframes crestPulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+  h1 {
+    font-size: 30px; font-weight: 600; letter-spacing: -0.02em;
+    color: var(--text-hi);
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  }
+  h1 .at { color: var(--text-dim); }
+  h1 .sigil { color: var(--loom); }
+  .crest-sub {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .install {
+    text-align: center;
+    margin: 22px 0 4px;
+  }
+  .install code {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 16px;
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  /* ── Table-of-contents nav ───────────────────────────────────────────── */
+  nav.toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin: 28px 0 40px;
+    display: flex; flex-wrap: wrap; gap: 6px 18px;
+    font-size: 13px;
+  }
+  nav.toc a {
+    color: var(--text-dim); text-decoration: none;
+    padding: 2px 4px; border-radius: 3px;
+    transition: color .15s, background .15s;
+  }
+  nav.toc a:hover { color: var(--text); background: var(--surface-2); }
+  nav.toc a strong { color: var(--text); font-weight: 500; }
+
+  /* ── Sections ────────────────────────────────────────────────────────── */
+  section { margin-top: 56px; }
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  h2 {
+    font-size: 22px; font-weight: 500; letter-spacing: -0.01em;
+    color: var(--text-hi);
+    margin: 4px 0 6px;
+  }
+  .blurb {
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.7;
+    margin: 6px 0 22px;
+    max-width: 740px;
+  }
+  .blurb code, .prose code, .ref-table code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  }
+
+  /* ── List rows (spinners, sparks) ────────────────────────────────────── */
+  .row-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  @media (max-width: 600px) { .row-list { grid-template-columns: 1fr; } }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    transition: background .15s;
+  }
+  .row:hover { background: var(--surface-2); }
+  .row .frame {
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+    font-size: 17px;
+    width: 5.5rem;
+    text-align: center;
+    flex-shrink: 0;
+    color: var(--nexus);
+    white-space: nowrap;
+  }
+  .row.canon .frame { color: var(--loom); }
+  .row.spark .frame { color: var(--awaken); }
+  .row .name {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .row .meta {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  }
+  .row .alias {
+    font-size: 11px;
+    color: var(--brain);
+    margin-left: auto;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  }
+  .row .alias em { color: var(--text-dim); font-style: normal; }
+
+  /* ── Progress strip ──────────────────────────────────────────────────── */
+  .progress-strip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .progress-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 56px;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .progress-row:last-child { border-bottom: none; }
+  .progress-row .style {
+    font-weight: 500; font-size: 13px; color: var(--text);
+  }
+  .progress-row .style em {
+    display: block; font-style: normal; color: var(--text-dim); font-size: 11px;
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  }
+  .progress-row .bar {
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+    font-size: 18px;
+    color: var(--nexus);
+    white-space: pre;
+    overflow: hidden;
+    letter-spacing: 0;
+  }
+  .progress-row.cascade .bar  { color: var(--loom); }
+  .progress-row.refinery .bar { color: var(--brain); }
+  .progress-row .pct {
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    text-align: right;
+  }
+  @media (max-width: 600px) {
+    .progress-row { grid-template-columns: 90px 1fr; }
+    .progress-row .pct { display: none; }
+  }
+
+  /* ── Code blocks (syntax-highlit) ────────────────────────────────────── */
+  pre.code {
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    color: var(--text);
+    margin: 10px 0;
+  }
+  pre.code .kw  { color: var(--kw); }
+  pre.code .str { color: var(--str); }
+  pre.code .cm  { color: var(--cm);  font-style: italic; }
+  pre.code .num { color: var(--num); }
+
+  /* ── Reference tables ────────────────────────────────────────────────── */
+  table.ref {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 12px 0;
+  }
+  table.ref th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+    font-weight: 600;
+  }
+  table.ref td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  table.ref tr:last-child td { border-bottom: none; }
+  table.ref code { font-size: 12px; }
+
+  .sub-h {
+    font-size: 13px; font-weight: 600;
+    color: var(--text); margin: 22px 0 8px;
+  }
+
+  /* ── Footer ──────────────────────────────────────────────────────────── */
+  footer.foot {
+    margin-top: 80px; padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 12px; line-height: 1.7;
+    text-align: center;
+  }
+  footer.foot a { color: var(--brain); text-decoration: none; }
+  footer.foot a:hover { color: var(--text-hi); text-decoration: underline; }
+  footer .palette {
+    display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
+    margin-top: 14px; font-size: 11px;
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  }
+  footer .palette span { display: inline-flex; align-items: center; gap: 6px; }
+  footer .palette i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="themeToggle" aria-label="toggle theme">
+  <span id="themeIcon">☀</span><span id="themeLabel">Light</span>
+</button>
+
+<main>
+
+  <header class="crest">
+    <div class="crest-tag"><span class="dot"></span>The Workshop · Vitrine</div>
+    <h1><span class="at">@</span>cleocode<span class="sigil">/</span>animations</h1>
+    <div class="crest-sub">Unicode terminal animations woven on the LOOM — for the cleo CLI and CleoOS.</div>
+    <div class="install"><code class="mono">pnpm add @cleocode/animations</code></div>
+  </header>
+
+  <nav class="toc">
+    <a href="#spinners-generic"><strong>1.</strong> 18 generic braille spinners</a>
+    <a href="#spinners-canon"><strong>2.</strong> 9 canon spinner aliases</a>
+    <a href="#progress"><strong>3.</strong> 3 progress styles</a>
+    <a href="#sparks"><strong>4.</strong> 4 sparks</a>
+    <a href="#animate-context"><strong>5.</strong> AnimateContext</a>
+    <a href="#guide"><strong>6.</strong> Usage guide</a>
+    <a href="#api"><strong>7.</strong> API reference</a>
+  </nav>
+
+  <!-- ─────────────────────────  1. Generic spinners  ───────────────────── -->
+  <section id="spinners-generic">
+    <div class="section-label">1 · Spinners · Generic</div>
+    <h2>18 braille loaders</h2>
+    <p class="blurb">
+      Frame-cycled spinners indexed by their generic name. Ported verbatim from
+      <a href="https://github.com/gunnargray-dev/unicode-animations" target="_blank">unicode-animations</a> (MIT, Gunnar Gray).
+      Each entry is <code>{ frames: string[], interval: number }</code> — pure data, no I/O.
+    </p>
+    <div class="row-list" id="rows-generic"></div>
+  </section>
+
+  <!-- ─────────────────────────  2. Canon spinners  ─────────────────────── -->
+  <section id="spinners-canon">
+    <div class="section-label">2 · Spinners · Canon</div>
+    <h2>9 workshop names</h2>
+    <p class="blurb">
+      Aliases drawn from CLEO canon (<code>CLEO-VISION.md</code> · <code>NEXUS-CORE-ASPECTS.md</code>).
+      Same Spinner objects as the generic registry — references, not copies — so renaming
+      a generic spinner automatically updates the canon view.
+    </p>
+    <div class="row-list" id="rows-canon"></div>
+  </section>
+
+  <!-- ─────────────────────────  3. Progress  ───────────────────────────── -->
+  <section id="progress">
+    <div class="section-label">3 · Progress · Canon Styles</div>
+    <h2>3 woven gauges</h2>
+    <p class="blurb">
+      Fixed-width segmented bars. <strong>Tapestry</strong> uses coarse Unicode
+      blocks (<code>░▒▓█</code>) for a woven cloth feel. <strong>Cascade</strong> uses
+      1/8 gradient steps (<code>▏▎▍▌▋▊▉█</code>) for a smooth waterfall edge.
+      <strong>Refinery</strong> uses braille block-fill stages, evoking the BRAIN
+      memory promotion pipeline filling level-by-level.
+    </p>
+    <div class="progress-strip" id="progress-strip"></div>
+  </section>
+
+  <!-- ─────────────────────────  4. Sparks  ─────────────────────────────── -->
+  <section id="sparks">
+    <div class="section-label">4 · Sparks · One-Shot</div>
+    <h2>4 canon flares</h2>
+    <p class="blurb">
+      Sparks are finite frame sequences. They play once and decay back to empty —
+      not loops. <code>awaken</code> at first dream / cleo init; <code>sweep</code>
+      on BRAIN integrity sweep complete; <code>cascade</code> on release-shipped /
+      task-complete; <code>weave</code> on playbook stage transitions and CANT
+      directive acceptance. (On this page they auto-replay every ~1.4s so you can
+      see the motion.)
+    </p>
+    <div class="row-list" id="rows-sparks"></div>
+  </section>
+
+  <!-- ─────────────────────────  5. AnimateContext  ─────────────────────── -->
+  <section id="animate-context">
+    <div class="section-label">5 · LAFS Render Gate</div>
+    <h2>AnimateContext</h2>
+    <p class="blurb">
+      Every primitive in this package routes its output through an
+      <code>AnimateContext</code>. The context is <strong>pure data</strong> — no I/O, no
+      timers — derived from the LAFS <code>FlagResolution</code> plus environment
+      signals. When silent, primitives return no-op handles so callers don't branch
+      on output mode.
+    </p>
+    <table class="ref">
+      <thead><tr><th>Signal</th><th>Source</th><th>Effect</th><th>Reason code</th></tr></thead>
+      <tbody>
+        <tr><td><code>format !== 'human'</code></td><td>LAFS flags</td><td>Disable animations (machine output)</td><td><code>format-json</code></td></tr>
+        <tr><td><code>quiet === true</code></td><td>LAFS flags</td><td>Disable animations (script-friendly)</td><td><code>quiet</code></td></tr>
+        <tr><td><code>!isTTY</code></td><td><code>process.stdout.isTTY</code></td><td>Disable animations (piped/redirected)</td><td><code>no-tty</code></td></tr>
+        <tr><td><code>NO_COLOR</code> set</td><td><code>process.env.NO_COLOR</code></td><td>Disable animations (no-color.org)</td><td><code>no-color</code></td></tr>
+      </tbody>
+    </table>
+    <p class="blurb">Construct it once at command entry, thread it everywhere downstream:</p>
+<pre class="code"><span class="kw">import</span> { resolveOutputFormat } <span class="kw">from</span> <span class="str">'@cleocode/lafs'</span>;
+<span class="kw">import</span> { createAnimateContext } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
+
+<span class="kw">const</span> flags = resolveOutputFormat({ humanFlag: <span class="kw">true</span> });
+<span class="kw">const</span> ctx = createAnimateContext({ flagResolution: flags });
+
+<span class="kw">if</span> (ctx.enabled) <span class="cm">/* render spinner */</span>;
+<span class="kw">else</span> console.log(<span class="str">`silent: ${ctx.reason}`</span>);
+<span class="cm">// → "enabled" | "format-json" | "quiet" | "no-tty" | "no-color"</span></pre>
+  </section>
+
+  <!-- ─────────────────────────  6. Guide  ──────────────────────────────── -->
+  <section id="guide">
+    <div class="section-label">6 · Usage Guide</div>
+    <h2>How to render</h2>
+
+    <div class="sub-h">Spinner during async work</div>
+<pre class="code"><span class="kw">import</span> { spinners, canonSpinners } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
+
+<span class="kw">const</span> { frames, interval } = canonSpinners.looming; <span class="cm">// canon name → helix frames</span>
+<span class="kw">let</span> i = <span class="num">0</span>;
+<span class="kw">const</span> timer = setInterval(() =&gt; {
+  process.stdout.write(<span class="str">`\r\x1B[2K  ${frames[i++ % frames.length]} Weaving tasks…`</span>);
+}, interval);
+
+<span class="kw">await</span> doWork();
+clearInterval(timer);
+process.stdout.write(<span class="str">'\r\x1B[2K  ✔ Tapestry complete.\n'</span>);</pre>
+
+    <div class="sub-h">Progress bar with a known ratio</div>
+<pre class="code"><span class="kw">import</span> { renderProgressBar } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
+
+<span class="kw">function</span> tick(done, total) {
+  <span class="kw">const</span> ratio = done / total;
+  <span class="kw">const</span> bar = renderProgressBar(<span class="str">'refinery'</span>, ratio, <span class="num">36</span>);
+  process.stdout.write(<span class="str">`\r\x1B[2K  ${bar}  ${done}/${total}`</span>);
+}</pre>
+
+    <div class="sub-h">One-shot spark on success</div>
+<pre class="code"><span class="kw">import</span> { sparks, sparkDurationMs } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
+
+<span class="kw">async function</span> playSpark(name) {
+  <span class="kw">const</span> { frames, interval } = sparks[name];
+  <span class="kw">for</span> (<span class="kw">const</span> f <span class="kw">of</span> frames) {
+    process.stdout.write(<span class="str">`\r\x1B[2K  ${f}`</span>);
+    <span class="kw">await</span> <span class="kw">new</span> Promise(r =&gt; setTimeout(r, interval));
+  }
+  process.stdout.write(<span class="str">'\n'</span>);
+}
+
+<span class="kw">await</span> shipRelease();
+<span class="kw">await</span> playSpark(<span class="str">'cascade'</span>); <span class="cm">// total: ~980ms</span></pre>
+
+    <div class="sub-h">Reusable handle (LAFS-aware)</div>
+<pre class="code"><span class="kw">import</span> { resolveOutputFormat } <span class="kw">from</span> <span class="str">'@cleocode/lafs'</span>;
+<span class="kw">import</span> { createAnimateContext, canonSpinners } <span class="kw">from</span> <span class="str">'@cleocode/animations'</span>;
+
+<span class="kw">function</span> spinner(label, name = <span class="str">'looming'</span>) {
+  <span class="kw">const</span> ctx = createAnimateContext({ flagResolution: resolveOutputFormat({ humanFlag: <span class="kw">true</span> }) });
+  <span class="kw">if</span> (!ctx.enabled) <span class="kw">return</span> { update() {}, stop(msg) { msg &amp;&amp; console.log(msg); } };
+
+  <span class="kw">const</span> { frames, interval } = canonSpinners[name];
+  <span class="kw">let</span> i = <span class="num">0</span>, text = label;
+  <span class="kw">const</span> t = setInterval(() =&gt; process.stdout.write(<span class="str">`\r\x1B[2K  ${frames[i++ % frames.length]} ${text}`</span>), interval);
+
+  <span class="kw">return</span> {
+    update(msg) { text = msg; },
+    stop(msg) { clearInterval(t); process.stdout.write(<span class="str">`\r\x1B[2K  ✔ ${msg ?? text}\n`</span>); },
+  };
+}</pre>
+  </section>
+
+  <!-- ─────────────────────────  7. API reference  ──────────────────────── -->
+  <section id="api">
+    <div class="section-label">7 · API Reference</div>
+    <h2>Exports from <code class="mono">@cleocode/animations</code></h2>
+
+    <div class="sub-h">Spinners</div>
+    <table class="ref">
+      <thead><tr><th>Export</th><th>Type / Shape</th></tr></thead>
+      <tbody>
+        <tr><td><code>spinners</code></td><td><code>Record&lt;BrailleSpinnerName, Spinner&gt;</code> — 18 entries</td></tr>
+        <tr><td><code>canonSpinners</code></td><td><code>Record&lt;CanonSpinnerName, Spinner&gt;</code> — 9 aliases</td></tr>
+        <tr><td><code>CANON_TO_GENERIC</code></td><td><code>Record&lt;CanonSpinnerName, BrailleSpinnerName&gt;</code></td></tr>
+        <tr><td><code>resolveSpinner(name)</code></td><td><code>(string) =&gt; Spinner | undefined</code></td></tr>
+        <tr><td><code>gridToBraille(grid)</code></td><td><code>(boolean[][]) =&gt; string</code></td></tr>
+        <tr><td><code>makeGrid(rows, cols)</code></td><td><code>(number, number) =&gt; boolean[][]</code></td></tr>
+        <tr><td><code>Spinner</code></td><td>TS interface: <code>{ frames: readonly string[]; interval: number }</code></td></tr>
+        <tr><td><code>BrailleSpinnerName</code> · <code>CanonSpinnerName</code></td><td>TS string-literal unions</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sub-h">AnimateContext</div>
+    <table class="ref">
+      <thead><tr><th>Export</th><th>Type / Shape</th></tr></thead>
+      <tbody>
+        <tr><td><code>createAnimateContext(input)</code></td><td><code>(AnimateContextInput) =&gt; AnimateContext</code></td></tr>
+        <tr><td><code>SILENT_CONTEXT</code></td><td>Frozen <code>AnimateContext</code> — always disabled</td></tr>
+        <tr><td><code>AnimateContext</code></td><td><code>{ enabled, reason, inputs }</code></td></tr>
+        <tr><td><code>AnimateContextInput</code></td><td><code>{ flagResolution, isTTY?, noColor? }</code></td></tr>
+        <tr><td><code>FlagResolutionLike</code></td><td><code>{ format: 'json'|'human'; quiet: boolean }</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="sub-h">Progress &amp; Sparks</div>
+    <table class="ref">
+      <thead><tr><th>Export</th><th>Type / Shape</th></tr></thead>
+      <tbody>
+        <tr><td><code>progressBars</code></td><td><code>Record&lt;ProgressBarStyle, ProgressBarRenderer&gt;</code></td></tr>
+        <tr><td><code>renderProgressBar(style, ratio, width)</code></td><td><code>(style, number, number) =&gt; string</code></td></tr>
+        <tr><td><code>ProgressBarStyle</code></td><td><code>'tapestry' | 'cascade' | 'refinery'</code></td></tr>
+        <tr><td><code>sparks</code></td><td><code>Record&lt;SparkName, Spark&gt;</code></td></tr>
+        <tr><td><code>sparkDurationMs(name)</code></td><td><code>(SparkName) =&gt; number</code></td></tr>
+        <tr><td><code>SparkName</code></td><td><code>'awaken' | 'sweep' | 'cascade' | 'weave'</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="sub-h">Canon mapping</div>
+    <table class="ref">
+      <thead><tr><th>Canon name</th><th>Generic name</th><th>Cleo lore role</th></tr></thead>
+      <tbody>
+        <tr><td><code>looming</code></td><td><code>helix</code></td><td>Twin strands weaving — task on the LOOM</td></tr>
+        <tr><td><code>weaving</code></td><td><code>braillewave</code></td><td>Pattern threading across columns</td></tr>
+        <tr><td><code>heartbeat</code></td><td><code>breathe</code></td><td>Organic in-out pulse — Hearth presence</td></tr>
+        <tr><td><code>awakening</code></td><td><code>pulse</code></td><td>Radial bloom — first dream / cleo init</td></tr>
+        <tr><td><code>sweeping</code></td><td><code>scan</code></td><td>Left→right beam — BRAIN integrity Sweep</td></tr>
+        <tr><td><code>watching</code></td><td><code>orbit</code></td><td>Circular sentinel — sentient daemon tick</td></tr>
+        <tr><td><code>cascade</code></td><td><code>cascade</code></td><td>Diagonal fall — command-success accent</td></tr>
+        <tr><td><code>tapestry</code></td><td><code>waverows</code></td><td>Multi-row sinusoidal — wave of tasks shipping</td></tr>
+        <tr><td><code>refinery</code></td><td><code>columns</code></td><td>Filling stages — memory promotion pipeline</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer class="foot">
+    <div>
+      Forked from
+      <a href="https://github.com/gunnargray-dev/unicode-animations" target="_blank" rel="noopener">gunnargray-dev/unicode-animations</a>
+      (MIT) · Canon vocabulary from <code>docs/concepts/CLEO-VISION.md</code> +
+      <code>docs/concepts/NEXUS-CORE-ASPECTS.md</code> ·
+      <a href="https://github.com/kryptobaseddev/cleo/tree/main/packages/animations" target="_blank">source on GitHub</a>
+    </div>
+    <div class="palette">
+      <span><i style="background:var(--nexus)"></i>NEXUS</span>
+      <span><i style="background:var(--loom)"></i>LOOM</span>
+      <span><i style="background:var(--brain)"></i>BRAIN</span>
+      <span><i style="background:var(--cant)"></i>CANT</span>
+      <span><i style="background:var(--conduit)"></i>CONDUIT</span>
+      <span><i style="background:var(--awaken)"></i>AWAKEN</span>
+    </div>
+  </footer>
+
+</main>
+
+<script>
+/* ──────────────────────────────────────────────────────────────────────
+   Vendored frame data — kept in sync with src/braille.ts + src/spark.ts.
+   The page is intentionally self-contained: open in a browser without
+   any build step, no node_modules, no fetch. If upstream frames change,
+   re-paste from src/__snapshots__/braille.test.ts.snap.
+   ────────────────────────────────────────────────────────────────────── */
+const SPINNERS = {
+  braille:      { frames: ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'], interval: 80 },
+  braillewave:  { frames: ['⠁⠂⠄⡀','⠂⠄⡀⢀','⠄⡀⢀⠠','⡀⢀⠠⠐','⢀⠠⠐⠈','⠠⠐⠈⠁','⠐⠈⠁⠂','⠈⠁⠂⠄'], interval: 100 },
+  dna:          { frames: ['⠋⠉⠙⠚','⠉⠙⠚⠒','⠙⠚⠒⠂','⠚⠒⠂⠂','⠒⠂⠂⠒','⠂⠂⠒⠲','⠂⠒⠲⠴','⠒⠲⠴⠤','⠲⠴⠤⠄','⠴⠤⠄⠋','⠤⠄⠋⠉','⠄⠋⠉⠙'], interval: 80 },
+  scan:         { frames: ['⠀⠀⠀⠀','⡇⠀⠀⠀','⣿⠀⠀⠀','⢸⡇⠀⠀','⠀⣿⠀⠀','⠀⢸⡇⠀','⠀⠀⣿⠀','⠀⠀⢸⡇','⠀⠀⠀⣿','⠀⠀⠀⢸'], interval: 70 },
+  rain:         { frames: ['⢁⠂⠔⠈','⠂⠌⡠⠐','⠄⡐⢀⠡','⡈⠠⠀⢂','⠐⢀⠁⠄','⠠⠁⠊⡀','⢁⠂⠔⠈','⠂⠌⡠⠐','⠄⡐⢀⠡','⡈⠠⠀⢂','⠐⢀⠁⠄','⠠⠁⠊⡀'], interval: 100 },
+  scanline:     { frames: ['⠉⠉⠉','⠓⠓⠓','⠦⠦⠦','⣄⣄⣄','⠦⠦⠦','⠓⠓⠓'], interval: 120 },
+  pulse:        { frames: ['⠀⠶⠀','⠰⣿⠆','⢾⣉⡷','⣏⠀⣹','⡁⠀⢈'], interval: 180 },
+  snake:        { frames: ['⣁⡀','⣉⠀','⡉⠁','⠉⠉','⠈⠙','⠀⠛','⠐⠚','⠒⠒','⠖⠂','⠶⠀','⠦⠄','⠤⠤','⠠⢤','⠀⣤','⢀⣠','⣀⣀'], interval: 80 },
+  sparkle:      { frames: ['⡡⠊⢔⠡','⠊⡰⡡⡘','⢔⢅⠈⢢','⡁⢂⠆⡍','⢔⠨⢑⢐','⠨⡑⡠⠊'], interval: 150 },
+  cascade:      { frames: ['⠀⠀⠀⠀','⠀⠀⠀⠀','⠁⠀⠀⠀','⠋⠀⠀⠀','⠞⠁⠀⠀','⡴⠋⠀⠀','⣠⠞⠁⠀','⢀⡴⠋⠀','⠀⣠⠞⠁','⠀⢀⡴⠋','⠀⠀⣠⠞','⠀⠀⢀⡴','⠀⠀⠀⣠','⠀⠀⠀⢀'], interval: 60 },
+  columns:      { frames: ['⡀⠀⠀','⡄⠀⠀','⡆⠀⠀','⡇⠀⠀','⣇⠀⠀','⣧⠀⠀','⣷⠀⠀','⣿⠀⠀','⣿⡀⠀','⣿⡄⠀','⣿⡆⠀','⣿⡇⠀','⣿⣇⠀','⣿⣧⠀','⣿⣷⠀','⣿⣿⠀','⣿⣿⡀','⣿⣿⡄','⣿⣿⡆','⣿⣿⡇','⣿⣿⣇','⣿⣿⣧','⣿⣿⣷','⣿⣿⣿','⣿⣿⣿','⠀⠀⠀'], interval: 60 },
+  orbit:        { frames: ['⠃','⠉','⠘','⠰','⢠','⣀','⡄','⠆'], interval: 100 },
+  breathe:      { frames: ['⠀','⠂','⠌','⡑','⢕','⢝','⣫','⣟','⣿','⣟','⣫','⢝','⢕','⡑','⠌','⠂','⠀'], interval: 100 },
+  waverows:     { frames: ['⠖⠉⠉⠑','⡠⠖⠉⠉','⣠⡠⠖⠉','⣄⣠⡠⠖','⠢⣄⣠⡠','⠙⠢⣄⣠','⠉⠙⠢⣄','⠊⠉⠙⠢','⠜⠊⠉⠙','⡤⠜⠊⠉','⣀⡤⠜⠊','⢤⣀⡤⠜','⠣⢤⣀⡤','⠑⠣⢤⣀','⠉⠑⠣⢤','⠋⠉⠑⠣'], interval: 90 },
+  checkerboard: { frames: ['⢕⢕⢕','⡪⡪⡪','⢊⠔⡡','⡡⢊⠔'], interval: 250 },
+  helix:        { frames: ['⢌⣉⢎⣉','⣉⡱⣉⡱','⣉⢎⣉⢎','⡱⣉⡱⣉','⢎⣉⢎⣉','⣉⡱⣉⡱','⣉⢎⣉⢎','⡱⣉⡱⣉','⢎⣉⢎⣉','⣉⡱⣉⡱','⣉⢎⣉⢎','⡱⣉⡱⣉','⢎⣉⢎⣉','⣉⡱⣉⡱','⣉⢎⣉⢎','⡱⣉⡱⣉'], interval: 80 },
+  fillsweep:    { frames: ['⣀⣀','⣤⣤','⣶⣶','⣿⣿','⣿⣿','⣿⣿','⣶⣶','⣤⣤','⣀⣀','⠀⠀','⠀⠀'], interval: 100 },
+  diagswipe:    { frames: ['⠁⠀','⠋⠀','⠟⠁','⡿⠋','⣿⠟','⣿⡿','⣿⣿','⣿⣿','⣾⣿','⣴⣿','⣠⣾','⢀⣴','⠀⣠','⠀⢀','⠀⠀','⠀⠀'], interval: 60 },
+};
+const CANON_TO_GENERIC = {
+  looming: 'helix', weaving: 'braillewave', heartbeat: 'breathe',
+  awakening: 'pulse', sweeping: 'scan', watching: 'orbit',
+  cascade: 'cascade', tapestry: 'waverows', refinery: 'columns',
+};
+const SPARKS = {
+  awaken:  { frames: ['⠀','⠂','⠒','⠶','⣶','⣷','⣿','⣷','⣶','⠶','⠒','⠂','⠀'], interval: 90 },
+  sweep:   { frames: ['⠀⠀⠀⠀','⡇⠀⠀⠀','⢸⡇⠀⠀','⠀⢸⡇⠀','⠀⠀⢸⡇','⠀⠀⠀⢸','⠀⠀⠀⠀'], interval: 80 },
+  cascade: { frames: ['⠀⠀⠀⠀','⠁⠀⠀⠀','⠋⠀⠀⠀','⠞⠁⠀⠀','⡴⠋⠀⠀','⣠⠞⠁⠀','⢀⡴⠋⠀','⠀⣠⠞⠁','⠀⢀⡴⠋','⠀⠀⣠⠞','⠀⠀⢀⡴','⠀⠀⠀⣠','⠀⠀⠀⢀','⠀⠀⠀⠀'], interval: 70 },
+  weave:   { frames: ['⠀⠀⠀⠀','⠁⠀⠀⠀','⠁⠈⠀⠀','⠉⠈⠁⠀','⠉⠉⠁⠈','⡉⠉⠉⠈','⡏⠉⠉⠉','⡏⡏⠉⠉','⡿⡏⡏⠉','⣿⡿⡏⡏','⣿⣿⡿⡏','⣿⣿⣿⡿','⣿⣿⣿⣿','⣷⣷⣷⣷','⣧⣧⣧⣧','⡇⡇⡇⡇','⠁⠁⠁⠁','⠀⠀⠀⠀'], interval: 70 },
+};
+
+/* Progress renderers — direct ports of src/progress.ts */
+function clamp(r) { return Number.isNaN(r) ? 0 : r < 0 ? 0 : r > 1 ? 1 : r; }
+function renderTapestry(r, w) {
+  r = clamp(r); w = Math.max(0, w|0); if (!w) return '';
+  const exact = r * w, full = Math.floor(exact), frac = exact - full;
+  let edge = ''; if (full < w) edge = frac >= 0.75 ? '▓' : frac >= 0.25 ? '▒' : '░';
+  return '█'.repeat(full) + edge + '░'.repeat(Math.max(0, w - full - (edge ? 1 : 0)));
+}
+const CASCADE_GRAD = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'];
+function renderCascade(r, w) {
+  r = clamp(r); w = Math.max(0, w|0); if (!w) return '';
+  const filled = Math.round(r * w * 8);
+  const full = Math.floor(filled / 8), partial = filled - full * 8;
+  const edge = partial === 0 ? '' : CASCADE_GRAD[partial];
+  return '█'.repeat(full) + edge + ' '.repeat(Math.max(0, w - full - (edge ? 1 : 0)));
+}
+const REFINERY_STAGES = ['⠀','⡀','⡄','⡆','⡇','⣇','⣧','⣷','⣿'];
+function renderRefinery(r, w) {
+  r = clamp(r); w = Math.max(0, w|0); if (!w) return '';
+  const filled = Math.round(r * w * 8);
+  const full = Math.floor(filled / 8), partial = filled - full * 8;
+  const edge = partial === 0 ? '' : REFINERY_STAGES[partial];
+  return '⣿'.repeat(full) + edge + '⠀'.repeat(Math.max(0, w - full - (edge ? 1 : 0)));
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Render the page.
+   ────────────────────────────────────────────────────────────────────── */
+function makeRow(parent, cls, frame, name, meta, alias) {
+  const row = document.createElement('div');
+  row.className = `row${cls ? ' ' + cls : ''}`;
+  const f = document.createElement('span'); f.className = 'frame'; f.textContent = frame;
+  const n = document.createElement('span'); n.className = 'name'; n.textContent = name;
+  row.append(f, n);
+  if (alias) {
+    const a = document.createElement('span');
+    a.className = 'alias';
+    a.innerHTML = `→ <em>${alias}</em>`;
+    row.append(a);
+  } else {
+    const m = document.createElement('span'); m.className = 'meta'; m.textContent = meta;
+    row.append(m);
+  }
+  parent.append(row);
+  return f;
+}
+
+const genericFrames = {};
+const rowsGeneric = document.getElementById('rows-generic');
+for (const [name, sp] of Object.entries(SPINNERS)) {
+  genericFrames[name] = makeRow(
+    rowsGeneric, '', sp.frames[0], name, `${sp.frames.length}f · ${sp.interval}ms`,
+  );
+}
+
+const canonFrames = {};
+const rowsCanon = document.getElementById('rows-canon');
+for (const [canon, generic] of Object.entries(CANON_TO_GENERIC)) {
+  const sp = SPINNERS[generic];
+  canonFrames[canon] = makeRow(rowsCanon, 'canon', sp.frames[0], canon, '', generic);
+}
+
+const sparkFrames = {};
+const rowsSparks = document.getElementById('rows-sparks');
+for (const [name, sp] of Object.entries(SPARKS)) {
+  sparkFrames[name] = makeRow(
+    rowsSparks, 'spark', sp.frames[0], name, `${sp.frames.length}f · ${sp.interval}ms · once`,
+  );
+}
+
+/* Animate spinners — group by interval, single setInterval per group (upstream pattern) */
+const groupsByInterval = {};
+for (const [name, sp] of Object.entries(SPINNERS)) {
+  if (!groupsByInterval[sp.interval]) groupsByInterval[sp.interval] = [];
+  groupsByInterval[sp.interval].push({ key: name, frames: sp.frames, i: 0 });
+}
+for (const [interval, group] of Object.entries(groupsByInterval)) {
+  setInterval(() => {
+    for (const s of group) {
+      s.i = (s.i + 1) % s.frames.length;
+      const generic = s.key;
+      if (genericFrames[generic]) genericFrames[generic].textContent = s.frames[s.i];
+      // canon aliases share the same interval so update them in lockstep
+      for (const [canon, g] of Object.entries(CANON_TO_GENERIC)) {
+        if (g === generic && canonFrames[canon]) canonFrames[canon].textContent = s.frames[s.i];
+      }
+    }
+  }, Number(interval));
+}
+
+/* Sparks — replay each on a long beat so the page is alive */
+for (const [name, sp] of Object.entries(SPARKS)) {
+  const target = sparkFrames[name];
+  let i = 0;
+  const loop = () => {
+    if (i < sp.frames.length) { target.textContent = sp.frames[i++]; setTimeout(loop, sp.interval); }
+    else { i = 0; setTimeout(loop, 1400); }
+  };
+  loop();
+}
+
+/* Progress strip — sinusoidal sweep, distinct phase per row */
+const strip = document.getElementById('progress-strip');
+const PROG_W = 36;
+const styles = [
+  { name: 'tapestry', renderer: renderTapestry, blurb: 'block fill (░▒▓█)' },
+  { name: 'cascade',  renderer: renderCascade,  blurb: '1/8 gradient steps' },
+  { name: 'refinery', renderer: renderRefinery, blurb: 'braille block stages' },
+];
+const progRows = styles.map(s => {
+  const row = document.createElement('div');
+  row.className = `progress-row ${s.name}`;
+  row.innerHTML = `<div class="style">${s.name}<em>${s.blurb}</em></div><div class="bar mono"></div><div class="pct"></div>`;
+  strip.append(row);
+  return { ...s, bar: row.querySelector('.bar'), pct: row.querySelector('.pct') };
+});
+let t = 0;
+setInterval(() => {
+  for (let i = 0; i < progRows.length; i++) {
+    const phase = (t + i * 8) * 0.05;
+    const ratio = (Math.sin(phase) + 1) / 2;
+    progRows[i].bar.textContent = progRows[i].renderer(ratio, PROG_W);
+    progRows[i].pct.textContent = `${Math.round(ratio * 100)}%`;
+  }
+  t++;
+}, 80);
+
+/* Theme toggle */
+const tbtn = document.getElementById('themeToggle');
+const ticon = document.getElementById('themeIcon');
+const tlbl = document.getElementById('themeLabel');
+tbtn.addEventListener('click', () => {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+  ticon.textContent = dark ? '☾' : '☀';
+  tlbl.textContent  = dark ? 'Dark' : 'Light';
+});
+</script>
+</body>
+</html>
