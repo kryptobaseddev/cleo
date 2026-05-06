@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/animations",
-  "version": "2026.5.35",
+  "version": "2026.5.36",
   "type": "module",
   "description": "CLEO terminal animations — braille spinners, progress bars, and sparks for the cleo CLI and CleoOS. Forked from gunnargray-dev/unicode-animations (MIT).",
   "publishConfig": {

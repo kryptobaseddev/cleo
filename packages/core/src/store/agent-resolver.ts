@@ -551,14 +551,43 @@ export function resolveDefaultSeedDir(): string {
 /**
  * Compute the default path to the universal-base `.cant` file.
  *
- * Walks a short set of candidates covering the workspace (`src/`) and
- * compiled (`dist/`) layouts, and the installed-package layout inside
- * `node_modules`. The first path that exists on disk wins.
+ * Resolution strategy (two-phase, first hit wins):
+ *
+ * **Phase 1 — `require.resolve` (primary, workspace + published parity)**
+ * Uses Node's module resolver to locate `@cleocode/agents/package.json` from
+ * the current file's module graph. This works identically in the workspace
+ * (`packages/core/src/store/` resolving into `packages/agents/`) and in a
+ * globally-installed CLI (`node_modules/@cleocode/core/…` resolving into
+ * `node_modules/@cleocode/agents/`). After resolving the package root the
+ * canonical `cleo-subagent.cant` path is constructed as a sibling of
+ * `package.json`.
+ *
+ * **Phase 2 — relative-path walk (fallback, compile-time layouts)**
+ * When `require.resolve` cannot locate the package (e.g. the package is not
+ * declared as a direct dependency and Node's resolution cannot reach it), a
+ * set of relative candidates is tried covering:
+ *  - workspace `src/` layout: `packages/core/src/store/` → `packages/agents/`
+ *  - workspace `dist/` layout: `packages/core/dist/store/` → `packages/agents/`
+ *  - installed layout (three-level `..`):
+ *    `node_modules/@cleocode/core/dist/store/` → `node_modules/@cleocode/agents/`
+ *
+ * Matching `resolveAgentTemplates()` / `resolveMetaAgentsDir()` approach
+ * (T1935) which already has workspace+published parity.
  *
  * @returns Absolute path to `cleo-subagent.cant`, or `null` when unresolved.
- * @task T1241 / D035
+ * @task T1241 / D035 / T9037
  */
-function resolveDefaultUniversalBasePath(): string | null {
+export function resolveDefaultUniversalBasePath(): string | null {
+  // Phase 1: module-graph resolution — works in workspace AND published CLI.
+  try {
+    const agentsPkgJson = _resolverRequire.resolve('@cleocode/agents/package.json');
+    const candidate = join(dirname(agentsPkgJson), 'cleo-subagent.cant');
+    if (fileExists(candidate)) return candidate;
+  } catch {
+    // Package unreachable via module graph — fall through to relative walk.
+  }
+
+  // Phase 2: relative-path walk covering workspace src/, dist/, and installed layouts.
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     // packages/core/src/store/ → packages/agents/cleo-subagent.cant

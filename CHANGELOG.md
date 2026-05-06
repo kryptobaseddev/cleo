@@ -1,5 +1,9 @@
 # Changelog
 
+## [2026.5.36] — 2026-05-06
+
+P0 hotfix: universal-tier path resolution gap — `resolveDefaultUniversalBasePath()` in `packages/core/src/store/agent-resolver.ts` now uses `require.resolve('@cleocode/agents/package.json')` as its primary resolution strategy (matching `resolveAgentTemplates()` / `resolveMetaAgentsDir()` from T1935), falling back to the existing relative-path walk. This restores workspace + published-CLI parity: the function previously failed in globally-installed CLI mode because `fileURLToPath(import.meta.url)` relative climbing did not match the npm install directory layout, causing `V_AGENT_NOT_FOUND` on every `cleo orchestrate spawn` call despite T1933 wiring the universal tier into the pre-flight validator. `resolveDefaultUniversalBasePath()` is now exported for direct testability. Two new tests added: workspace-mode validation (require.resolve hits `packages/agents/cleo-subagent.cant`) and published-CLI simulation (temp node_modules tree verified via same require.resolve strategy). Fixes T9037, closes T1929 blocking issue. (T9037 / T1929)
+
 ## [2026.5.35] — 2026-05-06
 
 Hotfix: inline @cleocode/animations into the cleo esbuild CLI bundle (build.mjs workspacePlugin map) so the published CLI works without requiring a separately-built animations dist/ — same pattern as @cleocode/playbooks. Resolves ERR_MODULE_NOT_FOUND for @cleocode/animations in Canon Drift Check and Build & Verify CI steps.
