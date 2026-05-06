@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { getCleoHome } from '@cleocode/paths';
 import type { Provider } from '../../types.js';
 import { getPlatformPaths } from '../platform-paths.js';
 
@@ -383,30 +384,13 @@ export function getAgentsLinksDir(scope: PathScope = 'global', projectDir?: stri
  * Resolve the CLEO home directory for template path expansion.
  *
  * @remarks
- * Honors the `CLEO_HOME` environment variable when set. Otherwise falls
- * back to a platform-appropriate data directory for the `cleo` app name
- * (e.g. `~/.local/share/cleo` on Linux, `~/Library/Application Support/cleo`
- * on macOS, `%LOCALAPPDATA%\cleo\Data` on Windows). This mirrors the
- * resolution strategy used by the `@cleocode/core` package's `getCleoHome`
- * helper but is duplicated here to avoid a cross-package runtime dependency.
+ * Delegates to {@link getCleoHome} from `@cleocode/paths`, which is the
+ * canonical SSoT for XDG / platform-specific CLEO home resolution.
  *
  * @internal
  */
 function getCleoHomeForTemplate(): string {
-  const envOverride = process.env['CLEO_HOME'];
-  if (envOverride && envOverride.trim().length > 0) {
-    return envOverride.trim();
-  }
-  const home = getPlatformLocations().home;
-  if (process.platform === 'win32') {
-    const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
-    return join(localAppData, 'cleo', 'Data');
-  }
-  if (process.platform === 'darwin') {
-    return join(home, 'Library', 'Application Support', 'cleo');
-  }
-  const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-  return join(xdgData, 'cleo');
+  return getCleoHome();
 }
 
 /**
