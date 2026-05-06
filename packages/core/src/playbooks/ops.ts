@@ -20,6 +20,8 @@
  */
 
 import type {
+  PlaybookCatalogParams,
+  PlaybookCatalogResult,
   PlaybookListParams,
   PlaybookListResult,
   PlaybookResumeParams,
@@ -61,4 +63,9 @@ export declare const playbookCoreOps: {
   readonly run: (params: PlaybookRunParams) => Promise<PlaybookRunResult>;
   /** Resume a paused playbook run once its HITL gate has been approved. */
   readonly resume: (params: PlaybookResumeParams) => Promise<PlaybookResumeResult>;
+  /**
+   * List available `.cantbook` definitions across all tiers (project / global /
+   * packaged) with tier provenance. Added in T1937 — ADR-068 Decision 4.
+   */
+  readonly catalog: (params: PlaybookCatalogParams) => Promise<PlaybookCatalogResult>;
 };

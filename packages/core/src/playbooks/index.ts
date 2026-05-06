@@ -23,3 +23,12 @@ export {
 } from './agent-dispatcher.js';
 
 export type { playbookCoreOps } from './ops.js';
+
+export {
+  listPlaybooks,
+  PlaybookNotFoundError,
+  type PlaybookTier,
+  type ResolvedPlaybook,
+  type ResolvePlaybookOptions,
+  resolvePlaybook,
+} from './playbook-resolver.js';
