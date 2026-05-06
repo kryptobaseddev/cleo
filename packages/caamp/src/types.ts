@@ -398,6 +398,17 @@ export interface Provider {
   /** Instruction file name (e.g. `"CLAUDE.md"`, `"AGENTS.md"`). */
   instructFile: string;
 
+  /**
+   * Instruction file @-reference paths injected during CLEO installation.
+   *
+   * @remarks
+   * Populated for providers that manage instruction files (e.g. `claude-code`,
+   * `cursor`, `pi`). Providers that do not manage instruction files (e.g.
+   * `claude-sdk`) have an empty array. Values are static `@`-prefixed paths
+   * resolved at install time (e.g. `"@~/.cleo/templates/CLEO-INJECTION.md"`).
+   */
+  instructionReferences: string[];
+
   /** Resolved global skills directory path. */
   pathSkills: string;
   /** Project-relative skills directory path. */
