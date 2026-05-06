@@ -872,8 +872,21 @@ export default function (pi: ExtensionAPI): void {
           }
         }
         if (!identityFileContent) {
-          const xdgData = process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share");
-          const globalIdentityPath = join(xdgData, "cleo", "CLEOOS-IDENTITY.md");
+          // Resolve global CLEO home via @cleocode/paths (XDG SSoT, T9016).
+          // Falls back to the same XDG default when the module is unavailable.
+          let cleoHome: string;
+          try {
+            const pathsMod = (await importCleoModule("@cleocode/paths")) as {
+              getCleoHome?: () => string;
+            };
+            cleoHome =
+              typeof pathsMod.getCleoHome === "function"
+                ? pathsMod.getCleoHome()
+                : join(process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share"), "cleo");
+          } catch {
+            cleoHome = join(process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share"), "cleo");
+          }
+          const globalIdentityPath = join(cleoHome, "CLEOOS-IDENTITY.md");
           if (existsSync(globalIdentityPath)) {
             try {
               identityFileContent = readFileSync(globalIdentityPath, "utf-8") || null;

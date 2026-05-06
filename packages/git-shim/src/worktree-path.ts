@@ -16,19 +16,22 @@
  * @adr ADR-062
  */
 import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
 import { isAbsolute, join, normalize, resolve } from 'node:path';
+import { getCleoWorktreesRoot } from '@cleocode/paths';
 
 /**
  * Compute the canonical worktrees-by-project root used by CLEO.
  *
- * @returns Absolute path to `<XDG>/cleo/worktrees/`.
+ * Delegates to {@link getCleoWorktreesRoot} from `@cleocode/paths` — the
+ * XDG-path SSoT — so this module no longer duplicates the XDG fallback logic.
+ *
+ * @returns Absolute path to `<cleoHome>/worktrees/`.
  *
  * @task T1591
+ * @task T9016
  */
 export function resolveCleoWorktreesRoot(): string {
-  const xdgData = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-  return join(xdgData, 'cleo', 'worktrees');
+  return getCleoWorktreesRoot();
 }
 
 /**

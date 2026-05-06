@@ -2,15 +2,17 @@
  * OpenCode Install Provider
  *
  * Handles CLEO installation into OpenCode environments:
- * - Ensures AGENTS.md has CLEO @-references
+ * - Ensures AGENTS.md has CLEO @-references via CAAMP
  * - Installs PreCompact hook shell shims + a JS plugin wrapper (T1013)
  *
  * @task T5240
  * @task T1013
+ * @task T9019
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 import {
   type InstallHookTemplatesResult,
@@ -19,25 +21,16 @@ import {
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
 /**
- * Lines that should appear in AGENTS.md to reference CLEO.
- * The CLEO-INJECTION.md path is resolved dynamically to support non-default
- * XDG / OS installation locations (T916).
- */
-const INSTRUCTION_REFERENCES = [
-  `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
-  '@.cleo/memory-bridge.md',
-];
-
-/**
  * Install provider for OpenCode.
  *
  * Manages CLEO's integration with OpenCode by:
  * 1. Ensuring AGENTS.md contains @-references to CLEO instruction files
+ *    (delegated to CAAMP's canonical {@link ensureProviderInstructionFile}).
  * 2. Installing PreCompact hook shell templates + generating the JS plugin
  *    wrapper that spawns the shim on `experimental.session.compacting` (T1013).
  *
  * @remarks
- * Installation is idempotent -- running install multiple times on the same
+ * Installation is idempotent — running install multiple times on the same
  * project produces the same result. OpenCode's plugin system is the native
  * hook surface (OpenCode has no config-file hook registry like Claude Code or
  * Cursor), so the installer writes a JS plugin that subscribes to the native
@@ -55,13 +48,17 @@ export class OpenCodeInstallProvider implements AdapterInstallProvider {
   async install(options: InstallOptions): Promise<InstallResult> {
     const { projectDir } = options;
     const installedAt = new Date().toISOString();
-    let instructionFileUpdated = false;
     const details: Record<string, unknown> = {};
 
-    // Step 1: Ensure AGENTS.md has @-references
-    instructionFileUpdated = this.updateInstructionFile(projectDir);
+    // Step 1: Ensure AGENTS.md has @-references via CAAMP canonical API.
+    const instructResult = await ensureProviderInstructionFile('opencode', projectDir, {
+      scope: 'project',
+      references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
+    });
+
+    const instructionFileUpdated = instructResult.action !== 'intact';
     if (instructionFileUpdated) {
-      details.instructionFile = join(projectDir, 'AGENTS.md');
+      details.instructionFile = join(projectDir, instructResult.instructFile);
     }
 
     // Step 2 (T1013): Install PreCompact hook templates + generate the JS
@@ -90,69 +87,35 @@ export class OpenCodeInstallProvider implements AdapterInstallProvider {
   /**
    * Check whether CLEO is installed in the current environment.
    *
-   * Checks for CLEO references in AGENTS.md.
+   * Delegates to CAAMP's instruction-file check.
    */
   async isInstalled(): Promise<boolean> {
-    const agentsMdPath = join(process.cwd(), 'AGENTS.md');
-    if (existsSync(agentsMdPath)) {
-      try {
-        const content = readFileSync(agentsMdPath, 'utf-8');
-        if (INSTRUCTION_REFERENCES.some((ref) => content.includes(ref))) {
-          return true;
-        }
-      } catch {
-        // Fall through
-      }
+    try {
+      const result = await ensureProviderInstructionFile('opencode', process.cwd(), {
+        scope: 'project',
+        references: [
+          `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`,
+          '@.cleo/memory-bridge.md',
+        ],
+      });
+      return result.action === 'intact';
+    } catch {
+      return false;
     }
-
-    return false;
   }
 
   /**
    * Ensure AGENTS.md contains @-references to CLEO instruction files.
    *
-   * Creates AGENTS.md if it does not exist. Appends any missing references.
+   * Delegates to CAAMP's canonical {@link ensureProviderInstructionFile}.
    *
    * @param projectDir - Project root directory
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
-    this.updateInstructionFile(projectDir);
-  }
-
-  /**
-   * Update AGENTS.md with CLEO @-references.
-   *
-   * @returns true if the file was created or modified
-   */
-  private updateInstructionFile(projectDir: string): boolean {
-    const agentsMdPath = join(projectDir, 'AGENTS.md');
-    let content = '';
-    let existed = false;
-
-    if (existsSync(agentsMdPath)) {
-      content = readFileSync(agentsMdPath, 'utf-8');
-      existed = true;
-    }
-
-    const missingRefs = INSTRUCTION_REFERENCES.filter((ref) => !content.includes(ref));
-
-    if (missingRefs.length === 0) {
-      return false;
-    }
-
-    const refsBlock = missingRefs.join('\n');
-
-    if (existed) {
-      // Append missing references
-      const separator = content.endsWith('\n') ? '' : '\n';
-      content = content + separator + refsBlock + '\n';
-    } else {
-      // Create new AGENTS.md with references
-      content = refsBlock + '\n';
-    }
-
-    writeFileSync(agentsMdPath, content, 'utf-8');
-    return true;
+    await ensureProviderInstructionFile('opencode', projectDir, {
+      scope: 'project',
+      references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
+    });
   }
 
   /**
