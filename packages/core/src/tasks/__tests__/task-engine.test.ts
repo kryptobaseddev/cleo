@@ -18,38 +18,38 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // completeTaskStrict can call through to mocked dependencies.
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/tasks/complete.js', async (importActual) => {
-  const actual = await importActual<typeof import('../../../../../core/src/tasks/complete.js')>();
+vi.mock('../complete.js', async (importActual) => {
+  const actual = await importActual<typeof import('../complete.js')>();
   return {
     ...actual,
     completeTask: vi.fn(),
   };
 });
 
-vi.mock('../../../../../core/src/store/session-store.js', () => ({
+vi.mock('../../store/session-store.js', () => ({
   getActiveSession: vi.fn().mockResolvedValue(null),
   createSession: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/config.js', () => ({
+vi.mock('../../config.js', () => ({
   loadConfig: vi.fn().mockResolvedValue({ lifecycle: { mode: 'strict' } }),
   getRawConfigValue: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/lifecycle/ivtr-loop.js', () => ({
+vi.mock('../../lifecycle/ivtr-loop.js', () => ({
   getIvtrState: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../../../../../core/src/tasks/evidence.js', () => ({
+vi.mock('../evidence.js', () => ({
   revalidateEvidence: vi.fn().mockResolvedValue({ stillValid: true, failedAtoms: [] }),
   parseEvidence: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/logger.js', () => ({
+vi.mock('../../logger.js', () => ({
   getLogger: vi.fn(() => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -62,15 +62,11 @@ vi.mock('../../../../../core/src/logger.js', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { loadConfig } from '../../../../../core/src/config.js';
-import { getIvtrState } from '../../../../../core/src/lifecycle/ivtr-loop.js';
-import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
-import { getActiveSession } from '../../../../../core/src/store/session-store.js';
-import {
-  completeTaskStrict,
-  completeTask as coreCompleteTask,
-  taskComplete,
-} from '../../../../../core/src/tasks/complete.js';
+import { loadConfig } from '../../config.js';
+import { getIvtrState } from '../../lifecycle/ivtr-loop.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { getActiveSession } from '../../store/session-store.js';
+import { completeTaskStrict, completeTask as coreCompleteTask, taskComplete } from '../complete.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

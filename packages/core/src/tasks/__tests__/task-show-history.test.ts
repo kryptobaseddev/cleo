@@ -21,11 +21,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // through @cleocode/core/internal).
 // ---------------------------------------------------------------------------
 
-vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
+vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
 }));
 
-vi.mock('../../../../../core/src/lifecycle/index.js', () => ({
+vi.mock('../../lifecycle/index.js', () => ({
   getLifecycleStatus: vi.fn(),
 }));
 
@@ -33,9 +33,9 @@ vi.mock('../../../../../core/src/lifecycle/index.js', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { getLifecycleStatus } from '../../../../../core/src/lifecycle/index.js';
-import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
-import { taskShowWithHistory } from '../../../../../core/src/tasks/show.js';
+import { getLifecycleStatus } from '../../lifecycle/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { taskShowWithHistory } from '../show.js';
 
 const mockGetAccessor = vi.mocked(getAccessor);
 const mockGetLifecycleStatus = vi.mocked(getLifecycleStatus);
