@@ -86,6 +86,7 @@ import { blockersCommand } from './commands/blockers.js';
 import { brainCommand } from './commands/brain.js';
 import { briefingCommand } from './commands/briefing.js';
 import { bugCommand } from './commands/bug.js';
+import { caampCommand } from './commands/caamp.js';
 import { cancelCommand } from './commands/cancel.js';
 import { cantCommand } from './commands/cant.js';
 import { chainCommand } from './commands/chain.js';
@@ -196,6 +197,7 @@ subCommands['version'] = defineCommand({
 // ---------------------------------------------------------------------------
 subCommands['adapter'] = adapterCommand as CommandDef;
 subCommands['add'] = addCommand as CommandDef;
+subCommands['caamp'] = caampCommand as CommandDef;
 subCommands['add-batch'] = addBatchCommand as CommandDef;
 subCommands['admin'] = adminCommand as CommandDef;
 subCommands['adr'] = adrCommand as CommandDef;

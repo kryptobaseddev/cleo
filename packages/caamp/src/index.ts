@@ -95,6 +95,8 @@ export {
   translateToAll,
 } from './core/hooks/index.js';
 export type {
+  CaampBlock,
+  DedupeResult,
   EnsureProviderInstructionFileOptions,
   EnsureProviderInstructionFileResult,
   KnownProviderAgentFolderId,
@@ -105,11 +107,14 @@ export type {
 export {
   checkAllInjections,
   checkInjection,
+  dedupeFile,
+  dedupeFiles,
   ensureAllProviderInstructionFiles,
   ensureProviderInstructionFile,
   getProviderAgentFolder,
   inject,
   injectAll,
+  parseCaampBlocks,
   removeInjection,
   writeAgentFileToAllProviders,
 } from './core/instructions/injector.js';
