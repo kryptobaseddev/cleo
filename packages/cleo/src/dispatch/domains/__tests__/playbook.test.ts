@@ -327,9 +327,9 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
   // Introspection
   // -------------------------------------------------------------------------
 
-  it('getSupportedOperations — exposes the canonical operations (T1261 adds validate)', () => {
+  it('getSupportedOperations — exposes the canonical operations (T1261 adds validate, T1937 adds catalog)', () => {
     const ops = handler.getSupportedOperations();
-    expect(ops.query.sort()).toEqual(['list', 'status', 'validate']);
+    expect(ops.query.sort()).toEqual(['catalog', 'list', 'status', 'validate']);
     expect(ops.mutate.sort()).toEqual(['resume', 'run']);
   });
 
