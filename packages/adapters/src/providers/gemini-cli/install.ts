@@ -2,28 +2,29 @@
  * Gemini CLI Install Provider
  *
  * Handles CLEO installation into Gemini CLI environments:
- * - Ensures AGENTS.md has CLEO @-references
+ * - Ensures GEMINI.md has CLEO @-references (via CAAMP registry)
  *
  * @task T161
  * @epic T134
+ * @task T9018
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
-
-/** Lines that should appear in AGENTS.md to reference CLEO. */
-const INSTRUCTION_REFERENCES = ['@~/.cleo/templates/CLEO-INJECTION.md', '@.cleo/memory-bridge.md'];
+import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
 /**
  * Install provider for Gemini CLI.
  *
  * Manages CLEO's integration with Gemini CLI by:
- * 1. Ensuring AGENTS.md contains @-references to CLEO instruction files
+ * 1. Ensuring GEMINI.md contains @-references to CLEO instruction files
+ *    (via CAAMP registry — single source of truth for instruction file name)
  *
  * @remarks
  * Installation is idempotent -- running install multiple times on the same
- * project produces the same result. Only AGENTS.md is managed; Gemini CLI
+ * project produces the same result. Only GEMINI.md is managed; Gemini CLI
  * does not have an MCP or plugin registration mechanism.
  *
  * @task T161
@@ -40,13 +41,16 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
   async install(options: InstallOptions): Promise<InstallResult> {
     const { projectDir } = options;
     const installedAt = new Date().toISOString();
-    let instructionFileUpdated = false;
     const details: Record<string, unknown> = {};
 
-    // Step 1: Ensure AGENTS.md has @-references
-    instructionFileUpdated = this.updateInstructionFile(projectDir);
+    const result = await ensureProviderInstructionFile('gemini-cli', projectDir, {
+      references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
+      scope: 'project',
+    });
+
+    const instructionFileUpdated = result.action !== 'intact';
     if (instructionFileUpdated) {
-      details.instructionFile = join(projectDir, 'AGENTS.md');
+      details.instructionFile = result.filePath;
     }
 
     return {
@@ -60,7 +64,7 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
   /**
    * Uninstall CLEO from the Gemini CLI environment.
    *
-   * Does not remove AGENTS.md references (they are harmless if CLEO is not present).
+   * Does not remove GEMINI.md references (they are harmless if CLEO is not present).
    * @task T161
    */
   async uninstall(): Promise<void> {
@@ -70,15 +74,16 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
   /**
    * Check whether CLEO is installed in the Gemini CLI environment.
    *
-   * Checks for CLEO references in AGENTS.md.
+   * Checks for CLEO references in GEMINI.md.
    * @task T161
    */
   async isInstalled(): Promise<boolean> {
-    const agentsMdPath = join(process.cwd(), 'AGENTS.md');
-    if (existsSync(agentsMdPath)) {
+    const instructionRef = `@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
+    const geminiMdPath = join(process.cwd(), 'GEMINI.md');
+    if (existsSync(geminiMdPath)) {
       try {
-        const content = readFileSync(agentsMdPath, 'utf-8');
-        if (INSTRUCTION_REFERENCES.some((ref) => content.includes(ref))) {
+        const content = readFileSync(geminiMdPath, 'utf-8');
+        if (content.includes(instructionRef)) {
           return true;
         }
       } catch {
@@ -90,49 +95,17 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
   }
 
   /**
-   * Ensure AGENTS.md contains @-references to CLEO instruction files.
+   * Ensure GEMINI.md contains @-references to CLEO instruction files.
    *
-   * Creates AGENTS.md if it does not exist. Appends any missing references.
+   * Creates GEMINI.md if it does not exist. Appends any missing references.
    *
    * @param projectDir - Project root directory
    * @task T161
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
-    this.updateInstructionFile(projectDir);
-  }
-
-  /**
-   * Update AGENTS.md with CLEO @-references.
-   *
-   * @param projectDir - Project root directory
-   * @returns true if the file was created or modified
-   */
-  private updateInstructionFile(projectDir: string): boolean {
-    const agentsMdPath = join(projectDir, 'AGENTS.md');
-    let content = '';
-    let existed = false;
-
-    if (existsSync(agentsMdPath)) {
-      content = readFileSync(agentsMdPath, 'utf-8');
-      existed = true;
-    }
-
-    const missingRefs = INSTRUCTION_REFERENCES.filter((ref) => !content.includes(ref));
-
-    if (missingRefs.length === 0) {
-      return false;
-    }
-
-    const refsBlock = missingRefs.join('\n');
-
-    if (existed) {
-      const separator = content.endsWith('\n') ? '' : '\n';
-      content = content + separator + refsBlock + '\n';
-    } else {
-      content = refsBlock + '\n';
-    }
-
-    writeFileSync(agentsMdPath, content, 'utf-8');
-    return true;
+    await ensureProviderInstructionFile('gemini-cli', projectDir, {
+      references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
+      scope: 'project',
+    });
   }
 }
