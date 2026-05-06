@@ -545,9 +545,7 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
     });
 
     const filtered =
-      tierFilter === 'all'
-        ? allEntries
-        : allEntries.filter((entry) => entry.tier === tierFilter);
+      tierFilter === 'all' ? allEntries : allEntries.filter((entry) => entry.tier === tierFilter);
 
     return lafsSuccess(
       {
