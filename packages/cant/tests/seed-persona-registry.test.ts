@@ -5,7 +5,7 @@
  * Verifies that:
  *  1. The `packages/agents/` layout is canonical (no duplicate subdirectory).
  *  2. `loadSeedAgentIdentities()` returns valid `PeerIdentity[]` from the
- *     `packages/agents/seed-agents/` generic templates + universal base.
+ *     `packages/agents/templates/` generic templates + universal base (T1932: renamed from `seed-agents/`).
  *  3. `cleo-subagent` (universal base) is always present and resolvable.
  *  4. `SEED_PERSONA_IDS` matches the ADR-055 D032 ship surface (six loadable
  *     personas: universal base + five canonical role templates per T1258 E1).
@@ -15,7 +15,7 @@
  *
  * Architecture (ADR-055 D031–D035):
  *  - `packages/agents/cleo-subagent.cant` — universal protocol base (at root).
- *  - `packages/agents/seed-agents/` — five canonical role templates (T1258 E1).
+ *  - `packages/agents/templates/` — five canonical role templates (T1258 E1). T1932: renamed from `seed-agents/`.
  *    These SHIP in `@cleocode/agents` as the canonical ship surface.
  *  - `packages/agents/meta/agent-architect.cant` — ships per D034 but is NOT
  *    currently walked by `loadSeedAgentIdentities()`; tracked separately.
@@ -28,7 +28,7 @@
  * Post-T1210 contract:
  *  - ONE `cleo-subagent.cant` at `packages/agents/` root.
  *  - NO `packages/agents/cleo-subagent/` subdirectory.
- *  - NO standalone `AGENT.md` in seed-agents/ (content is in .cant).
+ *  - NO standalone `AGENT.md` in templates/ (content is in .cant). T1932: renamed from `seed-agents/`.
  *
  * @task T1257
  * @epic T1075
@@ -63,7 +63,8 @@ function resolveAgentsRoot(): string {
 }
 
 const AGENTS_ROOT = resolveAgentsRoot();
-const SEED_AGENTS_DIR = join(AGENTS_ROOT, 'seed-agents');
+/** T1932: renamed from `seed-agents/` to `templates/` */
+const TEMPLATES_DIR = join(AGENTS_ROOT, 'templates');
 const UNIVERSAL_BASE = join(AGENTS_ROOT, 'cleo-subagent.cant');
 
 // ---------------------------------------------------------------------------
@@ -79,8 +80,8 @@ describe('packages/agents/ layout (T1210 — consolidated)', () => {
     expect(existsSync(UNIVERSAL_BASE), `universal base missing: ${UNIVERSAL_BASE}`).toBe(true);
   });
 
-  it('packages/agents/seed-agents/ directory exists', () => {
-    expect(existsSync(SEED_AGENTS_DIR), `seed-agents dir missing: ${SEED_AGENTS_DIR}`).toBe(true);
+  it('packages/agents/templates/ directory exists (renamed from seed-agents/ by T1932)', () => {
+    expect(existsSync(TEMPLATES_DIR), `templates dir missing: ${TEMPLATES_DIR}`).toBe(true);
   });
 
   it('packages/agents/cleo-subagent/ subdirectory does NOT exist (removed by T1210)', () => {
@@ -96,10 +97,10 @@ describe('packages/agents/ layout (T1210 — consolidated)', () => {
     expect(existsSync(agentMd), `Legacy AGENT.md still at: ${agentMd}`).toBe(false);
   });
 
-  it('seed-agents/ contains no standalone AGENT.md files (only .cant + README.md)', () => {
-    const entries = existsSync(SEED_AGENTS_DIR) ? readdirSync(SEED_AGENTS_DIR) : [];
+  it('templates/ contains no standalone AGENT.md files (only .cant + README.md)', () => {
+    const entries = existsSync(TEMPLATES_DIR) ? readdirSync(TEMPLATES_DIR) : [];
     const stray = entries.filter((e) => e.endsWith('.md') && e !== 'README.md');
-    expect(stray, `Standalone AGENT.md files found in seed-agents/: ${stray.join(', ')}`).toHaveLength(0);
+    expect(stray, `Standalone AGENT.md files found in templates/: ${stray.join(', ')}`).toHaveLength(0);
   });
 });
 
@@ -199,8 +200,8 @@ describe('unknown persona handling', () => {
     expect(found).toBeUndefined();
   });
 
-  it('unknown persona .cant file does not exist in seed-agents dir', () => {
-    const cantFile = join(SEED_AGENTS_DIR, 'totally-unknown-persona.cant');
+  it('unknown persona .cant file does not exist in templates dir', () => {
+    const cantFile = join(TEMPLATES_DIR, 'totally-unknown-persona.cant');
     expect(existsSync(cantFile)).toBe(false);
   });
 });
@@ -307,7 +308,7 @@ describe('filterPeerIdentities()', () => {
 // 7. PeerIdentity shape contract on loaded identities
 // ---------------------------------------------------------------------------
 
-describe('PeerIdentity shape — loaded from seed-agents/', () => {
+describe('PeerIdentity shape — loaded from templates/', () => {
   it('cleo-subagent (universal base) has peerKind "subagent" or "worker"', () => {
     const result = loadSeedAgentIdentities(AGENTS_ROOT);
     const subagent = result.find((p) => p.peerId === 'cleo-subagent');
