@@ -16,10 +16,10 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError, formatError } from '@cleocode/core';
+import { CleoError } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /** Sticky note shape returned by the sticky domain */
 interface StickyNote {
@@ -80,7 +80,7 @@ const addCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       throw err;
@@ -146,7 +146,7 @@ const listCommand = defineCommand({
       cliOutput(data, { command: 'sticky list', operation: 'sticky.list', page: response.page });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       throw err;
@@ -193,7 +193,7 @@ const showCommand = defineCommand({
       cliOutput({ sticky: data }, { command: 'sticky show', operation: 'sticky.show' });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       throw err;
@@ -238,13 +238,23 @@ const convertCommand = defineCommand({
       const toMemory = args['to-memory'] as boolean | undefined;
 
       if (!toTask && !toMemory) {
-        console.error('Error: Must specify either --to-task or --to-memory');
+        cliError(
+          'Must specify either --to-task or --to-memory',
+          ExitCode.INVALID_INPUT,
+          { name: 'E_INVALID_INPUT' },
+          { operation: 'sticky.convert' },
+        );
         process.exit(ExitCode.INVALID_INPUT);
         return;
       }
 
       if (toTask && toMemory) {
-        console.error('Error: Cannot specify both --to-task and --to-memory');
+        cliError(
+          'Cannot specify both --to-task and --to-memory',
+          ExitCode.INVALID_INPUT,
+          { name: 'E_INVALID_INPUT' },
+          { operation: 'sticky.convert' },
+        );
         process.exit(ExitCode.INVALID_INPUT);
         return;
       }
@@ -269,7 +279,7 @@ const convertCommand = defineCommand({
       });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       throw err;
@@ -298,7 +308,7 @@ const archiveCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       throw err;
@@ -327,7 +337,7 @@ const purgeCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       throw err;

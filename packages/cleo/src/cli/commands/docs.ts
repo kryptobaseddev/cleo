@@ -34,7 +34,7 @@ import {
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 
 /** Drift detection result. */
 interface DriftResult {
@@ -196,11 +196,10 @@ const addCommand = defineCommand({
     const url = args.url ?? undefined;
 
     if (!fileArg && !url) {
-      process.stderr.write(
-        'Error: provide a file path (positional argument) or --url <url>\n' +
-          'Example: cleo docs add T123 docs/rfc.md --desc "RFC draft"\n' +
-          '         cleo docs add T123 --url https://example.com/spec\n',
-      );
+      cliError('provide a file path (positional argument) or --url <url>', 6, {
+        name: 'E_VALIDATION',
+        fix: 'Example: cleo docs add T123 docs/rfc.md --desc "RFC draft" — or — cleo docs add T123 --url https://example.com/spec',
+      });
       process.exit(6);
     }
 
@@ -250,9 +249,9 @@ const listCommand = defineCommand({
     const observation = args.observation ?? undefined;
 
     if (!task && !session && !observation) {
-      process.stderr.write(
-        'Error: provide one of --task <id>, --session <id>, or --observation <id>\n',
-      );
+      cliError('provide one of --task <id>, --session <id>, or --observation <id>', 6, {
+        name: 'E_VALIDATION',
+      });
       process.exit(6);
     }
 
@@ -322,7 +321,7 @@ const removeCommand = defineCommand({
   async run({ args }) {
     const from = args.from ?? undefined;
     if (!from) {
-      process.stderr.write('Error: --from <ownerId> is required\n');
+      cliError('--from <ownerId> is required', 6, { name: 'E_VALIDATION' });
       process.exit(6);
     }
 
@@ -450,8 +449,10 @@ const exportCommand = defineCommand({
       } else {
         // Human mode: print markdown to stdout, report path to stderr
         if (writtenPath) {
-          process.stderr.write(`Wrote ${result.pages} page(s) to ${writtenPath}\n`);
+          humanInfo(`Wrote ${result.pages} page(s) to ${writtenPath}`);
         } else {
+          // Markdown payload is the user-requested output of this command —
+          // emitted to stdout for piping. Not chrome.
           process.stdout.write(result.markdown);
           if (!result.markdown.endsWith('\n')) process.stdout.write('\n');
         }
@@ -575,7 +576,7 @@ const mergeCommand = defineCommand({
         const outPath = isAbsolute(args.out) ? args.out : resolve(projectRoot, args.out);
         await mkdir(dirname(outPath), { recursive: true });
         await writeFile(outPath, result.merged, 'utf8');
-        process.stderr.write(`Wrote merged content to ${outPath}\n`);
+        humanInfo(`Wrote merged content to ${outPath}`);
       }
 
       cliOutput(result, { command: 'docs merge', operation: 'docs.merge' });
@@ -659,7 +660,7 @@ const graphCommand = defineCommand({
         const outPath = isAbsolute(args.out) ? args.out : resolve(projectRoot, args.out);
         await mkdir(dirname(outPath), { recursive: true });
         await writeFile(outPath, output, 'utf8');
-        process.stderr.write(`Wrote graph to ${outPath}\n`);
+        humanInfo(`Wrote graph to ${outPath}`);
       }
 
       cliOutput(
@@ -868,7 +869,7 @@ const syncCommand = defineCommand({
       }
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_DOCS_FAILED' });
         process.exit(err.code);
       }
       throw err;
@@ -913,7 +914,7 @@ const gapCheckCommand = defineCommand({
       }
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_DOCS_FAILED' });
         process.exit(err.code);
       }
       throw err;

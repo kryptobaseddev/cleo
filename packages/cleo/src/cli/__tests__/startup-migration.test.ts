@@ -235,7 +235,8 @@ describe('CLI startup: T310 migration hook (T360)', () => {
       errors: [],
     });
 
-    await import('../index.js');
+    const { runStartupMaintenance } = await import('../index.js');
+    await runStartupMaintenance();
 
     expect(needsSignaldockToConduitMigrationMock).toHaveBeenCalledWith('/test/project');
     expect(migrateSignaldockToConduitMock).toHaveBeenCalledWith('/test/project');
@@ -244,21 +245,24 @@ describe('CLI startup: T310 migration hook (T360)', () => {
   it('skips migrateSignaldockToConduit when needsSignaldockToConduitMigration returns false (TC-067 idempotency)', async () => {
     needsSignaldockToConduitMigrationMock.mockReturnValue(false);
 
-    await import('../index.js');
+    const { runStartupMaintenance } = await import('../index.js');
+    await runStartupMaintenance();
 
     expect(needsSignaldockToConduitMigrationMock).toHaveBeenCalledWith('/test/project');
     expect(migrateSignaldockToConduitMock).not.toHaveBeenCalled();
   });
 
   it('calls ensureConduitDb and ensureGlobalSignaldockDb on every startup (AC2)', async () => {
-    await import('../index.js');
+    const { runStartupMaintenance } = await import('../index.js');
+    await runStartupMaintenance();
 
     expect(ensureConduitDbMock).toHaveBeenCalledWith('/test/project');
     expect(ensureGlobalSignaldockDbMock).toHaveBeenCalled();
   });
 
   it('calls validateGlobalSalt and logs 4-byte hex fingerprint at INFO level (AC3)', async () => {
-    await import('../index.js');
+    const { runStartupMaintenance } = await import('../index.js');
+    await runStartupMaintenance();
 
     expect(validateGlobalSaltMock).toHaveBeenCalled();
     expect(getGlobalSaltMock).toHaveBeenCalled();
@@ -293,7 +297,8 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     });
 
     // Should not throw even when migration fails
-    await expect(import('../index.js')).resolves.not.toThrow();
+    const { runStartupMaintenance } = await import('../index.js');
+    await expect(runStartupMaintenance()).resolves.not.toThrow();
   });
 
   it('silently skips migration when outside a project (E_NO_PROJECT)', async () => {
@@ -302,7 +307,8 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     });
 
     // Should not throw — E_NO_PROJECT is caught and ignored
-    await expect(import('../index.js')).resolves.not.toThrow();
+    const { runStartupMaintenance } = await import('../index.js');
+    await expect(runStartupMaintenance()).resolves.not.toThrow();
     // Migration should not be called when getProjectRoot throws
     expect(migrateSignaldockToConduitMock).not.toHaveBeenCalled();
   });
@@ -321,7 +327,8 @@ describe('CLI startup: T310 migration hook (T360)', () => {
       return { action: 'exists', path: '/test/project/.cleo/conduit.db' };
     });
 
-    await import('../index.js');
+    const { runStartupMaintenance } = await import('../index.js');
+    await runStartupMaintenance();
 
     const migrateIdx = callOrder.indexOf('migrate');
     const ensureIdx = callOrder.indexOf('ensureConduit');

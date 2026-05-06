@@ -9,17 +9,22 @@
  */
 
 import { defineCommand } from 'citty';
+import { cliError, humanLine } from '../renderers/index.js';
 
 /** Check tree-sitter availability before running code analysis. Exits with clear message if missing. */
 async function requireTreeSitter(): Promise<void> {
   const { isTreeSitterAvailable } = await import('@cleocode/core/internal');
   if (!isTreeSitterAvailable()) {
-    console.error(
-      'Error: tree-sitter native module not available.\n\n' +
-        'This usually means the native addon failed to build during install.\n' +
-        'Fix: pnpm install (or npm install -g @cleocode/cleo)\n\n' +
+    cliError(
+      'tree-sitter native module not available.\n\n' +
+        'This usually means the native addon failed to build during install.\n\n' +
         'tree-sitter and grammar packages are bundled dependencies that should\n' +
         'install automatically. If this persists, run: cleo doctor',
+      7,
+      {
+        name: 'E_SERVICE_UNAVAILABLE',
+        fix: 'pnpm install (or npm install -g @cleocode/cleo)',
+      },
     );
     process.exit(7); // exit code 7 = service unavailable
   }
@@ -64,17 +69,17 @@ export const codeCommand = defineCommand({
         const result = smartOutline(absPath, root);
 
         if (result.errors.length > 0 && result.symbols.length === 0) {
-          console.error(`Error: ${result.errors.join(', ')}`);
+          cliError(result.errors.join(', '), 1, { name: 'E_OUTLINE_FAILED' });
           process.exit(1);
         }
 
-        console.log(`${result.filePath} (${result.language}, ~${result.estimatedTokens} tokens)\n`);
+        humanLine(`${result.filePath} (${result.language}, ~${result.estimatedTokens} tokens)\n`);
         for (const sym of result.symbols) {
           const prefix = sym.exported ? 'export ' : '';
-          console.log(`${prefix}${sym.kind} ${sym.name} [${sym.startLine}-${sym.endLine}]`);
+          humanLine(`${prefix}${sym.kind} ${sym.name} [${sym.startLine}-${sym.endLine}]`);
           if (sym.children.length > 0) {
             for (const child of sym.children) {
-              console.log(`  ${child.kind} ${child.name} [${child.startLine}-${child.endLine}]`);
+              humanLine(`  ${child.kind} ${child.name} [${child.startLine}-${child.endLine}]`);
             }
           }
         }
@@ -117,13 +122,13 @@ export const codeCommand = defineCommand({
         const results = smartSearch(args.query, opts);
 
         if (results.length === 0) {
-          console.log(`No symbols found matching "${args.query}"`);
+          humanLine(`No symbols found matching "${args.query}"`);
           return;
         }
 
-        console.log(`Found ${results.length} symbols:\n`);
+        humanLine(`Found ${results.length} symbols:\n`);
         for (const r of results) {
-          console.log(
+          humanLine(
             `  ${r.symbol.kind.padEnd(12)} ${r.symbol.name.padEnd(30)} ${r.symbol.filePath}:${r.symbol.startLine} (${r.matchType}, score: ${r.score})`,
           );
         }
@@ -162,15 +167,17 @@ export const codeCommand = defineCommand({
         const result = smartUnfold(absPath, args.symbol, root);
 
         if (!result.found) {
-          console.error(`Symbol "${args.symbol}" not found in ${args.file}`);
-          if (result.errors.length > 0) console.error(result.errors.join(', '));
+          const errs = result.errors.length > 0 ? `: ${result.errors.join(', ')}` : '';
+          cliError(`Symbol "${args.symbol}" not found in ${args.file}${errs}`, 1, {
+            name: 'E_NOT_FOUND',
+          });
           process.exit(1);
         }
 
-        console.log(
+        humanLine(
           `// ${result.filePath}:${result.startLine}-${result.endLine} (~${result.estimatedTokens} tokens)\n`,
         );
-        console.log(result.source);
+        humanLine(result.source);
       },
     }),
   },

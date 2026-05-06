@@ -18,7 +18,6 @@ import { ExitCode } from '@cleocode/contracts';
 import {
   addRemote,
   CleoError,
-  formatError,
   getRemoteSyncStatus as getRemoteGitStatus,
   listRemotes,
   pull,
@@ -54,11 +53,11 @@ const addRemoteCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       if (err instanceof Error) {
-        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        cliError(err.message, ExitCode.GENERAL_ERROR, { name: 'E_GENERAL' });
         process.exit(ExitCode.GENERAL_ERROR);
       }
       throw err;
@@ -85,11 +84,11 @@ const removeRemoteCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       if (err instanceof Error) {
-        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        cliError(err.message, ExitCode.GENERAL_ERROR, { name: 'E_GENERAL' });
         process.exit(ExitCode.GENERAL_ERROR);
       }
       throw err;
@@ -115,11 +114,11 @@ const listRemoteCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       if (err instanceof Error) {
-        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        cliError(err.message, ExitCode.GENERAL_ERROR, { name: 'E_GENERAL' });
         process.exit(ExitCode.GENERAL_ERROR);
       }
       throw err;
@@ -159,11 +158,11 @@ const statusRemoteCommand = defineCommand({
       cliOutput({ ...status }, { command: 'remote', message });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       if (err instanceof Error) {
-        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        cliError(err.message, ExitCode.GENERAL_ERROR, { name: 'E_GENERAL' });
         process.exit(ExitCode.GENERAL_ERROR);
       }
       throw err;
@@ -223,7 +222,7 @@ export const pushCommand = defineCommand({
       });
 
       if (!result.success) {
-        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, result.message)));
+        cliError(result.message, ExitCode.GENERAL_ERROR, { name: 'E_PUSH_FAILED' });
         process.exit(ExitCode.GENERAL_ERROR);
       }
 
@@ -233,11 +232,11 @@ export const pushCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       if (err instanceof Error) {
-        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        cliError(err.message, ExitCode.GENERAL_ERROR, { name: 'E_GENERAL' });
         process.exit(ExitCode.GENERAL_ERROR);
       }
       throw err;
@@ -280,11 +279,11 @@ export const pullCommand = defineCommand({
       );
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
         process.exit(err.code);
       }
       if (err instanceof Error) {
-        console.error(formatError(new CleoError(ExitCode.GENERAL_ERROR, err.message)));
+        cliError(err.message, ExitCode.GENERAL_ERROR, { name: 'E_GENERAL' });
         process.exit(ExitCode.GENERAL_ERROR);
       }
       throw err;

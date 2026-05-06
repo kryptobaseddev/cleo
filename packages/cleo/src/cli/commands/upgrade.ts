@@ -25,10 +25,10 @@
  * @epic T4454
  */
 
-import { CleoError, diagnoseUpgrade, formatError, runUpgrade } from '@cleocode/core/internal';
+import { CleoError, diagnoseUpgrade, runUpgrade } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
 import { createUpgradeProgress } from '../progress.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Upgrade command — unified project maintenance (storage migration, schema repair, structural fixes).
@@ -164,7 +164,12 @@ export const upgradeCommand = defineCommand({
     } catch (err) {
       if (err instanceof CleoError) {
         progress.error(err.message);
-        console.error(formatError(err));
+        cliError(
+          err.message,
+          err.code,
+          { name: 'CleoError', fix: err.fix },
+          { operation: 'upgrade' },
+        );
         process.exit(err.code);
       }
       progress.error('Unexpected error during upgrade');

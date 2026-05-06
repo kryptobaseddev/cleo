@@ -19,7 +19,7 @@
 import { CleoError, formatError, loadConfig } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 const PRESET_DESCRIPTIONS: Record<string, string> = {
   strict: 'Block on missing AC, require session notes, enforce lifecycle pipeline.',
@@ -124,7 +124,7 @@ const listCommand = defineCommand({
       cliOutput({ config: resolved }, { command: 'config' });
     } catch (err) {
       if (err instanceof CleoError) {
-        console.error(formatError(err));
+        cliError(formatError(err), err.code, { name: 'E_CONFIG_LOAD' });
         process.exit(err.code);
       }
       throw err;

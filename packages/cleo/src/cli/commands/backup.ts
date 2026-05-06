@@ -25,6 +25,7 @@ import {
   RESTORE_CONFLICTS_MD,
   RESTORE_IMPORTED_SUBDIR,
 } from '../paths.js';
+import { humanInfo } from '../renderers/index.js';
 import { backupInspectSubCommand } from './backup-inspect.js';
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,9 @@ async function promptPassphrase(): Promise<string> {
     );
   }
   return new Promise<string>((resolve) => {
+    // Interactive TTY-only passphrase prompt — must reach the user regardless of
+    // --json/--quiet because the function early-returns on !isTTY. Agents set
+    // CLEO_BACKUP_PASSPHRASE instead. raw-cr-allowed.
     process.stdout.write('Passphrase: ');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     rl.question('', (answer: string) => {
@@ -231,8 +235,8 @@ const exportCommand = defineCommand({
           },
         }) + '\n',
       );
-      process.stderr.write(
-        `Bundle written to ${result.bundlePath} (${result.size} bytes, ${result.fileCount} files)\n`,
+      humanInfo(
+        `Bundle written to ${result.bundlePath} (${result.size} bytes, ${result.fileCount} files)`,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -470,12 +474,12 @@ const importCommand = defineCommand({
       );
 
       if (totalConflicts > 0) {
-        process.stderr.write(
+        humanInfo(
           `Restore complete with ${totalConflicts} unresolved conflict(s). ` +
-            `Run 'cleo restore finalize' after resolving ${conflictReportPath}\n`,
+            `Run 'cleo restore finalize' after resolving ${conflictReportPath}`,
         );
       } else {
-        process.stderr.write(`Restore complete. Review ${conflictReportPath} for details.\n`);
+        humanInfo(`Restore complete. Review ${conflictReportPath} for details.`);
       }
     } catch (restoreErr) {
       // Surface mid-restore errors with exit code 79 (E_RESTORE_PARTIAL)
