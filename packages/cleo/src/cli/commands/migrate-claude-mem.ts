@@ -1,5 +1,5 @@
 /**
- * CLI command: cleo migrate claude-mem / cleo migrate storage
+ * CLI command: cleo migrate claude-mem / cleo migrate storage / cleo migrate agents-v2
  *
  * Migrates observations from the external claude-mem plugin's SQLite
  * database (~/.claude-mem/claude-mem.db) into CLEO's native brain.db.
@@ -7,9 +7,15 @@
  * Also registers `cleo migrate storage` which dispatches to the admin.migrate
  * operation for internal CLEO storage/schema migrations.
  *
+ * Also registers `cleo migrate agents-v2` — one-time idempotent walker that
+ * scans `.cleo/cant/agents/` and `.cleo/agents/` for unregistered `.cant` files
+ * and registers them in signaldock.db via installAgentFromCant().
+ *
  * @epic T5149
  * @task T5143
  * @task T480 — add `migrate storage` subcommand dispatching to mutate admin migrate.
+ * @task T1938 — add `migrate agents-v2` subcommand for existing agent installations.
+ * @epic T1929
  */
 
 import { getProjectRoot, migrateClaudeMem } from '@cleocode/core/internal';
@@ -17,7 +23,8 @@ import { ingestLooseAgentOutputs, ingestRcasdDirectories } from '@cleocode/core/
 import { getDb } from '@cleocode/core/store/sqlite';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanLine } from '../renderers/index.js';
+import { migrateAgentsV2Command } from './migrate-agents-v2.js';
 
 /** cleo migrate storage — run CLEO internal storage and schema migrations */
 const storageCommand = defineCommand({
@@ -155,11 +162,11 @@ const manifestIngestCommand = defineCommand({
 
       // Report results
       if (results.rcasd) {
-        console.log(`RCASD: ingested ${results.rcasd.ingested}, skipped ${results.rcasd.skipped}`);
+        humanLine(`RCASD: ingested ${results.rcasd.ingested}, skipped ${results.rcasd.skipped}`);
       }
 
       if (results.loose) {
-        console.log(`Loose: ingested ${results.loose.ingested}, skipped ${results.loose.skipped}`);
+        humanLine(`Loose: ingested ${results.loose.ingested}, skipped ${results.loose.skipped}`);
       }
 
       const totalIngested = (results.rcasd?.ingested ?? 0) + (results.loose?.ingested ?? 0);
@@ -190,6 +197,7 @@ const manifestIngestCommand = defineCommand({
  *   cleo migrate claude-mem      [--dry-run] [--source <path>] [--project <name>]
  *   cleo migrate storage         [--target <version>] [--dry-run]
  *   cleo migrate manifest-ingest [--rcasd] [--loose]
+ *   cleo migrate agents-v2       [--quiet]
  */
 export const migrateClaudeMemCommand = defineCommand({
   meta: { name: 'migrate', description: 'Data migration utilities' },
@@ -197,6 +205,7 @@ export const migrateClaudeMemCommand = defineCommand({
     'claude-mem': claudeMemCommand,
     storage: storageCommand,
     'manifest-ingest': manifestIngestCommand,
+    'agents-v2': migrateAgentsV2Command,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
