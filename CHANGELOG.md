@@ -1,5 +1,9 @@
 # Changelog
 
+## [v2026.5.32] — 2026-05-06
+
+Hotfix: sort getCanonicalTemplatesTildePath export in packages/core/src/index.ts — biome CI rejected unsorted exports on v2026.5.31.
+
 ## [v2026.5.31] — 2026-05-06
 
 Hotfix: update pnpm-lock.yaml to include @cleocode/animations workspace link in @cleocode/cleo dependencies — lockfile was missing this entry causing CI `pnpm install --frozen-lockfile` to fail on v2026.5.30 tag.
