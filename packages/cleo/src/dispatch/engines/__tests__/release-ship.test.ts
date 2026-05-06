@@ -5,7 +5,8 @@
  * @epic T5576
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { createSqliteDataAccessor, resetDbState } from '@cleocode/core/internal';
@@ -38,8 +39,11 @@ vi.mock('../../../../../core/src/release/release-manifest.js', async (importOrig
   };
 });
 
-const TEST_ROOT = join(process.cwd(), '.test-release-ship');
-const CLEO_DIR = join(TEST_ROOT, '.cleo');
+// TEST_ROOT is created per-test under os.tmpdir() so the vitest isolation
+// guard (sqlite-native.ts) lets the open through and concurrent test runs
+// cannot collide on the same directory.
+let TEST_ROOT: string;
+let CLEO_DIR: string;
 
 function writeConfig(config: Record<string, unknown>): void {
   mkdirSync(CLEO_DIR, { recursive: true });
@@ -68,7 +72,8 @@ async function setupTestDb(): Promise<void> {
 
 describe('release.ship', () => {
   beforeEach(async () => {
-    mkdirSync(TEST_ROOT, { recursive: true });
+    TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-release-ship-'));
+    CLEO_DIR = join(TEST_ROOT, '.cleo');
     await setupTestDb();
     writeConfig({ release: { push: { enabled: true, requireCleanTree: false } } });
     // Re-apply default mock values after any per-test overrides

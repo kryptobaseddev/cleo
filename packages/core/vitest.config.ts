@@ -20,6 +20,10 @@ export default defineConfig({
     hookTimeout: 60_000,
     // T753: Force-kill worker forks that fail to exit after teardown.
     teardownTimeout: 10_000,
+    // Pairs with the openNativeDatabase isolation guard. vitest.setup.ts
+    // pins CLEO_HOME / NEXUS_HOME to a per-fork tmpdir so tests cannot
+    // accidentally write to the user's global signaldock/nexus dbs.
+    setupFiles: ['../../vitest.setup.ts'],
     // Include both unit tests and integration tests when running in this package.
     include: [
       'src/**/*.test.ts',

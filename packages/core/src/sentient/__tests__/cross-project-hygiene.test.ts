@@ -210,11 +210,17 @@ describe('runNexusIntegrityCheck', () => {
 describe('runTempProjectGc', () => {
   let tmp: string;
   let origXdg: string | undefined;
+  let origCleoHome: string | undefined;
 
   beforeEach(() => {
     tmp = makeTmpDir();
     origXdg = process.env['XDG_DATA_HOME'];
+    origCleoHome = process.env['CLEO_HOME'];
     process.env['XDG_DATA_HOME'] = tmp;
+    // Override the per-fork sandbox set by vitest.setup.ts so each test owns
+    // its own isolated CLEO home — otherwise sibling tests in the same file
+    // would append to the same audit JSONL and trip the single-entry parse.
+    process.env['CLEO_HOME'] = tmp;
     vi.clearAllMocks();
   });
   afterEach(() => {
@@ -223,6 +229,11 @@ describe('runTempProjectGc', () => {
       delete process.env['XDG_DATA_HOME'];
     } else {
       process.env['XDG_DATA_HOME'] = origXdg;
+    }
+    if (origCleoHome === undefined) {
+      delete process.env['CLEO_HOME'];
+    } else {
+      process.env['CLEO_HOME'] = origCleoHome;
     }
   });
 
