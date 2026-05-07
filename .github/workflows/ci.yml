@@ -177,7 +177,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        uses: ./.github/actions/install-ripgrep
       - name: Build monorepo (cleo + all workspace deps)
         # Use root build script — pnpm --filter @cleocode/cleo run build alone
         # does NOT build workspace dependencies first, so tsc cannot resolve
@@ -247,7 +247,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        uses: ./.github/actions/install-ripgrep
       - name: Run migration linter (fail on RULE-1 ERRORs)
         # GITHUB_ACTIONS=true is set automatically by the runner; the linter
         # reads it to emit ::error / ::warning inline annotations on PR diffs.
@@ -283,7 +283,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        uses: ./.github/actions/install-ripgrep
       - name: Run drizzle-kit check on all 5 DB configs
         id: schema-check
         run: pnpm db:check
@@ -314,7 +314,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        uses: ./.github/actions/install-ripgrep
       - name: Type check with project references
         run: pnpm run typecheck
 
@@ -350,7 +350,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        uses: ./.github/actions/install-ripgrep
       - name: Build packages (required for cross-package imports)
         run: pnpm run build
       - name: Generate SvelteKit type stubs (required for studio tests)
@@ -472,7 +472,7 @@ jobs:
       # ──────────────────────────────────────────────────────────────────
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        uses: ./.github/actions/install-ripgrep
       - name: Cold-state cleanup (defense against build-order regressions)
         shell: bash
         run: |
@@ -610,7 +610,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        uses: ./.github/actions/install-ripgrep
       - name: Check TSDoc coverage
         run: pnpm exec forge-ts check --human || true
       - name: Build documentation
