@@ -52,6 +52,12 @@ export default defineConfig({
       '@cleocode/adapters': new URL('../../packages/adapters/src/index.ts', import.meta.url)
         .pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
+      // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
+      // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
+      '@cleocode/paths': new URL('../../packages/paths/src/index.ts', import.meta.url).pathname,
+      // caamp and cant — required to resolve @cleocode/core/internal transitive deps
+      '@cleocode/caamp': new URL('../../packages/caamp/src/index.ts', import.meta.url).pathname,
+      '@cleocode/cant': new URL('../../packages/cant/src/index.ts', import.meta.url).pathname,
     },
   },
 });

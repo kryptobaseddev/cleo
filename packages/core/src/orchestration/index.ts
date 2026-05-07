@@ -144,6 +144,16 @@ export interface OrchestratorSpawnContext {
 export interface TaskReadiness {
   taskId: string;
   title: string;
+  /** The task's declared priority level. */
+  priority: string;
+  /**
+   * All declared dependency IDs for this task (the full `depends` array).
+   *
+   * Distinct from `blockers`, which contains only the subset of deps that are
+   * not yet complete. This field carries the complete declared set so callers
+   * can render the full dependency chain regardless of completion state.
+   */
+  depends: string[];
   ready: boolean;
   blockers: string[];
   protocol: string;
@@ -263,6 +273,8 @@ export async function getReadyTasks(
       return {
         taskId: task.id,
         title: task.title,
+        priority: task.priority ?? 'medium',
+        depends: deps,
         ready: unmetDeps.length === 0,
         blockers: unmetDeps,
         protocol,
