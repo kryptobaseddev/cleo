@@ -27,10 +27,9 @@ export {
   readJsonRequired,
   saveJson,
 } from './json.js';
-export { openCleoDb, type CleoDbRole, type DBHandle } from './open-cleo-db.js';
-export { UmbrellaDataAccessor } from './umbrella-data-accessor.js';
 export type { ReleaseFn } from './lock.js';
 export { acquireLock, isLocked, withLock } from './lock.js';
+export { type CleoDbRole, type DBHandle, openCleoDb } from './open-cleo-db.js';
 export type {
   AddTaskOptions,
   AddTaskResult,
@@ -70,6 +69,7 @@ export {
   vacuumIntoBackup,
   vacuumIntoBackupAll,
 } from './sqlite-backup.js';
+export { UmbrellaDataAccessor } from './umbrella-data-accessor.js';
 
 /**
  * Get a StoreProvider instance for the given working directory.
