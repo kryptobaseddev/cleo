@@ -1,5 +1,45 @@
 # Changelog
 
+## [2026.5.44] (2026-05-07) — Hotfix: archived tasks satisfy dependencies + orchestrate ready/waves display fix
+
+Two correctness bugs caught by cross-session orchestration audit. Multiple sessions independently hit the archived-deps issue.
+
+### T1954 — archived tasks now satisfy dependencies (4 validators fixed)
+
+`cleo orchestrate spawn` refused with `V_UNMET_DEP` when a dep target was `status: archived`, even though archived tasks are functionally completed. Same pattern in `cleo complete` (handoff: "Blocked from cleo complete by CLEO dependency tracking bug: archived tasks not recognized as satisfying dependencies"), and `cleo deps validate` flagged archived deps as `does not exist`. Reproducer: spawn refused with `Dependency T1857 (status: archived) is not complete` even though T1857 had shipped.
+
+Fix touches 4 source files + 4 new test files (commit `1c78b4d46`, merged at `41a29bf16`):
+
+- `packages/core/src/tasks/complete.ts` — allow completing when a dep target is archived
+- `packages/core/src/orchestration/validate-spawn.ts` — `V_UNMET_DEP` no longer fires for archived deps
+- `packages/core/src/tasks/dep-graph-validator.ts` — `E_MISSING_REF` no longer fires for archived deps; `runValidation` passes `allTasks` to `validateDepGraph` so it distinguishes archived-but-scoped-out from truly-absent
+- `packages/core/src/tasks/dependency-check.ts` — `getBlockedTasks`/`getReadyTasks`/`getUnresolvedDeps`/`getTransitiveBlockers`/`getLeafBlockers` all treat archived equivalent to done
+
+New tests cover all four dep-target states: done (passes), **archived (passes — NEW)**, cancelled (still blocks spawn), missing (still blocks). 8 files changed, +315/-15.
+
+### T1956 — orchestrate ready+waves display fix
+
+`cleo orchestrate ready --epic <id>` always reported `priority: medium` regardless of stored priority. `depends` was always empty in ready output even when `cleo show <id>` returned non-empty. `cleo orchestrate waves <id>` returned wave entries with empty `taskIds: []`. All three were serializer-layer bugs — data was correct, presentation was wrong.
+
+Fix (commit `7cbbc584c`, merged at `20306b93e`):
+
+- `packages/core/src/orchestration/index.ts` — added `priority` and `depends` fields to `TaskReadiness`, populated in `getReadyTasks`
+- `packages/core/src/orchestrate/query-ops.ts` — used `t.priority`/`t.depends` in `orchestrateReady`; same fix to `orchestrateNext`
+- `packages/core/src/orchestrate/__tests__/orchestrate-ready-display.test.ts` — 4 new regression tests asserting ground-truth match
+- vitest config aliases for `@cleocode/paths`, `@cleocode/caamp`, `@cleocode/cant`
+
+6 files changed, +298/-4.
+
+### T1955 — confirmed fixed in v2026.5.42 (no code change in this release)
+
+`cleo orchestrate ready` refuses to advertise tasks when dep graph fails validation, returning `Dep graph has N issue(s): E_MISSING_REF, E_CROSS_EPIC_GAP` with `--ignore-deps-validate` bypass. T1858 acceptance fully satisfied. Closed empirically.
+
+### Quality
+
+- biome ci clean (2,156 files)
+- typecheck clean (tsc -b exit 0)
+- 8 commits ahead of v2026.5.43
+
 ## [2026.5.43] (2026-05-07)
 
 Auto-prepared by release.ship (T9093)
