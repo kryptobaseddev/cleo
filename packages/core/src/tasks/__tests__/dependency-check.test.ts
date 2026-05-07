@@ -343,3 +343,87 @@ describe('getLeafBlockers', () => {
     expect(getLeafBlockers('T001', tasks)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T1954: archived deps must satisfy dependencies (equivalent to done)
+// ---------------------------------------------------------------------------
+
+describe('T1954: archived status satisfies dependency checks', () => {
+  describe('getBlockedTasks', () => {
+    it('treats archived dep as satisfied (not blocked)', () => {
+      const tasks = [
+        makeTask({ id: 'T001', status: 'archived' }),
+        makeTask({ id: 'T002', status: 'pending', depends: ['T001'] }),
+      ];
+      expect(getBlockedTasks(tasks)).toHaveLength(0);
+    });
+
+    it('still blocks when dep is pending', () => {
+      const tasks = [
+        makeTask({ id: 'T001', status: 'pending' }),
+        makeTask({ id: 'T002', status: 'pending', depends: ['T001'] }),
+      ];
+      expect(getBlockedTasks(tasks)).toHaveLength(1);
+    });
+
+    it('treats cancelled dep as satisfied (existing behavior preserved)', () => {
+      const tasks = [
+        makeTask({ id: 'T001', status: 'cancelled' }),
+        makeTask({ id: 'T002', status: 'pending', depends: ['T001'] }),
+      ];
+      // cancelled has always satisfied getBlockedTasks (pre-existing behavior)
+      expect(getBlockedTasks(tasks)).toHaveLength(0);
+    });
+  });
+
+  describe('getReadyTasks', () => {
+    it('treats archived dep as satisfied (task becomes ready)', () => {
+      const tasks = [
+        makeTask({ id: 'T001', status: 'archived' }),
+        makeTask({ id: 'T002', status: 'pending', depends: ['T001'] }),
+      ];
+      const ready = getReadyTasks(tasks);
+      expect(ready.map((t) => t.id)).toContain('T002');
+    });
+
+    it('does not include archived tasks themselves in ready set', () => {
+      const tasks = [makeTask({ id: 'T001', status: 'archived' })];
+      expect(getReadyTasks(tasks)).toHaveLength(0);
+    });
+  });
+
+  describe('getUnresolvedDeps', () => {
+    it('treats archived dep as resolved', () => {
+      const tasks = [
+        makeTask({ id: 'T001', status: 'archived' }),
+        makeTask({ id: 'T002', status: 'pending' }),
+        makeTask({ id: 'T003', status: 'pending', depends: ['T001', 'T002'] }),
+      ];
+      // T001 is archived (resolved), T002 is pending (unresolved)
+      expect(getUnresolvedDeps('T003', tasks)).toEqual(['T002']);
+    });
+
+    it('returns empty when all deps are archived', () => {
+      const tasks = [
+        makeTask({ id: 'T001', status: 'archived' }),
+        makeTask({ id: 'T002', status: 'pending', depends: ['T001'] }),
+      ];
+      expect(getUnresolvedDeps('T002', tasks)).toEqual([]);
+    });
+  });
+
+  describe('getTransitiveBlockers', () => {
+    it('does not include archived tasks as blockers', () => {
+      const tasks = [
+        makeTask({ id: 'T001', status: 'archived' }),
+        makeTask({ id: 'T002', status: 'pending', depends: ['T001'] }),
+        makeTask({ id: 'T003', status: 'pending', depends: ['T002'] }),
+      ];
+      // T001 is archived, T002's deps are satisfied, T002 itself is pending
+      // T003 depends on T002 (pending) which is the only blocker
+      const blockers = getTransitiveBlockers('T003', tasks);
+      expect(blockers).not.toContain('T001');
+      expect(blockers).toContain('T002');
+    });
+  });
+});

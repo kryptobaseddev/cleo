@@ -212,10 +212,11 @@ export async function completeTask(
   }
 
   // Check if task has incomplete dependencies
+  // archived tasks are treated as satisfied (equivalent to done) — T1954
   if (task.depends?.length) {
     const deps = await acc.loadTasks(task.depends);
     const incompleteDeps = deps
-      .filter((d) => d.status !== 'done' && d.status !== 'cancelled')
+      .filter((d) => d.status !== 'done' && d.status !== 'cancelled' && d.status !== 'archived')
       .map((d) => d.id);
     if (incompleteDeps.length > 0) {
       throw new CleoError(
@@ -567,14 +568,19 @@ export async function completeTask(
   );
 
   // Compute newly unblocked tasks: dependents whose deps are now all satisfied
+  // archived tasks are treated as satisfied (equivalent to done) — T1954
   const dependents = await acc.getDependents(options.taskId);
   const unblockedTasks: Array<Pick<TaskRef, 'id' | 'title'>> = [];
   for (const dep of dependents) {
-    if (dep.status === 'done' || dep.status === 'cancelled') continue;
+    if (dep.status === 'done' || dep.status === 'cancelled' || dep.status === 'archived') continue;
     if (dep.depends?.length) {
       const depDeps = await acc.loadTasks(dep.depends);
       const stillUnresolved = depDeps.filter(
-        (d) => d.id !== options.taskId && d.status !== 'done' && d.status !== 'cancelled',
+        (d) =>
+          d.id !== options.taskId &&
+          d.status !== 'done' &&
+          d.status !== 'cancelled' &&
+          d.status !== 'archived',
       );
       if (stillUnresolved.length === 0) {
         unblockedTasks.push({ id: dep.id, title: dep.title });

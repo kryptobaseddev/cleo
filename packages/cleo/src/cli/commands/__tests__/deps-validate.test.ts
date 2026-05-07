@@ -286,6 +286,66 @@ describe('runValidation — epic scoping', () => {
 });
 
 // ---------------------------------------------------------------------------
+// T1954: archived deps must be treated as satisfied (not missing refs)
+// ---------------------------------------------------------------------------
+
+describe('validateDepGraph — T1954 archived deps satisfy missing-ref check', () => {
+  it('does NOT flag E_MISSING_REF for a dep pointing to an archived task (in scope)', () => {
+    const tasks: Task[] = [
+      makeEpic({ id: 'E001', title: 'Epic' }),
+      makeTask({ id: 'T001', title: 'Active task', parentId: 'E001', depends: ['T002'] }),
+      makeTask({ id: 'T002', title: 'Archived dep', parentId: 'E001', status: 'archived' }),
+    ];
+    const result = validateDepGraph(tasks);
+    const missingRefs = result.issues.filter((i) => i.code === 'E_MISSING_REF');
+    expect(missingRefs).toHaveLength(0);
+  });
+
+  it('flags E_MISSING_REF for a dep pointing to a truly missing task', () => {
+    const tasks: Task[] = [
+      makeEpic({ id: 'E001', title: 'Epic' }),
+      makeTask({ id: 'T001', title: 'Active task', parentId: 'E001', depends: ['T_GONE'] }),
+    ];
+    const result = validateDepGraph(tasks);
+    const missingRefs = result.issues.filter((i) => i.code === 'E_MISSING_REF');
+    expect(missingRefs).toHaveLength(1);
+    expect(missingRefs[0]!.relatedIds).toContain('T_GONE');
+  });
+});
+
+describe('runValidation — T1954 archived deps outside epic scope not flagged as missing', () => {
+  it('does NOT flag E_MISSING_REF when dep is in a different epic and is archived', () => {
+    // T001 (in E001) depends on T002 (in E002, archived).
+    // When scoped to E001, T002 is outside scope — but it's archived, not truly missing.
+    const tasks: Task[] = [
+      makeEpic({ id: 'E001', title: 'Epic 1' }),
+      makeEpic({ id: 'E002', title: 'Epic 2', depends: [] }),
+      makeTask({ id: 'T001', title: 'Task in E001', parentId: 'E001', depends: ['T002'] }),
+      makeTask({
+        id: 'T002',
+        title: 'Archived task in E002',
+        parentId: 'E002',
+        status: 'archived',
+      }),
+    ];
+    const result = runValidation(tasks, { epicId: 'E001' });
+    const missingRefs = result.issues.filter((i) => i.code === 'E_MISSING_REF');
+    // T002 is archived — should NOT appear as a missing ref
+    expect(missingRefs.some((i) => i.relatedIds?.includes('T002'))).toBe(false);
+  });
+
+  it('still flags E_MISSING_REF when dep outside scope is truly missing (not archived)', () => {
+    const tasks: Task[] = [
+      makeEpic({ id: 'E001', title: 'Epic 1' }),
+      makeTask({ id: 'T001', title: 'Task in E001', parentId: 'E001', depends: ['T_VANISHED'] }),
+    ];
+    const result = runValidation(tasks, { epicId: 'E001' });
+    const missingRefs = result.issues.filter((i) => i.code === 'E_MISSING_REF');
+    expect(missingRefs.some((i) => i.relatedIds?.includes('T_VANISHED'))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // nearestEpic helper
 // ---------------------------------------------------------------------------
 

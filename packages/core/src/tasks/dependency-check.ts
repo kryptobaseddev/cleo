@@ -88,10 +88,14 @@ export function wouldCreateCycle(fromId: string, toId: string, tasks: Task[]): b
  * Excludes tasks in terminal states (`done`, `cancelled`, `archived`) and the
  * Tier 2 proposal queue (`proposed`) — `proposed` tasks are not part of the
  * active execution dependency graph.
+ *
+ * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
  */
 export function getBlockedTasks(tasks: Task[]): Task[] {
   const completedIds = new Set(
-    tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+    tasks
+      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
+      .map((t) => t.id),
   );
 
   return tasks.filter((t) => {
@@ -110,10 +114,14 @@ export function getBlockedTasks(tasks: Task[]): Task[] {
  * Tier 2 proposal queue (`proposed`). `proposed` tasks represent agent-suggested
  * work pending owner review and must never be auto-picked by the sentient loop
  * or orchestrator (T946 / Round 2 audit §8).
+ *
+ * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
  */
 export function getReadyTasks(tasks: Task[]): Task[] {
   const completedIds = new Set(
-    tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+    tasks
+      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
+      .map((t) => t.id),
   );
 
   return tasks.filter((t) => {
@@ -140,14 +148,18 @@ export function getDependentIds(taskId: string, tasks: Task[]): string[] {
 }
 
 /**
- * Get unresolved dependencies for a task (deps that are not done/cancelled).
+ * Get unresolved dependencies for a task (deps that are not done/cancelled/archived).
+ *
+ * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
  */
 export function getUnresolvedDeps(taskId: string, tasks: Task[]): string[] {
   const task = tasks.find((t) => t.id === taskId);
   if (!task?.depends?.length) return [];
 
   const completedIds = new Set(
-    tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+    tasks
+      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
+      .map((t) => t.id),
   );
 
   return task.depends.filter((depId) => !completedIds.has(depId));
@@ -290,8 +302,10 @@ export function topologicalSort(tasks: Task[]): string[] | null {
 
 /**
  * Walk upstream recursively through a task's dependency chain.
- * Returns all non-done/non-cancelled dependency IDs (deduplicated).
+ * Returns all non-done/non-cancelled/non-archived dependency IDs (deduplicated).
  * Uses a visited set for cycle protection.
+ *
+ * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
  */
 export function getTransitiveBlockers(taskId: string, tasks: Task[]): string[] {
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -311,7 +325,8 @@ export function getTransitiveBlockers(taskId: string, tasks: Task[]): string[] {
     for (const depId of t.depends) {
       const dep = taskMap.get(depId);
       if (!dep) continue;
-      if (dep.status === 'done' || dep.status === 'cancelled') continue;
+      if (dep.status === 'done' || dep.status === 'cancelled' || dep.status === 'archived')
+        continue;
       blockers.add(depId);
       walk(depId);
     }
@@ -323,8 +338,10 @@ export function getTransitiveBlockers(taskId: string, tasks: Task[]): string[] {
 
 /**
  * From the transitive blockers, return only "leaf" blockers — those whose
- * own dependencies are all resolved (done/cancelled) or that have no
+ * own dependencies are all resolved (done/cancelled/archived) or that have no
  * dependencies at all. These are the root-cause tasks that need action first.
+ *
+ * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
  */
 export function getLeafBlockers(taskId: string, tasks: Task[]): string[] {
   const blockerIds = getTransitiveBlockers(taskId, tasks);
@@ -332,7 +349,9 @@ export function getLeafBlockers(taskId: string, tasks: Task[]): string[] {
 
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const completedIds = new Set(
-    tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+    tasks
+      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
+      .map((t) => t.id),
   );
 
   return blockerIds.filter((id) => {
