@@ -191,6 +191,7 @@ version: 2
 agent clean-worker:
   role: worker
   tier: high
+  parent: test-lead
   description: "Fully-specified worker"
 
   tone: "Direct, assertive, evidence-based"
@@ -207,6 +208,7 @@ agent clean-worker:
 
     const typed = bundle.agents[0]!.typed!;
     expect(typed.tier).toBe('high');
+    expect(typed.parent).toBe('test-lead');
     expect(typed.prompt).toContain('test worker');
   });
 
