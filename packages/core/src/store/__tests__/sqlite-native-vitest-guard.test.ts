@@ -8,7 +8,7 @@
  * guard makes that class of leak fail loudly at the chokepoint.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -38,6 +38,23 @@ describe('openNativeDatabase vitest guard', () => {
     const db = openNativeDatabase(dbPath);
     db.close();
     expect(true).toBe(true);
+  });
+
+  it('allows not-yet-created db paths through a realpathed temp symlink', () => {
+    const linkRoot = join(
+      tmpdir(),
+      `cleo-guard-link-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    symlinkSync(tempRoot, linkRoot, 'dir');
+    mkdirSync(join(linkRoot, '.cleo'), { recursive: true });
+    try {
+      const dbPath = join(linkRoot, '.cleo', 'tasks.db');
+      const db = openNativeDatabase(dbPath);
+      db.close();
+      expect(true).toBe(true);
+    } finally {
+      rmSync(linkRoot, { recursive: true, force: true });
+    }
   });
 
   it('allows :memory: opens', () => {

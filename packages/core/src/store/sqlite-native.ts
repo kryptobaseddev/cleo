@@ -37,7 +37,7 @@
 import { realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { isAbsolute, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 
 const _require = createRequire(import.meta.url);
@@ -90,7 +90,17 @@ function resolveAbsoluteSafe(p: string): string {
   try {
     return realpathSync(abs);
   } catch {
-    return abs;
+    const missingParts: string[] = [];
+    let cursor = abs;
+    while (true) {
+      const parent = dirname(cursor);
+      if (parent === cursor) return abs;
+      missingParts.unshift(cursor.slice(parent.length + (parent.endsWith(sep) ? 0 : 1)));
+      cursor = parent;
+      try {
+        return join(realpathSync(cursor), ...missingParts);
+      } catch {}
+    }
   }
 }
 
