@@ -1399,6 +1399,7 @@ export {
   releaseIvtrAutoSuggest,
   releaseList,
   releasePrepare,
+  releasePrStatus,
   releasePush,
   releaseRollback,
   releaseRollbackFull,
