@@ -9,9 +9,9 @@
  */
 
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 
 /** Request payload for creating a new git worktree. */
 export interface WorktreeRequest {
@@ -206,6 +206,7 @@ export function listWorktrees(config: WorktreeConfig): WorktreeEntry[] {
     });
     const entries: WorktreeEntry[] = [];
     const root = resolveWorktreeRoot(config);
+    const canonicalRoot = canonicalPath(root);
     let currentPath = '';
     let currentBranch = '';
     for (const line of output.split('\n')) {
@@ -214,8 +215,14 @@ export function listWorktrees(config: WorktreeConfig): WorktreeEntry[] {
       } else if (line.startsWith('branch ')) {
         currentBranch = line.slice('branch refs/heads/'.length);
       } else if (line === '') {
-        if (currentPath.startsWith(root)) {
-          entries.push({ path: currentPath, branch: currentBranch });
+        const canonicalCurrent = canonicalPath(currentPath);
+        const relativeToRoot = relative(canonicalRoot, canonicalCurrent);
+        if (
+          relativeToRoot.length > 0 &&
+          !relativeToRoot.startsWith('..') &&
+          !isAbsolute(relativeToRoot)
+        ) {
+          entries.push({ path: join(root, relativeToRoot), branch: currentBranch });
         }
         currentPath = '';
         currentBranch = '';
@@ -224,6 +231,22 @@ export function listWorktrees(config: WorktreeConfig): WorktreeEntry[] {
     return entries;
   } catch {
     return [];
+  }
+}
+
+/**
+ * Return a filesystem-canonical path when possible.
+ *
+ * macOS reports temporary git worktrees via `/private/var/...` even when the
+ * test/config path was created under `/var/...`. Canonicalizing both sides for
+ * filtering prevents managed worktrees from being dropped, while callers still
+ * receive paths rooted at the configured spelling.
+ */
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
   }
 }
 
