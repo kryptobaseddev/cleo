@@ -132,6 +132,7 @@ function collectCoreEntryPoints() {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const isWatch = process.argv.includes('--watch');
+const pnpmCmd = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
 // ---------------------------------------------------------------------------
 // Shared externals — these are NOT bundled, consumers install them separately
@@ -475,10 +476,11 @@ function validateCoreEntryPoints() {
 function buildPkg(filter, label) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
-    const proc = spawn('pnpm', ['--filter', filter, 'run', 'build'], {
+    const proc = spawn(pnpmCmd, ['--filter', filter, 'run', 'build'], {
       stdio: 'inherit',
       cwd: __dirname,
     });
+    proc.on('error', reject);
     proc.on('close', (code) => {
       if (code !== 0) {
         reject(new Error(`${label} build failed (exit ${code})`));
@@ -574,10 +576,11 @@ async function build() {
   // invocation, so buildPkg() cannot be used here.
   await new Promise((res, rej) => {
     const proc = spawn(
-      'pnpm',
+      pnpmCmd,
       ['--filter', '@cleocode/core', 'exec', 'tsc', '--emitDeclarationOnly'],
       { stdio: 'inherit', cwd: __dirname },
     );
+    proc.on('error', rej);
     proc.on('close', (code) =>
       code !== 0 ? rej(new Error(`core tsc --emitDeclarationOnly failed (exit ${code})`)) : res(),
     );
@@ -598,10 +601,11 @@ async function build() {
       await rm(resolve(__dirname, 'packages/adapters/tsconfig.tsbuildinfo'), { force: true });
       await new Promise((res, rej) => {
         const proc = spawn(
-          'pnpm',
+          pnpmCmd,
           ['--filter', '@cleocode/adapters', 'exec', 'tsc', '--emitDeclarationOnly'],
           { stdio: 'inherit', cwd: __dirname },
         );
+        proc.on('error', rej);
         proc.on('close', (code) =>
           code !== 0 ? rej(new Error(`adapters tsc --emitDeclarationOnly failed (exit ${code})`)) : res(),
         );
