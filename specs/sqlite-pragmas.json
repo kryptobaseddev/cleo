@@ -1,0 +1,19 @@
+{
+  "$schema": "https://cleo.local/schemas/sqlite-pragmas.json",
+  "$comment": "ADR-XXX (T9053) — Single source of truth for SQLite performance pragmas applied to every CLEO/SignalDock database connection. Consumed by: TypeScript via JSON import in packages/core/src/store/sqlite-pragmas.ts; Rust via build.rs include_str! + codegen in crates/signaldock-storage/build.rs producing SQLITE_PRAGMA_SQL. Drift is impossible by construction: both sides render the same `PRAGMA name = value` statements from this file. ADR review governs changes to the policy here.",
+  "version": 1,
+  "policy": {
+    "title": "CLEO SQLite performance pragma policy",
+    "description": "Tuned for multi-process CLI workloads against shared project DBs (tasks.db, brain.db, conduit.db). WAL + NORMAL synchronous gives durable-on-commit with last-tx tolerance on power cut; busy_timeout queues concurrent writers; cache_size and mmap_size keep hot pages in memory."
+  },
+  "pragmas": [
+    ["busy_timeout", "5000"],
+    ["journal_mode", "WAL"],
+    ["synchronous", "NORMAL"],
+    ["foreign_keys", "ON"],
+    ["cache_size", "-64000"],
+    ["mmap_size", "268435456"],
+    ["temp_store", "MEMORY"],
+    ["wal_autocheckpoint", "1000"]
+  ]
+}
