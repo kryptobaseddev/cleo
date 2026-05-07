@@ -11,18 +11,20 @@
  *   RULE-5: Multi-statement migration.sql files missing `--> statement-breakpoint` separators.
  *           node:sqlite's prepare() silently truncates to the first statement when no breakpoints
  *           are present; this rule catches files where statement count exceeds breakpoint count + 1.
+ *           CREATE TRIGGER bodies (BEGIN...END) are handled correctly — internal semicolons
+ *           inside trigger bodies are not counted as statement separators (T9177).
  *
  * Usage:
  *   node scripts/lint-migrations.mjs [--migrations-root <path>] [--fail-on=error|warn|none]
- *                                    [--enable-rule-5]
+ *                                    [--disable-rule-5]
  *
  * Flags:
  *   --migrations-root <path>  Override the migrations root directory.
  *   --fail-on=error           Exit 1 only when there are ERROR-severity violations (default).
  *   --fail-on=warn            Exit 1 when there are any violations (ERROR or WARN).
  *   --fail-on=none            Always exit 0 (report-only mode).
- *   --enable-rule-5           Enable RULE-5 (missing-breakpoint detector). Off by default until
- *                             T9166 lands the breakpoint fixes for the known 7 brain migrations.
+ *   --disable-rule-5          Emergency bypass: disable RULE-5 (missing-breakpoint detector).
+ *                             Emits a deprecation warning to stderr. RULE-5 is on by default.
  *
  * GitHub Actions:
  *   When GITHUB_ACTIONS=true is set in environment, violations are emitted as
@@ -33,6 +35,7 @@
  * @task T1153
  * @task T1168
  * @task T9165
+ * @task T9177
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -83,16 +86,32 @@ if (!['error', 'warn', 'none'].includes(FAIL_ON)) {
 const IS_GHA = process.env.GITHUB_ACTIONS === 'true';
 
 /**
- * True when RULE-5 (missing-breakpoint detector) is enabled via --enable-rule-5.
+ * True when RULE-5 (missing-breakpoint detector) is active.
  *
- * RULE-5 is gated behind this flag until T9166 lands the breakpoint fixes for the
- * known 7 brain migrations that currently lack separators. Once T9166 merges, the
- * flag can be removed and RULE-5 enabled unconditionally.
+ * RULE-5 is ON by default. It can be disabled via --disable-rule-5 as an emergency
+ * bypass (emits a deprecation warning to stderr). The parser correctly handles
+ * CREATE TRIGGER bodies (BEGIN...END) so triggers do not produce false positives.
  *
  * @see T9163 — parent epic documenting the node:sqlite prepare() truncation issue
- * @see T9166 — sibling task that adds the missing breakpoints to the 7 brain migrations
+ * @see T9177 — parser fix: trigger BEGIN...END body handling
  */
-const RULE_5_ENABLED = args.includes('--enable-rule-5');
+const RULE_5_DISABLED = args.includes('--disable-rule-5');
+if (RULE_5_DISABLED) {
+  process.stderr.write(
+    'lint-migrations: WARNING: --disable-rule-5 is an emergency bypass and will be removed in a future release. ' +
+      'RULE-5 (missing-breakpoint detector) is now disabled for this run.\n',
+  );
+}
+const RULE_5_ENABLED = !RULE_5_DISABLED;
+
+// Legacy flag support: --enable-rule-5 is a no-op now that RULE-5 is default-on.
+// Emit an informational note so scripts can be updated, but do not error.
+if (args.includes('--enable-rule-5')) {
+  process.stderr.write(
+    'lint-migrations: NOTE: --enable-rule-5 is no longer needed — RULE-5 is now on by default (T9177). ' +
+      'Remove this flag from your invocation. Use --disable-rule-5 to disable.\n',
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Discovery helpers
@@ -278,17 +297,60 @@ function rule4FolderNames(violations, dbSet, dbSetPath, folderNames) {
 }
 
 /**
- * Count the number of `;`-terminated SQL statements in a migration file, skipping
- * semicolons that appear inside string literals or SQL comments.
+ * Peek ahead in `sql` from position `pos` and read a contiguous identifier or
+ * keyword token (ASCII letters, digits, underscores). Returns the token in
+ * upper-case and the new position after the token.
  *
- * The scanner is a single-pass state machine that tracks:
+ * Used by `countSqlStatements` to recognise CREATE TRIGGER ... BEGIN / END
+ * keywords without a full tokeniser.
+ *
+ * @param {string} sql
+ * @param {number} pos - Position of first character of the token (already known to be a letter/_).
+ * @returns {{ token: string; end: number }}
+ */
+function readKeyword(sql, pos) {
+  const len = sql.length;
+  let end = pos;
+  while (end < len && /[\w]/.test(sql[end])) end++;
+  return { token: sql.slice(pos, end).toUpperCase(), end };
+}
+
+/**
+ * Count the number of `;`-terminated SQL statements in a migration file, skipping
+ * semicolons that appear inside string literals, SQL comments, or CREATE TRIGGER
+ * body blocks (BEGIN...END).
+ *
+ * The scanner is a single-pass state machine with four states:
+ *
+ *   IDLE          Normal scanning — count top-level semicolons.
+ *   SAW_CREATE    Saw `CREATE`; next watch for TRIGGER/TEMP/TEMPORARY to advance
+ *                 to SAW_TRIGGER. Any other DDL keyword or `;` resets to IDLE.
+ *   SAW_TRIGGER   Confirmed `CREATE [TEMP|TEMPORARY] TRIGGER` — scan forward
+ *                 through all header tokens (IF NOT EXISTS, name, BEFORE/AFTER/
+ *                 INSTEAD OF, event, ON table, FOR EACH ROW, WHEN ...) until
+ *                 the `BEGIN` keyword is found. A `;` before BEGIN resets
+ *                 to IDLE (malformed trigger — shouldn't happen in practice).
+ *   IN_BODY       Inside the trigger body (between BEGIN and END). All semicolons
+ *                 here are body-statement terminators, not top-level separators,
+ *                 and are skipped. The closing `END;` is counted as the single
+ *                 statement terminator for the whole CREATE TRIGGER statement.
+ *
+ * Trigger variants recognised (all case-insensitive):
+ *   - CREATE TRIGGER
+ *   - CREATE TEMP TRIGGER
+ *   - CREATE TEMPORARY TRIGGER
+ *   - CREATE TRIGGER IF NOT EXISTS
+ *   - CREATE TEMP TRIGGER IF NOT EXISTS
+ *   - CREATE TEMPORARY TRIGGER IF NOT EXISTS
+ *
+ * SQLite triggers do not nest, so a single-level BEGIN/END state suffices.
+ *
+ * String/comment contexts handled:
  *   - Single-quoted string literals (`'...'`, with `''` escape)
  *   - Double-quoted identifiers (`"..."`, with `""` escape)
+ *   - Backtick-quoted identifiers (`` `...` ``)
  *   - Line comments (`-- ...` through end-of-line)
  *   - Block comments (`/* ... *\/`)
- *
- * Only `;` characters that are NOT inside any of the above contexts are counted
- * as statement terminators.
  *
  * @param {string} sql - Raw content of a migration.sql file.
  * @returns {number} Count of top-level semicolons (statement terminators).
@@ -298,8 +360,23 @@ function countSqlStatements(sql) {
   let i = 0;
   const len = sql.length;
 
+  /**
+   * Scanner state for trigger detection.
+   *   'IDLE'        — normal, no trigger in progress
+   *   'SAW_CREATE'  — saw CREATE, watching for TRIGGER/TEMP/TEMPORARY
+   *   'SAW_TRIGGER' — confirmed CREATE TRIGGER, scanning for BEGIN
+   *   'IN_BODY'     — inside trigger body BEGIN...END
+   */
+  let state = 'IDLE';
+
   while (i < len) {
     const ch = sql[i];
+
+    // -----------------------------------------------------------------------
+    // Skip string literals and comments — these appear in all states.
+    // Inside IN_BODY we must still skip them so that keywords like END inside
+    // a string literal do not prematurely close the trigger body.
+    // -----------------------------------------------------------------------
 
     // Line comment: -- ... \n
     if (ch === '-' && sql[i + 1] === '-') {
@@ -356,9 +433,84 @@ function countSqlStatements(sql) {
       continue;
     }
 
-    // Top-level semicolon — statement terminator
+    // -----------------------------------------------------------------------
+    // Keyword / identifier detection (drives the state machine).
+    // -----------------------------------------------------------------------
+    if (/[A-Za-z_]/.test(ch)) {
+      const { token, end } = readKeyword(sql, i);
+      i = end;
+
+      switch (state) {
+        case 'IDLE':
+          if (token === 'CREATE') {
+            state = 'SAW_CREATE';
+          }
+          break;
+
+        case 'SAW_CREATE':
+          // Expecting TRIGGER or TEMP/TEMPORARY (before TRIGGER).
+          if (token === 'TRIGGER') {
+            state = 'SAW_TRIGGER';
+          } else if (token === 'TEMP' || token === 'TEMPORARY') {
+            // Keep state as SAW_CREATE — still waiting for TRIGGER.
+            // (no state change needed; next keyword should be TRIGGER)
+          } else {
+            // Not a trigger — fall back to IDLE.
+            state = 'IDLE';
+          }
+          break;
+
+        case 'SAW_TRIGGER':
+          // Scanning through the trigger header: IF NOT EXISTS, name, timing
+          // keywords (BEFORE/AFTER/INSTEAD), event (INSERT/UPDATE/DELETE),
+          // OF column-list, ON table, FOR EACH ROW, WHEN expression.
+          // We watch for BEGIN and nothing else matters here.
+          if (token === 'BEGIN') {
+            state = 'IN_BODY';
+          }
+          // All other keywords are part of the trigger header — keep scanning.
+          break;
+
+        case 'IN_BODY':
+          // Inside trigger body. Watch for END to close it.
+          if (token === 'END') {
+            // Skip optional whitespace between END and `;`.
+            while (
+              i < len &&
+              (sql[i] === ' ' || sql[i] === '\t' || sql[i] === '\n' || sql[i] === '\r')
+            ) {
+              i++;
+            }
+            if (i < len && sql[i] === ';') {
+              count++; // The END; semicolon counts as the trigger statement terminator.
+              i++;
+            }
+            state = 'IDLE';
+          }
+          // Ignore all other tokens inside the trigger body.
+          break;
+      }
+      continue;
+    }
+
+    // -----------------------------------------------------------------------
+    // Semicolons — the primary counting target.
+    // -----------------------------------------------------------------------
     if (ch === ';') {
-      count++;
+      if (state === 'IN_BODY') {
+        // Body-statement terminator — skip (already handled above if it was END;).
+        // Note: END; is consumed above; any remaining `;` inside the body belong
+        // to individual trigger-body statements and must not be counted.
+      } else if (state === 'SAW_TRIGGER') {
+        // A `;` before BEGIN in a trigger header is malformed SQL, but if it
+        // occurs we treat it as a statement boundary and reset state.
+        count++;
+        state = 'IDLE';
+      } else {
+        // IDLE or SAW_CREATE — normal statement terminator.
+        count++;
+        state = 'IDLE'; // reset any partial SAW_CREATE state
+      }
       i++;
       continue;
     }
@@ -397,11 +549,13 @@ function countBreakpoints(content) {
  *   2. Count `--> statement-breakpoint` markers.
  *   3. If statements > 1 AND markers < (statements - 1), emit ERROR.
  *
- * This rule is gated behind `--enable-rule-5` until T9166 lands the
- * breakpoint fixes for the known 7 brain migrations.
+ * This rule is on by default. Use --disable-rule-5 as an emergency bypass.
+ * CREATE TRIGGER bodies (BEGIN...END) are handled correctly: internal
+ * semicolons inside trigger bodies are not counted as statement separators.
  *
  * @see T9163 — parent epic: node:sqlite prepare() truncation investigation
  * @see T9166 — sibling task: adds missing breakpoints to 7 brain migrations
+ * @see T9177 — parser fix: trigger BEGIN...END body handling (default-on flip)
  *
  * @param {Array} violations - Violations array to append to.
  * @param {string} _dbSet - DB set name (unused, kept for signature consistency).
@@ -514,7 +668,7 @@ function main() {
   lines.push(`  Warnings:            ${stats.warnings}`);
   lines.push(`  Total violations:    ${violations.length}`);
   lines.push(
-    `  RULE-5 enabled:      ${RULE_5_ENABLED ? 'yes (--enable-rule-5)' : 'no (pass --enable-rule-5 to activate)'}`,
+    `  RULE-5 enabled:      ${RULE_5_ENABLED ? 'yes (default-on; use --disable-rule-5 to bypass)' : 'no (--disable-rule-5 emergency bypass active)'}`,
   );
   lines.push('');
 
