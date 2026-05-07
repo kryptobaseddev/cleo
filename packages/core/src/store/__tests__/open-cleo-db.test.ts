@@ -83,8 +83,11 @@ describe('openCleoDb', () => {
     const journalMode = handle.db.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
     expect(journalMode.journal_mode.toLowerCase()).toBe('wal');
 
-    const busyTimeout = handle.db.prepare('PRAGMA busy_timeout').get() as { busy_timeout: number };
-    expect(busyTimeout.busy_timeout).toBe(5000);
+    const busyTimeout = handle.db.prepare('PRAGMA busy_timeout').get() as {
+      busy_timeout?: number;
+      timeout?: number;
+    };
+    expect(busyTimeout.busy_timeout ?? busyTimeout.timeout).toBe(5000);
 
     handle.close();
   });

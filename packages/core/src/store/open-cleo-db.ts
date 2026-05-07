@@ -10,8 +10,21 @@ import { getNexusDb } from './nexus-sqlite.js';
 import { getDb as getTasksDb } from './sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
-/** Canonical roles for the 6 SQLite databases (ADR-068). */
-export type CleoDbRole = 'tasks' | 'brain' | 'sessions' | 'signaldock' | 'conduit' | 'nexus';
+/** Canonical roles for the 6 SQLite databases (ADR-068), plus planned llmtxt/docs storage. */
+export type CleoDbRole =
+  | 'tasks'
+  | 'brain'
+  | 'sessions'
+  | 'signaldock'
+  | 'conduit'
+  | 'nexus'
+  | 'llmtxt';
+
+type ImplementedCleoDbRole = Exclude<CleoDbRole, 'llmtxt'>;
+
+interface DrizzleWithClient {
+  $client?: unknown;
+}
 
 /** Handle returned by {@link openCleoDb}. */
 export interface CleoDbHandle {
@@ -26,7 +39,7 @@ export type DBHandle = CleoDbHandle;
 /** Internal opener for a given role. */
 type DbOpener = (cwd?: string) => Promise<unknown>;
 
-const ROLE_OPENERS: Record<CleoDbRole, DbOpener> = {
+const ROLE_OPENERS: Record<ImplementedCleoDbRole, DbOpener> = {
   tasks: getTasksDb as unknown as DbOpener,
   brain: getTasksDb as unknown as DbOpener,
   sessions: getTasksDb as unknown as DbOpener,
@@ -35,22 +48,38 @@ const ROLE_OPENERS: Record<CleoDbRole, DbOpener> = {
   nexus: getNexusDb as unknown as DbOpener,
 };
 
+function unwrapNativeSqliteDb(db: unknown): unknown {
+  if (db && typeof db === 'object' && '$client' in db) {
+    return (db as DrizzleWithClient).$client ?? db;
+  }
+  return db;
+}
+
+function isDatabaseSync(db: unknown): db is DatabaseSync {
+  return Boolean(db && typeof db === 'object' && 'exec' in db && 'prepare' in db);
+}
+
 /**
  * Open (or create) a CLEO database by canonical role.
  *
  * Single chokepoint for all DB opens. Applies pragma SSoT at open time.
  */
 export async function openCleoDb(role: CleoDbRole, cwd?: string): Promise<CleoDbHandle> {
+  if (role === 'llmtxt') {
+    throw new Error('CLEO DB role llmtxt is not yet implemented');
+  }
+
   const opener = ROLE_OPENERS[role];
   if (!opener) {
     throw new Error(`Unknown CLEO DB role: ${role}`);
   }
 
-  const db = await opener(cwd);
+  const openedDb = await opener(cwd);
+  const db = unwrapNativeSqliteDb(openedDb);
 
   // Apply pragma SSoT (T9053) — applyPerfPragmas expects DatabaseSync
-  if (db && typeof db === 'object' && 'exec' in (db as Record<string, unknown>)) {
-    applyPerfPragmas(db as DatabaseSync);
+  if (isDatabaseSync(db)) {
+    applyPerfPragmas(db);
   }
 
   return {
