@@ -11,7 +11,8 @@
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskStatus } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineError } from '../engine-result.js';
 import { analyzeDependencies } from '../orchestration/analyze.js';
@@ -102,7 +103,9 @@ export async function loadTasks(projectRoot?: string): Promise<Task[]> {
   const root = projectRoot || resolveProjectRoot();
   try {
     const accessor = await getAccessor(root);
-    const result = await accessor.queryTasks({});
+    const result = await accessor.queryTasks({
+      status: [...TASK_STATUSES] as TaskStatus[],
+    });
     return result?.tasks ?? [];
   } catch {
     return [];

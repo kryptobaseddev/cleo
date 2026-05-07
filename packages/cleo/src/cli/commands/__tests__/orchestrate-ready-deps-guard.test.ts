@@ -193,6 +193,37 @@ describe('orchestrateReady — dep-graph guard', () => {
     expect(data.total).toBeGreaterThanOrEqual(0);
   });
 
+  it('does not treat archived dependency targets as E_MISSING_REF in ready preflight', async () => {
+    const tasks = [
+      makeEpic({ id: 'E001', title: 'Epic A' }),
+      makeTask({
+        id: 'T_ACTIVE',
+        title: 'Active child',
+        parentId: 'E001',
+        depends: ['T_ARCHIVED'],
+      }),
+      makeTask({ id: 'T_ARCHIVED', title: 'Archived prerequisite', status: 'archived' }),
+    ];
+
+    vi.mocked(loadConfig).mockResolvedValue({
+      lifecycle: { mode: 'strict' },
+    } as ReturnType<typeof loadConfig> extends Promise<infer R> ? R : never);
+
+    const queryTasks = vi.fn().mockResolvedValue({ tasks });
+    vi.mocked(getAccessor).mockResolvedValue({
+      queryTasks,
+    } as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never);
+
+    stubReadyTasks('E001');
+
+    const result = await orchestrateReady('E001', tmpDir);
+
+    expect(result.success).toBe(true);
+    expect(queryTasks).toHaveBeenCalledWith(
+      expect.objectContaining({ status: expect.arrayContaining(['archived']) }),
+    );
+  });
+
   // -------------------------------------------------------------------------
   // Case 3: --ignore-deps-validate → bypass + audit entry written
   // -------------------------------------------------------------------------
