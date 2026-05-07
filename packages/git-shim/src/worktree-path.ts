@@ -128,11 +128,15 @@ export function resolveActiveWorktree(
   const worktreesRoot = resolve(resolveCleoWorktreesRoot());
   let candidate = resolve(cwd);
   // Climb until parent is the projectHash directory (one level under worktreesRoot).
-  while (candidate !== '/' && candidate.length > worktreesRoot.length) {
+  while (
+    candidate !== '/' &&
+    candidate !== worktreesRoot &&
+    candidate.length > worktreesRoot.length
+  ) {
     const parent = normalize(join(candidate, '..'));
     // parent should be `<worktreesRoot>/<projectHash>`.
     if (
-      parent.startsWith(`${worktreesRoot}/`) &&
+      (parent.startsWith(`${worktreesRoot}/`) || parent.startsWith(`${worktreesRoot}\\`)) &&
       parent.split(/[/\\]/).filter(Boolean).length ===
         worktreesRoot.split(/[/\\]/).filter(Boolean).length + 1
     ) {
