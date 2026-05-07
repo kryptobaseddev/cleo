@@ -348,7 +348,7 @@ describe('validateSpawnReadiness — T1933 agent-existence pre-flight (ADR-068 D
       _resetGlobalSignaldockDb_TESTING_ONLY();
       vi.restoreAllMocks();
     } finally {
-      rmSync(base, { recursive: true, force: true });
+      rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   });
 
@@ -432,7 +432,7 @@ agent project-docs-worker:
       resetDb();
       vi.restoreAllMocks();
     } finally {
-      rmSync(base, { recursive: true, force: true });
+      rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   });
 });

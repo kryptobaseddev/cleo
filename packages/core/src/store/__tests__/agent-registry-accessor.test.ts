@@ -92,7 +92,7 @@ function makeTmpEnv(suffix: string): {
   };
 
   const cleanup = (): void => {
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   };
 
   return { cleoHome, projectRoot, openGlobal, openConduit, cleanup };
