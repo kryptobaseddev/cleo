@@ -44,7 +44,7 @@ describe('getCleoHome', () => {
 
   it('respects CLEO_HOME env var', () => {
     process.env['CLEO_HOME'] = '/custom/cleo';
-    expect(getCleoHome()).toBe('/custom/cleo');
+    expect(getCleoHome()).toBe(resolve('/custom/cleo'));
   });
 });
 
