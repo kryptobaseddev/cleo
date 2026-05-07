@@ -351,6 +351,27 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
         uses: ./.github/actions/install-ripgrep
+      - name: Build cant-napi native addon for CANT tests
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          cargo build --release -p cant-napi
+          case "${{ runner.os }}" in
+            macOS)
+              triple="darwin-x64"
+              if [[ "$(uname -m)" == "arm64" ]]; then
+                triple="darwin-arm64"
+              fi
+              cp target/release/libcant_napi.dylib "crates/cant-napi/cant-napi.${triple}.node"
+              ;;
+            Windows)
+              triple="win32-x64-msvc"
+              if [[ "${PROCESSOR_ARCHITECTURE:-}" == "ARM64" ]]; then
+                triple="win32-arm64-msvc"
+              fi
+              cp target/release/cant_napi.dll "crates/cant-napi/cant-napi.${triple}.node"
+              ;;
+          esac
       - name: Build packages (required for cross-package imports)
         run: pnpm run build
       - name: Generate SvelteKit type stubs (required for studio tests)
