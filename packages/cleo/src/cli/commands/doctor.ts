@@ -156,9 +156,14 @@ export const doctorCommand = defineCommand({
       description:
         'Move all rogue .cleo/ sub-package directories to .cleo/quarantine/ (never deletes)',
     },
+    'scan-stray-nexus-dbs': {
+      type: 'boolean',
+      description: 'Scan ~/.local/share/cleo/ for orphaned nexus.db files and print report (T9052)',
+    },
     'dry-run': {
       type: 'boolean',
-      description: 'With --quarantine-rogue-cleo-dirs: print what would be moved without moving',
+      description:
+        'With --quarantine-rogue-cleo-dirs or --scan-stray-nexus-dbs: print what would be done without acting',
     },
     // Global output format flags — read directly from args (no optsWithGlobals in citty)
     json: {
@@ -349,6 +354,56 @@ export const doctorCommand = defineCommand({
             }
             process.exitCode = 1;
           }
+          humanLine('');
+        }
+      } else if (args['scan-stray-nexus-dbs']) {
+        progress.step(0, 'Scanning for stray nexus.db files');
+        const { detectAndRemoveLegacyGlobalFiles, detectAndRemoveStrayProjectNexus } = await import(
+          '@cleocode/core/internal'
+        );
+        const { getCleoHome } = await import('@cleocode/core/internal');
+        const cleoHome = getCleoHome();
+        const projectRoot = getProjectRoot();
+
+        const legacyResult = detectAndRemoveLegacyGlobalFiles(cleoHome);
+        const strayResult = detectAndRemoveStrayProjectNexus(projectRoot);
+
+        const isDryRun = args['dry-run'] === true;
+        const report = {
+          cleoHome,
+          projectRoot,
+          legacy: {
+            removed: legacyResult.removed.length,
+            files: legacyResult.removed,
+          },
+          stray: {
+            removed: strayResult.removed,
+            path: strayResult.path,
+          },
+          dryRun: isDryRun,
+        };
+
+        progress.complete(
+          `Found ${legacyResult.removed.length} legacy + ${strayResult.removed ? 1 : 0} stray nexus.db`,
+        );
+
+        if (args.json) {
+          process.stdout.write(JSON.stringify({ success: true, data: report }, null, 2) + '\n');
+        } else {
+          humanLine(`\nStray nexus.db scan (${isDryRun ? 'DRY RUN — no files touched' : 'live'})`);
+          humanLine(`  CLEO home:  ${cleoHome}`);
+          humanLine(`  Project:    ${projectRoot}`);
+          if (legacyResult.removed.length > 0) {
+            humanLine(`\n  Legacy files removed (${legacyResult.removed.length}):`);
+            for (const f of legacyResult.removed) {
+              humanLine(`    ✓ ${f}`);
+            }
+          } else {
+            humanLine('\n  No legacy files found.');
+          }
+          humanLine(
+            `\n  Stray project nexus.db: ${strayResult.removed ? '✓ removed' : 'not found'} (${strayResult.path})`,
+          );
           humanLine('');
         }
       } else {
