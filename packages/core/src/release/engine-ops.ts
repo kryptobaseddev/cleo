@@ -16,10 +16,10 @@
  * @epic T1566
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
-import { type EngineResult, engineError } from '../engine-result.js';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
 import { getAccessor } from '../store/data-accessor.js';
@@ -29,7 +29,11 @@ import { releaseManifests } from '../store/tasks-schema.js';
 import { channelToDistTag, resolveChannelFromBranch } from './channel.js';
 import { buildPRBody, createPullRequest, isGhCliAvailable, type PRResult } from './github-pr.js';
 import { checkDoubleListing, checkEpicCompleteness } from './guards.js';
-import { getGitFlowConfig, getPushMode, loadReleaseConfig } from './release-config.js';
+import {
+  getGitFlowConfig,
+  getReleaseBranchConfig,
+  loadReleaseConfig,
+} from './release-config.js';
 import {
   cancelRelease,
   commitRelease,
@@ -1042,6 +1046,7 @@ export async function releaseShip(
   }
 
   const cwd = projectRoot ?? resolveProjectRoot();
+  const gitRemote = remote ?? 'origin';
 
   /** Collected step log messages, included in every return value for CLI visibility. */
   const steps: string[] = [];
@@ -1071,20 +1076,44 @@ export async function releaseShip(
   const bumpTargets: VersionBumpTarget[] = getVersionBumpConfig(cwd);
   const shouldBump = bump && bumpTargets.length > 0;
 
+  // Load config once up-front (used throughout the flow)
+  const loadedConfig = loadReleaseConfig(cwd);
+  const branchCfg = getReleaseBranchConfig(loadedConfig, cwd);
+  const gitflowCfg = getGitFlowConfig(loadedConfig);
+
+  // Normalised version (strip leading 'v' for consistency in messages)
+  const cleanVersion = version.replace(/^v/, '');
+  const gitTag = `v${cleanVersion}`;
+
+  // Release branch name: e.g. release/v2026.5.43
+  const releaseBranch = `${branchCfg.releaseBranchPrefix}${gitTag}`;
+
+  // PR target branch is determined by branch model
+  const prTargetBranch = branchCfg.prTargetBranch;
+
+  // Enforce gh CLI availability — fail hard, no silent fallback (T9095)
+  if (!dryRun && !isGhCliAvailable()) {
+    return engineError(
+      'E_GENERAL',
+      'gh CLI is not available. Install it from https://cli.github.com and authenticate with `gh auth login`. ' +
+        'Every release must go through a PR — no direct push is permitted.',
+    );
+  }
+
   try {
     // Step 0: Bump version files (if configured and bump not disabled)
     if (shouldBump) {
-      logStep(0, 8, 'Bump version files');
+      logStep(0, 12, 'Bump version files');
       if (!dryRun) {
         const bumpResults = bumpVersionFromConfig(version, { dryRun: false }, cwd);
         if (!bumpResults.allSuccess) {
           const failed = bumpResults.results.filter((r) => !r.success).map((r) => r.file);
           steps.push(`  ! Version bump partial: failed for ${failed.join(', ')}`);
         } else {
-          logStep(0, 8, 'Bump version files', true);
+          logStep(0, 12, 'Bump version files', true);
         }
       } else {
-        logStep(0, 8, 'Bump version files', true);
+        logStep(0, 12, 'Bump version files', true);
       }
     }
 
@@ -1093,8 +1122,7 @@ export async function releaseShip(
     try {
       await showManifestRelease(version, cwd);
     } catch {
-      // Release record doesn't exist yet — create it
-      logStep(0, 8, 'Auto-prepare release record');
+      logStep(0, 12, 'Auto-prepare release record');
       if (!dryRun) {
         await prepareRelease(
           version,
@@ -1103,7 +1131,6 @@ export async function releaseShip(
           () => loadTasks(projectRoot),
           cwd,
         );
-        // Set epicId on the newly created record (prepareRelease doesn't accept it)
         const normalizedVer = version.startsWith('v') ? version : `v${version}`;
         const db = await getDb(cwd);
         await db
@@ -1111,37 +1138,31 @@ export async function releaseShip(
           .set({ epicId })
           .where(eq(releaseManifests.version, normalizedVer))
           .run();
-
-        // Pre-generate changelog so has_changelog gate passes
         await generateReleaseChangelog(version, () => loadTasks(projectRoot), cwd);
       }
-      logStep(0, 8, 'Auto-prepare release record', true);
+      logStep(0, 12, 'Auto-prepare release record', true);
     }
 
     // Step 1: Run release gates
-    logStep(1, 8, 'Validate release gates');
+    logStep(1, 12, 'Validate release gates');
     const gatesResult = await runReleaseGates(version, () => loadTasks(projectRoot), projectRoot, {
       dryRun,
     });
 
     if (gatesResult && !gatesResult.allPassed) {
       const failedGates = gatesResult.gates.filter((g) => g.status === 'failed');
-      logStep(1, 8, 'Validate release gates', false, failedGates.map((g) => g.name).join(', '));
+      logStep(1, 12, 'Validate release gates', false, failedGates.map((g) => g.name).join(', '));
       return engineError(
         'E_LIFECYCLE_GATE_FAILED',
         `Release gates failed for ${version}: ${failedGates.map((g) => g.name).join(', ')}`,
-        {
-          details: { gates: gatesResult.gates, failedCount: gatesResult.failedCount },
-        },
+        { details: { gates: gatesResult.gates, failedCount: gatesResult.failedCount } },
       );
     }
-    logStep(1, 8, 'Validate release gates', true);
+    logStep(1, 12, 'Validate release gates', true);
 
     // Step 1.5 (T820 RELEASE-03): IVTR gate enforcement
-    // Load epic task IDs to check their IVTR state before proceeding.
-    // --force bypasses with a loud warning.
     if (!force) {
-      logStep(1, 8, 'Check IVTR gate for epic tasks');
+      logStep(1, 12, 'Check IVTR gate for epic tasks');
       let epicTaskIds: string[] = [];
       try {
         const epicAccessorForIvtr = await getAccessor(cwd);
@@ -1156,32 +1177,22 @@ export async function releaseShip(
       if (epicTaskIds.length > 0) {
         const { blocked, unchecked } = await checkIvtrGates(epicTaskIds, projectRoot);
         if (blocked.length > 0) {
-          logStep(
-            1,
-            8,
-            'Check IVTR gate for epic tasks',
-            false,
-            `${blocked.length} task(s) not released in IVTR`,
-          );
+          logStep(1, 12, 'Check IVTR gate for epic tasks', false, `${blocked.length} task(s) not released in IVTR`);
           return engineError(
             'E_LIFECYCLE_GATE_FAILED',
             `IVTR gate rejected: ${blocked.length} task(s) in epic ${epicId} have not reached IVTR 'released' phase: ${blocked.join(', ')}. ` +
               'Run `cleo orchestrate ivtr <taskId> --release` for each blocking task, or pass --force to bypass with owner warning.',
-            {
-              fix: `cleo orchestrate ivtr ${blocked[0]} --release`,
-              details: { blocked, unchecked, epicId },
-            },
+            { fix: `cleo orchestrate ivtr ${blocked[0]} --release`, details: { blocked, unchecked, epicId } },
           );
         }
         if (unchecked.length > 0) {
-          // Warn but don't block — tasks without IVTR are allowed (e.g. docs tasks)
           const w = `  ! IVTR gate: ${unchecked.length} task(s) have no IVTR state (non-blocking): ${unchecked.join(', ')}`;
           steps.push(w);
           log.warn({ epicId, unchecked, count: unchecked.length }, w);
         }
-        logStep(1, 8, 'Check IVTR gate for epic tasks', true);
+        logStep(1, 12, 'Check IVTR gate for epic tasks', true);
       } else {
-        logStep(1, 8, 'Check IVTR gate for epic tasks', true);
+        logStep(1, 12, 'Check IVTR gate for epic tasks', true);
       }
     } else {
       const w = `  ! --force: IVTR gate check BYPASSED. Owner-level override only.`;
@@ -1189,38 +1200,28 @@ export async function releaseShip(
       log.warn({ epicId, forcedBypass: true }, w);
     }
 
-    // Resolve release channel from current branch (after gates, which read the branch)
-    let resolvedChannel: string = 'latest';
-    let currentBranchForPR = 'HEAD';
+    // Resolve release channel from current branch
+    let resolvedChannel = 'latest';
     try {
       const branchName = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
         cwd,
         encoding: 'utf-8',
         stdio: 'pipe',
       }).trim();
-      currentBranchForPR = branchName;
       const channelEnum = resolveChannelFromBranch(branchName);
       resolvedChannel = channelToDistTag(channelEnum);
     } catch {
       // git unavailable — keep default
     }
 
-    // Prefer metadata from gates result if available (B4 populates this)
-    const gateMetadata = gatesResult.metadata;
-    const requiresPRFromGates = gateMetadata?.requiresPR ?? false;
-    const targetBranchFromGates = gateMetadata?.targetBranch;
-    if (gateMetadata?.currentBranch) {
-      currentBranchForPR = gateMetadata.currentBranch;
-    }
-
-    // Step 2: Check epic completeness — load release tasks from manifest
-    logStep(2, 8, 'Check epic completeness');
+    // Step 2: Check epic completeness
+    logStep(2, 12, 'Check epic completeness');
     let releaseTaskIds: string[] = [];
     try {
       const manifest = await showManifestRelease(version, projectRoot);
       releaseTaskIds = (manifest as { tasks?: string[] }).tasks ?? [];
     } catch {
-      // Manifest may not exist yet if prepare hasn't been called; proceed
+      // Manifest may not exist yet; proceed
     }
 
     const epicAccessor = await getAccessor(cwd);
@@ -1230,19 +1231,13 @@ export async function releaseShip(
         .filter((e) => e.missingChildren.length > 0)
         .map((e) => `${e.epicId}: missing ${e.missingChildren.map((c) => c.id).join(', ')}`)
         .join('; ');
-      logStep(2, 8, 'Check epic completeness', false, incomplete);
-      return engineError(
-        'E_LIFECYCLE_GATE_FAILED',
-        `Epic completeness check failed: ${incomplete}`,
-        {
-          details: { epics: epicCheck.epics },
-        },
-      );
+      logStep(2, 12, 'Check epic completeness', false, incomplete);
+      return engineError('E_LIFECYCLE_GATE_FAILED', `Epic completeness check failed: ${incomplete}`, { details: { epics: epicCheck.epics } });
     }
-    logStep(2, 8, 'Check epic completeness', true);
+    logStep(2, 12, 'Check epic completeness', true);
 
     // Step 3: Check for double-listing
-    logStep(3, 8, 'Check task double-listing');
+    logStep(3, 12, 'Check task double-listing');
     const allReleases = await listManifestReleases(projectRoot);
     const existingReleases = (
       (allReleases as { releases?: Array<{ version: string; tasks?: string[] }> }).releases ?? []
@@ -1253,104 +1248,75 @@ export async function releaseShip(
       existingReleases.map((r) => ({ version: r.version, tasks: r.tasks ?? [] })),
     );
     if (doubleCheck.hasDoubleListing) {
-      const dupes = doubleCheck.duplicates
-        .map((d) => `${d.taskId} (in ${d.releases.join(', ')})`)
-        .join('; ');
-      logStep(3, 8, 'Check task double-listing', false, dupes);
-      return engineError('E_VALIDATION', `Double-listing detected: ${dupes}`, {
-        details: { duplicates: doubleCheck.duplicates },
-      });
+      const dupes = doubleCheck.duplicates.map((d) => `${d.taskId} (in ${d.releases.join(', ')})`).join('; ');
+      logStep(3, 12, 'Check task double-listing', false, dupes);
+      return engineError('E_VALIDATION', `Double-listing detected: ${dupes}`, { details: { duplicates: doubleCheck.duplicates } });
     }
-    logStep(3, 8, 'Check task double-listing', true);
+    logStep(3, 12, 'Check task double-listing', true);
 
-    // Resolve push mode for dry-run and PR logic
-    const loadedConfig = loadReleaseConfig(cwd);
-    const pushMode = getPushMode(loadedConfig);
-    const gitflowCfg = getGitFlowConfig(loadedConfig);
-    const targetBranch = targetBranchFromGates ?? gitflowCfg.branches.main;
-
+    // DRY-RUN: preview what would happen and return early
     if (dryRun) {
-      // Step 4 (dry-run): Preview CHANGELOG generation without writing to disk
-      logStep(4, 8, 'Generate CHANGELOG');
-      logStep(4, 8, 'Generate CHANGELOG', true);
+      logStep(4, 12, 'Generate CHANGELOG');
+      logStep(4, 12, 'Generate CHANGELOG', true);
 
-      const wouldCreatePR = requiresPRFromGates || pushMode === 'pr';
-      const filesToStagePreview = [
-        'CHANGELOG.md',
-        ...(shouldBump ? bumpTargets.map((t) => t.file) : []),
-      ];
+      const filesToStagePreview = ['CHANGELOG.md', ...(shouldBump ? bumpTargets.map((t) => t.file) : [])];
       const wouldDo: string[] = [];
       if (shouldBump) {
-        wouldDo.push(
-          `bump version files: ${bumpTargets.map((t) => t.file).join(', ')} → ${version}`,
-        );
+        wouldDo.push(`bump version files: ${bumpTargets.map((t) => t.file).join(', ')} → ${version}`);
       }
       wouldDo.push(
-        `write CHANGELOG.md: ## [${version}] - ${new Date().toISOString().split('T')[0]} (preview only, not written in dry-run)`,
+        `write CHANGELOG.md: ## [${cleanVersion}] - ${new Date().toISOString().split('T')[0]} (preview only)`,
+        `git checkout -b ${releaseBranch}`,
         `git add ${filesToStagePreview.join(' ')}`,
-        `git commit -m "release: ship v${version} (${epicId})"`,
-        `git tag -a v${version} -m "Release v${version}"`,
+        `git commit -m "release: ship v${cleanVersion} (${epicId})"`,
+        `git push -u ${gitRemote} ${releaseBranch}`,
+        `gh pr create --base ${prTargetBranch} --head ${releaseBranch} --title "Release v${cleanVersion}"`,
+        `gh pr checks <pr-url> --watch (max 15 min)`,
+        `gh pr merge <pr-url> --merge`,
+        `git checkout ${gitflowCfg.branches.main} && git pull`,
+        `git tag -a ${gitTag} -m "Release ${gitTag}"`,
+        `git push ${gitRemote} ${gitTag}`,
+        `git branch -D ${releaseBranch} && git push ${gitRemote} --delete ${releaseBranch}`,
+        'markReleasePushed(...)',
       );
-      const dryRunOutput: Record<string, unknown> = {
-        version,
-        epicId,
-        dryRun: true,
-        channel: resolvedChannel,
-        pushMode,
-        wouldDo,
+
+      return {
+        success: true,
+        data: {
+          version,
+          epicId,
+          dryRun: true,
+          channel: resolvedChannel,
+          branchModel: branchCfg.branchModel,
+          prRequired: branchCfg.prRequired,
+          releaseBranch,
+          prTargetBranch,
+          gitTag,
+          wouldDo,
+          steps,
+        },
       };
-
-      if (wouldCreatePR) {
-        const ghAvailable = isGhCliAvailable();
-        (dryRunOutput['wouldDo'] as string[]).push(
-          ghAvailable
-            ? `gh pr create --base ${targetBranch} --head ${currentBranchForPR} --title "release: ship v${version}"`
-            : `manual PR: ${currentBranchForPR} → ${targetBranch} (gh CLI not available)`,
-        );
-        dryRunOutput['wouldCreatePR'] = true;
-        dryRunOutput['prTitle'] = `release: ship v${version}`;
-        dryRunOutput['prTargetBranch'] = targetBranch;
-      } else {
-        (dryRunOutput['wouldDo'] as string[]).push(`git push ${remote ?? 'origin'} --follow-tags`);
-        dryRunOutput['wouldCreatePR'] = false;
-      }
-
-      (dryRunOutput['wouldDo'] as string[]).push('markReleasePushed(...)');
-
-      return { success: true, data: { ...dryRunOutput, steps } };
     }
 
-    // Step 4: Write CHANGELOG section (non-dry-run only)
-    logStep(4, 8, 'Generate CHANGELOG');
+    // Step 4: Write CHANGELOG section
+    logStep(4, 12, 'Generate CHANGELOG');
     await generateReleaseChangelog(version, () => loadTasks(projectRoot), projectRoot);
     const changelogPath = `${cwd}/CHANGELOG.md`;
 
-    // Verify CHANGELOG.md actually contains ## [VERSION] — CI will reject without it
-    const cleanVersion = version.replace(/^v/, '');
     try {
       const changelogContent = readFileSync(changelogPath, 'utf8');
       if (!changelogContent.includes(`## [${cleanVersion}]`)) {
-        logStep(
-          4,
-          8,
-          'Generate CHANGELOG',
-          false,
-          `CHANGELOG.md missing ## [${cleanVersion}] section`,
-        );
-        return engineError(
-          'E_VALIDATION',
-          `CHANGELOG.md does not contain ## [${cleanVersion}] after generation. ` +
-            `This will cause the release workflow to fail.`,
-        );
+        logStep(4, 12, 'Generate CHANGELOG', false, `CHANGELOG.md missing ## [${cleanVersion}] section`);
+        return engineError('E_VALIDATION', `CHANGELOG.md does not contain ## [${cleanVersion}] after generation.`);
       }
     } catch (err: unknown) {
       const msg = (err as { message?: string }).message ?? String(err);
-      logStep(4, 8, 'Generate CHANGELOG', false, `Cannot read CHANGELOG.md: ${msg}`);
+      logStep(4, 12, 'Generate CHANGELOG', false, `Cannot read CHANGELOG.md: ${msg}`);
       return engineError('E_GENERAL', `Cannot read CHANGELOG.md: ${msg}`);
     }
-    logStep(4, 8, 'Generate CHANGELOG', true);
+    logStep(4, 12, 'Generate CHANGELOG', true);
 
-    // Step 4.5: Lint check — warn on biome errors but don't block release
+    // Step 4.5: Lint check — warn on errors but don't block release
     try {
       execFileSync('npx', ['biome', 'check', '--no-errors-on-unmatched', cwd], {
         cwd,
@@ -1358,41 +1324,52 @@ export async function releaseShip(
         stdio: 'pipe',
         timeout: 30_000,
       });
-      logStep(4, 8, 'Lint check', true);
+      logStep(4, 12, 'Lint check', true);
     } catch (err: unknown) {
       const execErr = err as { stdout?: string; stderr?: string; status?: number };
       if (execErr.status && execErr.status > 0) {
         const output = (execErr.stdout ?? execErr.stderr ?? '').slice(0, 500);
         const errorMatch = output.match(/Found (\d+) error/);
         const errorCount = errorMatch ? errorMatch[1] : 'unknown';
-        logStep(4, 8, 'Lint check', true, `${errorCount} biome warning(s) — non-blocking`);
+        logStep(4, 12, 'Lint check', true, `${errorCount} biome warning(s) — non-blocking`);
       }
     }
 
-    // Step 5: Git commit
-    logStep(5, 8, 'Commit release');
     const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
+
+    // Step 5: Cut release branch + commit changes on it
+    logStep(5, 12, 'Cut release branch and commit');
+    try {
+      execFileSync('git', ['checkout', '-b', releaseBranch], gitCwd);
+    } catch (err: unknown) {
+      const msg =
+        (err as { stderr?: string; message?: string }).stderr ??
+        (err as { message?: string }).message ??
+        String(err);
+      logStep(5, 12, 'Cut release branch and commit', false, `git checkout -b failed: ${msg}`);
+      return engineError('E_GENERAL', `Failed to create release branch ${releaseBranch}: ${msg}`);
+    }
 
     const filesToStage = ['CHANGELOG.md', ...(shouldBump ? bumpTargets.map((t) => t.file) : [])];
     try {
       execFileSync('git', ['add', ...filesToStage], gitCwd);
     } catch (err: unknown) {
       const msg = (err as { message?: string }).message ?? String(err);
-      logStep(5, 8, 'Commit release', false, `git add failed: ${msg}`);
+      logStep(5, 12, 'Cut release branch and commit', false, `git add failed: ${msg}`);
       return engineError('E_GENERAL', `git add failed: ${msg}`);
     }
 
     try {
-      execFileSync('git', ['commit', '-m', `release: ship v${version} (${epicId})`], gitCwd);
+      execFileSync('git', ['commit', '-m', `release: ship v${cleanVersion} (${epicId})`], gitCwd);
     } catch (err: unknown) {
       const msg =
         (err as { stderr?: string; message?: string }).stderr ??
         (err as { message?: string }).message ??
         String(err);
-      logStep(5, 8, 'Commit release', false, `git commit failed: ${msg}`);
+      logStep(5, 12, 'Cut release branch and commit', false, `git commit failed: ${msg}`);
       return engineError('E_GENERAL', `git commit failed: ${msg}`);
     }
-    logStep(5, 8, 'Commit release', true);
+    logStep(5, 12, 'Cut release branch and commit', true);
 
     let commitSha: string | undefined;
     try {
@@ -1401,123 +1378,214 @@ export async function releaseShip(
       // Non-fatal
     }
 
-    // Step 6: Tag release
-    logStep(6, 8, 'Tag release');
-    const gitTag = `v${version.replace(/^v/, '')}`;
+    // Step 6: Push release branch to remote
+    logStep(6, 12, 'Push release branch');
     try {
-      execFileSync('git', ['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
+      execFileSync('git', ['push', '-u', gitRemote, releaseBranch], gitCwd);
     } catch (err: unknown) {
       const msg =
         (err as { stderr?: string; message?: string }).stderr ??
         (err as { message?: string }).message ??
         String(err);
-      logStep(6, 8, 'Tag release', false, `git tag failed: ${msg}`);
-      return engineError('E_GENERAL', `git tag failed: ${msg}`);
+      logStep(6, 12, 'Push release branch', false, `git push failed: ${msg}`);
+      return engineError('E_GENERAL', `Failed to push release branch: ${msg}`);
     }
-    logStep(6, 8, 'Tag release', true);
+    logStep(6, 12, 'Push release branch', true);
 
-    // Step 7: Push or create PR
-    logStep(7, 8, 'Push / create PR');
-    let prResult: PRResult | null = null;
-
-    // First attempt the core pushRelease (which may signal requiresPR)
-    const pushResult = await pushRelease(version, remote, projectRoot, {
-      explicitPush: true,
-      mode: pushMode,
+    // Step 7: Create PR via gh CLI (MANDATORY — T9095)
+    logStep(7, 12, 'Create PR');
+    const prBody = buildPRBody({
+      base: prTargetBranch,
+      head: releaseBranch,
+      title: `Release v${cleanVersion}`,
+      body: '',
+      version: cleanVersion,
+      epicId,
+      projectRoot: cwd,
     });
 
-    if (pushResult.requiresPR || requiresPRFromGates) {
-      // Branch is protected — create PR instead of direct push
-      const prBody = buildPRBody({
-        base: targetBranch,
-        head: currentBranchForPR,
-        title: `release: ship v${version}`,
-        body: '',
-        version,
-        epicId,
-        projectRoot: cwd,
-      });
+    const prResult: PRResult = await createPullRequest({
+      base: prTargetBranch,
+      head: releaseBranch,
+      title: `Release v${cleanVersion}`,
+      body: prBody,
+      labels: ['release', resolvedChannel],
+      version: cleanVersion,
+      epicId,
+      projectRoot: cwd,
+    });
 
-      prResult = await createPullRequest({
-        base: targetBranch,
-        head: currentBranchForPR,
-        title: `release: ship v${version}`,
-        body: prBody,
-        labels: ['release', resolvedChannel],
-        version,
-        epicId,
-        projectRoot: cwd,
-      });
+    if (prResult.mode === 'manual') {
+      logStep(7, 12, 'Create PR', false, prResult.error ?? 'gh pr create failed');
+      return engineError(
+        'E_GENERAL',
+        `Failed to create PR: ${prResult.error ?? 'gh pr create returned non-zero'}. ` +
+          `Fix the error and re-run, or create the PR manually:\n${prResult.instructions ?? ''}`,
+      );
+    }
 
-      if (prResult.mode === 'created') {
-        const m1 = `  ✓ Push / create PR`;
-        const m2 = `  PR created: ${prResult.prUrl}`;
-        const m3 = `  → Next: merge the PR, then CI will publish to npm @${resolvedChannel}`;
-        steps.push(m1, m2, m3);
-        log.info(
-          { step: 7, prMode: 'created', prUrl: prResult.prUrl, channel: resolvedChannel },
-          m1,
-        );
-        log.info({ step: 7, prUrl: prResult.prUrl }, m2);
-        log.info({ step: 7, channel: resolvedChannel }, m3);
-      } else if (prResult.mode === 'skipped') {
-        const m1 = `  ✓ Push / create PR`;
-        const m2 = `  PR already exists: ${prResult.prUrl}`;
-        steps.push(m1, m2);
-        log.info({ step: 7, prMode: 'skipped', prUrl: prResult.prUrl }, m1);
-        log.info({ step: 7, prUrl: prResult.prUrl }, m2);
-      } else {
-        const m1 = `  ! Push / create PR — manual PR required:`;
-        const m2 = prResult.instructions ?? '';
-        steps.push(m1, m2);
-        log.warn({ step: 7, prMode: 'manual', instructions: prResult.instructions }, m1);
-        log.warn({ step: 7 }, m2);
-      }
+    const prUrl = prResult.prUrl ?? '';
+    if (prResult.mode === 'skipped') {
+      const m = `  PR already exists: ${prUrl}`;
+      steps.push(m);
+      log.info({ step: 7, prMode: 'skipped', prUrl }, m);
     } else {
-      // Direct push path (pushRelease already ran, but it skips the actual push
-      // when requiresPR is false — so we do the git push here directly)
-      try {
-        execFileSync('git', ['push', remote ?? 'origin', '--follow-tags'], gitCwd);
-        logStep(7, 8, 'Push / create PR', true);
-      } catch (err: unknown) {
-        const execError = err as { status?: number; stderr?: string; message?: string };
-        const msg = (execError.stderr ?? execError.message ?? '').slice(0, 500);
-        logStep(7, 8, 'Push / create PR', false, `git push failed: ${msg}`);
-        return engineError('E_GENERAL', `git push failed: ${msg}`, {
-          details: { exitCode: execError.status },
-        });
+      const m = `  PR created: ${prUrl}`;
+      steps.push(m);
+      log.info({ step: 7, prMode: 'created', prUrl }, m);
+    }
+    logStep(7, 12, 'Create PR', true);
+
+    // Step 8: Wait for CI checks to pass (15 min max, 30 s poll interval)
+    logStep(8, 12, 'Wait for CI checks');
+    const ciTimeoutMs = 15 * 60 * 1000;
+    const ciPollMs = 30_000;
+    const ciStart = Date.now();
+    let ciPassed = false;
+    let ciSkipped = false;
+
+    if (!prUrl) {
+      const w = '  ! No PR URL available — skipping CI wait';
+      steps.push(w);
+      log.warn({ step: 8 }, w);
+      ciSkipped = true;
+    } else {
+      while (Date.now() - ciStart < ciTimeoutMs) {
+        const checksResult = spawnSync(
+          'gh',
+          ['pr', 'checks', prUrl, '--json', 'name,status,conclusion'],
+          { cwd, encoding: 'utf-8', timeout: 30_000 },
+        );
+        if (checksResult.status === 0 && checksResult.stdout) {
+          let checks: Array<{ name: string; status: string; conclusion: string }> = [];
+          try {
+            checks = JSON.parse(checksResult.stdout) as typeof checks;
+          } catch {
+            // malformed JSON — retry
+          }
+          const allDone = checks.length > 0 && checks.every((c) => c.status === 'COMPLETED');
+          const anyFailed = checks.some((c) => c.conclusion === 'FAILURE' || c.conclusion === 'CANCELLED');
+          if (anyFailed) {
+            const failed = checks
+              .filter((c) => c.conclusion === 'FAILURE' || c.conclusion === 'CANCELLED')
+              .map((c) => c.name)
+              .join(', ');
+            logStep(8, 12, 'Wait for CI checks', false, `CI failed: ${failed}`);
+            return engineError(
+              'E_LIFECYCLE_GATE_FAILED',
+              `CI checks failed on PR ${prUrl}: ${failed}. Fix the failures and re-run \`cleo release pr-status ${cleanVersion}\` to poll.`,
+              { details: { prUrl, failedChecks: failed } },
+            );
+          }
+          if (allDone) {
+            ciPassed = true;
+            break;
+          }
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, ciPollMs));
+      }
+
+      if (!ciPassed && !ciSkipped) {
+        const elapsedMin = Math.round((Date.now() - ciStart) / 60_000);
+        const m = `  ! CI checks did not complete within ${elapsedMin} min — proceeding anyway. Poll with: cleo release pr-status ${cleanVersion}`;
+        steps.push(m);
+        log.warn({ step: 8, prUrl, elapsedMin }, m);
+        ciSkipped = true;
+      } else if (ciPassed) {
+        logStep(8, 12, 'Wait for CI checks', true);
       }
     }
 
-    // Step 8 (internal): Record provenance for the release manifest entry
+    // Step 9: Merge PR with --merge (preserves commit SHAs)
+    logStep(9, 12, 'Merge PR');
+    if (prUrl) {
+      try {
+        execFileSync('gh', ['pr', 'merge', prUrl, '--merge', '--auto'], { ...gitCwd, timeout: 60_000 });
+        logStep(9, 12, 'Merge PR', true);
+      } catch (err: unknown) {
+        const msg =
+          (err as { stderr?: string; message?: string }).stderr ??
+          (err as { message?: string }).message ??
+          String(err);
+        if (msg.includes('auto')) {
+          try {
+            execFileSync('gh', ['pr', 'merge', prUrl, '--merge'], { ...gitCwd, timeout: 60_000 });
+            logStep(9, 12, 'Merge PR', true);
+          } catch (err2: unknown) {
+            const msg2 =
+              (err2 as { stderr?: string; message?: string }).stderr ??
+              (err2 as { message?: string }).message ??
+              String(err2);
+            logStep(9, 12, 'Merge PR', false, msg2.slice(0, 300));
+            return engineError('E_GENERAL', `Failed to merge PR: ${msg2}`, { details: { prUrl } });
+          }
+        } else {
+          logStep(9, 12, 'Merge PR', false, msg.slice(0, 300));
+          return engineError('E_GENERAL', `Failed to merge PR: ${msg}`, { details: { prUrl } });
+        }
+      }
+    } else {
+      const m = '  ! No PR URL — skipping merge step';
+      steps.push(m);
+      log.warn({ step: 9 }, m);
+    }
+
+    // Step 10: Tag from main + push tag
+    logStep(10, 12, 'Tag from main and push');
+    try {
+      execFileSync('git', ['checkout', gitflowCfg.branches.main], gitCwd);
+      execFileSync('git', ['pull', gitRemote, gitflowCfg.branches.main], gitCwd);
+      execFileSync('git', ['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
+      execFileSync('git', ['push', gitRemote, gitTag], gitCwd);
+    } catch (err: unknown) {
+      const msg =
+        (err as { stderr?: string; message?: string }).stderr ??
+        (err as { message?: string }).message ??
+        String(err);
+      logStep(10, 12, 'Tag from main and push', false, msg.slice(0, 300));
+      return engineError('E_GENERAL', `Failed to tag or push tag: ${msg}`, { details: { gitTag } });
+    }
+    logStep(10, 12, 'Tag from main and push', true);
+
+    try {
+      commitSha = execFileSync('git', ['rev-parse', 'HEAD'], gitCwd).toString().trim();
+    } catch {
+      // Non-fatal
+    }
+
+    // Step 11: Cleanup release branch (local + remote)
+    logStep(11, 12, 'Cleanup release branch');
+    try {
+      execFileSync('git', ['branch', '-D', releaseBranch], gitCwd);
+    } catch {
+      // Local branch may already be gone; non-fatal
+    }
+    try {
+      execFileSync('git', ['push', gitRemote, '--delete', releaseBranch], gitCwd);
+    } catch {
+      // Remote branch may already be deleted by GitHub on PR merge; non-fatal
+    }
+    logStep(11, 12, 'Cleanup release branch', true);
+
+    // Step 12: Record provenance
     const pushedAt = new Date().toISOString();
     await markReleasePushed(version, pushedAt, projectRoot, { commitSha, gitTag });
 
-    // Resolve the cross-cutting sub-protocol composition chain per release.md (T260)
     const compositionChain = resolveCompositionChain(cwd);
     if (compositionChain.subProtocols.length > 0) {
       const list = compositionChain.subProtocols.join(' → ');
       const m = `  ✓ Composition chain expected: release → ${list}`;
       steps.push(m);
-      log.info(
-        {
-          step: 8,
-          subProtocols: compositionChain.subProtocols,
-          artifactType: compositionChain.artifactType,
-        },
-        m,
-      );
-      if (compositionChain.notes.length > 0) {
-        for (const note of compositionChain.notes) {
-          const n = `    · ${note}`;
-          steps.push(n);
-          log.info({ step: 8, note }, n);
-        }
+      log.info({ step: 12, subProtocols: compositionChain.subProtocols }, m);
+      for (const note of compositionChain.notes) {
+        const n = `    · ${note}`;
+        steps.push(n);
+        log.info({ step: 12, note }, n);
       }
     } else {
       const m = `  · Source-only release — no artifact-publish or provenance sub-protocols`;
       steps.push(m);
-      log.info({ step: 8, subProtocols: [], artifactType: compositionChain.artifactType }, m);
+      log.info({ step: 12, subProtocols: [], artifactType: compositionChain.artifactType }, m);
     }
 
     return {
@@ -1530,21 +1598,124 @@ export async function releaseShip(
         pushedAt,
         changelog: changelogPath,
         channel: resolvedChannel,
+        branchModel: branchCfg.branchModel,
+        releaseBranch,
+        prTargetBranch,
         composition: compositionChain,
         steps,
-        ...(prResult
-          ? {
-              pr: {
-                mode: prResult.mode,
-                prUrl: prResult.prUrl,
-                prNumber: prResult.prNumber,
-                instructions: prResult.instructions,
-              },
-            }
-          : {}),
+        pr: { mode: prResult.mode, prUrl: prResult.prUrl, prNumber: prResult.prNumber },
       },
     };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message ?? String(err));
   }
+}
+
+// ---------------------------------------------------------------------------
+// release.pr-status — manual CI poll for an in-progress release PR (T9095)
+// ---------------------------------------------------------------------------
+
+/** A single CI check status entry returned by release.pr-status. */
+export interface PRCheckStatus {
+  /** Check name (e.g. 'build', 'test'). */
+  name: string;
+  /** GitHub check run status: 'QUEUED' | 'IN_PROGRESS' | 'COMPLETED'. */
+  status: string;
+  /** GitHub check run conclusion: 'SUCCESS' | 'FAILURE' | 'CANCELLED' | null. */
+  conclusion: string | null;
+}
+
+/** Result shape for release.pr-status. */
+export interface PRStatusResult {
+  /** The version queried. */
+  version: string;
+  /** The release branch name (e.g. release/v2026.5.43). */
+  releaseBranch: string;
+  /** The PR URL resolved from the release branch. */
+  prUrl: string | null;
+  /** All CI check statuses from gh pr checks. */
+  checks: PRCheckStatus[];
+  /** Whether all checks have completed successfully. */
+  allPassed: boolean;
+  /** Whether any check has failed or been cancelled. */
+  anyFailed: boolean;
+}
+
+/**
+ * release.pr-status — Resolve the open PR for a release branch and return
+ * the current CI check statuses.
+ *
+ * Provides a way to manually poll after `release ship` is interrupted or
+ * times out waiting for CI.
+ *
+ * @param version     - Release version (with or without leading 'v').
+ * @param projectRoot - Optional working directory.
+ * @returns EngineResult with PRStatusResult.
+ *
+ * @task T9095
+ */
+export async function releasePrStatus(
+  version: string,
+  projectRoot?: string,
+): Promise<EngineResult<PRStatusResult>> {
+  if (!version) {
+    return engineError('E_INVALID_INPUT', 'version is required');
+  }
+
+  const cwd = projectRoot ?? resolveProjectRoot();
+
+  if (!isGhCliAvailable()) {
+    return engineError('E_GENERAL', 'gh CLI is not available. Install it from https://cli.github.com.');
+  }
+
+  const cfg = loadReleaseConfig(cwd);
+  const branchCfg = getReleaseBranchConfig(cfg, cwd);
+  const cleanVersion = version.replace(/^v/, '');
+  const releaseBranch = `${branchCfg.releaseBranchPrefix}v${cleanVersion}`;
+
+  let prUrl: string | null = null;
+  try {
+    const viewResult = spawnSync(
+      'gh',
+      ['pr', 'view', releaseBranch, '--json', 'url', '--jq', '.url'],
+      { cwd, encoding: 'utf-8', timeout: 15_000 },
+    );
+    if (viewResult.status === 0 && viewResult.stdout.trim()) {
+      prUrl = viewResult.stdout.trim();
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  if (!prUrl) {
+    return engineError(
+      'E_NOT_FOUND',
+      `No open PR found for release branch '${releaseBranch}'. Verify the branch exists on the remote or the PR has not been merged/closed.`,
+    );
+  }
+
+  let checks: PRCheckStatus[] = [];
+  try {
+    const checksResult = spawnSync(
+      'gh',
+      ['pr', 'checks', prUrl, '--json', 'name,status,conclusion'],
+      { cwd, encoding: 'utf-8', timeout: 30_000 },
+    );
+    if (checksResult.status === 0 && checksResult.stdout) {
+      const raw = JSON.parse(checksResult.stdout) as Array<{
+        name: string;
+        status: string;
+        conclusion: string | null;
+      }>;
+      checks = raw.map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion }));
+    }
+  } catch {
+    // Non-fatal — return empty checks
+  }
+
+  const allPassed =
+    checks.length > 0 && checks.every((c) => c.status === 'COMPLETED' && c.conclusion === 'SUCCESS');
+  const anyFailed = checks.some((c) => c.conclusion === 'FAILURE' || c.conclusion === 'CANCELLED');
+
+  return engineSuccess<PRStatusResult>({ version: cleanVersion, releaseBranch, prUrl, checks, allPassed, anyFailed });
 }

@@ -245,6 +245,38 @@ const rollbackFullCommand = defineCommand({
   },
 });
 
+/**
+ * cleo release pr-status <version> — poll CI check status for an in-progress release PR.
+ *
+ * Resolves the open PR for the release branch `release/v<version>` and returns
+ * the current GitHub CI check statuses.  Useful for manual polling when
+ * `cleo release ship` is interrupted or times out.
+ *
+ * @task T9095
+ */
+const prStatusCommand = defineCommand({
+  meta: {
+    name: 'pr-status',
+    description: 'Poll CI check status for an in-progress release PR (T9095)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version (e.g. 2026.5.43)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'pipeline',
+      'release.pr-status',
+      { version: args.version },
+      { command: 'release' },
+    );
+  },
+});
+
 /** cleo release channel — show the current release channel based on git branch */
 const channelCommand = defineCommand({
   meta: {
@@ -332,6 +364,7 @@ export const releaseCommand = defineCommand({
     rollback: rollbackCommand,
     'rollback-full': rollbackFullCommand,
     channel: channelCommand,
+    'pr-status': prStatusCommand,
     // Canonical 4-step pipeline (T1597 / ADR-063)
     start: startCommand,
     verify: verifyCommand,

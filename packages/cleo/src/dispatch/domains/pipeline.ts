@@ -76,6 +76,7 @@ import {
   releaseCancel,
   releaseChangelogSince,
   releaseList,
+  releasePrStatus,
   releaseRollback,
   releaseRollbackFull,
   releaseShip,
@@ -128,6 +129,8 @@ type ReleaseRollbackFullParams = {
   force?: boolean;
   unpublish?: boolean;
 };
+/** T9095 — pr-status query param. */
+type ReleasePrStatusParams = { version: string };
 
 // ---- Manifest wrapper types ------------------------------------------------
 
@@ -283,6 +286,11 @@ async function releaseShipOp(params: ReleaseShipParams) {
   );
 }
 
+/** T9095 — poll CI check status for in-progress release PR. */
+async function releasePrStatusOp(params: ReleasePrStatusParams) {
+  return releasePrStatus(params.version, getProjectRoot());
+}
+
 async function releaseCancelOp(params: ReleaseCancelParams) {
   return releaseCancel(params.version, getProjectRoot());
 }
@@ -420,6 +428,7 @@ const coreOps = {
   'release.channel.show': releaseChannelShowOp,
   'release.changelog.since': releaseChangelogSinceOp,
   'release.ship': releaseShipOp,
+  'release.pr-status': releasePrStatusOp,
   'release.cancel': releaseCancelOp,
   'release.rollback': releaseRollbackOp,
   'release.rollback.full': releaseRollbackFullOp,
@@ -608,6 +617,14 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
       return lafsError('E_INVALID_INPUT', 'version and epicId are required', 'release.ship');
     }
     return wrapCoreResult(await coreOps['release.ship'](params), 'release.ship');
+  },
+
+  // release.pr-status — T9095 query: poll CI checks for an in-progress release PR
+  'release.pr-status': async (params: PipelineOps['release.pr-status'][0]) => {
+    if (!params.version) {
+      return lafsError('E_INVALID_INPUT', 'version is required', 'release.pr-status');
+    }
+    return wrapCoreResult(await coreOps['release.pr-status'](params), 'release.pr-status');
   },
 
   'release.cancel': async (params: PipelineOps['release.cancel'][0]) => {

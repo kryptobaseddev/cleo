@@ -46,6 +46,7 @@ export {
   writeCIConfig,
 } from './ci.js';
 // Engine operations — CLI-callable release operations migrated from dispatch layer (T1572)
+export type { PRCheckStatus, PRStatusResult } from './engine-ops.js';
 export {
   releaseCancel,
   releaseChangelog,
@@ -56,6 +57,7 @@ export {
   releaseIvtrAutoSuggest,
   releaseList,
   releasePrepare,
+  releasePrStatus,
   releasePush,
   releaseRollback,
   releaseRollbackFull,
