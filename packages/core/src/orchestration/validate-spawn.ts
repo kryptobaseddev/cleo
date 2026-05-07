@@ -165,7 +165,8 @@ export async function validateSpawnReadiness(
           message: `Dependency ${dep} not found`,
           severity: 'error',
         });
-      } else if (depTask.status !== 'done') {
+      } else if (depTask.status !== 'done' && depTask.status !== 'archived') {
+        // archived tasks satisfy dependencies (treated equivalent to done) — T1954
         issues.push({
           code: 'V_UNMET_DEP',
           message: `Dependency ${dep} (${depTask.title}) is not complete (status: ${depTask.status})`,

@@ -225,14 +225,33 @@ export function detectStaleDeps(tasks: Task[]): DepGraphIssue[] {
  *   5. Stale-dep detection (E_STALE_DEP)
  *
  * @param tasks - Tasks to validate (already filtered by scope if applicable).
+ * @param allTasks - Optional full unscoped task list used to distinguish ARCHIVED
+ *   deps from truly missing ones (T1954). When omitted, falls back to `tasks`.
  * @returns Structured validation result with all issues.
  */
-export function validateDepGraph(tasks: Task[]): DepGraphValidateResult {
+export function validateDepGraph(tasks: Task[], allTasks?: Task[]): DepGraphValidateResult {
   const issues: DepGraphIssue[] = [];
 
-  // 1. Missing references (delegate to base validator)
+  // 1. Missing references (delegate to base validator).
+  //
+  // When the caller supplies `allTasks` (e.g. the full unscoped project task list),
+  // we use it to distinguish ARCHIVED deps from truly missing ones (T1954).
+  // A dep that resolves to an archived task in `allTasks` is treated as satisfied
+  // and should NOT produce an E_MISSING_REF issue.
   const missingRefErrors = validateDependencyRefs(tasks);
+  const fullTaskIndex: Set<string> | null =
+    allTasks !== undefined ? new Set(allTasks.map((t) => t.id)) : null;
+  const archivedTaskIds: Set<string> =
+    allTasks !== undefined
+      ? new Set(allTasks.filter((t) => t.status === 'archived').map((t) => t.id))
+      : new Set();
+
   for (const e of missingRefErrors) {
+    // If the referenced dep exists in allTasks with status=archived, skip it —
+    // archived tasks satisfy dependencies (T1954). Only surface truly absent refs.
+    if (fullTaskIndex !== null && archivedTaskIds.has(e.relatedIds?.[0] ?? '')) {
+      continue;
+    }
     issues.push({
       code: 'E_MISSING_REF',
       taskId: e.taskId,
@@ -288,6 +307,10 @@ export function validateDepGraph(tasks: Task[]): DepGraphValidateResult {
  * Run dep-graph validation over a task set with optional epic scoping and
  * scope filtering.
  *
+ * Passes the full unscoped `allTasks` list to {@link validateDepGraph} so that
+ * deps pointing to archived tasks outside the current scope are correctly
+ * treated as satisfied rather than missing (T1954).
+ *
  * @param allTasks - All tasks in the project.
  * @param opts - Optional epic scope and task scope filter.
  * @returns Validation result.
@@ -308,5 +331,7 @@ export function runValidation(
     tasks = tasks.filter((t) => epicChildIds.has(t.id));
   }
 
-  return validateDepGraph(tasks);
+  // Pass allTasks as the full index so archived deps outside scope are not
+  // flagged as missing refs (T1954).
+  return validateDepGraph(tasks, allTasks);
 }
