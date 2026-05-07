@@ -17,6 +17,7 @@
 //! - [`types`] — Pagination, query filters, and stats deltas.
 //! - [`traits`] — Repository trait definitions.
 //! - [`adapters`] — Diesel adapter implementations.
+//! - [`sqlite_pragmas`] — Compile-time SQLite pragma SSoT (T9053).
 //!
 //! # Design
 //!
@@ -30,6 +31,14 @@ pub mod adapters;
 pub mod models;
 /// Diesel `table!` macro definitions for the full SignalDock schema.
 pub mod schema;
+/// Compile-time SQLite pragma SSoT (T9053).
+///
+/// Re-exports the canonical pragma SQL generated from
+/// `specs/sqlite-pragmas.json` by `build.rs`. The TS side
+/// (`packages/core/src/store/sqlite-pragmas.ts`) consumes the same
+/// JSON file at runtime, so both code paths apply byte-identical
+/// pragma SQL to every SQLite connection they open.
+pub mod sqlite_pragmas;
 /// Repository trait definitions for all domain entities.
 pub mod traits;
 /// Pagination, query filters, and stats delta types.
