@@ -32,8 +32,17 @@ export default defineConfig({
       'src/**/__tests__/*.test.ts',
       'tests/**/*.test.ts',
     ],
-    // Only exclude node_modules and dist — integration tests are permitted here.
-    exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**'],
+    // Exclude the same patterns as root config so integration tests do not run
+    // in the global project sweep (pnpm test / CI shard). Integration tests
+    // require real filesystem/DB setup and run explicitly via test:integration.
+    exclude: [
+      'node_modules',
+      'dist',
+      '**/node_modules/**',
+      '**/e2e/**',
+      '**/*.integration.test.ts',
+      '**/*-integration.test.ts',
+    ],
     // Path aliases matching the root tsconfig.
     alias: {
       '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
