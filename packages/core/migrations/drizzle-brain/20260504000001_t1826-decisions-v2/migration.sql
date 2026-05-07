@@ -16,31 +16,35 @@
 
 -- 1. ADR sequence number (unique across all assigned decisions; app-level MAX+1 sequence)
 ALTER TABLE brain_decisions ADD COLUMN adr_number INTEGER;
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_decisions_adr_number
   ON brain_decisions(adr_number)
   WHERE adr_number IS NOT NULL;
-
+--> statement-breakpoint
 -- 2. Path to the ADR document on disk (nullable)
 ALTER TABLE brain_decisions ADD COLUMN adr_path TEXT;
-
+--> statement-breakpoint
 -- 3. Self-referential supersession pointers (nullable FK to brain_decisions.id)
 ALTER TABLE brain_decisions ADD COLUMN supersedes TEXT REFERENCES brain_decisions(id);
+--> statement-breakpoint
 ALTER TABLE brain_decisions ADD COLUMN superseded_by TEXT REFERENCES brain_decisions(id);
-
+--> statement-breakpoint
 -- 4. Confirmation state enum with a safe default for new rows
 --    Existing rows are backfilled to 'accepted' in the UPDATE below.
 ALTER TABLE brain_decisions ADD COLUMN confirmation_state TEXT NOT NULL DEFAULT 'proposed';
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_brain_decisions_confirmation_state
   ON brain_decisions(confirmation_state);
-
+--> statement-breakpoint
 -- 5. Who decided / approved (enum; defaults to 'agent')
 ALTER TABLE brain_decisions ADD COLUMN decided_by TEXT NOT NULL DEFAULT 'agent';
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_brain_decisions_decided_by
   ON brain_decisions(decided_by);
-
+--> statement-breakpoint
 -- 6. LLM validator timestamp (epoch ms; nullable)
 ALTER TABLE brain_decisions ADD COLUMN validator_run_at INTEGER;
-
+--> statement-breakpoint
 -- Backfill existing rows: mark them as accepted agent-decisions
 -- (they were already active before governance was introduced)
 UPDATE brain_decisions
