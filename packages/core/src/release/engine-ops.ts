@@ -996,13 +996,28 @@ export async function releasePush(
 }
 
 /**
- * release.ship — Composite release operation.
+ * release.ship — Composite release operation (PR-required flow, T9095).
  *
- * Sequence: validate gates → epic completeness → double-listing check →
- * write CHANGELOG → git commit/tag/push (or PR) → record provenance.
+ * Sequence:
+ *   0.   Bump version files (optional)
+ *   0.5. Auto-prepare release record
+ *   1.   Validate release gates
+ *   1.5. IVTR gate check
+ *   2.   Check epic completeness
+ *   3.   Check task double-listing
+ *   4.   Generate CHANGELOG + lint check
+ *   5.   Cut release branch + commit changes
+ *   6.   Push release branch to remote
+ *   7.   Open PR via gh CLI (MANDATORY — no direct push to main)
+ *   8.   Wait for CI checks (15 min max)
+ *   9.   Merge PR with --merge (preserves commit SHAs)
+ *   10.  Tag from main + push tag
+ *   11.  Cleanup release branch (local + remote)
+ *   12.  Record provenance
  *
  * @task T5582
  * @task T5586
+ * @task T9095 — PR-required flow
  * @epic T5576
  */
 export async function releaseShip(

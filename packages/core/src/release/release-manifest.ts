@@ -162,16 +162,24 @@ function rowToManifest(row: schema.ReleaseManifestRow): ReleaseManifest {
   };
 }
 
-async function findLatestPushedVersion(cwd?: string): Promise<string | undefined> {
+interface LatestPushedVersion {
+  version: string;
+  pushedAt: string | null;
+}
+
+async function findLatestPushedVersion(cwd?: string): Promise<LatestPushedVersion | undefined> {
   const db = await getDb(cwd);
   const rows = await db
-    .select({ version: schema.releaseManifests.version })
+    .select({
+      version: schema.releaseManifests.version,
+      pushedAt: schema.releaseManifests.pushedAt,
+    })
     .from(schema.releaseManifests)
     .where(eq(schema.releaseManifests.status, 'pushed'))
     .orderBy(desc(schema.releaseManifests.pushedAt))
     .limit(1)
     .all();
-  return rows[0]?.version;
+  return rows[0];
 }
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -213,10 +221,17 @@ export async function prepareRelease(
     throw new Error(`Release ${normalizedVersion} already exists (status: ${existing[0]!.status})`);
   }
 
+  const previousVersion = await findLatestPushedVersion(cwd);
+
   let releaseTasks = tasks ?? [];
   if (releaseTasks.length === 0) {
     const allTasks = await loadTasksFn();
-    releaseTasks = allTasks.filter((t) => t.status === 'done' && t.completedAt).map((t) => t.id);
+    const cutoff = previousVersion?.pushedAt ?? null;
+    releaseTasks = allTasks
+      .filter(
+        (t) => t.status === 'done' && t.completedAt && (cutoff === null || t.completedAt > cutoff),
+      )
+      .map((t) => t.id);
   }
 
   // Filter out epic IDs
@@ -225,8 +240,6 @@ export async function prepareRelease(
     allTasks.filter((t) => allTasks.some((c) => c.parentId === t.id)).map((t) => t.id),
   );
   releaseTasks = releaseTasks.filter((id) => !epicIds.has(id));
-
-  const previousVersion = await findLatestPushedVersion(cwd);
   const now = new Date().toISOString();
   const id = `rel-${normalizedVersion.replace(/[^a-z0-9]/gi, '-')}`;
 
@@ -238,7 +251,7 @@ export async function prepareRelease(
       status: 'prepared',
       tasksJson: JSON.stringify(releaseTasks),
       notes: notes ?? null,
-      previousVersion: previousVersion ?? null,
+      previousVersion: previousVersion?.version ?? null,
       createdAt: now,
       preparedAt: now,
     })
