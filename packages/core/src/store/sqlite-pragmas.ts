@@ -2,10 +2,18 @@
  * Centralized SQLite performance pragma application for all CLEO databases.
  *
  * Single source of truth for the pragma set applied to every node:sqlite
- * `DatabaseSync` handle opened across CLEO. Keeping this in one place avoids
- * the historical drift where some open sites (sqlite-native, conduit-sqlite)
- * carried tuned pragmas while others (backup-pack, agent-registry-accessor,
- * one-shot installers) opened raw connections that fell back to SQLite
+ * `DatabaseSync` handle opened across CLEO. The canonical (name, value)
+ * pairs are loaded from `specs/sqlite-pragmas.json` at module init via
+ * `fs.readFileSync` relative to `import.meta.url` — the same pattern
+ * `@cleocode/caamp` uses for `providers/hook-mappings.json`. The Rust
+ * crate `signaldock-storage` consumes the identical JSON file from a
+ * `build.rs` codegen step (T9053), so the SQL applied by node:sqlite
+ * here and by Diesel/SQLite over there is byte-identical by construction.
+ *
+ * Keeping this in one place avoids the historical drift where some
+ * open sites (sqlite-native, conduit-sqlite) carried tuned pragmas
+ * while others (backup-pack, agent-registry-accessor, one-shot
+ * installers) opened raw connections that fell back to SQLite
  * defaults — silently penalizing every operation those code paths drove.
  *
  * The pragma set is tuned for CLEO's workload profile:
@@ -17,34 +25,24 @@
  *     (CLI tasks, not financial ledgers).
  *
  * @remarks
- * Choices and rationale:
+ * Choices and rationale for the values shipped in
+ * `specs/sqlite-pragmas.json`:
  *
- * - `journal_mode = WAL` — Enables concurrent reader+writer access. CLEO
- *   already required this; centralized here so non-`openNativeDatabase`
- *   sites get it consistently.
+ * - `journal_mode = WAL` — Enables concurrent reader+writer access.
  * - `synchronous = NORMAL` — Safe with WAL: durable on commit, only the
  *   in-flight transaction is at risk on power cut. ~2-3× faster than the
- *   default `FULL` for write-heavy workloads. Recommended by SQLite docs
- *   for application-level use cases that don't require commit-equals-fsync.
+ *   default `FULL` for write-heavy workloads.
  * - `busy_timeout = 5000` — Wait up to 5 s for a competing writer's lock
  *   before failing with SQLITE_BUSY. Without this, concurrent CLI
  *   invocations (verify + complete + tests) immediately error out;
  *   with this, they queue politely.
  * - `cache_size = -64000` — 64 MB page cache (negative = KB; positive =
  *   pages). The SQLite default of ~2 MB makes any non-trivial query
- *   thrash. 64 MB is a reasonable budget for a CLI process and brings
- *   query latency down sharply for the dispatch domain.
- * - `mmap_size = 268435456` — 256 MB memory-mapped read window. SQLite
- *   serves reads directly from the mmap region without copying through
- *   the page cache, eliminating syscalls on the read path. Especially
- *   beneficial for read-mostly tables (sessions, attachments, memory).
- *   Hard cap at 256 MB to avoid VM pressure on low-memory hosts.
- * - `temp_store = MEMORY` — Temp tables and intermediate query results
- *   live in RAM rather than spilling to disk. Cheap win for sort/join
- *   heavy queries.
+ *   thrash.
+ * - `mmap_size = 268435456` — 256 MB memory-mapped read window.
+ * - `temp_store = MEMORY` — Temp tables live in RAM rather than on disk.
  * - `wal_autocheckpoint = 1000` — Auto-checkpoint after 1000 frames
- *   (~4 MB at 4 KB pages). Default is 1000 already; setting explicitly
- *   guards against future SQLite default changes.
+ *   (~4 MB at 4 KB pages).
  *
  * @remarks
  * For read-only opens (`{ readOnly: true }` constructor option), most
@@ -52,14 +50,86 @@
  * `journal_mode = WAL` if not already set) silently no-op on read-only
  * handles, which is fine — the writer set WAL when it created the DB.
  *
- * @task T-PERF-PRAGMAS
+ * @task T-PERF-PRAGMAS, T9053
  */
 
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
+
+// ── SSoT load ───────────────────────────────────────────────────────
 
 /**
- * Configuration for `applyPerfPragmas`. All fields are optional — defaults
- * are tuned for the typical CLEO project DB.
+ * Shape of `specs/sqlite-pragmas.json` — the canonical CLEO SQLite
+ * pragma policy file. Only the fields this module consumes are typed.
+ */
+interface SqlitePragmaSpec {
+  readonly version: number;
+  readonly pragmas: ReadonlyArray<readonly [string, string]>;
+}
+
+function locateSpecPath(): string {
+  // From <repo>/packages/core/{src,dist}/store/sqlite-pragmas.{ts,js}
+  // the workspace root is four levels up: store → {src|dist} → core →
+  // packages → repo. The same offset works in both ts-source (vitest)
+  // and the compiled dist tree because the depth is identical.
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolve(here, '..', '..', '..', '..', 'specs', 'sqlite-pragmas.json');
+}
+
+function loadSpec(): SqlitePragmaSpec {
+  const path = locateSpecPath();
+  const raw = readFileSync(path, 'utf8');
+  const parsed = JSON.parse(raw) as SqlitePragmaSpec;
+  if (!Array.isArray(parsed.pragmas) || parsed.pragmas.length === 0) {
+    throw new Error(
+      `T9053 SSoT at ${path} declared no pragmas — refusing to apply ` +
+        'an empty policy that would silently disable WAL/foreign_keys/etc.',
+    );
+  }
+  return parsed;
+}
+
+const SPEC: SqlitePragmaSpec = loadSpec();
+
+/**
+ * Canonical (name, value) pairs in declared order — mirror of the
+ * Rust `SQLITE_PRAGMAS` const generated by
+ * `crates/signaldock-storage/build.rs` from the same JSON file.
+ */
+export const CANONICAL_PRAGMAS: ReadonlyArray<readonly [string, string]> = SPEC.pragmas;
+
+/**
+ * Render a single (name, value) pair to its `PRAGMA name = value` SQL
+ * form. The Rust side (`build.rs`) emits the identical formatting.
+ *
+ * @param entry - Tuple of `[pragma name, value]` from the SSoT.
+ * @returns The pragma SQL statement (no trailing semicolon).
+ *
+ * @example
+ * ```ts
+ * renderPragmaSql(['journal_mode', 'WAL']); // "PRAGMA journal_mode = WAL"
+ * ```
+ */
+export function renderPragmaSql(entry: readonly [string, string]): string {
+  const [name, value] = entry;
+  return `PRAGMA ${name} = ${value}`;
+}
+
+/**
+ * Canonical pragma SQL — every entry rendered and joined with `;\n`.
+ * Byte-identical to `signaldock_storage::sqlite_pragmas::SQLITE_PRAGMA_SQL`.
+ */
+export const CANONICAL_PRAGMA_SQL: string = CANONICAL_PRAGMAS.map(renderPragmaSql).join(';\n');
+
+// ── Public API ──────────────────────────────────────────────────────
+
+/**
+ * Configuration for `applyPerfPragmas`. All fields are optional —
+ * defaults come from the SSoT spec. Any override here only affects the
+ * matching pragma when it is present in the SSoT; unknown overrides
+ * are ignored.
  */
 export interface PerfPragmaOptions {
   /**
@@ -76,17 +146,17 @@ export interface PerfPragmaOptions {
   enableForeignKeys?: boolean;
   /**
    * Page cache size in KB (passed as the negative form to PRAGMA cache_size).
-   * Default `64000` (64 MB).
+   * Default comes from the SSoT (`-64000` = 64 MB).
    */
   cacheSizeKb?: number;
   /**
-   * Memory-mapped I/O size in bytes. Default `268435456` (256 MB).
-   * Set `0` to disable mmap entirely.
+   * Memory-mapped I/O size in bytes. Default comes from the SSoT
+   * (`268435456` = 256 MB). Set `0` to disable mmap entirely.
    */
   mmapSizeBytes?: number;
   /**
    * Busy timeout in milliseconds — how long writers wait for a competing
-   * lock before SQLITE_BUSY. Default `5000`.
+   * lock before SQLITE_BUSY. Default comes from the SSoT (`5000`).
    */
   busyTimeoutMs?: number;
 }
@@ -99,6 +169,12 @@ export interface PerfPragmaOptions {
  * are configuration, not queries — most return no rows and prepared
  * statement caching offers no benefit.
  *
+ * The order and the value for each pragma come from
+ * `specs/sqlite-pragmas.json` (T9053 SSoT). `applyPerfPragmas` only
+ * deviates from the spec for the small set of toggles documented on
+ * `PerfPragmaOptions` (read-only handles disable WAL, vitest disables
+ * foreign_keys, callers may override numeric values).
+ *
  * Safe to call multiple times on the same handle: every pragma here is
  * idempotent. Safe to call on read-only handles: write-requiring pragmas
  * silently no-op.
@@ -110,37 +186,63 @@ export function applyPerfPragmas(db: DatabaseSync, options: PerfPragmaOptions = 
   const {
     enableWal = true,
     enableForeignKeys = !process.env.VITEST,
-    cacheSizeKb = 64_000,
-    mmapSizeBytes = 268_435_456,
-    busyTimeoutMs = 5_000,
+    cacheSizeKb,
+    mmapSizeBytes,
+    busyTimeoutMs,
   } = options;
 
-  // busy_timeout BEFORE any other pragma so concurrent writers wait politely
-  // rather than failing immediately if the next pragma requires a write lock.
-  db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
-
-  if (enableWal) {
-    db.exec('PRAGMA journal_mode = WAL');
+  for (const entry of CANONICAL_PRAGMAS) {
+    const [name, declaredValue] = entry;
+    const value = resolvePragmaValue(name, declaredValue, {
+      enableWal,
+      enableForeignKeys,
+      cacheSizeKb,
+      mmapSizeBytes,
+      busyTimeoutMs,
+    });
+    if (value === null) {
+      continue; // toggle disabled this pragma for this handle
+    }
+    db.exec(`PRAGMA ${name} = ${value}`);
   }
+}
 
-  // synchronous = NORMAL is the WAL-recommended setting: durable on commit,
-  // last-transaction loss possible on power cut, no corruption risk.
-  db.exec('PRAGMA synchronous = NORMAL');
+interface ResolvedToggles {
+  readonly enableWal: boolean;
+  readonly enableForeignKeys: boolean;
+  readonly cacheSizeKb: number | undefined;
+  readonly mmapSizeBytes: number | undefined;
+  readonly busyTimeoutMs: number | undefined;
+}
 
-  if (enableForeignKeys) {
-    db.exec('PRAGMA foreign_keys = ON');
+/**
+ * Compute the runtime value for a pragma given the SSoT default and
+ * any caller-supplied overrides. Returns `null` to skip the pragma
+ * entirely (used for the WAL/foreign_keys toggles).
+ */
+function resolvePragmaValue(
+  name: string,
+  declared: string,
+  toggles: ResolvedToggles,
+): string | null {
+  switch (name) {
+    case 'journal_mode':
+      return toggles.enableWal ? declared : null;
+    case 'foreign_keys':
+      return toggles.enableForeignKeys ? declared : null;
+    case 'busy_timeout':
+      return toggles.busyTimeoutMs === undefined ? declared : String(toggles.busyTimeoutMs);
+    case 'cache_size':
+      return toggles.cacheSizeKb === undefined ? declared : `-${toggles.cacheSizeKb}`;
+    case 'mmap_size': {
+      if (toggles.mmapSizeBytes === undefined) {
+        return declared;
+      }
+      return toggles.mmapSizeBytes > 0 ? String(toggles.mmapSizeBytes) : null;
+    }
+    default:
+      return declared;
   }
-
-  // Negative cache_size = KB. Positive = pages. We use KB so the budget is
-  // independent of page_size.
-  db.exec(`PRAGMA cache_size = -${cacheSizeKb}`);
-
-  if (mmapSizeBytes > 0) {
-    db.exec(`PRAGMA mmap_size = ${mmapSizeBytes}`);
-  }
-
-  db.exec('PRAGMA temp_store = MEMORY');
-  db.exec('PRAGMA wal_autocheckpoint = 1000');
 }
 
 /**

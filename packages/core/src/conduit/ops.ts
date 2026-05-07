@@ -4,6 +4,12 @@
  * Dispatch uses these signatures as the type source for `OpsFromCore` while
  * conduit runtime behavior remains in the existing behavior-preserving handler.
  *
+ * Layering (ADR-069 D002): Conduit is the Messaging layer. Workflow MAY use
+ * Conduit; Conduit MUST NOT know about the harness (ADR-069 D002). Conduit
+ * MUST NOT import from `packages/cleo-os/`, the orchestrator, BRAIN, or
+ * sentient subsystems.
+ *
+ * @see ADR-069 (CLEO Coordination Layers)
  * @task T1439
  */
 
