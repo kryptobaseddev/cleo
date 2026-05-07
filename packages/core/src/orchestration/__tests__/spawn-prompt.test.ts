@@ -41,6 +41,10 @@ const BASE_TASK: Task = {
 
 const PROJECT_ROOT = '/tmp/spawn-prompt-test-project';
 
+function normalizePromptPaths(prompt: string): string {
+  return prompt.replace(/\\/g, '/');
+}
+
 beforeEach(() => {
   resetSpawnPromptCache();
 });
@@ -157,7 +161,7 @@ describe('buildSpawnPrompt — stage-specific guidance', () => {
       protocol: 'research',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('.cleo/rcasd/T9000/research/');
+    expect(normalizePromptPaths(result.prompt)).toContain('.cleo/rcasd/T9000/research/');
     expect(result.prompt).toContain('Gather information and evidence');
   });
 
