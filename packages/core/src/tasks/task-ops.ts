@@ -2892,6 +2892,12 @@ export async function taskDepsCycles(projectRoot: string): Promise<
 /**
  * Run dep-graph validation — orphan, circular, cross-epic gap, stale-dep detection.
  *
+ * Fetches ALL tasks including archived so that deps pointing to archived tasks
+ * are correctly treated as satisfied rather than missing (T9158 / T1954).
+ * Without archived tasks in the pool, `validateDependencyRefs` incorrectly
+ * flags them as E_MISSING_REF because `queryTasks({})` excludes archived by
+ * default.
+ *
  * @param projectRoot - Absolute path to the project root.
  * @param epicId - Optional epic ID to scope validation to direct children only.
  * @param scope - Which tasks to include: all, open, or critical-priority only.
@@ -2906,8 +2912,13 @@ export async function taskDepsValidate(
 ): Promise<EngineResult<DepGraphValidateResult>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const { tasks } = await accessor.queryTasks({});
-    const result = runValidation(tasks, { epicId, scope });
+    // Fetch ALL tasks including archived — archived deps must resolve as satisfied,
+    // not as missing refs (T9158). queryTasks({}) excludes archived by default, so
+    // we explicitly request all known statuses.
+    const { tasks: allTasks } = await accessor.queryTasks({
+      status: [...TASK_STATUSES] as TaskStatus[],
+    });
+    const result = runValidation(allTasks, { epicId, scope });
     return engineSuccess(result);
   } catch (err: unknown) {
     return nonCrudEngineError(err, 'Failed to run dep-graph validation');
