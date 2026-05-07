@@ -16,7 +16,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
@@ -364,8 +364,26 @@ export function validateProjectRoot(candidate: string): boolean {
 
   // Legacy fallback: .cleo/ + .git/ sibling (no project-info.json required).
   // Emits a one-time warning to prompt the operator to run `cleo init`.
+  //
+  // CRITICAL (T9092): a git worktree has `.git` as a *file* (a "gitlink" pointing
+  // back to the main repo's .git/worktrees/<name> directory), NOT a directory.
+  // Accepting such candidates as project roots recreates the 2026-05-04 dead-end-DB
+  // disaster pattern: workers spawned in a worktree create rogue `.cleo/tasks.db`
+  // files isolated from the real project database. The legacy fallback MUST only
+  // accept candidates where `.git` is a true directory (a real repo root).
   const gitDir = join(candidate, '.git');
   if (existsSync(gitDir)) {
+    let isRealGitDir = false;
+    try {
+      const stat = statSync(gitDir);
+      isRealGitDir = stat.isDirectory();
+    } catch {
+      isRealGitDir = false;
+    }
+    if (!isRealGitDir) {
+      // .git is a gitlink file (worktree marker) — NOT a project root.
+      return false;
+    }
     if (!_legacyFallbackWarned) {
       _legacyFallbackWarned = true;
       process.stderr.write(
@@ -490,6 +508,33 @@ export function getProjectRoot(cwd?: string): string {
   const start = resolve(cwd ?? process.cwd());
   let current = start;
 
+  // 2.5. T9092: if `start` is inside a git worktree (i.e. has `.git` as a
+  //      gitlink FILE pointing to `<mainrepo>/.git/worktrees/<name>`), the
+  //      canonical project root is the MAIN repo, not the worktree dir.
+  //      Read the gitlink, parse `gitdir: <path>`, derive the main repo root
+  //      as the grandparent of `<path>` (since gitdir is `<main>/.git/worktrees/<name>`).
+  //      This solves the case where the worktree lives under
+  //      `~/.local/share/cleo/worktrees/...` — walking up from there would
+  //      never reach the main repo at `/mnt/projects/cleocode`.
+  try {
+    const startGit = join(start, '.git');
+    if (existsSync(startGit) && statSync(startGit).isFile()) {
+      const gitLinkContent = readFileSync(startGit, 'utf-8').trim();
+      const match = gitLinkContent.match(/^gitdir:\s*(.+)$/m);
+      if (match) {
+        const gitdir = match[1].trim();
+        // gitdir is `<main>/.git/worktrees/<name>` → strip last 3 segments.
+        // dirname × 3: `<main>/.git/worktrees/<name>` → `<main>/.git/worktrees` → `<main>/.git` → `<main>`
+        const mainRepo = dirname(dirname(dirname(gitdir)));
+        if (existsSync(join(mainRepo, '.cleo')) && validateProjectRoot(mainRepo)) {
+          return mainRepo;
+        }
+      }
+    }
+  } catch {
+    // Gitlink parse error — fall through to ancestor walk.
+  }
+
   // T889/T909 guard: snapshot $HOME and filesystem root sentinels.
   //
   // Historical bug: when `cleo` ran with `cwd=$HOME` and a stray
@@ -524,30 +569,42 @@ export function getProjectRoot(cwd?: string): string {
       // T1463/P1-7: validate that the .cleo/ dir has the required sibling
       // markers (.git/ or package.json) before accepting this candidate.
       //
-      // Validation is only enforced when we have walked UP from the starting
-      // directory (current !== start). When the `.cleo/` is found at the
-      // exact starting directory, we accept it unconditionally — callers
-      // that explicitly pass a project root directory know what they're doing
-      // (e.g. test harnesses, CLI commands that receive --cwd from the user).
-      //
-      // The trap scenario is specifically about the walk-up finding a PARENT
-      // `.cleo/` dir that belongs to a different, unrelated ancestor directory
-      // (e.g. `~/.cleo/` from a prior buggy run, or a grandparent project).
-      if (current === start || validateProjectRoot(current)) {
-        // Valid project root — either we're at the start dir, or the parent
-        // .cleo/ has a recognized sibling marker.
+      // T9092: previously the start-directory short-circuit was unconditional —
+      // `current === start` returned the candidate without running
+      // validateProjectRoot. That allowed a worktree (whose `.git` is a gitlink
+      // FILE not a directory) to be accepted as a project root if any process
+      // had previously created a stray `.cleo/` inside it. validateProjectRoot
+      // now rejects gitlink-only candidates, so we must run it on the start dir
+      // too — but only as a *gate* to walk up further, not to reject outright.
+      // If start dir validation fails, we continue walking to find the real
+      // project root (the main repo).
+      if (validateProjectRoot(current)) {
+        // Valid project root.
         return current;
       }
-      // .cleo/ exists but lacks sibling markers and we're above the start —
-      // skip this candidate and continue walking up for a better-anchored root.
+      // Stray/rogue .cleo/ found (e.g. worktree with gitlink, or .cleo without
+      // project-info.json AND without a real .git/ sibling) — skip it and
+      // continue walking up for the canonical project root.
       skippedCleoDirs.push(current);
     }
 
     if (existsSync(gitDir) && !isDangerousRoot) {
-      // .git/ found but no .cleo/ sibling — not initialised
-      throw new CleoError(ExitCode.CONFIG_ERROR, `Run cleo init at ${current}`, {
-        fix: `cd ${current} && cleo init`,
-      });
+      // T9092: only treat .git as a "real repo root" boundary when it is a
+      // DIRECTORY. A gitlink FILE (worktree marker) does not anchor a project
+      // root — keep walking up to find the canonical main repo.
+      let isRealGitDir = false;
+      try {
+        isRealGitDir = statSync(gitDir).isDirectory();
+      } catch {
+        isRealGitDir = false;
+      }
+      if (isRealGitDir) {
+        // Real .git/ found but no .cleo/ sibling — not initialised
+        throw new CleoError(ExitCode.CONFIG_ERROR, `Run cleo init at ${current}`, {
+          fix: `cd ${current} && cleo init`,
+        });
+      }
+      // gitlink file — keep walking up to find the canonical project root.
     }
 
     // Move up one level
