@@ -13,9 +13,31 @@
  * @task T1161
  */
 
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CreateWorktreeOptions, CreateWorktreeResult } from '@cleocode/contracts';
+import type {
+  CreateWorktreeOptions,
+  CreateWorktreeResult,
+  WorktreeHookResult,
+  WorktreeIncludePattern,
+} from '@cleocode/contracts';
+import { copyPathsWithReflock } from './copy-on-write.js';
+
+/**
+ * Extended result type including the bootstrap field.
+ *
+ * The contracts package will be updated separately to add this field to
+ * {@link CreateWorktreeResult}; this local extension allows the implementation
+ * to compile in the interim.
+ */
+interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
+  bootstrap: {
+    copiedPaths: string[];
+    failedPaths: string[];
+    hookResults: WorktreeHookResult[];
+  };
+}
+
 import { getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
 import {
   computeProjectHash,
@@ -25,19 +47,44 @@ import {
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
 
+function isPathSpecifiedInInclude(
+  patterns: readonly WorktreeIncludePattern[],
+  targetPath: string,
+): boolean {
+  return patterns.some((p) => {
+    if (p.negated) return false;
+    if (p.pattern === targetPath) return true;
+    if (p.pattern.startsWith(`${targetPath}/`)) return true;
+    if (targetPath.startsWith(`${p.pattern}/`)) return true;
+    return false;
+  });
+}
+
+function isPackagesDistSpecifiedInInclude(patterns: readonly WorktreeIncludePattern[]): boolean {
+  return patterns.some((p) => {
+    if (p.negated) return false;
+    if (p.pattern === 'packages/*/dist') return true;
+    if (p.pattern.startsWith('packages/') && p.pattern.includes('/dist')) return true;
+    return false;
+  });
+}
+
 /**
  * Create a git worktree for an agent task.
  *
  * Steps:
  * 1. Resolve paths and project hash from the project root.
- * 2. Remove stale worktree at the same path if it exists.
+ * 2. Remove stale worktree at the same path if it exists (dirty worktrees are preserved).
  * 3. If `task/<taskId>` branch already exists (leftover from a prior aborted
  *    spawn), attach to it via `git worktree add <path> <branch>` (no `-b`).
  *    Otherwise create a new branch via `git worktree add -b <branch> <path> <baseRef>`.
  * 4. Optionally apply `git worktree lock` to prevent pruning.
  * 5. Run declarative `post-create` hooks.
  * 6. Apply `.cleo/worktree-include` glob patterns (symlinks).
- * 7. Build and return the {@link CreateWorktreeResult}.
+ * 7. Copy `node_modules` and `packages/ * /dist` via copy-on-write when not already
+ *    covered by worktree-include patterns.
+ * 8. Run declarative `post-start` hooks.
+ * 9. Build and return the {@link CreateWorktreeResult}.
  *
  * Branch-reuse semantics: when a prior spawn aborted after creating the branch
  * but before the worker committed anything, the branch still points to
@@ -56,7 +103,7 @@ import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-in
 export async function createWorktree(
   projectRoot: string,
   options: CreateWorktreeOptions,
-): Promise<CreateWorktreeResult> {
+): Promise<CreateWorktreeResultWithBootstrap> {
   const { taskId, hooks = [], lockWorktree = true } = options;
   const applyInclude = options.applyIncludePatterns !== false;
 
@@ -70,15 +117,23 @@ export async function createWorktree(
   const worktreePath = resolveTaskWorktreePath(projectHash, taskId);
 
   // Remove stale worktree at this path if it exists (left from a prior run).
+  // Dirty worktrees are preserved to avoid losing uncommitted agent work.
   if (existsSync(worktreePath)) {
-    gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-    if (!gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
-      rmSync(worktreePath, { recursive: true, force: true });
+    const porcelain = gitSync(['status', '--porcelain'], worktreePath);
+    if (porcelain.trim() !== '') {
+      process.stderr.write(
+        `[worktree] WARNING: preserving dirty worktree at ${worktreePath} (uncommitted changes detected)\n`,
+      );
+    } else {
+      gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
+      if (!gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
+        rmSync(worktreePath, { recursive: true, force: true });
+      }
+      // Best-effort: delete the stale branch so we always start fresh when the
+      // directory existed (the branch-reuse path below handles the case where
+      // only the branch survives without a directory).
+      gitSilent(['branch', '-D', branch], gitRoot);
     }
-    // Best-effort: delete the stale branch so we always start fresh when the
-    // directory existed (the branch-reuse path below handles the case where
-    // only the branch survives without a directory).
-    gitSilent(['branch', '-D', branch], gitRoot);
   }
 
   // Check whether the branch already exists without a worktree directory.
@@ -117,7 +172,7 @@ export async function createWorktree(
   const createdAt = new Date().toISOString();
 
   // Run post-create hooks before returning the handle.
-  const hookResults = await runWorktreeHooks(hooks, 'post-create', worktreePath);
+  const postCreateHookResults = await runWorktreeHooks(hooks, 'post-create', worktreePath);
 
   // Apply .cleo/worktree-include patterns.
   let appliedPatterns: ReturnType<typeof applyIncludePatterns> = [];
@@ -125,6 +180,38 @@ export async function createWorktree(
     const patterns = loadWorktreeIncludePatterns(projectRoot);
     appliedPatterns = applyIncludePatterns(patterns, projectRoot, worktreePath);
   }
+
+  // Copy-on-write bootstrap: node_modules and packages/*/dist when not already
+  // specified in .cleo/worktree-include.
+  const pathsToCopy: string[] = [];
+
+  const includePatterns = applyInclude ? loadWorktreeIncludePatterns(projectRoot) : [];
+
+  if (!isPathSpecifiedInInclude(includePatterns, 'node_modules')) {
+    pathsToCopy.push('node_modules');
+  }
+
+  if (!isPackagesDistSpecifiedInInclude(includePatterns)) {
+    const packagesDir = join(projectRoot, 'packages');
+    if (existsSync(packagesDir)) {
+      for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const distRel = join('packages', entry.name, 'dist');
+        if (existsSync(join(projectRoot, distRel))) {
+          pathsToCopy.push(distRel);
+        }
+      }
+    }
+  }
+
+  const { copied: copiedPaths, failed: failedPaths } = await copyPathsWithReflock(
+    pathsToCopy,
+    projectRoot,
+    worktreePath,
+  );
+
+  // Run post-start hooks after copy-on-write bootstrap.
+  const postStartHookResults = await runWorktreeHooks(hooks, 'post-start', worktreePath);
 
   // Build env vars for agent spawn.
   const currentPath = process.env['PATH'] ?? '';
@@ -171,7 +258,12 @@ export async function createWorktree(
     reused,
     envVars,
     preamble,
-    hookResults,
+    hookResults: postCreateHookResults,
     appliedPatterns,
+    bootstrap: {
+      copiedPaths,
+      failedPaths,
+      hookResults: postStartHookResults,
+    },
   };
 }

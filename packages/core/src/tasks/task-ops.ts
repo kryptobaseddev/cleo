@@ -1045,6 +1045,14 @@ export async function coreTaskCancel(
   }
   await accessor.upsertSingleTask(task);
 
+  // Best-effort worktree cleanup when cancelling a task.
+  try {
+    const { teardownWorktree } = await import('../sentient/worktree-dispatch.js');
+    teardownWorktree(projectRoot, { taskId });
+  } catch {
+    /* best-effort — worktree may not exist */
+  }
+
   return { task: taskId, cancelled: true, reason: params?.reason, cancelledAt };
 }
 

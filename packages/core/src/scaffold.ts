@@ -285,6 +285,52 @@ export function getGitignoreContent(): string {
 }
 
 /**
+ * Embedded fallback for .cleo/worktree-include content.
+ *
+ * Must stay in sync with `packages/core/templates/worktree-include`. The
+ * template file is the source of truth; this constant is only used when
+ * the template file cannot be located at runtime.
+ */
+export const WORKTREE_INCLUDE_FALLBACK = `# .cleo/worktree-include — Files to propagate into git worktrees
+# When \`cleo orchestrate spawn\` creates an isolated git worktree, this file
+# lists additional paths that should be copied from the main worktree into
+# the new one.
+#
+# FORMAT: One path pattern per line (same syntax as .gitignore).
+#   - Comments start with #
+#   - Blank lines are ignored
+#   - Patterns are relative to the project root
+
+# Local environment overrides (gitignored but required for dev)
+.env.local
+.env.development.local
+
+# Package-manager configuration (registry auth, resolution rules)
+.npmrc
+.yarnrc
+.pnpmrc
+`;
+
+/**
+ * Load the worktree-include template from the package's templates/ directory.
+ * Falls back to embedded content if file not found.
+ *
+ * @returns The .cleo/worktree-include template content string
+ */
+export function getWorktreeIncludeContent(): string {
+  try {
+    const packageRoot = getPackageRoot();
+    const templatePath = join(packageRoot, 'templates', 'worktree-include');
+    if (existsSync(templatePath)) {
+      return readFileSync(templatePath, 'utf-8');
+    }
+  } catch {
+    // fallback
+  }
+  return WORKTREE_INCLUDE_FALLBACK;
+}
+
+/**
  * Read CLEO version from package.json.
  *
  * @returns Semver version string, or "0.0.0" if unavailable
@@ -453,6 +499,42 @@ export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResu
 
   await writeFile(gitignorePath, templateContent);
   return { action: 'created', path: gitignorePath };
+}
+
+/**
+ * Create or repair .cleo/worktree-include from template.
+ * Idempotent: skips if file already exists with correct content.
+ *
+ * @param projectRoot - Absolute path to the project root directory
+ * @returns Scaffold result indicating whether the worktree-include was created, repaired, or skipped
+ *
+ * @remarks
+ * Compares normalized content (trimmed, LF line endings) against the template.
+ * If the file exists but differs, it is overwritten with the canonical template.
+ *
+ * @example
+ * ```typescript
+ * const result = await ensureWorktreeInclude('/my/project');
+ * if (result.action === 'repaired') console.log('Worktree-include updated');
+ * ```
+ */
+export async function ensureWorktreeInclude(projectRoot: string): Promise<ScaffoldResult> {
+  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const worktreeIncludePath = join(cleoDir, 'worktree-include');
+  const templateContent = getWorktreeIncludeContent();
+
+  if (existsSync(worktreeIncludePath)) {
+    const existing = readFileSync(worktreeIncludePath, 'utf-8');
+    const normalize = (s: string) => s.trim().replace(/\r\n/g, '\n');
+    if (normalize(existing) === normalize(templateContent)) {
+      return { action: 'skipped', path: worktreeIncludePath, details: 'Already matches template' };
+    }
+    await writeFile(worktreeIncludePath, templateContent);
+    return { action: 'repaired', path: worktreeIncludePath, details: 'Updated to match template' };
+  }
+
+  await writeFile(worktreeIncludePath, templateContent);
+  return { action: 'created', path: worktreeIncludePath };
 }
 
 /**
@@ -996,6 +1078,55 @@ export function checkGitignore(projectRoot: string): CheckResult {
       ? '.cleo/.gitignore matches template'
       : '.cleo/.gitignore has drifted from template',
     details: { path: gitignorePath, matchesTemplate: matches },
+    fix: matches ? null : 'cleo upgrade',
+  };
+}
+
+/**
+ * Verify .cleo/worktree-include exists and matches template.
+ *
+ * @param projectRoot - Absolute path to the project root directory (defaults to cwd)
+ * @returns Check result indicating whether the worktree-include matches the template
+ *
+ * @remarks
+ * Read-only diagnostic. Normalizes whitespace before comparison.
+ * Reports "warning" if the file is missing or drifted from the template.
+ *
+ * @example
+ * ```typescript
+ * const check = checkWorktreeInclude('/my/project');
+ * if (check.status === 'warning') console.log('Worktree-include drifted');
+ * ```
+ */
+export function checkWorktreeInclude(projectRoot?: string): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const cleoDir = getCleoDirAbsolute(root);
+  const worktreeIncludePath = join(cleoDir, 'worktree-include');
+
+  if (!existsSync(worktreeIncludePath)) {
+    return {
+      id: 'cleo_worktree_include',
+      category: 'scaffold',
+      status: 'warning',
+      message: '.cleo/worktree-include not found',
+      details: { path: worktreeIncludePath, exists: false },
+      fix: 'cleo init --force',
+    };
+  }
+
+  const installed = readFileSync(worktreeIncludePath, 'utf-8');
+  const template = getWorktreeIncludeContent();
+  const normalize = (s: string) => s.trim().replace(/\r\n/g, '\n');
+  const matches = normalize(installed) === normalize(template);
+
+  return {
+    id: 'cleo_worktree_include',
+    category: 'scaffold',
+    status: matches ? 'passed' : 'warning',
+    message: matches
+      ? '.cleo/worktree-include matches template'
+      : '.cleo/worktree-include has drifted from template',
+    details: { path: worktreeIncludePath, matchesTemplate: matches },
     fix: matches ? null : 'cleo upgrade',
   };
 }
