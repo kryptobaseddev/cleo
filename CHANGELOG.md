@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.5.45] (2026-05-07) — Release-blocker hotfix: embed sqlite-pragmas spec as TS literal
+
+v2026.5.43 and v2026.5.44 both tagged but **neither published to npm** — Release workflow's ESM smoke test failed with `ENOENT /home/runner/work/cleo/specs/sqlite-pragmas.json`. Root cause: `packages/core/src/store/sqlite-pragmas.ts:78` resolved the spec path with `resolve(here, '..', '..', '..', '..', 'specs', 'sqlite-pragmas.json')` — assumed monorepo layout, broke under CI's `/home/runner/work/cleo/cleo/...` checkout depth and would also fail for any npm consumer of `@cleocode/core`.
+
+T9157 fix (commit `10159301d`, merged at `7b9b5a8ef`): replaced filesystem lookup with inline `SPEC` TypeScript literal containing pragma pairs from `specs/sqlite-pragmas.json` v1. Module is now fully self-contained — removed `fs`, `path`, `url` imports. Stopgap; T9053 (Pragma policy SSoT) can later add a codegen step to generate the literal from the JSON at build time, keeping equivalence with the Rust crate without runtime filesystem dependency.
+
+This release carries forward T1954 (archived-deps) + T1956 (orchestrate display) intent originally tagged in v2026.5.44 — that release tag exists but did not publish.
+
+### Quality
+
+- Smoke test passes from `/tmp` with no project-root access
+- 6 SSoT tests pass (validating embedded literal matches the JSON file)
+- biome ci clean
+
 ## [2026.5.44] (2026-05-07) — Hotfix: archived tasks satisfy dependencies + orchestrate ready/waves display fix
 
 Two correctness bugs caught by cross-session orchestration audit. Multiple sessions independently hit the archived-deps issue.
