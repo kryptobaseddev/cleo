@@ -16,7 +16,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -92,6 +92,7 @@ let identity: AgentIdentity;
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'cleo-integ-'));
+  await mkdir(join(tmpDir, '.cleo'), { recursive: true });
   const seed = new Uint8Array(32);
   for (let i = 0; i < 32; i++) seed[i] = i + 50;
   identity = await identityFromSeed(seed);
