@@ -100,6 +100,8 @@ describe('pipeline-manifest-sqlite', () => {
   beforeEach(() => {
     testRoot = mkdtempSync(join(tmpdir(), 'cleo-manifest-sqlite-'));
     mkdirSync(join(testRoot, '.cleo'), { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(testRoot, '.git'), { recursive: true });
   });
 
   afterEach(async () => {

@@ -121,23 +121,6 @@ The orchestrator integrates the worktree branch back to the project's target bra
 
 Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantbook`, `release.cantbook`.
 
-## Release / Shipping (ADR-065 · v2026.5.43+)
-
-**All releases go through a PR-gated pipeline. Direct pushes to `main` are prohibited.**
-
-| Goal | Command |
-|------|---------|
-| Start release handle | `cleo release start v<version>` |
-| Ship (full 12-step pipeline) | `cleo release ship <version> --epic T####` |
-| Poll in-flight PR CI status | `cleo release pr-status <version>` |
-| Verify gates only | `cleo release verify` |
-
-`cleo release ship` auto-cuts `release/v<version>`, commits CHANGELOG, pushes, opens a PR via `gh`, waits for CI green (15-min timeout), merges with `--merge`, tags from main, and cleans up.
-
-Branch model: `cleo config set release.branchModel feat-to-main` (default). Feature branches: `feat/T####-<slug>`.
-
-**Never** push directly to `main`, use `--no-pr`, or force-merge while CI is red.
-
 ## Documents & Attachments
 
 | Goal | Command |

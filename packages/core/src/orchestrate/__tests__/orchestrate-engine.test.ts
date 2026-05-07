@@ -111,6 +111,8 @@ describe('Orchestrate Engine', () => {
   beforeEach(async () => {
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-orch-'));
     CLEO_DIR = join(TEST_ROOT, '.cleo');
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(TEST_ROOT, '.git'), { recursive: true });
     await seedTasks(TEST_ROOT, SAMPLE_TASKS);
     const protocolsDir = join(TEST_ROOT, 'protocols');
     mkdirSync(protocolsDir, { recursive: true });
