@@ -1,5 +1,22 @@
 # Changelog
 
+## [2026.5.49] (2026-05-07) — biome format fix on T9050 substrate (4th retry of v2026.5.46/47/48)
+
+> **Tag note**: v2026.5.46/47/48 all tagged but none published. v2026.5.48 added the missing T9050 files but they hadn't been auto-formatted to biome's expected style — CI biome failed. Local pre-commit hook either skipped or used different config. v2026.5.49 applies `biome check --write --unsafe .` to format the new files + remove unused imports.
+
+### Quality
+
+- biome ci clean (2,161 files, no errors)
+- typecheck clean
+- Full root build clean
+
+Carries forward all intent from v2026.5.46/47/48:
+- T9158 deps validate archived
+- T9159 waves planner taskIds
+- T9160 47 pre-existing test failures resolved
+- T9050 open-cleo-db substrate committed
+- SSoT-EXEMPT on data-accessor.ts:48
+
 ## [2026.5.48] (2026-05-07) — Add untracked open-cleo-db substrate (T9050) + retry of botched v2026.5.46/v2026.5.47
 
 > **Tag note**: v2026.5.46 and v2026.5.47 both tagged but neither published.
