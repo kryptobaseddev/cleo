@@ -20,11 +20,12 @@
  * @epic T310
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 
 // ---------------------------------------------------------------------------
 // Logger mock — prevents pino from opening real log files during tests
@@ -69,7 +70,7 @@ function createIsolatedDirs(): {
   return {
     projectRoot,
     home,
-    cleanup: () => rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }),
+    cleanup: () => removeTempDirSync(base),
   };
 }
 
