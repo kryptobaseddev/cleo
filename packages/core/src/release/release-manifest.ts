@@ -627,7 +627,7 @@ export async function listManifestReleases(
     })),
     total,
     filtered,
-    latest,
+    latest: latest?.version,
     page: createPage({ total: filtered, limit: pageLimit, offset }),
   };
 }
