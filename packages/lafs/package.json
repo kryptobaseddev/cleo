@@ -26,7 +26,7 @@
     "./schemas/v1/envelope.schema.json": "./schemas/v1/envelope.schema.json",
     "./schemas/v1/error-registry.json": "./schemas/v1/error-registry.json",
     "./schemas/v1/context-ledger.schema.json": "./schemas/v1/context-ledger.schema.json",
-    "./schemas/v1/discovery.schema.json": "./schemas/v1/discovery.schema.json",
+    "./schemas/v1/agent-card.schema.json": "./schemas/v1/agent-card.schema.json",
     "./schemas/v1/conformance-profiles.json": "./schemas/v1/conformance-profiles.json"
   },
   "files": [
