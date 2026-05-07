@@ -37,9 +37,36 @@ export async function createDataAccessor(
 }
 
 // SSoT-EXEMPT:engine-migration-T1571
-/** Convenience: get a DataAccessor with auto-detected engine. */
+/**
+ * Convenience: get a DataAccessor with auto-detected engine.
+ *
+ * @deprecated Use openCleoDb('tasks', cwd) for direct DB access or
+ * UmbrellaDataAccessor for multi-DB composition. This function is
+ * retained for backward compatibility and will be removed in a future
+ * release.
+ */
+// SSoT-EXEMPT: deprecated backward-compat shim — auto-detect signature predates ADR-057 uniform pattern; openCleoDb is the canonical replacement
 export async function getAccessor(
   cwd?: string,
 ): Promise<import('@cleocode/contracts').DataAccessor> {
   return createDataAccessor(undefined, cwd);
+}
+
+// ---------------------------------------------------------------------------
+// T9050 — openCleoDb alias for backward compat
+// ---------------------------------------------------------------------------
+
+/**
+ * Alias: get a DBHandle for the tasks database.
+ *
+ * This is the canonical replacement for getAccessor() when callers
+ * need the native DB handle rather than the full DataAccessor interface.
+ * Delegates to openCleoDb('tasks', cwd).
+ *
+ * @param cwd - Optional working directory.
+ * @returns DBHandle for tasks.db.
+ */
+export async function getAccessorDb(cwd?: string): Promise<import('./open-cleo-db.js').DBHandle> {
+  const { openCleoDb } = await import('./open-cleo-db.js');
+  return openCleoDb('tasks', cwd);
 }
