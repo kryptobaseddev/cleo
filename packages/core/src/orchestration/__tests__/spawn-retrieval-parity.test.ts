@@ -17,12 +17,13 @@
  * @task T1260 v2026.4.128 E3 M1 GREEN
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures — mirror spawn.test.ts harness
@@ -104,7 +105,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   };
   const cleanup = (): void => {
     _resetGlobalSignaldockDb_TESTING_ONLY();
-    rmSync(base, { recursive: true, force: true });
+    removeTempDirSync(base);
   };
   return {
     cleoHome,

@@ -7,12 +7,13 @@
  * @task T1008
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { ProposalCandidate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { DEFAULT_DAILY_PROPOSAL_LIMIT, SENTIENT_TIER2_TAG } from '../proposal-rate-limiter.js';
 import { PROPOSAL_TITLE_PATTERN, runProposeTick, TIER2_LABEL } from '../propose-tick.js';
 import { DEFAULT_SENTIENT_STATE, writeSentientState } from '../state.js';
@@ -91,7 +92,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  rmSync(tmpDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  removeTempDirSync(tmpDir);
 });
 
 // ---------------------------------------------------------------------------

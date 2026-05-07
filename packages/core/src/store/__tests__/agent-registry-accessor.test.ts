@@ -28,11 +28,12 @@
  * @epic T310
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures shared across tests
@@ -92,7 +93,7 @@ function makeTmpEnv(suffix: string): {
   };
 
   const cleanup = (): void => {
-    rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    removeTempDirSync(base);
   };
 
   return { cleoHome, projectRoot, openGlobal, openConduit, cleanup };

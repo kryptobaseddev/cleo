@@ -15,13 +15,14 @@
  * @task T889 / T891 / W3-1
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Task } from '@cleocode/contracts';
 import { ThinAgentViolationError } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { DEDUP_EMBED_CHARS } from '../harness-hint.js';
 import { composeSpawnPayload } from '../spawn.js';
 
@@ -116,7 +117,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   };
   const cleanup = (): void => {
     _resetGlobalSignaldockDb_TESTING_ONLY();
-    rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    removeTempDirSync(base);
   };
   return {
     cleoHome,
