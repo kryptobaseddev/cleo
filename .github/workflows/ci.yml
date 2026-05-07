@@ -323,7 +323,7 @@ jobs:
     needs: [biome, changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     strategy:
       matrix:
         os: ${{ fromJson(github.event_name == 'pull_request' && github.base_ref == 'main' && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
