@@ -41,6 +41,17 @@ const REPO_TEMPLATES_DIR = path.resolve(
 
 let tmpRoot: string;
 
+function commandPath(command: string): string {
+  const finder = process.platform === 'win32' ? 'where' : 'which';
+  const output = execFileSync(finder, [command], { encoding: 'utf8' });
+  return output.split(/\r?\n/).find(Boolean) ?? command;
+}
+
+function posixShell(): string {
+  if (process.platform !== 'win32' && fs.existsSync('/bin/sh')) return '/bin/sh';
+  return commandPath('sh');
+}
+
 beforeEach(() => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-hooks-test-'));
 });
@@ -74,7 +85,7 @@ function runCommitMsgHook(repo: string, subject: string): number {
   fs.writeFileSync(msgFile, subject);
   const hook = path.join(repo, '.git', 'hooks', 'commit-msg');
   try {
-    execFileSync('/bin/sh', [hook, msgFile], {
+    execFileSync(posixShell(), [hook, msgFile], {
       cwd: repo,
       stdio: ['ignore', 'ignore', 'pipe'],
     });
@@ -290,6 +301,7 @@ function runCommitMsgHookWithDiff(
   const fakeGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-fakegit-'));
   const stagedOutput = stagedFiles.join('\n');
   const fakeGit = path.join(fakeGitDir, 'git');
+  const realGit = commandPath('git').replace(/'/g, "'\\''");
   fs.writeFileSync(
     fakeGit,
     `#!/bin/sh
@@ -299,7 +311,7 @@ if [ "$1" = "diff" ] && [ "$2" = "--cached" ] && [ "$3" = "--name-only" ]; then
   exit 0
 fi
 # Delegate to real git for everything else.
-exec /usr/bin/git "$@"
+exec '${realGit}' "$@"
 `,
     { mode: 0o755 },
   );
@@ -308,12 +320,14 @@ exec /usr/bin/git "$@"
   fs.writeFileSync(msgFile, subject);
   const hook = path.join(repo, '.git', 'hooks', 'commit-msg');
 
-  const result = spawnSync('/bin/sh', [hook, msgFile], {
+  const result = spawnSync(posixShell(), [hook, msgFile], {
     cwd: repo,
     // Prepend fake git dir + cleo dir to PATH so stubs take precedence.
     env: {
       ...process.env,
-      PATH: `${fakeGitDir}:${path.dirname(cleoBin)}:${process.env['PATH'] ?? '/usr/bin:/bin'}`,
+      PATH: [fakeGitDir, path.dirname(cleoBin), process.env['PATH'] ?? '/usr/bin:/bin'].join(
+        path.delimiter,
+      ),
       CLEO_BIN: cleoBin,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
