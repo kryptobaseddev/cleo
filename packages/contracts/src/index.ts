@@ -1229,6 +1229,14 @@ export type {
   TaskViewNextAction,
   TaskViewPipelineStage,
 } from './tasks.js';
+// === Orchestration Roll-up Types (T9082, ADR-070) ===
+export type {
+  EpicRollup,
+  RollupBlocker,
+  RollupEvidenceAtom,
+  RollupWorker,
+  WaveRollup,
+} from './orchestration-rollup.js';
 // === Tessera Types ===
 export type {
   TesseraInstantiationInput,

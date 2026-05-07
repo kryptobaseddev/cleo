@@ -182,6 +182,7 @@ export {
   releasePublish,
   releasePush,
   releaseReconcile,
+  releasePrStatus,
   releaseRollback,
   releaseRollbackFull,
   releaseShip,
