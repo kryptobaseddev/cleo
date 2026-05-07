@@ -796,6 +796,41 @@ export async function ensureProjectContext(
 }
 
 /**
+ * Check whether git has a user identity field set (locally or globally).
+ *
+ * Reads the field using `git config --get <field>` which resolves in git's
+ * standard priority order: local → global → system. Pass `localEnv` to
+ * override the process environment (e.g. to strip `GIT_DIR`/`GIT_WORK_TREE`).
+ *
+ * @param cwd - Working directory for the git command
+ * @param field - Config field name, e.g. `"user.email"` or `"user.name"`
+ * @param localEnv - Optional environment to use instead of `process.env`
+ * @returns `true` when the field has a value, `false` when unset or git unavailable
+ *
+ * @example
+ * ```typescript
+ * if (!await hasGitIdentity('/my/project', 'user.email')) {
+ *   // set local fallback
+ * }
+ * ```
+ *
+ * @task T9088 — extracted guard to avoid clobbering global git identity
+ */
+export async function hasGitIdentity(
+  cwd: string,
+  field: string,
+  localEnv?: NodeJS.ProcessEnv,
+): Promise<boolean> {
+  try {
+    const env = localEnv ?? process.env;
+    const { stdout } = await execFileAsync('git', ['config', '--get', field], { cwd, env });
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Initialize isolated .cleo/.git checkpoint repository.
  * Idempotent: skips if .cleo/.git already exists.
  *
@@ -828,8 +863,17 @@ export async function ensureCleoGitRepo(projectRoot: string): Promise<ScaffoldRe
   };
 
   await execFileAsync('git', ['init', '--quiet'], { cwd: cleoDir, env: gitEnv });
-  await execFileAsync('git', ['config', 'user.email', 'cleo@local'], { cwd: cleoDir, env: gitEnv });
-  await execFileAsync('git', ['config', 'user.name', 'CLEO'], { cwd: cleoDir, env: gitEnv });
+  // Only write local identity when no global identity is present, to avoid
+  // clobbering the developer's own git config (T9088).
+  if (!(await hasGitIdentity(cleoDir, 'user.email', gitEnv))) {
+    await execFileAsync('git', ['config', 'user.email', 'cleo@local'], {
+      cwd: cleoDir,
+      env: gitEnv,
+    });
+  }
+  if (!(await hasGitIdentity(cleoDir, 'user.name', gitEnv))) {
+    await execFileAsync('git', ['config', 'user.name', 'CLEO'], { cwd: cleoDir, env: gitEnv });
+  }
 
   return { action: 'created', path: cleoGitDir, details: 'Isolated checkpoint repository' };
 }
@@ -895,19 +939,17 @@ export async function ensureProjectGitInitialCommit(projectRoot: string): Promis
     // HEAD unborn — fall through and create the empty initial commit.
   }
 
-  // Ensure user.email / user.name are set locally; otherwise git commit fails
+  // Ensure user.email / user.name are set; otherwise git commit fails
   // on systems without global config (CI, fresh containers).
-  try {
-    await execFileAsync('git', ['config', 'user.email'], { cwd: projectRoot, env: cleanEnv });
-  } catch {
+  // Guard: skip local write when a global (or local) identity already exists
+  // to avoid clobbering the developer's own git config (T9088).
+  if (!(await hasGitIdentity(projectRoot, 'user.email', cleanEnv))) {
     await execFileAsync('git', ['config', 'user.email', 'cleo@local'], {
       cwd: projectRoot,
       env: cleanEnv,
     });
   }
-  try {
-    await execFileAsync('git', ['config', 'user.name'], { cwd: projectRoot, env: cleanEnv });
-  } catch {
+  if (!(await hasGitIdentity(projectRoot, 'user.name', cleanEnv))) {
     await execFileAsync('git', ['config', 'user.name', 'CLEO'], {
       cwd: projectRoot,
       env: cleanEnv,

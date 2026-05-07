@@ -24,6 +24,7 @@ import {
   getCleoVersion,
   getGitignoreContent,
   getPackageRoot,
+  hasGitIdentity,
   REQUIRED_CLEO_SUBDIRS,
   removeCleoFromRootGitignore,
   stripCLEOBlocks,
@@ -529,6 +530,75 @@ describe('removeCleoFromRootGitignore', () => {
     expect(result.removed).toBe(true);
     const content = readFileSync(join(tmpDir, '.gitignore'), 'utf-8');
     expect(content).not.toContain('.cleo');
+  });
+});
+
+// ── hasGitIdentity ───────────────────────────────────────────────────
+
+describe('hasGitIdentity', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns true when a git identity field is set in the repo', async () => {
+    // Init a real git repo and set user.email locally so we can read it back.
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['init', '--quiet'], { cwd: tmpDir });
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir });
+    expect(await hasGitIdentity(tmpDir, 'user.email')).toBe(true);
+  });
+
+  it('returns false when the git identity field is not set', async () => {
+    // Init a repo without setting any identity; strip global config from env
+    // so that CI global config does not satisfy the check.
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['init', '--quiet'], { cwd: tmpDir });
+    const isolatedEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      // Point to an empty global config so the machine's real global config
+      // does not interfere with the "nothing set" assertion.
+      GIT_CONFIG_GLOBAL: join(tmpDir, 'empty-gitconfig'),
+      GIT_CONFIG_SYSTEM: join(tmpDir, 'empty-gitconfig'),
+    };
+    // Provide an empty global config file so git does not error.
+    writeFileSync(join(tmpDir, 'empty-gitconfig'), '');
+    expect(await hasGitIdentity(tmpDir, 'user.email', isolatedEnv)).toBe(false);
+  });
+
+  it('does not write local git config when global identity is already present', async () => {
+    // Simulate a project git repo with a pre-existing global identity so that
+    // ensureProjectGitInitialCommit must NOT write a local override (T9088).
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['init', '--quiet'], { cwd: tmpDir });
+
+    // Create a fake global config with identity already present.
+    const fakeGlobalConfig = join(tmpDir, 'fake-global-gitconfig');
+    writeFileSync(fakeGlobalConfig, '[user]\n\temail = global@example.com\n\tname = GlobalUser\n');
+
+    const envWithGlobal: NodeJS.ProcessEnv = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: fakeGlobalConfig,
+      GIT_DIR: undefined,
+      GIT_WORK_TREE: undefined,
+    };
+    delete envWithGlobal['GIT_DIR'];
+    delete envWithGlobal['GIT_WORK_TREE'];
+
+    // Global identity is visible, so hasGitIdentity should return true.
+    expect(await hasGitIdentity(tmpDir, 'user.email', envWithGlobal)).toBe(true);
+
+    // Verify no local config was written — the local config file must NOT exist.
+    const localConfig = join(tmpDir, '.git', 'config');
+    const configContent = readFileSync(localConfig, 'utf-8');
+    expect(configContent).not.toContain('cleo@local');
+    expect(configContent).not.toContain('email = cleo');
   });
 });
 
