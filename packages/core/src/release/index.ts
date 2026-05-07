@@ -120,6 +120,7 @@ export type {
   GitFlowConfig,
   ProjectReleaseConfig,
   PushMode,
+  ReleaseBranchConfig,
   ReleaseConfig,
   ReleaseGate,
 } from './release-config.js';
@@ -131,6 +132,7 @@ export {
   getDefaultGitFlowConfig,
   getGitFlowConfig,
   getPushMode,
+  getReleaseBranchConfig,
   getReleaseGates,
   loadReleaseConfig,
   validateReleaseConfig,

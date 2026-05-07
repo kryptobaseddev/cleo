@@ -63,6 +63,7 @@ function loadReleaseConfigJson(cwd?: string): Partial<ProjectReleaseConfig> {
  * All fields are optional — only override what differs from the defaults.
  *
  * @task T820 RELEASE-01
+ * @task T9095 — PR-required flow + branch model config
  */
 export interface ProjectReleaseConfig {
   /** Versioning scheme: 'calver' | 'semver' | 'custom'. Default: 'calver'. */
@@ -75,6 +76,22 @@ export interface ProjectReleaseConfig {
    * - 'pr':     open a draft PR, await review, merge, then tag
    */
   gitWorkflow?: 'direct' | 'pr';
+  /**
+   * Branch model for release flow (T9095).
+   * - 'feat-to-main': release branch is cut from main, PR targets main (default)
+   * - 'feat-to-develop-to-main': PR targets develop; develop→main is a separate merge
+   */
+  branchModel?: 'feat-to-main' | 'feat-to-develop-to-main';
+  /**
+   * Whether every release MUST go through a PR (T9095).
+   * Default: true. There is NO override flag — use this field to opt out (not recommended).
+   */
+  prRequired?: boolean;
+  /**
+   * Prefix for automatically-created release branches (T9095).
+   * Default: 'release/'.  Example: 'release/v2026.5.43'
+   */
+  releaseBranchPrefix?: string;
   /** Registries to publish to: 'npm' | 'crates' | 'docker' | 'none'. Default: []. */
   registries?: Array<'npm' | 'crates' | 'docker' | 'none'>;
   /** Pre-release channel suffix (e.g. 'alpha', 'beta', 'rc'). */
@@ -137,6 +154,20 @@ export interface ReleaseConfig {
    * @task T820 RELEASE-01
    */
   gitWorkflow?: 'direct' | 'pr';
+  /**
+   * Branch model for the PR-required release flow (T9095).
+   * 'feat-to-main' | 'feat-to-develop-to-main'. Default: 'feat-to-main'.
+   */
+  branchModel?: 'feat-to-main' | 'feat-to-develop-to-main';
+  /**
+   * Whether releases must go through a PR. Default: true (T9095).
+   * Set to false only when the branch model doesn't support PRs (uncommon).
+   */
+  prRequired?: boolean;
+  /**
+   * Prefix for auto-created release branches (T9095). Default: 'release/'.
+   */
+  releaseBranchPrefix?: string;
   /**
    * Registries to publish to after tagging.
    * @task T820 RELEASE-01
@@ -244,6 +275,21 @@ export function loadReleaseConfig(cwd?: string): ReleaseConfig {
       (readConfigValueSync('release.security.requireSignedCommits', false, cwd) as boolean),
   };
 
+  // T9095: branch model + PR-required + release branch prefix
+  const branchModel = (projectConfig.branchModel ??
+    readConfigValueSync(
+      'release.branchModel',
+      'feat-to-main',
+      cwd,
+    )) as ReleaseConfig['branchModel'];
+
+  const prRequired =
+    projectConfig.prRequired ?? (readConfigValueSync('release.prRequired', true, cwd) as boolean);
+
+  const releaseBranchPrefix =
+    projectConfig.releaseBranchPrefix ??
+    (readConfigValueSync('release.releaseBranchPrefix', 'release/', cwd) as string);
+
   return {
     versioningScheme,
     tagPrefix,
@@ -259,6 +305,10 @@ export function loadReleaseConfig(cwd?: string): ReleaseConfig {
     gates,
     versionBump: { files: versionBumpFiles },
     security,
+    // T9095 fields
+    branchModel,
+    prRequired,
+    releaseBranchPrefix,
   };
 }
 
@@ -431,4 +481,52 @@ export function getPushMode(config: ReleaseConfig): PushMode {
   if (config.gitWorkflow === 'pr') return 'pr';
   if (config.gitWorkflow === 'direct') return 'direct';
   return config.push?.mode ?? 'auto';
+}
+
+// ---------------------------------------------------------------------------
+// T9095: Branch model config helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of loading branch model config for the PR-required release flow.
+ *
+ * @task T9095
+ */
+export interface ReleaseBranchConfig {
+  /** Branch model in use. Default: 'feat-to-main'. */
+  branchModel: 'feat-to-main' | 'feat-to-develop-to-main';
+  /** Whether every release must go through a PR. Default: true. */
+  prRequired: boolean;
+  /** Prefix for release branches. Default: 'release/'. */
+  releaseBranchPrefix: string;
+  /**
+   * The PR target branch determined by the branch model.
+   * - 'feat-to-main': 'main'
+   * - 'feat-to-develop-to-main': 'develop'
+   */
+  prTargetBranch: string;
+}
+
+/**
+ * Derive the PR target branch from the branch model and gitflow config.
+ *
+ * @task T9095
+ */
+export function getReleaseBranchConfig(config: ReleaseConfig, cwd?: string): ReleaseBranchConfig {
+  const model = config.branchModel ?? 'feat-to-main';
+  const prRequired = config.prRequired ?? true;
+  const releaseBranchPrefix = config.releaseBranchPrefix ?? 'release/';
+  const gitflow = getGitFlowConfig(config);
+
+  const prTargetBranch =
+    model === 'feat-to-develop-to-main' ? gitflow.branches.develop : gitflow.branches.main;
+
+  void cwd; // reserved for future per-project branch name overrides
+
+  return {
+    branchModel: model,
+    prRequired,
+    releaseBranchPrefix,
+    prTargetBranch,
+  };
 }
