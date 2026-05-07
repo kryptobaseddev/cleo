@@ -53,7 +53,7 @@ describe('SQLite tasks-sqlite', () => {
     const { closeDb } = await import('../sqlite.js');
     closeDb();
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
 
   // === createTask ===

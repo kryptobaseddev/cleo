@@ -141,7 +141,7 @@ describe('E2E: injection chain validation (T4694)', () => {
     } catch {
       /* ignore */
     }
-    await rm(testDir, { recursive: true, force: true });
+    await rm(testDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
 
   it('initProject creates provider files referencing @AGENTS.md', async () => {
