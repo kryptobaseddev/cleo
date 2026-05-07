@@ -36,6 +36,8 @@ describe('Lifecycle Engine', () => {
     TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-lifecycle-engine-'));
     RCASD_DIR = join(TEST_ROOT, '.cleo', 'rcasd');
     mkdirSync(RCASD_DIR, { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(TEST_ROOT, '.git'), { recursive: true });
     initLogger(join(TEST_ROOT, '.cleo'), {
       level: 'fatal',
       filePath: 'logs/test.log',

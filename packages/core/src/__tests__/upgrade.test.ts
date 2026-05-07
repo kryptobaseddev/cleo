@@ -153,6 +153,8 @@ describe('runUpgrade locking (T4723)', () => {
     );
     cleoDir = join(tmpDir, '.cleo');
     mkdirSync(cleoDir, { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(tmpDir, '.git'), { recursive: true });
   });
 
   afterEach(async () => {
@@ -338,6 +340,8 @@ describe('runUpgrade structural parity', () => {
     );
     cleoDir = join(tmpDir, '.cleo');
     mkdirSync(cleoDir, { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(tmpDir, '.git'), { recursive: true });
   });
 
   afterEach(async () => {
