@@ -355,6 +355,9 @@ importers:
       '@cleocode/cant':
         specifier: workspace:*
         version: link:../cant
+      '@cleocode/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@cleocode/core':
         specifier: workspace:*
         version: link:../core
