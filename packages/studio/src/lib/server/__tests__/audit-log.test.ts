@@ -17,7 +17,7 @@ beforeEach(() => {
 describe('resolveAuditLogPath', () => {
   it('lives under .cleo/audit/studio-actions.jsonl', () => {
     const p = resolveAuditLogPath('/foo/bar');
-    expect(p).toBe('/foo/bar/.cleo/audit/studio-actions.jsonl');
+    expect(p).toBe(join('/foo/bar', '.cleo', 'audit', 'studio-actions.jsonl'));
   });
 });
 
