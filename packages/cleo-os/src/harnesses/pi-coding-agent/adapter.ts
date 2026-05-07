@@ -1,6 +1,14 @@
 /**
  * Pi Coding Agent Harness Adapter — cleo-os implementation.
  *
+ * Layering (ADR-069 D002): this adapter is in the Workflow layer. Workflow
+ * MAY use Conduit (Messaging) to publish inter-agent DMs; Conduit MUST NOT
+ * know about the harness (ADR-069 D002). All DB reads/writes MUST go
+ * through the Storage chokepoint (umbrella DataAccessor / `openCleoDb()`,
+ * T9050).
+ *
+ * @see ADR-069 (CLEO Coordination Layers)
+ *
  * Implements the {@link HarnessAdapter} interface for the Pi coding agent CLI
  * (`@mariozechner/pi-coding-agent`). Provides process spawn, status, kill,
  * and output streaming for Pi processes launched by cleo-os.
