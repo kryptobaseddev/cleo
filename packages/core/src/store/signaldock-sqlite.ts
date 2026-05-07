@@ -196,6 +196,64 @@ let _globalSignaldockNativeDb: DatabaseSync | null = null;
  * @task T1166
  * @epic T310
  */
+/**
+ * Read the `schema_version` row from `_signaldock_meta` if it exists.
+ *
+ * Used by {@link ensureGlobalSignaldockDb} as a fast-path sentinel: when the
+ * value matches {@link GLOBAL_SIGNALDOCK_SCHEMA_VERSION} we know the DB is
+ * fully bootstrapped and migrated to the in-process code version, so we can
+ * skip the {@link runSignaldockMigrations} pipeline (reconcileJournal +
+ * migrateSanitized) on every CLI invocation (T9027 — epic T9026, CLI startup
+ * tax reduction).
+ *
+ * Defensive: returns `null` if the meta table is missing (very old / partially
+ * initialized DBs) or the row is absent. Any throw is swallowed — a sentinel
+ * miss simply forces the fall-through migration replay path which is safe.
+ *
+ * @param db - An open signaldock.db handle.
+ * @returns The schema_version string, or `null` if absent / unreadable.
+ * @task T9027
+ * @epic T9026
+ */
+function readSignaldockSchemaVersionSentinel(db: DatabaseSync): string | null {
+  try {
+    const row = db
+      .prepare("SELECT value FROM _signaldock_meta WHERE key = 'schema_version'")
+      .get() as { value: string } | undefined;
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write the in-process schema version into `_signaldock_meta`.
+ *
+ * Creates the meta table if missing (older signaldock.db files predate any
+ * meta-table guarantee) and stamps the current version so the next process
+ * can short-circuit via {@link readSignaldockSchemaVersionSentinel}.
+ *
+ * @param db - An open signaldock.db handle (post-migration).
+ * @task T9027
+ * @epic T9026
+ */
+function writeSignaldockSchemaVersionSentinel(db: DatabaseSync): void {
+  try {
+    db.exec(
+      `CREATE TABLE IF NOT EXISTS _signaldock_meta (
+         key TEXT PRIMARY KEY,
+         value TEXT NOT NULL,
+         updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+       );
+       INSERT OR REPLACE INTO _signaldock_meta (key, value, updated_at)
+       VALUES ('schema_version', '${GLOBAL_SIGNALDOCK_SCHEMA_VERSION}', strftime('%s', 'now'));`,
+    );
+  } catch {
+    // Non-fatal: if the meta write fails, ensure() still succeeds. Next
+    // invocation will simply take the fall-through path (sentinel miss).
+  }
+}
+
 export async function ensureGlobalSignaldockDb(): Promise<{
   action: 'created' | 'exists';
   path: string;
@@ -223,12 +281,36 @@ export async function ensureGlobalSignaldockDb(): Promise<{
       }
     })();
 
+    // T9027 — Schema-version sentinel fast path (epic T9026, CLI startup tax).
+    //
+    // If the DB already has the global signaldock schema applied AND its
+    // `_signaldock_meta.schema_version` row exactly equals the in-process
+    // `GLOBAL_SIGNALDOCK_SCHEMA_VERSION` constant, we can skip
+    // `runSignaldockMigrations()` entirely. That function performs a
+    // reconcileJournal() + migrateSanitized() pass that, while a no-op for an
+    // up-to-date DB, still pays a non-trivial cost on every CLI invocation
+    // (journal SELECT, regex sanitization, drizzle migrator probe).
+    //
+    // Fall-through (sentinel missing, stale, or mismatched) preserves the
+    // full migration replay path so fresh DBs and version bumps still work.
+    if (
+      alreadyExists &&
+      hasSchema &&
+      readSignaldockSchemaVersionSentinel(nativeDb) === GLOBAL_SIGNALDOCK_SCHEMA_VERSION
+    ) {
+      _globalSignaldockNativeDb = nativeDb;
+      return { action: 'exists', path: dbPath };
+    }
+
     // Run drizzle migrations (reconcileJournal + migrateSanitized).
     // For existing DBs that used the old bare-SQL runner, reconcileJournal
     // Scenario 1 bootstraps the __drizzle_migrations journal from the existing
     // agents table, and Scenario 3 marks T897 ALTER columns as applied without
     // re-running the DDL.
     runSignaldockMigrations(nativeDb);
+
+    // Stamp schema_version sentinel so the next process can take the fast path.
+    writeSignaldockSchemaVersionSentinel(nativeDb);
 
     // Store native handle for backup integration (getGlobalSignaldockNativeDb)
     _globalSignaldockNativeDb = nativeDb;

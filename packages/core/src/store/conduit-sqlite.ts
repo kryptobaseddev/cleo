@@ -494,6 +494,35 @@ function runConduitMigrations(nativeDb: DatabaseSync): void {
  * @param projectRoot - Absolute path to the project root directory.
  * @returns Object with `action` (`'created'` | `'exists'`) and `path`.
  */
+/**
+ * Read the `schema_version` row from `_conduit_meta` if it exists.
+ *
+ * Used by {@link ensureConduitDb} as a fast-path sentinel: when the value
+ * matches {@link CONDUIT_SCHEMA_VERSION} we know the DB is fully bootstrapped
+ * and migrated to the in-process code version, so we can skip the full
+ * `applyConduitSchema()` + `runConduitMigrations()` pipeline on every CLI
+ * invocation (T9027 — epic T9026, CLI startup tax reduction).
+ *
+ * Defensive: returns `null` if the meta table is missing (pre-T1407 layout)
+ * or the row is absent. Any throw is swallowed — a sentinel miss simply
+ * forces the fall-through full-init path which is always safe.
+ *
+ * @param db - An open conduit.db handle (post-pragmas).
+ * @returns The schema_version string, or `null` if absent / unreadable.
+ * @task T9027
+ * @epic T9026
+ */
+function readSchemaVersionSentinel(db: DatabaseSync): string | null {
+  try {
+    const row = db.prepare("SELECT value FROM _conduit_meta WHERE key = 'schema_version'").get() as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function ensureConduitDb(projectRoot: string): {
   action: 'created' | 'exists';
   path: string;
@@ -532,6 +561,28 @@ export function ensureConduitDb(projectRoot: string): {
       return false;
     }
   })();
+
+  // T9027 — Schema-version sentinel fast path (epic T9026, CLI startup tax).
+  //
+  // If the DB already has the conduit schema applied AND its
+  // `_conduit_meta.schema_version` row exactly equals the in-process
+  // `CONDUIT_SCHEMA_VERSION` constant, we know:
+  //   1. All DDL is already in place (CREATE TABLE IF NOT EXISTS would no-op).
+  //   2. All Drizzle migrations up to this version have already been replayed
+  //      (the meta row is only written at the tail of a successful ensure()).
+  //
+  // In that case skip applyConduitSchema() and runConduitMigrations() entirely
+  // — both perform non-trivial work (DDL string parse for the former, journal
+  // SELECT + reconciler for the latter) on every CLI invocation. Pragmas are
+  // already applied above.
+  //
+  // Fall-through (sentinel missing, stale, or mismatched) preserves the full
+  // bootstrap + migration replay path so fresh DBs and version bumps work.
+  if (alreadyExists && hasSchema && readSchemaVersionSentinel(db) === CONDUIT_SCHEMA_VERSION) {
+    _conduitNativeDb = db;
+    _conduitDbPath = dbPath;
+    return { action: 'exists', path: dbPath };
+  }
 
   // Bootstrap schema (idempotent — all statements use IF NOT EXISTS). For fresh
   // DBs this creates every conduit table, the FTS5 virtual table, and its 3
