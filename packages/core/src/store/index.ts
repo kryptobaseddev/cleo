@@ -27,6 +27,8 @@ export {
   readJsonRequired,
   saveJson,
 } from './json.js';
+export { openCleoDb, type CleoDbRole, type DBHandle } from './open-cleo-db.js';
+export { UmbrellaDataAccessor } from './umbrella-data-accessor.js';
 export type { ReleaseFn } from './lock.js';
 export { acquireLock, isLocked, withLock } from './lock.js';
 export type {

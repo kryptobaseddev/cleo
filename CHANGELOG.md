@@ -1,5 +1,38 @@
 # Changelog
 
+## [2026.5.48] (2026-05-07) — Add untracked open-cleo-db substrate (T9050) + retry of botched v2026.5.46/v2026.5.47
+
+> **Tag note**: v2026.5.46 and v2026.5.47 both tagged but neither published.
+> v2026.5.46: pre-commit SSoT lint blocked the bump-version commit; tag pointed at pre-bump SHA.
+> v2026.5.47: SSoT exemption applied + version bumped, but Release build failed because `packages/core/src/store/data-accessor.ts:70` imports `./open-cleo-db.js` from a file that was untracked in git (some prior session created it and never `git add`-ed). CI clones git history → file missing → esbuild ENOENT → publish blocked. Same pattern affected `umbrella-data-accessor.ts` and 2 test files.
+
+This release adds the 4 missing files to git so CI can resolve them.
+
+### Added (untracked → committed)
+
+- `packages/core/src/store/open-cleo-db.ts` — canonical DB-open chokepoint for all CLEO SQLite DBs (T9050, ADR-068, ADR-069). Referenced by `data-accessor.ts:70`, `index.ts` exports.
+- `packages/core/src/store/umbrella-data-accessor.ts` — multi-DB composition substrate. Referenced by `index.ts` exports.
+- `packages/core/src/store/__tests__/open-cleo-db.test.ts` — open-cleo-db tests
+- `packages/core/src/store/__tests__/stray-db-cleanup.test.ts` — db-cleanup regression tests
+- `packages/core/src/store/index.ts` — re-exports `openCleoDb`, `CleoDbRole`, `DBHandle`, `UmbrellaDataAccessor`
+
+### Removed (worktree-isolation leak)
+
+- `packages/core/packages/core/src/store/open-cleo-db.ts` (duplicate at doubled path — clear T1763-style worktree leak from a prior session)
+
+### Quality
+
+- biome ci clean
+- typecheck clean
+- SSoT lint clean (T9047 exemption from v2026.5.47 carries forward)
+- Full root build clean (CI-equivalent)
+
+This release also carries forward intent of v2026.5.46 + v2026.5.47:
+- T9158 deps validate archived
+- T9159 waves planner taskIds
+- T9160 47 pre-existing test failures resolved
+- SSoT-EXEMPT annotation on data-accessor.ts:48 (deprecated backward-compat shim)
+
 ## [2026.5.47] (2026-05-07) — 100% closure: deps validate archived + waves planner + 47 pre-existing test failures (incl. v2026.5.46 botched-tag retry)
 
 > **Tag note**: `v2026.5.46` was tagged but the release commit didn't land — pre-commit SSoT lint blocked the bump-version commit and the tag pointed at the pre-bump merge SHA (`b218e2b18`, package.json still v2026.5.45). Per "Never Reuse Tags" memory, retry as v2026.5.47 with the SSoT lint fix included.
