@@ -187,8 +187,7 @@ export async function rollupWaveStatus(
     }
   }
 
-  const readyToAdvance =
-    workers.length > 0 && workers.every((w) => w.verificationPassed);
+  const readyToAdvance = workers.length > 0 && workers.every((w) => w.verificationPassed);
 
   return {
     epicId,

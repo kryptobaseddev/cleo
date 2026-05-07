@@ -986,6 +986,14 @@ export type {
   WorktreeIncludePattern,
   WorktreeListEntry,
 } from './operations/worktree.js';
+// === Orchestration Roll-up Types (T9082, ADR-070) ===
+export type {
+  EpicRollup,
+  RollupBlocker,
+  RollupEvidenceAtom,
+  RollupWorker,
+  WaveRollup,
+} from './orchestration-rollup.js';
 // === Peer Identity (T1210 — SDK-first CANT persona contract) ===
 export {
   assertPeerIdentity,
@@ -1229,14 +1237,6 @@ export type {
   TaskViewNextAction,
   TaskViewPipelineStage,
 } from './tasks.js';
-// === Orchestration Roll-up Types (T9082, ADR-070) ===
-export type {
-  EpicRollup,
-  RollupBlocker,
-  RollupEvidenceAtom,
-  RollupWorker,
-  WaveRollup,
-} from './orchestration-rollup.js';
 // === Tessera Types ===
 export type {
   TesseraInstantiationInput,
