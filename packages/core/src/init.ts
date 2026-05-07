@@ -54,6 +54,7 @@ import {
   ensureProjectContext,
   ensureProjectGitInitialCommit,
   ensureProjectInfo,
+  ensureWorktreeInclude,
   getPackageRoot,
   removeCleoFromRootGitignore,
 } from './scaffold.js';
@@ -845,6 +846,18 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
         skipped.push('.gitignore');
       }
     }
+  }
+
+  // Create .cleo/worktree-include (after gitignore so it is also tracked)
+  try {
+    const worktreeIncludeResult = await ensureWorktreeInclude(projRoot);
+    if (worktreeIncludeResult.action !== 'skipped') {
+      created.push('worktree-include');
+    }
+  } catch (err) {
+    warnings.push(
+      `Worktree-include creation failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // Remove legacy sequence files if they exist (migration)

@@ -36,7 +36,7 @@ export interface WorktreeHook {
    * - `post-create` — immediately after `git worktree add` succeeds.
    * - `post-start`  — after the agent CWD is established (env vars injected).
    */
-  event: 'post-create' | 'post-start';
+  event: 'post-create' | 'post-start' | 'pre-remove' | 'post-destroy';
   /**
    * Optional timeout in milliseconds before the hook is killed.
    *
@@ -178,6 +178,18 @@ export interface CreateWorktreeResult {
   hookResults: WorktreeHookResult[];
   /** Include patterns that were applied (empty if none). */
   appliedPatterns: WorktreeIncludePattern[];
+  /**
+   * Dependency bootstrap results: paths copied via copy-on-write and
+   * post-start hook results.
+   */
+  bootstrap?: {
+    /** Paths successfully copied into the worktree. */
+    copiedPaths: string[];
+    /** Paths that failed to copy. */
+    failedPaths: string[];
+    /** Results of post-start hooks. */
+    hookResults: WorktreeHookResult[];
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +215,14 @@ export interface DestroyWorktreeOptions {
    * @default true
    */
   deleteBranch?: boolean;
+  /**
+   * When true, force destruction even if the worktree has uncommitted changes.
+   *
+   * @default false
+   */
+  force?: boolean;
+  /** Declarative hooks to run during destruction lifecycle. */
+  hooks?: WorktreeHook[];
 }
 
 /**
@@ -219,6 +239,12 @@ export interface DestroyWorktreeResult {
   branchDeleted: boolean;
   /** Error message if any step failed (non-fatal — caller decides). */
   error?: string;
+  /** Whether the worktree had uncommitted changes when destruction was attempted. */
+  dirty?: boolean;
+  /** Whether force mode was used to override dirty detection. */
+  force?: boolean;
+  /** Results of pre-remove and post-destroy hooks. */
+  hookResults?: WorktreeHookResult[];
 }
 
 // ---------------------------------------------------------------------------

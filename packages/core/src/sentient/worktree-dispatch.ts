@@ -79,17 +79,12 @@ export async function spawnWorktree(
  *
  * @task T1161
  */
-export function teardownWorktree(
+export async function teardownWorktree(
   projectRoot: string,
   options: DestroyWorktreeOptions,
-): DestroyWorktreeResult {
-  // Import synchronously via dynamic require equivalent pattern.
-  // For ESM we pre-require the module. Since this runs in Node.js ≥ 24,
-  // we use the synchronous workaround via a wrapper.
-  // NOTE: destroyWorktree is sync — wrap with a sync import here.
-  // Since this is used in a sync context from tick, we use a synchronous shim.
-  const destroyWorktreeFn = _syncDestroyWorktree;
-  return destroyWorktreeFn(projectRoot, options);
+): Promise<DestroyWorktreeResult> {
+  const mod = await backend();
+  return mod.destroyWorktree(projectRoot, options);
 }
 
 /**
@@ -134,28 +129,6 @@ export function pruneWorktreesForProject(
 let _destroyWorktreeCache: typeof import('@cleocode/worktree').destroyWorktree | null = null;
 let _listWorktreesCache: typeof import('@cleocode/worktree').listWorktrees | null = null;
 let _pruneWorktreesCache: typeof import('@cleocode/worktree').pruneWorktrees | null = null;
-
-/**
- * Synchronous wrapper for destroyWorktree.
- *
- * The first call will throw if the module hasn't been warmed up via
- * `warmupWorktreeBackend()`. In practice, the sentient daemon calls
- * `warmupWorktreeBackend()` during initialization.
- *
- * @internal
- */
-function _syncDestroyWorktree(
-  projectRoot: string,
-  options: DestroyWorktreeOptions,
-): DestroyWorktreeResult {
-  if (!_destroyWorktreeCache) {
-    throw new Error(
-      '[worktree-dispatch] destroyWorktree called before warmupWorktreeBackend(). ' +
-        'Call warmupWorktreeBackend() during daemon initialization.',
-    );
-  }
-  return _destroyWorktreeCache(projectRoot, options);
-}
 
 /**
  * Synchronous wrapper for listWorktrees.

@@ -1,0 +1,39 @@
+# =============================================================================
+# .cleo/worktree-include — Files to propagate into git worktrees
+# =============================================================================
+# When `cleo orchestrate spawn` creates an isolated git worktree, this file
+# lists additional paths that should be copied from the main worktree into
+# the new one.
+#
+# FORMAT: One path pattern per line (same syntax as .gitignore).
+#   - Comments start with #
+#   - Blank lines are ignored
+#   - Patterns are relative to the project root
+#
+# COMMON USE CASES:
+#   - Local environment files (.env.local) that are gitignored but needed
+#     for the project to run in a worktree context
+#   - Package-manager config files (.npmrc, .yarnrc) that configure registry
+#     auth or resolution rules but are never committed
+#   - IDE settings that should be present in every worktree
+#
+# SAFETY: Only list files that are SAFE to propagate across worktrees.
+# Never list secrets, session data, or machine-specific caches here.
+# =============================================================================
+
+# Local environment overrides (gitignored but required for dev)
+.env.local
+.env.development.local
+
+# Package-manager configuration (registry auth, resolution rules)
+.npmrc
+.yarnrc
+.pnpmrc
+
+# IDE / editor settings that are project-wide but not committed
+.vscode/settings.json
+.idea/runConfigurations/
+
+# Build-tool local overrides
+justfile.local
+Makefile.local

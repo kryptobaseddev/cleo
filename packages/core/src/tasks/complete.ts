@@ -13,6 +13,7 @@ import { CleoError } from '../errors.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
+import { teardownWorktree } from '../sentient/worktree-dispatch.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -585,17 +586,11 @@ export async function completeTask(
 
   // T1462: Auto-prune the task worktree when the task is completed.
   // This runs best-effort and never blocks or fails the completion.
-  import('../spawn/branch-lock.js')
-    .then(({ pruneWorktree }) => {
-      try {
-        pruneWorktree(options.taskId, projectRoot);
-      } catch {
-        /* best-effort — worktree may not exist */
-      }
-    })
-    .catch(() => {
-      /* module unavailable — non-fatal */
-    });
+  try {
+    teardownWorktree(projectRoot, { taskId: options.taskId });
+  } catch {
+    /* best-effort — worktree may not exist */
+  }
 
   // NOTE: Memory bridge refresh is now handled by the onToolComplete hook
   // via memory-bridge-refresh.ts (T138). No direct call needed here.

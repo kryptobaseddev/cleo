@@ -20,7 +20,7 @@ import {
   getNodeVersionInfo,
   MINIMUM_NODE_MAJOR,
 } from '../../platform.js';
-import { getGitignoreContent } from '../../scaffold.js';
+import { checkWorktreeInclude, getGitignoreContent } from '../../scaffold.js';
 import { checkGlobalSchemas as checkGlobalSchemasRaw } from '../../schema-management.js';
 
 // ============================================================================
@@ -1266,6 +1266,7 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkAgentsMdHub(projectRoot),
     checkRootGitignore(projectRoot),
     checkCleoGitignore(projectRoot),
+    checkWorktreeInclude(projectRoot),
     checkVitalFilesTracked(projectRoot),
     checkCoreFilesNotIgnored(projectRoot),
     checkSqliteNotTracked(projectRoot),

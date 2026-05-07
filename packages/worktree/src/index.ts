@@ -49,6 +49,7 @@ export {
   legacyMergeWorktree,
   legacyResolveWorktreeRoot,
 } from './compat.js';
+export { copyPathsWithReflock } from './copy-on-write.js';
 export { createWorktree } from './worktree-create.js';
 export { destroyWorktree } from './worktree-destroy.js';
 export { runWorktreeHooks } from './worktree-hooks.js';

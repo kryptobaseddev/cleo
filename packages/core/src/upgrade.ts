@@ -41,6 +41,7 @@ import {
   ensureProjectContext,
   ensureProjectInfo,
   ensureSqliteDb,
+  ensureWorktreeInclude,
   removeCleoFromRootGitignore,
 } from './scaffold.js';
 import { cleanProjectSchemas, ensureGlobalSchemas } from './schema-management.js';
@@ -723,6 +724,20 @@ export async function runUpgrade(
           action: 'ensure_structure',
           status: 'applied',
           details: structResult.details ?? 'Created missing directories',
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+
+    // Ensure .cleo/worktree-include exists and matches template
+    try {
+      const worktreeResult = await ensureWorktreeInclude(projectRootForMaint);
+      if (worktreeResult.action !== 'skipped') {
+        actions.push({
+          action: 'worktree_include',
+          status: 'applied',
+          details: worktreeResult.details ?? 'Created or updated worktree-include',
         });
       }
     } catch {
