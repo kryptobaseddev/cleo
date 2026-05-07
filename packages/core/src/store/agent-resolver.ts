@@ -442,9 +442,17 @@ function tryResolveAtTier(
     return tryResolveUniversalBase(agentId, options);
   }
 
-  const row = db
-    .prepare('SELECT * FROM agents WHERE agent_id = ? AND tier = ? LIMIT 1')
-    .get(agentId, tier) as ResolverAgentRow | undefined;
+  let row: ResolverAgentRow | undefined;
+  try {
+    row = db
+      .prepare('SELECT * FROM agents WHERE agent_id = ? AND tier = ? LIMIT 1')
+      .get(agentId, tier) as ResolverAgentRow | undefined;
+  } catch (err) {
+    if (isMissingAgentsTableError(err)) {
+      return null;
+    }
+    throw err;
+  }
   if (!row) return null;
 
   const envelope = rowToResolvedAgent(row);
@@ -470,6 +478,10 @@ function tryResolveAtTier(
   envelope.source = tier;
   envelope.tier = tier;
   return envelope;
+}
+
+function isMissingAgentsTableError(err: unknown): boolean {
+  return err instanceof Error && /no such table:\s*agents/i.test(err.message);
 }
 
 /**
