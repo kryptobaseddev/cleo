@@ -47,6 +47,12 @@ export async function createTestDb(): Promise<TestDbEnv> {
   // so unit tests don't require active sessions or pipeline stage validation.
   const cleoDir = join(tempDir, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
+  // validateProjectRoot (T1864/T9092) requires a real .git/ directory sibling
+  // alongside .cleo/ as the legacy-fallback acceptance marker. Tests that call
+  // getProjectRoot() with this tempDir will fail with E_INVALID_PROJECT_ROOT
+  // without it. A .git FILE (gitlink) is intentionally rejected; only a
+  // directory is accepted.
+  mkdirSync(join(tempDir, '.git'), { recursive: true });
   const configContent = JSON.stringify({
     enforcement: {
       session: { requiredForMutate: false },

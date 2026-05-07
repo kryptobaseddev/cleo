@@ -57,21 +57,34 @@ async function getOldCommitSha(repoRoot: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 import { execFileSync } from 'node:child_process';
+import { getProjectRoot } from '../../paths.js';
 
 /**
  * Resolve the repository root dynamically so the test passes under any
  * checkout path (local dev: /mnt/projects/cleocode; CI: /home/runner/work/cleo/cleo).
- * Falls back to process.cwd() if `git rev-parse` fails.
+ *
+ * Uses `getProjectRoot()` instead of raw `git rev-parse` so that when tests
+ * run inside a git worktree (where `.git` is a gitlink FILE), the main repo
+ * path is returned rather than the worktree path. The worktree path is rejected
+ * by `assertProjectInitialized` (T9092 guard — gitlink-only paths are invalid
+ * project roots) which caused E_NOT_INITIALIZED failures in CI worktree builds.
+ *
+ * Falls back to process.cwd() only if CLEO project resolution also fails.
  */
 function resolveRepoRoot(): string {
   try {
-    const out = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: process.cwd(),
-      encoding: 'utf8',
-    });
-    return out.trim();
+    return getProjectRoot(process.cwd());
   } catch {
-    return process.cwd();
+    // Last resort: try git rev-parse for non-CLEO environments.
+    try {
+      const out = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+      });
+      return out.trim();
+    } catch {
+      return process.cwd();
+    }
   }
 }
 const REPO_ROOT = resolveRepoRoot();

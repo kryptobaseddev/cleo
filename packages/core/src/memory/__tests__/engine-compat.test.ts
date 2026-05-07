@@ -76,6 +76,8 @@ describe('Memory Engine Compat', () => {
   beforeEach(() => {
     testRoot = mkdtempSync(join(tmpdir(), 'cleo-engine-compat-brain-'));
     mkdirSync(join(testRoot, '.cleo'), { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(testRoot, '.git'), { recursive: true });
   });
 
   afterEach(async () => {
@@ -125,6 +127,8 @@ describe('Pipeline Manifest SQLite (moved from memory domain)', () => {
   beforeEach(() => {
     testRoot = mkdtempSync(join(tmpdir(), 'cleo-engine-compat-manifest-'));
     mkdirSync(join(testRoot, '.cleo'), { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(testRoot, '.git'), { recursive: true });
   });
 
   afterEach(async () => {
