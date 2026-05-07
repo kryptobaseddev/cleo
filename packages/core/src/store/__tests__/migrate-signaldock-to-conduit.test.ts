@@ -69,7 +69,7 @@ function createIsolatedDirs(): {
   return {
     projectRoot,
     home,
-    cleanup: () => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+    cleanup: () => rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }),
   };
 }
 

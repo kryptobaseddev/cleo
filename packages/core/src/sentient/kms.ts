@@ -25,6 +25,7 @@
  */
 
 import { readFile, stat } from 'node:fs/promises';
+import { platform } from 'node:os';
 import { join } from 'node:path';
 import type { AgentIdentity } from 'llmtxt/identity';
 import { identityFromSeed } from 'llmtxt/identity';
@@ -185,7 +186,10 @@ export async function loadFileIdentity(projectRoot: string): Promise<AgentIdenti
   }
 
   const fileMode = fileStat.mode & 0o777;
-  if (fileMode !== REQUIRED_FILE_MODE) {
+  // Windows does not expose POSIX owner/group/other mode bits reliably through
+  // stat().mode (Node commonly reports 0666 despite chmod/writeFile mode), so
+  // enforce strict 0600 only on POSIX where the check is meaningful.
+  if (platform() !== 'win32' && fileMode !== REQUIRED_FILE_MODE) {
     throw new Error(
       `CLEO_KMS_ADAPTER=file: keyfile ${keyPath} must have mode 0600 ` +
         `(current: 0${fileMode.toString(8)}). ` +

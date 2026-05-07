@@ -116,7 +116,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   };
   const cleanup = (): void => {
     _resetGlobalSignaldockDb_TESTING_ONLY();
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   };
   return {
     cleoHome,

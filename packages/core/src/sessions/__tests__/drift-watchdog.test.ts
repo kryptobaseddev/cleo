@@ -251,15 +251,16 @@ describe('drift-watchdog', () => {
   // -------------------------------------------------------------------------
 
   it('resolves the local audit path under .cleo/audit', () => {
-    const local = resolveDriftAuditPath('/tmp/proj', 'local');
-    expect(local).toBe('/tmp/proj/.cleo/audit/session-drift.jsonl');
+    const projectRoot = join(tmpdir(), 'proj');
+    const local = resolveDriftAuditPath(projectRoot, 'local');
+    expect(local).toBe(join(projectRoot, '.cleo', 'audit', 'session-drift.jsonl'));
   });
 
   it('resolves the global audit path under getCleoHome()/audit', async () => {
     const { getCleoHome } = await import('../../paths.js');
     const cleoHome = getCleoHome();
-    const global = resolveDriftAuditPath('/tmp/proj', 'global');
-    expect(global).toMatch(/audit\/session-drift\.jsonl$/);
+    const global = resolveDriftAuditPath(join(tmpdir(), 'proj'), 'global');
+    expect(global.endsWith(join('audit', 'session-drift.jsonl'))).toBe(true);
     // The path lives under the resolved CLEO home, whatever it is — the XDG
     // default is ~/.local/share/cleo, but vitest sandboxes CLEO_HOME under
     // os.tmpdir() (vitest.setup.ts), and operators may override globally.
