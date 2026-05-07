@@ -486,3 +486,7 @@ export function resolveTokens(
 
   return { resolved, unresolved };
 }
+
+// === Lead-tier rollup (T9082, ADR-070) ===
+export type { ConduitStatusMessage, RollupWaveStatusOptions } from './lead-rollup.js';
+export { rollupEpicStatus, rollupWaveStatus } from './lead-rollup.js';
