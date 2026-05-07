@@ -217,12 +217,21 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ### Development Workflow
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Create a feature branch (`git checkout -b feat/T####-amazing-feature`)
 3. Make your changes
 4. Run tests (`pnpm test`)
 5. Commit with conventional commits (`feat:`, `fix:`, `docs:`, etc.)
 6. Push to your fork
-7. Open a Pull Request
+7. Open a Pull Request — direct pushes to `main` are not accepted
+
+**Maintainers releasing a new version:**
+
+```bash
+cleo release start v2026.MM.N
+cleo release ship 2026.MM.N --epic TXXXX   # cuts release/vX.Y.Z branch, opens PR, waits for CI green, merges + tags
+```
+
+See `docs/RELEASING.md` for the full release checklist and `AGENTS.md` for branch conventions.
 
 ### Code Style
 

@@ -2,7 +2,31 @@
 
 This document describes the canonical release process for `@cleocode/monorepo` and all packages.
 
-## TL;DR: The Canonical Path
+## TL;DR: The Canonical Path (v2026.5.43+)
+
+**All releases MUST go through the PR-gated pipeline (ADR-065). Direct pushes to `main` are prohibited.**
+
+```bash
+# 1. Prepare release handle
+cleo release start vYYYY.MM.N
+
+# 2. Ship — auto-cuts release/vX.Y.Z branch, opens PR, waits for CI green, merges + tags
+cleo release ship YYYY.MM.N --epic TXXXX
+
+# 3. Poll CI status while waiting
+cleo release pr-status YYYY.MM.N
+```
+
+`cleo release ship` handles version bumps, lockfile updates, CHANGELOG generation,
+branch creation, PR opening, CI wait, merge, and tag automatically.
+
+### Legacy Manual Steps (pre-v2026.5.43 — do not use)
+
+The steps below are preserved for historical reference only. They are **superseded** by
+`cleo release ship` as of ADR-065. Do not follow them for new releases.
+
+<details>
+<summary>Pre-ADR-065 manual process (archived)</summary>
 
 1. **Bump versions** in all `package.json` files using `pnpm version:bump`
 2. **Install dependencies** to regenerate `pnpm-lock.yaml`
@@ -23,6 +47,8 @@ This document describes the canonical release process for `@cleocode/monorepo` a
    - The Release workflow (`.github/workflows/release.yml`) detects the new tag
    - It runs all tests and builds automatically
    - On success, it publishes to npm
+
+</details>
 
 ---
 
@@ -58,94 +84,111 @@ On 2026-04-15, worker T665 bypassed the canonical release process and published 
 
 ---
 
-## Step-by-Step Release Checklist
+## Step-by-Step Release Checklist (ADR-065 · v2026.5.43+)
 
 ### 1. Preparation
 
 ```bash
 # Ensure you're on main and up-to-date
-git checkout main
 git pull origin main
 
 # Verify no uncommitted changes
 git status
+
+# Check gh CLI auth
+gh auth status
 ```
 
-### 2. Version Bump
+### 2. Start the Release Handle
 
 ```bash
-# Update all package.json versions using the project's version script
-pnpm version:bump
-
-# Verify the versions look correct
-git diff package.json
+cleo release start v2026.MM.N
 ```
 
-### 3. Lock Consistency
+This validates the version scheme (CalVer), captures the current branch, and persists
+`.cleo/release/handle.json` for subsequent steps.
+
+### 3. Ship Through the Pipeline
 
 ```bash
-# Regenerate lockfile to match new package.json
-pnpm install
-
-# Verify lockfile changes are reasonable
-git diff pnpm-lock.yaml | head -50
+cleo release ship 2026.MM.N --epic T####
 ```
 
-### 4. Commit Both Files
+This single command executes all 12 pipeline steps:
+1. Validate release gates (quality gates pass)
+2. Run IVTR loop check
+3. Verify epic completeness
+4. Double-listing guard
+5. Generate CHANGELOG (only tasks completed after previous version)
+6. Run biome lint
+7. Cut `release/v2026.MM.N` branch
+8. Commit CHANGELOG + version bump
+9. Push branch
+10. Open PR via `gh pr create`
+11. Wait for CI green (15-minute timeout)
+12. Merge with `--merge`, tag from main, cleanup branch
+
+### 4. Monitor PR / CI
 
 ```bash
-# Stage both updated files
-git add package.json pnpm-lock.yaml
+# Poll CI check status
+cleo release pr-status 2026.MM.N
 
-# Commit with standard release message
-git commit -m "chore(release): vXXXX.X.XX"
-
-# Verify the commit
-git show --stat
+# Or watch GitHub Actions directly
+gh run list --branch release/v2026.MM.N
 ```
 
-### 5. Push the Tag
+### 5. After Merge
+
+GitHub Actions Release workflow triggers automatically from the tag. On success, npm
+package is published automatically. Do NOT run `npm publish` locally.
 
 ```bash
-# Create annotated tag
-git tag -a vXXXX.X.XX -m "Release vXXXX.X.XX"
-
-# Push to GitHub (both tag and main branch)
-git push origin main
-git push origin vXXXX.X.XX
+# Verify tag landed
+git fetch --tags && git tag | grep v2026.MM.N
 ```
-
-### 6. Monitor GitHub Actions
-
-- GitHub Actions Release workflow (`.github/workflows/release.yml`) automatically triggers
-- Monitor the workflow run at: `https://github.com/cleocode/cleo/actions`
-- On success, npm package is automatically published
-- On failure, **DO NOT** republish locally—investigate the failure and fix on a new version
 
 ---
 
 ## What to Do If CI Is Red
 
-### Before Pushing a Tag
+With the ADR-065 PR-gated pipeline, `cleo release ship` will not merge or tag if CI is red.
+The pipeline exits with an error and leaves the release PR open. Do not force-merge.
 
-1. Check `.github/workflows/lockfile-check.yml` results first
-   - If lockfile check failed, **stop**—do not push the tag
-   - Fix the inconsistency locally: `pnpm install && git add pnpm-lock.yaml`
+### During a `cleo release ship` run
 
-2. Wait for full CI to pass (tests, build, lint)
-   - If any job fails, **stop**—do not push the tag
-   - Create a fix branch, commit, and open a PR
+1. Check PR CI status: `cleo release pr-status <version>` or `gh pr checks <pr-number>`
+2. If a check is failing, fix the issue on the release branch:
+   ```bash
+   git checkout release/v<version>
+   # fix the issue
+   git commit -m "fix: <description>"
+   git push origin release/v<version>
+   ```
+3. CI will re-run. Once green, re-run `cleo release ship` (it resumes from the open PR).
 
-3. Only push the tag after **all** CI jobs pass
+### If the 15-minute CI timeout expires
 
-### If You Accidentally Pushed a Red Tag
+The PR is left open. You can resume manually:
 
-1. **Delete the tag from GitHub** (ask maintainers for access)
+```bash
+# Wait for CI then merge
+gh pr merge release/v<version> --merge
+
+# Tag from main after merge
+git fetch --tags
+git tag v<version> main
+git push origin v<version>
+```
+
+### Pre-ADR-065: If a red tag was accidentally pushed (historical)
+
+1. **Delete the tag from GitHub**
    ```bash
    git push origin --delete vXXXX.X.XX
    ```
 
-2. **Revert the version commit** (create a new commit that undoes it)
+2. **Revert the version commit**
    ```bash
    git revert <commit-hash>
    git push origin main
@@ -171,13 +214,18 @@ Never use SemVer (e.g., `v1.2.3`) for this project.
 
 ## References
 
+- **ADR-065**: PR-Required Release Flow (this change)
+- **ADR-063**: Canonical Release Pipeline
+- **ADR-051**: Evidence-based gate ritual
 - **ORC-011**: Orchestration rule prohibiting CI bypass
 - **ADR-039**: LAFS envelope format for all CLI output
 - **Lockfile Guard Implementation**: T716
 - **Previous Incident**: T665 (local publish violation)
+- **Branch Protection Setup**: `docs/release/branch-protection-setup.md`
 
 ---
 
 ## Questions?
 
-Refer to the memory context at `.cleo/memory-bridge.md` for recent decisions and patterns.
+Refer to `AGENTS.md` section "Release & Branching" for branch conventions, or run
+`cleo memory find "release"` for recent decisions.

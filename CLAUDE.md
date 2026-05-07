@@ -103,3 +103,7 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+## Release Workflow
+
+All releases use a PR-gated pipeline. See `AGENTS.md` section "Release & Branching (ADR-065)" for the canonical workflow including branch conventions, the `cleo release ship` 12-step flow, and branch protection setup commands.
