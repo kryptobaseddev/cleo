@@ -1,5 +1,62 @@
 # Changelog
 
+## [2026.5.40] (2026-05-07)
+
+Auto-prepared by release.ship (T9079)
+
+### Features
+- **Playbook tier resolver: implement resolvePlaybook() symmetric to resolveAgent() — project/global/packaged tiers**: NEW addition (user-requested, decision 3 sign-off). Establishes symmetric tier resolution for playbooks parallel to agents. Today playbooks are onl... (T1937)
+
+### Bug Fixes
+- **Fix injection-chain.test.ts isolation — override AGENTS_HOME in beforeEach + replace buggy inject() mock with real impl**: ROOT CAUSE of user's ~/.agents/AGENTS.md pollution. packages/core/src/__tests__/injection-chain.test.ts beforeEach overrides CLEO_HOME and CLEO_DIR... (T1917)
+- **Fix T9016 git-shim test regression — boundary-enforcement.test.ts must match @cleocode/paths semantics**: T9016 (under T1910 epic) migrated git-shim/src/audit-log.ts and git-shim/src/worktree-path.ts to consume @cleocode/paths.getCleoHome(). 5 tests in ... (T9066)
+- **Pipeline regression test suite: end-to-end spawn → classify → resolve → install for all 5 worker roles + playbook tier resolver**: Wave 5 of T1929. The full pipeline regression suite that gates v2026.5.30 release. Locks the canonical contract end-to-end. Critical that the varia... (T1940)
+
+### Documentation
+- **Release prep — inventory all v2026.5.29+ commits, draft consolidated CHANGELOG entry, branch hygiene audit**: Per owner directive 2026-05-06: gather all committed-but-unreleased work and ship together, not just T1929. This task covers the inventory + branch... (T9032)
+
+### Chores
+- **Migrate adapter installers (gemini-cli, kimi, openai-sdk) to @cleocode/paths/getCleoTemplatesTildePath()**: Replace hardcoded '@~/.cleo/templates/CLEO-INJECTION.md' string in packages/adapters/src/providers/{gemini-cli,kimi,openai-sdk}/install.ts:16 with ... (T1911)
+- **A5-core: Migrate core/nexus/transfer.ts + core/gc/runner.ts to consume @cleocode/paths**: Atomic split of T1918 (core side). core/nexus/transfer.ts:75 has process.env[CLEO_HOME] ?? ${homedir()}/.local/share/cleo XDG fallback duplicate. c... (T9015)
+- **B2-claude-cursor: Refactor claude-code + claude-sdk + cursor adapters to call caamp.ensureProviderInstructionFile()**: Atomic split of T1919 (claude family + cursor — 3 of 9 adapters). Replace each install.ts's manual writeFileSync + INSTRUCTION_REFERENCES const + h... (T9017)
+- **A5-shims: Migrate cleo-os/extensions/cleo-cant-bridge.ts + git-shim/src/{audit-log,worktree-path}.ts to consume @cleocode/paths**: Atomic split of T1918 (cleo-os + git-shim side). cleo-os/extensions/cleo-cant-bridge.ts:875 + git-shim/src/audit-log.ts:75 + git-shim/src/worktree-... (T9016)
+- **B2-gemini-kimi-oai: Refactor gemini-cli + kimi + openai-sdk adapters to call caamp.ensureProviderInstructionFile()**: Atomic split of T1919 (gemini-cli + kimi + openai-sdk — 3 of 9 adapters). Same refactor as B2-claude-cursor. Replace writeFileSync + INSTRUCTION_RE... (T9018)
+- **B2-codex-opencode-pi: Refactor codex + opencode + pi adapters to call caamp.ensureProviderInstructionFile()**: Atomic split of T1919 (codex + opencode + pi — 3 of 9 adapters). Same refactor as B2-claude-cursor and B2-gemini-kimi-oai. (T9019)
+- **Migrate cleo CLI commands (daemon.ts, gc.ts, dispatch/domains/playbook.ts) to consume @cleocode/paths**: cleo/cli/commands/daemon.ts:189,271,315,454 + cleo/cli/commands/gc.ts:64,115 use 'join(homedir(), .cleo)' patterns. cleo/dispatch/domains/playbook.... (T1915)
+- **Cleanup polluted state + token-budget verification + doctor checks updated to XDG path**: Final phase. Manual ops + verification: (1) Sweep ~/.temp/cleo-injection-chain-* (15 stale dirs from leaked test runs). (2) Sanitize user's ~/.agen... (T1922)
+
+### Changes
+- **RCASD: ADR-068 + spec — canonical agent system, supersede ADR-055 D032/D035**: RCASD planning task for Phase 1 of the agent + playbook canonicalization. Output is ADR-068 (canonical agent system v2) and a formal spec defining:... (T1930)
+- Wave-1 Task A (W1T1)
+- **B1-data: Add instructionReferences field to CAAMP registry.json + types.ts + providers.ts (per-provider populate)**: Phase B prerequisite — populate the per-provider INSTRUCTION_REFERENCES data in CAAMP registry. Add 'instructionReferences: string[]' field to prov... (T9013)
+- **T1889-W1: Move release engine tests to core/release/__tests__**: Atomic wave of T1889 (cleo dispatch/engines test relocation). Move the test files declared in scope from packages/cleo/src/dispatch/engines/__tests... (T9055)
+- **Delete duplicate XDG logic in caamp/core/paths/standard.ts + caamp/core/harness/scope.ts — consume @cleocode/paths**: caamp/core/paths/standard.ts:396-409 reimplements getCleoHomeForTemplate() with full XDG fallback chain. caamp/core/harness/scope.ts:128 hardcodes ... (T1912)
+- Wave-1 Task B (W1T2)
+- **B1-api: Expose getProviderInstructionReferences() + ensureProviderInstructionFile registry default in CAAMP**: Phase B API surface — add getProviderInstructionReferences(providerId) export from @cleocode/caamp barrel. Modify ensureProviderInstructionFile in ... (T9014)
+- **T1889-W2: Move orchestrate engine tests to core/orchestrate/__tests__**: Atomic wave of T1889 (cleo dispatch/engines test relocation). Move the test files declared in scope from packages/cleo/src/dispatch/engines/__tests... (T9056)
+- Write ADR-063: Cleo Core SDK Tools taxonomy (Category A Agent Tool vs Category B SDK Tool) (T1816)
+- **Replace orphan getAgentsHome() in core/paths.ts:1192 with createPlatformPathsResolver factory**: core/paths.ts:1192 contains 'process.env[AGENTS_HOME] ?? join(homedir(), .agents)' — orphan that does NOT consume the @cleocode/paths factory patte... (T1913)
+- **Consolidate @cleocode/agents source: rename seed-agents/→templates/, delete starter-bundle/ + *-generic.cant, rename files to project-<role>**: Wave 2 of T1929. Physical source-tree consolidation. Renames the seed-agents/ directory to templates/, renames each .cant file so filename basename... (T1932)
+- **T1889-W3: Move lifecycle engine tests to core/lifecycle/__tests__**: Atomic wave of T1889 (cleo dispatch/engines test relocation). Move the test files declared in scope from packages/cleo/src/dispatch/engines/__tests... (T9057)
+- **Resolver: update agent-resolver.ts fallback path to templates/, wire universal tier into spawn validator pre-flight**: Code-path fix. Two changes: (a) resolver fallback tier filename pattern updated to templates/<id>.cant — now matches classifier output project-<rol... (T1933)
+- **T1889-W4: Move session engine tests to core/sessions/__tests__**: Atomic wave of T1889 (cleo dispatch/engines test relocation). Move the test files declared in scope from packages/cleo/src/dispatch/engines/__tests... (T9058)
+- **Init: cleo init (no flag) auto-registers all 5 templates at project tier via installAgentFromCant**: Code-path fix. Resolves Bug 3 — standard agents are NOT auto-installed by 'cleo init' today; the flag --install-seed-agents only copies files to di... (T1934)
+- **T1889-W5: Move task engine tests to core/tasks/__tests__**: Atomic wave of T1889 (cleo dispatch/engines test relocation). Move the test files declared in scope from packages/cleo/src/dispatch/engines/__tests... (T9059)
+- Promote pipelineManifestAppend to SDK Tool — packages/core/src/tools/sdk/manifest.ts (T1819)
+- **SDK: rename resolveStarterBundle.ts → resolveAgentTemplates.ts, repath all callers from T1931 audit**: SDK helper rename + repath. The resolveStarterBundle helper from T1241 (ADR-055 D035) walks require.resolve('@cleocode/agents/package.json') to fin... (T1935)
+- **T1889-W6: Move hooks/code/validate-hint engine tests to core + fix code-engine cwd leak**: Atomic wave of T1889 (cleo dispatch/engines test relocation). Move the test files declared in scope from packages/cleo/src/dispatch/engines/__tests... (T9060)
+- **Classifier: update getRegisteredAgentIds() to source-of-truth from templates/, validate CLASSIFIER_RULES on startup**: Code-path fix. Aligns classifier output (project-<role>) with registered agents in the DB. After T1934 wires init to register templates, this task ... (T1936)
+- **T1889-W7: Move validate shim test + loom orphan test; evaluate loom deletion**: Atomic wave of T1889 (cleo dispatch/engines test relocation). Move the test files declared in scope from packages/cleo/src/dispatch/engines/__tests... (T9061)
+- T1889-W8: Delete 13 dispatch engine shims (9 unused + 4 importers updated to @cleocode/core/internal); keep _error.ts and template-parser.ts (T9078)
+- **Migration walker: scan existing .cleo/{cant/}agents/ entries and register in signaldock.db.agents, log conflicts**: Backwards-compat migration. Existing CLEO installations have agents on disk in .cleo/cant/agents/ that were never registered in signaldock.db.agent... (T1938)
+- **Make global injection content config-driven via globalInjectionRefs: string[] in CLEO config**: Currently bootstrap.ts:329 hardcodes the single XDG CLEO-INJECTION.md ref injected into ~/.agents/AGENTS.md. Per owner directive: must NOT be hardc... (T1920)
+- **CAAMP injection-chain dedup: AGENTS.md accumulates duplicate <!-- CAAMP:START --> blocks — fix idempotent writer**: Separate symptom of the same architectural area. /home/keatonhoskins/.agents/AGENTS.md currently has 5 stacked <!-- CAAMP:START --> blocks all poin... (T1939)
+- **ADR: CAAMP↔adapters boundary — CAAMP owns instruction-file injection + provider registry; adapters own provider-specific concerns**: Lock the architectural boundary now that B1+B2 prove the shape. Write ADR-0XX (next sequential ADR number) documenting: (1) CAAMP package owns the ... (T1921)
+- **Release v2026.5.30 — full agent + playbook discovery pipeline green; T1929 close; close T1877/T1879 references**: Phase 1 close + BUNDLED RELEASE. Ships v2026.5.30+ with ALL pending work since v2026.5.29 — not just T1929 epic. Per owner directive 2026-05-06: ga... (T1941)
+- **CAAMP writer-bypass: temp-path injection still accumulates 37+ blocks despite T1939 dedup-by-path fix**: Follow-up to T1939. T1939 made the CAAMP writer dedup blocks BY PATH (same @path = upsert, not append). But CLEO sessions keep generating new temp-... (T9020)
+- **Pre-tag fix-ups: biome .archive ignore + seed-persona-registry rename leak + llmtxt-core version + investigate 19 test failures**: Pre-release fix-up. T9032 inventory found release-blocking issues: 21 failing tests, biome ci failure on .archive corruption, seed-persona-registry... (T9033)
+- **P0 hotfix: cleo orchestrate spawn STILL fails with V_AGENT_NOT_FOUND despite T1933 universal-tier wiring — published CLI gap + workspace gap**: P0 hotfix continuing T1933's universal-tier wiring. T1941 verified release shipped but T1820 spawn STILL fails — V_AGENT_NOT_FOUND. Per T1941 diagn... (T9037)
+---
 ## [2026.5.39] (2026-05-07)
 
 Auto-prepared by release.ship (T9079)
