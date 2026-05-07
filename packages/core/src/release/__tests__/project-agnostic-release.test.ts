@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getPushMode, loadReleaseConfig, validateReleaseConfig } from '../release-config.js';
 
@@ -202,10 +203,11 @@ describe('RELEASE-01: validateReleaseConfig with T820 fields', () => {
 // ---------------------------------------------------------------------------
 
 describe('RELEASE-06: downstream fixture is project-agnostic', () => {
-  const fixturePath = new URL(
+  const fixtureUrl = new URL(
     '../../../../cleo/test/fixtures/release-test-project',
     import.meta.url,
-  ).pathname;
+  );
+  const fixturePath = fileURLToPath(fixtureUrl);
 
   it('fixture directory exists', () => {
     expect(existsSync(fixturePath)).toBe(true);
