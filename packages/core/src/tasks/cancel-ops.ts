@@ -86,12 +86,9 @@ export function cancelTask(
   });
 
   // Best-effort worktree cleanup when cancelling a task.
+  // Promise rejection (e.g. non-git directory) swallowed — must not propagate.
   if (projectRoot) {
-    try {
-      teardownWorktree(projectRoot, { taskId });
-    } catch {
-      /* best-effort — worktree may not exist */
-    }
+    teardownWorktree(projectRoot, { taskId }).catch(() => {});
   }
 
   return {
