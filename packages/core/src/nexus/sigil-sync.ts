@@ -121,7 +121,9 @@ const CANONICAL_META_FILES: readonly string[] = [
  *   `agent <name>:` declaration.
  */
 export function parseSigilFromCant(cantFile: string): ParsedSigil | null {
-  const content = readFileSync(cantFile, 'utf8');
+  // Normalize CRLF → LF so the parser sees consistent line endings on Windows
+  // runners that check out files with core.autocrlf=true.
+  const content = readFileSync(cantFile, 'utf8').replace(/\r\n/g, '\n');
   const lines = content.split('\n');
 
   let peerId: string | null = null;

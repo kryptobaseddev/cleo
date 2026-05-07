@@ -36,7 +36,7 @@ describe('Write Verification', () => {
     delete process.env['CLEO_DIR'];
     const { closeDb } = await import('../sqlite.js');
     closeDb();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
 
   describe('verifyTaskWrite', () => {
