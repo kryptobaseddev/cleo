@@ -28,6 +28,9 @@ beforeEach(async () => {
   testDir = await mkdtemp(join(tmpdir(), 'cleo-push-policy-'));
   cleoDir = join(testDir, '.cleo');
   await mkdir(cleoDir, { recursive: true });
+  // T9092: validateProjectRoot() requires a sibling .git/ directory so the
+  // .cleo/ ancestor isn't rejected as a "stray .cleo/ trap".
+  await mkdir(join(testDir, '.git'), { recursive: true });
 });
 
 afterEach(async () => {
