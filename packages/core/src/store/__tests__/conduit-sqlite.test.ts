@@ -293,6 +293,50 @@ describe('conduit-sqlite', () => {
     expect(mig?.name).toBe('20260425000000_initial-conduit');
   });
 
+  // T9027 — schema-version sentinel fast path
+  describe('schema-version sentinel (T9027)', () => {
+    it('hit path: stamps schema_version on first ensure and second ensure short-circuits', () => {
+      const first = ensureConduitDb(tmpRoot);
+      expect(first.action).toBe('created');
+      // Sentinel stamped at end of first ensure().
+      let db = getConduitNativeDb()!;
+      const v1 = db
+        .prepare("SELECT value FROM _conduit_meta WHERE key = 'schema_version'")
+        .get() as { value: string };
+      expect(v1.value).toBe(CONDUIT_SCHEMA_VERSION);
+
+      // Reset singleton so the next call re-opens the on-disk DB and exercises
+      // the sentinel branch (rather than the singleton-hit early return).
+      closeConduitDb();
+      const second = ensureConduitDb(tmpRoot);
+      expect(second.action).toBe('exists');
+      // Sentinel still present and unchanged after fast-path open.
+      db = getConduitNativeDb()!;
+      const v2 = db
+        .prepare("SELECT value FROM _conduit_meta WHERE key = 'schema_version'")
+        .get() as { value: string };
+      expect(v2.value).toBe(CONDUIT_SCHEMA_VERSION);
+    });
+
+    it('miss path: stale sentinel triggers full migration replay and re-stamps current version', () => {
+      ensureConduitDb(tmpRoot);
+      let db = getConduitNativeDb()!;
+      // Corrupt the sentinel to an older version.
+      db.exec("UPDATE _conduit_meta SET value = '1900.0.0' WHERE key = 'schema_version'");
+      closeConduitDb();
+
+      // Fall-through path runs applyConduitSchema + runConduitMigrations,
+      // then re-stamps the current code version.
+      const result = ensureConduitDb(tmpRoot);
+      expect(result.action).toBe('exists');
+      db = getConduitNativeDb()!;
+      const after = db
+        .prepare("SELECT value FROM _conduit_meta WHERE key = 'schema_version'")
+        .get() as { value: string };
+      expect(after.value).toBe(CONDUIT_SCHEMA_VERSION);
+    });
+  });
+
   // checkConduitDbHealth — db absent
   it('checkConduitDbHealth returns exists=false when conduit.db does not exist', () => {
     const health = checkConduitDbHealth(tmpRoot);
