@@ -37,8 +37,102 @@
  * @epic T4454
  */
 
+import type { EpicRollup, WaveRollup } from '@cleocode/contracts';
+import { orchestration } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+
+/**
+ * Format an EpicRollup or WaveRollup as a human-readable terminal table.
+ *
+ * Columns: WAVE | TASK | TITLE | STATUS | GATES | LATEST. Blockers (if any)
+ * are listed after the table.
+ */
+export function formatRollupTable(rollup: EpicRollup | WaveRollup): string {
+  const waves: WaveRollup[] = 'waves' in rollup ? rollup.waves : [rollup];
+  const lines: string[] = [];
+  const header = ['WAVE', 'TASK', 'TITLE', 'STATUS', 'GATES', 'LATEST'];
+  const rows: string[][] = [header];
+  const blockers: { taskId: string; reason: string; detail?: string }[] = [];
+
+  for (const wave of waves) {
+    for (const w of wave.workers) {
+      const gateSummary = Object.entries(w.gates ?? {})
+        .map(([k, v]) => `${k}=${v === true ? 'ok' : v === false ? 'fail' : '-'}`)
+        .join(',');
+      const latest = w.latestManifestStatus
+        ? `${w.latestManifestStatus}@${(w.latestManifestAt ?? '').slice(0, 19)}`
+        : '-';
+      rows.push([
+        String(wave.waveId),
+        w.taskId,
+        (w.title ?? '').slice(0, 40),
+        String(w.status ?? '-'),
+        gateSummary || '-',
+        latest,
+      ]);
+    }
+    for (const b of wave.blockers) blockers.push(b);
+  }
+
+  // Compute column widths.
+  const widths = header.map((_, ci) => Math.max(...rows.map((r) => (r[ci] ?? '').length)));
+  for (const row of rows) {
+    lines.push(row.map((c, i) => (c ?? '').padEnd(widths[i] ?? 0)).join('  '));
+  }
+
+  if (blockers.length > 0) {
+    lines.push('');
+    lines.push('Blockers:');
+    for (const b of blockers) {
+      lines.push(`  - ${b.taskId} [${b.reason}]${b.detail ? ` ${b.detail}` : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * cleo orchestrate roll-up <epicId> — Lead-tier rollup of an epic or single wave.
+ *
+ * Delegates to `rollupEpicStatus`/`rollupWaveStatus` from @cleocode/core
+ * (T9082, ADR-070). Supports `--wave <n>` filter and `--json` output.
+ *
+ * @task T9083
+ */
+const rollupCommand = defineCommand({
+  meta: {
+    name: 'roll-up',
+    description: 'Lead-tier rollup of an epic (all waves or filtered by --wave)',
+  },
+  args: {
+    epicId: {
+      type: 'positional',
+      description: 'Epic ID to roll up',
+      required: true,
+    },
+    wave: {
+      type: 'string',
+      description: 'Filter to a single wave id (0-indexed)',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit machine-readable JSON instead of a human table',
+    },
+  },
+  async run({ args }) {
+    const epicId = String(args.epicId);
+    const result: EpicRollup | WaveRollup =
+      args.wave !== undefined && args.wave !== ''
+        ? await orchestration.rollupWaveStatus(epicId, Number(args.wave))
+        : await orchestration.rollupEpicStatus(epicId);
+
+    if (args.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+    process.stdout.write(`${formatRollupTable(result)}\n`);
+  },
+});
 
 /** cleo orchestrate start — start orchestrator session for an epic */
 const startCommand = defineCommand({
@@ -956,6 +1050,7 @@ export const orchestrateCommand = defineCommand({
   subCommands: {
     start: startCommand,
     status: statusCommand,
+    'roll-up': rollupCommand,
     analyze: analyzeCommand,
     ready: readyCommand,
     next: nextCommand,
