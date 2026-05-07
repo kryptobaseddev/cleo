@@ -14,7 +14,13 @@
  * @task T1253
  */
 
-import type { AgentSpawnCapability, CLEOSpawnAdapter, CLEOSpawnContext } from '@cleocode/contracts';
+import type {
+  AgentSpawnCapability,
+  CLEOSpawnAdapter,
+  CLEOSpawnContext,
+  WorktreeHook,
+} from '@cleocode/contracts';
+import { runWorktreeHooks } from '@cleocode/worktree';
 import { findLeastLoadedAgent } from '../agents/capacity.js';
 import { substituteCantAgentBody } from '../agents/variable-substitution.js';
 import { type EngineResult, engineError } from '../engine-result.js';
@@ -36,6 +42,30 @@ import { provisionIsolatedShell } from '../tools/sdk/isolation.js';
 import { openSignaldockDbForComposer } from './plan.js';
 
 export type { EngineResult };
+
+// ---------------------------------------------------------------------------
+// Worktree hooks loader — best-effort, never throws
+// ---------------------------------------------------------------------------
+
+/**
+ * Load declarative worktree hooks from `.cleo/worktree-hooks.json`.
+ * Returns an empty array when the file is absent or malformed.
+ */
+async function loadWorktreeHooks(projectRoot: string): Promise<WorktreeHook[]> {
+  try {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const hooksPath = join(projectRoot, '.cleo', 'worktree-hooks.json');
+    const raw = readFileSync(hooksPath, 'utf-8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed as WorktreeHook[];
+    }
+  } catch {
+    // Absent or malformed — graceful degradation.
+  }
+  return [];
+}
 
 // ---------------------------------------------------------------------------
 // Conduit event helper — best-effort, never throws, never blocks orchestration
@@ -498,6 +528,17 @@ export async function orchestrateSpawnExecute(
 
     // Execute spawn
     const result = await adapter.spawn(cleoSpawnContext);
+
+    // Run declarative post-start worktree hooks after the agent is spawned.
+    // Best-effort: never block the orchestration on hook failures.
+    try {
+      const worktreeHooks = await loadWorktreeHooks(cwd);
+      if (worktreeHooks.length > 0 && agentWorkingDirectory !== cwd) {
+        await runWorktreeHooks(worktreeHooks, 'post-start', agentWorkingDirectory);
+      }
+    } catch {
+      /* Worktree hooks are best-effort — never block spawn */
+    }
 
     // Dispatch SubagentStop hook AFTER spawn returns — records completion
     // status in brain and conduit (T555).

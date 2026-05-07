@@ -37,6 +37,7 @@ import { safeRunCrossProjectHygiene } from './cross-project-hygiene.js';
 import { type ProposeTickOptions, safeRunProposeTick } from './propose-tick.js';
 import { patchSentientState, readSentientState, type SentientState } from './state.js';
 import { safeRunTick, type TickOptions } from './tick.js';
+import { warmupWorktreeBackend } from './worktree-dispatch.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -627,6 +628,10 @@ export async function bootstrapDaemon(
   process.on('SIGINT', () => {
     void shutdown('SIGINT');
   });
+
+  // Warm up the worktree backend so synchronous operations are available
+  // for the tick loop (T1161).
+  await warmupWorktreeBackend();
 
   // Kick off one tick immediately, then schedule cron.
   const tickOptions: TickOptions = { projectRoot, statePath };

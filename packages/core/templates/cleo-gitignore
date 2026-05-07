@@ -50,6 +50,9 @@
 !agent-outputs/
 !agent-outputs/**
 
+# Step 7: Allow worktree-include (propagation manifest for git worktrees)
+!worktree-include
+
 # =============================================================================
 # EXPLICIT DENY — safety net that overrides allow rules above
 # =============================================================================
