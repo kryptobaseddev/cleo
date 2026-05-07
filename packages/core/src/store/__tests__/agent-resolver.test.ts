@@ -23,7 +23,7 @@
  * @epic T889 / T1929
  */
 
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -842,7 +842,7 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
 
       // Verify that the resolution produces the correct path relative to the
       // fake package root — i.e., the require.resolve strategy finds the right file.
-      expect(expectedPath).toBe(j(fakePkgDir, 'cleo-subagent.cant'));
+      expect(realpathSync(expectedPath)).toBe(realpathSync(j(fakePkgDir, 'cleo-subagent.cant')));
 
       const { existsSync } = await import('node:fs');
       expect(existsSync(expectedPath)).toBe(true);
