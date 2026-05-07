@@ -3,12 +3,24 @@
  *
  * Single source of truth for the pragma set applied to every node:sqlite
  * `DatabaseSync` handle opened across CLEO. The canonical (name, value)
- * pairs are loaded from `specs/sqlite-pragmas.json` at module init via
- * `fs.readFileSync` relative to `import.meta.url` — the same pattern
- * `@cleocode/caamp` uses for `providers/hook-mappings.json`. The Rust
- * crate `signaldock-storage` consumes the identical JSON file from a
- * `build.rs` codegen step (T9053), so the SQL applied by node:sqlite
- * here and by Diesel/SQLite over there is byte-identical by construction.
+ * pairs are embedded directly as a TypeScript literal (option B of T9157)
+ * rather than loaded from `specs/sqlite-pragmas.json` at runtime.
+ *
+ * **Why embedded rather than file-loaded (T9157 fix)**:
+ * The original `readFileSync` approach used a 4-level `..` path from
+ * `import.meta.url` that assumed monorepo layout. This broke in two
+ * environments:
+ *   1. CI: `NODE_PATH` resolution landed one level above the project root.
+ *   2. npm-installed consumers: `node_modules/@cleocode/core/dist/store/`
+ *      has no `specs/` sibling anywhere up its ancestor chain.
+ * Embedding the data as a TypeScript literal eliminates all filesystem
+ * lookups — the module is self-contained regardless of where it is
+ * installed or how CI lays out the workspace.
+ *
+ * The Rust crate `signaldock-storage` still consumes `specs/sqlite-pragmas.json`
+ * from a `build.rs` codegen step (T9053 SSoT direction). Both sides must
+ * be kept in sync manually; a future T9053 codegen step can validate
+ * equivalence at build time.
  *
  * Keeping this in one place avoids the historical drift where some
  * open sites (sqlite-native, conduit-sqlite) carried tuned pragmas
@@ -25,17 +37,17 @@
  *     (CLI tasks, not financial ledgers).
  *
  * @remarks
- * Choices and rationale for the values shipped in
- * `specs/sqlite-pragmas.json`:
+ * Choices and rationale for the values below (mirroring `specs/sqlite-pragmas.json`):
  *
- * - `journal_mode = WAL` — Enables concurrent reader+writer access.
- * - `synchronous = NORMAL` — Safe with WAL: durable on commit, only the
- *   in-flight transaction is at risk on power cut. ~2-3× faster than the
- *   default `FULL` for write-heavy workloads.
  * - `busy_timeout = 5000` — Wait up to 5 s for a competing writer's lock
  *   before failing with SQLITE_BUSY. Without this, concurrent CLI
  *   invocations (verify + complete + tests) immediately error out;
  *   with this, they queue politely.
+ * - `journal_mode = WAL` — Enables concurrent reader+writer access.
+ * - `synchronous = NORMAL` — Safe with WAL: durable on commit, only the
+ *   in-flight transaction is at risk on power cut. ~2-3× faster than the
+ *   default `FULL` for write-heavy workloads.
+ * - `foreign_keys = ON` — Enforce referential integrity by default.
  * - `cache_size = -64000` — 64 MB page cache (negative = KB; positive =
  *   pages). The SQLite default of ~2 MB makes any non-trivial query
  *   thrash.
@@ -50,48 +62,45 @@
  * `journal_mode = WAL` if not already set) silently no-op on read-only
  * handles, which is fine — the writer set WAL when it created the DB.
  *
- * @task T-PERF-PRAGMAS, T9053
+ * @task T-PERF-PRAGMAS, T9053, T9157
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 
-// ── SSoT load ───────────────────────────────────────────────────────
+// ── SSoT (embedded literal — T9157) ─────────────────────────────────
+//
+// This literal is the TypeScript representation of `specs/sqlite-pragmas.json`
+// (version 1). It MUST be kept in sync with that file. The test suite in
+// `__tests__/sqlite-pragmas-ssot.test.ts` validates equivalence against the
+// JSON file when running in the monorepo (where the file is accessible).
+// The embedded form ships with the npm package and works in all environments.
 
 /**
- * Shape of `specs/sqlite-pragmas.json` — the canonical CLEO SQLite
- * pragma policy file. Only the fields this module consumes are typed.
+ * Shape of the pragma policy — mirrors `specs/sqlite-pragmas.json`.
+ * Only the fields this module consumes are typed.
  */
 interface SqlitePragmaSpec {
   readonly version: number;
   readonly pragmas: ReadonlyArray<readonly [string, string]>;
 }
 
-function locateSpecPath(): string {
-  // From <repo>/packages/core/{src,dist}/store/sqlite-pragmas.{ts,js}
-  // the workspace root is four levels up: store → {src|dist} → core →
-  // packages → repo. The same offset works in both ts-source (vitest)
-  // and the compiled dist tree because the depth is identical.
-  const here = dirname(fileURLToPath(import.meta.url));
-  return resolve(here, '..', '..', '..', '..', 'specs', 'sqlite-pragmas.json');
-}
-
-function loadSpec(): SqlitePragmaSpec {
-  const path = locateSpecPath();
-  const raw = readFileSync(path, 'utf8');
-  const parsed = JSON.parse(raw) as SqlitePragmaSpec;
-  if (!Array.isArray(parsed.pragmas) || parsed.pragmas.length === 0) {
-    throw new Error(
-      `T9053 SSoT at ${path} declared no pragmas — refusing to apply ` +
-        'an empty policy that would silently disable WAL/foreign_keys/etc.',
-    );
-  }
-  return parsed;
-}
-
-const SPEC: SqlitePragmaSpec = loadSpec();
+/**
+ * Embedded pragma spec — byte-equivalent to `specs/sqlite-pragmas.json` v1.
+ * Update this when the JSON spec changes (T9053 governs policy changes).
+ */
+const SPEC: SqlitePragmaSpec = {
+  version: 1,
+  pragmas: [
+    ['busy_timeout', '5000'],
+    ['journal_mode', 'WAL'],
+    ['synchronous', 'NORMAL'],
+    ['foreign_keys', 'ON'],
+    ['cache_size', '-64000'],
+    ['mmap_size', '268435456'],
+    ['temp_store', 'MEMORY'],
+    ['wal_autocheckpoint', '1000'],
+  ],
+};
 
 /**
  * Canonical (name, value) pairs in declared order — mirror of the
