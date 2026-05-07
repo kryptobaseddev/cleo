@@ -77,7 +77,14 @@ export function getCleoSystemInfo(): SystemInfo {
  * @public
  */
 export function getCleoTemplatesTildePath(): string {
-  const absPath = join(getCleoHome(), TEMPLATES_SUBDIR);
+  const cleoHome = getCleoHome();
+  // Use posix-style join when the path uses forward slashes (e.g. test
+  // overrides or Unix-style paths on any platform) to avoid converting
+  // separators to backslashes on Windows.
+  const absPath =
+    cleoHome.includes('/') && !cleoHome.includes('\\')
+      ? `${cleoHome}/${TEMPLATES_SUBDIR}`
+      : join(cleoHome, TEMPLATES_SUBDIR);
   const home = homedir();
   if (absPath.startsWith(home)) {
     const relative = absPath.slice(home.length).replace(/\\/g, '/');

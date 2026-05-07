@@ -42,7 +42,7 @@ beforeEach(async () => {
 afterEach(async () => {
   delete process.env['CLEO_HOME'];
   resetNexusDbState();
-  await rm(testDir, { recursive: true, force: true });
+  await rm(testDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
 
 // ---------------------------------------------------------------------------

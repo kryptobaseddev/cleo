@@ -125,7 +125,7 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     } catch {
       /* ignore */
     }
-    await rm(TEST_ROOT, { recursive: true, force: true });
+    await rm(TEST_ROOT, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
 
   it('emits payload with composerVersion 3.0.0 meta', async () => {

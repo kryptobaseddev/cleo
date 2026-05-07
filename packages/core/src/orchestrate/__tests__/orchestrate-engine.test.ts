@@ -129,7 +129,7 @@ describe('Orchestrate Engine', () => {
     } catch {
       /* ignore */
     }
-    await rm(TEST_ROOT, { recursive: true, force: true });
+    await rm(TEST_ROOT, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
 
   describe('orchestrateStatus', () => {
@@ -305,7 +305,7 @@ describe('Orchestrate Engine', () => {
         } catch {
           /* ignore */
         }
-        await rm(isolatedRoot, { recursive: true, force: true });
+        await rm(isolatedRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
       }
     });
 
@@ -366,7 +366,7 @@ describe('Orchestrate Engine', () => {
         } catch {
           /* ignore */
         }
-        await rm(isolatedRoot2, { recursive: true, force: true });
+        await rm(isolatedRoot2, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
       }
     });
   });
