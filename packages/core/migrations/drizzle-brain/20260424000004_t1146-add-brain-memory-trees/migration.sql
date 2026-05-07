@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS brain_memory_trees (
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT
 );
-
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_brain_trees_parent ON brain_memory_trees(parent_id);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_brain_trees_depth ON brain_memory_trees(depth);

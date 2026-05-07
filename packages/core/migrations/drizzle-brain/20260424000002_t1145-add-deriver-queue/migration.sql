@@ -23,12 +23,12 @@ CREATE TABLE IF NOT EXISTS deriver_queue (
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   completed_at  TEXT
 );
-
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_deriver_queue_status_priority
   ON deriver_queue(status, priority DESC, created_at ASC);
-
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_deriver_queue_item
   ON deriver_queue(item_type, item_id);
-
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_deriver_queue_claimed_at
   ON deriver_queue(claimed_at);
