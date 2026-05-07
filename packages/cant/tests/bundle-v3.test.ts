@@ -196,12 +196,6 @@ agent clean-worker:
   tone: "Direct, assertive, evidence-based"
 
   prompt: "You are a test worker. Run tests and report pass/fail with commit SHA."
-
-  skills: [ct-cleo]
-
-  permissions:
-    tasks: read
-    memory: read, write
 `,
     );
 
