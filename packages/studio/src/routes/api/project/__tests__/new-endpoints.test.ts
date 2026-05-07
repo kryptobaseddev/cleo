@@ -13,6 +13,7 @@
  * so no real CLI executes.
  */
 
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // -------------------------------------------------------------------------
@@ -190,7 +191,7 @@ describe('GET /api/project/backup', () => {
     };
     expect(body.success).toBe(true);
     expect(Array.isArray(body.data.backups)).toBe(true);
-    expect(body.data.dir).toContain('backups/sqlite');
+    expect(body.data.dir).toContain(join('backups', 'sqlite'));
   });
 });
 
