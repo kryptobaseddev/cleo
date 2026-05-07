@@ -502,11 +502,11 @@ async function build() {
   // Dependency constraints (each package must see its deps' dist/ before it
   // starts) are preserved by awaiting each wave before starting the next.
   //
-  //   Wave 1:  lafs          (no internal deps)
+  //   Wave 1:  lafs + paths   (zero internal deps — true roots)
   //   Wave 2:  contracts     (deps lafs)
-  //   Wave 3:  worktree + git-shim + nexus + cant  (all dep contracts/lafs only)
+  //   Wave 3:  worktree + git-shim + nexus + cant  (dep contracts + paths — both ready)
   //   Wave 4:  caamp         (deps cant — must wait for wave 3)
-  //   Wave 5:  core esbuild + tsc declarations  (deps caamp, nexus, worktree)
+  //   Wave 5:  core esbuild + tsc declarations  (deps caamp, nexus, worktree, paths)
   //   Wave 6:  runtime + adapters  (both dep core — run in parallel)
   //   Wave 7:  playbooks + mcp-adapter  (both dep core only — run in parallel)
   //   Wave 8:  cleo esbuild  (deps adapters, playbooks, runtime from above)
@@ -517,20 +517,28 @@ async function build() {
   const buildStart = Date.now();
 
   // ---------------------------------------------------------------------------
-  // Wave 1: lafs (sole root — no internal deps)
+  // Wave 1: lafs + paths (zero internal deps — true roots of the graph)
+  //
+  // Both packages have no @cleocode/* dependencies and can build in parallel.
+  // paths must complete here so wave-3 packages (worktree, git-shim, caamp,
+  // adapters, core) that import @cleocode/paths resolve its .d.ts correctly.
   // ---------------------------------------------------------------------------
-  console.log('\n[build] Wave 1: lafs');
-  await buildPkg('@cleocode/lafs', 'packages/lafs/dist/');
-  await chmod('packages/lafs/dist/src/cli.js', 0o755).catch(() => {});
+  console.log('\n[build] Wave 1: lafs + paths (parallel)');
+  await Promise.all([
+    buildPkg('@cleocode/lafs', 'packages/lafs/dist/').then(async () => {
+      await chmod('packages/lafs/dist/src/cli.js', 0o755).catch(() => {});
+    }),
+    buildPkg('@cleocode/paths', 'packages/paths/dist/'),
+  ]);
 
   // ---------------------------------------------------------------------------
-  // Wave 2: contracts (deps lafs)
+  // Wave 2: contracts (deps lafs — lafs is ready from wave 1)
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 2: contracts');
   await buildPkg('@cleocode/contracts', 'packages/contracts/dist/');
 
   // ---------------------------------------------------------------------------
-  // Wave 3: worktree + git-shim + nexus + cant  (all dep contracts/lafs only)
+  // Wave 3: worktree + git-shim + nexus + cant  (dep contracts + paths — both ready)
   //
   // cant must finish in this wave (before caamp in wave 4) because caamp
   // imports validateDocument/parseDocument from @cleocode/cant and its tsup
