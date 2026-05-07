@@ -13,11 +13,12 @@
  * @epic T1149
  */
 
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentCredential, ConduitMessage, Transport } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { ensureConduitDb } from '../../store/conduit-sqlite.js';
 import { ConduitClient } from '../conduit-client.js';
 import { LocalTransport } from '../local-transport.js';
@@ -77,9 +78,7 @@ describe('LocalTransport — A2A Topic Operations (T1252)', () => {
 
   afterEach(async () => {
     process.chdir(originalCwd);
-    if (testDir && existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true });
-    }
+    removeTempDirSync(testDir);
   });
 
   // --------------------------------------------------------------------------
@@ -317,9 +316,7 @@ describe('ConduitClient — A2A Topic Delegation (T1252)', () => {
 
   afterEach(async () => {
     process.chdir(originalCwd);
-    if (testDir && existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true });
-    }
+    removeTempDirSync(testDir);
   });
 
   it('delegates subscribeTopic to LocalTransport', async () => {
@@ -423,9 +420,7 @@ describe('E2E — Two subagents coordinate via CONDUIT topics (T1149 atom 5)', (
 
   afterEach(async () => {
     process.chdir(originalCwd);
-    if (testDir && existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true });
-    }
+    removeTempDirSync(testDir);
   });
 
   /**

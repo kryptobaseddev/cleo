@@ -135,8 +135,13 @@ describe('parseSigilFromCant', () => {
     expect(parsed?.model).toBe('opus');
     expect(parsed?.systemPromptFragment).toBeTruthy();
     expect(parsed?.systemPromptFragment).toContain('agent-architect');
-    // Multi-line content carries newlines from the pipe block.
-    expect(parsed?.systemPromptFragment?.includes('\n')).toBe(true);
+    // Pipe-block content preserves multiple semantic prompt lines without depending on path or newline representation.
+    expect(parsed?.systemPromptFragment).toContain(
+      'constructing customized project-specific agents',
+    );
+    expect(parsed?.systemPromptFragment).toContain(
+      'You are invoked by `cleo init --install-seed-agents`',
+    );
   });
 });
 
