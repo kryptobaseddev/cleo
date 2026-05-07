@@ -346,6 +346,63 @@ describe('runValidation — T1954 archived deps outside epic scope not flagged a
 });
 
 // ---------------------------------------------------------------------------
+// T9158: --scope all must not flag archived deps as missing refs
+// (regression guard: taskDepsValidate previously called queryTasks({}) which
+//  excluded archived tasks, causing archived dep targets to appear as missing)
+// ---------------------------------------------------------------------------
+
+describe('runValidation — T9158 scope:all with archived dep targets not flagged', () => {
+  it('does NOT emit E_MISSING_REF for archived dep when scope is all (allTasks includes archived)', () => {
+    // Simulate the full DB result including archived tasks (the fixed behaviour).
+    // T1836 (active) depends on T1841 (archived). With scope=all, both are in the
+    // input set, so validateDependencyRefs sees T1841's ID and does NOT emit an error.
+    const allTasksIncludingArchived: Task[] = [
+      makeEpic({ id: 'E001', title: 'Parent epic' }),
+      makeTask({ id: 'T1836', title: 'Active task', parentId: 'E001', depends: ['T1841'] }),
+      makeTask({ id: 'T1841', title: 'Archived base task', parentId: 'E001', status: 'archived' }),
+    ];
+    const result = runValidation(allTasksIncludingArchived, { scope: 'all' });
+    const missingRefs = result.issues.filter((i) => i.code === 'E_MISSING_REF');
+    expect(missingRefs.some((i) => i.relatedIds?.includes('T1841'))).toBe(false);
+  });
+
+  it('does NOT emit E_MISSING_REF for archived dep when scope is open (archived excluded from scope, present in allTasks)', () => {
+    // With scope=open, archived tasks are filtered out of the scoped set.
+    // T1836 (active) depends on T1841 (archived). When runValidation receives
+    // allTasks that includes the archived task, it correctly suppresses the error.
+    const allTasksIncludingArchived: Task[] = [
+      makeEpic({ id: 'E001', title: 'Parent epic' }),
+      makeTask({ id: 'T1836', title: 'Active task', parentId: 'E001', depends: ['T1841'] }),
+      makeTask({ id: 'T1841', title: 'Archived base task', parentId: 'E001', status: 'archived' }),
+    ];
+    const result = runValidation(allTasksIncludingArchived, { scope: 'open' });
+    const missingRefs = result.issues.filter((i) => i.code === 'E_MISSING_REF');
+    // T1841 is archived — not a missing ref
+    expect(missingRefs.some((i) => i.relatedIds?.includes('T1841'))).toBe(false);
+  });
+
+  it('still flags E_MISSING_REF for a truly-missing dep with scope:all', () => {
+    const tasks: Task[] = [
+      makeEpic({ id: 'E001', title: 'Parent epic' }),
+      makeTask({ id: 'T1836', title: 'Active task', parentId: 'E001', depends: ['T_GONE'] }),
+    ];
+    const result = runValidation(tasks, { scope: 'all' });
+    const missingRefs = result.issues.filter((i) => i.code === 'E_MISSING_REF');
+    expect(missingRefs.some((i) => i.relatedIds?.includes('T_GONE'))).toBe(true);
+  });
+
+  it('still flags E_MISSING_REF for a truly-missing dep with scope:open', () => {
+    const tasks: Task[] = [
+      makeEpic({ id: 'E001', title: 'Parent epic' }),
+      makeTask({ id: 'T1836', title: 'Active task', parentId: 'E001', depends: ['T_GONE'] }),
+    ];
+    const result = runValidation(tasks, { scope: 'open' });
+    const missingRefs = result.issues.filter((i) => i.code === 'E_MISSING_REF');
+    expect(missingRefs.some((i) => i.relatedIds?.includes('T_GONE'))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // nearestEpic helper
 // ---------------------------------------------------------------------------
 
