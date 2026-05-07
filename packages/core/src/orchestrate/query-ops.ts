@@ -343,8 +343,8 @@ export async function orchestrateReady(
         readyTasks: ready.map((t) => ({
           id: t.taskId,
           title: t.title,
-          priority: 'medium', // getReadyTasks doesn't return priority
-          depends: t.blockers,
+          priority: t.priority,
+          depends: t.depends,
         })),
         total: ready.length,
         ...(reason !== undefined && { reason }),
@@ -394,10 +394,10 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
       success: true,
       data: {
         epicId,
-        nextTask: { id: nextTask.taskId, title: nextTask.title, priority: 'medium' },
+        nextTask: { id: nextTask.taskId, title: nextTask.title, priority: nextTask.priority },
         alternatives: ready
           .slice(1, 4)
-          .map((t) => ({ id: t.taskId, title: t.title, priority: 'medium' })),
+          .map((t) => ({ id: t.taskId, title: t.title, priority: t.priority })),
         totalReady: ready.length,
       },
     };
