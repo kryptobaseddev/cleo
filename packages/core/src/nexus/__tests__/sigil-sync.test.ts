@@ -12,7 +12,7 @@
 
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
 import { nexusInit } from '../registry.js';
@@ -65,7 +65,7 @@ describe('resolveCanonicalCantFiles', () => {
     const resolved = await resolveCanonicalCantFiles();
 
     // Per ADR-068: seed-agents/ renamed to templates/, filenames use project-<role> prefix.
-    const filenames = resolved.files.map((p) => p.split('/').pop());
+    const filenames = resolved.files.map((p) => basename(p));
     expect(filenames).toContain('cleo-subagent.cant');
     expect(filenames).toContain('project-orchestrator.cant');
     expect(filenames).toContain('project-dev-lead.cant');
@@ -99,7 +99,9 @@ describe('parseSigilFromCant', () => {
   it('extracts the orchestrator from templates/project-orchestrator.cant', async () => {
     // Per ADR-068: seed-agents/ renamed to templates/; file is project-orchestrator.cant.
     const resolved = await resolveCanonicalCantFiles();
-    const orchestratorFile = resolved.files.find((f) => f.endsWith('project-orchestrator.cant'));
+    const orchestratorFile = resolved.files.find(
+      (f) => basename(f) === 'project-orchestrator.cant',
+    );
     expect(orchestratorFile).toBeDefined();
 
     const parsed = parseSigilFromCant(orchestratorFile as string);
@@ -111,7 +113,7 @@ describe('parseSigilFromCant', () => {
   it('falls back to description when no prompt block is present', async () => {
     // Per ADR-068: file is now project-code-worker.cant in templates/.
     const resolved = await resolveCanonicalCantFiles();
-    const codeWorkerFile = resolved.files.find((f) => f.endsWith('project-code-worker.cant'));
+    const codeWorkerFile = resolved.files.find((f) => basename(f) === 'project-code-worker.cant');
     expect(codeWorkerFile).toBeDefined();
 
     const parsed = parseSigilFromCant(codeWorkerFile as string);
@@ -124,7 +126,7 @@ describe('parseSigilFromCant', () => {
 
   it('parses the multi-line prompt: | pipe block on agent-architect', async () => {
     const resolved = await resolveCanonicalCantFiles();
-    const agentArchitectFile = resolved.files.find((f) => f.endsWith('agent-architect.cant'));
+    const agentArchitectFile = resolved.files.find((f) => basename(f) === 'agent-architect.cant');
     expect(agentArchitectFile).toBeDefined();
 
     const parsed = parseSigilFromCant(agentArchitectFile as string);
