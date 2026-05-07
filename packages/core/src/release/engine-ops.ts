@@ -29,11 +29,7 @@ import { releaseManifests } from '../store/tasks-schema.js';
 import { channelToDistTag, resolveChannelFromBranch } from './channel.js';
 import { buildPRBody, createPullRequest, isGhCliAvailable, type PRResult } from './github-pr.js';
 import { checkDoubleListing, checkEpicCompleteness } from './guards.js';
-import {
-  getGitFlowConfig,
-  getReleaseBranchConfig,
-  loadReleaseConfig,
-} from './release-config.js';
+import { getGitFlowConfig, getReleaseBranchConfig, loadReleaseConfig } from './release-config.js';
 import {
   cancelRelease,
   commitRelease,
@@ -1177,12 +1173,21 @@ export async function releaseShip(
       if (epicTaskIds.length > 0) {
         const { blocked, unchecked } = await checkIvtrGates(epicTaskIds, projectRoot);
         if (blocked.length > 0) {
-          logStep(1, 12, 'Check IVTR gate for epic tasks', false, `${blocked.length} task(s) not released in IVTR`);
+          logStep(
+            1,
+            12,
+            'Check IVTR gate for epic tasks',
+            false,
+            `${blocked.length} task(s) not released in IVTR`,
+          );
           return engineError(
             'E_LIFECYCLE_GATE_FAILED',
             `IVTR gate rejected: ${blocked.length} task(s) in epic ${epicId} have not reached IVTR 'released' phase: ${blocked.join(', ')}. ` +
               'Run `cleo orchestrate ivtr <taskId> --release` for each blocking task, or pass --force to bypass with owner warning.',
-            { fix: `cleo orchestrate ivtr ${blocked[0]} --release`, details: { blocked, unchecked, epicId } },
+            {
+              fix: `cleo orchestrate ivtr ${blocked[0]} --release`,
+              details: { blocked, unchecked, epicId },
+            },
           );
         }
         if (unchecked.length > 0) {
@@ -1232,7 +1237,11 @@ export async function releaseShip(
         .map((e) => `${e.epicId}: missing ${e.missingChildren.map((c) => c.id).join(', ')}`)
         .join('; ');
       logStep(2, 12, 'Check epic completeness', false, incomplete);
-      return engineError('E_LIFECYCLE_GATE_FAILED', `Epic completeness check failed: ${incomplete}`, { details: { epics: epicCheck.epics } });
+      return engineError(
+        'E_LIFECYCLE_GATE_FAILED',
+        `Epic completeness check failed: ${incomplete}`,
+        { details: { epics: epicCheck.epics } },
+      );
     }
     logStep(2, 12, 'Check epic completeness', true);
 
@@ -1248,9 +1257,13 @@ export async function releaseShip(
       existingReleases.map((r) => ({ version: r.version, tasks: r.tasks ?? [] })),
     );
     if (doubleCheck.hasDoubleListing) {
-      const dupes = doubleCheck.duplicates.map((d) => `${d.taskId} (in ${d.releases.join(', ')})`).join('; ');
+      const dupes = doubleCheck.duplicates
+        .map((d) => `${d.taskId} (in ${d.releases.join(', ')})`)
+        .join('; ');
       logStep(3, 12, 'Check task double-listing', false, dupes);
-      return engineError('E_VALIDATION', `Double-listing detected: ${dupes}`, { details: { duplicates: doubleCheck.duplicates } });
+      return engineError('E_VALIDATION', `Double-listing detected: ${dupes}`, {
+        details: { duplicates: doubleCheck.duplicates },
+      });
     }
     logStep(3, 12, 'Check task double-listing', true);
 
@@ -1259,10 +1272,15 @@ export async function releaseShip(
       logStep(4, 12, 'Generate CHANGELOG');
       logStep(4, 12, 'Generate CHANGELOG', true);
 
-      const filesToStagePreview = ['CHANGELOG.md', ...(shouldBump ? bumpTargets.map((t) => t.file) : [])];
+      const filesToStagePreview = [
+        'CHANGELOG.md',
+        ...(shouldBump ? bumpTargets.map((t) => t.file) : []),
+      ];
       const wouldDo: string[] = [];
       if (shouldBump) {
-        wouldDo.push(`bump version files: ${bumpTargets.map((t) => t.file).join(', ')} → ${version}`);
+        wouldDo.push(
+          `bump version files: ${bumpTargets.map((t) => t.file).join(', ')} → ${version}`,
+        );
       }
       wouldDo.push(
         `write CHANGELOG.md: ## [${cleanVersion}] - ${new Date().toISOString().split('T')[0]} (preview only)`,
@@ -1306,8 +1324,17 @@ export async function releaseShip(
     try {
       const changelogContent = readFileSync(changelogPath, 'utf8');
       if (!changelogContent.includes(`## [${cleanVersion}]`)) {
-        logStep(4, 12, 'Generate CHANGELOG', false, `CHANGELOG.md missing ## [${cleanVersion}] section`);
-        return engineError('E_VALIDATION', `CHANGELOG.md does not contain ## [${cleanVersion}] after generation.`);
+        logStep(
+          4,
+          12,
+          'Generate CHANGELOG',
+          false,
+          `CHANGELOG.md missing ## [${cleanVersion}] section`,
+        );
+        return engineError(
+          'E_VALIDATION',
+          `CHANGELOG.md does not contain ## [${cleanVersion}] after generation.`,
+        );
       }
     } catch (err: unknown) {
       const msg = (err as { message?: string }).message ?? String(err);
@@ -1464,7 +1491,9 @@ export async function releaseShip(
             // malformed JSON — retry
           }
           const allDone = checks.length > 0 && checks.every((c) => c.status === 'COMPLETED');
-          const anyFailed = checks.some((c) => c.conclusion === 'FAILURE' || c.conclusion === 'CANCELLED');
+          const anyFailed = checks.some(
+            (c) => c.conclusion === 'FAILURE' || c.conclusion === 'CANCELLED',
+          );
           if (anyFailed) {
             const failed = checks
               .filter((c) => c.conclusion === 'FAILURE' || c.conclusion === 'CANCELLED')
@@ -1500,7 +1529,10 @@ export async function releaseShip(
     logStep(9, 12, 'Merge PR');
     if (prUrl) {
       try {
-        execFileSync('gh', ['pr', 'merge', prUrl, '--merge', '--auto'], { ...gitCwd, timeout: 60_000 });
+        execFileSync('gh', ['pr', 'merge', prUrl, '--merge', '--auto'], {
+          ...gitCwd,
+          timeout: 60_000,
+        });
         logStep(9, 12, 'Merge PR', true);
       } catch (err: unknown) {
         const msg =
@@ -1665,7 +1697,10 @@ export async function releasePrStatus(
   const cwd = projectRoot ?? resolveProjectRoot();
 
   if (!isGhCliAvailable()) {
-    return engineError('E_GENERAL', 'gh CLI is not available. Install it from https://cli.github.com.');
+    return engineError(
+      'E_GENERAL',
+      'gh CLI is not available. Install it from https://cli.github.com.',
+    );
   }
 
   const cfg = loadReleaseConfig(cwd);
@@ -1714,8 +1749,16 @@ export async function releasePrStatus(
   }
 
   const allPassed =
-    checks.length > 0 && checks.every((c) => c.status === 'COMPLETED' && c.conclusion === 'SUCCESS');
+    checks.length > 0 &&
+    checks.every((c) => c.status === 'COMPLETED' && c.conclusion === 'SUCCESS');
   const anyFailed = checks.some((c) => c.conclusion === 'FAILURE' || c.conclusion === 'CANCELLED');
 
-  return engineSuccess<PRStatusResult>({ version: cleanVersion, releaseBranch, prUrl, checks, allPassed, anyFailed });
+  return engineSuccess<PRStatusResult>({
+    version: cleanVersion,
+    releaseBranch,
+    prUrl,
+    checks,
+    allPassed,
+    anyFailed,
+  });
 }

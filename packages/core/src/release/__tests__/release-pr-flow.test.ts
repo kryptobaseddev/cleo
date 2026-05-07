@@ -23,8 +23,8 @@ import {
   resetDbState,
 } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getReleaseBranchConfig, loadReleaseConfig } from '../release-config.js';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
+import { getReleaseBranchConfig, loadReleaseConfig } from '../release-config.js';
 
 // Hoist mocks so they apply when the module is first imported
 vi.mock('../changelog-writer.js', () => ({

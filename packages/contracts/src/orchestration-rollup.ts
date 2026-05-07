@@ -49,12 +49,7 @@ export interface RollupBlocker {
   taskId: string;
   /** Short reason — one of: `unmet-deps`, `gate-failure`, `manifest-missing`,
    *  `evidence-stale`, `manual-block`. */
-  reason:
-    | 'unmet-deps'
-    | 'gate-failure'
-    | 'manifest-missing'
-    | 'evidence-stale'
-    | 'manual-block';
+  reason: 'unmet-deps' | 'gate-failure' | 'manifest-missing' | 'evidence-stale' | 'manual-block';
   /** Human-readable detail. */
   detail: string;
 }
