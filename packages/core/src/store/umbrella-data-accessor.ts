@@ -210,7 +210,11 @@ export class UmbrellaDataAccessor implements DataAccessor {
     return (await this.tasks()).getNextPosition(parentId);
   }
 
-  async shiftPositions(parentId: string | null, fromPosition: number, delta: number): Promise<void> {
+  async shiftPositions(
+    parentId: string | null,
+    fromPosition: number,
+    delta: number,
+  ): Promise<void> {
     return (await this.tasks()).shiftPositions(parentId, fromPosition, delta);
   }
 

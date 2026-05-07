@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openCleoDb, type CleoDbRole } from '../open-cleo-db.js';
+import { openCleoDb } from '../open-cleo-db.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,21 +75,15 @@ describe('openCleoDb', () => {
   });
 
   it('throws for unimplemented llmtxt role', async () => {
-    await expect(openCleoDb('llmtxt', tempDir)).rejects.toThrow(
-      'not yet implemented',
-    );
+    await expect(openCleoDb('llmtxt', tempDir)).rejects.toThrow('not yet implemented');
   });
 
   it('applies canonical pragmas at open time', async () => {
     const handle = await openCleoDb('tasks', tempDir);
-    const journalMode = handle.db
-      .prepare('PRAGMA journal_mode')
-      .get() as { journal_mode: string };
+    const journalMode = handle.db.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
     expect(journalMode.journal_mode.toLowerCase()).toBe('wal');
 
-    const busyTimeout = handle.db
-      .prepare('PRAGMA busy_timeout')
-      .get() as { busy_timeout: number };
+    const busyTimeout = handle.db.prepare('PRAGMA busy_timeout').get() as { busy_timeout: number };
     expect(busyTimeout.busy_timeout).toBe(5000);
 
     handle.close();

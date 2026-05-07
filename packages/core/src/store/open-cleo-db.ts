@@ -6,18 +6,12 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { getDb as getTasksDb } from './sqlite.js';
 import { getNexusDb } from './nexus-sqlite.js';
+import { getDb as getTasksDb } from './sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 /** Canonical roles for the 6 SQLite databases (ADR-068). */
-export type CleoDbRole =
-  | 'tasks'
-  | 'brain'
-  | 'sessions'
-  | 'signaldock'
-  | 'conduit'
-  | 'nexus';
+export type CleoDbRole = 'tasks' | 'brain' | 'sessions' | 'signaldock' | 'conduit' | 'nexus';
 
 /** Handle returned by {@link openCleoDb}. */
 export interface CleoDbHandle {
@@ -37,7 +31,7 @@ const ROLE_OPENERS: Record<CleoDbRole, DbOpener> = {
   brain: getTasksDb as unknown as DbOpener,
   sessions: getTasksDb as unknown as DbOpener,
   signaldock: getTasksDb as unknown as DbOpener, // TODO: wire signaldock-sqlite.ts
-  conduit: getTasksDb as unknown as DbOpener,    // TODO: wire conduit-sqlite.ts
+  conduit: getTasksDb as unknown as DbOpener, // TODO: wire conduit-sqlite.ts
   nexus: getNexusDb as unknown as DbOpener,
 };
 
@@ -46,10 +40,7 @@ const ROLE_OPENERS: Record<CleoDbRole, DbOpener> = {
  *
  * Single chokepoint for all DB opens. Applies pragma SSoT at open time.
  */
-export async function openCleoDb(
-  role: CleoDbRole,
-  cwd?: string,
-): Promise<CleoDbHandle> {
+export async function openCleoDb(role: CleoDbRole, cwd?: string): Promise<CleoDbHandle> {
   const opener = ROLE_OPENERS[role];
   if (!opener) {
     throw new Error(`Unknown CLEO DB role: ${role}`);
