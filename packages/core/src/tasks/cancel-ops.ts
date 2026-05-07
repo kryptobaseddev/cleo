@@ -7,6 +7,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import { teardownWorktree } from '../sentient/worktree-dispatch.js';
 import { isTerminalPipelineStage } from './pipeline-stage.js';
 
 /** Result of a cancel operation. */
@@ -39,6 +40,7 @@ export function cancelTask(
   taskId: string,
   tasks: Task[],
   reason?: string,
+  projectRoot?: string,
 ): { tasks: Task[]; result: CancelResult } {
   const task = tasks.find((t) => t.id === taskId);
   if (!task) {
@@ -83,6 +85,15 @@ export function cancelTask(
     return t;
   });
 
+  // Best-effort worktree cleanup when cancelling a task.
+  if (projectRoot) {
+    try {
+      teardownWorktree(projectRoot, { taskId });
+    } catch {
+      /* best-effort — worktree may not exist */
+    }
+  }
+
   return {
     tasks: updatedTasks,
     result: {
@@ -101,12 +112,13 @@ export function cancelMultiple(
   taskIds: string[],
   tasks: Task[],
   reason?: string,
+  projectRoot?: string,
 ): { tasks: Task[]; results: CancelResult[] } {
   const results: CancelResult[] = [];
   let currentTasks = [...tasks];
 
   for (const id of taskIds) {
-    const { tasks: updated, result } = cancelTask(id, currentTasks, reason);
+    const { tasks: updated, result } = cancelTask(id, currentTasks, reason, projectRoot);
     currentTasks = updated;
     results.push(result);
   }
