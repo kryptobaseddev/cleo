@@ -518,8 +518,7 @@ jobs:
         #   - protocol-handler crashes on initialize
         # Failing exit code FAILS the job — no `|| true` masking.
         run: |
-          OUTPUT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-            | timeout 10 node packages/mcp-adapter/dist/cli.js)
+          OUTPUT=$(node -e "const { spawnSync } = require('node:child_process'); const r = spawnSync(process.execPath, ['packages/mcp-adapter/dist/cli.js'], { input: '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n', encoding: 'utf8', timeout: 10000 }); process.stdout.write(r.stdout || ''); process.stderr.write(r.stderr || ''); if (r.error) { console.error(r.error.message); process.exit(1); } process.exit(r.status ?? 1);")
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q '"name":"cleo-mcp-adapter"' \
             || (echo "MCP adapter did not return expected initialize response" && exit 1)
