@@ -1322,6 +1322,19 @@ const projectsCleanCommand = defineCommand({
       type: 'boolean',
       description: 'Also match rows where last_indexed IS NULL',
     },
+    orphans: {
+      type: 'boolean',
+      description: 'Also match rows whose project_path no longer exists on disk (T9117)',
+    },
+    'rm-fs': {
+      type: 'boolean',
+      description:
+        'After DB delete, rm -rf each matched on-disk directory (T9117). Implies --yes when combined with --orphans for fully unattended runs is still gated by confirmation.',
+    },
+    vacuum: {
+      type: 'boolean',
+      description: 'After delete, run sqlite VACUUM on nexus.db to reclaim space (T9117)',
+    },
     yes: {
       type: 'boolean',
       description: 'Skip confirmation prompt (still shows preview)',
@@ -1344,6 +1357,9 @@ const projectsCleanCommand = defineCommand({
       includeTests: !!args['include-tests'],
       matchUnhealthy: !!args.unhealthy,
       matchNeverIndexed: !!args['never-indexed'],
+      matchOrphaned: !!args.orphans,
+      removeFs: !!args['rm-fs'],
+      vacuum: !!args.vacuum,
     };
 
     try {
@@ -1441,6 +1457,9 @@ const projectsCleanCommand = defineCommand({
         purged: number;
         remaining: number;
         sample: string[];
+        fsRemoved?: number;
+        fsFailed?: number;
+        vacuumBytesFreed?: number;
       };
       cliOutput(
         {
@@ -1449,6 +1468,9 @@ const projectsCleanCommand = defineCommand({
           purged: result.purged,
           remaining: result.remaining,
           sample: result.sample,
+          fsRemoved: result.fsRemoved,
+          fsFailed: result.fsFailed,
+          vacuumBytesFreed: result.vacuumBytesFreed,
         },
         {
           command: 'nexus-projects-clean',

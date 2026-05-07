@@ -5412,6 +5412,24 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description: 'Match never-indexed rows',
       },
+      {
+        name: 'matchOrphaned',
+        type: 'boolean',
+        required: false,
+        description: 'Match rows whose project_path no longer exists on disk (T9117)',
+      },
+      {
+        name: 'removeFs',
+        type: 'boolean',
+        required: false,
+        description: 'After DB delete, rm -rf each matched on-disk directory (T9117)',
+      },
+      {
+        name: 'vacuum',
+        type: 'boolean',
+        required: false,
+        description: 'After delete, run sqlite VACUUM on nexus.db to reclaim space (T9117)',
+      },
     ],
   },
 
