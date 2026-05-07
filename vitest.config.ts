@@ -91,8 +91,12 @@ export default defineConfig({
       // alias is still required so vitest resolves $lib/server/* imports correctly.
       '$lib': new URL('./packages/studio/src/lib', import.meta.url).pathname,
       '@cleocode/caamp': new URL('./packages/caamp/src/index.ts', import.meta.url).pathname,
+      '@cleocode/cant': new URL('./packages/cant/src/index.ts', import.meta.url).pathname,
       '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
+      // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
+      // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
+      '@cleocode/paths': new URL('./packages/paths/src/index.ts', import.meta.url).pathname,
       // T1187-followup / v2026.4.113: specific subpath alias for
       // buildManifestEntryFromShorthand (CLI → core SDK delegation).
       '@cleocode/core/memory/manifest-builder.js': new URL(
