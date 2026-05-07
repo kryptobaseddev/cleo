@@ -2,6 +2,15 @@
  * Canonical spawn payload composer — the single public API for subagent
  * payload construction.
  *
+ * Layering (ADR-069 D002): spawn lives in the Workflow layer. Workflow MAY
+ * use Conduit (Messaging) to dispatch inter-agent DMs; Conduit MUST NOT
+ * know about the harness or the orchestrator (ADR-069 D002). All physical
+ * reads/writes to `tasks.db`, `brain.db`, `conduit.db`, and `signaldock.db`
+ * MUST flow through the umbrella DataAccessor / `openCleoDb()` chokepoint
+ * (Storage layer; T9050).
+ *
+ * @see ADR-069 (CLEO Coordination Layers)
+ *
  * Wraps the T882 {@link buildSpawnPrompt} engine with the coherence
  * invariants required by the T889 epic:
  *
