@@ -17,7 +17,7 @@
  */
 
 import { arch, homedir, hostname, platform, release } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import envPaths from 'env-paths';
 
 /**
@@ -114,8 +114,8 @@ function resolveHomeOverride(value: string | undefined): string | undefined {
   if (trimmed.length === 0) return undefined;
   if (trimmed === '~') return homedir();
   if (trimmed.startsWith('~/')) return join(homedir(), trimmed.slice(2));
-  if (isAbsolute(trimmed)) return resolve(trimmed);
-  return resolve(homedir(), trimmed);
+  if (isAbsolute(trimmed)) return trimmed;
+  return join(homedir(), trimmed);
 }
 
 /**
