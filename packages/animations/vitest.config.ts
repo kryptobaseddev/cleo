@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     extends: true,
-    name: '@cleocode/cleo-os',
+    name: '@cleocode/animations',
     globals: true,
     environment: 'node',
     include: [
@@ -11,5 +11,6 @@ export default defineConfig({
       'src/**/__tests__/*.test.ts',
       'tests/**/*.test.ts',
     ],
+    exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**'],
   },
 });

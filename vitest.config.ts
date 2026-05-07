@@ -70,15 +70,10 @@ export default defineConfig({
     // Note: VITEST env var is auto-set by vitest. Enforcement code checks
     // process.env.VITEST to disable enforcement during test runs.
     // Tests that validate enforcement directly must clear VITEST in beforeAll.
-    include: [
-      'packages/*/src/**/*.test.ts',
-      'packages/*/src/**/__tests__/*.test.ts',
-      'packages/*/tests/**/*.test.ts',
-      // skills package uses skills/ instead of src/
-      'packages/skills/skills/**/__tests__/*.test.ts',
-      // scripts unit tests (new-migration post-processing, lint-migrations logic)
-      'scripts/__tests__/*.test.mjs',
-    ],
+    //
+    // scripts unit tests (.mjs) are not covered by per-package project configs —
+    // include them only at the root level.
+    include: ['scripts/__tests__/*.test.mjs'],
     exclude: [
       'node_modules',
       'dist',
@@ -223,5 +218,38 @@ export default defineConfig({
         inline: [/\.svelte\.ts$/],
       },
     },
+    // ---------------------------------------------------------------------------
+    // Vitest 4.x project-based test isolation.
+    //
+    // Each per-package vitest.config.ts uses `extends: true` to inherit the
+    // root settings (pool, isolate, teardownTimeout, env, setupFiles, aliases).
+    // Packages may override testTimeout or add package-specific aliases.
+    //
+    // `pnpm test` runs ALL projects (union of all test files across all configs)
+    //  plus the root include above for scripts/__tests__/*.test.mjs.
+    // `pnpm test:pkg @cleocode/contracts` runs only that project.
+    //
+    // @see T9079 Monorepo Build+Test Optimization
+    // ---------------------------------------------------------------------------
+    projects: [
+      'packages/adapters/vitest.config.ts',
+      'packages/animations/vitest.config.ts',
+      'packages/brain/vitest.config.ts',
+      'packages/caamp/vitest.config.ts',
+      'packages/cant/vitest.config.ts',
+      'packages/cleo/vitest.config.ts',
+      'packages/cleo-os/vitest.config.ts',
+      'packages/contracts/vitest.config.ts',
+      'packages/core/vitest.config.ts',
+      'packages/git-shim/vitest.config.ts',
+      'packages/lafs/vitest.config.ts',
+      'packages/nexus/vitest.config.ts',
+      'packages/paths/vitest.config.ts',
+      'packages/playbooks/vitest.config.ts',
+      'packages/runtime/vitest.config.ts',
+      'packages/skills/vitest.config.ts',
+      'packages/studio/vitest.config.ts',
+      'packages/worktree/vitest.config.ts',
+    ],
   },
 });
