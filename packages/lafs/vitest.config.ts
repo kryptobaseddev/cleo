@@ -13,6 +13,6 @@ export default defineConfig({
       'src/**/__tests__/*.test.ts',
       'tests/**/*.test.ts',
     ],
-    exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**'],
+    exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
   },
 });

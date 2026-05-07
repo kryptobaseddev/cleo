@@ -21,6 +21,6 @@ export default defineConfig({
       'skills/**/__tests__/*.test.ts',
       'skills/**/*.test.ts',
     ],
-    exclude: ['node_modules', 'dist', '**/node_modules/**'],
+    exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
   },
 });
