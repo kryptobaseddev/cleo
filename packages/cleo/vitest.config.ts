@@ -41,6 +41,12 @@ export default defineConfig({
         .pathname,
       '@cleocode/core/internal': new URL('../../packages/core/src/internal.ts', import.meta.url)
         .pathname,
+      // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
+      // Must be aliased so vitest resolves packages/core/src/paths.ts without a build step.
+      '@cleocode/paths': new URL('../../packages/paths/src/index.ts', import.meta.url).pathname,
+      // caamp and cant — required to resolve @cleocode/core/internal transitive deps
+      '@cleocode/caamp': new URL('../../packages/caamp/src/index.ts', import.meta.url).pathname,
+      '@cleocode/cant': new URL('../../packages/cant/src/index.ts', import.meta.url).pathname,
       // T1187-followup / v2026.4.113: CLI imports buildManifestEntryFromShorthand
       // from the core SDK (package-boundary fix — CLI must delegate to core for
       // defaulting logic). Matches existing brain-backfill.js / precompact-flush.js pattern.
