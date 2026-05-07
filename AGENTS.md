@@ -109,6 +109,70 @@ The `cleo sentient` subsystem manages autonomous task proposals.
 Tier-2 proposals are **disabled by default**. Enable them with `cleo sentient propose enable`.
 The kill-switch (`cleo sentient kill`) is always respected regardless of Tier-2 state.
 
+## Release & Branching (ADR-065)
+
+All releases flow through a PR-gated pipeline. Direct pushes to `main` are prohibited.
+
+### Branch Conventions
+
+- **Feature work**: `feat/T####-<slug>` branches
+- **Release branches**: automatically cut by `cleo release ship` as `release/v<version>`
+- **Main branch**: receives merges only from reviewed, CI-green PRs
+
+### Shipping a Release
+
+```bash
+# 1. Prepare the release handle
+cleo release start v2026.MM.N
+
+# 2. Run gates + epic completeness check
+cleo release verify
+
+# 3. Ship — cuts release/vX.Y.Z, opens PR, waits for CI, merges + tags
+cleo release ship 2026.MM.N --epic TXXXX
+
+# 4. Poll CI status while waiting
+cleo release pr-status 2026.MM.N
+```
+
+`cleo release ship` performs these 12 steps automatically:
+1. Prepare (validate version, changelog)
+2. Run quality gates (lint, typecheck, tests)
+3. IVTR loop check
+4. Epic completeness check
+5. Double-listing guard
+6. CHANGELOG generation (tasks filtered by `completedAt > previousVersion.pushedAt`)
+7. Biome lint pass
+8. Cut `release/v<version>` branch
+9. Commit changelog + version bump
+10. Push branch + open PR via `gh`
+11. Wait for CI green (15-minute timeout)
+12. Merge (--merge) + tag from main + cleanup
+
+### Rules
+
+- **NO direct pushes to `main`** — the pipeline enforces this
+- `gh` CLI must be authenticated (`gh auth status`)
+- Branch model is configurable: `cleo config set release.branchModel feat-to-main`
+- To check in-flight PR CI status: `cleo release pr-status <version>`
+
+### Branch Protection
+
+Owner runs once to enforce protection at the GitHub level:
+
+```bash
+gh api -X PUT repos/:owner/:repo/branches/main/protection \
+  -f required_status_checks[strict]=true \
+  -f required_status_checks[contexts][]=CI \
+  -f required_status_checks[contexts][]="Lockfile Check" \
+  -f required_status_checks[contexts][]="Contracts Dep Lint" \
+  -f enforce_admins=false \
+  -f required_pull_request_reviews[required_approving_review_count]=0 \
+  -f restrictions=null
+```
+
+See `docs/release/branch-protection-setup.md` for full setup guide.
+
 ## Runtime Data Safety (ADR-013 §9)
 
 `.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/config.json`, and
