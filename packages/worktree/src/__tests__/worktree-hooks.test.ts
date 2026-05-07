@@ -4,7 +4,7 @@
  * @task T1161
  */
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorktreeHook } from '@cleocode/contracts';
@@ -72,6 +72,6 @@ describe('runWorktreeHooks', () => {
 
     const hooks: WorktreeHook[] = [{ command: 'pwd', event: 'post-create' }];
     const results = await runWorktreeHooks(hooks, 'post-create', dir);
-    expect(results[0].stdout).toBe(dir);
+    expect(realpathSync(results[0].stdout)).toBe(realpathSync(dir));
   });
 });
