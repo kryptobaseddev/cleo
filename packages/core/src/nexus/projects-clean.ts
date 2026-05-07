@@ -7,6 +7,8 @@
  * @task T1473
  */
 
+import { existsSync, statSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 
@@ -49,6 +51,12 @@ export interface CleanProjectsOptions {
   matchUnhealthy?: boolean;
   /** Match rows where last_indexed IS NULL. */
   matchNeverIndexed?: boolean;
+  /** Match rows whose project_path no longer exists on disk (T9117). */
+  matchOrphaned?: boolean;
+  /** After DB delete, `rm -rf` each matched path that still exists on disk (T9117). */
+  removeFs?: boolean;
+  /** After DB delete, run sqlite VACUUM on nexus.db to reclaim space (T9117). */
+  vacuum?: boolean;
 }
 
 /** Result envelope for {@link cleanProjects}. */
@@ -65,6 +73,12 @@ export interface CleanProjectsResult {
   sample: string[];
   /** Total registry rows scanned. */
   totalCount: number;
+  /** Number of on-disk paths successfully removed when `removeFs` is set (T9117). */
+  fsRemoved?: number;
+  /** Number of on-disk paths that failed to remove when `removeFs` is set (T9117). */
+  fsFailed?: number;
+  /** Bytes freed by VACUUM when `vacuum` is set (T9117). */
+  vacuumBytesFreed?: number;
 }
 
 const TEMP_RE = /(^|\/)\.temp(\/|$)/;
@@ -93,7 +107,8 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     opts.includeTemp ||
     opts.includeTests ||
     opts.matchUnhealthy ||
-    opts.matchNeverIndexed;
+    opts.matchNeverIndexed ||
+    opts.matchOrphaned;
 
   if (!hasCriteria) {
     throw new NoCriteriaError();
@@ -121,15 +136,16 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     if (opts.includeTests && TESTS_RE.test(projectPath)) return true;
     if (opts.matchUnhealthy && healthStatus === 'unhealthy') return true;
     if (opts.matchNeverIndexed && lastIndexed === null) return true;
+    if (opts.matchOrphaned && !existsSync(projectPath)) return true;
     return false;
   }
 
-  const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
+  const { getNexusDb } = await import('../store/nexus-sqlite.js');
   const { projectRegistry: regTable, nexusAuditLog: auditTable } = await import(
-    '@cleocode/core/store/nexus-schema' as string
+    '../store/nexus-schema.js'
   );
   const { randomUUID } = await import('node:crypto');
-  const { inArray } = await import('drizzle-orm');
+  const { inArray, sql } = await import('drizzle-orm');
   const db = await getNexusDb();
 
   type RegistryRow = {
@@ -167,11 +183,66 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     };
   }
 
-  // Delete matched rows
+  // Delete matched rows in chunks to keep SQL parameter counts safe (default
+  // SQLite limit is 999 bound variables per statement).
+  const CHUNK = 500;
   const idsToDelete = matches.map((r) => r.projectId);
-  await db.delete(regTable).where(inArray(regTable.projectId, idsToDelete));
+  for (let i = 0; i < idsToDelete.length; i += CHUNK) {
+    const slice = idsToDelete.slice(i, i + CHUNK);
+    await db.delete(regTable).where(inArray(regTable.projectId, slice));
+  }
 
   const remaining = totalCount - matched;
+
+  // Optional filesystem cleanup — runs only after the row has been purged so a
+  // partial failure leaves no DB→disk drift (worst case: dir lingers, can be
+  // re-cleaned with --orphans).
+  let fsRemoved: number | undefined;
+  let fsFailed: number | undefined;
+  if (opts.removeFs) {
+    fsRemoved = 0;
+    fsFailed = 0;
+    for (const row of matches) {
+      const p = row.projectPath;
+      // Refuse to delete suspiciously short or root-ish paths even if the DB
+      // says so. Anything < 8 chars or with fewer than 3 path segments under
+      // root gets skipped — protects against `/`, `/tmp`, `/home`, etc.
+      if (!p || p.length < 8 || p.split('/').filter(Boolean).length < 2) {
+        fsFailed++;
+        continue;
+      }
+      try {
+        if (existsSync(p)) {
+          // Only remove directories — refuse files/symlinks to a real file.
+          const st = statSync(p);
+          if (st.isDirectory()) {
+            await rm(p, { recursive: true, force: true });
+            fsRemoved++;
+          }
+        }
+      } catch {
+        fsFailed++;
+      }
+    }
+  }
+
+  // Optional VACUUM to reclaim disk space after large purges.
+  let vacuumBytesFreed: number | undefined;
+  if (opts.vacuum) {
+    let beforeBytes = 0;
+    let afterBytes = 0;
+    try {
+      const { statSync: stat } = await import('node:fs');
+      const { getNexusDbPath } = await import('../store/nexus-sqlite.js');
+      const dbPath = getNexusDbPath();
+      beforeBytes = stat(dbPath).size;
+      await db.run(sql`VACUUM`);
+      afterBytes = stat(dbPath).size;
+      vacuumBytesFreed = Math.max(0, beforeBytes - afterBytes);
+    } catch {
+      vacuumBytesFreed = 0;
+    }
+  }
 
   // Audit log (best-effort)
   try {
@@ -188,8 +259,14 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
           includeTests: opts.includeTests,
           matchUnhealthy: opts.matchUnhealthy,
           matchNeverIndexed: opts.matchNeverIndexed,
+          matchOrphaned: opts.matchOrphaned,
+          removeFs: opts.removeFs,
+          vacuum: opts.vacuum,
         },
         count: matched,
+        fsRemoved,
+        fsFailed,
+        vacuumBytesFreed,
         sample,
       }),
     });
@@ -204,6 +281,9 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     remaining,
     sample,
     totalCount,
+    ...(fsRemoved !== undefined ? { fsRemoved } : {}),
+    ...(fsFailed !== undefined ? { fsFailed } : {}),
+    ...(vacuumBytesFreed !== undefined ? { vacuumBytesFreed } : {}),
   };
 }
 
@@ -215,17 +295,21 @@ export async function nexusProjectsClean(opts: {
   includeTests?: boolean;
   matchUnhealthy?: boolean;
   matchNeverIndexed?: boolean;
+  matchOrphaned?: boolean;
+  removeFs?: boolean;
+  vacuum?: boolean;
 }): Promise<EngineResult<CleanProjectsResult>> {
   const hasCriteria =
     typeof opts.pattern === 'string' ||
     opts.includeTemp === true ||
     opts.includeTests === true ||
     opts.matchUnhealthy === true ||
-    opts.matchNeverIndexed === true;
+    opts.matchNeverIndexed === true ||
+    opts.matchOrphaned === true;
   if (!hasCriteria) {
     return engineError(
       'E_NO_CRITERIA',
-      'At least one criteria flag is required: --include-temp, --include-tests, --pattern, --unhealthy, or --never-indexed',
+      'At least one criteria flag is required: --include-temp, --include-tests, --pattern, --unhealthy, --never-indexed, or --orphans',
     );
   }
 

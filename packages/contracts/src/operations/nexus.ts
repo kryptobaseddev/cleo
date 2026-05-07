@@ -1349,6 +1349,12 @@ export interface NexusProjectsCleanParams {
   matchUnhealthy?: boolean;
   /** Also match never-indexed rows. */
   matchNeverIndexed?: boolean;
+  /** Also match rows whose project_path does not exist on disk (T9117). */
+  matchOrphaned?: boolean;
+  /** Also `rm -rf` matched paths from disk after DB delete (T9117). */
+  removeFs?: boolean;
+  /** Run sqlite VACUUM on nexus.db after delete to reclaim space (T9117). */
+  vacuum?: boolean;
 }
 /** Result of `nexus.projects.clean`. */
 export interface NexusProjectsCleanResult {
@@ -1364,6 +1370,12 @@ export interface NexusProjectsCleanResult {
   sample: string[];
   /** Total registry rows scanned. */
   totalCount: number;
+  /** Number of on-disk paths removed when `removeFs` is set (T9117). */
+  fsRemoved?: number;
+  /** Number of on-disk paths that failed to remove (T9117). */
+  fsFailed?: number;
+  /** Bytes freed by VACUUM when `vacuum` is set (T9117). */
+  vacuumBytesFreed?: number;
 }
 
 /** Parameters for `nexus.refresh-bridge`. */
