@@ -1,5 +1,5 @@
 /**
- * End-to-end integration tests for the PSYCHE Wave 4 multi-pass retrieval engine.
+ * End-to-end integration tests for the brain-retrieval multi-pass API.
  *
  * Tests cover T1090 (brain-retrieval.ts multi-pass API), T1091 (briefing.ts bundle
  * field), and the token-budget enforcement logic.
@@ -138,7 +138,7 @@ async function seedObservations(
   }
 
   for (let i = 0; i < count; i++) {
-    const id = `O-test-${peerId.slice(0, 6)}-${i}-${Date.now().toString(36)}`;
+    const id = `O-test-${peerId.slice(0, 6)}-${sessionId.replace(/[^a-z0-9]/g, '-').slice(0, 12)}-${i}`;
     try {
       nativeDb
         .prepare(

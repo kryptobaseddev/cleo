@@ -22,6 +22,8 @@ export default defineConfig({
     }),
   ],
   test: {
+    extends: true,
+    name: '@cleocode/studio',
     globals: true,
     environment: 'node',
     testTimeout: 30_000,

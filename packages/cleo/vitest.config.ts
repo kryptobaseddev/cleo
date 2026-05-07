@@ -17,6 +17,8 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    extends: true,
+    name: '@cleocode/cleo',
     globals: true,
     environment: 'node',
     testTimeout: 60_000,

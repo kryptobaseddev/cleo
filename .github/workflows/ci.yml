@@ -18,6 +18,26 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       schemas: ${{ steps.filter.outputs.schemas }}
+      core: ${{ steps.filter.outputs.core }}
+      cleo: ${{ steps.filter.outputs.cleo }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+      nexus: ${{ steps.filter.outputs.nexus }}
+      studio: ${{ steps.filter.outputs.studio }}
+      adapters: ${{ steps.filter.outputs.adapters }}
+      agents: ${{ steps.filter.outputs.agents }}
+      animations: ${{ steps.filter.outputs.animations }}
+      brain: ${{ steps.filter.outputs.brain }}
+      caamp: ${{ steps.filter.outputs.caamp }}
+      cant: ${{ steps.filter.outputs.cant }}
+      cleo_os: ${{ steps.filter.outputs.cleo_os }}
+      git_shim: ${{ steps.filter.outputs.git_shim }}
+      lafs: ${{ steps.filter.outputs.lafs }}
+      mcp_adapter: ${{ steps.filter.outputs.mcp_adapter }}
+      paths: ${{ steps.filter.outputs.paths }}
+      playbooks: ${{ steps.filter.outputs.playbooks }}
+      runtime: ${{ steps.filter.outputs.runtime }}
+      skills: ${{ steps.filter.outputs.skills }}
+      worktree: ${{ steps.filter.outputs.worktree }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -35,6 +55,46 @@ jobs:
             schemas:
               - 'packages/*/schemas/**'
               - 'packages/*/templates/**'
+            core:
+              - 'packages/core/**'
+            cleo:
+              - 'packages/cleo/**'
+            contracts:
+              - 'packages/contracts/**'
+            nexus:
+              - 'packages/nexus/**'
+            studio:
+              - 'packages/studio/**'
+            adapters:
+              - 'packages/adapters/**'
+            agents:
+              - 'packages/agents/**'
+            animations:
+              - 'packages/animations/**'
+            brain:
+              - 'packages/brain/**'
+            caamp:
+              - 'packages/caamp/**'
+            cant:
+              - 'packages/cant/**'
+            cleo_os:
+              - 'packages/cleo-os/**'
+            git_shim:
+              - 'packages/git-shim/**'
+            lafs:
+              - 'packages/lafs/**'
+            mcp_adapter:
+              - 'packages/mcp-adapter/**'
+            paths:
+              - 'packages/paths/**'
+            playbooks:
+              - 'packages/playbooks/**'
+            runtime:
+              - 'packages/runtime/**'
+            skills:
+              - 'packages/skills/**'
+            worktree:
+              - 'packages/worktree/**'
 
   biome:
     name: Lint & Format
@@ -78,6 +138,19 @@ jobs:
       - name: Lint Contracts/Core SSoT (ADR-057)
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-core-ssot.mjs --exit-on-fail
+
+  contracts-dep-lint:
+    name: Contracts Dep Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Enforce contracts dep declarations
+        # No untrusted input used — pure static analysis of checked-in source files.
+        run: node scripts/lint-contracts-dep.mjs
 
   canon-drift:
     name: Canon Drift Check
@@ -286,7 +359,65 @@ jobs:
         # git (inadvertently). After adding it to .gitignore (v2026.4.60), we must
         # generate it explicitly in CI before running tests. No user input used.
         run: pnpm --filter @cleocode/studio exec svelte-kit sync
-      - name: Run unit tests (shard ${{ matrix.shard }}/2)
+      - name: Resolve test scope (per-package fast path or full shard sweep)
+        # On PRs NOT targeting main with ≤3 packages changed, run only the
+        # affected package tests via pnpm test:pkg for faster feedback.
+        # Always falls back to the full 2-shard sweep when:
+        #   - targeting main (cross-platform matrix already handles this)
+        #   - more than 3 packages changed (too broad for per-package scoping)
+        #   - the changed-package set is ambiguous (root config files touched)
+        # Per-package scoping is an OPTIONAL fast path, NOT a replacement.
+        # The shard run is always the safe fallback.
+        id: test-scope
+        shell: bash
+        run: |
+          # Targeting main always uses full shard sweep (set by matrix strategy).
+          # For non-main PRs, check how many individual packages changed.
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.base_ref }}" != "main" ]]; then
+            changed_pkgs=""
+            [[ "${{ needs.changes.outputs.core }}"        == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/core"
+            [[ "${{ needs.changes.outputs.cleo }}"        == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/cleo"
+            [[ "${{ needs.changes.outputs.contracts }}"   == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/contracts"
+            [[ "${{ needs.changes.outputs.nexus }}"       == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/nexus"
+            [[ "${{ needs.changes.outputs.studio }}"      == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/studio"
+            [[ "${{ needs.changes.outputs.adapters }}"    == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/adapters"
+            [[ "${{ needs.changes.outputs.agents }}"      == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/agents"
+            [[ "${{ needs.changes.outputs.animations }}"  == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/animations"
+            [[ "${{ needs.changes.outputs.brain }}"       == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/brain"
+            [[ "${{ needs.changes.outputs.caamp }}"       == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/caamp"
+            [[ "${{ needs.changes.outputs.cant }}"        == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/cant"
+            [[ "${{ needs.changes.outputs.cleo_os }}"     == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/cleo-os"
+            [[ "${{ needs.changes.outputs.git_shim }}"    == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/git-shim"
+            [[ "${{ needs.changes.outputs.lafs }}"        == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/lafs"
+            [[ "${{ needs.changes.outputs.mcp_adapter }}" == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/mcp-adapter"
+            [[ "${{ needs.changes.outputs.paths }}"       == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/paths"
+            [[ "${{ needs.changes.outputs.playbooks }}"   == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/playbooks"
+            [[ "${{ needs.changes.outputs.runtime }}"     == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/runtime"
+            [[ "${{ needs.changes.outputs.skills }}"      == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/skills"
+            [[ "${{ needs.changes.outputs.worktree }}"    == "true" ]] && changed_pkgs="$changed_pkgs @cleocode/worktree"
+            changed_pkgs="${changed_pkgs# }"  # trim leading space
+            pkg_count=$(echo "$changed_pkgs" | wc -w)
+            if [[ -n "$changed_pkgs" && "$pkg_count" -le 3 ]]; then
+              echo "mode=per_package_tests" >> "$GITHUB_OUTPUT"
+              echo "pkgs=$changed_pkgs"     >> "$GITHUB_OUTPUT"
+              echo "Per-package fast path: $changed_pkgs ($pkg_count package(s))"
+            else
+              echo "mode=shard" >> "$GITHUB_OUTPUT"
+              echo "pkgs="      >> "$GITHUB_OUTPUT"
+              echo "Full shard sweep: $pkg_count package(s) changed (or root config touched)"
+            fi
+          else
+            echo "mode=shard" >> "$GITHUB_OUTPUT"
+            echo "pkgs="      >> "$GITHUB_OUTPUT"
+            echo "Full shard sweep: targeting main or push event"
+          fi
+      - name: Run unit tests — per-package fast path (shard ${{ matrix.shard }}/2)
+        if: steps.test-scope.outputs.mode == 'per_package_tests' && matrix.shard == 1
+        # Only runs on shard 1 to avoid duplicates; per-package scope is
+        # already narrow enough that sharding provides no meaningful benefit.
+        run: pnpm test:pkg ${{ steps.test-scope.outputs.pkgs }}
+      - name: Run unit tests — full shard sweep (shard ${{ matrix.shard }}/2)
+        if: steps.test-scope.outputs.mode != 'per_package_tests'
         run: pnpm exec vitest run --shard=${{ matrix.shard }}/2
 
   build-verify:

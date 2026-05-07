@@ -27,6 +27,7 @@ import { chmod, cp, rm } from 'node:fs/promises';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
 // Auto-scan: build core entry points by scanning the source tree rather than
@@ -461,6 +462,34 @@ function validateCoreEntryPoints() {
 // Build execution
 // ---------------------------------------------------------------------------
 
+/**
+ * Spawn `pnpm --filter <filter> run build` and return a Promise that resolves
+ * when the process exits 0 or rejects with a descriptive error on non-zero exit.
+ * Timing is logged on success so waves can be compared against the old
+ * sequential baseline.
+ *
+ * @param {string} filter - pnpm filter expression (e.g. "@cleocode/lafs")
+ * @param {string} label  - human-readable label for log output
+ * @returns {Promise<void>}
+ */
+function buildPkg(filter, label) {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const proc = spawn('pnpm', ['--filter', filter, 'run', 'build'], {
+      stdio: 'inherit',
+      cwd: __dirname,
+    });
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`${label} build failed (exit ${code})`));
+      } else {
+        console.log(`  -> ${label} (${Date.now() - start}ms)`);
+        resolve();
+      }
+    });
+  });
+}
+
 async function build() {
   // Assert every non-wildcard subpath export in packages/core/package.json
   // has a matching entry in coreBuildOptions.entryPoints. Exits non-zero if
@@ -468,181 +497,155 @@ async function build() {
   // to ship silently (see validateCoreEntryPoints() above for details).
   validateCoreEntryPoints();
 
-  // Build order is topological — every package builds AFTER its workspace
-  // dependencies. Reordering this list without consulting the dep graph
-  // breaks fresh-checkout builds (CI). Verified order:
+  // Build order is topological. Independent packages within each wave are
+  // launched in parallel via Promise.all() to reduce wall-clock time.
+  // Dependency constraints (each package must see its deps' dist/ before it
+  // starts) are preserved by awaiting each wave before starting the next.
   //
-  //   lafs       (no internal deps)
-  //   contracts  (no internal deps — type-only)
-  //   nexus      (deps: contracts — tree-sitter code analysis)
-  //   cant       (deps: contracts, lafs)
-  //   caamp      (deps: cant, lafs)
-  //   core       (deps: contracts, lafs, nexus, others — built via esbuild + tsc emit)
-  //   runtime    (deps: contracts, core)
-  //   adapters   (deps: contracts — built via esbuild + tsc emit)
-  //   cleo       (deps: all of the above — built via esbuild)
-  //   cleo-os    (deps: cleo, cant — TUI wrapper)
+  //   Wave 1:  lafs          (no internal deps)
+  //   Wave 2:  contracts     (deps lafs)
+  //   Wave 3:  worktree + git-shim + nexus + cant  (all dep contracts/lafs only)
+  //   Wave 4:  caamp         (deps cant — must wait for wave 3)
+  //   Wave 5:  core esbuild + tsc declarations  (deps caamp, nexus, worktree)
+  //   Wave 6:  runtime + adapters  (both dep core — run in parallel)
+  //   Wave 7:  playbooks + mcp-adapter  (both dep core only — run in parallel)
+  //   Wave 8:  cleo esbuild  (deps adapters, playbooks, runtime from above)
+  //   Wave 9:  cleo-os       (deps cleo)
   //
-  // The CI lint job at .github/workflows/ci.yml `Build & Verify` runs
-  // `node build.mjs` from a fresh state (no dist, no tsbuildinfo) on every
-  // push so that any future dep-order regression is caught at PR time, not
-  // at release time.
-  const { execFileSync } = await import('node:child_process');
+  // The CI `Build & Verify` job runs `node build.mjs` from a fresh state on
+  // every push — any future dep-order regression is caught at PR time.
+  const buildStart = Date.now();
 
-  console.log('Building @cleocode/lafs...');
-  execFileSync('pnpm', ['--filter', '@cleocode/lafs', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
+  // ---------------------------------------------------------------------------
+  // Wave 1: lafs (sole root — no internal deps)
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 1: lafs');
+  await buildPkg('@cleocode/lafs', 'packages/lafs/dist/');
   await chmod('packages/lafs/dist/src/cli.js', 0o755).catch(() => {});
-  console.log('  -> packages/lafs/dist/');
 
-  // Contracts is type-only and has no internal deps — build before any
-  // package that imports its types.
-  console.log('Building @cleocode/contracts...');
-  execFileSync('pnpm', ['--filter', '@cleocode/contracts', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  console.log('  -> packages/contracts/dist/');
+  // ---------------------------------------------------------------------------
+  // Wave 2: contracts (deps lafs)
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 2: contracts');
+  await buildPkg('@cleocode/contracts', 'packages/contracts/dist/');
 
-  // WORKTREE depends on @cleocode/contracts only — build after contracts so
-  // that core and cant can import from it. Built before nexus/cant to
-  // establish dist/ for workspace symlink resolution in subsequent packages.
-  console.log('Building @cleocode/worktree...');
-  execFileSync('pnpm', ['--filter', '@cleocode/worktree', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  console.log('  -> packages/worktree/dist/');
+  // ---------------------------------------------------------------------------
+  // Wave 3: worktree + git-shim + nexus + cant  (all dep contracts/lafs only)
+  //
+  // cant must finish in this wave (before caamp in wave 4) because caamp
+  // imports validateDocument/parseDocument from @cleocode/cant and its tsup
+  // DTS step throws TS2307 if cant's .d.ts are missing.
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 3: worktree + git-shim + nexus + cant (parallel)');
+  await Promise.all([
+    buildPkg('@cleocode/worktree', 'packages/worktree/dist/'),
+    buildPkg('@cleocode/git-shim', 'packages/git-shim/dist/'),
+    buildPkg('@cleocode/nexus', 'packages/nexus/dist/'),
+    buildPkg('@cleocode/cant', 'packages/cant/dist/'),
+  ]);
 
-  // GIT-SHIM depends on @cleocode/contracts only — similar profile to worktree.
-  // Its `bin` entry points at dist/shim.js, so this build MUST run before
-  // publish or npm emits "No bin file found" warnings + tarball is broken.
-  console.log('Building @cleocode/git-shim...');
-  execFileSync('pnpm', ['--filter', '@cleocode/git-shim', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  console.log('  -> packages/git-shim/dist/');
-
-  // NEXUS depends on @cleocode/contracts — must build before core because
-  // core's type declaration emit (tsc --emitDeclarationOnly) needs nexus's
-  // .d.ts files available.
-  console.log('Building @cleocode/nexus...');
-  execFileSync('pnpm', ['--filter', '@cleocode/nexus', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  console.log('  -> packages/nexus/dist/');
-
-  // CANT depends on @cleocode/contracts and @cleocode/lafs — both built above.
-  // CANT must build BEFORE caamp because caamp imports validateDocument /
-  // parseDocument from @cleocode/cant in src/core/harness/pi.ts. Without
-  // cant's .d.ts on disk first, caamp's tsup DTS step throws TS2307.
-  console.log('Building @cleocode/cant...');
-  execFileSync('pnpm', ['--filter', '@cleocode/cant', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  console.log('  -> packages/cant/dist/');
-
-  // CAAMP depends on @cleocode/cant and @cleocode/lafs — both built above.
-  console.log('Building @cleocode/caamp...');
-  execFileSync('pnpm', ['--filter', '@cleocode/caamp', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
+  // ---------------------------------------------------------------------------
+  // Wave 4: caamp (deps cant from wave 3)
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 4: caamp');
+  await buildPkg('@cleocode/caamp', 'packages/caamp/dist/');
   await chmod('packages/caamp/dist/cli.js', 0o755).catch(() => {});
-  console.log('  -> packages/caamp/dist/');
 
-  console.log('Building @cleocode/core...');
+  // ---------------------------------------------------------------------------
+  // Wave 5: core esbuild bundle + tsc declaration emit
+  //   (deps caamp, nexus, worktree — all ready after waves 3–4)
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 5: core (esbuild + tsc declarations)');
   await esbuild.build(coreBuildOptions);
   console.log('  -> packages/core/dist/index.js');
-  // esbuild doesn't emit .d.ts — run tsc for declarations only
-  // Remove stale tsBuildInfo to force fresh declaration emit (composite: true)
+  // esbuild doesn't emit .d.ts — run tsc for declarations only.
+  // Remove stale tsBuildInfo to force fresh declaration emit (composite: true).
   await rm(resolve(__dirname, 'packages/core/tsconfig.tsbuildinfo'), { force: true });
   console.log('  Generating type declarations...');
-  execFileSync('pnpm', ['--filter', '@cleocode/core', 'exec', 'tsc', '--emitDeclarationOnly'], {
-    stdio: 'inherit',
-    cwd: __dirname,
+  // Use spawn directly — `exec tsc --emitDeclarationOnly` is not a `run build`
+  // invocation, so buildPkg() cannot be used here.
+  await new Promise((res, rej) => {
+    const proc = spawn(
+      'pnpm',
+      ['--filter', '@cleocode/core', 'exec', 'tsc', '--emitDeclarationOnly'],
+      { stdio: 'inherit', cwd: __dirname },
+    );
+    proc.on('close', (code) =>
+      code !== 0 ? rej(new Error(`core tsc --emitDeclarationOnly failed (exit ${code})`)) : res(),
+    );
   });
   console.log('  -> packages/core/dist/*.d.ts');
 
-  // Runtime depends on @cleocode/contracts and @cleocode/core — both built above.
-  console.log('Building @cleocode/runtime...');
-  execFileSync('pnpm', ['--filter', '@cleocode/runtime', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  console.log('  -> packages/runtime/dist/');
+  // ---------------------------------------------------------------------------
+  // Wave 6: runtime + adapters (both dep core — independent of each other)
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 6: runtime + adapters (parallel)');
+  await Promise.all([
+    buildPkg('@cleocode/runtime', 'packages/runtime/dist/'),
+    // adapters uses esbuild inline + tsc for .d.ts — wrap inline to keep
+    // it in the same wave without a separate buildPkg invocation.
+    (async () => {
+      await esbuild.build(adaptersBuildOptions);
+      console.log('  -> packages/adapters/dist/index.js (esbuild)');
+      await rm(resolve(__dirname, 'packages/adapters/tsconfig.tsbuildinfo'), { force: true });
+      await new Promise((res, rej) => {
+        const proc = spawn(
+          'pnpm',
+          ['--filter', '@cleocode/adapters', 'exec', 'tsc', '--emitDeclarationOnly'],
+          { stdio: 'inherit', cwd: __dirname },
+        );
+        proc.on('close', (code) =>
+          code !== 0 ? rej(new Error(`adapters tsc --emitDeclarationOnly failed (exit ${code})`)) : res(),
+        );
+      });
+      console.log('  -> packages/adapters/dist/*.d.ts');
+    })(),
+  ]);
 
-  console.log('Building @cleocode/adapters...');
-  await esbuild.build(adaptersBuildOptions);
-  console.log('  -> packages/adapters/dist/index.js');
-  // esbuild doesn't emit .d.ts — run tsc for declarations only
-  await rm(resolve(__dirname, 'packages/adapters/tsconfig.tsbuildinfo'), { force: true });
-  console.log('  Generating type declarations...');
-  execFileSync('pnpm', ['--filter', '@cleocode/adapters', 'exec', 'tsc', '--emitDeclarationOnly'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  console.log('  -> packages/adapters/dist/*.d.ts');
+  // ---------------------------------------------------------------------------
+  // Wave 7: playbooks + mcp-adapter (both dep core only — independent of each other)
+  //
+  // mcp-adapter was previously built after cleo in the sequential script, but
+  // its actual deps are only @cleocode/contracts + @cleocode/core — both ready
+  // after wave 5. Moving it here shaves it off the critical path entirely.
+  //
+  // playbooks: tsconfig.tsbuildinfo must be removed first — composite: true
+  // causes tsc -b to short-circuit when the cache thinks nothing changed, even
+  // if dist/ was wiped. Root cause of the v2026.4.94 empty-tarball regression.
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 7: playbooks + mcp-adapter (parallel)');
+  await Promise.all([
+    (async () => {
+      await rm(resolve(__dirname, 'packages/playbooks/tsconfig.tsbuildinfo'), { force: true });
+      await buildPkg('@cleocode/playbooks', 'packages/playbooks/dist/');
+    })(),
+    (async () => {
+      await rm(resolve(__dirname, 'packages/mcp-adapter/tsconfig.tsbuildinfo'), { force: true });
+      await buildPkg('@cleocode/mcp-adapter', 'packages/mcp-adapter/dist/');
+      await chmod('packages/mcp-adapter/dist/cli.js', 0o755).catch(() => {});
+    })(),
+  ]);
 
-  // T910/T935: playbooks standalone build for external consumers. The cleo
-  // bundle inlines playbooks source, but @cleocode/playbooks is also published
-  // on npm and needs its own dist/ for direct consumers. Built AFTER core
-  // because playbooks depends on @cleocode/contracts + @cleocode/core.
-  // tsconfig.tsbuildinfo must be removed first — composite: true causes tsc -b
-  // to short-circuit when the cache thinks nothing has changed, even if dist/
-  // has been wiped. This was the root cause of the v2026.4.94 empty-tarball
-  // regression (fixed in v2026.4.95).
-  await rm(resolve(__dirname, 'packages/playbooks/tsconfig.tsbuildinfo'), { force: true });
-  console.log('Building @cleocode/playbooks...');
-  execFileSync('pnpm', ['--filter', '@cleocode/playbooks', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  console.log('  -> packages/playbooks/dist/');
-
-  console.log('Building @cleocode/cleo...');
+  // ---------------------------------------------------------------------------
+  // Wave 8: cleo esbuild bundle (deps adapters, playbooks, runtime — all ready)
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 8: cleo (esbuild)');
   await esbuild.build(cleoBuildOptions);
   // Make CLI entry executable (shebang only works with +x)
   await chmod('packages/cleo/dist/cli/index.js', 0o755);
   console.log('  -> packages/cleo/dist/cli/index.js');
 
-  // MCP-ADAPTER (@cleocode/mcp-adapter) is the external-only MCP bridge.
-  // It depends on @cleocode/contracts + @cleocode/core (both built above) and
-  // is consumed only by external MCP clients (Claude Code, generic MCP tools)
-  // via subprocess — never via internal dispatch (see package README + memory
-  // "MCP Removal + external-bridge carve-out", 2026-04-04).
+  // ---------------------------------------------------------------------------
+  // Wave 9: cleo-os (deps cleo + cant — both ready)
   //
-  // Without this step, `pnpm publish` ships a tarball containing only
-  // package.json + README + LICENSE (dist is in .gitignore), leaving the
-  // `cleo-mcp-server` bin pointing at a missing dist/cli.js — the regression
-  // that v2026.5.25 / v2026.5.26 silently shipped to npm.
-  await rm(resolve(__dirname, 'packages/mcp-adapter/tsconfig.tsbuildinfo'), { force: true });
-  console.log('Building @cleocode/mcp-adapter...');
-  execFileSync('pnpm', ['--filter', '@cleocode/mcp-adapter', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-  await chmod('packages/mcp-adapter/dist/cli.js', 0o755).catch(() => {});
-  console.log('  -> packages/mcp-adapter/dist/');
-
-  // CleoOS wraps @cleocode/cleo + Pi — depends on cleo and cant (both built above).
-  // Uses full `build` (src + extensions + postinstall) — no more `build:src`-only
-  // shortcut that hid extension type errors v2026.4.66-73. If extensions break,
-  // release blocks. No `|| true` bandaids in cleo-os scripts either.
-  console.log('Building @cleocode/cleo-os...');
-  execFileSync('pnpm', ['--filter', '@cleocode/cleo-os', 'run', 'build'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
+  // Uses full `build` (src + extensions + postinstall) — no `build:src`-only
+  // shortcut that hid extension type errors in v2026.4.66-73.
+  // ---------------------------------------------------------------------------
+  console.log('\n[build] Wave 9: cleo-os');
+  await buildPkg('@cleocode/cleo-os', 'packages/cleo-os/dist/');
   await chmod('packages/cleo-os/dist/cli.js', 0o755).catch(() => {});
-  console.log('  -> packages/cleo-os/dist/');
 
-  console.log('\nBuild complete.');
+  console.log(`\nBuild complete. (${Date.now() - buildStart}ms total)`);
 }
 
 if (isWatch) {

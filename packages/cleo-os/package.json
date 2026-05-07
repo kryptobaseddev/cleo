@@ -20,6 +20,7 @@
   "dependencies": {
     "@cleocode/agents": "workspace:*",
     "@cleocode/cant": "workspace:*",
+    "@cleocode/contracts": "workspace:*",
     "@cleocode/core": "workspace:*",
     "@cleocode/paths": "workspace:*",
     "@mariozechner/pi-coding-agent": ">=0.60.0",
