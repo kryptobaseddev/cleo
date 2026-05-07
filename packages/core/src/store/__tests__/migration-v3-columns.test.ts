@@ -265,9 +265,14 @@ describe('T897 agent_registry v3 migration', () => {
 
     // Simulate a partial-upgrade DB: remove all journal entries so the
     // reconciler must re-discover which migrations have been applied.
+    // Also clear the T9027 schema_version sentinel so ensureGlobalSignaldockDb
+    // does not take the fast-path and skip runSignaldockMigrations() entirely.
     const db = new DatabaseSync(first.path);
     try {
       db.prepare('DELETE FROM "__drizzle_migrations"').run();
+      // Clear the fast-path sentinel so the next call runs reconcileJournal
+      // rather than short-circuiting at the schema_version check (T9027).
+      db.prepare("DELETE FROM _signaldock_meta WHERE key = 'schema_version'").run();
     } finally {
       db.close();
     }

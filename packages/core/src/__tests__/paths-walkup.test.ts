@@ -110,7 +110,10 @@ describe('getProjectRoot — walk-up algorithm', () => {
       tempBase = makeTempBase('ac1-direct');
       const projectRoot = join(tempBase, 'project');
       mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
-      // Called directly at the project root — no walk-up needed, no sibling check.
+      // validateProjectRoot requires a real .git/ directory sibling (legacy-fallback path).
+      // A .git FILE (gitlink) is intentionally rejected by T9092/T1864 to prevent
+      // worktree stray-.cleo creation; a real directory is required here.
+      mkdirSync(join(projectRoot, '.git'), { recursive: true });
 
       const result = getProjectRoot(projectRoot);
       expect(result).toBe(projectRoot);
