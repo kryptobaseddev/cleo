@@ -59,6 +59,14 @@ export interface EnrichedWave {
   waveNumber: number;
   /** Enriched, priority-sorted tasks for this wave. */
   tasks: EnrichedWaveTask[];
+  /**
+   * Plain task ID list — convenience alias for `tasks.map(t => t.id)`.
+   *
+   * Orchestrators and scripts that only need the IDs (e.g. to spawn agents or
+   * log wave membership) can read this field directly without mapping over
+   * the enriched task objects.  Always populated when `tasks` is non-empty.
+   */
+  taskIds: string[];
   /** Computed lifecycle status of this wave. */
   status: 'pending' | 'in_progress' | 'completed';
   /**
@@ -249,6 +257,7 @@ export async function getEnrichedWaves(
       waveNumber: w.waveNumber,
       status: w.status,
       tasks: enrichedTasks,
+      taskIds: enrichedTasks.map((t) => t.id),
     };
 
     // Attach completedAt for completed waves: max of child completedAt values.

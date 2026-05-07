@@ -57,6 +57,13 @@ export interface EnrichedWave {
   status?: string;
   /** Tasks in this wave (enriched objects or plain IDs). */
   tasks?: Array<WaveTask | string>;
+  /**
+   * Plain task ID list — convenience alias for `tasks.map(t => t.id)`.
+   *
+   * Populated when the wave was produced by `getEnrichedWaves`.  Orchestrators
+   * that only need IDs can read this field without mapping over `tasks`.
+   */
+  taskIds?: string[];
   /** ISO timestamp when all tasks in the wave completed (enriched format). */
   completedAt?: string;
 }
