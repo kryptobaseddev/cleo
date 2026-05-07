@@ -375,7 +375,23 @@ export function renderNexusProjectsClean(data: Record<string, unknown>, quiet: b
     if (matched === 0) return '';
     return `[nexus] Dry-run — ${matched} project(s) would be purged. Rerun without --dry-run to delete.`;
   }
-  return `[nexus] Purged ${purged} project(s). ${remaining} project(s) remaining in registry.`;
+  const lines = [
+    `[nexus] Purged ${purged} project(s). ${remaining} project(s) remaining in registry.`,
+  ];
+  const fsRemoved = data['fsRemoved'];
+  const fsFailed = data['fsFailed'];
+  if (typeof fsRemoved === 'number') {
+    lines.push(
+      `[nexus] Filesystem cleanup: removed ${fsRemoved} dir(s)` +
+        (typeof fsFailed === 'number' && fsFailed > 0 ? `, ${fsFailed} skipped/failed.` : '.'),
+    );
+  }
+  const vacuumBytesFreed = data['vacuumBytesFreed'];
+  if (typeof vacuumBytesFreed === 'number') {
+    const mb = (vacuumBytesFreed / (1024 * 1024)).toFixed(1);
+    lines.push(`[nexus] VACUUM reclaimed ${mb} MB.`);
+  }
+  return lines.join('\n');
 }
 
 /**
