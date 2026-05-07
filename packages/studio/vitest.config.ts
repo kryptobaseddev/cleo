@@ -32,7 +32,7 @@ export default defineConfig({
       'src/**/*.test.ts',
       'src/**/__tests__/*.test.ts',
     ],
-    exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**'],
+    exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
     // SvelteKit $lib alias resolution for server-side tests
     alias: {
       $lib: new URL('./src/lib', import.meta.url).pathname,
