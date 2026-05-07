@@ -14,7 +14,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readlink, rename, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, normalize } from 'node:path';
 import {
   getAgentsHome,
   getCanonicalTemplatesTildePath,
@@ -137,7 +137,7 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
  *                                             informed via ctx.created).
  *   - Errors are non-fatal — bootstrap continues with a warning.
  */
-async function ensureCleoSymlink(ctx: BootstrapContext): Promise<void> {
+export async function ensureCleoSymlink(ctx: BootstrapContext): Promise<void> {
   if (ctx.isDryRun) return;
 
   const legacyPath = join(homedir(), '.cleo');
@@ -164,7 +164,8 @@ async function ensureCleoSymlink(ctx: BootstrapContext): Promise<void> {
     // Already a symlink — check where it points
     if (stat.isSymbolicLink()) {
       const currentTarget = await readlink(legacyPath);
-      if (currentTarget === canonicalTarget) {
+      const normalizedCurrentTarget = normalize(currentTarget.replace(/^\\\\\?\\/, ''));
+      if (normalizedCurrentTarget === normalize(canonicalTarget)) {
         return; // no-op, already correct
       }
       ctx.warnings.push(
