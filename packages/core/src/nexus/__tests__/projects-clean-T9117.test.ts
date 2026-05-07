@@ -14,7 +14,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
@@ -176,10 +176,11 @@ describe('cleanProjects — T9117 removeFs', () => {
     const { projectRegistry } = await import('../../store/nexus-schema.js');
     const db = await getNexusDb();
     const now = new Date().toISOString();
+    const dangerousPath = parse(tmpdir()).root;
     await db.insert(projectRegistry).values({
       projectId: 'dangerous-id',
       projectHash: 'shortshort01',
-      projectPath: '/tmp', // dangerously short root-ish path
+      projectPath: dangerousPath, // dangerously short root-ish path
       name: 'dangerous',
       registeredAt: now,
       lastSeen: now,
@@ -206,9 +207,9 @@ describe('cleanProjects — T9117 removeFs', () => {
     expect(result.purged).toBe(1);
     expect(result.fsRemoved).toBe(0);
     expect(result.fsFailed).toBe(1);
-    // /tmp must still exist
-    expect(existsSync('/tmp')).toBe(true);
-    expect(statSync('/tmp').isDirectory()).toBe(true);
+    // root must still exist
+    expect(existsSync(dangerousPath)).toBe(true);
+    expect(statSync(dangerousPath).isDirectory()).toBe(true);
   });
 });
 
