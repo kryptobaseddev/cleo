@@ -130,6 +130,55 @@ describe('completeTask', () => {
     expect(result.task.status).toBe('done');
   });
 
+  // T1954: archived deps must satisfy dependencies (equivalent to done)
+  it('allows completion when dependency is archived', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Archived dep',
+        status: 'archived',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Blocked by archived',
+        status: 'pending',
+        priority: 'medium',
+        depends: ['T001'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    const result = await completeTask({ taskId: 'T002' }, env.tempDir, accessor);
+    expect(result.task.status).toBe('done');
+  });
+
+  // T1954: still block when dep is pending (regression guard)
+  it('still blocks completion when dependency is pending', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Pending dep',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'T002',
+        title: 'Blocked by pending',
+        status: 'pending',
+        priority: 'medium',
+        depends: ['T001'],
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    await expect(completeTask({ taskId: 'T002' }, env.tempDir, accessor)).rejects.toThrow(
+      'incomplete dependencies',
+    );
+  });
+
   it('blocks completion when acceptance is required and missing', async () => {
     await seedTasks(accessor, [
       {

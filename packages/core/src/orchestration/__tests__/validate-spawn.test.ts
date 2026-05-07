@@ -96,6 +96,62 @@ describe('validateSpawnReadiness — existing checks (regression)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// T1954: archived deps satisfy dependencies (equivalent to done)
+// ---------------------------------------------------------------------------
+
+describe('validateSpawnReadiness — T1954 archived deps satisfy dependencies', () => {
+  it('does NOT emit V_UNMET_DEP when dep is done', async () => {
+    const dep: Task = {
+      ...baseTask({ id: 'T9800', title: 'Done dep', description: 'Done dep task' }),
+      status: 'done',
+    };
+    const task = baseTask({ depends: ['T9800'] });
+    const accessor = makeAccessor([task, dep]);
+    const result = await validateSpawnReadiness('T9801', undefined, accessor);
+    expect(result.issues.some((i) => i.code === 'V_UNMET_DEP')).toBe(false);
+    expect(result.ready).toBe(true);
+  });
+
+  it('does NOT emit V_UNMET_DEP when dep is archived', async () => {
+    const dep: Task = {
+      ...baseTask({ id: 'T9800', title: 'Archived dep', description: 'Archived dep task' }),
+      status: 'archived',
+    };
+    const task = baseTask({ depends: ['T9800'] });
+    const accessor = makeAccessor([task, dep]);
+    const result = await validateSpawnReadiness('T9801', undefined, accessor);
+    expect(result.issues.some((i) => i.code === 'V_UNMET_DEP')).toBe(false);
+    expect(result.ready).toBe(true);
+  });
+
+  it('emits V_UNMET_DEP when dep is pending (regression guard)', async () => {
+    const dep: Task = {
+      ...baseTask({ id: 'T9800', title: 'Pending dep', description: 'Pending dep task' }),
+      status: 'pending',
+    };
+    const task = baseTask({ depends: ['T9800'] });
+    const accessor = makeAccessor([task, dep]);
+    const result = await validateSpawnReadiness('T9801', undefined, accessor);
+    expect(result.issues.some((i) => i.code === 'V_UNMET_DEP')).toBe(true);
+    expect(result.ready).toBe(false);
+  });
+
+  it('emits V_UNMET_DEP when dep is cancelled (cancelled still blocks spawn — T1954)', async () => {
+    // cancelled differs from archived: cancelled = work abandoned, archived = housekeeping.
+    // Only done and archived satisfy spawn deps; cancelled still blocks.
+    const dep: Task = {
+      ...baseTask({ id: 'T9800', title: 'Cancelled dep', description: 'Cancelled dep task' }),
+      status: 'cancelled',
+    };
+    const task = baseTask({ depends: ['T9800'] });
+    const accessor = makeAccessor([task, dep]);
+    const result = await validateSpawnReadiness('T9801', undefined, accessor);
+    expect(result.issues.some((i) => i.code === 'V_UNMET_DEP')).toBe(true);
+    expect(result.ready).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // T894: Atomic scope enforcement — worker role
 // ---------------------------------------------------------------------------
 
