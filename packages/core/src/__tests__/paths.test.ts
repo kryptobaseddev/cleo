@@ -103,6 +103,8 @@ describe('getProjectRoot', () => {
     delete process.env['CLEO_ROOT'];
     tempDir = join(tmpdir(), `cleo-root-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(tempDir, '.git'), { recursive: true });
   });
 
   afterEach(() => {
@@ -147,6 +149,8 @@ describe('resolveProjectPath', () => {
       `cleo-resolve-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     mkdirSync(join(projectDir, '.cleo'), { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(projectDir, '.git'), { recursive: true });
   });
 
   afterEach(() => {
@@ -234,6 +238,8 @@ describe('getAgentOutputsDir', () => {
     delete process.env['CLEO_DIR'];
     tempDir = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(tempDir, '.git'), { recursive: true });
   });
 
   afterEach(() => {
@@ -319,6 +325,8 @@ describe('getAgentOutputsAbsolute', () => {
     delete process.env['CLEO_DIR'];
     tempDir = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(tempDir, '.git'), { recursive: true });
   });
 
   afterEach(() => {
@@ -358,6 +366,8 @@ describe('getManifestPath — core/paths', () => {
     delete process.env['CLEO_DIR'];
     tempDir = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(tempDir, '.git'), { recursive: true });
   });
 
   afterEach(() => {
@@ -410,6 +420,8 @@ describe('getManifestArchivePath', () => {
     delete process.env['CLEO_DIR'];
     tempDir = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    // validateProjectRoot requires .git/ sibling (legacy-fallback path).
+    mkdirSync(join(tempDir, '.git'), { recursive: true });
   });
 
   afterEach(() => {
