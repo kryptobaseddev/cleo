@@ -89,7 +89,9 @@ export async function createTestDb(): Promise<TestDbEnv> {
     cleanup: async () => {
       await accessor.close();
       resetDbState();
-      rmSync(tempDir, { recursive: true, force: true });
+      // Windows can release SQLite file handles a tick later than closeDb()
+      // returns; allow fs.rm's built-in retry path to absorb transient EPERM.
+      rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
 }

@@ -26,15 +26,19 @@ import { ClaudeCodeInstallProvider } from '../install.js';
 describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
   let fakeHome: string;
   let realHome: string | undefined;
+  let realUserProfile: string | undefined;
+  let realClaudeHome: string | undefined;
   let projectDir: string;
 
   beforeEach(() => {
     realHome = process.env.HOME;
+    realUserProfile = process.env.USERPROFILE;
+    realClaudeHome = process.env.CLAUDE_HOME;
     fakeHome = mkdtempSync(join(tmpdir(), 'cleo-claude-install-'));
     projectDir = mkdtempSync(join(tmpdir(), 'cleo-claude-project-'));
     process.env.HOME = fakeHome;
-    // Suppress unused-var lint on Windows (USERPROFILE pathway not exercised here).
-    void fakeHome;
+    process.env.USERPROFILE = fakeHome;
+    process.env.CLAUDE_HOME = join(fakeHome, '.claude');
   });
 
   afterEach(() => {
@@ -42,6 +46,16 @@ describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
       process.env.HOME = realHome;
     } else {
       delete process.env.HOME;
+    }
+    if (realUserProfile !== undefined) {
+      process.env.USERPROFILE = realUserProfile;
+    } else {
+      delete process.env.USERPROFILE;
+    }
+    if (realClaudeHome !== undefined) {
+      process.env.CLAUDE_HOME = realClaudeHome;
+    } else {
+      delete process.env.CLAUDE_HOME;
     }
     rmSync(fakeHome, { recursive: true, force: true });
     rmSync(projectDir, { recursive: true, force: true });
