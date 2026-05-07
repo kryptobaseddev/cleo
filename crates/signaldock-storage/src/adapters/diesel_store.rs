@@ -73,18 +73,20 @@ impl DieselStore<SqliteConn> {
         // PRAGMAs on EVERY new connection (not just the first).
         // Without this, pooled connections miss WAL mode and busy_timeout,
         // causing "database is locked" under concurrent writes.
+        //
+        // The SQL applied here is generated at compile time from
+        // `specs/sqlite-pragmas.json` by `build.rs` (T9053 SSoT). The
+        // TypeScript side (`packages/core/src/store/sqlite-pragmas.ts`)
+        // renders the identical statements from the same JSON file, so
+        // node:sqlite handles and Diesel pool connections apply
+        // byte-identical pragma SQL.
         let manager = AsyncDieselConnectionManager::<SqliteConn>::new(database_url);
         let pool = Pool::builder(manager)
             .post_create(deadpool::managed::Hook::async_fn(
                 |conn: &mut SqliteConn, _| {
                     Box::pin(async move {
                         conn.spawn_blocking(|c: &mut diesel::SqliteConnection| {
-                            c.batch_execute(
-                                "PRAGMA journal_mode=WAL;\
-                                 PRAGMA foreign_keys=ON;\
-                                 PRAGMA busy_timeout=5000;\
-                                 PRAGMA synchronous=NORMAL;",
-                            )
+                            c.batch_execute(crate::sqlite_pragmas::SQLITE_PRAGMA_SQL_BATCH)
                         })
                         .await
                         .map_err(|e| {
