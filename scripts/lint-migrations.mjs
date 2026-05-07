@@ -8,15 +8,21 @@
  *   RULE-3: Orphan snapshot.json (snapshot present but no sibling migration.sql, or vice-versa in
  *           DB sets where snapshots are expected but a folder has one without neighbors having any).
  *   RULE-4: Folder names not matching /^\d{14}_[a-z0-9-]+$/.
+ *   RULE-5: Multi-statement migration.sql files missing `--> statement-breakpoint` separators.
+ *           node:sqlite's prepare() silently truncates to the first statement when no breakpoints
+ *           are present; this rule catches files where statement count exceeds breakpoint count + 1.
  *
  * Usage:
  *   node scripts/lint-migrations.mjs [--migrations-root <path>] [--fail-on=error|warn|none]
+ *                                    [--enable-rule-5]
  *
  * Flags:
  *   --migrations-root <path>  Override the migrations root directory.
  *   --fail-on=error           Exit 1 only when there are ERROR-severity violations (default).
  *   --fail-on=warn            Exit 1 when there are any violations (ERROR or WARN).
  *   --fail-on=none            Always exit 0 (report-only mode).
+ *   --enable-rule-5           Enable RULE-5 (missing-breakpoint detector). Off by default until
+ *                             T9166 lands the breakpoint fixes for the known 7 brain migrations.
  *
  * GitHub Actions:
  *   When GITHUB_ACTIONS=true is set in environment, violations are emitted as
@@ -26,6 +32,7 @@
  *
  * @task T1153
  * @task T1168
+ * @task T9165
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -74,6 +81,18 @@ if (!['error', 'warn', 'none'].includes(FAIL_ON)) {
 
 /** True when running inside GitHub Actions — enables workflow annotation output. */
 const IS_GHA = process.env.GITHUB_ACTIONS === 'true';
+
+/**
+ * True when RULE-5 (missing-breakpoint detector) is enabled via --enable-rule-5.
+ *
+ * RULE-5 is gated behind this flag until T9166 lands the breakpoint fixes for the
+ * known 7 brain migrations that currently lack separators. Once T9166 merges, the
+ * flag can be removed and RULE-5 enabled unconditionally.
+ *
+ * @see T9163 — parent epic documenting the node:sqlite prepare() truncation issue
+ * @see T9166 — sibling task that adds the missing breakpoints to the 7 brain migrations
+ */
+const RULE_5_ENABLED = args.includes('--enable-rule-5');
 
 // ---------------------------------------------------------------------------
 // Discovery helpers
@@ -258,6 +277,153 @@ function rule4FolderNames(violations, dbSet, dbSetPath, folderNames) {
   }
 }
 
+/**
+ * Count the number of `;`-terminated SQL statements in a migration file, skipping
+ * semicolons that appear inside string literals or SQL comments.
+ *
+ * The scanner is a single-pass state machine that tracks:
+ *   - Single-quoted string literals (`'...'`, with `''` escape)
+ *   - Double-quoted identifiers (`"..."`, with `""` escape)
+ *   - Line comments (`-- ...` through end-of-line)
+ *   - Block comments (`/* ... *\/`)
+ *
+ * Only `;` characters that are NOT inside any of the above contexts are counted
+ * as statement terminators.
+ *
+ * @param {string} sql - Raw content of a migration.sql file.
+ * @returns {number} Count of top-level semicolons (statement terminators).
+ */
+function countSqlStatements(sql) {
+  let count = 0;
+  let i = 0;
+  const len = sql.length;
+
+  while (i < len) {
+    const ch = sql[i];
+
+    // Line comment: -- ... \n
+    if (ch === '-' && sql[i + 1] === '-') {
+      i += 2;
+      while (i < len && sql[i] !== '\n') i++;
+      continue;
+    }
+
+    // Block comment: /* ... */
+    if (ch === '/' && sql[i + 1] === '*') {
+      i += 2;
+      while (i < len && !(sql[i] === '*' && sql[i + 1] === '/')) i++;
+      i += 2; // skip closing */
+      continue;
+    }
+
+    // Single-quoted string: '...' ('' is escaped quote, not end)
+    if (ch === "'") {
+      i++;
+      while (i < len) {
+        if (sql[i] === "'" && sql[i + 1] === "'") {
+          i += 2; // escaped quote
+        } else if (sql[i] === "'") {
+          i++; // closing quote
+          break;
+        } else {
+          i++;
+        }
+      }
+      continue;
+    }
+
+    // Double-quoted identifier: "..." ("" is escaped quote)
+    if (ch === '"') {
+      i++;
+      while (i < len) {
+        if (sql[i] === '"' && sql[i + 1] === '"') {
+          i += 2; // escaped quote
+        } else if (sql[i] === '"') {
+          i++; // closing quote
+          break;
+        } else {
+          i++;
+        }
+      }
+      continue;
+    }
+
+    // Backtick-quoted identifier (MySQL/SQLite extension): `...`
+    if (ch === '`') {
+      i++;
+      while (i < len && sql[i] !== '`') i++;
+      if (i < len) i++; // skip closing backtick
+      continue;
+    }
+
+    // Top-level semicolon — statement terminator
+    if (ch === ';') {
+      count++;
+      i++;
+      continue;
+    }
+
+    i++;
+  }
+
+  return count;
+}
+
+/**
+ * Count the number of `--> statement-breakpoint` markers in raw file content.
+ *
+ * The markers are drizzle-kit hints inserted between SQL statements. When a
+ * file contains N SQL statements, it requires exactly N-1 markers.
+ *
+ * @param {string} content - Raw content of a migration.sql file.
+ * @returns {number} Count of statement-breakpoint markers.
+ */
+function countBreakpoints(content) {
+  // Use a global regex to count all occurrences of the marker string.
+  return (content.match(/--> statement-breakpoint/g) ?? []).length;
+}
+
+/**
+ * RULE-5: Detect multi-statement migration.sql files that are missing
+ * `--> statement-breakpoint` separators between statements.
+ *
+ * Rationale: node:sqlite's `prepare()` method silently truncates execution to
+ * the first SQL statement when a file contains multiple statements without the
+ * drizzle-kit breakpoint markers. This causes subsequent DDL/DML to be
+ * silently skipped, leaving the schema in a partially applied state.
+ *
+ * Detection logic:
+ *   1. Count `;`-terminated top-level statements (ignoring literals/comments).
+ *   2. Count `--> statement-breakpoint` markers.
+ *   3. If statements > 1 AND markers < (statements - 1), emit ERROR.
+ *
+ * This rule is gated behind `--enable-rule-5` until T9166 lands the
+ * breakpoint fixes for the known 7 brain migrations.
+ *
+ * @see T9163 — parent epic: node:sqlite prepare() truncation investigation
+ * @see T9166 — sibling task: adds missing breakpoints to 7 brain migrations
+ *
+ * @param {Array} violations - Violations array to append to.
+ * @param {string} _dbSet - DB set name (unused, kept for signature consistency).
+ * @param {string} _folderName - Migration folder name (unused, kept for signature consistency).
+ * @param {string} migrationSqlPath - Absolute path to the migration.sql file.
+ */
+function rule5MissingBreakpoints(violations, _dbSet, _folderName, migrationSqlPath) {
+  const content = readFileSync(migrationSqlPath, 'utf8');
+  const stmtCount = countSqlStatements(content);
+  const breakpointCount = countBreakpoints(content);
+
+  if (stmtCount > 1 && breakpointCount < stmtCount - 1) {
+    violations.push({
+      rule: 'RULE-5',
+      severity: 'ERROR',
+      file: migrationSqlPath,
+      message: `Multi-statement migration missing statement-breakpoint separators: ${stmtCount} statement(s) but only ${breakpointCount} breakpoint(s) (need ${stmtCount - 1}).`,
+      detail: `node:sqlite prepare() silently truncates to the first statement without breakpoints. Add "--> statement-breakpoint" between each SQL statement. See T9163.`,
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -317,6 +483,11 @@ function main() {
 
       // RULE-1: trailing statement-breakpoint
       rule1TrailingBreakpoint(violations, dbSet, folder, sqlPath);
+
+      // RULE-5: missing statement-breakpoint separators (gated behind --enable-rule-5)
+      if (RULE_5_ENABLED) {
+        rule5MissingBreakpoints(violations, dbSet, folder, sqlPath);
+      }
     }
   }
 
@@ -330,7 +501,7 @@ function main() {
   // Report
   // ---------------------------------------------------------------------------
   const lines = [];
-  lines.push('=== CLEO Migration Linter — T1153 R2 ===');
+  lines.push('=== CLEO Migration Linter — T1153 R3 ===');
   lines.push(`Run at: ${new Date().toISOString()}`);
   lines.push(`Migrations root: ${MIGRATIONS_ROOT}`);
   lines.push('');
@@ -342,6 +513,9 @@ function main() {
   lines.push(`  Errors:              ${stats.errors}`);
   lines.push(`  Warnings:            ${stats.warnings}`);
   lines.push(`  Total violations:    ${violations.length}`);
+  lines.push(
+    `  RULE-5 enabled:      ${RULE_5_ENABLED ? 'yes (--enable-rule-5)' : 'no (pass --enable-rule-5 to activate)'}`,
+  );
   lines.push('');
 
   if (violations.length === 0) {
