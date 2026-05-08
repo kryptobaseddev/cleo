@@ -16,7 +16,7 @@ vi.mock('../../store/data-accessor.js', () => ({
   getTaskAccessor: vi.fn(),
 }));
 
-import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
