@@ -1,0 +1,110 @@
+{
+  "task": "T1825",
+  "decidedAt": "2026-05-08",
+  "decision": "All 17 docs/adr/ files migrated to .cleo/adrs/ (canonical location per T1824 epic owner directive). No filename collisions found — all files migrated as-is. The docs/adr/ directory archived with ARCHIVED.md marker. Legacy 56 .cleo/adrs/ files kept as-is per T1824 backfill decision.",
+  "legacyDecision": "The 56 existing .cleo/adrs/ files (ADR-003 through ADR-070) are kept as-is. No DB-only migration at this stage (T1824-5 backfill task handles that separately).",
+  "entries": [
+    {
+      "source": "ADR-051-override-patterns.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-051-override-patterns.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-052-sdk-consolidation.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-052-sdk-consolidation.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-053-playbook-runtime.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-053-playbook-runtime.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-054-migration-system-hybrid-path-a-plus.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-054-migration-system-hybrid-path-a-plus.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-055-agents-architecture-and-meta-agents.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-055-agents-architecture-and-meta-agents.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-056-db-ssot-and-release-completion-invariant.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-056-db-ssot-and-release-completion-invariant.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-057-contracts-core-ssot.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-057-contracts-core-ssot.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-058-dispatch-type-inference.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-058-dispatch-type-inference.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-059-override-pumps.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-059-override-pumps.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-061-project-agnostic-verify-tools.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-061-project-agnostic-verify-tools.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-062-worktree-merge-not-cherry-pick.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-062-worktree-merge-not-cherry-pick.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-063-release-pipeline.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-063-release-pipeline.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-064-caamp-adapters-boundary.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-064-caamp-adapters-boundary.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-065-pr-required-release-flow.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-065-pr-required-release-flow.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-066-task-taxonomy-consolidation.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-066-task-taxonomy-consolidation.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "ADR-070-verifier-backed-ac-auditor-loop.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/ADR-070-verifier-backed-ac-auditor-loop.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    },
+    {
+      "source": "adr-cleoos-sentient-harness.md",
+      "action": "migrated",
+      "destination": ".cleo/adrs/adr-cleoos-sentient-harness.md",
+      "reason": "No filename collision in .cleo/adrs/. Direct migration."
+    }
+  ]
+}

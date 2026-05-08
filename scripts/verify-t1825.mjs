@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Verifier for T1825: Migrate docs/adr/ → .cleo/adrs/ + archive vs migrate decision.
  *
@@ -18,10 +19,10 @@
  * @epic T1824
  */
 
+import { execSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -79,9 +80,7 @@ function checkCleoadrs() {
 
   const files = readdirSync(adrsDir).filter((f) => f.endsWith('.md'));
   if (files.length < 56) {
-    fail(
-      `.cleo/adrs/ has only ${files.length} .md files — expected at least 56 after migration`,
-    );
+    fail(`.cleo/adrs/ has only ${files.length} .md files — expected at least 56 after migration`);
   } else {
     pass(`.cleo/adrs/ exists and contains ${files.length} .md files`);
   }
@@ -108,7 +107,7 @@ function checkAllAccountedFor() {
   } else {
     fail(
       'T1825-migration-manifest.json does not exist in .cleo/adrs/ — ' +
-      'Implementer must create this manifest documenting the migration/archive decision for each file',
+        'Implementer must create this manifest documenting the migration/archive decision for each file',
     );
   }
 
@@ -126,11 +125,8 @@ function checkAllAccountedFor() {
 
     // Option B: entry in manifest marks it as archived or re-numbered
     const inManifest =
-      manifest?.entries?.some(
-        (e) =>
-          e.source === legacy ||
-          e.source === `docs/adr/${legacy}`,
-      ) ?? false;
+      manifest?.entries?.some((e) => e.source === legacy || e.source === `docs/adr/${legacy}`) ??
+      false;
 
     if (migratedExact) {
       pass(`${legacy} — migrated (found in .cleo/adrs/)`);
@@ -147,7 +143,7 @@ function checkAllAccountedFor() {
   if (unaccounted.length > 0) {
     fail(
       `${unaccounted.length} docs/adr/ files not accounted for (neither migrated nor in manifest):\n` +
-      unaccounted.map((f) => `  - ${f}`).join('\n'),
+        unaccounted.map((f) => `  - ${f}`).join('\n'),
     );
   } else {
     pass('All 17 legacy docs/adr/ files are accounted for');
@@ -172,7 +168,10 @@ function checkDocsAdrCleaned() {
   } else {
     fail(
       `docs/adr/ still contains ${remaining.length} unrelocated file(s):\n` +
-      remaining.slice(0, 10).map((f) => `  - ${f}`).join('\n'),
+        remaining
+          .slice(0, 10)
+          .map((f) => `  - ${f}`)
+          .join('\n'),
     );
   }
 }
@@ -204,7 +203,9 @@ async function checkCleoadrList() {
 
     const adrs = parsed?.data?.adrs ?? [];
     if (adrs.length < 56) {
-      fail(`cleo adr list returned only ${adrs.length} ADRs — expected at least 56 after migration`);
+      fail(
+        `cleo adr list returned only ${adrs.length} ADRs — expected at least 56 after migration`,
+      );
     } else {
       pass(`cleo adr list returned ${adrs.length} ADRs — above migration threshold`);
     }
@@ -214,8 +215,11 @@ async function checkCleoadrList() {
     if (docsAdrPaths.length > 0) {
       fail(
         `cleo adr list still returns ${docsAdrPaths.length} ADR(s) from docs/adr/ paths — ` +
-        'they should now be served from .cleo/adrs/:\n' +
-        docsAdrPaths.slice(0, 5).map((a) => `  - ${a.filePath}`).join('\n'),
+          'they should now be served from .cleo/adrs/:\n' +
+          docsAdrPaths
+            .slice(0, 5)
+            .map((a) => `  - ${a.filePath}`)
+            .join('\n'),
       );
     } else {
       pass('cleo adr list returns no docs/adr/ paths — all from .cleo/adrs/');
@@ -233,23 +237,20 @@ function checkSourceRefs() {
 
   // Files that are allowed to still mention docs/adr/ (historically/contextually):
   const ALLOWLIST = [
-    'CHANGELOG.md',                        // historical entries
-    'adr-backfill-walker.ts',              // deliberately reads docs/adr/ as fallback source
-    'T1825-migration-manifest.json',       // the manifest itself
-    'verify-t1825.mjs',                    // this verifier
-    '/skills/',                            // skills fixture/reference files (not production code)
-    'fixtures/',                           // test fixtures
-    '__tests__/',                          // test files that use docs/adr/ as example strings
-    'README.md',                           // documentation files
-    'AGENTS.md',                           // documentation files
+    'CHANGELOG.md', // historical entries
+    'adr-backfill-walker.ts', // deliberately reads docs/adr/ as fallback source
+    'T1825-migration-manifest.json', // the manifest itself
+    'verify-t1825.mjs', // this verifier
+    '/skills/', // skills fixture/reference files (not production code)
+    'fixtures/', // test fixtures
+    '__tests__/', // test files that use docs/adr/ as example strings
+    'README.md', // documentation files
+    'AGENTS.md', // documentation files
   ];
 
-  const sourceFilePatterns = [
-    join(REPO_ROOT, 'packages'),
-    join(REPO_ROOT, 'scripts'),
-  ];
+  const sourceFilePatterns = [join(REPO_ROOT, 'packages'), join(REPO_ROOT, 'scripts')];
 
-  let violators = [];
+  const violators = [];
 
   function scanDir(dir) {
     if (!existsSync(dir)) return;
@@ -265,7 +266,7 @@ function checkSourceRefs() {
         entry.name.endsWith('.md')
       ) {
         const relPath = fullPath.replace(REPO_ROOT + '/', '');
-      const allowed = ALLOWLIST.some((a) => fullPath.includes(a) || relPath.includes(a));
+        const allowed = ALLOWLIST.some((a) => fullPath.includes(a) || relPath.includes(a));
         if (allowed) continue;
         try {
           const content = readFileSync(fullPath, 'utf8');
@@ -290,7 +291,7 @@ function checkSourceRefs() {
   if (violators.length > 0) {
     fail(
       `${violators.length} source file(s) still reference docs/adr/ paths:\n` +
-      violators.map((f) => `  - ${f}`).join('\n'),
+        violators.map((f) => `  - ${f}`).join('\n'),
     );
   } else {
     pass('No source files reference docs/adr/ paths (allowlisted files excluded)');
@@ -332,7 +333,7 @@ function checkManifest() {
   if (manifest.entries.length < 17) {
     fail(
       `T1825-migration-manifest.json has only ${manifest.entries.length} entries — ` +
-      'expected at least 17 (one per legacy docs/adr/ file)',
+        'expected at least 17 (one per legacy docs/adr/ file)',
     );
     return;
   }
@@ -342,10 +343,15 @@ function checkManifest() {
   if (badEntries.length > 0) {
     fail(
       `${badEntries.length} manifest entries have invalid action (expected one of: ${validActions.join(', ')}):\n` +
-      badEntries.slice(0, 5).map((e) => `  - ${JSON.stringify(e)}`).join('\n'),
+        badEntries
+          .slice(0, 5)
+          .map((e) => `  - ${JSON.stringify(e)}`)
+          .join('\n'),
     );
   } else {
-    pass(`T1825-migration-manifest.json valid: ${manifest.entries.length} entries, all with valid actions`);
+    pass(
+      `T1825-migration-manifest.json valid: ${manifest.entries.length} entries, all with valid actions`,
+    );
   }
 }
 
@@ -368,7 +374,7 @@ async function checkRoundTrip() {
     if (!output.includes('ADR-051') && !output.includes('override') && !output.includes('gate')) {
       warn(
         `cleo adr show ${testAdrId} returned output that doesn't mention expected content. ` +
-        `Output: ${output.slice(0, 200)}`,
+          `Output: ${output.slice(0, 200)}`,
       );
     } else {
       pass(`cleo adr show ${testAdrId} returned readable content`);
