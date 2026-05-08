@@ -6,10 +6,10 @@
  *   - `cleo self-update` (see self-update.ts) — upgrade the CLI binary itself via npm
  *
  * This command mutates task-row columns (title, status, priority, etc.).
- * Accepts up to 20 options covering title, status, priority, type, size,
+ * Accepts options covering title, status, priority, type, size,
  * phase, description, labels, dependencies, notes, acceptance criteria,
  * files, blocked-by, parent, auto-complete control, pipeline stage,
- * role, and scope.
+ * role, scope, and severity.
  *
  * Task CLI command convention: task operations are split root commands, not a
  * `tasks.ts` command group. CLI-only compatibility aliases are normalized in
@@ -19,6 +19,7 @@
  * @epic T4454
  */
 
+import { appendSignedSeverityAttestation } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { cliError } from '../renderers/index.js';
@@ -152,6 +153,18 @@ export const updateCommand = defineCommand({
         'Task scope / granularity axis (project|feature|unit) — orthogonal to --type (T944)',
     },
     /**
+     * Severity level — valid for any role (not just bug).
+     * Values: P0 | P1 | P2 | P3
+     * Orthogonal to --priority — does NOT auto-map priority.
+     * Appends a signed attestation to .cleo/audit/severity-attestation.jsonl (T9071/T9073).
+     * @task T9073
+     */
+    severity: {
+      type: 'string',
+      description:
+        'Severity level (P0|P1|P2|P3) — valid for any --role (T9073). Orthogonal to priority. Appends signed attestation.',
+    },
+    /**
      * Operator-supplied justification required to override the
      * acceptance-criteria immutability guard once a task has entered the
      * implementation pipeline stage. Audit log: `.cleo/audit/ac-changes.jsonl`.
@@ -221,6 +234,8 @@ export const updateCommand = defineCommand({
     // T944/T9072: --kind is canonical
     if (args.kind !== undefined) params['kind'] = args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
+    // T9073: severity — orthogonal to priority, valid for any role
+    if (args.severity !== undefined) params['severity'] = args.severity;
     // T1590: AC-immutability override reason — forwarded as `reason`.
     if (args.reason !== undefined) params['reason'] = args.reason;
 
@@ -262,6 +277,28 @@ export const updateCommand = defineCommand({
       }
     }
     if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
+
+    // T9073 / T9071: fire signed severity attestation for any role.
+    // Severity is orthogonal to priority — no auto-mapping here.
+    // Non-fatal outside CLEO project (falls through).
+    if (args.severity !== undefined) {
+      try {
+        await appendSignedSeverityAttestation({
+          timestamp: new Date().toISOString(),
+          title: String(args.taskId),
+          severity: args.severity,
+          taskId: String(args.taskId),
+        });
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === 'E_OWNER_ONLY') {
+          cliError((err as Error).message, 72, { name: 'E_OWNER_ONLY' });
+          process.exit(72);
+          return;
+        }
+        // Any other failure (e.g. not inside a CLEO project) is non-fatal.
+      }
+    }
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
   },
