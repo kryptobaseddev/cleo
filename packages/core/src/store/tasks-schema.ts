@@ -10,7 +10,7 @@
  * @task T1609 session_handoff_entries — write-once handoff table
  */
 
-import type { ArchiveReasonValue, TaskRole, TaskScope, TaskSeverity } from '@cleocode/contracts';
+import type { ArchiveReasonValue, TaskKind, TaskScope, TaskSeverity } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import {
   type AnySQLiteColumn,
@@ -84,23 +84,26 @@ export const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low'] as const;
 export const TASK_TYPES = ['epic', 'task', 'subtask'] as const;
 
 /**
- * Task role axis — orthogonal to {@link TASK_TYPES}, describes the intent of the
+ * Task kind axis — orthogonal to {@link TASK_TYPES}, describes the intent of the
  * work rather than its position in the hierarchy.
  *
- * Added by T944 as an additive second axis so `type` (hierarchy) and `role`
+ * Added by T944 as an additive second axis so `type` (hierarchy) and `kind`
  * (intent) can vary independently. Defaults to `'work'` to preserve existing
  * semantics for the ~948 tasks already in production.
  *
+ * Note: DB column is named `role`; TypeScript field is `kind` (T9067 deferral).
+ *
  * @task T944
+ * @task T9072
  */
-export const TASK_ROLES = ['work', 'research', 'experiment', 'bug', 'spike', 'release'] as const;
+export const TASK_KINDS = ['work', 'research', 'experiment', 'bug', 'spike', 'release'] as const;
 
-/** Union type for {@link TASK_ROLES}. Re-exported from `@cleocode/contracts`. */
-export type { TaskRole };
+/** Union type for {@link TASK_KINDS}. Re-exported from `@cleocode/contracts`. */
+export type { TaskKind };
 
 /**
  * Task scope axis — describes the granularity of the work (project-wide vs.
- * feature-scoped vs. unit-scoped). Orthogonal to type and role.
+ * feature-scoped vs. unit-scoped). Orthogonal to type and kind.
  *
  * Backfill mapping from legacy `type` during migration:
  * - `type='epic'`    → `scope='project'`
@@ -248,17 +251,17 @@ export const tasks = sqliteTable(
       .default('medium'),
     type: text('type', { enum: TASK_TYPES }),
     /**
-     * Task role axis — orthogonal to `type`. Defaults to `'work'`.
-     * See {@link TASK_ROLES}. Added by T944.
+     * Task kind axis — orthogonal to `type`. Defaults to `'work'`.
+     * See {@link TASK_KINDS}. Added by T944. DB column named `role` (T9067 deferral).
      */
-    role: text('role', { enum: TASK_ROLES }).notNull().default('work'),
+    kind: text('role', { enum: TASK_KINDS }).notNull().default('work'),
     /**
      * Task scope axis — granularity of the work. Defaults to `'feature'`.
      * See {@link TASK_SCOPES}. Added by T944.
      */
     scope: text('scope', { enum: TASK_SCOPES }).notNull().default('feature'),
     /**
-     * Bug severity. ONLY valid when `role='bug'`. NULL otherwise.
+     * Bug severity. ONLY valid when `kind='bug'` (DB column: role='bug'). NULL otherwise.
      * OWNER-WRITE-ONLY. See {@link TASK_SEVERITIES}. Added by T944.
      */
     severity: text('severity', { enum: TASK_SEVERITIES }),
@@ -344,10 +347,10 @@ export const tasks = sqliteTable(
     index('idx_tasks_status_priority').on(table.status, table.priority),
     index('idx_tasks_type_phase').on(table.type, table.phase),
     index('idx_tasks_status_archive_reason').on(table.status, table.archiveReason),
-    // T944 role/scope axes
-    index('idx_tasks_role').on(table.role),
+    // T944 kind/scope axes (T9072: TS field renamed role→kind; DB column stays 'role')
+    index('idx_tasks_role').on(table.kind),
     index('idx_tasks_scope').on(table.scope),
-    index('idx_tasks_role_status').on(table.role, table.status),
+    index('idx_tasks_role_status').on(table.kind, table.status),
     // T1126 / T1174 — partial index now schema-expressed (see .where() call below).
     // The corresponding migration is packages/core/migrations/drizzle-tasks/20260421000002_t1126-sentient-proposal-index/
     // which remains in place for existing DBs' journal continuity.
