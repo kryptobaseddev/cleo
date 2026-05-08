@@ -1205,6 +1205,7 @@ export {
   loadTelemetryConfig,
   pruneOldTelemetryEvents,
   recordTelemetryEvent,
+  resetTelemetryBufferState,
   TELEMETRY_MAX_ROWS,
   TELEMETRY_RETENTION_DAYS,
 } from './telemetry/index.js';
