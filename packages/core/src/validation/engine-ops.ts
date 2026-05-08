@@ -451,7 +451,8 @@ export async function validateGateVerify(
         }
 
         for (const atom of parsed.atoms) {
-          const check = await validateAtom(atom, projectRoot);
+          // T9178: pass taskId for branch-scope commit validation
+          const check = await validateAtom(atom, projectRoot, taskId);
           if (!check.ok) {
             return engineError(check.codeName, check.reason);
           }
