@@ -246,6 +246,14 @@ export type {
   TaskQueryFilters,
   TransactionAccessor,
 } from './data-accessor.js';
+// === Dependency Registry Contracts ===
+export type {
+  DependencyCategory,
+  DependencyCheckResult,
+  DependencyReport,
+  DependencySpec,
+} from './dependency.js';
+export type { AdapterManifest, DetectionPattern } from './discovery.js';
 // === DocsAccessor Contracts (T9063) ===
 export type {
   DocExportFormat,
@@ -257,14 +265,6 @@ export type {
   StoreDocParams,
   StoreDocResult,
 } from './docs-accessor.js';
-// === Dependency Registry Contracts ===
-export type {
-  DependencyCategory,
-  DependencyCheckResult,
-  DependencyReport,
-  DependencySpec,
-} from './dependency.js';
-export type { AdapterManifest, DetectionPattern } from './discovery.js';
 // === Error Utilities ===
 export {
   ClassifierUnregisteredAgentError,
