@@ -265,6 +265,16 @@ export type {
   StoreDocParams,
   StoreDocResult,
 } from './docs-accessor.js';
+// === Sub-Accessor Contracts (T9188) ===
+export type {
+  BrainAccessor,
+  BrainMemoryHit,
+  BrainObserveParams,
+  ConduitAccessor,
+  NexusAccessor,
+  SignaldockAccessor,
+  TelemetryAccessor,
+} from './sub-accessors.js';
 // === Error Utilities ===
 export {
   ClassifierUnregisteredAgentError,
