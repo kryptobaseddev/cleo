@@ -135,22 +135,15 @@ export const addCommand = defineCommand({
       description: 'Show what would be created without making changes',
     },
     /**
-     * Task role axis — intent of work.
+     * Task kind axis — intent of work.
      * Values: work | research | experiment | bug | spike | release
      * @task T944
-     */
-    role: {
-      type: 'string',
-      description:
-        'Task role / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
-    },
-    /**
-     * Backward-compatible alias for --role (fractal-ontology spec used "kind").
-     * @task T944
+     * @task T9072
      */
     kind: {
       type: 'string',
-      description: 'Alias for --role (T944 fractal-ontology compat)',
+      description:
+        'Task kind / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
     },
     /**
      * Task scope axis — granularity of work.
@@ -163,13 +156,13 @@ export const addCommand = defineCommand({
         'Task scope / granularity axis (project|feature|unit) — orthogonal to --type (T944)',
     },
     /**
-     * Bug severity. Only valid when --role bug.
+     * Bug severity. Only valid when --kind bug.
      * Values: P0 | P1 | P2 | P3
      * @task T944
      */
     severity: {
       type: 'string',
-      description: 'Bug severity (P0|P1|P2|P3) — only valid with --role bug (T944)',
+      description: 'Bug severity (P0|P1|P2|P3) — only valid with --kind bug (T944)',
     },
     /**
      * Bypass the E_DUPLICATE_TASK_LIKELY rejection guard.
@@ -231,11 +224,8 @@ export const addCommand = defineCommand({
       params['position'] = Number.parseInt(args.position as string, 10);
     if (args['dry-run'] !== undefined) params['dryRun'] = args['dry-run'];
     if (args['parent-search'] !== undefined) params['parentSearch'] = args['parent-search'];
-    // T944: orthogonal axes — --kind is a CLI alias for --role (ADR-057 D2)
-    // Aliasing lives at the CLI layer; wire format only uses 'role'.
-    if (args.role !== undefined) params['role'] = args.role;
-    if (args.kind !== undefined)
-      params['role'] = (params['role'] as string | undefined) ?? args.kind;
+    // T944/T9072: --kind is canonical; wire format uses 'kind'.
+    if (args.kind !== undefined) params['kind'] = args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
     if (args.severity !== undefined) params['severity'] = args.severity;
     // T1633: BRAIN duplicate-bypass flag
