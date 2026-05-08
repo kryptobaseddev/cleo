@@ -46,7 +46,7 @@ import {
 } from './scaffold.js';
 import { cleanProjectSchemas, ensureGlobalSchemas } from './schema-management.js';
 import { acquireLock, forceCheckpointBeforeOperation, type ReleaseFn } from './store/index.js';
-import { applyPerfPragmas } from './store/sqlite-pragmas.js';
+// applyPerfPragmas no longer needed here — openCleoDb applies SSoT pragmas (T9189)
 import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
 
 /** A single upgrade action with status. */
@@ -970,22 +970,14 @@ export async function runUpgrade(
     try {
       const [
         { buildDoctorReport, reconcileDoctor },
-        { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath },
-        { createRequire },
+        { openCleoDb },
       ] = await Promise.all([
         import('./store/agent-doctor.js'),
-        import('./store/signaldock-sqlite.js'),
-        import('node:module'),
+        import('./store/open-cleo-db.js'),
       ]);
-      const nodeSqlite = createRequire(import.meta.url)(
-        'node:sqlite',
-      ) as typeof import('node:sqlite');
-      const { DatabaseSync } = nodeSqlite;
-
-      await ensureGlobalSignaldockDb();
-      const sdPath = getGlobalSignaldockDbPath();
-      const sdDb = new DatabaseSync(sdPath);
-      applyPerfPragmas(sdDb); // apply pragma SSoT (T9023)
+      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
+      const { db: _sdRaw } = await openCleoDb('signaldock');
+      const sdDb = _sdRaw as import('node:sqlite').DatabaseSync;
       try {
         const report = await buildDoctorReport(sdDb, { projectRoot: projectRootForMaint });
         if (report.findings.length === 0) {
@@ -1210,22 +1202,14 @@ export async function runUpgrade(
     try {
       const [
         { buildDoctorReport },
-        { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath },
-        { createRequire },
+        { openCleoDb },
       ] = await Promise.all([
         import('./store/agent-doctor.js'),
-        import('./store/signaldock-sqlite.js'),
-        import('node:module'),
+        import('./store/open-cleo-db.js'),
       ]);
-      const nodeSqlite = createRequire(import.meta.url)(
-        'node:sqlite',
-      ) as typeof import('node:sqlite');
-      const { DatabaseSync } = nodeSqlite;
-
-      await ensureGlobalSignaldockDb();
-      const sdPath = getGlobalSignaldockDbPath();
-      const sdDb = new DatabaseSync(sdPath);
-      applyPerfPragmas(sdDb); // apply pragma SSoT (T9023)
+      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
+      const { db: _sdRaw2 } = await openCleoDb('signaldock');
+      const sdDb = _sdRaw2 as import('node:sqlite').DatabaseSync;
       try {
         const report = await buildDoctorReport(sdDb, { projectRoot: getProjectRoot(options.cwd) });
         actions.push({

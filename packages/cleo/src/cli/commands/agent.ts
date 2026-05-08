@@ -35,7 +35,6 @@
  */
 
 import {
-  applyPerfPragmas,
   checkAgentHealth,
   detectCrashedAgents,
   detectStaleAgents,
@@ -2158,17 +2157,14 @@ const installCommand = defineCommand({
 
       // Lazy-import the core facade so test mocks can intercept these symbols.
       const {
-        ensureGlobalSignaldockDb,
-        getGlobalSignaldockDbPath,
         installAgentFromCant,
         attachAgentToProject,
       } = await import('@cleocode/core/internal');
-      const { DatabaseSync } = (await import('node:sqlite')) as typeof import('node:sqlite');
+      const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
 
-      ensureGlobalSignaldockDb();
-      const dbPath = getGlobalSignaldockDbPath();
-      const db = new DatabaseSync(dbPath);
-      applyPerfPragmas(db); // apply pragma SSoT (T9045)
+      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
+      const { db: _sdDb } = await openCleoDb('signaldock');
+      const db = _sdDb as import('node:sqlite').DatabaseSync;
 
       const isGlobal = args.global === true;
       const targetTier: 'global' | 'project' = isGlobal ? 'global' : 'project';
@@ -2837,16 +2833,11 @@ const pruneOrphansCommand = defineCommand({
       const {
         buildDoctorReport,
         reconcileDoctor,
-        ensureGlobalSignaldockDb,
-        getGlobalSignaldockDbPath,
       } = await import('@cleocode/core/internal');
-      const { createRequire } = await import('node:module');
-      const { DatabaseSync } = createRequire(import.meta.url)(
-        'node:sqlite',
-      ) as typeof import('node:sqlite');
-      await ensureGlobalSignaldockDb();
-      const db = new DatabaseSync(getGlobalSignaldockDbPath());
-      applyPerfPragmas(db); // apply pragma SSoT (T9045)
+      const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
+      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
+      const { db: _sdDb2 } = await openCleoDb('signaldock');
+      const db = _sdDb2 as import('node:sqlite').DatabaseSync;
       try {
         const report = await buildDoctorReport(db, {});
         const d002 = report.findings.filter((f) => f.code === 'D-002');
@@ -2918,19 +2909,11 @@ const doctorCommand = defineCommand({
       const {
         buildDoctorReport,
         reconcileDoctor,
-        ensureGlobalSignaldockDb,
-        getGlobalSignaldockDbPath,
       } = await import('@cleocode/core/internal');
-      const { createRequire } = await import('node:module');
-      const nodeSqlite = createRequire(import.meta.url)(
-        'node:sqlite',
-      ) as typeof import('node:sqlite');
-      const { DatabaseSync } = nodeSqlite;
-
-      await ensureGlobalSignaldockDb();
-      const dbPath = getGlobalSignaldockDbPath();
-      const db = new DatabaseSync(dbPath);
-      applyPerfPragmas(db); // apply pragma SSoT (T9045)
+      const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
+      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
+      const { db: _sdDb3 } = await openCleoDb('signaldock');
+      const db = _sdDb3 as import('node:sqlite').DatabaseSync;
 
       try {
         const report = await buildDoctorReport(db, { projectRoot: process.cwd() });

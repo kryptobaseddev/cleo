@@ -257,14 +257,10 @@ export async function installTemplatesAtProjectTier(
     return { installed: [], failed: [], templatesDir };
   }
 
-  const { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } = await import(
-    './store/signaldock-sqlite.js'
-  );
-  await ensureGlobalSignaldockDb();
-  const { DatabaseSync } = await import('node:sqlite');
-  const { applyPerfPragmas } = await import('./store/sqlite-pragmas.js');
-  const db = new DatabaseSync(getGlobalSignaldockDbPath());
-  applyPerfPragmas(db);
+  const { openCleoDb } = await import('./store/open-cleo-db.js');
+  // Open via chokepoint — applies pragma SSoT (T9047, T9189)
+  const { db: _sdRaw } = await openCleoDb('signaldock');
+  const db = _sdRaw as import('node:sqlite').DatabaseSync;
 
   const installed: TemplateInstallEntry[] = [];
   const failed: Array<{ cantPath: string; error: string }> = [];

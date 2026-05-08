@@ -59,12 +59,9 @@ const PRAGMA_ESCAPE_HATCHES: ReadonlySet<string> = new Set([
   'packages/cleo/src/cli/commands/__tests__/agent-install.test.ts',
   // Test fixture — doctor-projects opens a minimal DB to check schema
   'packages/cleo/src/cli/commands/__tests__/doctor-projects.test.ts',
-  // Agent CLI: opens DBs in read-only diagnostic context (schema/PRAGMA inspect)
-  // TODO T9025: review and apply applyPerfPragmas where writes are performed
-  'packages/cleo/src/cli/commands/agent.ts',
-  // Migration helper: one-shot migration runner, short-lived connection
-  // TODO T9025: apply applyPerfPragmas after migration connections
-  'packages/cleo/src/cli/commands/migrate-agents-v2.ts',
+  // project-health.ts: read-only integrity probe (readOnly:true flag) — openCleoDb
+  // does not support readOnly mode; pragmas do not apply to read-only handles.
+  'packages/core/src/system/project-health.ts',
 ]);
 
 /**
