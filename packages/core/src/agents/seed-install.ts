@@ -49,7 +49,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getCleoGlobalCantAgentsDir, getCleoHome } from '../paths.js';
 import { installAgentFromCant } from '../store/agent-install.js';
-import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from '../store/signaldock-sqlite.js';
+// ensureGlobalSignaldockDb / getGlobalSignaldockDbPath removed — openCleoDb handles init (T9189)
 import { resolveAgentTemplates } from './resolveAgentTemplates.js';
 import { loadProjectContext, substituteCantAgentBody } from './variable-substitution.js';
 
@@ -679,13 +679,10 @@ export async function forceInstallProjectTierAgents(
     return { installed, failed, scannedDir };
   }
 
-  // Bootstrap + open global signaldock.db once for the whole batch so we
-  // amortise the migration cost across every seed agent.
-  await ensureGlobalSignaldockDb();
-  const { DatabaseSync } = await import('node:sqlite');
-  const { applyPerfPragmas } = await import('../store/sqlite-pragmas.js');
-  const db = new DatabaseSync(getGlobalSignaldockDbPath());
-  applyPerfPragmas(db);
+  // Open via chokepoint — applies pragma SSoT (T9047, T9189)
+  const { openCleoDb } = await import('../store/open-cleo-db.js');
+  const { db: _sdRaw } = await openCleoDb('signaldock');
+  const db = _sdRaw as import('node:sqlite').DatabaseSync;
 
   try {
     for (const filename of cantFiles) {

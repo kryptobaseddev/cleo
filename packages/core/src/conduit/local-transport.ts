@@ -17,7 +17,6 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   ConduitMessage,
@@ -27,13 +26,7 @@ import type {
   Transport,
   TransportConnectConfig,
 } from '@cleocode/contracts';
-import { getConduitDbPath } from '../store/conduit-sqlite.js';
-import { applyPerfPragmas } from '../store/sqlite-pragmas.js';
-
-const _require = createRequire(import.meta.url);
-const { DatabaseSync: DatabaseSyncClass } = _require('node:sqlite') as {
-  DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSync>) => DatabaseSync;
-};
+import { getConduitDbPath, openFreshConduitDb } from '../store/conduit-sqlite.js';
 
 /**
  * Parse an A2A topic name into its epic_id and optional wave_id components.
@@ -100,8 +93,8 @@ export class LocalTransport implements Transport {
       throw new Error(`LocalTransport: conduit.db not found at ${dbPath}. Run: cleo init`);
     }
 
-    const db = new DatabaseSyncClass(dbPath);
-    applyPerfPragmas(db);
+    // Open fresh (non-singleton) conduit connection with pragmas applied (T9189)
+    const db = openFreshConduitDb(process.cwd());
 
     // Verify the messages table exists
     const hasMessages = db
