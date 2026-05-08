@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.5.53] (2026-05-08)
+
+Auto-prepared by release.ship (T9026)
+
+### Bug Fixes
+- **Startup latency benchmark + regression guard**: Add scripts/bench/startup-latency.mjs that runs cleo --version, cleo --help, cleo find foo, cleo show <id>, cleo next 50 times each on a populated ... (T9030)
+- **BUG: CLEO test fixtures pollute production task counter — IDs jumped T1923 to T9001 in 5h gap**: Between 2026-05-05 20:15 and 2026-05-06 01:06 UTC, autoincrement jumped T1923 to T9001 due to fixtures using cleo add on production DB. Confirmed f... (T9042)
+
+### Chores
+- **One-shot marker for detectAndRemoveLegacy* startup cleanups**: detectAndRemoveLegacyGlobalFiles and detectAndRemoveStrayProjectNexus run on every non-fast-path CLI invocation. They are stat()-heavy and only do ... (T9028)
+
+### Changes
+- **Defer DB opens until command needs them**: Today runStartupMaintenance opens conduit.db AND signaldock.db on every non-fast-path command — even commands that touch neither (e.g. cleo --help ... (T9029)
+---
 ## [2026.5.52] (2026-05-08) — T9053/T9046 Pragma SSoT (TS + Rust)
 
 Drift-by-construction prevention for SQLite pragma policy across the full CLEO ecosystem.
