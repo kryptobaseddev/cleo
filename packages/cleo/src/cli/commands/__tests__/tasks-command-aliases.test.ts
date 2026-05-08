@@ -74,7 +74,7 @@ describe('task CLI command alias normalization (T1472)', () => {
     mocks.dispatchFromCli.mockResolvedValue(undefined);
   });
 
-  it('normalizes add aliases to canonical task params', async () => {
+  it('normalizes add aliases to canonical task params (T9072: --kind canonical)', async () => {
     await invokeAdd({
       title: 'Alias task',
       'parent-id': 'T100',
@@ -89,18 +89,17 @@ describe('task CLI command alias normalization (T1472)', () => {
       expect.objectContaining({
         notes: 'legacy note',
         parent: 'T100',
-        role: 'bug',
+        kind: 'bug',
       }),
     );
   });
 
-  it('prefers canonical add flags over legacy aliases', async () => {
+  it('canonical add --kind flag sets kind in params', async () => {
     await invokeAdd({
       title: 'Alias task',
       parent: 'T100',
       'parent-id': 'T999',
-      role: 'work',
-      kind: 'bug',
+      kind: 'work',
       notes: 'canonical note',
       note: 'legacy note',
     });
@@ -112,12 +111,12 @@ describe('task CLI command alias normalization (T1472)', () => {
       expect.objectContaining({
         notes: 'canonical note',
         parent: 'T100',
-        role: 'work',
+        kind: 'work',
       }),
     );
   });
 
-  it('normalizes update aliases to canonical task params', async () => {
+  it('normalizes update aliases to canonical task params (T9072: --kind canonical)', async () => {
     await invokeUpdate({
       taskId: 'T200',
       'parent-id': 'T100',
@@ -132,7 +131,7 @@ describe('task CLI command alias normalization (T1472)', () => {
       expect.objectContaining({
         notes: 'legacy note',
         parent: 'T100',
-        role: 'research',
+        kind: 'research',
         taskId: 'T200',
       }),
       { command: 'update' },

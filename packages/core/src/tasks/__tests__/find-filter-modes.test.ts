@@ -59,9 +59,9 @@ describe('extractInlineFilters', () => {
     expect(out.query).toBeUndefined();
   });
 
-  it('lifts role:value out of a pure-filter query', () => {
-    const out = extractInlineFilters({ query: 'role:research' });
-    expect(out.role).toBe('research');
+  it('lifts kind:value out of a pure-filter query', () => {
+    const out = extractInlineFilters({ query: 'kind:research' });
+    expect(out.kind).toBe('research');
     expect(out.query).toBeUndefined();
   });
 
@@ -80,7 +80,7 @@ describe('extractInlineFilters', () => {
   it('preserves unrecognised key:value tokens as fuzzy query words', () => {
     const out = extractInlineFilters({ query: 'owner:alice migration' });
     expect(out.status).toBeUndefined();
-    expect(out.role).toBeUndefined();
+    expect(out.kind).toBeUndefined();
     expect(out.query).toBe('owner:alice migration');
   });
 
@@ -96,9 +96,9 @@ describe('extractInlineFilters', () => {
   });
 
   it('handles multiple filter tokens in the same query', () => {
-    const out = extractInlineFilters({ query: 'status:pending role:research' });
+    const out = extractInlineFilters({ query: 'status:pending kind:research' });
     expect(out.status).toBe('pending');
-    expect(out.role).toBe('research');
+    expect(out.kind).toBe('research');
     expect(out.query).toBeUndefined();
   });
 });

@@ -1,13 +1,14 @@
 /**
- * T944 — role/scope/severity wiring tests.
+ * T944 — kind/scope/severity wiring tests.
  *
  * Verifies that:
- * - `addTask` accepts and persists role/scope/severity
- * - `findTasks` filters by role
- * - `rowToTask` / `taskToRow` round-trip role/scope/severity
- * - DB column defaults are applied when role/scope are omitted
+ * - `addTask` accepts and persists kind/scope/severity
+ * - `findTasks` filters by kind
+ * - `rowToTask` / `taskToRow` round-trip kind/scope/severity
+ * - DB column defaults are applied when kind/scope are omitted
  *
  * @task T944
+ * @task T9072
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -15,7 +16,7 @@ import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-help
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { findTasks } from '../find.js';
 
-describe('T944 role/scope wiring — addTask + findTasks', () => {
+describe('T944 kind/scope wiring — addTask + findTasks', () => {
   let env: TestDbEnv;
   let accessor: DataAccessor;
 
@@ -28,26 +29,26 @@ describe('T944 role/scope wiring — addTask + findTasks', () => {
     await env.cleanup();
   });
 
-  it('round-trips role and scope through upsertSingleTask + loadSingleTask', async () => {
+  it('round-trips kind and scope through upsertSingleTask + loadSingleTask', async () => {
     await accessor.upsertSingleTask({
       id: 'T100',
       title: 'Bug task',
-      description: 'A bug with explicit role and scope',
+      description: 'A bug with explicit kind and scope',
       status: 'pending',
       priority: 'high',
       createdAt: new Date().toISOString(),
-      role: 'bug',
+      kind: 'bug',
       scope: 'feature',
     });
 
     const loaded = await accessor.loadSingleTask('T100');
     expect(loaded).toBeTruthy();
-    expect(loaded!.role).toBe('bug');
+    expect(loaded!.kind).toBe('bug');
     expect(loaded!.scope).toBe('feature');
     expect(loaded!.severity).toBeUndefined();
   });
 
-  it('preserves severity for bug role', async () => {
+  it('preserves severity for bug kind', async () => {
     await accessor.upsertSingleTask({
       id: 'T101',
       title: 'P0 bug',
@@ -55,19 +56,19 @@ describe('T944 role/scope wiring — addTask + findTasks', () => {
       status: 'pending',
       priority: 'critical',
       createdAt: new Date().toISOString(),
-      role: 'bug',
+      kind: 'bug',
       scope: 'project',
       severity: 'P0',
     });
 
     const loaded = await accessor.loadSingleTask('T101');
     expect(loaded).toBeTruthy();
-    expect(loaded!.role).toBe('bug');
+    expect(loaded!.kind).toBe('bug');
     expect(loaded!.scope).toBe('project');
     expect(loaded!.severity).toBe('P0');
   });
 
-  it('findTasks --role filter returns only matching tasks', async () => {
+  it('findTasks --kind filter returns only matching tasks', async () => {
     await accessor.upsertSingleTask({
       id: 'T200',
       title: 'Research task',
@@ -75,7 +76,7 @@ describe('T944 role/scope wiring — addTask + findTasks', () => {
       status: 'pending',
       priority: 'medium',
       createdAt: new Date().toISOString(),
-      role: 'research',
+      kind: 'research',
       scope: 'feature',
     });
 
@@ -86,24 +87,24 @@ describe('T944 role/scope wiring — addTask + findTasks', () => {
       status: 'pending',
       priority: 'medium',
       createdAt: new Date().toISOString(),
-      role: 'work',
+      kind: 'work',
       scope: 'feature',
     });
 
     const researchResults = await findTasks(
-      { query: 'task', role: 'research' },
+      { query: 'task', kind: 'research' },
       env.tempDir,
       accessor,
     );
     expect(researchResults.results.some((r) => r.id === 'T200')).toBe(true);
     expect(researchResults.results.some((r) => r.id === 'T201')).toBe(false);
 
-    const workResults = await findTasks({ query: 'task', role: 'work' }, env.tempDir, accessor);
+    const workResults = await findTasks({ query: 'task', kind: 'work' }, env.tempDir, accessor);
     expect(workResults.results.some((r) => r.id === 'T201')).toBe(true);
     expect(workResults.results.some((r) => r.id === 'T200')).toBe(false);
   });
 
-  it('findTasks without --role filter returns all matching tasks', async () => {
+  it('findTasks without --kind filter returns all matching tasks', async () => {
     await accessor.upsertSingleTask({
       id: 'T300',
       title: 'Spike task alpha',
@@ -111,7 +112,7 @@ describe('T944 role/scope wiring — addTask + findTasks', () => {
       status: 'pending',
       priority: 'low',
       createdAt: new Date().toISOString(),
-      role: 'spike',
+      kind: 'spike',
       scope: 'unit',
     });
 
@@ -122,7 +123,7 @@ describe('T944 role/scope wiring — addTask + findTasks', () => {
       status: 'pending',
       priority: 'low',
       createdAt: new Date().toISOString(),
-      role: 'research',
+      kind: 'research',
       scope: 'unit',
     });
 
@@ -132,11 +133,11 @@ describe('T944 role/scope wiring — addTask + findTasks', () => {
     expect(ids).toContain('T301');
   });
 
-  it('role defaults to "work" when omitted on insert', async () => {
+  it('kind defaults to "work" when omitted on insert', async () => {
     await accessor.upsertSingleTask({
       id: 'T400',
-      title: 'Default role task',
-      description: 'Should inherit work role default',
+      title: 'Default kind task',
+      description: 'Should inherit work kind default',
       status: 'pending',
       priority: 'medium',
       createdAt: new Date().toISOString(),
@@ -145,7 +146,7 @@ describe('T944 role/scope wiring — addTask + findTasks', () => {
     const loaded = await accessor.loadSingleTask('T400');
     expect(loaded).toBeTruthy();
     // DB default is 'work' — rowToTask maps it through
-    expect(loaded!.role).toBe('work');
+    expect(loaded!.kind).toBe('work');
   });
 
   it('scope defaults to "feature" when omitted on insert', async () => {

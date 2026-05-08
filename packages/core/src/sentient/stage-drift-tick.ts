@@ -238,6 +238,7 @@ function buildDriftProposalInsert(
     }),
   ]);
 
+  // DB column is named 'role' (T9067 deferral — CHECK constraint defers rename)
   const sql = `
     INSERT INTO tasks (
       id, title, description, status, priority,
@@ -248,7 +249,7 @@ function buildDriftProposalInsert(
       :id, :title, :description, :status, :priority,
       :labelsJson, :notesJson,
       :createdAt, :updatedAt,
-      :role, :scope
+      :kind, :scope
     )
   `;
 
@@ -264,7 +265,7 @@ function buildDriftProposalInsert(
       notesJson,
       createdAt: now,
       updatedAt: now,
-      role: 'work',
+      kind: 'work',
       scope: 'feature',
     },
   };

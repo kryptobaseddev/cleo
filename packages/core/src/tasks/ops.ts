@@ -11,7 +11,7 @@
  *
  * Field-name mapping (ADR-057 D2 canonical wire form → Core internal form):
  *   - `params.parent` → `options.parentId` (tasks add/update)
- *   - `params.role`   → `options.role` (same field name, no mapping needed)
+ *   - `params.kind`   → `options.kind` (same field name, no mapping needed; T9072)
  *
  * @module tasks/ops
  * @task T1458 — tasks domain Core API SSoT alignment (ADR-057 D1+D2)

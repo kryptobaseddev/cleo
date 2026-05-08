@@ -128,7 +128,7 @@ export function fuzzyScore(query: string, text: string): number {
 }
 
 /**
- * Parse `status:value` / `role:value` / `priority:value` tokens embedded in
+ * Parse `status:value` / `kind:value` / `priority:value` tokens embedded in
  * a fuzzy query string and lift them into the filter options.
  *
  * Users naturally type `cleo find "status:pending"` expecting it to filter
@@ -136,7 +136,7 @@ export function fuzzyScore(query: string, text: string): number {
  * the options so the filter lifts out of the query token and only the
  * remaining words stay in the free-text search.
  *
- * Recognised fields: `status`, `role`, `priority`, `type`, `id`.
+ * Recognised fields: `status`, `kind`, `priority`, `type`, `id`.
  * Unrecognised `key:value` tokens pass through as-is (treated as fuzzy
  * text) to preserve user intent.
  *
@@ -146,6 +146,7 @@ export function fuzzyScore(query: string, text: string): number {
  *   changed.
  *
  * @task T1187-followup / v2026.4.114
+ * @task T9072
  *
  * @example
  * ```ts
@@ -154,9 +155,9 @@ export function fuzzyScore(query: string, text: string): number {
  * console.assert(result.status === 'pending', 'status lifted from query');
  * console.assert(result.query === 'auth flow', 'remaining text preserved as query');
  *
- * // Role token lifted similarly
- * const result2 = extractInlineFilters({ query: 'role:bug login crash' });
- * console.assert(result2.role === 'bug', 'role lifted from query');
+ * // Kind token lifted similarly
+ * const result2 = extractInlineFilters({ query: 'kind:bug login crash' });
+ * console.assert(result2.kind === 'bug', 'kind lifted from query');
  * console.assert(result2.query === 'login crash', 'remaining text preserved');
  *
  * // No inline tokens — options returned unchanged
