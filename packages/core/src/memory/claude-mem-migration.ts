@@ -15,6 +15,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { getClaudeMemDbPath } from '../paths.js';
 import type { BRAIN_OBSERVATION_TYPES } from '../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
+import { applyPerfPragmas } from '../store/sqlite-pragmas.js';
 import type { BrainIdCheckRow } from './brain-row-types.js';
 import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';
 
@@ -167,6 +168,7 @@ export async function migrateClaudeMem(
     sourceDb = new DatabaseSync(sourcePath, {
       readOnly: true,
     });
+    applyPerfPragmas(sourceDb, { enableWal: false }); // read-only: WAL cannot be set (T9022)
   } catch (err) {
     throw new Error(
       `Failed to open claude-mem database at ${sourcePath}: ${err instanceof Error ? err.message : String(err)}`,

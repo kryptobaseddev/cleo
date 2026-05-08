@@ -186,6 +186,9 @@ export async function validateSqliteDatabase(dbPath: string): Promise<boolean> {
     const _req = createRequire(import.meta.url);
     const { DatabaseSync } = _req('node:sqlite') as typeof import('node:sqlite');
     const db = new DatabaseSync(dbPath, { readOnly: true });
+    // Apply pragma SSoT (T9022) — WAL not applicable on read-only handles
+    const { applyPerfPragmas } = await import('./sqlite-pragmas.js');
+    applyPerfPragmas(db, { enableWal: false });
     const integrityRow = db.prepare('PRAGMA integrity_check').get() as
       | { integrity_check: string }
       | undefined;
