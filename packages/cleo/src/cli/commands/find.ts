@@ -31,12 +31,12 @@ export const findCommand = defineCommand({
     fields: { type: 'string', description: 'Comma-separated additional fields to include' },
     verbose: { type: 'boolean', description: 'Include all task fields', alias: 'v' },
     /**
-     * Filter by task role axis (T944).
+     * Filter by task kind axis (T944/T9072).
      * Values: work | research | experiment | bug | spike | release
      */
-    role: {
+    kind: {
       type: 'string',
-      description: 'Filter by role axis (work|research|experiment|bug|spike|release) — T944',
+      description: 'Filter by kind axis (work|research|experiment|bug|spike|release) — T944',
     },
   },
   async run({ args }) {
@@ -53,8 +53,8 @@ export const findCommand = defineCommand({
     if (offset !== undefined) params['offset'] = offset;
     if (args.fields !== undefined) params['fields'] = args.fields;
     if (args.verbose !== undefined) params['verbose'] = args.verbose;
-    // T944: role filter
-    if (args.role !== undefined) params['role'] = args.role;
+    // T944/T9072: kind filter
+    if (args.kind !== undefined) params['kind'] = args.kind;
     const response = await dispatchRaw('query', 'tasks', 'find', params);
     if (!response.success) {
       handleRawError(response, { command: 'find', operation: 'tasks.find' });

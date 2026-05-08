@@ -131,22 +131,15 @@ export const updateCommand = defineCommand({
         'Set pipeline stage (forward-only: research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution)',
     },
     /**
-     * Task role axis — intent of work.
+     * Task kind axis — intent of work.
      * Values: work | research | experiment | bug | spike | release
      * @task T944
-     */
-    role: {
-      type: 'string',
-      description:
-        'Task role / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
-    },
-    /**
-     * Backward-compatible alias for --role (fractal-ontology spec used "kind").
-     * @task T1472
+     * @task T9072
      */
     kind: {
       type: 'string',
-      description: 'Alias for --role (T944 fractal-ontology compat)',
+      description:
+        'Task kind / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
     },
     /**
      * Task scope axis — granularity of work.
@@ -225,9 +218,8 @@ export const updateCommand = defineCommand({
     if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
     if (args['no-auto-complete'] === true) params['noAutoComplete'] = true;
     if (args['pipeline-stage'] !== undefined) params['pipelineStage'] = args['pipeline-stage'];
-    // T944: orthogonal axes
-    if (args.role !== undefined) params['role'] = args.role;
-    if (args.kind !== undefined) params['role'] = params['role'] ?? args.kind;
+    // T944/T9072: --kind is canonical
+    if (args.kind !== undefined) params['kind'] = args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
     // T1590: AC-immutability override reason — forwarded as `reason`.
     if (args.reason !== undefined) params['reason'] = args.reason;
