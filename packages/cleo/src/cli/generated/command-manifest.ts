@@ -93,7 +93,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'auditCommand',
     name: 'audit',
-    description: 'Git-backed audit tooling (lineage reconstruction, integrity checks)',
+    description: 'Git-backed audit tooling (lineage reconstruction, integrity checks). ',
     load: async () => (await import('../commands/audit.js')).auditCommand as CommandDef,
   },
   {
