@@ -359,8 +359,12 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
     // we open a fresh handle to avoid interfering with any singleton state).
     conduit = new DatabaseSync(ensureResult.path);
     applyPerfPragmas(conduit, { enableForeignKeys: false }); // FK off during bulk copy (T9023)
-    // Note: foreign_keys OFF is intentional during bulk migration; applyPerfPragmas
-    // handles WAL, busy_timeout, cache_size, mmap_size via SSoT.
+    // Explicitly disable FK for this handle: node:sqlite preserves PRAGMA foreign_keys
+    // state across connections within a process (per-file internal cache), so simply
+    // omitting the pragma (enableForeignKeys: false → null → skipped) is insufficient
+    // when a prior handle set FK=ON. The explicit OFF here ensures bulk INSERT is not
+    // blocked by cross-table FK ordering (messages before conversations in PROJECT_TIER_TABLES).
+    conduit.exec('PRAGMA foreign_keys = OFF');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ conduitPath, error: message }, 'T310 migration: failed to create conduit.db');
@@ -510,6 +514,7 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
     }
     globalDb = new DatabaseSync(globalSignaldockPath);
     applyPerfPragmas(globalDb, { enableForeignKeys: false }); // FK off during bulk copy (T9023)
+    globalDb.exec('PRAGMA foreign_keys = OFF'); // Explicit OFF — same node:sqlite per-file FK cache issue (T9023)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(
