@@ -16,6 +16,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { applyPerfPragmas } from '@cleocode/core';
 import type { Cookies } from '@sveltejs/kit';
 import { getCleoHome, getCleoProjectDir } from './cleo-home.js';
 
@@ -89,6 +90,7 @@ export function resolveProjectContext(projectId: string): ProjectContext | null 
     if (!existsSync(nexusPath)) return null;
 
     const db = new DatabaseSync(nexusPath, { open: true });
+    applyPerfPragmas(db); // T9045
     try {
       const row = db
         .prepare(
@@ -169,6 +171,7 @@ export function listRegisteredProjects(): Array<{
     if (!existsSync(nexusPath)) return [];
 
     const db = new DatabaseSync(nexusPath, { open: true });
+    applyPerfPragmas(db); // T9045
     try {
       const rows = db
         .prepare(

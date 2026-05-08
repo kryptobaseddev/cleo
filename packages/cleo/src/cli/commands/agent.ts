@@ -35,6 +35,7 @@
  */
 
 import {
+  applyPerfPragmas,
   checkAgentHealth,
   detectCrashedAgents,
   detectStaleAgents,
@@ -2167,8 +2168,7 @@ const installCommand = defineCommand({
       ensureGlobalSignaldockDb();
       const dbPath = getGlobalSignaldockDbPath();
       const db = new DatabaseSync(dbPath);
-      db.exec('PRAGMA foreign_keys = ON');
-      db.exec('PRAGMA journal_mode = WAL');
+      applyPerfPragmas(db); // apply pragma SSoT (T9045)
 
       const isGlobal = args.global === true;
       const targetTier: 'global' | 'project' = isGlobal ? 'global' : 'project';
@@ -2846,7 +2846,7 @@ const pruneOrphansCommand = defineCommand({
       ) as typeof import('node:sqlite');
       await ensureGlobalSignaldockDb();
       const db = new DatabaseSync(getGlobalSignaldockDbPath());
-      db.exec('PRAGMA foreign_keys = ON');
+      applyPerfPragmas(db); // apply pragma SSoT (T9045)
       try {
         const report = await buildDoctorReport(db, {});
         const d002 = report.findings.filter((f) => f.code === 'D-002');
@@ -2930,7 +2930,7 @@ const doctorCommand = defineCommand({
       await ensureGlobalSignaldockDb();
       const dbPath = getGlobalSignaldockDbPath();
       const db = new DatabaseSync(dbPath);
-      db.exec('PRAGMA foreign_keys = ON');
+      applyPerfPragmas(db); // apply pragma SSoT (T9045)
 
       try {
         const report = await buildDoctorReport(db, { projectRoot: process.cwd() });

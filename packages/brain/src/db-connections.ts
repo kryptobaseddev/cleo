@@ -79,6 +79,31 @@ let nexusDb: DatabaseSync | null = null;
 let signaldockDb: DatabaseSync | null = null;
 
 // ---------------------------------------------------------------------------
+// Pragma application (T9045 — inline because @cleocode/brain doesn't depend on @cleocode/core)
+//
+// Mirrors the canonical set from packages/core/src/store/sqlite-pragmas.ts.
+// Keep in sync with specs/sqlite-pragmas.json.
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply the canonical CLEO performance pragma set to a DatabaseSync handle.
+ *
+ * @internal — brain-package-local, no dep on core.
+ */
+function applyBrainPragmas(db: DatabaseSync): void {
+  db.exec(
+    [
+      'PRAGMA busy_timeout = 5000',
+      'PRAGMA journal_mode = WAL',
+      'PRAGMA synchronous = NORMAL',
+      'PRAGMA foreign_keys = ON',
+      'PRAGMA cache_size = -8192',
+      'PRAGMA mmap_size = 67108864',
+    ].join('; '),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Global DB getters (cached per process)
 // ---------------------------------------------------------------------------
 
@@ -91,6 +116,7 @@ export function getNexusDb(): DatabaseSync | null {
   const path = getNexusDbPath();
   if (!dbExists(path)) return null;
   nexusDb = new DatabaseSync(path, { open: true });
+  applyBrainPragmas(nexusDb); // T9045
   return nexusDb;
 }
 
@@ -103,6 +129,7 @@ export function getSignaldockDb(): DatabaseSync | null {
   const path = getSignaldockDbPath();
   if (!dbExists(path)) return null;
   signaldockDb = new DatabaseSync(path, { open: true });
+  applyBrainPragmas(signaldockDb); // T9045
   return signaldockDb;
 }
 
@@ -121,7 +148,9 @@ export function getSignaldockDb(): DatabaseSync | null {
 export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.brainDbPath;
   if (!existsSync(path)) return null;
-  return new DatabaseSync(path, { open: true });
+  const __db = new DatabaseSync(path, { open: true });
+  applyBrainPragmas(__db); // T9045
+  return __db;
 }
 
 /**
@@ -135,7 +164,9 @@ export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
 export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.tasksDbPath;
   if (!existsSync(path)) return null;
-  return new DatabaseSync(path, { open: true });
+  const __db = new DatabaseSync(path, { open: true });
+  applyBrainPragmas(__db); // T9045
+  return __db;
 }
 
 /**
@@ -152,5 +183,7 @@ export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
 export function getConduitDb(ctx: ProjectContext): DatabaseSync | null {
   const path = join(dirname(ctx.brainDbPath), 'conduit.db');
   if (!existsSync(path)) return null;
-  return new DatabaseSync(path, { open: true });
+  const __db = new DatabaseSync(path, { open: true });
+  applyBrainPragmas(__db); // T9045
+  return __db;
 }
