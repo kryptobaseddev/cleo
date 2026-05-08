@@ -389,7 +389,11 @@ export async function validateAtom(
 }
 
 /** T9178: Validates commit is on task branch when taskId provided. */
-async function validateCommit(sha: string, projectRoot: string, taskId?: string): Promise<AtomValidation> {
+async function validateCommit(
+  sha: string,
+  projectRoot: string,
+  taskId?: string,
+): Promise<AtomValidation> {
   if (!/^[0-9a-f]{7,40}$/i.test(sha)) {
     return {
       ok: false,
@@ -422,9 +426,17 @@ async function validateCommit(sha: string, projectRoot: string, taskId?: string)
     const branchRef = `task/${taskId}`;
     const branchExists = await runCommand('git', ['rev-parse', '--verify', branchRef], projectRoot);
     if (branchExists.exitCode === 0) {
-      const onBranch = await runCommand('git', ['merge-base', '--is-ancestor', sha, branchRef], projectRoot);
+      const onBranch = await runCommand(
+        'git',
+        ['merge-base', '--is-ancestor', sha, branchRef],
+        projectRoot,
+      );
       if (onBranch.exitCode !== 0) {
-        return { ok: false, reason: `Commit ${sha} not reachable from ${branchRef} — possible phantom evidence`, codeName: 'E_EVIDENCE_INVALID' };
+        return {
+          ok: false,
+          reason: `Commit ${sha} not reachable from ${branchRef} — possible phantom evidence`,
+          codeName: 'E_EVIDENCE_INVALID',
+        };
       }
     }
   }
@@ -433,9 +445,17 @@ async function validateCommit(sha: string, projectRoot: string, taskId?: string)
     const branchRef = `task/${taskId}`;
     const branchExists = await runCommand('git', ['rev-parse', '--verify', branchRef], projectRoot);
     if (branchExists.exitCode === 0) {
-      const onBranch = await runCommand('git', ['merge-base', '--is-ancestor', sha, branchRef], projectRoot);
+      const onBranch = await runCommand(
+        'git',
+        ['merge-base', '--is-ancestor', sha, branchRef],
+        projectRoot,
+      );
       if (onBranch.exitCode !== 0) {
-        return { ok: false, reason: `Commit ${sha} not reachable from ${branchRef} — possible phantom evidence`, codeName: 'E_EVIDENCE_INVALID' };
+        return {
+          ok: false,
+          reason: `Commit ${sha} not reachable from ${branchRef} — possible phantom evidence`,
+          codeName: 'E_EVIDENCE_INVALID',
+        };
       }
     }
   }

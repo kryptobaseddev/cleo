@@ -29,7 +29,8 @@
 -- Reversibility: additive new table. DROP TABLE is safe and sufficient.
 -- This migration has no dependencies on T1084 (peer_id) schema.
 
-CREATE TABLE `session_narrative` (
+-- T9174: IF NOT EXISTS prevents failure when startup DDL created this table first
+CREATE TABLE IF NOT EXISTS `session_narrative` (
   `session_id`      text PRIMARY KEY NOT NULL,
   `narrative`       text NOT NULL DEFAULT '',
   `turn_count`      integer NOT NULL DEFAULT 0,
