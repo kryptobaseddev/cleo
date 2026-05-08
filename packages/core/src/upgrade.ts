@@ -46,6 +46,7 @@ import {
 } from './scaffold.js';
 import { cleanProjectSchemas, ensureGlobalSchemas } from './schema-management.js';
 import { acquireLock, forceCheckpointBeforeOperation, type ReleaseFn } from './store/index.js';
+import { applyPerfPragmas } from './store/sqlite-pragmas.js';
 import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
 
 /** A single upgrade action with status. */
@@ -984,7 +985,7 @@ export async function runUpgrade(
       await ensureGlobalSignaldockDb();
       const sdPath = getGlobalSignaldockDbPath();
       const sdDb = new DatabaseSync(sdPath);
-      sdDb.exec('PRAGMA foreign_keys = ON');
+      applyPerfPragmas(sdDb); // apply pragma SSoT (T9023)
       try {
         const report = await buildDoctorReport(sdDb, { projectRoot: projectRootForMaint });
         if (report.findings.length === 0) {
@@ -1224,7 +1225,7 @@ export async function runUpgrade(
       await ensureGlobalSignaldockDb();
       const sdPath = getGlobalSignaldockDbPath();
       const sdDb = new DatabaseSync(sdPath);
-      sdDb.exec('PRAGMA foreign_keys = ON');
+      applyPerfPragmas(sdDb); // apply pragma SSoT (T9023)
       try {
         const report = await buildDoctorReport(sdDb, { projectRoot: getProjectRoot(options.cwd) });
         actions.push({
