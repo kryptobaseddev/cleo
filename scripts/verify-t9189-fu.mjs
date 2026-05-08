@@ -65,6 +65,9 @@ const ALLOWLIST_PATTERNS = [
   /packages\/core\/src\/memory\/graph-memory-bridge\.ts/,
   // orchestration/classify.ts lines are COMMENTS (lines start with * or //)
   /packages\/core\/src\/orchestration\/classify\.ts/,
+  // project-health.ts: read-only integrity probe (readOnly:true) — openCleoDb
+  // does not support readOnly mode; this is a legitimate escape hatch (diagnostic only)
+  /packages\/core\/src\/system\/project-health\.ts/,
   // Line is a comment (grep output: "file:linenum:   // text" or "   * text")
 ];
 

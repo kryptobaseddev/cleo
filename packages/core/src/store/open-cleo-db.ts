@@ -31,7 +31,9 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
+import { getConduitNativeDb } from './conduit-sqlite.js';
 import { getNexusDb } from './nexus-sqlite.js';
+import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
 import { getDb as getTasksDb } from './sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
@@ -64,12 +66,25 @@ export type DBHandle = CleoDbHandle;
 /** Internal opener for a given role. */
 type DbOpener = (cwd?: string) => Promise<unknown>;
 
+/** Open the global signaldock.db via its canonical module. */
+async function openSignaldockDb(_cwd?: string): Promise<unknown> {
+  await ensureGlobalSignaldockDb();
+  return getGlobalSignaldockNativeDb();
+}
+
+/** Open the conduit.db for the given project (or current process). */
+async function openConduitDb(cwd?: string): Promise<unknown> {
+  const { ensureConduitDb } = await import('./conduit-sqlite.js');
+  ensureConduitDb(cwd ?? process.cwd());
+  return getConduitNativeDb();
+}
+
 const ROLE_OPENERS: Record<ImplementedCleoDbRole, DbOpener> = {
   tasks: getTasksDb as unknown as DbOpener,
   brain: getTasksDb as unknown as DbOpener,
   sessions: getTasksDb as unknown as DbOpener,
-  signaldock: getTasksDb as unknown as DbOpener, // TODO: wire signaldock-sqlite.ts
-  conduit: getTasksDb as unknown as DbOpener, // TODO: wire conduit-sqlite.ts
+  signaldock: openSignaldockDb,
+  conduit: openConduitDb,
   nexus: getNexusDb as unknown as DbOpener,
 };
 
