@@ -1,29 +1,11 @@
 #!/usr/bin/env node
-/**
- * Verifier for T9188 (T9050-FU): Wire 6 sub-accessors in UmbrellaDataAccessor.
- *
- * AC checks:
- *   1. @cleocode/contracts exports BrainAccessor, ConduitAccessor, NexusAccessor,
- *      SignaldockAccessor, TelemetryAccessor, DocsAccessor.
- *   2. UmbrellaDataAccessor.getSubAccessor does NOT throw for each of the 6 roles.
- *   3. Each returned object is non-null.
- *   4. For 'brain' specifically: a minimal round-trip (observe + find) succeeds.
- *
- * Exit 0 only if ALL checks pass.
- *
- * @task T9188
- * @see scripts/verify-t9188-fu.mjs
- */
-
-import { createRequire } from 'node:module';
-import { resolve, join } from 'node:path';
-import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
 
-let failures = [];
+const failures = [];
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -89,7 +71,9 @@ async function checkContractsExports() {
   if (missing.length > 0) {
     fail(`Missing exports from @cleocode/contracts: ${missing.join(', ')}`);
   } else {
-    pass(`All 6 sub-accessor types exported from @cleocode/contracts: ${REQUIRED_EXPORTS.join(', ')}`);
+    pass(
+      `All 6 sub-accessor types exported from @cleocode/contracts: ${REQUIRED_EXPORTS.join(', ')}`,
+    );
   }
 }
 

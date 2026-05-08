@@ -71,32 +71,32 @@ const ALLOWLIST_PATTERNS = [
   // Line is a comment (grep output: "file:linenum:   // text" or "   * text")
 ];
 
-const violations = out
-  .split('\n')
-  .filter((line) => {
-    if (!line.trim()) return false;
+const violations = out.split('\n').filter((line) => {
+  if (!line.trim()) return false;
 
-    // Check allowlist
-    for (const pattern of ALLOWLIST_PATTERNS) {
-      if (pattern.test(line)) return false;
+  // Check allowlist
+  for (const pattern of ALLOWLIST_PATTERNS) {
+    if (pattern.test(line)) return false;
+  }
+
+  // Check if the matching part of the line is inside a comment
+  // grep output format: "filepath:linenum:  content"
+  const colonIdx = line.indexOf(':');
+  const secondColonIdx = line.indexOf(':', colonIdx + 1);
+  if (secondColonIdx !== -1) {
+    const content = line.slice(secondColonIdx + 1).trim();
+    if (content.startsWith('//') || content.startsWith('*') || content.startsWith('/*')) {
+      return false;
     }
+  }
 
-    // Check if the matching part of the line is inside a comment
-    // grep output format: "filepath:linenum:  content"
-    const colonIdx = line.indexOf(':');
-    const secondColonIdx = line.indexOf(':', colonIdx + 1);
-    if (secondColonIdx !== -1) {
-      const content = line.slice(secondColonIdx + 1).trim();
-      if (content.startsWith('//') || content.startsWith('*') || content.startsWith('/*')) {
-        return false;
-      }
-    }
-
-    return true;
-  });
+  return true;
+});
 
 if (violations.length > 0) {
-  console.error(`FAIL: Found ${violations.length} direct DB open(s) outside the openCleoDb chokepoint:\n`);
+  console.error(
+    `FAIL: Found ${violations.length} direct DB open(s) outside the openCleoDb chokepoint:\n`,
+  );
   for (const v of violations) {
     console.error('  ' + v);
   }

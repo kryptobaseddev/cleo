@@ -15,10 +15,17 @@
  * @see scripts/verify-t9192-fu.mjs
  */
 
-import { execSync, spawnSync } from 'node:child_process';
-import { resolve, join } from 'node:path';
-import { existsSync, readdirSync, readFileSync, writeFileSync, unlinkSync, mkdtempSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -26,7 +33,7 @@ const REPO_ROOT = resolve(__dirname, '..');
 
 console.log('=== T9192 Verifier: Protocol-Harden — Verifier-Backed AC + Auditor Loop ===\n');
 
-let failures = [];
+const failures = [];
 
 function fail(msg) {
   console.error('FAIL:', msg);
@@ -58,12 +65,12 @@ if (verifyHelp.error) {
   if (!/acceptance.check/i.test(helpOutput)) {
     fail(
       `cleo verify --help does not mention '--acceptance-check'.\n` +
-      `  Current output (first 500 chars): ${helpOutput.slice(0, 500)}\n\n` +
-      `  T9192 AC requires cleo verify to support --acceptance-check flag that:\n` +
-      `    - Resolves scripts/verify-<id>-fu.mjs (or scripts/verify-<id>.mjs)\n` +
-      `    - Runs it via node\n` +
-      `    - Returns non-zero if verifier exits non-zero\n` +
-      `    - Blocks gate if non-zero`
+        `  Current output (first 500 chars): ${helpOutput.slice(0, 500)}\n\n` +
+        `  T9192 AC requires cleo verify to support --acceptance-check flag that:\n` +
+        `    - Resolves scripts/verify-<id>-fu.mjs (or scripts/verify-<id>.mjs)\n` +
+        `    - Runs it via node\n` +
+        `    - Returns non-zero if verifier exits non-zero\n` +
+        `    - Blocks gate if non-zero`,
     );
   } else {
     pass(`cleo verify --help mentions --acceptance-check`);
@@ -84,7 +91,7 @@ writeFileSync(
   `#!/usr/bin/env node
 console.error('Fake verifier: always fails');
 process.exit(1);
-`
+`,
 );
 
 try {
@@ -95,25 +102,31 @@ try {
     {
       encoding: 'utf8',
       cwd: REPO_ROOT,
-    }
+    },
   );
 
   if (blockResult.status === 0) {
     fail(
       `cleo verify --acceptance-check returned exit 0 even though the verifier exited 1.\n` +
-      `  The --acceptance-check flag MUST block (exit non-zero) when the verifier fails.\n` +
-      `  stdout: ${(blockResult.stdout || '').slice(0, 300)}\n` +
-      `  stderr: ${(blockResult.stderr || '').slice(0, 300)}`
+        `  The --acceptance-check flag MUST block (exit non-zero) when the verifier fails.\n` +
+        `  stdout: ${(blockResult.stdout || '').slice(0, 300)}\n` +
+        `  stderr: ${(blockResult.stderr || '').slice(0, 300)}`,
     );
   } else {
-    pass(`cleo verify --acceptance-check correctly exits non-zero when verifier exits 1 (exit ${blockResult.status})`);
+    pass(
+      `cleo verify --acceptance-check correctly exits non-zero when verifier exits 1 (exit ${blockResult.status})`,
+    );
   }
 } catch (e) {
   // If the feature doesn't exist yet, spawnSync won't throw — check status
   fail(`Error running cleo verify --acceptance-check: ${e.message}`);
 } finally {
-  try { unlinkSync(fakeVerifierPath); } catch (_) {}
-  try { import('node:fs').then(m => m.rmdirSync(tmpDir)); } catch (_) {}
+  try {
+    unlinkSync(fakeVerifierPath);
+  } catch (_) {}
+  try {
+    import('node:fs').then((m) => m.rmdirSync(tmpDir));
+  } catch (_) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -135,9 +148,9 @@ if (auditHelp.error) {
   if (!/audit/i.test(helpOutput)) {
     fail(
       `cleo audit --help exited with status ${auditHelp.status}.\n` +
-      `  T9192 AC requires 'cleo audit <taskId>' command that re-runs the verifier script.\n` +
-      `  stdout: ${(auditHelp.stdout || '').slice(0, 300)}\n` +
-      `  stderr: ${(auditHelp.stderr || '').slice(0, 300)}`
+        `  T9192 AC requires 'cleo audit <taskId>' command that re-runs the verifier script.\n` +
+        `  stdout: ${(auditHelp.stdout || '').slice(0, 300)}\n` +
+        `  stderr: ${(auditHelp.stderr || '').slice(0, 300)}`,
     );
   } else {
     pass(`cleo audit --help exists (exit ${auditHelp.status}, has audit content)`);
@@ -148,8 +161,8 @@ if (auditHelp.error) {
   if (!/verif|acceptance|script|independent/i.test(helpOutput)) {
     fail(
       `cleo audit --help exit 0 but does not mention verifier/acceptance/independent.\n` +
-      `  T9192 requires 'cleo audit <id>' to describe re-running the verifier script.\n` +
-      `  output: ${helpOutput.slice(0, 400)}`
+        `  T9192 requires 'cleo audit <id>' to describe re-running the verifier script.\n` +
+        `  output: ${helpOutput.slice(0, 400)}`,
     );
   } else {
     pass(`cleo audit --help: exit 0, mentions verifier/acceptance context`);
@@ -162,16 +175,9 @@ if (auditHelp.error) {
 
 console.log('\n--- Check 4: ADR file for Verifier-Backed AC / Auditor Loop ---');
 
-const ADR_DIRS = [
-  join(REPO_ROOT, 'docs', 'adr'),
-  join(REPO_ROOT, '.cleo', 'adrs'),
-];
+const ADR_DIRS = [join(REPO_ROOT, 'docs', 'adr'), join(REPO_ROOT, '.cleo', 'adrs')];
 
-const ADR_CONTENT_PATTERNS = [
-  /verifier.{0,20}backed/i,
-  /auditor.{0,20}loop/i,
-  /ADR-070/i,
-];
+const ADR_CONTENT_PATTERNS = [/verifier.{0,20}backed/i, /auditor.{0,20}loop/i, /ADR-070/i];
 
 let adrFound = false;
 for (const adrDir of ADR_DIRS) {
@@ -194,12 +200,12 @@ for (const adrDir of ADR_DIRS) {
 if (!adrFound) {
   fail(
     `No ADR file found for Verifier-Backed AC / Auditor Loop.\n` +
-    `  Searched in: ${ADR_DIRS.join(', ')}\n` +
-    `  Expected: docs/adr/ADR-070-verifier-backed-ac-auditor-loop.md\n` +
-    `  The ADR must document:\n` +
-    `    - The verifier-first pattern (AC measured by code, not claims)\n` +
-    `    - The auditor-loop (separate Implementer + Auditor spawns)\n` +
-    `    - Why: 2026-05-08 incident, scaffold-and-mark-done failure mode`
+      `  Searched in: ${ADR_DIRS.join(', ')}\n` +
+      `  Expected: docs/adr/ADR-070-verifier-backed-ac-auditor-loop.md\n` +
+      `  The ADR must document:\n` +
+      `    - The verifier-first pattern (AC measured by code, not claims)\n` +
+      `    - The auditor-loop (separate Implementer + Auditor spawns)\n` +
+      `    - Why: 2026-05-08 incident, scaffold-and-mark-done failure mode`,
   );
 }
 
@@ -225,12 +231,12 @@ for (const skillPath of SKILL_PATHS) {
     } else {
       fail(
         `ct-orchestrator skill found at ${skillPath} but does NOT contain Auditor Loop section.\n` +
-        `  T9192 requires the skill to document the pattern Leads MUST follow.\n` +
-        `  Add an '## Auditor Loop' section documenting:\n` +
-        `    Phase A: Write verifier first\n` +
-        `    Phase B: Implementer spawn\n` +
-        `    Phase C: Auditor spawn (independent)\n` +
-        `    Phase D: Loop until pass (max 4 iterations)`
+          `  T9192 requires the skill to document the pattern Leads MUST follow.\n` +
+          `  Add an '## Auditor Loop' section documenting:\n` +
+          `    Phase A: Write verifier first\n` +
+          `    Phase B: Implementer spawn\n` +
+          `    Phase C: Auditor spawn (independent)\n` +
+          `    Phase D: Loop until pass (max 4 iterations)`,
       );
     }
   }
@@ -239,8 +245,8 @@ for (const skillPath of SKILL_PATHS) {
 if (!skillFound && failures.filter((f) => f.includes('ct-orchestrator')).length === 0) {
   fail(
     `ct-orchestrator skill not found at any expected path.\n` +
-    `  Searched: ${SKILL_PATHS.join(', ')}\n` +
-    `  T9192 requires the skill file to document the Auditor Loop pattern.`
+      `  Searched: ${SKILL_PATHS.join(', ')}\n` +
+      `  T9192 requires the skill file to document the Auditor Loop pattern.`,
   );
 }
 
