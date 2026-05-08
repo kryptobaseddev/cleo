@@ -56,7 +56,7 @@ const findCommand = defineCommand({
       const limit = parseInt(String(args.limit), 10);
       const query = String(args.query);
 
-      const result = await searchDocs(query, { limit: isNaN(limit) ? 10 : limit });
+      const result = await searchDocs(query, { limit: Number.isNaN(limit) ? 10 : limit });
 
       if (args.json) {
         cliOutput(result, {
