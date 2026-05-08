@@ -1153,8 +1153,8 @@ export type {
   TaskPriority,
   TaskProvenance,
   TaskRelation,
-  // T944 new axes
-  TaskRole,
+  // T944 new axes (T9072: renamed TaskRole → TaskKind)
+  TaskKind,
   TaskScope,
   TaskSeverity,
   TaskSize,
