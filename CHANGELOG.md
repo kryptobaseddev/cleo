@@ -1,5 +1,27 @@
 # Changelog
 
+## [2026.5.51] (2026-05-08) — T9183 nexus legacy-upgrade + init-noise cleanup
+
+Hotfix release on top of v2026.5.50 to close two trust-eroding gaps surfaced during verification on a real legacy project.
+
+### Database / Migrations
+
+- **T9183**: `runNexusMigrations` now uses `migrateWithRetry` + `reconcileJournal` (matches the brain pattern). Eliminates the `NEXUS registration: Failed to run the query 'ALTER TABLE nexus_nodes ADD COLUMN is_external …'` warning when `cleo init` runs against a pre-existing global `nexus.db` that already has `is_external` from prior `ensureColumns()` repair.
+- **T9169**: `ensureColumns()` accepts a `context` parameter (`'legacy-upgrade'` default | `'fresh'`). Fresh-context calls log at ERROR with `MIGRATION DEFECT (fresh DB should not need repair)` so future migration gaps surface as defects instead of background warnings. Backward compatible.
+- **T9170**: Schema-warning budget gate built (`scripts/check-schema-warning-budget.mjs`). Disabled in CI pending **T9185** test-fixture cleanup — the gate caught legitimate `ensureColumns` repairs in tests that seed pre-T528 brain.db (revert-walker, daemon-supervision, seed-install-meta). T9185 will fix the fixture seeding patterns and the gate re-enables.
+
+### Init / startup noise (fresh `cleo init` is now quiet)
+
+- **T310 startup migration check** skips entirely during `cleo init` (was emitting `Run cleo init at <path>` as a startup WARN).
+- **scaffold.ts ajv-formats** registered alongside the inline Ajv instance — eliminates `unknown format "date-time" ignored` warnings during init.
+- **`Backfilling missing name on journal entry`** demoted from WARN to debug — it's a one-shot Drizzle v1 beta legacy-compat path and not actionable noise.
+
+### Verification
+
+- 6968 @cleocode/core tests pass on Linux + macOS.
+- Live test on `/mnt/projects/pump-sniper-cli` (legacy brain.db): `cleo briefing` returns 94 tasks, full session data, no breakage. `reconcileJournal Scenario 3` + T920 partial-migration handler reconcile cleanly.
+- Windows shards remain disabled in CI pending **T9182** follow-up (separate epic).
+
 ## [2026.5.50] (2026-05-07) — T9050/T9158/T9162 release hotfix
 
 Ships the green mainline fixes after v2026.5.49:
