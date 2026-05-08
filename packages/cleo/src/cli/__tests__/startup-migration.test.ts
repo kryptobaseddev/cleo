@@ -252,12 +252,14 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     expect(migrateSignaldockToConduitMock).not.toHaveBeenCalled();
   });
 
-  it('calls ensureConduitDb and ensureGlobalSignaldockDb on every startup (AC2)', async () => {
+  it('T9029: does NOT call ensureConduitDb or ensureGlobalSignaldockDb during startup (deferred DB opens)', async () => {
+    // ensureConduitDb + ensureGlobalSignaldockDb were removed from runStartupMaintenance
+    // (T9029) — they now open lazily only when the command that needs them runs.
     const { runStartupMaintenance } = await import('../index.js');
     await runStartupMaintenance();
 
-    expect(ensureConduitDbMock).toHaveBeenCalledWith('/test/project');
-    expect(ensureGlobalSignaldockDbMock).toHaveBeenCalled();
+    expect(ensureConduitDbMock).not.toHaveBeenCalled();
+    expect(ensureGlobalSignaldockDbMock).not.toHaveBeenCalled();
   });
 
   it('calls validateGlobalSalt and logs 4-byte hex fingerprint at INFO level (AC3)', async () => {
