@@ -17,7 +17,7 @@ vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getTaskAccessor: vi.fn(),
 }));
 
-import { getAccessor, getTaskAccessor } from '../../../../../core/src/store/data-accessor.js';
+import { getTaskAccessor } from '../../../../../core/src/store/data-accessor.js';
 import { taskFind, taskList } from '../../lib/engine.js';
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ function makeAccessorStub(tasks: (typeof TASK_ONE)[]) {
 describe('taskFind filter passthrough', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getAccessor).mockResolvedValue(
+    vi.mocked(getTaskAccessor).mockResolvedValue(
       makeAccessorStub([TASK_ONE, TASK_TWO]) as ReturnType<typeof getAccessor> extends Promise<
         infer T
       >
@@ -177,7 +177,7 @@ describe('taskFind filter passthrough', () => {
 describe('taskList compact mode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getAccessor).mockResolvedValue(
+    vi.mocked(getTaskAccessor).mockResolvedValue(
       makeAccessorStub([TASK_ONE, TASK_TWO]) as ReturnType<typeof getAccessor> extends Promise<
         infer T
       >
