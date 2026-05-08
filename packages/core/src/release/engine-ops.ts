@@ -22,7 +22,7 @@ import { eq } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import { getDb } from '../store/sqlite.js';
 import { releaseManifests } from '../store/tasks-schema.js';
@@ -89,7 +89,7 @@ async function hasManifestEntry(version: string, projectRoot?: string): Promise<
 async function loadTasks(projectRoot?: string): Promise<ReleaseTaskRecord[]> {
   const root = projectRoot ?? resolveProjectRoot();
   try {
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const result = await accessor.queryTasks({});
     return (result?.tasks as ReleaseTaskRecord[]) ?? [];
   } catch (error: unknown) {
@@ -327,7 +327,7 @@ export async function releaseGateCheck(
     // Load epic child tasks.
     let epicTaskIds: string[] = [];
     try {
-      const accessor = await getAccessor(cwd);
+      const accessor = await getTaskAccessor(cwd);
       const epicResult = await accessor.queryTasks({ parentId: epicId });
       epicTaskIds = ((epicResult?.tasks as Array<{ id: string; type?: string }>) ?? [])
         .filter((t) => t.type !== 'epic')
@@ -415,7 +415,7 @@ export async function releaseIvtrAutoSuggest(
 
   try {
     // Find the parent epic for this task.
-    const accessor = await getAccessor(cwd);
+    const accessor = await getTaskAccessor(cwd);
     const tasks = await accessor.loadTasks([taskId]);
     const taskRecord = tasks[0];
 
@@ -1161,7 +1161,7 @@ export async function releaseShip(
       logStep(1, 12, 'Check IVTR gate for epic tasks');
       let epicTaskIds: string[] = [];
       try {
-        const epicAccessorForIvtr = await getAccessor(cwd);
+        const epicAccessorForIvtr = await getTaskAccessor(cwd);
         const epicResult = await epicAccessorForIvtr.queryTasks({ parentId: epicId });
         epicTaskIds = ((epicResult?.tasks as Array<{ id: string; type?: string }>) ?? [])
           .filter((t) => t.type !== 'epic')
@@ -1229,7 +1229,7 @@ export async function releaseShip(
       // Manifest may not exist yet; proceed
     }
 
-    const epicAccessor = await getAccessor(cwd);
+    const epicAccessor = await getTaskAccessor(cwd);
     const epicCheck = await checkEpicCompleteness(releaseTaskIds, projectRoot, epicAccessor);
     if (epicCheck.hasIncomplete) {
       const incomplete = epicCheck.epics

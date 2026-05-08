@@ -15,7 +15,7 @@
 
 import type { CodeReasonTrace, ReasonTraceStep } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import type { BrainDecisionRow } from '../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
@@ -61,7 +61,7 @@ export async function reasonWhy(
   projectRoot: string,
   taskAccessor?: DataAccessor,
 ): Promise<CausalTrace> {
-  const acc = taskAccessor ?? (await getAccessor(projectRoot));
+  const acc = taskAccessor ?? (await getTaskAccessor(projectRoot));
   const { tasks: reasonTasks } = await acc.queryTasks({});
   const taskMap = new Map(reasonTasks.map((t) => [t.id, t]));
 

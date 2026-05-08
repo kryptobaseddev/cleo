@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface MigrateResult {
   from: string;
@@ -27,7 +27,7 @@ export async function getMigrationStatus(
   let currentVersion = 'unknown';
   if (existsSync(taskPath)) {
     try {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const schemaVersion = await accessor.getMetaValue<string>('schemaVersion');
       if (schemaVersion) {
         currentVersion = schemaVersion;

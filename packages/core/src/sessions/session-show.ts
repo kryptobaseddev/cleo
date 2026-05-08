@@ -9,7 +9,7 @@
 import type { Session } from '@cleocode/contracts';
 import { ExitCode, type SessionShowParams } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /**
  * Show a specific session by ID.
@@ -20,7 +20,7 @@ export async function showSession(
   projectRoot: string,
   params: SessionShowParams,
 ): Promise<Session> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const sessions = await accessor.loadSessions();
 
   const session = sessions.find((s) => s.id === params.sessionId);

@@ -50,6 +50,10 @@ export {
   type TaskViewNextAction,
   type TaskViewPipelineStage,
 } from './compute-task-view.js';
+export {
+  buildRollupEvidence,
+  isCoordinationParent,
+} from './coordination-parent.js';
 // Wave 4: Complex mutations + strict completion (T1568 / ADR-057 / ADR-058)
 export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask, taskDelete } from './delete.js';
 // Dep-graph validator (T1857 — orphan / cross-epic gap / stale-dep detection)
@@ -144,6 +148,16 @@ export { type ListTasksOptions, type ListTasksResult, listTasks, taskList } from
 export type { tasksCoreOps } from './ops.js';
 export { taskPlan } from './plan.js';
 export { addTaskWithSessionScope, resolveParentFromSession } from './session-scope.js';
+// System-wide severity attestation primitive (T9071 / ADR-054 draft)
+export {
+  type AppendSeverityAttestationOptions,
+  appendSignedSeverityAttestation,
+  canonicalAttestationJson,
+  LEGACY_BUG_SEVERITY_AUDIT_FILE,
+  loadOwnerPubkeys,
+  SEVERITY_ATTESTATION_AUDIT_FILE,
+  type SeverityAttestation,
+} from './severity-attestation.js';
 // Engine-layer EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058) — Wave 2
 export {
   showTask,

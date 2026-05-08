@@ -6,10 +6,10 @@
  *   - `cleo self-update` (see self-update.ts) — upgrade the CLI binary itself via npm
  *
  * This command mutates task-row columns (title, status, priority, etc.).
- * Accepts up to 20 options covering title, status, priority, type, size,
+ * Accepts options covering title, status, priority, type, size,
  * phase, description, labels, dependencies, notes, acceptance criteria,
  * files, blocked-by, parent, auto-complete control, pipeline stage,
- * role, and scope.
+ * role, scope, and severity.
  *
  * Task CLI command convention: task operations are split root commands, not a
  * `tasks.ts` command group. CLI-only compatibility aliases are normalized in
@@ -19,6 +19,7 @@
  * @epic T4454
  */
 
+import { appendSignedSeverityAttestation } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { cliError } from '../renderers/index.js';
@@ -50,7 +51,7 @@ export const updateCommand = defineCommand({
     },
     type: {
       type: 'string',
-      description: 'New type (task|epic|subtask|bug)',
+      description: 'New type (task|epic|subtask)',
       alias: 't',
     },
     size: {
@@ -131,22 +132,15 @@ export const updateCommand = defineCommand({
         'Set pipeline stage (forward-only: research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution)',
     },
     /**
-     * Task role axis — intent of work.
+     * Task kind axis — intent of work.
      * Values: work | research | experiment | bug | spike | release
      * @task T944
-     */
-    role: {
-      type: 'string',
-      description:
-        'Task role / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
-    },
-    /**
-     * Backward-compatible alias for --role (fractal-ontology spec used "kind").
-     * @task T1472
+     * @task T9072
      */
     kind: {
       type: 'string',
-      description: 'Alias for --role (T944 fractal-ontology compat)',
+      description:
+        'Task kind / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
     },
     /**
      * Task scope axis — granularity of work.
@@ -157,6 +151,18 @@ export const updateCommand = defineCommand({
       type: 'string',
       description:
         'Task scope / granularity axis (project|feature|unit) — orthogonal to --type (T944)',
+    },
+    /**
+     * Severity level — valid for any role (not just bug).
+     * Values: P0 | P1 | P2 | P3
+     * Orthogonal to --priority — does NOT auto-map priority.
+     * Appends a signed attestation to .cleo/audit/severity-attestation.jsonl (T9071/T9073).
+     * @task T9073
+     */
+    severity: {
+      type: 'string',
+      description:
+        'Severity level (P0|P1|P2|P3) — valid for any --role (T9073). Orthogonal to priority. Appends signed attestation.',
     },
     /**
      * Operator-supplied justification required to override the
@@ -225,10 +231,11 @@ export const updateCommand = defineCommand({
     if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
     if (args['no-auto-complete'] === true) params['noAutoComplete'] = true;
     if (args['pipeline-stage'] !== undefined) params['pipelineStage'] = args['pipeline-stage'];
-    // T944: orthogonal axes
-    if (args.role !== undefined) params['role'] = args.role;
-    if (args.kind !== undefined) params['role'] = params['role'] ?? args.kind;
+    // T944/T9072: --kind is canonical
+    if (args.kind !== undefined) params['kind'] = args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
+    // T9073: severity — orthogonal to priority, valid for any role
+    if (args.severity !== undefined) params['severity'] = args.severity;
     // T1590: AC-immutability override reason — forwarded as `reason`.
     if (args.reason !== undefined) params['reason'] = args.reason;
 
@@ -270,6 +277,28 @@ export const updateCommand = defineCommand({
       }
     }
     if (args['depends-waiver'] !== undefined) params['dependsWaiver'] = args['depends-waiver'];
+
+    // T9073 / T9071: fire signed severity attestation for any role.
+    // Severity is orthogonal to priority — no auto-mapping here.
+    // Non-fatal outside CLEO project (falls through).
+    if (args.severity !== undefined) {
+      try {
+        await appendSignedSeverityAttestation({
+          timestamp: new Date().toISOString(),
+          title: String(args.taskId),
+          severity: args.severity,
+          taskId: String(args.taskId),
+        });
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === 'E_OWNER_ONLY') {
+          cliError((err as Error).message, 72, { name: 'E_OWNER_ONLY' });
+          process.exit(72);
+          return;
+        }
+        // Any other failure (e.g. not inside a CLEO project) is non-fatal.
+      }
+    }
 
     await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
   },

@@ -184,7 +184,12 @@ export {
 // Store layer (bundled inside core)
 // ---------------------------------------------------------------------------
 
-export { createDataAccessor, getAccessor } from './store/data-accessor.js';
+export {
+  createDataAccessor,
+  // @deprecated — use getTaskAccessor (T9054). Retained for one minor version.
+  getAccessor,
+  getTaskAccessor,
+} from './store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Top-level utility exports (widely used, unique names)
@@ -482,5 +487,15 @@ export {
   parseAcceptanceCriteria,
 } from './tasks/infer-add-params.js';
 export { listTasks } from './tasks/list.js';
+// System-wide severity attestation primitive (T9071 / ADR-054 draft)
+export {
+  type AppendSeverityAttestationOptions,
+  appendSignedSeverityAttestation,
+  canonicalAttestationJson,
+  LEGACY_BUG_SEVERITY_AUDIT_FILE,
+  loadOwnerPubkeys,
+  SEVERITY_ATTESTATION_AUDIT_FILE,
+  type SeverityAttestation,
+} from './tasks/severity-attestation.js';
 export { showTask } from './tasks/show.js';
 export { updateTask } from './tasks/update.js';

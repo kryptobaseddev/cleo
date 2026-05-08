@@ -13,7 +13,7 @@ import type { AcceptanceGate, AcceptanceItem } from '@cleocode/contracts';
 import { acceptanceGateSchema, ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 // ─── Heuristic regex patterns ─────────────────────────────────────────────────
 
@@ -177,7 +177,7 @@ export async function reqAdd(
   gate: AcceptanceGate,
   accessor?: DataAccessor,
 ): Promise<{ task: { id: string; acceptance: AcceptanceItem[] } }> {
-  const acc = accessor ?? (await getAccessor(projectRoot));
+  const acc = accessor ?? (await getTaskAccessor(projectRoot));
   const task = await loadTask(acc, taskId);
 
   const existing = (task.acceptance ?? []) as AcceptanceItem[];
@@ -228,7 +228,7 @@ export async function reqList(
   taskId: string,
   accessor?: DataAccessor,
 ): Promise<{ taskId: string; gates: ReqListEntry[] }> {
-  const acc = accessor ?? (await getAccessor(projectRoot));
+  const acc = accessor ?? (await getTaskAccessor(projectRoot));
   const task = await loadTask(acc, taskId);
 
   const acceptance = (task.acceptance ?? []) as AcceptanceItem[];
@@ -277,7 +277,7 @@ export async function reqMigrate(
   apply: boolean,
   accessor?: DataAccessor,
 ): Promise<{ proposals: MigrationProposal[]; applied?: number }> {
-  const acc = accessor ?? (await getAccessor(projectRoot));
+  const acc = accessor ?? (await getTaskAccessor(projectRoot));
   const task = await loadTask(acc, taskId);
 
   const acceptance = (task.acceptance ?? []) as AcceptanceItem[];

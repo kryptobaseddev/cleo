@@ -12,7 +12,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock data-accessor before importing briefing module
 vi.mock('../../store/data-accessor.js', () => ({
-  getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
   createDataAccessor: vi.fn(),
 }));
 
@@ -39,7 +40,7 @@ vi.mock('../../store/attachment-store.js', () => ({
   })),
 }));
 
-import { getAccessor } from '../../store/data-accessor.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 import { computeBriefing } from '../briefing.js';
 
 // ---------------------------------------------------------------------------
@@ -95,7 +96,7 @@ function setupMockAccessor(tasks: unknown[] = [], focusTaskId: string | null = n
     engine: 'sqlite' as const,
   };
 
-  (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
+  (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
   return mockAccessor;
 }
 

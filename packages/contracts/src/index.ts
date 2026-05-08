@@ -1147,14 +1147,16 @@ export type {
   Release,
   ReleaseStatus,
   SessionNote,
+  // T9071 — system-wide severity attestation primitive
+  SeverityAttestation,
   Task,
   TaskCreate,
+  // T944 new axes (T9072: renamed TaskRole → TaskKind)
+  TaskKind,
   TaskOrigin,
   TaskPriority,
   TaskProvenance,
   TaskRelation,
-  // T944 new axes
-  TaskRole,
   TaskScope,
   TaskSeverity,
   TaskSize,

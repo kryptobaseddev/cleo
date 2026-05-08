@@ -107,7 +107,7 @@ export const STATIC_PARAMS_TABLE: Record<string, ExtendedParamDef[]> = {
       type: 'string',
       required: false,
       description: 'Task type',
-      enum: ['epic', 'task', 'subtask', 'bug'] as const,
+      enum: ['epic', 'task', 'subtask'] as const,
       cli: { short: '-t', flag: 'type' },
     },
     {

@@ -9,7 +9,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getProjectInfoSync } from '../project-info.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Minimal audit row for stats queries. */
 interface AuditRow {
@@ -87,7 +87,7 @@ export async function getProjectStats(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const periodDays = resolvePeriod(opts.period ?? '30');
-  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const { tasks } = await acc.queryTasks({});
   const pending = tasks.filter((t) => t.status === 'pending').length;
   const active = tasks.filter((t) => t.status === 'active').length;
@@ -270,7 +270,7 @@ export async function getDashboard(
   },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const { tasks } = await acc.queryTasks({});
 
   const pending = tasks.filter((t) => t.status === 'pending').length;
@@ -547,7 +547,7 @@ export async function getProjectStatsExtended(
   params?: { period?: number },
   accessor?: DataAccessor,
 ): Promise<StatsData> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const coreResult = await getProjectStats({ period: String(params?.period ?? 30), cwd }, acc);
 
   const queryResult = await acc.queryTasks({});

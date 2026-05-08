@@ -33,8 +33,8 @@ vi.mock('../../discovery.js', () => ({
   mapSkillName: vi.fn(() => ({ canonical: 'task-executor', mapped: true })),
 }));
 
-vi.mock('../../../store/data-accessor.js', () => ({
-  getAccessor: vi.fn().mockResolvedValue({
+vi.mock('../../../store/data-accessor.js', () => {
+  const mockAccessorImpl = {
     loadSingleTask: vi.fn().mockResolvedValue({
       id: 'T100',
       title: 'Test task',
@@ -46,8 +46,14 @@ vi.mock('../../../store/data-accessor.js', () => ({
     }),
     loadTasks: vi.fn().mockResolvedValue([]),
     queryTasks: vi.fn().mockResolvedValue({ tasks: [], total: 0 }),
-  }),
-}));
+  };
+  return {
+    // @deprecated shim — kept for compat (T9054)
+    getAccessor: vi.fn().mockResolvedValue(mockAccessorImpl),
+    // canonical replacement (T9054)
+    getTaskAccessor: vi.fn().mockResolvedValue(mockAccessorImpl),
+  };
+});
 
 import { existsSync, readFileSync } from 'node:fs';
 import { findSkill } from '../../discovery.js';

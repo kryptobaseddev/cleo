@@ -6,10 +6,11 @@
 
 import type {
   Task,
+  TaskKind,
   TaskPriority,
   TaskRecord,
-  TaskRole,
   TaskScope,
+  TaskSeverity,
   TaskSize,
   TaskStatus,
   TaskType,
@@ -21,7 +22,7 @@ import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { enforceAcceptanceImmutability } from './ac-immutability.js';
 import {
   normalizePriority,
@@ -62,8 +63,9 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'parentId',
   'noAutoComplete',
   'pipelineStage',
-  'role',
+  'kind',
   'scope',
+  'severity',
 ];
 
 function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
@@ -95,15 +97,22 @@ export interface UpdateTaskOptions {
   /** RCASD-IVTR+C pipeline stage transition target. Must be >= current stage. @task T060 */
   pipelineStage?: string;
   /**
-   * Task role axis — intent of work, orthogonal to {@link type}.
+   * Task kind axis — intent of work, orthogonal to {@link type}.
    * @task T944
+   * @task T9072
    */
-  role?: TaskRole;
+  kind?: TaskKind;
   /**
-   * Task scope axis — granularity of work, orthogonal to {@link type} and {@link role}.
+   * Task scope axis — granularity of work, orthogonal to {@link type} and {@link kind}.
    * @task T944
    */
   scope?: TaskScope;
+  /**
+   * Severity level — valid for any role (widened from bug-only by T9073).
+   * Orthogonal to priority — does NOT auto-map priority.
+   * @task T9073
+   */
+  severity?: TaskSeverity;
   /**
    * Operator-supplied justification required to override the
    * acceptance-criteria immutability guard once a task has entered the
@@ -135,7 +144,7 @@ export async function updateTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<UpdateTaskResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const task = await acc.loadSingleTask(options.taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
@@ -320,15 +329,21 @@ export async function updateTask(
     changes.push('noAutoComplete');
   }
 
-  // T944: orthogonal axes
-  if (options.role !== undefined) {
-    task.role = options.role;
-    changes.push('role');
+  // T944/T9072: orthogonal axes
+  if (options.kind !== undefined) {
+    task.kind = options.kind;
+    changes.push('kind');
   }
 
   if (options.scope !== undefined) {
     task.scope = options.scope;
     changes.push('scope');
+  }
+
+  // T9073: severity — orthogonal to priority, valid for any role
+  if (options.severity !== undefined) {
+    task.severity = options.severity;
+    changes.push('severity');
   }
 
   // Pipeline stage transition — forward-only (T060)
@@ -511,13 +526,14 @@ export async function taskUpdate(
     size?: string;
     files?: string[];
     pipelineStage?: string;
-    role?: string;
+    kind?: string;
     scope?: string;
+    severity?: string;
     reason?: string;
   },
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await updateTask(
       {
         taskId,
@@ -538,8 +554,9 @@ export async function taskUpdate(
         size: updates.size as TaskSize | undefined,
         files: updates.files,
         pipelineStage: updates.pipelineStage,
-        role: updates.role as TaskRole | undefined,
+        kind: updates.kind as TaskKind | undefined,
         scope: updates.scope as TaskScope | undefined,
+        severity: updates.severity as TaskSeverity | undefined,
         reason: updates.reason,
       },
       projectRoot,

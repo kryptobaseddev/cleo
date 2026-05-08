@@ -1916,8 +1916,8 @@ export async function fetchSessionState(
   // -- Active tasks (from tasks.db) --
   let activeTasks: import('@cleocode/contracts').RetrievalActiveTask[] = [];
   try {
-    const { getAccessor } = await import('../store/data-accessor.js');
-    const accessor = await getAccessor(projectRoot);
+    const { getTaskAccessor } = await import('../store/data-accessor.js');
+    const accessor = await getTaskAccessor(projectRoot);
     const { tasks } = await accessor.queryTasks({
       status: ['active', 'in_progress'] as import('@cleocode/contracts').TaskStatus[],
       limit: 10,

@@ -787,6 +787,90 @@ export function completeAgentWorktreeViaMerge(
 }
 
 // ---------------------------------------------------------------------------
+// Post-merge integration helper (T9043)
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of a complete post-merge worktree integration.
+ *
+ * Extends `WorktreeMergeResult` with an additional audit log path field.
+ *
+ * @task T9043
+ * @adr ADR-062
+ */
+export interface WorktreeIntegrationResult extends WorktreeMergeResult {
+  /** Path to the audit log entry that was written (if any). */
+  auditLogEntry: string | null;
+}
+
+/**
+ * Complete a worker task's worktree integration via merge, cleanup, and audit log.
+ *
+ * This is the orchestrator-facing convenience wrapper around
+ * `completeAgentWorktreeViaMerge`. In addition to the merge+prune steps it:
+ *
+ * 1. Delegates all merge and cleanup to `completeAgentWorktreeViaMerge`.
+ * 2. Appends a structured entry to `.cleo/audit/worktree-integration.jsonl`
+ *    recording the merge commit, task ID, and cleanup outcome.
+ *
+ * Orchestrators MUST call this (not `completeAgentWorktreeViaMerge` directly)
+ * so every integration is auditable.
+ *
+ * @param taskId - The CLEO task ID (e.g. `"T1587"`).
+ * @param projectRoot - Absolute path to the project root.
+ * @param opts.targetBranch - Override the resolved default branch.
+ * @param opts.taskTitle - Task title used in the merge commit message subject.
+ * @param opts.skipFetch - Skip the `git fetch origin` step (test fixtures).
+ * @param opts.auditLogPath - Override the audit JSONL path (testing).
+ * @returns Integration result including audit log path.
+ *
+ * @task T9043
+ * @adr ADR-062
+ */
+export function completeAgentWorktreeIntegration(
+  taskId: string,
+  projectRoot: string,
+  opts: {
+    targetBranch?: string;
+    taskTitle?: string;
+    skipFetch?: boolean;
+    auditLogPath?: string;
+  } = {},
+): WorktreeIntegrationResult {
+  const mergeResult = completeAgentWorktreeViaMerge(taskId, projectRoot, {
+    targetBranch: opts.targetBranch,
+    taskTitle: opts.taskTitle,
+    skipFetch: opts.skipFetch,
+  });
+
+  // Write audit log entry.
+  let auditLogEntry: string | null = null;
+  try {
+    const auditDir = opts.auditLogPath
+      ? opts.auditLogPath.split('/').slice(0, -1).join('/')
+      : join(projectRoot, '.cleo', 'audit');
+    mkdirSync(auditDir, { recursive: true });
+    const logPath = opts.auditLogPath ?? join(auditDir, 'worktree-integration.jsonl');
+    const entry = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      taskId,
+      mergeCommit: mergeResult.mergeCommit,
+      merged: mergeResult.merged,
+      worktreeRemoved: mergeResult.worktreeRemoved,
+      branchDeleted: mergeResult.branchDeleted,
+      error: mergeResult.error ?? null,
+      agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+    });
+    appendFileSync(logPath, entry + '\n', 'utf-8');
+    auditLogEntry = logPath;
+  } catch {
+    // Audit is best-effort — never block merge on logging failure.
+  }
+
+  return { ...mergeResult, auditLogEntry };
+}
+
+// ---------------------------------------------------------------------------
 // L2 — Shim materialisation
 // ---------------------------------------------------------------------------
 

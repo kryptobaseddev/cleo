@@ -156,8 +156,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         offset: params.offset,
         fields: params.fields,
         verbose: params.verbose,
-        // T944: role filter
-        role: params.role,
+        // T944/T9072: kind filter
+        kind: params.kind,
       }),
       'find',
     );
@@ -306,8 +306,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         files: params.files,
         dryRun: params.dryRun,
         parentSearch: params.parentSearch,
-        // T944: orthogonal axes — role is the canonical wire field (ADR-057 D2)
-        role: params.role,
+        // T944/T9072: orthogonal axes — kind is the canonical wire field
+        kind: params.kind,
         scope: params.scope,
         severity: params.severity,
         // T1633: BRAIN duplicate-bypass flag
@@ -341,6 +341,13 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         files: params.files,
         // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
         pipelineStage: params.pipelineStage,
+        // T944/T9072: kind axis (renamed from role)
+        kind: params.kind,
+        scope: params.scope,
+        // T9073: severity — orthogonal to priority, valid for any kind
+        severity: params.severity,
+        // T1590: AC-immutability override reason
+        reason: params.reason,
       }),
       'update',
     );

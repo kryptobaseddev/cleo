@@ -11,7 +11,7 @@
  *
  * Field-name mapping (ADR-057 D2 canonical wire form → Core internal form):
  *   - `params.parent` → `options.parentId` (tasks add/update)
- *   - `params.role`   → `options.role` (same field name, no mapping needed)
+ *   - `params.kind`   → `options.kind` (same field name, no mapping needed; T9072)
  *
  * @module tasks/ops
  * @task T1458 — tasks domain Core API SSoT alignment (ADR-057 D1+D2)
@@ -21,8 +21,8 @@
  */
 
 import type {
+  TaskKind,
   TaskPriority,
-  TaskRole,
   TaskScope,
   TaskSeverity,
   TaskSize,
@@ -116,7 +116,7 @@ export async function tasksFindOp(
     status?: TaskStatus;
     includeArchive?: boolean;
     offset?: number;
-    role?: TaskRole;
+    kind?: TaskKind;
   },
 ): Promise<FindTasksResult> {
   return findTasks(
@@ -128,7 +128,7 @@ export async function tasksFindOp(
       includeArchive: params.includeArchive,
       limit: params.limit,
       offset: params.offset,
-      role: params.role,
+      kind: params.kind,
     },
     projectRoot,
   );
@@ -164,8 +164,8 @@ export async function tasksAddOp(
     notes?: string;
     files?: string[];
     dryRun?: boolean;
-    /** Task role axis — intent of work (T944). */
-    role?: TaskRole;
+    /** Task kind axis — intent of work (T944/T9072). */
+    kind?: TaskKind;
     scope?: TaskScope;
     severity?: TaskSeverity;
     /**
@@ -191,7 +191,7 @@ export async function tasksAddOp(
       notes: params.notes,
       files: params.files,
       dryRun: params.dryRun,
-      role: params.role,
+      kind: params.kind,
       scope: params.scope,
       severity: params.severity,
       forceDuplicate: params.forceDuplicate,
@@ -231,8 +231,10 @@ export async function tasksUpdateOp(
     size?: TaskSize;
     files?: string[];
     pipelineStage?: string;
-    role?: TaskRole;
+    kind?: TaskKind;
     scope?: TaskScope;
+    /** Severity level — valid for any role (T9073). Orthogonal to priority. */
+    severity?: TaskSeverity;
   },
 ): Promise<UpdateTaskResult> {
   return updateTask(
@@ -256,8 +258,9 @@ export async function tasksUpdateOp(
       size: params.size,
       files: params.files,
       pipelineStage: params.pipelineStage,
-      role: params.role,
+      kind: params.kind,
       scope: params.scope,
+      severity: params.severity,
     },
     projectRoot,
   );

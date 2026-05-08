@@ -13,7 +13,7 @@
 
 import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { getCriticalPath } from '../tasks/graph-ops.js';
 import { getParentChain } from '../tasks/hierarchy.js';
 import type {
@@ -214,7 +214,7 @@ export async function analyzeTaskImpact(
   accessor?: DataAccessor,
   cwd?: string,
 ): Promise<ImpactAssessment> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const tasks = await loadAllTasks(acc);
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
@@ -274,7 +274,7 @@ export async function analyzeChangeImpact(
   accessor?: DataAccessor,
   cwd?: string,
 ): Promise<ChangeImpact> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const tasks = await loadAllTasks(acc);
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
@@ -341,7 +341,7 @@ export async function calculateBlastRadius(
   accessor?: DataAccessor,
   cwd?: string,
 ): Promise<BlastRadius> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const tasks = await loadAllTasks(acc);
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
@@ -732,7 +732,7 @@ export async function predictImpact(
   accessor?: DataAccessor,
   matchLimit = 5,
 ): Promise<ImpactReport> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const tasks = await loadAllTasks(acc);
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const dependentsMap = buildDependentsMap(tasks);

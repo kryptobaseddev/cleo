@@ -9,7 +9,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
@@ -1175,6 +1175,176 @@ export function checkNoLocalSchemas(projectRoot?: string): CheckResult {
 }
 
 // ============================================================================
+// Check: Orphan worktrees (T9043)
+// ============================================================================
+
+/**
+ * Audit orphaned CLEO agent worktree directories.
+ *
+ * Lists all directories under `~/.local/share/cleo/worktrees/` (or the
+ * XDG-resolved equivalent) whose names are NOT in the provided
+ * `activeTaskIds` set. Surfaces them as a `warning` so the operator can
+ * clean them with `cleo gc --worktrees`.
+ *
+ * @param worktreesRoot - Override for the worktrees root (testing).
+ * @param activeTaskIds - Set of currently active task IDs to preserve.
+ * @returns CheckResult with orphan paths in `details.orphans`.
+ *
+ * @task T9043
+ */
+export function auditOrphanWorktrees(
+  worktreesRoot?: string,
+  activeTaskIds: Set<string> = new Set(),
+): CheckResult {
+  const xdgData = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
+  const root = worktreesRoot ?? join(xdgData, 'cleo', 'worktrees');
+
+  if (!existsSync(root)) {
+    return {
+      id: 'orphan_worktrees',
+      category: 'worktree',
+      status: 'passed',
+      message: 'Worktrees root does not exist — nothing to audit',
+      details: { root, orphans: [] },
+      fix: null,
+    };
+  }
+
+  // Collect task dirs across all project hashes.
+  const orphans: Array<{ path: string; ageLabel: string }> = [];
+
+  let projectEntries: string[];
+  try {
+    projectEntries = readdirSync(root);
+  } catch {
+    return {
+      id: 'orphan_worktrees',
+      category: 'worktree',
+      status: 'info',
+      message: 'Could not read worktrees root',
+      details: { root, orphans: [] },
+      fix: null,
+    };
+  }
+
+  const now = Date.now();
+  for (const projectHash of projectEntries) {
+    const projectDir = join(root, projectHash);
+    try {
+      if (!statSync(projectDir).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+
+    let taskEntries: string[];
+    try {
+      taskEntries = readdirSync(projectDir);
+    } catch {
+      continue;
+    }
+
+    for (const taskId of taskEntries) {
+      if (activeTaskIds.has(taskId)) continue;
+      const worktreePath = join(projectDir, taskId);
+      try {
+        const st = statSync(worktreePath);
+        if (!st.isDirectory()) continue;
+        const ageMs = now - st.mtimeMs;
+        const hours = Math.floor(ageMs / (1000 * 60 * 60));
+        const days = Math.floor(hours / 24);
+        const ageLabel = days > 0 ? `${days}d ${hours % 24}h` : `${hours}h`;
+        orphans.push({ path: worktreePath, ageLabel });
+      } catch {
+        orphans.push({ path: worktreePath, ageLabel: 'unknown' });
+      }
+    }
+  }
+
+  if (orphans.length === 0) {
+    return {
+      id: 'orphan_worktrees',
+      category: 'worktree',
+      status: 'passed',
+      message: 'No orphaned worktrees found',
+      details: { root, orphans: [] },
+      fix: null,
+    };
+  }
+
+  return {
+    id: 'orphan_worktrees',
+    category: 'worktree',
+    status: 'warning',
+    message: `${orphans.length} orphaned worktree director${orphans.length === 1 ? 'y' : 'ies'} found`,
+    details: { root, orphans, count: orphans.length },
+    fix: 'cleo gc --worktrees',
+  };
+}
+
+// ============================================================================
+// Check: Orphan temp dirs (T9043)
+// ============================================================================
+
+/**
+ * Audit orphaned CLEO-generated temp directories.
+ *
+ * Scans `os.tmpdir()` for directories matching any prefix in
+ * `CLEO_TEMP_PREFIXES` that are older than 2 hours (the default orphan
+ * threshold). Surfaces them as a `warning` so the operator can clean them
+ * with `cleo gc --temp`.
+ *
+ * @param tempDirOverride - Override for os.tmpdir() (testing).
+ * @param maxAgeMs - Maximum age threshold in ms (default: 2 hours).
+ * @returns CheckResult with orphan paths in `details.orphans`.
+ *
+ * @task T9043
+ */
+export async function auditOrphanTempDirs(
+  tempDirOverride?: string,
+  maxAgeMs?: number,
+): Promise<CheckResult> {
+  const { listOrphanTempDirs } = await import('../../gc/cleanup.js');
+  const ageMs = maxAgeMs ?? 2 * 60 * 60 * 1000;
+
+  let orphans: ReturnType<typeof listOrphanTempDirs>;
+  try {
+    orphans = listOrphanTempDirs(ageMs, tempDirOverride);
+  } catch {
+    return {
+      id: 'orphan_temp_dirs',
+      category: 'temp',
+      status: 'info',
+      message: 'Could not scan temp directory',
+      details: { orphans: [] },
+      fix: null,
+    };
+  }
+
+  if (orphans.length === 0) {
+    return {
+      id: 'orphan_temp_dirs',
+      category: 'temp',
+      status: 'passed',
+      message: 'No orphaned CLEO temp directories found',
+      details: { orphans: [] },
+      fix: null,
+    };
+  }
+
+  return {
+    id: 'orphan_temp_dirs',
+    category: 'temp',
+    status: 'warning',
+    message: `${orphans.length} orphaned CLEO temp director${orphans.length === 1 ? 'y' : 'ies'} found`,
+    details: {
+      orphans: orphans.map((o) => ({ path: o.path, age: o.ageLabel })),
+      count: orphans.length,
+    },
+    fix: 'cleo gc --temp',
+  };
+}
+
+// ============================================================================
 // Run All Checks
 // ============================================================================
 
@@ -1281,6 +1451,8 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     // Global schema and local schema deprecation checks
     checkGlobalSchemaHealth(projectRoot),
     checkNoLocalSchemas(projectRoot),
+    // Orphan worktrees audit (T9043)
+    auditOrphanWorktrees(),
   ];
 }
 

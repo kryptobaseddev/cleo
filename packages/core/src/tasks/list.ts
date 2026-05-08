@@ -11,7 +11,7 @@ import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
 import { paginate } from '../pagination.js';
 import type { DataAccessor, TaskQueryFilters } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { tasksToRecords } from './engine-converters.js';
 
 const TASK_LIST_DEFAULT_LIMIT = 10;
@@ -97,7 +97,7 @@ export async function listTasks(
   accessor?: DataAccessor,
 ): Promise<ListTasksResult> {
   const dataAccessor =
-    accessor ?? (await (await import('../store/data-accessor.js')).getAccessor(cwd));
+    accessor ?? (await (await import('../store/data-accessor.js')).getTaskAccessor(cwd));
 
   // Build targeted query filters
   const queryFilters: TaskQueryFilters = {
@@ -183,7 +183,7 @@ export async function taskList(
   },
 ): Promise<EngineResult<{ tasks: TaskRecord[] | CompactTask[]; total: number; filtered: number }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await listTasks(
       {
         parentId: params?.parent ?? undefined,

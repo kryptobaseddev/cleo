@@ -30,7 +30,7 @@ import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { paginate } from '../pagination.js';
 import { getCleoHome } from '../paths.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import type { ProjectRegistryRow } from '../store/nexus-schema.js';
 import { nexusAuditLog, projectRegistry } from '../store/nexus-schema.js';
 // Re-export only: resetNexusDbState used by tests and index barrel.
@@ -270,7 +270,7 @@ export async function nexusInit(_projectRoot = '', _params: NexusInitParams = {}
 /** Check if a path contains a CLEO project (has readable task data). */
 async function isCleoProject(projectPath: string): Promise<boolean> {
   try {
-    const accessor = await getAccessor(projectPath);
+    const accessor = await getTaskAccessor(projectPath);
     await accessor.countTasks();
     return true;
   } catch {
@@ -283,7 +283,7 @@ async function readProjectMeta(
   projectPath: string,
 ): Promise<{ taskCount: number; labels: string[] }> {
   try {
-    const accessor = await getAccessor(projectPath);
+    const accessor = await getTaskAccessor(projectPath);
     const { tasks } = await accessor.queryTasks({});
     const allLabels = tasks.flatMap((t) => t.labels ?? []);
     const uniqueLabels = [...new Set(allLabels)].sort();

@@ -178,7 +178,7 @@ async function loadAllTasks(
   accessor?: DataAccessor,
 ): Promise<Array<Pick<Task, 'id'>>> {
   let localAccessor: DataAccessor | null = null;
-  const activeAccessor = accessor ?? (await createDataAccessor(undefined, cwd));
+  const activeAccessor = accessor ?? (await createDataAccessor(cwd));
   if (!accessor) {
     localAccessor = activeAccessor;
   }

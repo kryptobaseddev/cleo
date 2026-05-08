@@ -13,7 +13,11 @@
  * @epic T4454
  */
 
-import { getProjectRoot, inferTaskAddParams } from '@cleocode/core';
+import {
+  appendSignedSeverityAttestation,
+  getProjectRoot,
+  inferTaskAddParams,
+} from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
@@ -60,7 +64,7 @@ export const addCommand = defineCommand({
     type: {
       type: 'string',
       alias: 't',
-      description: 'Task type (epic | task | subtask | bug)',
+      description: 'Task type (epic | task | subtask)',
     },
     parent: {
       type: 'string',
@@ -135,22 +139,15 @@ export const addCommand = defineCommand({
       description: 'Show what would be created without making changes',
     },
     /**
-     * Task role axis — intent of work.
+     * Task kind axis — intent of work.
      * Values: work | research | experiment | bug | spike | release
      * @task T944
-     */
-    role: {
-      type: 'string',
-      description:
-        'Task role / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
-    },
-    /**
-     * Backward-compatible alias for --role (fractal-ontology spec used "kind").
-     * @task T944
+     * @task T9072
      */
     kind: {
       type: 'string',
-      description: 'Alias for --role (T944 fractal-ontology compat)',
+      description:
+        'Task kind / intent axis (work|research|experiment|bug|spike|release) — orthogonal to --type (T944)',
     },
     /**
      * Task scope axis — granularity of work.
@@ -163,13 +160,17 @@ export const addCommand = defineCommand({
         'Task scope / granularity axis (project|feature|unit) — orthogonal to --type (T944)',
     },
     /**
-     * Bug severity. Only valid when --role bug.
+     * Severity level for any task kind (not just bug).
      * Values: P0 | P1 | P2 | P3
+     * Orthogonal to --priority — does NOT auto-map priority.
+     * Appends a signed attestation to .cleo/audit/severity-attestation.jsonl (T9071/T9073).
      * @task T944
+     * @task T9073
      */
     severity: {
       type: 'string',
-      description: 'Bug severity (P0|P1|P2|P3) — only valid with --role bug (T944)',
+      description:
+        'Severity level (P0|P1|P2|P3) — valid for any --kind (T9073). Orthogonal to priority. Appends signed attestation.',
     },
     /**
      * Bypass the E_DUPLICATE_TASK_LIKELY rejection guard.
@@ -231,11 +232,8 @@ export const addCommand = defineCommand({
       params['position'] = Number.parseInt(args.position as string, 10);
     if (args['dry-run'] !== undefined) params['dryRun'] = args['dry-run'];
     if (args['parent-search'] !== undefined) params['parentSearch'] = args['parent-search'];
-    // T944: orthogonal axes — --kind is a CLI alias for --role (ADR-057 D2)
-    // Aliasing lives at the CLI layer; wire format only uses 'role'.
-    if (args.role !== undefined) params['role'] = args.role;
-    if (args.kind !== undefined)
-      params['role'] = (params['role'] as string | undefined) ?? args.kind;
+    // T944/T9072: --kind is canonical; wire format uses 'kind'.
+    if (args.kind !== undefined) params['kind'] = args.kind;
     if (args.scope !== undefined) params['scope'] = args.scope;
     if (args.severity !== undefined) params['severity'] = args.severity;
     // T1633: BRAIN duplicate-bypass flag
@@ -286,6 +284,28 @@ export const addCommand = defineCommand({
     if (inferred.inferredParent) {
       params['parent'] = inferred.inferredParent;
       humanInfo(`[cleo add] inferred --parent from current task: ${inferred.inferredParent}`);
+    }
+
+    // T9073 / T9071: fire signed severity attestation for any role.
+    // Severity is orthogonal to priority — no auto-mapping here.
+    // Skip for --dry-run; non-fatal outside CLEO project (falls through).
+    if (args.severity !== undefined && !args['dry-run']) {
+      try {
+        await appendSignedSeverityAttestation({
+          timestamp: new Date().toISOString(),
+          title: args.title,
+          severity: args.severity,
+          ...(params['parent'] !== undefined ? { epic: params['parent'] as string } : {}),
+        });
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === 'E_OWNER_ONLY') {
+          cliError((err as Error).message, 72, { name: 'E_OWNER_ONLY' });
+          process.exit(72);
+          return;
+        }
+        // Any other failure (e.g. not inside a CLEO project) is non-fatal.
+      }
     }
 
     const response = await dispatchRaw('mutate', 'tasks', 'add', params);

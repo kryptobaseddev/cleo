@@ -6,7 +6,7 @@
 
 import type { ProjectMeta, Task } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { depsReady } from './deps-ready.js';
 
 type TaskRecord = Task;
@@ -66,7 +66,7 @@ const PRIORITY_SCORE: Record<string, number> = {
 };
 
 async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   return tasks;
 }
@@ -114,7 +114,7 @@ function findEpicId(task: TaskRecord, taskMap: Map<string, TaskRecord>): string 
  * Get current phase from tasks.
  */
 async function getCurrentPhase(projectRoot: string): Promise<string | null> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const meta = await accessor.getMetaValue<ProjectMeta>('project_meta');
   return meta?.currentPhase ?? null;
 }

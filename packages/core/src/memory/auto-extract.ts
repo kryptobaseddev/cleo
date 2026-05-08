@@ -38,8 +38,8 @@ export async function resolveTaskDetails(projectRoot: string, taskIds: string[])
     return [];
   }
 
-  const { getAccessor } = await import('../store/data-accessor.js');
-  const accessor = await getAccessor(projectRoot);
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const accessor = await getTaskAccessor(projectRoot);
   try {
     return await accessor.loadTasks(taskIds);
   } finally {

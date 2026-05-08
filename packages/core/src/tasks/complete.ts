@@ -17,8 +17,9 @@ import { teardownWorktree } from '../sentient/worktree-dispatch.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
+import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { revalidateEvidence } from './evidence.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
@@ -191,7 +192,7 @@ export async function completeTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<CompleteTaskResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const task = await acc.loadSingleTask(options.taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
@@ -541,6 +542,62 @@ export async function completeTask(
         }
       }
 
+      // T9040: Coordination parent auto-rollup.
+      //
+      // A "coordination parent" is a non-epic task (type='task'|'subtask') that
+      // has NO own implementation files — its scope was fully delivered by its
+      // children. When the last pending child completes, synthesize rollup
+      // verification evidence from the children's gate state and auto-complete
+      // the parent so it does not stay `pending` forever.
+      //
+      // Epics already have their own rollup path above (via verifyEpicHasEvidence).
+      // This branch handles the remaining `type!='epic'` case.
+      //
+      // The rollup fires only when ALL siblings (excluding the current task, which
+      // is not yet persisted as 'done') are terminal (done or cancelled).
+      if (task.parentId) {
+        const coordinationParent = await acc.loadSingleTask(task.parentId);
+        if (
+          coordinationParent &&
+          coordinationParent.type !== 'epic' &&
+          !autoCompleted.includes(coordinationParent.id)
+        ) {
+          const cpChildren = await acc.getChildren(coordinationParent.id);
+          // Guard: require at least one registered child and check isCoordinationParent
+          // before examining terminal status so we don't touch tasks with own files.
+          if (
+            cpChildren.length > 0 &&
+            isCoordinationParent(coordinationParent, cpChildren.length)
+          ) {
+            const allCpDone = cpChildren.every(
+              (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
+            );
+            if (allCpDone) {
+              // Synthesize verification evidence from children's gate state.
+              // The overlay adds the current task (not yet in DB) as done so
+              // buildRollupEvidence sees the post-write view.
+              const childrenForRollup: Task[] = cpChildren.map((c) =>
+                c.id === task.id ? { ...c, status: 'done' as const } : c,
+              );
+              coordinationParent.verification = buildRollupEvidence(
+                coordinationParent.id,
+                childrenForRollup,
+              );
+              coordinationParent.status = 'done';
+              coordinationParent.completedAt = now;
+              coordinationParent.updatedAt = now;
+              // T871: coordination parents that auto-complete must also reach a
+              // terminal pipelineStage to stay in sync with Studio/dashboards.
+              if (!isTerminalPipelineStage(coordinationParent.pipelineStage)) {
+                coordinationParent.pipelineStage = 'contribution';
+              }
+              autoCompleted.push(coordinationParent.id);
+              autoCompletedTasks.push(coordinationParent);
+            }
+          }
+        }
+      }
+
       // Wrap writes in a transaction for TOCTOU safety (T023)
       await acc.transaction(async (tx) => {
         await tx.upsertSingleTask(task);
@@ -741,7 +798,7 @@ export async function taskComplete(
   const opts: TaskCompleteEngineOptions =
     typeof notesOrOptions === 'string' ? { notes: notesOrOptions } : (notesOrOptions ?? {});
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await completeTask(
       {
         taskId,
@@ -815,7 +872,7 @@ export async function completeTaskStrict(
 
     // 1. Evidence staleness re-check (T832 / ADR-051 Decision 8).
     if (lifecycleMode === 'strict') {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
       if (task?.verification?.evidence) {
         const evidenceEntries = Object.entries(task.verification.evidence);
@@ -893,7 +950,7 @@ export async function completeTaskStrict(
 
     // 3. Parent-epic lifecycle gate check on child complete (T788 LOOM-04).
     if (lifecycleMode === 'strict' || lifecycleMode === 'advisory') {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
       if (task?.parentId) {
         const parent = await accessor.loadSingleTask(task.parentId);
@@ -939,7 +996,7 @@ export async function completeTaskStrict(
 
     // 4. T1222 / CLEO-VALID-26: verify verification_json is not NULL before delegating.
     if (lifecycleMode === 'strict') {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
       if (task && task.type !== 'epic' && !task.verification) {
         return engineError<{

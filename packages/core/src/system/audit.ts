@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTaskPath } from '../paths.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface AuditIssue {
   severity: 'error' | 'warning' | 'info';
@@ -38,7 +38,7 @@ export async function auditData(
     const tasksDbPath = join(cleoDir, 'tasks.db');
     if (existsSync(tasksDbPath)) {
       try {
-        const accessor = await getAccessor(projectRoot);
+        const accessor = await getTaskAccessor(projectRoot);
         const queryResult = await accessor.queryTasks({});
         const tasks: Array<{
           id: string;

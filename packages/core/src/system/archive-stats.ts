@@ -5,7 +5,7 @@
 
 import type { ArchivedTask } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface ArchiveStatsResult {
   totalArchived: number;
@@ -26,7 +26,7 @@ export async function getArchiveStats(
   const periodDays = opts.period ?? 30;
   const cutoff = new Date(Date.now() - periodDays * 86400000).toISOString();
 
-  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const archive = await acc.loadArchive();
 
   if (!archive?.archivedTasks) {
