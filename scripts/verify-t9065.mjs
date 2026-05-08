@@ -8,8 +8,8 @@
  *   - docs-accessor-impl.ts has a comment referencing T9065 or T1824
  *   - The test documents ADR storage model alignment (filesystem + index)
  */
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -60,7 +60,9 @@ if (testContent.includes('T1824') && testContent.includes('T1825')) {
 if (testContent.includes('filesystem') && testContent.includes('storeDoc')) {
   pass('Test file documents ADR storage model (filesystem + index via storeDoc)');
 } else {
-  fail('Test file must document the ADR storage model alignment (filesystem + llmtxt index) per T9065');
+  fail(
+    'Test file must document the ADR storage model alignment (filesystem + llmtxt index) per T9065',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +71,11 @@ if (testContent.includes('filesystem') && testContent.includes('storeDoc')) {
 const implPath = 'packages/core/src/store/docs-accessor-impl.ts';
 if (existsSync(join(REPO_ROOT, implPath))) {
   const implContent = readFile(implPath);
-  if (implContent.includes('T9065') || implContent.includes('T1824') || implContent.includes('T9064')) {
+  if (
+    implContent.includes('T9065') ||
+    implContent.includes('T1824') ||
+    implContent.includes('T9064')
+  ) {
     pass('docs-accessor-impl.ts has cross-link reference (T9065/T1824/T9064)');
   } else {
     fail('docs-accessor-impl.ts missing cross-link reference to T9065 or T1824 (T9065)');

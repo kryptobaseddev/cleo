@@ -10,8 +10,8 @@
  *
  * NEGATIVE SPACE: The guard must be active — not just a comment.
  */
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -40,16 +40,23 @@ const sqliteNative = readFile('packages/core/src/store/sqlite-native.ts');
 if (sqliteNative.includes('process.env.VITEST') && sqliteNative.includes('isolation guard')) {
   pass('sqlite-native.ts has VITEST isolation guard');
 } else {
-  fail('sqlite-native.ts must have VITEST isolation guard to block production DB opens during tests (T9042)');
+  fail(
+    'sqlite-native.ts must have VITEST isolation guard to block production DB opens during tests (T9042)',
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Check 2: Guard actively throws/errors when VITEST is set and path is production
 // ---------------------------------------------------------------------------
-if (sqliteNative.includes('CLEO_TEST_ALLOWED_DB_ROOTS') && sqliteNative.includes('CLEO_TEST_ALLOW_PROJECT_DB')) {
+if (
+  sqliteNative.includes('CLEO_TEST_ALLOWED_DB_ROOTS') &&
+  sqliteNative.includes('CLEO_TEST_ALLOW_PROJECT_DB')
+) {
   pass('VITEST guard uses CLEO_TEST_ALLOWED_DB_ROOTS and CLEO_TEST_ALLOW_PROJECT_DB env vars');
 } else {
-  fail('Missing CLEO_TEST_ALLOWED_DB_ROOTS / CLEO_TEST_ALLOW_PROJECT_DB env var support in VITEST guard (T9042)');
+  fail(
+    'Missing CLEO_TEST_ALLOWED_DB_ROOTS / CLEO_TEST_ALLOW_PROJECT_DB env var support in VITEST guard (T9042)',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +65,9 @@ if (sqliteNative.includes('CLEO_TEST_ALLOWED_DB_ROOTS') && sqliteNative.includes
 if (sqliteNative.includes('[CLEO test isolation guard]')) {
   pass('Error message includes [CLEO test isolation guard] identifier');
 } else {
-  fail('sqlite-native.ts guard error must include "[CLEO test isolation guard]" to clearly identify violations (T9042)');
+  fail(
+    'sqlite-native.ts guard error must include "[CLEO test isolation guard]" to clearly identify violations (T9042)',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +79,9 @@ const refusalLine = sqliteNative.includes('Refusing to open SQLite');
 if (refusalLine) {
   pass('sqlite-native.ts explicitly "Refusing to open SQLite" in guard message');
 } else {
-  fail('sqlite-native.ts guard must explicitly say "Refusing to open SQLite" — vague errors are insufficient (T9042)');
+  fail(
+    'sqlite-native.ts guard must explicitly say "Refusing to open SQLite" — vague errors are insufficient (T9042)',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +105,9 @@ if (existsSync(join(REPO_ROOT, isolationTestPath))) {
 // Final
 // ---------------------------------------------------------------------------
 if (failures.length === 0) {
-  console.log('\nVERIFIER PASS: T9042 — VITEST isolation guard prevents production task counter pollution');
+  console.log(
+    '\nVERIFIER PASS: T9042 — VITEST isolation guard prevents production task counter pollution',
+  );
   process.exit(0);
 } else {
   console.error(`\nVERIFIER FAIL: ${failures.length} check(s) failed`);

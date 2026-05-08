@@ -12,9 +12,8 @@
  *
  * NEGATIVE SPACE: Must verify the command is GONE, not that a deletion doc exists.
  */
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -48,7 +47,7 @@ if (!existsSync(bugTsPath)) {
   // If the file has a working 'name: bug' definition and dispatches, it's not deleted
   if (bugContent.includes("name: 'bug'") && bugContent.includes('dispatchFromCli')) {
     fail('bug.ts still has working name: "bug" definition and dispatch — NOT deleted (T9075)');
-  } else if (bugContent.includes('deleted\|removed\|tombstone') || bugContent.length < 100) {
+  } else if (bugContent.includes('deleted|removed|tombstone') || bugContent.length < 100) {
     pass('bug.ts appears to be a deletion tombstone (acceptable)');
   } else {
     fail('bug.ts exists and appears to be a working command — T9075 requires full deletion');
@@ -62,7 +61,7 @@ const helpRenderer = readFile('packages/cleo/src/cli/help-renderer.ts');
 
 // The help-renderer was found to have 'bug' in position 71 (from earlier grep)
 // Check if it's in the main commands array
-const bugInHelpLines = helpRenderer.split('\n').filter(l => {
+const bugInHelpLines = helpRenderer.split('\n').filter((l) => {
   const trimmed = l.trim();
   // It's a problem if 'bug' is a string literal in what looks like a command list
   return trimmed === "'bug'," || trimmed === "'bug'" || trimmed === '"bug",' || trimmed === '"bug"';
@@ -71,7 +70,9 @@ const bugInHelpLines = helpRenderer.split('\n').filter(l => {
 if (bugInHelpLines.length === 0) {
   pass('help-renderer.ts does not list "bug" as a command');
 } else {
-  fail(`help-renderer.ts still lists "bug" as a command in ${bugInHelpLines.length} location(s) — T9075 requires full deletion`);
+  fail(
+    `help-renderer.ts still lists "bug" as a command in ${bugInHelpLines.length} location(s) — T9075 requires full deletion`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +80,9 @@ if (bugInHelpLines.length === 0) {
 // ---------------------------------------------------------------------------
 const manifest = readFile('packages/cleo/src/cli/generated/command-manifest.ts');
 if (manifest.includes("name: 'bug'")) {
-  fail("command-manifest.ts still has name: 'bug' entry — T9075 requires bug command removal from manifest");
+  fail(
+    "command-manifest.ts still has name: 'bug' entry — T9075 requires bug command removal from manifest",
+  );
 } else {
   pass("command-manifest.ts has no name: 'bug' entry (properly removed)");
 }
@@ -88,9 +91,15 @@ if (manifest.includes("name: 'bug'")) {
 // Check 4: No import of bug.ts from CLI router/index
 // ---------------------------------------------------------------------------
 const cliIndex = readFile('packages/cleo/src/cli/index.ts');
-if (cliIndex.includes("'./commands/bug'") || cliIndex.includes('"./commands/bug"') ||
-    cliIndex.includes("from './commands/bug.js'") || cliIndex.includes('commands/bug')) {
-  fail('cli/index.ts still imports from commands/bug — T9075 requires full deletion including import removal');
+if (
+  cliIndex.includes("'./commands/bug'") ||
+  cliIndex.includes('"./commands/bug"') ||
+  cliIndex.includes("from './commands/bug.js'") ||
+  cliIndex.includes('commands/bug')
+) {
+  fail(
+    'cli/index.ts still imports from commands/bug — T9075 requires full deletion including import removal',
+  );
 } else {
   pass('cli/index.ts does not import commands/bug (properly removed)');
 }
@@ -99,7 +108,9 @@ if (cliIndex.includes("'./commands/bug'") || cliIndex.includes('"./commands/bug"
 // Final
 // ---------------------------------------------------------------------------
 if (failures.length === 0) {
-  console.log('\nVERIFIER PASS: T9075 — cleo bug command fully deleted with no shim/tombstone/alias');
+  console.log(
+    '\nVERIFIER PASS: T9075 — cleo bug command fully deleted with no shim/tombstone/alias',
+  );
   process.exit(0);
 } else {
   console.error(`\nVERIFIER FAIL: ${failures.length} check(s) failed`);

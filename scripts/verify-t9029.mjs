@@ -8,7 +8,7 @@
  *   - "Steps 3 + 4 REMOVED" comment exists confirming the DB opens were removed
  */
 import { readFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -70,16 +70,23 @@ if (!startupFnMatch) {
 
   // Check for uncommented direct calls (not in comments)
   const lines = fnBody.split('\n');
-  const activeEnsureCalls = lines.filter(l => {
+  const activeEnsureCalls = lines.filter((l) => {
     const trimmed = l.trim();
-    return !trimmed.startsWith('//') && !trimmed.startsWith('*') &&
-           (trimmed.includes('ensureConduitDb(') || trimmed.includes('ensureGlobalSignaldockDb('));
+    return (
+      !trimmed.startsWith('//') &&
+      !trimmed.startsWith('*') &&
+      (trimmed.includes('ensureConduitDb(') || trimmed.includes('ensureGlobalSignaldockDb('))
+    );
   });
 
   if (activeEnsureCalls.length === 0) {
-    pass('No active ensureConduitDb/ensureGlobalSignaldockDb calls in runStartupMaintenance (properly deferred)');
+    pass(
+      'No active ensureConduitDb/ensureGlobalSignaldockDb calls in runStartupMaintenance (properly deferred)',
+    );
   } else {
-    fail(`runStartupMaintenance has ${activeEnsureCalls.length} active ensure*Db call(s) — must be deferred (T9029):\n  ${activeEnsureCalls.join('\n  ')}`);
+    fail(
+      `runStartupMaintenance has ${activeEnsureCalls.length} active ensure*Db call(s) — must be deferred (T9029):\n  ${activeEnsureCalls.join('\n  ')}`,
+    );
   }
 }
 
@@ -96,7 +103,9 @@ if (cliIndex.includes('DB-open audit (T9029)')) {
 // Final
 // ---------------------------------------------------------------------------
 if (failures.length === 0) {
-  console.log('\nVERIFIER PASS: T9029 — ensureConduitDb/ensureGlobalSignaldockDb properly deferred from startup');
+  console.log(
+    '\nVERIFIER PASS: T9029 — ensureConduitDb/ensureGlobalSignaldockDb properly deferred from startup',
+  );
   process.exit(0);
 } else {
   console.error(`\nVERIFIER FAIL: ${failures.length} check(s) failed`);
