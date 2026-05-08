@@ -14,8 +14,8 @@
  */
 
 import { execSync, spawnSync } from 'node:child_process';
-import { resolve, join } from 'node:path';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -23,7 +23,7 @@ const REPO_ROOT = resolve(__dirname, '..');
 
 console.log('=== T9191 Verifier: cleo agent-outputs find CLI command ===\n');
 
-let failures = [];
+const failures = [];
 
 function fail(msg) {
   console.error('FAIL:', msg);
@@ -56,16 +56,18 @@ if (helpResult.error) {
   const stdout = helpResult.stdout || '';
   fail(
     `cleo agent-outputs find --help exited with status ${helpResult.status}.\n` +
-    `  stdout: ${stdout.slice(0, 300)}\n` +
-    `  stderr: ${stderr.slice(0, 300)}\n\n` +
-    `  T9191 AC requires 'cleo agent-outputs find' to be a registered CLI command.\n` +
-    `  DocsAccessor.searchDocs exists; the CLI surface is missing.\n` +
-    `  Register the command in packages/cleo/src/cli/commands/ and command-manifest.ts.`
+      `  stdout: ${stdout.slice(0, 300)}\n` +
+      `  stderr: ${stderr.slice(0, 300)}\n\n` +
+      `  T9191 AC requires 'cleo agent-outputs find' to be a registered CLI command.\n` +
+      `  DocsAccessor.searchDocs exists; the CLI surface is missing.\n` +
+      `  Register the command in packages/cleo/src/cli/commands/ and command-manifest.ts.`,
   );
 } else {
   const output = (helpResult.stdout || '') + (helpResult.stderr || '');
   if (!/agent.outputs/i.test(output)) {
-    fail(`cleo agent-outputs find --help exited 0 but output does not mention 'agent-outputs': ${output.slice(0, 200)}`);
+    fail(
+      `cleo agent-outputs find --help exited 0 but output does not mention 'agent-outputs': ${output.slice(0, 200)}`,
+    );
   } else {
     pass(`cleo agent-outputs find --help: exit 0, output mentions 'agent-outputs'`);
   }
@@ -77,10 +79,7 @@ if (helpResult.error) {
 
 console.log('\n--- Check 2: command-manifest.ts registration ---');
 
-const manifestPath = join(
-  REPO_ROOT,
-  'packages/cleo/src/cli/generated/command-manifest.ts'
-);
+const manifestPath = join(REPO_ROOT, 'packages/cleo/src/cli/generated/command-manifest.ts');
 
 if (!existsSync(manifestPath)) {
   fail(`command-manifest.ts not found at ${manifestPath}`);
@@ -89,7 +88,7 @@ if (!existsSync(manifestPath)) {
   if (!/agent.outputs/i.test(manifest) || !/find/i.test(manifest)) {
     fail(
       `command-manifest.ts does not register 'agent-outputs find'.\n` +
-      `  The command must appear in packages/cleo/src/cli/generated/command-manifest.ts.`
+        `  The command must appear in packages/cleo/src/cli/generated/command-manifest.ts.`,
     );
   } else {
     pass(`command-manifest.ts contains 'agent-outputs find' registration`);
@@ -103,19 +102,19 @@ if (!existsSync(manifestPath)) {
 console.log('\n--- Check 3: DocsAccessor.searchDocs wired in CLI ---');
 
 // Find any command file that imports/calls searchDocs for agent-outputs
-let searchDocsWired = false;
+let _searchDocsWired = false;
 try {
   const result = execSync(
     `grep -rn "searchDocs\\|agent-outputs.*find\\|AgentOutput" packages/cleo/src/cli --include="*.ts" 2>/dev/null || true`,
-    { encoding: 'utf8', cwd: REPO_ROOT }
+    { encoding: 'utf8', cwd: REPO_ROOT },
   );
   // We need it to reference searchDocs in context of agent-outputs
   const lines = result.split('\n').filter((l) => l.trim());
   const relevantLines = lines.filter(
-    (l) => l.includes('searchDocs') && !l.includes('.test.') && !l.includes('.spec.')
+    (l) => l.includes('searchDocs') && !l.includes('.test.') && !l.includes('.spec.'),
   );
   if (relevantLines.length > 0) {
-    searchDocsWired = true;
+    _searchDocsWired = true;
     pass(`searchDocs wired in CLI (${relevantLines.length} reference(s))`);
     for (const l of relevantLines.slice(0, 3)) {
       console.log('  ' + l);
@@ -123,8 +122,8 @@ try {
   } else {
     fail(
       `searchDocs not found in CLI command files.\n` +
-      `  The 'cleo agent-outputs find' command must call DocsAccessor.searchDocs.\n` +
-      `  DocsAccessor is the abstraction — do not call the brain/llmtxt layers directly.`
+        `  The 'cleo agent-outputs find' command must call DocsAccessor.searchDocs.\n` +
+        `  DocsAccessor is the abstraction — do not call the brain/llmtxt layers directly.`,
     );
   }
 } catch (e) {

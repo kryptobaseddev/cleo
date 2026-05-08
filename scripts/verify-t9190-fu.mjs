@@ -17,8 +17,8 @@
  * @see scripts/verify-t9190-fu.mjs
  */
 
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -27,7 +27,7 @@ const WORKFLOWS_DIR = join(REPO_ROOT, '.github', 'workflows');
 
 console.log('=== T9190 Verifier: CI workflow gate for pragma drift ===\n');
 
-let failures = [];
+const failures = [];
 
 function fail(msg) {
   console.error('FAIL:', msg);
@@ -47,7 +47,9 @@ if (!existsSync(WORKFLOWS_DIR)) {
   process.exit(1);
 }
 
-const workflowFiles = readdirSync(WORKFLOWS_DIR).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+const workflowFiles = readdirSync(WORKFLOWS_DIR).filter(
+  (f) => f.endsWith('.yml') || f.endsWith('.yaml'),
+);
 if (workflowFiles.length === 0) {
   fail('No workflow files found in .github/workflows/');
   process.exit(1);
@@ -88,18 +90,18 @@ for (const file of workflowFiles) {
 if (!pragmaGateFound) {
   fail(
     `No workflow file contains a pragma-drift gate step.\n` +
-    `  Searched patterns: ${PRAGMA_DRIFT_PATTERNS.map(p => p.toString()).join(', ')}\n` +
-    `  Files searched: ${workflowFiles.join(', ')}\n\n` +
-    `  T9190 AC requires a CI job/step that runs the pragma drift check on every PR.\n` +
-    `  The existing unit test in packages/core/src/__tests__/pragma-drift-guard.test.ts\n` +
-    `  is NOT sufficient — it needs to be wired into a GitHub Actions job.\n\n` +
-    `  Expected: Add a job like:\n` +
-    `    pragma-drift:\n` +
-    `      runs-on: ubuntu-latest\n` +
-    `      steps:\n` +
-    `        - uses: actions/checkout@v4\n` +
-    `        - name: Check pragma drift\n` +
-    `          run: pnpm --filter @cleocode/core run test -- pragma-drift-guard\n`
+      `  Searched patterns: ${PRAGMA_DRIFT_PATTERNS.map((p) => p.toString()).join(', ')}\n` +
+      `  Files searched: ${workflowFiles.join(', ')}\n\n` +
+      `  T9190 AC requires a CI job/step that runs the pragma drift check on every PR.\n` +
+      `  The existing unit test in packages/core/src/__tests__/pragma-drift-guard.test.ts\n` +
+      `  is NOT sufficient — it needs to be wired into a GitHub Actions job.\n\n` +
+      `  Expected: Add a job like:\n` +
+      `    pragma-drift:\n` +
+      `      runs-on: ubuntu-latest\n` +
+      `      steps:\n` +
+      `        - uses: actions/checkout@v4\n` +
+      `        - name: Check pragma drift\n` +
+      `          run: pnpm --filter @cleocode/core run test -- pragma-drift-guard\n`,
   );
 } else {
   pass(`Pragma drift gate found in: ${pragmaGateFile}`);
@@ -113,7 +115,7 @@ if (pragmaGateContent) {
   if (!/pull_request/i.test(pragmaGateContent)) {
     fail(
       `Workflow ${pragmaGateFile} contains pragma-drift gate but does NOT trigger on pull_request.\n` +
-      `  The gate must run on every PR, not just push to main.`
+        `  The gate must run on every PR, not just push to main.`,
     );
   } else {
     pass(`Workflow ${pragmaGateFile} triggers on pull_request`);
