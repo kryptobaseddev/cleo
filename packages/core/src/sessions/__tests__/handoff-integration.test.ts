@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock data accessor
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 // Mock decisions (required by computeHandoff)
@@ -24,7 +25,7 @@ vi.mock('../../store/session-store.js', () => ({
 }));
 
 import type { Session, SessionScope } from '@cleocode/contracts';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { insertHandoffEntry } from '../../store/session-store.js';
 import { computeBriefing } from '../briefing.js';
 import { computeHandoff, getHandoff, getLastHandoff, persistHandoff } from '../handoff.js';
@@ -150,6 +151,7 @@ describe('Session handoff full round-trip', () => {
   beforeEach(() => {
     store = createMockStore();
     (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(store.accessor);
+    (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(store.accessor);
     vi.clearAllMocks();
     // Wire insertHandoffEntry mock to simulate the AFTER INSERT trigger:
     // mirrors the handoff_json value back into the matching session in the store.

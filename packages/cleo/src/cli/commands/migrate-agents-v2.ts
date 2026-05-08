@@ -28,6 +28,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  applyPerfPragmas,
   ensureGlobalSignaldockDb,
   getGlobalSignaldockDbPath,
   getProjectRoot,
@@ -309,8 +310,7 @@ export async function runMigrateAgentsV2(
   // Bootstrap the global signaldock.db if it doesn't already exist.
   await ensureGlobalSignaldockDb();
   const db = new DatabaseSync(getGlobalSignaldockDbPath());
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA journal_mode = WAL');
+  applyPerfPragmas(db); // apply pragma SSoT (T9045)
 
   try {
     // Scan canonical project-tier directory (post-T889).

@@ -43,7 +43,8 @@ vi.mock('../../lib/config.js', () => ({
 
 // Mock data-accessor for session lookup (avoids DB reads)
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
-  getAccessor: vi.fn().mockResolvedValue({
+  getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn().mockResolvedValue({
     loadSessions: vi.fn().mockResolvedValue({ sessions: [] }),
   }),
 }));

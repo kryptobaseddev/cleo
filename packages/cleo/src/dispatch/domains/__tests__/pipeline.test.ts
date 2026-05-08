@@ -9,6 +9,7 @@ vi.mock('@cleocode/core/internal', () => ({
     debug: vi.fn(),
   })),
   getAccessor: vi.fn(async () => ({})),
+  getTaskAccessor: vi.fn(async () => ({})),
   resolveChannelFromBranch: vi.fn(() => 'stable'),
   channelToDistTag: vi.fn(() => 'latest'),
   describeChannel: vi.fn(() => 'Stable channel'),

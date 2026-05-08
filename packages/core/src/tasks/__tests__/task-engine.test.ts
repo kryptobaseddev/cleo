@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 vi.mock('../complete.js', async (importActual) => {
@@ -64,7 +65,7 @@ vi.mock('../../logger.js', () => ({
 
 import { loadConfig } from '../../config.js';
 import { getIvtrState } from '../../lifecycle/ivtr-loop.js';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { getActiveSession } from '../../store/session-store.js';
 import { completeTaskStrict, completeTask as coreCompleteTask, taskComplete } from '../complete.js';
 
@@ -74,6 +75,7 @@ import { completeTaskStrict, completeTask as coreCompleteTask, taskComplete } fr
 
 const mockCompleteTask = vi.mocked(coreCompleteTask);
 const mockGetAccessor = vi.mocked(getAccessor);
+const mockGetTaskAccessor = vi.mocked(getTaskAccessor);
 const mockGetIvtrState = vi.mocked(getIvtrState);
 const mockLoadConfig = vi.mocked(loadConfig);
 const mockGetActiveSession = vi.mocked(getActiveSession);
@@ -168,6 +170,9 @@ describe('taskComplete', () => {
     mockGetAccessor.mockResolvedValue(
       {} as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
     );
+    mockGetTaskAccessor.mockResolvedValue(
+      {} as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
+    );
   });
 
   it('returns E_INTERNAL error when core completeTask throws', async () => {
@@ -187,6 +192,13 @@ describe('taskComplete', () => {
         ? T
         : never,
     );
+    mockGetTaskAccessor.mockResolvedValue(
+      makeCompletableAccessorMock({ taskId: 'T101' }) as ReturnType<
+        typeof getAccessor
+      > extends Promise<infer T>
+        ? T
+        : never,
+    );
 
     const result = await taskComplete(projectRoot, 'T101');
 
@@ -197,6 +209,12 @@ describe('taskComplete', () => {
   it('populates modified_by from CLEO_AGENT_ID on successful completion (T1222 · CLEO-VALID-27)', async () => {
     const mockUpdateTaskFields = vi.fn().mockResolvedValue(undefined);
     mockGetAccessor.mockResolvedValue(
+      makeCompletableAccessorMock({
+        taskId: 'T200',
+        updateTaskFields: mockUpdateTaskFields,
+      }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
+    );
+    mockGetTaskAccessor.mockResolvedValue(
       makeCompletableAccessorMock({
         taskId: 'T200',
         updateTaskFields: mockUpdateTaskFields,
@@ -228,6 +246,12 @@ describe('taskComplete', () => {
   it('populates session_id from active session on successful completion (T1222 · CLEO-VALID-27)', async () => {
     const mockUpdateTaskFields = vi.fn().mockResolvedValue(undefined);
     mockGetAccessor.mockResolvedValue(
+      makeCompletableAccessorMock({
+        taskId: 'T201',
+        updateTaskFields: mockUpdateTaskFields,
+      }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
+    );
+    mockGetTaskAccessor.mockResolvedValue(
       makeCompletableAccessorMock({
         taskId: 'T201',
         updateTaskFields: mockUpdateTaskFields,
@@ -277,6 +301,12 @@ describe('completeTaskStrict — verification_json NULL gate (T1222 · CLEO-VALI
         verification: null,
       }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
     );
+    mockGetTaskAccessor.mockResolvedValue(
+      makeStrictAccessorMock({
+        taskId: TASK_NULL_VERIFY,
+        verification: null,
+      }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
+    );
 
     const result = await completeTaskStrict(projectRoot, TASK_NULL_VERIFY);
 
@@ -289,6 +319,18 @@ describe('completeTaskStrict — verification_json NULL gate (T1222 · CLEO-VALI
 
   it('allows completion through when task.verification is populated', async () => {
     mockGetAccessor.mockResolvedValue(
+      makeStrictAccessorMock({
+        taskId: 'T301',
+        verification: {
+          passed: true,
+          round: 1,
+          gates: { implemented: true, testsPassed: true, qaPassed: true },
+          evidence: {},
+          failureLog: [],
+        },
+      }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
+    );
+    mockGetTaskAccessor.mockResolvedValue(
       makeStrictAccessorMock({
         taskId: 'T301',
         verification: {
