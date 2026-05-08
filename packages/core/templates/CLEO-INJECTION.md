@@ -49,43 +49,9 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Multiple related tasks ready in parallel | Run `cleo orchestrate ready --epic <id>` for the wave set |
 | About to call `cleo complete` | First: check gates via `cleo show <id>` → run tests → then complete |
 
-## Task Creation (taxonomy — ADR-066)
+## Task Creation (ADR-066)
 
-All tasks require `--acceptance`. No exemption for any `--kind` value.
-
-```bash
-# Standard work task
-cleo add "Fix null-deref in task loader" \
-  --acceptance "Null input returns E_VALIDATION, not uncaught exception"
-
-# Bug with severity (triggers Ed25519 severity attestation)
-cleo add "Auth bypass on anonymous requests" \
-  --kind bug --severity P0 \
-  --acceptance "Anonymous POST to /api/tasks returns 401"
-
-# Research task
-cleo add "Investigate SQLite WAL tuning options" \
-  --kind research \
-  --acceptance "Options table with pros/cons and recommended setting documented"
-
-# Spike
-cleo add "Prototype streaming task output" \
-  --kind spike \
-  --acceptance "Proof-of-concept branch demonstrating approach exists"
-```
-
-### Task taxonomy axes (ADR-066)
-
-| Axis | Flag | Values | Notes |
-|------|------|--------|-------|
-| Structural type | `--type` | `epic \| task \| subtask` | Hierarchy position |
-| Intent kind | `--kind` | `work \| research \| experiment \| bug \| spike \| release` | `--role` does not exist |
-| Severity | `--severity` | `P0 \| P1 \| P2 \| P3` | Orthogonal to priority; attestation fires for any task with severity |
-
-Anti-patterns:
-- `cleo bug` — **does not exist**. Use `cleo add --kind bug --severity Px --acceptance "..."`
-- `--role` — **does not exist**. Use `--kind`
-- Creating a task without `--acceptance` — blocked by validator
+`--acceptance` required for ALL tasks. `cleo bug`/`--role` removed — use `cleo add --kind bug --severity Px --acceptance "..."`. Axes: `--type {epic|task|subtask}`, `--kind {work|research|experiment|bug|spike|release}`, `--severity {P0-P3}` (orthogonal to `--priority`; triggers Ed25519 attestation).
 
 ## Task Discovery
 
