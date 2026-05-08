@@ -160,6 +160,16 @@ export const doctorCommand = defineCommand({
       type: 'boolean',
       description: 'Scan ~/.local/share/cleo/ for orphaned nexus.db files and print report (T9052)',
     },
+    'audit-worktrees': {
+      type: 'boolean',
+      description:
+        'Audit orphaned agent worktree directories and report what cleo gc --worktrees would remove (T9043)',
+    },
+    'audit-temp': {
+      type: 'boolean',
+      description:
+        'Audit orphaned CLEO-generated temp directories and report what cleo gc --temp would remove (T9043)',
+    },
     'dry-run': {
       type: 'boolean',
       description:
@@ -405,6 +415,62 @@ export const doctorCommand = defineCommand({
             `\n  Stray project nexus.db: ${strayResult.removed ? '✓ removed' : 'not found'} (${strayResult.path})`,
           );
           humanLine('');
+        }
+      } else if (args['audit-worktrees']) {
+        progress.step(0, 'Auditing orphaned agent worktrees');
+        const { auditOrphanWorktrees } = await import('@cleocode/core/internal');
+        const checkResult = auditOrphanWorktrees();
+        progress.complete(`Worktree audit complete — ${checkResult.status}`);
+
+        if (args.json) {
+          process.stdout.write(
+            JSON.stringify({ success: true, data: checkResult }, null, 2) + '\n',
+          );
+        } else {
+          humanLine(`\nWorktree orphan audit: ${checkResult.message}`);
+          const orphans = checkResult.details?.['orphans'] as Array<{
+            path: string;
+            ageLabel: string;
+          }>;
+          if (orphans && orphans.length > 0) {
+            for (const o of orphans) {
+              humanLine(`  ${o.path}  (${o.ageLabel} old)`);
+            }
+            humanLine('\nRun: cleo gc --worktrees to remove orphaned worktrees.\n');
+            if (process.exitCode === undefined || process.exitCode === 0) {
+              process.exitCode = 2;
+            }
+          } else {
+            humanLine('  No orphaned worktrees found.\n');
+          }
+        }
+      } else if (args['audit-temp']) {
+        progress.step(0, 'Auditing orphaned CLEO temp directories');
+        const { auditOrphanTempDirs } = await import('@cleocode/core/internal');
+        const checkResult = await auditOrphanTempDirs();
+        progress.complete(`Temp audit complete — ${checkResult.status}`);
+
+        if (args.json) {
+          process.stdout.write(
+            JSON.stringify({ success: true, data: checkResult }, null, 2) + '\n',
+          );
+        } else {
+          humanLine(`\nTemp dir orphan audit: ${checkResult.message}`);
+          const orphans = checkResult.details?.['orphans'] as Array<{
+            path: string;
+            age: string;
+          }>;
+          if (orphans && orphans.length > 0) {
+            for (const o of orphans) {
+              humanLine(`  ${o.path}  (${o.age} old)`);
+            }
+            humanLine('\nRun: cleo gc --temp to remove orphaned temp directories.\n');
+            if (process.exitCode === undefined || process.exitCode === 0) {
+              process.exitCode = 2;
+            }
+          } else {
+            humanLine('  No orphaned CLEO temp directories found.\n');
+          }
         }
       } else {
         progress.step(0, 'Checking CLEO directory');
