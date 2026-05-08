@@ -442,7 +442,14 @@ jobs:
         run: pnpm test:pkg ${{ steps.test-scope.outputs.pkgs }}
       - name: Run unit tests — full shard sweep (shard ${{ matrix.shard }}/2)
         if: steps.test-scope.outputs.mode != 'per_package_tests'
-        run: pnpm exec vitest run --shard=${{ matrix.shard }}/2
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm exec vitest run --shard=${{ matrix.shard }}/2 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
+      - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/2)
+        if: steps.test-scope.outputs.mode != 'per_package_tests' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: node scripts/check-schema-warning-budget.mjs /tmp/vitest-shard${{ matrix.shard }}.log
 
   build-verify:
     name: Build & Verify (${{ matrix.os }})

@@ -739,16 +739,30 @@ export function migrateWithRetry(
  * via ALTER TABLE ADD COLUMN. Safety net for databases where Drizzle migrations
  * could not run due to journal corruption or version skew.
  *
+ * The `context` parameter (T9169) categorizes the call site so log levels can
+ * reflect intent:
+ *
+ * - **`'legacy-upgrade'`** (default): the call is a compatibility safety net
+ *   for a DB created by an older CLEO version. Missing columns are EXPECTED
+ *   and the repair is informational. Logs at WARN level.
+ *
+ * - **`'fresh'`**: the call follows a successful migration run on a
+ *   newly-created DB. Missing columns indicate a migration-chain DEFECT
+ *   (missing forward migration or breakpoint truncation). Logs at ERROR
+ *   level so the CI schema-warning gate (T9170) can fail the build.
+ *
  * @param nativeDb - Native SQLite database handle
  * @param tableName - Table to check (e.g., 'tasks')
  * @param requiredColumns - Columns that must exist
  * @param logSubsystem - Logger subsystem name
+ * @param context - 'legacy-upgrade' (default, WARN) or 'fresh' (ERROR)
  */
 export function ensureColumns(
   nativeDb: DatabaseSync,
   tableName: string,
   requiredColumns: RequiredColumn[],
   logSubsystem: string,
+  context: 'legacy-upgrade' | 'fresh' = 'legacy-upgrade',
 ): void {
   if (!tableExists(nativeDb, tableName)) return;
   if (requiredColumns.length === 0) return;
@@ -761,10 +775,16 @@ export function ensureColumns(
   for (const req of requiredColumns) {
     if (!existingCols.has(req.name)) {
       const log = getLogger(logSubsystem);
-      log.warn(
-        { column: req.name },
-        `Adding missing column ${tableName}.${req.name} via ALTER TABLE`,
-      );
+      const message = `Adding missing column ${tableName}.${req.name} via ALTER TABLE`;
+      const fields = { column: req.name, context };
+      if (context === 'fresh') {
+        // Migration defect: a fresh DB should NEVER need ensureColumns repair.
+        // Surfaced at ERROR so the CI schema-warning budget gate (T9170) fails
+        // the build and the gap is closed via an explicit forward migration.
+        log.error(fields, `${message} — MIGRATION DEFECT (fresh DB should not need repair)`);
+      } else {
+        log.warn(fields, message);
+      }
       nativeDb.exec(`ALTER TABLE ${tableName} ADD COLUMN ${req.name} ${req.ddl}`);
     }
   }
