@@ -40,10 +40,14 @@ function pass(msg) {
 
 console.log('--- Check 1: cleo agent-outputs find --help ---');
 
-const helpResult = spawnSync('cleo', ['agent-outputs', 'find', '--help'], {
-  encoding: 'utf8',
-  cwd: REPO_ROOT,
-});
+// Try the installed `cleo` first; fall back to the built dist in the monorepo.
+const CLEO_DIST = join(REPO_ROOT, 'packages', 'cleo', 'dist', 'cli', 'index.js');
+const helpArgs = ['agent-outputs', 'find', '--help'];
+let helpResult = spawnSync('cleo', helpArgs, { encoding: 'utf8', cwd: REPO_ROOT });
+if (helpResult.status !== 0 || /Unknown command/.test(helpResult.stderr || '')) {
+  // Installed cleo is old — fall back to built dist
+  helpResult = spawnSync('node', [CLEO_DIST, ...helpArgs], { encoding: 'utf8', cwd: REPO_ROOT });
+}
 
 if (helpResult.error) {
   fail(`Failed to run cleo: ${helpResult.error.message}`);
