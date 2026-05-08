@@ -207,6 +207,33 @@ export type EvidenceAtom =
       relativeSourcePath: string;
       /** Number of production callsite hits found by ripgrep. */
       hitCount: number;
+    }
+  | {
+      /**
+       * Decision atom — proves a decision-only task by referencing the
+       * brain_decisions row that IS the canonical artifact.
+       *
+       * Eliminates the need for `CLEO_OWNER_OVERRIDE` on decision-only
+       * completion paths (owner directive 2026-05-05 "overrides are a crutch").
+       *
+       * Used alongside `files:` pointing to a research note to satisfy the
+       * `implemented` gate for tasks where the deliverable is a recorded
+       * decision rather than a code change.
+       *
+       * Format: `decision:<D-id>` (e.g. `decision:D-arch-001`)
+       *
+       * Validation: CLEO checks the `brain_decisions` row exists with
+       * `confirmation_state` in (`accepted`, `proposed`).
+       *
+       * @task T1875
+       * @epic T1824
+       */
+      kind: 'decision';
+      /**
+       * The canonical decision ID from `brain_decisions.id`
+       * (e.g. `"D-arch-001"`, `"AGT-abc123"`).
+       */
+      decisionId: string;
     };
 
 /**

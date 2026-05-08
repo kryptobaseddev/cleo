@@ -288,7 +288,7 @@ export interface MemoryDecisionEntry {
    */
   adrNumber?: number | null;
   /**
-   * Relative or absolute path to the ADR document on disk (e.g. `"docs/adr/ADR-027.md"`).
+   * Relative or absolute path to the ADR document on disk (e.g. `".cleo/adrs/ADR-027.md"`).
    *
    * `undefined` / `null` when the decision has no associated file.
    */
@@ -809,7 +809,7 @@ export interface MemoryDecisionStoreParams {
   /** Phase context. */
   contextPhase?: string;
   /**
-   * Relative or absolute path to the ADR document on disk (e.g. `"docs/adr/ADR-027.md"`).
+   * Relative or absolute path to the ADR document on disk (e.g. `".cleo/adrs/ADR-027.md"`).
    *
    * @see T1826 Decision Storage Consolidation
    */

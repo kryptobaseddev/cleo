@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Verifier for T1875: Add decision evidence atom kind ('decision:<id>') to gate verify system.
  *
@@ -18,10 +19,10 @@
  * @epic T1824
  */
 
+import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -55,7 +56,7 @@ function checkContractsType() {
   if (!content.includes("kind: 'decision'") && !content.includes('kind: "decision"')) {
     fail(
       `EvidenceAtom type in packages/contracts/src/task.ts does not have a 'decision' variant. ` +
-      `Expected: { kind: 'decision'; decisionId: string } or similar in the EvidenceAtom union.`,
+        `Expected: { kind: 'decision'; decisionId: string } or similar in the EvidenceAtom union.`,
     );
   } else {
     pass(`EvidenceAtom type includes 'decision' variant in packages/contracts/src/task.ts`);
@@ -65,9 +66,7 @@ function checkContractsType() {
   const hasDecisionId =
     content.includes('decisionId') || content.includes('decision_id') || content.includes('id:');
   if (!hasDecisionId) {
-    fail(
-      `EvidenceAtom 'decision' variant should carry a decision identifier field (decisionId).`,
-    );
+    fail(`EvidenceAtom 'decision' variant should carry a decision identifier field (decisionId).`);
   }
 
   // Check .d.ts dist
@@ -77,7 +76,7 @@ function checkContractsType() {
     if (!distContent.includes("kind: 'decision'") && !distContent.includes('kind: "decision"')) {
       fail(
         `packages/contracts/dist/task.d.ts (compiled output) does not include 'decision' variant. ` +
-        `Run 'pnpm run build' to regenerate.`,
+          `Run 'pnpm run build' to regenerate.`,
       );
     } else {
       pass(`Compiled contracts dist/task.d.ts includes 'decision' variant`);
@@ -103,17 +102,14 @@ async function checkParseEvidence() {
   if (!source.includes("case 'decision':") && !source.includes('case "decision":')) {
     fail(
       `parseEvidence in packages/core/src/tasks/evidence.ts does not handle 'decision:' atom kind. ` +
-      `Add a 'case "decision"' branch to the switch statement.`,
+        `Add a 'case "decision"' branch to the switch statement.`,
     );
   } else {
     pass(`parseEvidence handles 'decision:' case`);
   }
 
   // Check ParsedAtom union has decision variant
-  if (
-    !source.includes("kind: 'decision'") &&
-    !source.includes("kind: \"decision\"")
-  ) {
+  if (!source.includes("kind: 'decision'") && !source.includes('kind: "decision"')) {
     fail(
       `ParsedAtom union in packages/core/src/tasks/evidence.ts does not include 'decision' variant.`,
     );
@@ -122,18 +118,9 @@ async function checkParseEvidence() {
   }
 
   // Try importing the built module and parsing a decision atom
-  const evidenceJsPath = join(
-    REPO_ROOT,
-    'packages',
-    'core',
-    'dist',
-    'tasks',
-    'evidence.js',
-  );
+  const evidenceJsPath = join(REPO_ROOT, 'packages', 'core', 'dist', 'tasks', 'evidence.js');
   if (!existsSync(evidenceJsPath)) {
-    fail(
-      `packages/core/dist/tasks/evidence.js not found — run 'pnpm run build' first`,
-    );
+    fail(`packages/core/dist/tasks/evidence.js not found — run 'pnpm run build' first`);
     return;
   }
 
@@ -181,14 +168,7 @@ async function checkParseEvidence() {
 async function checkFakeDecisionRejected() {
   console.log('\n--- Check 3: Fake decision ID is rejected ---');
 
-  const evidenceJsPath = join(
-    REPO_ROOT,
-    'packages',
-    'core',
-    'dist',
-    'tasks',
-    'evidence.js',
-  );
+  const evidenceJsPath = join(REPO_ROOT, 'packages', 'core', 'dist', 'tasks', 'evidence.js');
   if (!existsSync(evidenceJsPath)) {
     fail(`packages/core/dist/tasks/evidence.js not found — skipping runtime check`);
     return;
@@ -207,7 +187,9 @@ async function checkFakeDecisionRejected() {
     try {
       parsed = parseEvidence('decision:D-FAKE-99999-DOES-NOT-EXIST');
     } catch (e) {
-      fail(`parseEvidence threw for fake decision ID (should parse, fail at validate): ${e.message}`);
+      fail(
+        `parseEvidence threw for fake decision ID (should parse, fail at validate): ${e.message}`,
+      );
       return;
     }
 
@@ -221,7 +203,7 @@ async function checkFakeDecisionRejected() {
     if (result.ok) {
       fail(
         `validateAtom accepted a fake decision ID 'D-FAKE-99999-DOES-NOT-EXIST' — ` +
-        `expected rejection with E_EVIDENCE_INVALID_DECISION or similar`,
+          `expected rejection with E_EVIDENCE_INVALID_DECISION or similar`,
       );
     } else {
       pass(
@@ -259,7 +241,7 @@ function checkGateMinimums() {
   if (!implementedSection.includes("'decision'") && !implementedSection.includes('"decision"')) {
     fail(
       `GATE_EVIDENCE_MINIMUMS implemented gate does not include 'decision' as a valid atom kind. ` +
-      `Add ['decision', 'files'] or ['decision', 'note'] as an alternative set.`,
+        `Add ['decision', 'files'] or ['decision', 'note'] as an alternative set.`,
     );
   } else {
     pass(`GATE_EVIDENCE_MINIMUMS implemented gate includes 'decision' alternative`);
@@ -290,7 +272,7 @@ function checkInjectionMd() {
         // File exists but no decision: example
         fail(
           `CLEO-INJECTION.md at ${p} exists but does not include a decision: evidence atom example. ` +
-          `Add: decision:<D-id> example to the Pre-Complete Gate Ritual section.`,
+            `Add: decision:<D-id> example to the Pre-Complete Gate Ritual section.`,
         );
         found = true;
         break;
@@ -301,7 +283,7 @@ function checkInjectionMd() {
   if (!found) {
     fail(
       `CLEO-INJECTION.md not found at any expected path:\n` +
-      injectionPaths.map((p) => `  - ${p}`).join('\n'),
+        injectionPaths.map((p) => `  - ${p}`).join('\n'),
     );
   }
 }
@@ -328,7 +310,9 @@ function checkTests() {
         foundTest = true;
         break;
       } else if (content.includes('decision')) {
-        pass(`Test file ${p.replace(REPO_ROOT + '/', '')} references decision (partial coverage detected)`);
+        pass(
+          `Test file ${p.replace(REPO_ROOT + '/', '')} references decision (partial coverage detected)`,
+        );
         foundTest = true;
         break;
       }
@@ -343,7 +327,9 @@ function checkTests() {
         { encoding: 'utf8', timeout: 10000 },
       ).trim();
       if (result) {
-        pass(`Found decision-related test coverage in:\n  ${result.split('\n').slice(0, 3).join('\n  ')}`);
+        pass(
+          `Found decision-related test coverage in:\n  ${result.split('\n').slice(0, 3).join('\n  ')}`,
+        );
         foundTest = true;
       }
     } catch {
@@ -354,10 +340,10 @@ function checkTests() {
   if (!foundTest) {
     fail(
       `No test file found covering the decision atom path. ` +
-      `Add tests to packages/core/src/tasks/__tests__/evidence.test.ts covering:\n` +
-      `  - parseEvidence('decision:D-001') produces decision atom\n` +
-      `  - validateAtom rejects fake decision ID with E_EVIDENCE_INVALID_DECISION\n` +
-      `  - GATE_EVIDENCE_MINIMUMS satisfied by [decision, files] combo`,
+        `Add tests to packages/core/src/tasks/__tests__/evidence.test.ts covering:\n` +
+        `  - parseEvidence('decision:D-001') produces decision atom\n` +
+        `  - validateAtom rejects fake decision ID with E_EVIDENCE_INVALID_DECISION\n` +
+        `  - GATE_EVIDENCE_MINIMUMS satisfied by [decision, files] combo`,
     );
   }
 }
