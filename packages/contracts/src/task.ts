@@ -547,6 +547,38 @@ export type CancelledTask = Task & {
   cancellationReason: string;
 };
 
+/**
+ * Shape of a signed severity attestation line appended to the audit log.
+ *
+ * The attestation is produced whenever a task's `--severity` flag is
+ * explicitly set.  It is signed with the project's CLEO Ed25519 identity and
+ * appended to `.cleo/audit/severity-attestation.jsonl` as a single JSON line
+ * (stable / sorted-key serialisation so verifiers can reconstruct the signed
+ * payload).
+ *
+ * Renamed from the earlier `BugSeverityAttestation` (which was scoped only to
+ * `cleo bug`).  The new name reflects that severity attestation is a
+ * system-wide primitive usable by any task type (bug, feature, spike, etc.)
+ * that carries a `--severity` flag.
+ *
+ * @task T9071
+ * @adr ADR-054 (draft)
+ */
+export interface SeverityAttestation {
+  /** ISO 8601 timestamp of the attestation. */
+  timestamp: string;
+  /** Task title at attestation time. */
+  title: string;
+  /** Severity level asserted by the signer (P0–P3). */
+  severity: string;
+  /** Optional epic the task is filed under. @defaultValue undefined */
+  epic?: string;
+  /** Optional pre-assigned task ID (if known at attestation time). @defaultValue undefined */
+  taskId?: string;
+  /** Signer's Ed25519 public key (hex, 64 hex characters). */
+  signerPub: string;
+}
+
 /** Phase status. */
 export type PhaseStatus = 'pending' | 'active' | 'completed';
 
