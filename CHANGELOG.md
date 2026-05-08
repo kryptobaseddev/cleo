@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] — Wave A: spawn/complete reliability
+
+Fixes five reliability defects in the spawn/complete lifecycle that caused orphaned
+commits, phantom completions, stale registry entries, sourcemap noise, and a stuck
+brain sweep.
+
+### Bug Fixes
+
+- **T9175**: `cleo complete` now passes `deleteBranch: false` to `teardownWorktree`,
+  preserving the `task/<id>` branch until the orchestrator merges it via
+  `git merge --no-ff`. Previously the branch was deleted immediately on complete,
+  orphaning the worker's commits before integration could happen.
+- **T9178**: `cleo verify --gate implemented --evidence commit:<sha>` now validates
+  that the commit SHA is reachable from `task/<taskId>` branch (not just from HEAD).
+  This blocks phantom completions that fabricate evidence by recycling a SHA from a
+  different branch (e.g. a parent merge commit reachable from HEAD but not authored
+  by the worker).
+- **T9173**: New `cleo agent prune-orphans` command deletes D-002 orphan registry
+  rows (stale `cant_path` entries) from any working directory. Previously
+  `cleo agent remove` failed with `E_NOT_FOUND` for orphans belonging to dead
+  projects (e.g. after `/tmp/` project directories were deleted).
+- **T9184**: esbuild build pipeline now sanitizes `.js.map` sources fields to strip
+  CI runner absolute paths (`/Users/runner/work/...`). The post-build
+  `sanitizeSourcemaps()` step converts any absolute paths to relative paths, silencing
+  the "Sourcemap ... points to missing source files" stderr noise in tests.
+- **T9174**: The `20260423000002_t1089-add-session-narrative-table` brain migration
+  now uses `CREATE TABLE IF NOT EXISTS`. The `session-narrative.ts` bootstrap creates
+  the table during startup before migrations run, causing every `getBrainDb()` call to
+  fail with "table session_narrative already exists". This blocked `cleo memory sweep`,
+  briefing, and all brain-touching commands. Four prior sweep attempts (2026-04-24)
+  all rolled back for this reason.
+
 ## [2026.5.53] (2026-05-08) — Phase 5: Startup Performance
 
 Startup tax reductions: one-shot marker for legacy sweeps, deferred DB opens, benchmark infrastructure.
