@@ -374,7 +374,10 @@ describe('CLI startup: T310 migration hook (T360)', () => {
 
   it('T9028: writes marker even when cleanup functions return errors (non-fatal)', async () => {
     isCleanupMarkerSetMock.mockReturnValue(false);
-    detectAndRemoveLegacyGlobalFilesMock.mockReturnValue({ removed: [], errors: [{ file: 'x', error: 'EPERM' }] });
+    detectAndRemoveLegacyGlobalFilesMock.mockReturnValue({
+      removed: [],
+      errors: [{ file: 'x', error: 'EPERM' }],
+    });
 
     const { runStartupMaintenance } = await import('../index.js');
     await expect(runStartupMaintenance()).resolves.not.toThrow();
