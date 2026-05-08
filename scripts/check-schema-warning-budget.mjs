@@ -29,11 +29,12 @@ const ALLOWED_FILES = [
   'migration-v3-columns.test.ts',
   'idempotent-migration.test.ts',
   // Tests that seed legacy DBs to exercise startup migration paths.
-  // The seed-install fixture and daemon-supervision spin up brain.db
-  // instances that pre-date some forward migrations, hitting reconcileJournal
-  // and ensureColumns by design.
+  // The seed-install fixture and sentient supervision/walker tests spin up
+  // brain.db instances that pre-date T528 graph-schema-expansion, hitting
+  // reconcileJournal and ensureColumns by design.
   'seed-install-meta.test.ts',
   'daemon-supervision.test.ts',
+  'revert-walker.test.ts',
 ];
 
 // Match the actual log message format from migration-manager.ts ensureColumns:
