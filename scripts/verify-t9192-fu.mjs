@@ -43,7 +43,10 @@ function pass(msg) {
 
 console.log('--- Check 1: cleo verify --help mentions --acceptance-check ---');
 
-const verifyHelp = spawnSync('cleo', ['verify', '--help'], {
+const CLEO_DIST = join(REPO_ROOT, 'packages', 'cleo', 'dist', 'cli', 'index.js');
+const cleoCmd = existsSync(CLEO_DIST) ? ['node', CLEO_DIST] : ['cleo'];
+
+const verifyHelp = spawnSync(cleoCmd[0], [...cleoCmd.slice(1), 'verify', '--help'], {
   encoding: 'utf8',
   cwd: REPO_ROOT,
 });
@@ -87,8 +90,8 @@ process.exit(1);
 try {
   // Run cleo verify with --acceptance-check pointing to our fake verifier
   const blockResult = spawnSync(
-    'cleo',
-    ['verify', 'T9192', '--acceptance-check', fakeVerifierPath],
+    cleoCmd[0],
+    [...cleoCmd.slice(1), 'verify', 'T9192', '--acceptance-check', fakeVerifierPath],
     {
       encoding: 'utf8',
       cwd: REPO_ROOT,
@@ -110,7 +113,7 @@ try {
   fail(`Error running cleo verify --acceptance-check: ${e.message}`);
 } finally {
   try { unlinkSync(fakeVerifierPath); } catch (_) {}
-  try { require('node:fs').rmdirSync(tmpDir); } catch (_) {}
+  try { import('node:fs').then(m => m.rmdirSync(tmpDir)); } catch (_) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +122,7 @@ try {
 
 console.log('\n--- Check 3: cleo audit --help ---');
 
-const auditHelp = spawnSync('cleo', ['audit', '--help'], {
+const auditHelp = spawnSync(cleoCmd[0], [...cleoCmd.slice(1), 'audit', '--help'], {
   encoding: 'utf8',
   cwd: REPO_ROOT,
 });
