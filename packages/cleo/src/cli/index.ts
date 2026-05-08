@@ -256,25 +256,35 @@ export async function runStartupMaintenance(): Promise<void> {
   const _startupLog = getLogger('cli-startup');
 
   // Step 2: One-shot T310 signaldock → conduit migration (T358 / ADR-037 §8).
-  try {
-    const _projectRootForMigration = getProjectRoot();
-    if (needsSignaldockToConduitMigration(_projectRootForMigration)) {
-      const migrationResult = migrateSignaldockToConduit(_projectRootForMigration);
-      if (migrationResult.status === 'failed') {
-        _startupLog.error(
-          { errors: migrationResult.errors, projectRoot: _projectRootForMigration },
-          'T310 migration: signaldock → conduit failed — CLI continues, run `cleo doctor` to diagnose',
+  // Skip during `cleo init` itself — init creates the project structure, so
+  // expecting a project root here would always fail and emit a noisy
+  // "Run cleo init at <path>" WARN. Init handles its own setup.
+  const isInitInvocation = process.argv.slice(2).some((a) => a === 'init');
+  if (!isInitInvocation) {
+    try {
+      const _projectRootForMigration = getProjectRoot();
+      if (needsSignaldockToConduitMigration(_projectRootForMigration)) {
+        const migrationResult = migrateSignaldockToConduit(_projectRootForMigration);
+        if (migrationResult.status === 'failed') {
+          _startupLog.error(
+            { errors: migrationResult.errors, projectRoot: _projectRootForMigration },
+            'T310 migration: signaldock → conduit failed — CLI continues, run `cleo doctor` to diagnose',
+          );
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // E_NO_PROJECT (global command, no project root) and "Run cleo init at"
+      // (uninitialized project) are expected — both indicate "no project to
+      // migrate", not a real failure. Suppress the noise.
+      if (msg.includes('E_NO_PROJECT') || msg.startsWith('Run cleo init')) {
+        // expected — no-op
+      } else {
+        _startupLog.warn(
+          { error: msg },
+          'T310 migration startup check threw unexpectedly — CLI continues',
         );
       }
-    }
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('E_NO_PROJECT')) {
-      // Expected for global commands (e.g. `cleo session status`) — no-op.
-    } else {
-      _startupLog.warn(
-        { error: err instanceof Error ? err.message : String(err) },
-        'T310 migration startup check threw unexpectedly — CLI continues',
-      );
     }
   }
 

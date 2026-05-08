@@ -18,7 +18,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
-import { ensureColumns, migrateSanitized } from './migration-manager.js';
+import { ensureColumns, migrateWithRetry, reconcileJournal } from './migration-manager.js';
 import * as nexusSchema from './nexus-schema.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import { isSqliteBusy, openNativeDatabase } from './sqlite.js';
@@ -317,14 +317,23 @@ function runNexusMigrations(
   // DDL block executes atomically without the node:sqlite first-statement-only limit.
   ensureNexusFts5(nativeDb);
 
-  // Run pending migrations via drizzle-orm/node-sqlite/migrator (synchronous).
+  // T9183: Reconcile partial migrations before running migrate (matches brain.db
+  // pattern in memory-sqlite.ts). When a legacy nexus.db has columns from prior
+  // ensureColumns() repair but no journal entries, reconcileJournal Scenario 3
+  // marks those migrations applied via DDL probe so migrateWithRetry doesn't
+  // hit duplicate-column errors on the legacy-upgrade path.
+  reconcileJournal(nativeDb, migrationsFolder, 'project_registry', 'nexus');
+
+  // Run pending migrations via migrateWithRetry which catches duplicate-column
+  // errors and triggers Scenario 3 reconciliation as a belt-and-suspenders
+  // safety net (T9183, matches memory-sqlite.ts:99 brain pattern).
   const MAX_RETRIES = 5;
   const BASE_DELAY_MS = 100;
   const MAX_DELAY_MS = 2000;
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      migrateSanitized(db, { migrationsFolder });
+      migrateWithRetry(db, migrationsFolder, nativeDb, 'project_registry', 'nexus');
       // T1062: post-migration safety net for is_external — ensures the column exists
       // on fresh DBs where ensureColumns ran before the table was created, and on
       // old DBs where this column was added after initial schema creation.

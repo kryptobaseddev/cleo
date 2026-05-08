@@ -774,9 +774,22 @@ export async function ensureProjectContext(
         typeof ajvMod.default === 'function' ? ajvMod.default : AjvModule.default
       ) as new (
         opts?: Record<string, unknown>,
-      ) => { validate(schema: unknown, data: unknown): boolean; errors?: unknown[] | null };
+      ) => {
+        validate(schema: unknown, data: unknown): boolean;
+        errors?: unknown[] | null;
+        addFormat?: (name: string, format: unknown) => unknown;
+      };
       const schema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
       const ajv = new AjvClass({ strict: false });
+      // T9183: register ajv-formats so 'date-time' (and other ISO formats) are
+      // recognized — without this, Ajv emits 'unknown format "date-time" ignored'
+      // warnings during cleo init when validating project-context.json.
+      const addFormatsModule = await import('ajv-formats');
+      const fmtMod = addFormatsModule as Record<string, unknown>;
+      const addFormats = (
+        typeof fmtMod.default === 'function' ? fmtMod.default : addFormatsModule.default
+      ) as (instance: unknown) => unknown;
+      addFormats(ajv);
       const valid = ajv.validate(schema, context);
       if (!valid) {
         // eslint-disable-next-line no-console
