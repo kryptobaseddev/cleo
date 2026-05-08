@@ -923,6 +923,9 @@ export {
   isCleanupMarkerSet,
   setCleanupMarker,
 } from './store/cleanup-legacy.js';
+// DocsAccessor — unified llmtxt + manifest interface (T9063 · ADR-068 · ADR-069)
+export type { DocsAccessorImplOptions } from './store/docs-accessor-impl.js';
+export { createDocsAccessor, DocsAccessorImpl } from './store/docs-accessor-impl.js';
 export {
   gitCheckpoint,
   gitCheckpointStatus,
