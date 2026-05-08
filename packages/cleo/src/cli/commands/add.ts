@@ -13,7 +13,11 @@
  * @epic T4454
  */
 
-import { getProjectRoot, inferTaskAddParams } from '@cleocode/core';
+import {
+  appendSignedSeverityAttestation,
+  getProjectRoot,
+  inferTaskAddParams,
+} from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
@@ -156,13 +160,17 @@ export const addCommand = defineCommand({
         'Task scope / granularity axis (project|feature|unit) — orthogonal to --type (T944)',
     },
     /**
-     * Bug severity. Only valid when --kind bug.
+     * Severity level for any task kind (not just bug).
      * Values: P0 | P1 | P2 | P3
+     * Orthogonal to --priority — does NOT auto-map priority.
+     * Appends a signed attestation to .cleo/audit/severity-attestation.jsonl (T9071/T9073).
      * @task T944
+     * @task T9073
      */
     severity: {
       type: 'string',
-      description: 'Bug severity (P0|P1|P2|P3) — only valid with --kind bug (T944)',
+      description:
+        'Severity level (P0|P1|P2|P3) — valid for any --kind (T9073). Orthogonal to priority. Appends signed attestation.',
     },
     /**
      * Bypass the E_DUPLICATE_TASK_LIKELY rejection guard.
@@ -276,6 +284,28 @@ export const addCommand = defineCommand({
     if (inferred.inferredParent) {
       params['parent'] = inferred.inferredParent;
       humanInfo(`[cleo add] inferred --parent from current task: ${inferred.inferredParent}`);
+    }
+
+    // T9073 / T9071: fire signed severity attestation for any role.
+    // Severity is orthogonal to priority — no auto-mapping here.
+    // Skip for --dry-run; non-fatal outside CLEO project (falls through).
+    if (args.severity !== undefined && !args['dry-run']) {
+      try {
+        await appendSignedSeverityAttestation({
+          timestamp: new Date().toISOString(),
+          title: args.title,
+          severity: args.severity,
+          ...(params['parent'] !== undefined ? { epic: params['parent'] as string } : {}),
+        });
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === 'E_OWNER_ONLY') {
+          cliError((err as Error).message, 72, { name: 'E_OWNER_ONLY' });
+          process.exit(72);
+          return;
+        }
+        // Any other failure (e.g. not inside a CLEO project) is non-fatal.
+      }
     }
 
     const response = await dispatchRaw('mutate', 'tasks', 'add', params);

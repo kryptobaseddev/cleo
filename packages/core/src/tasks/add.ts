@@ -74,8 +74,9 @@ export interface AddTaskOptions {
    */
   scope?: TaskScope;
   /**
-   * Bug severity. OWNER-WRITE-ONLY. Only valid when {@link kind} is `'bug'`.
+   * Severity level. Valid for any kind (widened from bug-only by T9073). OWNER-WRITE-ONLY.
    * @task T944
+   * @task T9073
    */
   severity?: TaskSeverity;
   /**
