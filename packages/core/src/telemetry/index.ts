@@ -534,6 +534,24 @@ export async function pruneOldTelemetryEvents(
 }
 
 // ---------------------------------------------------------------------------
+// Test utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Reset the in-process telemetry buffer and exit-handler registration state.
+ *
+ * FOR TESTING ONLY. Ensures each test starts with a clean buffer so that
+ * events from previous tests do not bleed into subsequent test assertions.
+ *
+ * @internal
+ */
+export function resetTelemetryBufferState(): void {
+  _telemetryBuffer.length = 0;
+  _exitHandlersRegistered = false;
+  _flushInProgress = false;
+}
+
+// ---------------------------------------------------------------------------
 // Re-exports
 // ---------------------------------------------------------------------------
 

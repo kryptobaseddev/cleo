@@ -19,9 +19,11 @@ import {
   buildDiagnosticsReport,
   disableTelemetry,
   enableTelemetry,
+  flushTelemetryBuffer,
   isTelemetryEnabled,
   loadTelemetryConfig,
   recordTelemetryEvent,
+  resetTelemetryBufferState,
 } from '../telemetry/index.js';
 import { resetTelemetryDbState } from '../telemetry/sqlite.js';
 
@@ -37,10 +39,13 @@ beforeEach(async () => {
   process.env['CLEO_HOME'] = tempDir;
   // Reset the DB singleton so each test starts clean
   resetTelemetryDbState();
+  // Reset the in-process buffer (T9051) so events from previous tests don't leak
+  resetTelemetryBufferState();
 });
 
 afterEach(async () => {
   resetTelemetryDbState();
+  resetTelemetryBufferState(); // T9051: clear buffer after each test
   await rm(tempDir, { recursive: true, force: true });
   if (origCleoHome !== undefined) {
     process.env['CLEO_HOME'] = origCleoHome;
@@ -136,6 +141,7 @@ describe('recordTelemetryEvent', () => {
       durationMs: 100,
       exitCode: 0,
     });
+    await flushTelemetryBuffer(); // T9051: flush buffer before reading DB
     // Verify by building a report
     const report = await buildDiagnosticsReport(1);
     expect(report).not.toBeNull();
@@ -187,6 +193,7 @@ describe('buildDiagnosticsReport', () => {
       });
     }
 
+    await flushTelemetryBuffer(); // T9051: events buffered — flush before reading
     const report = await buildDiagnosticsReport(1);
     expect(report).not.toBeNull();
     const failing = report!.topFailing.find((c) => c.command === 'tasks.add');
@@ -211,6 +218,7 @@ describe('buildDiagnosticsReport', () => {
       });
     }
 
+    await flushTelemetryBuffer(); // T9051: events buffered — flush before reading
     const report = await buildDiagnosticsReport(1);
     expect(report).not.toBeNull();
     expect(report!.observations.length).toBeGreaterThan(0);
