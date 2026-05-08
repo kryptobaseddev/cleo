@@ -152,6 +152,35 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-dep.mjs
 
+  pragma-drift:
+    name: SQLite Pragma Drift Guard (T9025 / T9190)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Run pragma-drift-guard (T9025)
+        # Scans all TS source files to ensure every new DatabaseSync() call
+        # has applyPerfPragmas applied within 5 lines. ADR-068 §3.
+        # Fails on any production file with a missing applyPerfPragmas call.
+        run: pnpm --filter @cleocode/core exec vitest run --reporter=verbose src/__tests__/pragma-drift-guard.test.ts
+
   db-open-guard:
     name: DB Open Chokepoint Guard (ADR-068 T9047)
     runs-on: ubuntu-latest
