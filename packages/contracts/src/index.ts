@@ -246,6 +246,17 @@ export type {
   TaskQueryFilters,
   TransactionAccessor,
 } from './data-accessor.js';
+// === DocsAccessor Contracts (T9063) ===
+export type {
+  DocExportFormat,
+  DocKind,
+  DocRecord,
+  DocSearchHit,
+  DocsAccessor,
+  ListDocsFilters,
+  StoreDocParams,
+  StoreDocResult,
+} from './docs-accessor.js';
 // === Dependency Registry Contracts ===
 export type {
   DependencyCategory,
