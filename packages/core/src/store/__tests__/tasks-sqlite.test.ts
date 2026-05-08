@@ -52,8 +52,20 @@ describe('SQLite tasks-sqlite', () => {
   afterEach(async () => {
     const { closeDb } = await import('../sqlite.js');
     closeDb();
+    // deleteTask fires void cleanupBrainRefsOnTaskDelete which opens brain.db.
+    // Drain the in-flight promise then close brain.db so rm() does not race
+    // against an open WAL sidecar on Windows (T9182).
+    await new Promise((r) => setTimeout(r, 50));
+    try {
+      const { closeBrainDb } = await import('../memory-sqlite.js');
+      closeBrainDb();
+    } catch {
+      /* ignore */
+    }
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait (T9182).
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   // === createTask ===

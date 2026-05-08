@@ -17,7 +17,7 @@
  */
 
 import { arch, homedir, hostname, platform, release } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import envPaths from 'env-paths';
 
 /**
@@ -114,7 +114,11 @@ function resolveHomeOverride(value: string | undefined): string | undefined {
   if (trimmed.length === 0) return undefined;
   if (trimmed === '~') return homedir();
   if (trimmed.startsWith('~/')) return join(homedir(), trimmed.slice(2));
-  if (isAbsolute(trimmed)) return trimmed;
+  // resolve() normalises POSIX-style root paths to the platform form: on
+  // Windows, `/custom/cleo` → `D:\custom\cleo` (prepends the current drive),
+  // which matches what `path.resolve('/custom/cleo')` returns in the test
+  // environment. On Linux/macOS the path is returned unchanged (T9182).
+  if (isAbsolute(trimmed)) return resolve(trimmed);
   return join(homedir(), trimmed);
 }
 
