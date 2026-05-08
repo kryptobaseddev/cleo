@@ -254,6 +254,17 @@ export type {
   DependencySpec,
 } from './dependency.js';
 export type { AdapterManifest, DetectionPattern } from './discovery.js';
+// === DocsAccessor Contracts (T9063) ===
+export type {
+  DocExportFormat,
+  DocKind,
+  DocRecord,
+  DocSearchHit,
+  DocsAccessor,
+  ListDocsFilters,
+  StoreDocParams,
+  StoreDocResult,
+} from './docs-accessor.js';
 // === Error Utilities ===
 export {
   ClassifierUnregisteredAgentError,
