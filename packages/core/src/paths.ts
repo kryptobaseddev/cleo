@@ -671,7 +671,7 @@ export function resolveProjectPath(relativePath: string, cwd?: string): string {
 
 /**
  * Get the path to the project's tasks.db file (SQLite database).
- * @deprecated Use getAccessor() from './store/data-accessor.js' instead. This function
+ * @deprecated Use getTaskAccessor() from './store/data-accessor.js' instead. This function
  *   returns the database file path for legacy compatibility, but all task data access
  *   should go through the DataAccessor interface to ensure proper SQLite interaction.
  *   Example:
@@ -679,14 +679,14 @@ export function resolveProjectPath(relativePath: string, cwd?: string): string {
  *     const taskPath = getTaskPath(cwd);
  *     const data = await readJsonFile<TaskFile>(taskPath);
  *     // NEW (correct):
- *     const accessor = await getAccessor(cwd);
+ *     const accessor = await getTaskAccessor(cwd);
  *     const data = await accessor.queryTasks({});
  *
  * @param cwd - Optional working directory for path resolution
  * @returns Absolute path to the tasks.db file
  *
  * @remarks
- * Returns `{cleoDir}/tasks.db`. Prefer `getAccessor()` for actual data access.
+ * Returns `{cleoDir}/tasks.db`. Prefer `getTaskAccessor()` for actual data access.
  *
  * @example
  * ```typescript

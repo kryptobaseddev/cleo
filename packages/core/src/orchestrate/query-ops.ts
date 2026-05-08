@@ -21,7 +21,7 @@ import { analyzeEpic, getNextTask, getReadyTasks } from '../orchestration/index.
 import { computeEpicStatus, computeOverallStatus } from '../orchestration/status.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
@@ -102,7 +102,7 @@ export type { EngineResult };
 export async function loadTasks(projectRoot?: string): Promise<Task[]> {
   const root = projectRoot || resolveProjectRoot();
   try {
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const result = await accessor.queryTasks({
       status: [...TASK_STATUSES] as TaskStatus[],
     });
@@ -175,7 +175,7 @@ export async function orchestrateAnalyze(
 
   try {
     const root = projectRoot || resolveProjectRoot();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const result = await analyzeEpic(epicId, root, accessor);
 
     // Add dependency graph and circular dep detection via core analyze module
@@ -320,7 +320,7 @@ export async function orchestrateReady(
     // mode === 'off': skip validation entirely
     // ---------------------------------------------------------------------------
 
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const readyTasks = await getReadyTasks(epicId, root, accessor);
     const ready = readyTasks.filter((t) => t.ready);
 
@@ -375,7 +375,7 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
 
   try {
     const root = projectRoot || resolveProjectRoot();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const nextTask = await getNextTask(epicId, root, accessor);
 
     if (!nextTask) {
@@ -428,7 +428,7 @@ export async function orchestrateWaves(
 
   try {
     const root = projectRoot || resolveProjectRoot();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const result = await getEnrichedWaves(epicId, root, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
@@ -483,7 +483,7 @@ export async function orchestrateValidate(
 
   try {
     const root = projectRoot || resolveProjectRoot();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const result = await validateSpawnReadiness(taskId, root, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {

@@ -16,7 +16,7 @@ import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orche
 import { type EngineResult, engineError } from '../engine-result.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from '../store/signaldock-sqlite.js';
 import { loadTasks } from './query-ops.js';
@@ -319,7 +319,7 @@ export async function orchestratePlan(
     }
 
     // Reuse the canonical wave computation used by orchestrate ready / waves.
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const enriched = await getEnrichedWaves(input.epicId, root, accessor);
 
     // Open a short-lived handle to the global signaldock.db for resolver lookups.

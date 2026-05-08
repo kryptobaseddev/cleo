@@ -26,7 +26,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { memoryObserve } from '../memory/engine-compat.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import { startTask, stopTask } from '../task-work/index.js';
 import { logOperation } from '../tasks/add.js';
@@ -207,7 +207,7 @@ export async function pivotTask(
   }
 
   const root = opts.projectRoot ?? resolveProjectRoot();
-  const acc = opts.accessor ?? (await getAccessor(root));
+  const acc = opts.accessor ?? (await getTaskAccessor(root));
 
   // ---------------------------------------------------------------------------
   // Validate both tasks exist (cleo exists semantics)

@@ -22,7 +22,7 @@ import {
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { paginate } from '../pagination.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { checkPermission } from './permissions.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
 import { type NexusRegistryFile, readRegistryRequired } from './registry.js';
@@ -106,7 +106,7 @@ const CROSS_REF_RE = /^([a-z0-9_-]+):(.+)$/;
 /** Read tasks from a project path, returning empty array on failure. */
 async function readProjectTasks(projectPath: string): Promise<Task[]> {
   try {
-    const accessor = await getAccessor(projectPath);
+    const accessor = await getTaskAccessor(projectPath);
     const { tasks } = await accessor.queryTasks({});
     return tasks;
   } catch {
@@ -120,7 +120,7 @@ async function computeGlobalChecksum(registry: NexusRegistryFile): Promise<strin
 
   for (const project of Object.values(registry.projects)) {
     try {
-      const accessor = await getAccessor(project.path);
+      const accessor = await getTaskAccessor(project.path);
       const { tasks } = await accessor.queryTasks({});
       hash.update(JSON.stringify(tasks));
     } catch {

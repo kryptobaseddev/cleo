@@ -21,7 +21,7 @@ import type {
   ReconcileResult,
   Task,
 } from '@cleocode/contracts';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { addTask } from '../tasks/add.js';
 import { completeTask } from '../tasks/complete.js';
 import { updateTask } from '../tasks/update.js';
@@ -180,7 +180,7 @@ export async function reconcile(
   accessor?: DataAccessor,
 ): Promise<ReconcileResult> {
   const { providerId, cwd, dryRun = false, defaultPhase, defaultLabels } = options;
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
 
   // Load current CLEO task state
   const { tasks: allTasks } = await acc.queryTasks({});

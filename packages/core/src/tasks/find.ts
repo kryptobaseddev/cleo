@@ -18,7 +18,7 @@ import { CleoError } from '../errors.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskListItemNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskToRecord } from './engine-converters.js';
 
 /** Minimal task info for search results. */
@@ -233,7 +233,7 @@ export async function findTasks(
     );
   }
 
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
 
   // Use targeted query with status filter when available
   const filters: TaskQueryFilters = {};
@@ -398,7 +398,7 @@ export async function taskFind(
   },
 ): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const findResult = await findTasks(
       {
         query,

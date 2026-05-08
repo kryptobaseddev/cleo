@@ -25,7 +25,7 @@
 
 import type { Task, TaskRollupPayload } from '@cleocode/contracts';
 import { computeTaskRollups } from '@cleocode/core/lifecycle/rollup';
-import { getAccessor } from '@cleocode/core/store/data-accessor';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
 import { listTasks } from '@cleocode/core/tasks/list';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -140,7 +140,7 @@ export const GET: RequestHandler = async ({ locals }) => {
   }
 
   try {
-    const accessor = await getAccessor(ctx.projectPath);
+    const accessor = await getTaskAccessor(ctx.projectPath);
     const result = await listTasks(
       {
         excludeArchived: true,

@@ -11,7 +11,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { AgentSpawnCapability, Task } from '@cleocode/contracts';
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from '../store/signaldock-sqlite.js';
 import { MAX_WORKER_FILES } from './atomicity.js';
 import { CLASSIFY_CONFIDENCE_FLOOR, CLASSIFY_FALLBACK_AGENT_ID, classifyTask } from './classify.js';
@@ -129,7 +129,7 @@ export async function validateSpawnReadiness(
   accessor?: DataAccessor,
   context?: SpawnValidationContext,
 ): Promise<SpawnValidationResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const task = await acc.loadSingleTask(taskId);
 
   if (!task) {

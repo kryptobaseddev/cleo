@@ -653,8 +653,8 @@ export async function checkArchiveStats(
   projectRoot: string,
   params: ValidateArchiveStatsParams,
 ): Promise<ValidateArchiveStatsResult> {
-  const { getAccessor } = await import('../store/data-accessor.js');
-  const accessor = await getAccessor(projectRoot);
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const accessor = await getTaskAccessor(projectRoot);
 
   if (params.report && params.report !== 'summary') {
     const { analyzeArchive } = await import('../system/archive-analytics.js');

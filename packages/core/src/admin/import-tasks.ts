@@ -11,7 +11,7 @@ import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import type { AdminImportParams, Task } from '@cleocode/contracts';
 import type { ImportFromPackageOptions, ImportFromPackageResult } from '../nexus/transfer-types.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import type { ExportPackage } from '../store/export.js';
 import {
   detectDuplicateTitles,
@@ -78,7 +78,7 @@ export async function importFromPackage(
     throw new Error('Export package contains no tasks');
   }
 
-  const accessor = await getAccessor(options.cwd);
+  const accessor = await getTaskAccessor(options.cwd);
   const { tasks: existingTasks } = await accessor.queryTasks({});
 
   const onConflict: OnConflict = options.onConflict ?? 'fail';

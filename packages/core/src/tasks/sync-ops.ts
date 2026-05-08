@@ -24,7 +24,7 @@ import {
   getLinksByTaskId,
   removeLinksByProvider,
 } from '../reconciliation/link-store.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /**
  * Reconcile external tasks with CLEO as SSoT.
@@ -48,7 +48,7 @@ export async function taskSyncReconcile(
   },
 ): Promise<EngineResult<ReconcileResult>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await reconcile(
       params.externalTasks,
       {

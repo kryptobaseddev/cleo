@@ -184,7 +184,12 @@ export {
 // Store layer (bundled inside core)
 // ---------------------------------------------------------------------------
 
-export { createDataAccessor, getAccessor } from './store/data-accessor.js';
+export {
+  createDataAccessor,
+  // @deprecated — use getTaskAccessor (T9054). Retained for one minor version.
+  getAccessor,
+  getTaskAccessor,
+} from './store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Top-level utility exports (widely used, unique names)

@@ -5,6 +5,7 @@
  * This module re-exports it and provides the concrete SQLite factory.
  *
  * @epic T4454
+ * @task T9054
  */
 
 // Re-export the interface and all related types from contracts
@@ -24,9 +25,10 @@ export type {
  *
  * ALL accessors returned are safety-enabled by default via SafetyDataAccessor wrapper.
  * Use CLEO_DISABLE_SAFETY=true to bypass (emergency only).
+ *
+ * @task T9054 — engine parameter dropped; CLEO is SQLite-only (ADR-006).
  */
 export async function createDataAccessor(
-  _engine?: 'sqlite',
   cwd?: string,
 ): Promise<import('@cleocode/contracts').DataAccessor> {
   const { createSqliteDataAccessor } = await import('./sqlite-data-accessor.js');
@@ -36,20 +38,31 @@ export async function createDataAccessor(
   return wrapWithSafety(inner, cwd);
 }
 
-// SSoT-EXEMPT:engine-migration-T1571
 /**
- * Convenience: get a DataAccessor with auto-detected engine.
+ * Get a tasks-DB DataAccessor for the given working directory.
  *
- * @deprecated Use openCleoDb('tasks', cwd) for direct DB access or
- * UmbrellaDataAccessor for multi-DB composition. This function is
- * retained for backward compatibility and will be removed in a future
- * release.
+ * This is the canonical tasks-only factory. Name is explicit about scope —
+ * the former `getAccessor` name implied universality and caused the
+ * gitnexus graph to misclassify it as a universal key (T9054).
+ *
+ * @param cwd - Optional project root (defaults to process.cwd() resolution).
+ * @returns DataAccessor backed by tasks.db (ADR-006, ADR-068).
  */
-// SSoT-EXEMPT: deprecated backward-compat shim — auto-detect signature predates ADR-057 uniform pattern; openCleoDb is the canonical replacement
+// SSoT-EXEMPT: factory function — signature is (cwd?: string) by design, not a dispatch operation (ADR-057 D5)
+export async function getTaskAccessor(
+  cwd?: string,
+): Promise<import('@cleocode/contracts').DataAccessor> {
+  return createDataAccessor(cwd);
+}
+
+/**
+ * @deprecated Renamed to {@link getTaskAccessor} (T9054). Will be removed in a future minor version.
+ * Use `getTaskAccessor` or `openCleoDb('tasks', cwd)` instead.
+ */
 export async function getAccessor(
   cwd?: string,
 ): Promise<import('@cleocode/contracts').DataAccessor> {
-  return createDataAccessor(undefined, cwd);
+  return createDataAccessor(cwd);
 }
 
 // ---------------------------------------------------------------------------

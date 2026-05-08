@@ -17,7 +17,7 @@ import type { Task } from '@cleocode/contracts';
 import { ExitCode, type NexusResolveParams } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusNativeDb } from '../store/nexus-sqlite.js';
 import { nexusGetProject, readRegistry } from './registry.js';
@@ -122,7 +122,7 @@ export async function resolveProjectPath(projectName: string): Promise<string> {
 
   if (projectName === '.') {
     try {
-      const accessor = await getAccessor(process.cwd());
+      const accessor = await getTaskAccessor(process.cwd());
       const count = await accessor.countTasks();
       if (count >= 0) return process.cwd();
       throw new Error('No task data');
@@ -153,7 +153,7 @@ export async function resolveProjectPath(projectName: string): Promise<string> {
 async function readProjectTasks(projectPath: string): Promise<Task[]> {
   const tasksDbPath = join(projectPath, '.cleo', 'tasks.db');
   try {
-    const accessor = await getAccessor(projectPath);
+    const accessor = await getTaskAccessor(projectPath);
     const { tasks } = await accessor.queryTasks({});
     return tasks;
   } catch {

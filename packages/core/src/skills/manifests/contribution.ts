@@ -12,7 +12,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 import type { ManifestEntry } from '../types.js';
 
 // ============================================================================
@@ -69,7 +69,7 @@ export async function validateContributionTask(
   cwd?: string,
 ): Promise<{ valid: boolean; issues: string[] }> {
   const issues: string[] = [];
-  const acc = await getAccessor(cwd);
+  const acc = await getTaskAccessor(cwd);
   const task = await acc.loadSingleTask(taskId);
 
   if (!task) {

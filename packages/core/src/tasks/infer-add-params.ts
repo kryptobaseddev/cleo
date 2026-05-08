@@ -13,7 +13,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { currentTask } from '../task-work/index.js';
 
 /**
@@ -191,7 +191,7 @@ export async function inferTaskAddParams(
   //   - Task type is not 'epic' (epics are root-level containers)
   if (!input.parentRaw && input.type !== 'epic') {
     try {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const focusResult = await currentTask(undefined, accessor);
       if (focusResult.currentTask) {
         result.inferredParent = focusResult.currentTask;

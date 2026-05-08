@@ -16,7 +16,7 @@
 import type { BrainEntrySummary, ContradictionDetail, SupersededEntry } from '@cleocode/contracts';
 import type { EngineResult } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
@@ -1524,7 +1524,7 @@ export async function memoryReasonWhy(
 
   try {
     const root = resolveRoot(projectRoot);
-    const taskAccessor = await getAccessor(root);
+    const taskAccessor = await getTaskAccessor(root);
     const { reasonWhy } = await import('./brain-reasoning.js');
     const result = await reasonWhy(params.taskId, root, taskAccessor);
     return { success: true, data: result };

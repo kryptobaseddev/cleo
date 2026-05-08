@@ -13,7 +13,7 @@ import {
 } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
 
 /**
@@ -94,7 +94,7 @@ export async function archiveTasks(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<ArchiveTasksResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const includeCancelled = options.includeCancelled ?? true;
 
   // Determine which tasks to archive using targeted queries
@@ -227,7 +227,7 @@ export async function taskArchive(
   opts?: { taskIds?: string[]; includeCancelled?: boolean; dryRun?: boolean },
 ): Promise<EngineResult<{ archivedCount: number; archivedTasks: Array<{ id: string }> }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const taskIds = opts?.taskIds ?? (taskId ? [taskId] : undefined);
     const result = await archiveTasks(
       { taskIds, before, includeCancelled: opts?.includeCancelled, dryRun: opts?.dryRun },

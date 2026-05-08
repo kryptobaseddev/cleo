@@ -16,7 +16,7 @@ import {
   getAgentOutputsAbsolute,
   getManifestPath as getManifestPathFromPaths,
 } from '../../paths.js';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 import type { ComplianceResult, ManifestEntry, ManifestValidationResult } from '../types.js';
 
 // ============================================================================
@@ -335,7 +335,7 @@ export async function validateOrchestratorCompliance(
   // Check dependency order (ORC-004) for completed tasks via DataAccessor
   if (epicId) {
     try {
-      const acc = await getAccessor(cwd);
+      const acc = await getTaskAccessor(cwd);
       const children = await acc.getChildren(epicId);
       const tasks = children.filter((t) => t.status === 'done');
 

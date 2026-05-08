@@ -13,7 +13,7 @@
  */
 
 import { initLoomForEpic } from '../orchestrate/lifecycle-ops.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Result for a single epic during backfill. */
 export interface BackfillEpicResult {
@@ -58,7 +58,7 @@ export interface BackfillLoomResult {
  * ```
  */
 export async function backfillEpicLoom(projectRoot: string): Promise<BackfillLoomResult> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   // Query all epics (type=epic) that are not terminal.
   // excludeStatus filters done+cancelled so we only process active epics.
