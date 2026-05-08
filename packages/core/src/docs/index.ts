@@ -5,7 +5,7 @@
  * Provides the API surface for registering, searching, and managing docs
  * attached to CLEO entities (tasks, sessions, observations).
  *
- * ADR discovery: every ADR in `docs/adr/*.md` is registered into the docs
+ * ADR discovery: every ADR in `.cleo/adrs/*.md` is registered into the docs
  * system via `cleo docs add <taskId> <path>` so that
  * `cleo docs list --task <id>` surfaces the ADRs a task implements or affects.
  * This module is project-agnostic — it works for any project that runs `cleo init`.

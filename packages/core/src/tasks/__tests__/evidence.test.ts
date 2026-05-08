@@ -530,3 +530,87 @@ describe('revalidateEvidence (T832)', () => {
     expect(r.stillValid).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Decision atom (T1875)
+// ---------------------------------------------------------------------------
+
+describe('decision atom — parseEvidence (T1875)', () => {
+  it('parses a decision atom', () => {
+    const r = parseEvidence('decision:D-arch-001');
+    expect(r.atoms).toEqual([{ kind: 'decision', decisionId: 'D-arch-001' }]);
+  });
+
+  it('parses decision atom with complex ID', () => {
+    const r = parseEvidence('decision:AGT-abc123xyz');
+    expect(r.atoms).toEqual([{ kind: 'decision', decisionId: 'AGT-abc123xyz' }]);
+  });
+
+  it('parses decision + files combo', () => {
+    const r = parseEvidence('decision:D-001;files:docs/research.md');
+    expect(r.atoms).toHaveLength(2);
+    expect(r.atoms[0]).toEqual({ kind: 'decision', decisionId: 'D-001' });
+    expect(r.atoms[1]).toEqual({ kind: 'files', paths: ['docs/research.md'] });
+  });
+
+  it('parses decision + note combo', () => {
+    const r = parseEvidence('decision:D-001;note:decision recorded in BRAIN');
+    expect(r.atoms).toHaveLength(2);
+    expect(r.atoms[0]).toEqual({ kind: 'decision', decisionId: 'D-001' });
+    expect(r.atoms[1]).toEqual({ kind: 'note', note: 'decision recorded in BRAIN' });
+  });
+
+  it('rejects decision atom with empty ID', () => {
+    expect(() => parseEvidence('decision:')).toThrow();
+  });
+});
+
+describe('decision atom — checkGateEvidenceMinimum (T1875)', () => {
+  it('decision + files satisfies the implemented gate', () => {
+    const atoms = [
+      { kind: 'decision' as const, decisionId: 'D-001' },
+      { kind: 'files' as const, files: [{ path: 'docs/research.md', sha256: 'a'.repeat(64) }] },
+    ];
+    const result = checkGateEvidenceMinimum('implemented', atoms);
+    expect(result).toBeNull();
+  });
+
+  it('decision + note satisfies the implemented gate', () => {
+    const atoms = [
+      { kind: 'decision' as const, decisionId: 'D-001' },
+      { kind: 'note' as const, note: 'decision recorded in BRAIN' },
+    ];
+    const result = checkGateEvidenceMinimum('implemented', atoms);
+    expect(result).toBeNull();
+  });
+
+  it('decision atom alone does NOT satisfy the implemented gate', () => {
+    const atoms = [{ kind: 'decision' as const, decisionId: 'D-001' }];
+    const result = checkGateEvidenceMinimum('implemented', atoms);
+    expect(result).not.toBeNull();
+    expect(result).toContain('implemented');
+  });
+});
+
+describe('decision atom — validateAtom fake ID (T1875)', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'cleo-evidence-decision-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('rejects a fake decision ID with E_EVIDENCE_INVALID_DECISION', async () => {
+    // tmpDir has no .cleo/brain.db — so brain_decisions lookup fails
+    const parsed = parseEvidence('decision:D-FAKE-99999-DOES-NOT-EXIST');
+    const decisionAtom = parsed.atoms.find((a) => a.kind === 'decision')!;
+    const result = await validateAtom(decisionAtom, tmpDir);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.codeName).toMatch(/E_EVIDENCE_INVALID_DECISION/);
+    }
+  });
+});

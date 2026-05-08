@@ -114,6 +114,13 @@ export const GATE_EVIDENCE_MINIMUMS: Record<VerificationGate, EvidenceAtom['kind
   implemented: [
     ['commit', 'files'],
     ['commit', 'note'],
+    // Decision-only tasks: a brain_decisions row + files pointing to research note
+    // satisfies the implemented gate without requiring a commit.
+    // Eliminates CLEO_OWNER_OVERRIDE for pure-decision tasks (T1875).
+    ['decision', 'files'],
+    // Decision-only tasks with no research file: a brain_decisions row + note
+    // satisfies the implemented gate.
+    ['decision', 'note'],
   ],
   testsPassed: [['test-run'], ['tool']],
   qaPassed: [['tool']],
@@ -173,7 +180,19 @@ export type ParsedAtom =
   | { kind: 'url'; url: string }
   | { kind: 'note'; note: string }
   | { kind: 'loc-drop'; fromLines: number; toLines: number }
-  | { kind: 'callsite-coverage'; symbolName: string; relativeSourcePath: string };
+  | { kind: 'callsite-coverage'; symbolName: string; relativeSourcePath: string }
+  | {
+      /**
+       * Decision atom — a brain_decisions row that IS the canonical artifact
+       * for a decision-only task. Satisfies the `implemented` gate when combined
+       * with `files:` pointing to a research note.
+       *
+       * @task T1875
+       */
+      kind: 'decision';
+      /** Decision ID from `brain_decisions.id` (e.g. `"D-arch-001"`). */
+      decisionId: string;
+    };
 
 /**
  * Parse the CLI `--evidence` string into structured atoms.
@@ -319,12 +338,26 @@ export function parseEvidence(raw: string): ParsedEvidence {
         atoms.push({ kind: 'callsite-coverage', symbolName, relativeSourcePath });
         break;
       }
+      case 'decision': {
+        // Format: decision:<decisionId>
+        if (!payload) {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `decision atom requires a non-empty decision ID in "${chunk}"`,
+            {
+              fix: 'Use format: decision:<decisionId> e.g. decision:D-arch-001',
+            },
+          );
+        }
+        atoms.push({ kind: 'decision', decisionId: payload });
+        break;
+      }
       default:
         throw new CleoError(
           ExitCode.VALIDATION_ERROR,
           `Unknown evidence kind: "${kind}" in atom "${chunk}"`,
           {
-            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage',
+            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage, decision',
           },
         );
     }
@@ -381,6 +414,8 @@ export async function validateAtom(
       return validateLocDrop(parsed.fromLines, parsed.toLines);
     case 'callsite-coverage':
       return validateCallsiteCoverage(parsed.symbolName, parsed.relativeSourcePath, projectRoot);
+    case 'decision':
+      return validateDecision(parsed.decisionId, projectRoot);
     default: {
       // Exhaustiveness check — never reachable if ParsedAtom is complete.
       return { ok: false, reason: `Unknown parsed atom`, codeName: 'E_EVIDENCE_INVALID' };
@@ -885,6 +920,95 @@ async function validateCallsiteCoverage(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Decision atom (T1875)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate a `decision` atom by checking the brain_decisions row exists
+ * and has `confirmation_state` in (`accepted`, `proposed`).
+ *
+ * @param decisionId - The brain_decisions.id to look up (e.g. `"D-arch-001"`).
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @returns Validated atom on success, error on failure.
+ *
+ * @task T1875
+ * @epic T1824
+ */
+async function validateDecision(decisionId: string, projectRoot: string): Promise<AtomValidation> {
+  if (!decisionId || typeof decisionId !== 'string') {
+    return {
+      ok: false,
+      reason: `decision: decisionId must be a non-empty string`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+
+  try {
+    const { getBrainDb } = await import('../store/memory-sqlite.js');
+    const { eq } = await import('drizzle-orm');
+    const db = await getBrainDb(projectRoot);
+
+    const brainSchema = await import('../store/memory-schema.js');
+    const rows = await db
+      .select()
+      .from(brainSchema.brainDecisions)
+      .where(eq(brainSchema.brainDecisions.id, decisionId))
+      .all();
+
+    if (rows.length === 0) {
+      return {
+        ok: false,
+        reason:
+          `decision: no brain_decisions row found with id "${decisionId}". ` +
+          `Record the decision first via 'cleo memory observe' and promote it, ` +
+          `or use 'cleo decision record' to create a formal decision entry.`,
+        codeName: 'E_EVIDENCE_INVALID_DECISION',
+      };
+    }
+
+    const row = rows[0];
+    const confirmationState = row.confirmationState as string | null;
+    const validStates = ['accepted', 'proposed'];
+
+    if (!validStates.includes(confirmationState ?? '')) {
+      return {
+        ok: false,
+        reason:
+          `decision: brain_decisions row "${decisionId}" has confirmation_state ` +
+          `"${confirmationState ?? 'null'}" — expected one of: ${validStates.join(', ')}. ` +
+          `Accept or propose the decision before using it as evidence.`,
+        codeName: 'E_EVIDENCE_INVALID_DECISION',
+      };
+    }
+
+    return {
+      ok: true,
+      atom: { kind: 'decision', decisionId },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes('no such table') ||
+      msg.includes('brain_decisions') ||
+      msg.includes('SQLITE_ERROR')
+    ) {
+      return {
+        ok: false,
+        reason:
+          `decision: brain_decisions table not found or inaccessible. ` +
+          `Ensure the BRAIN DB is initialized and the decisions table exists.`,
+        codeName: 'E_EVIDENCE_INVALID_DECISION',
+      };
+    }
+    return {
+      ok: false,
+      reason: `decision: DB lookup for "${decisionId}" failed: ${msg}`,
+      codeName: 'E_EVIDENCE_INVALID_DECISION',
+    };
+  }
+}
+
 /**
  * Check that the provided evidence atoms satisfy the callsite-coverage
  * requirement for tasks carrying the `callsite-coverage` label.
@@ -1068,6 +1192,11 @@ export async function revalidateEvidence(
       case 'callsite-coverage':
         // Callsite hit counts are captured at verify time and treated as
         // immutable structural facts — no re-execution at complete time.
+        break;
+      case 'decision':
+        // Decision atoms reference brain_decisions rows which are immutable
+        // once accepted/proposed. Re-validation is not performed at complete
+        // time — the DB row is trusted as captured at verify time.
         break;
       default:
         // Exhaustiveness — unreachable if EvidenceAtom is complete.
