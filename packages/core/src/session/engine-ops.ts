@@ -45,7 +45,7 @@ import {
 } from '../sessions/index.js';
 import { generateSessionId } from '../sessions/session-id.js';
 import { appendSessionJournalEntry } from '../sessions/session-journal.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   currentTask,
   getTaskHistory,
@@ -121,7 +121,7 @@ export async function sessionStatus(projectRoot: string): Promise<
   }>
 > {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const focusState = await accessor.getMetaValue<TaskWorkState>('focus_state');
     const sessions = await accessor.loadSessions();
     const active = sessions.find((s: Session) => s.status === 'active');
@@ -169,7 +169,7 @@ export async function sessionList(
   }>
 > {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const sessions = await accessor.loadSessions();
     let result = sessions;
 
@@ -260,7 +260,7 @@ export async function taskCurrentGet(
   projectRoot: string,
 ): Promise<EngineResult<{ currentTask: string | null; currentPhase: string | null }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await currentTask(undefined, accessor);
     return engineSuccess({
       currentTask: result.currentTask,
@@ -285,7 +285,7 @@ export async function taskStart(
   taskId: string,
 ): Promise<EngineResult<{ taskId: string; previousTask: string | null }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await startTask(taskId, undefined, accessor);
     return engineSuccess({ taskId: result.taskId, previousTask: result.previousTask });
   } catch (err: unknown) {
@@ -305,7 +305,7 @@ export async function taskStop(
   projectRoot: string,
 ): Promise<EngineResult<{ cleared: boolean; previousTask: string | null }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await stopTask(undefined, accessor);
     return engineSuccess({ cleared: true, previousTask: result.previousTask });
   } catch {
@@ -325,7 +325,7 @@ export async function taskWorkHistory(
   projectRoot: string,
 ): Promise<EngineResult<{ history: TaskWorkHistoryEntry[]; count: number }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const history = await getTaskHistory(undefined, accessor);
     return engineSuccess({ history, count: history.length });
   } catch {
@@ -361,7 +361,7 @@ export async function sessionStart(
   },
 ): Promise<EngineResult<Session>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
 
     // Validate scope BEFORE auto-ending active session (prevents data loss on invalid input)
     let scope: ReturnType<typeof parseScope>;
@@ -577,7 +577,7 @@ export async function sessionEnd(
   params?: { sessionSummary?: SessionSummaryInput },
 ): Promise<EngineResult<{ sessionId: string; ended: boolean; memoryPrompt?: string }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const activeSession = await accessor.getActiveSession();
 
     const sessionId = activeSession?.id;
@@ -709,7 +709,7 @@ export async function sessionResume(
   sessionId: string,
 ): Promise<EngineResult<Session>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const sessions = await accessor.loadSessions();
     const session = sessions.find((s: Session) => s.id === sessionId);
 
@@ -790,7 +790,7 @@ export async function sessionGc(
   maxAgeDays = 1,
 ): Promise<EngineResult<{ orphaned: string[]; removed: string[] }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const sessions = await accessor.loadSessions();
 
     const now = Date.now();
@@ -936,7 +936,7 @@ export async function sessionRecordDecision(
   try {
     let resolvedSessionId = params.sessionId;
     if (!resolvedSessionId) {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const activeSession = await accessor.getActiveSession();
       resolvedSessionId = activeSession?.id ?? 'default';
     }
@@ -1218,7 +1218,7 @@ export async function sessionComputeDebrief(
   options?: { note?: string; nextAction?: string },
 ): Promise<EngineResult<DebriefData>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const sessions = await accessor.loadSessions();
     const session = sessions.find((s: Session) => s.id === sessionId);
 
@@ -1263,7 +1263,7 @@ export async function sessionDebriefShow(
   sessionId: string,
 ): Promise<EngineResult<DebriefData | { handoff: unknown; fallback: true } | null>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const sessions = await accessor.loadSessions();
     const session = sessions.find((s: Session) => s.id === sessionId);
 
@@ -1325,7 +1325,7 @@ export async function sessionChainShow(
   >
 > {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const sessions = await accessor.loadSessions();
     const sessionMap = new Map(sessions.map((s: Session) => [s.id, s]));
 

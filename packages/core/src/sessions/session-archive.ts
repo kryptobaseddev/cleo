@@ -5,7 +5,7 @@
  * @epic T4654
  */
 
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /**
  * Archive old/ended sessions.
@@ -17,7 +17,7 @@ export async function archiveSessions(
   projectRoot: string,
   olderThan?: string,
 ): Promise<{ archived: string[]; count: number }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const sessions = await accessor.loadSessions();
 

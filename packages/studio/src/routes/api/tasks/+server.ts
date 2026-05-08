@@ -46,7 +46,7 @@ import type {
   TaskType,
 } from '@cleocode/contracts';
 import { computeTaskRollups } from '@cleocode/core/lifecycle/rollup';
-import { getAccessor } from '@cleocode/core/store/data-accessor';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
 import { computeTaskViews, type TaskView } from '@cleocode/core/tasks';
 import { listTasks } from '@cleocode/core/tasks/list';
 import { json } from '@sveltejs/kit';
@@ -169,8 +169,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   try {
     // Open a DataAccessor bound to THIS project's tasks.db. Core's
     // getNativeTasksDb() is a process-level singleton keyed on `cwd`,
-    // so calling getAccessor(projectPath) sets it up for the batch rollup.
-    const accessor = await getAccessor(ctx.projectPath);
+    // so calling getTaskAccessor(projectPath) sets it up for the batch rollup.
+    const accessor = await getTaskAccessor(ctx.projectPath);
     // Facade call — ZERO raw SQL in this route post-T948.
     const result = await listTasks(
       {

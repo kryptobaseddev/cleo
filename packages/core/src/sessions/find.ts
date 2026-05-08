@@ -12,7 +12,7 @@
 import type { Session, SessionFindParams, SessionScope } from '@cleocode/contracts';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { sessionListItemNext } from '../mvi-helpers.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Minimal session record returned by findSessions(). */
 export interface MinimalSessionRecord {
@@ -44,7 +44,7 @@ export async function findSessions(
   projectRoot: string,
   params?: SessionFindParams,
 ): Promise<MinimalSessionRecord[]> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   let sessions: Session[] = await accessor.loadSessions();
 
   // Filter by status

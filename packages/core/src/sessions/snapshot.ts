@@ -19,7 +19,7 @@ import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDecisionLog } from './decisions.js';
 import { computeHandoff, type HandoffData } from './handoff.js';
 
@@ -133,7 +133,7 @@ export async function serializeSession(
   options: SerializeOptions = {},
   accessor?: DataAccessor,
 ): Promise<SessionSnapshot> {
-  const acc = accessor ?? (await getAccessor(projectRoot));
+  const acc = accessor ?? (await getTaskAccessor(projectRoot));
   const maxObs = options.maxObservations ?? 10;
   const maxDescLen = options.maxDescriptionLength ?? 500;
 
@@ -268,7 +268,7 @@ export async function restoreSession(
     );
   }
 
-  const acc = accessor ?? (await getAccessor(projectRoot));
+  const acc = accessor ?? (await getTaskAccessor(projectRoot));
   const activate = options.activate ?? true;
 
   // Check for active session conflict

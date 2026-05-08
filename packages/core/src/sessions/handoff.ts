@@ -18,7 +18,7 @@ import { promisify } from 'node:util';
 import type { Session, SessionHandoffShowParams, Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { insertHandoffEntry } from '../store/session-store.js';
 import { getDecisionLog } from './decisions.js';
 
@@ -67,7 +67,7 @@ export async function computeHandoff(
   projectRoot: string,
   options: ComputeHandoffOptions,
 ): Promise<HandoffData> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   // Load session data
   const sessions = await accessor.loadSessions();
@@ -234,7 +234,7 @@ export async function persistHandoff(
   sessionId: string,
   handoff: HandoffData,
 ): Promise<void> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const sessions = await accessor.loadSessions();
 
   // Verify session exists before attempting the INSERT.
@@ -271,7 +271,7 @@ export async function getHandoff(
   projectRoot: string,
   sessionId: string,
 ): Promise<HandoffData | null> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const sessions = await accessor.loadSessions();
 
   // Find session
@@ -299,7 +299,7 @@ export async function getLastHandoff(
   projectRoot: string,
   scope?: { type: string; epicId?: string; rootTaskId?: string },
 ): Promise<{ sessionId: string; handoff: HandoffData } | null> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const sessions = await accessor.loadSessions();
 
   // Filter to ended sessions
@@ -508,7 +508,7 @@ async function computeChainPosition(
   sessionId: string,
 ): Promise<{ position: number; length: number }> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const sessions = await accessor.loadSessions();
 
     const sessionMap = new Map(sessions.map((s) => [s.id, s]));

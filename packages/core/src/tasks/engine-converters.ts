@@ -107,8 +107,8 @@ export function taskToRecord(task: Task): TaskRecord {
     cancellationReason: task.cancellationReason,
     blockedBy: task.blockedBy ? [task.blockedBy] : undefined,
     pipelineStage: task.pipelineStage ?? null,
-    // T944: orthogonal axes
-    role: task.role ?? null,
+    // T944/T9072: orthogonal axes (kind → DB col 'role')
+    kind: task.kind ?? null,
     scope: task.scope ?? null,
     severity: task.severity ?? null,
   };

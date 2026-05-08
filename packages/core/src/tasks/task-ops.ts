@@ -27,7 +27,7 @@ import { TASK_STATUSES } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { predictImpact } from '../intelligence/impact.js';
 import type { ImpactReport } from '../intelligence/types.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
 import { canCancel } from './cancel-ops.js';
 import {
@@ -143,7 +143,7 @@ const PRIORITY_SCORE: Record<string, number> = {
 };
 
 async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   return tasks;
 }
@@ -339,7 +339,7 @@ export async function coreTaskNext(
   }>;
   totalCandidates: number;
 }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const allTasks = await loadAllTasks(projectRoot);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
@@ -755,7 +755,7 @@ export async function coreTaskRelatesAdd(
   type: string,
   reason?: string,
 ): Promise<{ from: string; to: string; type: string; reason?: string; added: boolean }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const fromTask = await accessor.loadSingleTask(taskId);
   if (!fromTask) {
@@ -934,7 +934,7 @@ export async function coreTaskRestore(
   taskId: string,
   params?: { cascade?: boolean; notes?: string },
 ): Promise<{ task: string; restored: string[]; count: number }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const task = await accessor.loadSingleTask(taskId);
   if (!task) {
@@ -1020,7 +1020,7 @@ export async function coreTaskCancel(
   taskId: string,
   params?: { reason?: string },
 ): Promise<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(taskId);
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
@@ -1084,7 +1084,7 @@ export async function coreTaskUnarchive(
   taskId: string,
   params?: { status?: string; preserveStatus?: boolean },
 ): Promise<{ task: string; unarchived: boolean; title: string; status: string }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   // Check if task already exists in active tasks
   const existingTask = await accessor.taskExists(taskId);
@@ -1158,7 +1158,7 @@ export async function coreTaskReorder(
   taskId: string,
   position: number,
 ): Promise<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const task = await accessor.loadSingleTask(taskId);
   if (!task) {
@@ -1244,7 +1244,7 @@ export async function coreTaskReparent(
   newParent: string | null;
   newType?: string;
 }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const task = await accessor.loadSingleTask(taskId);
   if (!task) {
@@ -1350,7 +1350,7 @@ export async function coreTaskPromote(
   previousParent: string | null;
   typeChanged: boolean;
 }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const task = await accessor.loadSingleTask(taskId);
   if (!task) {
@@ -1407,7 +1407,7 @@ export async function coreTaskReopen(
   taskId: string,
   params?: { status?: string; reason?: string },
 ): Promise<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const task = await accessor.loadSingleTask(taskId);
   if (!task) {
@@ -2333,7 +2333,7 @@ export async function coreTaskImport(
   errors: string[];
   remapTable?: Record<string, string>;
 }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   // Load all existing task IDs using queryTasks (bulk operation needs full ID set)
   const { tasks: existingTasks } = await accessor.queryTasks({});
@@ -2585,7 +2585,7 @@ export async function taskRelatesFind(
   params?: { mode?: 'suggest' | 'discover'; threshold?: number },
 ): Promise<EngineResult<Record<string, unknown>>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const mode = params?.mode ?? 'suggest';
     let result: Record<string, unknown>;
     if (mode === 'discover') {
@@ -2911,7 +2911,7 @@ export async function taskDepsValidate(
   scope: DepValidateScope = 'all',
 ): Promise<EngineResult<DepGraphValidateResult>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     // Fetch ALL tasks including archived — archived deps must resolve as satisfied,
     // not as missing refs (T9158). queryTasks({}) excludes archived by default, so
     // we explicitly request all known statuses.
@@ -2941,7 +2941,7 @@ export async function taskDepsTree(
   format: 'text' | 'mermaid' | 'json' = 'text',
 ): Promise<EngineResult<import('@cleocode/contracts').TasksDepsTreeResult>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const { tasks } = await accessor.queryTasks({});
 
     const taskMap = new Map(tasks.map((t) => [t.id, t]));
@@ -3324,7 +3324,7 @@ export async function taskClaim(
   if (!taskId) return engineError('E_INVALID_INPUT', 'taskId is required');
   if (!agentId) return engineError('E_INVALID_INPUT', 'agentId is required');
   try {
-    const acc = await getAccessor(projectRoot);
+    const acc = await getTaskAccessor(projectRoot);
     await acc.claimTask(taskId, agentId);
     return engineSuccess({ taskId, agentId });
   } catch (err: unknown) {
@@ -3344,7 +3344,7 @@ export async function taskUnclaim(
 ): Promise<EngineResult<{ taskId: string }>> {
   if (!taskId) return engineError('E_INVALID_INPUT', 'taskId is required');
   try {
-    const acc = await getAccessor(projectRoot);
+    const acc = await getTaskAccessor(projectRoot);
     await acc.unclaimTask(taskId);
     return engineSuccess({ taskId });
   } catch (err: unknown) {

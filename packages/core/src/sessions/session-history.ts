@@ -7,7 +7,7 @@
 
 import type { Session } from '@cleocode/contracts';
 import type { SessionHistoryParams } from '@cleocode/contracts/operations/session';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export type { SessionHistoryParams } from '@cleocode/contracts/operations/session';
 
@@ -31,7 +31,7 @@ export async function getSessionHistory(
   projectRoot: string,
   params?: SessionHistoryParams,
 ): Promise<{ sessions: SessionHistoryEntry[] }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   // Verify project is initialized by checking task count
   await accessor.countTasks();

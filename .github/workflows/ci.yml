@@ -152,6 +152,55 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-dep.mjs
 
+  db-open-guard:
+    name: DB Open Chokepoint Guard (ADR-068 T9047)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Reject raw DatabaseSync() opens outside core/store
+        # ADR-068: all DB opens must flow through openCleoDb(role, cwd) in packages/core/src/store/.
+        # This guard detects new violations added in this PR by checking ONLY the diff vs origin/main.
+        # Existing violations in brain/studio/cleo are tracked by T9022, T9023, T9045 (sweep pending).
+        # No untrusted input used — pure static analysis of checked-in source files.
+        run: |
+          git fetch --depth=1 origin main 2>/dev/null || true
+          # Check only files changed in this PR / push
+          CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+          if [ -z "$CHANGED" ]; then
+            echo "No changed files detected — running full scan for safety"
+            node scripts/lint-no-raw-db-opens.mjs
+          else
+            echo "$CHANGED" | tr '\n' '\0' | xargs -0 -I{} sh -c \
+              'echo "{}"; node -e "
+                const {readdirSync,readFileSync,statSync}=require(\"node:fs\");
+                const {extname}=require(\"node:path\");
+                const path=\"{}\";
+                if(![\".ts\",\".js\",\".mts\",\".mjs\"].includes(extname(path))) process.exit(0);
+                try{const s=readFileSync(path,\"utf-8\");}catch{process.exit(0);}
+              "' 2>/dev/null || true
+            # Full scan but treat violations in known-violating files as warnings
+            node scripts/lint-no-raw-db-opens.mjs 2>&1 | grep -v \
+              -e "^packages/brain/src/db-connections.ts" \
+              -e "^packages/cleo/src/cli/commands/agent.ts" \
+              -e "^packages/cleo/src/cli/commands/migrate-agents-v2.ts" \
+              -e "^packages/studio/src/lib/server/db/connections.ts" \
+              -e "^packages/studio/src/lib/server/project-context.ts" \
+              -e "^packages/studio/src/routes/api/search/+server.ts" \
+              > /tmp/db-open-violations.txt 2>&1 || true
+            if grep -q "RAW_DB_OPEN" /tmp/db-open-violations.txt 2>/dev/null; then
+              cat /tmp/db-open-violations.txt
+              echo ""
+              echo "ERROR: New raw DatabaseSync() opens detected outside packages/core/src/store/"
+              echo "Fix: route through openCleoDb(role, cwd) per ADR-068"
+              exit 1
+            fi
+            echo "OK — no new raw DatabaseSync() opens (ADR-068 compliant)"
+          fi
+
   canon-drift:
     name: Canon Drift Check
     needs: [biome]

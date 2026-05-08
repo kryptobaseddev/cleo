@@ -25,7 +25,7 @@ import type {
   VerificationGate,
   WaveRollup,
 } from '@cleocode/contracts';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeWaves } from './waves.js';
 
 /**
@@ -70,7 +70,7 @@ export async function rollupWaveStatus(
   projectRoot?: string,
   options: RollupWaveStatusOptions = {},
 ): Promise<WaveRollup> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   // Load the epic and its children.
   const epic = await accessor.loadSingleTask(epicId);
@@ -208,7 +208,7 @@ export async function rollupEpicStatus(
   projectRoot?: string,
   options: RollupWaveStatusOptions = {},
 ): Promise<EpicRollup> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const children = await accessor.getChildren(epicId);
   const waves = computeWaves(children);
 

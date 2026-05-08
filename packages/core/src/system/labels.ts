@@ -6,7 +6,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface LabelsResult {
   labels: Array<{ label: string; count: number; tasks: string[] }>;
@@ -17,7 +17,7 @@ export interface LabelsResult {
 
 /** Get all labels with counts and task IDs per label. */
 export async function getLabels(cwd?: string, accessor?: DataAccessor): Promise<LabelsResult> {
-  const dataAccessor = accessor ?? (await getAccessor(cwd));
+  const dataAccessor = accessor ?? (await getTaskAccessor(cwd));
   const result = await dataAccessor.queryTasks({});
   if (!result) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'No task data found');

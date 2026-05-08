@@ -1945,6 +1945,15 @@ export { GateStatus, VerificationGate } from './validation/operation-verificatio
 // Test helpers (used by cleo test files)
 // ---------------------------------------------------------------------------
 
+// GC cleanup utilities — exposed for cleo gc --worktrees and cleo gc --temp (T9043)
+export {
+  CLEO_TEMP_PREFIXES,
+  DEFAULT_TEMP_MAX_AGE_MS,
+  listOrphanTempDirs,
+  listOrphanWorktrees,
+  pruneOrphanTempDirs,
+  pruneOrphanWorktrees,
+} from './gc/cleanup.js';
 // Store — project detection (used by cleo init tests)
 export { detectProjectType } from './store/project-detect.js';
 export { closeAllDatabases, closeDb, resetDbState } from './store/sqlite.js';
@@ -1952,8 +1961,12 @@ export { createSqliteDataAccessor } from './store/sqlite-data-accessor.js';
 // T1434 — Typed sqlite query helpers exported for dispatch consumers that
 // need to centralize the `as unknown as T[]` cast across node:sqlite calls.
 export { typedAll, typedGet } from './store/typed-query.js';
-// Validation — doctor checks (used by cleo init tests)
-export { checkRootGitignore } from './validation/doctor/checks.js';
+// Validation — doctor checks (used by cleo init tests and doctor CLI)
+export {
+  auditOrphanTempDirs,
+  auditOrphanWorktrees,
+  checkRootGitignore,
+} from './validation/doctor/checks.js';
 
 // ---------------------------------------------------------------------------
 // T310 startup sequence exports (required by cli/index.ts T360 wire-up)

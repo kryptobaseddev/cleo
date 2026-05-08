@@ -17,7 +17,7 @@ import type { ConduitMessage } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { type NexusProject, nexusList } from './registry.js';
 
 // ============================================================================
@@ -286,7 +286,7 @@ async function routeSingleTask(
 
   for (const project of projects) {
     try {
-      const acc = await getAccessor(project.path);
+      const acc = await getTaskAccessor(project.path);
       const { tasks } = await acc.queryTasks({});
       const task = tasks.find((t) => t.id === taskId);
       if (task) {
@@ -442,7 +442,7 @@ export async function workspaceStatus(): Promise<WorkspaceStatus> {
 
   for (const project of projects) {
     try {
-      const acc = await getAccessor(project.path);
+      const acc = await getTaskAccessor(project.path);
       const { tasks } = await acc.queryTasks({});
 
       const counts = {
@@ -499,7 +499,7 @@ export async function workspaceAgents(): Promise<WorkspaceAgent[]> {
 
   for (const project of projects) {
     try {
-      const acc = await getAccessor(project.path);
+      const acc = await getTaskAccessor(project.path);
       const instances = await acc.listAgentInstances();
       for (const inst of instances) {
         agents.push({

@@ -49,6 +49,10 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Multiple related tasks ready in parallel | Run `cleo orchestrate ready --epic <id>` for the wave set |
 | About to call `cleo complete` | First: check gates via `cleo show <id>` → run tests → then complete |
 
+## Task Creation (ADR-066)
+
+`--acceptance` required for ALL tasks. `cleo bug`/`--role` removed — use `cleo add --kind bug --severity Px --acceptance "..."`. Axes: `--type {epic|task|subtask}`, `--kind {work|research|experiment|bug|spike|release}`, `--severity {P0-P3}` (orthogonal to `--priority`; triggers Ed25519 attestation).
+
 ## Task Discovery
 
 **Use `cleo find` for discovery. NEVER `cleo list` for browsing.**

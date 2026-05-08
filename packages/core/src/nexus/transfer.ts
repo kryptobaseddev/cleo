@@ -29,7 +29,7 @@ import {
   readSnapshot,
   writeSnapshot,
 } from '../snapshot/index.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { exportSingle, exportSubtree } from '../store/export.js';
 import { BrainDataAccessor } from '../store/memory-accessor.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
@@ -279,7 +279,7 @@ async function executeTransferInternal(params: TransferParams): Promise<Transfer
   await requirePermission(targetProject.hash, 'write', 'nexus.transfer');
 
   // Step 3: Read source tasks
-  const sourceAccessor = await getAccessor(sourceProject.path);
+  const sourceAccessor = await getTaskAccessor(sourceProject.path);
   const { tasks: allSourceTasks } = await sourceAccessor.queryTasks({});
 
   // Step 4: Build ExportPackage for each task
@@ -362,7 +362,7 @@ async function executeTransferInternal(params: TransferParams): Promise<Transfer
   // and table creation fails, we log a warning and continue rather than aborting the transfer.
   let linksCreated = 0;
   try {
-    const targetAccessor = await getAccessor(targetProject.path);
+    const targetAccessor = await getTaskAccessor(targetProject.path);
     const { tasks: targetTasks } = await targetAccessor.queryTasks({});
     const targetTaskIds = new Set(targetTasks.map((t) => t.id));
 

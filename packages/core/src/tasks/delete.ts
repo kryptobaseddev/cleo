@@ -10,7 +10,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskToRecord } from './engine-converters.js';
 
 /** Options for deleting a task. */
@@ -35,7 +35,7 @@ export async function deleteTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<DeleteTaskResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
 
   // Targeted load: fetch only the task being deleted
   const task = await acc.loadSingleTask(options.taskId);
@@ -184,7 +184,7 @@ export async function taskDelete(
   force?: boolean,
 ): Promise<EngineResult<{ deletedTask: TaskRecord; deleted: boolean; cascadeDeleted?: string[] }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await deleteTask(
       { taskId, force: force ?? false, cascade: force ?? false },
       projectRoot,

@@ -30,7 +30,7 @@ import {
   ensureGlobalScaffold,
 } from '../scaffold.js';
 import { checkGlobalSchemas, type CheckResult as SchemaCheckResult } from '../schema-management.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   type CheckResult,
   checkCanonicalRcasdPaths,
@@ -438,7 +438,7 @@ export async function getSystemDiagnostics(
   const dbPath = join(cleoDir, 'tasks.db');
   if (existsSync(dbPath)) {
     try {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const schemaVersion = await accessor.getSchemaVersion();
       if (schemaVersion) {
         diagChecks.push({
@@ -467,7 +467,7 @@ export async function getSystemDiagnostics(
   // Check for stale sessions — read from SQLite accessor
   if (existsSync(dbPath)) {
     try {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const sessions = await accessor.loadSessions();
       const activeSessions = sessions.filter((s) => s.status === 'active');
       if (activeSessions.length > 3) {
@@ -788,7 +788,7 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
 
   if (dbExists) {
     try {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const taskCount = await accessor.countTasks();
       const schemaVersion = (await accessor.getMetaValue<string>('schemaVersion')) ?? 'unknown';
       checks.push({

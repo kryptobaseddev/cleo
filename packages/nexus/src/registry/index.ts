@@ -9,7 +9,7 @@
  * - `../errors.js` (CleoError)
  * - `../logger.js` (getLogger)
  * - `../paths.js` (getCleoHome)
- * - `../store/data-accessor.js` (getAccessor)
+ * - `../store/data-accessor.js` (getTaskAccessor)
  * - `../store/nexus-schema.js` (Drizzle tables)
  * - `../store/nexus-sqlite.js` (getNexusDb)
  * - `../../config.js` (loadConfig — used by sharing module)

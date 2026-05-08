@@ -4,7 +4,7 @@
  */
 
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface CriticalPathNode {
   taskId: string;
@@ -27,7 +27,7 @@ export async function getCriticalPath(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<CriticalPathResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const { tasks } = await acc.queryTasks({});
 
   if (tasks.length === 0) {

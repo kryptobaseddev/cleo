@@ -9,7 +9,7 @@
 import type { Session, SessionContextDriftParams, Task, TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface ContextDriftResult {
   score: number;
@@ -49,7 +49,7 @@ export async function getContextDrift(
   projectRoot: string,
   params: SessionContextDriftParams,
 ): Promise<ContextDriftResult> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   const focus = await accessor.getMetaValue<TaskWorkState>('focus_state');
   const current = {

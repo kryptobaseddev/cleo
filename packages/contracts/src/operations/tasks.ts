@@ -118,10 +118,11 @@ export interface TasksFindParams {
   /** When true, emit verbose per-match diagnostic fields. @task T963 */
   verbose?: boolean;
   /**
-   * Filter by role axis (T944 — orthogonal axes).
+   * Filter by kind axis (T944 — orthogonal axes). Renamed from role per T9072.
    * @task T963 / T944
+   * @task T9072
    */
-  role?: string;
+  kind?: string;
 }
 export type TasksFindResult = MinimalTask[];
 
@@ -638,7 +639,7 @@ export interface TasksAddParams {
   depends?: string[];
   priority?: string;
   labels?: string[];
-  type?: string;
+  type?: string; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944
   acceptance?: string[];
   phase?: string;
   size?: string;
@@ -646,8 +647,8 @@ export interface TasksAddParams {
   files?: string[];
   dryRun?: boolean;
   parentSearch?: string;
-  /** Canonical wire field for task role axis. @see ADR-057 D2 */
-  role?: string;
+  /** Canonical wire field for task kind axis (T9072: renamed from role). @see ADR-057 D2 */
+  kind?: string;
   scope?: string;
   severity?: string;
   /**
@@ -694,10 +695,26 @@ export interface TasksUpdateQueryParams {
   acceptance?: string[];
   /** Canonical wire field for parent task ID. @see ADR-057 D2 */
   parent?: string | null;
-  type?: string;
+  type?: string; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944
   size?: string;
   files?: string[];
   pipelineStage?: string;
+  /** Canonical wire field for task kind axis (T9072: renamed from role). */
+  kind?: string;
+  /** Task scope axis — granularity of work. @task T944 */
+  scope?: string;
+  /**
+   * Severity level — valid for any kind (T9073). Orthogonal to priority.
+   * Appends a signed attestation to `.cleo/audit/severity-attestation.jsonl`.
+   */
+  severity?: string;
+  /**
+   * Operator override reason for AC-immutability guard (T1590).
+   * Required to mutate `acceptance` once stage >= implementation.
+   */
+  reason?: string;
+  /** Dependency declaration waiver for critical-priority tasks (T1856). */
+  dependsWaiver?: string;
 }
 /**
  * Result of `tasks.update` — the updated task record with change list.

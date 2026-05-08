@@ -37,7 +37,7 @@ import {
   type Task,
 } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 import { type InvariantResult, type InvariantRunOptions, registerInvariant } from './registry.js';
 
 const log = getLogger('release.invariants.archive-reason');
@@ -232,7 +232,7 @@ async function checkArchiveReasonInvariant(opts: InvariantRunOptions): Promise<I
     };
   }
 
-  const accessor = await getAccessor(cwd ?? repoRoot);
+  const accessor = await getTaskAccessor(cwd ?? repoRoot);
   const reconciledIds: string[] = [];
   const unreconciledIds: string[] = [];
   const followUpIds: string[] = [];

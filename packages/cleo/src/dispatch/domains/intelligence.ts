@@ -15,7 +15,7 @@
  * @epic T5149
  */
 
-import { getAccessor, getLogger, getProjectRoot } from '@cleocode/core';
+import { getLogger, getProjectRoot, getTaskAccessor } from '@cleocode/core';
 import {
   calculateTaskRisk,
   extractPatternsFromHistory,
@@ -60,7 +60,7 @@ export class IntelligenceHandler implements DomainHandler {
           }
 
           const [accessor, brain] = await Promise.all([
-            getAccessor(projectRoot),
+            getTaskAccessor(projectRoot),
             getBrainAccessor(projectRoot),
           ]);
 
@@ -106,7 +106,7 @@ export class IntelligenceHandler implements DomainHandler {
           }
 
           const [accessor, brain] = await Promise.all([
-            getAccessor(projectRoot),
+            getTaskAccessor(projectRoot),
             getBrainAccessor(projectRoot),
           ]);
 
@@ -125,7 +125,7 @@ export class IntelligenceHandler implements DomainHandler {
         // ------------------------------------------------------------------
         case 'learn-errors': {
           const [accessor, brain] = await Promise.all([
-            getAccessor(projectRoot),
+            getTaskAccessor(projectRoot),
             getBrainAccessor(projectRoot),
           ]);
 
@@ -157,7 +157,7 @@ export class IntelligenceHandler implements DomainHandler {
           }
 
           const [accessor, brain] = await Promise.all([
-            getAccessor(projectRoot),
+            getTaskAccessor(projectRoot),
             getBrainAccessor(projectRoot),
           ]);
 
@@ -213,7 +213,7 @@ export class IntelligenceHandler implements DomainHandler {
           }
 
           const [accessor, brain] = await Promise.all([
-            getAccessor(projectRoot),
+            getTaskAccessor(projectRoot),
             getBrainAccessor(projectRoot),
           ]);
 

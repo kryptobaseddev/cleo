@@ -22,7 +22,7 @@ import { loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { checkAndIncrementOverrideCap } from '../security/override-cap.js';
 import { enforceSharedEvidence } from '../security/shared-evidence-tracker.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   checkCallsiteCoverageAtom,
   checkEngineMigrationLocDrop,
@@ -319,7 +319,7 @@ export async function validateGateVerify(
       return engineError('E_INVALID_INPUT', `Invalid task ID format: ${taskId}`);
     }
 
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const task = await accessor.loadSingleTask(taskId);
     if (!task) {
       return engineError('E_NOT_FOUND', `Task ${taskId} not found`);

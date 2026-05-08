@@ -5,6 +5,8 @@
  */
 
 export {
+  auditOrphanTempDirs,
+  auditOrphanWorktrees,
   type CheckResult,
   type CheckStatus,
   calculateHealthStatus,

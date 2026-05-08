@@ -9,8 +9,8 @@ import { randomBytes } from 'node:crypto';
 import type {
   ProjectMeta,
   Task,
+  TaskKind,
   TaskPriority,
-  TaskRole,
   TaskScope,
   TaskSeverity,
   TaskSize,
@@ -61,20 +61,22 @@ export interface AddTaskOptions {
   /** RCASD-IVTR+C pipeline stage to assign. Auto-resolved if not provided. @task T060 */
   pipelineStage?: string;
   /**
-   * Task role axis — intent of work, orthogonal to {@link type}.
-   * Defaults to `'work'` at the DB level.
+   * Task kind axis — intent of work, orthogonal to {@link type}.
+   * Defaults to `'work'` at the DB level. DB column named `role` (T9067 deferral).
    * @task T944
+   * @task T9072
    */
-  role?: TaskRole;
+  kind?: TaskKind;
   /**
-   * Task scope axis — granularity of work, orthogonal to {@link type} and {@link role}.
+   * Task scope axis — granularity of work, orthogonal to {@link type} and {@link kind}.
    * Defaults to `'feature'` at the DB level.
    * @task T944
    */
   scope?: TaskScope;
   /**
-   * Bug severity. OWNER-WRITE-ONLY. Only valid when {@link role} is `'bug'`.
+   * Severity level. Valid for any kind (widened from bug-only by T9073). OWNER-WRITE-ONLY.
    * @task T944
+   * @task T9073
    */
   severity?: TaskSeverity;
   /**
@@ -704,7 +706,7 @@ export async function addTask(
 
   // Always use accessor (SQLite canonical storage per ADR-006)
   const dataAccessor =
-    accessor ?? (await (await import('../store/data-accessor.js')).getAccessor(cwd));
+    accessor ?? (await (await import('../store/data-accessor.js')).getTaskAccessor(cwd));
 
   // Resolve defaults — wrap normalizePriority to collect instead of throwing
   const status = options.status ?? 'pending';
@@ -1129,7 +1131,7 @@ export async function addTask(
       updatedAt: previewNow,
     };
     if (phase) previewTask.phase = phase;
-    if (options.role !== undefined) previewTask.role = options.role;
+    if (options.kind !== undefined) previewTask.kind = options.kind;
     if (options.scope !== undefined) previewTask.scope = options.scope;
     if (options.severity !== undefined) previewTask.severity = options.severity;
     if (options.labels?.length) previewTask.labels = options.labels.map((l) => l.trim());
@@ -1225,8 +1227,8 @@ export async function addTask(
   // Assign pipeline stage (always set — auto-assigned if not explicit) (T060)
   task.pipelineStage = resolvedPipelineStage;
 
-  // T944: wire orthogonal axes
-  if (options.role !== undefined) task.role = options.role;
+  // T944/T9072: wire orthogonal axes
+  if (options.kind !== undefined) task.kind = options.kind;
   if (options.scope !== undefined) task.scope = options.scope;
   if (options.severity !== undefined) task.severity = options.severity;
 

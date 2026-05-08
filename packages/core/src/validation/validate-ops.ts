@@ -15,7 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { getManifestPath as getCentralManifestPath } from '../paths.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeChecksum } from '../store/json.js';
 import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
 import { resolveToolCommand } from '../tools/sdk/tool-resolver.js';
@@ -81,7 +81,7 @@ export interface ValidateReportResult {
  * @task T4795
  */
 export async function coreValidateReport(projectRoot: string): Promise<ValidateReportResult> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks: allTasks } = await accessor.queryTasks({});
 
   const details: ValidateCheckDetail[] = [];
@@ -458,7 +458,7 @@ export async function coreValidateTask(
     throw new Error('taskId is required');
   }
 
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks: activeTasks } = await accessor.queryTasks({});
   const archiveData = await accessor.loadArchive();
 
@@ -520,7 +520,7 @@ export async function coreValidateProtocol(
     throw new Error('taskId is required');
   }
 
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(taskId);
 
   if (!task) {
@@ -899,7 +899,7 @@ export function coreTestStatus(projectRoot: string): {
 export async function coreCoherenceCheck(
   projectRoot: string,
 ): Promise<{ coherent: boolean; issues: CoherenceIssue[] }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
 
   if (!tasks || tasks.length === 0) {
@@ -1162,7 +1162,7 @@ export async function coreBatchValidate(projectRoot: string): Promise<{
     violations: RuleViolation[];
   }>;
 }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks: batchTasks } = await accessor.queryTasks({});
   const archiveData = await accessor.loadArchive();
   const allTasks: Task[] = [...batchTasks, ...(archiveData?.archivedTasks || [])];

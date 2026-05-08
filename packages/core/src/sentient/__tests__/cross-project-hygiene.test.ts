@@ -33,7 +33,7 @@ vi.mock('../../nexus/registry.js', () => ({
 }));
 
 vi.mock('../../store/data-accessor.js', () => ({
-  getAccessor: vi.fn(async () => ({
+  getTaskAccessor: vi.fn(async () => ({
     queryTasks: vi.fn(async () => ({ tasks: [] })),
     countTasks: vi.fn(async () => 0),
   })),
@@ -315,20 +315,20 @@ describe('runDuplicateEpicDetection', () => {
       mockProject('jjj222', rootB, 'proj-b'),
     ]);
 
-    vi.spyOn(dataAccessor, 'getAccessor')
+    vi.spyOn(dataAccessor, 'getTaskAccessor')
       .mockResolvedValueOnce({
         queryTasks: vi.fn(async () => ({
           tasks: [{ id: 'E1', title: sharedTitle }],
         })),
         countTasks: vi.fn(async () => 1),
-      } as Awaited<ReturnType<typeof dataAccessor.getAccessor>>)
+      } as Awaited<ReturnType<typeof dataAccessor.getTaskAccessor>>)
       .mockResolvedValueOnce({
         queryTasks: vi.fn(async () => ({
           // Identical title → Jaccard = 1.0 — guaranteed detection.
           tasks: [{ id: 'E2', title: sharedTitle }],
         })),
         countTasks: vi.fn(async () => 1),
-      } as Awaited<ReturnType<typeof dataAccessor.getAccessor>>);
+      } as Awaited<ReturnType<typeof dataAccessor.getTaskAccessor>>);
 
     const result = await runDuplicateEpicDetection();
     expect(result.projectsScanned).toBe(2);
@@ -342,7 +342,7 @@ describe('runDuplicateEpicDetection', () => {
       mockProject('kkk333', rootA, 'proj-solo'),
     ]);
 
-    vi.spyOn(dataAccessor, 'getAccessor').mockImplementationOnce(
+    vi.spyOn(dataAccessor, 'getTaskAccessor').mockImplementationOnce(
       async () =>
         ({
           queryTasks: vi.fn(async () => ({
@@ -352,7 +352,7 @@ describe('runDuplicateEpicDetection', () => {
             ],
           })),
           countTasks: vi.fn(async () => 2),
-        }) as Awaited<ReturnType<typeof dataAccessor.getAccessor>>,
+        }) as Awaited<ReturnType<typeof dataAccessor.getTaskAccessor>>,
     );
 
     const result = await runDuplicateEpicDetection();
@@ -391,12 +391,12 @@ describe('runWorktreePrune', () => {
       mockProject('mmm222', rootB, 'wt-proj-b'),
     ]);
 
-    vi.spyOn(dataAccessor, 'getAccessor').mockImplementation(
+    vi.spyOn(dataAccessor, 'getTaskAccessor').mockImplementation(
       async () =>
         ({
           queryTasks: vi.fn(async () => ({ tasks: [] })),
           countTasks: vi.fn(async () => 0),
-        }) as Awaited<ReturnType<typeof dataAccessor.getAccessor>>,
+        }) as Awaited<ReturnType<typeof dataAccessor.getTaskAccessor>>,
     );
 
     const pruneSpy = vi.spyOn(branchLock, 'pruneOrphanedWorktrees').mockReturnValue({
@@ -428,14 +428,14 @@ describe('runWorktreePrune', () => {
       mockProject('ooo444', root, 'wt-active'),
     ]);
 
-    vi.spyOn(dataAccessor, 'getAccessor').mockImplementationOnce(
+    vi.spyOn(dataAccessor, 'getTaskAccessor').mockImplementationOnce(
       async () =>
         ({
           queryTasks: vi.fn(async () => ({
             tasks: [{ id: 'T1234', status: 'active' }],
           })),
           countTasks: vi.fn(async () => 1),
-        }) as Awaited<ReturnType<typeof dataAccessor.getAccessor>>,
+        }) as Awaited<ReturnType<typeof dataAccessor.getTaskAccessor>>,
     );
 
     const pruneSpy = vi
