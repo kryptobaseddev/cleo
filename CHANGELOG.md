@@ -1,37 +1,25 @@
 # Changelog
 
-## [Unreleased] — Wave A: spawn/complete reliability
+## [2026.5.54] (2026-05-08)
 
-Fixes five reliability defects in the spawn/complete lifecycle that caused orphaned
-commits, phantom completions, stale registry entries, sourcemap noise, and a stuck
-brain sweep.
+Auto-prepared by release.ship (T9067)
 
 ### Bug Fixes
+- **Startup latency benchmark + regression guard**: Add scripts/bench/startup-latency.mjs that runs cleo --version, cleo --help, cleo find foo, cleo show <id>, cleo next 50 times each on a populated ... (T9030)
+- **BUG: CLEO test fixtures pollute production task counter — IDs jumped T1923 to T9001 in 5h gap**: Between 2026-05-05 20:15 and 2026-05-06 01:06 UTC, autoincrement jumped T1923 to T9001 due to fixtures using cleo add on production DB. Confirmed f... (T9042)
+- **BUG: Worktree + temp-dir cleanup incomplete — locked worktrees from done tasks + ~/.temp bloat**: Audit during T1910: many worktrees still exist for tasks that are status=done, several marked 'locked'. Examples: T1820/T1821/T1822/T1823 worktrees... (T9043)
+- **W5: Delete cleo bug command entirely — no shim, no tombstone, no alias**: Owner directive: clean DRY removal, no compat. Delete packages/cleo/src/cli/commands/bug.ts entirely (~242 LOC). Unregister bug from packages/cleo/... (T9075)
 
-- **T9175**: `cleo complete` now passes `deleteBranch: false` to `teardownWorktree`,
-  preserving the `task/<id>` branch until the orchestrator merges it via
-  `git merge --no-ff`. Previously the branch was deleted immediately on complete,
-  orphaning the worker's commits before integration could happen.
-- **T9178**: `cleo verify --gate implemented --evidence commit:<sha>` now validates
-  that the commit SHA is reachable from `task/<taskId>` branch (not just from HEAD).
-  This blocks phantom completions that fabricate evidence by recycling a SHA from a
-  different branch (e.g. a parent merge commit reachable from HEAD but not authored
-  by the worker).
-- **T9173**: New `cleo agent prune-orphans` command deletes D-002 orphan registry
-  rows (stale `cant_path` entries) from any working directory. Previously
-  `cleo agent remove` failed with `E_NOT_FOUND` for orphans belonging to dead
-  projects (e.g. after `/tmp/` project directories were deleted).
-- **T9184**: esbuild build pipeline now sanitizes `.js.map` sources fields to strip
-  CI runner absolute paths (`/Users/runner/work/...`). The post-build
-  `sanitizeSourcemaps()` step converts any absolute paths to relative paths, silencing
-  the "Sourcemap ... points to missing source files" stderr noise in tests.
-- **T9174**: The `20260423000002_t1089-add-session-narrative-table` brain migration
-  now uses `CREATE TABLE IF NOT EXISTS`. The `session-narrative.ts` bootstrap creates
-  the table during startup before migrations run, causing every `getBrainDb()` call to
-  fail with "table session_narrative already exists". This blocked `cleo memory sweep`,
-  briefing, and all brain-touching commands. Four prior sweep attempts (2026-04-24)
-  all rolled back for this reason.
+### Documentation
+- **W6: Update all docs to reflect new taxonomy + ADR codifying rename + AC-everywhere + system-wide attestation**: Document the locked taxonomy. (1) Update CLEO-INJECTION.md — remove cleo bug references, document --kind as canonical, document AC-required-for-all... (T9076)
 
+### Chores
+- **One-shot marker for detectAndRemoveLegacy* startup cleanups**: detectAndRemoveLegacyGlobalFiles and detectAndRemoveStrayProjectNexus run on every non-fast-path CLI invocation. They are stat()-heavy and only do ... (T9028)
+
+### Changes
+- **Defer DB opens until command needs them**: Today runStartupMaintenance opens conduit.db AND signaldock.db on every non-fast-path command — even commands that touch neither (e.g. cleo --help ... (T9029)
+- **W2: Hard-rename --role to --kind everywhere (NO backwards compat, NO alias)**: Owner directive: clean DRY rename, NO --role alias, NO TaskRole re-export. Update all 6 declaration sites: (1) contracts/src/task.ts:53 — rename Ta... (T9072)
+---
 ## [2026.5.53] (2026-05-08) — Phase 5: Startup Performance
 
 Auto-prepared by release.ship (T9026)
@@ -46,21 +34,10 @@ Auto-prepared by release.ship (T9026)
 ### Changes
 - **Defer DB opens until command needs them**: Today runStartupMaintenance opens conduit.db AND signaldock.db on every non-fast-path command — even commands that touch neither (e.g. cleo --help ... (T9029)
 ---
-## [2026.5.52] (2026-05-08) — T9053/T9046 Pragma SSoT (TS + Rust)
+## [2026.5.52] (2026-05-08)
 
-Drift-by-construction prevention for SQLite pragma policy across the full CLEO ecosystem.
-
-### Database / Pragma SSoT
-
-- **T9053**: `specs/sqlite-pragmas.json` established as the single source of truth for all SQLite performance pragmas. Both the TypeScript side (`packages/core/src/store/sqlite-pragmas.ts`) and the Rust side (`crates/signaldock-storage/build.rs`) consume this file — divergence is impossible by construction. The JSON spec is governed by ADR-068 § "9-DB inventory" + ADR-069 § "Storage layer". A cross-language equivalence test (`sqlite-pragmas-ssot.test.ts`) verifies TS and JSON agree at every CI run.
-- **T9046**: `crates/signaldock-storage` (`diesel_store.rs`) now applies the full canonical pragma set via `build.rs` codegen: adds `cache_size=-64000`, `mmap_size=268435456`, `temp_store=MEMORY`, `wal_autocheckpoint=1000` — previously only WAL, foreign_keys, busy_timeout, and synchronous=NORMAL were applied. Rust and TypeScript now apply byte-identical `PRAGMA name = value` SQL.
-
-### Verification
-
-- 6 cross-language SSoT equivalence tests pass (TS spec, render, CANONICAL_PRAGMA_SQL, Rust rule match).
-- `cargo check -p signaldock-storage` clean (warnings are pre-existing schema doc-comment gaps).
-- `pnpm typecheck` passes; lint passes.
-
+Auto-prepared by release.ship (T9053)
+---
 ## [2026.5.51] (2026-05-08) — T9183 nexus legacy-upgrade + init-noise cleanup
 
 Hotfix release on top of v2026.5.50 to close two trust-eroding gaps surfaced during verification on a real legacy project.
