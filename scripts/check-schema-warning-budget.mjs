@@ -35,6 +35,11 @@ const ALLOWED_FILES = [
   'seed-install-meta.test.ts',
   'daemon-supervision.test.ts',
   'revert-walker.test.ts',
+  // T759 regression tests: OBS-6 directly calls ensureColumns on an in-memory
+  // brain_page_edges table WITHOUT provenance to verify the safety-net works.
+  // This intentional exercise of ensureColumns emits the WARN and must be allowed.
+  // T9185: added to allowlist after audit confirmed this is intentional.
+  'brain-observations-provenance.test.ts',
 ];
 
 // Match the actual log message format from migration-manager.ts ensureColumns:

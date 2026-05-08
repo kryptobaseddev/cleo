@@ -177,11 +177,34 @@ describe('T759: brain_observations provenance hotfix', () => {
         'provenance should be absent before ensureColumns',
       ).toBe(false);
 
+      // Spy on the logger to capture the expected "Adding missing column" WARN.
+      // ensureColumns emits this warning by design when adding a column to a legacy DB.
+      // We capture it so the T9170 schema-warning gate does not flag this intentional
+      // call as a violation in parallel shard output. (T9185)
+      const loggerModule = await import('../../logger.js');
+      const logSpy = vi.spyOn(loggerModule, 'getLogger');
+      const warnSpy = vi.fn();
+      logSpy.mockReturnValue({
+        warn: warnSpy,
+        error: vi.fn(),
+        info: vi.fn(),
+        debug: vi.fn(),
+      } as unknown as ReturnType<typeof loggerModule.getLogger>);
+
       // ensureColumns should add provenance without error
       const { ensureColumns } = await import('../../store/migration-manager.js');
       expect(() => {
         ensureColumns(db, 'brain_page_edges', [{ name: 'provenance', ddl: 'text' }], 'brain');
       }).not.toThrow();
+
+      // Verify the expected warn was called (confirms ensureColumns detected the missing column)
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ column: 'provenance', context: 'legacy-upgrade' }),
+        expect.stringContaining('Adding missing column brain_page_edges.provenance'),
+      );
+
+      // Restore logger so subsequent tests use the real logger
+      logSpy.mockRestore();
 
       // Confirm provenance is now present
       const colsAfter = db.prepare('PRAGMA table_info(brain_page_edges)').all() as PragmaRow[];
