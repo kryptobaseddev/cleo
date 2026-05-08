@@ -127,7 +127,9 @@ describe('T690 — applyHomeostaticDecay (Step 9c, real SQLite)', () => {
     const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('T690-1: edge with last_reinforced_at 30 days ago decays to expected weight', async () => {
@@ -333,7 +335,9 @@ describe('T695 — session-bucket pair grouping (real SQLite)', () => {
     const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   // Skipped: this is a shared-CI-flaky perf canary, not a behavioral contract.
@@ -435,7 +439,7 @@ describe('T695 — session-bucket pair grouping (real SQLite)', () => {
     } finally {
       closeBrainDb();
       process.env['CLEO_DIR'] = join(smallDir, '.cleo');
-      await rm(largeDir, { recursive: true, force: true });
+      await rm(largeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
     }
     const timeLargeMs = medianOf(largeTrials);
 
@@ -583,7 +587,9 @@ describe('T694 — runConsolidation pipeline (real SQLite, no mocks)', () => {
     const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('T694-1: runConsolidation inserts a brain_consolidation_events row with stats', async () => {
