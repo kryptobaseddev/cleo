@@ -151,7 +151,7 @@ describe('Session handoff full round-trip', () => {
   beforeEach(() => {
     store = createMockStore();
     (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(store.accessor);
-  (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(store.accessor);
+    (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(store.accessor);
     vi.clearAllMocks();
     // Wire insertHandoffEntry mock to simulate the AFTER INSERT trigger:
     // mirrors the handoff_json value back into the matching session in the store.
