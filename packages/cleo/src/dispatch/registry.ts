@@ -1870,7 +1870,7 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string',
         required: false,
         description: 'Task type',
-        enum: ['epic', 'task', 'subtask', 'bug'] as const,
+        enum: ['epic', 'task', 'subtask'] as const,
         cli: { flag: 'type', short: '-t' },
       },
       {
