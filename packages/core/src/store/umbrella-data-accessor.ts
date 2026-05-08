@@ -15,24 +15,52 @@
 import type {
   ArchiveFields,
   ArchiveFile,
+  BrainAccessor,
+  ConduitAccessor,
   DataAccessor,
   DataAccessorAgentInstance,
+  DocsAccessor,
+  NexusAccessor,
   QueryTasksResult,
   Session,
+  SignaldockAccessor,
   Task,
   TaskFieldUpdates,
   TaskQueryFilters,
+  TelemetryAccessor,
   TransactionAccessor,
 } from '@cleocode/contracts';
 import type { CleoDbRole } from './open-cleo-db.js';
 import { openCleoDb } from './open-cleo-db.js';
+import {
+  createBrainAccessor,
+} from './brain-accessor-impl.js';
+import {
+  createConduitAccessor,
+  createNexusAccessor,
+  createSignaldockAccessor,
+  createTelemetryAccessor,
+} from './role-accessors-impl.js';
 import { createSqliteDataAccessor } from './sqlite-data-accessor.js';
+
+/** Union of all typed sub-accessor types (T9188). */
+export type TypedSubAccessor =
+  | DataAccessor
+  | BrainAccessor
+  | ConduitAccessor
+  | DocsAccessor
+  | NexusAccessor
+  | SignaldockAccessor
+  | TelemetryAccessor;
 
 export class UmbrellaDataAccessor implements DataAccessor {
   readonly engine = 'sqlite' as const;
 
   /** Lazy-initialized sub-accessors keyed by role. */
   private accessors = new Map<CleoDbRole, DataAccessor>();
+
+  /** Lazy-initialized role-specific typed sub-accessors (T9188). */
+  private typedAccessors = new Map<CleoDbRole, TypedSubAccessor>();
 
   /** cwd used for project-tier sub-accessor creation. */
   private cwd: string | undefined;
@@ -42,45 +70,84 @@ export class UmbrellaDataAccessor implements DataAccessor {
   }
 
   /**
-   * Get (or create) a sub-accessor for the given role.
+   * Get (or create) a typed sub-accessor for the given role.
    *
-   * Lazily initializes on first call. The 'tasks' accessor is created via
-   * the existing createSqliteDataAccessor() factory (which includes safety
-   * wrapping). Other roles will use role-specific factories as they are
-   * introduced.
+   * Lazily initializes on first call. Returns a role-specific typed accessor:
+   *   - 'tasks'      → DataAccessor (full task CRUD)
+   *   - 'brain'      → BrainAccessor (memory observe + find)
+   *   - 'conduit'    → ConduitAccessor (messaging publish + ping)
+   *   - 'nexus'      → NexusAccessor (code intelligence ping)
+   *   - 'signaldock' → SignaldockAccessor (agent identity ping)
+   *   - 'telemetry'  → TelemetryAccessor (event recording stub)
+   *   - 'docs'       → DocsAccessor (document storage + search)
+   *   - 'sessions'   → DataAccessor (session-scoped tasks accessor)
    *
    * @param role - Database role.
-   * @returns A DataAccessor for that role.
+   * @returns A typed accessor for that role.
+   * @task T9188
    */
-  async getSubAccessor(role: CleoDbRole): Promise<DataAccessor> {
-    const existing = this.accessors.get(role);
-    if (existing) return existing;
+  async getSubAccessor(role: CleoDbRole | 'docs' | 'telemetry'): Promise<TypedSubAccessor> {
+    // Check typed cache first
+    const cached = this.typedAccessors.get(role as CleoDbRole);
+    if (cached) return cached;
 
-    // For now, only 'tasks' has a full DataAccessor implementation.
-    // Future roles (brain, sessions, signaldock, conduit, nexus, llmtxt)
-    // will get their own accessor implementations.
-    if (role === 'tasks') {
-      const accessor = await createSqliteDataAccessor(this.cwd);
-      this.accessors.set(role, accessor);
-      return accessor;
+    let accessor: TypedSubAccessor;
+
+    switch (role) {
+      case 'tasks':
+      case 'sessions': {
+        // DataAccessor — full task/session CRUD
+        accessor = await createSqliteDataAccessor(this.cwd);
+        this.accessors.set(role as CleoDbRole, accessor as DataAccessor);
+        break;
+      }
+      case 'brain': {
+        // BrainAccessor — memory observe + search
+        accessor = createBrainAccessor(this.cwd);
+        break;
+      }
+      case 'conduit': {
+        // ConduitAccessor — project-scoped messaging
+        accessor = createConduitAccessor(this.cwd);
+        break;
+      }
+      case 'nexus': {
+        // NexusAccessor — code intelligence graph
+        await openCleoDb('nexus', this.cwd); // ensure DB is open
+        accessor = createNexusAccessor(this.cwd);
+        break;
+      }
+      case 'signaldock': {
+        // SignaldockAccessor — global agent identity
+        accessor = createSignaldockAccessor();
+        break;
+      }
+      case 'telemetry': {
+        // TelemetryAccessor — stub (no backing DB yet)
+        accessor = createTelemetryAccessor();
+        break;
+      }
+      case 'docs': {
+        // DocsAccessor — documents + llmtxt (T9063)
+        const { createDocsAccessor } = await import('./docs-accessor-impl.js');
+        accessor = createDocsAccessor(this.cwd ?? process.cwd());
+        break;
+      }
+      default: {
+        // llmtxt and future roles
+        throw new Error(
+          `UmbrellaDataAccessor.getSubAccessor("${role}"): role not yet implemented.`,
+        );
+      }
     }
 
-    // For other roles, we open the DB via openCleoDb so the handle is
-    // tracked, but we do NOT yet return a full DataAccessor because the
-    // interface methods (loadTasks, saveTasks, etc.) are task-centric.
-    // Callers that need brain/nexus/etc. operations should use the raw
-    // DBHandle or role-specific APIs. This will evolve as multi-DB
-    // accessor interfaces are defined.
-    await openCleoDb(role, this.cwd);
-    throw new Error(
-      `UmbrellaDataAccessor.getSubAccessor("${role}") is not yet implemented. ` +
-        `Only "tasks" sub-accessor is available. Track: T9050 follow-ups.`,
-    );
+    this.typedAccessors.set(role as CleoDbRole, accessor);
+    return accessor;
   }
 
   /** Return the canonical 'tasks' sub-accessor (backward compat). */
   private async tasks(): Promise<DataAccessor> {
-    return this.getSubAccessor('tasks');
+    return this.getSubAccessor('tasks') as Promise<DataAccessor>;
   }
 
   // =========================================================================
@@ -109,16 +176,37 @@ export class UmbrellaDataAccessor implements DataAccessor {
 
   async close(): Promise<void> {
     const closers: Promise<void>[] = [];
+
+    // Close standard DataAccessors
     for (const [role, accessor] of this.accessors) {
       closers.push(
         accessor.close().catch((err) => {
-          // Log and continue — never let one close failure block others
           console.error(`UmbrellaDataAccessor.close() failed for role "${role}":`, err);
         }),
       );
     }
+
+    // Close typed sub-accessors (T9188)
+    for (const [role, accessor] of this.typedAccessors) {
+      if (!this.accessors.has(role)) {
+        // Only close if not already closed via this.accessors
+        const typedAccessor = accessor as { close?: () => Promise<void> };
+        if (typeof typedAccessor.close === 'function') {
+          closers.push(
+            typedAccessor.close().catch((err: unknown) => {
+              console.error(
+                `UmbrellaDataAccessor.close() failed for typed role "${role}":`,
+                err,
+              );
+            }),
+          );
+        }
+      }
+    }
+
     await Promise.all(closers);
     this.accessors.clear();
+    this.typedAccessors.clear();
   }
 
   async upsertSingleTask(task: Task): Promise<void> {

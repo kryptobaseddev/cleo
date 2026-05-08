@@ -53,22 +53,36 @@ const REQUIRED_EXPORTS = [
 
 async function checkContractsExports() {
   console.log('\n--- Check 1: @cleocode/contracts sub-accessor exports ---');
-  let contractsMod;
-  try {
-    contractsMod = await import(join(REPO_ROOT, 'packages/contracts/src/index.js'));
-  } catch (e) {
-    // Try compiled dist
+
+  // TypeScript interfaces are type-erased at runtime (no JS value emitted).
+  // We check the source index.ts and the .d.ts declaration file for the exports
+  // instead of the runtime module object.
+  const { readFileSync } = await import('node:fs');
+
+  const checkTargets = [
+    join(REPO_ROOT, 'packages/contracts/src/index.ts'),
+    join(REPO_ROOT, 'packages/contracts/dist/index.d.ts'),
+  ];
+
+  let combinedSource = '';
+  for (const target of checkTargets) {
     try {
-      contractsMod = await import('@cleocode/contracts');
-    } catch (e2) {
-      fail(`Cannot import @cleocode/contracts: ${e2.message}`);
-      return;
+      combinedSource += readFileSync(target, 'utf8');
+    } catch {
+      // file may not exist yet
     }
+  }
+
+  if (!combinedSource) {
+    fail('Cannot read packages/contracts/src/index.ts or dist/index.d.ts — contracts not built?');
+    return;
   }
 
   const missing = [];
   for (const name of REQUIRED_EXPORTS) {
-    if (!(name in contractsMod)) {
+    // Check either "export type { ... name ..." or "export { ... name ..." or "export interface name"
+    const pattern = new RegExp(`\\b${name}\\b`);
+    if (!pattern.test(combinedSource)) {
       missing.push(name);
     }
   }
