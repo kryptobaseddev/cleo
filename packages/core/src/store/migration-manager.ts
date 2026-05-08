@@ -564,6 +564,15 @@ export function isDuplicateColumnError(err: unknown): boolean {
 }
 
 /**
+ * T9174: Check for "table X already exists" SQLite error.
+ * Occurs when migration SQL lacks IF NOT EXISTS but startup DDL already ran.
+ */
+export function isTableAlreadyExistsError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /table .+ already exists/i.test(err.message);
+}
+
+/**
  * Check whether a SQL statement is "executable" — i.e., contains something
  * other than whitespace and SQL comments.
  *
@@ -698,6 +707,7 @@ export function migrateWithRetry(
   logSubsystem?: string,
 ): void {
   let duplicateColumnReconciled = false;
+  let tableExistsReconciled = false;
 
   for (let attempt = 1; attempt <= MAX_MIGRATION_RETRIES; attempt++) {
     try {
@@ -716,6 +726,23 @@ export function migrateWithRetry(
         logSubsystem !== undefined
       ) {
         duplicateColumnReconciled = true;
+        reconcileJournal(nativeDb, migrationsFolder, existenceTable, logSubsystem);
+        continue;
+      }
+
+      // T9174: belt-and-suspenders for "table already exists" errors
+      if (
+        isTableAlreadyExistsError(err) &&
+        !tableExistsReconciled &&
+        nativeDb !== undefined &&
+        existenceTable !== undefined &&
+        logSubsystem !== undefined
+      ) {
+        tableExistsReconciled = true;
+        getLogger(logSubsystem).warn(
+          { message: (err as Error).message },
+          '[T9174] Migration "table already exists" — reconciling journal and retrying',
+        );
         reconcileJournal(nativeDb, migrationsFolder, existenceTable, logSubsystem);
         continue;
       }

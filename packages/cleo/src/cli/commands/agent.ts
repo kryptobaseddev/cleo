@@ -2821,6 +2821,74 @@ const mintCommand = defineCommand({
   },
 });
 
+/** T9173: cleo agent prune-orphans — delete D-002 orphan registry rows from any cwd. @task T9173 */
+const pruneOrphansCommand = defineCommand({
+  meta: {
+    name: 'prune-orphans',
+    description:
+      'Delete orphan registry rows whose .cant path no longer exists (cross-project safe)',
+  },
+  args: {
+    json: { type: 'boolean', description: 'Emit raw JSON' },
+    'dry-run': { type: 'boolean', description: 'Report without making changes' },
+  },
+  async run({ args }) {
+    try {
+      const {
+        buildDoctorReport,
+        reconcileDoctor,
+        ensureGlobalSignaldockDb,
+        getGlobalSignaldockDbPath,
+      } = await import('@cleocode/core/internal');
+      const { createRequire } = await import('node:module');
+      const { DatabaseSync } = createRequire(import.meta.url)(
+        'node:sqlite',
+      ) as typeof import('node:sqlite');
+      await ensureGlobalSignaldockDb();
+      const db = new DatabaseSync(getGlobalSignaldockDbPath());
+      db.exec('PRAGMA foreign_keys = ON');
+      try {
+        const report = await buildDoctorReport(db, {});
+        const d002 = report.findings.filter((f) => f.code === 'D-002');
+        const dryRun = args['dry-run'] === true;
+        let repaired: string[] = [],
+          skipped: string[] = [];
+        if (!dryRun && d002.length > 0) {
+          const r = await reconcileDoctor(db, d002, {});
+          repaired = r.repaired;
+          skipped = r.skipped;
+        }
+        const msg =
+          d002.length === 0
+            ? 'No orphan rows found.'
+            : `Found ${d002.length} orphan(s)${dryRun ? ' (dry-run)' : ': pruned=' + repaired.length}`;
+        cliOutput(
+          {
+            success: true,
+            data: {
+              message: msg,
+              found: d002.length,
+              repaired: dryRun ? 0 : repaired.length,
+              skipped: dryRun ? 0 : skipped.length,
+              dryRun,
+            },
+          },
+          { command: 'agent prune-orphans' },
+        );
+        if (!dryRun && skipped.length > 0) process.exitCode = 1;
+      } finally {
+        db.close();
+      }
+    } catch (err) {
+      cliOutput(
+        { success: false, error: { code: 'E_PRUNE_ORPHANS', message: String(err) } },
+        { command: 'agent prune-orphans' },
+      );
+      process.exitCode = 1;
+    }
+  },
+});
+
 const doctorCommand = defineCommand({
   meta: {
     name: 'doctor',
@@ -2950,6 +3018,7 @@ export const agentCommand = defineCommand({
   meta: { name: 'agent', description: 'Agent lifecycle, credentials, and messaging' },
   subCommands: {
     doctor: doctorCommand,
+    'prune-orphans': pruneOrphansCommand,
     register: registerCommand,
     signin: signinCommand,
     start: startCommand,

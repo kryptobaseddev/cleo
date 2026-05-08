@@ -593,7 +593,8 @@ export async function completeTask(
   // T1462: Auto-prune the task worktree when the task is completed.
   // Runs best-effort — Promise rejection (e.g. non-git directory) must not
   // propagate as an unhandled rejection and must never block completion.
-  teardownWorktree(projectRoot, { taskId: options.taskId }).catch(() => {});
+  // T9175: deleteBranch:false preserves branch for ADR-062 orchestrator merge
+  teardownWorktree(projectRoot, { taskId: options.taskId, deleteBranch: false }).catch(() => {});
 
   // NOTE: Memory bridge refresh is now handled by the onToolComplete hook
   // via memory-bridge-refresh.ts (T138). No direct call needed here.
