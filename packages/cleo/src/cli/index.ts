@@ -219,13 +219,28 @@ async function startCli(): Promise<void> {
  * path (`--version`, `--help`, `-V`, `-h`, no-args) never trigger the
  * 2018-line `@cleocode/core/internal` barrel and its 406-export transitive
  * dependency tree.
+ *
+ * ### DB-open audit (T9029)
+ *
+ * UNIVERSAL steps (must precede every command):
+ *   - Legacy file cleanup (T304/T307) — stat()-only, no DB open
+ *   - T310 signaldock→conduit migration check — file-existence check only
+ *   - Global-salt validation — reads machine-key file, no SQLite open
+ *
+ * DB-specific steps moved OUT of startup maintenance (T9029):
+ *   - ensureConduitDb — deferred to commands that need conduit.db
+ *   - ensureGlobalSignaldockDb — deferred to commands that need signaldock.db
+ *
+ * Both functions are already called by their respective consumers (agent.ts,
+ * migrate-agents-v2.ts, init.ts, upgrade.ts, agent-registry-accessor.ts)
+ * on the first DB access. Removing them from startup means `cleo find`,
+ * `cleo show`, `cleo next`, and all memory commands no longer pay the cost
+ * of opening two additional SQLite databases they never use.
  */
 export async function runStartupMaintenance(): Promise<void> {
   const {
     detectAndRemoveLegacyGlobalFiles,
     detectAndRemoveStrayProjectNexus,
-    ensureConduitDb,
-    ensureGlobalSignaldockDb,
     getGlobalSalt,
     getLogger,
     getProjectRoot,
@@ -288,24 +303,22 @@ export async function runStartupMaintenance(): Promise<void> {
     }
   }
 
-  // Step 3: Ensure conduit.db exists on fresh install (idempotent, project-scoped).
-  try {
-    ensureConduitDb(getProjectRoot());
-  } catch {
-    // Non-fatal: may throw E_NO_PROJECT outside a project; conduit.db is optional.
-  }
-
-  // Step 4: Ensure global signaldock.db exists (idempotent, global-tier).
-  try {
-    await ensureGlobalSignaldockDb();
-  } catch (err) {
-    _startupLog.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      'T310 startup: ensureGlobalSignaldockDb failed — CLI continues',
-    );
-  }
+  // Steps 3 + 4 REMOVED (T9029: deferred DB opens).
+  //
+  // ensureConduitDb and ensureGlobalSignaldockDb previously ran here on every
+  // non-fast-path invocation, opening two SQLite files even for commands that
+  // never use them (e.g. cleo find, cleo show, cleo next, cleo memory find).
+  //
+  // Each DB is now opened lazily on first access by its own consumer:
+  //   conduit.db      — agent.ts, migrate-agents-v2.ts, init.ts, upgrade.ts,
+  //                     agent-registry-accessor.ts
+  //   signaldock.db   — agent.ts, migrate-agents-v2.ts, signaldock-sqlite.ts
+  //
+  // If a new command needs one of these DBs it MUST call the appropriate
+  // ensure* function before its first DB read/write, not rely on startup.
 
   // Step 5: Validate global-salt integrity and log 4-byte hex fingerprint.
+  // This reads the machine-key file only; it does NOT open any SQLite DB.
   try {
     validateGlobalSalt();
     const salt = getGlobalSalt();
