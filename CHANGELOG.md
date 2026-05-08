@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.5.53] (2026-05-08) — Phase 5: Startup Performance
+
+Startup tax reductions: one-shot marker for legacy sweeps, deferred DB opens, benchmark infrastructure.
+
+### Performance
+
+- **T9028**: One-shot marker file `~/.cleo/.cleanup-{version}-{projectHash}` gates the stat()-heavy `detectAndRemoveLegacyGlobalFiles` + `detectAndRemoveStrayProjectNexus` sweeps. After the first successful sweep per code version, subsequent invocations are a single `fs.existsSync()` check. New versions get a new marker name, so the sweep re-runs exactly once per upgrade.
+- **T9029**: Remove `ensureConduitDb` and `ensureGlobalSignaldockDb` from `runStartupMaintenance`. Both functions open SQLite databases eagerly on every non-fast-path command — including `cleo find`, `cleo show`, `cleo next`, `cleo memory find` — which never use either DB. Each DB now opens lazily at first use by its own consumers. T310 migration check and global-salt validation are retained (file-existence and machine-key reads only; no SQLite open).
+
+### Infrastructure
+
+- **T9030**: `scripts/bench/startup-latency.mjs` measures p50/p95/p99 wall-clock startup for 5 representative commands (50 iterations, 3 warm-up each). Committed baseline captures v2026.5.51 numbers: `--version` p50=2148ms, `--help` p50=1943ms, `find foo` p50=2660ms, `show T1` p50=3026ms, `next` p50=3453ms. `pnpm bench:startup` re-runs the benchmark; exits 1 if any p50 regresses > 20% from baseline.
+
 ## [2026.5.52] (2026-05-08) — T9053/T9046 Pragma SSoT (TS + Rust)
 
 Drift-by-construction prevention for SQLite pragma policy across the full CLEO ecosystem.

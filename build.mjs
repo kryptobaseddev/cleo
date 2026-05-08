@@ -23,9 +23,9 @@
  */
 
 import * as esbuild from 'esbuild';
-import { chmod, cp, rm } from 'node:fs/promises';
+import { chmod, cp, rm, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import { resolve, dirname, join, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
@@ -87,6 +87,30 @@ const ROOT_FLATS = ['cleo.ts', 'contracts.ts', 'internal.ts'];
  *
  * @returns {{ in: string; out: string }[]}
  */
+/**
+ * T9184: Sanitize .js.map files to strip CI runner absolute paths from sources.
+ * @param {string} outDir - Output directory to sanitize.
+ */
+async function sanitizeSourcemaps(outDir) {
+  const absOutDir = resolve(__dirname, outDir);
+  const walk = async (dir) => {
+    let entries; try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) { await walk(full); continue; }
+      if (!entry.isFile() || !entry.name.endsWith('.js.map')) continue;
+      try {
+        const raw = await readFile(full, 'utf8'); const map = JSON.parse(raw);
+        if (!Array.isArray(map.sources)) continue;
+        let changed = false;
+        map.sources = map.sources.map((src) => { if (typeof src !== 'string' || !isAbsolute(src)) return src; changed = true; return relative(dir, src); });
+        if (changed) await writeFile(full, JSON.stringify(map));
+      } catch {}
+    }
+  };
+  await walk(absOutDir);
+}
+
 function collectCoreEntryPoints() {
   /** @type {{ in: string; out: string }[]} */
   const entries = [{ in: 'packages/core/src/index.ts', out: 'index' }];
@@ -290,6 +314,7 @@ const coreBuildOptions = {
   // cuts unpacked tarball size by ~85% with zero loss of stack-trace fidelity.
   sourcemap: 'linked',
   sourcesContent: false,
+  sourceRoot: '', // T9184
   plugins: [
     workspacePlugin('bundle-core-deps', {
       '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
@@ -316,6 +341,7 @@ const cleoBuildOptions = {
   outdir: 'packages/cleo/dist',
   sourcemap: 'linked',
   sourcesContent: false,
+  sourceRoot: '', // T9184
   // T1138: Keep node:sqlite external (unbundled) so it's always imported
   // dynamically at runtime (after banner code runs). If bundled, esbuild
   // converts all dynamic imports to static imports, which fire their warnings
@@ -379,6 +405,7 @@ const adaptersBuildOptions = {
   outfile: 'packages/adapters/dist/index.js',
   sourcemap: 'linked',
   sourcesContent: false,
+  sourceRoot: '', // T9184
   plugins: [
     workspacePlugin('bundle-adapters-deps', {
       '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
@@ -575,6 +602,7 @@ async function build() {
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 5: core (esbuild + tsc declarations)');
   await esbuild.build(coreBuildOptions);
+  await sanitizeSourcemaps('packages/core/dist'); // T9184
   console.log('  -> packages/core/dist/index.js');
   // esbuild doesn't emit .d.ts — run tsc for declarations only.
   // Remove stale tsBuildInfo to force fresh declaration emit (composite: true).
@@ -604,6 +632,7 @@ async function build() {
     // it in the same wave without a separate buildPkg invocation.
     (async () => {
       await esbuild.build(adaptersBuildOptions);
+      await sanitizeSourcemaps('packages/adapters/dist'); // T9184
       console.log('  -> packages/adapters/dist/index.js (esbuild)');
       await rm(resolve(__dirname, 'packages/adapters/tsconfig.tsbuildinfo'), { force: true });
       await new Promise((res, rej) => {
@@ -649,6 +678,7 @@ async function build() {
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 8: cleo (esbuild)');
   await esbuild.build(cleoBuildOptions);
+  await sanitizeSourcemaps('packages/cleo/dist'); // T9184
   // Make CLI entry executable (shebang only works with +x)
   await chmod('packages/cleo/dist/cli/index.js', 0o755);
   console.log('  -> packages/cleo/dist/cli/index.js');
