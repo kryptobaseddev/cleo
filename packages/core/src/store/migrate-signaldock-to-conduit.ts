@@ -30,6 +30,7 @@ import { getCleoHome } from '../paths.js';
 import { ensureConduitDb } from './conduit-sqlite.js';
 import { getGlobalSalt } from './global-salt.js';
 import { ensureGlobalSignaldockDb } from './signaldock-sqlite.js';
+import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -282,6 +283,7 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
   let legacy: DatabaseSync | null = null;
   try {
     legacy = new DatabaseSync(legacyPath, { readOnly: true });
+    applyPerfPragmas(legacy, { enableWal: false }); // read-only: WAL cannot be set (T9023)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ legacyPath, error: message }, 'T310 migration: cannot open legacy signaldock.db');
@@ -356,8 +358,9 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
     // Open a direct handle for migration writes (ensureConduitDb returns singleton;
     // we open a fresh handle to avoid interfering with any singleton state).
     conduit = new DatabaseSync(ensureResult.path);
-    conduit.exec('PRAGMA journal_mode = WAL');
-    conduit.exec('PRAGMA foreign_keys = OFF'); // Disable FK checks during bulk copy
+    applyPerfPragmas(conduit, { enableForeignKeys: false }); // FK off during bulk copy (T9023)
+    // Note: foreign_keys OFF is intentional during bulk migration; applyPerfPragmas
+    // handles WAL, busy_timeout, cache_size, mmap_size via SSoT.
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ conduitPath, error: message }, 'T310 migration: failed to create conduit.db');
@@ -506,8 +509,7 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
       mkdirSync(cleoHome, { recursive: true });
     }
     globalDb = new DatabaseSync(globalSignaldockPath);
-    globalDb.exec('PRAGMA journal_mode = WAL');
-    globalDb.exec('PRAGMA foreign_keys = OFF'); // Disable FK checks during bulk copy
+    applyPerfPragmas(globalDb, { enableForeignKeys: false }); // FK off during bulk copy (T9023)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(

@@ -355,6 +355,8 @@ export async function agentExistsInSignaldockDb(agentId: string, cwd?: string): 
     const _require = createRequire(import.meta.url);
     const { DatabaseSync } = _require('node:sqlite') as typeof import('node:sqlite');
     const db = new DatabaseSync(dbPath);
+    const { applyPerfPragmas } = await import('./sqlite-pragmas.js');
+    applyPerfPragmas(db); // apply pragma SSoT (T9023)
     try {
       const row = db.prepare('SELECT id FROM agents WHERE agent_id = ?').get(agentId) as
         | { id: string }
