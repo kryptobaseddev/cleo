@@ -4,7 +4,7 @@
  * Emits a rich Markdown document for a CLEO task using the llmtxt
  * `formatMarkdown` primitive from `llmtxt/export`. The output includes:
  *
- *   1. YAML frontmatter (id, title, status, role, scope, priority, size, …)
+ *   1. YAML frontmatter (id, title, status, kind, scope, priority, size, …)
  *      via llmtxt's canonical `DocumentExportState` + `formatMarkdown`.
  *   2. Description and acceptance criteria body.
  *   3. Attached blob manifest (via {@link blobList}) with SHA-256 backlinks.
@@ -303,7 +303,7 @@ function buildFallbackMarkdown(
     `status: ${task.status}`,
     `priority: ${task.priority}`,
     ...(task.type ? [`type: ${task.type}`] : []),
-    ...(task.role ? [`role: ${task.role}`] : []),
+    ...(task.kind ? [`kind: ${task.kind}`] : []),
     ...(task.scope ? [`scope: ${task.scope}`] : []),
     ...(task.size ? [`size: ${task.size}`] : []),
     ...(task.parentId ? [`parent: ${task.parentId}`] : []),

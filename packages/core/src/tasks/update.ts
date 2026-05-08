@@ -6,9 +6,9 @@
 
 import type {
   Task,
+  TaskKind,
   TaskPriority,
   TaskRecord,
-  TaskRole,
   TaskScope,
   TaskSize,
   TaskStatus,
@@ -62,7 +62,7 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'parentId',
   'noAutoComplete',
   'pipelineStage',
-  'role',
+  'kind',
   'scope',
 ];
 
@@ -95,12 +95,13 @@ export interface UpdateTaskOptions {
   /** RCASD-IVTR+C pipeline stage transition target. Must be >= current stage. @task T060 */
   pipelineStage?: string;
   /**
-   * Task role axis — intent of work, orthogonal to {@link type}.
+   * Task kind axis — intent of work, orthogonal to {@link type}.
    * @task T944
+   * @task T9072
    */
-  role?: TaskRole;
+  kind?: TaskKind;
   /**
-   * Task scope axis — granularity of work, orthogonal to {@link type} and {@link role}.
+   * Task scope axis — granularity of work, orthogonal to {@link type} and {@link kind}.
    * @task T944
    */
   scope?: TaskScope;
@@ -320,10 +321,10 @@ export async function updateTask(
     changes.push('noAutoComplete');
   }
 
-  // T944: orthogonal axes
-  if (options.role !== undefined) {
-    task.role = options.role;
-    changes.push('role');
+  // T944/T9072: orthogonal axes
+  if (options.kind !== undefined) {
+    task.kind = options.kind;
+    changes.push('kind');
   }
 
   if (options.scope !== undefined) {
@@ -511,7 +512,7 @@ export async function taskUpdate(
     size?: string;
     files?: string[];
     pipelineStage?: string;
-    role?: string;
+    kind?: string;
     scope?: string;
     reason?: string;
   },
@@ -538,7 +539,7 @@ export async function taskUpdate(
         size: updates.size as TaskSize | undefined,
         files: updates.files,
         pipelineStage: updates.pipelineStage,
-        role: updates.role as TaskRole | undefined,
+        kind: updates.kind as TaskKind | undefined,
         scope: updates.scope as TaskScope | undefined,
         reason: updates.reason,
       },

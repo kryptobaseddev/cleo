@@ -7,9 +7,9 @@
 import type {
   MinimalTaskRecord,
   Task,
+  TaskKind,
   TaskQueryFilters,
   TaskRecord,
-  TaskRole,
   TaskStatus,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
@@ -49,10 +49,11 @@ export interface FindTasksOptions {
   limit?: number;
   offset?: number;
   /**
-   * Filter by task role axis. Accepts any valid {@link TaskRole} value.
+   * Filter by task kind axis. Accepts any valid {@link TaskKind} value.
    * @task T944
+   * @task T9072
    */
-  role?: TaskRole;
+  kind?: TaskKind;
 }
 
 /** Result of finding tasks. */
@@ -127,7 +128,7 @@ export function fuzzyScore(query: string, text: string): number {
 }
 
 /**
- * Parse `status:value` / `role:value` / `priority:value` tokens embedded in
+ * Parse `status:value` / `kind:value` / `priority:value` tokens embedded in
  * a fuzzy query string and lift them into the filter options.
  *
  * Users naturally type `cleo find "status:pending"` expecting it to filter
@@ -135,7 +136,7 @@ export function fuzzyScore(query: string, text: string): number {
  * the options so the filter lifts out of the query token and only the
  * remaining words stay in the free-text search.
  *
- * Recognised fields: `status`, `role`, `priority`, `type`, `id`.
+ * Recognised fields: `status`, `kind`, `priority`, `type`, `id`.
  * Unrecognised `key:value` tokens pass through as-is (treated as fuzzy
  * text) to preserve user intent.
  *
@@ -145,6 +146,7 @@ export function fuzzyScore(query: string, text: string): number {
  *   changed.
  *
  * @task T1187-followup / v2026.4.114
+ * @task T9072
  *
  * @example
  * ```ts
@@ -153,9 +155,9 @@ export function fuzzyScore(query: string, text: string): number {
  * console.assert(result.status === 'pending', 'status lifted from query');
  * console.assert(result.query === 'auth flow', 'remaining text preserved as query');
  *
- * // Role token lifted similarly
- * const result2 = extractInlineFilters({ query: 'role:bug login crash' });
- * console.assert(result2.role === 'bug', 'role lifted from query');
+ * // Kind token lifted similarly
+ * const result2 = extractInlineFilters({ query: 'kind:bug login crash' });
+ * console.assert(result2.kind === 'bug', 'kind lifted from query');
  * console.assert(result2.query === 'login crash', 'remaining text preserved');
  *
  * // No inline tokens — options returned unchanged
@@ -170,7 +172,7 @@ export function extractInlineFilters(options: FindTasksOptions): FindTasksOption
   const remaining: string[] = [];
   const next: FindTasksOptions = { ...options };
   for (const tok of tokens) {
-    const m = tok.match(/^(status|role|priority|type|id):(.+)$/i);
+    const m = tok.match(/^(status|kind|priority|type|id):(.+)$/i);
     if (!m) {
       remaining.push(tok);
       continue;
@@ -180,8 +182,8 @@ export function extractInlineFilters(options: FindTasksOptions): FindTasksOption
       case 'status':
         if (!next.status) next.status = value as TaskStatus;
         break;
-      case 'role':
-        if (!next.role) next.role = value as TaskRole;
+      case 'kind':
+        if (!next.kind) next.kind = value as TaskKind;
         break;
       case 'id':
         if (!next.id) next.id = value;
@@ -204,7 +206,7 @@ export function extractInlineFilters(options: FindTasksOptions): FindTasksOption
  * Accepts any of:
  *   - positional `query` for fuzzy title/description search
  *   - `id` prefix
- *   - `status` / `role` filter (any of these alone is sufficient — no
+ *   - `status` / `kind` filter (any of these alone is sufficient — no
  *     query required, returns all matches)
  *   - inline `key:value` tokens in `query` (e.g. `status:pending`)
  *     auto-lifted into the corresponding filter
@@ -218,12 +220,12 @@ export async function findTasks(
   accessor?: DataAccessor,
 ): Promise<FindTasksResult> {
   const options = extractInlineFilters(rawOptions);
-  const hasFilter = Boolean(options.status || options.role);
+  const hasFilter = Boolean(options.status || options.kind);
 
   if (options.query == null && !options.id && !hasFilter) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
-      'Search query, --id, or at least one filter (--status, --role) is required',
+      'Search query, --id, or at least one filter (--status, --kind) is required',
       {
         fix: 'cleo find "<query>"  OR  cleo find --status pending  OR  cleo find --id T123',
         details: { field: 'query' },
@@ -253,9 +255,9 @@ export async function findTasks(
     }
   }
 
-  // T944: role filter — applied after status/archive resolution
-  if (options.role) {
-    allTasks = allTasks.filter((t) => t.role === options.role);
+  // T944/T9072: kind filter — applied after status/archive resolution
+  if (options.kind) {
+    allTasks = allTasks.filter((t) => t.kind === options.kind);
   }
 
   let results: FindResult[];
@@ -299,7 +301,7 @@ export async function findTasks(
         score: 100,
       }));
   } else if (options.query == null) {
-    // Filter-only mode — return every task the status/role filter already
+    // Filter-only mode — return every task the status/kind filter already
     // matched. All-equal score=50 so pagination is stable. T1187-followup.
     searchType = 'fuzzy';
     queryStr = '';
@@ -392,7 +394,7 @@ export async function taskFind(
     offset?: number;
     fields?: string;
     verbose?: boolean;
-    role?: string;
+    kind?: string;
   },
 ): Promise<EngineResult<{ results: (MinimalTaskRecord | TaskRecord)[]; total: number }>> {
   try {
@@ -406,7 +408,7 @@ export async function taskFind(
         includeArchive: options?.includeArchive,
         limit: limit ?? 20,
         offset: options?.offset,
-        role: options?.role as TaskRole | undefined,
+        kind: options?.kind as TaskKind | undefined,
       },
       projectRoot,
       accessor,

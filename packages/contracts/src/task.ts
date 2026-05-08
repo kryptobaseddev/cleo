@@ -45,16 +45,20 @@ export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 export type TaskType = 'epic' | 'task' | 'subtask';
 
 /**
- * Task role axis — orthogonal to {@link TaskType}, describes the intent of work.
+ * Task kind axis — orthogonal to {@link TaskType}, describes the intent of work.
  * Defaults to `'work'` for backward compatibility.
  *
+ * Note: DB column is named `role` (rename deferred per T9067 — CHECK constraint).
+ * All TypeScript consumers use `kind`; the SQL-layer alias is handled in tasks-schema.ts.
+ *
  * @task T944
+ * @task T9072
  */
-export type TaskRole = 'work' | 'research' | 'experiment' | 'bug' | 'spike' | 'release';
+export type TaskKind = 'work' | 'research' | 'experiment' | 'bug' | 'spike' | 'release';
 
 /**
  * Task scope axis — granularity of work. Orthogonal to {@link TaskType} and
- * {@link TaskRole}. Defaults to `'feature'`.
+ * {@link TaskKind}. Defaults to `'feature'`.
  *
  * Legacy type → scope mapping on backfill:
  * - `type='epic'`    → `scope='project'`
@@ -66,8 +70,8 @@ export type TaskRole = 'work' | 'research' | 'experiment' | 'bug' | 'spike' | 'r
 export type TaskScope = 'project' | 'feature' | 'unit';
 
 /**
- * Bug severity axis. Only meaningful when `role='bug'`; enforced by a DB-level
- * CHECK constraint (`severity IS NULL OR (severity IN (...) AND role='bug')`).
+ * Bug severity axis. Only meaningful when `kind='bug'`; enforced by a DB-level
+ * CHECK constraint on the `role` column (`severity IS NULL OR (severity IN (...) AND role='bug')`).
  *
  * OWNER-WRITE-ONLY: severity is intended to be set through owner-authenticated
  * paths only. This prevents a prompt-injection exploit where a compromised
@@ -308,15 +312,17 @@ export interface Task {
   type?: TaskType;
 
   /**
-   * Task role axis — intent of work, orthogonal to {@link type}.
-   * Defaults to `'work'` at the DB level. @defaultValue 'work'
+   * Task kind axis — intent of work, orthogonal to {@link type}.
+   * Defaults to `'work'` at the DB level. DB column is named `role` (T9067 deferral).
+   * @defaultValue 'work'
    * @task T944
+   * @task T9072
    */
-  role?: TaskRole;
+  kind?: TaskKind;
 
   /**
    * Task scope axis — granularity of work, orthogonal to {@link type} and
-   * {@link role}. Defaults to `'feature'` at the DB level. @defaultValue 'feature'
+   * {@link kind}. Defaults to `'feature'` at the DB level. @defaultValue 'feature'
    * @task T944
    */
   scope?: TaskScope;
@@ -466,11 +472,13 @@ export interface TaskCreate {
   type?: TaskType;
 
   /**
-   * Task role — intent of work. Defaults to `'work'` at the DB level.
+   * Task kind — intent of work. Defaults to `'work'` at the DB level.
+   * DB column is named `role` (T9067 deferral).
    * @defaultValue 'work'
    * @task T944
+   * @task T9072
    */
-  role?: TaskRole;
+  kind?: TaskKind;
 
   /**
    * Task scope — granularity of work. Defaults to `'feature'` at the DB level.
@@ -480,7 +488,7 @@ export interface TaskCreate {
   scope?: TaskScope;
 
   /**
-   * Bug severity (OWNER-WRITE-ONLY). Only valid with `role='bug'`.
+   * Bug severity (OWNER-WRITE-ONLY). Only valid with `kind='bug'`.
    * @defaultValue undefined
    * @task T944
    */
