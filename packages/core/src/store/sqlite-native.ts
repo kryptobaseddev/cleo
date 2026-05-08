@@ -22,12 +22,14 @@
  * live-binding getters (Vite transforms them as property accessors, not `const`
  * bindings), so they cannot be in TDZ during module initialization.
  *
- * ## Invariant
+ * ## Invariant (updated T9024)
  *
- * This file MUST NOT import any CLEO module — only `node:` builtins. The
- * leaf-module rule prevents the agent-resolver TDZ cycle from re-entering
- * partially-initialised state. Node builtins (fs, os, path, module) do not
- * participate in any CLEO cycle and are therefore safe.
+ * Modules imported here MUST NOT have live bindings that participate in the
+ * agent-resolver TDZ cycle. Node builtins (fs, os, path, module) are always
+ * safe. `sqlite-pragmas.ts` is now also safe (confirmed T9024): its only
+ * import is `import type { DatabaseSync } from 'node:sqlite'` — a type-only
+ * import erased at runtime, so it never enters the live binding graph. All
+ * other CLEO modules remain forbidden here.
  *
  * @module sqlite-native
  * @task T1331
@@ -39,6 +41,11 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+// T9024: sqlite-pragmas.ts has only `import type { DatabaseSync } from 'node:sqlite'`
+// and zero CLEO-module deps — so importing it here does NOT re-introduce the TDZ
+// cycle described in T1331/T1325. The cycle risk was from full CLEO imports; a
+// type-only import leaf is safe. Confirmed by the full Vitest suite passing.
+import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -203,23 +210,15 @@ export function openNativeDatabase(
     allowExtension: options?.allowExtension ?? false,
   });
 
-  // Set busy_timeout FIRST so WAL pragma can wait for locks
-  db.exec(`PRAGMA busy_timeout=${options?.timeout ?? 5000}`);
-
-  // Performance pragmas — kept in sync with applyPerfPragmas() in
-  // sqlite-pragmas.ts. We inline rather than import because sqlite-native is
-  // the leaf-module chokepoint for the TDZ cycle (see file header) and must
-  // not depend on any other CLEO module.
-  //   synchronous=NORMAL       : durable on commit, no corruption risk under WAL
-  //   cache_size=-64000        : 64 MB page cache (default ~2 MB is too small)
-  //   mmap_size=268435456      : 256 MB read mmap window
-  //   temp_store=MEMORY        : keep temp tables in RAM
-  //   wal_autocheckpoint=1000  : ~4 MB WAL before checkpoint
-  db.exec('PRAGMA synchronous = NORMAL');
-  db.exec('PRAGMA cache_size = -64000');
-  db.exec('PRAGMA mmap_size = 268435456');
-  db.exec('PRAGMA temp_store = MEMORY');
-  db.exec('PRAGMA wal_autocheckpoint = 1000');
+  // Apply canonical pragma set via SSoT (T9024 — removed inline duplication).
+  // applyPerfPragmas is safe to import here: sqlite-pragmas.ts has only
+  // `import type { DatabaseSync } from 'node:sqlite'` and zero CLEO deps,
+  // so it does not participate in the agent-resolver TDZ cycle (T1331).
+  // WAL is handled separately below (with retry logic), so disable here.
+  applyPerfPragmas(db, {
+    enableWal: false, // WAL applied below with retry (T1331)
+    busyTimeoutMs: options?.timeout ?? 5000,
+  });
 
   // Enable WAL for concurrent multi-process access (ADR-006, ADR-010)
   if (options?.enableWal !== false) {
