@@ -254,6 +254,17 @@ export type {
   DependencySpec,
 } from './dependency.js';
 export type { AdapterManifest, DetectionPattern } from './discovery.js';
+// === DocsAccessor Contracts (T9063) ===
+export type {
+  DocExportFormat,
+  DocKind,
+  DocRecord,
+  DocSearchHit,
+  DocsAccessor,
+  ListDocsFilters,
+  StoreDocParams,
+  StoreDocResult,
+} from './docs-accessor.js';
 // === Error Utilities ===
 export {
   ClassifierUnregisteredAgentError,
@@ -1024,6 +1035,17 @@ export type {
   PlaybookRun,
   PlaybookRunStatus,
 } from './playbook.js';
+// === PostgresDataAccessor Contracts — cloud-sync scaffold (T9062) ===
+export type {
+  CreatePostgresDataAccessorFn,
+  PostgresDataAccessor,
+  PostgresDataAccessorOptions,
+  PostgresSyncDirection,
+  PostgresTenantNamespace,
+  PostgresTenantStrategy,
+  SyncResult,
+  SyncStatus,
+} from './postgres-data-accessor.js';
 export type { AdapterPathProvider } from './provider-paths.js';
 // === Release Pipeline (T1597 / ADR-063) ===
 export type {
