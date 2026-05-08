@@ -60,7 +60,7 @@ export const addCommand = defineCommand({
     type: {
       type: 'string',
       alias: 't',
-      description: 'Task type (epic | task | subtask | bug)',
+      description: 'Task type (epic | task | subtask)',
     },
     parent: {
       type: 'string',
