@@ -512,18 +512,4 @@ export async function closeAllDatabases(): Promise<void> {
   } catch {
     /* module may not be loaded */
   }
-
-  // Close conduit.db (dynamic import to avoid circular deps).
-  // initProject() and orchestrate operations open conduit.db for project-tier
-  // agent messaging. On Windows, the WAL sidecar files (.db-shm/.db-wal)
-  // remain OS-locked after the process keeps the handle open, causing rm() on
-  // the temp directory to hang indefinitely with EBUSY.
-  //
-  // @task T9182
-  try {
-    const { closeConduitDb } = await import('./conduit-sqlite.js');
-    closeConduitDb();
-  } catch {
-    /* module may not be loaded */
-  }
 }
