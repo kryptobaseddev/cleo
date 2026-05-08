@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026.5.58] (2026-05-08)
+
+Recovery+Hardening wave (T9187) — audit-verified followups to scaffold-only completions in v2026.5.57.
+
+### Bug Fixes
+- **T9188: Wire 6 sub-accessors in UmbrellaDataAccessor** (T9050 followup, audit-recovery): UmbrellaDataAccessor.getSubAccessor now returns typed accessors for brain, conduit, nexus, signaldock, telemetry, and docs roles. Brain round-trip (observe + find) verified. New contracts: BrainAccessor, ConduitAccessor, NexusAccessor, SignaldockAccessor, TelemetryAccessor.
+- **T9189: Migrate 16 direct DatabaseSync opens through openCleoDb chokepoint** (T9047 followup, audit-recovery): Wire signaldock + conduit in ROLE_OPENERS; migrate 10 call sites in agent.ts, migrate-agents-v2.ts, upgrade.ts, init.ts, seed-install.ts, local-transport.ts. Add openFreshConduitDb for lifecycle-managed connections.
+- **T9190: Real CI workflow gate for pragma drift** (T9025 followup, audit-recovery): Add pragma-drift CI job to .github/workflows/ci.yml running vitest pragma-drift-guard.test.ts on every PR. T9025 had unit test only, no CI gate.
+- **T9191: cleo agent-outputs find CLI command** (T9064 followup, audit-recovery): T9064 shipped DocsAccessor.searchDocs but deferred CLI surface. Add cleo agent-outputs find <query> command routed through DocsAccessor per ADR-069.
+
+### Features
+- **T9192: Verifier-backed AC + auditor-loop protocol hardening** (PROTOCOL-HARDEN): ADR-070 systemic fix against scaffold-and-mark-done failure mode. cleo verify --acceptance-check runs per-task verifier script, blocks gate on non-zero exit (E_ACCEPTANCE_VERIFIER_FAILED). cleo audit verifier <taskId> provides independent auditor re-run. ADR-070 filed. ct-orchestrator skill updated with Auditor Loop (Phases A-E).
+
+### Documentation
+- **ADR-070: Verifier-Backed Acceptance Criteria and the Auditor Loop**: Documents verifier-first pattern, Implementer/Auditor spawn separation, CLI surface, and incident context (2026-05-08 scaffold-and-mark-done audit).
+
 ## [2026.5.57] (2026-05-08)
 
 Auto-prepared by release.ship (T9021)
