@@ -341,6 +341,9 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         files: params.files,
         // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
         pipelineStage: params.pipelineStage,
+        // T944/T9072: kind axis
+        kind: params.kind,
+        scope: params.scope,
       }),
       'update',
     );

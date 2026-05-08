@@ -401,6 +401,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
       }),
     ]);
 
+    // DB column is named 'role' (T9067 deferral — CHECK constraint defers rename)
     const insertSql = `
       INSERT INTO tasks (
         id, title, description, status, priority,
@@ -411,7 +412,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
         :id, :title, :description, :status, :priority,
         :labelsJson, :notesJson,
         :createdAt, :updatedAt,
-        :role, :scope
+        :kind, :scope
       )
     `;
 
@@ -425,7 +426,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
       notesJson,
       createdAt: now,
       updatedAt: now,
-      role: 'work',
+      kind: 'work',
       scope: 'feature',
     };
 
