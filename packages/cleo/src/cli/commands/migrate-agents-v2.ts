@@ -27,10 +27,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import {
-  getProjectRoot,
-  installAgentFromCant,
-} from '@cleocode/core/internal';
+import { getProjectRoot, installAgentFromCant } from '@cleocode/core/internal';
 import { openCleoDb } from '@cleocode/core/store/open-cleo-db';
 import { defineCommand } from 'citty';
 import { cliError, cliOutput, humanInfo, humanLine, humanWarn } from '../renderers/index.js';
