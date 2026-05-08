@@ -76,6 +76,9 @@ export async function verifyBackup(
   // This catches cases where the file is intact but not a valid SQLite file
   try {
     const db = new DatabaseSync(backupPath, { readOnly: true });
+    // Apply pragma SSoT (T9022) — WAL not applicable on read-only handles
+    const { applyPerfPragmas } = await import('../store/sqlite-pragmas.js');
+    applyPerfPragmas(db, { enableWal: false });
     try {
       db.prepare('SELECT 1').get();
     } finally {
