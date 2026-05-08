@@ -23,8 +23,19 @@
  *    nexus contract. Some pre-v2026.4.11 code path accidentally created a
  *    zero-byte nexus.db at project tier; this cleans it up on first run.
  *
+ * ## One-shot marker (T9028)
+ *
+ * Both cleanup functions are stat()-heavy but have nothing to do after the
+ * first successful sweep for a given code version. {@link isCleanupMarkerSet}
+ * checks for a marker file at `getCleoHome()/.cleanup-{codeVersion}-{projectHash}`
+ * that, when present, allows callers to skip the sweep entirely.
+ * {@link setCleanupMarker} writes the marker after a successful sweep.
+ * New code versions naturally get a new marker name, so the sweep re-runs
+ * exactly once on the first invocation after an upgrade.
+ *
  * @task T304
  * @task T307
+ * @task T9028
  * @epic T299
  * @adr ADR-036
  * @why v2026.4.10 left workspace.db and pre-cleo backups at global tier;
@@ -32,6 +43,7 @@
  *   false impressions of active legacy databases.
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getLogger } from '../logger.js';
@@ -54,6 +66,111 @@ const LEGACY_FILES: readonly string[] = [
   'workspace.db-shm-wal',
   'nexus-pre-cleo.db.bak',
 ] as const;
+
+// ---------------------------------------------------------------------------
+// One-shot marker helpers (T9028)
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a short, filesystem-safe project hash from an absolute path string.
+ *
+ * We use the first 8 hex characters of a SHA-256 digest — collision probability
+ * is negligible for the number of distinct projects a user would have on one
+ * machine. The hash is path-only (not content), so it stays stable across
+ * upgrades. An empty string is accepted for callers that have no project root
+ * (e.g. global-only commands) and produces a stable sentinel hash.
+ *
+ * @param projectRoot - Absolute path to the project root, or empty string.
+ * @returns 8-character lowercase hex string.
+ *
+ * @task T9028
+ */
+function projectPathHash(projectRoot: string): string {
+  return createHash('sha256').update(projectRoot).digest('hex').slice(0, 8);
+}
+
+/**
+ * Return the absolute path of the one-shot cleanup marker file.
+ *
+ * The marker lives in `getCleoHome()` so it is tied to the user's installation,
+ * not to any individual project. It encodes both the code version (so a new
+ * release re-runs the sweep once) and a project hash (so different projects get
+ * independent markers — stray-nexus cleanup is project-scoped).
+ *
+ * @param codeVersion - CLI version string, e.g. `"2026.5.51"`.
+ * @param projectRoot - Absolute path to the project root. Pass an empty string
+ *   when no project context is available.
+ * @param cleoHomeOverride - Optional override for `getCleoHome()` (tests only).
+ * @returns Absolute path to the marker file.
+ *
+ * @example
+ * ```typescript
+ * // e.g. ~/.local/share/cleo/.cleanup-2026.5.51-a3f2c1b0
+ * const markerPath = getCleanupMarkerPath('2026.5.51', '/mnt/projects/cleocode');
+ * ```
+ *
+ * @task T9028
+ */
+export function getCleanupMarkerPath(
+  codeVersion: string,
+  projectRoot: string,
+  cleoHomeOverride?: string,
+): string {
+  const cleoHome = cleoHomeOverride ?? getCleoHome();
+  const hash = projectPathHash(projectRoot);
+  return path.join(cleoHome, `.cleanup-${codeVersion}-${hash}`);
+}
+
+/**
+ * Return `true` when the one-shot cleanup marker for this version + project
+ * already exists, meaning the legacy sweep has already run and callers can
+ * skip the stat()-heavy cleanup functions entirely.
+ *
+ * @param codeVersion - CLI version string.
+ * @param projectRoot - Absolute project root path, or empty string.
+ * @param cleoHomeOverride - Optional override for `getCleoHome()` (tests only).
+ * @returns `true` if the marker file exists (fast path); `false` otherwise.
+ *
+ * @task T9028
+ */
+export function isCleanupMarkerSet(
+  codeVersion: string,
+  projectRoot: string,
+  cleoHomeOverride?: string,
+): boolean {
+  try {
+    return fs.existsSync(getCleanupMarkerPath(codeVersion, projectRoot, cleoHomeOverride));
+  } catch {
+    // Any I/O failure on the check → treat as "not set" (run the sweep).
+    return false;
+  }
+}
+
+/**
+ * Write the one-shot cleanup marker file, signalling that the legacy sweep for
+ * this code version + project has completed successfully.
+ *
+ * The file is zero-length; only its presence matters.
+ * Failure to write the marker is silently swallowed — the worst outcome is
+ * that the sweep re-runs on the next invocation (still safe and idempotent).
+ *
+ * @param codeVersion - CLI version string.
+ * @param projectRoot - Absolute project root path, or empty string.
+ * @param cleoHomeOverride - Optional override for `getCleoHome()` (tests only).
+ *
+ * @task T9028
+ */
+export function setCleanupMarker(
+  codeVersion: string,
+  projectRoot: string,
+  cleoHomeOverride?: string,
+): void {
+  try {
+    fs.writeFileSync(getCleanupMarkerPath(codeVersion, projectRoot, cleoHomeOverride), '');
+  } catch {
+    // Non-fatal: marker write failure must never break the CLI startup path.
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
