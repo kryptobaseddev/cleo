@@ -25,6 +25,8 @@
     "lint:contracts-dep": "node scripts/lint-contracts-dep.mjs",
     "lint:raw-cr": "node scripts/lint-no-raw-cr-writes.mjs",
     "bench:nexus": "BENCH_FIXTURE_PATH=packages/nexus/src/__tests__/fixtures node scripts/bench/nexus-vs-gitnexus.mjs",
+    "bench:startup": "node scripts/bench/startup-latency.mjs",
+    "bench:startup:update-baseline": "BENCH_UPDATE_BASELINE=1 node scripts/bench/startup-latency.mjs",
     "docs:check": "forge-ts check",
     "docs:test": "forge-ts test",
     "docs:build": "forge-ts build",
