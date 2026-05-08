@@ -28,7 +28,10 @@ describe('temporal-supersession', () => {
     const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    // maxRetries + retryDelay: on Windows, SQLite WAL sidecar files (.db-shm,
+    // .db-wal) remain OS-locked for a brief period after DatabaseSync.close().
+    // Without retries, rm() fails with EBUSY. 5 retries × 500 ms = 2.5 s max.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   // ---------------------------------------------------------------------------

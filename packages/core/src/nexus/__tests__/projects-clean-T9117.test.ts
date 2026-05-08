@@ -37,7 +37,9 @@ afterEach(async () => {
     // not all tests reach init
   }
   delete process.env['CLEO_HOME'];
-  await rm(testDir, { recursive: true, force: true });
+  // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+  // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+  await rm(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
 });
 
 /** Register two real-on-disk projects + one ghost (path never created). */
@@ -136,6 +138,11 @@ describe('cleanProjects — T9117 removeFs', () => {
     const { nexusRegister, nexusInit } = await import('../registry.js');
     await nexusInit();
     await nexusRegister(fixturePath, 'cleo-fixture-junk');
+    // nexusRegister opens tasks.db (via isCleoProject→getAccessor) and leaves
+    // the singleton open. On Windows the WAL sidecars stay OS-locked until the
+    // connection is explicitly closed, so rm() inside cleanProjects would fail
+    // with EBUSY. Close the singleton now before cleanProjects runs.
+    resetDbState();
 
     expect(existsSync(fixturePath)).toBe(true);
 
