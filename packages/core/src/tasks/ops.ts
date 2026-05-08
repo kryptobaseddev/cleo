@@ -21,8 +21,8 @@
  */
 
 import type {
+  TaskKind,
   TaskPriority,
-  TaskRole,
   TaskScope,
   TaskSeverity,
   TaskSize,
@@ -116,7 +116,7 @@ export async function tasksFindOp(
     status?: TaskStatus;
     includeArchive?: boolean;
     offset?: number;
-    role?: TaskRole;
+    kind?: TaskKind;
   },
 ): Promise<FindTasksResult> {
   return findTasks(
@@ -128,7 +128,7 @@ export async function tasksFindOp(
       includeArchive: params.includeArchive,
       limit: params.limit,
       offset: params.offset,
-      role: params.role,
+      kind: params.kind,
     },
     projectRoot,
   );
@@ -164,8 +164,8 @@ export async function tasksAddOp(
     notes?: string;
     files?: string[];
     dryRun?: boolean;
-    /** Task role axis — intent of work (T944). */
-    role?: TaskRole;
+    /** Task kind axis — intent of work (T944/T9072). */
+    kind?: TaskKind;
     scope?: TaskScope;
     severity?: TaskSeverity;
     /**
@@ -191,7 +191,7 @@ export async function tasksAddOp(
       notes: params.notes,
       files: params.files,
       dryRun: params.dryRun,
-      role: params.role,
+      kind: params.kind,
       scope: params.scope,
       severity: params.severity,
       forceDuplicate: params.forceDuplicate,
@@ -231,7 +231,7 @@ export async function tasksUpdateOp(
     size?: TaskSize;
     files?: string[];
     pipelineStage?: string;
-    role?: TaskRole;
+    kind?: TaskKind;
     scope?: TaskScope;
   },
 ): Promise<UpdateTaskResult> {
@@ -256,7 +256,7 @@ export async function tasksUpdateOp(
       size: params.size,
       files: params.files,
       pipelineStage: params.pipelineStage,
-      role: params.role,
+      kind: params.kind,
       scope: params.scope,
     },
     projectRoot,

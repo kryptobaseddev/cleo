@@ -156,8 +156,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         offset: params.offset,
         fields: params.fields,
         verbose: params.verbose,
-        // T944: role filter
-        role: params.role,
+        // T944/T9072: kind filter
+        kind: params.kind,
       }),
       'find',
     );
@@ -306,8 +306,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         files: params.files,
         dryRun: params.dryRun,
         parentSearch: params.parentSearch,
-        // T944: orthogonal axes — role is the canonical wire field (ADR-057 D2)
-        role: params.role,
+        // T944/T9072: orthogonal axes — kind is the canonical wire field
+        kind: params.kind,
         scope: params.scope,
         severity: params.severity,
         // T1633: BRAIN duplicate-bypass flag
