@@ -5,9 +5,34 @@
 Auto-prepared by release.ship (T1824)
 
 ### Features
-- **ADR migration: docs/adr/ consolidated to .cleo/adrs/ (canonical)**: All 17 ADR files migrated from docs/adr/ to .cleo/adrs/ (no filename collisions). Migration manifest with 17-entry accounting at .cleo/adrs/T1825-migration-manifest.json. docs/adr/ archived. Source docstrings updated. (T1825)
-- **Add decision:<id> evidence atom for decision-only task gate verification**: New EvidenceAtom variant in @cleocode/contracts and parseEvidence handler in evidence.ts. Validates brain_decisions row via getBrainDb(). GATE_EVIDENCE_MINIMUMS.implemented accepts decision+files and decision+note alternatives. Eliminates CLEO_OWNER_OVERRIDE for decision-only tasks. CLEO-INJECTION.md updated with example and E_EVIDENCE_INVALID_DECISION error code. (T1875)
+- **Add CI guard preventing pragma drift on future DatabaseSync opens**: Once the sweep is done (sibling tasks complete), add a guard that fails if someone introduces a new new DatabaseSync() open without applyPerfPragma... (T9025)
 
+### Bug Fixes
+- **Startup latency benchmark + regression guard**: Add scripts/bench/startup-latency.mjs that runs cleo --version, cleo --help, cleo find foo, cleo show <id>, cleo next 50 times each on a populated ... (T9030)
+- **BUG: CLEO test fixtures pollute production task counter — IDs jumped T1923 to T9001 in 5h gap**: Between 2026-05-05 20:15 and 2026-05-06 01:06 UTC, autoincrement jumped T1923 to T9001 due to fixtures using cleo add on production DB. Confirmed f... (T9042)
+- **BUG: Worktree + temp-dir cleanup incomplete — locked worktrees from done tasks + ~/.temp bloat**: Audit during T1910: many worktrees still exist for tasks that are status=done, several marked 'locked'. Examples: T1820/T1821/T1822/T1823 worktrees... (T9043)
+- **W5: Delete cleo bug command entirely — no shim, no tombstone, no alias**: Owner directive: clean DRY removal, no compat. Delete packages/cleo/src/cli/commands/bug.ts entirely (~242 LOC). Unregister bug from packages/cleo/... (T9075)
+
+### Documentation
+- **DocsAccessor: unified llmtxt + manifest interface (agent-outputs, ADRs, attachments)**: Define DocsAccessor as the umbrella interface for ALL document operations in CLEO, wrapping the llmtxt SDK (llmtxt/sdk for AgentSession, llmtxt/blo... (T9063)
+- **W6: Update all docs to reflect new taxonomy + ADR codifying rename + AC-everywhere + system-wide attestation**: Document the locked taxonomy. (1) Update CLEO-INJECTION.md — remove cleo bug references, document --kind as canonical, document AC-required-for-all... (T9076)
+
+### Chores
+- **T1824-1: Migrate docs/adr/ → .cleo/adrs/ + archive vs migrate decision for legacy 53-file set**: Phase 1 of Decision Storage epic. Owner-decided: .cleo/adrs/ is canonical filesystem location. Move the 13 newer ADRs from docs/adr/ to .cleo/adrs/... (T1825)
+- **One-shot marker for detectAndRemoveLegacy* startup cleanups**: detectAndRemoveLegacyGlobalFiles and detectAndRemoveStrayProjectNexus run on every non-fast-path CLI invocation. They are stat()-heavy and only do ... (T9028)
+- **Migrate .cleo/agent-outputs/*.md raw markdown to llmtxt blob store via DocsAccessor**: .cleo/agent-outputs/ holds 100+ raw markdown files today (audits, campaign plans, handoff notes, etc.). They're filesystem-managed (no manifest, no... (T9064)
+
+### Changes
+- **Wire applyPerfPragmas into read-only/inspection DB opens**: Apply applyPerfPragmas() (with enableWal:false since these are readonly) to: backup-pack.ts (3 sites: lines 245, 281, 344), backup-unpack.ts (line ... (T9022)
+- **Wire applyPerfPragmas into one-shot writer DB opens**: Apply applyPerfPragmas() to: agent-registry-accessor.ts (lines 333, 349), cross-db-cleanup.ts (line 357), migrate-signaldock-to-conduit.ts (lines 2... (T9023)
+- **Defer DB opens until command needs them**: Today runStartupMaintenance opens conduit.db AND signaldock.db on every non-fast-path command — even commands that touch neither (e.g. cleo --help ... (T9029)
+- **Telemetry hot-path: buffered writes, opt-in audit, retention policy**: telemetry.db is written by dispatch/middleware/telemetry.ts on EVERY CLI invocation. Under concurrent multi-process invocations this is N writers c... (T9051)
+- **Cross-package DB-open drift: brain, studio, cleo, llmtxt-blob-adapter**: Discovered during T9021 audit: at least 4 packages OUTSIDE core/store have their own raw new DatabaseSync() open helpers, completely bypassing appl... (T9045)
+- **W2: Hard-rename --role to --kind everywhere (NO backwards compat, NO alias)**: Owner directive: clean DRY rename, NO --role alias, NO TaskRole re-export. Update all 6 declaration sites: (1) contracts/src/task.ts:53 — rename Ta... (T9072)
+- **CLEO IMPROVEMENT: Add decision-only-task evidence atom kind ('decision:<id>') to gate verify system**: Owner directive 2026-05-05 ('overrides are a crutch'): decision-only tasks like T1838 currently have no programmatic evidence path for the 'impleme... (T1875)
+- **Drop vestigial multi-engine polymorphism in getAccessor / createDataAccessor**: data-accessor.ts:28 createDataAccessor takes _engine?: 'sqlite' but always uses sqlite — the engine parameter is dead. Plus the // SSoT-EXEMPT:engi... (T9054)
+- **Cross-link DocsAccessor work with T1824 (Decision Storage Consolidation) + T1825 (ADR migration)**: T1824 is an existing epic for programmatic ADR management with .cleo/adrs/ as canonical. T1825 is a child for migrating docs/adr/ → .cleo/adrs/. Bo... (T9065)
+---
 ## [2026.5.59] (2026-05-08)
 
 Auto-prepared by release.ship (T9187)
