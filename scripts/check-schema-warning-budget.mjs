@@ -28,6 +28,12 @@ const ALLOWED_FILES = [
   'migration-baseline.test.ts',
   'migration-v3-columns.test.ts',
   'idempotent-migration.test.ts',
+  // Tests that seed legacy DBs to exercise startup migration paths.
+  // The seed-install fixture and daemon-supervision spin up brain.db
+  // instances that pre-date some forward migrations, hitting reconcileJournal
+  // and ensureColumns by design.
+  'seed-install-meta.test.ts',
+  'daemon-supervision.test.ts',
 ];
 
 const FORBIDDEN_PATTERN = /Adding missing column/;
