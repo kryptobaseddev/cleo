@@ -10,6 +10,7 @@ import type {
   TaskPriority,
   TaskRecord,
   TaskScope,
+  TaskSeverity,
   TaskSize,
   TaskStatus,
   TaskType,
@@ -64,6 +65,7 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'pipelineStage',
   'kind',
   'scope',
+  'severity',
 ];
 
 function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
@@ -105,6 +107,12 @@ export interface UpdateTaskOptions {
    * @task T944
    */
   scope?: TaskScope;
+  /**
+   * Severity level — valid for any role (widened from bug-only by T9073).
+   * Orthogonal to priority — does NOT auto-map priority.
+   * @task T9073
+   */
+  severity?: TaskSeverity;
   /**
    * Operator-supplied justification required to override the
    * acceptance-criteria immutability guard once a task has entered the
@@ -332,6 +340,12 @@ export async function updateTask(
     changes.push('scope');
   }
 
+  // T9073: severity — orthogonal to priority, valid for any role
+  if (options.severity !== undefined) {
+    task.severity = options.severity;
+    changes.push('severity');
+  }
+
   // Pipeline stage transition — forward-only (T060)
   if (options.pipelineStage !== undefined) {
     validatePipelineTransition(task.pipelineStage, options.pipelineStage);
@@ -514,6 +528,7 @@ export async function taskUpdate(
     pipelineStage?: string;
     kind?: string;
     scope?: string;
+    severity?: string;
     reason?: string;
   },
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
@@ -541,6 +556,7 @@ export async function taskUpdate(
         pipelineStage: updates.pipelineStage,
         kind: updates.kind as TaskKind | undefined,
         scope: updates.scope as TaskScope | undefined,
+        severity: updates.severity as TaskSeverity | undefined,
         reason: updates.reason,
       },
       projectRoot,

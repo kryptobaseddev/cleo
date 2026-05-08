@@ -31,8 +31,8 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import type { SeverityAttestation } from '@cleocode/contracts';
-import { getCleoDirAbsolute, getConfigPath } from '../paths.js';
 import { getCleoIdentity, signAuditLine } from '../identity/cleo-identity.js';
+import { getCleoDirAbsolute, getConfigPath } from '../paths.js';
 
 export type { SeverityAttestation };
 

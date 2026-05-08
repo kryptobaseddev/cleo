@@ -5,8 +5,8 @@
  * orthogonal-axes design from Round 2 RCASD:
  *   - `role` defaults to 'work', CHECK rejects invalid values
  *   - `scope` defaults to 'feature', CHECK rejects invalid values
- *   - `severity` is nullable, CHECK rejects invalid values AND any non-NULL
- *     value when role != 'bug' (prompt-injection P0 defense)
+ *   - `severity` is nullable, CHECK rejects invalid values; valid for any role
+ *     (T9073 widened the CHECK from bug-only to any role)
  *   - role/scope/role+status indexes exist
  *   - backfill UPDATE statements land legacy type → scope mapping correctly
  *   - `experiments` side-table exists with cascade FK on tasks.id
@@ -190,7 +190,10 @@ describe('T944 role/scope/severity schema', () => {
     ).toThrowError(/CHECK|constraint/i);
   });
 
-  it('CHECK constraint rejects severity when role is not "bug"', async () => {
+  it('CHECK constraint ACCEPTS severity on any role (T9073 widened)', async () => {
+    // T9073 widened the severity CHECK from role='bug'-only to any role.
+    // Old constraint (T944): severity IS NULL OR (severity IN (...) AND role='bug')
+    // New constraint (T9073): severity IS NULL OR severity IN ('P0','P1','P2','P3')
     const { getDb, getNativeTasksDb } = await import('../sqlite.js');
     await getDb();
     const nativeDb = getNativeTasksDb();
@@ -202,13 +205,12 @@ describe('T944 role/scope/severity schema', () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
-    // P0 severity with role='work' MUST be rejected — this is the
-    // prompt-injection defense the owner mandated.
+    // P0 severity with role='work' MUST now succeed (T9073 widened the CHECK).
     expect(() =>
       insert.run(
         'T_SEV_NO_BUG',
-        'Severity without bug',
-        'Should fail',
+        'Severity on non-bug role',
+        'Should now succeed',
         'pending',
         'medium',
         'work',
@@ -216,9 +218,15 @@ describe('T944 role/scope/severity schema', () => {
         'P0',
         now,
       ),
-    ).toThrowError(/CHECK|constraint/i);
+    ).not.toThrow();
 
-    // Control: severity + role='bug' MUST succeed.
+    const rowWork = nativeDb
+      .prepare('SELECT role, severity FROM tasks WHERE id = ?')
+      .get('T_SEV_NO_BUG') as { role: string; severity: string };
+    expect(rowWork.role).toBe('work');
+    expect(rowWork.severity).toBe('P0');
+
+    // severity + role='bug' still succeeds.
     insert.run(
       'T_SEV_BUG',
       'Bug with severity',
