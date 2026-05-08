@@ -191,6 +191,13 @@ export {
   getTaskAccessor,
 } from './store/data-accessor.js';
 
+// Canonical pragma application — exposed for cross-package consumers (brain, studio, cleo)
+// that cannot access @cleocode/core/internal (T9045).
+export {
+  applyPerfPragmas,
+  type PerfPragmaOptions,
+} from './store/sqlite-pragmas.js';
+
 // ---------------------------------------------------------------------------
 // Top-level utility exports (widely used, unique names)
 // ---------------------------------------------------------------------------
