@@ -62,7 +62,7 @@ vi.mock('../evidence.js', () => ({
 
 import { loadConfig } from '../../config.js';
 import { getIvtrState } from '../../lifecycle/ivtr-loop.js';
-import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
+import { type getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { completeTaskStrict } from '../complete.js';
 
 // ---------------------------------------------------------------------------
