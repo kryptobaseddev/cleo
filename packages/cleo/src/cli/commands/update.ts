@@ -50,7 +50,7 @@ export const updateCommand = defineCommand({
     },
     type: {
       type: 'string',
-      description: 'New type (task|epic|subtask|bug)',
+      description: 'New type (task|epic|subtask)',
       alias: 't',
     },
     size: {
