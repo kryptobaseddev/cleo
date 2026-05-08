@@ -20,6 +20,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { applyPerfPragmas } from '@cleocode/core';
 import { json } from '@sveltejs/kit';
 import { getCleoHome } from '$lib/server/cleo-home.js';
 import { getActiveProjectId, listRegisteredProjects } from '$lib/server/project-context.js';
@@ -93,6 +94,7 @@ export const GET: RequestHandler = ({ url, cookies }) => {
     const projectNameById = new Map(allProjects.map((p) => [p.projectId, p.name]));
 
     const db = new DatabaseSync(nexusPath, { open: true });
+    applyPerfPragmas(db); // T9045
     const hits: SymbolHit[] = [];
 
     try {

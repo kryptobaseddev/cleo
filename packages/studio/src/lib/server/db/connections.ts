@@ -19,6 +19,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { applyPerfPragmas } from '@cleocode/core';
 import { dbExists, getNexusDbPath, getSignaldockDbPath } from '../cleo-home.js';
 import type { ProjectContext } from '../project-context.js';
 
@@ -51,6 +52,7 @@ export function getNexusDb(): DatabaseSync | null {
   const path = getNexusDbPath();
   if (!dbExists(path)) return null;
   nexusDb = new DatabaseSync(path, { open: true });
+  applyPerfPragmas(nexusDb); // apply pragma SSoT (T9045)
   return nexusDb;
 }
 
@@ -63,6 +65,7 @@ export function getSignaldockDb(): DatabaseSync | null {
   const path = getSignaldockDbPath();
   if (!dbExists(path)) return null;
   signaldockDb = new DatabaseSync(path, { open: true });
+  applyPerfPragmas(signaldockDb); // apply pragma SSoT (T9045)
   return signaldockDb;
 }
 
@@ -84,7 +87,9 @@ export function getSignaldockDb(): DatabaseSync | null {
 export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.brainDbPath;
   if (!existsSync(path)) return null;
-  return new DatabaseSync(path, { open: true });
+  const __db = new DatabaseSync(path, { open: true });
+  applyPerfPragmas(__db);
+  return __db;
 }
 
 /**
@@ -98,7 +103,9 @@ export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
 export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
   const path = ctx.tasksDbPath;
   if (!existsSync(path)) return null;
-  return new DatabaseSync(path, { open: true });
+  const __db = new DatabaseSync(path, { open: true });
+  applyPerfPragmas(__db);
+  return __db;
 }
 
 /**
@@ -115,7 +122,9 @@ export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
 export function getConduitDb(ctx: ProjectContext): DatabaseSync | null {
   const path = join(dirname(ctx.brainDbPath), 'conduit.db');
   if (!existsSync(path)) return null;
-  return new DatabaseSync(path, { open: true });
+  const __db = new DatabaseSync(path, { open: true });
+  applyPerfPragmas(__db);
+  return __db;
 }
 
 // ---------------------------------------------------------------------------
