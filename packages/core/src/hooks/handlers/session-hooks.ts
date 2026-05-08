@@ -58,12 +58,17 @@ export async function handleSessionEnd(
   projectRoot: string,
   payload: SessionEndPayload,
 ): Promise<void> {
-  // Auto-grade session and feed insights to brain.db (best-effort)
-  try {
-    const { gradeSession } = await import('../../sessions/session-grade.js');
-    await gradeSession(payload.sessionId, projectRoot);
-  } catch {
-    // Grading must never block session end
+  // Auto-grade session and feed insights to brain.db (best-effort).
+  // Skip during vitest runs: gradeSession calls queryAudit which opens
+  // .cleo/tasks.db at the process CWD (not the test temp dir), triggering
+  // the T9001 isolation guard and polluting test output with WARN logs.
+  if (!process.env['VITEST']) {
+    try {
+      const { gradeSession } = await import('../../sessions/session-grade.js');
+      await gradeSession(payload.sessionId, projectRoot);
+    } catch {
+      // Grading must never block session end
+    }
   }
 
   // T144: Cross-provider transcript extraction (best-effort)

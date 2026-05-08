@@ -52,7 +52,19 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     } catch {
       /* ignore */
     }
-    await rm(testDir, { recursive: true, force: true });
+    // Also close conduit.db — closeAllDatabases() covers tasks/brain/nexus
+    // but initProject() may open conduit.db, whose WAL sidecars stay OS-locked
+    // on Windows after the process keeps running (unlike tasks.db which has
+    // explicit closeDb() calls). Without closing it, rm() fails with EBUSY.
+    try {
+      const { closeConduitDb } = await import('../store/conduit-sqlite.js');
+      closeConduitDb();
+    } catch {
+      /* ignore */
+    }
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('creates .cleo/ directory', async () => {

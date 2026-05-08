@@ -21,11 +21,15 @@
 -- DEPENDS ON: 20260424000005_t1147-add-brain-v2-candidate (brain_v2_candidate must exist)
 
 ALTER TABLE brain_v2_candidate RENAME TO brain_observations_staging;
-
+--> statement-breakpoint
 DROP INDEX IF EXISTS idx_bvc_sweep_run;
+--> statement-breakpoint
 DROP INDEX IF EXISTS idx_bvc_source;
+--> statement-breakpoint
 DROP INDEX IF EXISTS idx_bvc_status;
-
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_bos_sweep_run ON brain_observations_staging(sweep_run_id);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_bos_source ON brain_observations_staging(source_table, source_id);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_bos_status ON brain_observations_staging(validation_status);

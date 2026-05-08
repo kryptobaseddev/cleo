@@ -14,27 +14,25 @@
  * 6. WorktreeHandle.projectHash is verified to match WorktreeConfig.projectHash.
  *
  * Vitest with describe/it blocks per project conventions.
- * execSync usage mirrors worktree.test.ts — inputs are all literal strings.
+ * Git commands are invoked with execFileSync argv + cwd to avoid shell portability issues.
  *
  * @task T406
  * @task T380
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import {
-  createWorktree,
-  mergeWorktree,
-} from '../src/worktree.js';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createWorktree, mergeWorktree } from '../src/worktree.js';
 import type { WorktreeConfig, WorktreeRequest } from '../src/worktree.js';
 
 let tempDir: string;
@@ -46,29 +44,31 @@ beforeEach(() => {
   gitRoot = join(tempDir, 'repo');
   worktreeRoot = join(tempDir, 'worktrees');
 
-  execSync(
-    [
-      `mkdir -p "${gitRoot}"`,
-      `cd "${gitRoot}"`,
-      'git init',
-      'git config user.email "test@cleo.dev"',
-      'git config user.name "CLEO W9 Test"',
-      'echo "initial" > README.md',
-      'git add README.md',
-      'git commit -m "init"',
-    ].join(' && '),
-    { stdio: 'pipe' },
-  );
+  mkdirSync(gitRoot, { recursive: true });
+  git(['init'], gitRoot);
+  git(['config', 'user.email', 'test@cleo.dev'], gitRoot);
+  git(['config', 'user.name', 'CLEO W9 Test'], gitRoot);
+  writeFileSync(join(gitRoot, 'README.md'), 'initial\n');
+  git(['add', 'README.md'], gitRoot);
+  git(['commit', '-m', 'init'], gitRoot);
 });
 
 afterEach(() => {
   try {
-    execSync('git worktree prune', { cwd: gitRoot, stdio: 'pipe' });
+    git(['worktree', 'prune'], gitRoot);
   } catch {
     // best effort
   }
   rmSync(tempDir, { recursive: true, force: true });
 });
+
+function git(args: readonly string[], cwd: string): Buffer {
+  return execFileSync('git', [...args], { cwd, stdio: 'pipe' });
+}
+
+function gitText(args: readonly string[], cwd: string): string {
+  return execFileSync('git', [...args], { cwd, encoding: 'utf-8', stdio: 'pipe' });
+}
 
 function testConfig(overrides: Partial<WorktreeConfig> = {}): WorktreeConfig {
   return { projectHash: 'w9-project-hash', gitRoot, worktreeRoot, ...overrides };
@@ -128,14 +128,8 @@ describe('Wave 9 empirical: parallel worktrees + isolation + merge policy', () =
     const h = createWorktree(testRequest('T-W9-ff'), config);
 
     writeFileSync(join(h.path, 'feature.txt'), 'ff-merge target');
-    execSync(
-      [
-        `cd "${h.path}"`,
-        'git add feature.txt',
-        'git commit -m "worker-1 output"',
-      ].join(' && '),
-      { stdio: 'pipe' },
-    );
+    git(['add', 'feature.txt'], h.path);
+    git(['commit', '-m', 'worker-1 output'], h.path);
 
     const result = mergeWorktree(h, config, { strategy: 'ff-only' });
 
@@ -143,7 +137,7 @@ describe('Wave 9 empirical: parallel worktrees + isolation + merge policy', () =
     expect(result.error).toBeUndefined();
     expect(existsSync(h.path)).toBe(false);
 
-    const log = execSync('git log --oneline -1', { cwd: gitRoot, encoding: 'utf-8' });
+    const log = gitText(['log', '--oneline', '-1'], gitRoot);
     expect(log).toContain('worker-1 output');
   });
 
@@ -153,24 +147,12 @@ describe('Wave 9 empirical: parallel worktrees + isolation + merge policy', () =
 
     // Advance main repo so ff-only will fail.
     writeFileSync(join(gitRoot, 'diverged.txt'), 'main-repo diverged');
-    execSync(
-      [
-        `cd "${gitRoot}"`,
-        'git add diverged.txt',
-        'git commit -m "main diverged"',
-      ].join(' && '),
-      { stdio: 'pipe' },
-    );
+    git(['add', 'diverged.txt'], gitRoot);
+    git(['commit', '-m', 'main diverged'], gitRoot);
 
     writeFileSync(join(h.path, 'worker-output.txt'), 'conflict worker output');
-    execSync(
-      [
-        `cd "${h.path}"`,
-        'git add worker-output.txt',
-        'git commit -m "worker-2 output"',
-      ].join(' && '),
-      { stdio: 'pipe' },
-    );
+    git(['add', 'worker-output.txt'], h.path);
+    git(['commit', '-m', 'worker-2 output'], h.path);
 
     const result = mergeWorktree(h, config, { strategy: 'ff-only' });
 

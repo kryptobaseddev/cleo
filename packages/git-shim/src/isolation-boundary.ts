@@ -27,7 +27,7 @@
  * @adr ADR-055
  */
 
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import {
   type BoundaryContract,
   ISOLATION_ENV_KEYS,
@@ -71,7 +71,8 @@ export const MUTATION_SUBCOMMANDS: ReadonlySet<string> = new Set([
 export function isCwdInsideWorktree(cwd: string, worktreeRoot: string): boolean {
   const resolvedCwd = resolve(cwd);
   const resolvedRoot = resolve(worktreeRoot);
-  return resolvedCwd === resolvedRoot || resolvedCwd.startsWith(`${resolvedRoot}/`);
+  const childPath = relative(resolvedRoot, resolvedCwd);
+  return childPath === '' || (!childPath.startsWith('..') && !isAbsolute(childPath));
 }
 
 /**

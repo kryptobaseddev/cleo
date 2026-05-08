@@ -140,8 +140,8 @@ function ensureLoaded(): void {
   loadAttempted = true;
 
   // The compiled file lives at packages/cant/dist/native-loader.js, so
-  // ../napi resolves to packages/cant/napi/cant.linux-x64-gnu.node.
-  const packageBinary = join(__dirname, '..', 'napi', 'cant.linux-x64-gnu.node');
+  // ../napi resolves to packages/cant/napi/cant.<platform>.node.
+  const packageBinary = join(__dirname, '..', 'napi', `cant.${nativePlatformTriple()}.node`);
 
   try {
     nativeModule = require(packageBinary) as CantNativeModule;
@@ -157,6 +157,20 @@ function ensureLoaded(): void {
   } catch {
     nativeModule = null;
   }
+}
+
+/** Resolve the package-local napi-rs binary suffix for the current platform. */
+function nativePlatformTriple(): string {
+  if (process.platform === 'darwin') {
+    return process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
+  }
+  if (process.platform === 'linux') {
+    return process.arch === 'arm64' ? 'linux-arm64-gnu' : 'linux-x64-gnu';
+  }
+  if (process.platform === 'win32') {
+    return process.arch === 'arm64' ? 'win32-arm64-msvc' : 'win32-x64-msvc';
+  }
+  return `${process.platform}-${process.arch}`;
 }
 
 /**

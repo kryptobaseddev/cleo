@@ -21,6 +21,10 @@ vi.mock('../../audit.js', () => ({
   queryAudit: mocks.queryAudit,
 }));
 
+vi.mock('../../memory/learnings.js', () => ({
+  storeLearning: vi.fn(async () => undefined),
+}));
+
 // Use importActual + spread so OTHER exports of paths.js remain available to any
 // module that loads this test's mocked paths.js from the vitest module registry.
 // Without this, tests that run AFTER this file in the same shard see paths.js

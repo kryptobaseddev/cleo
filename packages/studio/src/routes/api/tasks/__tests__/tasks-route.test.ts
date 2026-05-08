@@ -22,10 +22,11 @@
  * @task T948
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task, TaskRollupPayload } from '@cleocode/contracts';
+import { resetDbState } from '@cleocode/core/store/sqlite';
 import { addTask } from '@cleocode/core/tasks/add';
 import type { RequestEvent } from '@sveltejs/kit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -65,6 +66,40 @@ type TasksHandler = typeof getTasks;
 type PipelineHandler = typeof getPipeline;
 function asEvent<H extends TasksHandler | PipelineHandler>(e: FakeEvent): Parameters<H>[0] {
   return e as unknown as Parameters<H>[0];
+}
+
+function isWindowsCleanupError(error: unknown): boolean {
+  if (process.platform !== 'win32' || typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  const code = String((error as { code?: unknown }).code ?? '');
+  return code === 'EPERM' || code === 'EBUSY' || code === 'ENOTEMPTY';
+}
+
+function cleanupTempDirBestEffort(tempDir: string): void {
+  resetDbState();
+
+  try {
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
+    return;
+  } catch (error) {
+    if (!isWindowsCleanupError(error)) {
+      throw error;
+    }
+
+    const quarantineDir = `${tempDir}-cleanup-failed-${process.pid}-${Date.now()}`;
+    try {
+      renameSync(tempDir, quarantineDir);
+      console.warn(
+        `[tasks-route.test] Windows temp cleanup rm failed for ${tempDir}; quarantined at ${quarantineDir}: ${String(error)}`,
+      );
+    } catch (quarantineError) {
+      console.warn(
+        `[tasks-route.test] Windows temp cleanup rm and quarantine failed for ${tempDir}; leaving best-effort residue: ${String(quarantineError)}`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +298,7 @@ describe('GET /api/tasks end-to-end (T948)', () => {
   });
 
   afterAll(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    cleanupTempDirBestEffort(tempDir);
   });
 
   /** Reusable context fixture for tests that need a real tasks.db. */
@@ -357,7 +392,7 @@ describe('GET /api/tasks/pipeline end-to-end (T948)', () => {
   });
 
   afterAll(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    cleanupTempDirBestEffort(tempDir);
   });
 
   it('groups by pipelineStage and surfaces both tasks + rollups', async () => {

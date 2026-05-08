@@ -11,13 +11,14 @@
  * brain.db + tasks.db data, asserts >0 rows across substrates where seeded.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
-import { getBrainDb, getBrainNativeDb } from '../../store/memory-sqlite.js';
-import { getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
+import { getBrainDb, getBrainNativeDb, resetBrainDbState } from '../../store/memory-sqlite.js';
+import { getNexusDb, getNexusNativeDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
 import {
   getBrainEntryCodeAnchors,
   getSymbolFullContext,
@@ -174,7 +175,9 @@ describe('living-brain SDK', () => {
   });
 
   afterEach(() => {
-    rmSync(projectRoot, { recursive: true, force: true });
+    resetBrainDbState();
+    resetNexusDbState();
+    removeTempDirSync(projectRoot);
   });
 
   // -------------------------------------------------------------------------
@@ -355,7 +358,9 @@ describe('living-brain SDK', () => {
         expect(ctx).toBeDefined();
         expect(ctx.nexus).toBeNull();
       } finally {
-        rmSync(emptyRoot, { recursive: true, force: true });
+        resetBrainDbState();
+        resetNexusDbState();
+        removeTempDirSync(emptyRoot);
       }
     });
 
@@ -368,7 +373,9 @@ describe('living-brain SDK', () => {
         expect(impact.symbols).toEqual([]);
         expect(impact.riskScore).toBe('NONE');
       } finally {
-        rmSync(emptyRoot, { recursive: true, force: true });
+        resetBrainDbState();
+        resetNexusDbState();
+        removeTempDirSync(emptyRoot);
       }
     });
 
@@ -381,7 +388,9 @@ describe('living-brain SDK', () => {
         expect(anchors.nexusNodes).toEqual([]);
         expect(anchors.plasticitySignal).toBe(0);
       } finally {
-        rmSync(emptyRoot, { recursive: true, force: true });
+        resetBrainDbState();
+        resetNexusDbState();
+        removeTempDirSync(emptyRoot);
       }
     });
   });

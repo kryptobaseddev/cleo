@@ -28,12 +28,12 @@
 
 -- brain_decisions
 ALTER TABLE brain_decisions ADD COLUMN provenance_class TEXT DEFAULT 'unswept-pre-T1151';
-
+--> statement-breakpoint
 -- brain_patterns
 ALTER TABLE brain_patterns ADD COLUMN provenance_class TEXT DEFAULT 'unswept-pre-T1151';
-
+--> statement-breakpoint
 -- brain_learnings
 ALTER TABLE brain_learnings ADD COLUMN provenance_class TEXT DEFAULT 'unswept-pre-T1151';
-
+--> statement-breakpoint
 -- brain_observations
 ALTER TABLE brain_observations ADD COLUMN provenance_class TEXT DEFAULT 'unswept-pre-T1151';

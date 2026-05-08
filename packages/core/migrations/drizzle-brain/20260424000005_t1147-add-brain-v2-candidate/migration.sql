@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS brain_v2_candidate (
   validation_status    TEXT NOT NULL DEFAULT 'pending', -- pending|applied|skipped
   created_at           TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_bvc_sweep_run ON brain_v2_candidate(sweep_run_id);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_bvc_source ON brain_v2_candidate(source_table, source_id);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_bvc_status ON brain_v2_candidate(validation_status);

@@ -10,12 +10,15 @@
 -- NULL semantics: level NULL -> treat as 'explicit' at query time.
 
 ALTER TABLE brain_observations ADD COLUMN source_ids TEXT;
+--> statement-breakpoint
 ALTER TABLE brain_observations ADD COLUMN times_derived INTEGER DEFAULT 1;
+--> statement-breakpoint
 ALTER TABLE brain_observations ADD COLUMN level TEXT DEFAULT 'explicit';
+--> statement-breakpoint
 ALTER TABLE brain_observations ADD COLUMN tree_id INTEGER;
-
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_brain_observations_level
   ON brain_observations(level);
-
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_brain_observations_tree_id
   ON brain_observations(tree_id);

@@ -7,7 +7,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { resolveTelemetryMigrationsFolder } from '../../telemetry/sqlite.js';
 import { resolveBrainMigrationsFolder } from '../memory-sqlite.js';
@@ -36,7 +36,7 @@ describe('resolveCorePackageMigrationsFolder', () => {
     for (const setName of ALL_SET_NAMES) {
       const result = resolveCorePackageMigrationsFolder(setName);
       expect(result, `path should contain "migrations/${setName}"`).toContain(
-        `migrations/${setName}`,
+        join('migrations', setName),
       );
     }
   });
@@ -60,42 +60,42 @@ describe('resolveCorePackageMigrationsFolder', () => {
     // validating existence. This test confirms the path is still well-formed.
     const result = resolveCorePackageMigrationsFolder('drizzle-nonexistent');
     expect(isAbsolute(result)).toBe(true);
-    expect(result).toContain('migrations/drizzle-nonexistent');
+    expect(result).toContain(join('migrations', 'drizzle-nonexistent'));
   });
 });
 
 describe('DB-specific wrapper functions', () => {
   it('resolveMigrationsFolder() returns the drizzle-tasks path', () => {
     const result = resolveMigrationsFolder();
-    expect(result).toContain('migrations/drizzle-tasks');
+    expect(result).toContain(join('migrations', 'drizzle-tasks'));
     expect(isAbsolute(result)).toBe(true);
     expect(existsSync(result)).toBe(true);
   });
 
   it('resolveBrainMigrationsFolder() returns the drizzle-brain path', () => {
     const result = resolveBrainMigrationsFolder();
-    expect(result).toContain('migrations/drizzle-brain');
+    expect(result).toContain(join('migrations', 'drizzle-brain'));
     expect(isAbsolute(result)).toBe(true);
     expect(existsSync(result)).toBe(true);
   });
 
   it('resolveNexusMigrationsFolder() returns the drizzle-nexus path', () => {
     const result = resolveNexusMigrationsFolder();
-    expect(result).toContain('migrations/drizzle-nexus');
+    expect(result).toContain(join('migrations', 'drizzle-nexus'));
     expect(isAbsolute(result)).toBe(true);
     expect(existsSync(result)).toBe(true);
   });
 
   it('resolveTelemetryMigrationsFolder() returns the drizzle-telemetry path', () => {
     const result = resolveTelemetryMigrationsFolder();
-    expect(result).toContain('migrations/drizzle-telemetry');
+    expect(result).toContain(join('migrations', 'drizzle-telemetry'));
     expect(isAbsolute(result)).toBe(true);
     expect(existsSync(result)).toBe(true);
   });
 
   it('resolveSignaldockMigrationsFolder() returns the drizzle-signaldock path', () => {
     const result = resolveSignaldockMigrationsFolder();
-    expect(result).toContain('migrations/drizzle-signaldock');
+    expect(result).toContain(join('migrations', 'drizzle-signaldock'));
     expect(isAbsolute(result)).toBe(true);
     expect(existsSync(result)).toBe(true);
   });
@@ -124,7 +124,7 @@ describe('DB-specific wrapper functions', () => {
     const roots = results.map((p) => {
       // Strip trailing '/drizzle-xxx' to get the migrations dir
       // Then strip '/migrations' to get the pkg root
-      const parts = p.split('/');
+      const parts = p.split(/[\\/]+/);
       return parts.slice(0, -2).join('/'); // remove last 2 segments
     });
     const uniqueRoots = new Set(roots);

@@ -12,7 +12,7 @@
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { checkContextThreshold, getContextStatus, listContextSessions } from '../index.js';
 
@@ -47,7 +47,7 @@ async function writeStateFile(
       maxTokens: opts.maxTokens ?? 100000,
     },
   };
-  await mkdir(filePath.replace(/\/[^/]+$/, ''), { recursive: true });
+  await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify(payload), 'utf-8');
 }
 

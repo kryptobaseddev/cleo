@@ -191,17 +191,12 @@ version: 2
 agent clean-worker:
   role: worker
   tier: high
+  parent: test-lead
   description: "Fully-specified worker"
 
   tone: "Direct, assertive, evidence-based"
 
   prompt: "You are a test worker. Run tests and report pass/fail with commit SHA."
-
-  skills: [ct-cleo]
-
-  permissions:
-    tasks: read
-    memory: read, write
 `,
     );
 
@@ -213,6 +208,7 @@ agent clean-worker:
 
     const typed = bundle.agents[0]!.typed!;
     expect(typed.tier).toBe('high');
+    expect(typed.parent).toBe('test-lead');
     expect(typed.prompt).toContain('test worker');
   });
 
