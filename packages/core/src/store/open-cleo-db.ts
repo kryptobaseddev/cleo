@@ -1,7 +1,32 @@
 /**
  * Canonical DB-open chokepoint for all CLEO SQLite databases.
  *
- * @task T9050
+ * ## Invariant (ADR-068 §3, T9047)
+ *
+ * Every CLEO SQLite database open MUST flow through `openCleoDb(role, cwd)`.
+ * Raw `new DatabaseSync(path)` calls outside `packages/core/src/store/` are
+ * rejected by the `db-open-guard` CI job (`scripts/lint-no-raw-db-opens.mjs`).
+ *
+ * ## Rationale (ADR-069 Coordination Layers)
+ *
+ * - **Pragma consistency**: every handle receives the SSoT pragma set from
+ *   `specs/sqlite-pragmas.json` (busy_timeout, WAL, cache_size, mmap_size).
+ * - **Topology visibility**: the `CleoDbRole` union enumerates all databases;
+ *   `cleo health` can audit which are open.
+ * - **Lifecycle centralisation**: singleton management and WAL state live in
+ *   one place, preventing lock contention between concurrent CLI processes.
+ *
+ * ## Usage
+ *
+ * ```typescript
+ * import { openCleoDb } from '@cleocode/core/store/open-cleo-db';
+ *
+ * const handle = await openCleoDb('tasks', cwd);
+ * // use handle.db (DatabaseSync) ...
+ * await handle.close();
+ * ```
+ *
+ * @task T9047
  * @adr ADR-068, ADR-069
  */
 
