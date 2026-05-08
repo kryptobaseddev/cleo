@@ -12,7 +12,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock data-accessor before importing briefing module
 vi.mock('../../store/data-accessor.js', () => ({
-  getTaskAccessor: vi.fn(),
+  // @deprecated shim (T9054)
+  getAccessor: vi.fn(),
+  // canonical replacement (T9054) — briefing.ts calls getTaskAccessor
   getTaskAccessor: vi.fn(),
   createDataAccessor: vi.fn(),
 }));

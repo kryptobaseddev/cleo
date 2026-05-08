@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock data-accessor before importing cleanup module
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 // Mock config module to control retention settings
@@ -18,7 +19,7 @@ vi.mock('../../config.js', () => ({
 }));
 
 import { getRawConfigValue } from '../../config.js';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { cleanupSessions } from '../session-cleanup.js';
 
 // ---------------------------------------------------------------------------
@@ -69,6 +70,7 @@ function setupMockAccessor(sessions: Session[]) {
   };
 
   (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
+  (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
   return mockAccessor;
 }
 

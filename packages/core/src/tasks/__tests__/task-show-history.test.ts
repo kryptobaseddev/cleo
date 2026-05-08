@@ -23,6 +23,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 vi.mock('../../lifecycle/index.js', () => ({
@@ -34,10 +35,12 @@ vi.mock('../../lifecycle/index.js', () => ({
 // ---------------------------------------------------------------------------
 
 import { getLifecycleStatus } from '../../lifecycle/index.js';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { taskShowWithHistory } from '../show.js';
 
 const mockGetAccessor = vi.mocked(getAccessor);
+// canonical replacement (T9054) — show.ts calls getTaskAccessor
+const mockGetTaskAccessor = vi.mocked(getTaskAccessor);
 const mockGetLifecycleStatus = vi.mocked(getLifecycleStatus);
 
 // ---------------------------------------------------------------------------
@@ -126,9 +129,12 @@ describe('taskShowWithHistory', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetAccessor.mockResolvedValue(
-      makeAccessorStub() as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
-    );
+    const stub = makeAccessorStub() as ReturnType<typeof getAccessor> extends Promise<infer T>
+      ? T
+      : never;
+    // Both deprecated shim and canonical replacement (T9054)
+    mockGetAccessor.mockResolvedValue(stub);
+    mockGetTaskAccessor.mockResolvedValue(stub);
   });
 
   describe('without --history flag', () => {

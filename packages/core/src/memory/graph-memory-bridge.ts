@@ -26,6 +26,7 @@ import type { BrainNodeType } from '../store/memory-schema.js';
 import { brainPageEdges, brainPageNodes } from '../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
+import { applyPerfPragmas } from '../store/sqlite-pragmas.js';
 import { typedAll } from '../store/typed-query.js';
 
 const _require = createRequire(import.meta.url);
@@ -1311,8 +1312,9 @@ export async function linkConduitMessagesToSymbols(
       return result; // Graceful no-op
     }
 
-    // Open conduit.db (read-only for this operation)
+    // Open conduit.db for this operation — apply pragma SSoT (T9023)
     const conduitDb = new DatabaseSync(conduitDbPath);
+    applyPerfPragmas(conduitDb); // hot-path; full pragma set (WAL, busy_timeout, cache)
     try {
       // Ensure brain.db is available for edge writes
       await getBrainDb(projectRoot);

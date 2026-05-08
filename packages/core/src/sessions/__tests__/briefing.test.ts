@@ -13,6 +13,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock data-accessor before importing briefing module
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  // canonical replacement (T9054) — briefing.ts calls getTaskAccessor
+  getTaskAccessor: vi.fn(),
   createDataAccessor: vi.fn(),
 }));
 
@@ -27,7 +29,7 @@ vi.mock('../../lifecycle/pipeline.js', () => ({
   getPipeline: vi.fn().mockImplementation(() => Promise.resolve(mockPipeline)),
 }));
 
-import { getAccessor } from '../../store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { computeBriefing } from '../briefing.js';
 
 // ---------------------------------------------------------------------------
@@ -160,7 +162,10 @@ function setupMockAccessor(tasks: unknown[] = makeMockTasks(), meta: Record<stri
     engine: 'sqlite' as const,
   };
 
+  // Both deprecated shim and canonical replacement (T9054)
   (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
+  (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
+  (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
   return mockAccessor;
 }
 
@@ -333,6 +338,7 @@ describe('computeBriefing scope filtering', () => {
     };
 
     (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
+    (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
 
     const briefing = await computeBriefing('/fake/project', {
       scope: 'global',
@@ -365,6 +371,7 @@ describe('computeBriefing scope filtering', () => {
       engine: 'sqlite' as const,
     };
     (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
+    (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockAccessor);
 
     const briefing = await computeBriefing('/fake/project', {
       scope: 'global',

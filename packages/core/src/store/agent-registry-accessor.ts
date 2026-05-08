@@ -42,6 +42,7 @@ import { deriveApiKey } from './api-key-kdf.js';
 import { ensureConduitDb, getConduitDbPath } from './conduit-sqlite.js';
 import { getGlobalSalt } from './global-salt.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from './signaldock-sqlite.js';
+import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 // ---------------------------------------------------------------------------
 // node:sqlite interop (createRequire for ESM / Vitest compat)
@@ -331,8 +332,7 @@ function mergeToAgentWithOverride(
 function openGlobalDb(): DatabaseSync {
   const dbPath = getGlobalSignaldockDbPath();
   const db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA journal_mode = WAL');
+  applyPerfPragmas(db); // replaces inline PRAGMA calls with SSoT set (T9023)
   return db;
 }
 
@@ -347,8 +347,7 @@ function openGlobalDb(): DatabaseSync {
 function openConduitDb(projectRoot: string): DatabaseSync {
   const dbPath = getConduitDbPath(projectRoot);
   const db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA journal_mode = WAL');
+  applyPerfPragmas(db); // replaces inline PRAGMA calls with SSoT set (T9023)
   return db;
 }
 

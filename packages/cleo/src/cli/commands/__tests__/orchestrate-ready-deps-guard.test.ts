@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 vi.mock('../../../../../core/src/store/file-utils.js', () => ({
@@ -54,7 +55,7 @@ vi.mock('../../../../../core/src/orchestration/index.js', () => ({
 
 import { loadConfig } from '../../../../../core/src/config.js';
 import { getReadyTasks } from '../../../../../core/src/orchestration/index.js';
-import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
+import { type getAccessor, getTaskAccessor } from '../../../../../core/src/store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -115,11 +116,11 @@ function stubReadyTasks(epicId: string): void {
   ] as ReturnType<typeof getReadyTasks> extends Promise<infer R> ? R : never);
 }
 
-/** Stub `getAccessor` to return a minimal no-op stub. */
+/** Stub accessor to return a minimal no-op stub (T9054: both shim + canonical). */
 function stubAccessor(): void {
-  vi.mocked(getAccessor).mockResolvedValue(
-    {} as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never,
-  );
+  const stub = {} as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never;
+  vi.mocked(getTaskAccessor).mockResolvedValue(stub);
+  vi.mocked(getTaskAccessor).mockResolvedValue(stub);
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +152,7 @@ describe('orchestrateReady — dep-graph guard', () => {
       lifecycle: { mode: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer R> ? R : never);
 
-    vi.mocked(getAccessor).mockResolvedValue({
+    vi.mocked(getTaskAccessor).mockResolvedValue({
       queryTasks: vi.fn().mockResolvedValue({ tasks }),
     } as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never);
 
@@ -179,7 +180,7 @@ describe('orchestrateReady — dep-graph guard', () => {
       lifecycle: { mode: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer R> ? R : never);
 
-    vi.mocked(getAccessor).mockResolvedValue({
+    vi.mocked(getTaskAccessor).mockResolvedValue({
       queryTasks: vi.fn().mockResolvedValue({ tasks }),
     } as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never);
 
@@ -210,7 +211,7 @@ describe('orchestrateReady — dep-graph guard', () => {
     } as ReturnType<typeof loadConfig> extends Promise<infer R> ? R : never);
 
     const queryTasks = vi.fn().mockResolvedValue({ tasks });
-    vi.mocked(getAccessor).mockResolvedValue({
+    vi.mocked(getTaskAccessor).mockResolvedValue({
       queryTasks,
     } as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never);
 
@@ -235,7 +236,7 @@ describe('orchestrateReady — dep-graph guard', () => {
       lifecycle: { mode: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer R> ? R : never);
 
-    vi.mocked(getAccessor).mockResolvedValue({
+    vi.mocked(getTaskAccessor).mockResolvedValue({
       queryTasks: vi.fn().mockResolvedValue({ tasks }),
     } as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never);
 
@@ -287,7 +288,7 @@ describe('orchestrateReady — dep-graph guard', () => {
       lifecycle: { mode: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer R> ? R : never);
 
-    vi.mocked(getAccessor).mockResolvedValue({
+    vi.mocked(getTaskAccessor).mockResolvedValue({
       queryTasks: vi.fn().mockResolvedValue({ tasks }),
     } as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never);
 
@@ -316,7 +317,7 @@ describe('orchestrateReady — advisory mode', () => {
       lifecycle: { mode: 'advisory' },
     } as ReturnType<typeof loadConfig> extends Promise<infer R> ? R : never);
 
-    vi.mocked(getAccessor).mockResolvedValue({
+    vi.mocked(getTaskAccessor).mockResolvedValue({
       queryTasks: vi.fn().mockResolvedValue({ tasks }),
     } as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never);
 
@@ -343,7 +344,7 @@ describe('orchestrateReady — off mode', () => {
       lifecycle: { mode: 'off' },
     } as ReturnType<typeof loadConfig> extends Promise<infer R> ? R : never);
 
-    vi.mocked(getAccessor).mockResolvedValue({
+    vi.mocked(getTaskAccessor).mockResolvedValue({
       queryTasks: vi.fn().mockResolvedValue({ tasks }),
     } as ReturnType<typeof getAccessor> extends Promise<infer R> ? R : never);
 

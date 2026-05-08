@@ -30,6 +30,7 @@ import { getCleoHome } from '../paths.js';
 import { ensureConduitDb } from './conduit-sqlite.js';
 import { getGlobalSalt } from './global-salt.js';
 import { ensureGlobalSignaldockDb } from './signaldock-sqlite.js';
+import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -282,6 +283,7 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
   let legacy: DatabaseSync | null = null;
   try {
     legacy = new DatabaseSync(legacyPath, { readOnly: true });
+    applyPerfPragmas(legacy, { enableWal: false }); // read-only: WAL cannot be set (T9023)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ legacyPath, error: message }, 'T310 migration: cannot open legacy signaldock.db');
@@ -356,8 +358,13 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
     // Open a direct handle for migration writes (ensureConduitDb returns singleton;
     // we open a fresh handle to avoid interfering with any singleton state).
     conduit = new DatabaseSync(ensureResult.path);
-    conduit.exec('PRAGMA journal_mode = WAL');
-    conduit.exec('PRAGMA foreign_keys = OFF'); // Disable FK checks during bulk copy
+    applyPerfPragmas(conduit, { enableForeignKeys: false }); // FK off during bulk copy (T9023)
+    // Explicitly disable FK for this handle: node:sqlite preserves PRAGMA foreign_keys
+    // state across connections within a process (per-file internal cache), so simply
+    // omitting the pragma (enableForeignKeys: false → null → skipped) is insufficient
+    // when a prior handle set FK=ON. The explicit OFF here ensures bulk INSERT is not
+    // blocked by cross-table FK ordering (messages before conversations in PROJECT_TIER_TABLES).
+    conduit.exec('PRAGMA foreign_keys = OFF');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ conduitPath, error: message }, 'T310 migration: failed to create conduit.db');
@@ -506,8 +513,8 @@ export function migrateSignaldockToConduit(projectRoot: string): MigrationResult
       mkdirSync(cleoHome, { recursive: true });
     }
     globalDb = new DatabaseSync(globalSignaldockPath);
-    globalDb.exec('PRAGMA journal_mode = WAL');
-    globalDb.exec('PRAGMA foreign_keys = OFF'); // Disable FK checks during bulk copy
+    applyPerfPragmas(globalDb, { enableForeignKeys: false }); // FK off during bulk copy (T9023)
+    globalDb.exec('PRAGMA foreign_keys = OFF'); // Explicit OFF — same node:sqlite per-file FK cache issue (T9023)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(

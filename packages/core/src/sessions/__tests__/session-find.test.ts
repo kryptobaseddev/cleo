@@ -13,9 +13,10 @@ import { findSessions } from '../find.js';
 
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
-import { getAccessor } from '../../store/data-accessor.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,7 +78,7 @@ describe('findSessions (T5119)', () => {
   ];
 
   beforeEach(() => {
-    vi.mocked(getAccessor).mockResolvedValue(mockAccessor(sessions));
+    vi.mocked(getTaskAccessor).mockResolvedValue(mockAccessor(sessions));
   });
 
   it('returns minimal fields only', async () => {
@@ -99,7 +100,7 @@ describe('findSessions (T5119)', () => {
       handoffJson: '{}',
       tasksCompleted: ['T100'],
     });
-    vi.mocked(getAccessor).mockResolvedValue(mockAccessor([richSession]));
+    vi.mocked(getTaskAccessor).mockResolvedValue(mockAccessor([richSession]));
     const result = await findSessions(MOCK_ROOT);
 
     expect(result).toHaveLength(1);
@@ -172,7 +173,7 @@ describe('findSessions (T5119)', () => {
   });
 
   it('returns empty array when accessor has no sessions', async () => {
-    vi.mocked(getAccessor).mockResolvedValue(mockAccessor([]));
+    vi.mocked(getTaskAccessor).mockResolvedValue(mockAccessor([]));
     const result = await findSessions(MOCK_ROOT);
 
     expect(result).toEqual([]);
@@ -209,7 +210,7 @@ describe('sessionList budget enforcement (T5120, T5121)', () => {
     // we verify behavior by checking the returned _meta fields.
     // We mock getAccessor to return a mock accessor with test sessions.
     const sessions15 = makeSessions(15);
-    vi.mocked(getAccessor).mockResolvedValue(mockAccessor(sessions15));
+    vi.mocked(getTaskAccessor).mockResolvedValue(mockAccessor(sessions15));
 
     // Test findSessions with limit
     const limited = await findSessions(MOCK_ROOT, { limit: 10 });
