@@ -30,6 +30,8 @@ const {
   validateGlobalSaltMock,
   getGlobalSaltMock,
   getLoggerMock,
+  isCleanupMarkerSetMock,
+  setCleanupMarkerMock,
 } = vi.hoisted(() => {
   const logInstance = {
     info: vi.fn(),
@@ -56,6 +58,10 @@ const {
         Buffer.from('deadbeef0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c', 'hex'),
       ),
     getLoggerMock: vi.fn().mockReturnValue(logInstance),
+    // T9028: one-shot marker mocks — default to false (marker not set) so
+    // existing tests continue to exercise the cleanup code path.
+    isCleanupMarkerSetMock: vi.fn().mockReturnValue(false),
+    setCleanupMarkerMock: vi.fn(),
   };
 });
 
@@ -70,6 +76,9 @@ vi.mock('@cleocode/core/internal', () => ({
   validateGlobalSalt: validateGlobalSaltMock,
   getGlobalSalt: getGlobalSaltMock,
   getLogger: getLoggerMock,
+  // T9028: one-shot cleanup marker helpers
+  isCleanupMarkerSet: isCleanupMarkerSetMock,
+  setCleanupMarker: setCleanupMarkerMock,
   // T1873: env→ALS bridge added in cleo CLI entrypoint. Test doesn't exercise
   // worktree paths, so stub passthrough that just invokes the callback.
   runWithWorktreeScopeFromEnv: <T>(fn: () => T): T => fn(),
@@ -217,6 +226,9 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     getGlobalSaltMock.mockReturnValue(
       Buffer.from('deadbeef0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c', 'hex'),
     );
+    // T9028: default — marker not set, so cleanup runs (existing test behaviour preserved)
+    isCleanupMarkerSetMock.mockReturnValue(false);
+    setCleanupMarkerMock.mockReset();
   });
 
   afterEach(() => {
@@ -334,6 +346,59 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     const ensureIdx = callOrder.indexOf('ensureConduit');
     expect(migrateIdx).toBeGreaterThanOrEqual(0);
     expect(ensureIdx).toBeGreaterThan(migrateIdx);
+  });
+
+  // T9028: one-shot marker tests
+  it('T9028: skips both cleanup functions when marker is already set (fast path)', async () => {
+    isCleanupMarkerSetMock.mockReturnValue(true);
+
+    const { runStartupMaintenance } = await import('../index.js');
+    await runStartupMaintenance();
+
+    // Marker is set → neither cleanup function should run
+    expect(detectAndRemoveLegacyGlobalFilesMock).not.toHaveBeenCalled();
+    expect(detectAndRemoveStrayProjectNexusMock).not.toHaveBeenCalled();
+    // setCleanupMarker should NOT be called again when marker already exists
+    expect(setCleanupMarkerMock).not.toHaveBeenCalled();
+  });
+
+  it('T9028: runs both cleanup functions and writes marker on first run (marker not set)', async () => {
+    isCleanupMarkerSetMock.mockReturnValue(false);
+
+    const { runStartupMaintenance } = await import('../index.js');
+    await runStartupMaintenance();
+
+    // No marker → both cleanup functions should run
+    expect(detectAndRemoveLegacyGlobalFilesMock).toHaveBeenCalled();
+    expect(detectAndRemoveStrayProjectNexusMock).toHaveBeenCalledWith('/test/project');
+    // After successful sweep, marker should be written
+    expect(setCleanupMarkerMock).toHaveBeenCalled();
+  });
+
+  it('T9028: writes marker even when cleanup functions return errors (non-fatal)', async () => {
+    isCleanupMarkerSetMock.mockReturnValue(false);
+    detectAndRemoveLegacyGlobalFilesMock.mockReturnValue({ removed: [], errors: [{ file: 'x', error: 'EPERM' }] });
+
+    const { runStartupMaintenance } = await import('../index.js');
+    await expect(runStartupMaintenance()).resolves.not.toThrow();
+    // Marker should still be written to prevent re-running a no-op sweep
+    expect(setCleanupMarkerMock).toHaveBeenCalled();
+  });
+
+  it('T9028: skips stray-nexus cleanup when getProjectRoot throws (no project context)', async () => {
+    isCleanupMarkerSetMock.mockReturnValue(false);
+    getProjectRootMock.mockImplementation(() => {
+      throw new Error('E_NO_PROJECT: no .cleo directory found');
+    });
+
+    const { runStartupMaintenance } = await import('../index.js');
+    await expect(runStartupMaintenance()).resolves.not.toThrow();
+    // Global cleanup runs even without project context
+    expect(detectAndRemoveLegacyGlobalFilesMock).toHaveBeenCalled();
+    // Stray nexus cleanup requires a project path — should be skipped
+    expect(detectAndRemoveStrayProjectNexusMock).not.toHaveBeenCalled();
+    // Marker should still be written for the empty-project-root path
+    expect(setCleanupMarkerMock).toHaveBeenCalled();
   });
 });
 
