@@ -968,10 +968,7 @@ export async function runUpgrade(
     // Path migration (D-008) is opt-in and not enabled here to avoid mutating
     // user paths during routine upgrade.
     try {
-      const [
-        { buildDoctorReport, reconcileDoctor },
-        { openCleoDb },
-      ] = await Promise.all([
+      const [{ buildDoctorReport, reconcileDoctor }, { openCleoDb }] = await Promise.all([
         import('./store/agent-doctor.js'),
         import('./store/open-cleo-db.js'),
       ]);
@@ -1200,10 +1197,7 @@ export async function runUpgrade(
     // Dry-run preview for agent registry sync (T1243).
     // Read-only buildDoctorReport so users see drift before --fix.
     try {
-      const [
-        { buildDoctorReport },
-        { openCleoDb },
-      ] = await Promise.all([
+      const [{ buildDoctorReport }, { openCleoDb }] = await Promise.all([
         import('./store/agent-doctor.js'),
         import('./store/open-cleo-db.js'),
       ]);

@@ -2156,10 +2156,9 @@ const installCommand = defineCommand({
       }
 
       // Lazy-import the core facade so test mocks can intercept these symbols.
-      const {
-        installAgentFromCant,
-        attachAgentToProject,
-      } = await import('@cleocode/core/internal');
+      const { installAgentFromCant, attachAgentToProject } = await import(
+        '@cleocode/core/internal'
+      );
       const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
 
       // Open via chokepoint — applies pragma SSoT (T9047, T9189)
@@ -2830,10 +2829,7 @@ const pruneOrphansCommand = defineCommand({
   },
   async run({ args }) {
     try {
-      const {
-        buildDoctorReport,
-        reconcileDoctor,
-      } = await import('@cleocode/core/internal');
+      const { buildDoctorReport, reconcileDoctor } = await import('@cleocode/core/internal');
       const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
       // Open via chokepoint — applies pragma SSoT (T9047, T9189)
       const { db: _sdDb2 } = await openCleoDb('signaldock');
@@ -2906,10 +2902,7 @@ const doctorCommand = defineCommand({
   },
   async run({ args }) {
     try {
-      const {
-        buildDoctorReport,
-        reconcileDoctor,
-      } = await import('@cleocode/core/internal');
+      const { buildDoctorReport, reconcileDoctor } = await import('@cleocode/core/internal');
       const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
       // Open via chokepoint — applies pragma SSoT (T9047, T9189)
       const { db: _sdDb3 } = await openCleoDb('signaldock');
