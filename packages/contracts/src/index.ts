@@ -1147,6 +1147,8 @@ export type {
   Release,
   ReleaseStatus,
   SessionNote,
+  // T9071 — system-wide severity attestation primitive
+  SeverityAttestation,
   Task,
   TaskCreate,
   TaskOrigin,
