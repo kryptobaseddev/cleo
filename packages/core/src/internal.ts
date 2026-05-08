@@ -910,6 +910,9 @@ export {
   createAttachmentStoreV2,
   resolveAttachmentBackend,
 } from './store/attachment-store-v2.js';
+// DocsAccessor — unified llmtxt + manifest interface (T9063 · ADR-068 · ADR-069)
+export type { DocsAccessorImplOptions } from './store/docs-accessor-impl.js';
+export { createDocsAccessor, DocsAccessorImpl } from './store/docs-accessor-impl.js';
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
 // Backup portability — bundle packer (T311 / T347)
