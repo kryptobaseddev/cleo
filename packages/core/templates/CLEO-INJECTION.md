@@ -115,7 +115,7 @@ The orchestrator integrates the worktree branch back to the project's target bra
 
 ## Playbook Domain (v2026.4.93 · T910 Orchestration Coherence v4)
 
-`.cantbook` playbooks encode multi-stage agent flows (research → spec → impl → review, release with HITL gate, etc.) as YAML. The playbook runtime is a deterministic state machine with HMAC-signed resume tokens for HITL gates — see `docs/architecture/orchestration-flow.md` (6-layer pipeline) and `docs/adr/ADR-053-playbook-runtime.md` (state-machine decision).
+`.cantbook` playbooks encode multi-stage agent flows (research → spec → impl → review, release with HITL gate, etc.) as YAML. The playbook runtime is a deterministic state machine with HMAC-signed resume tokens for HITL gates — see `docs/architecture/orchestration-flow.md` (6-layer pipeline) and `.cleo/adrs/ADR-053-playbook-runtime.md` (state-machine decision).
 
 | Goal | Command |
 |------|---------|
@@ -149,6 +149,7 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | — | `E_EVIDENCE_TESTS_FAILED` | Fix failing tests before re-verifying with `tool:pnpm-test` or `test-run:<json>` |
 | — | `E_EVIDENCE_TOOL_FAILED` | Tool (biome/tsc/…) exited non-zero; fix source and re-run |
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
+| — | `E_EVIDENCE_INVALID_DECISION` | `decision:<id>` atom — decision ID not found or not accepted/proposed in BRAIN |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` or `CLEO_OWNER_OVERRIDE=1` |
 
 ## Pre-Complete Gate Ritual (ADR-051 — evidence required)
@@ -161,6 +162,14 @@ MANDATORY before every `cleo complete <id>`. Every gate write MUST be backed by 
 # implemented — commit + file list
 cleo verify T### --gate implemented \
   --evidence "commit:<sha>;files:path/a.ts,path/b.ts"
+
+# implemented — decision-only task (no code change, deliverable is a recorded decision)
+# Eliminates CLEO_OWNER_OVERRIDE on decision-only completion paths (T1875).
+cleo verify T### --gate implemented \
+  --evidence "decision:D-arch-001;files:docs/research-note.md"
+#   OR with a note instead of a file
+cleo verify T### --gate implemented \
+  --evidence "decision:D-arch-001;note:decision recorded in BRAIN"
 
 # testsPassed — structured test JSON OR project-resolved tool
 cleo verify T### --gate testsPassed --evidence "tool:test"
@@ -282,7 +291,7 @@ Decision IDs (D0xx, AGT-*) are **NOT globally unique**. The same ID can mean dif
    (structured decisions with rationale/confidence; often empty for D0xx)
 2. **CLEO Memory observations**: `cleo memory find <term>`
    (decisions captured as O-* observations during sessions)
-3. **ADR files** (canonical source): `grep -r "D0xx" docs/adr/`
+3. **ADR files** (canonical source): `grep -r "D0xx" .cleo/adrs/`
    (ground truth for architectural decisions, tracks superseded-by)
 4. **Agent outputs** (planning context): `grep -r "D0xx" .cleo/agent-outputs/`
    (session-scoped decision tables with migration impact)

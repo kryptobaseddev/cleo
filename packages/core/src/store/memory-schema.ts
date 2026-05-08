@@ -294,7 +294,7 @@ export const brainDecisions = sqliteTable(
     adrNumber: integer('adr_number').unique(),
 
     /**
-     * Relative or absolute path to the ADR document on disk (e.g. `"docs/adr/ADR-027.md"`).
+     * Relative or absolute path to the ADR document on disk (e.g. `".cleo/adrs/ADR-027.md"`).
      *
      * NULL when the decision has no associated file (informal, ephemeral, or pre-ADR).
      */
