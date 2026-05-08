@@ -438,9 +438,14 @@ describe('sqlite-backup global tier', () => {
     const s = statSync(result.snapshotPath);
     expect(s.size).toBe(32);
 
-    // Must have 0o600 permissions (owner read/write only)
+    // Must have 0o600 permissions (owner read/write only) on POSIX.
+    // Windows does not implement chmod mode bits consistently for this check.
     const mode = s.mode & 0o777;
-    expect(mode).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(mode).toBe(0o600);
+    } else {
+      expect(mode & 0o200).not.toBe(0);
+    }
   });
 
   /**

@@ -120,8 +120,16 @@ this is not valid cant syntax {{{ }}}`);
   });
 
   it('collects diagnostics for files that fail validation', async () => {
-    // jit-backend-dev.cant has 3 validation errors (S13, T01)
-    const agentFile = join(FIXTURES_DIR, 'jit-backend-dev.cant');
+    const agentFile = createFixture('bad-permission.cant', `---
+kind: agent
+version: 2
+---
+
+agent bad-permission:
+  role: worker
+  permissions:
+    files: write[/tmp/**]
+`);
     const bundle = await compileBundle([agentFile]);
 
     expect(bundle.documents.size).toBe(1);
@@ -135,7 +143,16 @@ this is not valid cant syntax {{{ }}}`);
   });
 
   it('preserves line and column for validation diagnostics', async () => {
-    const agentFile = join(FIXTURES_DIR, 'jit-backend-dev.cant');
+    const agentFile = createFixture('bad-permission-position.cant', `---
+kind: agent
+version: 2
+---
+
+agent bad-permission-position:
+  role: worker
+  permissions:
+    files: write[/tmp/**]
+`);
     const bundle = await compileBundle([agentFile]);
 
     const validationDiags = bundle.diagnostics.filter(d => d.ruleId !== 'parse');
@@ -244,10 +261,19 @@ describe('compileBundle renderSystemPrompt', () => {
   });
 
   it('includes a validation warning when bundle is invalid', async () => {
-    const agentFile = join(FIXTURES_DIR, 'jit-backend-dev.cant');
+    const agentFile = createFixture('bad-permission-render.cant', `---
+kind: agent
+version: 2
+---
+
+agent bad-permission-render:
+  role: worker
+  permissions:
+    files: write[/tmp/**]
+`);
     const bundle = await compileBundle([agentFile]);
 
-    // jit-backend-dev.cant has validation errors
+    // Invalid permission values produce validation errors.
     expect(bundle.valid).toBe(false);
     const prompt = bundle.renderSystemPrompt();
     expect(prompt).toContain('Warning');

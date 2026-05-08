@@ -28,6 +28,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import type { BackupManifest, BackupScope } from '@cleocode/contracts';
 import { create as tarCreate } from 'tar';
 import { getCleoHome, getProjectRoot } from '../paths.js';
@@ -96,23 +97,35 @@ export interface PackBundleResult {
 
 /** Resolves the schemas directory inside @cleocode/contracts (compile-time helper). */
 function resolveContractsSchemasDir(): string {
+  const thisDir = path.dirname(fileURLToPath(import.meta.url));
+  const contractsEntryToSchemasDir = (entryPath: string): string =>
+    path.join(path.dirname(path.dirname(entryPath)), 'schemas');
+
   // Walk up from this file to find packages/contracts/schemas/manifest-v1.json.
   // In the installed package the file lives at contracts/schemas/manifest-v1.json.
   // In the monorepo it lives at packages/contracts/schemas/manifest-v1.json.
-  const candidates = [
+  const candidates: string[] = [];
+
+  // Package-resolution first: robust on Windows, pnpm symlinks, and installed packages.
+  try {
+    candidates.push(
+      contractsEntryToSchemasDir(fileURLToPath(import.meta.resolve('@cleocode/contracts'))),
+    );
+  } catch {
+    // Fall through to createRequire/manual candidates.
+  }
+  try {
+    candidates.push(contractsEntryToSchemasDir(_require.resolve('@cleocode/contracts')));
+  } catch {
+    // Fall through to manual candidates.
+  }
+
+  candidates.push(
     // Monorepo: packages/core/src/store → packages/core/src → packages/core → packages → root
-    path.resolve(
-      path.dirname(import.meta.url.replace('file://', '')),
-      '..',
-      '..',
-      '..',
-      '..',
-      'contracts',
-      'schemas',
-    ),
+    path.resolve(thisDir, '..', '..', '..', '..', 'contracts', 'schemas'),
     // Installed: node_modules/@cleocode/contracts/schemas
     path.resolve(
-      path.dirname(import.meta.url.replace('file://', '')),
+      thisDir,
       '..',
       '..',
       '..',
@@ -123,16 +136,8 @@ function resolveContractsSchemasDir(): string {
       'schemas',
     ),
     // Fallback: dist sibling
-    path.resolve(
-      path.dirname(import.meta.url.replace('file://', '')),
-      '..',
-      '..',
-      'node_modules',
-      '@cleocode',
-      'contracts',
-      'schemas',
-    ),
-  ];
+    path.resolve(thisDir, '..', '..', 'node_modules', '@cleocode', 'contracts', 'schemas'),
+  );
   for (const candidate of candidates) {
     const schemaFile = path.join(candidate, 'manifest-v1.json');
     if (fs.existsSync(schemaFile)) {

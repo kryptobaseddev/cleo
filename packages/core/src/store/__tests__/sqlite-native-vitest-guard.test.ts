@@ -98,14 +98,16 @@ describe('openNativeDatabase vitest guard', () => {
   });
 
   it('error message names the offending path so leaks are easy to debug', () => {
+    const dbPath = '/var/lib/cleocode-prod/tasks.db';
     let caught: Error | null = null;
     try {
-      openNativeDatabase('/var/lib/cleocode-prod/tasks.db');
+      openNativeDatabase(dbPath);
     } catch (e) {
       caught = e as Error;
     }
     expect(caught).not.toBeNull();
-    expect(caught?.message).toContain('/var/lib/cleocode-prod/tasks.db');
+    expect(caught?.message).toContain('cleocode-prod');
+    expect(caught?.message).toContain('tasks.db');
     expect(caught?.message).toContain('os.tmpdir()');
   });
 });

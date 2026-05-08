@@ -17,6 +17,23 @@ const WORKTREES_SUBDIR = 'worktrees';
 const PROJECT_HASH_LENGTH = 16;
 
 /**
+ * Join path segments using the separator already present in the base path.
+ *
+ * When the base path uses only forward slashes (e.g. a POSIX path or a
+ * `CLEO_HOME` test override like `/test/cleo-home`), we concatenate with `/`
+ * to avoid Windows `path.join` converting separators to backslashes. Native
+ * Windows paths (containing `\`) use `path.join` as usual.
+ *
+ * @internal
+ */
+function joinSegments(base: string, ...parts: string[]): string {
+  if (base.includes('/') && !base.includes('\\')) {
+    return [base, ...parts].join('/');
+  }
+  return join(base, ...parts);
+}
+
+/**
  * Compute a stable 16-character project hash from an absolute project root path.
  *
  * Uses SHA-256 truncated to 16 hex chars. The truncation is consistent with
@@ -50,7 +67,7 @@ export function computeProjectHash(projectRoot: string): string {
  */
 export function resolveWorktreeRootForHash(projectHash: string, worktreeRoot?: string): string {
   if (worktreeRoot) return worktreeRoot;
-  return join(getCleoHome(), WORKTREES_SUBDIR, projectHash);
+  return joinSegments(getCleoHome(), WORKTREES_SUBDIR, projectHash);
 }
 
 /**
@@ -70,7 +87,8 @@ export function resolveTaskWorktreePath(
   taskId: string,
   worktreeRoot?: string,
 ): string {
-  return join(resolveWorktreeRootForHash(projectHash, worktreeRoot), taskId);
+  const root = resolveWorktreeRootForHash(projectHash, worktreeRoot);
+  return joinSegments(root, taskId);
 }
 
 /**
@@ -83,5 +101,5 @@ export function resolveTaskWorktreePath(
  * @public
  */
 export function getCleoWorktreesRoot(): string {
-  return join(getCleoHome(), WORKTREES_SUBDIR);
+  return joinSegments(getCleoHome(), WORKTREES_SUBDIR);
 }

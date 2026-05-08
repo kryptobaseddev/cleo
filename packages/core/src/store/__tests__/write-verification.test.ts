@@ -36,7 +36,19 @@ describe('Write Verification', () => {
     delete process.env['CLEO_DIR'];
     const { closeDb } = await import('../sqlite.js');
     closeDb();
-    await rm(tempDir, { recursive: true, force: true });
+    // safeDeleteTask (and deleteTask it delegates to) fires a void
+    // cleanupBrainRefsOnTaskDelete which opens brain.db asynchronously.
+    // Wait for the microtask to complete then close brain.db so rm() does
+    // not race against an open WAL sidecar on Windows (T9182).
+    await new Promise((r) => setTimeout(r, 50));
+    try {
+      const { closeBrainDb } = await import('../memory-sqlite.js');
+      closeBrainDb();
+    } catch {
+      /* ignore */
+    }
+    // maxRetries: Windows WAL sidecar files stay locked briefly (T9182).
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   describe('verifyTaskWrite', () => {

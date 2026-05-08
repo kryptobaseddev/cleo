@@ -14,7 +14,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
@@ -37,7 +37,9 @@ afterEach(async () => {
     // not all tests reach init
   }
   delete process.env['CLEO_HOME'];
-  await rm(testDir, { recursive: true, force: true });
+  // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+  // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+  await rm(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
 });
 
 /** Register two real-on-disk projects + one ghost (path never created). */
@@ -136,6 +138,11 @@ describe('cleanProjects — T9117 removeFs', () => {
     const { nexusRegister, nexusInit } = await import('../registry.js');
     await nexusInit();
     await nexusRegister(fixturePath, 'cleo-fixture-junk');
+    // nexusRegister opens tasks.db (via isCleoProject→getAccessor) and leaves
+    // the singleton open. On Windows the WAL sidecars stay OS-locked until the
+    // connection is explicitly closed, so rm() inside cleanProjects would fail
+    // with EBUSY. Close the singleton now before cleanProjects runs.
+    resetDbState();
 
     expect(existsSync(fixturePath)).toBe(true);
 
@@ -176,10 +183,11 @@ describe('cleanProjects — T9117 removeFs', () => {
     const { projectRegistry } = await import('../../store/nexus-schema.js');
     const db = await getNexusDb();
     const now = new Date().toISOString();
+    const dangerousPath = parse(tmpdir()).root;
     await db.insert(projectRegistry).values({
       projectId: 'dangerous-id',
       projectHash: 'shortshort01',
-      projectPath: '/tmp', // dangerously short root-ish path
+      projectPath: dangerousPath, // dangerously short root-ish path
       name: 'dangerous',
       registeredAt: now,
       lastSeen: now,
@@ -206,9 +214,9 @@ describe('cleanProjects — T9117 removeFs', () => {
     expect(result.purged).toBe(1);
     expect(result.fsRemoved).toBe(0);
     expect(result.fsFailed).toBe(1);
-    // /tmp must still exist
-    expect(existsSync('/tmp')).toBe(true);
-    expect(statSync('/tmp').isDirectory()).toBe(true);
+    // root must still exist
+    expect(existsSync(dangerousPath)).toBe(true);
+    expect(statSync(dangerousPath).isDirectory()).toBe(true);
   });
 });
 

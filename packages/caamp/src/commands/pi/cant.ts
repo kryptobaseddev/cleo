@@ -30,7 +30,7 @@
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type { Command } from 'commander';
 import type { PiHarness } from '../../core/harness/pi.js';
 import type { HarnessTier } from '../../core/harness/scope.js';
@@ -116,8 +116,10 @@ interface ResolvedCantSource {
  */
 async function resolveCantSource(source: string): Promise<ResolvedCantSource> {
   // Local file path first — cheapest check.
+  // On Windows, absolute paths start with a drive letter (e.g. C:\...) rather
+  // than '/', so we use isAbsolute() instead of a slash-prefix check.
   if (
-    source.startsWith('/') ||
+    isAbsolute(source) ||
     source.startsWith('./') ||
     source.startsWith('../') ||
     source.startsWith('~')

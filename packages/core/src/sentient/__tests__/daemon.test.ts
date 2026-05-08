@@ -84,7 +84,9 @@ describe('sentient state', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('returns default state when file missing', async () => {
@@ -150,7 +152,9 @@ describe('sentient advisory lock', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('first acquire succeeds', async () => {
@@ -211,7 +215,9 @@ describe('sentient tick — kill switch', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('aborts immediately when killSwitch is true at tick start', async () => {
@@ -281,7 +287,9 @@ describe('sentient tick — state transitions', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('no-task outcome when picker returns null', async () => {
@@ -361,7 +369,9 @@ describe('sentient tick — stuck + self-pause', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it(`stuck: MAX_TASK_ATTEMPTS (${MAX_TASK_ATTEMPTS}) failures marks task stuck`, async () => {
@@ -429,7 +439,9 @@ describe('sentient daemon — status + resume', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('getSentientDaemonStatus reports stopped when no pid recorded', async () => {

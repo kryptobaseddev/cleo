@@ -15,7 +15,7 @@
 
 import crypto from 'node:crypto';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { platform, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -221,7 +221,11 @@ describe('loadFileIdentity', () => {
     await writeFile(keyPath, seed);
     await chmod(keyPath, 0o644);
 
-    await expect(loadFileIdentity(tmpDir)).rejects.toThrow(/must have mode 0600/);
+    if (platform() === 'win32') {
+      await expect(loadFileIdentity(tmpDir)).resolves.toBeDefined();
+    } else {
+      await expect(loadFileIdentity(tmpDir)).rejects.toThrow(/must have mode 0600/);
+    }
   });
 
   it('refuses to load when file mode is 0644 (owner-only read)', async () => {
@@ -230,7 +234,11 @@ describe('loadFileIdentity', () => {
     await writeFile(keyPath, seed);
     await chmod(keyPath, 0o400);
 
-    await expect(loadFileIdentity(tmpDir)).rejects.toThrow(/must have mode 0600/);
+    if (platform() === 'win32') {
+      await expect(loadFileIdentity(tmpDir)).resolves.toBeDefined();
+    } else {
+      await expect(loadFileIdentity(tmpDir)).rejects.toThrow(/must have mode 0600/);
+    }
   });
 
   it('throws when keyfile has wrong size (not 32 bytes)', async () => {

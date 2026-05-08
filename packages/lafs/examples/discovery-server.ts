@@ -110,47 +110,41 @@ app.post("/api/v1/context/:ledgerId/entries", express.json(), (req: Request, res
 });
 
 /**
- * Discovery configuration
- * Advertises all LAFS capabilities and endpoints
+ * Discovery configuration (A2A v1.0 Agent Card)
  */
 const discoveryConfig: DiscoveryConfig = {
-  service: {
-    name: "example-lafs-service",
+  agent: {
+    name: "example-lafs-agent",
+    description: "Example LAFS-compliant agent demonstrating A2A discovery",
     version: "1.0.0",
-    description: "Example LAFS-compliant API service demonstrating discovery protocol"
-  },
-  capabilities: [
-    {
-      name: "envelope-processor",
-      version: "1.0.0",
-      description: "Process and validate LAFS envelopes",
-      operations: ["process", "validate", "transform"]
+    url: "/api/v1/envelope",
+    capabilities: {
+      streaming: false,
+      pushNotifications: false,
+      extensions: [],
     },
-    {
-      name: "context-ledger",
-      version: "1.0.0",
-      description: "Manage context ledgers for stateful operations",
-      operations: ["read", "append", "query"]
-    },
-    {
-      name: "pagination-provider",
-      version: "1.0.0",
-      description: "Provide cursor and offset pagination for list endpoints",
-      operations: ["cursor", "offset", "none"],
-      optional: true
-    }
-  ],
-  endpoints: {
-    envelope: "/api/v1/envelope",
-    context: "/api/v1/context",
-    discovery: "https://lafs.dev/schemas/v1/discovery.schema.json"
+    defaultInputModes: ["application/json"],
+    defaultOutputModes: ["application/json"],
+    skills: [
+      {
+        id: "envelope-processor",
+        name: "Envelope Processor",
+        description: "Process and validate LAFS envelopes",
+        tags: ["process", "validate", "transform"],
+      },
+      {
+        id: "context-ledger",
+        name: "Context Ledger",
+        description: "Manage context ledgers for stateful operations",
+        tags: ["read", "append", "query"],
+      },
+    ],
   },
   cacheMaxAge: 3600,
-  lafsVersion: "1.0.0"
 };
 
 // Mount discovery middleware BEFORE other routes
-// This ensures /.well-known/lafs.json is served at the root
+// Serves /.well-known/agent-card.json per A2A v1.0 (RFC 8615)
 app.use(discoveryMiddleware(discoveryConfig));
 
 /**
@@ -159,8 +153,8 @@ app.use(discoveryMiddleware(discoveryConfig));
 app.get("/health", (req: Request, res: Response) => {
   res.json({
     status: "healthy",
-    service: discoveryConfig.service?.name ?? discoveryConfig.agent?.name,
-    version: discoveryConfig.service?.version ?? discoveryConfig.agent?.version,
+    service: discoveryConfig.agent.name,
+    version: discoveryConfig.agent.version,
     timestamp: new Date().toISOString()
   });
 });
@@ -189,22 +183,22 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
  */
 const server = app.listen(PORT, () => {
   console.log(`
-╔════════════════════════════════════════════════════════╗
-║     LAFS Discovery Server Running                      ║
-╠════════════════════════════════════════════════════════╣
-║  Service:    ${(discoveryConfig.service?.name ?? discoveryConfig.agent?.name ?? 'unknown').padEnd(43)}║
-║  Version:    ${(discoveryConfig.service?.version ?? discoveryConfig.agent?.version ?? 'unknown').padEnd(43)}║
-║  Port:       ${String(PORT).padEnd(43)}║
-╠════════════════════════════════════════════════════════╣
-║  Endpoints:                                            ║
-║    GET  /.well-known/lafs.json  (Discovery document)   ║
-║    POST /api/v1/envelope        (Envelope processor)   ║
-║    GET  /api/v1/context/:id     (Context ledger)       ║
-║    GET  /health                 (Health check)         ║
-╚════════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════════╗
+║     LAFS Discovery Server Running                          ║
+╠════════════════════════════════════════════════════════════╣
+║  Agent:      ${discoveryConfig.agent.name.padEnd(45)}║
+║  Version:    ${discoveryConfig.agent.version.padEnd(45)}║
+║  Port:       ${String(PORT).padEnd(45)}║
+╠════════════════════════════════════════════════════════════╣
+║  Endpoints:                                                ║
+║    GET  /.well-known/agent-card.json  (A2A Agent Card)     ║
+║    POST /api/v1/envelope              (Envelope processor) ║
+║    GET  /api/v1/context/:id           (Context ledger)     ║
+║    GET  /health                       (Health check)       ║
+╚════════════════════════════════════════════════════════════╝
 
 Test with:
-  curl http://localhost:${PORT}/.well-known/lafs.json | jq
+  curl http://localhost:${PORT}/.well-known/agent-card.json | jq
   curl http://localhost:${PORT}/health | jq
   curl -X POST http://localhost:${PORT}/api/v1/envelope \
     -H "Content-Type: application/json" \

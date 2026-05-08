@@ -79,9 +79,10 @@ const peerDepsOk = await canOpenLlmtxtBackend();
 
 describe('agent-session-adapter — peer-dep-agnostic surface', () => {
   it('getReceiptsAuditPath returns .cleo/audit/receipts.jsonl under root', () => {
-    const path = getReceiptsAuditPath('/tmp/my-project');
-    expect(path.endsWith('.cleo/audit/receipts.jsonl')).toBe(true);
-    expect(path.startsWith('/tmp/my-project')).toBe(true);
+    const projectRoot = join(tmpdir(), 'my-project');
+    const path = getReceiptsAuditPath(projectRoot);
+    expect(path.endsWith(join('.cleo', 'audit', 'receipts.jsonl'))).toBe(true);
+    expect(path.startsWith(projectRoot)).toBe(true);
   });
 
   it('wrapWithAgentSession always runs the wrapped fn and returns its value', async () => {

@@ -122,10 +122,15 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     try {
       const { closeAllDatabases } = await import('@cleocode/core/internal');
       await closeAllDatabases();
+      // Drain void cleanupBrainRefsOnTaskDelete promises from seedTasks()
+      // and any conduit.db opens from orchestrateSpawn (T9182).
+      await new Promise((r) => setTimeout(r, 50));
+      await closeAllDatabases();
     } catch {
       /* ignore */
     }
-    await rm(TEST_ROOT, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files stay locked briefly (T9182).
+    await rm(TEST_ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('emits payload with composerVersion 3.0.0 meta', async () => {

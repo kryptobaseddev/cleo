@@ -64,7 +64,10 @@ describe('CLEO canonical .cant agent fixtures', () => {
   });
 
   it('cleo-historian.cant uses canonical CANT grammar elements', () => {
-    const content = readFileSync(resolve(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
+    // Normalize CRLF line endings so the regex assertions work on Windows
+    // runners that check out files with core.autocrlf=true.
+    const raw = readFileSync(resolve(AGENTS_DIR, 'cleo-historian.cant'), 'utf-8');
+    const content = raw.replace(/\r\n/g, '\n');
 
     // Frontmatter
     expect(content).toMatch(/^---\nkind: agent\nversion: 1\n---/);

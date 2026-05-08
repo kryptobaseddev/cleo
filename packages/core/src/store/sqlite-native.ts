@@ -37,7 +37,7 @@
 import { realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 
 const _require = createRequire(import.meta.url);
@@ -146,7 +146,7 @@ function assertVitestSafePath(path: string): void {
   if (isPathUnder(resolved, tmpRoot)) return;
 
   const allowList = (process.env.CLEO_TEST_ALLOWED_DB_ROOTS ?? '')
-    .split(':')
+    .split(delimiter)
     .map((s) => s.trim())
     .filter(Boolean);
   for (const root of allowList) {

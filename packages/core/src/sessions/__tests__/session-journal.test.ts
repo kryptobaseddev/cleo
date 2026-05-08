@@ -117,7 +117,7 @@ describe('getSessionJournalPath', () => {
   it('returns a YYYY-MM-DD.jsonl path for today by default', () => {
     const path = getSessionJournalPath(tmpRoot);
     expect(path).toMatch(/\d{4}-\d{2}-\d{2}\.jsonl$/);
-    expect(path).toContain('.cleo/session-journals/');
+    expect(path).toContain(join('.cleo', 'session-journals'));
     expect(path).toContain(tmpRoot);
   });
 

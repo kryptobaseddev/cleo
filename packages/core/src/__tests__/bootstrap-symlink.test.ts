@@ -12,15 +12,24 @@
 import { existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, normalize } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type BootstrapContext, bootstrapGlobalCleo } from '../bootstrap.js';
+import { type BootstrapContext, ensureCleoSymlink } from '../bootstrap.js';
 
 describe('bootstrap: ~/.cleo canonical symlink', () => {
   let fakeHome: string;
   let cleoHome: string;
   let origHome: string | undefined;
+  let origUserProfile: string | undefined;
   let origCleoHome: string | undefined;
+
+  function normalizeLinkTarget(path: string): string {
+    return normalize(path.replace(/^\\\\\?\\/, ''));
+  }
+
+  function makeContext(): BootstrapContext {
+    return { created: [], warnings: [], isDryRun: false };
+  }
 
   beforeEach(async () => {
     const base = await mkdtemp(join(tmpdir(), 'cleo-symlink-test-'));
@@ -29,8 +38,10 @@ describe('bootstrap: ~/.cleo canonical symlink', () => {
     mkdirSync(fakeHome, { recursive: true });
 
     origHome = process.env['HOME'];
+    origUserProfile = process.env['USERPROFILE'];
     origCleoHome = process.env['CLEO_HOME'];
     process.env['HOME'] = fakeHome;
+    process.env['USERPROFILE'] = fakeHome;
     process.env['CLEO_HOME'] = cleoHome;
 
     const { _resetPlatformPathsCache } = await import('../system/platform-paths.js');
@@ -40,6 +51,8 @@ describe('bootstrap: ~/.cleo canonical symlink', () => {
   afterEach(async () => {
     if (origHome !== undefined) process.env['HOME'] = origHome;
     else delete process.env['HOME'];
+    if (origUserProfile !== undefined) process.env['USERPROFILE'] = origUserProfile;
+    else delete process.env['USERPROFILE'];
     if (origCleoHome !== undefined) process.env['CLEO_HOME'] = origCleoHome;
     else delete process.env['CLEO_HOME'];
 
@@ -47,7 +60,7 @@ describe('bootstrap: ~/.cleo canonical symlink', () => {
     _resetPlatformPathsCache();
     // Best-effort cleanup of the temp root
     try {
-      const base = fakeHome.replace(/\/home$/, '');
+      const base = dirname(fakeHome);
       await rm(base, { recursive: true, force: true });
     } catch {
       // ignore
@@ -55,7 +68,8 @@ describe('bootstrap: ~/.cleo canonical symlink', () => {
   });
 
   it('creates ~/.cleo as a symlink to getCleoHome() when ~/.cleo does not exist', async () => {
-    const ctx: BootstrapContext = await bootstrapGlobalCleo({ dryRun: false });
+    const ctx = makeContext();
+    await ensureCleoSymlink(ctx);
     const legacyPath = join(fakeHome, '.cleo');
 
     expect(existsSync(legacyPath)).toBe(true);
@@ -63,22 +77,23 @@ describe('bootstrap: ~/.cleo canonical symlink', () => {
     expect(stat.isSymbolicLink()).toBe(true);
 
     const target = await readlink(legacyPath);
-    expect(target).toBe(cleoHome);
+    expect(normalizeLinkTarget(target)).toBe(normalize(cleoHome));
 
     expect(ctx.created.some((c) => c.includes('~/.cleo →'))).toBe(true);
   });
 
   it('no-ops when ~/.cleo is already the correct symlink', async () => {
     // Prime: run bootstrap once to install the symlink
-    await bootstrapGlobalCleo({ dryRun: false });
+    await ensureCleoSymlink(makeContext());
 
     // Run again — should recognise the correct link and leave it alone
-    const ctx: BootstrapContext = await bootstrapGlobalCleo({ dryRun: false });
+    const ctx = makeContext();
+    await ensureCleoSymlink(ctx);
 
     const legacyPath = join(fakeHome, '.cleo');
     const stat = lstatSync(legacyPath);
     expect(stat.isSymbolicLink()).toBe(true);
-    expect(await readlink(legacyPath)).toBe(cleoHome);
+    expect(normalizeLinkTarget(await readlink(legacyPath))).toBe(normalize(cleoHome));
 
     const newLinkEntry = ctx.created.find((c) => c.includes('~/.cleo →'));
     expect(newLinkEntry).toBeUndefined();
@@ -90,12 +105,13 @@ describe('bootstrap: ~/.cleo canonical symlink', () => {
     mkdirSync(legacyPath, { recursive: true });
     writeFileSync(join(legacyPath, 'stale.txt'), 'legacy content');
 
-    const ctx: BootstrapContext = await bootstrapGlobalCleo({ dryRun: false });
+    const ctx = makeContext();
+    await ensureCleoSymlink(ctx);
 
     // ~/.cleo is now a symlink
     const stat = lstatSync(legacyPath);
     expect(stat.isSymbolicLink()).toBe(true);
-    expect(await readlink(legacyPath)).toBe(cleoHome);
+    expect(normalizeLinkTarget(await readlink(legacyPath))).toBe(normalize(cleoHome));
 
     // A backup should exist
     const backupMention = ctx.created.find((c) => c.includes('backed up to'));

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -1405,7 +1406,7 @@ describe("PiHarness cant profile methods", () => {
    * they contain `{{placeholder}}` variables that fail CANT validation.
    */
   function cleoPersonasDir(): string {
-    const here = new URL(".", import.meta.url).pathname;
+    const here = fileURLToPath(new URL(".", import.meta.url));
     // tests/unit/harness → ../../../.. = repo root packages/caamp/
     // then → ../../.cleo/cant/agents (four levels up to repo root, then down).
     return join(here, "..", "..", "..", "..", "..", ".cleo", "cant", "agents");

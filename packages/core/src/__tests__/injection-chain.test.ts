@@ -141,7 +141,18 @@ describe('E2E: injection chain validation (T4694)', () => {
     } catch {
       /* ignore */
     }
-    await rm(testDir, { recursive: true, force: true });
+    // initProject opens conduit.db in addition to tasks/brain/nexus.
+    // closeAllDatabases() now covers conduit, but we also call it here
+    // explicitly for belt-and-suspenders. On Windows the WAL sidecar files
+    // stay OS-locked after close() for a brief window; maxRetries: 5 +
+    // retryDelay: 500 gives up to 2.5 s for the lock to clear (T9182).
+    try {
+      const { closeConduitDb } = await import('../store/conduit-sqlite.js');
+      closeConduitDb();
+    } catch {
+      /* ignore */
+    }
+    await rm(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('initProject creates provider files referencing @AGENTS.md', async () => {
