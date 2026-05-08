@@ -1,18 +1,19 @@
 # Changelog
 
-## [2026.5.53] (2026-05-08) — Phase 5: Startup Performance
+## [2026.5.53] (2026-05-08)
 
-Startup tax reductions: one-shot marker for legacy sweeps, deferred DB opens, benchmark infrastructure.
+Auto-prepared by release.ship (T9026)
 
-### Performance
+### Bug Fixes
+- **Startup latency benchmark + regression guard**: Add scripts/bench/startup-latency.mjs that runs cleo --version, cleo --help, cleo find foo, cleo show <id>, cleo next 50 times each on a populated ... (T9030)
+- **BUG: CLEO test fixtures pollute production task counter — IDs jumped T1923 to T9001 in 5h gap**: Between 2026-05-05 20:15 and 2026-05-06 01:06 UTC, autoincrement jumped T1923 to T9001 due to fixtures using cleo add on production DB. Confirmed f... (T9042)
 
-- **T9028**: One-shot marker file `~/.cleo/.cleanup-{version}-{projectHash}` gates the stat()-heavy `detectAndRemoveLegacyGlobalFiles` + `detectAndRemoveStrayProjectNexus` sweeps. After the first successful sweep per code version, subsequent invocations are a single `fs.existsSync()` check. New versions get a new marker name, so the sweep re-runs exactly once per upgrade.
-- **T9029**: Remove `ensureConduitDb` and `ensureGlobalSignaldockDb` from `runStartupMaintenance`. Both functions open SQLite databases eagerly on every non-fast-path command — including `cleo find`, `cleo show`, `cleo next`, `cleo memory find` — which never use either DB. Each DB now opens lazily at first use by its own consumers. T310 migration check and global-salt validation are retained (file-existence and machine-key reads only; no SQLite open).
+### Chores
+- **One-shot marker for detectAndRemoveLegacy* startup cleanups**: detectAndRemoveLegacyGlobalFiles and detectAndRemoveStrayProjectNexus run on every non-fast-path CLI invocation. They are stat()-heavy and only do ... (T9028)
 
-### Infrastructure
-
-- **T9030**: `scripts/bench/startup-latency.mjs` measures p50/p95/p99 wall-clock startup for 5 representative commands (50 iterations, 3 warm-up each). Committed baseline captures v2026.5.51 numbers: `--version` p50=2148ms, `--help` p50=1943ms, `find foo` p50=2660ms, `show T1` p50=3026ms, `next` p50=3453ms. `pnpm bench:startup` re-runs the benchmark; exits 1 if any p50 regresses > 20% from baseline.
-
+### Changes
+- **Defer DB opens until command needs them**: Today runStartupMaintenance opens conduit.db AND signaldock.db on every non-fast-path command — even commands that touch neither (e.g. cleo --help ... (T9029)
+---
 ## [2026.5.52] (2026-05-08) — T9053/T9046 Pragma SSoT (TS + Rust)
 
 Drift-by-construction prevention for SQLite pragma policy across the full CLEO ecosystem.
