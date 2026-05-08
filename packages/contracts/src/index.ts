@@ -246,6 +246,17 @@ export type {
   TaskQueryFilters,
   TransactionAccessor,
 } from './data-accessor.js';
+// === PostgresDataAccessor Contracts — cloud-sync scaffold (T9062) ===
+export type {
+  CreatePostgresDataAccessorFn,
+  PostgresDataAccessor,
+  PostgresDataAccessorOptions,
+  PostgresSyncDirection,
+  PostgresTenantNamespace,
+  PostgresTenantStrategy,
+  SyncResult,
+  SyncStatus,
+} from './postgres-data-accessor.js';
 // === Dependency Registry Contracts ===
 export type {
   DependencyCategory,
