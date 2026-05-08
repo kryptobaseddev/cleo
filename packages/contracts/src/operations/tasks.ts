@@ -701,8 +701,20 @@ export interface TasksUpdateQueryParams {
   pipelineStage?: string;
   /** Canonical wire field for task kind axis (T9072: renamed from role). */
   kind?: string;
-  /** Canonical wire field for task scope axis. */
+  /** Task scope axis — granularity of work. @task T944 */
   scope?: string;
+  /**
+   * Severity level — valid for any kind (T9073). Orthogonal to priority.
+   * Appends a signed attestation to `.cleo/audit/severity-attestation.jsonl`.
+   */
+  severity?: string;
+  /**
+   * Operator override reason for AC-immutability guard (T1590).
+   * Required to mutate `acceptance` once stage >= implementation.
+   */
+  reason?: string;
+  /** Dependency declaration waiver for critical-priority tasks (T1856). */
+  dependsWaiver?: string;
 }
 /**
  * Result of `tasks.update` — the updated task record with change list.

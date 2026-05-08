@@ -341,9 +341,13 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         files: params.files,
         // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
         pipelineStage: params.pipelineStage,
-        // T944/T9072: kind axis
+        // T944/T9072: kind axis (renamed from role)
         kind: params.kind,
         scope: params.scope,
+        // T9073: severity — orthogonal to priority, valid for any kind
+        severity: params.severity,
+        // T1590: AC-immutability override reason
+        reason: params.reason,
       }),
       'update',
     );
