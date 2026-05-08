@@ -37,6 +37,7 @@ import { getConduitDbPath } from './conduit-sqlite.js';
 import { getGlobalSaltPath } from './global-salt.js';
 import { getNexusDbPath } from './nexus-sqlite.js';
 import { getGlobalSignaldockDbPath } from './signaldock-sqlite.js';
+import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { assertT310Ready } from './t310-readiness.js';
 
 // ---------------------------------------------------------------------------
@@ -248,6 +249,7 @@ function rowCountsForDb(dbPath: string): Record<string, number> {
   let db: DatabaseSync | null = null;
   try {
     db = new DatabaseSync(dbPath, { readOnly: true });
+    applyPerfPragmas(db, { enableWal: false }); // read-only: WAL cannot be set (T9022)
     // Enumerate user tables
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
@@ -284,6 +286,7 @@ function schemaVersionForDb(dbPath: string): string {
   let db: DatabaseSync | null = null;
   try {
     db = new DatabaseSync(dbPath, { readOnly: true });
+    applyPerfPragmas(db, { enableWal: false }); // read-only: WAL cannot be set (T9022)
 
     // Check which migration table exists
     const tables = db
@@ -347,6 +350,7 @@ function vacuumIntoStaging(srcPath: string, destPath: string): boolean {
   let db: DatabaseSync | null = null;
   try {
     db = new DatabaseSync(srcPath);
+    applyPerfPragmas(db); // full pragma set for writer (T9022)
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     db.exec(`VACUUM INTO '${destPath.replace(/'/g, "''")}'`);
     return true;

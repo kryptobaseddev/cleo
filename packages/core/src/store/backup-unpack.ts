@@ -39,6 +39,7 @@ import { default as Ajv2020Import } from 'ajv/dist/2020.js';
 import { default as addFormatsImport } from 'ajv-formats';
 import { extract as tarExtract } from 'tar';
 import { decryptBundle, isEncryptedBundle } from './backup-crypto.js';
+import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 // ---------------------------------------------------------------------------
 // node:sqlite interop (createRequire — Vitest strips `node:` prefix)
@@ -500,6 +501,7 @@ export async function unpackBundle(input: UnpackBundleInput): Promise<UnpackBund
       let db: DatabaseSync | null = null;
       try {
         db = new DatabaseSync(dbPath, { readOnly: true });
+        applyPerfPragmas(db, { enableWal: false }); // read-only: WAL cannot be set (T9022)
         const row = db.prepare('PRAGMA integrity_check').get() as
           | { integrity_check: string }
           | undefined;
