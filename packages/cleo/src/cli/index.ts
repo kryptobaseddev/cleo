@@ -229,23 +229,51 @@ export async function runStartupMaintenance(): Promise<void> {
     getGlobalSalt,
     getLogger,
     getProjectRoot,
+    isCleanupMarkerSet,
     migrateSignaldockToConduit,
     needsSignaldockToConduitMigration,
+    setCleanupMarker,
     validateGlobalSalt,
   } = await import('@cleocode/core/internal');
 
-  // One-shot idempotent cleanup of legacy global-tier files (T304 / ADR-036).
+  // ---------------------------------------------------------------------------
+  // One-shot legacy cleanup gated by a per-version marker file (T9028).
+  //
+  // detectAndRemoveLegacyGlobalFiles + detectAndRemoveStrayProjectNexus perform
+  // stat() calls on every invocation even when there is nothing left to clean.
+  // The marker file ~/.cleo/.cleanup-{version}-{projectHash} lets us skip both
+  // functions entirely after the first successful sweep per code version.
+  //
+  // New releases get a new marker name → sweep re-runs exactly once on upgrade.
+  // ---------------------------------------------------------------------------
+  let projectRootForCleanup = '';
   try {
-    detectAndRemoveLegacyGlobalFiles();
+    projectRootForCleanup = getProjectRoot();
   } catch {
-    // Non-fatal: legacy cleanup must never break the CLI startup path.
+    // E_NO_PROJECT: global command with no project context — use empty string
+    // (produces a stable hash that covers the global-only cleanup path).
   }
 
-  // One-shot cleanup of stray project-tier nexus.db (T307 / ADR-036).
-  try {
-    detectAndRemoveStrayProjectNexus(getProjectRoot());
-  } catch {
-    // Non-fatal: stray-nexus cleanup must never break the CLI startup path.
+  if (!isCleanupMarkerSet(CLI_VERSION, projectRootForCleanup)) {
+    // One-shot idempotent cleanup of legacy global-tier files (T304 / ADR-036).
+    try {
+      detectAndRemoveLegacyGlobalFiles();
+    } catch {
+      // Non-fatal: legacy cleanup must never break the CLI startup path.
+    }
+
+    // One-shot cleanup of stray project-tier nexus.db (T307 / ADR-036).
+    try {
+      if (projectRootForCleanup) {
+        detectAndRemoveStrayProjectNexus(projectRootForCleanup);
+      }
+    } catch {
+      // Non-fatal: stray-nexus cleanup must never break the CLI startup path.
+    }
+
+    // Mark this version + project as swept so subsequent invocations skip
+    // the stat()-heavy scan entirely.
+    setCleanupMarker(CLI_VERSION, projectRootForCleanup);
   }
 
   // ---------------------------------------------------------------------------

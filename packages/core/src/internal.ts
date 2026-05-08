@@ -919,6 +919,9 @@ export type { LegacyCleanupResult, StrayNexusCleanupResult } from './store/clean
 export {
   detectAndRemoveLegacyGlobalFiles,
   detectAndRemoveStrayProjectNexus,
+  getCleanupMarkerPath,
+  isCleanupMarkerSet,
+  setCleanupMarker,
 } from './store/cleanup-legacy.js';
 export {
   gitCheckpoint,
