@@ -13,7 +13,7 @@
  * "role" in error messages / comments is fine; "role:" as a flag key is not.
  */
 import { readFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -82,7 +82,9 @@ const manifest = readFile('packages/cleo/src/cli/generated/command-manifest.ts')
 
 // Look for 'role' as an argument name in manifest entries for add/update commands
 // This is a LAFS-safe check: the manifest shouldn't list --role as an arg for add/update
-const manifestHasRoleForTaskCmds = manifest.match(/(?:name: 'add'|name: 'update')[\s\S]{0,1000}name: 'role'/);
+const manifestHasRoleForTaskCmds = manifest.match(
+  /(?:name: 'add'|name: 'update')[\s\S]{0,1000}name: 'role'/,
+);
 if (!manifestHasRoleForTaskCmds) {
   pass('Command manifest does not list --role as an arg for add/update commands');
 } else {

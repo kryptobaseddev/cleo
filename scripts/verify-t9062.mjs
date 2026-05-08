@@ -11,8 +11,8 @@
  *
  * NEGATIVE SPACE: The file must be more than empty — must have actual interface content.
  */
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -40,7 +40,9 @@ const pgPath = 'packages/contracts/src/postgres-data-accessor.ts';
 if (existsSync(join(REPO_ROOT, pgPath))) {
   pass('packages/contracts/src/postgres-data-accessor.ts exists');
 } else {
-  fail('packages/contracts/src/postgres-data-accessor.ts does not exist (T9062 scaffold not complete)');
+  fail(
+    'packages/contracts/src/postgres-data-accessor.ts does not exist (T9062 scaffold not complete)',
+  );
   process.exit(1); // can't continue
 }
 
@@ -51,7 +53,9 @@ const pgContent = readFile(pgPath);
 if (pgContent.length > 500) {
   pass(`postgres-data-accessor.ts has ${pgContent.length} chars of content (not a trivial stub)`);
 } else {
-  fail(`postgres-data-accessor.ts too short (${pgContent.length} chars) — likely an empty scaffold`);
+  fail(
+    `postgres-data-accessor.ts too short (${pgContent.length} chars) — likely an empty scaffold`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +73,9 @@ if (pgContent.includes('PostgresDataAccessor')) {
 if (pgContent.includes("from './data-accessor.js'") || pgContent.includes('DataAccessor')) {
   pass('postgres-data-accessor.ts references DataAccessor interface (engine-neutral contract)');
 } else {
-  fail('postgres-data-accessor.ts must reference DataAccessor — proves engine-neutral contract (T9062)');
+  fail(
+    'postgres-data-accessor.ts must reference DataAccessor — proves engine-neutral contract (T9062)',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +96,9 @@ if (existsSync(join(REPO_ROOT, specPath))) {
   if (specContent.length > 200) {
     pass(`docs/specs/cloud-sync-postgres-accessor.md exists with ${specContent.length} chars`);
   } else {
-    fail(`docs/specs/cloud-sync-postgres-accessor.md is too short (${specContent.length} chars) — likely empty scaffold`);
+    fail(
+      `docs/specs/cloud-sync-postgres-accessor.md is too short (${specContent.length} chars) — likely empty scaffold`,
+    );
   }
 } else {
   fail(`docs/specs/cloud-sync-postgres-accessor.md does not exist (T9062 spec doc missing)`);
@@ -100,10 +108,15 @@ if (existsSync(join(REPO_ROOT, specPath))) {
 // Check 7: postgres-data-accessor.ts is exported from contracts index
 // ---------------------------------------------------------------------------
 const contractsIndex = readFile('packages/contracts/src/index.ts');
-if (contractsIndex.includes('postgres-data-accessor') || contractsIndex.includes('PostgresDataAccessor')) {
+if (
+  contractsIndex.includes('postgres-data-accessor') ||
+  contractsIndex.includes('PostgresDataAccessor')
+) {
   pass('postgres-data-accessor exported from @cleocode/contracts index');
 } else {
-  fail('postgres-data-accessor.ts must be re-exported from packages/contracts/src/index.ts (T9062)');
+  fail(
+    'postgres-data-accessor.ts must be re-exported from packages/contracts/src/index.ts (T9062)',
+  );
 }
 
 // ---------------------------------------------------------------------------

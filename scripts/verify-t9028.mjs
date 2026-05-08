@@ -9,7 +9,7 @@
  *   - The one-shot gate is NOT bypassed (detectAndRemoveLegacyGlobalFiles not called unconditionally)
  */
 import { readFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -72,7 +72,9 @@ const detectCallIdx = cliIndex.indexOf('detectAndRemoveLegacyGlobalFiles()');
 if (markerGateIdx > 0 && detectCallIdx > markerGateIdx) {
   pass('detectAndRemoveLegacyGlobalFiles() called AFTER the isCleanupMarkerSet gate');
 } else {
-  fail('detectAndRemoveLegacyGlobalFiles() must appear after the !isCleanupMarkerSet() check (T9028)');
+  fail(
+    'detectAndRemoveLegacyGlobalFiles() must appear after the !isCleanupMarkerSet() check (T9028)',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -82,7 +84,9 @@ const setMarkerIdx = cliIndex.indexOf('setCleanupMarker(');
 if (setMarkerIdx > detectCallIdx) {
   pass('setCleanupMarker() called after sweep (closing the one-shot gate)');
 } else {
-  fail('setCleanupMarker() must be called after the sweep completes to close the one-shot gate (T9028)');
+  fail(
+    'setCleanupMarker() must be called after the sweep completes to close the one-shot gate (T9028)',
+  );
 }
 
 // ---------------------------------------------------------------------------

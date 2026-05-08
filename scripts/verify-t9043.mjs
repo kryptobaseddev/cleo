@@ -10,8 +10,8 @@
  *
  * NEGATIVE SPACE: CLEO_TEMP_PREFIXES must have > 1 prefix (not just one hardcoded pattern)
  */
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -48,9 +48,13 @@ if (existsSync(join(REPO_ROOT, cleanupPath))) {
     if (prefixBlock) {
       const prefixStrings = prefixBlock[1].match(/'cleo-[^']+'/g) || [];
       if (prefixStrings.length >= 2) {
-        pass(`CLEO_TEMP_PREFIXES has ${prefixStrings.length} prefixes (covers multiple CLEO-generated patterns)`);
+        pass(
+          `CLEO_TEMP_PREFIXES has ${prefixStrings.length} prefixes (covers multiple CLEO-generated patterns)`,
+        );
       } else {
-        fail(`CLEO_TEMP_PREFIXES only has ${prefixStrings.length} prefix(es) — must cover multiple CLEO temp dir patterns (T9043)`);
+        fail(
+          `CLEO_TEMP_PREFIXES only has ${prefixStrings.length} prefix(es) — must cover multiple CLEO temp dir patterns (T9043)`,
+        );
       }
     } else {
       fail('Could not extract CLEO_TEMP_PREFIXES array contents from cleanup.ts');
@@ -76,7 +80,7 @@ const branchLock = readFile('packages/core/src/spawn/branch-lock.ts');
 if (branchLock.includes('worktree') && branchLock.includes("worktree', 'remove'")) {
   pass('branch-lock.ts has git worktree remove for cleanup');
 } else {
-  fail("branch-lock.ts missing git worktree remove calls (post-merge cleanup, T9043)");
+  fail('branch-lock.ts missing git worktree remove calls (post-merge cleanup, T9043)');
 }
 
 // Check that completeAgentWorktreeViaMerge exists (ADR-062 merge function)
@@ -117,7 +121,9 @@ if (doctorChecks.includes('orphan') || doctorChecks.includes('worktree')) {
 // Final
 // ---------------------------------------------------------------------------
 if (failures.length === 0) {
-  console.log('\nVERIFIER PASS: T9043 — worktree + temp-dir cleanup implemented with CLEO_TEMP_PREFIXES');
+  console.log(
+    '\nVERIFIER PASS: T9043 — worktree + temp-dir cleanup implemented with CLEO_TEMP_PREFIXES',
+  );
   process.exit(0);
 } else {
   console.error(`\nVERIFIER FAIL: ${failures.length} check(s) failed`);

@@ -9,7 +9,7 @@
  *   - applyPerfPragmas is called in sqlite-native.ts openNativeDatabase function
  */
 import { readFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -48,13 +48,15 @@ const sqlitePragmas = readFile('packages/core/src/store/sqlite-pragmas.ts');
 // All import lines (not type imports)
 const valueImports = sqlitePragmas
   .split('\n')
-  .filter(l => l.match(/^import\s+(?!type)/))
-  .filter(l => !l.includes("'node:") && !l.includes('"node:'));
+  .filter((l) => l.match(/^import\s+(?!type)/))
+  .filter((l) => !l.includes("'node:") && !l.includes('"node:'));
 
 if (valueImports.length === 0) {
   pass('sqlite-pragmas.ts has no CLEO module value imports (only node builtins allowed)');
 } else {
-  fail(`sqlite-pragmas.ts has ${valueImports.length} non-node value imports — TDZ cycle risk:\n  ${valueImports.join('\n  ')}`);
+  fail(
+    `sqlite-pragmas.ts has ${valueImports.length} non-node value imports — TDZ cycle risk:\n  ${valueImports.join('\n  ')}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +71,7 @@ if (sqliteNative.includes('T9024')) {
 // ---------------------------------------------------------------------------
 // Check 4: applyPerfPragmas called in sqlite-native.ts (not just imported)
 // ---------------------------------------------------------------------------
-const applyCallsInNative = (sqliteNative.match(/applyPerfPragmas\(/g) || []);
+const applyCallsInNative = sqliteNative.match(/applyPerfPragmas\(/g) || [];
 if (applyCallsInNative.length >= 1) {
   pass(`sqlite-native.ts calls applyPerfPragmas ${applyCallsInNative.length} time(s)`);
 } else {
@@ -80,7 +82,9 @@ if (applyCallsInNative.length >= 1) {
 // Final
 // ---------------------------------------------------------------------------
 if (failures.length === 0) {
-  console.log('\nVERIFIER PASS: T9024 — sqlite-native leaf-module invariant confirmed for sqlite-pragmas import');
+  console.log(
+    '\nVERIFIER PASS: T9024 — sqlite-native leaf-module invariant confirmed for sqlite-pragmas import',
+  );
   process.exit(0);
 } else {
   console.error(`\nVERIFIER FAIL: ${failures.length} check(s) failed`);

@@ -12,7 +12,7 @@
  * must verify no engine param, not just "engine exists somewhere".
  */
 import { readFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -67,7 +67,9 @@ if (getAccessorMatch) {
   if (fnBody.includes('createDataAccessor') && fnBody.length < 300) {
     pass('getAccessor is a thin deprecated wrapper around createDataAccessor');
   } else {
-    fail('getAccessor must be a simple createDataAccessor re-export, not independent logic (T9054)');
+    fail(
+      'getAccessor must be a simple createDataAccessor re-export, not independent logic (T9054)',
+    );
   }
 } else {
   // It's possible getAccessor was removed entirely — that's also acceptable per T9054
@@ -100,18 +102,22 @@ if (dataAccessor.includes('export async function getTaskAccessor')) {
 // Check 5: No multi-engine switch/if-else on 'engine' in data-accessor.ts
 // (negative space: the old polymorphism must be gone)
 // ---------------------------------------------------------------------------
-const engineSwitchMatches = (dataAccessor.match(/(?:switch|if).*engine/g) || []);
+const engineSwitchMatches = dataAccessor.match(/(?:switch|if).*engine/g) || [];
 if (engineSwitchMatches.length === 0) {
   pass('No engine switch/if-else in data-accessor.ts (multi-engine polymorphism removed)');
 } else {
-  fail(`data-accessor.ts still has ${engineSwitchMatches.length} engine switch/if-else — vestigial polymorphism not removed (T9054)`);
+  fail(
+    `data-accessor.ts still has ${engineSwitchMatches.length} engine switch/if-else — vestigial polymorphism not removed (T9054)`,
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Final
 // ---------------------------------------------------------------------------
 if (failures.length === 0) {
-  console.log('\nVERIFIER PASS: T9054 — vestigial multi-engine polymorphism dropped; getAccessor deprecated');
+  console.log(
+    '\nVERIFIER PASS: T9054 — vestigial multi-engine polymorphism dropped; getAccessor deprecated',
+  );
   process.exit(0);
 } else {
   console.error(`\nVERIFIER FAIL: ${failures.length} check(s) failed`);
