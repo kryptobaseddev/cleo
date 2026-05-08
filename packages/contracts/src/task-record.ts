@@ -62,11 +62,13 @@ export interface TaskRecord {
   /** RCASD-IVTR+C pipeline stage. @task T060 */
   pipelineStage?: string | null;
   /**
-   * Task role axis — intent of work (string-widened from {@link TaskRole}).
+   * Task kind axis — intent of work (string-widened from {@link TaskKind}).
    * Values: work | research | experiment | bug | spike | release
+   * DB column is named `role` (T9067 deferral).
    * @task T944
+   * @task T9072
    */
-  role?: string | null;
+  kind?: string | null;
   /**
    * Task scope axis — granularity of work (string-widened from {@link TaskScope}).
    * Values: project | feature | unit

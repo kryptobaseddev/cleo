@@ -14,9 +14,9 @@
  */
 
 import type {
+  TaskKind,
   TaskPriority,
   TaskRecord,
-  TaskRole,
   TaskScope,
   TaskSeverity,
   TaskSize,
@@ -121,7 +121,7 @@ export async function addTaskWithSessionScope(
     files?: string[];
     dryRun?: boolean;
     parentSearch?: string;
-    role?: string;
+    kind?: string;
     scope?: string;
     severity?: string;
     /**
@@ -165,7 +165,7 @@ export async function addTaskWithSessionScope(
         notes: params.notes,
         files: params.files,
         dryRun: params.dryRun,
-        role: params.role as TaskRole | undefined,
+        kind: params.kind as TaskKind | undefined,
         scope: params.scope as TaskScope | undefined,
         severity: params.severity as TaskSeverity | undefined,
         forceDuplicate: params.forceDuplicate,

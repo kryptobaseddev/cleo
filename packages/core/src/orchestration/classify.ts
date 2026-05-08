@@ -206,7 +206,7 @@ const CLASSIFIER_RULES: readonly ClassifierRule[] = [
     ],
     titleKeywords: ['implement', 'add', 'fix', 'refactor', 'build', 'create', 'update', 'wir'],
     structuralBoost: (task) => {
-      if (task.role === 'bug') return 0.15;
+      if (task.kind === 'bug') return 0.15;
       if (task.type === 'task' || task.type === 'subtask') return 0.05;
       return 0;
     },
