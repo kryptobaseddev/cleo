@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.5.55] (2026-05-08) — Wave B: Schema audit + T9170 gate re-enable
+
+### Bug Fixes
+- **T9185: Suppress schema-warning gate false positive from OBS-6 test**: brain-observations-provenance.test.ts OBS-6 directly calls ensureColumns to verify the safety-net; spying on getLogger captures the expected WARN internally instead of emitting it to shard output. Gate ALLOWED_FILES updated as belt-and-suspenders. (T9185)
+- **T9170 gate re-enabled in CI**: Schema-warning budget gate (scripts/check-schema-warning-budget.mjs) re-enabled in .github/workflows/ci.yml shard steps after T9185 fixture cleanup. Both shards now pass gate cleanly. (T9170)
+
+---
 ## [2026.5.54] (2026-05-08)
 
 Auto-prepared by release.ship (T9067)
