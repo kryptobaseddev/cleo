@@ -13,7 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Task, TaskRef, TaskRefPriority, TaskWorkState } from '@cleocode/contracts';
 import { getCleoDirAbsolute } from '../../paths.js';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 import type {
   DependencyAnalysis,
   DependencyWave,
@@ -136,7 +136,7 @@ export interface SessionInitResult {
  * @task T4519
  */
 export async function sessionInit(epicId?: string, cwd?: string): Promise<SessionInitResult> {
-  const acc = await getAccessor(cwd);
+  const acc = await getTaskAccessor(cwd);
 
   // Check active sessions from SQLite (ADR-006/ADR-020)
   let activeSessions = 0;
@@ -296,7 +296,7 @@ export async function analyzeDependencies(
   epicId: string,
   cwd?: string,
 ): Promise<DependencyAnalysis> {
-  const acc = await getAccessor(cwd);
+  const acc = await getTaskAccessor(cwd);
   const epicTasks = await acc.getChildren(epicId);
 
   if (epicTasks.length === 0) {
@@ -414,7 +414,7 @@ export async function getNextTask(
   }
 
   // Load full task details from SQLite
-  const acc = await getAccessor(cwd);
+  const acc = await getTaskAccessor(cwd);
   const nextId = analysis.readyToSpawn[0].id;
   const task = await acc.loadSingleTask(nextId);
 
@@ -430,7 +430,7 @@ export async function getReadyTasks(epicId: string, cwd?: string): Promise<TaskR
   const readyIds = new Set(analysis.readyToSpawn.map((t) => t.id));
 
   // Load full task details from SQLite to check inter-ready dependencies
-  const acc = await getAccessor(cwd);
+  const acc = await getTaskAccessor(cwd);
   const readyTasksFull = await acc.loadTasks([...readyIds]);
 
   return analysis.readyToSpawn
@@ -457,7 +457,7 @@ export async function generateHitlSummary(
   stopReason: string = 'context-limit',
   cwd?: string,
 ): Promise<HitlSummary> {
-  const acc = await getAccessor(cwd);
+  const acc = await getTaskAccessor(cwd);
 
   // Session info from SQLite (ADR-006/ADR-020)
   let sessionId: string | null = null;

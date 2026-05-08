@@ -26,7 +26,7 @@
 
 import { execFileSync } from 'node:child_process';
 import type { Session, Task } from '@cleocode/contracts';
-import { getAccessor, reconstructLineage } from '@cleocode/core/internal';
+import { getTaskAccessor, reconstructLineage } from '@cleocode/core/internal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -209,7 +209,7 @@ export async function backfillAuditColumns(
 ): Promise<AuditColumnBackfillResult> {
   const { dryRun = false, taskIds, repoRoot = projectRoot } = options;
 
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   // --- Load sessions for window-based session_id lookup ---
   const sessions = await accessor.loadSessions();

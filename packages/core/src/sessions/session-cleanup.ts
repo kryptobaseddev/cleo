@@ -7,7 +7,7 @@
  */
 
 import { getRawConfigValue } from '../config.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Default auto-end threshold when no config is set (7 days). */
 const DEFAULT_AUTO_END_DAYS = 7;
@@ -24,7 +24,7 @@ const DEFAULT_AUTO_END_DAYS = 7;
 export async function cleanupSessions(
   projectRoot: string,
 ): Promise<{ removed: string[]; autoEnded: string[]; cleaned: boolean }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const sessions = await accessor.loadSessions();
 

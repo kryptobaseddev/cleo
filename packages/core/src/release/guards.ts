@@ -10,7 +10,7 @@
 
 import type { Task, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Epic completeness result. */
 export interface EpicCompletenessResult {
@@ -54,7 +54,7 @@ export async function checkEpicCompleteness(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<EpicCompletenessResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const { tasks: allTasks } = await acc.queryTasks({});
   if (!allTasks?.length) {
     return { hasIncomplete: false, epics: [], orphanTasks: [] };

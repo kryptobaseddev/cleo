@@ -286,5 +286,5 @@ export interface DataAccessor {
   unclaimTask(taskId: string): Promise<void>;
 }
 
-// Factory functions (createDataAccessor, getAccessor) live in @cleocode/core,
+// Factory functions (createDataAccessor, getTaskAccessor) live in @cleocode/core,
 // not here. Contracts is types-only.

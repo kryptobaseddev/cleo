@@ -25,7 +25,7 @@
 import type { Task } from '@cleocode/contracts';
 import { getProjectRoot } from '../paths.js';
 import { blobList } from '../store/blob-ops.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -115,7 +115,7 @@ export async function exportDocument(
   const projectRoot = projectRootOverride ?? getProjectRoot();
 
   // Resolve the task
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const [task] = await accessor.loadTasks([taskId]);
   if (task === undefined) {
     throw new Error(`exportDocument: task ${taskId} not found`);

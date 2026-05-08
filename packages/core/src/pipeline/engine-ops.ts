@@ -26,7 +26,7 @@ import {
   showPhase as coreShowPhase,
   startPhase as coreStartPhase,
 } from '../phases/index.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 // ============================================================================
 // Phase Operations
@@ -42,7 +42,7 @@ import { getAccessor } from '../store/data-accessor.js';
 export async function phaseList(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot ?? process.cwd();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const data = await coreListPhases(root, accessor);
     return engineSuccess(data);
   } catch (err: unknown) {
@@ -61,7 +61,7 @@ export async function phaseList(projectRoot?: string): Promise<EngineResult> {
 export async function phaseShow(phaseId?: string, projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot ?? process.cwd();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const data = await coreShowPhase(phaseId, root, accessor);
     return engineSuccess(data);
   } catch (err: unknown) {
@@ -100,7 +100,7 @@ export async function phaseSet(
   }
 
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const data = await coreSetPhase(
       {
         slug: params.phaseId,
@@ -135,7 +135,7 @@ export async function phaseStart(phaseId: string, projectRoot?: string): Promise
   }
 
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const data = await coreStartPhase(phaseId, undefined, accessor);
     return engineSuccess(data);
   } catch (err: unknown) {
@@ -161,7 +161,7 @@ export async function phaseComplete(phaseId: string, projectRoot?: string): Prom
   }
 
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const data = await coreCompletePhase(phaseId, undefined, accessor);
     return engineSuccess(data);
   } catch (err: unknown) {
@@ -187,7 +187,7 @@ export async function phaseAdvance(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const data = await coreAdvancePhase(force, undefined, accessor);
     return engineSuccess(data);
   } catch (err: unknown) {
@@ -218,7 +218,7 @@ export async function phaseRename(
   }
 
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const data = await coreRenamePhase(oldName, newName, undefined, accessor);
     return engineSuccess(data);
   } catch (err: unknown) {
@@ -255,7 +255,7 @@ export async function phaseDelete(
   }
 
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const data = await coreDeletePhase(
       phaseId,
       { reassignTo: params.reassignTo, force: params.force },

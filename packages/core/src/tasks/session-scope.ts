@@ -23,7 +23,7 @@ import type {
   TaskType,
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
 import { addTask } from './add.js';
 import { taskToRecord } from './engine-converters.js';
@@ -55,7 +55,7 @@ export async function resolveParentFromSession(
     return { resolvedParent: params.parent };
   }
 
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   // 2. --parent-search: fuzzy title match
   if (params.parentSearch) {
@@ -149,7 +149,7 @@ export async function addTaskWithSessionScope(
       }>;
     }
 
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await addTask(
       {
         title: params.title,

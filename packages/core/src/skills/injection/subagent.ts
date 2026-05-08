@@ -55,8 +55,8 @@ export function loadProtocolBase(cwd?: string): string | null {
  * @task T4521
  */
 export async function buildTaskContext(taskId: string, cwd?: string): Promise<string> {
-  const { getAccessor } = await import('../../store/data-accessor.js');
-  const acc = await getAccessor(cwd);
+  const { getTaskAccessor } = await import('../../store/data-accessor.js');
+  const acc = await getTaskAccessor(cwd);
   const task = await acc.loadSingleTask(taskId);
 
   if (!task) {

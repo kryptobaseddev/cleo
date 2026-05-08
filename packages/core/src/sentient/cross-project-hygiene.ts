@@ -41,7 +41,7 @@ import { getLogger } from '../logger.js';
 import { nexusList, nexusUnregister } from '../nexus/registry.js';
 import { getCleoHome } from '../paths.js';
 import { pruneOrphanedWorktrees } from '../spawn/branch-lock.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -447,7 +447,7 @@ interface EpicRecord {
  * Detect epics with similar titles across registered projects.
  *
  * Algorithm:
- *   1. For each registered project, load epic titles from tasks.db via getAccessor.
+ *   1. For each registered project, load epic titles from tasks.db via getTaskAccessor.
  *   2. Build n-gram sets for each normalised title.
  *   3. Group by Jaccard similarity ≥ {@link DUPLICATE_EPIC_SIMILARITY_THRESHOLD}.
  *   4. Groups spanning ≥ 2 distinct projects are returned as duplicates.
@@ -472,7 +472,7 @@ export async function runDuplicateEpicDetection(): Promise<DuplicateEpicResult> 
   for (const proj of projects) {
     if (!existsSync(proj.path)) continue;
     try {
-      const accessor = await getAccessor(proj.path);
+      const accessor = await getTaskAccessor(proj.path);
       const { tasks } = await accessor.queryTasks({ type: 'epic' });
       const epics: EpicRecord[] = tasks
         .filter((t) => t.title && t.title.length > 0)
@@ -591,7 +591,7 @@ export async function runWorktreePrune(): Promise<WorktreePruneResult> {
       // Resolve active task IDs so in-flight worktrees are preserved.
       const activeTaskIds = new Set<string>();
       try {
-        const accessor = await getAccessor(proj.path);
+        const accessor = await getTaskAccessor(proj.path);
         const { tasks } = await accessor.queryTasks({ status: 'active' });
         for (const t of tasks) activeTaskIds.add(t.id);
       } catch {

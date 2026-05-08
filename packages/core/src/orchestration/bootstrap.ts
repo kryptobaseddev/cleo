@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainState } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Build brain state for agent bootstrapping. */
 export async function buildBrainState(
@@ -26,7 +26,7 @@ export async function buildBrainState(
   };
 
   // --- Session (from SQLite, ADR-006/ADR-020) ---
-  const acc = accessor ?? (await getAccessor(projectRoot));
+  const acc = accessor ?? (await getTaskAccessor(projectRoot));
   try {
     const sessions = await acc.loadSessions();
     const activeSession = sessions.find((s) => s.status === 'active');

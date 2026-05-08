@@ -27,7 +27,7 @@ import type {
 } from '@cleocode/contracts';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { depsReady } from '../tasks/deps-ready.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
 import type { TaskWorkStateExt } from './types.js';
@@ -204,7 +204,7 @@ export async function computeBriefing(
   projectRoot: string,
   params: SessionBriefingShowParams = {},
 ): Promise<SessionBriefing> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
   const focus = (await accessor.getMetaValue<TaskWorkState>('focus_state')) as
     | TaskWorkStateExt
@@ -399,7 +399,7 @@ async function computeLastSession(
     const { sessionId, handoff } = handoffResult;
 
     // Load sessions to get endedAt
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const allSessions = await accessor.loadSessions();
 
     const session = allSessions.find((s) => s.id === sessionId);

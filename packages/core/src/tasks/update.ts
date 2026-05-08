@@ -22,7 +22,7 @@ import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { enforceAcceptanceImmutability } from './ac-immutability.js';
 import {
   normalizePriority,
@@ -144,7 +144,7 @@ export async function updateTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<UpdateTaskResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const task = await acc.loadSingleTask(options.taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
@@ -533,7 +533,7 @@ export async function taskUpdate(
   },
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await updateTask(
       {
         taskId,

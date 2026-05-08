@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ExitCode, type Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface SafestopResult {
   stopped: boolean;
@@ -44,7 +44,7 @@ export async function safestop(
 
   if (!dryRun && !opts?.noSessionEnd) {
     try {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const activeSession = await accessor.getActiveSession();
       if (activeSession && activeSession.id !== 'default') {
         activeSession.status = 'ended';
@@ -74,7 +74,7 @@ export async function uncancelTask(
     throw new CleoError(ExitCode.CONFIG_ERROR, 'No tasks.db found');
   }
 
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   let task: Task | null;
   try {
     task = await accessor.loadSingleTask(params.taskId);

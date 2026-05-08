@@ -5,7 +5,7 @@
 
 import type { Task, TaskPriority, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Basic execution wave: task IDs grouped by dependency depth. */
 export interface Wave {
@@ -237,7 +237,7 @@ export function computeWaves(tasks: Task[]): Wave[] {
  * `completedAt` timestamp to completed waves.
  *
  * @param epicId   - The epic task ID to compute waves for.
- * @param cwd      - Optional project root (falls back to `getAccessor` default).
+ * @param cwd      - Optional project root (falls back to `getTaskAccessor` default).
  * @param accessor - Optional pre-constructed data accessor (useful in tests).
  */
 export async function getEnrichedWaves(
@@ -245,7 +245,7 @@ export async function getEnrichedWaves(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<{ epicId: string; waves: EnrichedWave[]; totalWaves: number; totalTasks: number }> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const children = await acc.getChildren(epicId);
   const waves = computeWaves(children);
   const taskMap = new Map(children.map((t) => [t.id, t]));

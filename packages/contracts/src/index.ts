@@ -1151,12 +1151,12 @@ export type {
   SeverityAttestation,
   Task,
   TaskCreate,
+  // T944 new axes (T9072: renamed TaskRole → TaskKind)
+  TaskKind,
   TaskOrigin,
   TaskPriority,
   TaskProvenance,
   TaskRelation,
-  // T944 new axes (T9072: renamed TaskRole → TaskKind)
-  TaskKind,
   TaskScope,
   TaskSeverity,
   TaskSize,

@@ -9,7 +9,7 @@
 
 import { writeFile } from 'node:fs/promises';
 import type { AdminExportParams, Task } from '@cleocode/contracts';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { buildExportPackage } from '../store/export.js';
 
 interface FilterEntry {
@@ -103,7 +103,7 @@ export async function exportTasksPackage(
   projectRoot: string,
   params: AdminExportParams,
 ): Promise<ExportTasksResult> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks: allTasks } = await accessor.queryTasks({});
   const subtreeMode = params.subtree ?? false;
   const includeDeps = params.includeDeps ?? false;

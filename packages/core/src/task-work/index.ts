@@ -12,7 +12,7 @@ import type { TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
 import { isValidPipelineStage } from '../tasks/pipeline-stage.js';
@@ -59,7 +59,7 @@ export async function currentTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskCurrentResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
 
   return {
@@ -84,7 +84,7 @@ export async function startTask(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
 
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
 
   // Verify task exists
   const task = await acc.loadSingleTask(taskId);
@@ -177,7 +177,7 @@ export async function stopTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<{ previousTask: string | null }> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
 
   const previousTask = focus?.currentTask ?? null;
@@ -233,7 +233,7 @@ export async function getWorkHistory(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<TaskWorkHistoryEntry[]> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const focus = await acc.getMetaValue<TaskWorkState>('focus_state');
 
   const notes = focus?.sessionNotes ?? [];

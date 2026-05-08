@@ -14,7 +14,7 @@
  */
 
 import type { Task, TaskVerification } from '@cleocode/contracts';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { buildDefaultVerification } from '../tasks/add.js';
 
 // ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ export async function backfillTasks(
   const { dryRun = false, rollback = false, taskIds } = options;
   const now = new Date().toISOString();
 
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks } = await accessor.queryTasks({});
 
   // Filter to requested task IDs (if supplied)

@@ -15,7 +15,7 @@
 
 import type { Task, TaskWorkState } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /**
  * Select tasks eligible for injection based on filters.
@@ -87,7 +87,7 @@ export async function injectTasks(
   },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const { tasks: allTasks } = await acc.queryTasks({});
   const projectMeta = await acc.getMetaValue<{ currentPhase?: string }>('project');
   const focusMeta = await acc.getMetaValue<TaskWorkState>('focus_state');

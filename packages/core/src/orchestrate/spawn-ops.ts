@@ -35,7 +35,7 @@ import { resolveEffectiveTier } from '../orchestration/tier-selector.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import { getActiveSession } from '../store/session-store.js';
 import { provisionIsolatedShell } from '../tools/sdk/isolation.js';
@@ -254,7 +254,7 @@ export async function composeSpawnForTask(
     conduitSubscription?: ConduitSubscriptionConfig;
   } = {},
 ): Promise<SpawnPayload> {
-  const accessor = await getAccessor(root);
+  const accessor = await getTaskAccessor(root);
   const task = await accessor.loadSingleTask(taskId);
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
@@ -659,7 +659,7 @@ export async function orchestrateSpawn(
     // T929: a V_NOT_FOUND issue means the task ID doesn't exist in the DB —
     // surface E_NOT_FOUND (exit 4) so callers get a clear, actionable error
     // instead of a generic spawn-validation failure that obscures the root cause.
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const validation = await validateSpawnReadiness(taskId, root, accessor);
     if (!validation.ready) {
       const notFound = validation.issues.some((i) => i.code === 'V_NOT_FOUND');

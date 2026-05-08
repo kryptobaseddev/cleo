@@ -13,7 +13,7 @@
  * @task T943
  */
 
-import { getAccessor } from '@cleocode/core/store/data-accessor';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
 import { computeTaskView } from '@cleocode/core/tasks';
 import { json } from '@sveltejs/kit';
 import { getTasksDb } from '$lib/server/db/connections.js';
@@ -55,7 +55,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
     // are always derived by the same function the CLI uses (T943).
     let view = null;
     try {
-      const accessor = await getAccessor(locals.projectCtx.projectPath);
+      const accessor = await getTaskAccessor(locals.projectCtx.projectPath);
       view = await computeTaskView(id, accessor);
     } catch {
       // Degraded gracefully — raw task row still returned above.
