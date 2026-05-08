@@ -176,7 +176,7 @@ CLEO provides 100+ commands organized into domains:
 | `cleo phases` | Phase operations |
 | `cleo log` | View logs |
 | `cleo issue` | Issue management |
-| `cleo bug` | Bug tracking |
+| `cleo add --kind bug --severity Px` | Bug tracking (ADR-066) |
 
 ### Orchestration
 
