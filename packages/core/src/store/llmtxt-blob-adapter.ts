@@ -215,6 +215,9 @@ export class CleoBlobStore {
       await mkdir(path.dirname(manifestDbPath), { recursive: true });
       const nativeDb = new NodeSqliteDatabase(manifestDbPath);
       this.ownedNativeDb = nativeDb as { close(): void };
+      // Apply pragma SSoT (T9045) — NodeSqliteDatabase is DatabaseSync under the hood
+      const { applyPerfPragmas } = await import('./sqlite-pragmas.js');
+      applyPerfPragmas(nativeDb as Parameters<typeof applyPerfPragmas>[0]);
       // drizzle v1.0 API — must pass `{ client: nativeDb }` to reuse the
       // already-opened native handle. Positional form opens a new DB.
       db = drizzle({ client: nativeDb });

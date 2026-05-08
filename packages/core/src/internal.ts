@@ -970,6 +970,7 @@ export {
   vacuumIntoBackupAll,
   vacuumIntoGlobalBackup,
 } from './store/sqlite-backup.js';
+export { applyPerfPragmas } from './store/sqlite-pragmas.js';
 export {
   auditLog,
   externalTaskLinks,
