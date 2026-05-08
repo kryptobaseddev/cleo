@@ -31,7 +31,7 @@
  * @see T1825 — ADR migration
  */
 
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -142,7 +142,7 @@ describe('DocsAccessor ADR round-trip (T9065)', () => {
     }
   });
 
-  it("exportDoc returns formatted markdown with linked tasks (T1824 model validation)", async () => {
+  it('exportDoc returns formatted markdown with linked tasks (T1824 model validation)', async () => {
     const accessor = createDocsAccessor(tempProjectRoot);
     try {
       const { id } = await accessor.storeDoc({

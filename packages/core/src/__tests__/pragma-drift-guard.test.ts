@@ -28,10 +28,9 @@
  * @see ADR-068 (DB Charter — per-DB write ownership)
  */
 
-import { readFileSync } from 'node:fs';
+import { globSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { globSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, it } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -72,10 +71,7 @@ const PRAGMA_ESCAPE_HATCHES: ReadonlySet<string> = new Set([
  * Glob patterns for TypeScript source files to scan.
  * Excludes dist/, node_modules/, and vendored code.
  */
-const SCAN_PATTERNS = [
-  'packages/*/src/**/*.ts',
-  'packages/*/src/**/*.tsx',
-];
+const SCAN_PATTERNS = ['packages/*/src/**/*.ts', 'packages/*/src/**/*.tsx'];
 
 /**
  * Patterns whose match indicates a test/spec file that is auto-excluded.
