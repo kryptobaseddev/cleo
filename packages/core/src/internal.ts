@@ -1198,11 +1198,15 @@ export {
   disableTelemetry,
   enableTelemetry,
   exportTelemetryEvents,
+  flushTelemetryBuffer,
   getTelemetryConfigPath,
   getTelemetryDbPath,
   isTelemetryEnabled,
   loadTelemetryConfig,
+  pruneOldTelemetryEvents,
   recordTelemetryEvent,
+  TELEMETRY_MAX_ROWS,
+  TELEMETRY_RETENTION_DAYS,
 } from './telemetry/index.js';
 export type { IssueTemplate, TemplateConfig, TemplateSection } from './templates/parser.js';
 // Templates
