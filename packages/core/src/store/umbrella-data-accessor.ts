@@ -30,11 +30,9 @@ import type {
   TelemetryAccessor,
   TransactionAccessor,
 } from '@cleocode/contracts';
+import { createBrainAccessor } from './brain-accessor-impl.js';
 import type { CleoDbRole } from './open-cleo-db.js';
 import { openCleoDb } from './open-cleo-db.js';
-import {
-  createBrainAccessor,
-} from './brain-accessor-impl.js';
 import {
   createConduitAccessor,
   createNexusAccessor,
@@ -194,10 +192,7 @@ export class UmbrellaDataAccessor implements DataAccessor {
         if (typeof typedAccessor.close === 'function') {
           closers.push(
             typedAccessor.close().catch((err: unknown) => {
-              console.error(
-                `UmbrellaDataAccessor.close() failed for typed role "${role}":`,
-                err,
-              );
+              console.error(`UmbrellaDataAccessor.close() failed for typed role "${role}":`, err);
             }),
           );
         }
