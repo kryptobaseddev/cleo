@@ -144,6 +144,16 @@ export { type ListTasksOptions, type ListTasksResult, listTasks, taskList } from
 export type { tasksCoreOps } from './ops.js';
 export { taskPlan } from './plan.js';
 export { addTaskWithSessionScope, resolveParentFromSession } from './session-scope.js';
+// System-wide severity attestation primitive (T9071 / ADR-054 draft)
+export {
+  type AppendSeverityAttestationOptions,
+  appendSignedSeverityAttestation,
+  canonicalAttestationJson,
+  LEGACY_BUG_SEVERITY_AUDIT_FILE,
+  loadOwnerPubkeys,
+  SEVERITY_ATTESTATION_AUDIT_FILE,
+  type SeverityAttestation,
+} from './severity-attestation.js';
 // Engine-layer EngineResult-returning wrappers (T1568 / ADR-057 / ADR-058) — Wave 2
 export {
   showTask,
@@ -220,13 +230,3 @@ export {
   semaphoreDir,
 } from './tool-semaphore.js';
 export { taskUpdate, type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';
-// System-wide severity attestation primitive (T9071 / ADR-054 draft)
-export {
-  type AppendSeverityAttestationOptions,
-  appendSignedSeverityAttestation,
-  canonicalAttestationJson,
-  LEGACY_BUG_SEVERITY_AUDIT_FILE,
-  loadOwnerPubkeys,
-  SEVERITY_ATTESTATION_AUDIT_FILE,
-  type SeverityAttestation,
-} from './severity-attestation.js';
