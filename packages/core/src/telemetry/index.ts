@@ -2,12 +2,15 @@
  * Telemetry module — opt-in command telemetry for CLEO self-improvement.
  *
  * Entry point for all telemetry operations:
- *   - Recording events (fire-and-forget)
+ *   - Recording events (buffered in-process, flushed on exit — T9051)
  *   - Querying patterns for `cleo diagnostics analyze`
  *   - Managing the anonymous ID and opt-in state
  *   - Emitting BRAIN observations from high-signal patterns
+ *   - Retention / rotation (prune events older than N days — T9051)
  *
  * Telemetry is DISABLED by default. Enable with `cleo diagnostics enable`.
+ * Opt-in is EXPLICIT — no data is written until the user runs that command.
+ * New installs start with an absent config file, which resolves to disabled.
  *
  * @task T624
  */
@@ -15,10 +18,95 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { and, count, desc, gt, sql } from 'drizzle-orm';
+import { and, count, desc, gt, lt, sql } from 'drizzle-orm';
 import { getCleoHome } from '../paths.js';
 import { telemetryEvents } from './schema.js';
 import { getTelemetryDb } from './sqlite.js';
+
+// ---------------------------------------------------------------------------
+// In-process event buffer (T9051)
+// ---------------------------------------------------------------------------
+// Events are buffered in memory and flushed as a single batch:
+//   - When the buffer reaches TELEMETRY_BUFFER_MAX_EVENTS, OR
+//   - When the process exits (via beforeExit / SIGINT / SIGTERM handlers).
+//
+// This prevents N concurrent SQLite writers on every CLI invocation. Each
+// process owns exactly one buffer that drains once. Fire-and-forget: errors
+// in the flush path are swallowed — telemetry must never surface to users.
+
+/** Maximum events to buffer before an early flush. */
+const TELEMETRY_BUFFER_MAX_EVENTS = 50;
+
+/** Buffered events waiting to be flushed. */
+const _telemetryBuffer: Array<Parameters<typeof _insertTelemetryRow>[0]> = [];
+
+/** True once the process exit handlers have been registered. */
+let _exitHandlersRegistered = false;
+
+/** True while a flush is in-progress (prevents double-flush on exit). */
+let _flushInProgress = false;
+
+/**
+ * Flush all buffered telemetry events to telemetry.db in one batch.
+ *
+ * Called automatically on process exit and when the buffer reaches capacity.
+ * Errors are swallowed — telemetry must never crash the process.
+ *
+ * @internal
+ */
+async function _flushTelemetryBuffer(): Promise<void> {
+  if (_flushInProgress || _telemetryBuffer.length === 0) return;
+  _flushInProgress = true;
+  const batch = _telemetryBuffer.splice(0, _telemetryBuffer.length);
+  try {
+    const db = await getTelemetryDb();
+    for (const row of batch) {
+      await db.insert(telemetryEvents).values(row).run();
+    }
+  } catch {
+    // Non-fatal — telemetry flush must never surface errors.
+  } finally {
+    _flushInProgress = false;
+  }
+}
+
+/**
+ * Register process exit handlers to flush the buffer once on process teardown.
+ * Safe to call multiple times — handlers are only attached once.
+ *
+ * @internal
+ */
+function _ensureExitHandlers(): void {
+  if (_exitHandlersRegistered) return;
+  _exitHandlersRegistered = true;
+
+  // 'beforeExit' fires when the event loop empties — best-effort flush.
+  process.on('beforeExit', () => {
+    void _flushTelemetryBuffer();
+  });
+  // SIGINT / SIGTERM: synchronous-safe best-effort (do not await in handlers).
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      void _flushTelemetryBuffer();
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Retention / rotation (T9051)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default retention window in days.
+ * Events older than this are deleted during pruning.
+ */
+export const TELEMETRY_RETENTION_DAYS = 90;
+
+/**
+ * Maximum row count before the table is pruned regardless of age.
+ * Prevents unbounded growth on long-lived installs.
+ */
+export const TELEMETRY_MAX_ROWS = 50_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -144,39 +232,86 @@ export function disableTelemetry(): TelemetryConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Event recording
+// Event recording (T9051: buffered writes)
 // ---------------------------------------------------------------------------
 
 /**
+ * Shape of a row passed to the telemetry_events Drizzle insert.
+ * Typed here so _telemetryBuffer can carry pre-built rows.
+ *
+ * @internal
+ */
+interface _TelemetryRow {
+  id: string;
+  anonymousId: string;
+  domain: string;
+  gateway: string;
+  operation: string;
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  errorCode: string | null;
+  timestamp: string;
+}
+
+/**
+ * Insert a single pre-built row.
+ *
+ * @internal Only called from _flushTelemetryBuffer.
+ */
+async function _insertTelemetryRow(row: _TelemetryRow): Promise<void> {
+  const db = await getTelemetryDb();
+  await db.insert(telemetryEvents).values(row).run();
+}
+
+/**
  * Record one telemetry event.
- * Fire-and-forget — errors are swallowed; never blocks the calling command.
- * No-op when telemetry is disabled.
+ *
+ * Events are buffered in-process (T9051) and flushed on process exit or when
+ * the buffer reaches {@link TELEMETRY_BUFFER_MAX_EVENTS}. Fire-and-forget —
+ * errors are swallowed; never blocks the calling command.
+ *
+ * No-op when telemetry is disabled (opt-in required per T9051 privacy posture).
  */
 export async function recordTelemetryEvent(event: TelemetryEvent): Promise<void> {
   const config = loadTelemetryConfig();
   if (!config.enabled || !config.anonymousId) return;
 
   try {
-    const db = await getTelemetryDb();
     const command = `${event.domain}.${event.operation}`;
-    await db
-      .insert(telemetryEvents)
-      .values({
-        id: randomUUID(),
-        anonymousId: config.anonymousId,
-        domain: event.domain,
-        gateway: event.gateway,
-        operation: event.operation,
-        command,
-        exitCode: event.exitCode,
-        durationMs: event.durationMs,
-        errorCode: event.errorCode ?? null,
-        timestamp: new Date().toISOString(),
-      })
-      .run();
+    const row: _TelemetryRow = {
+      id: randomUUID(),
+      anonymousId: config.anonymousId,
+      domain: event.domain,
+      gateway: event.gateway,
+      operation: event.operation,
+      command,
+      exitCode: event.exitCode,
+      durationMs: event.durationMs,
+      errorCode: event.errorCode ?? null,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Buffer the row in-process. Flush immediately when the buffer is full.
+    _telemetryBuffer.push(row);
+    _ensureExitHandlers();
+
+    if (_telemetryBuffer.length >= TELEMETRY_BUFFER_MAX_EVENTS) {
+      void _flushTelemetryBuffer();
+    }
   } catch {
     // Non-fatal: telemetry must never crash the calling command.
   }
+}
+
+/**
+ * Flush any buffered telemetry events immediately.
+ *
+ * Exposed for testing and for callers that need deterministic flushing
+ * (e.g. the diagnostics analyze command). Not required in normal usage.
+ */
+export async function flushTelemetryBuffer(): Promise<void> {
+  await _flushTelemetryBuffer();
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +466,89 @@ export async function exportTelemetryEvents(days?: number): Promise<TelemetryEve
     exitCode: r.exitCode,
     errorCode: r.errorCode,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Retention / rotation (T9051)
+// ---------------------------------------------------------------------------
+
+/**
+ * Prune telemetry events older than `retentionDays` days.
+ *
+ * Also enforces the max-row cap: when the table exceeds
+ * {@link TELEMETRY_MAX_ROWS}, the oldest rows beyond the cap are deleted.
+ *
+ * Call this from `cleo diagnostics analyze` (or a periodic maintenance job)
+ * to prevent unbounded database growth.
+ *
+ * @param retentionDays - Events older than this many days are deleted.
+ *   Defaults to {@link TELEMETRY_RETENTION_DAYS} (90 days).
+ * @returns Number of rows deleted.
+ */
+export async function pruneOldTelemetryEvents(
+  retentionDays: number = TELEMETRY_RETENTION_DAYS,
+): Promise<number> {
+  try {
+    const db = await getTelemetryDb();
+
+    // Step 1: delete by age cutoff.
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+    const cutoffIso = cutoff.toISOString();
+
+    // Count before age-cutoff delete.
+    const [beforeAge] = await db.select({ total: count() }).from(telemetryEvents).all();
+    await db.delete(telemetryEvents).where(lt(telemetryEvents.timestamp, cutoffIso)).run();
+    const [afterAge] = await db.select({ total: count() }).from(telemetryEvents).all();
+    const byAge = (beforeAge?.total ?? 0) - (afterAge?.total ?? 0);
+
+    // Step 2: enforce max-row cap.
+    // Count remaining rows; if still over cap, delete oldest excess.
+    const remaining = afterAge?.total ?? 0;
+    let byCap = 0;
+    if (remaining > TELEMETRY_MAX_ROWS) {
+      const excess = remaining - TELEMETRY_MAX_ROWS;
+      // Identify the timestamp of the (excess)-th oldest row.
+      const [oldest] = await db
+        .select({ timestamp: telemetryEvents.timestamp })
+        .from(telemetryEvents)
+        .orderBy(telemetryEvents.timestamp)
+        .limit(excess)
+        .all();
+      if (oldest) {
+        const [beforeCap] = await db.select({ total: count() }).from(telemetryEvents).all();
+        await db
+          .delete(telemetryEvents)
+          .where(lt(telemetryEvents.timestamp, oldest.timestamp))
+          .run();
+        const [afterCap] = await db.select({ total: count() }).from(telemetryEvents).all();
+        byCap = (beforeCap?.total ?? 0) - (afterCap?.total ?? 0);
+      }
+    }
+
+    return byAge + byCap;
+  } catch {
+    // Non-fatal — retention pruning must never crash callers.
+    return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Test utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Reset the in-process telemetry buffer and exit-handler registration state.
+ *
+ * FOR TESTING ONLY. Ensures each test starts with a clean buffer so that
+ * events from previous tests do not bleed into subsequent test assertions.
+ *
+ * @internal
+ */
+export function resetTelemetryBufferState(): void {
+  _telemetryBuffer.length = 0;
+  _exitHandlersRegistered = false;
+  _flushInProgress = false;
 }
 
 // ---------------------------------------------------------------------------

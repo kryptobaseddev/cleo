@@ -137,6 +137,15 @@ export {
 // Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
 export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';
 export { exportDocument } from './docs/export-document.js';
+// Agent-outputs migration (T9064) — ingest .cleo/agent-outputs/*.md into DocsAccessor
+export type {
+  AgentOutputMigrationResult,
+  FailedFile,
+  MigrateAgentOutputsOptions,
+  MigratedFile,
+  MigrationManifestEntry,
+} from './docs/migrate-agent-outputs.js';
+export { migrateAgentOutputs } from './docs/migrate-agent-outputs.js';
 // Git hooks (T1588) — project-agnostic POSIX commit-msg + pre-push T-ID enforcement
 export type {
   CleoHookName,
@@ -923,6 +932,9 @@ export {
   isCleanupMarkerSet,
   setCleanupMarker,
 } from './store/cleanup-legacy.js';
+// DocsAccessor — unified llmtxt + manifest interface (T9063 · ADR-068 · ADR-069)
+export type { DocsAccessorImplOptions } from './store/docs-accessor-impl.js';
+export { createDocsAccessor, DocsAccessorImpl } from './store/docs-accessor-impl.js';
 export {
   gitCheckpoint,
   gitCheckpointStatus,
@@ -1195,11 +1207,16 @@ export {
   disableTelemetry,
   enableTelemetry,
   exportTelemetryEvents,
+  flushTelemetryBuffer,
   getTelemetryConfigPath,
   getTelemetryDbPath,
   isTelemetryEnabled,
   loadTelemetryConfig,
+  pruneOldTelemetryEvents,
   recordTelemetryEvent,
+  resetTelemetryBufferState,
+  TELEMETRY_MAX_ROWS,
+  TELEMETRY_RETENTION_DAYS,
 } from './telemetry/index.js';
 export type { IssueTemplate, TemplateConfig, TemplateSection } from './templates/parser.js';
 // Templates
