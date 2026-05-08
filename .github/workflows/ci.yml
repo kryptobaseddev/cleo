@@ -104,7 +104,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: biomejs/setup-biome@v2
         with:
-          version: '2.4.8'
+          version: '2.4.11'
       - run: biome ci .
 
   agent-outputs-registration:
