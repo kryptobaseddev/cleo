@@ -30,6 +30,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 vi.mock('../../lifecycle/ivtr-loop.js', () => ({
@@ -61,7 +62,7 @@ vi.mock('../evidence.js', () => ({
 
 import { loadConfig } from '../../config.js';
 import { getIvtrState } from '../../lifecycle/ivtr-loop.js';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { completeTaskStrict } from '../complete.js';
 
 // ---------------------------------------------------------------------------
@@ -152,7 +153,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
           lifecycle: { mode: 'strict' },
         } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
-        vi.mocked(getAccessor).mockResolvedValue(
+        vi.mocked(getTaskAccessor).mockResolvedValue(
           makeAccessorMock({
             child: { id: CHILD_ID, parentId: EPIC_ID },
             parent: { id: EPIC_ID, type: 'epic', pipelineStage: stage },
@@ -185,7 +186,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
           lifecycle: { mode: 'strict' },
         } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
-        vi.mocked(getAccessor).mockResolvedValue(
+        vi.mocked(getTaskAccessor).mockResolvedValue(
           makeAccessorMock({
             child: { id: CHILD_ID, parentId: EPIC_ID },
             parent: { id: EPIC_ID, type: 'epic', pipelineStage: stage },
@@ -211,7 +212,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
       lifecycle: { mode: 'advisory' },
     } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
-    vi.mocked(getAccessor).mockResolvedValue(
+    vi.mocked(getTaskAccessor).mockResolvedValue(
       makeAccessorMock({
         child: { id: CHILD_ID, parentId: EPIC_ID },
         parent: { id: EPIC_ID, type: 'epic', pipelineStage: 'research' },
@@ -235,7 +236,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
       lifecycle: { mode: 'off' },
     } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
-    vi.mocked(getAccessor).mockResolvedValue(
+    vi.mocked(getTaskAccessor).mockResolvedValue(
       makeAccessorMock({
         child: { id: CHILD_ID, parentId: EPIC_ID },
         parent: { id: EPIC_ID, type: 'epic', pipelineStage: 'research' },
@@ -258,7 +259,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
       lifecycle: { mode: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
-    vi.mocked(getAccessor).mockResolvedValue(
+    vi.mocked(getTaskAccessor).mockResolvedValue(
       makeAccessorMock({
         child: { id: CHILD_ID, parentId: null },
       }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
@@ -280,7 +281,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
       lifecycle: { mode: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
-    vi.mocked(getAccessor).mockResolvedValue(
+    vi.mocked(getTaskAccessor).mockResolvedValue(
       makeAccessorMock({
         child: { id: CHILD_ID, parentId: EPIC_ID },
         parent: { id: EPIC_ID, type: 'task', pipelineStage: 'research' },
@@ -306,7 +307,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
       lifecycle: { mode: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
-    vi.mocked(getAccessor).mockResolvedValue(
+    vi.mocked(getTaskAccessor).mockResolvedValue(
       makeAccessorMock({
         child: { id: CHILD_ID, parentId: EPIC_ID, verification: null },
         parent: { id: EPIC_ID, type: 'epic', pipelineStage: 'research' },

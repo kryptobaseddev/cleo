@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock the data accessor
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 // Mock file-utils since loadAllTasks path goes through it indirectly
@@ -22,7 +23,7 @@ vi.mock('../deps-ready.js', () => ({
   depsReady: vi.fn(() => true),
 }));
 
-import { getAccessor } from '../../store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { coreTaskDepends } from '../task-ops.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
@@ -38,9 +39,12 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 }
 
 function setupTasks(tasks: Task[]): void {
-  (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue({
+  const mockImpl = {
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
-  });
+  };
+  // Both deprecated shim and canonical replacement (T9054)
+  (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+  (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
 }
 
 describe('coreTaskDepends transitive hints', () => {

@@ -26,7 +26,8 @@ const mockGetMetaValue = vi.fn().mockResolvedValue(null);
 const mockSetMetaValue = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('../../store/data-accessor.js', () => ({
-  getAccessor: vi.fn().mockImplementation(() =>
+  getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn().mockImplementation(() =>
     Promise.resolve({
       loadSessions: mockLoadSessions,
       upsertSingleSession: mockUpsertSingleSession,

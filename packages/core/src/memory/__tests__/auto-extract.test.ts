@@ -24,11 +24,12 @@ vi.mock('../llm-extraction.js', () => ({
 
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 // ---- imports after mocks --------------------------------------------------
 
-import { getAccessor } from '../../store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { extractFromTranscript, resolveTaskDetails } from '../auto-extract.js';
 import { extractFromTranscript as llmExtractFromTranscript } from '../llm-extraction.js';
 
@@ -47,13 +48,16 @@ function makeTask(overrides: Partial<Task> & { id: string; title: string }): Tas
 }
 
 function setupAccessor(tasks: Task[]): void {
-  (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue({
+  const mockImpl = {
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
     loadTasks: vi.fn().mockImplementation((ids: string[]) => {
       return Promise.resolve(tasks.filter((t) => ids.includes(t.id)));
     }),
     close: vi.fn().mockResolvedValue(undefined),
-  });
+  };
+  // Both deprecated shim and canonical replacement (T9054)
+  (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+  (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
 }
 
 // ---- tests ----------------------------------------------------------------

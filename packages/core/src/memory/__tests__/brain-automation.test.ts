@@ -63,7 +63,8 @@ vi.mock('../decisions.js', () => ({
 }));
 
 vi.mock('../../store/data-accessor.js', () => ({
-  getAccessor: vi.fn().mockResolvedValue({
+  getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn().mockResolvedValue({
     queryTasks: vi.fn().mockResolvedValue({ tasks: [], total: 0 }),
     loadTasks: vi.fn().mockResolvedValue([]),
     close: vi.fn().mockResolvedValue(undefined),

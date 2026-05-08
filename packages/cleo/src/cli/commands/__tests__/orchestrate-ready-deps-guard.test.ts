@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 vi.mock('../../../../../core/src/store/file-utils.js', () => ({
@@ -54,7 +55,7 @@ vi.mock('../../../../../core/src/orchestration/index.js', () => ({
 
 import { loadConfig } from '../../../../../core/src/config.js';
 import { getReadyTasks } from '../../../../../core/src/orchestration/index.js';
-import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../../../../core/src/store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
