@@ -19,6 +19,7 @@ import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
+import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { revalidateEvidence } from './evidence.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
@@ -536,6 +537,62 @@ export async function completeTask(
               }
               autoCompleted.push(parent.id);
               autoCompletedTasks.push(parent);
+            }
+          }
+        }
+      }
+
+      // T9040: Coordination parent auto-rollup.
+      //
+      // A "coordination parent" is a non-epic task (type='task'|'subtask') that
+      // has NO own implementation files — its scope was fully delivered by its
+      // children. When the last pending child completes, synthesize rollup
+      // verification evidence from the children's gate state and auto-complete
+      // the parent so it does not stay `pending` forever.
+      //
+      // Epics already have their own rollup path above (via verifyEpicHasEvidence).
+      // This branch handles the remaining `type!='epic'` case.
+      //
+      // The rollup fires only when ALL siblings (excluding the current task, which
+      // is not yet persisted as 'done') are terminal (done or cancelled).
+      if (task.parentId) {
+        const coordinationParent = await acc.loadSingleTask(task.parentId);
+        if (
+          coordinationParent &&
+          coordinationParent.type !== 'epic' &&
+          !autoCompleted.includes(coordinationParent.id)
+        ) {
+          const cpChildren = await acc.getChildren(coordinationParent.id);
+          // Guard: require at least one registered child and check isCoordinationParent
+          // before examining terminal status so we don't touch tasks with own files.
+          if (
+            cpChildren.length > 0 &&
+            isCoordinationParent(coordinationParent, cpChildren.length)
+          ) {
+            const allCpDone = cpChildren.every(
+              (c) => c.id === task.id || c.status === 'done' || c.status === 'cancelled',
+            );
+            if (allCpDone) {
+              // Synthesize verification evidence from children's gate state.
+              // The overlay adds the current task (not yet in DB) as done so
+              // buildRollupEvidence sees the post-write view.
+              const childrenForRollup: Task[] = cpChildren.map((c) =>
+                c.id === task.id ? { ...c, status: 'done' as const } : c,
+              );
+              coordinationParent.verification = buildRollupEvidence(
+                coordinationParent.id,
+                childrenForRollup,
+              );
+              coordinationParent.status = 'done';
+              coordinationParent.completedAt = now;
+              coordinationParent.updatedAt = now;
+              // T871: coordination parents that auto-complete must also reach a
+              // terminal pipelineStage to stay in sync with Studio/dashboards.
+              if (!isTerminalPipelineStage(coordinationParent.pipelineStage)) {
+                coordinationParent.pipelineStage = 'contribution';
+              }
+              autoCompleted.push(coordinationParent.id);
+              autoCompletedTasks.push(coordinationParent);
             }
           }
         }
