@@ -138,12 +138,6 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/briefing.js')).briefingCommand as CommandDef,
   },
   {
-    exportName: 'bugCommand',
-    name: 'bug',
-    description: 'Create a bug report task with severity mapping (requires active session)',
-    load: async () => (await import('../commands/bug.js')).bugCommand as CommandDef,
-  },
-  {
     exportName: 'caampCommand',
     name: 'caamp',
     description: 'CAAMP injection management: deduplicate blocks, inspect injection state',

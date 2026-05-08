@@ -68,7 +68,6 @@ const COMMAND_GROUPS: CommandGroup[] = [
       'current',
       'next',
       'exists',
-      'bug',
     ],
   },
   {
