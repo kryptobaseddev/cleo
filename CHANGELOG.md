@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.5.60] (2026-05-08)
+
+Auto-prepared by release.ship (T1824)
+
+### Features
+- **ADR migration: docs/adr/ consolidated to .cleo/adrs/ (canonical)**: All 17 ADR files migrated from docs/adr/ to .cleo/adrs/ (no filename collisions). Migration manifest with 17-entry accounting at .cleo/adrs/T1825-migration-manifest.json. docs/adr/ archived. Source docstrings updated. (T1825)
+- **Add decision:<id> evidence atom for decision-only task gate verification**: New EvidenceAtom variant in @cleocode/contracts and parseEvidence handler in evidence.ts. Validates brain_decisions row via getBrainDb(). GATE_EVIDENCE_MINIMUMS.implemented accepts decision+files and decision+note alternatives. Eliminates CLEO_OWNER_OVERRIDE for decision-only tasks. CLEO-INJECTION.md updated with example and E_EVIDENCE_INVALID_DECISION error code. (T1875)
+
 ## [2026.5.59] (2026-05-08)
 
 Auto-prepared by release.ship (T9187)
