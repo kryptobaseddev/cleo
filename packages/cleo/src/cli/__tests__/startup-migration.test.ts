@@ -327,27 +327,22 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     expect(migrateSignaldockToConduitMock).not.toHaveBeenCalled();
   });
 
-  it('migration runs before ensureConduitDb (order guarantee per spec §4.6)', async () => {
+  it('T9029: migration check runs; ensureConduitDb NOT called during startup (deferred DB open)', async () => {
+    // T9029: ensureConduitDb removed from runStartupMaintenance — it no longer runs here.
+    // The T310 migration check (needsSignaldockToConduitMigration) still runs because it is
+    // a file-existence check, not a DB open. ensureConduitDb is now called lazily by each
+    // command that actually needs conduit.db.
     needsSignaldockToConduitMigrationMock.mockReturnValue(true);
     migrateSignaldockToConduitMock.mockReturnValue({ status: 'migrated', errors: [] });
-
-    const callOrder: string[] = [];
-    migrateSignaldockToConduitMock.mockImplementation(() => {
-      callOrder.push('migrate');
-      return { status: 'migrated', errors: [] };
-    });
-    ensureConduitDbMock.mockImplementation(() => {
-      callOrder.push('ensureConduit');
-      return { action: 'exists', path: '/test/project/.cleo/conduit.db' };
-    });
 
     const { runStartupMaintenance } = await import('../index.js');
     await runStartupMaintenance();
 
-    const migrateIdx = callOrder.indexOf('migrate');
-    const ensureIdx = callOrder.indexOf('ensureConduit');
-    expect(migrateIdx).toBeGreaterThanOrEqual(0);
-    expect(ensureIdx).toBeGreaterThan(migrateIdx);
+    // Migration check + migration must still run (T310 invariant preserved)
+    expect(needsSignaldockToConduitMigrationMock).toHaveBeenCalledWith('/test/project');
+    expect(migrateSignaldockToConduitMock).toHaveBeenCalledWith('/test/project');
+    // ensureConduitDb MUST NOT be called during startup (T9029 deferred-open)
+    expect(ensureConduitDbMock).not.toHaveBeenCalled();
   });
 
   // T9028: one-shot marker tests
