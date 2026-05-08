@@ -1,5 +1,20 @@
 # Changelog
 
+## [2026.5.52] (2026-05-08) — T9053/T9046 Pragma SSoT (TS + Rust)
+
+Drift-by-construction prevention for SQLite pragma policy across the full CLEO ecosystem.
+
+### Database / Pragma SSoT
+
+- **T9053**: `specs/sqlite-pragmas.json` established as the single source of truth for all SQLite performance pragmas. Both the TypeScript side (`packages/core/src/store/sqlite-pragmas.ts`) and the Rust side (`crates/signaldock-storage/build.rs`) consume this file — divergence is impossible by construction. The JSON spec is governed by ADR-068 § "9-DB inventory" + ADR-069 § "Storage layer". A cross-language equivalence test (`sqlite-pragmas-ssot.test.ts`) verifies TS and JSON agree at every CI run.
+- **T9046**: `crates/signaldock-storage` (`diesel_store.rs`) now applies the full canonical pragma set via `build.rs` codegen: adds `cache_size=-64000`, `mmap_size=268435456`, `temp_store=MEMORY`, `wal_autocheckpoint=1000` — previously only WAL, foreign_keys, busy_timeout, and synchronous=NORMAL were applied. Rust and TypeScript now apply byte-identical `PRAGMA name = value` SQL.
+
+### Verification
+
+- 6 cross-language SSoT equivalence tests pass (TS spec, render, CANONICAL_PRAGMA_SQL, Rust rule match).
+- `cargo check -p signaldock-storage` clean (warnings are pre-existing schema doc-comment gaps).
+- `pnpm typecheck` passes; lint passes.
+
 ## [2026.5.51] (2026-05-08) — T9183 nexus legacy-upgrade + init-noise cleanup
 
 Hotfix release on top of v2026.5.50 to close two trust-eroding gaps surfaced during verification on a real legacy project.
