@@ -537,9 +537,13 @@ export function reconcileJournal(
       if (!migrationName) continue; // orphaned entry — leave for Scenario 2
 
       const log = getLogger(logSubsystem);
-      log.warn(
+      // Debug-level: this is an expected one-shot backfill for legacy DBs whose
+      // __drizzle_migrations entries were written by older Drizzle versions
+      // before the name column existed. Harmless and idempotent — once names
+      // are populated this never fires again.
+      log.debug(
         { id: entry.id, hash: entry.hash, name: migrationName },
-        `Backfilling missing name on journal entry id=${entry.id} — Drizzle v1 beta requires name for applied-migration detection.`,
+        `Backfilling missing name on journal entry id=${entry.id} (Drizzle v1 beta legacy compat).`,
       );
       nativeDb.exec(
         `UPDATE "__drizzle_migrations" SET "name" = '${migrationName}' WHERE id = ${entry.id}`,
