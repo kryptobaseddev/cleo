@@ -137,6 +137,15 @@ export {
 // Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
 export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';
 export { exportDocument } from './docs/export-document.js';
+// Agent-outputs migration (T9064) — ingest .cleo/agent-outputs/*.md into DocsAccessor
+export type {
+  AgentOutputMigrationResult,
+  FailedFile,
+  MigrateAgentOutputsOptions,
+  MigratedFile,
+  MigrationManifestEntry,
+} from './docs/migrate-agent-outputs.js';
+export { migrateAgentOutputs } from './docs/migrate-agent-outputs.js';
 // Git hooks (T1588) — project-agnostic POSIX commit-msg + pre-push T-ID enforcement
 export type {
   CleoHookName,
