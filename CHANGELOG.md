@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026.5.56] (2026-05-08) — Phase 2: DB Ownership SSoT + Chokepoint Architecture
+
+### Architecture
+
+- **T9054: Drop vestigial multi-engine polymorphism in getAccessor / createDataAccessor**: Rename `getAccessor` → `getTaskAccessor` (explicit scope); drop dead `_engine?: 'sqlite'` parameter from `createDataAccessor`. Deprecated shim retained for one minor version. Mechanical codemod migrated 341 call sites across 109 source files. Test mocks updated for 22 test files.
+- **T9047: Establish DB ownership SSoT — openCleoDb chokepoint + CI guard**: `openCleoDb(role, cwd)` documented with full ADR-068/ADR-069 invariant. `scripts/lint-no-raw-db-opens.mjs` guard added to CI (`db-open-guard` job) — rejects raw `new DatabaseSync()` outside `packages/core/src/store/` while allowlisting pending sweep tasks.
+- **T9024: Re-evaluate sqlite-native leaf-module invariant**: Confirmed experimentally that `sqlite-pragmas.ts` (type-only import leaf) is safe to import from `sqlite-native.ts` without reintroducing the T1331 TDZ cycle. Inline pragma duplication removed.
+
+### Pragma Sweeps (T9022, T9023, T9045)
+
+- **T9022**: Wire `applyPerfPragmas(db, { enableWal: false })` into 6 read-only DB opens: `backup-pack.ts` (×3), `backup-unpack.ts`, `atomic.ts`, `migration/checksum.ts`, `memory/claude-mem-migration.ts`.
+- **T9023**: Wire `applyPerfPragmas()` into 7 one-shot writer opens: `agent-registry-accessor.ts` (×2, replacing inline PRAGMA calls), `cross-db-cleanup.ts`, `migrate-signaldock-to-conduit.ts` (×3), `upgrade.ts` (×2), `memory/graph-memory-bridge.ts`.
+- **T9045**: Cross-package drift cleanup — 5 packages with raw `new DatabaseSync()` bypassing the core/store chokepoint now apply the canonical pragma set: `brain/db-connections.ts` (inline mirror, no core dep), `studio/connections.ts` + `project-context.ts` + `search/+server.ts` (via `@cleocode/core`), `cleo/agent.ts` + `migrate-agents-v2.ts` (via `@cleocode/core/internal`), `core/store/llmtxt-blob-adapter.ts`.
+
+---
+
 ## [2026.5.55] (2026-05-08) — Wave B: Schema audit + T9170 gate re-enable
 
 ### Bug Fixes
