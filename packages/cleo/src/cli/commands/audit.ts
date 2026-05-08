@@ -27,9 +27,9 @@
  * @adr ADR-070
  */
 
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { getProjectRoot, reconstructLineage } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';

@@ -103,7 +103,9 @@ export function createNexusAccessor(_projectRoot?: string): NexusAccessor {
         // getNexusDb returns a Drizzle DB — use the $client for raw ping.
         const drizzleDb = await getNexusDb();
         if (!drizzleDb) return false;
-        const raw = (drizzleDb as { $client?: { prepare?: (sql: string) => { get: () => unknown } } }).$client;
+        const raw = (
+          drizzleDb as { $client?: { prepare?: (sql: string) => { get: () => unknown } } }
+        ).$client;
         if (!raw?.prepare) return false;
         raw.prepare('SELECT 1').get();
         return true;
