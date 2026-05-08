@@ -145,7 +145,7 @@ describe('coordination parent rollup (T9040)', () => {
     const result = await completeTask({ taskId: 'C003' }, env.tempDir, accessor);
 
     expect(result.task.status).toBe('done');
-    expect(result.autoCompleted).not.toContain('P002');
+    expect(result.autoCompleted ?? []).not.toContain('P002');
 
     const parent = await accessor.loadSingleTask('P002');
     expect(parent?.status).not.toBe('done');
@@ -187,7 +187,7 @@ describe('coordination parent rollup (T9040)', () => {
     const result = await completeTask({ taskId: 'C006' }, env.tempDir, accessor);
 
     expect(result.task.status).toBe('done');
-    expect(result.autoCompleted).not.toContain('P003');
+    expect(result.autoCompleted ?? []).not.toContain('P003');
 
     const parent = await accessor.loadSingleTask('P003');
     expect(parent?.status).not.toBe('done');
@@ -229,7 +229,7 @@ describe('coordination parent rollup (T9040)', () => {
     const result = await completeTask({ taskId: 'C008' }, env.tempDir, accessor);
 
     expect(result.task.status).toBe('done');
-    expect(result.autoCompleted).not.toContain('P004');
+    expect(result.autoCompleted ?? []).not.toContain('P004');
 
     const parent = await accessor.loadSingleTask('P004');
     expect(parent?.status).not.toBe('done');
