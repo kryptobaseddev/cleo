@@ -2,18 +2,35 @@
 
 ## [2026.5.57] (2026-05-08)
 
-Final wave (Phase 3/4/6) — DocsAccessor, telemetry hot-path, cloud sync scaffold
+Auto-prepared by release.ship (T9021)
 
 ### Features
-- **DocsAccessor: unified llmtxt + manifest interface**: Add DocsAccessor interface to @cleocode/contracts with storeDoc/getDoc/listDocs/searchDocs/exportDoc for 6 DocKind types (adr, agent-output, transcript, attachment, session-receipt, knowledge-graph-node). DocsAccessorImpl routes to manifest.db (CleoBlobStore) for blob kinds and in-memory store for llmtxt.db kinds. llmtxt SDK becomes implementation detail. ADR-068/ADR-069 write-ownership enforced. (T9063)
-- **Telemetry hot-path: buffered writes + opt-in default + retention policy**: Buffer telemetry events in-process (50-event max), flush on process exit (beforeExit/SIGINT/SIGTERM). Export flushTelemetryBuffer() for explicit flush. Add pruneOldTelemetryEvents(retentionDays=90) with TELEMETRY_MAX_ROWS (50k) cap. Opt-in default confirmed: absent config resolves to enabled:false. (T9051)
-- **Cloud sync scaffold: PostgresDataAccessor stub + spec**: PostgresDataAccessor interface defined in @cleocode/contracts with engine:'postgres', sync(), getStatus() extending DataAccessor. Architecture spec at docs/specs/cloud-sync-postgres-accessor.md covering multi-tenant namespacing, LWW sync semantics, Ed25519 auth model, implementation roadmap. Full impl deferred. (T9062)
-- **Agent-outputs migration utility**: migrateAgentOutputs() in @cleocode/core ingests .cleo/agent-outputs/*.md into DocsAccessor blob store with idempotent migration manifest and _archived/ rollback safety net. (T9064)
-- **CI guard preventing pragma drift**: pragma-drift-guard.test.ts scans all TypeScript source files for new DatabaseSync() instantiations and verifies applyPerfPragmas (or applyBrainPragmas) is called within 5 lines. Escape hatch list with TODO comments for known deferred sites. (T9025)
-- **Cross-link DocsAccessor with T1824 + T1825**: ADR round-trip test (storeDoc/getDoc/listDocs/exportDoc) proves DocsAccessor API surface. Documents T1824 alignment: filesystem = source of truth, DocsAccessor = index layer (not either-or). (T9065)
+- **Add CI guard preventing pragma drift on future DatabaseSync opens**: Once the sweep is done (sibling tasks complete), add a guard that fails if someone introduces a new new DatabaseSync() open without applyPerfPragma... (T9025)
 
+### Bug Fixes
+- **Startup latency benchmark + regression guard**: Add scripts/bench/startup-latency.mjs that runs cleo --version, cleo --help, cleo find foo, cleo show <id>, cleo next 50 times each on a populated ... (T9030)
+- **BUG: CLEO test fixtures pollute production task counter — IDs jumped T1923 to T9001 in 5h gap**: Between 2026-05-05 20:15 and 2026-05-06 01:06 UTC, autoincrement jumped T1923 to T9001 due to fixtures using cleo add on production DB. Confirmed f... (T9042)
+- **BUG: Worktree + temp-dir cleanup incomplete — locked worktrees from done tasks + ~/.temp bloat**: Audit during T1910: many worktrees still exist for tasks that are status=done, several marked 'locked'. Examples: T1820/T1821/T1822/T1823 worktrees... (T9043)
+- **W5: Delete cleo bug command entirely — no shim, no tombstone, no alias**: Owner directive: clean DRY removal, no compat. Delete packages/cleo/src/cli/commands/bug.ts entirely (~242 LOC). Unregister bug from packages/cleo/... (T9075)
+
+### Documentation
+- **DocsAccessor: unified llmtxt + manifest interface (agent-outputs, ADRs, attachments)**: Define DocsAccessor as the umbrella interface for ALL document operations in CLEO, wrapping the llmtxt SDK (llmtxt/sdk for AgentSession, llmtxt/blo... (T9063)
+- **W6: Update all docs to reflect new taxonomy + ADR codifying rename + AC-everywhere + system-wide attestation**: Document the locked taxonomy. (1) Update CLEO-INJECTION.md — remove cleo bug references, document --kind as canonical, document AC-required-for-all... (T9076)
+
+### Chores
+- **One-shot marker for detectAndRemoveLegacy* startup cleanups**: detectAndRemoveLegacyGlobalFiles and detectAndRemoveStrayProjectNexus run on every non-fast-path CLI invocation. They are stat()-heavy and only do ... (T9028)
+- **Migrate .cleo/agent-outputs/*.md raw markdown to llmtxt blob store via DocsAccessor**: .cleo/agent-outputs/ holds 100+ raw markdown files today (audits, campaign plans, handoff notes, etc.). They're filesystem-managed (no manifest, no... (T9064)
+
+### Changes
+- **Wire applyPerfPragmas into read-only/inspection DB opens**: Apply applyPerfPragmas() (with enableWal:false since these are readonly) to: backup-pack.ts (3 sites: lines 245, 281, 344), backup-unpack.ts (line ... (T9022)
+- **Wire applyPerfPragmas into one-shot writer DB opens**: Apply applyPerfPragmas() to: agent-registry-accessor.ts (lines 333, 349), cross-db-cleanup.ts (line 357), migrate-signaldock-to-conduit.ts (lines 2... (T9023)
+- **Defer DB opens until command needs them**: Today runStartupMaintenance opens conduit.db AND signaldock.db on every non-fast-path command — even commands that touch neither (e.g. cleo --help ... (T9029)
+- **Telemetry hot-path: buffered writes, opt-in audit, retention policy**: telemetry.db is written by dispatch/middleware/telemetry.ts on EVERY CLI invocation. Under concurrent multi-process invocations this is N writers c... (T9051)
+- **Cross-package DB-open drift: brain, studio, cleo, llmtxt-blob-adapter**: Discovered during T9021 audit: at least 4 packages OUTSIDE core/store have their own raw new DatabaseSync() open helpers, completely bypassing appl... (T9045)
+- **W2: Hard-rename --role to --kind everywhere (NO backwards compat, NO alias)**: Owner directive: clean DRY rename, NO --role alias, NO TaskRole re-export. Update all 6 declaration sites: (1) contracts/src/task.ts:53 — rename Ta... (T9072)
+- **Drop vestigial multi-engine polymorphism in getAccessor / createDataAccessor**: data-accessor.ts:28 createDataAccessor takes _engine?: 'sqlite' but always uses sqlite — the engine parameter is dead. Plus the // SSoT-EXEMPT:engi... (T9054)
+- **Cross-link DocsAccessor work with T1824 (Decision Storage Consolidation) + T1825 (ADR migration)**: T1824 is an existing epic for programmatic ADR management with .cleo/adrs/ as canonical. T1825 is a child for migrating docs/adr/ → .cleo/adrs/. Bo... (T9065)
 ---
-
 ## [2026.5.56] (2026-05-08)
 
 Auto-prepared by release.ship (T9047)
