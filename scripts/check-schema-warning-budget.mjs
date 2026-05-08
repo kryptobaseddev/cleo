@@ -36,7 +36,12 @@ const ALLOWED_FILES = [
   'daemon-supervision.test.ts',
 ];
 
-const FORBIDDEN_PATTERN = /Adding missing column/;
+// Match the actual log message format from migration-manager.ts ensureColumns:
+//   `Adding missing column <table>.<column> via ALTER TABLE`
+// (with optional `— MIGRATION DEFECT...` suffix for fresh-context calls).
+// Anchored with `via ALTER TABLE` so we don't false-positive on test names
+// or descriptions that mention the warning text in passing.
+const FORBIDDEN_PATTERN = /Adding missing column \S+\.\S+ via ALTER TABLE/;
 
 function readInput() {
   const arg = process.argv[2];
