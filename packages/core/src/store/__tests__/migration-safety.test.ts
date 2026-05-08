@@ -178,6 +178,7 @@ describe('Migration Safety Integration Tests', () => {
       // Verify DB exists
       const dbPath = join(cleoDir, 'tasks.db');
       expect(existsSync(dbPath)).toBe(true);
+      closeDb();
 
       // Create backup manually (simulating pre-migration backup)
       const backupPath = join(safetyDir, 'tasks.db.pre-migration.test');
@@ -192,11 +193,12 @@ describe('Migration Safety Integration Tests', () => {
       // Attempt migration (will fail)
       const secondResult = await migrateJsonToSqlite(undefined, { force: true });
 
-      // Restore from backup manually (migration doesn't auto-restore on JSON parse error)
+      closeDb();
+
+      // Restore from backup manually (migration doesn't auto-restore on JSON parse error).
+      // Close the SQLite handle first so Windows can overwrite the DB file.
       // In production, this would be handled by the upgrade.ts restore logic
       await writeFile(dbPath, originalDbContent);
-
-      closeDb();
 
       // Verify DB was restored (re-open to verify)
       const db = await getDb();

@@ -8,13 +8,47 @@
  * @task T5244
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '../data-accessor.js';
 import { resetDbState } from '../sqlite.js';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
+
+function isWindowsCleanupError(error: unknown): boolean {
+  if (process.platform !== 'win32' || typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  const code = String((error as { code?: unknown }).code ?? '');
+  return code === 'EPERM' || code === 'EBUSY' || code === 'ENOTEMPTY';
+}
+
+function warnWindowsCleanupFailure(action: string, dir: string, error: unknown): void {
+  console.warn(
+    `[test-db-helper] Windows temp cleanup ${action} failed for ${dir}; leaving best-effort residue: ${String(error)}`,
+  );
+}
+
+function cleanupTempDirBestEffort(tempDir: string): void {
+  try {
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 150 });
+    return;
+  } catch (error) {
+    if (!isWindowsCleanupError(error)) {
+      throw error;
+    }
+
+    const quarantineDir = `${tempDir}-cleanup-failed-${process.pid}-${Date.now()}`;
+    try {
+      renameSync(tempDir, quarantineDir);
+      warnWindowsCleanupFailure('rm', `${tempDir} (quarantined at ${quarantineDir})`, error);
+    } catch (quarantineError) {
+      warnWindowsCleanupFailure('rm and quarantine', tempDir, quarantineError);
+    }
+  }
+}
 
 /** Result of creating a test database environment. */
 export interface TestDbEnv {
@@ -89,7 +123,10 @@ export async function createTestDb(): Promise<TestDbEnv> {
     cleanup: async () => {
       await accessor.close();
       resetDbState();
-      rmSync(tempDir, { recursive: true, force: true });
+      // Windows can release SQLite file handles a tick later than closeDb()
+      // returns. Retry first; if Windows still reports an EPERM/EBUSY cleanup
+      // race, quarantine/warn instead of failing an otherwise-passed test.
+      cleanupTempDirBestEffort(tempDir);
     },
   };
 }

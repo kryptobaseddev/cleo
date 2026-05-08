@@ -9,11 +9,11 @@
  * Vitest with describe/it blocks per project conventions.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createWorktree,
   mergeWorktree,
@@ -36,28 +36,30 @@ beforeEach(() => {
   worktreeRoot = join(tempDir, 'worktrees');
 
   // Set up a minimal git repo with one commit
-  execSync(
-    [
-      `mkdir -p "${gitRoot}"`,
-      `cd "${gitRoot}"`,
-      'git init',
-      'git config user.email "test@cleo.dev"',
-      'git config user.name "CLEO Test"',
-      'git commit --allow-empty -m "init"',
-    ].join(' && '),
-    { stdio: 'pipe' },
-  );
+  mkdirSync(gitRoot, { recursive: true });
+  git(['init'], gitRoot);
+  git(['config', 'user.email', 'test@cleo.dev'], gitRoot);
+  git(['config', 'user.name', 'CLEO Test'], gitRoot);
+  git(['commit', '--allow-empty', '-m', 'init'], gitRoot);
 });
 
 afterEach(() => {
   // Clean up any worktrees before removing the temp dir
   try {
-    execSync('git worktree prune', { cwd: gitRoot, stdio: 'pipe' });
+    git(['worktree', 'prune'], gitRoot);
   } catch {
     // best effort
   }
   rmSync(tempDir, { recursive: true, force: true });
 });
+
+function git(args: readonly string[], cwd: string): Buffer {
+  return execFileSync('git', [...args], { cwd, stdio: 'pipe' });
+}
+
+function gitText(args: readonly string[], cwd: string): string {
+  return execFileSync('git', [...args], { cwd, encoding: 'utf-8', stdio: 'pipe' });
+}
 
 /** Helper to build a config pointing at the test repo. */
 function testConfig(overrides: Partial<WorktreeConfig> = {}): WorktreeConfig {
@@ -138,7 +140,7 @@ describe('createWorktree', () => {
     const handle = createWorktree(testRequest(), config);
 
     // Branch should exist
-    const branches = execSync('git branch', { cwd: gitRoot, encoding: 'utf-8' });
+    const branches = gitText(['branch'], gitRoot);
     expect(branches).toContain(handle.branch);
 
     // Branch should start with cleo/<taskId>-
@@ -153,7 +155,7 @@ describe('createWorktree', () => {
     );
 
     expect(handle.branch).toBe('custom/my-branch');
-    const branches = execSync('git branch', { cwd: gitRoot, encoding: 'utf-8' });
+    const branches = gitText(['branch'], gitRoot);
     expect(branches).toContain('custom/my-branch');
   });
 
@@ -176,7 +178,7 @@ describe('createWorktree', () => {
     expect(second.branch).toBe('cleo/T100-second');
 
     // Old branch should be gone (worktree removed), new branch present
-    const branches = execSync('git branch', { cwd: gitRoot, encoding: 'utf-8' });
+    const branches = gitText(['branch'], gitRoot);
     expect(branches).toContain('cleo/T100-second');
   });
 
@@ -216,7 +218,7 @@ describe('cleanup', () => {
 
     handle.cleanup(true);
 
-    const branches = execSync('git branch', { cwd: gitRoot, encoding: 'utf-8' });
+    const branches = gitText(['branch'], gitRoot);
     expect(branches).not.toContain('cleo/T100-cleanup');
   });
 
@@ -229,7 +231,7 @@ describe('cleanup', () => {
 
     handle.cleanup(false);
 
-    const branches = execSync('git branch', { cwd: gitRoot, encoding: 'utf-8' });
+    const branches = gitText(['branch'], gitRoot);
     expect(branches).toContain('cleo/T100-keep');
   });
 });
@@ -248,10 +250,8 @@ describe('mergeWorktree', () => {
 
     // Add a commit to the worktree branch
     writeFileSync(join(handle.path, 'new-file.txt'), 'content');
-    execSync('git add . && git commit -m "add file"', {
-      cwd: handle.path,
-      stdio: 'pipe',
-    });
+    git(['add', '.'], handle.path);
+    git(['commit', '-m', 'add file'], handle.path);
 
     const result = mergeWorktree(handle, config);
     expect(result.success).toBe(true);
@@ -270,17 +270,13 @@ describe('mergeWorktree', () => {
 
     // Add a commit on the main branch that will conflict
     writeFileSync(join(gitRoot, 'conflict.txt'), 'main content');
-    execSync('git add . && git commit -m "main commit"', {
-      cwd: gitRoot,
-      stdio: 'pipe',
-    });
+    git(['add', '.'], gitRoot);
+    git(['commit', '-m', 'main commit'], gitRoot);
 
     // Add a divergent commit on the worktree branch
     writeFileSync(join(handle.path, 'conflict.txt'), 'branch content');
-    execSync('git add . && git commit -m "branch commit"', {
-      cwd: handle.path,
-      stdio: 'pipe',
-    });
+    git(['add', '.'], handle.path);
+    git(['commit', '-m', 'branch commit'], handle.path);
 
     // ff-only merge should fail because branches have diverged
     const result = mergeWorktree(handle, config);
@@ -326,10 +322,7 @@ describe('listWorktrees', () => {
     // Cleanup
     for (const entry of entries) {
       try {
-        execSync(`git worktree remove "${entry.path}" --force`, {
-          cwd: gitRoot,
-          stdio: 'pipe',
-        });
+        git(['worktree', 'remove', entry.path, '--force'], gitRoot);
       } catch {
         // best effort
       }
@@ -342,10 +335,7 @@ describe('listWorktrees', () => {
 
     // Create a worktree outside our managed root
     const outsidePath = join(tempDir, 'outside-wt');
-    execSync(
-      `git worktree add "${outsidePath}" -b outside-branch HEAD`,
-      { cwd: gitRoot, stdio: 'pipe' },
-    );
+    git(['worktree', 'add', outsidePath, '-b', 'outside-branch', 'HEAD'], gitRoot);
 
     const entries = listWorktrees(config);
     const paths = entries.map((e) => e.path);
@@ -356,14 +346,10 @@ describe('listWorktrees', () => {
     expect(entries[0].path).toBe(join(worktreeRoot, 'T100'));
 
     // Cleanup
-    execSync(`git worktree remove "${outsidePath}" --force`, {
-      cwd: gitRoot,
-      stdio: 'pipe',
-    });
-    entries[0] && execSync(`git worktree remove "${entries[0].path}" --force`, {
-      cwd: gitRoot,
-      stdio: 'pipe',
-    });
+    git(['worktree', 'remove', outsidePath, '--force'], gitRoot);
+    if (entries[0]) {
+      git(['worktree', 'remove', entries[0].path, '--force'], gitRoot);
+    }
   });
 
   it('returns empty array when no worktrees exist', () => {

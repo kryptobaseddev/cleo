@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed (BREAKING)
+
+- **Legacy `/.well-known/lafs.json` discovery path** removed. Use the A2A v1.0 standard path `/.well-known/agent-card.json` (per RFC 8615).
+- **Legacy `DiscoveryConfig` fields**: `service`, `capabilities`, `endpoints`, `lafsVersion` removed. Use `agent` (A2A v1.0 Agent Card) instead.
+- **Legacy `DiscoveryMiddlewareOptions` fields**: `legacyPath`, `enableLegacyPath` removed.
+- **Legacy types**: `Capability`, `ServiceConfig`, `EndpointConfig`, `DiscoveryDocument` interfaces removed.
+- **Legacy schema**: `schemas/v1/discovery.schema.json` removed; the canonical schema is `schemas/v1/agent-card.schema.json`.
+- The `Deprecation` and `Sunset` response headers and the `[DEPRECATION]` console warning are gone — there is no deprecation pathway anymore.
+
+Migration: replace the legacy `service`/`capabilities`/`endpoints` config with an A2A `agent` Agent Card, and update clients to fetch `/.well-known/agent-card.json`.
+
 ## [2026.4.3] - 2026-04-06
 
 ### Added

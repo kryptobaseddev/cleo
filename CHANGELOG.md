@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.5.50] (2026-05-07) — T9050/T9158/T9162 release hotfix
+
+Ships the green mainline fixes after v2026.5.49:
+
+- T9050: `openCleoDb` now exposes the native SQLite handle needed by downstream DB operations.
+- T9158: ready dependency preflight includes archived tasks, removing false `E_MISSING_REF`/`does not exist` blockers for archived dependencies.
+- T9162/T1855: platform CI regressions repaired; cross-platform ripgrep installation and release-relevant gates are green.
+
+### Quality
+
+- GitHub Actions on main `b06532d0bdf71b91d84e198dbf68ef042ec6702e`: CI run `25505980022` success; Lockfile Check run `25505979754` success.
+- Local release smokes verified ready/deps/waves behavior before release handoff.
+
 ## [2026.5.49] (2026-05-07) — biome format fix on T9050 substrate (4th retry of v2026.5.46/47/48)
 
 > **Tag note**: v2026.5.46/47/48 all tagged but none published. v2026.5.48 added the missing T9050 files but they hadn't been auto-formatted to biome's expected style — CI biome failed. Local pre-commit hook either skipped or used different config. v2026.5.49 applies `biome check --write --unsafe .` to format the new files + remove unused imports.

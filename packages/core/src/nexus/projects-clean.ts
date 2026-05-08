@@ -84,6 +84,14 @@ export interface CleanProjectsResult {
 const TEMP_RE = /(^|\/)\.temp(\/|$)/;
 const TESTS_RE = /(^|\/)(tmp|test|fixture|scratch|sandbox)(\/|$)/;
 
+function portablePathForMatch(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+function pathSegmentCount(p: string): number {
+  return portablePathForMatch(p).split('/').filter(Boolean).length;
+}
+
 /**
  * Bulk-purge project registry rows matching configurable criteria.
  *
@@ -131,9 +139,10 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     healthStatus: string,
     lastIndexed: string | null,
   ): boolean {
-    if (patternRegex?.test(projectPath)) return true;
-    if (opts.includeTemp && TEMP_RE.test(projectPath)) return true;
-    if (opts.includeTests && TESTS_RE.test(projectPath)) return true;
+    const normalizedProjectPath = portablePathForMatch(projectPath);
+    if (patternRegex?.test(projectPath) || patternRegex?.test(normalizedProjectPath)) return true;
+    if (opts.includeTemp && TEMP_RE.test(normalizedProjectPath)) return true;
+    if (opts.includeTests && TESTS_RE.test(normalizedProjectPath)) return true;
     if (opts.matchUnhealthy && healthStatus === 'unhealthy') return true;
     if (opts.matchNeverIndexed && lastIndexed === null) return true;
     if (opts.matchOrphaned && !existsSync(projectPath)) return true;
@@ -207,7 +216,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
       // Refuse to delete suspiciously short or root-ish paths even if the DB
       // says so. Anything < 8 chars or with fewer than 3 path segments under
       // root gets skipped — protects against `/`, `/tmp`, `/home`, etc.
-      if (!p || p.length < 8 || p.split('/').filter(Boolean).length < 2) {
+      if (!p || p.length < 8 || pathSegmentCount(p) < 2) {
         fsFailed++;
         continue;
       }
@@ -216,7 +225,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
           // Only remove directories — refuse files/symlinks to a real file.
           const st = statSync(p);
           if (st.isDirectory()) {
-            await rm(p, { recursive: true, force: true });
+            await rm(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
             fsRemoved++;
           }
         }

@@ -20,11 +20,12 @@
  * @epic T889 / T1929
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
+import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { MAX_WORKER_FILES } from '../atomicity.js';
 import { validateSpawnReadiness } from '../validate-spawn.js';
@@ -348,7 +349,7 @@ describe('validateSpawnReadiness — T1933 agent-existence pre-flight (ADR-068 D
       _resetGlobalSignaldockDb_TESTING_ONLY();
       vi.restoreAllMocks();
     } finally {
-      rmSync(base, { recursive: true, force: true });
+      removeTempDirSync(base);
     }
   });
 
@@ -432,7 +433,7 @@ agent project-docs-worker:
       resetDb();
       vi.restoreAllMocks();
     } finally {
-      rmSync(base, { recursive: true, force: true });
+      removeTempDirSync(base);
     }
   });
 });

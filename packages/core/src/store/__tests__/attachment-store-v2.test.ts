@@ -67,7 +67,9 @@ describe.skipIf(!(await hasLlmtxtPeerDeps()))(
     });
 
     afterEach(async () => {
-      await rm(tempDir, { recursive: true, force: true });
+      // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+      // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
     });
 
     it('put + get roundtrip succeeds via llmtxt path', async () => {

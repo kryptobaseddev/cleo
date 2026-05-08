@@ -28,6 +28,11 @@ import {
   installProviderHookTemplates,
 } from '../shared/hook-template-installer.js';
 
+/** Resolve Claude Code's config directory, honoring the documented CI override. */
+function getClaudeConfigDir(): string {
+  return process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude');
+}
+
 /** Resolve the commands directory bundled with this adapter. */
 function getAdapterCommandsDir(): string {
   // Works in both ESM (import.meta.url) and compiled output
@@ -110,7 +115,7 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
    */
   async isInstalled(): Promise<boolean> {
     // Check ~/.claude/settings.json for plugin registration
-    const settingsPath = join(homedir(), '.claude', 'settings.json');
+    const settingsPath = join(getClaudeConfigDir(), 'settings.json');
     if (existsSync(settingsPath)) {
       try {
         const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
@@ -175,8 +180,8 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
    * @returns Description of what was registered, or null if no change needed
    */
   private registerPlugin(): string | null {
-    const home = homedir();
-    const settingsPath = join(home, '.claude', 'settings.json');
+    const claudeDir = getClaudeConfigDir();
+    const settingsPath = join(claudeDir, 'settings.json');
 
     let settings: Record<string, unknown> = {};
     if (existsSync(settingsPath)) {
@@ -202,7 +207,7 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
     enabledPlugins[pluginKey] = true;
     settings.enabledPlugins = enabledPlugins;
 
-    mkdirSync(join(home, '.claude'), { recursive: true });
+    mkdirSync(claudeDir, { recursive: true });
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
 
     return `Enabled ${pluginKey} in ~/.claude/settings.json`;
@@ -232,8 +237,8 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
     templates: InstallHookTemplatesResult;
     settingsEntryAdded: boolean;
   } | null {
-    const home = homedir();
-    const hooksDir = join(home, '.claude', 'hooks');
+    const claudeDir = getClaudeConfigDir();
+    const hooksDir = join(claudeDir, 'hooks');
 
     // 1. Copy the bash templates next to each other so `source $SCRIPT_DIR/...` works.
     //    Template copy is best-effort so missing/locked filesystems (CI sandboxes,
@@ -275,8 +280,8 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
    * @task T1013
    */
   private registerPreCompactHook(shimPath: string): boolean {
-    const home = homedir();
-    const settingsPath = join(home, '.claude', 'settings.json');
+    const claudeDir = getClaudeConfigDir();
+    const settingsPath = join(claudeDir, 'settings.json');
 
     let settings: Record<string, unknown> = {};
     if (existsSync(settingsPath)) {
@@ -321,7 +326,7 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
     hooks.PreCompact = preCompactEntries;
     settings.hooks = hooks;
 
-    mkdirSync(join(home, '.claude'), { recursive: true });
+    mkdirSync(claudeDir, { recursive: true });
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
     return true;
   }

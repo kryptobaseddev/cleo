@@ -11,12 +11,13 @@
  * @epic T889
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
 import { orchestratePlan, orchestrateReady } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures — one epic + a small diamond dep graph
@@ -153,7 +154,7 @@ describe('orchestratePlan (T889 / W3-6)', () => {
     // Restore CLEO_HOME to its prior value (empty string when unset —
     // avoids `delete`, which Biome flags as a performance anti-pattern).
     process.env['CLEO_HOME'] = PRIOR_CLEO_HOME ?? '';
-    rmSync(join(TEST_ROOT, '..'), { recursive: true, force: true });
+    removeTempDirSync(join(TEST_ROOT, '..'));
   });
 
   // -------------------------------------------------------------------------

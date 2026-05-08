@@ -70,7 +70,7 @@ describe('discoverCantFiles', () => {
 describe('resolveThreeTierPaths', () => {
   it('returns project tier pointing to .cleo/cant/', () => {
     const paths = resolveThreeTierPaths('/my/project');
-    expect(paths.project).toBe('/my/project/.cleo/cant');
+    expect(paths.project).toBe(join('/my/project', '.cleo', 'cant'));
   });
 
   it('respects XDG_DATA_HOME for global tier', () => {
@@ -78,7 +78,7 @@ describe('resolveThreeTierPaths', () => {
     process.env['XDG_DATA_HOME'] = '/custom/data';
     try {
       const paths = resolveThreeTierPaths('/my/project');
-      expect(paths.global).toBe('/custom/data/cleo/cant');
+      expect(paths.global).toBe(join('/custom/data', 'cleo', 'cant'));
     } finally {
       if (originalXdg) process.env['XDG_DATA_HOME'] = originalXdg;
       else delete process.env['XDG_DATA_HOME'];
@@ -90,7 +90,7 @@ describe('resolveThreeTierPaths', () => {
     process.env['XDG_CONFIG_HOME'] = '/custom/config';
     try {
       const paths = resolveThreeTierPaths('/my/project');
-      expect(paths.user).toBe('/custom/config/cleo/cant');
+      expect(paths.user).toBe(join('/custom/config', 'cleo', 'cant'));
     } finally {
       if (originalXdg) process.env['XDG_CONFIG_HOME'] = originalXdg;
       else delete process.env['XDG_CONFIG_HOME'];

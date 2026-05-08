@@ -9,6 +9,7 @@
  * @task T887
  */
 
+import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { ISOLATION_ENV_KEYS, provisionIsolatedShell } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -39,6 +40,10 @@ const BASE_TASK: Task = {
 };
 
 const PROJECT_ROOT = '/tmp/spawn-prompt-test-project';
+
+function normalizePromptPaths(prompt: string): string {
+  return prompt.replace(/\\/g, '/');
+}
 
 beforeEach(() => {
   resetSpawnPromptCache();
@@ -156,7 +161,7 @@ describe('buildSpawnPrompt — stage-specific guidance', () => {
       protocol: 'research',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('.cleo/rcasd/T9000/research/');
+    expect(normalizePromptPaths(result.prompt)).toContain('.cleo/rcasd/T9000/research/');
     expect(result.prompt).toContain('Gather information and evidence');
   });
 
@@ -318,9 +323,9 @@ describe('buildSpawnPrompt — file path resolution', () => {
       protocol: 'implementation',
       projectRoot: '/abs/proj',
     });
-    expect(result.prompt).toContain('/abs/proj/.cleo/agent-outputs');
-    expect(result.prompt).toContain('/abs/proj/.cleo/rcasd/T9000');
-    expect(result.prompt).toContain('/abs/proj/.cleo/test-runs');
+    expect(result.prompt).toContain(join('/abs/proj', '.cleo', 'agent-outputs'));
+    expect(result.prompt).toContain(join('/abs/proj', '.cleo', 'rcasd', 'T9000'));
+    expect(result.prompt).toContain(join('/abs/proj', '.cleo', 'test-runs'));
     // ADR-027 / T1096: no flat-file manifest path is rendered.
     // ADR-027: flat-file manifest sink was retired; verify it's not referenced in generated prompts
     expect(result.prompt).not.toContain(['MANIFEST', 'jsonl'].join('.'));

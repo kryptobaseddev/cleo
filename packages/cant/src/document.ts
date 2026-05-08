@@ -88,7 +88,9 @@ export interface CantPipelineResult {
  * @returns A {@link CantDocumentResult} with either the AST or parse errors.
  */
 export async function parseDocument(filePath: string): Promise<CantDocumentResult> {
-  const content = await readFile(filePath, 'utf-8');
+  // Normalize CRLF → LF so the Rust parser sees consistent line endings
+  // on Windows runners that check out files with core.autocrlf=true.
+  const content = (await readFile(filePath, 'utf-8')).replace(/\r\n/g, '\n');
   const result = cantParseDocumentNative(content);
   return {
     file: filePath,
@@ -105,7 +107,9 @@ export async function parseDocument(filePath: string): Promise<CantDocumentResul
  * @returns A {@link CantValidationResult} with all diagnostics.
  */
 export async function validateDocument(filePath: string): Promise<CantValidationResult> {
-  const content = await readFile(filePath, 'utf-8');
+  // Normalize CRLF → LF so the Rust validator sees consistent line endings
+  // on Windows runners that check out files with core.autocrlf=true.
+  const content = (await readFile(filePath, 'utf-8')).replace(/\r\n/g, '\n');
   const result = cantValidateDocumentNative(content);
   return {
     file: filePath,
@@ -128,7 +132,9 @@ export async function listSections(
   filePath: string,
   kind: SectionKind = 'agent',
 ): Promise<CantListResult> {
-  const content = await readFile(filePath, 'utf-8');
+  // Normalize CRLF → LF so the Rust parser sees consistent line endings
+  // on Windows runners that check out files with core.autocrlf=true.
+  const content = (await readFile(filePath, 'utf-8')).replace(/\r\n/g, '\n');
   const parsed = cantParseDocumentNative(content);
   if (!parsed.success || parsed.document == null) {
     return { file: filePath, filter: kind, count: 0, names: [] };
