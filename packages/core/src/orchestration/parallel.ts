@@ -6,7 +6,7 @@
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeWaves } from './waves.js';
 
 interface ParallelState {
@@ -41,7 +41,7 @@ export async function startParallelExecution(
   taskCount: number;
   startedAt: string;
 }> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
 
   const currentState = await readParallelState(acc);
   if (currentState.active) {
@@ -100,7 +100,7 @@ export async function endParallelExecution(
   durationMs: number;
   alreadyEnded?: boolean;
 }> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const currentState = await readParallelState(acc);
 
   if (!currentState.active) {
@@ -145,6 +145,6 @@ export async function getParallelStatus(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<ParallelState> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   return readParallelState(acc);
 }

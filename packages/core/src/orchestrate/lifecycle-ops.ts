@@ -25,7 +25,7 @@ import {
 import { getSkillContent } from '../orchestration/skill-ops.js';
 import { computeProgress, computeStartupSummary } from '../orchestration/status.js';
 import { getUnblockOpportunities } from '../orchestration/unblock.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import { loadTasks } from './query-ops.js';
 
@@ -102,7 +102,7 @@ export async function orchestrateStartup(
 
   try {
     const root = projectRoot || resolveProjectRoot();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
 
     const tasks = await loadTasks(root);
     const epic = tasks.find((t) => t.id === epicId);
@@ -143,7 +143,7 @@ export async function orchestrateBootstrap(
 ): Promise<EngineResult<BrainState>> {
   try {
     const root = projectRoot || resolveProjectRoot();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const brain = await buildBrainState(root, params, accessor);
     return { success: true, data: brain };
   } catch (err: unknown) {
@@ -161,7 +161,7 @@ export async function orchestrateBootstrap(
 export async function orchestrateCriticalPath(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const result = await getCriticalPath(root, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
@@ -179,7 +179,7 @@ export async function orchestrateCriticalPath(projectRoot?: string): Promise<Eng
 export async function orchestrateUnblockOpportunities(projectRoot?: string): Promise<EngineResult> {
   try {
     const root = projectRoot || resolveProjectRoot();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const result = await getUnblockOpportunities(root, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
@@ -243,7 +243,7 @@ export async function orchestrateParallelStart(
 
   try {
     const root = projectRoot || resolveProjectRoot();
-    const accessor = await getAccessor(root);
+    const accessor = await getTaskAccessor(root);
     const result = await startParallelExecution(epicId, wave, root, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {

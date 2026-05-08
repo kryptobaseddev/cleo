@@ -9,7 +9,7 @@
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import type { AdminImportParams, Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 type DuplicateStrategy = 'skip' | 'overwrite' | 'rename';
 
@@ -68,7 +68,7 @@ export async function importTasks(
     return { imported: 0, skipped: 0, renamed: [], totalTasks: 0, dryRun: params.dryRun };
   }
 
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const { tasks: existingTasks } = await accessor.queryTasks({});
 
   const existingIds = new Set(existingTasks.map((t) => t.id));

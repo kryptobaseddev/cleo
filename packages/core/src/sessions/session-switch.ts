@@ -8,7 +8,7 @@
 import type { Session, TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /**
  * Switch to a different session.
@@ -16,7 +16,7 @@ import { getAccessor } from '../store/data-accessor.js';
  * Throws if session not found or archived.
  */
 export async function switchSession(projectRoot: string, sessionId: string): Promise<Session> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const sessions = await accessor.loadSessions();
 

@@ -12,7 +12,7 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Label-to-category mapping for changelog sections. */
 const LABEL_CATEGORIES: Record<string, string> = {
@@ -61,7 +61,7 @@ export async function discoverReleaseTasks(
   // Collect tasks from both active and archive sources
   const dataSources: Array<{ tasks: Task[] }> = [];
 
-  const dataAccessor = accessor ?? (await getAccessor(cwd));
+  const dataAccessor = accessor ?? (await getTaskAccessor(cwd));
   const { tasks: activeTasks } = await dataAccessor.queryTasks({});
   if (activeTasks?.length) dataSources.push({ tasks: activeTasks });
   const archiveData = await dataAccessor.loadArchive();

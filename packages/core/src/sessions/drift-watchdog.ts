@@ -22,7 +22,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import type { Session, Task } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -255,7 +255,7 @@ export async function detectSessionDrift(opts: DetectSessionDriftOptions): Promi
     auditPathOverride,
   } = opts;
 
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const session = await accessor.getActiveSession();
   const focus = await accessor.getMetaValue<{ currentTask?: string | null }>('focus_state');
   const activeTaskId = resolveActiveTaskId(session, focus?.currentTask ?? null);

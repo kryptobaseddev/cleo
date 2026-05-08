@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface InjectGenerateResult {
   injection: string;
@@ -37,7 +37,7 @@ export async function generateInjection(
   let focusTask: string | null = null;
   let sessionScope: string | null = null;
 
-  const acc = accessor ?? (await getAccessor(projectRoot));
+  const acc = accessor ?? (await getTaskAccessor(projectRoot));
   const focusMeta = await acc.getMetaValue<{ currentTask?: string | null }>('focus_state');
   const activeSessionMeta = await acc.getMetaValue<string>('activeSession');
 

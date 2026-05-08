@@ -8,7 +8,7 @@ import type { TaskRef } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Suggest related tasks based on shared attributes. */
 export async function suggestRelated(
@@ -16,7 +16,7 @@ export async function suggestRelated(
   opts: { threshold?: number; cwd?: string },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const { tasks: allTasks } = await acc.queryTasks({});
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
@@ -79,7 +79,7 @@ export async function addRelation(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
 
   const fromExists = await acc.taskExists(from);
   if (!fromExists) {
@@ -118,7 +118,7 @@ export async function listRelations(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const task = await acc.loadSingleTask(taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`, {

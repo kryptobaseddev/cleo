@@ -6,7 +6,7 @@
 
 import type { TaskAnalysisResult, TaskWorkState } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface AnalysisResult extends TaskAnalysisResult {
   autoStarted?: boolean;
@@ -20,7 +20,7 @@ export async function analyzeTaskPriority(
   },
   accessor?: DataAccessor,
 ): Promise<AnalysisResult> {
-  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const { tasks } = await acc.queryTasks({});
 
   // Build dependency graph

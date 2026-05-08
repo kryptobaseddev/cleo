@@ -17,7 +17,7 @@ import { teardownWorktree } from '../sentient/worktree-dispatch.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { getActiveSession } from '../store/session-store.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
@@ -192,7 +192,7 @@ export async function completeTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<CompleteTaskResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const task = await acc.loadSingleTask(options.taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
@@ -798,7 +798,7 @@ export async function taskComplete(
   const opts: TaskCompleteEngineOptions =
     typeof notesOrOptions === 'string' ? { notes: notesOrOptions } : (notesOrOptions ?? {});
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await completeTask(
       {
         taskId,
@@ -872,7 +872,7 @@ export async function completeTaskStrict(
 
     // 1. Evidence staleness re-check (T832 / ADR-051 Decision 8).
     if (lifecycleMode === 'strict') {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
       if (task?.verification?.evidence) {
         const evidenceEntries = Object.entries(task.verification.evidence);
@@ -950,7 +950,7 @@ export async function completeTaskStrict(
 
     // 3. Parent-epic lifecycle gate check on child complete (T788 LOOM-04).
     if (lifecycleMode === 'strict' || lifecycleMode === 'advisory') {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
       if (task?.parentId) {
         const parent = await accessor.loadSingleTask(task.parentId);
@@ -996,7 +996,7 @@ export async function completeTaskStrict(
 
     // 4. T1222 / CLEO-VALID-26: verify verification_json is not NULL before delegating.
     if (lifecycleMode === 'strict') {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
       if (task && task.type !== 'epic' && !task.verification) {
         return engineError<{

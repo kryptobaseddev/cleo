@@ -8,7 +8,7 @@
 
 import { writeFile } from 'node:fs/promises';
 import type { AdminExportParams, Task } from '@cleocode/contracts';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export type ExportFormat = 'json' | 'csv' | 'tsv' | 'markdown';
 
@@ -53,7 +53,7 @@ export async function exportTasks(
   projectRoot: string,
   params: AdminExportParams,
 ): Promise<ExportResult> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const queryResult = await accessor.queryTasks({});
   const projectMeta = await accessor.getMetaValue<{ name?: string }>('project');
 

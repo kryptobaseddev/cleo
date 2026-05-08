@@ -1379,8 +1379,8 @@ async function orchestrateAnalyzeParallelSafety(
   }
 
   try {
-    const { getAccessor } = await import('@cleocode/core/internal');
-    const accessor = await getAccessor(projectRoot);
+    const { getTaskAccessor } = await import('@cleocode/core/internal');
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await accessor.queryTasks({});
     const allTasks = result?.tasks ?? [];
 

@@ -5,7 +5,7 @@
 
 import type { Task, TaskRef } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface HighImpactTask {
   taskId: string;
@@ -73,7 +73,7 @@ export async function getUnblockOpportunities(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<UnblockResult> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const { tasks } = await acc.queryTasks({});
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const completedIds = new Set(

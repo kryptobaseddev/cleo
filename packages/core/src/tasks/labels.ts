@@ -8,7 +8,7 @@ import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 interface LabelInfo {
   label: string;
@@ -18,7 +18,7 @@ interface LabelInfo {
 
 /** List all labels with task counts. */
 export async function listLabels(cwd?: string, accessor?: DataAccessor): Promise<LabelInfo[]> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const { tasks } = await acc.queryTasks({});
   const labelMap: Record<string, LabelInfo> = {};
 
@@ -42,7 +42,7 @@ export async function showLabelTasks(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   const { tasks } = await acc.queryTasks({ label });
 
   if (tasks.length === 0) {
@@ -94,7 +94,7 @@ export async function taskLabelList(
   projectRoot: string,
 ): Promise<EngineResult<{ labels: unknown[]; count: number }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const labels = await listLabels(projectRoot, accessor);
     return engineSuccess({ labels, count: labels.length });
   } catch (err: unknown) {
@@ -121,7 +121,7 @@ export async function taskLabelShow(
   label: string,
 ): Promise<EngineResult<Record<string, unknown>>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const result = await showLabelTasks(label, projectRoot, accessor);
     return engineSuccess(result);
   } catch (err: unknown) {

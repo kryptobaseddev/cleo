@@ -13,7 +13,7 @@ import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskShowNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeTaskView, type TaskView } from './compute-task-view.js';
 import {
   type IvtrHistoryEntry,
@@ -51,7 +51,7 @@ export async function showTask(
     });
   }
 
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
 
   // First, try to find in active tasks via targeted query
   let task = await acc.loadSingleTask(taskId);
@@ -164,7 +164,7 @@ export async function taskShow(
   taskId: string,
 ): Promise<EngineResult<{ task: TaskRecord; view: TaskView | null }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const detail = await showTask(taskId, projectRoot, accessor);
     const view = await computeTaskView(taskId, accessor);
     return engineSuccess({ task: taskToRecord(detail), view });
@@ -190,7 +190,7 @@ export async function taskShowWithHistory(
   includeHistory: boolean,
 ): Promise<EngineResult<{ task: TaskRecord; history?: LifecycleStageEntry[] }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const detail = await showTask(taskId, projectRoot, accessor);
     const task = taskToRecord(detail);
 
@@ -264,7 +264,7 @@ export async function taskExists(
   taskId: string,
 ): Promise<EngineResult<{ exists: boolean; taskId: string }>> {
   try {
-    const accessor = await getAccessor(projectRoot);
+    const accessor = await getTaskAccessor(projectRoot);
     const exists = await accessor.taskExists(taskId);
     return engineSuccess({ exists, taskId });
   } catch {

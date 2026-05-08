@@ -17,7 +17,7 @@ import type {
   NexusSearchResult,
 } from '@cleocode/contracts/operations/nexus';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { parseQuery, resolveTask, validateSyntax } from './query.js';
 import { readRegistry } from './registry.js';
 
@@ -194,7 +194,7 @@ export async function discoverRelated(
       status: string;
     }>;
     try {
-      const accessor = await getAccessor(project.path);
+      const accessor = await getTaskAccessor(project.path);
       const { tasks: projectTasks } = await accessor.queryTasks({});
       tasks = projectTasks;
     } catch {
@@ -347,7 +347,7 @@ export async function searchAcrossProjects(
       priority?: string;
     }>;
     try {
-      const accessor = await getAccessor(project.path);
+      const accessor = await getTaskAccessor(project.path);
       const { tasks: projectTasks } = await accessor.queryTasks({});
       tasks = projectTasks;
     } catch {

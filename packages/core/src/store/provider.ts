@@ -24,7 +24,7 @@ import type { FindTasksOptions, FindTasksResult } from '../tasks/find.js';
 import type { ListTasksOptions, ListTasksResult } from '../tasks/list.js';
 import type { UpdateTaskOptions, UpdateTaskResult } from '../tasks/update.js';
 import type { DataAccessor } from './data-accessor.js';
-import { getAccessor } from './data-accessor.js';
+import { getTaskAccessor } from './data-accessor.js';
 
 // Re-export domain operation types for CLI consumers
 export type {
@@ -240,7 +240,7 @@ async function createDomainOps(
   const taskWork = await import('../task-work/index.js');
 
   // Resolve accessor once; all domain ops share the same instance.
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
 
   return {
     addTask: (options) => addTask(options, cwd, acc),
@@ -260,7 +260,7 @@ async function createDomainOps(
     listRelations: (taskId) => relates.listRelations(taskId, cwd, acc),
     analyzeTaskPriority: (opts) => analyzeTaskPriority({ ...opts, cwd }, acc),
     // T1450: session Core fns normalized to (projectRoot, params) signature.
-    // The accessor (acc) and cwd are now resolved internally by Core via getAccessor(projectRoot).
+    // The accessor (acc) and cwd are now resolved internally by Core via getTaskAccessor(projectRoot).
     startSession: (options) => sessions.startSession(cwd ?? '', options),
     richEndSession: (options) => sessions.endSession(cwd ?? '', { note: options?.note }),
     sessionStatus: () => sessions.sessionStatus(cwd ?? '', {}),

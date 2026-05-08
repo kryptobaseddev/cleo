@@ -9,7 +9,7 @@
 import type { Session } from '@cleocode/contracts';
 import { ExitCode, type SessionSuspendParams } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /**
  * Suspend an active session.
@@ -22,7 +22,7 @@ export async function suspendSession(
   projectRoot: string,
   params: SessionSuspendParams,
 ): Promise<Session> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const sessions = await accessor.loadSessions();
 
