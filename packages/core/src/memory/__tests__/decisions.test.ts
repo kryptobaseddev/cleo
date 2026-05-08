@@ -25,7 +25,9 @@ describe('Decision Memory', () => {
     const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   describe('storeDecision', () => {
@@ -328,7 +330,9 @@ describe('validateDecisionConflicts', () => {
     delete process.env['CLEO_DIR'];
     delete process.env['CLEO_ENV'];
     vi.restoreAllMocks();
-    await rm(tempDir, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('should return passing result when CLEO_ENV=test (env skip)', async () => {
@@ -470,7 +474,9 @@ describe('storeDecision ADR write-gate hook (T1828)', () => {
     delete process.env['CLEO_DIR'];
     delete process.env['CLEO_ENV'];
     vi.restoreAllMocks();
-    await rm(tempDir, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   it('should succeed for ADR-typed write when CLEO_ENV=test (env skip)', async () => {
