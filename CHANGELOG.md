@@ -1,5 +1,23 @@
 # Changelog
 
+## [2026.5.59] (2026-05-08)
+
+Multi-agent audit pass: 19 "done" tasks independently verified by Auditor Loop protocol (ADR-070).
+
+### Audit Recovery
+
+- **T9075 (genuine failure — cleo bug deletion)**: bug.ts still had working name:'bug' definition and dispatch. Deleted packages/cleo/src/cli/commands/bug.ts, removed from help-renderer.ts and command-manifest.ts. Severity attestation functions preserved in @cleocode/core (already used by add.ts and update.ts).
+- **T9192 (pre-existing gap)**: ct-orchestrator skill missing Auditor Loop section. Added ## Auditor Loop section documenting 4-phase protocol (Phase A: write verifier, B: implementer spawn, C: auditor spawn, D: loop max 4).
+- **14 tasks newly verified genuinely done on first verifier run**: T9022, T9023, T9024, T9028, T9029, T9030, T9042, T9043, T9054, T9062, T9065, T9072, T9076, T9192 (after skill fix).
+- **5 tasks re-verified by existing verifiers (T9188-T9192 follow-up scripts)**: T9025/T9045/T9047/T9051/T9063/T9064 coverage maintained.
+- **Verifier scripts committed at**: scripts/verify-T9022.mjs through scripts/verify-T9076.mjs (14 new scripts).
+
+### Methodology
+
+- All verifier scripts check NEGATIVE SPACE (bad patterns must be 0, not just "file exists").
+- Verifiers committed before any implementation change (fixed measurement target).
+- T9075 fix independently audited: Auditor re-ran verifier after Implementer commit — "Audit pass. Verifier exit-code 0."
+
 ## [2026.5.58] (2026-05-08)
 
 Auto-prepared by release.ship (T9187)
