@@ -126,10 +126,18 @@ describe('Orchestrate Engine', () => {
     try {
       const { closeAllDatabases } = await import('@cleocode/core/internal');
       await closeAllDatabases();
+      // Drain any void cleanupBrainRefsOnTaskDelete promises fired by
+      // createTask() in seedTasks(). These open brain.db asynchronously;
+      // waiting one tick then closing again ensures all handles are shut
+      // before rm() attempts to delete the temp directory (T9182).
+      await new Promise((r) => setTimeout(r, 50));
+      await closeAllDatabases();
     } catch {
       /* ignore */
     }
-    await rm(TEST_ROOT, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait (T9182).
+    await rm(TEST_ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   describe('orchestrateStatus', () => {
@@ -302,10 +310,12 @@ describe('Orchestrate Engine', () => {
         try {
           const { closeAllDatabases } = await import('@cleocode/core/internal');
           await closeAllDatabases();
+          await new Promise((r) => setTimeout(r, 50));
+          await closeAllDatabases();
         } catch {
           /* ignore */
         }
-        await rm(isolatedRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+        await rm(isolatedRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
       }
     });
 
@@ -363,10 +373,12 @@ describe('Orchestrate Engine', () => {
         try {
           const { closeAllDatabases } = await import('@cleocode/core/internal');
           await closeAllDatabases();
+          await new Promise((r) => setTimeout(r, 50));
+          await closeAllDatabases();
         } catch {
           /* ignore */
         }
-        await rm(isolatedRoot2, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+        await rm(isolatedRoot2, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
       }
     });
   });
