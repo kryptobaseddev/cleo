@@ -82,7 +82,9 @@ describe('dream-tick integration (T996)', () => {
 
   afterEach(async () => {
     _resetDreamTickState();
-    await rm(root, { recursive: true, force: true });
+    // maxRetries: Windows WAL sidecar files (.db-shm/.db-wal) stay locked
+    // briefly after close(). 5 retries × 500 ms = 2.5 s max wait.
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
   // DT-1: Volume threshold exceeded → checkAndDream called within next tick

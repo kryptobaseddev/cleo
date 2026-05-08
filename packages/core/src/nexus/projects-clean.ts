@@ -225,7 +225,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
           // Only remove directories — refuse files/symlinks to a real file.
           const st = statSync(p);
           if (st.isDirectory()) {
-            await rm(p, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+            await rm(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
             fsRemoved++;
           }
         }
