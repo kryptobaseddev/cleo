@@ -3018,6 +3018,7 @@ export const agentCommand = defineCommand({
   meta: { name: 'agent', description: 'Agent lifecycle, credentials, and messaging' },
   subCommands: {
     doctor: doctorCommand,
+    'prune-orphans': pruneOrphansCommand,
     register: registerCommand,
     signin: signinCommand,
     start: startCommand,
