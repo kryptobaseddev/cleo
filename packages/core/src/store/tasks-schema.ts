@@ -118,15 +118,22 @@ export const TASK_SCOPES = ['project', 'feature', 'unit'] as const;
 export type { TaskScope };
 
 /**
- * Bug severity axis — ONLY applies when `role='bug'`. Enforced by a composite
- * CHECK constraint (`severity IS NULL OR (severity IN (...) AND role='bug')`).
+ * Severity axis — applies to ANY task role (not just `role='bug'`).
  *
- * OWNER-WRITE-ONLY (T944 / owner mandate): severity is meant to be set through
- * owner-authenticated paths only, not by Tier 3 agents. This prevents a
- * prompt-injection exploit where a compromised agent could mark a P0 bug as
- * P3 to force-ship.
+ * Enforced by a CHECK constraint: `severity IS NULL OR severity IN ('P0','P1','P2','P3')`.
+ *
+ * The original T944 constraint coupled severity to `role='bug'`. T9073 widened
+ * the constraint so that spikes, incidents, research tasks, and any other role
+ * can carry a severity level. Priority and severity are fully orthogonal axes —
+ * setting severity does NOT auto-map to priority (no SEVERITY_MAP on add/update).
+ *
+ * OWNER-WRITE-ONLY (T944 / T9073 / owner mandate): severity is set through
+ * owner-authenticated paths only (signed attestation via
+ * `appendSignedSeverityAttestation`). This prevents a prompt-injection exploit
+ * where a compromised agent could mark a P0 task as P3 to force-ship.
  *
  * @task T944
+ * @task T9073
  */
 export const TASK_SEVERITIES = ['P0', 'P1', 'P2', 'P3'] as const;
 
@@ -261,8 +268,9 @@ export const tasks = sqliteTable(
      */
     scope: text('scope', { enum: TASK_SCOPES }).notNull().default('feature'),
     /**
-     * Bug severity. ONLY valid when `kind='bug'` (DB column: role='bug'). NULL otherwise.
-     * OWNER-WRITE-ONLY. See {@link TASK_SEVERITIES}. Added by T944.
+     * Severity level. Valid for any kind (widened from bug-only by T9073).
+     * DB column 'role' preserved with drizzle alias for kind. OWNER-WRITE-ONLY.
+     * See {@link TASK_SEVERITIES}. Added by T944, widened by T9073.
      */
     severity: text('severity', { enum: TASK_SEVERITIES }),
     parentId: text('parent_id').references((): AnySQLiteColumn => tasks.id, {
