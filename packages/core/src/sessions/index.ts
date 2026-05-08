@@ -19,7 +19,7 @@ import {
 import { CleoError } from '../errors.js';
 import { sessionListItemNext, sessionStartNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import type { AgentSessionHandle } from './agent-session-adapter.js';
 import { closeAgentSession, openAgentSession } from './agent-session-adapter.js';
 
@@ -91,7 +91,7 @@ function generateSessionId(): string {
  * @task T4463
  */
 export async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   return acc.loadSessions();
 }
 
@@ -105,7 +105,7 @@ export async function saveSessions(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<void> {
-  const acc = accessor ?? (await getAccessor(cwd));
+  const acc = accessor ?? (await getTaskAccessor(cwd));
   await acc.saveSessions(sessions);
 }
 
@@ -118,7 +118,7 @@ export async function startSession(
   projectRoot: string,
   params: SessionStartParams,
 ): Promise<Session> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const scope = parseScope(params.scope);
   const sessions = await readSessions(projectRoot, accessor);
 
@@ -256,7 +256,7 @@ export async function startSession(
  * @task T1450
  */
 export async function endSession(projectRoot: string, params: SessionEndParams): Promise<Session> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const sessions = await readSessions(projectRoot, accessor);
 
   let session: Session | undefined;
@@ -363,7 +363,7 @@ export async function sessionStatus(
   // `(projectRoot, params)` Core API surface; the underscore prefix is the
   // documented TypeScript convention for an intentionally-unused parameter
   // required by an API contract (TS6133 honors `_`-prefix exemption).
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const sessions = await readSessions(projectRoot, accessor);
 
   const active = sessions
@@ -384,7 +384,7 @@ export async function resumeSession(
   projectRoot: string,
   params: SessionResumeParams,
 ): Promise<Session> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const sessions = await readSessions(projectRoot, accessor);
 
   const session = sessions.find((s: Session) => s.id === params.sessionId);
@@ -419,7 +419,7 @@ export async function listSessions(
   projectRoot: string,
   params: SessionListParams,
 ): Promise<Session[]> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   let sessions = await readSessions(projectRoot, accessor);
 
   if (params.status) {
@@ -453,7 +453,7 @@ export async function gcSessions(
   projectRoot: string,
   params: SessionGcParams,
 ): Promise<{ orphaned: string[]; removed: string[] }> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   let sessions = await readSessions(projectRoot, accessor);
   const now = Date.now();
   const maxAgeMs = (params.maxAgeDays ?? 1) * 24 * 60 * 60 * 1000;

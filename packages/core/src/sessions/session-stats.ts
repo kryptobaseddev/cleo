@@ -8,7 +8,7 @@
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 export interface SessionStatsResult {
   totalSessions: number;
@@ -37,7 +37,7 @@ export async function getSessionStats(
   projectRoot: string,
   sessionId?: string,
 ): Promise<SessionStatsResult> {
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
 
   const allSessions: Session[] = await accessor.loadSessions();
 

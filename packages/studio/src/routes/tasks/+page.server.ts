@@ -40,7 +40,7 @@
 import type { Task, TaskPriority, TaskRollupPayload, TaskStatus } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { computeTaskRollups } from '@cleocode/core/lifecycle/rollup';
-import { getAccessor } from '@cleocode/core/store/data-accessor';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
 import { listTasks } from '@cleocode/core/tasks/list';
 import type { RecentTaskRow } from '$lib/components/tasks';
 import { getTasksDb } from '$lib/server/db/connections.js';
@@ -347,7 +347,7 @@ export async function _computeEpicProgressViaRollup(
   options: DeprecatedEpicProgressOptions = {},
 ): Promise<EpicProgress[]> {
   const includeCancelled = resolveIncludeCancelled(options);
-  const accessor = await getAccessor(projectPath);
+  const accessor = await getTaskAccessor(projectPath);
   // Pull every epic — `excludeArchived` trims the 99% case, and we filter
   // `cancelled` in-memory so we can honour the `includeCancelled` toggle
   // without a second round-trip.

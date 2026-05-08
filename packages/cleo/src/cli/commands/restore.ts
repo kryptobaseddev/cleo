@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError, getAccessor } from '@cleocode/core';
+import { CleoError, getTaskAccessor } from '@cleocode/core';
 import { getProjectRoot } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
@@ -450,7 +450,7 @@ const taskSubCommand = defineCommand({
         throw new CleoError(ExitCode.INVALID_INPUT, `Invalid task ID: ${taskId}`);
       }
 
-      const accessor = await getAccessor();
+      const accessor = await getTaskAccessor();
 
       // First, check if task exists in active tasks
       const activeTask = await accessor.loadSingleTask(taskId);

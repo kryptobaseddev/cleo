@@ -11,7 +11,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ExitCode, type SessionRecordAssumptionParams } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import type { AssumptionRecord } from './types.js';
 
 /**
@@ -33,7 +33,7 @@ export async function recordAssumption(
     throw new CleoError(ExitCode.INVALID_INPUT, 'confidence must be one of: high, medium, low');
   }
 
-  const accessor = await getAccessor(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
   const activeSession = await accessor.getActiveSession();
 
   const sessionId = params.sessionId || activeSession?.id || 'default';

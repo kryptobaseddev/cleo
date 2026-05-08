@@ -34,7 +34,6 @@ import {
   fileRestore,
   findAdrs,
   generateInjection,
-  getAccessor,
   getContextWindow,
   getDashboard,
   getDefaultSnapshotPath,
@@ -46,6 +45,7 @@ import {
   getRuntimeDiagnostics,
   getSystemHealth,
   getSystemPaths,
+  getTaskAccessor,
   importSnapshot,
   importTasks,
   importTasksPackage,
@@ -403,11 +403,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     const projectRoot = getProjectRoot();
     const taskId = params.taskId;
     try {
-      const { getAccessor, getLastHandoff, retrieveWithBudget } = await import(
+      const { getTaskAccessor, getLastHandoff, retrieveWithBudget } = await import(
         '@cleocode/core/internal'
       );
 
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
 
       if (!task) {
@@ -535,7 +535,7 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   dash: async (params) => {
     const projectRoot = getProjectRoot();
     try {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const raw = await getDashboard(
         { cwd: projectRoot, blockedTasksLimit: params.blockedTasksLimit },
         accessor,
@@ -761,7 +761,7 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   roadmap: async (params) => {
     const projectRoot = getProjectRoot();
     try {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const data = await getRoadmap(
         {
           includeHistory: params.includeHistory,
@@ -1041,7 +1041,7 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   'inject.generate': async (_params) => {
     const projectRoot = getProjectRoot();
     try {
-      const accessor = await getAccessor(projectRoot);
+      const accessor = await getTaskAccessor(projectRoot);
       const data = await generateInjection(projectRoot, accessor);
       return lafsSuccess(data, 'inject.generate');
     } catch (err) {

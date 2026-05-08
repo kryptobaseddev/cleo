@@ -39,13 +39,13 @@ export async function handleTaskStartIntelligence(
   try {
     // Deferred relative imports — avoids circular dependency issues and keeps
     // this module loadable in environments where brain.db is not initialised.
-    const { getAccessor } = await import('../../store/data-accessor.js');
+    const { getTaskAccessor } = await import('../../store/data-accessor.js');
     const { getBrainAccessor } = await import('../../store/memory-accessor.js');
     const { calculateTaskRisk } = await import('../../intelligence/prediction.js');
     const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
     const [accessor, brain] = await Promise.all([
-      getAccessor(projectRoot),
+      getTaskAccessor(projectRoot),
       getBrainAccessor(projectRoot),
     ]);
 

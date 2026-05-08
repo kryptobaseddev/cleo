@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 // SSoT-EXEMPT:engine-migration-T1571
 /** Get roadmap from pending epics and CHANGELOG history. */
@@ -19,7 +19,7 @@ export async function getRoadmap(
   },
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const { tasks } = await acc.queryTasks({});
 
   // Get current version

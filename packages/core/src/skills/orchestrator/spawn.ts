@@ -16,7 +16,7 @@ import type { Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../../errors.js';
 import { getAgentOutputsDir } from '../../paths.js';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getTaskAccessor } from '../../store/data-accessor.js';
 import { findSkill, mapSkillName } from '../discovery.js';
 import { injectProtocol } from '../injection/subagent.js';
 import type { TokenValues } from '../injection/token.js';
@@ -36,7 +36,7 @@ export async function buildPrompt(
   cwd?: string,
   tier?: 0 | 1 | 2,
 ): Promise<SpawnPromptResult> {
-  const acc = await getAccessor(cwd);
+  const acc = await getTaskAccessor(cwd);
   const task = await acc.loadSingleTask(taskId);
 
   if (!task) {
@@ -161,7 +161,7 @@ export async function canParallelize(
     return { canParallelize: true, conflicts: [], safeToSpawn: [] };
   }
 
-  const acc = await getAccessor(cwd);
+  const acc = await getTaskAccessor(cwd);
   const tasks = await acc.loadTasks(taskIds);
   const taskIdSet = new Set(taskIds);
 

@@ -152,7 +152,7 @@ import {
   purgeSticky,
 } from './sticky/index.js';
 // Store
-import { getAccessor } from './store/data-accessor.js';
+import { getTaskAccessor } from './store/data-accessor.js';
 // Task Work (start/stop/current)
 import { currentTask, startTask, stopTask } from './task-work/index.js';
 // Tasks
@@ -200,7 +200,7 @@ export class Cleo {
 
   static async init(projectRoot: string, options?: CleoInitOptions): Promise<Cleo> {
     const resolvedRoot = path.resolve(projectRoot);
-    const store = options?.store ?? (await getAccessor(resolvedRoot));
+    const store = options?.store ?? (await getTaskAccessor(resolvedRoot));
     return new Cleo(resolvedRoot, store);
   }
 
@@ -350,7 +350,7 @@ export class Cleo {
   get lifecycle(): LifecycleAPI {
     const root = this.projectRoot;
     const resolveAccessor = (): Promise<DataAccessor> =>
-      this._store !== null ? Promise.resolve(this._store) : getAccessor(root);
+      this._store !== null ? Promise.resolve(this._store) : getTaskAccessor(root);
     return {
       status: (epicId) => getLifecycleStatus(root, { epicId }),
       startStage: (epicId, stage) =>

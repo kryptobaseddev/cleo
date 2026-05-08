@@ -706,7 +706,7 @@ export async function addTask(
 
   // Always use accessor (SQLite canonical storage per ADR-006)
   const dataAccessor =
-    accessor ?? (await (await import('../store/data-accessor.js')).getAccessor(cwd));
+    accessor ?? (await (await import('../store/data-accessor.js')).getTaskAccessor(cwd));
 
   // Resolve defaults — wrap normalizePriority to collect instead of throwing
   const status = options.status ?? 'pending';

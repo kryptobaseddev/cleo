@@ -10,7 +10,7 @@
 
 import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -415,7 +415,7 @@ export async function analyzeArchive(
   opts: AnalyzeArchiveOptions,
   accessor?: DataAccessor,
 ): Promise<ArchiveAnalyticsResult> {
-  const acc = accessor ?? (await getAccessor(opts.cwd));
+  const acc = accessor ?? (await getTaskAccessor(opts.cwd));
   const data = await acc.loadArchive();
 
   const reportType = opts.report ?? 'summary';

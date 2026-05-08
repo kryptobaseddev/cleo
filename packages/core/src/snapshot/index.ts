@@ -14,7 +14,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { getCleoDirAbsolute } from '../paths.js';
-import { getAccessor } from '../store/data-accessor.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /** Snapshot format version. */
 const SNAPSHOT_FORMAT_VERSION = '1.0.0';
@@ -110,7 +110,7 @@ function computeChecksum(tasks: SnapshotTask[]): string {
  */
 // SSoT-EXEMPT: snapshot fns use file-path/cwd args, not projectRoot+params; distinct from dispatch API signature convention per ADR-057 D1
 export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
-  const accessor = await getAccessor(cwd);
+  const accessor = await getTaskAccessor(cwd);
   const { tasks } = await accessor.queryTasks({});
   const projectMeta = await accessor.getMetaValue<{ name?: string; currentPhase?: string | null }>(
     'project',
@@ -192,7 +192,7 @@ export function getDefaultSnapshotPath(cwd?: string): string {
  */
 // SSoT-EXEMPT: snapshot fns use file-path/cwd args, not projectRoot+params; distinct from dispatch API signature convention per ADR-057 D1
 export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<ImportResult> {
-  const accessor = await getAccessor(cwd);
+  const accessor = await getTaskAccessor(cwd);
   const { tasks: localTasks } = await accessor.queryTasks({});
 
   const result: ImportResult = {
