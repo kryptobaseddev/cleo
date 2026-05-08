@@ -64,7 +64,7 @@ const ITERATIONS = parseInt(process.env['BENCH_ITERATIONS'] ?? '50', 10);
 const CLEO_BIN = process.env['CLEO_BIN'] ?? 'cleo';
 const UPDATE_BASELINE = process.env['BENCH_UPDATE_BASELINE'] === '1';
 const NO_REGRESSION = process.env['BENCH_NO_REGRESSION'] === '1';
-const REGRESSION_THRESHOLD = 0.20; // 20% regression allowed
+const REGRESSION_THRESHOLD = 0.2; // 20% regression allowed
 
 /**
  * Commands to benchmark. Each entry is:
@@ -195,7 +195,9 @@ async function runBenchmark() {
     /** @type {number[]} */
     const samples = [];
 
-    process.stderr.write(`  benchmarking: cleo ${cmd.args.join(' ')} (${ITERATIONS} iterations)...\n`);
+    process.stderr.write(
+      `  benchmarking: cleo ${cmd.args.join(' ')} (${ITERATIONS} iterations)...\n`,
+    );
 
     // Warm-up: 3 iterations not counted in samples (JIT, disk cache warm-up).
     for (let i = 0; i < 3; i++) {
@@ -271,14 +273,18 @@ async function main() {
   try {
     execSync(`which ${CLEO_BIN}`, { stdio: 'ignore' });
   } catch {
-    process.stderr.write(`fatal: cleo binary not found (${CLEO_BIN}). Install cleo globally or set CLEO_BIN.\n`);
+    process.stderr.write(
+      `fatal: cleo binary not found (${CLEO_BIN}). Install cleo globally or set CLEO_BIN.\n`,
+    );
     process.exit(2);
   }
 
   process.stderr.write(`cleo startup latency benchmark\n`);
   process.stderr.write(`  binary:     ${CLEO_BIN}\n`);
   process.stderr.write(`  iterations: ${ITERATIONS} per command (+ 3 warm-up)\n`);
-  process.stderr.write(`  baseline:   ${existsSync(BASELINE_FILE) ? BASELINE_FILE : '(none — will be captured)'}\n`);
+  process.stderr.write(
+    `  baseline:   ${existsSync(BASELINE_FILE) ? BASELINE_FILE : '(none — will be captured)'}\n`,
+  );
   process.stderr.write(`\n`);
 
   const results = await runBenchmark();
@@ -286,12 +292,20 @@ async function main() {
   if (UPDATE_BASELINE) {
     writeFileSync(BASELINE_FILE, JSON.stringify(results, null, 2) + '\n');
     process.stderr.write(`\nbaseline updated: ${BASELINE_FILE}\n`);
-    const report = { ...results, regression: { baseline_file: BASELINE_FILE, note: 'baseline updated — no comparison' } };
+    const report = {
+      ...results,
+      regression: { baseline_file: BASELINE_FILE, note: 'baseline updated — no comparison' },
+    };
     process.stdout.write(JSON.stringify(report, null, 2) + '\n');
     process.exit(0);
   }
 
-  let regression = { baseline_file: BASELINE_FILE, note: 'no baseline file — skipping regression check', failed: false, violations: [] };
+  let regression = {
+    baseline_file: BASELINE_FILE,
+    note: 'no baseline file — skipping regression check',
+    failed: false,
+    violations: [],
+  };
 
   if (!NO_REGRESSION && existsSync(BASELINE_FILE)) {
     const baseline = JSON.parse(readFileSync(BASELINE_FILE, 'utf-8'));
@@ -300,11 +314,15 @@ async function main() {
     if (regression.failed) {
       process.stderr.write(`\nREGRESSION DETECTED:\n`);
       for (const v of regression.violations) {
-        process.stderr.write(`  cleo ${v.command}: p50 ${v.baseline_p50}ms → ${v.current_p50}ms (+${v.pct_change}%)\n`);
+        process.stderr.write(
+          `  cleo ${v.command}: p50 ${v.baseline_p50}ms → ${v.current_p50}ms (+${v.pct_change}%)\n`,
+        );
       }
       process.stderr.write(`\n`);
     } else {
-      process.stderr.write(`\nno regression detected (all p50 within ${regression.threshold_pct}% of baseline)\n`);
+      process.stderr.write(
+        `\nno regression detected (all p50 within ${regression.threshold_pct}% of baseline)\n`,
+      );
     }
   }
 
