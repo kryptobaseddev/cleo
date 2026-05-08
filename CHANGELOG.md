@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.5.57] (2026-05-08)
+
+Final wave (Phase 3/4/6) — DocsAccessor, telemetry hot-path, cloud sync scaffold
+
+### Features
+- **DocsAccessor: unified llmtxt + manifest interface**: Add DocsAccessor interface to @cleocode/contracts with storeDoc/getDoc/listDocs/searchDocs/exportDoc for 6 DocKind types (adr, agent-output, transcript, attachment, session-receipt, knowledge-graph-node). DocsAccessorImpl routes to manifest.db (CleoBlobStore) for blob kinds and in-memory store for llmtxt.db kinds. llmtxt SDK becomes implementation detail. ADR-068/ADR-069 write-ownership enforced. (T9063)
+- **Telemetry hot-path: buffered writes + opt-in default + retention policy**: Buffer telemetry events in-process (50-event max), flush on process exit (beforeExit/SIGINT/SIGTERM). Export flushTelemetryBuffer() for explicit flush. Add pruneOldTelemetryEvents(retentionDays=90) with TELEMETRY_MAX_ROWS (50k) cap. Opt-in default confirmed: absent config resolves to enabled:false. (T9051)
+- **Cloud sync scaffold: PostgresDataAccessor stub + spec**: PostgresDataAccessor interface defined in @cleocode/contracts with engine:'postgres', sync(), getStatus() extending DataAccessor. Architecture spec at docs/specs/cloud-sync-postgres-accessor.md covering multi-tenant namespacing, LWW sync semantics, Ed25519 auth model, implementation roadmap. Full impl deferred. (T9062)
+- **Agent-outputs migration utility**: migrateAgentOutputs() in @cleocode/core ingests .cleo/agent-outputs/*.md into DocsAccessor blob store with idempotent migration manifest and _archived/ rollback safety net. (T9064)
+- **CI guard preventing pragma drift**: pragma-drift-guard.test.ts scans all TypeScript source files for new DatabaseSync() instantiations and verifies applyPerfPragmas (or applyBrainPragmas) is called within 5 lines. Escape hatch list with TODO comments for known deferred sites. (T9025)
+- **Cross-link DocsAccessor with T1824 + T1825**: ADR round-trip test (storeDoc/getDoc/listDocs/exportDoc) proves DocsAccessor API surface. Documents T1824 alignment: filesystem = source of truth, DocsAccessor = index layer (not either-or). (T9065)
+
+---
+
 ## [2026.5.56] (2026-05-08)
 
 Auto-prepared by release.ship (T9047)
