@@ -246,17 +246,6 @@ export type {
   TaskQueryFilters,
   TransactionAccessor,
 } from './data-accessor.js';
-// === PostgresDataAccessor Contracts — cloud-sync scaffold (T9062) ===
-export type {
-  CreatePostgresDataAccessorFn,
-  PostgresDataAccessor,
-  PostgresDataAccessorOptions,
-  PostgresSyncDirection,
-  PostgresTenantNamespace,
-  PostgresTenantStrategy,
-  SyncResult,
-  SyncStatus,
-} from './postgres-data-accessor.js';
 // === Dependency Registry Contracts ===
 export type {
   DependencyCategory,
@@ -1046,6 +1035,17 @@ export type {
   PlaybookRun,
   PlaybookRunStatus,
 } from './playbook.js';
+// === PostgresDataAccessor Contracts — cloud-sync scaffold (T9062) ===
+export type {
+  CreatePostgresDataAccessorFn,
+  PostgresDataAccessor,
+  PostgresDataAccessorOptions,
+  PostgresSyncDirection,
+  PostgresTenantNamespace,
+  PostgresTenantStrategy,
+  SyncResult,
+  SyncStatus,
+} from './postgres-data-accessor.js';
 export type { AdapterPathProvider } from './provider-paths.js';
 // === Release Pipeline (T1597 / ADR-063) ===
 export type {
