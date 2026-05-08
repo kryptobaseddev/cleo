@@ -50,6 +50,10 @@ export {
   type TaskViewNextAction,
   type TaskViewPipelineStage,
 } from './compute-task-view.js';
+export {
+  buildRollupEvidence,
+  isCoordinationParent,
+} from './coordination-parent.js';
 // Wave 4: Complex mutations + strict completion (T1568 / ADR-057 / ADR-058)
 export { type DeleteTaskOptions, type DeleteTaskResult, deleteTask, taskDelete } from './delete.js';
 // Dep-graph validator (T1857 — orphan / cross-epic gap / stale-dep detection)
