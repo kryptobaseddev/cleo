@@ -233,6 +233,8 @@ export async function tasksUpdateOp(
     pipelineStage?: string;
     kind?: TaskKind;
     scope?: TaskScope;
+    /** Severity level — valid for any role (T9073). Orthogonal to priority. */
+    severity?: TaskSeverity;
   },
 ): Promise<UpdateTaskResult> {
   return updateTask(
@@ -258,6 +260,7 @@ export async function tasksUpdateOp(
       pipelineStage: params.pipelineStage,
       kind: params.kind,
       scope: params.scope,
+      severity: params.severity,
     },
     projectRoot,
   );
