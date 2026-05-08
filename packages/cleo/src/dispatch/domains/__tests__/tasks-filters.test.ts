@@ -14,9 +14,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
-import { getAccessor } from '../../../../../core/src/store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../../../../core/src/store/data-accessor.js';
 import { taskFind, taskList } from '../../lib/engine.js';
 
 // ---------------------------------------------------------------------------

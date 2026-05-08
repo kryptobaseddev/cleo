@@ -55,6 +55,7 @@ vi.mock('../session-id.js', () => ({
 
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 vi.mock('../../task-work/index.js', () => ({

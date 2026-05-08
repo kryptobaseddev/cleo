@@ -454,7 +454,8 @@ vi.mock('../../../../../core/src/nexus/permissions.js', () => ({
 
 // Data accessor
 vi.mock('../../../../../core/src/store/data-accessor.js', () => ({
-  getAccessor: vi.fn().mockResolvedValue({
+  getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn().mockResolvedValue({
     queryTasks: vi.fn().mockResolvedValue({ tasks: [], total: 0 }),
   }),
 }));

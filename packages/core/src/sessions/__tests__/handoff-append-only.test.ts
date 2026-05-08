@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // --- mock data-accessor so persistHandoff can load sessions ---
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
 }));
 
 // --- mock decisions (required by computeHandoff) ---
@@ -30,7 +31,7 @@ vi.mock('../../store/session-store.js', () => ({
 
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
-import { getAccessor } from '../../store/data-accessor.js';
+import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { insertHandoffEntry } from '../../store/session-store.js';
 import { persistHandoff } from '../handoff.js';
 
@@ -65,13 +66,16 @@ const HANDOFF_DATA = {
 };
 
 function setupAccessor(sessions: Session[]) {
-  (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue({
+  const mockImpl = {
     loadSessions: vi.fn().mockResolvedValue(sessions),
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockResolvedValue({ tasks: [], total: 0 }),
     getMetaValue: vi.fn().mockResolvedValue(null),
     setMetaValue: vi.fn().mockResolvedValue(undefined),
-  });
+  };
+  // Both deprecated shim and canonical replacement (T9054)
+  (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
+  (getTaskAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);
 }
 
 // ---------------------------------------------------------------------------

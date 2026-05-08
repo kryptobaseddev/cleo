@@ -25,6 +25,7 @@ vi.mock('@cleocode/core/internal', async () => {
     getSystemPaths: vi.fn(),
     getDashboard: vi.fn(),
     getAccessor: vi.fn(),
+  getTaskAccessor: vi.fn(),
     queryAuditLog: vi.fn(),
     showSequence: vi.fn(),
     checkSequence: vi.fn(),
