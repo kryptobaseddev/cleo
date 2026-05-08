@@ -858,3 +858,23 @@ export function checkConduitDbHealth(projectRoot: string): {
     db.close();
   }
 }
+
+/**
+ * Open a fresh (non-singleton) conduit.db connection with pragmas applied.
+ *
+ * Unlike `ensureConduitDb`, this creates an independent connection that the
+ * caller owns and must close. Intended for callers that manage connection
+ * lifecycle explicitly (e.g. LocalTransport connect/disconnect cycle).
+ *
+ * Applies the pragma SSoT from `specs/sqlite-pragmas.json` (T9047, T9189).
+ *
+ * @param projectRoot - Project root for resolving conduit.db path.
+ * @returns An open DatabaseSync connection (caller must close).
+ * @task T9189
+ */
+export function openFreshConduitDb(projectRoot: string): DatabaseSync {
+  const dbPath = getConduitDbPath(projectRoot);
+  const db = new DatabaseSync(dbPath);
+  applyPerfPragmas(db);
+  return db;
+}
