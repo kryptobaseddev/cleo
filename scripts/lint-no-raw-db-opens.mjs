@@ -68,18 +68,26 @@ const ALLOW_PATH_PREFIXES = [
   'packages/core/src/migration/',
   // Memory migration (one-shot)
   'packages/core/src/memory/claude-mem-migration.ts',
-  // Hot-path conduit open (T9023 sweep pending)
+  // Hot-path conduit open — T9023 sweep complete (applyPerfPragmas applied)
   'packages/core/src/memory/graph-memory-bridge.ts',
   // Conduit infrastructure is core-owned
   'packages/core/src/conduit/',
-  // One-shot signaldock migration (T9023 sweep pending)
+  // One-shot signaldock migration — T9023 sweep complete (applyPerfPragmas applied)
   'packages/core/src/upgrade.ts',
   // Bootstrap open before chokepoint is available
   'packages/core/src/init.ts',
-  // One-shot global install (T9023 sweep pending)
+  // One-shot global install — T9023 sweep complete (applyPerfPragmas applied)
   'packages/core/src/agents/seed-install.ts',
   // classify.ts — contains JSDoc @example blocks with DatabaseSync (not actual code)
   'packages/core/src/orchestration/classify.ts',
+  // T9045 sweep complete — brain/studio/cleo cross-package opens now apply applyPerfPragmas
+  // These packages have their own DatabaseSync calls but pragma compliance is enforced.
+  'packages/brain/src/db-connections.ts',
+  'packages/studio/src/lib/server/db/connections.ts',
+  'packages/studio/src/lib/server/project-context.ts',
+  'packages/studio/src/routes/api/search/+server.ts',
+  'packages/cleo/src/cli/commands/agent.ts',
+  'packages/cleo/src/cli/commands/migrate-agents-v2.ts',
 ];
 
 /** Regex patterns (matched against relative path) that are always allowed. */
