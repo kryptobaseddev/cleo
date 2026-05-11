@@ -107,7 +107,7 @@ function runVerifier(verifierPath: string): { exitCode: number; stdout: string; 
  * @task T9218
  * @adr ADR-070
  */
-const backfillCommand = defineCommand({
+export const backfillCommand = defineCommand({
   meta: {
     name: 'backfill',
     description:
@@ -315,9 +315,6 @@ async function backfillAllPending(projectRoot: string, force: boolean): Promise<
  */
 export const verifyCommand = defineCommand({
   meta: { name: 'verify', description: 'View or modify verification gates for a task' },
-  subCommands: {
-    backfill: backfillCommand,
-  },
   args: {
     taskId: {
       type: 'positional',
@@ -370,6 +367,24 @@ export const verifyCommand = defineCommand({
   async run({ args, cmd }) {
     if (!args.taskId) {
       await showUsage(cmd);
+      return;
+    }
+
+    // Backfill subcommand — handled inline to avoid citty subCommands routing
+    // conflict with positional taskId argument (T9218 / T9213 routing fix).
+    if (args.taskId === 'backfill') {
+      const remainingArgs = process.argv.slice(process.argv.indexOf('backfill') + 1);
+      const taskIdArg = remainingArgs.find((a) => !a.startsWith('-'));
+      const allPending = remainingArgs.includes('--all-pending');
+      const force = remainingArgs.includes('--force');
+      const projectRoot = getProjectRoot();
+      if (allPending) {
+        await backfillAllPending(projectRoot, force);
+      } else if (taskIdArg) {
+        await backfillSingle(taskIdArg, projectRoot, force);
+      } else {
+        await showUsage(cmd);
+      }
       return;
     }
 
