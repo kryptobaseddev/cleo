@@ -97,15 +97,19 @@ nodes:
       inject_into: implement
 
   - id: released
-    type: terminal
+    type: agentic
+    skill: ct-task-executor
+    role: worker
     description: >
-      Terminal node — all IVTR phases complete. The task is considered fully
+      Final node — all IVTR phases complete. The task is considered fully
       verified: implementation validated, AC verified by auditor, tests passed.
-      Triggers `cleo complete` eligibility check.
+      Triggers `cleo complete` eligibility check and marks the task as released.
     requires:
       from: test
       fields:
         - testsPassed
+    ensures:
+      schema: release_confirmation
 
 edges:
   - from: implement
