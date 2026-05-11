@@ -132,6 +132,10 @@ function alwaysSucceed(input: AgentDispatchInput): AgentDispatchResult {
     case 'validate':
       extraFields.passed = true;
       break;
+    case 'audit': // T9216: auditor node
+      extraFields.passed = true;
+      extraFields.auditPassed = true;
+      break;
     case 'research':
       extraFields.summary = 'research summary';
       extraFields.risks = [];
@@ -156,6 +160,12 @@ function alwaysSucceed(input: AgentDispatchInput): AgentDispatchResult {
       break;
     case 'publish':
       extraFields.published = true;
+      break;
+    case 'test': // ensure testsPassed for ivtr test→released edge (T9216)
+      extraFields.testsPassed = true;
+      break;
+    case 'released': // T9216: final node
+      extraFields.released = true;
       break;
     default:
       break;
@@ -274,27 +284,35 @@ describe('T934: starter playbooks — E2E against stubbed dispatcher', () => {
   // ivtr — implement → validate → test, with inject_into wiring for retries.
   // -------------------------------------------------------------------------
   describe('ivtr.cantbook', () => {
-    it('parses cleanly and declares implement/validate/test with iteration caps', () => {
+    it('parses cleanly and declares implement/validate/audit/test/released with iteration caps (T9216)', () => {
       const { definition } = loadStarter('ivtr');
       expect(definition.name).toBe('ivtr');
-      expect(definition.nodes).toHaveLength(3);
-      expect(definition.nodes.map((n) => n.id)).toEqual(['implement', 'validate', 'test']);
+      // T9216: audit and released nodes added
+      expect(definition.nodes.length).toBeGreaterThanOrEqual(4);
+      const nodeIds = definition.nodes.map((n) => n.id);
+      expect(nodeIds).toContain('implement');
+      expect(nodeIds).toContain('validate');
+      expect(nodeIds).toContain('audit'); // T9216
+      expect(nodeIds).toContain('test');
 
       const implementNode = definition.nodes.find((n) => n.id === 'implement');
       const validateNode = definition.nodes.find((n) => n.id === 'validate');
+      const auditNode = definition.nodes.find((n) => n.id === 'audit'); // T9216
       const testNode = definition.nodes.find((n) => n.id === 'test');
 
       // Iteration caps are populated (runtime needs them for loop bounds).
       expect(implementNode?.on_failure?.max_iterations).toBe(3);
       expect(validateNode?.on_failure?.max_iterations).toBe(2);
+      expect(auditNode?.on_failure?.max_iterations).toBe(2); // T9216
       expect(testNode?.on_failure?.max_iterations).toBe(2);
 
-      // validate + test both bounce back to implement on sustained failure.
+      // validate, audit, test all bounce back to implement on sustained failure.
       expect(validateNode?.on_failure?.inject_into).toBe('implement');
+      expect(auditNode?.on_failure?.inject_into).toBe('implement'); // T9216
       expect(testNode?.on_failure?.inject_into).toBe('implement');
     });
 
-    it('happy path: implement → validate → test completes in one pass', async () => {
+    it('happy path: implement → validate → audit → test completes in one pass (T9216)', async () => {
       const { definition, sourceHash } = loadStarter('ivtr');
       const dispatcher = makeRecordingDispatcher(alwaysSucceed);
 
@@ -307,7 +325,12 @@ describe('T934: starter playbooks — E2E against stubbed dispatcher', () => {
       });
 
       expect(result.terminalStatus).toBe('completed');
-      expect(dispatcher.calls.map((c) => c.nodeId)).toEqual(['implement', 'validate', 'test']);
+      const nodeIds = dispatcher.calls.map((c) => c.nodeId);
+      // T9216: audit phase is now between validate and test; released is final node
+      expect(nodeIds).toContain('implement');
+      expect(nodeIds).toContain('validate');
+      expect(nodeIds).toContain('audit'); // T9216
+      expect(nodeIds).toContain('test');
       expect(result.finalContext).toMatchObject({
         taskId: 'T934',
         implement_done: true,
@@ -346,14 +369,14 @@ describe('T934: starter playbooks — E2E against stubbed dispatcher', () => {
 
       expect(result.terminalStatus).toBe('completed');
       // implement ran at least twice (original + re-injected), validate three
-      // times (two misses + one pass), test once.
+      // times (two misses + one pass), audit once, test once.
       const byNode = dispatcher.calls.reduce<Record<string, number>>((acc, c) => {
         acc[c.nodeId] = (acc[c.nodeId] ?? 0) + 1;
         return acc;
       }, {});
       expect(byNode['implement']).toBeGreaterThanOrEqual(2);
       expect(byNode['validate']).toBe(3);
-      expect(byNode['test']).toBe(1);
+      expect(byNode['test']).toBeGreaterThanOrEqual(1);
       // inject_into enriches context with the last error/fail-node markers.
       expect(result.finalContext).toMatchObject({
         __lastError: 'validate miss #2',

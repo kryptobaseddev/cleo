@@ -18,9 +18,9 @@ import {
 } from '../src/hierarchy.js';
 
 describe('WORKER_FORBIDDEN_SPAWN_TOOLS', () => {
-  it('exactly contains Agent and Task', () => {
-    expect(WORKER_FORBIDDEN_SPAWN_TOOLS).toEqual(['Agent', 'Task']);
-    expect(WORKER_FORBIDDEN_SPAWN_TOOLS).toHaveLength(2);
+  it('contains Agent, Task, and delegate_task (T9215: delegate_task added)', () => {
+    expect(WORKER_FORBIDDEN_SPAWN_TOOLS).toEqual(['Agent', 'Task', 'delegate_task']);
+    expect(WORKER_FORBIDDEN_SPAWN_TOOLS).toHaveLength(3);
   });
 });
 
