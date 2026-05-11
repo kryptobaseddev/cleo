@@ -73,7 +73,8 @@ export const ORCHESTRATOR_FORBIDDEN_TOOLS = ['Edit', 'Write', 'Bash'] as const;
  * @task T931 Thin-agent runtime enforcer
  * @task T907 Thin-agent enforcement
  */
-export const WORKER_FORBIDDEN_SPAWN_TOOLS = ['Agent', 'Task'] as const;
+/** @task T9215 — 'delegate_task' added to prevent tier-0 worker recursion (W1 wiring) */
+export const WORKER_FORBIDDEN_SPAWN_TOOLS = ['Agent', 'Task', 'delegate_task'] as const;
 
 /**
  * Diagnostic code emitted when {@link stripSpawnToolsForWorker} removed one or
