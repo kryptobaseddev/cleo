@@ -506,3 +506,5 @@ export {
 } from './tasks/severity-attestation.js';
 export { showTask } from './tasks/show.js';
 export { updateTask } from './tasks/update.js';
+// Verifier auto-stub generator (T9218 / ADR-070)
+export { generateVerifierStub, writeVerifierStub } from './tasks/verifier-stub-generator.js';
