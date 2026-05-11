@@ -15,8 +15,8 @@
  *   - NO grandfather flag
  */
 
-import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,7 +34,7 @@ function pass(msg) {
   console.log('PASS:', msg);
 }
 
-function run(cmd, opts = {}) {
+function _run(cmd, opts = {}) {
   try {
     const result = spawnSync('bash', ['-c', cmd], {
       cwd: REPO_ROOT,
@@ -75,23 +75,25 @@ if (stubGenContent !== null) {
 // ---------------------------------------------------------------------------
 // Check 2: generateVerifierStub function is exported from stub generator
 // ---------------------------------------------------------------------------
-if (stubGenContent.includes('export function generateVerifierStub') || stubGenContent.includes('export async function generateVerifierStub')) {
+if (
+  stubGenContent.includes('export function generateVerifierStub') ||
+  stubGenContent.includes('export async function generateVerifierStub')
+) {
   pass('generateVerifierStub is exported from verifier-stub-generator.ts');
 } else {
-  fail(
-    'generateVerifierStub must be an exported function in verifier-stub-generator.ts (T9218)',
-  );
+  fail('generateVerifierStub must be an exported function in verifier-stub-generator.ts (T9218)');
 }
 
 // ---------------------------------------------------------------------------
 // Check 3: writeVerifierStub function is exported from stub generator
 // ---------------------------------------------------------------------------
-if (stubGenContent.includes('export function writeVerifierStub') || stubGenContent.includes('export async function writeVerifierStub')) {
+if (
+  stubGenContent.includes('export function writeVerifierStub') ||
+  stubGenContent.includes('export async function writeVerifierStub')
+) {
   pass('writeVerifierStub is exported from verifier-stub-generator.ts');
 } else {
-  fail(
-    'writeVerifierStub must be an exported function in verifier-stub-generator.ts (T9218)',
-  );
+  fail('writeVerifierStub must be an exported function in verifier-stub-generator.ts (T9218)');
 }
 
 // ---------------------------------------------------------------------------
@@ -100,9 +102,7 @@ if (stubGenContent.includes('export function writeVerifierStub') || stubGenConte
 if (stubGenContent.includes('process.exit(1)')) {
   pass('verifier-stub-generator.ts uses process.exit(1) for each stub assertion');
 } else {
-  fail(
-    'verifier-stub-generator.ts must produce process.exit(1) blocks for each AC bullet (T9218)',
-  );
+  fail('verifier-stub-generator.ts must produce process.exit(1) blocks for each AC bullet (T9218)');
 }
 
 // ---------------------------------------------------------------------------
@@ -112,8 +112,8 @@ const addContent = readFile('packages/core/src/tasks/add.ts');
 const sessionScopeContent = readFile('packages/core/src/tasks/session-scope.ts');
 
 const hasVerifierRequired =
-  (addContent && addContent.includes('E_VERIFIER_REQUIRED')) ||
-  (sessionScopeContent && sessionScopeContent.includes('E_VERIFIER_REQUIRED'));
+  addContent?.includes('E_VERIFIER_REQUIRED') ||
+  sessionScopeContent?.includes('E_VERIFIER_REQUIRED');
 
 if (hasVerifierRequired) {
   pass('E_VERIFIER_REQUIRED error code found in tasks.add/session-scope (T9218 strict mode)');
@@ -129,10 +129,8 @@ if (hasVerifierRequired) {
 const verifyContent = readFile('packages/cleo/src/cli/commands/verify.ts');
 const verifyBackfillContent = readFile('packages/cleo/src/cli/commands/verify-backfill.ts');
 
-const hasBackfillInVerify = verifyContent && (
-  verifyContent.includes('backfill') ||
-  verifyContent.includes('subCommands')
-);
+const hasBackfillInVerify =
+  verifyContent && (verifyContent.includes('backfill') || verifyContent.includes('subCommands'));
 const hasBackfillFile = verifyBackfillContent !== null;
 
 if (hasBackfillInVerify || hasBackfillFile) {
@@ -147,10 +145,7 @@ if (hasBackfillInVerify || hasBackfillFile) {
 // Check 7: backfill has --all-pending flag
 // ---------------------------------------------------------------------------
 const backfillSource = verifyBackfillContent ?? verifyContent ?? '';
-if (
-  backfillSource.includes('all-pending') ||
-  backfillSource.includes('allPending')
-) {
+if (backfillSource.includes('all-pending') || backfillSource.includes('allPending')) {
   pass('cleo verify backfill has --all-pending flag (T9218)');
 } else {
   fail(
@@ -163,13 +158,11 @@ if (
 // ---------------------------------------------------------------------------
 if (
   backfillSource.includes('--force') ||
-  backfillSource.includes('force') && backfillSource.includes('overwrite')
+  (backfillSource.includes('force') && backfillSource.includes('overwrite'))
 ) {
   pass('cleo verify backfill is idempotent — has --force flag for overwrite (T9218)');
 } else {
-  fail(
-    'cleo verify backfill must be idempotent: refuse to overwrite without --force (T9218)',
-  );
+  fail('cleo verify backfill must be idempotent: refuse to overwrite without --force (T9218)');
 }
 
 // ---------------------------------------------------------------------------
@@ -177,9 +170,9 @@ if (
 // ---------------------------------------------------------------------------
 const contractsAddContent = readFile('packages/contracts/src/operations/tasks.ts');
 const hasGrandfatherFlag =
-  (contractsAddContent && contractsAddContent.includes('grandfather')) ||
-  (addContent && addContent.includes('grandfather')) ||
-  (sessionScopeContent && sessionScopeContent.includes('grandfather'));
+  contractsAddContent?.includes('grandfather') ||
+  addContent?.includes('grandfather') ||
+  sessionScopeContent?.includes('grandfather');
 
 if (!hasGrandfatherFlag) {
   pass('No grandfather flag found — per owner direction (T9218)');
@@ -193,12 +186,13 @@ if (!hasGrandfatherFlag) {
 // Check 10: verifier-stub-generator exported from core index
 // ---------------------------------------------------------------------------
 const coreIndex = readFile('packages/core/src/tasks/index.ts');
-if (coreIndex && (coreIndex.includes('verifier-stub-generator') || coreIndex.includes('generateVerifierStub'))) {
+if (
+  coreIndex &&
+  (coreIndex.includes('verifier-stub-generator') || coreIndex.includes('generateVerifierStub'))
+) {
   pass('verifier-stub-generator is exported from packages/core/src/tasks/index.ts');
 } else {
-  fail(
-    'verifier-stub-generator must be exported from packages/core/src/tasks/index.ts (T9218)',
-  );
+  fail('verifier-stub-generator must be exported from packages/core/src/tasks/index.ts (T9218)');
 }
 
 // ---------------------------------------------------------------------------
@@ -207,22 +201,18 @@ if (coreIndex && (coreIndex.includes('verifier-stub-generator') || coreIndex.inc
 if (
   stubGenContent.includes('Source task') ||
   stubGenContent.includes('source task') ||
-  stubGenContent.includes('taskId') && stubGenContent.includes('Verifier for')
+  (stubGenContent.includes('taskId') && stubGenContent.includes('Verifier for'))
 ) {
   pass('verifier-stub-generator includes source task ID in header comment (T9218)');
 } else {
-  fail(
-    'verifier-stub-generator must include header comment naming the source task ID (T9218)',
-  );
+  fail('verifier-stub-generator must include header comment naming the source task ID (T9218)');
 }
 
 // ---------------------------------------------------------------------------
 // Final
 // ---------------------------------------------------------------------------
 if (failures.length === 0) {
-  console.log(
-    '\nVERIFIER PASS: T9218 — mandatory verifier strict + cleo verify backfill tool',
-  );
+  console.log('\nVERIFIER PASS: T9218 — mandatory verifier strict + cleo verify backfill tool');
   process.exit(0);
 } else {
   console.error(`\nVERIFIER FAIL: ${failures.length} check(s) failed`);
