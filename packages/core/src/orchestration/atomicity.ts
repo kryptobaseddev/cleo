@@ -11,6 +11,7 @@
  *
  * @task T889 Orchestration Coherence v3
  * @task T894 Atomicity guard (W3-3)
+ * @task T9214 Atomicity gate UX hardening (W4)
  */
 
 import type { AgentSpawnCapability } from '@cleocode/contracts';
@@ -33,6 +34,16 @@ export const MAX_WORKER_FILES = 3;
 export type AtomicityErrorCode = 'E_ATOMICITY_VIOLATION' | 'E_ATOMICITY_NO_SCOPE';
 
 /**
+ * Structured waiver reason recorded when an orchestrator-tier caller defers
+ * scope declaration to the spawned worker.
+ *
+ * Only tier-1+ orchestrators may pass this waiver. Tier-0 (direct user) callers
+ * MUST still declare files explicitly — widening the waiver to tier-0 is
+ * explicitly out of scope per T9214 constraints.
+ */
+export type AtomicityWaiverReason = 'orchestrator-scope-tier1-call';
+
+/**
  * Input shape for {@link checkAtomicity}.
  *
  * Callers may provide the declared files via either {@link declaredFiles} or
@@ -50,6 +61,23 @@ export interface AtomicityInput {
   declaredFiles?: readonly string[];
   /** Alias for {@link declaredFiles} — matches AC.files casing. */
   acFiles?: readonly string[];
+  /**
+   * Structured waiver that allows a tier-1+ orchestrator to defer file-scope
+   * declaration to the spawned worker at commit time.
+   *
+   * Setting this to `'orchestrator-defer'` bypasses `E_ATOMICITY_NO_SCOPE`
+   * for the child task and records `atomicity_waiver:
+   * 'orchestrator-scope-tier1-call'` in the returned result so the caller
+   * can emit an auditable manifest entry.
+   *
+   * IMPORTANT: This waiver MUST NOT be used by tier-0 (direct user) callers
+   * — only by orchestrators that are explicitly delegating scope accountability
+   * to the worker. The waiver does NOT suppress `E_ATOMICITY_VIOLATION` (file-
+   * count overflow).
+   *
+   * @task T9214 — orchestrator-defer UX hardening
+   */
+  scope?: 'orchestrator-defer';
 }
 
 /**
@@ -57,6 +85,8 @@ export interface AtomicityInput {
  *
  * On success, only `allowed` and `meta` are populated. On failure, `code`,
  * `message`, and `fixHint` describe the rejection and how to remedy it.
+ * When a waiver is granted, `atomicity_waiver` is set so callers can emit
+ * an auditable manifest entry.
  */
 export interface AtomicityResult {
   /** Whether the spawn is permitted under the atomicity rule. */
@@ -67,6 +97,16 @@ export interface AtomicityResult {
   message?: string;
   /** Suggested fix when `allowed === false`. */
   fixHint?: string;
+  /**
+   * Structured waiver reason recorded when an orchestrator uses
+   * `scope: 'orchestrator-defer'` to bypass `E_ATOMICITY_NO_SCOPE`.
+   *
+   * Callers MUST persist this value in the spawn manifest entry so the
+   * bypass is auditable.
+   *
+   * @task T9214
+   */
+  atomicity_waiver?: AtomicityWaiverReason;
   /** Counts observed during the check. */
   meta?: {
     /** Number of declared files (AC.files) observed. */
@@ -89,11 +129,17 @@ export interface AtomicityResult {
  * 2. Declare no more than {@link MAX_WORKER_FILES} files (overflow →
  *    `E_ATOMICITY_VIOLATION`).
  *
+ * Orchestrators (tier-1+) may set `input.scope = 'orchestrator-defer'` to let
+ * the worker declare its own scope at commit time. This produces
+ * `allowed: true` with `atomicity_waiver: 'orchestrator-scope-tier1-call'` in
+ * the result — callers MUST persist the waiver in the spawn manifest.
+ *
  * @param input - Task metadata and declared role.
  * @returns Atomicity decision plus diagnostics.
  *
  * @example
  * ```typescript
+ * // Standard path — worker declares files.
  * const result = checkAtomicity({
  *   taskId: 'T1001',
  *   role: 'worker',
@@ -102,6 +148,19 @@ export interface AtomicityResult {
  * if (!result.allowed) {
  *   throw new AtomicityViolationError(result);
  * }
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Orchestrator-defer waiver — scope accountability delegated to worker.
+ * const result = checkAtomicity({
+ *   taskId: 'T1002',
+ *   role: 'worker',
+ *   scope: 'orchestrator-defer',
+ * });
+ * // result.allowed === true
+ * // result.atomicity_waiver === 'orchestrator-scope-tier1-call'
+ * // Caller MUST record atomicity_waiver in spawn manifest.
  * ```
  */
 export function checkAtomicity(input: AtomicityInput): AtomicityResult {
@@ -115,11 +174,22 @@ export function checkAtomicity(input: AtomicityInput): AtomicityResult {
   const hasScope = files.length > 0;
 
   if (!hasScope) {
+    // Orchestrator-defer waiver: a tier-1+ caller explicitly delegates scope
+    // accountability to the worker. Grant the spawn but record the waiver so
+    // the manifest entry remains auditable.
+    if (input.scope === 'orchestrator-defer') {
+      return {
+        allowed: true,
+        atomicity_waiver: 'orchestrator-scope-tier1-call',
+        meta: { fileCount: 0, hasScope: false },
+      };
+    }
+
     return {
       allowed: false,
       code: 'E_ATOMICITY_NO_SCOPE',
       message: `Worker role for task ${input.taskId} lacks file scope (AC.files). Workers MUST declare their files.`,
-      fixHint: `Update task ${input.taskId} with --files "path/a.ts,path/b.ts" OR promote role to 'lead' if scope is inherently broad.`,
+      fixHint: `Child task ${input.taskId} has no file scope. Either spawn with --files <list>, or set --scope orchestrator-defer to let the worker declare scope at commit time.`,
       meta: { fileCount: 0, hasScope: false },
     };
   }

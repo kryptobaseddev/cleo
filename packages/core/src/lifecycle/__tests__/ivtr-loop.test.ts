@@ -118,20 +118,21 @@ describe('IVTR happy path', () => {
     expect(valEntry.completedAt).toBeNull();
   });
 
-  it('advanceIvtr transitions validate → test', async () => {
+  it('advanceIvtr transitions validate → audit (T9216: audit phase added)', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['impl-sha'], { cwd: testDir });
     const state = await advanceIvtr('T999', ['val-sha'], { cwd: testDir });
 
-    expect(state.currentPhase).toBe('test');
+    expect(state.currentPhase).toBe('audit');
     expect(state.phaseHistory).toHaveLength(3);
-    expect(state.phaseHistory[2]?.phase).toBe('test');
+    expect(state.phaseHistory[2]?.phase).toBe('audit');
   });
 
-  it('full happy path: implement → validate → test → release', async () => {
+  it('full happy path: implement → validate → audit → test → release (T9216)', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['impl-sha'], { cwd: testDir });
     await advanceIvtr('T999', ['val-sha'], { cwd: testDir });
+    await advanceIvtr('T999', ['audit-sha'], { cwd: testDir }); // T9216: audit phase
     await advanceIvtr('T999', ['test-sha'], { cwd: testDir });
 
     const result = await releaseIvtr('T999', { cwd: testDir });
@@ -146,6 +147,7 @@ describe('IVTR happy path', () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['i'], { cwd: testDir });
     await advanceIvtr('T999', ['v'], { cwd: testDir });
+    await advanceIvtr('T999', ['a'], { cwd: testDir }); // T9216: audit phase
     await advanceIvtr('T999', ['t'], { cwd: testDir });
     await releaseIvtr('T999', { cwd: testDir });
 
@@ -159,28 +161,29 @@ describe('IVTR happy path', () => {
 // ---------------------------------------------------------------------------
 
 describe('IVTR loop-back', () => {
-  it('loopBackIvtr from test to implement records failure', async () => {
+  it('loopBackIvtr from audit to implement records failure (T9216)', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['impl-sha'], { cwd: testDir });
     await advanceIvtr('T999', ['val-sha'], { cwd: testDir });
+    // Now in audit phase (T9216)
 
-    const state = await loopBackIvtr('T999', 'implement', 'Tests failed: missing coverage', [], {
+    const state = await loopBackIvtr('T999', 'implement', 'Audit failed: verifier exit 1', [], {
       cwd: testDir,
     });
 
     expect(state.currentPhase).toBe('implement');
-    // History: implement(pass) + validate(pass) + test(fail) + implement(new)
+    // History: implement(pass) + validate(pass) + audit(fail) + implement(new)
     expect(state.phaseHistory).toHaveLength(4);
 
-    const failedTest = state.phaseHistory[2]!;
-    expect(failedTest.phase).toBe('test');
-    expect(failedTest.passed).toBe(false);
-    expect(failedTest.reason).toBe('Tests failed: missing coverage');
+    const failedAudit = state.phaseHistory[2]!;
+    expect(failedAudit.phase).toBe('audit');
+    expect(failedAudit.passed).toBe(false);
+    expect(failedAudit.reason).toBe('Audit failed: verifier exit 1');
 
     const newImpl = state.phaseHistory[3]!;
     expect(newImpl.phase).toBe('implement');
     expect(newImpl.passed).toBeNull();
-    expect(newImpl.reason).toMatch(/Loop-back from test/);
+    expect(newImpl.reason).toMatch(/Loop-back from audit/);
   });
 
   it('after loop-back, advance resumes from implement again', async () => {
@@ -189,9 +192,10 @@ describe('IVTR loop-back', () => {
     await advanceIvtr('T999', ['v1'], { cwd: testDir });
     await loopBackIvtr('T999', 'implement', 'fix needed', [], { cwd: testDir });
 
-    // Advance implement → validate → test
+    // Advance implement → validate → audit → test (T9216: audit phase added)
     await advanceIvtr('T999', ['i2'], { cwd: testDir });
     await advanceIvtr('T999', ['v2'], { cwd: testDir });
+    await advanceIvtr('T999', ['a2'], { cwd: testDir }); // T9216: audit
     await advanceIvtr('T999', ['t2'], { cwd: testDir });
 
     const result = await releaseIvtr('T999', { cwd: testDir });
@@ -225,6 +229,7 @@ describe('releaseIvtr gate failures', () => {
     expect(result.released).toBe(false);
     expect(result.failures).toContain("Phase 'implement' has no passing entry");
     expect(result.failures).toContain("Phase 'validate' has no passing entry");
+    expect(result.failures).toContain("Phase 'audit' has no passing entry"); // T9216
     expect(result.failures).toContain("Phase 'test' has no passing entry");
   });
 
@@ -252,6 +257,7 @@ describe('IVTR edge cases', () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['i'], { cwd: testDir });
     await advanceIvtr('T999', ['v'], { cwd: testDir });
+    await advanceIvtr('T999', ['a'], { cwd: testDir }); // T9216: audit phase
     await advanceIvtr('T999', ['t'], { cwd: testDir });
     await releaseIvtr('T999', { cwd: testDir });
 
@@ -293,10 +299,22 @@ describe('resolvePhasePrompt', () => {
     expect(prompt).toContain('REJECT criteria');
   });
 
-  it('generates test prompt with prior evidence', async () => {
+  it('generates audit prompt after validate (T9216: audit phase added)', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['sha-i'], { cwd: testDir });
     const state = await advanceIvtr('T999', ['sha-v'], { cwd: testDir });
+    const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Do the thing');
+
+    expect(prompt).toContain('Phase: **AUDIT**');
+    // Audit phase: references the verifier script convention
+    expect(prompt).toContain('Auditor agent');
+  });
+
+  it('generates test prompt with prior evidence', async () => {
+    await startIvtr('T999', { cwd: testDir });
+    await advanceIvtr('T999', ['sha-i'], { cwd: testDir });
+    await advanceIvtr('T999', ['sha-v'], { cwd: testDir }); // → audit (T9216)
+    const state = await advanceIvtr('T999', ['sha-a'], { cwd: testDir }); // audit → test
     const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Do the thing');
 
     expect(prompt).toContain('Phase: **TEST**');
@@ -316,9 +334,9 @@ describe('IVTR loop-back max retries', () => {
   it('first loop-back (count=1) succeeds — loopBackCount increments', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['impl-sha'], { cwd: testDir }); // → validate
-    await advanceIvtr('T999', ['val-sha'], { cwd: testDir }); // → test
+    await advanceIvtr('T999', ['val-sha'], { cwd: testDir }); // → audit (T9216)
 
-    const state = await loopBackIvtr('T999', 'implement', 'Tests failed round 1', [], {
+    const state = await loopBackIvtr('T999', 'implement', 'Audit failed round 1', [], {
       cwd: testDir,
     });
 
@@ -329,12 +347,12 @@ describe('IVTR loop-back max retries', () => {
   it('second loop-back (count=2) succeeds — loopBackCount reaches MAX', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir });
+    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit (T9216)
     await loopBackIvtr('T999', 'implement', 'Round 1 failure', [], { cwd: testDir });
 
-    // Resume: advance back through validate → test
+    // Resume: advance back through validate → audit (T9216)
     await advanceIvtr('T999', ['i2'], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir });
+    await advanceIvtr('T999', ['v2'], { cwd: testDir }); // → audit
 
     const state = await loopBackIvtr('T999', 'implement', 'Round 2 failure', [], {
       cwd: testDir,
@@ -346,19 +364,19 @@ describe('IVTR loop-back max retries', () => {
 
   it('third loop-back (count=3) rejects with E_IVTR_MAX_RETRIES', async () => {
     await startIvtr('T999', { cwd: testDir });
-    // Pass 1: implement → validate → test → loop-back 1
+    // Pass 1: implement → validate → audit → loop-back 1 (T9216: from audit)
     await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir });
+    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit
     await loopBackIvtr('T999', 'implement', 'Failure 1', [], { cwd: testDir });
 
-    // Pass 2: implement → validate → test → loop-back 2
+    // Pass 2: implement → validate → audit → loop-back 2
     await advanceIvtr('T999', ['i2'], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir });
+    await advanceIvtr('T999', ['v2'], { cwd: testDir }); // → audit
     await loopBackIvtr('T999', 'implement', 'Failure 2', [], { cwd: testDir });
 
-    // Pass 3: implement → validate → test → loop-back 3 (should FAIL)
+    // Pass 3: implement → validate → audit → loop-back 3 (should FAIL)
     await advanceIvtr('T999', ['i3'], { cwd: testDir });
-    await advanceIvtr('T999', ['v3'], { cwd: testDir });
+    await advanceIvtr('T999', ['v3'], { cwd: testDir }); // → audit
 
     await expect(
       loopBackIvtr('T999', 'implement', 'Failure 3', [], { cwd: testDir }),
@@ -368,30 +386,36 @@ describe('IVTR loop-back max retries', () => {
   it('state is NOT mutated when max retries throws', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir });
+    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit (T9216)
     await loopBackIvtr('T999', 'implement', 'Failure 1', [], { cwd: testDir });
 
     await advanceIvtr('T999', ['i2'], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir });
+    await advanceIvtr('T999', ['v2'], { cwd: testDir }); // → audit
     await loopBackIvtr('T999', 'implement', 'Failure 2', [], { cwd: testDir });
 
     await advanceIvtr('T999', ['i3'], { cwd: testDir });
-    await advanceIvtr('T999', ['v3'], { cwd: testDir });
+    await advanceIvtr('T999', ['v3'], { cwd: testDir }); // → audit
 
     // Attempt the rejected 3rd loop-back
     await expect(
       loopBackIvtr('T999', 'implement', 'Failure 3', [], { cwd: testDir }),
     ).rejects.toThrow(E_IVTR_MAX_RETRIES);
 
-    // Phase must still be 'test' (the in-progress phase before the rejected loop-back)
+    // Phase must still be 'audit' (T9216: the in-progress phase before the rejected loop-back)
     const state = await getIvtrState('T999', { cwd: testDir });
-    expect(state?.currentPhase).toBe('test');
+    expect(state?.currentPhase).toBe('audit');
     expect(state?.loopBackCount.implement).toBe(MAX_LOOP_BACKS_PER_PHASE);
   });
 
   it('loopBackCount initialises to 0 on startIvtr', async () => {
     const state = await startIvtr('T999', { cwd: testDir });
-    expect(state.loopBackCount).toEqual({ implement: 0, validate: 0, test: 0, released: 0 });
+    expect(state.loopBackCount).toEqual({
+      implement: 0,
+      validate: 0,
+      audit: 0,
+      test: 0,
+      released: 0,
+    }); // T9216: audit added
   });
 
   it('backward-compat: legacy state without loopBackCount still works', async () => {
@@ -466,55 +490,55 @@ describe('resolvePhasePrompt loop-back context injection', () => {
     expect(prompt).toContain('Loop-back History');
   });
 
-  it('loop-back section included after test failure triggers implement re-spawn', async () => {
+  it('loop-back section included after audit failure triggers implement re-spawn (T9216)', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir });
+    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit (T9216)
 
-    // Test fails → loop-back to implement
+    // Audit fails → loop-back to implement
     const state = await loopBackIvtr(
       'T999',
       'implement',
-      'Test coverage is 12% below threshold',
-      ['test-output-sha'],
+      'Verifier exit 1: AC check failed',
+      ['audit-output-sha'],
       { cwd: testDir },
     );
 
     const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec here');
 
     expect(prompt).toContain('LOOP-BACK CONTEXT');
-    expect(prompt).toContain('TEST');
-    expect(prompt).toContain('Test coverage is 12% below threshold');
-    expect(prompt).toContain('test-output-sha');
+    expect(prompt).toContain('AUDIT');
+    expect(prompt).toContain('Verifier exit 1: AC check failed');
+    expect(prompt).toContain('audit-output-sha');
     expect(prompt).toContain('Loop-back History (all prior failures for this task)');
-    // History must list the failed test entry
-    expect(prompt).toContain('1. Phase: TEST');
+    // History must list the failed audit entry
+    expect(prompt).toContain('1. Phase: AUDIT');
   });
 
-  it('multi-failure: loop-back history lists ALL prior failures', async () => {
+  it('multi-failure: loop-back history lists ALL prior failures (T9216: from audit)', async () => {
     await startIvtr('T999', { cwd: testDir });
     await advanceIvtr('T999', ['i1'], { cwd: testDir });
-    await advanceIvtr('T999', ['v1'], { cwd: testDir });
+    await advanceIvtr('T999', ['v1'], { cwd: testDir }); // → audit (T9216)
 
-    // First loop-back
-    await loopBackIvtr('T999', 'implement', 'First test failure', ['sha-fail-1'], {
+    // First loop-back from audit
+    await loopBackIvtr('T999', 'implement', 'First audit failure', ['sha-fail-1'], {
       cwd: testDir,
     });
 
     // Advance again and fail a second time
     await advanceIvtr('T999', ['i2'], { cwd: testDir });
-    await advanceIvtr('T999', ['v2'], { cwd: testDir });
-    const state = await loopBackIvtr('T999', 'implement', 'Second test failure', ['sha-fail-2'], {
+    await advanceIvtr('T999', ['v2'], { cwd: testDir }); // → audit
+    const state = await loopBackIvtr('T999', 'implement', 'Second audit failure', ['sha-fail-2'], {
       cwd: testDir,
     });
 
     const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Spec here');
 
-    // Both failures must appear in loop-back history
-    expect(prompt).toContain('1. Phase: TEST');
-    expect(prompt).toContain('2. Phase: TEST');
-    expect(prompt).toContain('First test failure');
-    expect(prompt).toContain('Second test failure');
+    // Both failures must appear in loop-back history (T9216: phase is now AUDIT)
+    expect(prompt).toContain('1. Phase: AUDIT');
+    expect(prompt).toContain('2. Phase: AUDIT');
+    expect(prompt).toContain('First audit failure');
+    expect(prompt).toContain('Second audit failure');
   });
 
   it('no loop-back section on validate prompt even when prior implement passed', async () => {
@@ -658,7 +682,7 @@ describe('resolvePhasePrompt validate-phase enrichment (T812)', () => {
         },
       ],
       startedAt: new Date().toISOString(),
-      loopBackCount: { implement: 0, validate: 2, test: 0, released: 0 },
+      loopBackCount: { implement: 0, validate: 2, audit: 0, test: 0, released: 0 }, // T9216: audit added
     };
 
     const promptWithEscalation = resolvePhasePrompt('T999', fakeState, 'My Task', 'Spec');

@@ -41,7 +41,8 @@ const log = getLogger('lifecycle:ivtr');
 // =============================================================================
 
 /** The four canonical IVTR phases. */
-export type IvtrPhase = 'implement' | 'validate' | 'test' | 'released';
+/** @task T9216 — added 'audit' phase between validate and test */
+export type IvtrPhase = 'implement' | 'validate' | 'audit' | 'test' | 'released';
 
 /**
  * A single phase entry in the IVTR phase history.
@@ -68,6 +69,15 @@ export interface IvtrPhaseEntry {
 export interface IvtrState {
   /** Task ID (e.g. 'T811'). */
   taskId: string;
+  /**
+   * Schema version for forward-only migration.
+   *
+   * Version 2 adds the `audit` phase. Legacy rows (version absent or 1)
+   * continue to work — `audit` counts default to 0 on read.
+   *
+   * @task T9216
+   */
+  schemaVersion?: number;
   /** Current active phase. */
   currentPhase: IvtrPhase;
   /** Full ordered history of all phase entries (including loop-backs). */
@@ -90,7 +100,8 @@ export interface IvtrState {
 // PHASE ORDER
 // =============================================================================
 
-const PHASE_ORDER: IvtrPhase[] = ['implement', 'validate', 'test', 'released'];
+/** @task T9216 — 'audit' inserted between validate and test */
+const PHASE_ORDER: IvtrPhase[] = ['implement', 'validate', 'audit', 'test', 'released'];
 
 /**
  * Return the next phase after `current`, or null if already at `released`.
@@ -194,10 +205,11 @@ export async function startIvtr(
 
   const state: IvtrState = {
     taskId,
+    schemaVersion: 2,
     currentPhase: 'implement',
     phaseHistory: [entry],
     startedAt: now,
-    loopBackCount: { implement: 0, validate: 0, test: 0, released: 0 },
+    loopBackCount: { implement: 0, validate: 0, audit: 0, test: 0, released: 0 },
   };
 
   await writeIvtrState(state, options?.cwd);
@@ -325,10 +337,12 @@ export async function loopBackIvtr(
     throw new Error(`Task ${taskId} is already released. Cannot loop back.`);
   }
 
-  // Backward-compat: legacy states may not have loopBackCount.
+  // Backward-compat: legacy states may not have loopBackCount or audit field.
   if (!state.loopBackCount) {
-    state.loopBackCount = { implement: 0, validate: 0, test: 0, released: 0 };
+    state.loopBackCount = { implement: 0, validate: 0, audit: 0, test: 0, released: 0 };
   }
+  // Defensive: legacy rows predating T9216 won't have loopBackCount.audit.
+  state.loopBackCount.audit = state.loopBackCount.audit ?? 0;
 
   // Check max BEFORE any mutation so the state stays clean on reject.
   const currentCount = state.loopBackCount[toPhase] ?? 0;
@@ -397,7 +411,13 @@ export async function releaseIvtr(
   }
 
   const failures: string[] = [];
-  const required: Array<Exclude<IvtrPhase, 'released'>> = ['implement', 'validate', 'test'];
+  // T9216: 'audit' added as required phase
+  const required: Array<Exclude<IvtrPhase, 'released'>> = [
+    'implement',
+    'validate',
+    'audit',
+    'test',
+  ];
 
   for (const phase of required) {
     const passed = state.phaseHistory.some((e) => e.phase === phase && e.passed === true);
@@ -721,6 +741,15 @@ Your responsibilities:
 5. Report your sha256 attachment refs as evidence when you call cleo orchestrate ivtr ${taskId} --next.`,
 
     validate: '', // handled above — this branch is unreachable when currentPhase === 'validate'
+
+    audit: `## Phase: Audit
+You are the independent Auditor agent for task ${taskId}.
+
+Your responsibilities:
+1. Run scripts/verify-${taskId.toLowerCase()}.mjs (or scripts/verify-${taskId}.mjs if the lowercase variant does not exist).
+2. If the verifier exits 0: call cleo orchestrate ivtr ${taskId} --next.
+3. If the verifier exits non-zero: inject the last 20 lines of verifier output as the loop-back reason and call cleo orchestrate ivtr ${taskId} --loop-back --phase implement --reason "<verifier diagnostic>".
+Do NOT trust any prior agent's claims — only the verifier exit code matters.`,
 
     test: `## Phase: Test
 You are the Testing agent for task ${taskId}.

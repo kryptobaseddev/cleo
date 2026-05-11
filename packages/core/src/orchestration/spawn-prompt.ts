@@ -304,6 +304,19 @@ export interface BuildSpawnPromptInput {
    * @task T1614 — spawn auto-attaches docs to subagent task
    */
   docAttachments?: readonly TaskDocAttachment[];
+  /**
+   * Agent role for tier-specific skill selection.
+   *
+   * Used by {@link buildTierSkillExcerpts} to determine which skill excerpts to
+   * embed. At tier 1 `'lead'` loads ct-cleo + ct-lead; at tier 2
+   * `'orchestrator'` loads ct-cleo + ct-orchestrator (unchanged). For other
+   * combinations no skill excerpts are emitted.
+   *
+   * Optional — defaults to `'worker'` (no skill excerpts) when absent.
+   *
+   * @task T9213 — auto-load ct-lead at tier-1 lead spawns
+   */
+  role?: 'orchestrator' | 'lead' | 'worker';
 }
 
 /**
@@ -330,6 +343,8 @@ interface TemplateCache {
   cleoInjection: string | null;
   ctCleoExcerpt: string | null;
   ctOrchestratorExcerpt: string | null;
+  /** @task T9213 — ct-lead skill excerpt for tier-1 lead spawns */
+  ctLeadExcerpt: string | null;
   subagentProtocolBlock: string | null;
 }
 
@@ -337,6 +352,7 @@ const CACHE: TemplateCache = {
   cleoInjection: null,
   ctCleoExcerpt: null,
   ctOrchestratorExcerpt: null,
+  ctLeadExcerpt: null,
   subagentProtocolBlock: null,
 };
 
@@ -350,6 +366,7 @@ export function resetSpawnPromptCache(): void {
   CACHE.cleoInjection = null;
   CACHE.ctCleoExcerpt = null;
   CACHE.ctOrchestratorExcerpt = null;
+  CACHE.ctLeadExcerpt = null;
   CACHE.subagentProtocolBlock = null;
 }
 
@@ -1086,37 +1103,88 @@ function buildTier1InjectionPointer(): string {
   ].join('\n');
 }
 
-/** Build the tier 2 skill excerpts — ct-cleo + ct-orchestrator. */
-function buildTier2SkillExcerpts(projectRoot: string): string {
-  const ctCleo = loadSkillExcerpt('ct-cleo', 6000, projectRoot);
-  const ctOrch = loadSkillExcerpt('ct-orchestrator', 6000, projectRoot);
-  const block = loadSubagentProtocolBlock(projectRoot);
+/**
+ * Build tier-specific skill excerpts for spawn prompts.
+ *
+ * Routing:
+ * - tier=1, role='lead'        → ct-cleo + ct-lead
+ * - tier=2, role='orchestrator' → ct-cleo + ct-orchestrator + subagent protocol block (legacy behavior)
+ * - all other combinations      → empty string (no excerpts)
+ *
+ * @param tier - Spawn tier (0, 1, or 2).
+ * @param role - Agent role string ('orchestrator', 'lead', 'worker', or any string).
+ * @param projectRoot - Absolute path to the project root.
+ * @returns Markdown skill excerpt block ready to embed in a spawn prompt.
+ *
+ * @task T9213 — generalize tier-specific skill loading
+ */
+export function buildTierSkillExcerpts(tier: number, role: string, projectRoot: string): string {
+  if (tier === 1 && role === 'lead') {
+    const ctCleo = loadSkillExcerpt('ct-cleo', 6000, projectRoot);
+    const ctLead = loadSkillExcerpt('ct-lead', 6000, projectRoot);
 
-  const parts: string[] = ['## Skill Excerpts (tier 2)', ''];
-  if (ctCleo) {
-    parts.push('### ct-cleo (CLEO protocol guide)');
-    parts.push('');
-    parts.push(ctCleo);
-    parts.push('');
+    const parts: string[] = ['## Skill Excerpts (tier 1 — lead)', ''];
+    if (ctCleo) {
+      parts.push('### ct-cleo (CLEO protocol guide)');
+      parts.push('');
+      parts.push(ctCleo);
+      parts.push('');
+    }
+    if (ctLead) {
+      parts.push('### ct-lead (phase lead orchestration)');
+      parts.push('');
+      parts.push(ctLead);
+      parts.push('');
+    }
+    if (parts.length === 2) {
+      parts.push(
+        '> Skills not installed in this environment. Run `cleo skill install ct-cleo` and `cleo skill install ct-lead` for offline tier-1 lead prompts.',
+      );
+    }
+    return parts.join('\n');
   }
-  if (ctOrch) {
-    parts.push('### ct-orchestrator (multi-agent coordination)');
-    parts.push('');
-    parts.push(ctOrch);
-    parts.push('');
+
+  if (tier === 2) {
+    const ctCleo = loadSkillExcerpt('ct-cleo', 6000, projectRoot);
+    const ctOrch = loadSkillExcerpt('ct-orchestrator', 6000, projectRoot);
+    const block = loadSubagentProtocolBlock(projectRoot);
+
+    const parts: string[] = ['## Skill Excerpts (tier 2)', ''];
+    if (ctCleo) {
+      parts.push('### ct-cleo (CLEO protocol guide)');
+      parts.push('');
+      parts.push(ctCleo);
+      parts.push('');
+    }
+    if (ctOrch) {
+      parts.push('### ct-orchestrator (multi-agent coordination)');
+      parts.push('');
+      parts.push(ctOrch);
+      parts.push('');
+    }
+    if (block) {
+      parts.push('### Subagent Protocol Block (return-format spec)');
+      parts.push('');
+      parts.push(block);
+      parts.push('');
+    }
+    if (parts.length === 2) {
+      parts.push(
+        '> Skills not installed in this environment. Run `cleo skill install ct-cleo` and `cleo skill install ct-orchestrator` for offline tier-2 prompts.',
+      );
+    }
+    return parts.join('\n');
   }
-  if (block) {
-    parts.push('### Subagent Protocol Block (return-format spec)');
-    parts.push('');
-    parts.push(block);
-    parts.push('');
-  }
-  if (parts.length === 2) {
-    parts.push(
-      '> Skills not installed in this environment. Run `cleo skill install ct-cleo` and `cleo skill install ct-orchestrator` for offline tier-2 prompts.',
-    );
-  }
-  return parts.join('\n');
+
+  return '';
+}
+
+/**
+ * @deprecated Use {@link buildTierSkillExcerpts}(2, 'orchestrator', projectRoot) instead.
+ * Kept for backward compatibility.
+ */
+export function buildTier2SkillExcerpts(projectRoot: string): string {
+  return buildTierSkillExcerpts(2, 'orchestrator', projectRoot);
 }
 
 /**
@@ -1471,6 +1539,10 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     } else {
       embeddedSections.push(buildTier1InjectionEmbed());
     }
+    // tier-1 lead spawns get ct-cleo + ct-lead skill excerpts (T9213)
+    if (input.role === 'lead') {
+      embeddedSections.push(buildTierSkillExcerpts(1, 'lead', input.projectRoot));
+    }
   } else {
     // tier 2
     if (shouldDedupInjection) {
@@ -1478,7 +1550,9 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     } else {
       embeddedSections.push(buildTier1InjectionEmbed());
     }
-    embeddedSections.push(buildTier2SkillExcerpts(input.projectRoot));
+    embeddedSections.push(
+      buildTierSkillExcerpts(2, input.role ?? 'orchestrator', input.projectRoot),
+    );
     // The anti-patterns block is authored by us, so keep its tokens subject
     // to resolution (currently there are none — but structurally it belongs
     // with authored content).

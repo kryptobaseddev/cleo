@@ -26,12 +26,17 @@
  * and runs it via `node`. If the verifier exits non-zero, the command
  * exits non-zero and blocks gate writes. This is the programmatic AC gate.
  *
+ * The `backfill` subcommand (T9218 / ADR-070) auto-generates verifier stubs
+ * from AC text for existing tasks that lack one. Idempotent: refuses to
+ * overwrite without `--force`.
+ *
  * @task T4454
  * @task T832
  * @task T1006
  * @task T1013
  * @task T1502
  * @task T9192
+ * @task T9218
  * @adr ADR-051
  * @adr ADR-059
  * @adr ADR-070
@@ -40,8 +45,9 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { generateVerifierStub, getProjectRoot, writeVerifierStub } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 
 /**
  * Resolve the verifier script path for a given task ID.
@@ -85,6 +91,210 @@ function runVerifier(verifierPath: string): { exitCode: number; stdout: string; 
   };
 }
 
+// ---------------------------------------------------------------------------
+// backfill subcommand (T9218 / ADR-070)
+// ---------------------------------------------------------------------------
+
+/**
+ * cleo verify backfill <taskId> — auto-generate a verifier stub from AC text.
+ *
+ * Generates `scripts/verify-<lowercase-taskId>.mjs` with one `process.exit(1)`
+ * stub per AC bullet. The stubs are intentionally non-passing; replacing them
+ * with real checks is the implementer's job.
+ *
+ * Idempotent: refuses to overwrite an existing verifier without `--force`.
+ *
+ * @task T9218
+ * @adr ADR-070
+ */
+export const backfillCommand = defineCommand({
+  meta: {
+    name: 'backfill',
+    description:
+      'Auto-generate a verifier stub from AC text for a task lacking one (T9218 / ADR-070)',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description:
+        'Task ID to generate a verifier stub for (e.g. T9213). Omit when using --all-pending.',
+      required: false,
+    },
+    'all-pending': {
+      type: 'boolean',
+      description: 'Process all critical/large/epic tasks that lack a verifier script (T9218)',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Overwrite an existing verifier without error (idempotency override)',
+    },
+  },
+  async run({ args, cmd }) {
+    const projectRoot = getProjectRoot();
+    const force = !!args.force;
+
+    if (args['all-pending']) {
+      await backfillAllPending(projectRoot, force);
+      return;
+    }
+
+    if (!args.taskId) {
+      await showUsage(cmd);
+      return;
+    }
+
+    await backfillSingle(String(args.taskId), projectRoot, force);
+  },
+});
+
+/**
+ * Generate a verifier stub for a single task.
+ *
+ * @param taskId - Task ID to process.
+ * @param projectRoot - Absolute path to the project root.
+ * @param force - Overwrite existing verifier when true.
+ */
+async function backfillSingle(taskId: string, projectRoot: string, force: boolean): Promise<void> {
+  // Fetch the task via dispatch
+  const response = await dispatchRaw('query', 'tasks', 'show', { taskId });
+  if (!response.success) {
+    process.stderr.write(
+      `Error: could not fetch task ${taskId}: ${(response.error as { message?: string })?.message ?? 'unknown error'}\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const task = (response.data as { task?: Record<string, unknown> })?.task;
+  if (!task) {
+    process.stderr.write(`Error: task ${taskId} not found.\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Check idempotency — refuse if verifier already exists and --force not set
+  const existing = resolveVerifierScript(taskId, projectRoot);
+  if (existing && !force) {
+    process.stderr.write(
+      `Error: verifier already exists: ${existing}\n` +
+        `  Use --force to overwrite. (T9218 idempotency guard)\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    // The dispatch response gives us a plain record; cast via unknown for type safety
+    const source = generateVerifierStub(
+      task as unknown as Parameters<typeof generateVerifierStub>[0],
+    );
+    const outPath = writeVerifierStub(taskId, source, projectRoot, force);
+    process.stdout.write(`Generated: ${outPath}\n`);
+    process.stdout.write(
+      `\nNext steps:\n` +
+        `  1. Replace each \`fail('STUB — ...')\` block with a real check.\n` +
+        `  2. Verify manually: node ${outPath}\n` +
+        `  3. When the script exits 0: cleo verify ${taskId} --acceptance-check\n`,
+    );
+  } catch (err) {
+    const msg = (err as Error).message ?? String(err);
+    process.stderr.write(`Error generating verifier for ${taskId}: ${msg}\n`);
+    process.exitCode = 1;
+  }
+}
+
+/**
+ * Enumerate all critical/large/epic tasks lacking a verifier and process each.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param force - Overwrite existing verifiers when true.
+ */
+async function backfillAllPending(projectRoot: string, force: boolean): Promise<void> {
+  // Collect tasks via multiple queries: critical priority, large size, epic type.
+  // We use separate queries and deduplicate by task ID to cover all three axes.
+  const seen = new Set<string>();
+  const pending: Array<Record<string, unknown>> = [];
+
+  const queries = [
+    dispatchRaw('query', 'tasks', 'list', { priority: 'critical', limit: 200 }),
+    dispatchRaw('query', 'tasks', 'list', { size: 'large', limit: 200 }),
+    dispatchRaw('query', 'tasks', 'list', { type: 'epic', limit: 200 }),
+  ];
+
+  const results = await Promise.all(queries);
+  for (const response of results) {
+    if (!response.success) continue;
+    const tasks = (response.data as { tasks?: Array<Record<string, unknown>> })?.tasks ?? [];
+    for (const t of tasks) {
+      const id = String(t.id ?? '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      pending.push(t);
+    }
+  }
+
+  // Filter to tasks that lack a verifier script
+  const lacking = pending.filter((t) => {
+    const id = String(t.id ?? '');
+    return !resolveVerifierScript(id, projectRoot);
+  });
+
+  if (lacking.length === 0) {
+    process.stdout.write(
+      'All critical/large/epic tasks already have verifier scripts. Nothing to do.\n',
+    );
+    return;
+  }
+
+  process.stdout.write(
+    `Found ${lacking.length} task(s) lacking a verifier script. Generating stubs...\n\n`,
+  );
+
+  let succeeded = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const task of lacking) {
+    const id = String(task.id ?? '');
+    try {
+      const source = generateVerifierStub(
+        task as unknown as Parameters<typeof generateVerifierStub>[0],
+      );
+      const outPath = writeVerifierStub(id, source, projectRoot, force);
+      process.stdout.write(`  [OK] ${id} → ${outPath}\n`);
+      succeeded++;
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      if (msg.includes('verifier already exists')) {
+        process.stdout.write(
+          `  [SKIP] ${id}: verifier already exists (use --force to overwrite)\n`,
+        );
+        skipped++;
+      } else {
+        process.stderr.write(`  [FAIL] ${id}: ${msg}\n`);
+        failed++;
+      }
+    }
+  }
+
+  process.stdout.write(
+    `\nDone: ${succeeded} generated, ${skipped} skipped (already exist), ${failed} failed.\n`,
+  );
+  process.stdout.write(
+    `\nNext steps for each generated file:\n` +
+      `  1. Replace each \`fail('STUB — ...')\` block with a real check.\n` +
+      `  2. node scripts/verify-<id>.mjs   (must exit 0 before cleo complete)\n`,
+  );
+
+  if (failed > 0) {
+    process.exitCode = 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main verify command (with backfill subcommand)
+// ---------------------------------------------------------------------------
+
 /**
  * cleo verify <task-id> — view or modify verification gates.
  *
@@ -99,6 +309,9 @@ function runVerifier(verifierPath: string): { exitCode: number; stdout: string; 
  * Pass `--acceptance-check [script]` to run the task's verifier script before
  * any gate writes. A non-zero exit from the verifier blocks the operation
  * (T9192 / ADR-070).
+ *
+ * Use `cleo verify backfill <taskId>` to auto-generate a stub verifier for
+ * an existing task (T9218 / ADR-070).
  */
 export const verifyCommand = defineCommand({
   meta: { name: 'verify', description: 'View or modify verification gates for a task' },
@@ -154,6 +367,24 @@ export const verifyCommand = defineCommand({
   async run({ args, cmd }) {
     if (!args.taskId) {
       await showUsage(cmd);
+      return;
+    }
+
+    // Backfill subcommand — handled inline to avoid citty subCommands routing
+    // conflict with positional taskId argument (T9218 / T9213 routing fix).
+    if (args.taskId === 'backfill') {
+      const remainingArgs = process.argv.slice(process.argv.indexOf('backfill') + 1);
+      const taskIdArg = remainingArgs.find((a) => !a.startsWith('-'));
+      const allPending = remainingArgs.includes('--all-pending');
+      const force = remainingArgs.includes('--force');
+      const projectRoot = getProjectRoot();
+      if (allPending) {
+        await backfillAllPending(projectRoot, force);
+      } else if (taskIdArg) {
+        await backfillSingle(taskIdArg, projectRoot, force);
+      } else {
+        await showUsage(cmd);
+      }
       return;
     }
 
