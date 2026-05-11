@@ -158,9 +158,9 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
   ).length;
   // Detect session role — lead sessions are those spawned with role=lead
   // or those that completed tasks without delegating (self-implementation pattern).
-  const sessionRole = sessionEntries.find((e) => e.metadata?.role)?.metadata?.role as
-    | string
-    | undefined;
+  const sessionRole = sessionEntries
+    .map((e) => (e.metadata as Record<string, unknown> | undefined)?.['role'])
+    .find((r) => typeof r === 'string') as string | undefined;
   const isLead = sessionRole === 'lead';
 
   let hygieneScore = 20;

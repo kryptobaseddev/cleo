@@ -1183,7 +1183,7 @@ export function buildTierSkillExcerpts(tier: number, role: string, projectRoot: 
  * @deprecated Use {@link buildTierSkillExcerpts}(2, 'orchestrator', projectRoot) instead.
  * Kept for backward compatibility.
  */
-function buildTier2SkillExcerpts(projectRoot: string): string {
+export function buildTier2SkillExcerpts(projectRoot: string): string {
   return buildTierSkillExcerpts(2, 'orchestrator', projectRoot);
 }
 

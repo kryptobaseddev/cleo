@@ -109,7 +109,7 @@ try {
   // verifier must be runnable without a full build in CI pre-build phases.
   const hasWaiverBypass =
     atomicitySrc.includes('orchestrator-defer') &&
-    (atomicitySrc.includes('allowed: true') || atomicitySrc.includes("allowed:true")) &&
+    (atomicitySrc.includes('allowed: true') || atomicitySrc.includes('allowed:true')) &&
     // Ensure the bypass path returns allowed:true (not just mentions the string)
     atomicitySrc.includes('atomicity_waiver');
 
@@ -159,9 +159,7 @@ if (atomicitySrc.includes('scope') && atomicitySrc.includes('AtomicityInput')) {
 // ---------------------------------------------------------------------------
 // Check 7: Test file covers both waiver and non-waiver paths.
 // ---------------------------------------------------------------------------
-const testSrc = readSrc(
-  'packages/core/src/orchestration/__tests__/atomicity.test.ts',
-);
+const testSrc = readSrc('packages/core/src/orchestration/__tests__/atomicity.test.ts');
 
 if (testSrc.includes('orchestrator-defer')) {
   pass('atomicity.test.ts covers the orchestrator-defer waiver path');
@@ -183,9 +181,7 @@ if (testSrc.includes('atomicity_waiver')) {
 // Final
 // ---------------------------------------------------------------------------
 if (failures.length === 0) {
-  console.log(
-    '\nVERIFIER PASS: T9214 — atomicity gate UX hardening (orchestrator-defer waiver)',
-  );
+  console.log('\nVERIFIER PASS: T9214 — atomicity gate UX hardening (orchestrator-defer waiver)');
   process.exit(0);
 } else {
   console.error(`\nVERIFIER FAIL: ${failures.length} check(s) failed`);

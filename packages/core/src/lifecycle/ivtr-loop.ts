@@ -736,6 +736,15 @@ Your responsibilities:
 
     validate: '', // handled above — this branch is unreachable when currentPhase === 'validate'
 
+    audit: `## Phase: Audit
+You are the independent Auditor agent for task ${taskId}.
+
+Your responsibilities:
+1. Run scripts/verify-${taskId.toLowerCase()}.mjs (or scripts/verify-${taskId}.mjs if the lowercase variant does not exist).
+2. If the verifier exits 0: call cleo orchestrate ivtr ${taskId} --next.
+3. If the verifier exits non-zero: inject the last 20 lines of verifier output as the loop-back reason and call cleo orchestrate ivtr ${taskId} --loop-back --phase implement --reason "<verifier diagnostic>".
+Do NOT trust any prior agent's claims — only the verifier exit code matters.`,
+
     test: `## Phase: Test
 You are the Testing agent for task ${taskId}.
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Verifier for T9213: W2 — auto-load ct-lead skill at tier-1 spawns.
  *
@@ -13,10 +14,9 @@
  *   - spawn-prompt unit test passes
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -95,19 +95,16 @@ const tier1LeadBlock = (() => {
   return src.slice(idx, idx + 500);
 })();
 
-const hasCtLeadInBranch =
-  tier1LeadBlock !== null &&
-  tier1LeadBlock.includes('ct-lead') &&
-  tier1LeadBlock.includes('ct-cleo');
+const hasCtLeadInBranch = tier1LeadBlock?.includes('ct-lead') && tier1LeadBlock.includes('ct-cleo');
 
 if (hasCtLeadInBranch) {
-  pass("tier=1/role=lead branch in buildTierSkillExcerpts loads both ct-cleo and ct-lead");
+  pass('tier=1/role=lead branch in buildTierSkillExcerpts loads both ct-cleo and ct-lead');
 } else {
   // Looser check: does the entire function body reference ct-lead?
   const fnStart = src.indexOf('function buildTierSkillExcerpts');
   const fnSnippet = fnStart >= 0 ? src.slice(fnStart, fnStart + 1500) : '';
   if (fnSnippet.includes('ct-lead') && fnSnippet.includes('ct-cleo')) {
-    pass("buildTierSkillExcerpts body references both ct-cleo and ct-lead");
+    pass('buildTierSkillExcerpts body references both ct-cleo and ct-lead');
   } else {
     fail(
       "buildTierSkillExcerpts must load 'ct-lead' for tier=1/role=lead (ct-lead not found in function body)",
@@ -126,11 +123,9 @@ const hasCtOrchestrator = (() => {
 })();
 
 if (hasCtOrchestrator) {
-  pass("buildTierSkillExcerpts still handles tier=2/role=orchestrator (ct-orchestrator present)");
+  pass('buildTierSkillExcerpts still handles tier=2/role=orchestrator (ct-orchestrator present)');
 } else {
-  fail(
-    "buildTierSkillExcerpts must preserve tier=2/role=orchestrator → ct-orchestrator behavior",
-  );
+  fail('buildTierSkillExcerpts must preserve tier=2/role=orchestrator → ct-orchestrator behavior');
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +165,9 @@ if (tier2CallSite.hasNewCall) {
     'buildSpawnPrompt still calls old buildTier2SkillExcerpts — update call site to buildTierSkillExcerpts',
   );
 } else {
-  fail('Neither buildTier2SkillExcerpts nor buildTierSkillExcerpts found at call site in buildSpawnPrompt');
+  fail(
+    'Neither buildTier2SkillExcerpts nor buildTierSkillExcerpts found at call site in buildSpawnPrompt',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -182,21 +179,25 @@ const hasRoleOnInput = (() => {
   if (idx === -1) return false;
   // Find the closing brace — scan for the next top-level }
   let depth = 0;
-  let start = src.indexOf('{', idx);
+  const start = src.indexOf('{', idx);
   if (start === -1) return false;
   let end = start;
   for (let i = start; i < Math.min(src.length, start + 5000); i++) {
     if (src[i] === '{') depth++;
     if (src[i] === '}') {
       depth--;
-      if (depth === 0) { end = i; break; }
+      if (depth === 0) {
+        end = i;
+        break;
+      }
     }
   }
   const interfaceBody = src.slice(start, end + 1);
-  return interfaceBody.includes('role') && (
-    interfaceBody.includes("'orchestrator'") ||
-    interfaceBody.includes('AgentSpawnCapability') ||
-    interfaceBody.includes('string')
+  return (
+    interfaceBody.includes('role') &&
+    (interfaceBody.includes("'orchestrator'") ||
+      interfaceBody.includes('AgentSpawnCapability') ||
+      interfaceBody.includes('string'))
   );
 })();
 
@@ -217,8 +218,6 @@ if (failures.length === 0) {
   );
   process.exit(0);
 } else {
-  console.error(
-    `\nVERIFIER FAIL: ${failures.length} check(s) failed — implementation incomplete`,
-  );
+  console.error(`\nVERIFIER FAIL: ${failures.length} check(s) failed — implementation incomplete`);
   process.exit(1);
 }
