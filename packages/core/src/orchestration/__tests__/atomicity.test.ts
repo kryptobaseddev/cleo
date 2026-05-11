@@ -1,12 +1,14 @@
 /**
- * Tests for the atomicity guard (T889 / T894 / W3-3).
+ * Tests for the atomicity guard (T889 / T894 / W3-3 / T9214 W4).
  *
  * Exhaustive role × scope matrix:
  * - orchestrator and lead roles always pass (regardless of file count).
  * - worker role requires 1..MAX_WORKER_FILES declared files.
+ * - worker with scope: 'orchestrator-defer' passes and records atomicity_waiver.
  *
  * @task T889
  * @task T894
+ * @task T9214
  */
 
 import { describe, expect, it } from 'vitest';
@@ -70,6 +72,8 @@ describe('checkAtomicity — worker role', () => {
     expect(result.code).toBe('E_ATOMICITY_NO_SCOPE');
     expect(result.message).toContain('T300');
     expect(result.message).toContain('AC.files');
+    expect(result.fixHint).toContain('T300');
+    expect(result.fixHint).toContain('orchestrator-defer');
     expect(result.fixHint).toContain('--files');
     expect(result.meta).toEqual({ fileCount: 0, hasScope: false });
   });
@@ -172,6 +176,83 @@ describe('checkAtomicity — worker role', () => {
   });
 });
 
+describe('checkAtomicity — orchestrator-defer waiver (T9214)', () => {
+  it('grants spawn when scope: orchestrator-defer and no files declared', () => {
+    const result = checkAtomicity({
+      taskId: 'T500',
+      role: 'worker',
+      scope: 'orchestrator-defer',
+    });
+    expect(result.allowed).toBe(true);
+    expect(result.code).toBeUndefined();
+    expect(result.atomicity_waiver).toBe('orchestrator-scope-tier1-call');
+    expect(result.meta).toEqual({ fileCount: 0, hasScope: false });
+  });
+
+  it('records atomicity_waiver in the result envelope', () => {
+    const result = checkAtomicity({
+      taskId: 'T501',
+      role: 'worker',
+      scope: 'orchestrator-defer',
+    });
+    expect(result.atomicity_waiver).toBe('orchestrator-scope-tier1-call');
+  });
+
+  it('waiver does NOT suppress E_ATOMICITY_VIOLATION when files overflow', () => {
+    // Overflow check still runs even when waiver is set — the waiver only
+    // covers the missing-scope case, not the file-count cap violation.
+    const files = Array.from({ length: MAX_WORKER_FILES + 1 }, (_, i) => `f${i}.ts`);
+    const result = checkAtomicity({
+      taskId: 'T502',
+      role: 'worker',
+      scope: 'orchestrator-defer',
+      declaredFiles: files,
+    });
+    // Worker has files but overflows — waiver does not apply here.
+    expect(result.allowed).toBe(false);
+    expect(result.code).toBe('E_ATOMICITY_VIOLATION');
+    expect(result.atomicity_waiver).toBeUndefined();
+  });
+
+  it('fixHint for E_ATOMICITY_NO_SCOPE includes child task ID and orchestrator-defer', () => {
+    const result = checkAtomicity({ taskId: 'T503', role: 'worker' });
+    expect(result.allowed).toBe(false);
+    expect(result.fixHint).toContain('T503');
+    expect(result.fixHint).toContain('orchestrator-defer');
+  });
+
+  it('waiver is a no-op for orchestrator role (already allowed)', () => {
+    const result = checkAtomicity({
+      taskId: 'T504',
+      role: 'orchestrator',
+      scope: 'orchestrator-defer',
+    });
+    expect(result.allowed).toBe(true);
+    // Waiver field is absent — orchestrators are unconditionally allowed.
+    expect(result.atomicity_waiver).toBeUndefined();
+  });
+
+  it('waiver is a no-op for lead role (already allowed)', () => {
+    const result = checkAtomicity({
+      taskId: 'T505',
+      role: 'lead',
+      scope: 'orchestrator-defer',
+    });
+    expect(result.allowed).toBe(true);
+    expect(result.atomicity_waiver).toBeUndefined();
+  });
+
+  it('result without waiver does not carry atomicity_waiver field', () => {
+    const result = checkAtomicity({
+      taskId: 'T506',
+      role: 'worker',
+      declaredFiles: ['a.ts'],
+    });
+    expect(result.allowed).toBe(true);
+    expect(result.atomicity_waiver).toBeUndefined();
+  });
+});
+
 describe('AtomicityViolationError', () => {
   it('constructs from a rejected result with E_ATOMICITY_NO_SCOPE', () => {
     const result = checkAtomicity({ taskId: 'T400', role: 'worker' });
@@ -183,6 +264,7 @@ describe('AtomicityViolationError', () => {
     expect(err.exitCode).toBe(69);
     expect(err.message).toContain('T400');
     expect(err.fixHint).toContain('--files');
+    expect(err.fixHint).toContain('orchestrator-defer');
     expect(err.meta).toEqual({ fileCount: 0, hasScope: false });
   });
 

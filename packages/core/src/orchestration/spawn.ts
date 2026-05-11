@@ -116,6 +116,25 @@ export interface ComposeSpawnPayloadOptions {
    */
   skipAtomicityCheck?: boolean;
   /**
+   * Atomicity scope declaration for the child worker.
+   *
+   * When set to `'orchestrator-defer'`, the composer passes the waiver flag
+   * into {@link checkAtomicity} so that a worker without declared files is
+   * granted the spawn rather than rejected with `E_ATOMICITY_NO_SCOPE`. The
+   * returned {@link SpawnPayload.atomicity} will carry
+   * `atomicity_waiver: 'orchestrator-scope-tier1-call'` — callers MUST
+   * persist this in the manifest entry.
+   *
+   * This field is intentionally distinct from {@link skipAtomicityCheck}:
+   * `skipAtomicityCheck` is a silent hard bypass; `scope` is an auditable
+   * structured waiver that travels through the normal `checkAtomicity` path.
+   *
+   * MUST NOT be used by tier-0 (direct user / CLI) callers.
+   *
+   * @task T9214
+   */
+  scope?: 'orchestrator-defer';
+  /**
    * Protocol phase to dispatch. Default: {@link autoDispatch} result for the
    * task. Callers that have already dispatched externally can pin the
    * phase here to avoid a redundant classification.
@@ -470,6 +489,9 @@ export async function composeSpawnPayload(
   // 6. Atomicity gate — workers only (the check itself no-ops for other
   //    roles). Callers that want to skip entirely (orchestrator-spawned
   //    meta-work) pass `skipAtomicityCheck: true`.
+  //    For auditable orchestrator-defer waivers, pass `scope:
+  //    'orchestrator-defer'` instead — this flows through checkAtomicity
+  //    so the structured waiver reason is preserved in the returned result.
   const atomicity: AtomicityResult = options.skipAtomicityCheck
     ? { allowed: true }
     : checkAtomicity({
@@ -479,6 +501,7 @@ export async function composeSpawnPayload(
           typeof item === 'string' ? item : (item.description ?? ''),
         ),
         declaredFiles: task.files,
+        scope: options.scope,
       });
 
   // 6b. Thin-agent runtime enforcer (T931). Defense-in-depth against a worker
