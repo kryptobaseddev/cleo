@@ -411,7 +411,8 @@ export async function releaseIvtr(
   }
 
   const failures: string[] = [];
-  const required: Array<Exclude<IvtrPhase, 'released'>> = ['implement', 'validate', 'test'];
+  // T9216: 'audit' added as required phase
+  const required: Array<Exclude<IvtrPhase, 'released'>> = ['implement', 'validate', 'audit', 'test'];
 
   for (const phase of required) {
     const passed = state.phaseHistory.some((e) => e.phase === phase && e.passed === true);
