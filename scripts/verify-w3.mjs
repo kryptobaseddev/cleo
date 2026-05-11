@@ -57,7 +57,7 @@ if (!cantbookSrc) {
 if (ivtrSrc.includes("'audit'") && ivtrSrc.includes('IvtrPhase')) {
   // More precise: check the type definition line
   const typeMatch = /IvtrPhase\s*=\s*[^;]+/.exec(ivtrSrc);
-  if (typeMatch && typeMatch[0].includes("'audit'")) {
+  if (typeMatch?.[0].includes("'audit'")) {
     pass("IvtrPhase union includes 'audit'");
   } else {
     fail("IvtrPhase type union must include 'audit' (T9216)");
@@ -90,7 +90,7 @@ if (phaseOrderMatch) {
 // Check 3: IvtrState has schemaVersion field
 // ---------------------------------------------------------------------------
 const ivtrStateMatch = /interface IvtrState\s*\{([^}]+)\}/.exec(ivtrSrc);
-if (ivtrStateMatch && ivtrStateMatch[1].includes('schemaVersion')) {
+if (ivtrStateMatch?.[1].includes('schemaVersion')) {
   pass('IvtrState interface has schemaVersion field (T9216)');
 } else {
   fail('IvtrState interface must have a schemaVersion field (e.g. schemaVersion?: number) (T9216)');

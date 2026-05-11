@@ -409,7 +409,13 @@ describe('IVTR loop-back max retries', () => {
 
   it('loopBackCount initialises to 0 on startIvtr', async () => {
     const state = await startIvtr('T999', { cwd: testDir });
-    expect(state.loopBackCount).toEqual({ implement: 0, validate: 0, audit: 0, test: 0, released: 0 }); // T9216: audit added
+    expect(state.loopBackCount).toEqual({
+      implement: 0,
+      validate: 0,
+      audit: 0,
+      test: 0,
+      released: 0,
+    }); // T9216: audit added
   });
 
   it('backward-compat: legacy state without loopBackCount still works', async () => {
