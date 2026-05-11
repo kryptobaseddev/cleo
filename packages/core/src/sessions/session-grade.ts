@@ -146,6 +146,23 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
     (e) => e.domain === 'tasks' && e.operation === 'exists',
   );
 
+  // Lead bypass detection (T9217 / ADR-070)
+  // Count delegate_task calls — emitted when a Lead fans out workers.
+  const delegate_task_count = sessionEntries.filter(
+    (e) =>
+      e.operation === 'delegate_task' ||
+      (e.domain === 'orchestrate' && e.operation === 'spawn' && e.result.success),
+  ).length;
+  const completedInSession = sessionEntries.filter(
+    (e) => e.domain === 'tasks' && e.operation === 'complete' && e.result.success,
+  ).length;
+  // Detect session role — lead sessions are those spawned with role=lead
+  // or those that completed tasks without delegating (self-implementation pattern).
+  const sessionRole = sessionEntries.find((e) => e.metadata?.role)?.metadata?.role as
+    | string
+    | undefined;
+  const isLead = sessionRole === 'lead';
+
   let hygieneScore = 20;
 
   for (const addCall of addCalls) {
@@ -171,6 +188,24 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
   if (addCalls.length > 0 && hygieneScore >= 20) {
     result.dimensions.taskHygiene.evidence.push(
       `All ${addCalls.length} tasks.add calls had descriptions`,
+    );
+  }
+
+  // Lead bypass detection: Lead completed tasks without delegating (T9217 / ADR-070).
+  // A Lead MUST fan out work via delegate_task — completing tasks directly is
+  // a protocol violation that masks the multi-agent audit trail.
+  result.dimensions.taskHygiene.evidence.push(`delegate_task_count: ${delegate_task_count}`);
+  if (isLead && delegate_task_count === 0 && completedInSession > 0) {
+    hygieneScore -= 5;
+    result.flags.push(
+      `lead-self-implementation-bypass: session role=lead completed ${completedInSession} task(s) without any delegate_task call — Leads MUST fan out work to Workers (T9217 / ADR-070)`,
+    );
+    result.dimensions.taskHygiene.evidence.push(
+      'WARNING: lead-self-implementation-bypass detected — no delegate_task calls',
+    );
+  } else if (isLead && delegate_task_count > 0) {
+    result.dimensions.taskHygiene.evidence.push(
+      `Lead delegation confirmed: ${delegate_task_count} delegate_task call(s)`,
     );
   }
 
@@ -295,6 +330,19 @@ async function feedGradeToBrain(result: GradeResult, projectRoot?: string): Prom
         confidence: 0.7,
         actionable: true,
         application: 'Address protocol violations in next session',
+      });
+    }
+
+    // Lead bypass detection: record as typed BRAIN observation (T9217 / ADR-070)
+    const hasLeadBypass = result.flags.some((f) => f.includes('lead-self-implementation-bypass'));
+    if (hasLeadBypass) {
+      await storeLearning(projectRoot, {
+        insight: `lead-self-implementation-bypass detected in session ${result.sessionId}: Lead completed tasks without delegate_task. Violates ADR-070 hierarchical orchestration contract.`,
+        source: `grade:${result.sessionId}`,
+        confidence: 0.9,
+        actionable: true,
+        application:
+          'Next Lead session MUST use delegate_task to fan out work to Workers — no self-implementation.',
       });
     }
   } catch {
