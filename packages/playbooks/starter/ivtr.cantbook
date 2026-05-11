@@ -1,11 +1,13 @@
 version: "1.0"
 name: ivtr
 description: >
-  IVTR execution loop — Implement, Validate, Test. Each stage is a distinct
-  agentic node wired in declaration order; failures retry in place up to
-  `max_iterations`, mimicking the classic build-lint-test cycle. The runtime
-  keeps per-node iteration counters so the total retry budget across the three
+  IVTR execution loop — Implement, Validate, Audit, Test, Released. Each stage
+  is a distinct agentic node wired in declaration order; failures retry in place
+  up to `max_iterations`, mimicking the classic build-lint-test cycle. The
+  runtime keeps per-node iteration counters so the total retry budget across all
   nodes is bounded by the sum of each node's cap (see T930 runtime semantics).
+  The Audit node (T9216) re-runs scripts/verify-<taskId>.mjs independently,
+  providing a verifier-backed AC gate before the Test phase.
 
 inputs:
   - name: taskId
@@ -53,6 +55,29 @@ nodes:
       max_iterations: 2
       inject_into: implement
 
+  - id: audit
+    type: agentic
+    skill: ct-validator
+    role: worker
+    description: >
+      Independent auditor — runs scripts/verify-{{inputs.taskId}}.mjs (the
+      committed verifier script for the task) without trusting any prior agent
+      claims. A pass (exit 0) advances to the test phase. A fail (exit non-zero)
+      injects the verifier diagnostic back into implement so the worker can
+      address root cause. This node implements ADR-070 verifier-backed AC gate.
+    inputs:
+      taskId: "{{inputs.taskId}}"
+      verifierScript: "scripts/verify-{{inputs.taskId}}.mjs"
+    requires:
+      from: validate
+      fields:
+        - passed
+    ensures:
+      schema: audit_report
+    on_failure:
+      max_iterations: 2
+      inject_into: implement
+
   - id: test
     type: agentic
     skill: ct-task-executor
@@ -61,9 +86,8 @@ nodes:
       Run the task's test suite and verify every acceptance criterion passes.
       On failure, bounces back to implement with the failing test names in
       context so the worker can address root cause rather than re-running.
-      Terminal stage of the IVTR loop.
     requires:
-      from: validate
+      from: audit
       fields:
         - passed
     ensures:
@@ -71,6 +95,17 @@ nodes:
     on_failure:
       max_iterations: 2
       inject_into: implement
+
+  - id: released
+    type: terminal
+    description: >
+      Terminal node — all IVTR phases complete. The task is considered fully
+      verified: implementation validated, AC verified by auditor, tests passed.
+      Triggers `cleo complete` eligibility check.
+    requires:
+      from: test
+      fields:
+        - testsPassed
 
 edges:
   - from: implement
@@ -81,17 +116,29 @@ edges:
       ensures:
         - passed
   - from: validate
+    to: audit
+    contract:
+      requires:
+        - passed
+      ensures:
+        - auditPassed
+  - from: audit
     to: test
     contract:
       requires:
         - passed
       ensures:
         - testsPassed
+  - from: test
+    to: released
+    contract:
+      requires:
+        - testsPassed
 
 error_handlers:
   - on: iteration_cap_exceeded
     action: hitl_escalate
-    message: "IVTR loop exhausted — implementation, validation, or tests keep failing."
+    message: "IVTR loop exhausted — implementation, validation, audit, or tests keep failing."
   - on: contract_violation
     action: inject_hint
     message: "Contract violated at stage boundary — check requires/ensures fields."
