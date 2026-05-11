@@ -120,7 +120,7 @@ if (
 ) {
   // Check they're in the same array
   const forbiddenMatch = /WORKER_FORBIDDEN_SPAWN_TOOLS\s*=\s*\[([^\]]+)\]/.exec(hierarchySrc);
-  if (forbiddenMatch && forbiddenMatch[1].includes('delegate_task')) {
+  if (forbiddenMatch?.[1].includes('delegate_task')) {
     pass("WORKER_FORBIDDEN_SPAWN_TOOLS includes 'delegate_task' (T9215)");
   } else {
     fail(

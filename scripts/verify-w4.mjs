@@ -102,7 +102,7 @@ if (spawnContractSrc.includes('scope')) {
 // will fail loudly, which is intentional — the verifier should be run after
 // `pnpm run build`.
 // ---------------------------------------------------------------------------
-let runtimePassed = false;
+let _runtimePassed = false;
 try {
   // Use the TypeScript source directly via tsx / node --experimental-vm-modules
   // We read-check the source for the waiver bypass logic instead, since the
@@ -115,7 +115,7 @@ try {
 
   if (hasWaiverBypass) {
     pass('atomicity.ts has waiver bypass path that returns allowed:true with atomicity_waiver');
-    runtimePassed = true;
+    _runtimePassed = true;
   } else {
     fail(
       'atomicity.ts waiver bypass path must set allowed:true AND include atomicity_waiver in result (T9214)',
