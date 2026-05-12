@@ -1204,6 +1204,7 @@ export type {
   VerificationFailure,
   VerificationGate,
 } from './task.js';
+export { isTestFixtureOrigin, TASK_ORIGIN_CANONICAL } from './task.js';
 // === Task Evidence Types (T801) ===
 export type {
   CommandOutputEvidence,
