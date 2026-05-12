@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Migration script: move scripts/verify-t*.mjs and scripts/verify-vsv2.mjs
  * to the canonical .cleo/verifiers/<UPPER_TID>.mjs location (T9227 / ADR-070).
@@ -15,10 +16,10 @@
  * Usage: node scripts/migrate-verifiers.mjs [--dry-run]
  */
 
-import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
-import { join, resolve, basename } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -44,7 +45,8 @@ if (!DRY_RUN && !existsSync(VERIFIERS_DIR)) {
 }
 
 import { readdirSync } from 'node:fs';
-const files = readdirSync(SCRIPTS_DIR).filter(f => f.match(/^verify-t\d+.*\.mjs$/i));
+
+const files = readdirSync(SCRIPTS_DIR).filter((f) => f.match(/^verify-t\d+.*\.mjs$/i));
 
 console.log(`Found ${files.length} TID-based verifier scripts to migrate.`);
 if (DRY_RUN) console.log('DRY RUN — no changes will be made.\n');
@@ -78,7 +80,9 @@ for (const filename of files) {
         { encoding: 'utf8', cwd: REPO_ROOT },
       );
       if (ceoResult.status !== 0) {
-        console.log(`    Note: cleo update ${tid} failed (task may not exist): ${ceoResult.stderr?.trim()}`);
+        console.log(
+          `    Note: cleo update ${tid} failed (task may not exist): ${ceoResult.stderr?.trim()}`,
+        );
       }
 
       successes.push(tid);
@@ -91,7 +95,9 @@ for (const filename of files) {
   }
 }
 
-console.log(`\nMigration ${DRY_RUN ? '(dry run)' : ''} complete: ${successes.length} migrated, ${failures.length} failed.`);
+console.log(
+  `\nMigration ${DRY_RUN ? '(dry run)' : ''} complete: ${successes.length} migrated, ${failures.length} failed.`,
+);
 if (failures.length > 0) {
   console.error('Failed tasks:', failures.join(', '));
   process.exit(1);

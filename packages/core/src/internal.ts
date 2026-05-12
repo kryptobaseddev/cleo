@@ -2021,6 +2021,15 @@ export { ConduitClient } from './conduit/conduit-client.js';
 export { createConduit } from './conduit/factory.js';
 export { HttpTransport } from './conduit/http-transport.js';
 export { decrypt, encrypt } from './crypto/credentials.js';
+// Brain health dashboard (T1908 / BBTT-W2-4)
+export {
+  type BrainHealthDashboard,
+  computeBrainHealthDashboard,
+  type HealthFlag,
+  type HealthFlagStatus,
+} from './memory/brain-health-dashboard.js';
+// assertBriefingContract — BriefingFieldContract assertion (T1905 / BBTT-W1-3)
+export { assertBriefingContract } from './sessions/briefing.js';
 export type {
   BuildDoctorReportOptions,
   ReconcileDoctorOptions,
@@ -2051,6 +2060,8 @@ export {
   resolveAgent,
   resolveAgentsBatch,
 } from './store/agent-resolver.js';
+// assertTestEnv — test-DB isolation guard (T1906 / BBTT-W3-4)
+export { assertTestEnv } from './store/data-accessor.js';
 // Verifier runner — resolver, executor, backfill (T9219 / ADR-070)
 export {
   type BackfillAllResult,

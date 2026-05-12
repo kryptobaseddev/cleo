@@ -175,6 +175,16 @@ export const doctorCommand = defineCommand({
       description:
         'With --quarantine-rogue-cleo-dirs or --scan-stray-nexus-dbs: print what would be done without acting',
     },
+    /**
+     * Show brain.db health dashboard (T1908 / BBTT-W2-4).
+     * Aggregates 8 named flags: row counts, dedup ratio, last consolidation,
+     * recency violations, learnings ratio, pattern bloat, fixture pollution,
+     * daemon liveness. Exits 1 on any P0 flag failure.
+     */
+    brain: {
+      type: 'boolean',
+      description: 'Show brain.db health dashboard with 8 named BBTT flags (T1908)',
+    },
     // Global output format flags — read directly from args (no optsWithGlobals in citty)
     json: {
       type: 'boolean',
@@ -196,6 +206,39 @@ export const doctorCommand = defineCommand({
     progress.start();
 
     try {
+      // T1908 / BBTT-W2-4: brain health dashboard
+      if (args.brain) {
+        const { computeBrainHealthDashboard } = await import('@cleocode/core/internal');
+        const projectRoot = getProjectRoot();
+        const dashboard = await computeBrainHealthDashboard(projectRoot);
+
+        if (args.json) {
+          process.stdout.write(`${JSON.stringify(dashboard, null, 2)}\n`);
+        } else {
+          process.stdout.write(`\nBrain Health Dashboard (${dashboard.generatedAt})\n`);
+          process.stdout.write('='.repeat(55) + '\n');
+          for (const flag of dashboard.flags) {
+            const icon = flag.status === 'ok' ? '✓' : flag.status === 'warn' ? '⚠' : '✗';
+            const p0 = flag.isP0 ? ' [P0]' : '';
+            process.stdout.write(`  ${icon} ${flag.name}${p0}: ${flag.description}\n`);
+            if (flag.status !== 'ok') {
+              process.stdout.write(`      → ${flag.remediationHint}\n`);
+            }
+          }
+          process.stdout.write('\n');
+          if (dashboard.hasP0Failure) {
+            process.stderr.write('P0 failures detected — run remediation steps above.\n');
+          } else {
+            process.stdout.write('Brain health: all checks passed.\n');
+          }
+        }
+
+        if (dashboard.hasP0Failure) {
+          process.exitCode = 1;
+        }
+        return;
+      }
+
       if (args['all-projects']) {
         progress.step(0, 'Probing registered projects');
         await runDoctorProjects({

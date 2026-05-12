@@ -20,6 +20,8 @@
 
 import type {
   AttachmentMetadata,
+  BriefingFieldContract,
+  ContractViolation,
   RetrievalBundle,
   SessionBriefingShowParams,
   Task,
@@ -179,6 +181,14 @@ export interface SessionBriefing {
    * @epic T1611
    */
   docsContext?: BriefingDocsContext;
+  /**
+   * Contract violations detected during briefing computation (T1905 / BBTT-W1-3).
+   *
+   * Present when a `BriefingFieldContract` is evaluated and at least one violation
+   * is found. Consumers can inspect violations directly; `cleo briefing --strict`
+   * exits non-zero when this array is non-empty.
+   */
+  contractViolations?: ContractViolation[];
 }
 
 /**
@@ -310,7 +320,8 @@ export async function computeBriefing(
     );
   }
 
-  const briefing = {
+  // Build partial briefing for contract assertion
+  const partialBriefing: SessionBriefing = {
     lastSession,
     currentTask: currentTaskInfo,
     nextTasks,
@@ -323,6 +334,23 @@ export async function computeBriefing(
     ...(bundle && { bundle }),
     ...(docsContext && { docsContext }),
   };
+
+  // T1905 / BBTT-W1-3: Evaluate default briefing contract.
+  // Always runs; violations surface as warnings + contractViolations field.
+  const defaultContract: BriefingFieldContract = {
+    nextTasks: { dedupBy: 'id' },
+    openBugs: { dedupBy: 'id' },
+    blockedTasks: { dedupBy: 'id' },
+    activeEpics: { dedupBy: 'id' },
+  };
+  const contractViolations = assertBriefingContract(partialBriefing, defaultContract);
+  const briefing: SessionBriefing = contractViolations.length > 0
+    ? {
+        ...partialBriefing,
+        warnings: [...(partialBriefing.warnings ?? []), ...contractViolations.map((v) => `[contract:${v.kind}] ${v.message}`)],
+        contractViolations,
+      }
+    : partialBriefing;
 
   // Opportunistic dream trigger — T1904 W2-3
   // Every cleo briefing call gives the dream cycle a chance to fire. The existing
@@ -867,4 +895,119 @@ async function computeDocsContext(
   if (totalDocs === 0) return undefined;
 
   return { currentTaskDocs, relatedDocs, totalDocs };
+}
+
+// ---------------------------------------------------------------------------
+// BriefingFieldContract assertion (T1905 / BBTT-W1-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Evaluate a {@link BriefingFieldContract} against a computed briefing and
+ * return an array of {@link ContractViolation} entries.
+ *
+ * Each named rule in `contract` is checked against the corresponding section
+ * of `briefing`. Violations are emitted for:
+ * - `stale` — any item whose `capturedAt` / `createdAt` timestamp is older
+ *   than `rule.maxAgeDays`.
+ * - `duplicate` — two or more items share the same value for `rule.dedupBy`.
+ * - `excluded-provenance` — any item whose `provenance` property matches a
+ *   tag in `rule.excludeProvenance`.
+ *
+ * Returns an empty array when the briefing satisfies all rules.
+ *
+ * @param briefing  - The output of {@link computeBriefing}.
+ * @param contract  - Field-level constraint rules.
+ * @returns Array of violations (empty = compliant).
+ *
+ * @task T1905
+ */
+export function assertBriefingContract(
+  briefing: SessionBriefing,
+  contract: BriefingFieldContract,
+): ContractViolation[] {
+  const violations: ContractViolation[] = [];
+  const nowMs = Date.now();
+
+  for (const [field, rule] of Object.entries(contract)) {
+    if (!rule) continue;
+
+    // Resolve the field value from the briefing (supports nested paths via dot notation)
+    const items = resolveBriefingField(briefing, field);
+    if (!Array.isArray(items)) continue;
+
+    // 1. Staleness check
+    if (rule.maxAgeDays !== undefined) {
+      const maxAgeMs = rule.maxAgeDays * 24 * 60 * 60 * 1000;
+      for (const item of items) {
+        const ts =
+          (item as Record<string, unknown>)['capturedAt'] ??
+          (item as Record<string, unknown>)['createdAt'];
+        if (typeof ts === 'string') {
+          const ageMs = nowMs - new Date(ts).getTime();
+          if (ageMs > maxAgeMs) {
+            violations.push({
+              field,
+              message: `${field} contains item older than ${rule.maxAgeDays}d (age: ${Math.round(ageMs / 86_400_000)}d)`,
+              kind: 'stale',
+              severity: 'P1',
+            });
+            break; // one violation per field
+          }
+        }
+      }
+    }
+
+    // 2. Duplicate check
+    if (rule.dedupBy) {
+      const seen = new Set<unknown>();
+      for (const item of items) {
+        const key = (item as Record<string, unknown>)[rule.dedupBy];
+        if (key !== undefined) {
+          if (seen.has(key)) {
+            violations.push({
+              field,
+              message: `${field} contains duplicate items with ${rule.dedupBy}=${String(key)}`,
+              kind: 'duplicate',
+              severity: 'P1',
+            });
+            break;
+          }
+          seen.add(key);
+        }
+      }
+    }
+
+    // 3. Excluded-provenance check
+    if (rule.excludeProvenance && rule.excludeProvenance.length > 0) {
+      const banned = new Set(rule.excludeProvenance);
+      for (const item of items) {
+        const prov = (item as Record<string, unknown>)['provenance'];
+        if (typeof prov === 'string' && banned.has(prov as never)) {
+          violations.push({
+            field,
+            message: `${field} contains item with excluded provenance "${prov}"`,
+            kind: 'excluded-provenance',
+            severity: 'P0',
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * Resolve a briefing field by name (dot-notation supported).
+ * Returns the value or undefined when not found.
+ */
+function resolveBriefingField(briefing: SessionBriefing, field: string): unknown {
+  const parts = field.split('.');
+  let cur: unknown = briefing;
+  for (const part of parts) {
+    if (cur === null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
 }
