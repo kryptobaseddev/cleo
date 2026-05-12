@@ -13,7 +13,6 @@ import { CleoError } from '../errors.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
-import { teardownWorktree } from '../sentient/worktree-dispatch.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -647,11 +646,43 @@ export async function completeTask(
     }
   }
 
-  // T1462: Auto-prune the task worktree when the task is completed.
-  // Runs best-effort — Promise rejection (e.g. non-git directory) must not
-  // propagate as an unhandled rejection and must never block completion.
-  // T9175: deleteBranch:false preserves branch for ADR-062 orchestrator merge
-  teardownWorktree(projectRoot, { taskId: options.taskId, deleteBranch: false }).catch(() => {});
+  // T9175: Worktree integration MUST happen before teardown — merge first,
+  // then prune. The previous `teardownWorktree` call destroyed the worktree
+  // before any merge ran, leaving the worker's commits stranded on
+  // `task/<id>` with no operator-visible integration.
+  //
+  // `completeAgentWorktreeIntegration` performs (ADR-062):
+  //   1. rebase inside the worktree onto the project's default branch
+  //   2. `git checkout <default>` + `git merge --no-ff task/<id>`
+  //   3. prune the worktree dir + delete the branch
+  //   4. append an audit entry to .cleo/audit/worktree-integration.jsonl
+  //
+  // On failure (rebase conflict, missing branch, non-git dir, etc.) the
+  // worktree + branch are PRESERVED so the operator can recover via
+  // `cleo orchestrate worktree-complete <id>`. Completion is never blocked
+  // — the verified evidence already proved the work shipped; recovery is
+  // operator-driven.
+  try {
+    const { completeAgentWorktreeIntegration } = await import('../spawn/branch-lock.js');
+    const integration = completeAgentWorktreeIntegration(options.taskId, projectRoot, {
+      taskTitle: task.title,
+    });
+    if (!integration.merged && integration.error) {
+      getLogger('tasks:complete').warn(
+        {
+          taskId: options.taskId,
+          mergeError: integration.error,
+          worktreeRemoved: integration.worktreeRemoved,
+        },
+        '[T9175] worktree integration failed — branch + worktree preserved for manual recovery',
+      );
+    }
+  } catch (err) {
+    getLogger('tasks:complete').debug(
+      { err: err instanceof Error ? err.message : String(err) },
+      '[T9175] worktree integration helper unavailable — skipping',
+    );
+  }
 
   // NOTE: Memory bridge refresh is now handled by the onToolComplete hook
   // via memory-bridge-refresh.ts (T138). No direct call needed here.
