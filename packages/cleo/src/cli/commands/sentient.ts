@@ -32,10 +32,13 @@ import { join } from 'node:path';
 import { cwd as processCwd } from 'node:process';
 import {
   getSentientDaemonStatus,
+  monitorWorkers,
+  RUNAWAY_BUDGET_MULTIPLIER,
   resumeSentientDaemon,
   SENTIENT_STATE_FILE,
   spawnSentientDaemon,
   stopSentientDaemon,
+  WORKER_BUDGET_MS,
 } from '@cleocode/core/sentient/daemon.js';
 import { safeRunProposeTick } from '@cleocode/core/sentient/propose-tick.js';
 import { patchSentientState, readSentientState } from '@cleocode/core/sentient/state.js';
@@ -791,6 +794,82 @@ const allowlistSub = defineCommand({
 });
 
 // ---------------------------------------------------------------------------
+// monitor subcommand (T1658)
+// ---------------------------------------------------------------------------
+
+/**
+ * `cleo sentient monitor` — show active workers with elapsed vs expected budget.
+ *
+ * Runaway workers (elapsed > 2× size budget) are flagged with a RUNAWAY label.
+ * Over-budget workers (elapsed > budget) are flagged with a WARNING label.
+ * Aborts are NOT automatically triggered — this command is read-only.
+ *
+ * @task T1658
+ */
+const monitorSub = defineCommand({
+  meta: {
+    name: 'monitor',
+    description: 'Show active workers and flag runaway tasks exceeding size-based budgets',
+  },
+  args: {
+    ...projectArgs,
+    'show-budgets': {
+      type: 'boolean' as const,
+      description: 'Print the size-budget table before worker rows',
+    },
+  },
+  async run({ args }) {
+    const projectRoot = resolveProjectRoot(args.project as string | undefined);
+    const jsonMode = args.json === true;
+    const showBudgets = args['show-budgets'] === true;
+
+    try {
+      const rows = await monitorWorkers(projectRoot);
+
+      if (jsonMode) {
+        emitSuccess(
+          { workers: rows, budgetMultiplier: RUNAWAY_BUDGET_MULTIPLIER, budgets: WORKER_BUDGET_MS },
+          jsonMode,
+          `sentient monitor: ${rows.length} active worker(s), ${rows.filter((r) => r.runaway).length} runaway`,
+          'sentient.monitor',
+        );
+        return;
+      }
+
+      // Human-readable output
+      if (showBudgets) {
+        process.stdout.write('\nSize budgets:\n');
+        for (const [size, ms] of Object.entries(WORKER_BUDGET_MS)) {
+          const mins = Math.round(ms / 60000);
+          process.stdout.write(
+            `  ${size.padEnd(8)} ${mins} min (runaway at ${mins * RUNAWAY_BUDGET_MULTIPLIER} min)\n`,
+          );
+        }
+        process.stdout.write('\n');
+      }
+
+      if (rows.length === 0) {
+        process.stdout.write('No active workers.\n');
+        return;
+      }
+
+      process.stdout.write(`Active workers (${rows.length}):\n\n`);
+      for (const row of rows) {
+        const elapsed = Math.round(row.elapsedMs / 60000);
+        const budget = Math.round(row.budgetMs / 60000);
+        const label = row.runaway ? 'RUNAWAY' : row.overBudget ? 'WARNING' : 'OK     ';
+        process.stdout.write(
+          `  [${label}] ${row.taskId} — ${row.title.slice(0, 50)} | size=${row.size} elapsed=${elapsed}m budget=${budget}m\n`,
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      emitFailure('E_SENTIENT_MONITOR', message, jsonMode, 'sentient.monitor');
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Root command
 // ---------------------------------------------------------------------------
 
@@ -813,6 +892,7 @@ export const sentientCommand = defineCommand({
     propose: proposeSub,
     baseline: baselineSub,
     allowlist: allowlistSub,
+    monitor: monitorSub,
   },
   async run({ args, cmd, rawArgs }) {
     // Parent run() fires after subcommand per citty@0.2.x — skip default

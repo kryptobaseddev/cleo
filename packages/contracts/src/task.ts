@@ -463,6 +463,18 @@ export interface Task {
 
   /** Agent ID that has claimed/is assigned to this task. Null when unclaimed. @defaultValue undefined */
   assignee?: string | null;
+
+  /**
+   * Abort reason when a worker was stopped due to runaway detection (T1658).
+   *
+   * Set by the sentient monitor when a worker exceeds its size-based budget
+   * (`small` ≥ 30 min, `medium` ≥ 2 h, `large` ≥ 4 h). The field is
+   * informational — callers may surface it in `cleo sentient monitor` output.
+   *
+   * @task T1658
+   * @defaultValue undefined
+   */
+  abortReason?: string | null;
 }
 
 // ---------------------------------------------------------------------------
