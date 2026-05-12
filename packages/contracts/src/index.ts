@@ -761,13 +761,17 @@ export type {
   NexusWhyResult,
   NexusWikiParams,
 } from './operations/nexus.js';
-// === Nexus Scope Contracts (T9145) ===
+// === Nexus Scope Contracts (T9145 + T9146) ===
 export type {
+  MetaWithNexusScope,
+  NexusBindingSource,
   NexusEffect,
   NexusOperationDescriptor,
   NexusScope,
+  NexusScopeMeta,
   NexusStore,
   ScopeBinding,
+  SuggestedNextOp,
 } from './operations/nexus-scope.js';
 export {
   getNexusDescriptor,

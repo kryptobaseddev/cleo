@@ -99,6 +99,7 @@ import {
   wrapCoreResult,
 } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
+import { stampNexusMeta } from '../nexus-decorator.js';
 import {
   envelopeToEngineResult,
   errorResult,
@@ -800,10 +801,12 @@ export class NexusHandler implements DomainHandler {
     // params for legacy DispatchResponse construction). Keep them in QUERY_OPS
     // + NexusOps for typed-key safety, but route to the OLD helper functions.
     if (operation === 'top-entries') {
-      return handleTopEntries(operation, params, startTime);
+      const r = await handleTopEntries(operation, params, startTime);
+      return stampNexusMeta(r, operation, params ?? {});
     }
     if (operation === 'impact') {
-      return handleImpact(operation, params, startTime);
+      const r = await handleImpact(operation, params, startTime);
+      return stampNexusMeta(r, operation, params ?? {});
     }
 
     try {
@@ -813,7 +816,8 @@ export class NexusHandler implements DomainHandler {
         operation as keyof NexusOps & string,
         params ?? {},
       );
-      return nexusQueryEnvelopeToResponse(envelope, operation, startTime);
+      const response = nexusQueryEnvelopeToResponse(envelope, operation, startTime);
+      return stampNexusMeta(response, operation, params ?? {});
     } catch (error) {
       getLogger('domain:nexus').error(
         { gateway: 'query', domain: 'nexus', operation, err: error },
@@ -843,7 +847,8 @@ export class NexusHandler implements DomainHandler {
         operation as keyof NexusOps & string,
         params ?? {},
       );
-      return nexusMutateEnvelopeToResponse(envelope, operation, startTime);
+      const response = nexusMutateEnvelopeToResponse(envelope, operation, startTime);
+      return stampNexusMeta(response, operation, params ?? {});
     } catch (error) {
       getLogger('domain:nexus').error(
         { gateway: 'mutate', domain: 'nexus', operation, err: error },

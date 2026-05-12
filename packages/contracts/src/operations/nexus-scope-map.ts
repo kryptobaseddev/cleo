@@ -157,6 +157,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'full-context': {
     op: 'full-context',
@@ -197,6 +198,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'route-map': {
     op: 'route-map',
@@ -449,6 +451,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'projects.list': {
     op: 'projects.list',
@@ -505,6 +508,7 @@ export const NEXUS_SCOPE_MAP = {
     effect: 'read',
     stores: ['nexus-graph', 'fs'],
     requiresProject: true,
+    indexSensitive: true,
   },
   'query-cte': {
     op: 'query-cte',
