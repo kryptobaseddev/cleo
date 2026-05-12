@@ -4,12 +4,9 @@
  * Asserts that all required protocol markers are present in the skill file,
  * protecting against content drift as the file evolves.
  *
- * Checks:
- * - Required section markers exist: Decision Tree, Pre-Complete Gate Ritual,
- *   Multi-Agent Coordination, Greenfield Bootstrap
- * - `cleo memory observe` is used (not the deprecated bare `cleo observe`)
- * - `cleo orchestrate ivtr` is referenced at least once
- * - At least 4 distinct `cleo <verb>` command patterns exist
+ * After T9148 (ct-cleo thin-pointer collapse), the SKILL.md became a ~31-line
+ * pointer to CLEO-INJECTION.md rather than a 615-line embedded protocol.
+ * These tests validate the thin-pointer structure's required elements.
  *
  * @task T808
  * @skill-version SKILL-14
@@ -36,32 +33,20 @@ const skillPath = join(skillRoot, 'SKILL.md');
 const skillContent = readFileSync(skillPath, 'utf-8');
 
 // ---------------------------------------------------------------------------
-// Required section markers (SKILL-10 through SKILL-13)
+// Required structural elements (post-T9148 thin-pointer design)
 // ---------------------------------------------------------------------------
 
-describe('ct-cleo SKILL.md — required section markers', () => {
-  it('contains "Decision Tree" section', () => {
-    expect(skillContent).toContain('Decision Tree');
+describe('ct-cleo SKILL.md — thin-pointer structure (post-T9148)', () => {
+  it('has a Quick Reference table or section', () => {
+    expect(skillContent).toContain('Quick Reference');
   });
 
-  it('contains "Pre-Complete Gate Ritual" section', () => {
-    expect(skillContent).toContain('Pre-Complete Gate Ritual');
+  it('points to CLEO-INJECTION.md canonical source', () => {
+    expect(skillContent).toContain('CLEO-INJECTION.md');
   });
 
-  it('contains "Multi-Agent Coordination" section', () => {
-    expect(skillContent).toContain('Multi-Agent Coordination');
-  });
-
-  it('contains "Greenfield Bootstrap" section', () => {
-    expect(skillContent).toContain('Greenfield Bootstrap');
-  });
-
-  it('Decision Tree is the first H2 heading', () => {
-    // Find the position of the first H2 (## ...) after the frontmatter
-    const afterFrontmatter = skillContent.replace(/^---[\s\S]*?---\n/, '');
-    const firstH2Match = /^## (.+)$/m.exec(afterFrontmatter);
-    expect(firstH2Match).not.toBeNull();
-    expect(firstH2Match![1]).toContain('Decision Tree');
+  it('lists supported sections or emit command', () => {
+    expect(skillContent).toContain('cleo briefing');
   });
 });
 
@@ -76,19 +61,16 @@ describe('ct-cleo SKILL.md — command correctness', () => {
 
     // The bare `cleo observe` form should only appear as a deprecated anti-pattern
     // in a table row (prefixed with `| `), never as an instruction to execute.
-    // Count bare `cleo observe` occurrences that are NOT inside table pipe columns.
     const lines = skillContent.split('\n');
     const badLines = lines.filter((line) => {
-      // Skip table rows — those document deprecated patterns intentionally
       if (/^\s*\|/.test(line)) return false;
-      // Skip comment-style lines and code-block lines showing anti-patterns
       return /\bcleo observe\b/.test(line);
     });
     expect(badLines).toHaveLength(0);
   });
 
-  it('references "cleo orchestrate ivtr" at least once', () => {
-    expect(skillContent).toMatch(/cleo orchestrate ivtr/);
+  it('references cleo orchestrate spawn (the canonical spawn command)', () => {
+    expect(skillContent).toContain('cleo orchestrate spawn');
   });
 });
 
@@ -98,7 +80,6 @@ describe('ct-cleo SKILL.md — command correctness', () => {
 
 describe('ct-cleo SKILL.md — command diversity', () => {
   it('contains at least 4 distinct "cleo <verb>" command patterns', () => {
-    // Extract all `cleo <word>` patterns (first word after cleo)
     const verbs = new Set<string>();
     const pattern = /\bcleo\s+([a-z][a-z0-9-]*)/g;
     let match: RegExpExecArray | null;
@@ -113,27 +94,27 @@ describe('ct-cleo SKILL.md — command diversity', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase mapping (SKILL-10 enhancement)
+// Phase coverage — section names are emittable (post-T9148 pointer design)
 // ---------------------------------------------------------------------------
 
-describe('ct-cleo SKILL.md — phase mapping', () => {
-  it('includes phase mapping for research phase', () => {
-    expect(skillContent).toContain('research');
+describe('ct-cleo SKILL.md — phase coverage via emittable sections', () => {
+  it('mentions pre-complete gate section (emittable via cleo briefing inject)', () => {
+    expect(skillContent).toContain('pre-complete-gate');
   });
 
-  it('includes phase mapping for implement phase', () => {
-    expect(skillContent).toMatch(/implement/i);
+  it('mentions session-start section (research phase entry point)', () => {
+    expect(skillContent).toContain('session-start');
   });
 
-  it('includes phase mapping for validate phase', () => {
-    expect(skillContent).toMatch(/validate|validation/i);
+  it('mentions orchestration section (orchestrate commands)', () => {
+    expect(skillContent).toContain('orchestration');
   });
 
-  it('includes phase mapping for test phase', () => {
-    expect(skillContent).toMatch(/\btest\b/i);
+  it('mentions task-creation section (task creation guidance)', () => {
+    expect(skillContent).toContain('task-creation');
   });
 
-  it('includes phase mapping for release phase', () => {
-    expect(skillContent).toContain('release');
+  it('mentions work-loop section (core workflow loop)', () => {
+    expect(skillContent).toContain('work-loop');
   });
 });
