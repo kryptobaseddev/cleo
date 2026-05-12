@@ -55,6 +55,29 @@ export type NoisePattern =
   | 'low-confidence'
   | 'stale-unverified';
 
+/**
+ * Auto-extract pipeline health metrics surfaced in `cleo doctor brain` (T1903).
+ *
+ * Pulled from the live brain.db — reflects the current state, not a historical
+ * run. Shows whether the promotion pipeline is producing learnings at a healthy rate.
+ */
+export interface AutoExtractHealth {
+  /** Total rows in brain_observations (valid only). */
+  observationCount: number;
+  /** Total rows in brain_learnings (valid only). */
+  learningCount: number;
+  /** Pending promotion_log rows (not yet fulfilled). */
+  pendingPromotions: number;
+  /** Fulfilled promotion_log rows (successfully converted to typed entries). */
+  fulfilledPromotions: number;
+  /** Ratio of learnings to observations (0–1). Values below 0.01 indicate a broken pipeline. */
+  extractionRatio: number;
+  /** Most recent consolidation event timestamp, or null if none. */
+  lastConsolidationAt: string | null;
+  /** Whether the extraction pipeline appears healthy (ratio > 0.01 OR no observations). */
+  healthy: boolean;
+}
+
 /** Result of a brain noise scan. */
 export interface BrainDoctorResult {
   /**
@@ -71,6 +94,11 @@ export interface BrainDoctorResult {
   isClean: boolean;
   /** ISO 8601 timestamp when the scan completed. */
   scannedAt: string;
+  /**
+   * Auto-extract pipeline health (T1903).
+   * Shows whether observations are being promoted to learnings at a healthy rate.
+   */
+  autoExtractHealth?: AutoExtractHealth;
 }
 
 // ============================================================================
@@ -315,11 +343,15 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
       // brain_edges / brain_nodes may not exist
     }
 
+    // ── 7. Auto-extract pipeline health (T1903) ──────────────────────────────
+    const autoExtractHealth = computeAutoExtractHealth(db);
+
     return {
       totalScanned,
       findings,
       isClean: findings.length === 0,
       scannedAt: new Date().toISOString(),
+      autoExtractHealth,
     };
   } catch {
     // Return a minimal clean result on unexpected errors rather than crashing.
@@ -329,5 +361,78 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
       isClean: true,
       scannedAt: new Date().toISOString(),
     };
+  }
+}
+
+// ============================================================================
+// Auto-extract health helpers (T1903)
+// ============================================================================
+
+/**
+ * Compute auto-extract pipeline health from a live brain.db connection.
+ *
+ * Queries observation/learning counts plus brain_promotion_log fulfillment stats.
+ * Returns undefined when the required tables are not available.
+ *
+ * @param db - Native database instance from getBrainNativeDb (accepts DatabaseSync or compatible)
+ */
+function computeAutoExtractHealth(db: unknown): AutoExtractHealth | undefined {
+  if (!db) return undefined;
+  const nativeDb = db as {
+    prepare: (sql: string) => { get: () => unknown; all: (...args: unknown[]) => unknown[] };
+  };
+  try {
+    const obsRow = nativeDb
+      .prepare(`SELECT COUNT(*) AS cnt FROM brain_observations WHERE invalid_at IS NULL`)
+      .get() as { cnt: number } | undefined;
+    const observationCount = obsRow?.cnt ?? 0;
+
+    const lrnRow = nativeDb
+      .prepare(`SELECT COUNT(*) AS cnt FROM brain_learnings WHERE invalid_at IS NULL`)
+      .get() as { cnt: number } | undefined;
+    const learningCount = lrnRow?.cnt ?? 0;
+
+    let pendingPromotions = 0;
+    let fulfilledPromotions = 0;
+    try {
+      const pending = nativeDb
+        .prepare(`SELECT COUNT(*) AS cnt FROM brain_promotion_log WHERE fulfilled_at IS NULL`)
+        .get() as { cnt: number } | undefined;
+      pendingPromotions = pending?.cnt ?? 0;
+
+      const fulfilled = nativeDb
+        .prepare(`SELECT COUNT(*) AS cnt FROM brain_promotion_log WHERE fulfilled_at IS NOT NULL`)
+        .get() as { cnt: number } | undefined;
+      fulfilledPromotions = fulfilled?.cnt ?? 0;
+    } catch {
+      // brain_promotion_log may not exist or lack fulfilled_at column
+    }
+
+    let lastConsolidationAt: string | null = null;
+    try {
+      const consolRow = nativeDb
+        .prepare(
+          `SELECT started_at FROM brain_consolidation_events ORDER BY started_at DESC LIMIT 1`,
+        )
+        .get() as { started_at?: string } | undefined;
+      lastConsolidationAt = consolRow?.started_at ?? null;
+    } catch {
+      // table may not exist
+    }
+
+    const extractionRatio = observationCount > 0 ? learningCount / observationCount : 1;
+    const healthy = observationCount === 0 || extractionRatio >= 0.01;
+
+    return {
+      observationCount,
+      learningCount,
+      pendingPromotions,
+      fulfilledPromotions,
+      extractionRatio,
+      lastConsolidationAt,
+      healthy,
+    };
+  } catch {
+    return undefined;
   }
 }
