@@ -7,24 +7,14 @@
  * @task T5240
  */
 
+import type { ProblemDetails } from '@cleocode/contracts';
 import { ExitCode, getExitCodeName, isRecoverableCode } from '@cleocode/contracts';
 import type { LAFSError, LAFSErrorCategory } from '@cleocode/lafs';
 import { getErrorDefinition } from './error-catalog.js';
 
-/**
- * RFC 9457 Problem Details object.
- * Structured error representation for API responses.
- *
- * @task T5240
- */
-export interface ProblemDetails {
-  type: string;
-  title: string;
-  status: number;
-  detail: string;
-  instance?: string;
-  extensions?: Record<string, unknown>;
-}
+// Re-export ProblemDetails from contracts so existing importers from
+// '@cleocode/core' keep resolving without change (T1685 W1 migration).
+export type { ProblemDetails } from '@cleocode/contracts';
 
 /**
  * Map numeric exit codes to LAFS error category.
