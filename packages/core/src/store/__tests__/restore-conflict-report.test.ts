@@ -69,6 +69,16 @@ describe('T357 conflict report generator', () => {
 
   beforeEach(() => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t357-'));
+    // T9092: scaffold a valid CLEO project root so writeConflictReport can
+    // resolve getCleoProjectRoot() without throwing E_NOT_INITIALIZED.
+    fs.mkdirSync(path.join(tmpRoot, '.cleo'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpRoot, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'test-t357', name: 'test' }),
+      'utf-8',
+    );
+    fs.mkdirSync(path.join(tmpRoot, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(tmpRoot, '.git', 'HEAD'), 'ref: refs/heads/main\n', 'utf-8');
   });
 
   afterEach(() => {

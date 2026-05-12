@@ -96,6 +96,15 @@ const originalSeed = process.env['CLEO_SIGNING_SEED'];
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'cleo-baseline-test-'));
+  // T9092: scaffold project-info.json so appendSentientEvent can validate
+  // the project root via assertProjectInitialized (getCleoProjectRoot fix).
+  const { mkdir: mkdirAsync, writeFile: wfAsync } = await import('node:fs/promises');
+  await mkdirAsync(join(tmpDir, '.cleo', 'audit'), { recursive: true });
+  await wfAsync(
+    join(tmpDir, '.cleo', 'project-info.json'),
+    JSON.stringify({ projectId: 'test-baseline', name: 'test' }),
+    'utf-8',
+  );
   // Wire the env KMS adapter so baseline.ts can load a signing identity.
   process.env['CLEO_KMS_ADAPTER'] = 'env';
   process.env['CLEO_SIGNING_SEED'] = TEST_SEED_HEX;

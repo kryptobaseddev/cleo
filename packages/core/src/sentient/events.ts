@@ -453,7 +453,9 @@ export async function querySentientEvents(
   projectRoot: string,
   filter?: SentientEventFilter,
 ): Promise<SentientEvent[]> {
-  const eventsPath = join(projectRoot, SENTIENT_EVENTS_FILE);
+  // T9092: use canonical root so reads match writes (both go to source-project .cleo/).
+  const canonicalRoot = getCleoProjectRoot(projectRoot);
+  const eventsPath = join(getCleoDirAbsolute(canonicalRoot), 'audit', 'sentient-events.jsonl');
 
   let raw: string;
   try {
