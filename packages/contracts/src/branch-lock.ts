@@ -281,6 +281,17 @@ export const BRANCH_LOCK_ERROR_CODES = {
    * the git-shim which only intercepts `git` binary calls.
    */
   E_BOUNDARY_VIOLATION: 'E_BOUNDARY_VIOLATION',
+  /**
+   * T1927: the `task/<taskId>` branch already exists and contains commits that
+   * are NOT reachable from the current integration base (i.e. orphan history from
+   * a prior test fixture, aborted session, or unrelated spawn). Reusing such a
+   * branch would import garbage history on merge.
+   *
+   * Fix: delete the branch manually (`git branch -D task/<taskId>`) then
+   * re-run spawn, or pass `{ forceReset: true }` to `createWorktree` to have it
+   * reset the branch automatically.
+   */
+  E_DIRTY_BRANCH: 'E_DIRTY_BRANCH',
 } as const;
 
 /** Union of all branch-lock error code strings. */

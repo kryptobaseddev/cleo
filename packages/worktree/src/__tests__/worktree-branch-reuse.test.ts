@@ -1,23 +1,29 @@
 /**
- * Tests for the T1878 branch-reuse fix in `createWorktree`.
+ * Tests for the T1878 branch-reuse fix and T1927 orphan-history detection
+ * in `createWorktree`.
  *
- * Covers two behavioural contracts:
+ * Covers four behavioural contracts:
  *
  * 1. Clean first-time creation — new branch is created, `reused` is `false`.
  * 2. Existing-branch reuse — when a prior aborted spawn left a `task/<taskId>`
  *    branch behind (no worktree directory), `createWorktree` attaches to it
  *    via `git worktree add <path> <branch>` (no `-b`), and `reused` is `true`.
+ * 3. Orphan-history detection — branch with commits not reachable from baseRef
+ *    (e.g. T1878 fixture branches) throws `E_DIRTY_BRANCH`.
+ * 4. `forceReset: true` — orphan branch is deleted and recreated from baseRef.
  *
- * Both tests use a real temporary git repository; no DB is needed because
+ * All tests use a real temporary git repository; no DB is needed because
  * `createWorktree` only runs git commands.
  *
  * @task T1878
+ * @task T1927
  */
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createWorktree } from '../worktree-create.js';
 
@@ -81,5 +87,53 @@ describe('createWorktree — branch provisioning (T1878)', () => {
     // Provisioning must not throw and the path must be populated.
     expect(result.path).toBeTruthy();
     expect(existsSync(result.path)).toBe(true);
+  });
+
+  it('throws E_DIRTY_BRANCH when task branch has orphan commits not reachable from HEAD (T1927)', async () => {
+    // Simulate a T1878-style fixture branch with a commit that is NOT on main:
+    // create a detached branch with an extra commit (orphan history).
+    execFileSync('git', ['checkout', '-b', 'task/T9003'], { cwd: projectRoot, stdio: 'pipe' });
+    writeFileSync(join(projectRoot, 'orphan.txt'), 'fixture garbage\n');
+    execFileSync('git', ['add', 'orphan.txt'], { cwd: projectRoot, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-m', 'fixture: orphan commit from T1878 test'], {
+      cwd: projectRoot,
+      stdio: 'pipe',
+    });
+    // Return to main so the orphan branch is just a branch ref, no worktree dir.
+    execFileSync('git', ['checkout', 'main'], { cwd: projectRoot, stdio: 'pipe' });
+
+    await expect(
+      createWorktree(projectRoot, { taskId: 'T9003', lockWorktree: false }),
+    ).rejects.toThrow(BRANCH_LOCK_ERROR_CODES.E_DIRTY_BRANCH);
+  });
+
+  it('deletes orphan branch and creates clean one when forceReset=true (T1927)', async () => {
+    // Same setup as above — branch with orphan commit.
+    execFileSync('git', ['checkout', '-b', 'task/T9004'], { cwd: projectRoot, stdio: 'pipe' });
+    writeFileSync(join(projectRoot, 'garbage.txt'), 'should not survive\n');
+    execFileSync('git', ['add', 'garbage.txt'], { cwd: projectRoot, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-m', 'fixture: orphan to be force-reset'], {
+      cwd: projectRoot,
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['checkout', 'main'], { cwd: projectRoot, stdio: 'pipe' });
+
+    const result = await createWorktree(projectRoot, {
+      taskId: 'T9004',
+      lockWorktree: false,
+      forceReset: true,
+    });
+
+    expect(result.branch).toBe('task/T9004');
+    expect(result.reused).toBe(false);
+    expect(existsSync(result.path)).toBe(true);
+
+    // Verify the orphan commit is NOT in the new branch.
+    const log = execFileSync('git', ['log', '--format=%s', 'task/T9004'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    expect(log).not.toContain('orphan to be force-reset');
   });
 });
