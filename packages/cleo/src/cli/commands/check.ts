@@ -1,11 +1,12 @@
 /**
  * CLI check command group — dispatches to the check domain.
  *
- * Subcommands: schema, coherence, task, output, chain-validate, canon, protocol
+ * Subcommands: schema, coherence, task, output, chain-validate, canon, protocol, provenance
  * @task T132
  * @task T260 — generic protocol subcommand exposing all 12 protocols
  * @task T476 — output and chain-validate subcommands
  * @task T864 — check.schema args derived from registry (SSoT proof-of-concept)
+ * @task T1136 — provenance subcommand: audit git log for untagged commits
  */
 
 import { defineCommand, showUsage } from 'citty';
@@ -311,6 +312,112 @@ const checkProtocolCommand = defineCommand({
 });
 
 /**
+ * cleo check provenance — audit git log for commits missing a Task ID.
+ *
+ * Walks the git log from `--since` (default: all history) and flags any
+ * commit subject that does not contain `T<digits>`. Merge commits and
+ * revert commits are exempt (matching the commit-msg hook policy).
+ *
+ * Exit code 0 = all audited commits have Task IDs.
+ * Exit code 1 = one or more untagged commits found (with --strict).
+ * Without --strict, always exits 0 but prints the report.
+ *
+ * @task T1136
+ */
+const checkProvenanceCommand = defineCommand({
+  meta: {
+    name: 'provenance',
+    description: 'Audit git log for commits missing a Task ID (T####)',
+  },
+  args: {
+    since: {
+      type: 'string',
+      description: 'Git revision range start (e.g. "v2026.5.0", "HEAD~50", "main")',
+    },
+    branch: {
+      type: 'string',
+      description: 'Branch to audit (default: HEAD)',
+    },
+    strict: {
+      type: 'boolean',
+      description: 'Exit with code 1 if any untagged commits are found',
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum number of commits to audit (default: 200)',
+    },
+  },
+  async run({ args }) {
+    const { execSync } = await import('node:child_process');
+
+    const since = args.since as string | undefined;
+    const branch = (args.branch as string | undefined) || 'HEAD';
+    const strict = Boolean(args.strict);
+    const limit = args.limit ? Number.parseInt(args.limit as string, 10) : 200;
+
+    // Build the git log range
+    const range = since ? `${since}..${branch}` : branch;
+
+    let logOutput: string;
+    try {
+      logOutput = execSync(`git log --no-merges --pretty=format:"%H\t%s" -n ${limit} ${range}`, {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`git log failed: ${message}`, 1, {
+        name: 'E_GIT_LOG',
+        fix: 'Ensure you are inside a git repository and the range is valid.',
+      });
+      process.exit(1);
+    }
+
+    const lines = logOutput.trim().split('\n').filter(Boolean);
+    const TASK_ID_RE = /T[0-9]+/;
+    const EXEMPT_RE = /^(Merge |Revert |fixup! |squash! |amend! )/;
+
+    const untagged: Array<{ sha: string; subject: string }> = [];
+    const total = lines.length;
+
+    for (const line of lines) {
+      const tabIdx = line.indexOf('\t');
+      if (tabIdx < 0) continue;
+      const sha = line.slice(0, tabIdx).trim();
+      const subject = line.slice(tabIdx + 1).trim();
+
+      if (EXEMPT_RE.test(subject)) continue;
+      if (!TASK_ID_RE.test(subject)) {
+        untagged.push({ sha: sha.slice(0, 12), subject });
+      }
+    }
+
+    const tagged = total - untagged.length;
+    const result = {
+      success: true,
+      data: {
+        audited: total,
+        tagged,
+        untagged: untagged.length,
+        untaggedCommits: untagged,
+        range,
+        passed: untagged.length === 0,
+      },
+      meta: { operation: 'check.provenance' },
+    };
+
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+
+    if (strict && untagged.length > 0) {
+      process.stderr.write(
+        `[provenance] ${untagged.length} of ${total} audited commits lack a Task ID.\n`,
+      );
+      process.exit(1);
+    }
+  },
+});
+
+/**
  * Root check command group — validation and compliance checks.
  *
  * Dispatches to the check domain. Supports schema validation, coherence,
@@ -327,6 +434,7 @@ export const checkCommand = defineCommand({
     'chain-validate': checkChainValidateCommand,
     canon: checkCanonCommand,
     protocol: checkProtocolCommand,
+    provenance: checkProvenanceCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
