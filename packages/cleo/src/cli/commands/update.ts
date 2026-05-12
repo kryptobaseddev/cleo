@@ -110,9 +110,21 @@ export const updateCommand = defineCommand({
       type: 'string',
       description: 'Set files (comma-separated)',
     },
+    'add-files': {
+      type: 'string',
+      description: 'Add files incrementally (comma-separated)',
+    },
+    'remove-files': {
+      type: 'string',
+      description: 'Remove files incrementally (comma-separated)',
+    },
     'blocked-by': {
       type: 'string',
       description: 'Set blocked-by reason',
+    },
+    'clear-blocked-by': {
+      type: 'boolean',
+      description: 'Clear the blocked-by reason string',
     },
     parent: {
       type: 'string',
@@ -226,7 +238,12 @@ export const updateCommand = defineCommand({
         .map((s) => s.trim())
         .filter(Boolean);
     if (args.files) params['files'] = (args.files as string).split(',').map((s) => s.trim());
+    if (args['add-files'])
+      params['addFiles'] = (args['add-files'] as string).split(',').map((s) => s.trim());
+    if (args['remove-files'])
+      params['removeFiles'] = (args['remove-files'] as string).split(',').map((s) => s.trim());
     if (args['blocked-by'] !== undefined) params['blockedBy'] = args['blocked-by'];
+    if (args['clear-blocked-by'] === true) params['clearBlockedBy'] = true;
     if (args.parent !== undefined) params['parent'] = args.parent;
     if (args['parent-id'] !== undefined) params['parent'] = params['parent'] ?? args['parent-id'];
     if (args['no-auto-complete'] === true) params['noAutoComplete'] = true;
