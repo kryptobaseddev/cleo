@@ -1,0 +1,1 @@
+{"nodes": [{"id": "release_manifest_module", "label": "release-manifest.ts (CRUD)", "file_type": "code", "source_file": "packages/core/src/release/release-manifest.ts", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}
