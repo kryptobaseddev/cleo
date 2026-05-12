@@ -87,8 +87,12 @@ export type TaskSize = 'small' | 'medium' | 'large';
 /** Epic lifecycle states. */
 export type EpicLifecycle = 'backlog' | 'planning' | 'active' | 'review' | 'released' | 'archived';
 
-/** Task origin (provenance). */
+/** Task origin (provenance). T1899: added production/test-fixture/imported/migrated. */
 export type TaskOrigin =
+  | 'production'
+  | 'test-fixture'
+  | 'imported'
+  | 'migrated'
   | 'internal'
   | 'bug-report'
   | 'feature-request'
@@ -96,6 +100,19 @@ export type TaskOrigin =
   | 'technical-debt'
   | 'dependency'
   | 'regression';
+
+/** Canonical origin values for the T1899 CHECK constraint. */
+export const TASK_ORIGIN_CANONICAL = [
+  'production',
+  'test-fixture',
+  'imported',
+  'migrated',
+] as const satisfies readonly TaskOrigin[];
+
+/** Whether an origin value is a test-fixture (should be excluded from live briefing). */
+export function isTestFixtureOrigin(origin: string | null | undefined): boolean {
+  return origin === 'test-fixture';
+}
 
 /** Verification agent types. */
 export type VerificationAgent =

@@ -287,7 +287,7 @@ export const tasks = sqliteTable(
     acceptanceJson: text('acceptance_json').default('[]'),
     filesJson: text('files_json').default('[]'),
 
-    // Provenance
+    // Provenance — T1899: typed CHECK constraint (production|test-fixture|imported|migrated)
     origin: text('origin'),
     blockedBy: text('blocked_by'),
     epicLifecycle: text('epic_lifecycle'),
