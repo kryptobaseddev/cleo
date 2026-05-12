@@ -277,10 +277,14 @@ describe('Brain Retrieval', () => {
       const nativeDb = getBrainNativeDb();
       if (nativeDb) {
         nativeDb
-          .prepare("UPDATE brain_observations SET created_at = '2026-04-24T10:00:00.000Z' WHERE id = 'O-stale-session'")
+          .prepare(
+            "UPDATE brain_observations SET created_at = '2026-04-24T10:00:00.000Z' WHERE id = 'O-stale-session'",
+          )
           .run();
         nativeDb
-          .prepare("UPDATE brain_observations SET created_at = '2026-05-05T10:00:00.000Z' WHERE id = 'O-fresh-session'")
+          .prepare(
+            "UPDATE brain_observations SET created_at = '2026-05-05T10:00:00.000Z' WHERE id = 'O-fresh-session'",
+          )
           .run();
       }
 

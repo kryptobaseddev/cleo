@@ -344,13 +344,17 @@ export async function computeBriefing(
     activeEpics: { dedupBy: 'id' },
   };
   const contractViolations = assertBriefingContract(partialBriefing, defaultContract);
-  const briefing: SessionBriefing = contractViolations.length > 0
-    ? {
-        ...partialBriefing,
-        warnings: [...(partialBriefing.warnings ?? []), ...contractViolations.map((v) => `[contract:${v.kind}] ${v.message}`)],
-        contractViolations,
-      }
-    : partialBriefing;
+  const briefing: SessionBriefing =
+    contractViolations.length > 0
+      ? {
+          ...partialBriefing,
+          warnings: [
+            ...(partialBriefing.warnings ?? []),
+            ...contractViolations.map((v) => `[contract:${v.kind}] ${v.message}`),
+          ],
+          contractViolations,
+        }
+      : partialBriefing;
 
   // Opportunistic dream trigger — T1904 W2-3
   // Every cleo briefing call gives the dream cycle a chance to fire. The existing
