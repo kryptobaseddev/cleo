@@ -207,6 +207,10 @@ async function autoRecoverFromBackup(
 export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof schema>> {
   const requestedPath = getDbPath(cwd);
 
+  // T1906: guard against prod-DB writes in test mode
+  const { assertTestEnv } = await import('./data-accessor.js');
+  assertTestEnv(requestedPath);
+
   // If singleton exists but points to different path, reset it
   if (_db && _dbPath !== requestedPath) {
     resetDbState();

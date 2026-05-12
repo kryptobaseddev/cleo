@@ -620,6 +620,10 @@ async function initEmbeddingProvider(cwd?: string): Promise<void> {
 export async function getBrainDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof brainSchema>> {
   const requestedPath = getBrainDbPath(cwd);
 
+  // T1906: guard against prod-DB writes in test mode
+  const { assertTestEnv } = await import('./data-accessor.js');
+  assertTestEnv(requestedPath);
+
   // If singleton exists but points to different path, reset it
   if (_db && _dbPath !== requestedPath) {
     resetBrainDbState();
