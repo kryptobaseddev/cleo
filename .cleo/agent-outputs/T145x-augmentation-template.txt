@@ -1,0 +1,96 @@
+## Orchestrator addendum (post-PROOF rollout)
+
+You are one of 8 parallel domain workers for epic T1449 (Contracts/Core SSoT alignment). T1450 PROOF (session domain) established the migration pattern. Follow it mechanically.
+
+### Required reading (in order)
+1. `/mnt/projects/cleocode/.cleo/agent-outputs/T1449-CORE-API-AUDIT.md` — orchestrator's audit + decisions (alias policy = canonical SSoT in Contracts; sequencing = parallel after PROOF).
+2. `/mnt/projects/cleocode/.cleo/agent-outputs/T1450-MIGRATION-PATTERN.md` — PROOF worker's executed recipe with BEFORE/AFTER examples. **YOUR TEMPLATE.**
+3. T1450 commits (your reference implementation):
+   ```bash
+   git log --oneline main..task/T1450 2>&1 | head
+   git show <each-commit-sha> --stat
+   ```
+
+### Domain-specific guidance for {{DOMAIN}}
+
+- **Contract file**: {{CONTRACT_PATH}}
+- **Core source(s)**: {{CORE_PATHS}}
+- **Dispatch handler**: {{DISPATCH_PATH}}
+- **Engine wrapper** (if exists): {{ENGINE_PATH}}
+- **CLI command file**: packages/cleo/src/cli/commands/{{DOMAIN}}.ts (only relevant if alias removal touches this domain — applies to T1458 tasks only)
+
+### Recipe (execute in order)
+
+1. `cd {{WORKTREE_PATH}}` — first action.
+2. Verify OpsFromCore helper is on your branch: `grep -n "OpsFromCore" packages/cleo/src/dispatch/adapters/typed.ts`. If absent, cherry-pick from PROOF: `git cherry-pick <T1450-OpsFromCore-commit-sha>`.
+3. For each Core fn in your domain that's called by dispatch:
+   a. Read current signature.
+   b. Refactor to `(projectRoot: string, params: <Op>Params): Promise<<Op>Result>` (per ADR-057 D1).
+   c. Import `<Op>Params`/`<Op>Result` from `@cleocode/contracts` — never inline.
+   d. Body destructures params instead of positional args.
+   e. Update internal Core callers (`Cleo.<domain>` facade, tests, scripts).
+4. Update engine wrapper signature (if domain has one) to match new Core.
+5. Refactor dispatch handler:
+   - Import Core fns directly (or via engine wrapper).
+   - Build `coreOps` record.
+   - Type ops via `OpsFromCore<typeof coreOps>` — inferred, not hand-typed.
+   - Handler bodies: 1-3 lines (just call coreOps.<op>(getProjectRoot(), params), wrap result).
+6. Quality gates:
+   ```bash
+   pnpm biome check --write .
+   pnpm run build 2>&1 | tail -30   # exit 0
+   pnpm run test 2>&1 | tail -30    # zero new failures vs main
+   git diff --stat HEAD
+   ```
+7. Atomic commits with conventional messages: `feat(T145x): <action>`.
+8. Evidence + complete:
+   ```bash
+   HEAD_SHA=$(git rev-parse HEAD)
+   FILES_CHANGED=$(git diff --name-only main..HEAD | tr '\n' ',' | sed 's/,$//')
+   cleo verify {{TASK_ID}} --gate implemented --evidence "commit:$HEAD_SHA;files:$FILES_CHANGED"
+   cleo verify {{TASK_ID}} --gate testsPassed --evidence "tool:pnpm-test"
+   cleo verify {{TASK_ID}} --gate qaPassed --evidence "tool:biome;tool:tsc"
+   cleo verify {{TASK_ID}} --gate documented --evidence "files:.cleo/agent-outputs/T1450-MIGRATION-PATTERN.md"
+   cleo verify {{TASK_ID}} --gate cleanupDone --evidence "note:{{DOMAIN}} complete; followed PROOF pattern"
+   cleo verify {{TASK_ID}} --gate securityPassed --evidence "note:type/signature refactor; no network surface"
+   cleo memory observe "{{TASK_ID}} {{DOMAIN}} domain Core normalization. Pattern from T1450 PROOF held." --title "{{TASK_ID}} {{DOMAIN}} SSoT alignment"
+   cleo manifest append --task {{TASK_ID}} --type implementation --content "{{DOMAIN}} domain refactored per ADR-057. Core uniform. Dispatch thin pass-through via OpsFromCore. Gates green." --status completed
+   cleo complete {{TASK_ID}}
+   ```
+
+### Special handling
+
+**T1458 (tasks domain) ONLY**: also remove aliases per ADR-057 D2:
+- Delete `parentId?` from `TasksAddParams`, `TasksUpdateParams`, `TasksUpdateQueryParams`.
+- Delete `kind?` from `TasksAddParams` (where it's a duplicate of `role`).
+- Move CLI flag aliasing into `packages/cleo/src/cli/commands/tasks.ts` (`.option('--parent-id <id>')` maps to `params.parent`; same for `--kind`).
+- Update `packages/studio/src/routes/api/tasks/+server.ts` and `[id]/+server.ts` if they referenced aliases.
+- Remove `params.parent ?? params.parentId` and `params.role ?? params.kind` translations from dispatch.
+
+**T1456 (playbook domain) ONLY**: playbook has NO contract file. Either:
+- Create `packages/contracts/src/operations/playbook.ts` re-exporting `PlaybookRun`, `PlaybookApproval`, `PlaybookRunStatus` from `@cleocode/playbooks` AND defining `PlaybookXParams`/`PlaybookXResult`, OR
+- Document the SSoT exception: `@cleocode/playbooks` is the SSoT for playbook ops (the runtime lives there).
+- Update `packages/cleo/src/dispatch/domains/playbook.ts` and `@cleocode/playbooks` Core fns accordingly.
+
+### Worktree
+
+- **Path**: {{WORKTREE_PATH}}
+- **Branch**: task/{{TASK_ID}}
+- Stay within boundary. Shim blocks `git checkout`/`git switch`/`git reset --hard`.
+
+### Return string
+
+Return EXACTLY one line:
+- `Implementation complete. Manifest appended to pipeline_manifest.` on success
+- `Implementation partial. Manifest appended to pipeline_manifest.` on partial
+- `Implementation blocked. Manifest appended to pipeline_manifest.` on blocked
+
+### Hard constraints
+
+- NEVER `any` or `unknown` shortcuts.
+- NEVER inline-define types that should come from `@cleocode/contracts`.
+- ALWAYS `pnpm biome ci .` + `pnpm run build` + `pnpm run test` before `cleo verify`.
+- NEVER `cleo complete --force` or `--no-verify`.
+- If you hit a real blocker, STOP and report `partial`. Do not invent workarounds.
+
+Begin.

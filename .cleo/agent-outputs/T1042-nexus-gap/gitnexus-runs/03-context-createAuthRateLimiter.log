@@ -1,0 +1,51 @@
+{
+  "status": "found",
+  "symbol": {
+    "uid": "Function:src/gateway/auth-rate-limit.ts:createAuthRateLimiter",
+    "name": "createAuthRateLimiter",
+    "filePath": "src/gateway/auth-rate-limit.ts",
+    "startLine": 98,
+    "endLine": 235
+  },
+  "incoming": {
+    "calls": [
+      {
+        "uid": "Function:src/gateway/server.impl.ts:createGatewayAuthRateLimiters",
+        "name": "createGatewayAuthRateLimiters",
+        "filePath": "src/gateway/server.impl.ts"
+      },
+      {
+        "uid": "Function:src/gateway/server-http.ts:createHooksRequestHandler",
+        "name": "createHooksRequestHandler",
+        "filePath": "src/gateway/server-http.ts"
+      },
+      {
+        "uid": "Function:src/gateway/auth-rate-limit.test.ts:createLimiter",
+        "name": "createLimiter",
+        "filePath": "src/gateway/auth-rate-limit.test.ts"
+      },
+      {
+        "uid": "Function:extensions/nextcloud-talk/src/monitor.ts:createNextcloudTalkWebhookServer",
+        "name": "createNextcloudTalkWebhookServer",
+        "filePath": "extensions/nextcloud-talk/src/monitor.ts"
+      },
+      {
+        "uid": "File:src/gateway/server.canvas-auth.test.ts",
+        "name": "server.canvas-auth.test.ts",
+        "filePath": "src/gateway/server.canvas-auth.test.ts"
+      },
+      {
+        "uid": "File:src/gateway/auth.test.ts",
+        "name": "auth.test.ts",
+        "filePath": "src/gateway/auth.test.ts"
+      },
+      {
+        "uid": "File:src/gateway/auth-rate-limit.test.ts",
+        "name": "auth-rate-limit.test.ts",
+        "filePath": "src/gateway/auth-rate-limit.test.ts"
+      }
+    ]
+  },
+  "outgoing": {},
+  "processes": []
+}

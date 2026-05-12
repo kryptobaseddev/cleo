@@ -1,0 +1,9 @@
+(node:194778) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[nexus] Context for symbol 'createAuthRateLimiter' (1 match):
+
+  Symbol:   createAuthRateLimiter  (function)
+  File:     src/gateway/auth-rate-limit.ts:99
+  Community: Tasks
+  Callers (6): src/gateway/auth-rate-limit.test.ts::__file__[unknown], src/gateway/auth.test.ts::__file__[unknown], server-http.ts[file], src/gateway/server.canvas-auth.test.ts::__file__[unknown], createGatewayAuthRateLimiters[function], createNextcloudTalkWebhookServer[function]
+  Callees (7): prune[method], normalizeRateLimitClientIp[function], normalizeIp[function], normalizeScope[function], isLoopbackAddress[function], now[function], push[method]

@@ -1,0 +1,35 @@
+T718 Epic Count Verification — 2026-04-15
+
+Command: sqlite3 /mnt/projects/cleocode/.cleo/tasks.db "SELECT id, title FROM tasks WHERE type = 'epic' AND status != 'archived' ORDER BY id;"
+
+Result (26 rows):
+T046|Nexus Task Transfer — cross-project task migration
+T091|EPIC: CLI Command Refactor — Domain-Prefixed Operations (cleo <domain> <operation> [args])
+T234|EPIC: Agent Domain Unification — Single SSoT in Conduit
+T298|Review & implement Sitar-inspired Config Platform
+T453|CleoAgent — Autonomous CleoOS Harness Testing
+T487|EPIC: Commander-Shim Removal — Native Citty CLI Migration
+T505|EPIC: CLI Remediation — Full Audit Findings (55+ bugs, 8 duplicates, 5 stubs)
+T506|EPIC: Dependency Packaging & Code Intelligence Unification
+T513|EPIC: Native Code Intelligence Pipeline — Full GitNexus Absorption
+T542|EPIC: T542 System Validation Remediation — Fix All Gaps from Validation Report
+T554|EPIC: LLM-Managed Living Brain v3
+T563|EPIC: Complete System Audit Remaining Items
+T569|EPIC: CLEO Dogfood Attestation — Prove All 6 Systems Work With Real-World Evidence
+T601|T585 Test Epic
+T605|Fresh Test Epic
+T606|Fresh Test Epic 2
+T609|BugFix Verification Epic
+T612|ATTEST: LOOM lifecycle test epic
+T626|EPIC: T-BRAIN-LIVING — Unified 5-substrate Living Brain
+T627|EPIC: T-BRAIN-LIVING Stabilization + Phase 2 RCASD
+T631|EPIC: Cleo Prime Orchestrator Persona — Bulldog AGI for any project, any owner, any harness
+T636|EPIC: Canon Finalization + Orphan Triage + Harness Sovereignty (plan moonbeam)
+T654|EPIC: Project Registry Hygiene + Studio Admin Page
+T660|EPIC: Phase 6 — 3D Synapse Brain (3d-force-graph + UnrealBloomPass)
+T662|EPIC: Council Meeting — Full Audit of Brain Viz System (v2026.4.58 reality check)
+T687|EPIC: .cleo/ Scaffolding Reality Check + Artifact SSoT Unification (Q5 from owner)
+
+Active tasks (status='active'): 1
+Status breakdown: active=1, pending=118, done=92, cancelled=3, archived=506
+Total (non-archived, excl. archived): 214 — matches cleo stats totalActive:214

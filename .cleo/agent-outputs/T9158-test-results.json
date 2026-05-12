@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "numTotalTestSuites": 2,
+  "numPassedTestSuites": 2,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 34,
+  "numPassedTests": 34,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "testResults": [],
+  "commands": [
+    "pnpm exec vitest run --config packages/cleo/vitest.config.ts packages/cleo/src/cli/commands/__tests__/orchestrate-ready-deps-guard.test.ts packages/cleo/src/cli/commands/__tests__/deps-validate.test.ts --reporter=dot",
+    "pnpm exec biome check packages/core/src/orchestrate/query-ops.ts packages/cleo/src/cli/commands/__tests__/orchestrate-ready-deps-guard.test.ts",
+    "pnpm --filter @cleocode/core typecheck && pnpm --filter @cleocode/cleo typecheck"
+  ],
+  "smoke": {
+    "readyMissingRefCount": 0,
+    "readyResidualCodes": ["E_CROSS_EPIC_GAP"],
+    "depsDoesNotExistMessages": 0,
+    "wavesTaskCounts": [8, 6]
+  }
+}

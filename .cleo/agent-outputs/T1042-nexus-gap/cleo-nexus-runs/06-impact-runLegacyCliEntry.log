@@ -1,0 +1,9 @@
+(node:195618) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[nexus] Impact analysis for 'runLegacyCliEntry'
+  Target:  runLegacyCliEntry  (function)
+  File:    src/index.ts
+  Risk:    LOW  (1 impacted node)
+
+  d=1 WILL BREAK (1):
+    src/index.ts::__file__                unknown       

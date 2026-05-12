@@ -1,0 +1,52 @@
+{
+  "status": "found",
+  "symbol": {
+    "uid": "Function:src/gateway/auth-rate-limit.ts:createAuthRateLimiter",
+    "name": "createAuthRateLimiter",
+    "filePath": "src/gateway/auth-rate-limit.ts",
+    "startLine": 98,
+    "endLine": 235,
+    "content": "}\n\nexport function createAuthRateLimiter(config?: RateLimitConfig): AuthRateLimiter {\n  const maxAttempts = config?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;\n  const windowMs = config?.windowMs ?? DEFAULT_WINDOW_MS;\n  const lockoutMs = config?.lockoutMs ?? DEFAULT_LOCKOUT_MS;\n  const exemptLoopback = config?.exemptLoopback ?? true;\n  const pruneIntervalMs = config?.pruneIntervalMs ?? PRUNE_INTERVAL_MS;\n\n  const entries = new Map<string, RateLimitEntry>();\n\n  // Periodic cleanup to avoid unbounded map growth.\n  const pruneTimer = pruneIntervalMs > 0 ? setInterval(() => prune(), pruneIntervalMs) : null;\n  // Allow the Node.js process to exit even if the timer is still active.\n  if (pruneTimer?.unref) {\n    pruneTimer.unref();\n  }\n\n  function normalizeScope(scope: string | undefined): string {\n    return (scope ?? AUTH_RATE_LIMIT_SCOPE_DEFAULT).trim() || AUTH_RATE_LIMIT_SCOPE_DEFAULT;\n  }\n\n  function normalizeIp(ip: string | undefined): string {\n    return normalizeRateLimitClientIp(ip);\n  }\n\n  function resolveKey(\n    rawIp: string | undefined,\n    rawScope: string | undefined,\n  ): {\n    key: string;\n    ip: string;\n  } {\n    const ip = normalizeIp(rawIp);\n    const scope = normalizeScope(rawScope);\n    return { key: `${scope}:${ip}`, ip };\n  }\n\n  function isExempt(ip: string): boolean {\n    return exemptLoopback && isLoopbackAddress(ip);\n  }\n\n  function slideWindow(entry: RateLimitEntry, now: number): void {\n    const cutoff = now - windowMs;\n    // Remove attempts that fell outside the window.\n    entry.attempts = entry.attempts.filter((ts) => ts > cutoff);\n  }\n\n  function check(rawIp: string | undefined, rawScope?: string): RateLimitCheckResult {\n    const { key, ip } = resolveKey(rawIp, rawScope);\n    if (isExempt(ip)) {\n      return { allowed: true, remaining: maxAttempts, retryAfterMs: 0 };\n    }\n\n    const now = Date.now();\n    const entry = entries.get(key);\n\n    if (!entry) {\n      return { allowed: true, remaining: maxAttempts, retryAfterMs: 0 };\n    }\n\n    // Still locked out?\n    if (entry.lockedUntil && now < entry.lockedUntil) {\n      return {\n        allowed: false,\n        remaining: 0,\n        retryAfterMs: entry.lockedUntil - now,\n      };\n    }\n\n    // Lockout expired – clear it.\n    if (entry.lockedUntil && now >= entry.lockedUntil) {\n      entry.lockedUntil = undefined;\n      entry.attempts = [];\n    }\n\n    slideWindow(entry, now);\n    const remaining = Math.max(0, maxAttempts - entry.attempts.length);\n    return { allowed: remaining > 0, remaining, retryAfterMs: 0 };\n  }\n\n  function recordFailure(rawIp: string | undefined, rawScope?: string): void {\n    const { key, ip } = resolveKey(rawIp, rawScope);\n    if (isExempt(ip)) {\n      return;\n    }\n\n    const now = Date.now();\n    let entry = entries.get(key);\n\n    if (!entry) {\n      entry = { attempts: [] };\n      entries.set(key, entry);\n    }\n\n    // If currently locked, do nothing (already blocked).\n    if (entry.lockedUntil && now < entry.lockedUntil) {\n      return;\n    }\n\n    slideWindow(entry, now);\n    entry.attempts.push(now);\n\n    if (entry.attempts.length >= maxAttempts) {\n      entry.lockedUntil = now + lockoutMs;\n    }\n  }\n\n  function reset(rawIp: string | undefined, rawScope?: string): void {\n    const { key } = resolveKey(rawIp, rawScope);\n    entries.delete(key);\n  }\n\n  function prune(): void {\n    const now = Date.now();\n    for (const [key, entry] of entries) {\n      // If locked out, keep the entry until the lockout expires.\n      if (entry.lockedUntil && now < entry.lockedUntil) {\n        continue;\n      }\n      slideWindow(entry, now);\n      if (entry.attempts.length === 0) {\n        entries.delete(key);\n      }\n    }\n  }\n\n  function size(): number {\n    return entries.size;\n  }\n\n  function dispose(): void {\n    if (pruneTimer) {\n      clearInterval(pruneTimer);\n    }\n    entries.clear();\n  }\n\n  return { check, recordFailure, reset, size, prune, dispose };\n}\n"
+  },
+  "incoming": {
+    "calls": [
+      {
+        "uid": "Function:src/gateway/server.impl.ts:createGatewayAuthRateLimiters",
+        "name": "createGatewayAuthRateLimiters",
+        "filePath": "src/gateway/server.impl.ts"
+      },
+      {
+        "uid": "Function:src/gateway/server-http.ts:createHooksRequestHandler",
+        "name": "createHooksRequestHandler",
+        "filePath": "src/gateway/server-http.ts"
+      },
+      {
+        "uid": "Function:src/gateway/auth-rate-limit.test.ts:createLimiter",
+        "name": "createLimiter",
+        "filePath": "src/gateway/auth-rate-limit.test.ts"
+      },
+      {
+        "uid": "Function:extensions/nextcloud-talk/src/monitor.ts:createNextcloudTalkWebhookServer",
+        "name": "createNextcloudTalkWebhookServer",
+        "filePath": "extensions/nextcloud-talk/src/monitor.ts"
+      },
+      {
+        "uid": "File:src/gateway/server.canvas-auth.test.ts",
+        "name": "server.canvas-auth.test.ts",
+        "filePath": "src/gateway/server.canvas-auth.test.ts"
+      },
+      {
+        "uid": "File:src/gateway/auth.test.ts",
+        "name": "auth.test.ts",
+        "filePath": "src/gateway/auth.test.ts"
+      },
+      {
+        "uid": "File:src/gateway/auth-rate-limit.test.ts",
+        "name": "auth-rate-limit.test.ts",
+        "filePath": "src/gateway/auth-rate-limit.test.ts"
+      }
+    ]
+  },
+  "outgoing": {},
+  "processes": []
+}

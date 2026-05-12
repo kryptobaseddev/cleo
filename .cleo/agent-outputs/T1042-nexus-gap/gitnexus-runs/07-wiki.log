@@ -1,0 +1,14 @@
+
+  GitNexus Wiki Generator
+
+  Config saved to ~/.gitnexus/config.json
+
+
+  LLM Error: LLM API error (401): {"error":{"message":"Missing Authentication header","code":401}}
+
+
+NOTE: Wiki generation requires a valid LLM API key. It failed with 401 Unauthorized.
+The wiki command uses an LLM backend (default: minimax/minimax-m2.5) to generate
+human-readable summaries from the knowledge graph. Without a valid API key, this
+feature is unavailable. The command structure shows --provider, --model, --base-url
+parameters supporting OpenAI-compatible endpoints.

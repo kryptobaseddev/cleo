@@ -1,0 +1,34 @@
+{
+  "status": "found",
+  "symbol": {
+    "uid": "Function:src/sessions/session-chat-type.ts:deriveSessionChatType",
+    "name": "deriveSessionChatType",
+    "filePath": "src/sessions/session-chat-type.ts",
+    "startLine": 11,
+    "endLine": 28
+  },
+  "incoming": {
+    "calls": [
+      {
+        "uid": "Function:src/tasks/task-registry.maintenance.ts:hasBackingSession",
+        "name": "hasBackingSession",
+        "filePath": "src/tasks/task-registry.maintenance.ts"
+      },
+      {
+        "uid": "Function:src/sessions/send-policy.ts:deriveChatTypeFromKey",
+        "name": "deriveChatTypeFromKey",
+        "filePath": "src/sessions/send-policy.ts"
+      }
+    ]
+  },
+  "outgoing": {
+    "calls": [
+      {
+        "uid": "Function:src/sessions/session-chat-type-shared.ts:deriveSessionChatTypeFromKey",
+        "name": "deriveSessionChatTypeFromKey",
+        "filePath": "src/sessions/session-chat-type-shared.ts"
+      }
+    ]
+  },
+  "processes": []
+}

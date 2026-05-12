@@ -1,0 +1,1727 @@
+{
+  "target": {
+    "id": "Function:src/config/io.ts:loadConfig",
+    "name": "loadConfig",
+    "type": "Function",
+    "filePath": "src/config/io.ts"
+  },
+  "direction": "downstream",
+  "impactedCount": 168,
+  "risk": "CRITICAL",
+  "summary": {
+    "direct": 25,
+    "processes_affected": 37,
+    "modules_affected": 12
+  },
+  "affected_processes": [
+    {
+      "name": "loadConfig",
+      "type": "Function",
+      "filePath": "src/config/io.ts",
+      "affected_process_count": 7,
+      "total_hits": 22,
+      "earliest_broken_step": 2
+    },
+    {
+      "name": "runSecurityAudit",
+      "type": "Function",
+      "filePath": "src/security/audit.ts",
+      "affected_process_count": 4,
+      "total_hits": 7,
+      "earliest_broken_step": 4
+    },
+    {
+      "name": "handleTtsCommands",
+      "type": "Function",
+      "filePath": "src/auto-reply/reply/commands-tts.ts",
+      "affected_process_count": 2,
+      "total_hits": 2,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "handleChatFirehose",
+      "type": "Function",
+      "filePath": "extensions/tlon/src/monitor/index.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 8
+    },
+    {
+      "name": "handleOpenResponsesHttpRequest",
+      "type": "Function",
+      "filePath": "src/gateway/openresponses-http.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "ChatSheetContent",
+      "type": "Function",
+      "filePath": "apps/android/app/src/main/java/ai/openclaw/app/ui/chat/ChatSheetContent.kt",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 8
+    },
+    {
+      "name": "runMemoryStatus",
+      "type": "Function",
+      "filePath": "extensions/memory-core/src/cli.runtime.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 7
+    },
+    {
+      "name": "dispatchTelegramMessage",
+      "type": "Function",
+      "filePath": "extensions/telegram/src/bot-message-dispatch.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "handleAcpSpawnAction",
+      "type": "Function",
+      "filePath": "src/auto-reply/reply/commands-acp/lifecycle.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 6
+    },
+    {
+      "name": "dispatchPreparedSlackMessage",
+      "type": "Function",
+      "filePath": "extensions/slack/src/monitor/message-handler/dispatch.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "tryDispatchAcpReply",
+      "type": "Function",
+      "filePath": "src/auto-reply/reply/dispatch-acp.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "handleConfigCommand",
+      "type": "Function",
+      "filePath": "src/auto-reply/reply/commands-config.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 7
+    },
+    {
+      "name": "runEmbeddedAttempt",
+      "type": "Function",
+      "filePath": "src/agents/pi-embedded-runner/run/attempt.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 4
+    },
+    {
+      "name": "renderApp",
+      "type": "Function",
+      "filePath": "ui/src/ui/app-render.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 6
+    },
+    {
+      "name": "startGatewayServer",
+      "type": "Function",
+      "filePath": "src/gateway/server.impl.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "attachGatewayWsMessageHandler",
+      "type": "Function",
+      "filePath": "src/gateway/server/ws-connection/message-handler.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "processMessageAfterDedupe",
+      "type": "Function",
+      "filePath": "extensions/bluebubbles/src/monitor-processing.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 9
+    },
+    {
+      "name": "buildStatusMessage",
+      "type": "Function",
+      "filePath": "src/status/status-message.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "handleOpenAiHttpRequest",
+      "type": "Function",
+      "filePath": "src/gateway/openai-http.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "processDiscordMessage",
+      "type": "Function",
+      "filePath": "extensions/discord/src/monitor/message-handler.process.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "handleModelPickerInteraction",
+      "type": "Function",
+      "filePath": "extensions/mattermost/src/mattermost/monitor.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 6
+    },
+    {
+      "name": "registerTelegramHandlers",
+      "type": "Function",
+      "filePath": "extensions/telegram/src/bot-handlers.runtime.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 4
+    },
+    {
+      "name": "processMessage",
+      "type": "Function",
+      "filePath": "extensions/whatsapp/src/auto-reply/monitor/process-message.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 5
+    },
+    {
+      "name": "runWithModelFallback",
+      "type": "Function",
+      "filePath": "src/agents/model-fallback.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 6
+    },
+    {
+      "name": "ConnectTabScreen",
+      "type": "Function",
+      "filePath": "apps/android/app/src/main/java/ai/openclaw/app/ui/ConnectTabScreen.kt",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 4
+    },
+    {
+      "name": "runCli",
+      "type": "Function",
+      "filePath": "src/cli/run-main.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 6
+    },
+    {
+      "name": "handleTeamsMessageNow",
+      "type": "Function",
+      "filePath": "extensions/msteams/src/monitor-handler/message-handler.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 7
+    },
+    {
+      "name": "createOpenClawTools",
+      "type": "Function",
+      "filePath": "src/agents/openclaw-tools.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 4
+    },
+    {
+      "name": "handleDiscordMessagingAction",
+      "type": "Function",
+      "filePath": "extensions/discord/src/actions/runtime.messaging.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 8
+    },
+    {
+      "name": "handleSessionCommand",
+      "type": "Function",
+      "filePath": "src/auto-reply/reply/commands-session.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 7
+    },
+    {
+      "name": "handleNodeEvent",
+      "type": "Function",
+      "filePath": "src/gateway/server-node-events.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 6
+    },
+    {
+      "name": "handlePost",
+      "type": "Function",
+      "filePath": "extensions/mattermost/src/mattermost/monitor.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 4
+    },
+    {
+      "name": "monitorMattermostProvider",
+      "type": "Function",
+      "filePath": "extensions/mattermost/src/mattermost/monitor.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 8
+    },
+    {
+      "name": "runMemoryRemBackfill",
+      "type": "Function",
+      "filePath": "extensions/memory-core/src/cli.runtime.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 7
+    },
+    {
+      "name": "createTelegramBot",
+      "type": "Function",
+      "filePath": "extensions/telegram/src/bot.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 4
+    },
+    {
+      "name": "registerTelegramNativeCommands",
+      "type": "Function",
+      "filePath": "extensions/telegram/src/bot-native-commands.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 7
+    },
+    {
+      "name": "handleChannelsFirehose",
+      "type": "Function",
+      "filePath": "extensions/tlon/src/monitor/index.ts",
+      "affected_process_count": 1,
+      "total_hits": 1,
+      "earliest_broken_step": 7
+    }
+  ],
+  "affected_modules": [
+    {
+      "name": "Config",
+      "hits": 103,
+      "impact": "direct"
+    },
+    {
+      "name": "Plugins",
+      "hits": 13,
+      "impact": "direct"
+    },
+    {
+      "name": "Infra",
+      "hits": 9,
+      "impact": "indirect"
+    },
+    {
+      "name": "Secrets",
+      "hits": 6,
+      "impact": "indirect"
+    },
+    {
+      "name": "Commands",
+      "hits": 3,
+      "impact": "direct"
+    },
+    {
+      "name": "Gateway",
+      "hits": 2,
+      "impact": "indirect"
+    },
+    {
+      "name": "Cluster_5938",
+      "hits": 2,
+      "impact": "indirect"
+    },
+    {
+      "name": "Scripts",
+      "hits": 1,
+      "impact": "indirect"
+    },
+    {
+      "name": "Sessions",
+      "hits": 1,
+      "impact": "indirect"
+    },
+    {
+      "name": "Plugin-sdk",
+      "hits": 1,
+      "impact": "indirect"
+    },
+    {
+      "name": "Extensions",
+      "hits": 1,
+      "impact": "direct"
+    },
+    {
+      "name": "Agents",
+      "hits": 1,
+      "impact": "indirect"
+    }
+  ],
+  "byDepth": {
+    "1": [
+      {
+        "depth": 1,
+        "id": "Function:src/terminal/safe-text.ts:sanitizeTerminalText",
+        "name": "sanitizeTerminalText",
+        "filePath": "src/terminal/safe-text.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/infra/shell-env.ts:loadShellEnvFallback",
+        "name": "loadShellEnvFallback",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/infra/shell-env.ts:shouldEnableShellEnvFallback",
+        "name": "shouldEnableShellEnvFallback",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/infra/shell-env.ts:shouldDeferShellEnvFallback",
+        "name": "shouldDeferShellEnvFallback",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/infra/shell-env.ts:resolveShellEnvFallbackTimeoutMs",
+        "name": "resolveShellEnvFallbackTimeoutMs",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/validation.ts:validateConfigObjectWithPlugins",
+        "name": "validateConfigObjectWithPlugins",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/shell-env-expected-keys.ts:resolveShellEnvExpectedKeys",
+        "name": "resolveShellEnvExpectedKeys",
+        "filePath": "src/config/shell-env-expected-keys.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/runtime-snapshot.ts:loadPinnedRuntimeConfig",
+        "name": "loadPinnedRuntimeConfig",
+        "filePath": "src/config/runtime-snapshot.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/materialize.ts:materializeRuntimeConfig",
+        "name": "materializeRuntimeConfig",
+        "filePath": "src/config/materialize.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:hashConfigRaw",
+        "name": "hashConfigRaw",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:coerceConfig",
+        "name": "coerceConfig",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:warnOnConfigMiskeys",
+        "name": "warnOnConfigMiskeys",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:warnIfConfigFromFuture",
+        "name": "warnIfConfigFromFuture",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:maybeLoadDotEnvForConfig",
+        "name": "maybeLoadDotEnvForConfig",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:resolveConfigIncludesForRead",
+        "name": "resolveConfigIncludesForRead",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:resolveConfigForRead",
+        "name": "resolveConfigForRead",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:resolveLegacyConfigForRead",
+        "name": "resolveLegacyConfigForRead",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:createConfigFileSnapshot",
+        "name": "createConfigFileSnapshot",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:createConfigIO",
+        "name": "createConfigIO",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:observeLoadConfigSnapshot",
+        "name": "observeLoadConfigSnapshot",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.ts:finalizeLoadedRuntimeConfig",
+        "name": "finalizeLoadedRuntimeConfig",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.observe-recovery.ts:maybeRecoverSuspiciousConfigReadSync",
+        "name": "maybeRecoverSuspiciousConfigReadSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/io.invalid-config.ts:throwInvalidConfig",
+        "name": "throwInvalidConfig",
+        "filePath": "src/config/io.invalid-config.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Function:src/config/agent-dirs.ts:findDuplicateAgentDirs",
+        "name": "findDuplicateAgentDirs",
+        "filePath": "src/config/agent-dirs.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 1,
+        "id": "Class:src/config/agent-dirs.ts:DuplicateAgentDirError",
+        "name": "DuplicateAgentDirError",
+        "filePath": "src/config/agent-dirs.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      }
+    ],
+    "2": [
+      {
+        "depth": 2,
+        "id": "Function:src/secrets/provider-env-vars.ts:listKnownProviderAuthEnvVarNames",
+        "name": "listKnownProviderAuthEnvVarNames",
+        "filePath": "src/secrets/provider-env-vars.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/secrets/channel-env-vars.ts:listKnownChannelEnvVarNames",
+        "name": "listKnownChannelEnvVarNames",
+        "filePath": "src/secrets/channel-env-vars.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/plugins/doctor-contract-registry.ts:collectRelevantDoctorPluginIds",
+        "name": "collectRelevantDoctorPluginIds",
+        "filePath": "src/plugins/doctor-contract-registry.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/plugins/doctor-contract-registry.ts:listPluginDoctorLegacyConfigRules",
+        "name": "listPluginDoctorLegacyConfigRules",
+        "filePath": "src/plugins/doctor-contract-registry.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/infra/shell-env.ts:probeLoginShellEnv",
+        "name": "probeLoginShellEnv",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/infra/shell-env.ts:hasExplicitEnvBinding",
+        "name": "hasExplicitEnvBinding",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/infra/dotenv.ts:loadDotEnv",
+        "name": "loadDotEnv",
+        "filePath": "src/infra/dotenv.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/version.ts:shouldWarnOnTouchedVersion",
+        "name": "shouldWarnOnTouchedVersion",
+        "filePath": "src/config/version.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/validation.ts:validateConfigObjectWithPluginsBase",
+        "name": "validateConfigObjectWithPluginsBase",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/runtime-snapshot.ts:setRuntimeConfigSnapshot",
+        "name": "setRuntimeConfigSnapshot",
+        "filePath": "src/config/runtime-snapshot.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/runtime-snapshot.ts:getRuntimeConfigSnapshot",
+        "name": "getRuntimeConfigSnapshot",
+        "filePath": "src/config/runtime-snapshot.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/runtime-overrides.ts:applyConfigOverrides",
+        "name": "applyConfigOverrides",
+        "filePath": "src/config/runtime-overrides.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/normalize-exec-safe-bin.ts:normalizeExecSafeBinProfilesInConfig",
+        "name": "normalizeExecSafeBinProfilesInConfig",
+        "filePath": "src/config/normalize-exec-safe-bin.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/materialize.ts:asResolvedSourceConfig",
+        "name": "asResolvedSourceConfig",
+        "filePath": "src/config/materialize.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/materialize.ts:asRuntimeConfig",
+        "name": "asRuntimeConfig",
+        "filePath": "src/config/materialize.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/legacy.ts:findLegacyConfigIssues",
+        "name": "findLegacyConfigIssues",
+        "filePath": "src/config/legacy.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.ts:observeConfigSnapshotSync",
+        "name": "observeConfigSnapshotSync",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.ts:resolveConfigPathForDeps",
+        "name": "resolveConfigPathForDeps",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.ts:normalizeDeps",
+        "name": "normalizeDeps",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.owner-display-secret.ts:persistGeneratedOwnerDisplaySecret",
+        "name": "persistGeneratedOwnerDisplaySecret",
+        "filePath": "src/config/io.owner-display-secret.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:createConfigObserveAuditAppendParams",
+        "name": "createConfigObserveAuditAppendParams",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:hashConfigRaw",
+        "name": "hashConfigRaw",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:createConfigHealthFingerprint",
+        "name": "createConfigHealthFingerprint",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:readConfigHealthStateSync",
+        "name": "readConfigHealthStateSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:writeConfigHealthStateSync",
+        "name": "writeConfigHealthStateSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:getConfigHealthEntry",
+        "name": "getConfigHealthEntry",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:setConfigHealthEntry",
+        "name": "setConfigHealthEntry",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:createLastObservedSuspiciousEntry",
+        "name": "createLastObservedSuspiciousEntry",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:resolveConfigReadRecoveryContext",
+        "name": "resolveConfigReadRecoveryContext",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:readConfigFingerprintForPathSync",
+        "name": "readConfigFingerprintForPathSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.observe-recovery.ts:persistClobberedConfigSnapshotSync",
+        "name": "persistClobberedConfigSnapshotSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.invalid-config.ts:formatInvalidConfigDetails",
+        "name": "formatInvalidConfigDetails",
+        "filePath": "src/config/io.invalid-config.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.invalid-config.ts:logInvalidConfigOnce",
+        "name": "logInvalidConfigOnce",
+        "filePath": "src/config/io.invalid-config.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.invalid-config.ts:createInvalidConfigError",
+        "name": "createInvalidConfigError",
+        "filePath": "src/config/io.invalid-config.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/io.audit.ts:appendConfigAuditRecordSync",
+        "name": "appendConfigAuditRecordSync",
+        "filePath": "src/config/io.audit.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/includes.ts:readConfigIncludeFileWithGuards",
+        "name": "readConfigIncludeFileWithGuards",
+        "filePath": "src/config/includes.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/includes.ts:resolveConfigIncludes",
+        "name": "resolveConfigIncludes",
+        "filePath": "src/config/includes.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/env-substitution.ts:resolveConfigEnvVars",
+        "name": "resolveConfigEnvVars",
+        "filePath": "src/config/env-substitution.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/defaults.ts:applyMessageDefaults",
+        "name": "applyMessageDefaults",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/defaults.ts:applyTalkConfigNormalization",
+        "name": "applyTalkConfigNormalization",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/defaults.ts:applyModelDefaults",
+        "name": "applyModelDefaults",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/defaults.ts:applyAgentDefaults",
+        "name": "applyAgentDefaults",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/defaults.ts:applyLoggingDefaults",
+        "name": "applyLoggingDefaults",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/defaults.ts:applyContextPruningDefaults",
+        "name": "applyContextPruningDefaults",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/defaults.ts:applyCompactionDefaults",
+        "name": "applyCompactionDefaults",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/config-env-vars.ts:applyConfigEnvVars",
+        "name": "applyConfigEnvVars",
+        "filePath": "src/config/config-env-vars.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/agent-dirs.ts:canonicalizeAgentDir",
+        "name": "canonicalizeAgentDir",
+        "filePath": "src/config/agent-dirs.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/agent-dirs.ts:collectReferencedAgentIds",
+        "name": "collectReferencedAgentIds",
+        "filePath": "src/config/agent-dirs.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/config/agent-dirs.ts:resolveEffectiveAgentDir",
+        "name": "resolveEffectiveAgentDir",
+        "filePath": "src/config/agent-dirs.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/agents/owner-display.ts:ensureOwnerDisplaySecret",
+        "name": "ensureOwnerDisplaySecret",
+        "filePath": "src/agents/owner-display.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:src/commands/doctor/shared/runtime-compat-api.ts:applyRuntimeLegacyConfigMigrations",
+        "name": "applyRuntimeLegacyConfigMigrations",
+        "filePath": "src/commands/doctor/shared/runtime-compat-api.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Function:extensions/whatsapp/src/auto-reply/monitor/echo.ts:trim",
+        "name": "trim",
+        "filePath": "extensions/whatsapp/src/auto-reply/monitor/echo.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 2,
+        "id": "Method:src/config/io.observe-recovery.ts:statSync#2",
+        "name": "statSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Method:src/config/io.observe-recovery.ts:readFileSync#2",
+        "name": "readFileSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 2,
+        "id": "Method:src/config/io.observe-recovery.ts:copyFileSync#2",
+        "name": "copyFileSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      }
+    ],
+    "3": [
+      {
+        "depth": 3,
+        "id": "Function:src/shared/record-coerce.ts:asNullableRecord",
+        "name": "asNullableRecord",
+        "filePath": "src/shared/record-coerce.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/secrets/provider-env-vars.ts:resolveProviderAuthEnvVarCandidates",
+        "name": "resolveProviderAuthEnvVarCandidates",
+        "filePath": "src/secrets/provider-env-vars.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/secrets/provider-env-vars.ts:resolveProviderEnvVars",
+        "name": "resolveProviderEnvVars",
+        "filePath": "src/secrets/provider-env-vars.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/secrets/channel-env-vars.ts:resolveChannelEnvVars",
+        "name": "resolveChannelEnvVars",
+        "filePath": "src/secrets/channel-env-vars.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/plugins/schema-validator.ts:validateJsonSchemaValue",
+        "name": "validateJsonSchemaValue",
+        "filePath": "src/plugins/schema-validator.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/plugins/manifest-command-aliases.runtime.ts:resolveManifestCommandAliasOwner",
+        "name": "resolveManifestCommandAliasOwner",
+        "filePath": "src/plugins/manifest-command-aliases.runtime.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/plugins/doctor-contract-registry.ts:hasLegacyElevenLabsTalkFields",
+        "name": "hasLegacyElevenLabsTalkFields",
+        "filePath": "src/plugins/doctor-contract-registry.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/plugins/doctor-contract-registry.ts:resolvePluginDoctorContracts",
+        "name": "resolvePluginDoctorContracts",
+        "filePath": "src/plugins/doctor-contract-registry.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/plugins/config-activation-shared.ts:hasKind",
+        "name": "hasKind",
+        "filePath": "src/plugins/config-activation-shared.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/shell-env.ts:resolveShellExecEnv",
+        "name": "resolveShellExecEnv",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/shell-env.ts:resolveTimeoutMs",
+        "name": "resolveTimeoutMs",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/shell-env.ts:resolveShell",
+        "name": "resolveShell",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/shell-env.ts:execLoginShellEnvZero",
+        "name": "execLoginShellEnvZero",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/shell-env.ts:parseShellEnv",
+        "name": "parseShellEnv",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/shell-env.ts:createLoginShellEnvCacheKey",
+        "name": "createLoginShellEnvCacheKey",
+        "filePath": "src/infra/shell-env.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/home-dir.ts:resolveRequiredHomeDir",
+        "name": "resolveRequiredHomeDir",
+        "filePath": "src/infra/home-dir.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/dotenv.ts:loadWorkspaceDotEnvFile",
+        "name": "loadWorkspaceDotEnvFile",
+        "filePath": "src/infra/dotenv.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/dotenv.ts:loadGlobalRuntimeDotEnvFiles",
+        "name": "loadGlobalRuntimeDotEnvFiles",
+        "filePath": "src/infra/dotenv.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/boundary-file-read.ts:canUseBoundaryFileOpen",
+        "name": "canUseBoundaryFileOpen",
+        "filePath": "src/infra/boundary-file-read.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/infra/boundary-file-read.ts:openBoundaryFileSync",
+        "name": "openBoundaryFileSync",
+        "filePath": "src/infra/boundary-file-read.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/version.ts:parseOpenClawVersion",
+        "name": "parseOpenClawVersion",
+        "filePath": "src/config/version.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/version.ts:isSameOpenClawStableFamily",
+        "name": "isSameOpenClawStableFamily",
+        "filePath": "src/config/version.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/version.ts:compareOpenClawVersions",
+        "name": "compareOpenClawVersions",
+        "filePath": "src/config/version.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:validateConfigObjectRaw",
+        "name": "validateConfigObjectRaw",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:validateConfigObject",
+        "name": "validateConfigObject",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:resolvePluginConfigIssuePath",
+        "name": "resolvePluginConfigIssuePath",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:ensureCompatPluginIds",
+        "name": "ensureCompatPluginIds",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:ensureCompatConfig",
+        "name": "ensureCompatConfig",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:ensureRegistry",
+        "name": "ensureRegistry",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:ensureKnownIds",
+        "name": "ensureKnownIds",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:ensureOverriddenPluginIds",
+        "name": "ensureOverriddenPluginIds",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:ensureNormalizedPlugins",
+        "name": "ensureNormalizedPlugins",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:ensureChannelSchemas",
+        "name": "ensureChannelSchemas",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:replaceChannelConfig",
+        "name": "replaceChannelConfig",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:replacePluginEntryConfig",
+        "name": "replacePluginEntryConfig",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:validateHeartbeatTarget",
+        "name": "validateHeartbeatTarget",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/validation.ts:pushMissingPluginIssue",
+        "name": "pushMissingPluginIssue",
+        "filePath": "src/config/validation.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/talk.ts:normalizeTalkConfig",
+        "name": "normalizeTalkConfig",
+        "filePath": "src/config/talk.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/runtime-overrides.ts:mergeOverrides",
+        "name": "mergeOverrides",
+        "filePath": "src/config/runtime-overrides.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/provider-policy.ts:normalizeProviderConfigForConfigDefaults",
+        "name": "normalizeProviderConfigForConfigDefaults",
+        "filePath": "src/config/provider-policy.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/provider-policy.ts:applyProviderConfigDefaultsForConfig",
+        "name": "applyProviderConfigDefaultsForConfig",
+        "filePath": "src/config/provider-policy.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/paths.ts:resolveStateDir",
+        "name": "resolveStateDir",
+        "filePath": "src/config/paths.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/normalize-exec-safe-bin.ts:normalizeExec",
+        "name": "normalizeExec",
+        "filePath": "src/config/normalize-exec-safe-bin.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/legacy.ts:getPathValue",
+        "name": "getPathValue",
+        "filePath": "src/config/legacy.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/legacy.ts:collectExplicitRuleOwnedChannelIds",
+        "name": "collectExplicitRuleOwnedChannelIds",
+        "filePath": "src/config/legacy.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:resolveConfigSnapshotHash",
+        "name": "resolveConfigSnapshotHash",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:hasConfigMeta",
+        "name": "hasConfigMeta",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:resolveGatewayMode",
+        "name": "resolveGatewayMode",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:resolveConfigStatMetadata",
+        "name": "resolveConfigStatMetadata",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:readConfigHealthStateSync",
+        "name": "readConfigHealthStateSync",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:writeConfigHealthStateSync",
+        "name": "writeConfigHealthStateSync",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:getConfigHealthEntry",
+        "name": "getConfigHealthEntry",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:setConfigHealthEntry",
+        "name": "setConfigHealthEntry",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:resolveConfigObserveSuspiciousReasons",
+        "name": "resolveConfigObserveSuspiciousReasons",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:readConfigFingerprintForPathSync",
+        "name": "readConfigFingerprintForPathSync",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:persistClobberedConfigSnapshotSync",
+        "name": "persistClobberedConfigSnapshotSync",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.ts:sameFingerprint",
+        "name": "sameFingerprint",
+        "filePath": "src/config/io.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.observe-recovery.ts:createConfigObserveAuditRecord",
+        "name": "createConfigObserveAuditRecord",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.observe-recovery.ts:hasConfigMeta",
+        "name": "hasConfigMeta",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.observe-recovery.ts:resolveGatewayMode",
+        "name": "resolveGatewayMode",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.observe-recovery.ts:resolveConfigStatMetadata",
+        "name": "resolveConfigStatMetadata",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.observe-recovery.ts:parseConfigRawOrEmpty",
+        "name": "parseConfigRawOrEmpty",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.observe-recovery.ts:resolveConfigHealthStatePath",
+        "name": "resolveConfigHealthStatePath",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.observe-recovery.ts:resolveConfigObserveSuspiciousReasons",
+        "name": "resolveConfigObserveSuspiciousReasons",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.observe-recovery.ts:resolveSuspiciousSignature",
+        "name": "resolveSuspiciousSignature",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.observe-recovery.ts:formatConfigArtifactTimestamp",
+        "name": "formatConfigArtifactTimestamp",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.invalid-config.ts:formatInvalidConfigLogMessage",
+        "name": "formatInvalidConfigLogMessage",
+        "filePath": "src/config/io.invalid-config.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.audit.ts:resolveConfigAuditLogPath",
+        "name": "resolveConfigAuditLogPath",
+        "filePath": "src/config/io.audit.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/io.audit.ts:resolveConfigAuditAppendRecord",
+        "name": "resolveConfigAuditAppendRecord",
+        "filePath": "src/config/io.audit.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/env-substitution.ts:containsEnvVarReference",
+        "name": "containsEnvVarReference",
+        "filePath": "src/config/env-substitution.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/env-substitution.ts:substituteAny",
+        "name": "substituteAny",
+        "filePath": "src/config/env-substitution.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/defaults.ts:isPositiveNumber",
+        "name": "isPositiveNumber",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/defaults.ts:resolveModelCost",
+        "name": "resolveModelCost",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/defaults.ts:resolveNormalizedProviderModelMaxTokens",
+        "name": "resolveNormalizedProviderModelMaxTokens",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/defaults.ts:hasAnthropicDefaultSignal",
+        "name": "hasAnthropicDefaultSignal",
+        "filePath": "src/config/defaults.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/config/config-env-vars.ts:collectConfigRuntimeEnvVars",
+        "name": "collectConfigRuntimeEnvVars",
+        "filePath": "src/config/config-env-vars.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/commands/configure.wizard.ts:persistConfig",
+        "name": "persistConfig",
+        "filePath": "src/commands/configure.wizard.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/channels/plugins/legacy-config.ts:collectChannelLegacyConfigRules",
+        "name": "collectChannelLegacyConfigRules",
+        "filePath": "src/channels/plugins/legacy-config.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/commands/doctor/shared/legacy-config-runtime-migrate.ts:normalizeRuntimeCompatibilityConfigValues",
+        "name": "normalizeRuntimeCompatibilityConfigValues",
+        "filePath": "src/commands/doctor/shared/legacy-config-runtime-migrate.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Function:src/commands/doctor/shared/legacy-config-compat.ts:applyLegacyDoctorMigrations",
+        "name": "applyLegacyDoctorMigrations",
+        "filePath": "src/commands/doctor/shared/legacy-config-compat.ts",
+        "relationType": "CALLS",
+        "confidence": 0.5
+      },
+      {
+        "depth": 3,
+        "id": "Method:src/config/io.observe-recovery.ts:writeFileSync#3",
+        "name": "writeFileSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Method:src/config/io.observe-recovery.ts:mkdirSync#2",
+        "name": "mkdirSync",
+        "filePath": "src/config/io.observe-recovery.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Method:src/config/io.audit.ts:mkdirSync#2",
+        "name": "mkdirSync",
+        "filePath": "src/config/io.audit.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Method:src/config/io.audit.ts:appendFileSync#3",
+        "name": "appendFileSync",
+        "filePath": "src/config/io.audit.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Method:src/config/includes.ts:IncludeProcessor.process#1",
+        "name": "process",
+        "filePath": "src/config/includes.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Class:src/config/includes.ts:ConfigIncludeError",
+        "name": "ConfigIncludeError",
+        "filePath": "src/config/includes.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "Class:src/config/includes.ts:IncludeProcessor",
+        "name": "IncludeProcessor",
+        "filePath": "src/config/includes.ts",
+        "relationType": "CALLS",
+        "confidence": 0.95
+      },
+      {
+        "depth": 3,
+        "id": "proc_23_runsecurityaudit",
+        "filePath": "",
+        "relationType": "STEP_IN_PROCESS",
+        "confidence": 1
+      }
+    ]
+  }
+}
