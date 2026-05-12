@@ -34,20 +34,8 @@ import type {
   TaskViewGatesStatus,
   TaskViewLifecycleProgress,
   TaskViewNextAction,
-  TaskViewPipelineStage,
 } from '@cleocode/contracts';
 import { getNativeTasksDb } from '../store/sqlite.js';
-
-// TaskView types are canonical in @cleocode/contracts/tasks — re-export for
-// callers that import from this module path (T1685-W3 dedup).
-export type {
-  TaskView,
-  TaskViewChildRollup,
-  TaskViewGatesStatus,
-  TaskViewLifecycleProgress,
-  TaskViewNextAction,
-  TaskViewPipelineStage,
-};
 
 // =============================================================================
 // INTERNAL HELPERS

@@ -36,9 +36,7 @@ export function createBrainAccessor(projectRoot?: string): BrainAccessor {
         title: params?.title,
         // params.type is a generic string from the public interface; cast to the
         // internal enum type — observeBrain defaults to 'observation' on invalid values.
-        type: params?.type as
-          | import('../memory/brain-retrieval.js').BrainObservationType
-          | undefined,
+        type: params?.type as import('@cleocode/contracts').BrainObservationType | undefined,
         sourceSessionId: params?.sourceSessionId,
         agent: params?.agent,
         _skipGate: true, // bypass extraction gate for programmatic API calls

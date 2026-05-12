@@ -48,6 +48,12 @@ export type {
   AttachmentRef,
   LlmsTxtAttachment,
   LocalFileAttachment,
+  TaskView,
+  TaskViewChildRollup,
+  TaskViewGatesStatus,
+  TaskViewLifecycleProgress,
+  TaskViewNextAction,
+  TaskViewPipelineStage,
   UrlAttachment,
 } from '@cleocode/contracts';
 // Code analysis (Smart Explore) — canonical source: @cleocode/nexus
@@ -1079,16 +1085,7 @@ export { getTaskHistory } from './task-work/index.js';
 // Tasks (additional)
 export { validateLabels } from './tasks/add.js';
 // Canonical task view — unified derivation (T943)
-export {
-  computeTaskView,
-  computeTaskViews,
-  type TaskView,
-  type TaskViewChildRollup,
-  type TaskViewGatesStatus,
-  type TaskViewLifecycleProgress,
-  type TaskViewNextAction,
-  type TaskViewPipelineStage,
-} from './tasks/compute-task-view.js';
+export { computeTaskView, computeTaskViews } from './tasks/compute-task-view.js';
 // Evidence-based verification (T832 / ADR-051, T1534 / ADR-061)
 export {
   type AtomValidation,

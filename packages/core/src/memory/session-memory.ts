@@ -10,10 +10,10 @@
  * @epic T5149
  */
 
+import type { BrainObservationType } from '@cleocode/contracts';
 import type { DebriefData, DebriefDecision } from '../sessions/handoff.js';
 import type {
   BrainCompactHit,
-  BrainObservationType,
   ObserveBrainResult,
   SearchBrainCompactResult,
 } from './brain-retrieval.js';

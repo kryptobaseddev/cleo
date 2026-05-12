@@ -169,9 +169,6 @@ export interface FetchBrainEntriesResult {
   tokensEstimated: number;
 }
 
-// BrainObservationType is canonical in @cleocode/contracts — re-export only.
-export type { BrainObservationType };
-
 /** Observation source type from schema. */
 export type BrainObservationSourceType = (typeof BRAIN_OBSERVATION_SOURCE_TYPES)[number];
 
