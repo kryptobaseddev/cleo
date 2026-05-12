@@ -17,8 +17,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));

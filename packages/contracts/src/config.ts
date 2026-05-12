@@ -505,6 +505,28 @@ export interface CleoConfig {
    * @task T1828
    */
   decisions?: DecisionsConfig;
+  /**
+   * Briefing pipeline settings (T1904 / BBTT-W2-3).
+   *
+   * @defaultValue undefined
+   */
+  briefing?: BriefingConfig;
+}
+
+/**
+ * Configuration for the `cleo briefing` pipeline (T1904 / BBTT-W2-3).
+ */
+export interface BriefingConfig {
+  /**
+   * Whether `cleo briefing` opportunistically triggers a dream cycle after
+   * computing the briefing response.
+   *
+   * The dream cycle is always subject to its own 5-minute cooldown guard and
+   * never blocks the briefing response.
+   *
+   * @defaultValue true
+   */
+  opportunisticDream?: boolean;
 }
 
 /**
