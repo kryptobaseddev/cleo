@@ -1,0 +1,69 @@
+name: Freshness Sentinel
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (print alert but do not create issue)'
+        type: boolean
+        default: false
+
+jobs:
+  check-dream-freshness:
+    name: Check BRAIN dream cycle health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install CLEO globally
+        run: pnpm --filter @cleocode/cleo exec node build.mjs 2>/dev/null || true
+
+      - name: Initialize canary CLEO project
+        run: |
+          mkdir -p /tmp/cleo-canary
+          cd /tmp/cleo-canary
+          cleo init || true
+          # Seed a handful of observations so status is meaningful
+          for i in $(seq 1 20); do
+            cleo memory observe "Canary observation $i — testing freshness sentinel" --title "Canary $i" 2>/dev/null || true
+          done
+        env:
+          CLEO_PROJECT_ROOT: /tmp/cleo-canary
+
+      - name: Run freshness sentinel
+        run: pnpm exec tsx scripts/freshness-sentinel.ts
+        env:
+          CLEO_PROJECT_ROOT: /tmp/cleo-canary
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '0' }}
+
+      - name: Alert on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Additional fallback: add a comment to the run summary
+            const msg = '⚠️ BRAIN dream cycle freshness check FAILED. Run `cleo memory dream` manually or check the sentient daemon.';
+            core.warning(msg);
+            await core.summary
+              .addHeading('Dream Cycle Alert')
+              .addRaw(msg)
+              .write();
