@@ -95,6 +95,12 @@ export async function checkEpicCompleteness(
     const epic = tasksById.get(epicId);
     if (!epic) continue;
 
+    // Epics that are already fully done (status=done) have been shipped in prior
+    // releases — skip completeness check. The current release may ship tasks from
+    // a done epic as a backfill, but the guard should not block the release because
+    // a sibling was already counted elsewhere.
+    if (epic.status === 'done') continue;
+
     // Find all children of this epic
     const allChildren = allTasks.filter((t) => t.parentId === epicId && t.id !== epicId);
     const includedSet = new Set(includedTasks);
