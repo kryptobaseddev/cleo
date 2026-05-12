@@ -817,6 +817,11 @@ function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: strin
       '- `pnpm biome check --write .` must show no warnings',
       '- `pnpm run build` must succeed (full dep graph)',
       '- `pnpm run test` must show zero new failures',
+      '',
+      '**FISE-2 (T9231 / ADR-070)**: If `CLEO_AGENT_ROLE=lead`, you MUST use `delegate_task`',
+      'to dispatch implementation work to a Worker sub-agent before writing the `implemented`',
+      'gate. Writing `implemented` directly as Lead (without a prior `delegate_task` event for',
+      'this task) will be rejected with `E_LEAD_AUTHORSHIP_BYPASS`.',
     ].join('\n'),
     validation: [
       '## Stage-Specific Guidance — Validation (IVTR)',
