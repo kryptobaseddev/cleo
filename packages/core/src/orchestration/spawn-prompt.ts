@@ -599,6 +599,16 @@ function buildWorktreeSetupBlock(
     'Forbidden git ops: `git checkout, git switch, git branch -b/-D, git reset --hard, git worktree add/remove, git rebase, git stash pop, git push --force`',
     '',
     'All commits MUST land on YOUR branch only. The orchestrator integrates via `git merge --no-ff` (ADR-062), preserving your commit SHAs and authorship.',
+    '',
+    '**BRANCH PROVENANCE (T1927)**:',
+    `The orchestrator provisioned \`${worktreeBranch}\` cleanly from the integration base.`,
+    'If you ever need to manually create a task branch (e.g. in a fallback flow), ALWAYS run:',
+    '```bash',
+    `git branch -D ${worktreeBranch} 2>/dev/null || true`,
+    `git branch ${worktreeBranch} <base-ref>`,
+    '```',
+    'NEVER use `git worktree add -b` on a branch that may already exist — it silently reuses',
+    'orphan history from prior sessions or test fixtures and will corrupt the merge on completion.',
   ].join('\n');
 }
 
