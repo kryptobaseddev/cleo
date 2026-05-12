@@ -36,6 +36,8 @@ interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
     failedPaths: string[];
     hookResults: WorktreeHookResult[];
   };
+  /** Glob patterns actually excluded via sparse-checkout (T9226). */
+  appliedExcludePatterns: string[];
 }
 
 import { getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
@@ -46,6 +48,30 @@ import {
 } from './paths.js';
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
+
+/**
+ * Apply the T9226 spawn-clone-exclude filter to a newly created worktree.
+ *
+ * Enables git sparse-checkout in no-cone mode so individual file globs can
+ * be excluded. Failures are silently swallowed.
+ *
+ * @task T9226
+ */
+function applySpawnCloneExcludeFilter(
+  worktreePath: string,
+  excludePatterns: readonly string[],
+  exemptPaths: readonly string[],
+): string[] {
+  if (excludePatterns.length === 0) return [];
+  try {
+    const rules = ['/*', '/**', ...excludePatterns.map((p) => `!${p}`), ...exemptPaths];
+    gitSilent(['sparse-checkout', 'init', '--no-cone'], worktreePath);
+    gitSilent(['sparse-checkout', 'set', '--no-cone', ...rules], worktreePath);
+    return [...excludePatterns];
+  } catch {
+    return [];
+  }
+}
 
 function isPathSpecifiedInInclude(
   patterns: readonly WorktreeIncludePattern[],
@@ -171,6 +197,15 @@ export async function createWorktree(
 
   const createdAt = new Date().toISOString();
 
+  // T9226 — spawn-clone-exclude filter: hide files matching the exclude
+  // patterns from the worktree via sparse-checkout. Best-effort.
+  const excludePatterns = options.spawnCloneExclude ?? [];
+  const exemptPaths = options.spawnCloneExcludeExempt ?? [];
+  const appliedExcludePatterns =
+    excludePatterns.length > 0
+      ? applySpawnCloneExcludeFilter(worktreePath, excludePatterns, exemptPaths)
+      : [];
+
   // Run post-create hooks before returning the handle.
   const postCreateHookResults = await runWorktreeHooks(hooks, 'post-create', worktreePath);
 
@@ -260,6 +295,7 @@ export async function createWorktree(
     preamble,
     hookResults: postCreateHookResults,
     appliedPatterns,
+    appliedExcludePatterns,
     bootstrap: {
       copiedPaths,
       failedPaths,
