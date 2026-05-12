@@ -356,6 +356,27 @@ export interface BuildSpawnPromptInput {
    * @task T9226
    */
   spawnCloneExclude?: readonly string[];
+  /**
+   * ORC-006 worker budget constraints injected into the spawn prompt.
+   *
+   * When present, a `## Worker Budget Constraints` section is emitted so the
+   * agent knows its tool-call budget and allowed-files ACL before it starts.
+   * The harness enforces `max_tool_calls` mechanically; the prompt injection
+   * ensures the agent halts gracefully rather than crashing on budget
+   * exhaustion.
+   *
+   * `allowedFiles` is derived from the task's `files` field by the caller
+   * (orchestrate engine) and represents the scoped ACL for this worker.
+   *
+   * @task T1656 — max-tool-call budget enforcement
+   * @task T1657 — worker scope boundary enforcement (allowed-files ACL)
+   */
+  workerConstraints?: {
+    /** Maximum tool calls before `E_TOOL_BUDGET_EXCEEDED` is emitted. */
+    max_tool_calls?: number;
+    /** Allowed-files ACL derived from task.files. */
+    allowedFiles?: readonly string[];
+  };
 }
 
 /**
@@ -616,6 +637,89 @@ function buildSpawnCloneExcludeBlock(excludePatterns: readonly string[], taskId:
     'git sparse-checkout add <path>',
     '```',
   ].join('\n');
+}
+
+/**
+ * Build the `## Worker Budget Constraints` section (ORC-006 / T1656 / T1657).
+ *
+ * Injected when the orchestrate engine sets worker constraints on the spawn.
+ * Tells the agent its explicit tool-call budget and allowed-files ACL so it
+ * can self-enforce before the harness hard-stops it.
+ *
+ * - `max_tool_calls`: agent MUST abort and emit a partial manifest when
+ *   it approaches this limit, rather than consuming the full budget silently.
+ * - `allowedFiles`: agent MUST NOT write outside this list. Violations are
+ *   logged to `.cleo/audit/acl-violations.jsonl` by the git shim when
+ *   `CLEO_ACL_STRICT=1` is set.
+ *
+ * Returns empty string when both fields are absent (no constraints to show).
+ *
+ * @param constraints - Budget constraint values from the orchestrate engine.
+ * @param taskId      - Task ID for context in warning messages.
+ *
+ * @task T1656 — max-tool-call budget enforcement in spawn prompt
+ * @task T1657 — worker scope boundary enforcement: allowed-files ACL
+ */
+function buildWorkerConstraintsBlock(
+  constraints: { max_tool_calls?: number; allowedFiles?: readonly string[] },
+  taskId: string,
+): string {
+  const { max_tool_calls, allowedFiles } = constraints;
+  const hasConstraints = max_tool_calls !== undefined || (allowedFiles && allowedFiles.length > 0);
+  if (!hasConstraints) return '';
+
+  const lines: string[] = [
+    '## Worker Budget Constraints (ORC-006 · T1656 · T1657)',
+    '',
+    '> These limits are set by the orchestrator and enforced by the harness.',
+    '> Violating them causes hard abort — graceful partial completion is better.',
+    '',
+  ];
+
+  if (max_tool_calls !== undefined) {
+    const warnAt = Math.floor(max_tool_calls * 0.9);
+    lines.push(`### Tool-Call Budget`);
+    lines.push('');
+    lines.push(`- **Limit**: \`${max_tool_calls}\` tool calls`);
+    lines.push(`- **Warning threshold**: \`${warnAt}\` (90% — self-checkpoint here)`);
+    lines.push('');
+    lines.push('**When you reach the warning threshold**:');
+    lines.push('1. Immediately commit work in progress with a `WIP:` prefix.');
+    lines.push('2. Append a partial manifest entry (`--status partial`).');
+    lines.push('3. Return `Implementation partial. Manifest appended to pipeline_manifest.`');
+    lines.push('');
+    lines.push('Do NOT silently consume the remaining budget. The harness emits');
+    lines.push(
+      `\`E_TOOL_BUDGET_EXCEEDED\` at \`${max_tool_calls}\` calls, which aborts the process.`,
+    );
+    lines.push('');
+  }
+
+  if (allowedFiles && allowedFiles.length > 0) {
+    lines.push('### Allowed-Files ACL');
+    lines.push('');
+    lines.push('You are authorized to read/write ONLY these paths (relative to worktree root):');
+    lines.push('');
+    for (const f of allowedFiles) {
+      lines.push(`- \`${f}\``);
+    }
+    lines.push('');
+    lines.push(
+      `When \`CLEO_ACL_STRICT=1\` is set, the git shim blocks writes outside this list and logs violations to \`.cleo/audit/acl-violations.jsonl\`. ` +
+        `Request orchestrator approval via \`cleo orchestrate approve\` before touching any file outside the ACL.`,
+    );
+    lines.push('');
+    lines.push(
+      `To check compliance before committing: \`git diff --name-only HEAD | grep -vxFf <(cat <<'EOF'\n` +
+        allowedFiles.join('\n') +
+        `\nEOF\n)\``,
+    );
+    lines.push('');
+  }
+
+  lines.push(`**Task**: \`${taskId}\` — constraints are task-scoped, not session-scoped.`);
+
+  return lines.join('\n');
 }
 
 /**
@@ -1585,6 +1689,14 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     const excludeBlock = buildSpawnCloneExcludeBlock(input.spawnCloneExclude, taskId);
     if (excludeBlock) {
       authoredSections.push(excludeBlock);
+    }
+  }
+  // Worker Budget Constraints (ORC-006 · T1656 · T1657) — injected when the
+  // orchestrate engine sets a tool-call budget or allowed-files ACL.
+  if (input.workerConstraints) {
+    const constraintsBlock = buildWorkerConstraintsBlock(input.workerConstraints, taskId);
+    if (constraintsBlock) {
+      authoredSections.push(constraintsBlock);
     }
   }
   // CONDUIT Subscription (T1252) — only emitted for tier 1/2 when the
