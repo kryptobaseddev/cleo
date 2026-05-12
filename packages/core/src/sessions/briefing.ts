@@ -780,7 +780,16 @@ async function computeDocsContext(
   }
 
   // 2. Fetch attachments for in-scope tasks (excluding the current task).
+  // Guard: only populate relatedDocs when there is a focused task — without a
+  // currentTaskId the filter `task.id !== currentTaskId` is trivially satisfied
+  // for every task, causing all attachments in the project to be shipped.
   const relatedDocs: BriefingDocRef[] = [];
+
+  if (currentTaskId === undefined) {
+    return currentTaskDocs.length > 0
+      ? { currentTaskDocs, relatedDocs, totalDocs: currentTaskDocs.length }
+      : undefined;
+  }
 
   const candidateTasks = tasks.filter((t) => {
     const task = t as { id?: string };
