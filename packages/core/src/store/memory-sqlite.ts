@@ -382,9 +382,22 @@ function runBrainMigrations(
       score REAL NOT NULL,
       decided_at TEXT NOT NULL DEFAULT (datetime('now')),
       decided_by TEXT NOT NULL DEFAULT 'composite-scorer',
-      rationale_json TEXT
+      rationale_json TEXT,
+      fulfilled_at TEXT,
+      fulfillment_note TEXT
     )`,
   );
+  // T1903: migrate existing brain_promotion_log tables to add fulfillment columns (idempotent).
+  try {
+    nativeDb.exec(`ALTER TABLE brain_promotion_log ADD COLUMN fulfilled_at TEXT`);
+  } catch {
+    /* column already exists */
+  }
+  try {
+    nativeDb.exec(`ALTER TABLE brain_promotion_log ADD COLUMN fulfillment_note TEXT`);
+  } catch {
+    /* column already exists */
+  }
   nativeDb.exec(
     `CREATE INDEX IF NOT EXISTS idx_promotion_log_observation
       ON brain_promotion_log (observation_id)`,
