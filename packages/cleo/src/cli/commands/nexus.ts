@@ -14,6 +14,8 @@
  * @epic T4545
  */
 
+import { appendFile, mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { generateGexf, getSymbolImpact } from '@cleocode/core/nexus';
 import { defineCommand, showUsage } from 'citty';
@@ -22,6 +24,24 @@ import { getFormatContext, setFormatContext } from '../format-context.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Append a deprecation telemetry record to the XDG state log.
+ *
+ * Path: ~/.local/state/cleo/nexus-deprecation/YYYY-MM-DD.jsonl
+ * Non-fatal — telemetry errors must never block CLI execution (T9147).
+ */
+async function appendDeprecationTelemetry(op: string, replacement: string): Promise<void> {
+  try {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const dir = path.join(homedir(), '.local', 'state', 'cleo', 'nexus-deprecation');
+    await mkdir(dir, { recursive: true });
+    const record = JSON.stringify({ ts: new Date().toISOString(), op, replacement }) + '\n';
+    await appendFile(path.join(dir, `${dateStr}.jsonl`), record, 'utf8');
+  } catch {
+    // telemetry is best-effort
+  }
+}
 
 /**
  * Apply per-command --json flag to the global format context.
@@ -805,6 +825,8 @@ const contextCommand = defineCommand({
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
+    // T9147: cleo nexus context is a deprecated alias for cleo graph context
+    void appendDeprecationTelemetry('nexus.context', 'cleo graph context');
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = process.cwd();
@@ -817,6 +839,7 @@ const contextCommand = defineCommand({
       projectId,
       limit,
       content: showContent,
+      _legacyAliasFor: 'cleo graph context',
     });
     const durationMs = Date.now() - startTime;
     if (!response.success) {

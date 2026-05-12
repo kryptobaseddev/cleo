@@ -180,6 +180,9 @@ export function stampNexusMeta(
   const indexFreshness =
     descriptor.indexSensitive && isTopLevel ? resolveIndexFreshness(params) : undefined;
 
+  const legacyAliasFor =
+    typeof params['_legacyAliasFor'] === 'string' ? params['_legacyAliasFor'] : undefined;
+
   const nexusMeta: NexusScopeMeta = {
     scope: descriptor.scope,
     effect: descriptor.effect,
@@ -191,6 +194,7 @@ export function stampNexusMeta(
     ...(counterpartProjectId !== undefined && { counterpartProjectId }),
     ...(indexFreshness !== undefined && { indexFreshness }),
     canonicalCommand: canonicalCommandFor(operation),
+    ...(legacyAliasFor !== undefined && { legacyAliasFor }),
   };
 
   return {
@@ -198,6 +202,14 @@ export function stampNexusMeta(
     meta: {
       ...response.meta,
       _nexus: nexusMeta,
+      // Stamp top-level deprecated field for alias shims (T9147)
+      ...(legacyAliasFor !== undefined && {
+        deprecated: {
+          since: 'v2026.6.5',
+          removeIn: 'v2026.8.0',
+          replacement: `cleo graph ${operation}`,
+        },
+      }),
     },
   };
 }
