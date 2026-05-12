@@ -3,6 +3,8 @@ dist/
 dist
 *.tsbuildinfo
 .fuse_hidden*
+# Pomodoro benchmark used sub-repos as isolated environments — skip embedded .git
+.cleo/agent-outputs/T-POMODORO-BENCH-2026-04-16/
 .pnpm-debug.log
 coverage/
 .test-*
