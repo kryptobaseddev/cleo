@@ -399,4 +399,51 @@ describe('computeBriefing scope filtering', () => {
     // T102 has status 'blocked' with blockedBy — should also appear
     expect(blockedIds).toContain('T102');
   });
+
+  it('T1894: activeEpics excludes test-fixture epics by id pattern or title heuristic', async () => {
+    // Inject fixture-shaped rows alongside real epics
+    const tasks = [
+      ...makeMockTasks(),
+      // id ^E\d+$ pattern — should be excluded
+      {
+        id: 'E1',
+        status: 'active',
+        type: 'epic',
+        title: 'Test Epic',
+        parentId: undefined,
+        priority: 'high',
+      },
+      // id ^T\d+EP$ pattern — should be excluded
+      {
+        id: 'T932EP',
+        status: 'active',
+        type: 'epic',
+        title: 'T932 standalone epic with no files',
+        parentId: undefined,
+        priority: 'medium',
+      },
+      // title contains 'fixture' — should be excluded
+      {
+        id: 'T999',
+        status: 'active',
+        type: 'epic',
+        title: 'A fixture epic for testing',
+        parentId: undefined,
+        priority: 'low',
+      },
+    ];
+    setupMockAccessor(tasks);
+
+    const briefing = await computeBriefing('/fake/project', { scope: 'global' });
+    const epicIds = briefing.activeEpics.map((e) => e.id);
+
+    // Test-fixture rows must not appear
+    expect(epicIds).not.toContain('E1');
+    expect(epicIds).not.toContain('T932EP');
+    expect(epicIds).not.toContain('T999');
+
+    // Real epics must still appear
+    expect(epicIds).toContain('T100');
+    expect(epicIds).toContain('T400');
+  });
 });
