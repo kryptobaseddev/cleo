@@ -64,7 +64,7 @@ All modules are re-exported from `src/index.ts`:
 | `deprecationRegistry.ts` | Deprecation detector: `detectDeprecatedEnvelopeFields()`, `getDeprecationRegistry()` |
 | **Interoperability** | |
 | `problemDetails.ts` | RFC 9457 Problem Details bridge: `lafsErrorToProblemDetails()`, converts LAFSError to RFC 9457 objects |
-| `discovery.ts` | Express middleware for A2A Agent Card at `/.well-known/agent-card.json` with `autoIncludeLafsExtension`, backward compat with `/.well-known/lafs.json` |
+| `discovery.ts` | Express middleware for A2A Agent Card at `/.well-known/agent-card.json` with `autoIncludeLafsExtension` |
 | `cli.ts` | CLI entry point (`lafs-conformance` binary) |
 | **Operations and Reliability** | |
 | `health/index.ts` | Health check middleware for Express: `healthCheck()`, aggregated `HealthStatus` with custom check functions |
