@@ -68,7 +68,12 @@
     }
   },
   "files": {
-    "includes": ["packages/*/src/**/*.ts", "packages/*/__tests__/**/*.ts", "scripts/**/*.mjs", "scripts/**/*.ts"]
+    "includes": [
+      "packages/*/src/**/*.ts",
+      "packages/*/__tests__/**/*.ts",
+      "scripts/**/*.mjs",
+      "scripts/**/*.ts"
+    ]
   },
   "overrides": [
     {

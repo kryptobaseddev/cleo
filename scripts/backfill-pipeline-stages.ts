@@ -17,9 +17,9 @@
  * @task T719
  */
 
-import Database from 'better-sqlite3';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const projectRoot = join(__dirname, '..');
@@ -95,13 +95,11 @@ function run(): void {
     process.exit(1);
   }
 
-  const total = (
-    db
-      .prepare(
-        `SELECT pipeline_stage, count(*) as cnt FROM tasks WHERE status != 'archived' GROUP BY pipeline_stage ORDER BY cnt DESC`,
-      )
-      .all() as Array<{ pipeline_stage: string | null; cnt: number }>
-  );
+  const total = db
+    .prepare(
+      `SELECT pipeline_stage, count(*) as cnt FROM tasks WHERE status != 'archived' GROUP BY pipeline_stage ORDER BY cnt DESC`,
+    )
+    .all() as Array<{ pipeline_stage: string | null; cnt: number }>;
 
   console.log('\nFinal pipeline_stage distribution (non-archived):');
   for (const row of total) {
