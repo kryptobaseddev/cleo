@@ -631,6 +631,32 @@ function computeBlockedTasks(
 }
 
 /**
+ * Heuristic filter: returns true for rows that look like test-fixture epics
+ * and should be excluded from the active-epics list.
+ *
+ * Matches:
+ *   - id  matching ^E\d+$ or ^T\d+EP$  (legacy test-epic id patterns)
+ *   - title containing "Test Epic", "with no files", "standalone epic", or "fixture"
+ *
+ * @remarks
+ * This is a **temporary heuristic** pending the W3-1 origin column that will
+ * allow structural identification of test fixtures. Remove this function once
+ * the origin column is in production and all fixture rows carry `origin='test'`.
+ *
+ * @task T1894
+ */
+function isTestFixtureEpic(id: string, title: string): boolean {
+  if (/^E\d+$/.test(id) || /^T\d+EP$/.test(id)) return true;
+  const lower = title.toLowerCase();
+  return (
+    lower.includes('test epic') ||
+    lower.includes('with no files') ||
+    lower.includes('standalone epic') ||
+    lower.includes('fixture')
+  );
+}
+
+/**
  * Compute active epics.
  */
 function computeActiveEpics(
@@ -650,14 +676,18 @@ function computeActiveEpics(
 
     if (options.scopeTaskIds && !options.scopeTaskIds.has(t.id)) continue;
 
-    if (t.type === 'epic' && t.status === 'active') {
-      const completionPercent = calculateEpicCompletion(t.id, taskMap);
-      epics.push({
-        id: t.id,
-        title: t.title,
-        completionPercent,
-      });
-    }
+    if (t.type !== 'epic') continue;
+    if (t.status === 'done' || t.status === 'cancelled' || t.status === 'archived') continue;
+
+    // T1894: exclude test-fixture epics (heuristic — pending W3-1 origin column)
+    if (isTestFixtureEpic(t.id, t.title)) continue;
+
+    const completionPercent = calculateEpicCompletion(t.id, taskMap);
+    epics.push({
+      id: t.id,
+      title: t.title,
+      completionPercent,
+    });
   }
 
   // Sort by completion (ascending - less complete first)
