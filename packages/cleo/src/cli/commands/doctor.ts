@@ -14,6 +14,8 @@
  * @task T1868
  */
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { HookMatrixResult, RogueDirReport } from '@cleocode/core/internal';
 import { getProjectRoot, quarantineRogueCleoDir, scanRogueCleoDirs } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
@@ -22,6 +24,120 @@ import { createDoctorProgress } from '../progress.js';
 import { cliError, humanLine } from '../renderers/index.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
+
+// ============================================================================
+// T1909: Test-fixture scanner
+// ============================================================================
+
+/** One detected fixture row. */
+interface FixtureMatch {
+  id: string;
+  title: string;
+  type: string;
+  confidence: 'HIGH' | 'MED' | 'LOW';
+  rationale: string;
+}
+
+const FIXTURE_ID_PATTERNS = [/^E\d+$/, /^T\d+EP$/];
+
+const FIXTURE_TITLE_KEYWORDS = [
+  'test epic',
+  'with no files',
+  'standalone epic',
+  'fixture',
+] as const;
+
+/**
+ * Scan tasks.db for rows matching fixture heuristics.
+ * Uses the same patterns as computeActiveEpics (T1894) but scans all task types.
+ *
+ * @task T1909
+ */
+async function scanTestFixturesInProd(projectRoot: string): Promise<FixtureMatch[]> {
+  type NativeDb = { prepare: (sql: string) => { all: (arg?: string) => unknown[] } };
+  const { getDb, getNativeDb } = await import('@cleocode/core/internal');
+  await getDb(projectRoot);
+  const nativeDb = getNativeDb() as NativeDb | null;
+  if (!nativeDb) return [];
+
+  const rows = nativeDb
+    .prepare("SELECT id, title, type, status FROM tasks WHERE status != 'deleted' LIMIT 2000")
+    .all() as Array<{ id: string; title: string; type: string; status: string }>;
+
+  const matches: FixtureMatch[] = [];
+
+  for (const row of rows) {
+    const lower = (row.title ?? '').toLowerCase();
+    const idPatternMatch = FIXTURE_ID_PATTERNS.some((p) => p.test(row.id));
+    const titleKeywordMatch = FIXTURE_TITLE_KEYWORDS.find((kw) => lower.includes(kw));
+
+    if (idPatternMatch) {
+      matches.push({
+        id: row.id,
+        title: row.title ?? '',
+        type: row.type ?? '',
+        confidence: 'HIGH',
+        rationale: `id matches fixture pattern (^E\\d+$ or ^T\\d+EP$)`,
+      });
+    } else if (titleKeywordMatch) {
+      matches.push({
+        id: row.id,
+        title: row.title ?? '',
+        type: row.type ?? '',
+        confidence: 'MED',
+        rationale: `title contains fixture keyword "${titleKeywordMatch}"`,
+      });
+    }
+  }
+
+  return matches;
+}
+
+/**
+ * Move matched fixture rows to .cleo/quarantine/ (T1864 pattern — no DELETE).
+ * Writes a JSONL quarantine manifest for auditability.
+ *
+ * @task T1909
+ */
+async function quarantineTestFixtures(
+  projectRoot: string,
+  matches: FixtureMatch[],
+): Promise<number> {
+  if (matches.length === 0) return 0;
+
+  const cleoDir = join(projectRoot, '.cleo');
+  const quarantineDir = join(
+    cleoDir,
+    'quarantine',
+    `fixture-scan-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+  );
+  mkdirSync(quarantineDir, { recursive: true });
+
+  const manifest = matches.map((m) => ({ ...m, quarantinedAt: new Date().toISOString() }));
+  writeFileSync(
+    join(quarantineDir, 'manifest.jsonl'),
+    manifest.map((m) => JSON.stringify(m)).join('\n') + '\n',
+  );
+
+  type NativeDbRun = { prepare: (sql: string) => { run: (arg: string) => void } };
+  const { getNativeDb } = await import('@cleocode/core/internal');
+  const nativeDb = getNativeDb() as NativeDbRun | null;
+  if (nativeDb) {
+    for (const m of matches) {
+      try {
+        nativeDb
+          .prepare(
+            "UPDATE tasks SET labels_json = json_insert(COALESCE(labels_json, '[]'), '$[#]', 'fixture-quarantine'), status = 'cancelled' WHERE id = ?",
+          )
+          .run(m.id);
+      } catch {
+        // non-fatal — quarantine manifest is the source of truth
+      }
+    }
+  }
+
+  return matches.length;
+}
 
 /**
  * Render the hook matrix as a human-readable provider x event grid.
@@ -185,6 +301,25 @@ export const doctorCommand = defineCommand({
       type: 'boolean',
       description: 'Show brain.db health dashboard with 8 named BBTT flags (T1908)',
     },
+    /**
+     * T1909 / BBTT-W3-3: Scan tasks.db for test-fixture rows using heuristics.
+     *
+     * Detects rows matching: id ^E\d+$, id ^T\d+EP$, or title containing
+     * "Test Epic", "with no files", "standalone epic", "fixture".
+     * Reports each match with a confidence score (HIGH/MED/LOW).
+     *
+     * Pass --quarantine to move matched rows to .cleo/quarantine/
+     * (T1864 pattern — NEVER deletes). Dry-run by default.
+     */
+    'scan-test-fixtures-in-prod': {
+      type: 'boolean',
+      description: 'Scan tasks.db for test-fixture rows using heuristics (T1909)',
+    },
+    quarantine: {
+      type: 'boolean',
+      description:
+        'With --scan-test-fixtures-in-prod: move matches to .cleo/quarantine/ (no delete)',
+    },
     // Global output format flags — read directly from args (no optsWithGlobals in citty)
     json: {
       type: 'boolean',
@@ -234,6 +369,43 @@ export const doctorCommand = defineCommand({
         }
 
         if (dashboard.hasP0Failure) {
+          process.exitCode = 1;
+        }
+        return;
+      }
+
+      // T1909 / BBTT-W3-3: scan tasks.db for test-fixture rows
+      if (args['scan-test-fixtures-in-prod']) {
+        const projectRoot = getProjectRoot();
+        const matches = await scanTestFixturesInProd(projectRoot);
+        const dryRun = args['dry-run'] !== false && args.quarantine !== true;
+
+        if (args.json) {
+          process.stdout.write(
+            `${JSON.stringify({ success: true, data: { matches, dryRun } }, null, 2)}\n`,
+          );
+        } else {
+          process.stdout.write('\nTest-fixture scan results:\n');
+          process.stdout.write('='.repeat(55) + '\n');
+          if (matches.length === 0) {
+            process.stdout.write('  No fixture rows detected.\n');
+          } else {
+            for (const m of matches) {
+              process.stdout.write(
+                `  [${m.confidence}] id=${m.id} title="${m.title}" — ${m.rationale}\n`,
+              );
+            }
+            process.stdout.write(`\n  Total: ${matches.length} row(s)\n`);
+          }
+          if (!dryRun && matches.length > 0) {
+            const quarantined = await quarantineTestFixtures(projectRoot, matches);
+            process.stdout.write(`\n  Quarantined: ${quarantined} row(s) → .cleo/quarantine/\n`);
+          } else if (dryRun && matches.length > 0) {
+            process.stdout.write('\n  Dry-run mode — pass --quarantine to move rows.\n');
+          }
+        }
+
+        if (matches.some((m) => m.confidence === 'HIGH')) {
           process.exitCode = 1;
         }
         return;
