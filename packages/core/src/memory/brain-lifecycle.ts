@@ -778,6 +778,30 @@ export async function promoteObservationsToTyped(
 // Extended Consolidation (T549 Wave 3-D)
 // ============================================================================
 
+/**
+ * Metrics from the auto-extract promotion pipeline (T1903).
+ *
+ * Tracks how many brain_promotion_log entries were fulfilled (converted
+ * to actual brain_learnings/brain_patterns rows) during a consolidation
+ * cycle. Surfaced in `cleo doctor brain` for observability.
+ */
+export interface AutoExtractMetrics {
+  /** Total promotion_log rows processed in this run. */
+  invocations: number;
+  /** Rows that passed dedup and were eligible for storage. */
+  candidates: number;
+  /** Rows successfully written to brain_learnings or brain_patterns. */
+  promoted: number;
+  /** Per-reason rejection counts. */
+  rejected: {
+    already_fulfilled: number;
+    store_error: number;
+    no_narrative: number;
+    dedup_hash: number;
+    other: number;
+  };
+}
+
 /** Extended result returned by runConsolidation. */
 export interface RunConsolidationResult {
   /** Entries merged by dedup pass. */
@@ -800,6 +824,11 @@ export interface RunConsolidationResult {
   summariesGenerated: number;
   /** Code↔memory graph links created. */
   graphLinksCreated?: number;
+  /**
+   * Auto-extract promotion result from Step 3b (T1903).
+   * Counts how many promotion_log entries were fulfilled (written to brain_learnings/brain_patterns).
+   */
+  autoExtractPromotion?: AutoExtractMetrics;
   /** R-STDP reward backfill result from step 9a (T681). */
   rewardBackfilled?: {
     rowsLabeled: number;
@@ -922,6 +951,14 @@ export async function runConsolidation(
     result.tierPromotions = await runTierPromotion(projectRoot);
   } catch (err) {
     console.warn('[consolidation] Step 3 tier promotion failed:', err);
+  }
+
+  // Step 3b: Fulfil promotion log — write promotion_log entries into brain_learnings/brain_patterns (T1903)
+  // promoteObservationsToTyped (Step 3) only writes audit rows; this step performs the actual inserts.
+  try {
+    result.autoExtractPromotion = await fulfillPromotionLog(projectRoot);
+  } catch (err) {
+    console.warn('[consolidation] Step 3b promotion fulfillment failed:', err);
   }
 
   // Step 4: Contradiction detection
@@ -1154,6 +1191,202 @@ export async function runConsolidation(
   }
 
   return result;
+}
+
+// ============================================================================
+// Promotion Log Fulfillment (Step 3b — T1903)
+// ============================================================================
+
+/**
+ * Fulfill pending entries in brain_promotion_log by inserting them into
+ * brain_learnings or brain_patterns.
+ *
+ * `promoteObservationsToTyped` (Step 3 of runConsolidation) only writes audit
+ * rows to brain_promotion_log — it does NOT insert into the typed tables.
+ * This step reads those pending log rows and performs the actual inserts.
+ *
+ * Idempotent: rows that have already been fulfilled (fulfilled_at IS NOT NULL)
+ * are skipped.
+ *
+ * @param projectRoot - Project root for brain.db resolution
+ * @returns AutoExtractMetrics describing what happened
+ *
+ * @task T1903
+ */
+export async function fulfillPromotionLog(projectRoot: string): Promise<AutoExtractMetrics> {
+  const metrics: AutoExtractMetrics = {
+    invocations: 0,
+    candidates: 0,
+    promoted: 0,
+    rejected: {
+      already_fulfilled: 0,
+      store_error: 0,
+      no_narrative: 0,
+      dedup_hash: 0,
+      other: 0,
+    },
+  };
+
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+  if (!nativeDb) return metrics;
+
+  // Guard: brain_promotion_log must exist
+  try {
+    nativeDb.prepare('SELECT 1 FROM brain_promotion_log LIMIT 1').get();
+  } catch {
+    return metrics;
+  }
+
+  interface PromotionLogRow {
+    id: string;
+    observation_id: string;
+    to_tier: string;
+    score: number;
+    fulfilled_at: string | null;
+  }
+
+  // Fetch unfulfilled promotion log rows
+  let pending: PromotionLogRow[] = [];
+  try {
+    pending = typedAll<PromotionLogRow>(
+      nativeDb.prepare(`
+        SELECT id, observation_id, to_tier, score, fulfilled_at
+        FROM brain_promotion_log
+        WHERE fulfilled_at IS NULL
+          AND decided_by = 'composite-scorer'
+        ORDER BY score DESC
+        LIMIT 200
+      `),
+    );
+  } catch {
+    return metrics;
+  }
+
+  metrics.invocations = pending.length;
+
+  if (pending.length === 0) return metrics;
+
+  // Fetch observation rows for all pending log entries in one query
+  const obsIds = pending.map((r) => r.observation_id);
+  const placeholders = obsIds.map(() => '?').join(', ');
+
+  interface ObsDetailRow {
+    id: string;
+    type: string;
+    title: string;
+    narrative: string | null;
+    created_at: string;
+    citation_count: number;
+  }
+
+  const obsMap = new Map<string, ObsDetailRow>();
+  try {
+    const rows = typedAll<ObsDetailRow>(
+      nativeDb.prepare(
+        `SELECT id, type, title, narrative, created_at, citation_count
+         FROM brain_observations
+         WHERE id IN (${placeholders}) AND invalid_at IS NULL`,
+      ),
+      ...obsIds,
+    );
+    for (const row of rows) {
+      obsMap.set(row.id, row);
+    }
+  } catch {
+    // If we can't fetch observations, nothing to promote
+    return metrics;
+  }
+
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const { checkHashDedup } = await import('./extraction-gate.js');
+
+  for (const logRow of pending) {
+    const obs = obsMap.get(logRow.observation_id);
+    if (!obs) {
+      metrics.rejected.other++;
+      continue;
+    }
+
+    const content = obs.narrative ?? obs.title;
+    if (!content?.trim()) {
+      metrics.rejected.no_narrative++;
+      // Mark as fulfilled with a rejection note so it won't be retried
+      try {
+        nativeDb
+          .prepare(
+            `UPDATE brain_promotion_log SET fulfilled_at = ?, fulfillment_note = 'no-narrative' WHERE id = ?`,
+          )
+          .run(now, logRow.id);
+      } catch {
+        /* column may not exist — skip */
+      }
+      continue;
+    }
+
+    metrics.candidates++;
+
+    // Hash dedup: skip if identical content already in the target table
+    const targetTable =
+      logRow.to_tier === 'pattern' ? ('brain_patterns' as const) : ('brain_learnings' as const);
+
+    const dedupResult = await checkHashDedup(projectRoot, content, targetTable);
+    if (dedupResult.matched) {
+      metrics.rejected.dedup_hash++;
+      try {
+        nativeDb
+          .prepare(
+            `UPDATE brain_promotion_log SET fulfilled_at = ?, fulfillment_note = 'dedup-hash' WHERE id = ?`,
+          )
+          .run(now, logRow.id);
+      } catch {
+        /* best-effort */
+      }
+      continue;
+    }
+
+    // Store in the appropriate typed table
+    try {
+      if (logRow.to_tier === 'pattern') {
+        const { storePattern } = await import('./patterns.js');
+        await storePattern(projectRoot, {
+          type: 'workflow',
+          pattern: content,
+          context: obs.title,
+          _skipGate: true,
+        });
+      } else {
+        // learning (includes 'learning' and 'decision' → brain_learnings)
+        const { storeLearning } = await import('./learnings.js');
+        await storeLearning(projectRoot, {
+          insight: content,
+          source: `promotion-log:${logRow.id}`,
+          confidence: Math.min(logRow.score, 1.0),
+          actionable: obs.type === 'bugfix' || obs.type === 'discovery',
+          _skipGate: true,
+        });
+      }
+
+      metrics.promoted++;
+
+      // Mark log row as fulfilled
+      try {
+        nativeDb
+          .prepare(
+            `UPDATE brain_promotion_log SET fulfilled_at = ?, fulfillment_note = 'stored' WHERE id = ?`,
+          )
+          .run(now, logRow.id);
+      } catch {
+        /* best-effort — fulfilled_at column may not exist in older schema */
+      }
+    } catch {
+      metrics.rejected.store_error++;
+      // Do NOT mark as fulfilled so it can be retried
+    }
+  }
+
+  return metrics;
 }
 
 // ============================================================================
