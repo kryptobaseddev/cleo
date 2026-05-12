@@ -521,12 +521,29 @@ export const brainPatterns = sqliteTable(
      * @see brainDecisions.peerScope for full documentation.
      */
     peerScope: text('peer_scope').notNull().default('project'),
+
+    // T1896: near-duplicate dedup columns
+
+    /**
+     * How many times this pattern was observed (oldest row kept, counts merged).
+     * Incremented by dedupePatterns during each consolidation cycle.
+     * @default 1
+     */
+    occurrenceCount: integer('occurrence_count').notNull().default(1),
+
+    /**
+     * ISO 8601 timestamp of the most-recent duplicate occurrence collapsed into this row.
+     * Null when this pattern has never been deduped (first observation).
+     */
+    lastSeenAt: text('last_seen_at'),
   },
   (table) => [
     index('idx_brain_patterns_type').on(table.type),
     index('idx_brain_patterns_impact').on(table.impact),
     index('idx_brain_patterns_frequency').on(table.frequency),
     index('idx_brain_patterns_quality').on(table.qualityScore),
+    index('idx_brain_patterns_occurrence_count').on(table.occurrenceCount),
+    index('idx_brain_patterns_last_seen_at').on(table.lastSeenAt),
     // T549 indexes
     index('idx_brain_patterns_tier').on(table.memoryTier),
     index('idx_brain_patterns_mem_type').on(table.memoryType),
