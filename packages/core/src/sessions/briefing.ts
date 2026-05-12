@@ -310,7 +310,7 @@ export async function computeBriefing(
     );
   }
 
-  return {
+  const briefing = {
     lastSession,
     currentTask: currentTaskInfo,
     nextTasks,
@@ -323,6 +323,25 @@ export async function computeBriefing(
     ...(bundle && { bundle }),
     ...(docsContext && { docsContext }),
   };
+
+  // Opportunistic dream trigger — T1904 W2-3
+  // Every cleo briefing call gives the dream cycle a chance to fire. The existing
+  // 5-minute cooldown + dreamInFlight guard in dream-cycle.ts prevent over-firing.
+  // Gated by config flag briefing.opportunisticDream (defaults to true).
+  try {
+    const { loadConfig } = await import('../config.js');
+    const cfg = await loadConfig(projectRoot).catch(() => undefined);
+    const enabled = cfg?.briefing?.opportunisticDream ?? true;
+    if (enabled) {
+      const { checkAndDream } = await import('../memory/dream-cycle.js');
+      // Fire async (inline=false) — must never block the briefing response.
+      checkAndDream(projectRoot, { inline: false }).catch(() => undefined);
+    }
+  } catch {
+    // Best-effort — briefing must never fail due to dream-cycle errors.
+  }
+
+  return briefing;
 }
 
 /**
