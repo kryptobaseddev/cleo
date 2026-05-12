@@ -965,3 +965,116 @@ export async function getSentientDaemonStatus(projectRoot: string): Promise<Sent
     studioStatus: !supervisesStudio ? 'disabled' : running ? 'running' : 'stopped',
   };
 }
+
+// ---------------------------------------------------------------------------
+// Runaway worker detection (T1658)
+// ---------------------------------------------------------------------------
+
+/**
+ * Size-based wall-clock budget thresholds in milliseconds.
+ *
+ * Workers active beyond 2× their size budget are considered runaway and
+ * eligible for abort. Budget is sized around human-comparable work units:
+ * `small` ~ half an hour, `medium` ~ two hours, `large` ~ four hours.
+ *
+ * @task T1658
+ */
+export const WORKER_BUDGET_MS: Record<string, number> = {
+  small: 30 * 60 * 1000, // 30 minutes
+  medium: 2 * 60 * 60 * 1000, // 2 hours
+  large: 4 * 60 * 60 * 1000, // 4 hours
+};
+
+/**
+ * Multiplier applied to the size budget before flagging a worker as runaway.
+ *
+ * At 2× a worker has consumed twice the expected wall-clock time for its size.
+ * The sentient monitor emits a warning at 1× (budget) and aborts at 2×.
+ */
+export const RUNAWAY_BUDGET_MULTIPLIER = 2;
+
+/** A single active-worker row returned by {@link monitorWorkers}. */
+export interface WorkerMonitorRow {
+  /** Task ID of the worker. */
+  taskId: string;
+  /** Task title for display. */
+  title: string;
+  /** Task size (small | medium | large | unknown). */
+  size: string;
+  /** ISO-8601 timestamp when the task transitioned to in_progress. */
+  startedAt: string;
+  /** Elapsed wall-clock time in milliseconds. */
+  elapsedMs: number;
+  /** Expected budget in milliseconds based on size. */
+  budgetMs: number;
+  /** True when elapsed > budget (warn). */
+  overBudget: boolean;
+  /** True when elapsed > RUNAWAY_BUDGET_MULTIPLIER × budget (abort). */
+  runaway: boolean;
+}
+
+/**
+ * Scan for in-progress tasks and evaluate their wall-clock elapsed time
+ * against their size budget.
+ *
+ * Runaway detection does NOT automatically abort workers — the caller
+ * (`cleo sentient monitor`) decides what action to take. This function is
+ * read-only and safe to call at any frequency.
+ *
+ * The task store is accessed via the CLEO CLI (`cleo list --status in_progress`)
+ * rather than direct SQLite access to respect ADR-013 DB-separation rules.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @returns Array of monitor rows for all in-progress tasks.
+ *
+ * @task T1658
+ */
+export async function monitorWorkers(projectRoot: string): Promise<WorkerMonitorRow[]> {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+
+  let stdout: string;
+  try {
+    const result = await execFileAsync('cleo', ['find', '--status', 'in_progress', '--json'], {
+      cwd: projectRoot,
+    });
+    stdout = result.stdout;
+  } catch {
+    // If cleo isn't available or no tasks exist, return empty.
+    return [];
+  }
+
+  let tasks: Array<{ id: string; title: string; size?: string; updatedAt?: string }>;
+  try {
+    const envelope = JSON.parse(stdout) as { success: boolean; data?: { tasks?: unknown[] } };
+    if (!envelope.success || !Array.isArray(envelope.data?.tasks)) return [];
+    tasks = envelope.data.tasks as typeof tasks;
+  } catch {
+    return [];
+  }
+
+  const now = Date.now();
+  const rows: WorkerMonitorRow[] = [];
+
+  for (const task of tasks) {
+    const size = task.size ?? 'medium';
+    const budgetMs = WORKER_BUDGET_MS[size] ?? WORKER_BUDGET_MS['medium'] ?? 7200000;
+    // Use updatedAt as proxy for when the task transitioned to in_progress.
+    const startTs = task.updatedAt ? new Date(task.updatedAt).getTime() : now;
+    const elapsedMs = now - startTs;
+
+    rows.push({
+      taskId: task.id,
+      title: task.title ?? task.id,
+      size,
+      startedAt: task.updatedAt ?? new Date().toISOString(),
+      elapsedMs,
+      budgetMs,
+      overBudget: elapsedMs > budgetMs,
+      runaway: elapsedMs > budgetMs * RUNAWAY_BUDGET_MULTIPLIER,
+    });
+  }
+
+  return rows.sort((a, b) => b.elapsedMs - a.elapsedMs);
+}
