@@ -67,6 +67,10 @@ export default defineConfig({
     // overrides cannot leak into ~/.local/share/cleo. Pairs with the
     // path-isolation guard in packages/core/src/store/sqlite-native.ts.
     setupFiles: ['./vitest.setup.ts'],
+    // T1914: Sweep stale cleo-injection-chain-* dirs from os.tmpdir() before
+    // and after the full suite.  Catches orphans left by crashed/aborted runs
+    // that bypassed per-test afterEach cleanup.
+    globalSetup: ['packages/core/src/__tests__/setup-global.ts'],
     // Note: VITEST env var is auto-set by vitest. Enforcement code checks
     // process.env.VITEST to disable enforcement during test runs.
     // Tests that validate enforcement directly must clear VITEST in beforeAll.

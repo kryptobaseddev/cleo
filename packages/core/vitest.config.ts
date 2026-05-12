@@ -6,6 +6,10 @@
  * real filesystem and database setup). The standard `pnpm run test` script
  * runs unit tests only; `pnpm run test:integration` runs integration tests.
  *
+ * globalSetup wires the T1914 sweep that removes stale cleo-injection-chain-*
+ * directories from os.tmpdir() before and after the suite, catching orphans
+ * from crashed or aborted test runs that bypassed per-test afterEach cleanup.
+ *
  * @task T308
  * @epic T299
  */
@@ -26,6 +30,8 @@ export default defineConfig({
     // pins CLEO_HOME / NEXUS_HOME to a per-fork tmpdir so tests cannot
     // accidentally write to the user's global signaldock/nexus dbs.
     setupFiles: ['../../vitest.setup.ts'],
+    // T1914: Sweep stale cleo-injection-chain-* dirs before/after the suite.
+    globalSetup: ['src/__tests__/setup-global.ts'],
     // Include both unit tests and integration tests when running in this package.
     include: [
       'src/**/*.test.ts',
