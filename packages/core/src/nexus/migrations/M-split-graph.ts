@@ -104,7 +104,7 @@ export async function migrateToSplit(
     };
   }
 
-  const legacyDb = new DatabaseSync(legacyDbPath, { open: true });
+  const legacyDb = new DatabaseSync(legacyDbPath, { open: true }); // db-open-allowed: one-shot migration reads legacy nexus.db (not a CLEO metadata DB)
 
   // Read all project IDs from legacy DB
   type ProjectRow = { project_id: string };
@@ -120,7 +120,7 @@ export async function migrateToSplit(
 
   // Step 2: Create nexus-registry.db
   await mkdir(graphDir, { recursive: true });
-  const registryDb = new DatabaseSync(registryDbPath, { open: true });
+  const registryDb = new DatabaseSync(registryDbPath, { open: true }); // db-open-allowed: one-shot migration creates nexus-registry.db (not a CLEO metadata DB)
   registryDb.exec(`ATTACH DATABASE '${legacyDbPath}' AS legacy`);
   // Copy registry tables
   for (const table of [
@@ -156,7 +156,7 @@ export async function migrateToSplit(
   // Step 3: Per-project graph DBs
   for (const { project_id: projectId } of projects) {
     const graphDbPath = join(graphDir, `${projectId}.db`);
-    const graphDb = new DatabaseSync(graphDbPath, { open: true });
+    const graphDb = new DatabaseSync(graphDbPath, { open: true }); // db-open-allowed: one-shot migration creates per-project graph DB (not a CLEO metadata DB)
     graphDb.exec(`ATTACH DATABASE '${legacyDbPath}' AS legacy`);
     for (const table of ['nexus_nodes', 'nexus_relations', 'nexus_contracts']) {
       const schemaRow = legacyDb
