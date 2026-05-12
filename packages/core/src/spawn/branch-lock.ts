@@ -45,6 +45,7 @@ import type {
   WorktreeMergeResult,
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
+import { getCleoDirAbsolute, getCleoProjectRoot } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -388,9 +389,11 @@ export function pruneWorktree(
   // If dirty, write an audit log entry before force-removing.
   if (wasDirty) {
     try {
+      // T9092: anchor to canonical project root to avoid rogue .cleo/ in worktrees.
+      const canonicalRoot = getCleoProjectRoot(projectRoot);
       const auditDir = opts.auditLogPath
         ? opts.auditLogPath.split('/').slice(0, -1).join('/')
-        : join(projectRoot, '.cleo', 'audit');
+        : join(getCleoDirAbsolute(canonicalRoot), 'audit');
       mkdirSync(auditDir, { recursive: true });
       const logPath = opts.auditLogPath ?? join(auditDir, 'worktree-prune.jsonl');
       const entry = JSON.stringify({
@@ -846,9 +849,11 @@ export function completeAgentWorktreeIntegration(
   // Write audit log entry.
   let auditLogEntry: string | null = null;
   try {
+    // T9092: anchor to canonical project root to avoid rogue .cleo/ in worktrees.
+    const canonicalRoot = getCleoProjectRoot(projectRoot);
     const auditDir = opts.auditLogPath
       ? opts.auditLogPath.split('/').slice(0, -1).join('/')
-      : join(projectRoot, '.cleo', 'audit');
+      : join(getCleoDirAbsolute(canonicalRoot), 'audit');
     mkdirSync(auditDir, { recursive: true });
     const logPath = opts.auditLogPath ?? join(auditDir, 'worktree-integration.jsonl');
     const entry = JSON.stringify({

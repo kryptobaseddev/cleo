@@ -292,6 +292,7 @@ export {
   getCleoHome,
   getCleoLogDir,
   getCleoPiExtensionsDir,
+  getCleoProjectRoot,
   getCleoTempDir,
   getCleoTemplatesTildePath,
   getConfigPath,

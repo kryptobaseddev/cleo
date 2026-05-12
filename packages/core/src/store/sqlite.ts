@@ -21,7 +21,7 @@ import { eq } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
-import { getCleoDirAbsolute } from '../paths.js';
+import { assertProjectInitialized, getCleoDirAbsolute } from '../paths.js';
 import type { RequiredColumn } from './migration-manager.js';
 import {
   createSafetyBackup,
@@ -65,6 +65,32 @@ let _dbPath: string | null = null;
 let _initPromise: Promise<NodeSQLiteDatabase<typeof schema>> | null = null;
 /** Guard: git-tracking check runs only once per process. */
 let _gitTrackingChecked = false;
+
+/**
+ * Bootstrap mode flag — set to `true` only by `cleo init` before opening the
+ * DB for the first time (before `project-info.json` exists). When `false`,
+ * `getDb()` refuses to create a DB outside a recognised CLEO project root,
+ * preventing workers running inside git worktrees from auto-creating rogue
+ * `.cleo/tasks.db` files.
+ *
+ * @internal — only exported for use by the `cleo init` command handler.
+ * @task T9193
+ */
+let _initBootstrapMode = false;
+
+/**
+ * Enable or disable DB bootstrap mode for `cleo init`.
+ *
+ * Call `_setInitBootstrapMode(true)` before opening the DB in a fresh project
+ * directory (before `project-info.json` has been written). Restore to `false`
+ * immediately after the init scaffolding completes.
+ *
+ * @internal
+ * @task T9193
+ */
+export function _setInitBootstrapMode(on: boolean): void {
+  _initBootstrapMode = on;
+}
 
 /**
  * Get the path to the SQLite database file.
@@ -221,7 +247,16 @@ export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof sch
     const dbPath = requestedPath;
     _dbPath = dbPath;
 
-    // Ensure directory exists
+    // T9193: refuse to materialise a DB outside a recognised CLEO project root.
+    // `_initBootstrapMode` is the only sanctioned escape hatch — used by
+    // `cleo init` before project-info.json has been written.
+    if (!_initBootstrapMode && !process.env.VITEST) {
+      // projectRoot = parent of the .cleo/ dir = parent of dirname(dbPath)
+      const projectRoot = dirname(dirname(dbPath));
+      assertProjectInitialized(projectRoot);
+    }
+
+    // Ensure directory exists (project-info.json was just confirmed)
     mkdirSync(dirname(dbPath), { recursive: true });
 
     // Open file-backed SQLite via node:sqlite with WAL mode.

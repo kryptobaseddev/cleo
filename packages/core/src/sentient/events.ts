@@ -41,7 +41,7 @@ import crypto from 'node:crypto';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentIdentity } from 'llmtxt/identity';
-import { assertProjectInitialized } from '../paths.js';
+import { assertProjectInitialized, getCleoDirAbsolute, getCleoProjectRoot } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Event kind discriminants
@@ -380,15 +380,13 @@ export async function appendSentientEvent(
   identity: AgentIdentity,
   input: SentientEventInput,
 ): Promise<SentientEvent> {
-  const eventsPath = join(projectRoot, SENTIENT_EVENTS_FILE);
-
-  // Guard: refuse to create .cleo/ subdirectories in uninitialized roots
-  // (e.g. git worktree paths that lack project-info.json). This prevents
-  // workers from creating rogue empty .cleo/ audit directories that diverge
-  // from the real project database. (T1864)
-  assertProjectInitialized(projectRoot);
+  // T9092: anchor to canonical project root so workers inside git worktrees
+  // write to the source-project .cleo/audit/, not a rogue worktree copy.
+  const canonicalRoot = getCleoProjectRoot(projectRoot);
+  assertProjectInitialized(canonicalRoot);
+  const eventsPath = join(getCleoDirAbsolute(canonicalRoot), 'audit', 'sentient-events.jsonl');
   // Ensure the audit directory exists.
-  await mkdir(join(projectRoot, '.cleo', 'audit'), { recursive: true });
+  await mkdir(join(getCleoDirAbsolute(canonicalRoot), 'audit'), { recursive: true });
 
   // Read existing events to find the chain tail hash.
   const parentHash = await computeChainTailHash(eventsPath);

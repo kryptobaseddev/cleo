@@ -14,6 +14,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ContractViolationRecord } from '@cleocode/contracts';
 import { getLogger } from './logger.js';
+import { getCleoDirAbsolute, getCleoProjectRoot } from './paths.js';
 
 const log = getLogger('audit');
 
@@ -76,7 +77,10 @@ export function appendContractViolation(
   record: Omit<ContractViolationRecord, 'timestamp'> & { timestamp?: string },
 ): void {
   try {
-    const filePath = join(projectRoot, CONTRACT_VIOLATIONS_FILE);
+    // T9092: anchor to canonical project root so workers inside git worktrees
+    // write to the source-project .cleo/audit/, not a rogue worktree copy.
+    const canonicalRoot = getCleoProjectRoot(projectRoot);
+    const filePath = join(getCleoDirAbsolute(canonicalRoot), 'audit', 'contract-violations.jsonl');
     mkdirSync(dirname(filePath), { recursive: true });
     const entry: ContractViolationRecord = {
       timestamp: record.timestamp ?? new Date().toISOString(),

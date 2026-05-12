@@ -279,7 +279,18 @@ export function getCleoDirAbsolute(cwd?: string): string {
   if (isAbsolutePath(cleoDir)) {
     return cleoDir;
   }
-  return resolve(cwd ?? process.cwd(), cleoDir);
+  // T9193: never resolve `.cleo/` against an arbitrary CWD — always anchor to
+  // the canonical CLEO project root (which is the main repo, even when the
+  // caller is running inside a git worktree). This prevents workers from
+  // auto-creating rogue `.cleo/` directories under the worktree path.
+  try {
+    return resolve(getCleoProjectRoot(cwd), cleoDir);
+  } catch {
+    // Not inside a project (e.g. `cleo init` running for the first time before
+    // project-info.json exists). Fall back to the legacy CWD-based resolution
+    // so the bootstrap path still works.
+    return resolve(cwd ?? process.cwd(), cleoDir);
+  }
 }
 
 /**
@@ -638,6 +649,65 @@ export function getProjectRoot(cwd?: string): string {
       fix: 'cleo init',
     },
   );
+}
+
+/**
+ * Resolve the canonical CLEO project root — the directory that owns the
+ * authoritative `.cleo/` with `project-info.json`.
+ *
+ * Unlike {@link getProjectRoot}, this function NEVER returns a worktree path:
+ * it skips the ALS `worktreeScope` (Priority 0) and walks up from the
+ * worktree's gitlink file to find the main repo root.
+ *
+ * All `.cleo/` data-directory resolution (DB path, audit logs, journals, etc.)
+ * MUST flow through this resolver so that workers running inside git worktrees
+ * write to the source-project `.cleo/` (shared DB, shared audit log) rather
+ * than auto-creating a divergent `.cleo/tasks.db` inside the worktree.
+ * Source-file paths (e.g. `resolveProjectPath`) continue to use
+ * `getProjectRoot()` so they correctly point inside the worktree where the
+ * agent is editing files.
+ *
+ * Resolution order:
+ *   1. ALS `worktreeScope` present → parse its `worktreeRoot` as a gitlink file
+ *      and derive the main-repo root via the `worktrees/<name>/` back-path.
+ *   2. `CLEO_ROOT` / `CLEO_PROJECT_ROOT` env var.
+ *   3. Same walk-up as `getProjectRoot()` (correct when not inside a worktree).
+ *
+ * @param cwd - Optional starting directory; defaults to `process.cwd()`
+ * @returns Absolute path to the canonical project root (parent of `.cleo/`)
+ *
+ * @task T9092
+ * @task T9193
+ */
+export function getCleoProjectRoot(cwd?: string): string {
+  // 1. If ALS worktreeScope is active, resolve the main-repo root from the
+  //    gitlink file at <worktreeRoot>/.git (which is a FILE, not a directory).
+  const scope = worktreeScope.getStore();
+  if (scope !== undefined) {
+    try {
+      const gitLinkPath = join(scope.worktreeRoot, '.git');
+      if (existsSync(gitLinkPath) && statSync(gitLinkPath).isFile()) {
+        // Content: "gitdir: /path/to/main/.git/worktrees/<name>"
+        const linkContent = readFileSync(gitLinkPath, 'utf-8').trim();
+        const match = linkContent.match(/^gitdir:\s*(.+)$/m);
+        if (match) {
+          // Walk up from "<mainRepo>/.git/worktrees/<name>" → "<mainRepo>"
+          const worktreesDir = dirname(match[1].trim()); // "<mainRepo>/.git/worktrees"
+          const dotGit = dirname(worktreesDir); // "<mainRepo>/.git"
+          const mainRepo = dirname(dotGit); // "<mainRepo>"
+          if (validateProjectRoot(mainRepo)) {
+            return mainRepo;
+          }
+        }
+      }
+    } catch {
+      // Fall through to standard resolution
+    }
+  }
+
+  // 2 & 3. Delegate to getProjectRoot which handles CLEO_ROOT and ancestor walk.
+  // This gives the correct answer when not inside a worktree (no scope set).
+  return getProjectRoot(cwd);
 }
 
 /**

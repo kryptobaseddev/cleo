@@ -22,7 +22,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-
+import { getCleoDirAbsolute, getCleoProjectRoot } from '../paths.js';
 import type { JsonRestoreReport } from './restore-json-merge.js';
 
 // ============================================================================
@@ -309,7 +309,10 @@ export function buildConflictReport(input: BuildConflictReportInput): string {
  * @returns The absolute path of the written file.
  */
 export function writeConflictReport(projectRoot: string, content: string): string {
-  const cleoDir = path.join(projectRoot, '.cleo');
+  // T9092: anchor to canonical project root so workers inside git worktrees
+  // write to the source-project .cleo/, not a rogue worktree copy.
+  const canonicalRoot = getCleoProjectRoot(projectRoot);
+  const cleoDir = getCleoDirAbsolute(canonicalRoot);
   fs.mkdirSync(cleoDir, { recursive: true });
   const filePath = path.join(cleoDir, 'restore-conflicts.md');
   fs.writeFileSync(filePath, content, 'utf-8');

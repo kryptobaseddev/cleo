@@ -666,6 +666,7 @@ export {
   getAgentOutputsAbsolute,
   getAgentsHome,
   getCleoGlobalCantAgentsDir,
+  getCleoProjectRoot,
   getProjectRoot,
   runWithWorktreeScopeFromEnv,
 } from './paths.js';
