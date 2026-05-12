@@ -65,6 +65,8 @@ export function rowToTask(row: TaskRow): Task {
     kind: (row.kind as TaskKind) ?? undefined,
     scope: (row.scope as TaskScope) ?? undefined,
     severity: (row.severity as TaskSeverity) ?? undefined,
+    // T9223 / ADR-070: verifier registry
+    verifierPath: row.verifierPath ?? undefined,
   };
 }
 
@@ -121,6 +123,8 @@ export function taskToRow(task: Partial<Task> & { id: string }): NewTaskRow {
     kind: task.kind ?? undefined,
     scope: task.scope ?? undefined,
     severity: task.severity ?? undefined,
+    // T9223 / ADR-070: verifier registry
+    verifierPath: task.verifierPath ?? null,
   };
 }
 

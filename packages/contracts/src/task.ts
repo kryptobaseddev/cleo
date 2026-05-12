@@ -463,6 +463,15 @@ export interface Task {
 
   /** Agent ID that has claimed/is assigned to this task. Null when unclaimed. @defaultValue undefined */
   assignee?: string | null;
+
+  /**
+   * Registered path to the verifier script for this task (T9223 / ADR-070).
+   *
+   * When set, `cleo verify --acceptance-check` resolves the verifier from
+   * this DB column first, falling back to the filesystem convention when NULL.
+   * @task T9223
+   */
+  verifierPath?: string | null;
 }
 
 // ---------------------------------------------------------------------------

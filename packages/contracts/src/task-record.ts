@@ -82,6 +82,11 @@ export interface TaskRecord {
    * @task T944
    */
   severity?: string | null;
+  /**
+   * Registered path to the verifier script (T9223 / ADR-070).
+   * When set, `cleo verify --acceptance-check` uses this path first.
+   */
+  verifierPath?: string | null;
 }
 
 /**

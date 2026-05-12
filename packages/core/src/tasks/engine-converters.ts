@@ -111,6 +111,8 @@ export function taskToRecord(task: Task): TaskRecord {
     kind: task.kind ?? null,
     scope: task.scope ?? null,
     severity: task.severity ?? null,
+    // T9223 / ADR-070: verifier registry
+    verifierPath: task.verifierPath ?? null,
   };
 }
 

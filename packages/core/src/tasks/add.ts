@@ -89,6 +89,14 @@ export interface AddTaskOptions {
    * @task T1633
    */
   forceDuplicate?: boolean;
+  /**
+   * Path to the verifier script for this task (T9223 / ADR-070).
+   *
+   * When provided, stored in `tasks.verifier_path` so `cleo verify --acceptance-check`
+   * resolves the verifier from the DB registry rather than the filesystem convention.
+   * May be absolute or project-root-relative.
+   */
+  verifierPath?: string;
 }
 
 /** Result of adding a task. */
@@ -1231,6 +1239,9 @@ export async function addTask(
   if (options.kind !== undefined) task.kind = options.kind;
   if (options.scope !== undefined) task.scope = options.scope;
   if (options.severity !== undefined) task.severity = options.severity;
+
+  // T9223 / ADR-070: register verifier path in DB for registry-first resolution
+  if (options.verifierPath !== undefined) task.verifierPath = options.verifierPath;
 
   // Add optional fields
   if (phase) task.phase = phase;

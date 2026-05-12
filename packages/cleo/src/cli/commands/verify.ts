@@ -410,14 +410,44 @@ export const verifyCommand = defineCommand({
           return;
         }
       } else {
-        // Auto-resolve by task ID
-        verifierPath = resolveVerifierScript(String(args.taskId), projectRoot);
+        // T9223 / ADR-070: registry-first resolution — check DB before filesystem
+        const taskResponse = await dispatchRaw('query', 'tasks', 'show', {
+          taskId: String(args.taskId),
+        });
+        const registeredPath: string | null =
+          taskResponse.success &&
+          typeof (taskResponse.data as { task?: { verifierPath?: string | null } })?.task
+            ?.verifierPath === 'string'
+            ? ((taskResponse.data as { task: { verifierPath: string } }).task
+                .verifierPath as string)
+            : null;
+        if (registeredPath) {
+          const absRegistered = registeredPath.startsWith('/')
+            ? registeredPath
+            : resolve(projectRoot, registeredPath);
+          verifierPath = existsSync(absRegistered) ? absRegistered : null;
+          if (!verifierPath) {
+            process.stderr.write(
+              `Warning: registry verifier path not found on disk: ${absRegistered}\n` +
+                `  Falling back to filesystem convention.\n`,
+            );
+          }
+        }
+        // Filesystem fallback (migration period and missing registry entries)
+        if (!verifierPath) {
+          verifierPath = resolveVerifierScript(String(args.taskId), projectRoot);
+        }
       }
 
       if (!verifierPath) {
+        const upper = String(args.taskId).toUpperCase();
+        const id = String(args.taskId).toLowerCase();
         process.stderr.write(
           `Error: --acceptance-check: no verifier script found for ${args.taskId}.\n` +
-            `  Looked for: scripts/verify-${args.taskId}-fu.mjs, scripts/verify-${args.taskId}.mjs\n` +
+            `  Resolution order:\n` +
+            `    1. tasks.verifier_path registry (T9223)\n` +
+            `    2. .cleo/verifiers/${upper}.mjs  (canonical)\n` +
+            `    3. scripts/verify-${id}-fu.mjs, scripts/verify-${id}.mjs  (migration fallback)\n` +
             `  T9192 / ADR-070: create the verifier script before using --acceptance-check.\n`,
         );
         process.exitCode = 1;

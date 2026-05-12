@@ -253,6 +253,7 @@ export async function addTaskWithSessionScope(
         scope: params.scope as TaskScope | undefined,
         severity: params.severity as TaskSeverity | undefined,
         forceDuplicate: params.forceDuplicate,
+        verifierPath: params.verifier,
       },
       projectRoot,
       accessor,

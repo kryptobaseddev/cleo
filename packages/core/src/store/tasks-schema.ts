@@ -340,6 +340,17 @@ export const tasks = sqliteTable(
     assignee: text('assignee'),
     // IVTR orchestration state — nullable JSON blob. NULL = no loop started. @task T811
     ivtrState: text('ivtr_state'),
+    /**
+     * Path to the verifier script for this task (T9223 / ADR-070).
+     *
+     * When set, `cleo verify --acceptance-check` resolves the verifier from
+     * this registry column rather than the filesystem convention. Null means
+     * fall back to the standard path resolution order:
+     *   1. `.cleo/verifiers/<UPPER_TID>.mjs`
+     *   2. `scripts/verify-<tid>-fu.mjs`
+     *   3. `scripts/verify-<tid>.mjs`
+     */
+    verifierPath: text('verifier_path'),
   },
   (table) => [
     index('idx_tasks_status').on(table.status),
