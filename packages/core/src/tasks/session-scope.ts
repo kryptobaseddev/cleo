@@ -158,8 +158,9 @@ export async function addTaskWithSessionScope(
     /**
      * Path to an existing verifier script for this task (T9218 / ADR-070).
      *
-     * Required when priority=critical OR size=large OR type=epic. The path
-     * must point to an existing `.mjs` file (absolute or relative to
+     * Required when priority=critical OR size=large OR type=epic, UNLESS
+     * `lifetime='session'` (T9228 W6 exemption — ephemeral tasks bypass verifier).
+     * The path must point to an existing `.mjs` file (absolute or relative to
      * projectRoot). Omitting this on high-consequence tasks causes the
      * operation to be rejected with E_VERIFIER_REQUIRED.
      *
@@ -167,6 +168,11 @@ export async function addTaskWithSessionScope(
      * for existing tasks that lack one.
      */
     verifier?: string;
+    /**
+     * Task lifetime scope (T9228 / ADR-070).
+     * `'session'` marks the task as ephemeral — verifier requirement is bypassed (W6 exemption).
+     */
+    lifetime?: 'persistent' | 'session';
   },
 ): Promise<
   EngineResult<{ task: TaskRecord; duplicate: boolean; dryRun?: boolean; warnings?: string[] }>
@@ -174,8 +180,9 @@ export async function addTaskWithSessionScope(
   try {
     // T9218 / ADR-070: Strict-mode verifier enforcement.
     // High-consequence tasks (priority=critical, size=large, type=epic) MUST
-    // provide a verifier path at creation time. Skip enforcement for dry-run.
-    if (!params.dryRun && requiresVerifier(params)) {
+    // provide a verifier path at creation time. Skip enforcement for dry-run
+    // and for ephemeral (lifetime=session) tasks (T9228 W6 exemption).
+    if (!params.dryRun && params.lifetime !== 'session' && requiresVerifier(params)) {
       if (!params.verifier) {
         const why =
           params.priority === 'critical'
@@ -253,6 +260,7 @@ export async function addTaskWithSessionScope(
         scope: params.scope as TaskScope | undefined,
         severity: params.severity as TaskSeverity | undefined,
         forceDuplicate: params.forceDuplicate,
+        lifetime: params.lifetime,
       },
       projectRoot,
       accessor,

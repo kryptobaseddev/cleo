@@ -111,6 +111,8 @@ export function taskToRecord(task: Task): TaskRecord {
     kind: task.kind ?? null,
     scope: task.scope ?? null,
     severity: task.severity ?? null,
+    // T9228 / ADR-070: lifetime scope
+    lifetime: task.lifetime ?? null,
   };
 }
 

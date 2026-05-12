@@ -82,6 +82,11 @@ export interface TaskRecord {
    * @task T944
    */
   severity?: string | null;
+  /**
+   * Task lifetime scope — `'session'` bypasses verifier requirement (T9228 / ADR-070).
+   * Values: persistent | session | null
+   */
+  lifetime?: string | null;
 }
 
 /**

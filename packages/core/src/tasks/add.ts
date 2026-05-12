@@ -89,6 +89,12 @@ export interface AddTaskOptions {
    * @task T1633
    */
   forceDuplicate?: boolean;
+  /**
+   * Task lifetime scope (T9228 / ADR-070).
+   * `'session'` marks the task as ephemeral — verifier requirement is bypassed.
+   * `'persistent'` or omitted = standard behavior.
+   */
+  lifetime?: 'persistent' | 'session';
 }
 
 /** Result of adding a task. */
@@ -1231,6 +1237,8 @@ export async function addTask(
   if (options.kind !== undefined) task.kind = options.kind;
   if (options.scope !== undefined) task.scope = options.scope;
   if (options.severity !== undefined) task.severity = options.severity;
+  // T9228 / ADR-070: lifetime scope — 'session' bypasses verifier requirement
+  if (options.lifetime !== undefined) task.lifetime = options.lifetime;
 
   // Add optional fields
   if (phase) task.phase = phase;

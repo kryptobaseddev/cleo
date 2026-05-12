@@ -463,6 +463,15 @@ export interface Task {
 
   /** Agent ID that has claimed/is assigned to this task. Null when unclaimed. @defaultValue undefined */
   assignee?: string | null;
+
+  /**
+   * Task lifetime scope (T9228 / ADR-070).
+   *
+   * - `null` / `'persistent'` (default): task persists across sessions, verifier required.
+   * - `'session'`: ephemeral task scoped to the current session; verifier requirement bypassed.
+   * @task T9228
+   */
+  lifetime?: 'persistent' | 'session' | null;
 }
 
 // ---------------------------------------------------------------------------

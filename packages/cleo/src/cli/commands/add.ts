@@ -173,6 +173,16 @@ export const addCommand = defineCommand({
         'Severity level (P0|P1|P2|P3) — valid for any --kind (T9073). Orthogonal to priority. Appends signed attestation.',
     },
     /**
+     * Task lifetime scope (T9228 / ADR-070).
+     * `session` marks the task as ephemeral — verifier requirement is bypassed (W6 exemption).
+     * `persistent` (default) requires verifier for high-consequence tasks.
+     */
+    lifetime: {
+      type: 'string',
+      description:
+        'Task lifetime scope: persistent (default) | session. session=ephemeral, bypasses verifier requirement (T9228 / ADR-070)',
+    },
+    /**
      * Bypass the E_DUPLICATE_TASK_LIKELY rejection guard.
      *
      * When passed, `cleo add` proceeds even if BRAIN similarity scoring
@@ -254,6 +264,8 @@ export const addCommand = defineCommand({
     if (args['force-duplicate'] !== undefined) params['forceDuplicate'] = args['force-duplicate'];
     // T9218 / ADR-070: mandatory verifier for high-consequence tasks
     if (args.verifier !== undefined) params['verifier'] = args.verifier;
+    // T9228 / ADR-070: lifetime scope — 'session' bypasses verifier requirement
+    if (args.lifetime !== undefined) params['lifetime'] = args.lifetime;
 
     // T1856: Critical-priority tasks MUST declare dependencies or provide a waiver.
     // Undeclared dependencies on critical tasks silently break wave-order spawning

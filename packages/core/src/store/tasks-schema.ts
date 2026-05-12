@@ -340,6 +340,15 @@ export const tasks = sqliteTable(
     assignee: text('assignee'),
     // IVTR orchestration state — nullable JSON blob. NULL = no loop started. @task T811
     ivtrState: text('ivtr_state'),
+    /**
+     * Task lifetime scope (T9228 / ADR-070).
+     *
+     * - `null` / `'persistent'` (default): task persists across sessions and
+     *   requires a verifier script for acceptance check.
+     * - `'session'`: ephemeral task, scoped to the current session. Verifier
+     *   requirement is bypassed (W6 exemption).
+     */
+    lifetime: text('lifetime'),
   },
   (table) => [
     index('idx_tasks_status').on(table.status),
