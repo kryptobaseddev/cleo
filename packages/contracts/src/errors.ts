@@ -200,6 +200,40 @@ export class DecisionValidatorFailedError extends Error {
 }
 
 /**
+ * Thrown when a Lead session attempts to end without delegating any work.
+ *
+ * Hard gate enforcement for T9230 (ADR-070): a Lead session with
+ * `delegate_task_count=0` and `tasks_completed > 0` is a bypass attempt.
+ * Leads MUST fan out work to Workers via `delegate_task`.
+ *
+ * @codeName E_LEAD_BYPASS_DETECTED
+ * @task T9230
+ * @adr ADR-070
+ */
+export class LeadBypassDetectedError extends Error {
+  /** Stable LAFS error code string for envelope emission. */
+  readonly code = 'E_LEAD_BYPASS_DETECTED';
+  /** Numeric exit code aligned with {@link ExitCode.LEAD_BYPASS_DETECTED} (107). */
+  readonly exitCode = 107;
+
+  /**
+   * @param tasksCompleted - Number of tasks completed in the session.
+   * @param sessionId - The session ID being ended.
+   */
+  constructor(
+    public readonly tasksCompleted: number,
+    public readonly sessionId: string,
+  ) {
+    super(
+      `E_LEAD_BYPASS_DETECTED: Lead session ${sessionId} completed ${tasksCompleted} task(s) ` +
+        `without any delegate_task call. Leads MUST fan out work to Workers (T9230 / ADR-070). ` +
+        `Set CLEO_OWNER_OVERRIDE=1 with reason to override (audited).`,
+    );
+    this.name = 'LeadBypassDetectedError';
+  }
+}
+
+/**
  * Normalize any thrown value into a standardized error object.
  *
  * Handles:

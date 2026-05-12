@@ -216,6 +216,14 @@ export enum ExitCode {
    * @task T1828
    */
   DECISION_VALIDATOR_FAILED = 106,
+
+  /**
+   * Lead session attempted to end without delegating any work — `delegate_task_count=0`
+   * with `tasks_completed > 0`. Leads MUST fan out to Workers (T9230 / ADR-070).
+   * @codeName E_LEAD_BYPASS_DETECTED
+   * @task T9230
+   */
+  LEAD_BYPASS_DETECTED = 107,
 }
 
 /** Check if an exit code represents an error (1-99). */
