@@ -47,12 +47,14 @@ function findEpicAncestor(taskId: string, tasksById: Map<string, Task>): string 
 
 /**
  * Check epic completeness for a set of release task IDs.
- * Verifies all children of each referenced epic are included.
+ * Verifies all children of each referenced epic are included in the current or
+ * a prior release (tasks shipped in previous releases are not flagged as missing).
  */
 export async function checkEpicCompleteness(
   releaseTaskIds: string[],
   cwd?: string,
   accessor?: DataAccessor,
+  priorReleasedTaskIds?: string[],
 ): Promise<EpicCompletenessResult> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
   const { tasks: allTasks } = await acc.queryTasks({});
@@ -66,6 +68,7 @@ export async function checkEpicCompleteness(
   }
 
   const releaseSet = new Set(releaseTaskIds);
+  const priorSet = new Set(priorReleasedTaskIds ?? []);
 
   // Map each release task to its epic
   const taskToEpic = new Map<string, string | null>();
@@ -106,7 +109,8 @@ export async function checkEpicCompleteness(
           t.status === 'done' &&
           !parentIds.has(t.id) &&
           !includedSet.has(t.id) &&
-          !releaseSet.has(t.id),
+          !releaseSet.has(t.id) &&
+          !priorSet.has(t.id),
       )
       .map((t) => ({ id: t.id, title: t.title, status: t.status }));
 
