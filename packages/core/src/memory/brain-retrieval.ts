@@ -98,6 +98,28 @@ export interface SearchBrainCompactParams {
    * Set to false for strict per-peer isolation (no global pool bleed-through).
    */
   includeGlobal?: boolean;
+  /**
+   * T1900: ranking mode.
+   *
+   * - `recency`  — ORDER BY created_at DESC, no BM25/RRF contribution.
+   *                Use for recentObservations / recentLearnings where
+   *                chronological freshness matters more than textual match.
+   * - `lexical`  — FTS5 BM25 only (useRRF=false legacy path).
+   * - `hybrid`   — Reciprocal Rank Fusion (default, useRRF=true path).
+   *
+   * @default 'hybrid'
+   */
+  mode?: 'recency' | 'lexical' | 'hybrid';
+  /**
+   * T1900: ISO 8601 timestamp lower-bound filter (inclusive).
+   *
+   * When provided, only rows with `created_at >= since` are returned.
+   * Applies to all modes including recency. Useful with `mode=hybrid`
+   * (e.g., `since=<30d>`) to limit pattern staleness.
+   *
+   * When omitted, no lower-bound date filter is applied.
+   */
+  since?: string;
 }
 
 /** Result from searchBrainCompact. */
@@ -245,6 +267,8 @@ export async function searchBrainCompact(
     useRRF = true,
     peerId,
     includeGlobal,
+    mode,
+    since,
   } = params;
 
   if (!query?.trim()) {
@@ -256,8 +280,73 @@ export async function searchBrainCompact(
   // T418: agent filter always forces FTS-only on observations table
   const agentFilter = agent !== undefined && agent !== null;
 
-  // ----- RRF path (default) -----
-  if (useRRF && !agentFilter) {
+  // ----- T1900: recency mode — ORDER BY created_at DESC, no BM25/RRF -----
+  if (mode === 'recency' && !agentFilter) {
+    const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
+    await getBrainDb(projectRoot);
+    const nativeDb = getBrainNativeDb();
+
+    if (!nativeDb) {
+      return { results: [], total: 0, tokensEstimated: 0 };
+    }
+
+    // Determine which tables to query
+    const targetTables =
+      tables && tables.length > 0 ? tables : ['observations', 'learnings', 'patterns', 'decisions'];
+    const sinceClause = since ? ` AND created_at >= '${since}'` : '';
+    const dateStartClause = dateStart ? ` AND created_at >= '${dateStart}'` : '';
+    const dateEndClause = dateEnd ? ` AND created_at <= '${dateEnd}'` : '';
+    const perTableLimit = effectiveLimit * 2;
+
+    const results: BrainCompactHit[] = [];
+
+    for (const table of targetTables) {
+      let sql: string;
+
+      if (table === 'observations') {
+        sql = `SELECT id, title, created_at FROM brain_observations WHERE 1=1${sinceClause}${dateStartClause}${dateEndClause} ORDER BY created_at DESC LIMIT ${perTableLimit}`;
+      } else if (table === 'learnings') {
+        sql = `SELECT id, insight AS title, created_at FROM brain_learnings WHERE 1=1${sinceClause}${dateStartClause}${dateEndClause} ORDER BY created_at DESC LIMIT ${perTableLimit}`;
+      } else if (table === 'patterns') {
+        sql = `SELECT id, pattern AS title, extracted_at AS created_at FROM brain_patterns WHERE 1=1${since ? ` AND extracted_at >= '${since}'` : ''}${dateStart ? ` AND extracted_at >= '${dateStart}'` : ''}${dateEnd ? ` AND extracted_at <= '${dateEnd}'` : ''} ORDER BY extracted_at DESC LIMIT ${perTableLimit}`;
+      } else {
+        // decisions
+        sql = `SELECT id, decision AS title, created_at FROM brain_decisions WHERE 1=1${sinceClause}${dateStartClause}${dateEndClause} ORDER BY created_at DESC LIMIT ${perTableLimit}`;
+      }
+
+      try {
+        const rows = nativeDb.prepare(sql).all() as Array<{
+          id: string;
+          title: string;
+          created_at: string;
+        }>;
+        for (const row of rows) {
+          results.push({
+            id: row.id,
+            type: table.replace(/s$/, '') as 'observation' | 'learning' | 'pattern' | 'decision',
+            title: (row.title ?? '').slice(0, 80),
+            date: row.created_at ?? '',
+            relevance: 0,
+          });
+        }
+      } catch {
+        // table missing or DB error — skip
+      }
+    }
+
+    // Sort globally by date descending, then trim to limit
+    results.sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0));
+    const trimmed = results.slice(0, effectiveLimit);
+
+    for (const hit of trimmed) {
+      hit._next = memoryFindHitNext(hit.id);
+    }
+
+    return { results: trimmed, total: trimmed.length, tokensEstimated: trimmed.length * 50 };
+  }
+
+  // ----- RRF path (default or mode=hybrid) -----
+  if ((useRRF && !agentFilter && mode !== 'lexical') || (mode === 'hybrid' && !agentFilter)) {
     // Run FTS (for dates + table-level data) and RRF fusion in parallel.
     // FTS gives us row-level dates; RRF gives us the fused ranking order.
     const [ftsResult, rrfResults] = await Promise.all([
@@ -344,7 +433,8 @@ export async function searchBrainCompact(
       );
     }
 
-    // Apply date filters client-side
+    // Apply date filters client-side (T1900: since also applied here)
+    if (since) results = results.filter((r) => !r.date || r.date >= since);
     if (dateStart) results = results.filter((r) => !r.date || r.date >= dateStart);
     if (dateEnd) results = results.filter((r) => !r.date || r.date <= dateEnd);
 
@@ -441,7 +531,8 @@ export async function searchBrainCompact(
     });
   }
 
-  // Apply date filters client-side if provided
+  // Apply date filters client-side if provided (T1900: since also applied here)
+  if (since) results = results.filter((r) => r.date >= since);
   if (dateStart) results = results.filter((r) => r.date >= dateStart);
   if (dateEnd) results = results.filter((r) => r.date <= dateEnd);
 
