@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 import type { Session, SessionScope } from '@cleocode/contracts';
 import {
   ExitCode,
+  LeadBypassDetectedError,
   type SessionEndParams,
   type SessionGcParams,
   type SessionListParams,
@@ -279,6 +280,45 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
       ExitCode.SESSION_NOT_FOUND,
       `Session ${session.id} is already ${session.status}`,
     );
+  }
+
+  // T9230 / ADR-070: Hard gate — Lead bypass detection at session end.
+  // Refuse session end if role=lead, delegate_task_count=0, tasks_completed>0.
+  // Override via CLEO_OWNER_OVERRIDE=1 (recorded to force-bypass.jsonl).
+  const agentRole = process.env['CLEO_AGENT_ROLE'];
+  const isLeadRole = agentRole === 'lead';
+  if (isLeadRole) {
+    const completedCount = session.tasksCompleted?.length ?? 0;
+    if (completedCount > 0) {
+      // Check audit for delegate_task calls only when there are completions
+      const { queryAudit } = await import('../audit.js');
+      const sessionEntries = await queryAudit({ sessionId: session.id });
+      const delegateCount = sessionEntries.filter(
+        (e) =>
+          e.operation === 'delegate_task' ||
+          (e.domain === 'orchestrate' && e.operation === 'spawn' && e.result.success),
+      ).length;
+      if (delegateCount === 0) {
+        if (!process.env['CLEO_OWNER_OVERRIDE']) {
+          throw new LeadBypassDetectedError(completedCount, session.id);
+        }
+        // Override path: record to force-bypass.jsonl (best-effort)
+        const overrideReason = process.env['CLEO_OWNER_OVERRIDE_REASON'] ?? 'no reason provided';
+        try {
+          const { appendFileSync, mkdirSync } = await import('node:fs');
+          const { join, dirname } = await import('node:path');
+          const bypassFile = join(projectRoot, '.cleo/audit/force-bypass.jsonl');
+          mkdirSync(dirname(bypassFile), { recursive: true });
+          appendFileSync(
+            bypassFile,
+            `${JSON.stringify({ timestamp: new Date().toISOString(), rule: 'T9230-lead-bypass', sessionId: session.id, reason: overrideReason, pid: process.pid })}\n`,
+            { encoding: 'utf-8' },
+          );
+        } catch {
+          /* audit write is best-effort */
+        }
+      }
+    }
   }
 
   session.status = 'ended';
