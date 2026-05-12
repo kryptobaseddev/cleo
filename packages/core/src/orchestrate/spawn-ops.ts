@@ -252,6 +252,13 @@ export async function composeSpawnForTask(
      * @task T1253
      */
     conduitSubscription?: ConduitSubscriptionConfig;
+    /**
+     * Glob patterns excluded from the worktree (T9226). When set, a
+     * `## Worktree Scope` section is injected into the spawn prompt.
+     *
+     * @task T9226
+     */
+    spawnCloneExclude?: readonly string[];
   } = {},
 ): Promise<SpawnPayload> {
   const accessor = await getTaskAccessor(root);
@@ -286,6 +293,7 @@ export async function composeSpawnForTask(
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
       conduitSubscription: options.conduitSubscription,
+      spawnCloneExclude: options.spawnCloneExclude,
     });
   } finally {
     db.close();
@@ -725,6 +733,8 @@ export async function orchestrateSpawn(
     let sdkWorktreeResult: import('@cleocode/contracts').CreateWorktreeResult | null = null;
     let worktreePath: string | undefined;
     let worktreeBranch: string | undefined;
+    /** T9226 — patterns actually excluded from the worktree. */
+    let appliedWorktreeExcludePatterns: readonly string[] | undefined;
 
     if (noWorktree) {
       // Explicit opt-out — log to audit so it's always traceable.
@@ -751,9 +761,23 @@ export async function orchestrateSpawn(
       // causing workers to hallucinate paths. Surface the error as a structured
       // LAFS envelope so callers can react programmatically.
       try {
-        sdkWorktreeResult = await spawnWorktree(root, { taskId });
+        // T9226 — spawn-clone-exclude: exclude all verify-*.mjs scripts except
+        // the task's own verifier to keep the worktree lean.
+        const { SPAWN_CLONE_EXCLUDE_PATTERNS } = await import('../orchestration/spawn-prompt.js');
+        sdkWorktreeResult = await spawnWorktree(root, {
+          taskId,
+          spawnCloneExclude: SPAWN_CLONE_EXCLUDE_PATTERNS,
+          spawnCloneExcludeExempt: [`scripts/verify-${taskId.toLowerCase()}.mjs`],
+        });
         worktreePath = sdkWorktreeResult.path;
         worktreeBranch = sdkWorktreeResult.branch;
+        const extResult =
+          sdkWorktreeResult as import('@cleocode/contracts').CreateWorktreeResult & {
+            appliedExcludePatterns?: string[];
+          };
+        appliedWorktreeExcludePatterns = extResult.appliedExcludePatterns ?? [
+          ...SPAWN_CLONE_EXCLUDE_PATTERNS,
+        ];
       } catch (wtErr) {
         const message = wtErr instanceof Error ? wtErr.message : String(wtErr);
         getLogger('engine:orchestrate').error(
@@ -785,6 +809,7 @@ export async function orchestrateSpawn(
       worktreePath,
       worktreeBranch,
       conduitSubscription,
+      spawnCloneExclude: appliedWorktreeExcludePatterns,
     });
 
     // Surface atomicity violations as a first-class error envelope so callers
