@@ -37,12 +37,12 @@
  * @see packages/core/src/nexus/user-profile.ts         — global trait upsert
  */
 
-import type { DialecticInsights, DialecticTurn } from '@cleocode/contracts';
-import { generateObject } from 'ai';
-import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { DialecticInsights, DialecticTurn } from '@cleocode/contracts';
+import { generateObject } from 'ai';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
 import { upsertUserProfileTrait } from '../nexus/user-profile.js';
