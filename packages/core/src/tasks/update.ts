@@ -59,7 +59,10 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'notes',
   'acceptance',
   'files',
+  'addFiles',
+  'removeFiles',
   'blockedBy',
+  'clearBlockedBy',
   'parentId',
   'noAutoComplete',
   'pipelineStage',
@@ -91,7 +94,13 @@ export interface UpdateTaskOptions {
   notes?: string;
   acceptance?: string[];
   files?: string[];
+  /** Add files incrementally without replacing the full array. @task T9242 */
+  addFiles?: string[];
+  /** Remove files incrementally. @task T9242 */
+  removeFiles?: string[];
   blockedBy?: string;
+  /** Clear the blockedBy free-text reason. @task T9241 */
+  clearBlockedBy?: boolean;
   parentId?: string | null;
   noAutoComplete?: boolean;
   /** RCASD-IVTR+C pipeline stage transition target. Must be >= current stage. @task T060 */
@@ -319,9 +328,29 @@ export async function updateTask(
     changes.push('files');
   }
 
+  if (options.addFiles?.length) {
+    const existing = new Set(task.files ?? []);
+    for (const f of options.addFiles) existing.add(f.trim());
+    task.files = [...existing];
+    changes.push('files');
+  }
+
+  if (options.removeFiles?.length) {
+    const toRemove = new Set(options.removeFiles.map((f) => f.trim()));
+    task.files = (task.files ?? []).filter((f) => !toRemove.has(f));
+    changes.push('files');
+  }
+
   if (options.blockedBy !== undefined) {
-    task.blockedBy = options.blockedBy;
+    // Auto-clear when set to empty string (T9241)
+    task.blockedBy = options.blockedBy === '' ? undefined : options.blockedBy;
     changes.push('blockedBy');
+  }
+
+  if (options.clearBlockedBy === true) {
+    task.blockedBy = undefined;
+    // Deduplicate if blockedBy was also passed as '' in the same call
+    if (!changes.includes('blockedBy')) changes.push('blockedBy');
   }
 
   if (options.noAutoComplete !== undefined) {
@@ -525,11 +554,14 @@ export async function taskUpdate(
     type?: string;
     size?: string;
     files?: string[];
+    addFiles?: string[];
+    removeFiles?: string[];
     pipelineStage?: string;
     kind?: string;
     scope?: string;
     severity?: string;
     reason?: string;
+    clearBlockedBy?: boolean;
   },
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
@@ -553,11 +585,14 @@ export async function taskUpdate(
         type: updates.type as TaskType | undefined,
         size: updates.size as TaskSize | undefined,
         files: updates.files,
+        addFiles: updates.addFiles,
+        removeFiles: updates.removeFiles,
         pipelineStage: updates.pipelineStage,
         kind: updates.kind as TaskKind | undefined,
         scope: updates.scope as TaskScope | undefined,
         severity: updates.severity as TaskSeverity | undefined,
         reason: updates.reason,
+        clearBlockedBy: updates.clearBlockedBy,
       },
       projectRoot,
       accessor,
