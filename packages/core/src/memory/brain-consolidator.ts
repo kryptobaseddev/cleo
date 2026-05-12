@@ -342,3 +342,157 @@ function buildNodeId(table: string, entryId: string): string {
   const type = typeMap[table] ?? 'entry';
   return `${type}:${entryId}`;
 }
+
+// ============================================================================
+// T1896: Near-duplicate pattern deduplication
+// ============================================================================
+
+/** Result from a single dedup operation. */
+interface PatternDedupGroup {
+  /** ID of the canonical (oldest) row that was kept. */
+  keptId: string;
+  /** IDs of rows that were collapsed into the canonical row. */
+  removedIds: string[];
+  /** Normalized title shared by the group. */
+  normalizedTitle: string;
+}
+
+/**
+ * Normalize a pattern title for dedup comparison.
+ * Lowercases, collapses whitespace, strips punctuation.
+ */
+function normalizePatternTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Collapse near-duplicate brain_patterns rows in a single consolidation pass.
+ *
+ * Two rows are considered near-duplicates when:
+ *   - `normalize(pattern)` is identical
+ *   - `peer_id` is the same
+ *   - `created_at` values fall within a configurable time window (default: 3600s / 1hr)
+ *
+ * The oldest row (earliest `created_at`) is kept. All others are deleted after
+ * their `occurrence_count` is merged into the survivor and `last_seen_at` is
+ * updated to the most-recent duplicate's timestamp.
+ *
+ * All operations run inside a single SQLite transaction — either everything
+ * succeeds or nothing changes.
+ *
+ * @param projectRoot - Project root directory for brain.db resolution
+ * @param windowSeconds - Max seconds between rows to consider them duplicates (default 3600)
+ * @returns Number of rows removed
+ *
+ * @task T1896
+ */
+export async function dedupePatterns(projectRoot: string, windowSeconds = 3600): Promise<number> {
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+  if (!nativeDb) return 0;
+
+  // Fetch all currently-valid patterns ordered by (peer_id, normalized title, created_at)
+  type PatternRow = {
+    id: string;
+    pattern: string;
+    peer_id: string;
+    extracted_at: string;
+    occurrence_count: number;
+  };
+  const rows = typedAll<PatternRow>(
+    nativeDb.prepare(
+      'SELECT id, pattern, peer_id, extracted_at, COALESCE(occurrence_count, 1) AS occurrence_count FROM brain_patterns WHERE invalid_at IS NULL ORDER BY peer_id, pattern, extracted_at ASC',
+    ),
+  );
+
+  // Group rows by (peer_id, normalizedTitle)
+  const groups = new Map<string, PatternRow[]>();
+  for (const row of rows) {
+    const key = `${row.peer_id}::${normalizePatternTitle(row.pattern)}`;
+    const group = groups.get(key) ?? [];
+    group.push(row);
+    groups.set(key, group);
+  }
+
+  const dedupGroups: PatternDedupGroup[] = [];
+
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+
+    // Within each (peer_id, normalizedTitle) group, apply a sliding window:
+    // any row whose created_at is within `windowSeconds` of the previous row
+    // is considered a duplicate.
+    const windows: PatternRow[][] = [];
+    let current: PatternRow[] = [group[0]];
+
+    for (let i = 1; i < group.length; i++) {
+      const prev = current[current.length - 1];
+      const prevMs = new Date(prev.extracted_at).getTime();
+      const curMs = new Date(group[i].extracted_at).getTime();
+      const diffSeconds = Math.abs(curMs - prevMs) / 1000;
+
+      if (diffSeconds <= windowSeconds) {
+        current.push(group[i]);
+      } else {
+        if (current.length >= 2) windows.push(current);
+        current = [group[i]];
+      }
+    }
+    if (current.length >= 2) windows.push(current);
+
+    for (const window of windows) {
+      // Oldest row (index 0, already sorted ASC) is the canonical survivor
+      const keeper = window[0];
+      const duplicates = window.slice(1);
+      dedupGroups.push({
+        keptId: keeper.id,
+        removedIds: duplicates.map((r) => r.id),
+        normalizedTitle: normalizePatternTitle(keeper.pattern),
+      });
+    }
+  }
+
+  if (dedupGroups.length === 0) return 0;
+
+  // Apply dedup inside a single transaction
+  let totalRemoved = 0;
+  nativeDb.prepare('BEGIN').run();
+  try {
+    for (const dg of dedupGroups) {
+      // Sum occurrence_count from all duplicates and update the keeper
+      const dupRows = typedAll<PatternRow>(
+        nativeDb.prepare(
+          `SELECT id, pattern, peer_id, extracted_at, COALESCE(occurrence_count, 1) AS occurrence_count FROM brain_patterns WHERE id IN (${dg.removedIds.map(() => '?').join(',')})`,
+        ),
+        ...dg.removedIds,
+      );
+
+      const summedCount = dupRows.reduce((acc, r) => acc + r.occurrence_count, 0);
+      const latestSeenAt = dupRows.reduce(
+        (latest, r) => (r.extracted_at > latest ? r.extracted_at : latest),
+        dupRows[0]?.extracted_at ?? '',
+      );
+
+      nativeDb
+        .prepare(
+          'UPDATE brain_patterns SET occurrence_count = occurrence_count + ?, last_seen_at = ? WHERE id = ?',
+        )
+        .run(summedCount, latestSeenAt, dg.keptId);
+
+      for (const removedId of dg.removedIds) {
+        nativeDb.prepare('DELETE FROM brain_patterns WHERE id = ?').run(removedId);
+        totalRemoved++;
+      }
+    }
+    nativeDb.prepare('COMMIT').run();
+  } catch (err) {
+    nativeDb.prepare('ROLLBACK').run();
+    throw err;
+  }
+
+  return totalRemoved;
+}
