@@ -129,9 +129,9 @@ describe('CLEO-INJECTION v2.6.0 CLI-only template', () => {
   });
 
   describe('Template size', () => {
-    it('is under 300 lines (token-optimized; T1610 v2026.4.159 adds 22-line cleo-briefing-first hard prohibition — currently ~293 lines)', () => {
+    it('is under 400 lines (T9148 added HTML section anchors for cleo briefing inject — currently ~354 lines)', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThanOrEqual(300);
+      expect(lines).toBeLessThanOrEqual(400);
     });
 
     it('is at least 50 lines (not accidentally empty)', () => {
