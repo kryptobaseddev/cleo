@@ -98,8 +98,8 @@ import {
   typedDispatch,
   wrapCoreResult,
 } from '../adapters/typed.js';
-import type { DispatchResponse, DomainHandler } from '../types.js';
 import { stampNexusMeta } from '../nexus-decorator.js';
+import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
   envelopeToEngineResult,
   errorResult,
