@@ -829,6 +829,11 @@ export interface RunConsolidationResult {
    * Counts how many promotion_log entries were fulfilled (written to brain_learnings/brain_patterns).
    */
   autoExtractPromotion?: AutoExtractMetrics;
+  /**
+   * Pattern dedup result from Step 4b (T1896).
+   * Counts near-duplicate brain_patterns rows removed in this consolidation cycle.
+   */
+  patternDeduped?: number;
   /** R-STDP reward backfill result from step 9a (T681). */
   rewardBackfilled?: {
     rowsLabeled: number;
@@ -968,6 +973,15 @@ export async function runConsolidation(
     result.contradictions = contradictions.length;
   } catch (err) {
     console.warn('[consolidation] Step 4 contradiction detection failed:', err);
+  }
+
+  // Step 4b: Pattern near-duplicate dedup (T1896)
+  // Collapse rows with identical normalized title + same peer_id within a 1hr window.
+  try {
+    const { dedupePatterns } = await import('./brain-consolidator.js');
+    result.patternDeduped = await dedupePatterns(projectRoot);
+  } catch (err) {
+    console.warn('[consolidation] Step 4b pattern dedup failed:', err);
   }
 
   // Step 5: Soft eviction of low-quality medium-term entries
