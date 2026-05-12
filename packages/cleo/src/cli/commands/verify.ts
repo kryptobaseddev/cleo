@@ -42,54 +42,17 @@
  * @adr ADR-070
  */
 
-import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { generateVerifierStub, getProjectRoot, writeVerifierStub } from '@cleocode/core';
+import { resolve } from 'node:path';
+import {
+  backfillAllPendingVerifiers,
+  backfillVerifier,
+  getProjectRoot,
+  resolveVerifierScript,
+  runVerifier,
+} from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
-
-/**
- * Resolve the verifier script path for a given task ID.
- *
- * Search order:
- *   1. scripts/verify-<taskId>-fu.mjs  (recovery follow-up convention)
- *   2. scripts/verify-<taskId>.mjs      (general convention)
- *   3. scripts/verify-<lowercase-id>-fu.mjs
- *   4. scripts/verify-<lowercase-id>.mjs
- *
- * @param taskId - Task ID (e.g. "T9188").
- * @param projectRoot - Project root to search from.
- * @returns Absolute path to verifier script, or null if not found.
- */
-function resolveVerifierScript(taskId: string, projectRoot: string): string | null {
-  const id = taskId.toLowerCase();
-  const candidates = [
-    join(projectRoot, 'scripts', `verify-${taskId}-fu.mjs`),
-    join(projectRoot, 'scripts', `verify-${taskId}.mjs`),
-    join(projectRoot, 'scripts', `verify-${id}-fu.mjs`),
-    join(projectRoot, 'scripts', `verify-${id}.mjs`),
-  ];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-/**
- * Run the verifier script for a task and return the exit code.
- *
- * @param verifierPath - Absolute path to the verifier script.
- * @returns Exit code (0 = pass, non-zero = fail).
- */
-function runVerifier(verifierPath: string): { exitCode: number; stdout: string; stderr: string } {
-  const result = spawnSync('node', [verifierPath], { encoding: 'utf8' });
-  return {
-    exitCode: result.status ?? 1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  };
-}
 
 // ---------------------------------------------------------------------------
 // backfill subcommand (T9218 / ADR-070)
@@ -134,7 +97,7 @@ export const backfillCommand = defineCommand({
     const force = !!args.force;
 
     if (args['all-pending']) {
-      await backfillAllPending(projectRoot, force);
+      await runBackfillAll(projectRoot, force);
       return;
     }
 
@@ -143,19 +106,16 @@ export const backfillCommand = defineCommand({
       return;
     }
 
-    await backfillSingle(String(args.taskId), projectRoot, force);
+    await runBackfillSingle(String(args.taskId), projectRoot, force);
   },
 });
 
-/**
- * Generate a verifier stub for a single task.
- *
- * @param taskId - Task ID to process.
- * @param projectRoot - Absolute path to the project root.
- * @param force - Overwrite existing verifier when true.
- */
-async function backfillSingle(taskId: string, projectRoot: string, force: boolean): Promise<void> {
-  // Fetch the task via dispatch
+/** CLI wrapper: fetch task via dispatch then delegate to core backfillVerifier. */
+async function runBackfillSingle(
+  taskId: string,
+  projectRoot: string,
+  force: boolean,
+): Promise<void> {
   const response = await dispatchRaw('query', 'tasks', 'show', { taskId });
   if (!response.success) {
     process.stderr.write(
@@ -172,46 +132,29 @@ async function backfillSingle(taskId: string, projectRoot: string, force: boolea
     return;
   }
 
-  // Check idempotency — refuse if verifier already exists and --force not set
-  const existing = resolveVerifierScript(taskId, projectRoot);
-  if (existing && !force) {
-    process.stderr.write(
-      `Error: verifier already exists: ${existing}\n` +
-        `  Use --force to overwrite. (T9218 idempotency guard)\n`,
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  try {
-    // The dispatch response gives us a plain record; cast via unknown for type safety
-    const source = generateVerifierStub(
-      task as unknown as Parameters<typeof generateVerifierStub>[0],
-    );
-    const outPath = writeVerifierStub(taskId, source, projectRoot, force);
-    process.stdout.write(`Generated: ${outPath}\n`);
+  const result = backfillVerifier(task, projectRoot, force);
+  if (result.status === 'generated') {
+    process.stdout.write(`Generated: ${result.path}\n`);
     process.stdout.write(
       `\nNext steps:\n` +
         `  1. Replace each \`fail('STUB — ...')\` block with a real check.\n` +
-        `  2. Verify manually: node ${outPath}\n` +
+        `  2. Verify manually: node ${result.path}\n` +
         `  3. When the script exits 0: cleo verify ${taskId} --acceptance-check\n`,
     );
-  } catch (err) {
-    const msg = (err as Error).message ?? String(err);
-    process.stderr.write(`Error generating verifier for ${taskId}: ${msg}\n`);
+  } else if (result.status === 'skipped') {
+    process.stderr.write(
+      `Error: verifier already exists: ${result.path}\n` +
+        `  Use --force to overwrite. (T9218 idempotency guard)\n`,
+    );
+    process.exitCode = 1;
+  } else {
+    process.stderr.write(`Error generating verifier for ${taskId}: ${result.error}\n`);
     process.exitCode = 1;
   }
 }
 
-/**
- * Enumerate all critical/large/epic tasks lacking a verifier and process each.
- *
- * @param projectRoot - Absolute path to the project root.
- * @param force - Overwrite existing verifiers when true.
- */
-async function backfillAllPending(projectRoot: string, force: boolean): Promise<void> {
-  // Collect tasks via multiple queries: critical priority, large size, epic type.
-  // We use separate queries and deduplicate by task ID to cover all three axes.
+/** CLI wrapper: fetch tasks via dispatch then delegate to core backfillAllPendingVerifiers. */
+async function runBackfillAll(projectRoot: string, force: boolean): Promise<void> {
   const seen = new Set<string>();
   const pending: Array<Record<string, unknown>> = [];
 
@@ -233,13 +176,9 @@ async function backfillAllPending(projectRoot: string, force: boolean): Promise<
     }
   }
 
-  // Filter to tasks that lack a verifier script
-  const lacking = pending.filter((t) => {
-    const id = String(t.id ?? '');
-    return !resolveVerifierScript(id, projectRoot);
-  });
+  const summary = backfillAllPendingVerifiers(pending, projectRoot, force);
 
-  if (lacking.length === 0) {
+  if (summary.succeeded === 0 && summary.failed === 0 && summary.skipped === 0) {
     process.stdout.write(
       'All critical/large/epic tasks already have verifier scripts. Nothing to do.\n',
     );
@@ -247,38 +186,23 @@ async function backfillAllPending(projectRoot: string, force: boolean): Promise<
   }
 
   process.stdout.write(
-    `Found ${lacking.length} task(s) lacking a verifier script. Generating stubs...\n\n`,
+    `Found ${summary.results.length} task(s) to process. Generating stubs...\n\n`,
   );
 
-  let succeeded = 0;
-  let skipped = 0;
-  let failed = 0;
-
-  for (const task of lacking) {
-    const id = String(task.id ?? '');
-    try {
-      const source = generateVerifierStub(
-        task as unknown as Parameters<typeof generateVerifierStub>[0],
+  for (const r of summary.results) {
+    if (r.status === 'generated') {
+      process.stdout.write(`  [OK] ${r.taskId} → ${r.path}\n`);
+    } else if (r.status === 'skipped') {
+      process.stdout.write(
+        `  [SKIP] ${r.taskId}: verifier already exists (use --force to overwrite)\n`,
       );
-      const outPath = writeVerifierStub(id, source, projectRoot, force);
-      process.stdout.write(`  [OK] ${id} → ${outPath}\n`);
-      succeeded++;
-    } catch (err) {
-      const msg = (err as Error).message ?? String(err);
-      if (msg.includes('verifier already exists')) {
-        process.stdout.write(
-          `  [SKIP] ${id}: verifier already exists (use --force to overwrite)\n`,
-        );
-        skipped++;
-      } else {
-        process.stderr.write(`  [FAIL] ${id}: ${msg}\n`);
-        failed++;
-      }
+    } else {
+      process.stderr.write(`  [FAIL] ${r.taskId}: ${r.error}\n`);
     }
   }
 
   process.stdout.write(
-    `\nDone: ${succeeded} generated, ${skipped} skipped (already exist), ${failed} failed.\n`,
+    `\nDone: ${summary.succeeded} generated, ${summary.skipped} skipped (already exist), ${summary.failed} failed.\n`,
   );
   process.stdout.write(
     `\nNext steps for each generated file:\n` +
@@ -286,7 +210,7 @@ async function backfillAllPending(projectRoot: string, force: boolean): Promise<
       `  2. node scripts/verify-<id>.mjs   (must exit 0 before cleo complete)\n`,
   );
 
-  if (failed > 0) {
+  if (summary.failed > 0) {
     process.exitCode = 1;
   }
 }
@@ -379,9 +303,9 @@ export const verifyCommand = defineCommand({
       const force = remainingArgs.includes('--force');
       const projectRoot = getProjectRoot();
       if (allPending) {
-        await backfillAllPending(projectRoot, force);
+        await runBackfillAll(projectRoot, force);
       } else if (taskIdArg) {
-        await backfillSingle(taskIdArg, projectRoot, force);
+        await runBackfillSingle(taskIdArg, projectRoot, force);
       } else {
         await showUsage(cmd);
       }

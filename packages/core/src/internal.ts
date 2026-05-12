@@ -2051,3 +2051,13 @@ export {
   resolveAgent,
   resolveAgentsBatch,
 } from './store/agent-resolver.js';
+// Verifier runner — resolver, executor, backfill (T9219 / ADR-070)
+export {
+  type BackfillAllResult,
+  type BackfillSingleResult,
+  backfillAllPendingVerifiers,
+  backfillVerifier,
+  resolveVerifierScript,
+  runVerifier,
+  type VerifierResult,
+} from './tasks/verifier-runner.js';

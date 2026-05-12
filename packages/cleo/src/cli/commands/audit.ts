@@ -29,8 +29,8 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { getProjectRoot, reconstructLineage } from '@cleocode/core/internal';
+import { resolve } from 'node:path';
+import { getProjectRoot, reconstructLineage, resolveVerifierScript } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -102,36 +102,6 @@ const reconstructCommand = defineCommand({
     });
   },
 });
-
-// ---------------------------------------------------------------------------
-// Verifier script resolution (shared with verify.ts, duplicated for isolation)
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve the acceptance verifier script path for a given task ID.
- *
- * Convention (ADR-070):
- *   1. scripts/verify-<taskId>-fu.mjs   (recovery follow-up convention)
- *   2. scripts/verify-<taskId>.mjs      (general convention)
- *   3. Same with lowercase ID
- *
- * @param taskId - Task ID (e.g. "T9188").
- * @param projectRoot - Project root to search from.
- * @returns Absolute path, or null if not found.
- */
-function resolveVerifierScript(taskId: string, projectRoot: string): string | null {
-  const id = taskId.toLowerCase();
-  const candidates = [
-    join(projectRoot, 'scripts', `verify-${taskId}-fu.mjs`),
-    join(projectRoot, 'scripts', `verify-${taskId}.mjs`),
-    join(projectRoot, 'scripts', `verify-${id}-fu.mjs`),
-    join(projectRoot, 'scripts', `verify-${id}.mjs`),
-  ];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
 
 /**
  * `cleo audit verifier <taskId>` — independent acceptance verifier re-run.
