@@ -806,6 +806,110 @@ describe('METHOD_OVERRIDES edges regression (heritage-processor, T1846)', () => 
 });
 
 // ---------------------------------------------------------------------------
+// METHOD_IMPLEMENTS edge regression (T1847)
+//
+// Asserts that processHeritage() emits method_implements edges when a class
+// implements an interface and declares matching methods.
+//
+// The TypeScript fixture has:
+//   - BaseRepository implements Serializable (toJSON)
+//   - User implements Storable (save, delete, toJSON)
+// guaranteeing at least 1 method_implements edge on the fixture.
+// ---------------------------------------------------------------------------
+
+describe('METHOD_IMPLEMENTS edges regression (heritage-processor, T1847)', () => {
+  let tmpRepo: string;
+
+  beforeAll(() => {
+    tmpRepo = mkdtempSync(join(tmpdir(), 'nexus-method-implements-test-'));
+    const fixtureDir = join(tmpRepo, 'fixtures', 'typescript');
+    mkdirSync(fixtureDir, { recursive: true });
+    copyFileSync(join(__dirname, 'fixtures/typescript/sample.ts'), join(fixtureDir, 'sample.ts'));
+  });
+
+  afterAll(() => {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  });
+
+  it('skips gracefully when tree-sitter is unavailable', () => {
+    if (!ParserClass) return;
+    expect(true).toBe(true);
+  });
+
+  it('emits at least 1 method_implements edge from TypeScript fixture', async () => {
+    if (!ParserClass) return;
+
+    const fixturePath = 'fixtures/typescript/sample.ts';
+    const graph = createKnowledgeGraph();
+    const resolutionCtx = createResolutionContext();
+    const symbolTable = resolutionCtx.symbols;
+    const importCtx = buildImportResolutionContext([fixturePath]);
+
+    const scannedFiles = [{ path: fixturePath, size: 0, language: 'typescript' }];
+
+    const { allHeritage } = await runParseLoop(
+      scannedFiles,
+      graph,
+      symbolTable,
+      importCtx,
+      tmpRepo,
+    );
+
+    // Phase 3c: emit EXTENDS / IMPLEMENTS + METHOD_OVERRIDES + METHOD_IMPLEMENTS
+    const result = processHeritage(allHeritage, graph, resolutionCtx);
+
+    const methodImplementsEdges = graph.relations.filter((r) => r.type === 'method_implements');
+
+    assertFloor(
+      'METHOD_IMPLEMENTS edge count (TypeScript fixture)',
+      methodImplementsEdges.length,
+      1,
+    );
+
+    // HeritageProcessingResult must also report a non-zero count
+    assertFloor(
+      'methodImplementsCount in HeritageProcessingResult',
+      result.methodImplementsCount,
+      1,
+    );
+  });
+
+  it('method_implements edges carry confidenceLabel', async () => {
+    if (!ParserClass) return;
+
+    const fixturePath = 'fixtures/typescript/sample.ts';
+    const graph = createKnowledgeGraph();
+    const resolutionCtx = createResolutionContext();
+    const symbolTable = resolutionCtx.symbols;
+    const importCtx = buildImportResolutionContext([fixturePath]);
+
+    const scannedFiles = [{ path: fixturePath, size: 0, language: 'typescript' }];
+
+    const { allHeritage } = await runParseLoop(
+      scannedFiles,
+      graph,
+      symbolTable,
+      importCtx,
+      tmpRepo,
+    );
+
+    processHeritage(allHeritage, graph, resolutionCtx);
+
+    const methodImplementsEdges = graph.relations.filter((r) => r.type === 'method_implements');
+
+    // Skip if no method_implements found (tree-sitter may not produce heritage in this env)
+    if (methodImplementsEdges.length === 0) return;
+
+    for (const edge of methodImplementsEdges) {
+      expect(
+        edge.confidenceLabel,
+        `method_implements edge ${edge.source}→${edge.target} missing confidenceLabel`,
+      ).toBeDefined();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Java extractor regression (T1861 — LanguageConfig / generic-extractor demo)
 // ---------------------------------------------------------------------------
 

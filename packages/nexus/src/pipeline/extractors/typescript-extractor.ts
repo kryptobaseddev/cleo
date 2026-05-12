@@ -194,8 +194,7 @@ function walkDefinitions(
       break;
     }
     case 'interface_declaration': {
-      const iface = buildInterfaceNode(node, filePath, language);
-      if (iface) results.push(iface);
+      for (const n of buildInterfaceNodes(node, filePath, language)) results.push(n);
       break;
     }
     case 'type_alias_declaration': {
@@ -372,18 +371,20 @@ function buildClassNodes(node: SyntaxNode, filePath: string, language: string): 
   return results;
 }
 
-/** Build a GraphNode for an interface_declaration. */
-function buildInterfaceNode(
-  node: SyntaxNode,
-  filePath: string,
-  language: string,
-): GraphNode | null {
+/**
+ * Build GraphNodes for an interface_declaration (interface + method signatures).
+ *
+ * Extracts both the interface node itself and its method signature members
+ * so that METHOD_IMPLEMENTS edges can be emitted (T1847).
+ */
+function buildInterfaceNodes(node: SyntaxNode, filePath: string, language: string): GraphNode[] {
   const nameNode = node.childForFieldName('name');
-  if (!nameNode) return null;
+  if (!nameNode) return [];
   const name = nameNode.text;
-  if (!name) return null;
+  if (!name) return [];
 
-  return {
+  const ifaceExported = isExported(node);
+  const ifaceNode: GraphNode = {
     id: nodeId(filePath, name),
     kind: 'interface' as GraphNodeKind,
     name,
@@ -391,9 +392,46 @@ function buildInterfaceNode(
     startLine: toLine(node.startPosition.row),
     endLine: toLine(node.endPosition.row),
     language,
-    exported: isExported(node),
+    exported: ifaceExported,
     docSummary: extractDocSummary(node),
   };
+
+  const results: GraphNode[] = [ifaceNode];
+
+  const bodyNode = node.childForFieldName('body');
+  if (!bodyNode) return results;
+
+  for (let i = 0; i < bodyNode.namedChildCount; i++) {
+    const member = bodyNode.namedChild(i);
+    if (!member) continue;
+    if (member.type !== 'method_signature') continue;
+
+    const methodNameNode = member.childForFieldName('name');
+    if (!methodNameNode) continue;
+    const methodName = methodNameNode.text;
+    if (!methodName) continue;
+
+    const paramsNode =
+      member.childForFieldName('parameters') ?? member.childForFieldName('formal_parameters');
+    const parameters = paramsNode ? extractParamNames(paramsNode) : [];
+
+    results.push({
+      id: nodeId(filePath, `${name}.${methodName}`),
+      kind: 'method' as GraphNodeKind,
+      name: methodName,
+      filePath,
+      startLine: toLine(member.startPosition.row),
+      endLine: toLine(member.endPosition.row),
+      language,
+      exported: false,
+      parent: nodeId(filePath, name),
+      parameters,
+      returnType: extractReturnType(member),
+      docSummary: extractDocSummary(member),
+    });
+  }
+
+  return results;
 }
 
 /** Build a GraphNode for a type_alias_declaration. */
