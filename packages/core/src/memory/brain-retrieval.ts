@@ -17,13 +17,13 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { BrainObservationType } from '@cleocode/contracts';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { memoryFindHitNext } from '../mvi-helpers.js';
 import { sessionExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import type {
   BRAIN_OBSERVATION_SOURCE_TYPES,
-  BRAIN_OBSERVATION_TYPES,
   BrainMemoryTier,
   BrainSourceConfidence,
 } from '../store/memory-schema.js';
@@ -169,8 +169,8 @@ export interface FetchBrainEntriesResult {
   tokensEstimated: number;
 }
 
-/** Observation type from schema. */
-export type BrainObservationType = (typeof BRAIN_OBSERVATION_TYPES)[number];
+// BrainObservationType is canonical in @cleocode/contracts — re-export only.
+export type { BrainObservationType };
 
 /** Observation source type from schema. */
 export type BrainObservationSourceType = (typeof BRAIN_OBSERVATION_SOURCE_TYPES)[number];

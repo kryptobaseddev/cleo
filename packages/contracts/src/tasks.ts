@@ -24,8 +24,6 @@ import type { TaskPriority, TaskStatus } from './task.js';
 /**
  * RCASD-IVTR+C pipeline stage values valid for `TaskView.pipelineStage`.
  *
- * Mirrors `TaskViewPipelineStage` from `packages/core/src/tasks/compute-task-view.ts`.
- *
  * @task T1703
  */
 export type TaskViewPipelineStage =
