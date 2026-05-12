@@ -4,8 +4,8 @@
  * Handles all task CRUD and non-CRUD operations: show, list, find, exists,
  * tree, blockers, depends, analyze, next, relates, complexity.estimate,
  * current, add, update, complete, delete, archive, restore, reparent,
- * promote, reorder, relates.add, start, stop, sync.reconcile, sync.links,
- * sync.links.remove.
+ * promote, reorder, relates.add, relates.remove, start, stop,
+ * sync.reconcile, sync.links, sync.links.remove.
  *
  * Query operations delegate to task-engine; start/stop/current delegate
  * to session-engine (which hosts task-work functions).
@@ -56,6 +56,7 @@ import {
   taskRelates,
   taskRelatesAdd,
   taskRelatesFind,
+  taskRelatesRemove,
   taskReopen,
   taskReorder,
   taskReparent,
@@ -341,6 +342,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         size: params.size,
         // T1014: wire --files through dispatch to engine (parity with add).
         files: params.files,
+        addFiles: params.addFiles,
+        removeFiles: params.removeFiles,
         // T834 / ADR-051 Decision 4: wire --pipelineStage end-to-end.
         pipelineStage: params.pipelineStage,
         // T944/T9072: kind axis (renamed from role)
@@ -350,6 +353,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         severity: params.severity,
         // T1590: AC-immutability override reason
         reason: params.reason,
+        // T9241: clear the free-text blockedBy reason
+        clearBlockedBy: params.clearBlockedBy,
       }),
       'update',
     );
@@ -465,6 +470,17 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     );
   },
 
+  'relates.remove': async (params) => {
+    const projectRoot = getProjectRoot();
+    if (!params.relatedId) {
+      return lafsError('E_INVALID_INPUT', 'relatedId is required', 'relates.remove');
+    }
+    return wrapCoreResult(
+      await taskRelatesRemove(projectRoot, params.taskId, params.relatedId, params.type),
+      'relates.remove',
+    );
+  },
+
   start: async (params) => {
     const projectRoot = getProjectRoot();
     return wrapCoreResult(await taskStart(projectRoot, params.taskId), 'start');
@@ -545,6 +561,7 @@ const MUTATE_OPS = new Set<string>([
   'reparent',
   'reorder',
   'relates.add',
+  'relates.remove',
   'start',
   'stop',
   'sync.reconcile',
@@ -694,6 +711,7 @@ export class TasksHandler implements DomainHandler {
         'reparent',
         'reorder',
         'relates.add',
+        'relates.remove',
         'start',
         'stop',
         'sync.reconcile',

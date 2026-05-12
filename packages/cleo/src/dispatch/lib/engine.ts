@@ -250,6 +250,7 @@ export {
   taskRelates,
   taskRelatesAdd,
   taskRelatesFind,
+  taskRelatesRemove,
   taskReopen,
   taskReorder,
   taskReparent,

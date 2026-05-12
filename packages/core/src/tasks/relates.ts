@@ -103,6 +103,37 @@ export async function addRelation(
   return { from, to, type, reason, added: true };
 }
 
+/** Remove a relation between tasks. */
+export async function removeRelation(
+  from: string,
+  to: string,
+  type?: string,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<Record<string, unknown>> {
+  const acc = accessor ?? (await getTaskAccessor(cwd));
+
+  const fromExists = await acc.taskExists(from);
+  if (!fromExists) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${from} not found`, {
+      fix: `cleo find "${from}"`,
+      details: { field: 'from', actual: from },
+    });
+  }
+
+  const toExists = await acc.taskExists(to);
+  if (!toExists) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${to} not found`, {
+      fix: `cleo find "${to}"`,
+      details: { field: 'to', actual: to },
+    });
+  }
+
+  await acc.removeRelation(from, to, type);
+
+  return { from, to, type, removed: true };
+}
+
 /** Discover related tasks using various methods. */
 export async function discoverRelated(
   taskId: string,

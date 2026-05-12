@@ -179,6 +179,9 @@ export interface DataAccessor {
     reason?: string,
   ): Promise<void>;
 
+  /** Remove a row from the task_relations table (T9240). */
+  removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void>;
+
   // ---- Metadata (schema_meta KV store) ----
 
   /** Read a typed value from the metadata store. Returns null if not found. */

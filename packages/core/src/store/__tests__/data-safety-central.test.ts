@@ -130,6 +130,7 @@ describe('Data Safety Central', () => {
         return null;
       },
       async addRelation() {},
+      async removeRelation() {},
       async getMetaValue() {
         return null;
       },

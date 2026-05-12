@@ -193,6 +193,10 @@ export class SafetyDataAccessor implements DataAccessor {
     await this.inner.addRelation(taskId, relatedTo, relationType, reason);
   }
 
+  async removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void> {
+    await this.inner.removeRelation(taskId, relatedTo, relationType);
+  }
+
   // ---- Metadata (pass-through to inner) ----
 
   async getMetaValue<T>(key: string): Promise<T | null> {

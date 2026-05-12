@@ -282,8 +282,7 @@ export async function loadRelationsForTasks(db: DrizzleDb, tasks: Task[]): Promi
 
   for (const task of tasks) {
     const relations = relMap.get(task.id);
-    if (relations && relations.length > 0) {
-      task.relates = relations;
-    }
+    // Always set relates from DB — overrides stale JSON blob value
+    task.relates = relations && relations.length > 0 ? relations : [];
   }
 }

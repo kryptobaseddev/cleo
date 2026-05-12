@@ -924,6 +924,8 @@ export type {
   TasksRelatesAddParams,
   TasksRelatesAddResult,
   TasksRelatesParams,
+  TasksRelatesRemoveParams,
+  TasksRelatesRemoveResult,
   TasksRelatesResult,
   TasksReorderDispatchResult,
   TasksReorderQueryParams,

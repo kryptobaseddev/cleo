@@ -346,6 +346,27 @@ export async function addRelation(
     .run();
 }
 
+/** Remove a relation between tasks. */
+export async function removeRelation(
+  taskId: string,
+  relatedTo: string,
+  relationType?: string,
+  cwd?: string,
+): Promise<void> {
+  const db = await getDb(cwd);
+  const conditions = [
+    eq(schema.taskRelations.taskId, taskId),
+    eq(schema.taskRelations.relatedTo, relatedTo),
+  ];
+  if (relationType !== undefined) {
+    conditions.push(eq(schema.taskRelations.relationType, relationType as 'related'));
+  }
+  await db
+    .delete(schema.taskRelations)
+    .where(and(...conditions))
+    .run();
+}
+
 /** Get relations for a task. */
 export async function getRelations(
   taskId: string,

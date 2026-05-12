@@ -39,6 +39,7 @@ vi.mock('../../lib/engine.js', () => {
     taskTree: mockFn(),
     taskRelates: mockFn(),
     taskRelatesAdd: mockFn(),
+    taskRelatesRemove: mockFn(),
     taskAnalyze: mockFn(),
     taskRestore: mockFn(),
     taskReopen: mockFn(),

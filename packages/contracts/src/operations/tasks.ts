@@ -630,6 +630,29 @@ export interface TasksRelatesAddResult {
   added: boolean;
 }
 
+// tasks.relates.remove
+export interface TasksRelatesRemoveParams {
+  /** Source task ID. */
+  taskId: string;
+  /** Target task ID to remove the relation to. */
+  relatedId: string;
+  /** Optional relation type to narrow the deletion (omit to remove any type). */
+  type?: string;
+}
+/**
+ * Result of `tasks.relates.remove` — relation deletion confirmation.
+ *
+ * @task T9240
+ */
+export interface TasksRelatesRemoveResult {
+  /** Source task ID. */
+  from: string;
+  /** Target (related) task ID. */
+  to: string;
+  /** Whether a relation was actually deleted. */
+  removed: boolean;
+}
+
 // tasks.add (dispatch-level params — extends TasksCreateParams)
 export interface TasksAddParams {
   title: string;
@@ -708,6 +731,10 @@ export interface TasksUpdateQueryParams {
   type?: string; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944
   size?: string;
   files?: string[];
+  /** Add files incrementally (mirrors --add-labels pattern). @task T9242 */
+  addFiles?: string[];
+  /** Remove files incrementally (mirrors --remove-labels pattern). @task T9242 */
+  removeFiles?: string[];
   pipelineStage?: string;
   /** Canonical wire field for task kind axis (T9072: renamed from role). */
   kind?: string;
@@ -725,6 +752,8 @@ export interface TasksUpdateQueryParams {
   reason?: string;
   /** Dependency declaration waiver for critical-priority tasks (T1856). */
   dependsWaiver?: string;
+  /** Clear the blockedBy free-text reason (set to undefined). @task T9241 */
+  clearBlockedBy?: boolean;
 }
 /**
  * Result of `tasks.update` — the updated task record with change list.
@@ -917,6 +946,7 @@ export type TasksOps = {
   readonly reparent: readonly [TasksReparentQueryParams, TasksReparentDispatchResult];
   readonly reorder: readonly [TasksReorderQueryParams, TasksReorderDispatchResult];
   readonly 'relates.add': readonly [TasksRelatesAddParams, TasksRelatesAddResult];
+  readonly 'relates.remove': readonly [TasksRelatesRemoveParams, TasksRelatesRemoveResult];
   readonly start: readonly [TasksStartQueryParams, TasksStartQueryResult];
   readonly stop: readonly [TasksStopQueryParams, TasksStopQueryResult];
   readonly 'sync.reconcile': readonly [TasksSyncReconcileParams, TasksSyncReconcileResult];
