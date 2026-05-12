@@ -54,6 +54,10 @@
 !specs/
 !specs/**
 
+# Step 8: Allow verifiers directory (canonical verifier scripts — T9222 / ADR-070)
+!verifiers/
+!verifiers/**
+
 # =============================================================================
 # EXPLICIT DENY — safety net that overrides allow rules above
 # =============================================================================
