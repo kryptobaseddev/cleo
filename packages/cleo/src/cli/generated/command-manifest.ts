@@ -373,6 +373,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/grade.js')).gradeCommand as CommandDef,
   },
   {
+    exportName: 'graphCommand',
+    name: 'graph',
+    description: 'Project-scoped code intelligence: symbol graph, impact analysis, clusters, flows',
+    load: async () => (await import('../commands/graph.js')).graphCommand as CommandDef,
+  },
+  {
     exportName: 'historyCommand',
     name: 'history',
     description: 'Completion timeline and productivity analytics',
@@ -713,6 +719,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     name: 'sync',
     description: 'External task synchronisation management',
     load: async () => (await import('../commands/sync.js')).syncCommand as CommandDef,
+  },
+  {
+    exportName: 'tasksCommand',
+    name: 'tasks',
+    description: 'Task query namespace: show, find, next, current, plan, analyze',
+    load: async () => (await import('../commands/tasks.js')).tasksCommand as CommandDef,
   },
   {
     exportName: 'testingCommand',
