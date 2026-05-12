@@ -10,10 +10,11 @@
  * @task T943
  */
 
+import type { TaskView } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { computeTaskView, computeTaskViews, type TaskView } from '../compute-task-view.js';
+import { computeTaskView, computeTaskViews } from '../compute-task-view.js';
 
 describe('computeTaskView', () => {
   let env: TestDbEnv;

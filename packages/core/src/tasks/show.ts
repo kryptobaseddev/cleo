@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import type { Task, TaskRecord, TaskRef } from '@cleocode/contracts';
+import type { Task, TaskRecord, TaskRef, TaskView } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
@@ -14,7 +14,7 @@ import type { NextDirectives } from '../mvi-helpers.js';
 import { taskShowNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { computeTaskView, type TaskView } from './compute-task-view.js';
+import { computeTaskView } from './compute-task-view.js';
 import {
   type IvtrHistoryEntry,
   type LifecycleStageEntry,

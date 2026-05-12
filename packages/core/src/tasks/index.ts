@@ -4,6 +4,14 @@
  * @epic T4454
  */
 
+export type {
+  TaskView,
+  TaskViewChildRollup,
+  TaskViewGatesStatus,
+  TaskViewLifecycleProgress,
+  TaskViewNextAction,
+  TaskViewPipelineStage,
+} from '@cleocode/contracts';
 export {
   type AddTaskOptions,
   type AddTaskResult,
@@ -40,16 +48,7 @@ export {
   taskComplete,
 } from './complete.js';
 // Canonical task view — unified derivation (T943)
-export {
-  computeTaskView,
-  computeTaskViews,
-  type TaskView,
-  type TaskViewChildRollup,
-  type TaskViewGatesStatus,
-  type TaskViewLifecycleProgress,
-  type TaskViewNextAction,
-  type TaskViewPipelineStage,
-} from './compute-task-view.js';
+export { computeTaskView, computeTaskViews } from './compute-task-view.js';
 export {
   buildRollupEvidence,
   isCoordinationParent,
