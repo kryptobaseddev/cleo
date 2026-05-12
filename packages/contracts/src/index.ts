@@ -275,6 +275,7 @@ export {
   getErrorMessage,
   isErrorResult,
   isErrorType,
+  LeadBypassDetectedError,
   LifecycleScopeDeniedError,
   normalizeError,
   ThinAgentViolationError,
