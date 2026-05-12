@@ -1229,8 +1229,23 @@ export async function releaseShip(
       // Manifest may not exist yet; proceed
     }
 
+    // Gather all task IDs that have already shipped in prior releases so the
+    // completeness guard does not flag them as "missing" from the current release.
+    const priorReleasesForGuard = await listManifestReleases(projectRoot);
+    const priorReleasedTaskIds = (
+      (priorReleasesForGuard as { releases?: Array<{ version: string; tasks?: string[] }> })
+        .releases ?? []
+    )
+      .filter((r) => r.version !== version)
+      .flatMap((r) => r.tasks ?? []);
+
     const epicAccessor = await getTaskAccessor(cwd);
-    const epicCheck = await checkEpicCompleteness(releaseTaskIds, projectRoot, epicAccessor);
+    const epicCheck = await checkEpicCompleteness(
+      releaseTaskIds,
+      projectRoot,
+      epicAccessor,
+      priorReleasedTaskIds,
+    );
     if (epicCheck.hasIncomplete) {
       const incomplete = epicCheck.epics
         .filter((e) => e.missingChildren.length > 0)
