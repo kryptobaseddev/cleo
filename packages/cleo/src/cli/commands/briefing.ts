@@ -58,9 +58,21 @@ export const briefingCommand = defineCommand({
       description: 'Maximum active epics to show',
       default: '5',
     },
+    /**
+     * T1905 / BBTT-W1-3: strict contract mode.
+     *
+     * When set, exit non-zero if the briefing contains any contract violations
+     * (stale data, duplicate IDs, excluded-provenance items). Use in CI to
+     * catch briefing regressions early.
+     */
+    strict: {
+      type: 'boolean',
+      description: 'Exit non-zero when briefing contract violations are detected (T1905)',
+      alias: 'x',
+    },
   },
   async run({ args }) {
-    await dispatchFromCli(
+    const result = await dispatchFromCli(
       'query',
       'session',
       'briefing.show',
@@ -73,5 +85,16 @@ export const briefingCommand = defineCommand({
       },
       { command: 'briefing' },
     );
+
+    // T1905: --strict exits non-zero when contractViolations are present
+    if (args.strict) {
+      const data = (result as Record<string, unknown> | undefined)?.['data'] as
+        | Record<string, unknown>
+        | undefined;
+      const violations = data?.['contractViolations'] as unknown[] | undefined;
+      if (violations && violations.length > 0) {
+        process.exitCode = 1;
+      }
+    }
   },
 });
