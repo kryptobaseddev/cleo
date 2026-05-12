@@ -95,4 +95,123 @@ export interface NexusOperationDescriptor {
    * @defaultValue `true`
    */
   readonly requiresProject: boolean;
+  /**
+   * When `true`, the decorator stamps `meta._nexus.indexFreshness` on the
+   * response envelope (top-level CLI invocations only; sub-calls inherit via
+   * `meta.requestId` lineage to avoid per-call git-status shell-outs).
+   *
+   * @defaultValue `false`
+   * @task T9146
+   */
+  readonly indexSensitive?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// W2: NexusScopeMeta — namespaced _nexus block stamped on every response
+// ---------------------------------------------------------------------------
+
+/**
+ * Source of the `projectId` binding for a nexus operation.
+ *
+ * - `arg-project-id` — caller supplied `--project-id` explicitly.
+ * - `arg-path`       — resolved from `--path` argument.
+ * - `cwd`            — derived from current working directory.
+ * - `registry`       — looked up via the global project registry.
+ * - `none`           — operation does not require a project binding.
+ *
+ * @task T9146
+ */
+export type NexusBindingSource = 'arg-project-id' | 'arg-path' | 'cwd' | 'registry' | 'none';
+
+/**
+ * A structured suggestion for the next action an agent should take after a
+ * Nexus operation completes.
+ *
+ * Machine-readable — display strings are derived from these fields.
+ *
+ * @task T9146
+ */
+export interface SuggestedNextOp {
+  /** Nexus operation key (must exist in NEXUS_SCOPE_MAP). */
+  readonly op: string;
+  /** Arguments to pass to the operation. */
+  readonly args: Readonly<Record<string, unknown>>;
+  /** Scope of the suggested operation. */
+  readonly scope: NexusScope;
+  /** Side-effect classification of the suggested operation. */
+  readonly effect: NexusEffect;
+  /** Whether the agent should confirm with the user before executing. */
+  readonly requiresConfirmation: boolean;
+  /** Human-readable rationale for why this next step is suggested. */
+  readonly reason: string;
+}
+
+/**
+ * Namespaced `_nexus` block attached to every nexus-domain dispatch response
+ * under `meta._nexus`.
+ *
+ * Consumed by agents, renderers, and downstream middleware for scope-aware
+ * routing and display.
+ *
+ * @task T9146
+ */
+export interface NexusScopeMeta {
+  /** Scope classification of the operation that produced this envelope. */
+  readonly scope: NexusScope;
+  /** Side-effect classification of the operation. */
+  readonly effect: NexusEffect;
+  /**
+   * Resolved project identifier (undefined for `global` / `living-brain`
+   * scope operations that do not require a project).
+   */
+  readonly projectId?: string;
+  /** Human-readable project name from the registry (if available). */
+  readonly projectName?: string;
+  /** Absolute filesystem path to the project root. */
+  readonly projectPath?: string;
+  /** Absolute path to the nexus DB or registry file. */
+  readonly registryPath?: string;
+  /** How the `projectId` was resolved for this request. */
+  readonly bindingSource: NexusBindingSource;
+  /**
+   * For `hybrid`-scope operations: the ID of the secondary project
+   * (the one whose data is being compared or merged with the primary).
+   */
+  readonly counterpartProjectId?: string;
+  /**
+   * Whether the nexus index was considered fresh at the time of this call.
+   * Only present when `descriptor.indexSensitive === true` AND this was a
+   * top-level CLI invocation (sub-calls inherit via `meta.requestId` lineage).
+   */
+  readonly indexFreshness?: 'fresh' | 'stale' | 'unknown';
+  /**
+   * The canonical CLI command string for this operation (e.g. `"cleo nexus context"`).
+   */
+  readonly canonicalCommand: string;
+  /**
+   * If this operation is a legacy alias, the canonical op key it maps to.
+   * Absent when the operation is already canonical.
+   */
+  readonly legacyAliasFor?: string;
+  /** Non-fatal warnings surfaced from descriptor or runtime resolution. */
+  readonly warnings?: ReadonlyArray<string>;
+  /**
+   * Structured suggestions for what the agent should do next.
+   * Every entry's `.op` MUST resolve to a known NEXUS_SCOPE_MAP entry
+   * (enforced at build time by the typed-registry gate in nexus-decorator.ts).
+   */
+  readonly suggestedNext?: ReadonlyArray<SuggestedNextOp>;
+}
+
+/**
+ * Utility type that intersects {@link NexusScopeMeta} into `meta._nexus` for
+ * nexus-domain dispatch responses.
+ *
+ * Use this to narrow the `meta` field when processing nexus responses.
+ *
+ * @task T9146
+ */
+export interface MetaWithNexusScope {
+  _nexus: NexusScopeMeta;
+  [key: string]: unknown;
 }
