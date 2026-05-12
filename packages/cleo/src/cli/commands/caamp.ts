@@ -12,7 +12,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { defineCommand } from 'citty';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
-import { humanLine } from '../renderers/index.js';
+import { cliOutput, humanLine } from '../renderers/index.js';
 
 /** cleo caamp dedupe — deduplicate accumulated CAAMP injection blocks */
 const dedupeCommand = defineCommand({
@@ -80,26 +80,10 @@ const dedupeCommand = defineCommand({
         dryResults.push({ filePath, exists: true, blockCount: blocks.length, wouldRemove });
       }
 
-      if (args.json) {
-        process.stdout.write(
-          JSON.stringify({ success: true, data: { dryRun: true, files: dryResults } }, null, 2) +
-            '\n',
-        );
-      } else {
-        for (const r of dryResults) {
-          if (!r.exists) {
-            humanLine(`  (skip) ${r.filePath} — file not found`);
-          } else if (r.wouldRemove === 0) {
-            humanLine(`  (clean) ${r.filePath} — ${r.blockCount} block(s), no duplicates`);
-          } else {
-            humanLine(
-              `  (would remove) ${r.filePath} — ${r.wouldRemove} duplicate(s) of ${r.blockCount} block(s)`,
-            );
-          }
-        }
-        const totalWould = dryResults.reduce((n, r) => n + r.wouldRemove, 0);
-        humanLine(`\nDry run complete. Would remove ${totalWould} duplicate block(s).`);
-      }
+      cliOutput(
+        { dryRun: true, files: dryResults },
+        { command: 'caamp', operation: 'caamp.dedupe' },
+      );
       return;
     }
 
@@ -109,35 +93,16 @@ const dedupeCommand = defineCommand({
     const totalRemoved = results.reduce((n, r) => n + r.removed, 0);
     const filesModified = results.filter((r) => r.modified).length;
 
-    if (args.json) {
-      process.stdout.write(
-        JSON.stringify(
-          {
-            success: true,
-            data: {
-              dryRun: false,
-              filesProcessed: results.length,
-              filesModified,
-              totalRemoved,
-              files: results,
-            },
-          },
-          null,
-          2,
-        ) + '\n',
-      );
-    } else {
-      for (const r of results) {
-        if (r.removed === 0) {
-          humanLine(`  (clean) ${r.filePath} — ${r.kept} block(s), no duplicates`);
-        } else {
-          humanLine(
-            `  (fixed) ${r.filePath} — removed ${r.removed} duplicate(s), kept ${r.kept} block(s)`,
-          );
-        }
-      }
-      humanLine(`\nRemoved ${totalRemoved} duplicate block(s) from ${filesModified} file(s).`);
-    }
+    cliOutput(
+      {
+        dryRun: false,
+        filesProcessed: results.length,
+        filesModified,
+        totalRemoved,
+        files: results,
+      },
+      { command: 'caamp', operation: 'caamp.dedupe' },
+    );
   },
 });
 

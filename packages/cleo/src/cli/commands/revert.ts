@@ -59,6 +59,7 @@ import {
   readSentientState,
 } from '@cleocode/core/sentient/state.js';
 import { defineCommand } from 'citty';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -77,21 +78,13 @@ function resolveProjectRoot(arg: string | undefined): string {
 }
 
 /** Emit a LAFS-shaped success envelope as JSON or human text. */
-function emitSuccess(payload: unknown, jsonMode: boolean, humanLine: string): void {
-  if (jsonMode) {
-    process.stdout.write(`${JSON.stringify({ success: true, data: payload })}\n`);
-  } else {
-    process.stdout.write(`${humanLine}\n`);
-  }
+function emitSuccess(payload: unknown, _jsonMode: boolean, _humanLine: string): void {
+  cliOutput(payload, { command: 'revert', operation: 'revert.execute' });
 }
 
 /** Emit a LAFS-shaped failure envelope and exit 1. */
-function emitFailure(code: string, message: string, jsonMode: boolean): never {
-  if (jsonMode) {
-    process.stdout.write(`${JSON.stringify({ success: false, error: { code, message } })}\n`);
-  } else {
-    process.stderr.write(`Error [${code}]: ${message}\n`);
-  }
+function emitFailure(code: string, message: string, _jsonMode: boolean): never {
+  cliError(message, 1, { name: code });
   process.exit(1);
 }
 

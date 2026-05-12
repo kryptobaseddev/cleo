@@ -27,6 +27,7 @@
 
 import { release } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * cleo reconcile release — run the registered invariants for a tag.
@@ -60,19 +61,7 @@ const releaseSubcommand = defineCommand({
       cwd: process.cwd(),
     });
 
-    if (args.json) {
-      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-    } else {
-      const lines: string[] = [];
-      lines.push(`reconcile release ${report.tag}${dryRun ? ' (dry-run)' : ''}`);
-      lines.push(
-        `  total: processed=${report.processed} reconciled=${report.reconciled} unreconciled=${report.unreconciled} errors=${report.errors}`,
-      );
-      for (const r of report.results) {
-        lines.push(`  [${r.severity}] ${r.id}: ${r.message}`);
-      }
-      process.stdout.write(`${lines.join('\n')}\n`);
-    }
+    cliOutput(report, { command: 'reconcile', operation: 'reconcile.release' });
 
     if (report.errors > 0) {
       process.exit(1);
