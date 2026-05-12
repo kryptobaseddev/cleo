@@ -197,6 +197,76 @@ describe('system/backup', () => {
   });
 });
 
+// T9194: createBackup rotation — old snapshots are pruned when cap is exceeded.
+describe('system/backup — rotation (T9194)', () => {
+  let testDir: string;
+  beforeEach(async () => {
+    vi.resetModules();
+    testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-rotation-'));
+    mkdirSync(join(testDir, '.cleo'), { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(testDir, { recursive: true, force: true });
+  });
+
+  it('createBackup rotates oldest files when maxSnapshots is exceeded', async () => {
+    vi.doMock('../../store/sqlite.js', () => ({
+      getDb: vi.fn().mockResolvedValue({}),
+      getNativeDb: () => null, // no-op snapshot — only JSON files get written
+    }));
+    vi.doMock('../../store/memory-sqlite.js', () => ({
+      getBrainDb: vi.fn().mockResolvedValue({}),
+      getBrainNativeDb: () => null,
+    }));
+
+    const { createBackup } = await import('../backup.js');
+    const cleoDir = join(testDir, '.cleo');
+    const configPath = join(cleoDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({ test: true }));
+
+    // Pre-populate 3 old backup files (simulating existing backups)
+    const snapshotDir = join(cleoDir, 'backups', 'snapshot');
+    mkdirSync(snapshotDir, { recursive: true });
+    for (let i = 1; i <= 3; i++) {
+      writeFileSync(join(snapshotDir, `config.json.old-backup-${i}`), `old-${i}`);
+    }
+
+    // Create a new backup with maxSnapshots=3 — should rotate 1 old file out
+    await createBackup(testDir, { maxSnapshots: 3 });
+
+    // The directory should have at most 3 non-meta files
+    const nonMetaFiles = readdirSync(snapshotDir).filter(
+      (f) => !f.endsWith('.meta.json') && !f.endsWith('.tmp'),
+    );
+    expect(nonMetaFiles.length).toBeLessThanOrEqual(3);
+  });
+
+  it('createBackup does NOT rotate when count is within cap', async () => {
+    vi.doMock('../../store/sqlite.js', () => ({
+      getDb: vi.fn().mockResolvedValue({}),
+      getNativeDb: () => null,
+    }));
+    vi.doMock('../../store/memory-sqlite.js', () => ({
+      getBrainDb: vi.fn().mockResolvedValue({}),
+      getBrainNativeDb: () => null,
+    }));
+
+    const { createBackup } = await import('../backup.js');
+    const cleoDir = join(testDir, '.cleo');
+    writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ test: true }));
+
+    // Create backup with generous cap — no rotation should occur
+    const snapshotDir = join(cleoDir, 'backups', 'snapshot');
+    await createBackup(testDir, { maxSnapshots: 50 });
+
+    const nonMetaFiles = readdirSync(snapshotDir).filter(
+      (f) => !f.endsWith('.meta.json') && !f.endsWith('.tmp'),
+    );
+    expect(nonMetaFiles.length).toBeGreaterThan(0);
+    expect(nonMetaFiles.length).toBeLessThanOrEqual(50);
+  });
+});
+
 // Sanity: ensure the safety snapshot produced by the vacuumed blob is readable
 // as a normal file (we treat .db files as opaque blobs during restore).
 describe('system/backup — restored .db files are byte-identical', () => {

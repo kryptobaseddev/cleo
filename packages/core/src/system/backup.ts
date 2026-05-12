@@ -31,6 +31,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -39,6 +40,44 @@ import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNativeDb } from '../store/sqlite.js';
+
+/** Default max backup snapshots per backup type directory. */
+const DEFAULT_MAX_SNAPSHOTS = 10;
+
+/**
+ * Rotate backups in a directory: delete the oldest files until
+ * fewer than `maxSnapshots` non-meta files remain.
+ * Non-fatal — filesystem errors are silently swallowed.
+ *
+ * @task T9194
+ */
+function rotateBackupDir(backupDir: string, maxSnapshots: number): void {
+  try {
+    const files = readdirSync(backupDir)
+      .filter((f) => !f.endsWith('.meta.json') && !f.endsWith('.tmp'))
+      .map((f) => ({
+        name: f,
+        path: join(backupDir, f),
+        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
+      }))
+      .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
+
+    while (files.length > maxSnapshots) {
+      const oldest = files.shift();
+      if (!oldest) break;
+      try {
+        unlinkSync(oldest.path);
+        // Also delete the corresponding .meta.json sidecar if it exists
+        const metaPath = `${oldest.path}.meta.json`;
+        if (existsSync(metaPath)) unlinkSync(metaPath);
+      } catch {
+        /* non-fatal */
+      }
+    }
+  } catch {
+    // non-fatal — rotation failures must never block the backup operation
+  }
+}
 
 /** Safe wrapper around VACUUM INTO: flushes WAL then clones the DB. */
 function safeSqliteSnapshot(db: { exec: (sql: string) => void } | null, destPath: string): boolean {
@@ -117,7 +156,18 @@ export interface RestoreResult {
  */
 export async function createBackup(
   projectRoot: string,
-  opts?: { type?: string; note?: string },
+  opts?: {
+    type?: string;
+    note?: string;
+    /**
+     * Maximum number of backup files to keep per type directory.
+     * Oldest files are rotated out when this cap is exceeded.
+     * Defaults to {@link DEFAULT_MAX_SNAPSHOTS} (10).
+     *
+     * @task T9194
+     */
+    maxSnapshots?: number;
+  },
 ): Promise<BackupResult> {
   const cleoDir = join(projectRoot, '.cleo');
   const btype = opts?.type || 'snapshot';
@@ -211,6 +261,10 @@ export async function createBackup(
   } catch {
     // non-fatal
   }
+
+  // T9194: Rotate oldest backups when the cap is exceeded.
+  const maxSnapshots = opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS;
+  rotateBackupDir(backupDir, maxSnapshots);
 
   return { backupId, path: backupDir, timestamp, type: btype, files: backedUp };
 }
