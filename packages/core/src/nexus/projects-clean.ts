@@ -53,10 +53,21 @@ export interface CleanProjectsOptions {
   matchNeverIndexed?: boolean;
   /** Match rows whose project_path no longer exists on disk (T9117). */
   matchOrphaned?: boolean;
+  /**
+   * Match rows that are path-divergent duplicates of the same canonical
+   * project (T9149 W5 pollution cleanup). Groups rows by canonicalProjectId
+   * and flags all but the most-recently-indexed one as polluted.
+   */
+  matchPolluted?: boolean;
   /** After DB delete, `rm -rf` each matched path that still exists on disk (T9117). */
   removeFs?: boolean;
   /** After DB delete, run sqlite VACUUM on nexus.db to reclaim space (T9117). */
   vacuum?: boolean;
+  /**
+   * When matchPolluted is set and dryRun is false, write an audit JSONL to
+   * ~/.local/state/cleo/nexus-cleanup-<ts>.jsonl before deletion (T9149).
+   */
+  auditLog?: boolean;
 }
 
 /** Result envelope for {@link cleanProjects}. */
@@ -116,7 +127,8 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     opts.includeTests ||
     opts.matchUnhealthy ||
     opts.matchNeverIndexed ||
-    opts.matchOrphaned;
+    opts.matchOrphaned ||
+    opts.matchPolluted;
 
   if (!hasCriteria) {
     throw new NoCriteriaError();
@@ -173,8 +185,46 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     })
     .from(regTable)) as RegistryRow[];
 
-  const matches = allRows.filter((row) =>
-    matchesCriteria(row.projectPath, row.healthStatus, row.lastIndexed),
+  const pollutedIds: Set<string> = new Set();
+  if (opts.matchPolluted) {
+    // Group rows by canonicalProjectId. The canonical ID uses git-root+realpath
+    // so bind-mount variants of the same repo collapse to the same key.
+    const { canonicalProjectId: computeId } = await import('./identity.js');
+    const canonicalGroups = new Map<string, RegistryRow[]>();
+    await Promise.all(
+      allRows.map(async (row) => {
+        try {
+          const { id } = await computeId(row.projectPath);
+          const existing = canonicalGroups.get(id) ?? [];
+          existing.push(row);
+          canonicalGroups.set(id, existing);
+        } catch {
+          // path doesn't exist — will be caught by matchOrphaned
+        }
+      }),
+    );
+    // For each group with >1 member, keep the most-recently-indexed; flag the rest
+    for (const group of canonicalGroups.values()) {
+      if (group.length > 1) {
+        // Sort descending by lastIndexed (nulls last)
+        group.sort((a, b) => {
+          if (a.lastIndexed === b.lastIndexed) return 0;
+          if (a.lastIndexed === null) return 1;
+          if (b.lastIndexed === null) return -1;
+          return b.lastIndexed.localeCompare(a.lastIndexed);
+        });
+        // Keep index 0 (most recent), flag the rest as polluted
+        for (const row of group.slice(1)) {
+          pollutedIds.add(row.projectId);
+        }
+      }
+    }
+  }
+
+  const matches = allRows.filter(
+    (row) =>
+      matchesCriteria(row.projectPath, row.healthStatus, row.lastIndexed) ||
+      pollutedIds.has(row.projectId),
   );
 
   const totalCount = allRows.length;
@@ -190,6 +240,31 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
       sample,
       totalCount,
     };
+  }
+
+  // Write audit JSONL before deletion (T9149 matchPolluted mode)
+  if (opts.matchPolluted && opts.auditLog && matches.length > 0) {
+    try {
+      const { appendFile: appendFn, mkdir: mkdirFn } = await import('node:fs/promises');
+      const { homedir } = await import('node:os');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const auditDir = path.join(homedir(), '.local', 'state', 'cleo');
+      await mkdirFn(auditDir, { recursive: true });
+      const auditPath = path.join(auditDir, `nexus-cleanup-${ts}.jsonl`);
+      const records = matches
+        .map((r) =>
+          JSON.stringify({
+            ts: new Date().toISOString(),
+            projectId: r.projectId,
+            projectPath: r.projectPath,
+            reason: pollutedIds.has(r.projectId) ? 'path-divergent-duplicate' : 'criteria-match',
+          }),
+        )
+        .join('\n');
+      await appendFn(auditPath, records + '\n', 'utf8');
+    } catch {
+      // audit is best-effort
+    }
   }
 
   // Delete matched rows in chunks to keep SQL parameter counts safe (default
