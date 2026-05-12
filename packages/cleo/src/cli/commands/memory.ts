@@ -47,6 +47,7 @@ import { join } from 'node:path';
 import {
   getBrainDb,
   getBrainNativeDb,
+  getDreamStatus,
   getProjectRoot,
   runConsolidation,
   triggerManualDream,
@@ -1117,11 +1118,37 @@ const dreamCommand = defineCommand({
       'Manually trigger the full auto-dream cycle: consolidation pipeline including ' +
       'R-STDP reward backfill (Step 9a), STDP plasticity (Step 9b), and homeostatic ' +
       'decay (Step 9c). Equivalent to autonomous nightly consolidation but ' +
-      'triggered on demand. Idempotent — safe to run multiple times.',
+      'triggered on demand. Idempotent — safe to run multiple times. ' +
+      'Use --status to check engine liveness without triggering consolidation.',
   },
-  args: {},
-  async run() {
+  args: {
+    status: {
+      type: 'boolean',
+      description:
+        'Return engine liveness status as JSON instead of triggering a dream cycle. ' +
+        'Fields: lastConsolidatedAt, observationsSinceLastConsolidation, ' +
+        'idleMinutesSinceLastRetrieval, tickLoopAlive, lastTickAt, dreamInFlight, ' +
+        'lastError, isOverdue. Exits with code 1 when isOverdue=true.',
+      default: false,
+    },
+  },
+  async run({ args }) {
     const root = getProjectRoot();
+
+    if (args.status) {
+      try {
+        const status = await getDreamStatus(root);
+        cliOutput(status, { command: 'memory-dream-status', operation: 'memory.dream.status' });
+        if (status.isOverdue) {
+          process.exit(1);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        cliError(`Dream status check failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
+        process.exit(1);
+      }
+      return;
+    }
 
     try {
       const result = await triggerManualDream(root);
