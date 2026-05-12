@@ -240,6 +240,65 @@ describe('Brain Retrieval', () => {
       expect(result.results[0].title.length).toBeLessThanOrEqual(80);
       expect(longDecision.length).toBeGreaterThan(80);
     });
+
+    it('T1900: mode=recency returns observations newest-first regardless of BM25 rank', async () => {
+      const { searchBrainCompact } = await import('../brain-retrieval.js');
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      const { getBrainNativeDb, getBrainDb } = await import('../../store/memory-sqlite.js');
+      closeBrainDb();
+      resetFts5Cache();
+
+      // Initialize the brain DB first via accessor
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      const accessor = await getBrainAccessor(tempDir);
+
+      // Insert two observations with explicit created_at timestamps:
+      // stale row: 2026-04-24 — matches 'session' keyword
+      // fresh row: 2026-05-05 — also matches 'session' keyword
+      // BM25 may rank the stale row first (it was observed in T1900 with the old code).
+      await accessor.addObservation({
+        id: 'O-stale-session',
+        type: 'discovery',
+        title: 'session notes from April',
+        narrative: 'session debrief from April 24',
+        sourceType: 'session-debrief',
+      });
+      await accessor.addObservation({
+        id: 'O-fresh-session',
+        type: 'discovery',
+        title: 'session notes from May',
+        narrative: 'session debrief from May 05',
+        sourceType: 'session-debrief',
+      });
+
+      // Backdate the stale row directly so we control the timestamp
+      await getBrainDb(tempDir);
+      const nativeDb = getBrainNativeDb();
+      if (nativeDb) {
+        nativeDb
+          .prepare("UPDATE brain_observations SET created_at = '2026-04-24T10:00:00.000Z' WHERE id = 'O-stale-session'")
+          .run();
+        nativeDb
+          .prepare("UPDATE brain_observations SET created_at = '2026-05-05T10:00:00.000Z' WHERE id = 'O-fresh-session'")
+          .run();
+      }
+
+      const result = await searchBrainCompact(tempDir, {
+        query: 'session',
+        tables: ['observations'],
+        mode: 'recency',
+      });
+
+      expect(result.results.length).toBeGreaterThanOrEqual(2);
+      // May row must rank BEFORE April row (descending date order)
+      const ids = result.results.map((r) => r.id);
+      const freshIdx = ids.indexOf('O-fresh-session');
+      const staleIdx = ids.indexOf('O-stale-session');
+      expect(freshIdx).toBeGreaterThanOrEqual(0);
+      expect(staleIdx).toBeGreaterThanOrEqual(0);
+      expect(freshIdx).toBeLessThan(staleIdx);
+    });
   });
 
   // ==========================================================================
