@@ -1,0 +1,103 @@
+(node:2698559) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[
+  {
+    "scenario": "existing",
+    "result": {
+      "action": "exists",
+      "path": "/tmp/conduit-vfy-existing-1777098695761/.cleo/conduit.db"
+    },
+    "pre": [
+      "_conduit_meta",
+      "_conduit_migrations",
+      "attachment_approvals",
+      "attachment_contributors",
+      "attachment_versions",
+      "attachments",
+      "conversations",
+      "dead_letters",
+      "delivery_jobs",
+      "message_pins",
+      "messages",
+      "messages_fts",
+      "messages_fts_config",
+      "messages_fts_data",
+      "messages_fts_docsize",
+      "messages_fts_idx",
+      "project_agent_refs",
+      "topic_message_acks",
+      "topic_messages",
+      "topic_subscriptions",
+      "topics"
+    ],
+    "post": [
+      "__drizzle_migrations",
+      "_conduit_meta",
+      "_conduit_migrations",
+      "attachment_approvals",
+      "attachment_contributors",
+      "attachment_versions",
+      "attachments",
+      "conversations",
+      "dead_letters",
+      "delivery_jobs",
+      "message_pins",
+      "messages",
+      "messages_fts",
+      "messages_fts_config",
+      "messages_fts_data",
+      "messages_fts_docsize",
+      "messages_fts_idx",
+      "project_agent_refs",
+      "topic_message_acks",
+      "topic_messages",
+      "topic_subscriptions",
+      "topics"
+    ],
+    "journal": [
+      {
+        "id": 1,
+        "hash": "a806f4c7544ded7396a1a0853e5064ef1fe4e5be927792480919300f32c712b8",
+        "name": "20260425000000_initial-conduit"
+      }
+    ]
+  },
+  {
+    "scenario": "fresh",
+    "result": {
+      "action": "created",
+      "path": "/tmp/conduit-vfy-fresh-1777098695769/.cleo/conduit.db"
+    },
+    "post": [
+      "__drizzle_migrations",
+      "_conduit_meta",
+      "_conduit_migrations",
+      "attachment_approvals",
+      "attachment_contributors",
+      "attachment_versions",
+      "attachments",
+      "conversations",
+      "dead_letters",
+      "delivery_jobs",
+      "message_pins",
+      "messages",
+      "messages_fts",
+      "messages_fts_config",
+      "messages_fts_data",
+      "messages_fts_docsize",
+      "messages_fts_idx",
+      "project_agent_refs",
+      "topic_message_acks",
+      "topic_messages",
+      "topic_subscriptions",
+      "topics"
+    ],
+    "journal": [
+      {
+        "id": 1,
+        "hash": "a806f4c7544ded7396a1a0853e5064ef1fe4e5be927792480919300f32c712b8",
+        "name": "20260425000000_initial-conduit"
+      }
+    ]
+  }
+]

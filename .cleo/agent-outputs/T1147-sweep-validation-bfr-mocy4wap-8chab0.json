@@ -1,0 +1,16 @@
+{
+  "runId": "bfr-mocy4wap-8chab0",
+  "generatedAt": "2026-04-24T13:28:35.713Z",
+  "dryRun": true,
+  "counts": {
+    "observations": 0,
+    "learnings": 0,
+    "decisions": 0,
+    "patterns": 0,
+    "total": 0
+  },
+  "autoValidationPassed": true,
+  "autoValidationNote": "All 0 sampled entries have quality_score < 0.3 — auto-approved",
+  "sampleSize": 0,
+  "sample": []
+}

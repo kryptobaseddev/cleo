@@ -1,0 +1,19 @@
+{
+  "target": {
+    "id": "Function:src/config/io.ts:loadConfig",
+    "name": "loadConfig",
+    "type": "Function",
+    "filePath": "src/config/io.ts"
+  },
+  "direction": "upstream",
+  "impactedCount": 0,
+  "risk": "LOW",
+  "summary": {
+    "direct": 0,
+    "processes_affected": 0,
+    "modules_affected": 0
+  },
+  "affected_processes": [],
+  "affected_modules": [],
+  "byDepth": {}
+}

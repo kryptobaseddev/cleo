@@ -1,0 +1,62 @@
+(node:195098) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[nexus] Impact analysis for 'loadConfig'
+  Target:  loadConfig  (function)
+  File:    ui/src/ui/controllers/config.ts
+  Risk:    CRITICAL  (1108 impacted nodes)
+
+  d=1 WILL BREAK (285):
+    handleChannelConfigSave               function      ui/src/ui/app-channels.ts
+    handleChannelConfigReload             function      ui/src/ui/app-channels.ts
+    app-render.ts                         file          ui/src/ui/app-render.ts
+    refreshAgentsTab                      function      ui/src/ui/app-settings.ts
+    refreshActiveTab                      function      ui/src/ui/app-settings.ts
+    loadChannelsTab                       function      ui/src/ui/app-settings.ts
+    submitConfigChange                    function      ui/src/ui/controllers/config.ts
+    test/image-generation.runtime.live.test.ts::__file__  unknown       
+    resolveGatewayConnection              function      src/tui/gateway-chat.ts
+    runTui                                function      src/tui/tui.ts
+    expectResolvedOpenAIRuntime           function      src/secrets/runtime-auth.integration.test-helpers.ts
+    src/secrets/runtime-core-snapshots.test.ts::__file__  unknown       
+    src/secrets/runtime.gateway-auth.integration.test.ts::__file__  unknown       
+    expectResolvedOpenAIRuntime           function      src/secrets/runtime.integration.test-helpers.ts
+    src/plugins/cli.test.ts::__file__     unknown       
+    ... and 270 more
+
+  d=2 LIKELY AFFECTED (418):
+    handleChannelConfigSave               method        ui/src/ui/app.ts
+    handleChannelConfigReload             method        ui/src/ui/app.ts
+    connectGateway                        function      ui/src/ui/app-gateway.ts
+    ui/src/ui/app-settings.refresh-active-tab.node.test.ts::__file__  unknown       
+    applyTabSelection                     function      ui/src/ui/app-settings.ts
+    src/ui-app-settings.agents-files-refresh.test.ts::__file__  unknown       
+    saveConfig                            function      ui/src/ui/controllers/config.ts
+    applyConfig                           function      ui/src/ui/controllers/config.ts
+    connect                               method        src/tui/gateway-chat.ts
+    finalizeSetupWizard                   function      src/wizard/setup.finalize.ts
+    src/wizard/setup.test.ts::__file__    unknown       
+    registerTuiCli                        function      src/cli/tui-cli.ts
+    src/secrets/runtime-auth-refresh-failure.test.ts::__file__  unknown       
+    registerPluginCliCommandsFromValidatedConfig  function      src/plugins/cli.ts
+    buildPluginSnapshotReport             function      src/plugins/status.ts
+    ... and 403 more
+
+  d=3 MAY NEED TESTING (405):
+    connectHostGateway                    function      ui/src/ui/app-gateway.node.test.ts
+    ui/src/ui/app-gateway.node.test.ts::__file__  unknown       
+    handleConnected                       function      ui/src/ui/app-lifecycle.ts
+    connect                               method        ui/src/ui/app.ts
+    setTab                                function      ui/src/ui/app-settings.ts
+    setTabFromRoute                       function      ui/src/ui/app-settings.ts
+    saveAgentsConfig                      function      ui/src/ui/controllers/agents.ts
+    ui/src/ui/controllers/config.test.ts::__file__  unknown       
+    src/wizard/setup.finalize.test.ts::__file__  unknown       
+    runSetupWizard                        function      src/wizard/setup.ts
+    registerCompletionCli                 function      src/cli/completion-cli.ts
+    runCli                                function      src/cli/run-main.ts
+    registerSubCliWithPluginCommands      function      src/cli/program/register.subclis-core.ts
+    loadPluginCommandState                function      src/auto-reply/reply/commands-plugins.ts
+    src/commands/doctor-workspace-status.test.ts::__file__  unknown       
+    ... and 390 more
+
+  (Showing analysis for first match — 32 total matches for 'loadConfig')

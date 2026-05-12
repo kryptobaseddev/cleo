@@ -1,0 +1,34 @@
+{
+  "status": "found",
+  "symbol": {
+    "uid": "Function:src/index.ts:runLegacyCliEntry",
+    "name": "runLegacyCliEntry",
+    "filePath": "src/index.ts",
+    "startLine": 46,
+    "endLine": 53
+  },
+  "incoming": {
+    "calls": [
+      {
+        "uid": "File:src/index.ts",
+        "name": "index.ts",
+        "filePath": "src/index.ts"
+      }
+    ]
+  },
+  "outgoing": {
+    "calls": [
+      {
+        "uid": "Function:src/index.ts:loadLegacyCliDeps",
+        "name": "loadLegacyCliDeps",
+        "filePath": "src/index.ts"
+      },
+      {
+        "uid": "Function:src/infra/gaxios-fetch-compat.ts:installGaxiosFetchCompat",
+        "name": "installGaxiosFetchCompat",
+        "filePath": "src/infra/gaxios-fetch-compat.ts"
+      }
+    ]
+  },
+  "processes": []
+}

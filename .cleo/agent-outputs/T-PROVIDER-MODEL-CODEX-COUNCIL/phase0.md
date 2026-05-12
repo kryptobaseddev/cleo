@@ -1,0 +1,11 @@
+# The Council — Should CLEO externalize CANT routing through a required RoutingConfig only, or first design a shared provider/model catalog architecture that reuses existing provider integrations and supports dynamic model catalogs without hardcoded model IDs?
+
+## Evidence pack
+
+1. `crates/cant-router/src/router.rs:L14-L98` — Rust routing currently maps tiers directly to hardcoded model IDs, fallback chains, cost caps, and latency budgets, and downgrade re-enters the same hardcoded route path.
+2. `packages/cant/src/composer.ts:L225-L364` — TypeScript spawn composition mirrors the same tier-to-model constants and returns `model`/`fallbackModels` as strings after escalation.
+3. `packages/contracts/src/operations/llm.ts:L12-L59` + `packages/core/src/llm/registry.ts:L29-L170` — CLEO already has a typed LLM invocation layer with `ModelConfig`, fallback config, base URL overrides, and backend factories, but the transport enum is limited to `anthropic | openai | gemini`.
+4. `packages/adapters/src/registry.ts:L49-L87` + `packages/adapters/src/index.ts:L33-L101` + `packages/caamp/providers/registry.json:L1-L523` — CLEO already has adapter/provider registries for agent harnesses, but bundled discovery only covers a subset while CAAMP knows many more providers and capabilities.
+5. `packages/adapters/src/providers/openai-sdk/spawn.ts:L97-L103,L245-L247,L375-L377` + `packages/adapters/src/providers/openai-sdk/handoff.ts:L80-L98` + `packages/adapters/src/providers/claude-sdk/spawn.ts:L89-L90,L193-L197` — SDK-backed adapters already use Vercel AI SDK invocation, but still contain model defaults and worker archetype model IDs in adapter-local constants.
+6. `packages/core/src/memory/llm-backend-resolver.ts:L58-L196` + `packages/core/src/metrics/model-provider-registry.ts:L1-L110` — The codebase already has dynamic catalog-adjacent logic: Ollama `/api/tags` discovery, OpenAI-compatible Ollama invocation, and `models.dev/api.json` provider/model lookup.
+7. `https://openrouter.ai/docs/guides/overview/models` + `https://vercel.com/docs/ai-gateway/models-and-providers` + `https://docs.ollama.com/api/tags` — Current external docs show OpenRouter model metadata with pricing/context/capability fields, Vercel AI Gateway dynamic model discovery via REST/SDK, and Ollama local model listing via `/api/tags`.

@@ -1,0 +1,69 @@
+{
+  "status": "found",
+  "symbol": {
+    "uid": "Function:src/gateway/assistant-identity.ts:resolveAssistantIdentity",
+    "name": "resolveAssistantIdentity",
+    "filePath": "src/gateway/assistant-identity.ts",
+    "startLine": 80,
+    "endLine": 117
+  },
+  "incoming": {
+    "calls": [
+      {
+        "uid": "File:src/gateway/assistant-identity.test.ts",
+        "name": "assistant-identity.test.ts",
+        "filePath": "src/gateway/assistant-identity.test.ts"
+      },
+      {
+        "uid": "File:src/gateway/server-methods/agent.ts",
+        "name": "agent.ts",
+        "filePath": "src/gateway/server-methods/agent.ts"
+      },
+      {
+        "uid": "Function:src/gateway/server-http.ts:handleRequest",
+        "name": "handleRequest",
+        "filePath": "src/gateway/server-http.ts"
+      },
+      {
+        "uid": "Function:src/gateway/control-ui.ts:handleControlUiHttpRequest",
+        "name": "handleControlUiHttpRequest",
+        "filePath": "src/gateway/control-ui.ts"
+      }
+    ]
+  },
+  "outgoing": {
+    "calls": [
+      {
+        "uid": "Function:src/shared/assistant-identity-values.ts:coerceIdentityValue",
+        "name": "coerceIdentityValue",
+        "filePath": "src/shared/assistant-identity-values.ts"
+      },
+      {
+        "uid": "Function:src/gateway/assistant-identity.ts:normalizeAvatarValue",
+        "name": "normalizeAvatarValue",
+        "filePath": "src/gateway/assistant-identity.ts"
+      },
+      {
+        "uid": "Function:src/gateway/assistant-identity.ts:normalizeEmojiValue",
+        "name": "normalizeEmojiValue",
+        "filePath": "src/gateway/assistant-identity.ts"
+      },
+      {
+        "uid": "Function:src/commands/agents.config.ts:loadAgentIdentity",
+        "name": "loadAgentIdentity",
+        "filePath": "src/commands/agents.config.ts"
+      },
+      {
+        "uid": "Function:src/agents/identity.ts:resolveAgentIdentity",
+        "name": "resolveAgentIdentity",
+        "filePath": "src/agents/identity.ts"
+      },
+      {
+        "uid": "Function:src/agents/agent-scope-config.ts:resolveAgentWorkspaceDir",
+        "name": "resolveAgentWorkspaceDir",
+        "filePath": "src/agents/agent-scope-config.ts"
+      }
+    ]
+  },
+  "processes": []
+}
