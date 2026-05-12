@@ -52,11 +52,12 @@ import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 /**
  * Resolve the verifier script path for a given task ID.
  *
- * Search order:
- *   1. scripts/verify-<taskId>-fu.mjs  (recovery follow-up convention)
- *   2. scripts/verify-<taskId>.mjs      (general convention)
- *   3. scripts/verify-<lowercase-id>-fu.mjs
- *   4. scripts/verify-<lowercase-id>.mjs
+ * Search order (T9222 / ADR-070):
+ *   1. .cleo/verifiers/<UPPER_TID>.mjs   (canonical managed location)
+ *   2. scripts/verify-<taskId>-fu.mjs    (recovery follow-up convention, migration fallback)
+ *   3. scripts/verify-<taskId>.mjs       (general convention, migration fallback)
+ *   4. scripts/verify-<lowercase-id>-fu.mjs
+ *   5. scripts/verify-<lowercase-id>.mjs
  *
  * @param taskId - Task ID (e.g. "T9188").
  * @param projectRoot - Project root to search from.
@@ -64,7 +65,11 @@ import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
  */
 function resolveVerifierScript(taskId: string, projectRoot: string): string | null {
   const id = taskId.toLowerCase();
+  const upper = taskId.toUpperCase();
   const candidates = [
+    // canonical managed location first (T9222 / ADR-070)
+    join(projectRoot, '.cleo', 'verifiers', `${upper}.mjs`),
+    // scripts/ fallback for migration period
     join(projectRoot, 'scripts', `verify-${taskId}-fu.mjs`),
     join(projectRoot, 'scripts', `verify-${taskId}.mjs`),
     join(projectRoot, 'scripts', `verify-${id}-fu.mjs`),
@@ -415,9 +420,13 @@ export const verifyCommand = defineCommand({
       }
 
       if (!verifierPath) {
+        const upper = String(args.taskId).toUpperCase();
+        const id = String(args.taskId).toLowerCase();
         process.stderr.write(
           `Error: --acceptance-check: no verifier script found for ${args.taskId}.\n` +
-            `  Looked for: scripts/verify-${args.taskId}-fu.mjs, scripts/verify-${args.taskId}.mjs\n` +
+            `  Looked for (in order):\n` +
+            `    .cleo/verifiers/${upper}.mjs  (canonical)\n` +
+            `    scripts/verify-${args.taskId}-fu.mjs, scripts/verify-${id}.mjs  (migration fallback)\n` +
             `  T9192 / ADR-070: create the verifier script before using --acceptance-check.\n`,
         );
         process.exitCode = 1;

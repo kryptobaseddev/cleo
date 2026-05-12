@@ -128,7 +128,9 @@ if (failures.length === 0) {
 }
 
 /**
- * Write a generated verifier stub to `scripts/verify-<lowercase-taskId>.mjs`.
+ * Write a generated verifier stub to `.cleo/verifiers/<UPPER_TID>.mjs` (canonical,
+ * T9222 / ADR-070). The `scripts/` directory is the migration-period fallback;
+ * new stubs always land in `.cleo/verifiers/`.
  *
  * Idempotent safety: if the file already exists and `force` is false, the
  * function throws rather than silently overwriting.
@@ -144,7 +146,7 @@ if (failures.length === 0) {
  * ```ts
  * const src = generateVerifierStub(task);
  * const path = writeVerifierStub('T9218', src, '/mnt/projects/cleocode');
- * // path === '/mnt/projects/cleocode/scripts/verify-t9218.mjs'
+ * // path === '/mnt/projects/cleocode/.cleo/verifiers/T9218.mjs'
  * ```
  */
 export function writeVerifierStub(
@@ -153,17 +155,18 @@ export function writeVerifierStub(
   projectRoot: string,
   force = false,
 ): string {
-  const filename = `verify-${taskId.toLowerCase()}.mjs`;
-  const scriptsDir = join(resolve(projectRoot), 'scripts');
-  const outPath = join(scriptsDir, filename);
+  // Canonical location: .cleo/verifiers/<UPPER_TID>.mjs (T9222 / ADR-070)
+  const filename = `${taskId.toUpperCase()}.mjs`;
+  const verifiersDir = join(resolve(projectRoot), '.cleo', 'verifiers');
+  const outPath = join(verifiersDir, filename);
 
   if (existsSync(outPath) && !force) {
     throw new Error(`verifier already exists: ${outPath}; use --force to overwrite`);
   }
 
-  // Ensure scripts/ directory exists (project may not have it yet)
-  if (!existsSync(scriptsDir)) {
-    mkdirSync(scriptsDir, { recursive: true });
+  // Ensure .cleo/verifiers/ directory exists
+  if (!existsSync(verifiersDir)) {
+    mkdirSync(verifiersDir, { recursive: true });
   }
 
   writeFileSync(outPath, source, 'utf8');
