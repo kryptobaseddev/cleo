@@ -766,3 +766,100 @@ describe('buildSpawnPrompt — task documents section (T1614)', () => {
     expect(result.unresolvedTokens).toHaveLength(0);
   });
 });
+
+describe('buildSpawnPrompt — worker budget constraints (ORC-006 · T1656 · T1657)', () => {
+  it('emits Worker Budget Constraints section when max_tool_calls is set', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      workerConstraints: { max_tool_calls: 200 },
+    });
+    expect(result.prompt).toContain('## Worker Budget Constraints');
+    expect(result.prompt).toContain('200');
+    expect(result.prompt).toContain('E_TOOL_BUDGET_EXCEEDED');
+  });
+
+  it('calculates 90% warning threshold correctly', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      workerConstraints: { max_tool_calls: 100 },
+    });
+    expect(result.prompt).toContain('90');
+    expect(result.prompt).toContain('100');
+  });
+
+  it('emits allowed-files ACL section when allowedFiles is set', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      workerConstraints: {
+        allowedFiles: ['packages/core/src/foo.ts', 'packages/core/src/bar.ts'],
+      },
+    });
+    expect(result.prompt).toContain('## Worker Budget Constraints');
+    expect(result.prompt).toContain('Allowed-Files ACL');
+    expect(result.prompt).toContain('packages/core/src/foo.ts');
+    expect(result.prompt).toContain('packages/core/src/bar.ts');
+    expect(result.prompt).toContain('CLEO_ACL_STRICT=1');
+  });
+
+  it('emits both budget and ACL when both are set', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      workerConstraints: {
+        max_tool_calls: 150,
+        allowedFiles: ['packages/core/src/mod.ts'],
+      },
+    });
+    expect(result.prompt).toContain('150');
+    expect(result.prompt).toContain('Allowed-Files ACL');
+  });
+
+  it('omits Worker Budget Constraints section when workerConstraints is absent', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).not.toContain('## Worker Budget Constraints');
+  });
+
+  it('omits Worker Budget Constraints section when workerConstraints is empty', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      workerConstraints: {},
+    });
+    expect(result.prompt).not.toContain('## Worker Budget Constraints');
+  });
+
+  it('produces zero unresolved tokens when workerConstraints provided', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      workerConstraints: {
+        max_tool_calls: 200,
+        allowedFiles: ['packages/core/src/foo.ts'],
+      },
+    });
+    expect(result.unresolvedTokens).toHaveLength(0);
+  });
+
+  it('worker constraints section references task ID', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      workerConstraints: { max_tool_calls: 50 },
+    });
+    expect(result.prompt).toContain(BASE_TASK.id);
+  });
+});

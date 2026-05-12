@@ -109,6 +109,16 @@ export interface CantAgentV3 {
   tools?: Record<string, string[]>;
   deprecated?: boolean;
   supersededBy?: string;
+  /**
+   * Maximum number of tool calls a worker spawned from this agent persona may
+   * make before the harness emits `E_TOOL_BUDGET_EXCEEDED` and halts.
+   *
+   * Maps to the ORC-006 worker constraints field injected into spawn prompts.
+   * When absent the harness applies no tool-call budget.
+   *
+   * @task T1656
+   */
+  max_tool_calls?: number;
 }
 
 /**
