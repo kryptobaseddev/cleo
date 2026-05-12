@@ -319,6 +319,18 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/dynamic.js')).dynamicCommand as CommandDef,
   },
   {
+    exportName: 'orchestratorCommand',
+    name: 'orchestrator',
+    description: 'Orchestration observability: stream worker event logs',
+    load: async () => (await import('../commands/event.js')).orchestratorCommand as CommandDef,
+  },
+  {
+    exportName: 'eventCommand',
+    name: 'event',
+    description: 'CLEO Observability event bus: append lifecycle events and tail agent logs',
+    load: async () => (await import('../commands/event.js')).eventCommand as CommandDef,
+  },
+  {
     exportName: 'existsCommand',
     name: 'exists',
     description: 'Check if a task ID exists (exit 0=exists, 4=not found)',

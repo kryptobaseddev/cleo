@@ -81,6 +81,16 @@
       "import": "./dist/nexus/api-extractors/index.js",
       "require": "./dist/nexus/api-extractors/index.js"
     },
+    "./events/*": {
+      "types": "./dist/events/*.d.ts",
+      "import": "./dist/events/*.js",
+      "require": "./dist/events/*.js"
+    },
+    "./events/*.js": {
+      "types": "./dist/events/*.d.ts",
+      "import": "./dist/events/*.js",
+      "require": "./dist/events/*.js"
+    },
     "./store/*": {
       "types": "./dist/store/*.d.ts",
       "import": "./dist/store/*.js",
