@@ -72,7 +72,7 @@ export class NexusHandlePool {
       this.evictLru();
     }
 
-    const db = new DatabaseSync(dbPath, { open: true });
+    const db = new DatabaseSync(dbPath, { open: true }); // db-open-allowed: nexus graph files are per-project read/write stores, not CLEO metadata DBs
     const node: LruNode = { key: dbPath, db, prev: null, next: null };
     this.insertHead(node);
     this.map.set(dbPath, node);
