@@ -25,11 +25,11 @@
  * @epic T627
  */
 
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -100,7 +100,10 @@ function parseFrontmatter(raw: string): {
   }
 
   const fmLines = lines.slice(1, endIdx + 1);
-  const body = lines.slice(endIdx + 2).join('\n').trim();
+  const body = lines
+    .slice(endIdx + 2)
+    .join('\n')
+    .trim();
 
   const frontmatter: Record<string, string> = {};
   for (const line of fmLines) {
