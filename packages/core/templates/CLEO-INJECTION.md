@@ -2,6 +2,7 @@
 
 Version: 2.6.0 | CLI-only dispatch | `cleo <command> [args]`
 
+<!-- CLEO-INJECTION:section=session-start -->
 ## MANDATORY: Run `cleo briefing` BEFORE Any Other Tool
 
 **HARD PROHIBITION**: BEFORE any tool use other than `cleo briefing`, the orchestrator
@@ -29,7 +30,9 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 4. `cleo next` — what to work on (~300 tokens)
 5. `cleo show {id}` — full details for chosen task (~400 tokens)
 6. `cleo orchestrate start --epic TXXX` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
+<!-- /CLEO-INJECTION:section=session-start -->
 
+<!-- CLEO-INJECTION:section=work-loop -->
 ## Work Loop
 
 1. `cleo current` or `cleo next` → pick task
@@ -37,7 +40,9 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 3. Do the work (code, test, document)
 4. `cleo complete {id}` → mark done
 5. `cleo next` → continue or end session
+<!-- /CLEO-INJECTION:section=work-loop -->
 
+<!-- CLEO-INJECTION:section=triggers -->
 ## Triggers (when to call what)
 
 | Signal | Action |
@@ -48,11 +53,15 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Session token budget ≈ 80% consumed | Run `cleo session end --note "..."` and hand off |
 | Multiple related tasks ready in parallel | Run `cleo orchestrate ready --epic <id>` for the wave set |
 | About to call `cleo complete` | First: check gates via `cleo show <id>` → run tests → then complete |
+<!-- /CLEO-INJECTION:section=triggers -->
 
+<!-- CLEO-INJECTION:section=task-creation -->
 ## Task Creation (ADR-066)
 
 `--acceptance` required for ALL tasks. `cleo bug`/`--role` removed — use `cleo add --kind bug --severity Px --acceptance "..."`. Axes: `--type {epic|task|subtask}`, `--kind {work|research|experiment|bug|spike|release}`, `--severity {P0-P3}` (orthogonal to `--priority`; triggers Ed25519 attestation).
+<!-- /CLEO-INJECTION:section=task-creation -->
 
+<!-- CLEO-INJECTION:section=task-discovery -->
 ## Task Discovery
 
 **Use `cleo find` for discovery. NEVER `cleo list` for browsing.**
@@ -62,7 +71,9 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | `cleo find "query"` | 200-400 | Search tasks (default) |
 | `cleo show <id>` | 300-600 | Full details for one task |
 | `cleo list --parent <id>` | 1000-5000 | Direct children only |
+<!-- /CLEO-INJECTION:section=task-discovery -->
 
+<!-- CLEO-INJECTION:section=session-commands -->
 ## Session Commands
 
 | Goal | Command |
@@ -71,7 +82,9 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Resume context | `cleo briefing` |
 | Start session | `cleo session start --scope global` |
 | End session | `cleo session end --note "..."` |
+<!-- /CLEO-INJECTION:section=session-commands -->
 
+<!-- CLEO-INJECTION:section=memory -->
 ## Memory (BRAIN)
 
 3-layer retrieval — search first, then fetch:
@@ -86,7 +99,37 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 | Ground-truth promote | `cleo memory verify <id>` (owner only) | 50 |
 
 Memory context: `cleo memory digest --brief` gives a live project memory summary (default mode). Legacy file mode: set `brain.memoryBridge.mode = "file"` in config to restore `@.cleo/memory-bridge.md` injection.
+<!-- /CLEO-INJECTION:section=memory -->
 
+<!-- CLEO-INJECTION:section=nexus -->
+## Nexus — when to use which scope
+
+`cleo nexus` is the code-intelligence surface. It has **5 scopes**. Pick by intent, not name.
+
+| Intent                                      | Scope          | First-reach command                     |
+|---------------------------------------------|----------------|-----------------------------------------|
+| Edit/refactor *this* repo safely            | `project`      | `cleo nexus impact <symbol>`            |
+| Explore *this* repo by concept or symbol    | `project`      | `cleo nexus query` / `context`          |
+| One-shot machine-readable repo snapshot     | `project`      | `cleo nexus report` (LAFS JSON)         |
+| Recall what the agent knows across sessions | `living-brain` | `cleo nexus brain find "<q>"`           |
+| Compare or share patterns across repos      | `cross-project`| `cleo nexus compare` / `shared`         |
+| Blend code + memory + cross-repo            | `hybrid`       | `cleo nexus synthesize <topic>`         |
+| Index health / reindex / purge              | `global-infra` | `cleo nexus admin <status|analyze|clean>` |
+
+**Project resolution** (project + hybrid scopes only):
+`--project-id` > `--path` > `cwd`. Default ID = `base64url(path).slice(0,32)`.
+
+**Every nexus envelope returns**:
+- `meta.scope` — confirms which scope answered
+- `meta.projectId` — confirms which project (if applicable)
+- `meta.suggestedNext: string[]` — chained-reasoning hints (use these before re-discovering)
+
+**Rule**: BEFORE editing any symbol, run `cleo nexus impact <symbol>`. HIGH/CRITICAL = stop and warn.
+
+**Skip the help dump**: `cleo nexus report` answers most agent project-questions in one call.
+<!-- /CLEO-INJECTION:section=nexus -->
+
+<!-- CLEO-INJECTION:section=orchestration -->
 ## Orchestration (for epics ≥ 5 tasks)
 
 | Goal | Command |
@@ -100,7 +143,9 @@ Memory context: `cleo memory digest --brief` gives a live project memory summary
 | Grant HITL approval (paused playbook) | `cleo orchestrate approve <resumeToken>` |
 | Deny HITL approval with reason | `cleo orchestrate reject <resumeToken> --reason "<r>"` |
 | List awaiting HITL approvals | `cleo orchestrate pending` |
+<!-- /CLEO-INJECTION:section=orchestration -->
 
+<!-- CLEO-INJECTION:section=playbooks -->
 ## Worktree-by-Default (T1140 · ADR-055)
 
 Every `cleo orchestrate spawn` automatically provisions a git worktree for the agent under `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/` (D029 canonical layout via env-paths). The spawn prompt contains a `## Worktree Setup (REQUIRED)` section that:
@@ -124,7 +169,9 @@ The orchestrator integrates the worktree branch back to the project's target bra
 | Resume after HITL approval | `cleo playbook resume <runId>` |
 
 Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantbook`, `release.cantbook`.
+<!-- /CLEO-INJECTION:section=playbooks -->
 
+<!-- CLEO-INJECTION:section=documents -->
 ## Documents & Attachments
 
 | Goal | Command |
@@ -132,7 +179,9 @@ Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantb
 | Attach file/url to task | `cleo docs add <taskId> <file>` or `--url <url>` |
 | List task attachments | `cleo docs list --task <id>` |
 | Generate llms.txt summary | `cleo docs generate --for <taskId>` |
+<!-- /CLEO-INJECTION:section=documents -->
 
+<!-- CLEO-INJECTION:section=error-handling -->
 ## Error Handling
 
 Check exit code (`0` = success) and `"success"` in JSON output after every command.
@@ -151,7 +200,9 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
 | — | `E_EVIDENCE_INVALID_DECISION` | `decision:<id>` atom — decision ID not found or not accepted/proposed in BRAIN |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` or `CLEO_OWNER_OVERRIDE=1` |
+<!-- /CLEO-INJECTION:section=error-handling -->
 
+<!-- CLEO-INJECTION:section=pre-complete-gate -->
 ## Pre-Complete Gate Ritual (ADR-051 — evidence required)
 
 MANDATORY before every `cleo complete <id>`. Every gate write MUST be backed by programmatic evidence that CLEO validates against git, the filesystem, or the toolchain. `cleo verify --all` alone is REJECTED with `E_EVIDENCE_MISSING`.
@@ -233,7 +284,9 @@ Results are cached under `.cleo/cache/evidence/<key>.json`, keyed on `(canonical
 - ❌ Skipping `cleo memory observe` on non-trivial tasks
 - ❌ Self-attesting without programmatic proof
 - ❌ Modifying files after `cleo verify` but before `cleo complete` (caught by staleness check)
+<!-- /CLEO-INJECTION:section=pre-complete-gate -->
 
+<!-- CLEO-INJECTION:section=spawn-tiers -->
 ## Spawn Prompt Contents (what subagents receive) — T882 / v2.6.0
 
 `cleo orchestrate spawn <taskId>` returns a fully-resolved, self-contained prompt. Subagents never re-resolve protocol content; everything required is embedded. Three tiers control content depth:
@@ -261,13 +314,17 @@ Every spawn prompt contains these required sections — orchestrators can progra
 - `## Evidence-Based Gate Ritual (MANDATORY · ADR-051 · T832)`
 - `## Quality Gates`
 - `## Return Format Contract (MANDATORY)`
+<!-- /CLEO-INJECTION:section=spawn-tiers -->
 
+<!-- CLEO-INJECTION:section=rules -->
 ## Rules
 
 - No time estimates — use `small`, `medium`, `large` sizing
 - Token budget: avoid `cleo list` without `--parent`, avoid `cleo help --tier 2` before tier 0
 - Do not read full task details for tasks you won't work on
+<!-- /CLEO-INJECTION:section=rules -->
 
+<!-- CLEO-INJECTION:section=memory-jit -->
 ## Memory Protocol (JIT)
 
 Pull context on demand — don't pre-load everything:
@@ -286,8 +343,11 @@ Pull context on demand — don't pre-load everything:
 Decision IDs (D0xx, AGT-*) are **NOT globally unique** — same ID can mean different things across documents. Always verify source. Lookup order: (1) `cleo memory decision-find --query <term>` (2) `cleo memory find <term>` (3) `grep -r "D0xx" .cleo/adrs/` (4) `grep -r "D0xx" .cleo/agent-outputs/`. Check outcome status (pending/accepted/superseded) and fetch sibling decisions from same epic.
 
 Budget: 3 JIT calls per task phase. More = task is underspecified.
+<!-- /CLEO-INJECTION:section=memory-jit -->
 
+<!-- CLEO-INJECTION:section=escalation -->
 ## Escalation
 
 - Load **ct-cleo** skill for full protocol details
 - Load **ct-orchestrator** skill for multi-agent workflows
+<!-- /CLEO-INJECTION:section=escalation -->
