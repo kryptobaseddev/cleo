@@ -355,6 +355,19 @@ export async function validateGateVerify(
       });
     }
 
+    // T9231 / ADR-070: FISE-2 — Lead authorship bypass prevention.
+    // Reject implemented gate write from a Lead session without upstream delegation.
+    if (gate === 'implemented' && value !== false && !reset) {
+      const { validateSpawnRequest } = await import('../lifecycle/ivtr-loop.js');
+      const spawnCheck = await validateSpawnRequest(taskId, 'implemented', sessionId);
+      if (!spawnCheck.allowed) {
+        return engineError(
+          spawnCheck.code ?? 'E_LEAD_AUTHORSHIP_BYPASS',
+          spawnCheck.message ?? 'Lead authorship bypass detected',
+        );
+      }
+    }
+
     // Check if evidence-based requirement applies.  gate failures
     // (value=false) and resets do NOT require evidence.
     const isWriteRequiringEvidence = (all || (gate && value !== false)) && !reset;
