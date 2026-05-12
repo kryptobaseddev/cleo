@@ -205,6 +205,118 @@ export function confidenceLabelFromNumeric(confidence: number): GraphEdgeConfide
 }
 
 // ---------------------------------------------------------------------------
+// ConfidenceProvenance — structured provenance for confidence scores
+// ---------------------------------------------------------------------------
+
+/**
+ * Structured provenance for an EXTRACTED confidence assignment.
+ *
+ * Used when confidence was derived from direct AST evidence (same-file
+ * lookup, import-scoped resolution) or an explicit source annotation.
+ *
+ * @since T9145
+ */
+export interface ExtractedProvenance {
+  /** Discriminant. */
+  readonly kind: 'extracted';
+  /**
+   * AST / static-analysis source that produced this confidence value.
+   * Examples: `"ast"`, `"import-scope"`, `"same-file"`, `"defines"`.
+   */
+  readonly source: string;
+}
+
+/**
+ * Structured provenance for an INFERRED confidence assignment.
+ *
+ * Used when confidence was derived from resolution heuristics (cross-file
+ * type lookup, heritage-map inference, name matching).
+ *
+ * @since T9145
+ */
+export interface InferredProvenance {
+  /** Discriminant. */
+  readonly kind: 'inferred';
+  /**
+   * Heuristic or rule that produced this confidence value.
+   * Examples: `"heritage-map"`, `"name-match"`, `"global-tier"`.
+   */
+  readonly heuristic: string;
+}
+
+/**
+ * Structured provenance for an AMBIGUOUS confidence assignment.
+ *
+ * Used when confidence is low because multiple candidates were found,
+ * the parent is external / unresolvable, or resolution fell to a global stub.
+ *
+ * @since T9145
+ */
+export interface AmbiguousProvenance {
+  /** Discriminant. */
+  readonly kind: 'ambiguous';
+  /**
+   * Candidate node IDs that competed for this resolution slot.
+   * May be empty when the ambiguity is due to an unresolvable external type.
+   */
+  readonly candidates: ReadonlyArray<string>;
+}
+
+/**
+ * Discriminated union of structured confidence provenance variants.
+ *
+ * Replaces the bare numeric `confidence` field on {@link GraphRelation} as
+ * part of the Beta gradient deprecation (phase 0: addition, phase 1:
+ * co-existence, removal at v2026.9).
+ *
+ * **Backfill mapping** for existing records created without structured
+ * provenance:
+ * - `confidence === 1.0` → `{ kind: 'extracted', source: 'ast' }`
+ * - `confidence >= 0.90` → `{ kind: 'extracted', source: 'legacy' }`
+ * - `confidence >= 0.80` → `{ kind: 'inferred', heuristic: 'legacy' }`
+ * - `confidence < 0.80`  → `{ kind: 'ambiguous', candidates: [] }`
+ *
+ * @since T9145
+ * @deprecated Numeric `confidence` on {@link GraphRelation} will be removed in v2026.9.
+ *   Use `confidenceProvenance` instead. Migration: `confidenceFromProvenance()` maps back.
+ */
+export type ConfidenceProvenance = ExtractedProvenance | InferredProvenance | AmbiguousProvenance;
+
+/**
+ * Backfill a {@link ConfidenceProvenance} from a legacy numeric confidence value.
+ *
+ * @param confidence - Numeric confidence in range [0.0, 1.0]
+ * @returns A structured provenance record consistent with the numeric value
+ * @since T9145
+ */
+export function provenanceFromNumeric(confidence: number): ConfidenceProvenance {
+  if (confidence === 1.0) return { kind: 'extracted', source: 'ast' };
+  if (confidence >= 0.9) return { kind: 'extracted', source: 'legacy' };
+  if (confidence >= 0.8) return { kind: 'inferred', heuristic: 'legacy' };
+  return { kind: 'ambiguous', candidates: [] };
+}
+
+/**
+ * Recover a numeric confidence value from a {@link ConfidenceProvenance} record.
+ *
+ * Inverse of {@link provenanceFromNumeric} for backward-compat bridging.
+ *
+ * @param provenance - Structured provenance record
+ * @returns Best-effort numeric confidence in range [0.0, 1.0]
+ * @since T9145
+ */
+export function confidenceFromProvenance(provenance: ConfidenceProvenance): number {
+  switch (provenance.kind) {
+    case 'extracted':
+      return provenance.source === 'ast' ? 1.0 : 0.95;
+    case 'inferred':
+      return 0.85;
+    case 'ambiguous':
+      return 0.5;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Relation interface
 // ---------------------------------------------------------------------------
 

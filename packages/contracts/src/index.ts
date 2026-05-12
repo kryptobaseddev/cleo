@@ -353,20 +353,28 @@ export {
   AGENT_TYPES,
   BRAIN_OBSERVATION_TYPES,
 } from './facade.js';
-// === Graph Intelligence Types (T512, T529, T1862) ===
+// === Graph Intelligence Types (T512, T529, T1862, T9145) ===
 export type {
+  AmbiguousProvenance,
   CommunityNode,
+  ConfidenceProvenance,
+  ExtractedProvenance,
   GraphEdgeConfidenceLabel,
   GraphNode,
   GraphNodeKind,
   GraphRelation,
   GraphRelationType,
   ImpactResult,
+  InferredProvenance,
   KnowledgeGraph,
   ProcessNode,
   SymbolIndex,
 } from './graph.js';
-export { confidenceLabelFromNumeric } from './graph.js';
+export {
+  confidenceFromProvenance,
+  confidenceLabelFromNumeric,
+  provenanceFromNumeric,
+} from './graph.js';
 export type { AdapterHookProvider } from './hooks.js';
 export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';
 export type {
@@ -753,6 +761,19 @@ export type {
   NexusWhyResult,
   NexusWikiParams,
 } from './operations/nexus.js';
+// === Nexus Scope Contracts (T9145) ===
+export type {
+  NexusEffect,
+  NexusOperationDescriptor,
+  NexusScope,
+  NexusStore,
+  ScopeBinding,
+} from './operations/nexus-scope.js';
+export {
+  getNexusDescriptor,
+  listOpsByScope,
+  NEXUS_SCOPE_MAP,
+} from './operations/nexus-scope-map.js';
 // === NEXUS User Profile Types (T1076 PSYCHE Wave 1) ===
 // Re-exported at top level so @cleocode/core/nexus and CLI dispatch can
 // import without the `ops.` namespace hop.
