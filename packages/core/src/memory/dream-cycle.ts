@@ -388,3 +388,124 @@ export function _resetDreamState(): void {
   lastDreamAt = 0;
   dreamInFlight = false;
 }
+
+// ============================================================================
+// Dream Status (T1895 — engine liveness probe)
+// ============================================================================
+
+/**
+ * Structured status response from `cleo memory dream --status`.
+ *
+ * All fields are present in every response. Fields sourced from the in-process
+ * module state (`dreamInFlight`, `lastDreamAt`) reflect the state of the current
+ * process only; across process restarts the values reset to their defaults.
+ * Fields sourced from brain.db (`lastConsolidatedAt`, `observationsSinceLastConsolidation`,
+ * `idleMinutesSinceLastRetrieval`) reflect the persistent on-disk state.
+ */
+export interface DreamStatus {
+  /** ISO 8601 timestamp of the last completed consolidation event, or null if none. */
+  lastConsolidatedAt: string | null;
+  /** Count of brain_observations created after the last consolidation event. */
+  observationsSinceLastConsolidation: number;
+  /** Minutes since the last brain_retrieval_log entry. Infinity-like value when no retrieval ever. */
+  idleMinutesSinceLastRetrieval: number;
+  /** Whether the sentient tick loop has run within the last 90 minutes (cross-process check via state file). */
+  tickLoopAlive: boolean;
+  /** ISO 8601 timestamp of the last sentient tick, or null if never run / unavailable. */
+  lastTickAt: string | null;
+  /** Whether a dream cycle is currently running in this process. */
+  dreamInFlight: boolean;
+  /** Last error message encountered by the dream cycle, if any. */
+  lastError: string | null;
+  /**
+   * `true` when the dream cycle is considered overdue:
+   *   - More than `volumeThreshold * 5` new observations since last consolidation, OR
+   *   - `lastConsolidatedAt` is older than 24h AND there are any new observations.
+   */
+  isOverdue: boolean;
+}
+
+/**
+ * Return the current dream-cycle engine liveness status.
+ *
+ * Used by `cleo memory dream --status` to check whether the consolidation
+ * pipeline is running at a healthy cadence. Exits with code 1 when `isOverdue=true`.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @returns DreamStatus with all 8 named fields populated.
+ *
+ * @task T1895
+ */
+export async function getDreamStatus(projectRoot: string): Promise<DreamStatus> {
+  const OVERDUE_VOLUME_MULTIPLIER = 5;
+  const OVERDUE_AGE_HOURS = 24;
+  const TICK_ALIVE_WINDOW_MINUTES = 90;
+
+  // Ensure brain.db is open so synchronous helpers can access it.
+  try {
+    await getBrainDb(projectRoot);
+  } catch {
+    // DB unavailable — return degraded status
+    return {
+      lastConsolidatedAt: null,
+      observationsSinceLastConsolidation: 0,
+      idleMinutesSinceLastRetrieval: 0,
+      tickLoopAlive: false,
+      lastTickAt: null,
+      dreamInFlight,
+      lastError: 'brain.db unavailable',
+      isOverdue: false,
+    };
+  }
+
+  const lastConsolidatedAt = getLastConsolidationTimestamp();
+  const { newObservationCount } = checkVolumeTrigger(1);
+  const { idleMinutes } = checkIdleTrigger(IDLE_MINUTES_DEFAULT);
+
+  // Tick loop alive check — read sentient state file (best-effort)
+  let tickLoopAlive = false;
+  let lastTickAt: string | null = null;
+  try {
+    const { readSentientState } = await import('../sentient/state.js');
+    const { getCleoDirAbsolute } = await import('../paths.js');
+    const { join } = await import('node:path');
+    const stateDir = getCleoDirAbsolute(projectRoot);
+    const statePath = join(stateDir, 'sentient-state.json');
+    const state = await readSentientState(statePath);
+    lastTickAt = state.lastTickAt ?? null;
+    if (lastTickAt) {
+      const tickAgeMs = Date.now() - new Date(lastTickAt).getTime();
+      tickLoopAlive = tickAgeMs < TICK_ALIVE_WINDOW_MINUTES * 60 * 1000;
+    }
+  } catch {
+    // sentient state file may not exist (daemon not running) — not an error
+  }
+
+  // isOverdue heuristic:
+  //   A. observations > VOLUME_THRESHOLD_DEFAULT * OVERDUE_VOLUME_MULTIPLIER
+  //   B. lastConsolidated > 24h ago AND observations > 0
+  const overdueByVolume =
+    newObservationCount > VOLUME_THRESHOLD_DEFAULT * OVERDUE_VOLUME_MULTIPLIER;
+  let overdueByAge = false;
+  if (lastConsolidatedAt && newObservationCount > 0) {
+    const normalised = lastConsolidatedAt.includes('T')
+      ? lastConsolidatedAt
+      : lastConsolidatedAt.replace(' ', 'T') + 'Z';
+    const ageHours = (Date.now() - new Date(normalised).getTime()) / (1000 * 60 * 60);
+    overdueByAge = ageHours > OVERDUE_AGE_HOURS;
+  } else if (!lastConsolidatedAt && newObservationCount > 0) {
+    // Never consolidated but has observations — overdue
+    overdueByAge = true;
+  }
+
+  return {
+    lastConsolidatedAt,
+    observationsSinceLastConsolidation: newObservationCount,
+    idleMinutesSinceLastRetrieval: idleMinutes,
+    tickLoopAlive,
+    lastTickAt,
+    dreamInFlight,
+    lastError: null,
+    isOverdue: overdueByVolume || overdueByAge,
+  };
+}

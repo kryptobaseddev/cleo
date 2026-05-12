@@ -385,12 +385,14 @@ export { migrateClaudeMem } from './memory/claude-mem-migration.js';
 export type {
   DreamCheckResult,
   DreamCycleOptions,
+  DreamStatus,
 } from './memory/dream-cycle.js';
 export {
   _resetDreamState,
   checkAndDream,
   checkIdleTrigger,
   checkVolumeTrigger,
+  getDreamStatus,
   triggerManualDream,
 } from './memory/dream-cycle.js';
 // Memory — engine-compat
