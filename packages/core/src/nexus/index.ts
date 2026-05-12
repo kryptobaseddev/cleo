@@ -97,6 +97,16 @@ export {
 export { escapeXml, generateGexf, hexToRgb } from './gexf-export.js';
 // Hash - canonical project identity hash
 export { generateProjectHash } from './hash.js';
+// Identity - canonical project ID computation (T9149 W5)
+export {
+  type CanonicalProjectIdResult,
+  canonicalProjectId,
+  computeLegacyAliases,
+  findGitRemoteUrl,
+  findGitRoot,
+  legacyProjectId,
+  type ProjectIdentityComponents,
+} from './identity.js';
 // Impact - BFS upstream blast radius (T1473)
 export {
   getSymbolImpact,

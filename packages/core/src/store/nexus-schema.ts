@@ -52,6 +52,32 @@ export const projectRegistry = sqliteTable(
   ],
 );
 
+// === PROJECT_ID_ALIASES TABLE (T9149 W5) ===
+
+/**
+ * Maps legacy base64url(path) project IDs to their canonical IDs.
+ *
+ * Populated during W5 identity migration. Allows the dispatch layer to
+ * resolve old IDs transparently without breaking existing integrations.
+ *
+ * @task T9149
+ */
+export const projectIdAliases = sqliteTable(
+  'project_id_aliases',
+  {
+    /** The legacy base64url(path) ID (e.g. from pre-W5 registrations). */
+    legacyId: text('legacy_id').primaryKey(),
+    /** The canonical 12-hex-char ID this alias maps to. */
+    canonicalId: text('canonical_id').notNull(),
+    /** ISO 8601 timestamp when this alias was recorded. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [index('idx_project_id_aliases_canonical').on(table.canonicalId)],
+);
+
+export type ProjectIdAliasRow = typeof projectIdAliases.$inferSelect;
+export type NewProjectIdAliasRow = typeof projectIdAliases.$inferInsert;
+
 // === NEXUS_AUDIT_LOG TABLE ===
 
 /** Append-only audit log for all Nexus operations across projects. */
