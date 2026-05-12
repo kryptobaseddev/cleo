@@ -506,5 +506,15 @@ export {
 } from './tasks/severity-attestation.js';
 export { showTask } from './tasks/show.js';
 export { updateTask } from './tasks/update.js';
+// Verifier runner — resolver, executor, backfill (T9219 / ADR-070)
+export {
+  type BackfillAllResult,
+  type BackfillSingleResult,
+  backfillAllPendingVerifiers,
+  backfillVerifier,
+  resolveVerifierScript,
+  runVerifier,
+  type VerifierResult,
+} from './tasks/verifier-runner.js';
 // Verifier auto-stub generator (T9218 / ADR-070)
 export { generateVerifierStub, writeVerifierStub } from './tasks/verifier-stub-generator.js';
