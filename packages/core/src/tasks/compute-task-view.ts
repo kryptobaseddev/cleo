@@ -25,171 +25,29 @@
  * @task T943
  */
 
-import type { DataAccessor, Task, TaskStatus } from '@cleocode/contracts';
+import type {
+  DataAccessor,
+  Task,
+  TaskStatus,
+  TaskView,
+  TaskViewChildRollup,
+  TaskViewGatesStatus,
+  TaskViewLifecycleProgress,
+  TaskViewNextAction,
+  TaskViewPipelineStage,
+} from '@cleocode/contracts';
 import { getNativeTasksDb } from '../store/sqlite.js';
 
-// =============================================================================
-// TYPE DEFINITIONS
-// =============================================================================
-
-/**
- * Pipeline stages surfaced in `TaskView.pipelineStage`.
- *
- * Subset of the full RCASD-IVTR+C stage list that is relevant to a task view
- * consumer. The underlying DB allows all 10 PIPELINE_STAGES plus `cancelled`;
- * this union narrows to the 8 stages a non-cancellation task will occupy.
- *
- * @task T943
- */
-export type TaskViewPipelineStage =
-  | 'research'
-  | 'specification'
-  | 'decomposition'
-  | 'implementation'
-  | 'validation'
-  | 'testing'
-  | 'release'
-  | 'contribution';
-
-/**
- * Canonical next-action tokens emitted by `TaskView.nextAction`.
- *
- * Consumers pattern-match on these to drive their own agent guidance without
- * duplicating the priority-ladder logic.
- *
- * @task T943
- */
-export type TaskViewNextAction =
-  | 'verify'
-  | 'advance-lifecycle'
-  | 'spawn-worker'
-  | 'blocked-on-deps'
-  | 'awaiting-children'
-  | 'already-complete'
-  | 'no-action';
-
-/**
- * Lifecycle progress derived from `lifecycle_pipelines` + `lifecycle_stages`.
- *
- * When a task has no pipeline record all fields are empty / null.
- *
- * @task T943
- */
-export interface TaskViewLifecycleProgress {
-  /** Stage names whose DB status is `completed`. */
-  stagesCompleted: string[];
-  /** Stage names whose DB status is `skipped`. */
-  stagesSkipped: string[];
-  /**
-   * The pipeline's `currentStageId` resolved to a stage name, or `null` when
-   * the task has no pipeline or the current stage has not been set.
-   */
-  currentStage: string | null;
-}
-
-/**
- * Verification gate status derived from `tasks.verification.gates`.
- *
- * Required gates (`implemented`, `testsPassed`, `qaPassed`) are always
- * present. Optional gates (`documented`) are `undefined` when not recorded.
- *
- * @task T943
- */
-export interface TaskViewGatesStatus {
-  /** Whether the `implemented` gate has passed. */
-  implemented: boolean;
-  /** Whether the `testsPassed` gate has passed. */
-  testsPassed: boolean;
-  /** Whether the `qaPassed` gate has passed. */
-  qaPassed: boolean;
-  /** Whether the `documented` gate has passed, or `undefined` if absent. */
-  documented?: boolean;
-}
-
-/**
- * Direct-child rollup counts for the task.
- *
- * Archived children are excluded from all counts so progress bars reflect
- * in-flight scope only.
- *
- * @task T943
- */
-export interface TaskViewChildRollup {
-  /** Total non-archived direct children. */
-  total: number;
-  /** Non-archived children with `status = 'done'`. */
-  done: number;
-  /** Non-archived children with `status = 'blocked'`. */
-  blocked: number;
-  /** Non-archived children with `status = 'active'`. */
-  active: number;
-}
-
-/**
- * Canonical task view — the unified projection consumed by SDK, CLI, and REST.
- *
- * Produced exclusively by `computeTaskView`. All surfaces that previously
- * derived their own view of a task now go through this type so they cannot
- * disagree.
- *
- * @task T943
- */
-export interface TaskView {
-  /** Task identifier (e.g. `T123`). */
-  id: string;
-  /** Task title. */
-  title: string;
-  /**
-   * Canonical execution status.
-   *
-   * Mirrors `tasks.status` verbatim. Typed as `TaskStatus` (from contracts)
-   * rather than a new union so callers do not need an adapter.
-   */
-  status: TaskStatus;
-  /**
-   * RCASD-IVTR+C pipeline stage this task is parked on.
-   *
-   * Reads `tasks.pipelineStage` directly (Option B cached projection per T943
-   * decision). When the column is null the task has not been assigned a stage
-   * yet; `'research'` is the conventional default for new epics.
-   */
-  pipelineStage: string | null;
-  /**
-   * Lifecycle progress derived from `lifecycle_pipelines` / `lifecycle_stages`.
-   *
-   * Empty default when the task has no pipeline record (non-epic tasks and
-   * epics that have not yet been initialized with `cleo lifecycle`).
-   */
-  lifecycleProgress: TaskViewLifecycleProgress;
-  /** Aggregated counts of non-archived direct children. */
-  childRollup: TaskViewChildRollup;
-  /**
-   * Verification gate status derived from `tasks.verification`.
-   *
-   * Defaults to all `false` when the task has no verification record.
-   */
-  gatesStatus: TaskViewGatesStatus;
-  /**
-   * Whether the task is ready to be marked complete.
-   *
-   * True when: required gates all green AND no unresolved blocking deps AND
-   * status is not already a terminal value (`done`, `cancelled`, `archived`).
-   */
-  readyToComplete: boolean;
-  /**
-   * Suggested next action for an agent working this task.
-   *
-   * Derived via a priority ladder:
-   *   1. `already-complete`   — status is `done`/`cancelled`/`archived`
-   *   2. `blocked-on-deps`    — has unresolved `depends` entries
-   *   3. `awaiting-children`  — has non-archived, non-done children
-   *   4. `verify`             — some required gate is false
-   *   5. `advance-lifecycle`  — gates green but lifecycle stage not advanced
-   *   6. `spawn-worker`       — ready to dispatch a worker agent
-   *   7. `no-action`          — fallback
-   */
-  nextAction: TaskViewNextAction;
-}
+// TaskView types are canonical in @cleocode/contracts/tasks — re-export for
+// callers that import from this module path (T1685-W3 dedup).
+export type {
+  TaskView,
+  TaskViewChildRollup,
+  TaskViewGatesStatus,
+  TaskViewLifecycleProgress,
+  TaskViewNextAction,
+  TaskViewPipelineStage,
+};
 
 // =============================================================================
 // INTERNAL HELPERS
