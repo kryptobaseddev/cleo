@@ -265,6 +265,20 @@ export type {
   StoreDocParams,
   StoreDocResult,
 } from './docs-accessor.js';
+export type {
+  EngineErrorPayload,
+  EngineFailure,
+  EngineResult,
+  EngineSuccess,
+  ProblemDetails,
+} from './engine-result.js';
+// === EngineResult — canonical discriminated-union SDK type (T1685) ===
+export {
+  EngineResultError,
+  engineError,
+  engineSuccess,
+  unwrap,
+} from './engine-result.js';
 // === Error Utilities ===
 export {
   ClassifierUnregisteredAgentError,
