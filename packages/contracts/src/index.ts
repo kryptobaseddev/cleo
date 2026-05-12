@@ -813,6 +813,10 @@ export type {
 // Session operation param/result types — re-exported at top level for typed-dispatch consumers
 // (T975 Wave D · ADR-051 migration)
 export type {
+  BriefingExcludeProvenance,
+  BriefingFieldContract,
+  BriefingFieldRule,
+  ContractViolation,
   DecisionRecord,
   SessionBriefingShowParams,
   SessionBriefingShowResult,

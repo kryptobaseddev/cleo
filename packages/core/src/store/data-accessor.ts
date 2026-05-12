@@ -20,6 +20,56 @@ export type {
 } from '@cleocode/contracts';
 
 /**
+ * Assert that production database writes are forbidden in test mode.
+ *
+ * When `CLEO_TEST_MODE=1` is set, any write to a production `tasks.db` or
+ * `brain.db` path (i.e. paths NOT under a temp dir or the env-var override)
+ * throws `E_PROD_DB_WRITE_IN_TEST`. This prevents tests from accidentally
+ * polluting the developer's live database.
+ *
+ * Escape hatch: set `CLEO_TEST_DB_OVERRIDE=1` to suppress the guard (audited
+ * per ADR-051 pattern — written to `.cleo/audit/force-bypass.jsonl`).
+ *
+ * @param dbPath - Absolute resolved path to the SQLite file being opened.
+ * @throws Error with code `E_PROD_DB_WRITE_IN_TEST` when the guard fires.
+ *
+ * @task T1906
+ */
+export function assertTestEnv(dbPath: string): void {
+  const testMode = process.env['CLEO_TEST_MODE'];
+  if (testMode !== '1') return;
+
+  const override = process.env['CLEO_TEST_DB_OVERRIDE'];
+  if (override === '1') {
+    // Audited escape hatch — log and allow.
+    process.stderr.write(
+      `[T1906] CLEO_TEST_DB_OVERRIDE=1 — bypassing prod-DB guard for: ${dbPath}\n`,
+    );
+    return;
+  }
+
+  // Allow paths that are clearly temp/in-memory (OS temp dir, :memory:, test fixtures)
+  const tmpDir = process.env['TMPDIR'] ?? process.env['TMP'] ?? process.env['TEMP'] ?? '/tmp';
+  const isTmpPath =
+    dbPath === ':memory:' ||
+    dbPath.startsWith(tmpDir) ||
+    dbPath.includes('/tmp/') ||
+    dbPath.includes('\\Temp\\') ||
+    dbPath.includes('.test.') ||
+    dbPath.includes('/test-') ||
+    // vitest uses a unique tmpDir per worker
+    dbPath.includes('vitest');
+
+  if (!isTmpPath) {
+    throw new Error(
+      `E_PROD_DB_WRITE_IN_TEST: CLEO_TEST_MODE=1 but attempted to open production DB at "${dbPath}". ` +
+        `Use an in-memory or temp-dir database in tests, or set CLEO_TEST_DB_OVERRIDE=1 to bypass (audited). ` +
+        `(T1906 / BBTT-W3-4)`,
+    );
+  }
+}
+
+/**
  * Create a DataAccessor for the given working directory.
  * Always creates a SQLite accessor (ADR-006 canonical storage).
  *

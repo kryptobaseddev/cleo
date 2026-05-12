@@ -18,8 +18,13 @@ const REPO_ROOT = resolve(__dirname, '..');
 
 const failures = [];
 
-function pass(msg) { console.log('PASS:', msg); }
-function fail(msg) { console.error('FAIL:', msg); failures.push(msg); }
+function pass(msg) {
+  console.log('PASS:', msg);
+}
+function fail(msg) {
+  console.error('FAIL:', msg);
+  failures.push(msg);
+}
 
 // Check 1: migrate-verifiers.mjs exists
 const migratePath = join(REPO_ROOT, 'scripts', 'migrate-verifiers.mjs');
@@ -32,7 +37,7 @@ if (existsSync(migratePath)) {
 // Check 2: .cleo/verifiers/ has TID-based files
 const verifiersDir = join(REPO_ROOT, '.cleo', 'verifiers');
 if (existsSync(verifiersDir)) {
-  const verifiers = readdirSync(verifiersDir).filter(f => f.match(/^T\d+\.mjs$/));
+  const verifiers = readdirSync(verifiersDir).filter((f) => f.match(/^T\d+\.mjs$/));
   if (verifiers.length >= 21) {
     pass(`.cleo/verifiers/ has ${verifiers.length} TID-based verifier files (>= 21 required)`);
   } else {
@@ -45,7 +50,7 @@ if (existsSync(verifiersDir)) {
 // Check 3: No TID-based scripts remain in scripts/
 const scriptsDir = join(REPO_ROOT, 'scripts');
 if (existsSync(scriptsDir)) {
-  const tidScripts = readdirSync(scriptsDir).filter(f => f.match(/^verify-t\d+.*\.mjs$/i));
+  const tidScripts = readdirSync(scriptsDir).filter((f) => f.match(/^verify-t\d+.*\.mjs$/i));
   if (tidScripts.length === 0) {
     pass('No TID-based verify scripts remain in scripts/');
   } else {

@@ -200,6 +200,91 @@ export interface SessionHandoffShowResult {
   handoff: unknown;
 }
 
+// ---------------------------------------------------------------------------
+// BriefingFieldContract — per-field staleness + dedup rules (T1905 / BBTT-W1-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Provenance category for briefing observation exclusion.
+ *
+ * @task T1905
+ */
+export type BriefingExcludeProvenance = 'test-fixture' | 'synthetic' | 'imported';
+
+/**
+ * Per-field contract rule for a single briefing field.
+ *
+ * Defines staleness and deduplication constraints for one named section
+ * of the `SessionBriefingShowResult`. `assertBriefingContract` evaluates
+ * these rules and emits a `ContractViolation` for each breach.
+ *
+ * @task T1905
+ */
+export interface BriefingFieldRule {
+  /**
+   * Maximum acceptable age (in days) for any observation surfaced in this field.
+   * A violation is emitted when `now - capturedAt > maxAgeDays * 86_400_000`.
+   */
+  maxAgeDays?: number;
+  /**
+   * Deduplication key — field path within each list item used to detect
+   * duplicate entries (e.g. `'id'` deduplicates by task ID).
+   * When set, the contract checker warns if two items share the same key value.
+   */
+  dedupBy?: string;
+  /**
+   * Provenance tags whose observations must be excluded from this field.
+   * Violations are emitted when an item carries one of these provenance values.
+   */
+  excludeProvenance?: BriefingExcludeProvenance[];
+}
+
+/**
+ * Full briefing field contract — maps each named briefing section to its rule.
+ *
+ * Pass to `assertBriefingContract` together with the computed briefing to
+ * obtain `ContractViolation[]`.
+ *
+ * @example
+ * ```ts
+ * const contract: BriefingFieldContract = {
+ *   recentObservations: { maxAgeDays: 7, excludeProvenance: ['test-fixture'] },
+ *   nextTasks:           { dedupBy: 'id' },
+ * };
+ * ```
+ *
+ * @task T1905
+ */
+export interface BriefingFieldContract {
+  recentObservations?: BriefingFieldRule;
+  nextTasks?: BriefingFieldRule;
+  openBugs?: BriefingFieldRule;
+  blockedTasks?: BriefingFieldRule;
+  activeEpics?: BriefingFieldRule;
+  [field: string]: BriefingFieldRule | undefined;
+}
+
+/**
+ * A single contract violation emitted by `assertBriefingContract`.
+ *
+ * @task T1905
+ */
+export interface ContractViolation {
+  /** Name of the briefing field that violated its rule. */
+  field: string;
+  /** Human-readable description of the violation. */
+  message: string;
+  /**
+   * Violation kind for programmatic handling.
+   * - `stale` — field data exceeds `maxAgeDays`.
+   * - `duplicate` — two items share the same `dedupBy` key value.
+   * - `excluded-provenance` — item carries a banned provenance tag.
+   */
+  kind: 'stale' | 'duplicate' | 'excluded-provenance';
+  /** Severity — P0 violations block `cleo briefing --strict`. */
+  severity: 'P0' | 'P1';
+}
+
 // session.briefing.show
 /** Parameters for `session.briefing.show`. */
 export interface SessionBriefingShowParams {
@@ -208,6 +293,8 @@ export interface SessionBriefingShowParams {
   maxBlocked?: number;
   maxEpics?: number;
   scope?: string;
+  /** When true, exit non-zero if any contract violation is detected (T1905). */
+  strict?: boolean;
 }
 
 /** Compact task entry in a session briefing's next-tasks list. */
