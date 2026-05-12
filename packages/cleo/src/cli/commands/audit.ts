@@ -32,7 +32,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getProjectRoot, reconstructLineage, resolveVerifierScript } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
-import { cliError, cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 
 /**
  * cleo audit reconstruct <taskId> — reconstruct git-backed lineage for a task.
@@ -168,16 +168,16 @@ const verifierCommand = defineCommand({
       return;
     }
 
-    process.stdout.write(`[AUDITOR] Independent verifier run for ${taskId}\n`);
-    process.stdout.write(`[AUDITOR] Script: ${verifierPath}\n`);
-    process.stdout.write(`[AUDITOR] Note: Does NOT trust any prior Implementer claims.\n\n`);
+    humanLine(`[AUDITOR] Independent verifier run for ${taskId}`);
+    humanLine(`[AUDITOR] Script: ${verifierPath}`);
+    humanLine('[AUDITOR] Note: Does NOT trust any prior Implementer claims.\n');
 
     const result = spawnSync('node', [verifierPath], { encoding: 'utf8', stdio: 'inherit' });
     const exitCode = result.status ?? 1;
 
     if (exitCode === 0) {
-      process.stdout.write(
-        `\n[AUDITOR] Audit pass. Verifier exit-code 0. Task ${taskId} acceptance verified.\n`,
+      humanLine(
+        `\n[AUDITOR] Audit pass. Verifier exit-code 0. Task ${taskId} acceptance verified.`,
       );
     } else {
       process.stderr.write(

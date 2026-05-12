@@ -53,6 +53,7 @@ import {
 } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { cliOutput, humanLine } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // backfill subcommand (T9218 / ADR-070)
@@ -134,13 +135,7 @@ async function runBackfillSingle(
 
   const result = backfillVerifier(task, projectRoot, force);
   if (result.status === 'generated') {
-    process.stdout.write(`Generated: ${result.path}\n`);
-    process.stdout.write(
-      `\nNext steps:\n` +
-        `  1. Replace each \`fail('STUB — ...')\` block with a real check.\n` +
-        `  2. Verify manually: node ${result.path}\n` +
-        `  3. When the script exits 0: cleo verify ${taskId} --acceptance-check\n`,
-    );
+    cliOutput(result, { command: 'verify', operation: 'verify.scaffold' });
   } else if (result.status === 'skipped') {
     process.stderr.write(
       `Error: verifier already exists: ${result.path}\n` +
@@ -179,36 +174,14 @@ async function runBackfillAll(projectRoot: string, force: boolean): Promise<void
   const summary = backfillAllPendingVerifiers(pending, projectRoot, force);
 
   if (summary.succeeded === 0 && summary.failed === 0 && summary.skipped === 0) {
-    process.stdout.write(
-      'All critical/large/epic tasks already have verifier scripts. Nothing to do.\n',
+    cliOutput(
+      { message: 'All critical/large/epic tasks already have verifier scripts. Nothing to do.' },
+      { command: 'verify', operation: 'verify.scaffold-all' },
     );
     return;
   }
 
-  process.stdout.write(
-    `Found ${summary.results.length} task(s) to process. Generating stubs...\n\n`,
-  );
-
-  for (const r of summary.results) {
-    if (r.status === 'generated') {
-      process.stdout.write(`  [OK] ${r.taskId} → ${r.path}\n`);
-    } else if (r.status === 'skipped') {
-      process.stdout.write(
-        `  [SKIP] ${r.taskId}: verifier already exists (use --force to overwrite)\n`,
-      );
-    } else {
-      process.stderr.write(`  [FAIL] ${r.taskId}: ${r.error}\n`);
-    }
-  }
-
-  process.stdout.write(
-    `\nDone: ${summary.succeeded} generated, ${summary.skipped} skipped (already exist), ${summary.failed} failed.\n`,
-  );
-  process.stdout.write(
-    `\nNext steps for each generated file:\n` +
-      `  1. Replace each \`fail('STUB — ...')\` block with a real check.\n` +
-      `  2. node scripts/verify-<id>.mjs   (must exit 0 before cleo complete)\n`,
-  );
+  cliOutput(summary, { command: 'verify', operation: 'verify.scaffold-all' });
 
   if (summary.failed > 0) {
     process.exitCode = 1;
@@ -362,7 +335,7 @@ export const verifyCommand = defineCommand({
         return;
       }
 
-      process.stdout.write(`Verifier passed (exit 0). Proceeding with gate operation.\n`);
+      humanLine('Verifier passed (exit 0). Proceeding with gate operation.');
     }
 
     const isWrite = !!(args.gate || args.all || args.reset);
