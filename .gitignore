@@ -6,6 +6,14 @@ coverage/
 .test-*
 
 # ---------------------------------------------------------------------------
+# Deprecated in-repo sandbox — removed 2026-05-12.
+# Canonical sandbox lives at the external repo /mnt/projects/cleo-sandbox/
+# (Docker, multi-distro, used by packages/cleo-os/.../pi-coding-agent).
+# Keep this entry so the legacy Podman variant cannot be re-added.
+# ---------------------------------------------------------------------------
+dev/sandbox/
+
+# ---------------------------------------------------------------------------
 # CLEO runtime data — NEVER track (ADR-013 §9, T5158)
 # ---------------------------------------------------------------------------
 # Runtime databases corrupt on branch switch because of WAL-mode sidecar
