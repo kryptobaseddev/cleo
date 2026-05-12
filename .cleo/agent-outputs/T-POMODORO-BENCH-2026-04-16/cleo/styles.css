@@ -1,0 +1,328 @@
+/* ---------- Reset / base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; color: inherit; }
+input { font: inherit; color: inherit; }
+
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.skip-link {
+  position: absolute;
+  top: -40px; left: 0;
+  padding: .5rem 1rem;
+  background: var(--accent);
+  color: var(--on-accent);
+  text-decoration: none;
+  z-index: 100;
+}
+.skip-link:focus { top: 0; }
+
+/* ---------- Theming (CSS custom properties) ---------- */
+:root {
+  --bg: #f8f7f4;
+  --fg: #1f2328;
+  --muted: #5b6470;
+  --surface: #ffffff;
+  --surface-2: #eceae4;
+  --border: #d8d4cc;
+  --accent: #d14b4b;
+  --on-accent: #ffffff;
+  --short: #4b9bd1;
+  --long: #5cab7b;
+  --focus: #ffae42;
+  --shadow: 0 2px 6px rgba(0,0,0,0.08);
+  --radius: 10px;
+}
+html[data-theme="dark"] {
+  --bg: #141618;
+  --fg: #e8eaed;
+  --muted: #a3adb8;
+  --surface: #1e2124;
+  --surface-2: #2a2e32;
+  --border: #3a3f44;
+  --accent: #ef6b6b;
+  --on-accent: #141618;
+  --short: #70b7e8;
+  --long: #7cc89a;
+  --focus: #ffc26b;
+  --shadow: 0 2px 10px rgba(0,0,0,0.4);
+}
+@media (prefers-color-scheme: dark) {
+  html[data-theme="auto"] {
+    --bg: #141618;
+    --fg: #e8eaed;
+    --muted: #a3adb8;
+    --surface: #1e2124;
+    --surface-2: #2a2e32;
+    --border: #3a3f44;
+    --accent: #ef6b6b;
+    --on-accent: #141618;
+    --short: #70b7e8;
+    --long: #7cc89a;
+    --focus: #ffc26b;
+    --shadow: 0 2px 10px rgba(0,0,0,0.4);
+  }
+}
+
+/* ---------- Layout ---------- */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.app-title {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: .01em;
+}
+.header-actions { display: flex; gap: .5rem; }
+
+.app-main {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+@media (min-width: 720px) {
+  .app-main {
+    grid-template-columns: 360px 1fr;
+    align-items: start;
+  }
+}
+
+/* ---------- Timer card ---------- */
+.timer-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+  justify-items: center;
+  box-shadow: var(--shadow);
+}
+.timer-ring-wrap {
+  position: relative;
+  width: min(260px, 80vw);
+  aspect-ratio: 1 / 1;
+}
+.timer-ring { width: 100%; height: 100%; }
+.ring-track {
+  fill: none;
+  stroke: var(--surface-2);
+  stroke-width: 10;
+}
+.ring-progress {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dashoffset .3s linear, stroke .3s ease;
+}
+.timer-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: .25rem;
+}
+.timer-phase {
+  font-size: .8rem;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.timer-display {
+  font-size: clamp(2.4rem, 10vw, 3.6rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+}
+.timer-cycle { font-size: .8rem; color: var(--muted); }
+
+.timer-controls { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; }
+
+.current-todo {
+  width: 100%;
+  font-size: .9rem;
+  color: var(--muted);
+  text-align: center;
+  word-break: break-word;
+}
+.current-todo .label { font-weight: 600; color: var(--fg); margin-right: .25rem; }
+
+.counters { font-size: .85rem; color: var(--muted); }
+.counters strong { color: var(--fg); }
+
+/* ---------- Todos ---------- */
+.todos-section h2 { margin: 0 0 .75rem; font-size: 1rem; }
+
+.todo-form {
+  display: flex;
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+.todo-form input[type="text"] {
+  flex: 1;
+  padding: .6rem .75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+.todo-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: .5rem;
+  padding: .6rem .75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.todo-item.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.todo-item.done .todo-title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.todo-title {
+  word-break: break-word;
+  min-width: 0;
+}
+.todo-title[contenteditable="true"] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+  padding: 0 .25rem;
+  background: var(--surface-2);
+}
+.todo-sessions {
+  font-size: .8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.todo-delete {
+  background: transparent;
+  border: 0;
+  padding: .25rem .5rem;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.todo-delete:hover { color: var(--accent); background: var(--surface-2); }
+
+.empty-state { color: var(--muted); font-style: italic; }
+
+/* ---------- Settings ---------- */
+.settings-panel {
+  position: fixed;
+  inset: 0 0 0 auto;
+  max-width: min(360px, 100vw);
+  width: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 1rem;
+  box-shadow: var(--shadow);
+  z-index: 20;
+  overflow-y: auto;
+}
+.settings-panel[hidden] { display: none; }
+.settings-form { display: grid; gap: .75rem; }
+.settings-form label {
+  display: grid;
+  gap: .25rem;
+  font-size: .9rem;
+}
+.settings-form input[type="number"] {
+  padding: .5rem .6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.settings-actions { display: flex; gap: .5rem; margin-top: .5rem; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  padding: .55rem 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--fg);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.btn:hover { background: var(--border); }
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+.btn-primary:hover { filter: brightness(1.05); }
+.icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: .4rem .5rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+  border-radius: var(--radius);
+  color: var(--fg);
+}
+.icon-btn:hover { background: var(--surface-2); }
+
+/* ---------- Focus rings (visible on keyboard) ---------- */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---------- Phase-colored ring states ---------- */
+html[data-phase="short"] .ring-progress { stroke: var(--short); }
+html[data-phase="long"]  .ring-progress { stroke: var(--long); }
+
+/* ---------- Small screens ---------- */
+@media (max-width: 359px) {
+  .app-main { padding: .5rem; }
+  .timer-card { padding: .75rem; }
+}
