@@ -96,6 +96,33 @@ function locateCleoInjectionTemplate(): string | null {
 }
 
 // ============================================================================
+// Spawn-clone exclude filter (T9226)
+// ============================================================================
+
+/**
+ * Glob patterns always excluded from the worktree spawn-clone.
+ *
+ * These patterns are applied via sparse-checkout negation after worktree
+ * creation. The intent is to keep each spawned worktree lean by excluding
+ * heavyweight or task-irrelevant artefacts that would otherwise grow
+ * linearly with the number of tasks in the project.
+ *
+ * `scripts/verify-*.mjs` is a per-task artefact — a spawned worker needs
+ * only its own verifier. The orchestrate engine adds
+ * `!scripts/verify-<taskId>.mjs` to the include list so the task-scoped
+ * verifier is preserved while all others are excluded.
+ *
+ * `.gitnexus/` contains large vector/graph indices that agents never need
+ * inside a worktree (queries route through the primary project root).
+ *
+ * @task T9226
+ */
+export const SPAWN_CLONE_EXCLUDE_PATTERNS: readonly string[] = [
+  'scripts/verify-*.mjs',
+  '.gitnexus',
+] as const;
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -317,6 +344,18 @@ export interface BuildSpawnPromptInput {
    * @task T9213 — auto-load ct-lead at tier-1 lead spawns
    */
   role?: 'orchestrator' | 'lead' | 'worker';
+  /**
+   * Glob patterns excluded from the worktree via spawn-clone-exclude filter
+   * (T9226). When set, a `## Worktree Scope (spawn-clone-exclude)` section
+   * is injected so the agent understands why certain files are absent from
+   * its working tree. The canonical default list is
+   * {@link SPAWN_CLONE_EXCLUDE_PATTERNS}.
+   *
+   * Omit when no exclusions were applied (e.g. `--no-worktree` was passed).
+   *
+   * @task T9226
+   */
+  spawnCloneExclude?: readonly string[];
 }
 
 /**
@@ -539,6 +578,43 @@ function buildWorktreeSetupBlock(
     'Forbidden git ops: `git checkout, git switch, git branch -b/-D, git reset --hard, git worktree add/remove, git rebase, git stash pop, git push --force`',
     '',
     'All commits MUST land on YOUR branch only. The orchestrator integrates via `git merge --no-ff` (ADR-062), preserving your commit SHAs and authorship.',
+  ].join('\n');
+}
+
+/**
+ * Build the `## Worktree Scope (spawn-clone-exclude)` section.
+ *
+ * Injected when the orchestrate engine applied the T9226 spawn-clone-exclude
+ * filter: the spawned agent's worktree had the listed glob patterns hidden via
+ * `git sparse-checkout`. This section tells the agent WHY certain files are
+ * absent from its working tree so it does not waste time searching for them.
+ *
+ * @param excludePatterns - Effective glob patterns that were excluded.
+ * @param taskId - Task ID whose own verifier was preserved.
+ * @returns Markdown section ready to inject. Returns empty string when the
+ *          `excludePatterns` array is empty (no exclusions applied).
+ *
+ * @task T9226
+ */
+function buildSpawnCloneExcludeBlock(excludePatterns: readonly string[], taskId: string): string {
+  if (excludePatterns.length === 0) return '';
+
+  const patternList = excludePatterns.map((p) => `- \`${p}\``).join('\n');
+
+  return [
+    '## Worktree Scope (spawn-clone-exclude · T9226)',
+    '',
+    'The following glob patterns were **excluded** from this worktree via sparse-checkout to reduce token cost:',
+    '',
+    patternList,
+    '',
+    `Exception: \`scripts/verify-${taskId}.mjs\` is **included** — it is the verifier for your task.`,
+    '',
+    'Do not look for other `scripts/verify-*.mjs` files in this worktree — they are absent by design.',
+    'To access any excluded file, check it out explicitly:',
+    '```bash',
+    'git sparse-checkout add <path>',
+    '```',
   ].join('\n');
 }
 
@@ -1497,6 +1573,14 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // Omitted when --no-worktree was passed or worktree creation failed.
   if (worktreePath) {
     authoredSections.push(buildWorktreeSetupBlock(worktreePath, worktreeBranch, taskId));
+  }
+  // Spawn-clone exclude filter (T9226) — emitted when the engine applied
+  // sparse-checkout exclusions to keep the worktree lean.
+  if (input.spawnCloneExclude && input.spawnCloneExclude.length > 0) {
+    const excludeBlock = buildSpawnCloneExcludeBlock(input.spawnCloneExclude, taskId);
+    if (excludeBlock) {
+      authoredSections.push(excludeBlock);
+    }
   }
   // CONDUIT Subscription (T1252) — only emitted for tier 1/2 when the
   // orchestrator has configured A2A wave coordination for this task.
