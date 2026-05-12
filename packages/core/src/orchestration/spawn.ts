@@ -217,6 +217,13 @@ export interface ComposeSpawnPayloadOptions {
    * @task T1253 wire orchestrate-engine
    */
   conduitSubscription?: ConduitSubscriptionConfig;
+  /**
+   * Glob patterns excluded from the worktree via spawn-clone-exclude filter
+   * (T9226). Passed through verbatim to {@link buildSpawnPrompt}.
+   *
+   * @task T9226
+   */
+  spawnCloneExclude?: readonly string[];
 }
 
 /**
@@ -620,6 +627,7 @@ export async function composeSpawnPayload(
     conduitSubscription: options.conduitSubscription,
     retrievalBundle,
     docAttachments,
+    spawnCloneExclude: options.spawnCloneExclude,
   });
 
   // 8. Assemble the traceability envelope. `dedupSavedChars` only counts

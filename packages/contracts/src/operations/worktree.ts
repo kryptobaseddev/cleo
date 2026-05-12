@@ -135,6 +135,26 @@ export interface CreateWorktreeOptions {
    * @default true
    */
   lockWorktree?: boolean;
+  /**
+   * Glob patterns to exclude from the worktree via sparse-checkout after
+   * creation (T9226 spawn-clone-exclude filter).
+   *
+   * When set, `createWorktree` enables sparse-checkout on the new worktree
+   * and hides all files matching any pattern. Callers should also supply
+   * `spawnCloneExcludeExempt` to preserve the task-scoped file.
+   *
+   * @task T9226
+   */
+  spawnCloneExclude?: readonly string[];
+  /**
+   * Specific file paths to re-include after the exclude filter is applied.
+   *
+   * Used to preserve the task's own verifier (`scripts/verify-<taskId>.mjs`)
+   * after the broad `scripts/verify-*.mjs` exclusion.
+   *
+   * @task T9226
+   */
+  spawnCloneExcludeExempt?: readonly string[];
 }
 
 /**
