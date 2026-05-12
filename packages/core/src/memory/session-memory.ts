@@ -400,25 +400,32 @@ export async function getSessionMemoryContext(
               tokensEstimated: 0,
             } as SearchBrainCompactResult),
 
-        // Patterns: recent patterns
+        // Patterns: hybrid mode with 30d window to suppress stale patterns
+        // T1900: mode=hybrid,since=30d prevents year-old patterns from dominating
         searchBrainCompact(projectRoot, {
           query: scopeQuery || 'pattern',
           limit: Math.min(limit, 3),
           tables: ['patterns'],
+          mode: 'hybrid',
+          since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
         }),
 
-        // Observations: recent session-debrief observations
+        // Observations: recency mode — ORDER BY created_at DESC, no BM25
+        // T1900: BM25 against 'session' caused 11-day-old rows to rank above fresh ones
         searchBrainCompact(projectRoot, {
           query: scopeQuery || 'session',
           limit,
           tables: ['observations'],
+          mode: 'recency',
         }),
 
-        // Learnings: recent learnings
+        // Learnings: recency mode — freshest learnings first
+        // T1900: same staleness fix applied to learnings
         searchBrainCompact(projectRoot, {
           query: scopeQuery || 'learning',
           limit: Math.min(limit, 5),
           tables: ['learnings'],
+          mode: 'recency',
         }),
       ]);
 
