@@ -322,7 +322,7 @@ describe('computeBriefing docs context pillar', () => {
     expect(ref.labels).toBeUndefined();
   });
 
-  it('works when no task is focused — only relatedDocs populated', async () => {
+  it('returns docsContext=undefined when no task is focused (guard against unfocused attachment flood)', async () => {
     const attachment = makeAttachmentMeta({ id: 'att-unfocused', kind: 'url' });
 
     mockListByOwner.mockImplementation(async (_ownerType: string, ownerId: string) => {
@@ -337,9 +337,8 @@ describe('computeBriefing docs context pillar', () => {
 
     const briefing = await computeBriefing('/fake/project', { scope: 'global' });
 
-    expect(briefing.docsContext).toBeDefined();
-    expect(briefing.docsContext!.currentTaskDocs).toHaveLength(0);
-    expect(briefing.docsContext!.relatedDocs).toHaveLength(1);
-    expect(briefing.docsContext!.totalDocs).toBe(1);
+    // Without a focused task, relatedDocs must NOT be populated — the filter
+    // task.id !== undefined is trivially true for every task, flooding the briefing.
+    expect(briefing.docsContext).toBeUndefined();
   });
 });
