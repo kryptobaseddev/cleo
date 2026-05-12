@@ -22,6 +22,7 @@
 import { release } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * cleo release ship — composite release: prepare → gates → changelog → commit → tag → push.
@@ -308,7 +309,7 @@ const startCommand = defineCommand({
       epicId: args.epic as string | undefined,
       branch: args.branch as string | undefined,
     });
-    process.stdout.write(`${JSON.stringify(handle, null, 2)}\n`);
+    cliOutput(handle, { command: 'release', operation: 'release.start' });
   },
 });
 
@@ -317,7 +318,7 @@ const verifyCommand = defineCommand({
   meta: { name: 'verify', description: 'Verify release gates + child task gate state' },
   async run() {
     const result = await release.releaseVerify(release.loadActiveReleaseHandle(process.cwd()));
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    cliOutput(result, { command: 'release', operation: 'release.verify' });
     if (!result.passed) process.exit(1);
   },
 });
@@ -330,7 +331,7 @@ const publishCommand = defineCommand({
     const result = await release.releasePublish(release.loadActiveReleaseHandle(process.cwd()), {
       dryRun: args['dry-run'] === true,
     });
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    cliOutput(result, { command: 'release', operation: 'release.publish' });
     if (!result.success) process.exit(1);
   },
 });
@@ -343,7 +344,7 @@ const reconcileCommand = defineCommand({
     const result = await release.releaseReconcile(release.loadActiveReleaseHandle(process.cwd()), {
       dryRun: args['dry-run'] === true,
     });
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    cliOutput(result, { command: 'release', operation: 'release.reconcile' });
     if (!result.success) process.exit(1);
   },
 });

@@ -41,6 +41,7 @@ import type { EpicRollup, WaveRollup } from '@cleocode/contracts';
 import { orchestration } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Format an EpicRollup or WaveRollup as a human-readable terminal table.
@@ -126,11 +127,7 @@ const rollupCommand = defineCommand({
         ? await orchestration.rollupWaveStatus(epicId, Number(args.wave))
         : await orchestration.rollupEpicStatus(epicId);
 
-    if (args.json) {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-      return;
-    }
-    process.stdout.write(`${formatRollupTable(result)}\n`);
+    cliOutput(result, { command: 'orchestrate', operation: 'orchestrate.waves' });
   },
 });
 

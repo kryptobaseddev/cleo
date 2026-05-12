@@ -16,12 +16,12 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { HookMatrixResult, RogueDirReport } from '@cleocode/core/internal';
+import type { HookMatrixResult } from '@cleocode/core/internal';
 import { getProjectRoot, quarantineRogueCleoDir, scanRogueCleoDirs } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { createDoctorProgress } from '../progress.js';
-import { cliError, humanLine } from '../renderers/index.js';
+import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 import { runDoctorProjects } from './doctor-projects.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
 
@@ -190,37 +190,6 @@ function renderHookMatrixHuman(data: HookMatrixResult): void {
 }
 
 /**
- * Render a single {@link RogueDirReport} as a human-readable block.
- *
- * @param report - The forensic report to render.
- */
-function renderRogueReportHuman(report: RogueDirReport): void {
-  const totalKb = (report.totalSize / 1024).toFixed(1);
-  humanLine(`\n  Package: ${report.packageName}`);
-  humanLine(`  Path:    ${report.path}`);
-  humanLine(`  Size:    ${totalKb} KB (${report.fileManifest.length} files)`);
-  humanLine(
-    `  Marker:  ${report.hasProjectInfoMarker ? 'has project-info.json (unexpected!)' : 'no project-info.json (rogue)'}`,
-  );
-
-  const { tasks, brain_observations, brain_decisions } = report.dbRowCounts;
-  if (tasks !== undefined || brain_observations !== undefined) {
-    const parts: string[] = [];
-    if (tasks !== undefined) parts.push(`tasks=${tasks}`);
-    if (brain_observations !== undefined) parts.push(`brain_observations=${brain_observations}`);
-    if (brain_decisions !== undefined) parts.push(`brain_decisions=${brain_decisions}`);
-    humanLine(`  DB rows: ${parts.join(', ')}`);
-  }
-
-  if (report.drizzleMigrations.length > 0) {
-    humanLine(`  Migrations (${report.drizzleMigrations.length}):`);
-    for (const m of report.drizzleMigrations) {
-      humanLine(`    [${m.id}] ${m.name ?? m.hash.slice(0, 16)}`);
-    }
-  }
-}
-
-/**
  * Root doctor command — run system diagnostics and health checks.
  *
  * Global output flags (--json, --human, --quiet) are declared in args so
@@ -347,26 +316,7 @@ export const doctorCommand = defineCommand({
         const projectRoot = getProjectRoot();
         const dashboard = await computeBrainHealthDashboard(projectRoot);
 
-        if (args.json) {
-          process.stdout.write(`${JSON.stringify(dashboard, null, 2)}\n`);
-        } else {
-          process.stdout.write(`\nBrain Health Dashboard (${dashboard.generatedAt})\n`);
-          process.stdout.write('='.repeat(55) + '\n');
-          for (const flag of dashboard.flags) {
-            const icon = flag.status === 'ok' ? '✓' : flag.status === 'warn' ? '⚠' : '✗';
-            const p0 = flag.isP0 ? ' [P0]' : '';
-            process.stdout.write(`  ${icon} ${flag.name}${p0}: ${flag.description}\n`);
-            if (flag.status !== 'ok') {
-              process.stdout.write(`      → ${flag.remediationHint}\n`);
-            }
-          }
-          process.stdout.write('\n');
-          if (dashboard.hasP0Failure) {
-            process.stderr.write('P0 failures detected — run remediation steps above.\n');
-          } else {
-            process.stdout.write('Brain health: all checks passed.\n');
-          }
-        }
+        cliOutput(dashboard, { command: 'doctor', operation: 'doctor.brain' });
 
         if (dashboard.hasP0Failure) {
           process.exitCode = 1;
@@ -380,30 +330,14 @@ export const doctorCommand = defineCommand({
         const matches = await scanTestFixturesInProd(projectRoot);
         const dryRun = args['dry-run'] !== false && args.quarantine !== true;
 
-        if (args.json) {
-          process.stdout.write(
-            `${JSON.stringify({ success: true, data: { matches, dryRun } }, null, 2)}\n`,
-          );
-        } else {
-          process.stdout.write('\nTest-fixture scan results:\n');
-          process.stdout.write('='.repeat(55) + '\n');
-          if (matches.length === 0) {
-            process.stdout.write('  No fixture rows detected.\n');
-          } else {
-            for (const m of matches) {
-              process.stdout.write(
-                `  [${m.confidence}] id=${m.id} title="${m.title}" — ${m.rationale}\n`,
-              );
-            }
-            process.stdout.write(`\n  Total: ${matches.length} row(s)\n`);
-          }
-          if (!dryRun && matches.length > 0) {
-            const quarantined = await quarantineTestFixtures(projectRoot, matches);
-            process.stdout.write(`\n  Quarantined: ${quarantined} row(s) → .cleo/quarantine/\n`);
-          } else if (dryRun && matches.length > 0) {
-            process.stdout.write('\n  Dry-run mode — pass --quarantine to move rows.\n');
-          }
-        }
+        const quarantined =
+          !dryRun && matches.length > 0
+            ? await quarantineTestFixtures(projectRoot, matches)
+            : undefined;
+        cliOutput(
+          { matches, dryRun, quarantined },
+          { command: 'doctor', operation: 'doctor.scan-test-fixtures' },
+        );
 
         if (matches.some((m) => m.confidence === 'HIGH')) {
           process.exitCode = 1;
@@ -492,19 +426,7 @@ export const doctorCommand = defineCommand({
           `Found ${reports.length} rogue .cleo/ director${reports.length === 1 ? 'y' : 'ies'}`,
         );
 
-        if (args.json) {
-          process.stdout.write(JSON.stringify({ success: true, data: reports }, null, 2) + '\n');
-        } else {
-          if (reports.length === 0) {
-            humanLine('\nNo rogue .cleo/ directories found.');
-          } else {
-            humanLine(`\nRogue .cleo/ directories (${reports.length}):`);
-            for (const report of reports) {
-              renderRogueReportHuman(report);
-            }
-            humanLine('');
-          }
-        }
+        cliOutput(reports, { command: 'doctor', operation: 'doctor.scan-rogue-cleo-dirs' });
       } else if (args['quarantine-rogue-cleo-dirs']) {
         const isDryRun = args['dry-run'] === true;
         progress.step(0, `${isDryRun ? '[DRY RUN] ' : ''}Scanning for rogue .cleo/ directories`);
@@ -513,13 +435,10 @@ export const doctorCommand = defineCommand({
 
         if (reports.length === 0) {
           progress.complete('No rogue .cleo/ directories found — nothing to quarantine');
-          if (!args.json) {
-            humanLine('\nNo rogue .cleo/ directories found.');
-          } else {
-            process.stdout.write(
-              JSON.stringify({ success: true, data: { quarantined: [] } }, null, 2) + '\n',
-            );
-          }
+          cliOutput(
+            { quarantined: [] },
+            { command: 'doctor', operation: 'doctor.quarantine-rogue-dirs' },
+          );
           return;
         }
 
@@ -559,27 +478,12 @@ export const doctorCommand = defineCommand({
           `${verb} ${quarantined.length} director${quarantined.length === 1 ? 'y' : 'ies'}${errors.length > 0 ? `, ${errors.length} failed` : ''}`,
         );
 
-        if (args.json) {
-          process.stdout.write(
-            JSON.stringify(
-              { success: errors.length === 0, data: { dryRun: isDryRun, quarantined, errors } },
-              null,
-              2,
-            ) + '\n',
-          );
-        } else {
-          humanLine(`\n${verb}:`);
-          for (const q of quarantined) {
-            humanLine(`  ${q.packageName}: ${q.from}\n    -> ${q.to}`);
-          }
-          if (errors.length > 0) {
-            humanLine(`\nErrors (${errors.length}):`);
-            for (const e of errors) {
-              humanLine(`  ${e.packageName}: ${e.error}`);
-            }
-            process.exitCode = 1;
-          }
-          humanLine('');
+        cliOutput(
+          { dryRun: isDryRun, quarantined, errors },
+          { command: 'doctor', operation: 'doctor.quarantine-rogue-dirs' },
+        );
+        if (errors.length > 0) {
+          process.exitCode = 1;
         }
       } else if (args['scan-stray-nexus-dbs']) {
         progress.step(0, 'Scanning for stray nexus.db files');
@@ -612,52 +516,20 @@ export const doctorCommand = defineCommand({
           `Found ${legacyResult.removed.length} legacy + ${strayResult.removed ? 1 : 0} stray nexus.db`,
         );
 
-        if (args.json) {
-          process.stdout.write(JSON.stringify({ success: true, data: report }, null, 2) + '\n');
-        } else {
-          humanLine(`\nStray nexus.db scan (${isDryRun ? 'DRY RUN — no files touched' : 'live'})`);
-          humanLine(`  CLEO home:  ${cleoHome}`);
-          humanLine(`  Project:    ${projectRoot}`);
-          if (legacyResult.removed.length > 0) {
-            humanLine(`\n  Legacy files removed (${legacyResult.removed.length}):`);
-            for (const f of legacyResult.removed) {
-              humanLine(`    ✓ ${f}`);
-            }
-          } else {
-            humanLine('\n  No legacy files found.');
-          }
-          humanLine(
-            `\n  Stray project nexus.db: ${strayResult.removed ? '✓ removed' : 'not found'} (${strayResult.path})`,
-          );
-          humanLine('');
-        }
+        cliOutput(report, { command: 'doctor', operation: 'doctor.scan-stray-nexus-dbs' });
       } else if (args['audit-worktrees']) {
         progress.step(0, 'Auditing orphaned agent worktrees');
         const { auditOrphanWorktrees } = await import('@cleocode/core/internal');
         const checkResult = auditOrphanWorktrees();
         progress.complete(`Worktree audit complete — ${checkResult.status}`);
 
-        if (args.json) {
-          process.stdout.write(
-            JSON.stringify({ success: true, data: checkResult }, null, 2) + '\n',
-          );
-        } else {
-          humanLine(`\nWorktree orphan audit: ${checkResult.message}`);
-          const orphans = checkResult.details?.['orphans'] as Array<{
-            path: string;
-            ageLabel: string;
-          }>;
-          if (orphans && orphans.length > 0) {
-            for (const o of orphans) {
-              humanLine(`  ${o.path}  (${o.ageLabel} old)`);
-            }
-            humanLine('\nRun: cleo gc --worktrees to remove orphaned worktrees.\n');
-            if (process.exitCode === undefined || process.exitCode === 0) {
-              process.exitCode = 2;
-            }
-          } else {
-            humanLine('  No orphaned worktrees found.\n');
-          }
+        cliOutput(checkResult, { command: 'doctor', operation: 'doctor.audit-worktrees' });
+        if (
+          checkResult.details?.['orphans'] &&
+          (checkResult.details['orphans'] as unknown[]).length > 0 &&
+          (process.exitCode === undefined || process.exitCode === 0)
+        ) {
+          process.exitCode = 2;
         }
       } else if (args['audit-temp']) {
         progress.step(0, 'Auditing orphaned CLEO temp directories');
@@ -665,27 +537,13 @@ export const doctorCommand = defineCommand({
         const checkResult = await auditOrphanTempDirs();
         progress.complete(`Temp audit complete — ${checkResult.status}`);
 
-        if (args.json) {
-          process.stdout.write(
-            JSON.stringify({ success: true, data: checkResult }, null, 2) + '\n',
-          );
-        } else {
-          humanLine(`\nTemp dir orphan audit: ${checkResult.message}`);
-          const orphans = checkResult.details?.['orphans'] as Array<{
-            path: string;
-            age: string;
-          }>;
-          if (orphans && orphans.length > 0) {
-            for (const o of orphans) {
-              humanLine(`  ${o.path}  (${o.age} old)`);
-            }
-            humanLine('\nRun: cleo gc --temp to remove orphaned temp directories.\n');
-            if (process.exitCode === undefined || process.exitCode === 0) {
-              process.exitCode = 2;
-            }
-          } else {
-            humanLine('  No orphaned CLEO temp directories found.\n');
-          }
+        cliOutput(checkResult, { command: 'doctor', operation: 'doctor.audit-temp' });
+        if (
+          checkResult.details?.['orphans'] &&
+          (checkResult.details['orphans'] as unknown[]).length > 0 &&
+          (process.exitCode === undefined || process.exitCode === 0)
+        ) {
+          process.exitCode = 2;
         }
       } else {
         progress.step(0, 'Checking CLEO directory');
