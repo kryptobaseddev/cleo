@@ -29,7 +29,7 @@ import {
   type ProjectHealthStatus,
 } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
-import { humanLine } from '../renderers/index.js';
+import { cliOutput, humanLine } from '../renderers/index.js';
 
 /** Options understood by {@link runDoctorProjects}. */
 export interface RunDoctorProjectsOptions {
@@ -86,19 +86,19 @@ export function printDoctorProjectsReport(
   const exitCode = deriveExitCode(summary, opts.ignoreUnreachable === true);
   process.exitCode = exitCode;
 
-  if (opts.json === true) {
-    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-    return;
-  }
-
-  if (opts.quiet === true) {
-    process.stdout.write(
-      `projects=${summary.totalProjects} ` +
-        `healthy=${summary.healthy} ` +
-        `degraded=${summary.degraded} ` +
-        `unreachable=${summary.unreachable} ` +
-        `unknown=${summary.unknown} ` +
-        `global=${report.global.overall}\n`,
+  if (opts.json === true || opts.quiet === true) {
+    cliOutput(
+      opts.quiet
+        ? {
+            projects: summary.totalProjects,
+            healthy: summary.healthy,
+            degraded: summary.degraded,
+            unreachable: summary.unreachable,
+            unknown: summary.unknown,
+            global: report.global.overall,
+          }
+        : report,
+      { command: 'doctor-projects', operation: 'doctor.projects' },
     );
     return;
   }

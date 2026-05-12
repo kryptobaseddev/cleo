@@ -58,25 +58,10 @@ const findCommand = defineCommand({
 
       const result = await searchDocs(query, { limit: Number.isNaN(limit) ? 10 : limit });
 
-      if (args.json) {
-        cliOutput(result, {
-          command: 'agent-outputs find',
-          operation: 'docs.agent-outputs.find',
-        });
-        return;
-      }
-
-      // Human-readable output
-      if (result.hits.length === 0) {
-        console.log(`No agent output documents found matching "${query}".`);
-        return;
-      }
-
-      console.log(`Found ${result.hits.length} result(s) for "${query}":\n`);
-      for (const hit of result.hits) {
-        const score = typeof hit.score === 'number' ? ` (score: ${hit.score.toFixed(3)})` : '';
-        console.log(`  ${hit.name ?? hit.id}${score}`);
-      }
+      cliOutput(result, {
+        command: 'agent-outputs find',
+        operation: 'docs.agent-outputs.find',
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       cliError(`agent-outputs find failed: ${message}`, ExitCode.GENERAL_ERROR);

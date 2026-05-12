@@ -25,7 +25,7 @@ import {
   RESTORE_CONFLICTS_MD,
   RESTORE_IMPORTED_SUBDIR,
 } from '../paths.js';
-import { humanInfo } from '../renderers/index.js';
+import { cliOutput, humanInfo } from '../renderers/index.js';
 import { backupInspectSubCommand } from './backup-inspect.js';
 
 // ---------------------------------------------------------------------------
@@ -223,17 +223,15 @@ const exportCommand = defineCommand({
         passphrase,
         projectName: args.name,
       });
-      process.stdout.write(
-        JSON.stringify({
-          ok: true,
-          r: {
-            bundlePath: result.bundlePath,
-            size: result.size,
-            fileCount: result.fileCount,
-            scope,
-            encrypted: args.encrypt === true,
-          },
-        }) + '\n',
+      cliOutput(
+        {
+          bundlePath: result.bundlePath,
+          size: result.size,
+          fileCount: result.fileCount,
+          scope,
+          encrypted: args.encrypt === true,
+        },
+        { command: 'backup', operation: 'backup.add' },
       );
       humanInfo(
         `Bundle written to ${result.bundlePath} (${result.size} bytes, ${result.fileCount} files)`,
@@ -457,20 +455,18 @@ const importCommand = defineCommand({
       const totalConflicts = jsonReports.reduce((sum, r) => sum + r.conflictCount, 0);
       const conflictReportPath = path.join(projectRoot, CLEO_DIR_NAME, RESTORE_CONFLICTS_MD);
 
-      process.stdout.write(
-        JSON.stringify({
-          ok: true,
-          r: {
-            imported: bundlePath,
-            dbsRestored: manifest.databases.length,
-            jsonReports: jsonReports.map((r) => ({
-              filename: r.filename,
-              conflicts: r.conflictCount,
-            })),
-            totalConflicts,
-            conflictReportPath,
-          },
-        }) + '\n',
+      cliOutput(
+        {
+          imported: bundlePath,
+          dbsRestored: manifest.databases.length,
+          jsonReports: jsonReports.map((r) => ({
+            filename: r.filename,
+            conflicts: r.conflictCount,
+          })),
+          totalConflicts,
+          conflictReportPath,
+        },
+        { command: 'backup', operation: 'backup.import' },
       );
 
       if (totalConflicts > 0) {

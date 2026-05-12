@@ -2726,16 +2726,7 @@ const mintCommand = defineCommand({
 
       const specPath = resolve(args.spec);
       if (!existsSync(specPath)) {
-        if (args.json) {
-          const errEnv = {
-            success: false,
-            error: { code: 'E_NOT_FOUND', message: `spec file not found: ${specPath}` },
-            meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
-          };
-          process.stdout.write(JSON.stringify(errEnv, null, 2) + '\n');
-        } else {
-          cliError(`spec file not found: ${specPath}`, 4, { name: 'E_NOT_FOUND' });
-        }
+        cliError(`spec file not found: ${specPath}`, 4, { name: 'E_NOT_FOUND' });
         process.exitCode = 4;
         return;
       }
@@ -2748,9 +2739,8 @@ const mintCommand = defineCommand({
       mkdirSync(outputDir, { recursive: true });
 
       if (args['dry-run']) {
-        const preview = {
-          success: true,
-          data: {
+        cliOutput(
+          {
             dryRun: true,
             agentName: 'agent-architect',
             specPath,
@@ -2758,9 +2748,8 @@ const mintCommand = defineCommand({
             projectRoot,
             message: 'Dry-run: would invoke agent-architect with the above tokens',
           },
-          meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
-        };
-        process.stdout.write(JSON.stringify(preview, null, 2) + '\n');
+          { command: 'agent', operation: 'agent.mint' },
+        );
         return;
       }
 
@@ -2776,36 +2765,18 @@ const mintCommand = defineCommand({
       });
 
       if (result.invoked) {
-        const envelope = {
-          success: true,
-          data: {
+        cliOutput(
+          {
             invoked: true,
             outputs: result.outputs ?? [],
             outputDir,
             message: `agent-architect synthesized ${result.outputs?.length ?? 0} agent(s)`,
           },
-          meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
-        };
-        if (args.json) {
-          process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
-        } else {
-          humanLine(`minted ${result.outputs?.length ?? 0} agent(s) to ${outputDir}`);
-          for (const out of result.outputs ?? []) {
-            humanLine(`  + ${out}`);
-          }
-        }
+          { command: 'agent', operation: 'agent.mint' },
+        );
       } else {
         const fallbackMsg = `agent-architect unavailable: ${result.reason ?? 'unknown'}. Run 'cleo agent create' for static scaffolding.`;
-        const envelope = {
-          success: false,
-          error: { code: 'E_META_AGENT_UNAVAILABLE', message: fallbackMsg },
-          meta: { operation: 'agent.mint', timestamp: new Date().toISOString() },
-        };
-        if (args.json) {
-          process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
-        } else {
-          humanWarn(`warn: ${fallbackMsg}`);
-        }
+        cliError(fallbackMsg, 1, { name: 'E_META_AGENT_UNAVAILABLE' });
         process.exitCode = 1;
       }
     } catch (err) {
