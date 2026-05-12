@@ -306,6 +306,8 @@ const ARRAY_PARAMS = new Set([
   'addDepends',
   'removeDepends',
   'files',
+  'addFiles',
+  'removeFiles',
   'acceptance',
   'findings',
   'sources',
