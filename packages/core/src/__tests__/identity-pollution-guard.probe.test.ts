@@ -42,9 +42,11 @@ describe('vitest identity-pollution guard', () => {
     ).not.toThrow();
   });
 
-  it('allows git config --get from anywhere (reads are safe)', () => {
+  it('allows git config --list from anywhere (reads are safe)', () => {
+    // Use --list which always succeeds (even if no keys are set), confirming
+    // read operations are never blocked regardless of environment config state.
     expect(() =>
-      execFileSync('git', ['config', '--get', 'user.email'], { cwd: PROJECT_ROOT, stdio: 'pipe' }),
+      execFileSync('git', ['config', '--list'], { cwd: PROJECT_ROOT, stdio: 'pipe' }),
     ).not.toThrow();
   });
 });
