@@ -22,7 +22,10 @@
  * @epic T1056
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ============================================================================
 // Module mocks — must be hoisted before any dynamic imports
@@ -39,14 +42,16 @@ vi.mock('ai', () => ({
 // Stub the logger so we can assert telemetry calls without spinning up pino.
 // vi.hoisted ensures the spy references are created before vi.mock hoisting runs,
 // preventing "Cannot access before initialization" TDZ errors.
-const { mockLogWarn, mockLogError } = vi.hoisted(() => ({
+const { mockLogWarn, mockLogError, mockLogDebug } = vi.hoisted(() => ({
   mockLogWarn: vi.fn(),
   mockLogError: vi.fn(),
+  mockLogDebug: vi.fn(),
 }));
 vi.mock('../../logger.js', () => ({
   getLogger: vi.fn(() => ({
     warn: mockLogWarn,
     error: mockLogError,
+    debug: mockLogDebug,
   })),
 }));
 
@@ -56,6 +61,7 @@ vi.mock('../../logger.js', () => ({
 
 import { generateObject } from 'ai';
 import {
+  _resetDialecticFailureFingerprintsForTests,
   evaluateDialectic,
   GLOBAL_TRAIT_CONFIDENCE_THRESHOLD,
   PEER_INSIGHT_CONFIDENCE_THRESHOLD,
@@ -99,8 +105,29 @@ function mockBackendUnavailable(): void {
 // Test suite
 // ============================================================================
 
+// Isolate the dialectic-failure fingerprint cache to a per-test-run temp dir so
+// warn-once persistence does not leak across test files or developer machines.
+const TEST_STATE_DIR = mkdtempSync(join(tmpdir(), 'cleo-dialectic-test-'));
+const ORIGINAL_XDG_STATE_HOME = process.env['XDG_STATE_HOME'];
+process.env['XDG_STATE_HOME'] = TEST_STATE_DIR;
+
+afterAll(() => {
+  if (ORIGINAL_XDG_STATE_HOME === undefined) {
+    delete process.env['XDG_STATE_HOME'];
+  } else {
+    process.env['XDG_STATE_HOME'] = ORIGINAL_XDG_STATE_HOME;
+  }
+  rmSync(TEST_STATE_DIR, { recursive: true, force: true });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // Clear filesystem cache between tests so each failure-path test sees a fresh
+  // "first occurrence" warn-once decision.
+  rmSync(join(TEST_STATE_DIR, 'cleo'), { recursive: true, force: true });
+  // Clear in-memory fingerprint cache too, since multiple tests reuse the same
+  // backend+model+errorCode fingerprint (notably Error.name='Error').
+  _resetDialecticFailureFingerprintsForTests();
 });
 
 describe('confidence threshold constants', () => {
@@ -351,25 +378,35 @@ describe('evaluateDialectic — telemetry: no backend available', () => {
   });
 });
 
-describe('evaluateDialectic — telemetry: generateObject failure', () => {
-  it('emits dialectic.generate_object_failed error log on generateObject throw', async () => {
+describe('evaluateDialectic — telemetry: generateObject failure (warn-once)', () => {
+  it('emits dialectic.generate_object_failed warn log on first generateObject throw', async () => {
     mockBackendAvailable();
     const simulatedError = new Error('API rate limited');
     (generateObject as ReturnType<typeof vi.fn>).mockRejectedValueOnce(simulatedError);
 
     await evaluateDialectic(makeTurn({ sessionId: 'ses_telem_err', activePeerId: 'peer-c' }));
 
-    expect(mockLogError).toHaveBeenCalledOnce();
-    const [fields, message] = mockLogError.mock.calls[0] as [Record<string, unknown>, string];
+    // First occurrence per (backend|model|errorCode) fingerprint logs at WARN.
+    // The `no_backend` describe-block above also exercises mockLogWarn, so we
+    // assert this specific call matches our failure-path payload rather than
+    // assert toHaveBeenCalledOnce() across the whole suite.
+    const failurePathCall = mockLogWarn.mock.calls.find(
+      ([fields]) =>
+        (fields as Record<string, unknown>)['event'] === 'dialectic.generate_object_failed',
+    );
+    expect(failurePathCall).toBeDefined();
+    const [fields, message] = failurePathCall as [Record<string, unknown>, string];
     expect(fields).toMatchObject({
       event: 'dialectic.generate_object_failed',
       modelId: 'claude-sonnet-4-6',
       backendName: 'anthropic',
       sessionId: 'ses_telem_err',
       activePeerId: 'peer-c',
+      firstOccurrence: true,
     });
     expect(typeof fields['errorCode']).toBe('string');
     expect(message).toContain('generateObject failed');
+    expect(mockLogError).not.toHaveBeenCalled();
   });
 
   it('includes the error name in errorCode when the thrown error has no .code', async () => {
@@ -379,8 +416,12 @@ describe('evaluateDialectic — telemetry: generateObject failure', () => {
 
     await evaluateDialectic(makeTurn({}));
 
-    expect(mockLogError).toHaveBeenCalledOnce();
-    const [fields] = mockLogError.mock.calls[0] as [Record<string, unknown>, string];
+    const failurePathCall = mockLogWarn.mock.calls.find(
+      ([fields]) =>
+        (fields as Record<string, unknown>)['event'] === 'dialectic.generate_object_failed',
+    );
+    expect(failurePathCall).toBeDefined();
+    const [fields] = failurePathCall as [Record<string, unknown>, string];
     expect(fields['errorCode']).toBe('TypeError');
   });
 
@@ -391,12 +432,16 @@ describe('evaluateDialectic — telemetry: generateObject failure', () => {
 
     await evaluateDialectic(makeTurn({}));
 
-    expect(mockLogError).toHaveBeenCalledOnce();
-    const [fields] = mockLogError.mock.calls[0] as [Record<string, unknown>, string];
+    const failurePathCall = mockLogWarn.mock.calls.find(
+      ([fields]) =>
+        (fields as Record<string, unknown>)['event'] === 'dialectic.generate_object_failed',
+    );
+    expect(failurePathCall).toBeDefined();
+    const [fields] = failurePathCall as [Record<string, unknown>, string];
     expect(fields['errorCode']).toBe('ECONNRESET');
   });
 
-  it('does NOT emit an error log when generateObject succeeds', async () => {
+  it('does NOT emit a warn log when generateObject succeeds', async () => {
     mockBackendAvailable();
     (generateObject as ReturnType<typeof vi.fn>).mockResolvedValue({
       object: { globalTraits: [], peerInsights: [], sessionNarrativeDelta: undefined },
@@ -404,6 +449,11 @@ describe('evaluateDialectic — telemetry: generateObject failure', () => {
 
     await evaluateDialectic(makeTurn({}));
 
+    const failurePathCall = mockLogWarn.mock.calls.find(
+      ([fields]) =>
+        (fields as Record<string, unknown>)['event'] === 'dialectic.generate_object_failed',
+    );
+    expect(failurePathCall).toBeUndefined();
     expect(mockLogError).not.toHaveBeenCalled();
   });
 });

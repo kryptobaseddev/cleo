@@ -40,6 +40,9 @@
 import type { DialecticInsights, DialecticTurn } from '@cleocode/contracts';
 import { generateObject } from 'ai';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
 import { upsertUserProfileTrait } from '../nexus/user-profile.js';
@@ -418,19 +421,109 @@ export async function evaluateDialectic(turn: DialecticTurn): Promise<DialecticI
   } catch (err) {
     const errorCode =
       err instanceof Error ? ((err as { code?: string }).code ?? err.name ?? 'UNKNOWN') : 'UNKNOWN';
-    log.error(
-      {
-        event: 'dialectic.generate_object_failed',
-        errorCode,
-        modelId: backend.modelId,
-        backendName: backend.name,
-        sessionId: turn.sessionId,
-        activePeerId: turn.activePeerId,
-      },
-      'evaluateDialectic: generateObject failed — returning empty insights',
-    );
+    const fingerprint = `${backend.name}|${backend.modelId}|${errorCode}`;
+    const firstOccurrence = recordDialecticFailureFingerprint(fingerprint);
+    const logPayload = {
+      event: 'dialectic.generate_object_failed',
+      errorCode,
+      modelId: backend.modelId,
+      backendName: backend.name,
+      sessionId: turn.sessionId,
+      activePeerId: turn.activePeerId,
+      firstOccurrence,
+    };
+    if (firstOccurrence) {
+      log.warn(
+        logPayload,
+        'evaluateDialectic: generateObject failed — returning empty insights (subsequent identical failures silenced for 24h via state cache)',
+      );
+    } else {
+      log.debug(logPayload, 'evaluateDialectic: generateObject failed (repeat — silenced)');
+    }
     return EMPTY;
   }
+}
+
+/**
+ * State file location for the dialectic-failure fingerprint cache.
+ * Follows XDG conventions: $XDG_STATE_HOME or ~/.local/state.
+ */
+function getDialecticFailureStatePath(): string {
+  const xdgState = process.env['XDG_STATE_HOME'] || join(homedir(), '.local', 'state');
+  return join(xdgState, 'cleo', 'dialectic-failures.json');
+}
+
+/**
+ * TTL after which a previously-logged failure fingerprint becomes loggable
+ * again, so a transient outage that resolves and then recurs is surfaced.
+ */
+const DIALECTIC_FAILURE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Record a dialectic-evaluator failure fingerprint to persistent state.
+ *
+ * Returns `true` if this is the first occurrence (or first since TTL expiry)
+ * — caller should log at WARN. Returns `false` for repeat occurrences within
+ * TTL — caller should log at DEBUG to avoid spam.
+ *
+ * Persists to `~/.local/state/cleo/dialectic-failures.json` so the warn-once
+ * semantics survive across short-lived CLI invocations. Best-effort: any I/O
+ * error degrades to in-memory behavior without disrupting the caller.
+ */
+function recordDialecticFailureFingerprint(fingerprint: string): boolean {
+  if (DIALECTIC_FAILURE_FINGERPRINTS.has(fingerprint)) {
+    return false;
+  }
+  DIALECTIC_FAILURE_FINGERPRINTS.add(fingerprint);
+  const statePath = getDialecticFailureStatePath();
+  let cache: Record<string, number> = {};
+  try {
+    if (existsSync(statePath)) {
+      const raw = readFileSync(statePath, 'utf8');
+      cache = JSON.parse(raw) as Record<string, number>;
+    }
+  } catch {
+    cache = {};
+  }
+  const now = Date.now();
+  // Prune expired entries
+  for (const [fp, ts] of Object.entries(cache)) {
+    if (typeof ts !== 'number' || now - ts > DIALECTIC_FAILURE_TTL_MS) {
+      delete cache[fp];
+    }
+  }
+  const previousTs = cache[fingerprint];
+  const firstOccurrence = !previousTs || now - previousTs > DIALECTIC_FAILURE_TTL_MS;
+  if (firstOccurrence) {
+    cache[fingerprint] = now;
+    try {
+      mkdirSync(dirname(statePath), { recursive: true });
+      writeFileSync(statePath, JSON.stringify(cache));
+    } catch {
+      // Best-effort persistence; silent on I/O errors
+    }
+  }
+  return firstOccurrence;
+}
+
+/**
+ * In-process cache of dialectic-evaluator failure fingerprints. Combines with
+ * the filesystem cache via {@link recordDialecticFailureFingerprint} to provide
+ * warn-once semantics that survive process restarts.
+ */
+const DIALECTIC_FAILURE_FINGERPRINTS = new Set<string>();
+
+/**
+ * Clear the in-process dialectic-failure fingerprint cache.
+ *
+ * Test-only: used by `beforeEach` hooks to isolate warn-once state between
+ * tests that exercise different fingerprints. Not part of the runtime contract
+ * — production callers should rely on the natural process boundary + TTL.
+ *
+ * @internal
+ */
+export function _resetDialecticFailureFingerprintsForTests(): void {
+  DIALECTIC_FAILURE_FINGERPRINTS.clear();
 }
 
 // ============================================================================
