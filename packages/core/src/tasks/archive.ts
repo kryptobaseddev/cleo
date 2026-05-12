@@ -15,6 +15,7 @@ import { type EngineResult, engineSuccess } from '../engine-result.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { safeAppendLog } from '../store/data-safety-central.js';
+import { archiveVerifier } from './verifier-gc.js';
 
 /**
  * Truth-grade `archiveReason` values stamped by the bulk-archive path.
@@ -200,6 +201,12 @@ export async function archiveTasks(
     },
     cwd,
   );
+
+  // T9225 / ADR-070: verifier GC — move archived task verifiers to _archived/
+  const projectRoot = cwd ?? process.cwd();
+  for (const id of archived) {
+    archiveVerifier(id, projectRoot);
+  }
 
   return { archived, skipped, total: totalActive };
 }

@@ -506,6 +506,8 @@ export {
 } from './tasks/severity-attestation.js';
 export { showTask } from './tasks/show.js';
 export { updateTask } from './tasks/update.js';
+// Verifier lifecycle GC hooks — archive/delete/backup (T9225 / ADR-070)
+export { archiveVerifier, backupVerifiersDir, deleteVerifier } from './tasks/verifier-gc.js';
 // Verifier runner — resolver, executor, backfill (T9219 / ADR-070)
 export {
   type BackfillAllResult,

@@ -27,6 +27,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoDir, getCleoHome } from '../paths.js';
+import { backupVerifiersDir } from '../tasks/verifier-gc.js';
 import { getConduitNativeDb } from './conduit-sqlite.js';
 import { getGlobalSaltPath } from './global-salt.js';
 import { getBrainNativeDb } from './memory-sqlite.js';
@@ -244,6 +245,9 @@ export async function vacuumIntoBackupAll(opts: VacuumOptions = {}): Promise<voi
       // non-fatal — continue with remaining targets
     }
   }
+
+  // T9225 / ADR-070: also snapshot .cleo/verifiers/ directory
+  backupVerifiersDir(opts.cwd ?? process.cwd());
 }
 
 /**

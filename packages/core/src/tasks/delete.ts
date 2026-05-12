@@ -12,6 +12,7 @@ import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { taskToRecord } from './engine-converters.js';
+import { deleteVerifier } from './verifier-gc.js';
 
 /** Options for deleting a task. */
 export interface DeleteTaskOptions {
@@ -156,6 +157,13 @@ export async function deleteTask(
       },
     });
   });
+
+  // T9225 / ADR-070: verifier GC — remove verifier files for deleted tasks
+  const projectRoot = cwd ?? process.cwd();
+  deleteVerifier(options.taskId, projectRoot);
+  for (const id of cascadeDeleted) {
+    deleteVerifier(id, projectRoot);
+  }
 
   return {
     deletedTask: task,
