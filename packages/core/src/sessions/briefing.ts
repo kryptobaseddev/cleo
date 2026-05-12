@@ -723,6 +723,7 @@ function computeActiveEpics(
       title: string;
       type?: string;
       status?: string;
+      origin?: string | null;
     };
 
     if (options.scopeTaskIds && !options.scopeTaskIds.has(t.id)) continue;
@@ -730,8 +731,16 @@ function computeActiveEpics(
     if (t.type !== 'epic') continue;
     if (t.status === 'done' || t.status === 'cancelled' || t.status === 'archived') continue;
 
-    // T1894: exclude test-fixture epics (heuristic — pending W3-1 origin column)
-    if (isTestFixtureEpic(t.id, t.title)) continue;
+    // T1899: if origin is set, use it as authoritative filter.
+    // origin='test-fixture' rows are excluded; origin='production'/'imported'/'migrated' are included.
+    if (t.origin === 'test-fixture') continue;
+    // If origin is explicitly set to a non-fixture value, include it (skip heuristic).
+    if (t.origin != null && t.origin !== 'test-fixture') {
+      // origin is set and not test-fixture — include without heuristic check
+    } else {
+      // T1894: fallback heuristic for rows without origin set
+      if (isTestFixtureEpic(t.id, t.title)) continue;
+    }
 
     const completionPercent = calculateEpicCompletion(t.id, taskMap);
     epics.push({
