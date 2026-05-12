@@ -395,4 +395,190 @@ describe('updateTask', () => {
       expect(result.changes).toContain('priority');
     });
   });
+
+  describe('blockedBy set/clear (T9241)', () => {
+    it('sets blockedBy reason text', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask(
+        { taskId: 'T001', blockedBy: 'waiting on infra' },
+        env.tempDir,
+        accessor,
+      );
+      expect(result.task.blockedBy).toBe('waiting on infra');
+      expect(result.changes).toContain('blockedBy');
+    });
+
+    it('clears blockedBy via --clear-blocked-by flag', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          blockedBy: 'waiting on infra',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask(
+        { taskId: 'T001', clearBlockedBy: true },
+        env.tempDir,
+        accessor,
+      );
+      expect(result.task.blockedBy).toBeUndefined();
+      expect(result.changes).toContain('blockedBy');
+    });
+
+    it('auto-clears blockedBy when set to empty string', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          blockedBy: 'waiting on infra',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask({ taskId: 'T001', blockedBy: '' }, env.tempDir, accessor);
+      expect(result.task.blockedBy).toBeUndefined();
+      expect(result.changes).toContain('blockedBy');
+    });
+
+    it('stale text does not persist in cleo show after clear', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          blockedBy: 'stale reason',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      await updateTask({ taskId: 'T001', clearBlockedBy: true }, env.tempDir, accessor);
+      const reloaded = await accessor.loadSingleTask('T001');
+      expect(reloaded?.blockedBy).toBeUndefined();
+    });
+  });
+
+  describe('files add/remove (T9242)', () => {
+    it('sets files via --files (replace)', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask(
+        { taskId: 'T001', files: ['src/a.ts', 'src/b.ts'] },
+        env.tempDir,
+        accessor,
+      );
+      expect(result.task.files).toEqual(['src/a.ts', 'src/b.ts']);
+      expect(result.changes).toContain('files');
+    });
+
+    it('adds files without replacing existing via addFiles', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          files: ['src/a.ts'],
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask(
+        { taskId: 'T001', addFiles: ['src/b.ts', 'src/c.ts'] },
+        env.tempDir,
+        accessor,
+      );
+      expect(result.task.files).toContain('src/a.ts');
+      expect(result.task.files).toContain('src/b.ts');
+      expect(result.task.files).toContain('src/c.ts');
+      expect(result.changes).toContain('files');
+    });
+
+    it('addFiles deduplicates — does not add already-present files twice', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          files: ['src/a.ts'],
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask(
+        { taskId: 'T001', addFiles: ['src/a.ts', 'src/b.ts'] },
+        env.tempDir,
+        accessor,
+      );
+      const files = result.task.files ?? [];
+      expect(files.filter((f) => f === 'src/a.ts')).toHaveLength(1);
+      expect(files).toContain('src/b.ts');
+    });
+
+    it('removes specific files via removeFiles', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          files: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask(
+        { taskId: 'T001', removeFiles: ['src/b.ts'] },
+        env.tempDir,
+        accessor,
+      );
+      expect(result.task.files).not.toContain('src/b.ts');
+      expect(result.task.files).toContain('src/a.ts');
+      expect(result.task.files).toContain('src/c.ts');
+      expect(result.changes).toContain('files');
+    });
+
+    it('removeFiles on empty files list is a no-op', async () => {
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Task',
+          status: 'pending',
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const result = await updateTask(
+        { taskId: 'T001', removeFiles: ['src/a.ts'] },
+        env.tempDir,
+        accessor,
+      );
+      expect(result.task.files ?? []).toHaveLength(0);
+    });
+  });
 });

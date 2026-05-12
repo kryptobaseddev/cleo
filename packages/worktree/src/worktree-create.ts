@@ -40,6 +40,7 @@ interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
   appliedExcludePatterns: string[];
 }
 
+import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
 import { getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
 import {
   computeProjectHash,
@@ -173,9 +174,42 @@ export async function createWorktree(
 
   let reused: boolean;
   if (branchExists) {
-    // Attach to the existing branch — no -b flag.
-    gitSync(['worktree', 'add', worktreePath, branch], gitRoot);
-    reused = true;
+    // T1927: detect orphan history — commits on task/<taskId> that are not
+    // reachable from baseRef. This happens when test fixtures or prior aborted
+    // sessions leave branches with unrelated commits (e.g. T1878 integration
+    // tests creating fixture commits on task/ branches). Merging such a branch
+    // would import garbage history into the integration base.
+    const orphanLog = gitSync(['log', '--format=%H', `${baseRef}..${branch}`], gitRoot).trim();
+    const orphanCommits = orphanLog
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (orphanCommits.length > 0) {
+      if (options.forceReset) {
+        // Caller explicitly requested reset — delete the stale branch so we
+        // fall through to the fresh-branch creation path below.
+        gitSilent(['branch', '-D', branch], gitRoot);
+        // Fall through: branchExists will be false for the recreate below.
+        gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
+        reused = false;
+      } else {
+        throw Object.assign(
+          new Error(
+            `${BRANCH_LOCK_ERROR_CODES.E_DIRTY_BRANCH}: branch "${branch}" has ` +
+              `${orphanCommits.length} commit(s) not reachable from "${baseRef}". ` +
+              `This indicates orphan history from a test fixture or prior session. ` +
+              `Delete the branch manually (\`git branch -D ${branch}\`) or pass ` +
+              `{ forceReset: true } to createWorktree.`,
+          ),
+          { code: BRANCH_LOCK_ERROR_CODES.E_DIRTY_BRANCH, orphanCommits },
+        );
+      }
+    } else {
+      // Branch exists but is clean (points to baseRef or an ancestor) — safe to reuse.
+      gitSync(['worktree', 'add', worktreePath, branch], gitRoot);
+      reused = true;
+    }
   } else {
     // Create the worktree with a new branch.
     gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);

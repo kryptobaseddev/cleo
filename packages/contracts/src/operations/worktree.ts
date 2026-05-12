@@ -155,6 +155,19 @@ export interface CreateWorktreeOptions {
    * @task T9226
    */
   spawnCloneExcludeExempt?: readonly string[];
+  /**
+   * When `true`, forcibly reset an existing `task/<taskId>` branch that has
+   * orphan commits (commits not reachable from `baseRef`).
+   *
+   * Without this flag, `createWorktree` throws `E_DIRTY_BRANCH` when an orphan
+   * branch is detected so the caller can investigate before losing history.
+   * Set to `true` only when you are certain the prior branch state is stale and
+   * safe to discard (e.g. CI retry or integration-test re-runs).
+   *
+   * @default false
+   * @task T1927
+   */
+  forceReset?: boolean;
 }
 
 /**
