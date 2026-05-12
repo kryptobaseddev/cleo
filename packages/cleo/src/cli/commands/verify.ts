@@ -43,9 +43,15 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { generateVerifierStub, getProjectRoot, writeVerifierStub } from '@cleocode/core';
+import {
+  computeAcHash,
+  extractAcHashFromSource,
+  generateVerifierStub,
+  getProjectRoot,
+  writeVerifierStub,
+} from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 
@@ -439,6 +445,39 @@ export const verifyCommand = defineCommand({
       }
 
       process.stdout.write(`Verifier passed (exit 0). Proceeding with gate operation.\n`);
+
+      // T9224 / ADR-070: AC drift detection.
+      // Extract @acHash from the verifier source and compare against current AC.
+      try {
+        const verifierSource = readFileSync(verifierPath, 'utf8');
+        const verifierAcHash = extractAcHashFromSource(verifierSource);
+        if (verifierAcHash) {
+          const taskResp = await dispatchRaw('query', 'tasks', 'show', {
+            taskId: String(args.taskId),
+          });
+          if (taskResp.success) {
+            const rawAcceptance = (taskResp.data as { task?: { acceptance?: unknown[] } })?.task
+              ?.acceptance;
+            const acBullets: string[] = Array.isArray(rawAcceptance)
+              ? rawAcceptance.filter((a): a is string => typeof a === 'string')
+              : [];
+            if (acBullets.length > 0) {
+              const currentHash = computeAcHash(acBullets);
+              if (currentHash !== verifierAcHash) {
+                process.stderr.write(
+                  `\nAC_DRIFT WARNING: acceptance criteria changed since verifier was generated.\n` +
+                    `  Verifier @acHash : ${verifierAcHash}\n` +
+                    `  Current AC hash  : ${currentHash}\n` +
+                    `  Suggestion: cleo verify backfill ${args.taskId} --force\n` +
+                    `  (T9224 / ADR-070)\n`,
+                );
+              }
+            }
+          }
+        }
+      } catch {
+        // AC drift check is best-effort — never block gate writes
+      }
     }
 
     const isWrite = !!(args.gate || args.all || args.reset);

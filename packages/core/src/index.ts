@@ -506,5 +506,10 @@ export {
 } from './tasks/severity-attestation.js';
 export { showTask } from './tasks/show.js';
 export { updateTask } from './tasks/update.js';
-// Verifier auto-stub generator (T9218 / ADR-070)
-export { generateVerifierStub, writeVerifierStub } from './tasks/verifier-stub-generator.js';
+// Verifier auto-stub generator (T9218 / ADR-070) + AC drift detection (T9224 / ADR-070)
+export {
+  computeAcHash,
+  extractAcHashFromSource,
+  generateVerifierStub,
+  writeVerifierStub,
+} from './tasks/verifier-stub-generator.js';
