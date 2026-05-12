@@ -19,6 +19,7 @@ vi.mock('../../lib/engine.js', () => ({
   taskTree: vi.fn(),
   taskRelates: vi.fn(),
   taskRelatesAdd: vi.fn(),
+  taskRelatesRemove: vi.fn(),
   taskAnalyze: vi.fn(),
   taskRestore: vi.fn(),
   taskReorder: vi.fn(),
@@ -73,6 +74,7 @@ import {
   taskNext,
   taskRelates,
   taskRelatesAdd,
+  taskRelatesRemove,
   taskReorder,
   taskReparent,
   taskRestore,
@@ -135,6 +137,7 @@ describe('TasksHandler', () => {
         'reparent',
         'reorder',
         'relates.add',
+        'relates.remove',
         'start',
         'stop',
         'sync.reconcile',
@@ -901,6 +904,27 @@ describe('TasksHandler', () => {
 
     it('relates.add - returns error when params missing', async () => {
       const result = await handler.mutate('relates.add', { taskId: 'T001' });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('relates.remove - delegates to taskRelatesRemove', async () => {
+      vi.mocked(taskRelatesRemove).mockResolvedValue({
+        success: true,
+        data: { from: 'T001', to: 'T002', removed: true },
+      });
+
+      const result = await handler.mutate('relates.remove', {
+        taskId: 'T001',
+        relatedId: 'T002',
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskRelatesRemove).toHaveBeenCalledWith('/mock/project', 'T001', 'T002', undefined);
+    });
+
+    it('relates.remove - returns error when relatedId missing', async () => {
+      const result = await handler.mutate('relates.remove', { taskId: 'T001' });
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
     });

@@ -230,11 +230,17 @@ export async function tasksUpdateOp(
     type?: TaskType;
     size?: TaskSize;
     files?: string[];
+    /** Add files incrementally. @task T9242 */
+    addFiles?: string[];
+    /** Remove files incrementally. @task T9242 */
+    removeFiles?: string[];
     pipelineStage?: string;
     kind?: TaskKind;
     scope?: TaskScope;
     /** Severity level — valid for any role (T9073). Orthogonal to priority. */
     severity?: TaskSeverity;
+    /** Clear the blockedBy free-text reason. @task T9241 */
+    clearBlockedBy?: boolean;
   },
 ): Promise<UpdateTaskResult> {
   return updateTask(
@@ -257,10 +263,13 @@ export async function tasksUpdateOp(
       type: params.type,
       size: params.size,
       files: params.files,
+      addFiles: params.addFiles,
+      removeFiles: params.removeFiles,
       pipelineStage: params.pipelineStage,
       kind: params.kind,
       scope: params.scope,
       severity: params.severity,
+      clearBlockedBy: params.clearBlockedBy,
     },
     projectRoot,
   );
@@ -407,6 +416,7 @@ export declare const tasksCoreOps: {
   readonly reparent: TaskCoreOperation<'reparent'>;
   readonly reorder: TaskCoreOperation<'reorder'>;
   readonly 'relates.add': TaskCoreOperation<'relates.add'>;
+  readonly 'relates.remove': TaskCoreOperation<'relates.remove'>;
   readonly start: TaskCoreOperation<'start'>;
   readonly stop: TaskCoreOperation<'stop'>;
   readonly 'sync.reconcile': TaskCoreOperation<'sync.reconcile'>;

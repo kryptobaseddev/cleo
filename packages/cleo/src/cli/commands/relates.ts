@@ -4,11 +4,13 @@
  * Commands:
  *   cleo relates suggest <taskId>              — suggest related tasks
  *   cleo relates add <from> <to> <type> <reason> — add a relationship
+ *   cleo relates remove <from> <to>            — remove a relationship
  *   cleo relates discover <taskId>             — discover related tasks
  *   cleo relates list <taskId>                 — list existing relationships
  *
  * @task T4538
  * @epic T4454
+ * @task T9240
  */
 
 import { defineCommand, showUsage } from 'citty';
@@ -101,6 +103,40 @@ const discoverCommand = defineCommand({
   },
 });
 
+/** cleo relates remove — remove a relates entry between two tasks */
+const removeCommand = defineCommand({
+  meta: {
+    name: 'remove',
+    description: 'Remove a relates entry between two tasks',
+  },
+  args: {
+    from: {
+      type: 'positional',
+      description: 'Source task ID',
+      required: true,
+    },
+    to: {
+      type: 'positional',
+      description: 'Target task ID',
+      required: true,
+    },
+    type: {
+      type: 'string',
+      description: 'Relation type to remove (omit to remove any type)',
+      required: false,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'relates.remove',
+      { taskId: args.from, relatedId: args.to, type: args.type },
+      { command: 'relates' },
+    );
+  },
+});
+
 /** cleo relates list — show existing relates entries for a task */
 const listCommand = defineCommand({
   meta: { name: 'list', description: 'Show existing relates entries for a task' },
@@ -135,6 +171,7 @@ export const relatesCommand = defineCommand({
   subCommands: {
     suggest: suggestCommand,
     add: addCommand,
+    remove: removeCommand,
     discover: discoverCommand,
     list: listCommand,
   },

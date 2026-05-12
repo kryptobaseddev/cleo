@@ -305,6 +305,103 @@ describe('Task Relations Persistence (T5168)', () => {
     });
   });
 
+  describe('Removal', () => {
+    it('should remove a relation between tasks', async () => {
+      const task1: Task = {
+        id: 'T001',
+        title: 'Task 1',
+        description: 'Description for task 1',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      };
+      const task2: Task = {
+        id: 'T002',
+        title: 'Task 2',
+        description: 'Description for task 2',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      };
+
+      await accessor.upsertSingleTask(task1);
+      await accessor.upsertSingleTask(task2);
+
+      await accessor.addRelation('T001', 'T002', 'blocks');
+      const before = await accessor.loadSingleTask('T001');
+      expect(before?.relates).toHaveLength(1);
+
+      await accessor.removeRelation('T001', 'T002');
+      const after = await accessor.loadSingleTask('T001');
+      expect(after?.relates).toHaveLength(0);
+    });
+
+    it('should remove only matching relation type when type is specified', async () => {
+      const task1: Task = {
+        id: 'T001',
+        title: 'Task 1',
+        description: 'Description for task 1',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      };
+      const task2: Task = {
+        id: 'T002',
+        title: 'Task 2',
+        description: 'Description for task 2',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      };
+      const task3: Task = {
+        id: 'T003',
+        title: 'Task 3',
+        description: 'Description for task 3',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      };
+
+      await accessor.upsertSingleTask(task1);
+      await accessor.upsertSingleTask(task2);
+      await accessor.upsertSingleTask(task3);
+
+      await accessor.addRelation('T001', 'T002', 'blocks');
+      await accessor.addRelation('T001', 'T003', 'duplicates');
+
+      // Remove with no type should remove the T001->T002 relation entirely
+      await accessor.removeRelation('T001', 'T002');
+      const after = await accessor.loadSingleTask('T001');
+      expect(after?.relates).toHaveLength(1);
+      expect(after?.relates?.[0]).toMatchObject({ taskId: 'T003', type: 'duplicates' });
+    });
+
+    it('should be idempotent — removing a non-existent relation does not throw', async () => {
+      const task1: Task = {
+        id: 'T001',
+        title: 'Task 1',
+        description: 'Description for task 1',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      };
+      const task2: Task = {
+        id: 'T002',
+        title: 'Task 2',
+        description: 'Description for task 2',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      };
+
+      await accessor.upsertSingleTask(task1);
+      await accessor.upsertSingleTask(task2);
+
+      // No relation exists yet — should not throw
+      await expect(accessor.removeRelation('T001', 'T002')).resolves.toBeUndefined();
+    });
+  });
+
   describe('Reason field', () => {
     it('should persist relation reason', async () => {
       const task1: Task = {

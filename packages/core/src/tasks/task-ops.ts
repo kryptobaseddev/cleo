@@ -45,7 +45,11 @@ import {
 } from './dependency-check.js';
 import { depsReady } from './deps-ready.js';
 import { isTerminalPipelineStage } from './pipeline-stage.js';
-import { discoverRelated, suggestRelated } from './relates.js';
+import {
+  discoverRelated,
+  removeRelation as relatesRemoveRelation,
+  suggestRelated,
+} from './relates.js';
 
 // ============================================================================
 // Types (shared)
@@ -784,6 +788,37 @@ export async function coreTaskRelatesAdd(
   await accessor.addRelation(taskId, relatedId, type, reason);
 
   return { from: taskId, to: relatedId, type, reason, added: true };
+}
+
+// ============================================================================
+// coreTaskRelatesRemove
+// ============================================================================
+
+/**
+ * Remove a relation between two tasks.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root directory
+ * @param taskId - The source task ID
+ * @param relatedId - The target task ID whose relation is to be removed
+ * @param type - Optional relation type to narrow the deletion; omit to remove any type
+ * @returns Confirmation of the removed relation
+ *
+ * @task T9240
+ */
+export async function coreTaskRelatesRemove(
+  projectRoot: string,
+  taskId: string,
+  relatedId: string,
+  type?: string,
+): Promise<{ from: string; to: string; type?: string; removed: boolean }> {
+  const accessor = await getTaskAccessor(projectRoot);
+  const result = await relatesRemoveRelation(taskId, relatedId, type, projectRoot, accessor);
+  return {
+    from: taskId,
+    to: relatedId,
+    type,
+    removed: (result as { removed?: boolean }).removed ?? true,
+  };
 }
 
 // ============================================================================
@@ -2571,6 +2606,25 @@ export async function taskRelatesAdd(
   } catch (err: unknown) {
     const e = err as { message?: string };
     return engineError('E_GENERAL', e?.message ?? 'Failed to update task relations');
+  }
+}
+
+/**
+ * Remove a relation between two tasks.
+ * @task T9240
+ */
+export async function taskRelatesRemove(
+  projectRoot: string,
+  taskId: string,
+  relatedId: string,
+  type?: string,
+): Promise<EngineResult<{ from: string; to: string; type?: string; removed: boolean }>> {
+  try {
+    const result = await coreTaskRelatesRemove(projectRoot, taskId, relatedId, type);
+    return engineSuccess(result);
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return engineError('E_GENERAL', e?.message ?? 'Failed to remove task relation');
   }
 }
 

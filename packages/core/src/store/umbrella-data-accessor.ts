@@ -229,6 +229,10 @@ export class UmbrellaDataAccessor implements DataAccessor {
     return (await this.tasks()).addRelation(taskId, relatedTo, relationType, reason);
   }
 
+  async removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void> {
+    return (await this.tasks()).removeRelation(taskId, relatedTo, relationType);
+  }
+
   async getMetaValue<T>(key: string): Promise<T | null> {
     return (await this.tasks()).getMetaValue<T>(key);
   }

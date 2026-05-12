@@ -306,6 +306,37 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         .run();
     },
 
+    async removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void> {
+      const db = await getDb(cwd);
+      const conditions = [
+        eq(schema.taskRelations.taskId, taskId),
+        eq(schema.taskRelations.relatedTo, relatedTo),
+      ];
+      if (relationType !== undefined) {
+        const validTypes = [
+          'related',
+          'blocks',
+          'duplicates',
+          'absorbs',
+          'fixes',
+          'extends',
+          'supersedes',
+        ] as const;
+        if (!validTypes.includes(relationType as (typeof validTypes)[number])) {
+          throw new Error(
+            `Invalid relation type: ${relationType}. Valid types: ${validTypes.join(', ')}`,
+          );
+        }
+        conditions.push(
+          eq(schema.taskRelations.relationType, relationType as (typeof validTypes)[number]),
+        );
+      }
+      await db
+        .delete(schema.taskRelations)
+        .where(and(...conditions))
+        .run();
+    },
+
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
       const db = await getDb(cwd);
       // Verify the task exists before archiving
