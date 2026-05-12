@@ -99,6 +99,24 @@ export interface BrainDoctorResult {
    * Shows whether observations are being promoted to learnings at a healthy rate.
    */
   autoExtractHealth?: AutoExtractHealth;
+  /**
+   * Provenance distribution counts (T1897).
+   * Shows how many observations have each origin value (manual, auto-extract, etc.)
+   * and how many have been ground-truth verified via validated_at.
+   */
+  provenanceDistribution?: ProvenanceDistribution;
+}
+
+/** Provenance distribution in brain_observations (T1897). */
+export interface ProvenanceDistribution {
+  /** Total observations (valid only). */
+  total: number;
+  /** Count by origin value (null = legacy rows without origin). */
+  byOrigin: Record<string, number>;
+  /** Count with validated_at set (ground-truth verified). */
+  verifiedCount: number;
+  /** Count with provenance_chain set (derived rows). */
+  derivedCount: number;
 }
 
 // ============================================================================
@@ -346,12 +364,16 @@ export async function scanBrainNoise(projectRoot: string): Promise<BrainDoctorRe
     // ── 7. Auto-extract pipeline health (T1903) ──────────────────────────────
     const autoExtractHealth = computeAutoExtractHealth(db);
 
+    // ── 8. Provenance distribution (T1897) ───────────────────────────────────
+    const provenanceDistribution = computeProvenanceDistribution(db);
+
     return {
       totalScanned,
       findings,
       isClean: findings.length === 0,
       scannedAt: new Date().toISOString(),
       autoExtractHealth,
+      provenanceDistribution,
     };
   } catch {
     // Return a minimal clean result on unexpected errors rather than crashing.
@@ -432,6 +454,71 @@ function computeAutoExtractHealth(db: unknown): AutoExtractHealth | undefined {
       lastConsolidationAt,
       healthy,
     };
+  } catch {
+    return undefined;
+  }
+}
+
+// ============================================================================
+// Provenance distribution helpers (T1897)
+// ============================================================================
+
+/**
+ * Compute provenance distribution counts from brain_observations.
+ *
+ * Returns counts by origin value, validated_at non-null count, and provenance_chain non-null count.
+ * Returns undefined when the columns do not exist (pre-T1897 database).
+ */
+function computeProvenanceDistribution(db: unknown): ProvenanceDistribution | undefined {
+  if (!db) return undefined;
+  const nativeDb = db as { prepare: (sql: string) => { all: () => unknown[]; get: () => unknown } };
+  try {
+    const totalRow = nativeDb
+      .prepare(`SELECT COUNT(*) AS cnt FROM brain_observations WHERE invalid_at IS NULL`)
+      .get() as { cnt: number } | undefined;
+    const total = totalRow?.cnt ?? 0;
+
+    const byOrigin: Record<string, number> = {};
+    try {
+      const rows = nativeDb
+        .prepare(
+          `SELECT COALESCE(origin, '__null__') AS origin_val, COUNT(*) AS cnt
+           FROM brain_observations WHERE invalid_at IS NULL
+           GROUP BY origin_val`,
+        )
+        .all() as Array<{ origin_val: string; cnt: number }>;
+      for (const row of rows) {
+        byOrigin[row.origin_val === '__null__' ? '(unset)' : row.origin_val] = row.cnt;
+      }
+    } catch {
+      // origin column not yet added
+    }
+
+    let verifiedCount = 0;
+    try {
+      const vRow = nativeDb
+        .prepare(
+          `SELECT COUNT(*) AS cnt FROM brain_observations WHERE invalid_at IS NULL AND validated_at IS NOT NULL`,
+        )
+        .get() as { cnt: number } | undefined;
+      verifiedCount = vRow?.cnt ?? 0;
+    } catch {
+      // validated_at not yet added
+    }
+
+    let derivedCount = 0;
+    try {
+      const dRow = nativeDb
+        .prepare(
+          `SELECT COUNT(*) AS cnt FROM brain_observations WHERE invalid_at IS NULL AND provenance_chain IS NOT NULL`,
+        )
+        .get() as { cnt: number } | undefined;
+      derivedCount = dRow?.cnt ?? 0;
+    } catch {
+      // provenance_chain not yet added
+    }
+
+    return { total, byOrigin, verifiedCount, derivedCount };
   } catch {
     return undefined;
   }

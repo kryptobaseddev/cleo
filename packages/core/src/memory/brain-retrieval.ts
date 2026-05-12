@@ -207,6 +207,22 @@ export interface ObserveBrainParams {
    */
   attachmentRefs?: string[];
   /**
+   * T1897: Producer pipeline that created this observation.
+   * - `manual`           — typed directly by owner
+   * - `auto-extract`     — from fulfillPromotionLog / LLM extraction
+   * - `transcript-ingest`— imported from raw session transcript
+   * - `session-debrief`  — synthesized at session end
+   * - `test`             — inserted by test code
+   *
+   * Null on legacy rows and when not specified.
+   */
+  origin?: string | null;
+  /**
+   * T1897: JSON array of source brain_observations.id values this row was derived from.
+   * Null for directly-observed rows.
+   */
+  provenanceChain?: string[] | null;
+  /**
    * T992: Internal flag — when true, bypasses the verifyAndStore gate.
    * Set only by storeVerifiedCandidate in extraction-gate.ts to avoid
    * infinite recursion (gate → storeVerifiedCandidate → observeBrain → gate).
@@ -913,6 +929,8 @@ export async function observeBrain(
     sourceConfidence: sourceConfidenceParam,
     crossRef,
     attachmentRefs,
+    origin,
+    provenanceChain,
     _skipGate,
   } = params;
 
@@ -1051,6 +1069,11 @@ export async function observeBrain(
     // T799: optional attachment refs stored as JSON array
     ...(attachmentRefs && attachmentRefs.length > 0
       ? { attachmentsJson: JSON.stringify(attachmentRefs) }
+      : {}),
+    // T1897: provenance trust columns
+    ...(origin != null ? { origin } : {}),
+    ...(provenanceChain && provenanceChain.length > 0
+      ? { provenanceChain: JSON.stringify(provenanceChain) }
       : {}),
   });
 
