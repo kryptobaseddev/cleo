@@ -866,6 +866,39 @@ export const brainObservations = sqliteTable(
      * @task T1146
      */
     treeId: integer('tree_id'),
+
+    // T1897: Provenance trust columns
+
+    /**
+     * Producer pipeline that created this observation.
+     * - `manual`           — typed directly by owner via `cleo memory observe`
+     * - `auto-extract`     — fulfillPromotionLog / LLM extraction gate
+     * - `transcript-ingest`— imported from raw session transcript
+     * - `session-debrief`  — synthesized at session end
+     * - `test`             — inserted by test code (excluded from production briefing)
+     *
+     * Null on legacy rows (rows created before T1897).
+     *
+     * @task T1897
+     */
+    origin: text('origin'),
+
+    /**
+     * ISO 8601 timestamp when a ground-truth operator verified this observation.
+     * Null = unverified (agent-inferred only). Set by `cleo memory verify`.
+     *
+     * @task T1897
+     */
+    validatedAt: text('validated_at'),
+
+    /**
+     * JSON array of brain_observations.id values this row was derived from.
+     * Null for directly-observed rows. Populated by consolidation for merged/summarized
+     * observations and by the deriver for synthetic derivations.
+     *
+     * @task T1897
+     */
+    provenanceChain: text('provenance_chain'),
   },
   (table) => [
     index('idx_brain_observations_type').on(table.type),
@@ -898,6 +931,9 @@ export const brainObservations = sqliteTable(
     index('idx_brain_observations_level').on(table.level),
     // T1146: tree membership index
     index('idx_brain_observations_tree_id').on(table.treeId),
+    // T1897: provenance trust indexes
+    index('idx_brain_observations_origin').on(table.origin),
+    index('idx_brain_observations_validated_at').on(table.validatedAt),
   ],
 );
 

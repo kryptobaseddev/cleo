@@ -1745,9 +1745,25 @@ export class MemoryHandler implements DomainHandler {
                   alreadyVerified = row.verified === 1;
 
                   if (!alreadyVerified) {
-                    nativeDb
-                      .prepare(`UPDATE ${tbl} SET verified = 1, updated_at = ? WHERE id = ?`)
-                      .run(now, entryId);
+                    if (tbl === 'brain_observations') {
+                      // T1897: also write validated_at for ground-truth promotion timestamp
+                      try {
+                        nativeDb
+                          .prepare(
+                            `UPDATE ${tbl} SET verified = 1, updated_at = ?, validated_at = ? WHERE id = ?`,
+                          )
+                          .run(now, now, entryId);
+                      } catch {
+                        // validated_at may not exist on older DBs — fall back to verified-only
+                        nativeDb
+                          .prepare(`UPDATE ${tbl} SET verified = 1, updated_at = ? WHERE id = ?`)
+                          .run(now, entryId);
+                      }
+                    } else {
+                      nativeDb
+                        .prepare(`UPDATE ${tbl} SET verified = 1, updated_at = ? WHERE id = ?`)
+                        .run(now, entryId);
+                    }
                   }
                   break;
                 }
