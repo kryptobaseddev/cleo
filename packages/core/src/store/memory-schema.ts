@@ -252,7 +252,7 @@ export const brainDecisions = sqliteTable(
      * - `'deriver-synthesized'` — row was created by the T1145 deriver (W5).
      * - `'owner-verified'`    — row was manually promoted via `cleo memory verify`.
      */
-    provenanceClass: text('provenance_class').default('unswept-pre-T1151'),
+    provenanceClass: text('provenance_class').default('swept-clean'),
 
     // T1084: PSYCHE Wave 2 — CANT peer memory isolation
 
@@ -505,7 +505,7 @@ export const brainPatterns = sqliteTable(
      * - `'deriver-synthesized'` — created by T1145 deriver.
      * - `'owner-verified'` — manually promoted via `cleo memory verify`.
      */
-    provenanceClass: text('provenance_class').default('unswept-pre-T1151'),
+    provenanceClass: text('provenance_class').default('swept-clean'),
 
     // T1084: PSYCHE Wave 2 — CANT peer memory isolation
 
@@ -634,7 +634,7 @@ export const brainLearnings = sqliteTable(
      * - `'deriver-synthesized'` — created by T1145 deriver.
      * - `'owner-verified'` — manually promoted via `cleo memory verify`.
      */
-    provenanceClass: text('provenance_class').default('unswept-pre-T1151'),
+    provenanceClass: text('provenance_class').default('swept-clean'),
 
     // T1084: PSYCHE Wave 2 — CANT peer memory isolation
 
@@ -795,7 +795,7 @@ export const brainObservations = sqliteTable(
      * - `'deriver-synthesized'` — created by T1145 deriver.
      * - `'owner-verified'` — manually promoted via `cleo memory verify`.
      */
-    provenanceClass: text('provenance_class').default('unswept-pre-T1151'),
+    provenanceClass: text('provenance_class').default('swept-clean'),
 
     // T1084: PSYCHE Wave 2 — CANT peer memory isolation
 

@@ -329,7 +329,7 @@ function runBrainMigrations(
   // ensureColumns here is the safety-net for installs where the journal reconciler
   // already marked prior migrations applied before this column was added, or where
   // the test runner uses a module-cached DB from before the migration ran.
-  const provenanceColumn = [{ name: 'provenance_class', ddl: "text DEFAULT 'unswept-pre-T1151'" }];
+  const provenanceColumn = [{ name: 'provenance_class', ddl: "text DEFAULT 'swept-clean'" }];
   ensureColumns(nativeDb, 'brain_decisions', provenanceColumn, 'brain');
   ensureColumns(nativeDb, 'brain_patterns', provenanceColumn, 'brain');
   ensureColumns(nativeDb, 'brain_learnings', provenanceColumn, 'brain');
