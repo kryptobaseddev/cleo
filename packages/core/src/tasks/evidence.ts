@@ -456,26 +456,12 @@ async function validateCommit(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
-  // T9178: branch-scope check — reject cross-branch fabricated SHAs
-  if (taskId) {
-    const branchRef = `task/${taskId}`;
-    const branchExists = await runCommand('git', ['rev-parse', '--verify', branchRef], projectRoot);
-    if (branchExists.exitCode === 0) {
-      const onBranch = await runCommand(
-        'git',
-        ['merge-base', '--is-ancestor', sha, branchRef],
-        projectRoot,
-      );
-      if (onBranch.exitCode !== 0) {
-        return {
-          ok: false,
-          reason: `Commit ${sha} not reachable from ${branchRef} — possible phantom evidence`,
-          codeName: 'E_EVIDENCE_INVALID',
-        };
-      }
-    }
-  }
-  // T9178: branch-scope check — reject cross-branch fabricated SHAs
+  // T9178: branch-scope check — reject cross-branch fabricated SHAs.
+  // When the validator is invoked in the context of a specific task, require
+  // that the supplied SHA is reachable from task/<taskId>. This blocks the
+  // "worker claims `implemented` with a SHA on main but never on task branch"
+  // failure mode. The check no-ops if the task branch does not yet exist
+  // (e.g. owner-driven completion of a meta-task that never had a worktree).
   if (taskId) {
     const branchRef = `task/${taskId}`;
     const branchExists = await runCommand('git', ['rev-parse', '--verify', branchRef], projectRoot);
