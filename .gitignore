@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist
 *.tsbuildinfo
+.fuse_hidden*
 .pnpm-debug.log
 coverage/
 .test-*
