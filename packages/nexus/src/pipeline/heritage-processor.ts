@@ -261,6 +261,8 @@ export interface HeritageProcessingResult {
   implementsCount: number;
   /** Number of METHOD_OVERRIDES edges emitted. */
   methodOverridesCount: number;
+  /** Number of METHOD_IMPLEMENTS edges emitted. */
+  methodImplementsCount: number;
   /** Number of records skipped (unresolvable child or self-reference). */
   skippedCount: number;
 }
@@ -337,7 +339,16 @@ export function processHeritage(
   // Emit METHOD_OVERRIDES edges for extends relationships
   const methodOverridesCount = emitMethodOverrides(heritage, graph, ctx);
 
-  return { extendsCount, implementsCount, methodOverridesCount, skippedCount };
+  // Emit METHOD_IMPLEMENTS edges for implements relationships (T1847)
+  const methodImplementsCount = emitMethodImplements(heritage, graph, ctx);
+
+  return {
+    extendsCount,
+    implementsCount,
+    methodOverridesCount,
+    methodImplementsCount,
+    skippedCount,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +453,109 @@ function emitMethodOverrides(
         confidence,
         confidenceLabel: confidenceLabelFromNumeric(confidence),
         reason: `${h.typeName}.${methodName} overrides ${h.parentName}.${methodName} via extends in ${h.filePath}`,
+      };
+
+      graph.addRelation(rel);
+      emittedCount++;
+    }
+  }
+
+  return emittedCount;
+}
+
+// ---------------------------------------------------------------------------
+// Method implements detection (T1847)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit METHOD_IMPLEMENTS edges for each (class method, interface method) pair
+ * where the method names match across an `implements` relationship.
+ *
+ * Resolution strategy mirrors {@link emitMethodOverrides}:
+ * 1. Build an index of `classNodeId → method GraphNodes` from `graph.nodes`.
+ * 2. For each resolved (implementing class, interface) pair, find class methods
+ *    whose names also appear on the interface.
+ * 3. Emit a `method_implements` edge from the class method → interface method
+ *    with EXTRACTED confidence.
+ *
+ * This function is called automatically by {@link processHeritage} and should
+ * not be invoked separately.
+ *
+ * @param heritage - All heritage records accumulated during the parse loop
+ * @param graph - KnowledgeGraph to write METHOD_IMPLEMENTS edges into
+ * @param ctx - Fully-populated ResolutionContext
+ * @returns Number of METHOD_IMPLEMENTS edges emitted
+ *
+ * @task T1847
+ */
+function emitMethodImplements(
+  heritage: readonly ExtractedHeritage[],
+  graph: KnowledgeGraph,
+  ctx: ResolutionContext,
+): number {
+  // Only process `implements` records — `extends` clauses produce METHOD_OVERRIDES
+  const implementsRecords = heritage.filter((h) => h.kind === 'implements');
+  if (implementsRecords.length === 0) return 0;
+
+  // Build a map: classNodeId → Map<methodName, GraphNode>
+  // Also covers interface method nodes (kind === 'method' whose parent is an interface).
+  const classMethods = new Map<string, Map<string, GraphNode>>();
+  for (const node of graph.nodes.values()) {
+    if (node.kind !== 'method' || !node.parent || !node.name) continue;
+    let methodMap = classMethods.get(node.parent);
+    if (!methodMap) {
+      methodMap = new Map();
+      classMethods.set(node.parent, methodMap);
+    }
+    if (!methodMap.has(node.name)) {
+      methodMap.set(node.name, node);
+    }
+  }
+
+  let emittedCount = 0;
+
+  for (const h of implementsRecords) {
+    // Resolve implementing class — MUST be in the current file
+    const classId = resolveChildId(h.typeName, h.filePath, ctx);
+    if (!classId) continue;
+
+    // Resolve interface via tiered lookup
+    const { id: interfaceId, confidence: interfaceConf } = resolveParentId(
+      h.parentName,
+      h.filePath,
+      ctx,
+    );
+
+    // Skip self-references and stub interfaces (no method nodes to match)
+    if (classId === interfaceId) continue;
+    if (interfaceId.startsWith('__heritage__')) continue;
+
+    const classMethMap = classMethods.get(classId);
+    const interfaceMethMap = classMethods.get(interfaceId);
+
+    // No methods on either side → nothing to compare
+    if (!classMethMap || !interfaceMethMap) continue;
+
+    // Class confidence: same-file lookup = 0.95
+    const classConf = TIER_CONFIDENCE['same-file'];
+
+    for (const [methodName, classMethodNode] of classMethMap) {
+      // Skip constructors — not interface contract methods
+      if (methodName === 'constructor') continue;
+
+      const interfaceMethodNode = interfaceMethMap.get(methodName);
+      if (!interfaceMethodNode) continue;
+
+      // Geometric-mean confidence consistent with processHeritage convention
+      const confidence = Math.sqrt(classConf * interfaceConf);
+
+      const rel: GraphRelation = {
+        source: classMethodNode.id,
+        target: interfaceMethodNode.id,
+        type: 'method_implements',
+        confidence,
+        confidenceLabel: confidenceLabelFromNumeric(confidence),
+        reason: `${h.typeName}.${methodName} implements ${h.parentName}.${methodName} via implements in ${h.filePath}`,
       };
 
       graph.addRelation(rel);
