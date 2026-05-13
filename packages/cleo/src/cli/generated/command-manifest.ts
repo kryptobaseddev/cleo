@@ -462,6 +462,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/list.js')).listCommand as CommandDef,
   },
   {
+    exportName: 'llmCommand',
+    name: 'llm',
+    description: 'Manage LLM credentials, role profiles, and resolver diagnostics',
+    load: async () => (await import('../commands/llm.js')).llmCommand as CommandDef,
+  },
+  {
     exportName: 'logCommand',
     name: 'log',
     description: 'View audit log entries (operations, timestamps, changes)',

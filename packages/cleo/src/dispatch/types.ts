@@ -73,6 +73,7 @@ export const CANONICAL_DOMAINS = [
   'conduit',
   'sentient',
   'release',
+  'llm',
 ] as const;
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];
