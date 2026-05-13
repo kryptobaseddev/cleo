@@ -27,6 +27,7 @@ const {
   mockStorePattern,
   mockLoadConfig,
   mockResolveKey,
+  mockResolveCredentials,
 } = vi.hoisted(() => ({
   mockGetBrainDb: vi.fn().mockResolvedValue({}),
   mockGetBrainNativeDb: vi.fn(),
@@ -34,6 +35,12 @@ const {
   mockStorePattern: vi.fn().mockResolvedValue({ id: 'P-test-001' }),
   mockLoadConfig: vi.fn(),
   mockResolveKey: vi.fn().mockReturnValue(null),
+  mockResolveCredentials: vi.fn().mockReturnValue({
+    provider: 'anthropic',
+    apiKey: null,
+    source: undefined,
+    authType: 'api_key' as const,
+  }),
 }));
 
 vi.mock('../../store/memory-sqlite.js', () => ({
@@ -60,10 +67,17 @@ vi.mock('../../config.js', () => ({
 
 // Mock the key resolver so tests don't depend on filesystem state
 // (~/.claude/.credentials.json, ~/.local/share/cleo/anthropic-key).
-vi.mock('../../llm/credentials.js', () => ({
-  resolveAnthropicApiKey: (...args: unknown[]) => mockResolveKey(...args),
-  clearAnthropicKeyCache: vi.fn(),
-}));
+vi.mock('../../llm/credentials.js', async () => {
+  const actual = await vi.importActual<typeof import('../../llm/credentials.js')>(
+    '../../llm/credentials.js',
+  );
+  return {
+    ...actual,
+    resolveAnthropicApiKey: (...args: unknown[]) => mockResolveKey(...args),
+    resolveCredentials: (...args: unknown[]) => mockResolveCredentials(...args),
+    clearAnthropicKeyCache: vi.fn(),
+  };
+});
 
 // ============================================================================
 // Import module under test (after all mocks)
@@ -79,6 +93,12 @@ const FAKE_API_KEY = 'sk-ant-test-key';
 
 function setApiKey(key: string | undefined): void {
   mockResolveKey.mockReturnValue(key ?? null);
+  mockResolveCredentials.mockReturnValue({
+    provider: 'anthropic',
+    apiKey: key ?? null,
+    source: key ? ('env' as const) : undefined,
+    authType: 'api_key' as const,
+  });
 }
 
 type RawObs = {

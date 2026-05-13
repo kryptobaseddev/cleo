@@ -27,7 +27,8 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { resolveAnthropicApiKey } from '../llm/credentials.js';
+import { resolveCredentials } from '../llm/credentials.js';
+import { buildAnthropicSdkClient } from '../llm/registry.js';
 import { checkHashDedup, type MemoryCandidate, verifyAndStore } from './extraction-gate.js';
 
 // ---------------------------------------------------------------------------
@@ -297,24 +298,21 @@ function mapImportanceToConfidence(importance: number): 'low' | 'medium' | 'high
 // ---------------------------------------------------------------------------
 
 /**
- * Lazily import and instantiate the Anthropic SDK.
+ * Lazily resolve credentials and instantiate the Anthropic SDK via the central
+ * `buildAnthropicSdkClient` helper.
  *
- * Resolves the API key from env or Claude Code credentials. Returns null
- * when no key is available so callers can gracefully degrade to no-op.
- * The SDK is imported via dynamic import so projects that do not use the
- * LLM extraction gate don't pay the load cost at startup.
+ * Honors `cred.authType` so OAuth tokens (Claude Code) are passed via the SDK's
+ * `authToken` field (→ `Authorization: Bearer`) instead of `apiKey` (→
+ * `x-api-key`), which Anthropic rejects for OAuth credentials.
+ * Returns null when no credential is available.
  */
 async function buildAnthropicClient(): Promise<Pick<Anthropic, 'messages'> | null> {
-  const apiKey = resolveAnthropicApiKey();
-  if (!apiKey) {
+  const cred = resolveCredentials('anthropic');
+  if (!cred.apiKey) {
     return null;
   }
   try {
-    const AnthropicModule = await import('@anthropic-ai/sdk');
-    const Ctor =
-      (AnthropicModule as { default?: typeof Anthropic }).default ??
-      (AnthropicModule as unknown as typeof Anthropic);
-    return new Ctor({ apiKey }) as Pick<Anthropic, 'messages'>;
+    return buildAnthropicSdkClient(cred) as Pick<Anthropic, 'messages'> | null;
   } catch {
     return null;
   }

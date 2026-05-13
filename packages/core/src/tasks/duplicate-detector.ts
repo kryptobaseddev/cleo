@@ -426,7 +426,7 @@ export async function callLlmDuplicateReasoning(
     const daemonProvider = config?.llm?.daemon?.provider ?? 'anthropic';
     const daemonModel = config?.llm?.daemon?.model ?? 'claude-haiku-4-5-20251001';
 
-    const { resolveCredentials } = await import('../llm/credentials.js');
+    const { authHeaders, resolveCredentials } = await import('../llm/credentials.js');
     const cred = resolveCredentials(daemonProvider, {
       projectRoot: cwd,
     });
@@ -445,11 +445,14 @@ export async function callLlmDuplicateReasoning(
       candidate.id,
     );
 
-    // Build ModelConfig for the daemon provider
+    // Build ModelConfig for the daemon provider. For OAuth credentials, attach
+    // the Bearer headers via extraHeaders so the registry constructs the SDK
+    // with `authToken` instead of `apiKey` (avoids the 401 from `x-api-key`).
     const modelConfig = {
       transport: daemonProvider,
       model: daemonModel,
       apiKey: cred.apiKey,
+      extraHeaders: cred.authType === 'oauth' ? authHeaders(cred) : undefined,
     };
 
     const { cleoLlmCall } = await import('../llm/api.js');

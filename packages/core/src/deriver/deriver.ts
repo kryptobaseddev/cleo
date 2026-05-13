@@ -80,14 +80,19 @@ function generateObsId(): string {
 }
 
 /**
- * Resolve the Anthropic API key without importing the full Anthropic SDK.
- * Returns null if no key is configured.
+ * Resolve the Anthropic credential without importing the full Anthropic SDK.
+ * Returns the full `CredentialResult` so the caller can pick the auth scheme
+ * (`api_key` vs `oauth`) when constructing the SDK client.
+ * Returns null if no credential is available.
  */
-async function tryResolveApiKey(): Promise<string | null> {
+async function tryResolveAnthropicCredential(): Promise<Awaited<
+  ReturnType<typeof import('../llm/credentials.js').resolveCredentials>
+> | null> {
   try {
     // Lazy import to avoid SDK load in tests
-    const { resolveAnthropicApiKey } = await import('../llm/credentials.js');
-    return resolveAnthropicApiKey();
+    const { resolveCredentials } = await import('../llm/credentials.js');
+    const cred = resolveCredentials('anthropic');
+    return cred.apiKey ? cred : null;
   } catch {
     return null;
   }
@@ -143,28 +148,32 @@ async function deriveFromObservation(
 
   // Attempt LLM synthesis; fall back to deterministic on failure
   let synthesisText: string;
-  const apiKey = await tryResolveApiKey();
+  const cred = await tryResolveAnthropicCredential();
 
-  if (apiKey) {
+  if (cred) {
     try {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      const client = new Anthropic({ apiKey });
-      const prompt = `You are a memory synthesizer. Given these ${allSources.length} observations, produce ONE concise inductive insight (2-3 sentences) that captures the key pattern or learning:\n\n${allSources
-        .slice(0, 10)
-        .map((r, i) => `${i + 1}. ${r.title ?? ''}: ${(r.narrative ?? '').slice(0, 200)}`)
-        .join('\n')}\n\nProvide only the synthesis text, no preamble.`;
+      const { buildAnthropicSdkClient } = await import('../llm/registry.js');
+      const client = buildAnthropicSdkClient(cred);
+      if (!client) {
+        synthesisText = deterministicSynthesis(allSources);
+      } else {
+        const prompt = `You are a memory synthesizer. Given these ${allSources.length} observations, produce ONE concise inductive insight (2-3 sentences) that captures the key pattern or learning:\n\n${allSources
+          .slice(0, 10)
+          .map((r, i) => `${i + 1}. ${r.title ?? ''}: ${(r.narrative ?? '').slice(0, 200)}`)
+          .join('\n')}\n\nProvide only the synthesis text, no preamble.`;
 
-      const msg = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 256,
-        messages: [{ role: 'user', content: prompt }],
-      });
+        const msg = await client.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 256,
+          messages: [{ role: 'user', content: prompt }],
+        });
 
-      const textBlock = msg.content.find((b) => b.type === 'text');
-      synthesisText =
-        textBlock && textBlock.type === 'text'
-          ? textBlock.text.trim()
-          : deterministicSynthesis(allSources);
+        const textBlock = msg.content.find((b) => b.type === 'text');
+        synthesisText =
+          textBlock && textBlock.type === 'text'
+            ? textBlock.text.trim()
+            : deterministicSynthesis(allSources);
+      }
     } catch {
       synthesisText = deterministicSynthesis(allSources);
     }

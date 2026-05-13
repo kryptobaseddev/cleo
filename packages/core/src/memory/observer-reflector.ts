@@ -230,17 +230,20 @@ interface AnthropicResponse {
 /**
  * Call the Anthropic Messages API via native fetch.
  *
- * Uses `ANTHROPIC_API_KEY` from the environment. Returns null when the key is
- * not set or when the API call fails (caller handles graceful degradation).
+ * Uses `resolveCredentials('anthropic')` + `authHeaders(cred)` so the request
+ * carries the correct auth scheme — `x-api-key` for API keys, `Authorization`
+ * Bearer + `anthropic-beta: oauth-2025-04-20` for Claude Code OAuth tokens.
+ * Returns null when no credential is available or the API call fails (caller
+ * handles graceful degradation).
  *
  * @param systemPrompt - System instruction for the LLM.
  * @param userContent - User message content.
  * @returns The assistant response text, or null on failure.
  */
 async function callAnthropicLlm(systemPrompt: string, userContent: string): Promise<string | null> {
-  const { resolveAnthropicApiKey } = await import('../llm/credentials.js');
-  const apiKey = resolveAnthropicApiKey();
-  if (!apiKey) {
+  const { authHeaders, resolveCredentials } = await import('../llm/credentials.js');
+  const cred = resolveCredentials('anthropic');
+  if (!cred.apiKey) {
     return null;
   }
 
@@ -251,8 +254,7 @@ async function callAnthropicLlm(systemPrompt: string, userContent: string): Prom
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        ...authHeaders(cred),
       },
       body: JSON.stringify({
         model,

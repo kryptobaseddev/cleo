@@ -28,6 +28,7 @@ const {
   mockStorePattern,
   mockLoadConfig,
   mockResolveKey,
+  mockResolveCredentials,
 } = vi.hoisted(() => ({
   mockGetBrainDb: vi.fn().mockResolvedValue({}),
   mockGetBrainNativeDb: vi.fn(),
@@ -35,6 +36,12 @@ const {
   mockStorePattern: vi.fn().mockResolvedValue({ id: 'P-test-001' }),
   mockLoadConfig: vi.fn(),
   mockResolveKey: vi.fn().mockReturnValue(null),
+  mockResolveCredentials: vi.fn().mockReturnValue({
+    provider: 'anthropic',
+    apiKey: null,
+    source: undefined,
+    authType: 'api_key' as const,
+  }),
 }));
 
 vi.mock('../../store/memory-sqlite.js', () => ({
@@ -61,10 +68,17 @@ vi.mock('../../config.js', () => ({
 
 // Mock the key resolver so tests don't depend on filesystem state
 // (~/.claude/.credentials.json, ~/.local/share/cleo/anthropic-key).
-vi.mock('../../llm/credentials.js', () => ({
-  resolveAnthropicApiKey: (...args: unknown[]) => mockResolveKey(...args),
-  clearAnthropicKeyCache: vi.fn(),
-}));
+vi.mock('../../llm/credentials.js', async () => {
+  const actual = await vi.importActual<typeof import('../../llm/credentials.js')>(
+    '../../llm/credentials.js',
+  );
+  return {
+    ...actual,
+    resolveAnthropicApiKey: (...args: unknown[]) => mockResolveKey(...args),
+    resolveCredentials: (...args: unknown[]) => mockResolveCredentials(...args),
+    clearAnthropicKeyCache: vi.fn(),
+  };
+});
 
 // ============================================================================
 // Import module under test (after all mocks)
@@ -82,9 +96,21 @@ function setApiKey(key: string | undefined): void {
   if (key === undefined) {
     delete process.env['ANTHROPIC_API_KEY'];
     mockResolveKey.mockReturnValue(null);
+    mockResolveCredentials.mockReturnValue({
+      provider: 'anthropic',
+      apiKey: null,
+      source: undefined,
+      authType: 'api_key' as const,
+    });
   } else {
     process.env['ANTHROPIC_API_KEY'] = key;
     mockResolveKey.mockReturnValue(key);
+    mockResolveCredentials.mockReturnValue({
+      provider: 'anthropic',
+      apiKey: key,
+      source: 'env' as const,
+      authType: 'api_key' as const,
+    });
   }
 }
 
