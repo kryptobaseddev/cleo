@@ -17,6 +17,7 @@ import { AnthropicBackend } from './backends/anthropic.js';
 import { GeminiBackend } from './backends/gemini.js';
 import { MOONSHOT_BASE_URL, MoonshotBackend } from './backends/moonshot.js';
 import { OpenAIBackend } from './backends/openai.js';
+import type { CredentialResult } from './credentials.js';
 import { defaultTransportApiKey } from './credentials.js';
 import type { HistoryAdapter } from './history-adapters.js';
 import {
@@ -64,25 +65,107 @@ const _moonshotOverrideCache = new Map<string, OpenAI>();
 function makeOverrideKey(
   baseUrl: string | null | undefined,
   apiKey: string | null | undefined,
+  extraHeaders?: Record<string, string> | null,
 ): string {
-  return `${baseUrl ?? ''}::${apiKey ?? ''}`;
+  // Stable serialization of extraHeaders (sorted by key) so equivalent header
+  // bags hit the same cache entry.
+  let headerKey = '';
+  if (extraHeaders) {
+    const entries = Object.entries(extraHeaders).sort(([a], [b]) => a.localeCompare(b));
+    headerKey = entries.map(([k, v]) => `${k}=${v}`).join('|');
+  }
+  return `${baseUrl ?? ''}::${apiKey ?? ''}::${headerKey}`;
 }
 
-/** Get (or create) a cached Anthropic client for a specific (baseUrl, apiKey) pair. */
+/**
+ * Get (or create) a cached Anthropic client for a specific
+ * (baseUrl, apiKey, extraHeaders) tuple.
+ *
+ * When `extraHeaders.Authorization` is present (set by `authHeaders(cred)` for
+ * OAuth credentials), the SDK is constructed with `authToken` instead of
+ * `apiKey` so requests carry `Authorization: Bearer …` and omit the default
+ * `x-api-key`. The `anthropic-beta: oauth-2025-04-20` header is forwarded
+ * through `defaultHeaders`.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 1
+ */
 export function getAnthropicOverrideClient(
   baseUrl: string | null | undefined,
   apiKey: string | null | undefined,
+  extraHeaders?: Record<string, string> | null,
 ): Anthropic {
-  const key = makeOverrideKey(baseUrl, apiKey);
+  const key = makeOverrideKey(baseUrl, apiKey, extraHeaders);
   const cached = _anthropicOverrideCache.get(key);
   if (cached) return cached;
+
+  const oauthMatch = extraHeaders ? extractBearerToken(extraHeaders) : null;
+  if (oauthMatch) {
+    // OAuth path: SDK uses authToken → `Authorization: Bearer …`.
+    // Critical: do NOT also pass apiKey — the SDK sends both `x-api-key` and
+    // `Authorization` when both are set, which Anthropic rejects with 401.
+    const oauthHeaders: Record<string, string> = {};
+    if (extraHeaders) {
+      for (const [k, v] of Object.entries(extraHeaders)) {
+        if (k.toLowerCase() === 'authorization') continue;
+        oauthHeaders[k] = v;
+      }
+    }
+    const client = new Anthropic({
+      authToken: oauthMatch,
+      baseURL: baseUrl ?? undefined,
+      timeout: 600_000,
+      defaultHeaders: oauthHeaders,
+    });
+    _anthropicOverrideCache.set(key, client);
+    return client;
+  }
+
   const client = new Anthropic({
     apiKey: apiKey ?? undefined,
     baseURL: baseUrl ?? undefined,
     timeout: 600_000,
+    defaultHeaders: extraHeaders ?? undefined,
   });
   _anthropicOverrideCache.set(key, client);
   return client;
+}
+
+/**
+ * Extract the bearer token from an `Authorization: Bearer <token>` header value.
+ * Header lookup is case-insensitive. Returns null when no Authorization header
+ * is present or when it does not use the Bearer scheme.
+ */
+function extractBearerToken(headers: Record<string, string>): string | null {
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() !== 'authorization') continue;
+    const match = /^Bearer\s+(.+)$/i.exec(v);
+    if (match?.[1]) return match[1].trim();
+  }
+  return null;
+}
+
+/**
+ * Build a fresh Anthropic SDK client for a resolved credential.
+ *
+ * Centralises the dynamic-import + constructor dance previously duplicated in
+ * `memory/llm-extraction.ts`, `sentient/dream-cycle.ts`, and `deriver/deriver.ts`.
+ * Honors `cred.authType` so OAuth tokens are passed via `authToken` (Bearer)
+ * and api_key credentials via `apiKey` (`x-api-key`).
+ *
+ * Returns null when the credential has no resolvable token.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 1
+ */
+export function buildAnthropicSdkClient(cred: CredentialResult): Anthropic | null {
+  if (!cred.apiKey) return null;
+  if (cred.authType === 'oauth') {
+    return new Anthropic({
+      authToken: cred.apiKey,
+      timeout: 600_000,
+      defaultHeaders: { 'anthropic-beta': 'oauth-2025-04-20' },
+    });
+  }
+  return new Anthropic({ apiKey: cred.apiKey, timeout: 600_000 });
 }
 
 /** Get (or create) a cached OpenAI client for a specific (baseUrl, apiKey) pair. */
@@ -147,19 +230,23 @@ export function clientForModelConfig(
   provider: ModelTransport,
   modelConfig: ModelConfig,
 ): ProviderClient {
-  if (!modelConfig.apiKey && !modelConfig.baseUrl) {
+  // Fast path: no overrides at all → reuse the module-level default client.
+  // extraHeaders forces the override path because the default client has no
+  // OAuth-aware constructor wiring.
+  if (!modelConfig.apiKey && !modelConfig.baseUrl && !modelConfig.extraHeaders) {
     const existing = CLIENTS[provider];
     if (existing !== undefined) return existing;
   }
 
   const apiKey = modelConfig.apiKey ?? defaultTransportApiKey(provider);
   const baseUrl = modelConfig.baseUrl;
+  const extraHeaders = modelConfig.extraHeaders ?? null;
 
-  if (!apiKey) {
+  if (!apiKey && !extractBearerToken(extraHeaders ?? {})) {
     throw new Error(`Missing API key for ${provider} model config`);
   }
 
-  if (provider === 'anthropic') return getAnthropicOverrideClient(baseUrl, apiKey);
+  if (provider === 'anthropic') return getAnthropicOverrideClient(baseUrl, apiKey, extraHeaders);
   if (provider === 'openai') return getOpenAIOverrideClient(baseUrl, apiKey);
   if (provider === 'gemini') return getGeminiOverrideClient(baseUrl, apiKey);
   if (provider === 'moonshot') return getMoonshotOverrideClient(baseUrl, apiKey);

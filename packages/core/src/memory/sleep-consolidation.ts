@@ -32,7 +32,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { resolveAnthropicApiKey } from '../llm/credentials.js';
+import { authHeaders, resolveCredentials } from '../llm/credentials.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 import { storeLearning } from './learnings.js';
@@ -207,15 +207,17 @@ interface AnthropicResponse {
 /**
  * Call the Anthropic Messages API via native fetch using the cheap model.
  *
- * Uses `resolveAnthropicApiKey()` — never accesses ANTHROPIC_API_KEY directly.
- * Returns null when the key is unavailable or the call fails.
+ * Uses `resolveCredentials('anthropic')` + `authHeaders(cred)` so the request
+ * carries the correct scheme — `x-api-key` for API keys, `Authorization: Bearer`
+ * + `anthropic-beta: oauth-2025-04-20` for Claude Code OAuth tokens.
+ * Returns null when no credential is available or the call fails.
  *
  * @param systemPrompt - System instruction for the LLM.
  * @param userContent - User message content.
  */
 async function callLlm(systemPrompt: string, userContent: string): Promise<string | null> {
-  const apiKey = resolveAnthropicApiKey();
-  if (!apiKey) return null;
+  const cred = resolveCredentials('anthropic');
+  if (!cred.apiKey) return null;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -225,8 +227,7 @@ async function callLlm(systemPrompt: string, userContent: string): Promise<strin
       signal: AbortSignal.timeout(30_000),
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        ...authHeaders(cred),
       },
       body: JSON.stringify({
         model: SLEEP_MODEL,

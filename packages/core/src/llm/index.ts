@@ -25,12 +25,14 @@ export { buildCacheKey, geminiCacheStore, InMemoryGeminiCacheStore } from './cac
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
 export type {
+  AuthType,
   CredentialResolveOptions,
   CredentialResult,
   CredentialSource,
 } from './credentials.js';
-// Credential resolver (T1677)
+// Credential resolver (T1677 + T-LLM-CRED-CENTRALIZATION Phase 1)
 export {
+  authHeaders,
   clearAnthropicKeyCache,
   defaultTransportApiKey,
   resolveAnthropicApiKey,
@@ -48,7 +50,13 @@ export {
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
 // Registry (for testing/DI)
-export { backendForProvider, CLIENTS, clientForModelConfig, getBackend } from './registry.js';
+export {
+  backendForProvider,
+  buildAnthropicSdkClient,
+  CLIENTS,
+  clientForModelConfig,
+  getBackend,
+} from './registry.js';
 // Runtime
 export type { AttemptPlan } from './runtime.js';
 export { effectiveTemperature, makeAttemptRef, planAttempt } from './runtime.js';
