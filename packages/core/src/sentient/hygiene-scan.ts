@@ -491,7 +491,7 @@ function readDaemonLlmConfig(): { provider: string; model: string } {
  */
 async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallFn | null> {
   try {
-    const { resolveCredentials } = await import('../llm/credentials.js');
+    const { authHeaders, resolveCredentials } = await import('../llm/credentials.js');
     const { getBackend } = await import('../llm/registry.js');
     const { repairResponseModelJson } = await import('../llm/structured-output.js');
 
@@ -509,11 +509,17 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
       return null;
     }
 
+    // For OAuth credentials, pass the Bearer headers through extraHeaders so
+    // the registry's getAnthropicOverrideClient uses `authToken` instead of
+    // `apiKey` when constructing the SDK client.
+    const extraHeaders = cred.authType === 'oauth' ? authHeaders(cred) : undefined;
+
     return async (findingText: string, taskContext: string): Promise<HygieneEscalationResult> => {
       const modelConfig = {
         transport: transport as 'anthropic' | 'openai' | 'gemini' | 'moonshot',
         model,
         apiKey: cred.apiKey,
+        extraHeaders,
       };
 
       const backend = getBackend(modelConfig);
