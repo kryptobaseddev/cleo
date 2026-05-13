@@ -2,7 +2,7 @@
  * CLI command group: `cleo llm` — multi-credential pool + role-aware resolver.
  *
  * Subcommands:
- *   cleo llm add <provider> --api-key <k> [--label l] [--base-url u]
+ *   cleo llm add <provider> (--api-key-stdin | --api-key-env=NAME | --api-key=<v>) [--label l] [--base-url u]
  *   cleo llm list [provider]
  *   cleo llm remove <provider> --label <l>
  *   cleo llm use <provider> [--model m]
@@ -14,9 +14,24 @@
  * — the engine lives in `@cleocode/core/llm/cli-ops.ts` and the dispatch
  * domain at `packages/cleo/src/dispatch/domains/llm/`.
  *
- * Tokens are NEVER surfaced by any subcommand — `list` and `add` redact via
- * `tokenPreview` (last 4 chars), and `test` reports only response id +
- * latency.
+ * ## Security (S-11) — secret-on-argv mitigation
+ *
+ * `cleo llm add` accepts the credential through three input modes, in
+ * priority order:
+ *
+ *   1. `--api-key-stdin`  — read from stdin (recommended; not visible to
+ *                           `ps`, shell history, or process inspection).
+ *   2. `--api-key-env=NAME` — read from the env var named `NAME`.
+ *   3. `--api-key=<value>` — DEPRECATED. Accepted for backward compat
+ *                            with CI scripts, but emits a stderr warning
+ *                            because the value is visible to anyone who
+ *                            can list processes (`ps aux`) and is logged
+ *                            verbatim by most shell history mechanisms.
+ *
+ * Tokens are NEVER surfaced in result envelopes — every credential view
+ * carries `tokenPreview` (last 4 chars, prefixed by the auth-type marker
+ * `…` for api_key or `oat-…` for OAuth). `test` reports only response id
+ * + latency.
  *
  * @task T9258
  * @epic T-LLM-CRED-CENTRALIZATION
@@ -24,6 +39,34 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+
+// ---------------------------------------------------------------------------
+// Secret-on-argv mitigation (S-11) — stdin reader
+// ---------------------------------------------------------------------------
+
+/**
+ * Read all of stdin into a string and trim trailing whitespace.
+ *
+ * Used by `cleo llm add --api-key-stdin` so credentials never appear on
+ * the process argv list or in shell history. Returns the empty string
+ * when stdin is a TTY (no piped input) — the caller MUST treat that as
+ * an `E_INVALID_INPUT`.
+ *
+ * @task T9258 (S-11)
+ */
+async function readApiKeyFromStdin(): Promise<string> {
+  // process.stdin.isTTY is true when stdin is a terminal (no pipe). In that
+  // case there is no input to read — bail with empty so the caller can fail.
+  if (process.stdin.isTTY) return '';
+  process.stdin.setEncoding('utf-8');
+  let buf = '';
+  for await (const chunk of process.stdin) {
+    buf += chunk;
+  }
+  // Strip trailing newline only — preserve internal whitespace because
+  // some OAuth tokens are JWTs that allow base64url padding `=`.
+  return buf.replace(/\r?\n$/, '').trim();
+}
 
 // ---------------------------------------------------------------------------
 // Shared subcommand factory — mirrors `makeMemorySubcommand` in memory.ts
@@ -73,21 +116,65 @@ function makeLlmSubcommand(opts: {
 // Subcommands
 // ---------------------------------------------------------------------------
 
-/** cleo llm add — upsert credential into the pool */
-const addCommand = makeLlmSubcommand({
-  name: 'add',
-  description:
-    'Upsert a credential into the multi-credential pool. Auto-detects authType from token prefix (sk-ant-oat-* → oauth).',
+/**
+ * Verbatim stderr warning printed when the deprecated `--api-key=<value>`
+ * mode is used. Tested literally by the CLI test suite — do not edit the
+ * wording without updating `llm-command.test.ts`.
+ *
+ * @task T9258 (S-11)
+ */
+const API_KEY_FLAG_DEPRECATION =
+  "[warning] --api-key exposes the secret to 'ps' listings and shell history. Prefer --api-key-stdin or --api-key-env=NAME for production use.";
+
+/**
+ * cleo llm add — upsert credential into the pool.
+ *
+ * S-11 mitigation: three input modes for the secret, in priority order
+ *   1. `--api-key-stdin`   — recommended; reads from piped stdin.
+ *   2. `--api-key-env=NAME` — reads from `process.env[NAME]`.
+ *   3. `--api-key=<value>` — DEPRECATED; emits a stderr warning but still
+ *                            accepts the value for CI backward compat.
+ *
+ * This subcommand is intentionally NOT built via `makeLlmSubcommand` —
+ * the secret-resolution flow needs to run BEFORE dispatch and may abort
+ * with a synchronous error envelope, which the generic factory cannot
+ * express cleanly.
+ *
+ * @task T9258 (S-11)
+ */
+const addCommand = defineCommand({
+  meta: {
+    name: 'add',
+    // Help text lists --api-key-stdin first (recommended path) and
+    // --api-key last (deprecated). See S-11 in T9258 for the rationale.
+    description:
+      'Upsert a credential into the multi-credential pool. Reads the secret from stdin (--api-key-stdin, recommended), from an env var (--api-key-env=NAME), or as a literal flag value (--api-key, DEPRECATED — visible to ps + shell history). Auto-detects authType from token prefix (sk-ant-oat-* → oauth).',
+  },
   args: {
     provider: {
       type: 'positional',
       description: 'Provider transport (anthropic | openai | gemini | moonshot)',
       required: true,
     },
+    // Recommended path — listed first to surface it in --help output.
+    'api-key-stdin': {
+      type: 'boolean',
+      description:
+        '(recommended) Read the API key from stdin. Example: `echo "$KEY" | cleo llm add anthropic --api-key-stdin`. Not visible to `ps` listings or shell history.',
+    },
+    // Named-env mode — second-priority. Lets users put the key in a
+    // .envrc / secret manager and reference it by name.
+    'api-key-env': {
+      type: 'string',
+      description:
+        'Read the API key from the env var named here. Example: `cleo llm add anthropic --api-key-env=ANTHROPIC_API_KEY`.',
+    },
+    // Deprecated literal-value mode — last in the help order. Backward
+    // compat for CI scripts; emits a stderr warning when used.
     'api-key': {
       type: 'string',
-      description: 'API key or OAuth bearer token to persist',
-      required: true,
+      description:
+        '(DEPRECATED) API key or OAuth bearer token as a literal flag value. Exposes the secret to `ps` and shell history. Prefer --api-key-stdin or --api-key-env=NAME.',
     },
     label: {
       type: 'string',
@@ -105,18 +192,65 @@ const addCommand = makeLlmSubcommand({
       type: 'string',
       description: 'Optional priority override (lower wins)',
     },
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
   },
-  gateway: 'mutate',
-  operation: 'add',
-  output: { command: 'llm-add', operation: 'llm.add' },
-  paramBuilder: (args) => ({
-    provider: args['provider'],
-    apiKey: args['api-key'],
-    ...(args['label'] !== undefined && { label: args['label'] }),
-    ...(args['base-url'] !== undefined && { baseUrl: args['base-url'] }),
-    ...(args['auth-type'] !== undefined && { authType: args['auth-type'] }),
-    ...(args['priority'] !== undefined && { priority: Number(args['priority']) }),
-  }),
+  async run({ args }) {
+    const a = args as Record<string, unknown>;
+
+    // --- Resolve the secret in priority order: stdin > env > literal. ---
+    let apiKey = '';
+    let source: 'stdin' | 'env' | 'flag' | 'none' = 'none';
+
+    if (a['api-key-stdin'] === true) {
+      apiKey = await readApiKeyFromStdin();
+      source = 'stdin';
+      if (!apiKey) {
+        process.stderr.write(
+          '[error] --api-key-stdin set but stdin is empty or a TTY. Pipe the secret in, e.g. `echo "$KEY" | cleo llm add ...`.\n',
+        );
+        process.exit(2);
+      }
+    } else if (typeof a['api-key-env'] === 'string' && a['api-key-env']) {
+      const envName = a['api-key-env'] as string;
+      const envValue = process.env[envName];
+      if (!envValue) {
+        process.stderr.write(`[error] --api-key-env=${envName} is not set in the environment.\n`);
+        process.exit(2);
+      }
+      apiKey = envValue;
+      source = 'env';
+    } else if (typeof a['api-key'] === 'string' && a['api-key']) {
+      // Deprecated path — accept but warn on stderr (CI-compat).
+      process.stderr.write(`${API_KEY_FLAG_DEPRECATION}\n`);
+      apiKey = a['api-key'] as string;
+      source = 'flag';
+    } else {
+      process.stderr.write(
+        '[error] cleo llm add requires one of --api-key-stdin (recommended), --api-key-env=NAME, or --api-key=<value> (deprecated).\n',
+      );
+      process.exit(2);
+    }
+
+    // --- Build dispatch params. The secret is forwarded to the engine
+    //     via the apiKey field; the engine NEVER logs or echoes it. ---
+    const params: Record<string, unknown> = {
+      provider: a['provider'],
+      apiKey,
+      _source: source, // surfaces in audit logs for incident response
+    };
+    if (a['label'] !== undefined) params['label'] = a['label'];
+    if (a['base-url'] !== undefined) params['baseUrl'] = a['base-url'];
+    if (a['auth-type'] !== undefined) params['authType'] = a['auth-type'];
+    if (a['priority'] !== undefined) params['priority'] = Number(a['priority']);
+
+    await dispatchFromCli('mutate', 'llm', 'add', params, {
+      command: 'llm-add',
+      operation: 'llm.add',
+    });
+  },
 });
 
 /** cleo llm list — show redacted credential pool */
