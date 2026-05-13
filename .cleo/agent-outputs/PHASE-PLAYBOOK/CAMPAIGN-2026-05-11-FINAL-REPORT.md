@@ -83,8 +83,9 @@ The verifier gate accepts commit reachability without validating commit content 
 ### Summary Statistics
 
 - **Final commit count this campaign:** 150 commits on main since 2026-05-11
-- **Release tag shipped:** `v2026.5.61`
-- **CI status:** GREEN (all checks passing as of commit 82e75d904)
+- **Release tag shipped:** `v2026.5.62`
+- **CI status:** GREEN (all checks passing as of commit 73e68f5ed)
+- **Note:** worker-omega initially reused v2026.5.61 (already published pre-session). worker-omega2 corrected by shipping v2026.5.62 as the canonical campaign release. Also fixed a macOS case-sensitivity bug in verifier-runner.ts (`resolveVerifierScript` now prefers lowercase candidates, matching real script naming convention).
 - **Working tree status:** CLEAN
 
 ### Quality Gate Results
