@@ -57,6 +57,7 @@ import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { addGraphEdge } from './graph-auto-populate.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
+import { redactContent } from './redaction.js';
 
 // ============================================================================
 // Internal row type (raw SQLite snake_case columns, not Drizzle camelCase)
@@ -284,9 +285,11 @@ async function callAnthropicLlm(
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      console.warn(
-        `[observer-reflector] Anthropic API error ${response.status}: ${body.slice(0, 200)}`,
-      );
+      // S-04 (CWE-209/532): route the error body through redactContent
+      // before logging so any echoed authorization-style header or
+      // sk-ant-* token in a malformed-key 401 response is scrubbed.
+      const safeBody = redactContent(body.slice(0, 200)).content;
+      console.warn(`[observer-reflector] Anthropic API error ${response.status}: ${safeBody}`);
       return null;
     }
 

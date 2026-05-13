@@ -41,6 +41,7 @@ import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
+import { redactContent } from './redaction.js';
 
 // ============================================================================
 // Constants
@@ -259,9 +260,11 @@ async function callLlm(
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      console.warn(
-        `[sleep-consolidation] Anthropic API error ${response.status}: ${body.slice(0, 200)}`,
-      );
+      // S-04 (CWE-209/532): scrub any echoed auth header / sk-ant-* token
+      // from the error body before logging. See observer-reflector.ts for
+      // the matching site.
+      const safeBody = redactContent(body.slice(0, 200)).content;
+      console.warn(`[sleep-consolidation] Anthropic API error ${response.status}: ${safeBody}`);
       return null;
     }
 
