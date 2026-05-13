@@ -81,6 +81,11 @@ function tokenPreviewOf(token: string): string {
 
 /**
  * Build the redacted view used by every `cleo llm` result envelope.
+ *
+ * `hasRefreshToken` is hard-coded to `false` in Phase 2 — see
+ * `StoredCredential` in `credentials-store.ts` for the S-07 rationale.
+ * The contract field stays on `LlmStoredCredentialView` so Phase 3 can
+ * resurrect it once a real refresh flow ships.
  */
 function viewOf(c: StoredCredential): LlmStoredCredentialView {
   return {
@@ -88,7 +93,7 @@ function viewOf(c: StoredCredential): LlmStoredCredentialView {
     label: c.label,
     authType: c.authType,
     tokenPreview: tokenPreviewOf(c.accessToken),
-    hasRefreshToken: typeof c.refreshToken === 'string' && c.refreshToken.length > 0,
+    hasRefreshToken: false,
     expiresAt: c.expiresAt ?? null,
     priority: c.priority,
     source: c.source,

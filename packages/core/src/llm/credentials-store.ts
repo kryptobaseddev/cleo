@@ -41,7 +41,11 @@ import { getLogger } from '../logger.js';
 // `withLock` already calls `writeJsonFileAtomic` under the hood — we
 // piggy-back on it for atomic writes + numbered backups.
 import { withLock } from '../store/file-utils.js';
-import { cleoHomeDir } from './credentials.js';
+// Note: `credentials.ts` already depends on `credentials-store.ts`
+// (`pickCredentialForProviderSync`). The reverse arrow here closes a
+// cycle, but every imported symbol is a function reference read at
+// call-time — ESM's late binding makes the cycle safe.
+import { clearAnthropicKeyCache, cleoHomeDir } from './credentials.js';
 import type { ModelTransport } from './types-config.js';
 
 const logger = getLogger('llm-credentials-store');
@@ -93,8 +97,6 @@ export interface StoredCredential {
   authType: StoredAuthType;
   /** Bearer token / API key. May be `""` for `aws_sdk`. */
   accessToken: string;
-  /** OAuth refresh token, when applicable. */
-  refreshToken?: string;
   /** Unix epoch ms; entries past this time are excluded by the picker. */
   expiresAt?: number | null;
   /** Lower wins. Defaults to file order on read; `max+10` on add. */
@@ -112,6 +114,23 @@ export interface StoredCredential {
   /** When true, the picker skips this entry entirely. */
   disabled?: boolean;
 }
+
+/**
+ * S-07 (CWE-256 plaintext storage of dead secret): `refreshToken` is
+ * intentionally NOT a field on `StoredCredential` in Phase 2. Phase 1
+ * stored a refresh token alongside the access token, but no code ever
+ * consumed it — the refresh-flow implementation was deferred. Carrying
+ * the dead secret on disk increased blast radius for zero benefit, so
+ * the field was removed in security review pass 1.
+ *
+ * Phase 3 (T9260) will reintroduce `refreshToken` together with the
+ * actual refresh implementation that consumes it. Until then the read
+ * path tolerates a leftover `refreshToken` key on disk (parser is
+ * additive — extra keys are dropped silently by the type narrower) but
+ * the writer never re-emits it.
+ *
+ * @task T9257 — security review S-07
+ */
 
 /**
  * On-disk shape of `~/.cleo/llm-credentials.json`.
@@ -186,24 +205,20 @@ function ensureFileInitialized(path: string): void {
 }
 
 /**
- * Enforce 0600 permissions on the store file.
+ * S-02 (CWE-367 TOCTOU rename→chmod): the previous `enforce0600(path)`
+ * helper used to chmod the live file AFTER `withLock` released its
+ * lock. That left a window in which the temp file (default 0o644)
+ * was the live file, no lock held, with secrets in it. The window
+ * is now closed at the source: `writeJsonFileAtomic({mode: 0o600})`
+ * creates the temp file pre-set to 0o600, so the post-rename file
+ * is born 0o600 atomically. No follow-up chmod is needed.
  *
- * Called immediately after every successful write so the atomic rename can
- * never leave the file world-readable. Errors are non-fatal — best-effort
- * (e.g. on Windows where POSIX modes are ignored).
+ * Kept here as a doc-only stub so a `git log --grep=enforce0600`
+ * search points future readers at this rationale; the function and
+ * every call-site are removed below.
  *
- * @task T9257
+ * @task T9257 — security review S-02
  */
-function enforce0600(path: string): void {
-  try {
-    chmodSync(path, 0o600);
-  } catch (err) {
-    // S-09: log only errno code; err.message may include the absolute path
-    // on some platforms which is already logged separately.
-    const code = (err as NodeJS.ErrnoException).code;
-    logger.warn({ code, path }, 'llm-credentials-store: failed to chmod 0600');
-  }
-}
 
 /**
  * Warn once when the file is loosely permissioned.
@@ -335,7 +350,17 @@ function eligibleForProvider(
   const all = data.credentials.filter((c) => {
     if (c.provider !== provider) return false;
     if (c.disabled === true) return false;
-    if (typeof c.expiresAt === 'number' && c.expiresAt > 0 && c.expiresAt <= now) return false;
+    if (typeof c.expiresAt === 'number' && c.expiresAt > 0 && c.expiresAt <= now) {
+      // S-06 (CWE-454): expired entries used to be silently dropped, which
+      // turned an actionable "your token expired" diagnostic into a generic
+      // "no credential found" downstream. Log on every skip so an operator
+      // can see exactly which (provider, label) needs refreshing.
+      logger.info(
+        { provider: c.provider, label: c.label, expiresAt: c.expiresAt },
+        'cred-file: skipping expired entry',
+      );
+      return false;
+    }
     return true;
   });
 
@@ -460,7 +485,6 @@ export async function addCredential(
         label: input.label,
         authType: input.authType,
         accessToken: input.accessToken,
-        refreshToken: input.refreshToken,
         expiresAt: input.expiresAt ?? null,
         priority,
         source: input.source,
@@ -482,11 +506,14 @@ export async function addCredential(
     { mode: 0o600 },
   );
 
-  enforce0600(path);
   // `inserted` is set inside the transform closure before withLock returns.
   if (!inserted) {
     throw new Error('credentials-store: invariant violation — insert was not recorded');
   }
+  // S-10 (CWE-200 stale module-global cache): invalidate the in-process
+  // Anthropic-key cache so the next resolveAnthropicApiKey() call picks
+  // up the new entry without requiring a CLEO restart.
+  clearAnthropicKeyCache();
   return inserted;
 }
 
@@ -527,7 +554,9 @@ export async function removeCredential(provider: ModelTransport, label: string):
     { mode: 0o600 },
   );
 
-  enforce0600(path);
+  // S-10: invalidate the Anthropic-key cache so a removed entry stops
+  // being served by the resolver in the same process.
+  if (removed) clearAnthropicKeyCache();
   return removed;
 }
 
