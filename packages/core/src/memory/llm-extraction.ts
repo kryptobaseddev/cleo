@@ -27,8 +27,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { resolveCredentials } from '../llm/credentials.js';
-import { buildAnthropicSdkClient } from '../llm/registry.js';
+import { IMPLICIT_FALLBACK_MODEL, resolveAnthropicForRole } from '../llm/role-resolver.js';
 import { checkHashDedup, type MemoryCandidate, verifyAndStore } from './extraction-gate.js';
 
 // ---------------------------------------------------------------------------
@@ -298,24 +297,23 @@ function mapImportanceToConfidence(importance: number): 'low' | 'medium' | 'high
 // ---------------------------------------------------------------------------
 
 /**
- * Lazily resolve credentials and instantiate the Anthropic SDK via the central
- * `buildAnthropicSdkClient` helper.
+ * Resolve provider+model+credentials via `resolveAnthropicForRole('extraction')`
+ * (T-LLM-CRED Phase 2 DRY review P2-1) and return the wired SDK client +
+ * selected model name.
  *
- * Honors `cred.authType` so OAuth tokens (Claude Code) are passed via the SDK's
- * `authToken` field (→ `Authorization: Bearer`) instead of `apiKey` (→
- * `x-api-key`), which Anthropic rejects for OAuth credentials.
- * Returns null when no credential is available.
+ * Honors `cred.authType` so OAuth tokens (Claude Code) are routed through
+ * `Authorization: Bearer` instead of `x-api-key` — the registry's
+ * `clientForModelConfig` handles this internally via the `extraHeaders`
+ * channel set by the resolver.
+ * Returns null when no Anthropic credential is available (helper returns
+ * null on both missing-credential and wrong-provider paths).
  */
-async function buildAnthropicClient(): Promise<Pick<Anthropic, 'messages'> | null> {
-  const cred = resolveCredentials('anthropic');
-  if (!cred.apiKey) {
-    return null;
-  }
-  try {
-    return buildAnthropicSdkClient(cred) as Pick<Anthropic, 'messages'> | null;
-  } catch {
-    return null;
-  }
+async function buildExtractionClient(
+  projectRoot: string,
+): Promise<{ client: Pick<Anthropic, 'messages'>; model: string } | null> {
+  const llm = await resolveAnthropicForRole('extraction', { projectRoot });
+  if (!llm) return null;
+  return { client: llm.client, model: llm.model };
 }
 
 /**
@@ -396,21 +394,24 @@ export async function extractFromTranscript(
     return report;
   }
 
-  const model = llmCfg?.model ?? 'claude-haiku-4-5-20251001';
   const minImportance = llmCfg?.minImportance ?? 0.6;
   const maxExtractions = llmCfg?.maxExtractions ?? 7;
   const maxTranscriptChars = llmCfg?.maxTranscriptChars ?? 60000;
 
   // -------------------------------------------------------------------------
-  // Client construction (allow injection for tests)
+  // Client + model construction (T9255 — role-based resolution).
+  // Legacy `brain.llmExtraction.model` config still wins when present so the
+  // historical narrow extraction-model override knob keeps working.
   // -------------------------------------------------------------------------
-  const client = options.client ?? (await buildAnthropicClient());
+  const resolved = options.client ? null : await buildExtractionClient(projectRoot);
+  const client = options.client ?? resolved?.client ?? null;
   if (!client) {
     report.warnings.push(
       'No Anthropic API key found (checked ANTHROPIC_API_KEY env and ~/.claude/.credentials.json) — extraction skipped',
     );
     return report;
   }
+  const model = llmCfg?.model ?? resolved?.model ?? IMPLICIT_FALLBACK_MODEL;
 
   // -------------------------------------------------------------------------
   // Call the model

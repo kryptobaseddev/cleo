@@ -9,6 +9,8 @@
  * @task T5710
  */
 
+import type { ModelTransport } from './operations/llm.js';
+
 /** Output format options. */
 export type OutputFormat = 'json' | 'text' | 'jsonl' | 'markdown' | 'table';
 
@@ -282,7 +284,11 @@ export interface BrainTieringConfig {
 export interface BrainLlmExtractionConfig {
   /** Enable LLM-driven extraction gate (default: true). */
   enabled: boolean;
-  /** Anthropic model to use for extraction (default: 'claude-haiku-4-5-20251001'). */
+  /**
+   * Anthropic model to use for extraction. Default lives in
+   * `@cleocode/core/llm/role-resolver` (`IMPLICIT_FALLBACK_MODEL`) so the
+   * literal stays in a single source location (T9255 grep guard).
+   */
   model: string;
   /** Minimum importance score (0.0–1.0) below which extractions are dropped (default: 0.6). */
   minImportance: number;
@@ -325,10 +331,11 @@ export interface BrainConfig {
    * LLM-driven extraction gate settings.
    * When enabled and ANTHROPIC_API_KEY is present, session transcripts are
    * processed by an LLM to extract typed structured memories instead of the
-   * legacy keyword regex. Defaults are enabled: true and model is the cheap
-   * Haiku class so extraction cost stays bounded.
+   * legacy keyword regex. Defaults are enabled: true and model defaults to
+   * the centralised implicit fallback (cheap Haiku class) defined in
+   * `@cleocode/core/llm/role-resolver` so extraction cost stays bounded.
    *
-   * @defaultValue { enabled: true, model: 'claude-haiku-4-5-20251001', minImportance: 0.6, maxExtractions: 7, maxTranscriptChars: 60000 }
+   * @defaultValue { enabled: true, model: IMPLICIT_FALLBACK_MODEL, minImportance: 0.6, maxExtractions: 7, maxTranscriptChars: 60000 }
    */
   llmExtraction?: BrainLlmExtractionConfig;
 }
@@ -381,7 +388,7 @@ export interface DaemonLLMConfig {
    * LLM provider transport used by daemon loops.
    * @defaultValue 'anthropic'
    */
-  provider: 'anthropic' | 'openai' | 'gemini' | 'moonshot';
+  provider: ModelTransport;
   /**
    * Full model identifier for the selected provider.
    * @defaultValue 'claude-sonnet-4-6'
@@ -390,13 +397,84 @@ export interface DaemonLLMConfig {
 }
 
 /**
+ * Canonical model transport identifier — re-export of {@link ModelTransport}
+ * from `operations/llm.ts` so config-layer types stay in lock-step with the
+ * operations layer with no risk of drift.
+ *
+ * Previously declared as a separate string-literal union; collapsed in the
+ * T-LLM-CRED Phase 2 DRY/SOLID review (P1-2). Adding a new transport now
+ * requires editing only `operations/llm.ts`.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 — DRY review P1-2
+ */
+export type LlmTransport = ModelTransport;
+
+/**
+ * Logical LLM role name used by role-aware resolvers (BRAIN, sentient, etc.).
+ *
+ * Each role can pin its own provider + model + credential label, with
+ * resolution falling back to `LlmConfig.default` and finally to the legacy
+ * `LlmConfig.daemon` block.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ */
+export type RoleName = 'extraction' | 'consolidation' | 'derivation' | 'hygiene' | 'judgement';
+
+/**
+ * Canonical default LLM target for unscoped (non-role) calls.
+ *
+ * Replaces the role previously played by `LlmConfig.daemon`. The `daemon`
+ * field stays as a deprecated alias for one release cycle to give downstream
+ * consumers time to migrate.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ */
+export interface LlmDefaultConfig {
+  /** LLM provider transport for the default model. */
+  provider: LlmTransport;
+  /** Full model identifier for the selected provider. */
+  model: string;
+}
+
+/**
+ * Per-role LLM configuration entry.
+ *
+ * Each role may optionally pin to a specific credential label (matching a
+ * `CredentialResult.label`) so that, e.g., the `extraction` role can use a
+ * different Anthropic API key than `judgement` without changing the global
+ * default.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ */
+export interface LlmRoleConfig {
+  /** LLM provider transport for this role. */
+  provider: LlmTransport;
+  /** Full model identifier for the selected provider. */
+  model: string;
+  /**
+   * Optional credential label to pin this role to a specific credential
+   * entry resolved by `resolveCredentials()`. When omitted, the role
+   * inherits the default credential resolution order.
+   */
+  credentialLabel?: string;
+}
+
+/**
  * Top-level LLM configuration block inside CleoConfig.
  *
  * Stored at `llm` in config.json.
+ *
+ * Resolution order for role-scoped calls:
+ *   `roles[role]` → `default` → `daemon` (legacy).
  */
 export interface LlmConfig {
   /**
    * Daemon LLM settings (provider + model for background loops).
+   *
+   * @deprecated Use `default` instead. Retained as a fallback alias for
+   * one release cycle (T-LLM-CRED-CENTRALIZATION Phase 2 · T9256). New
+   * code must read `default` first and only fall through to `daemon` when
+   * `default` is absent.
    * @defaultValue { provider: 'anthropic', model: 'claude-sonnet-4-6' }
    */
   daemon?: DaemonLLMConfig;
@@ -405,6 +483,23 @@ export interface LlmConfig {
    * Keys are provider names: 'anthropic' | 'openai' | 'gemini' | 'moonshot'.
    */
   providers?: Record<string, LlmProviderEntry>;
+  /**
+   * Canonical default LLM for unscoped calls. Replaces the role previously
+   * played by `daemon`, which stays as a deprecated alias for one release
+   * cycle.
+   *
+   * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+   */
+  default?: LlmDefaultConfig;
+  /**
+   * Per-role LLM overrides. Each role optionally pins to a credential
+   * label.
+   *
+   * Resolution order: `roles[role]` → `default` → `daemon` (legacy).
+   *
+   * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+   */
+  roles?: Partial<Record<RoleName, LlmRoleConfig>>;
 }
 
 /** SignalDock transport mode. */

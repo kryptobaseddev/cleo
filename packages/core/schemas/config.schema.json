@@ -1171,6 +1171,95 @@
           "description": "The CLI command for the local dev build (ADR-016 §2.3). Injected into agent context when isContributorProject is true."
         }
       }
+    },
+    "llm": {
+      "type": "object",
+      "description": "LLM configuration — daemon/default provider+model, per-provider API key overrides, and role-based routing. T-LLM-CRED-CENTRALIZATION Phase 2 (T9256).",
+      "additionalProperties": false,
+      "properties": {
+        "daemon": {
+          "type": "object",
+          "description": "DEPRECATED — use `default` instead. Retained as a fallback alias for one release cycle.",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": ["anthropic", "openai", "gemini", "moonshot"],
+              "description": "LLM provider transport used by daemon loops."
+            },
+            "model": {
+              "type": "string",
+              "description": "Full model identifier for the selected provider."
+            }
+          },
+          "required": ["provider", "model"]
+        },
+        "providers": {
+          "type": "object",
+          "description": "Per-provider API key overrides keyed by provider name (anthropic | openai | gemini | moonshot).",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "apiKey": {
+                "type": "string",
+                "description": "Override API key for this provider (stored in config, not env)."
+              }
+            }
+          }
+        },
+        "default": {
+          "type": "object",
+          "description": "Canonical default LLM for unscoped calls. Replaces `daemon`. T-LLM-CRED-CENTRALIZATION Phase 2 (T9256).",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": ["anthropic", "openai", "gemini", "moonshot"],
+              "description": "LLM provider transport for the default model."
+            },
+            "model": {
+              "type": "string",
+              "description": "Full model identifier for the selected provider."
+            }
+          },
+          "required": ["provider", "model"]
+        },
+        "roles": {
+          "type": "object",
+          "description": "Per-role LLM overrides. Resolution: roles[role] -> default -> daemon (legacy). T-LLM-CRED-CENTRALIZATION Phase 2 (T9256).",
+          "additionalProperties": false,
+          "properties": {
+            "extraction": { "$ref": "#/properties/llm/$defs/roleEntry" },
+            "consolidation": { "$ref": "#/properties/llm/$defs/roleEntry" },
+            "derivation": { "$ref": "#/properties/llm/$defs/roleEntry" },
+            "hygiene": { "$ref": "#/properties/llm/$defs/roleEntry" },
+            "judgement": { "$ref": "#/properties/llm/$defs/roleEntry" }
+          }
+        }
+      },
+      "$defs": {
+        "roleEntry": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": ["anthropic", "openai", "gemini", "moonshot"],
+              "description": "LLM provider transport for this role."
+            },
+            "model": {
+              "type": "string",
+              "description": "Full model identifier for the selected provider."
+            },
+            "credentialLabel": {
+              "type": "string",
+              "description": "Optional credential label to pin this role to a specific credential entry resolved by resolveCredentials()."
+            }
+          },
+          "required": ["provider", "model"]
+        }
+      }
     }
   }
 }

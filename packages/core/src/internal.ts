@@ -1684,6 +1684,15 @@ export {
 } from './config/engine-ops.js';
 // Init (additional)
 export { initCoreSkills, installHandoffRedirectStubs } from './init.js';
+export {
+  llmAdd,
+  llmList,
+  llmProfile,
+  llmRemove,
+  llmTest,
+  llmUse,
+  llmWhoami,
+} from './llm/cli-ops.js';
 export type {
   CredentialResolveOptions,
   CredentialResult,
@@ -1691,13 +1700,36 @@ export type {
 } from './llm/credentials.js';
 // LLM — credential resolver (T1677: moved from memory/anthropic-key-resolver.ts)
 export {
+  authHeaders,
   clearAnthropicKeyCache,
+  cleoHomeDir,
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
   resolveCredentials,
   resolveModelCredentials,
   storeAnthropicApiKey,
 } from './llm/credentials.js';
+export type {
+  CredentialsStoreData,
+  CredentialsStoreStrategy,
+  StoredAuthType,
+  StoredCredential,
+} from './llm/credentials-store.js';
+// LLM — credentials-store + role-resolver + `cleo llm` engine ops (T9257 / T9255 / T9258)
+export {
+  addCredential,
+  credentialsStorePath,
+  getCredentialByLabel,
+  listCredentials,
+  pickCredentialForProvider,
+  removeCredential,
+} from './llm/credentials-store.js';
+export type { ResolvedLLM } from './llm/role-resolver.js';
+export {
+  IMPLICIT_FALLBACK_MODEL,
+  IMPLICIT_FALLBACK_PROVIDER,
+  resolveLLMForRole,
+} from './llm/role-resolver.js';
 // Memory — auto-extract (additional)
 export { extractFromTranscript } from './memory/auto-extract.js';
 // Memory — brain embedding (additional)

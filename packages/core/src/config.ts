@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { CleoConfig, ConfigSource, ResolvedValue } from '@cleocode/contracts';
+import { IMPLICIT_FALLBACK_MODEL } from './llm/role-resolver.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
 import { readJson, saveJson } from './store/json.js';
 
@@ -98,7 +99,9 @@ const DEFAULTS: CleoConfig = {
     },
     llmExtraction: {
       enabled: true,
-      model: 'claude-haiku-4-5-20251001',
+      // Default model centralised in `llm/role-resolver.ts` (T9255 grep guard:
+      // model literal must live ONLY in `packages/core/src/llm/`).
+      model: IMPLICIT_FALLBACK_MODEL,
       minImportance: 0.6,
       maxExtractions: 7,
       maxTranscriptChars: 60000,

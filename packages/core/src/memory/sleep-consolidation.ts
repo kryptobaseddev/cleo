@@ -8,9 +8,12 @@
  *   3. Synthesize frequently-cited learnings into higher-quality patterns
  *   4. Extract cross-cutting insights from clusters of related observations
  *
- * All LLM calls use `claude-haiku-4-5-20251001` (cheapest available model).
- * No API key = silent no-op for LLM steps; structural steps still run.
- * All errors are caught and logged — nothing here may block session end.
+ * All LLM calls go through `resolveLLMForRole('consolidation')` (T9255) so
+ * the provider + model + credential come from
+ * `config.llm.roles.consolidation` → `config.llm.default` →
+ * `config.llm.daemon` → implicit fallback. No credential = silent no-op for
+ * LLM steps; structural steps still run. All errors are caught and logged —
+ * nothing here may block session end.
  *
  * ## Configuration
  *
@@ -32,18 +35,29 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { authHeaders, resolveCredentials } from '../llm/credentials.js';
+import { authHeaders } from '../llm/credentials.js';
+import { resolveLLMForRole } from '../llm/role-resolver.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
+import { redactContent } from './redaction.js';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-/** Cheap model for all sleep-consolidation LLM calls. */
-const SLEEP_MODEL = 'claude-haiku-4-5-20251001';
+/**
+ * Logical role for sleep-consolidation LLM calls.
+ *
+ * Resolved via `resolveLLMForRole('consolidation')` so the provider + model +
+ * credential come from `config.llm.roles.consolidation` → `config.llm.default`
+ * → `config.llm.daemon` → implicit fallback (see
+ * {@link IMPLICIT_FALLBACK_MODEL} in `llm/role-resolver.ts`).
+ *
+ * @task T9255
+ */
+const SLEEP_ROLE = 'consolidation' as const;
 
 /** Embedding similarity threshold above which two entries are considered duplicates. */
 const DUPLICATE_SIMILARITY_THRESHOLD = 0.85;
@@ -205,19 +219,26 @@ interface AnthropicResponse {
 }
 
 /**
- * Call the Anthropic Messages API via native fetch using the cheap model.
+ * Call the Anthropic Messages API via native fetch using the resolved
+ * consolidation-role model.
  *
- * Uses `resolveCredentials('anthropic')` + `authHeaders(cred)` so the request
- * carries the correct scheme — `x-api-key` for API keys, `Authorization: Bearer`
- * + `anthropic-beta: oauth-2025-04-20` for Claude Code OAuth tokens.
+ * Resolves provider/model/credential via `resolveLLMForRole('consolidation')`
+ * (T9255). `authHeaders(cred)` ensures the request carries the correct scheme
+ * — `x-api-key` for API keys, `Authorization: Bearer` +
+ * `anthropic-beta: oauth-2025-04-20` for Claude Code OAuth tokens.
  * Returns null when no credential is available or the call fails.
  *
+ * @param projectRoot - Project root for config + tier-5 credential lookup.
  * @param systemPrompt - System instruction for the LLM.
  * @param userContent - User message content.
  */
-async function callLlm(systemPrompt: string, userContent: string): Promise<string | null> {
-  const cred = resolveCredentials('anthropic');
-  if (!cred.apiKey) return null;
+async function callLlm(
+  projectRoot: string,
+  systemPrompt: string,
+  userContent: string,
+): Promise<string | null> {
+  const llm = await resolveLLMForRole(SLEEP_ROLE, { projectRoot });
+  if (!llm.credential?.apiKey) return null;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -227,10 +248,10 @@ async function callLlm(systemPrompt: string, userContent: string): Promise<strin
       signal: AbortSignal.timeout(30_000),
       headers: {
         'Content-Type': 'application/json',
-        ...authHeaders(cred),
+        ...authHeaders(llm.credential),
       },
       body: JSON.stringify({
-        model: SLEEP_MODEL,
+        model: llm.model,
         max_tokens: MAX_RESPONSE_TOKENS,
         system: systemPrompt,
         messages: [{ role: 'user', content: userContent }],
@@ -239,9 +260,11 @@ async function callLlm(systemPrompt: string, userContent: string): Promise<strin
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      console.warn(
-        `[sleep-consolidation] Anthropic API error ${response.status}: ${body.slice(0, 200)}`,
-      );
+      // S-04 (CWE-209/532): scrub any echoed auth header / sk-ant-* token
+      // from the error body before logging. See observer-reflector.ts for
+      // the matching site.
+      const safeBody = redactContent(body.slice(0, 200)).content;
+      console.warn(`[sleep-consolidation] Anthropic API error ${response.status}: ${safeBody}`);
       return null;
     }
 
@@ -390,7 +413,7 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
   }
 
   let decisions: MergeDecision[] = [];
-  const rawResponse = await callLlm(systemPrompt, userContent);
+  const rawResponse = await callLlm(projectRoot, systemPrompt, userContent);
   if (rawResponse) {
     const parsed = parseJson<MergeDecision[]>(rawResponse);
     if (Array.isArray(parsed)) {
@@ -522,7 +545,7 @@ async function stepPruneStale(projectRoot: string): Promise<PruneStaleResult> {
   }
 
   let preserveIds = new Set<string>();
-  const rawResponse = await callLlm(systemPrompt, userContent);
+  const rawResponse = await callLlm(projectRoot, systemPrompt, userContent);
   if (rawResponse) {
     const parsed = parseJson<PreserveDecision>(rawResponse);
     if (parsed && Array.isArray(parsed.preserve)) {
@@ -644,7 +667,7 @@ async function stepStrengthenPatterns(projectRoot: string): Promise<StrengthenPa
     patterns: Array<{ pattern: string; context: string; impact?: string }>;
   }
 
-  const rawResponse = await callLlm(systemPrompt, userContent);
+  const rawResponse = await callLlm(projectRoot, systemPrompt, userContent);
   if (!rawResponse) return { synthesized: candidates.length, patternsGenerated: 0 };
 
   const parsed = parseJson<SynthesisOutput>(rawResponse);
@@ -810,7 +833,7 @@ async function stepGenerateInsights(projectRoot: string): Promise<GenerateInsigh
     insights: Array<{ cluster: number; insight: string; confidence: number }>;
   }
 
-  const rawResponse = await callLlm(systemPrompt, userContent);
+  const rawResponse = await callLlm(projectRoot, systemPrompt, userContent);
   if (!rawResponse) return { clustersProcessed: validClusters.length, insightsStored: 0 };
 
   const parsed = parseJson<InsightOutput>(rawResponse);

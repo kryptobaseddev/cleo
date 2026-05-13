@@ -15,6 +15,7 @@ import { ConduitHandler } from './conduit.js';
 import { DiagnosticsHandler } from './diagnostics.js';
 import { DocsHandler } from './docs.js';
 import { IntelligenceHandler } from './intelligence.js';
+import { LlmHandler } from './llm/index.js';
 import { MemoryHandler } from './memory.js';
 import { NexusHandler } from './nexus.js';
 import { OrchestrateHandler } from './orchestrate.js';
@@ -34,6 +35,7 @@ export {
   DiagnosticsHandler,
   DocsHandler,
   IntelligenceHandler,
+  LlmHandler,
   MemoryHandler,
   NexusHandler,
   OrchestrateHandler,
@@ -76,5 +78,7 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('sentient', new SentientHandler());
   // T1416: release domain — IVTR gate check (RELEASE-03) + auto-suggest (RELEASE-07).
   handlers.set('release', new ReleaseHandler());
+  // T9258: `cleo llm` CLI surface — credential pool + role-aware resolver + config writer.
+  handlers.set('llm', new LlmHandler());
   return handlers;
 }

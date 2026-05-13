@@ -23,7 +23,8 @@
  * ## LLM Backend
  *
  * Calls the Anthropic Messages API directly via native fetch (no SDK dep).
- * Uses the cheapest available model (`claude-haiku-4-5` or env override).
+ * Provider + model resolved via `resolveLLMForRole('consolidation')` (T9255)
+ * with `CLEO_OBSERVER_MODEL` env override preserved for back-compat.
  * When `ANTHROPIC_API_KEY` is not set, both functions silently no-op — the
  * rest of the memory pipeline still runs normally.
  *
@@ -50,10 +51,13 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { authHeaders } from '../llm/credentials.js';
+import { resolveLLMForRole } from '../llm/role-resolver.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { addGraphEdge } from './graph-auto-populate.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
+import { redactContent } from './redaction.js';
 
 // ============================================================================
 // Internal row type (raw SQLite snake_case columns, not Drizzle camelCase)
@@ -74,8 +78,17 @@ interface RawObservationRow {
 // Constants
 // ============================================================================
 
-/** Default model used for observer/reflector LLM calls. */
-const DEFAULT_MODEL = 'claude-haiku-4-5';
+/**
+ * Logical role for observer/reflector LLM calls.
+ *
+ * Resolved via `resolveLLMForRole('consolidation')` (T9255) — observer and
+ * reflector are both consolidation-tier tasks (compress + restructure recent
+ * BRAIN observations). The `CLEO_OBSERVER_MODEL` env var still wins when set,
+ * preserving the historical override knob.
+ *
+ * @task T9255
+ */
+const OBSERVER_ROLE = 'consolidation' as const;
 
 /** Maximum tokens for LLM response. Enough for 5 structured observations. */
 const MAX_RESPONSE_TOKENS = 1024;
@@ -230,31 +243,37 @@ interface AnthropicResponse {
 /**
  * Call the Anthropic Messages API via native fetch.
  *
- * Uses `resolveCredentials('anthropic')` + `authHeaders(cred)` so the request
- * carries the correct auth scheme — `x-api-key` for API keys, `Authorization`
- * Bearer + `anthropic-beta: oauth-2025-04-20` for Claude Code OAuth tokens.
+ * Resolves provider/model/credential via `resolveLLMForRole('consolidation')`
+ * (T9255). `authHeaders(cred)` ensures the request carries the correct auth
+ * scheme — `x-api-key` for API keys, `Authorization: Bearer` +
+ * `anthropic-beta: oauth-2025-04-20` for Claude Code OAuth tokens.
+ * `CLEO_OBSERVER_MODEL` continues to override the resolved model when set.
  * Returns null when no credential is available or the API call fails (caller
  * handles graceful degradation).
  *
+ * @param projectRoot - Project root for config + tier-5 credential lookup.
  * @param systemPrompt - System instruction for the LLM.
  * @param userContent - User message content.
  * @returns The assistant response text, or null on failure.
  */
-async function callAnthropicLlm(systemPrompt: string, userContent: string): Promise<string | null> {
-  const { authHeaders, resolveCredentials } = await import('../llm/credentials.js');
-  const cred = resolveCredentials('anthropic');
-  if (!cred.apiKey) {
+async function callAnthropicLlm(
+  projectRoot: string,
+  systemPrompt: string,
+  userContent: string,
+): Promise<string | null> {
+  const llm = await resolveLLMForRole(OBSERVER_ROLE, { projectRoot });
+  if (!llm.credential?.apiKey) {
     return null;
   }
 
-  const model = process.env['CLEO_OBSERVER_MODEL'] ?? DEFAULT_MODEL;
+  const model = process.env['CLEO_OBSERVER_MODEL'] ?? llm.model;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...authHeaders(cred),
+        ...authHeaders(llm.credential),
       },
       body: JSON.stringify({
         model,
@@ -266,9 +285,11 @@ async function callAnthropicLlm(systemPrompt: string, userContent: string): Prom
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      console.warn(
-        `[observer-reflector] Anthropic API error ${response.status}: ${body.slice(0, 200)}`,
-      );
+      // S-04 (CWE-209/532): route the error body through redactContent
+      // before logging so any echoed authorization-style header or
+      // sk-ant-* token in a malformed-key 401 response is scrubbed.
+      const safeBody = redactContent(body.slice(0, 200)).content;
+      console.warn(`[observer-reflector] Anthropic API error ${response.status}: ${safeBody}`);
       return null;
     }
 
@@ -610,7 +631,7 @@ export async function runObserver(
   const userContent = `Recent observations to compress (${observations.length} entries):\n\n${observationList}`;
 
   // Call LLM
-  const rawResponse = await callAnthropicLlm(OBSERVER_SYSTEM_PROMPT, userContent);
+  const rawResponse = await callAnthropicLlm(projectRoot, OBSERVER_SYSTEM_PROMPT, userContent);
   if (!rawResponse) return empty;
 
   // Parse response
@@ -782,7 +803,7 @@ export async function runReflector(
   const userContent = `Session observations to synthesize (${observations.length} entries):\n\n${obsList}`;
 
   // Call LLM
-  const rawResponse = await callAnthropicLlm(REFLECTOR_SYSTEM_PROMPT, userContent);
+  const rawResponse = await callAnthropicLlm(projectRoot, REFLECTOR_SYSTEM_PROMPT, userContent);
   if (!rawResponse) return empty;
 
   // Parse response
