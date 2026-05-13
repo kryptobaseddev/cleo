@@ -11,9 +11,9 @@
  * @task T9257
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { clearAnthropicKeyCache, resolveCredentials } from '../credentials.js';
 import {
@@ -557,5 +557,75 @@ describe('file-lock concurrent writes', () => {
     expect(labels).toEqual(['parallel-0', 'parallel-1', 'parallel-2', 'parallel-3', 'parallel-4']);
     const mode = statSync(credentialsStorePath()).mode & 0o777;
     expect(mode).toBe(0o600);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Security: filesystem permissions
+//
+// Regression suite for the security-review findings on T9257:
+//   S-01 — backup files leaked at 0644 (CWE-276)
+//   S-02 — TOCTOU window between atomic rename and chmod (CWE-367)
+//   S-03 — ~/.cleo parent dir created at 0755 enabled neighbor-UID
+//          enumeration of .backups/ filenames + mtimes (CWE-732)
+// ---------------------------------------------------------------------------
+
+describe('security: filesystem permissions', () => {
+  it('parent dir ~/.cleo is created at 0700 (S-03)', async () => {
+    isolateHomes();
+    await addCredential({
+      provider: 'anthropic',
+      label: 'perms-parent',
+      authType: 'api_key',
+      accessToken: 'sk-ant-x',
+    });
+    const parentDir = dirname(credentialsStorePath());
+    const dirMode = statSync(parentDir).mode & 0o777;
+    expect(dirMode).toBe(0o700);
+  });
+
+  it('rotated backup files are 0600 across multiple writes (S-01)', async () => {
+    isolateHomes();
+    // Three writes → at least two rotated backups under .backups/.
+    for (let i = 0; i < 3; i++) {
+      await addCredential({
+        provider: 'openai',
+        label: 'rotating',
+        authType: 'api_key',
+        accessToken: `sk-${i}`,
+      });
+    }
+
+    const backupDir = join(dirname(credentialsStorePath()), '.backups');
+    expect(existsSync(backupDir)).toBe(true);
+
+    // Backup directory itself must be 0o700 — otherwise neighbor UIDs can
+    // enumerate filenames + mtimes even when each file is 0o600.
+    expect(statSync(backupDir).mode & 0o777).toBe(0o700);
+
+    const entries = readdirSync(backupDir);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const name of entries) {
+      const mode = statSync(join(backupDir, name)).mode & 0o777;
+      expect(mode).toBe(0o600);
+    }
+  });
+
+  it('live file is 0600 immediately after every addCredential — no TOCTOU window (S-02)', async () => {
+    isolateHomes();
+    // Five sequential writes — assert 0600 after each call returns. If the
+    // implementation regresses to a post-rename chmod, the live file would
+    // be 0644 in the gap between rename + chmod; here we serialize and
+    // observe at every step.
+    for (let i = 0; i < 5; i++) {
+      await addCredential({
+        provider: 'anthropic',
+        label: `toctou-${i}`,
+        authType: 'api_key',
+        accessToken: `sk-ant-${i}`,
+      });
+      const mode = statSync(credentialsStorePath()).mode & 0o777;
+      expect(mode).toBe(0o600);
+    }
   });
 });

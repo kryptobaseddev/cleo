@@ -160,7 +160,18 @@ function ensureFileInitialized(path: string): void {
   if (existsSync(path)) return;
   const dir = dirname(path);
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+    // 0o700 so other UIDs cannot enumerate the .backups/ subdir contents
+    // even though every individual file in it is 0o600.
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  } else {
+    // Existing dir created at a looser mode (e.g. 0o755 from an earlier
+    // CLEO release): tighten on first write. Best-effort; ignore failures
+    // (Windows, mount-points, NFS without chmod support).
+    try {
+      chmodSync(dir, 0o700);
+    } catch {
+      /* non-fatal */
+    }
   }
   try {
     writeFileSync(path, `${JSON.stringify(emptyStore(), null, 2)}\n`, {
@@ -187,7 +198,10 @@ function enforce0600(path: string): void {
   try {
     chmodSync(path, 0o600);
   } catch (err) {
-    logger.warn({ err, path }, 'llm-credentials-store: failed to chmod 0600');
+    // S-09: log only errno code; err.message may include the absolute path
+    // on some platforms which is already logged separately.
+    const code = (err as NodeJS.ErrnoException).code;
+    logger.warn({ code, path }, 'llm-credentials-store: failed to chmod 0600');
   }
 }
 
@@ -424,41 +438,49 @@ export async function addCredential(
   ensureFileInitialized(path);
   let inserted: StoredCredential | null = null;
 
-  await withLock<CredentialsStoreData>(path, (current) => {
-    const data: CredentialsStoreData = current ?? emptyStore();
-    if (data.version !== 1) {
-      // Fresh / corrupt — rebuild rather than silently propagate bad version.
-      data.version = 1;
-      data.credentials = [];
-    }
-    data.defaultStrategy ??= 'priorityWithFallback';
+  await withLock<CredentialsStoreData>(
+    path,
+    (current) => {
+      const data: CredentialsStoreData = current ?? emptyStore();
+      if (data.version !== 1) {
+        // Fresh / corrupt — rebuild rather than silently propagate bad version.
+        data.version = 1;
+        data.credentials = [];
+      }
+      data.defaultStrategy ??= 'priorityWithFallback';
 
-    const remaining = data.credentials.filter(
-      (c) => !(c.provider === input.provider && c.label === input.label),
-    );
-    const maxPriority = remaining.reduce((m, c) => (c.priority > m ? c.priority : m), -10);
-    const priority = typeof input.priority === 'number' ? input.priority : maxPriority + 10;
+      const remaining = data.credentials.filter(
+        (c) => !(c.provider === input.provider && c.label === input.label),
+      );
+      const maxPriority = remaining.reduce((m, c) => (c.priority > m ? c.priority : m), -10);
+      const priority = typeof input.priority === 'number' ? input.priority : maxPriority + 10;
 
-    const next: StoredCredential = {
-      provider: input.provider,
-      label: input.label,
-      authType: input.authType,
-      accessToken: input.accessToken,
-      refreshToken: input.refreshToken,
-      expiresAt: input.expiresAt ?? null,
-      priority,
-      source: input.source,
-      baseUrl: input.baseUrl ?? null,
-      extraHeaders: input.extraHeaders,
-      metadata: input.metadata,
-      lastStatus: input.lastStatus,
-      disabled: input.disabled ?? false,
-    };
+      const next: StoredCredential = {
+        provider: input.provider,
+        label: input.label,
+        authType: input.authType,
+        accessToken: input.accessToken,
+        refreshToken: input.refreshToken,
+        expiresAt: input.expiresAt ?? null,
+        priority,
+        source: input.source,
+        baseUrl: input.baseUrl ?? null,
+        extraHeaders: input.extraHeaders,
+        metadata: input.metadata,
+        lastStatus: input.lastStatus,
+        disabled: input.disabled ?? false,
+      };
 
-    data.credentials = [...remaining, next];
-    inserted = next;
-    return data;
-  });
+      data.credentials = [...remaining, next];
+      inserted = next;
+      return data;
+    },
+    // SECURITY (S-01/S-02): mode is plumbed all the way through to the
+    // temp file + rotated backup writes so the file never touches disk
+    // at a looser permission, even momentarily, and historical copies
+    // under .backups/ are equally locked down.
+    { mode: 0o600 },
+  );
 
   enforce0600(path);
   // `inserted` is set inside the transform closure before withLock returns.
@@ -486,19 +508,24 @@ export async function removeCredential(provider: ModelTransport, label: string):
   ensureFileInitialized(path);
 
   let removed = false;
-  await withLock<CredentialsStoreData>(path, (current) => {
-    const data: CredentialsStoreData = current ?? emptyStore();
-    if (data.version !== 1 || !Array.isArray(data.credentials)) {
-      return emptyStore();
-    }
-    const before = data.credentials.length;
-    data.credentials = data.credentials.filter(
-      (c) => !(c.provider === provider && c.label === label),
-    );
-    removed = data.credentials.length < before;
-    data.defaultStrategy ??= 'priorityWithFallback';
-    return data;
-  });
+  await withLock<CredentialsStoreData>(
+    path,
+    (current) => {
+      const data: CredentialsStoreData = current ?? emptyStore();
+      if (data.version !== 1 || !Array.isArray(data.credentials)) {
+        return emptyStore();
+      }
+      const before = data.credentials.length;
+      data.credentials = data.credentials.filter(
+        (c) => !(c.provider === provider && c.label === label),
+      );
+      removed = data.credentials.length < before;
+      data.defaultStrategy ??= 'priorityWithFallback';
+      return data;
+    },
+    // SECURITY (S-01/S-02): see addCredential for rationale.
+    { mode: 0o600 },
+  );
 
   enforce0600(path);
   return removed;
