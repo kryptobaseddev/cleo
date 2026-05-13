@@ -28,16 +28,16 @@ describe('resolveVerifierScript', () => {
     expect(resolveVerifierScript('T9999', root)).toBeNull();
   });
 
-  it('resolves verify-<taskId>-fu.mjs first', () => {
+  it('resolves verify-<lowercase-id>-fu.mjs first', () => {
     const root = makeTmpRoot();
-    const path = join(root, 'scripts', 'verify-T9001-fu.mjs');
+    const path = join(root, 'scripts', 'verify-t9001-fu.mjs');
     writeFileSync(path, '');
     expect(resolveVerifierScript('T9001', root)).toBe(path);
   });
 
-  it('resolves verify-<taskId>.mjs when fu variant missing', () => {
+  it('resolves verify-<lowercase-id>.mjs when fu variant missing', () => {
     const root = makeTmpRoot();
-    const path = join(root, 'scripts', 'verify-T9002.mjs');
+    const path = join(root, 'scripts', 'verify-t9002.mjs');
     writeFileSync(path, '');
     expect(resolveVerifierScript('T9002', root)).toBe(path);
   });
@@ -97,7 +97,7 @@ describe('backfillVerifier', () => {
   it('skips if verifier already exists and force is false', () => {
     const root = makeTmpRoot();
     const task = makeTask('T9101');
-    const existingPath = join(root, 'scripts', 'verify-T9101.mjs');
+    const existingPath = join(root, 'scripts', 'verify-t9101.mjs');
     writeFileSync(existingPath, '// existing');
     const result = backfillVerifier(task, root, false);
     expect(result.status).toBe('skipped');
@@ -107,7 +107,7 @@ describe('backfillVerifier', () => {
   it('overwrites if force is true', () => {
     const root = makeTmpRoot();
     const task = makeTask('T9102');
-    const existingPath = join(root, 'scripts', 'verify-T9102.mjs');
+    const existingPath = join(root, 'scripts', 'verify-t9102.mjs');
     writeFileSync(existingPath, '// existing');
     const result = backfillVerifier(task, root, true);
     expect(result.status).toBe('generated');
@@ -140,7 +140,7 @@ describe('backfillAllPendingVerifiers', () => {
   it('skips tasks that already have verifiers', () => {
     const root = makeTmpRoot();
     const tasks = [makeTask('T9210'), makeTask('T9211')];
-    writeFileSync(join(root, 'scripts', 'verify-T9210.mjs'), '// exists');
+    writeFileSync(join(root, 'scripts', 'verify-t9210.mjs'), '// exists');
     const summary = backfillAllPendingVerifiers(tasks, root, false);
     expect(summary.succeeded).toBe(1);
     expect(summary.skipped).toBe(0);
