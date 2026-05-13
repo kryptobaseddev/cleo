@@ -43,10 +43,10 @@ export interface BackfillAllResult {
  * Resolve the verifier script path for a given task ID.
  *
  * Search order:
- *   1. scripts/verify-<taskId>-fu.mjs  (recovery follow-up convention)
- *   2. scripts/verify-<taskId>.mjs      (general convention)
- *   3. scripts/verify-<lowercase-id>-fu.mjs
- *   4. scripts/verify-<lowercase-id>.mjs
+ *   1. scripts/verify-<lowercase-id>-fu.mjs  (canonical lowercase — matches real script names)
+ *   2. scripts/verify-<lowercase-id>.mjs
+ *   3. scripts/verify-<taskId>-fu.mjs         (original-case fallback)
+ *   4. scripts/verify-<taskId>.mjs
  *
  * @param taskId - Task ID (e.g. "T9188").
  * @param projectRoot - Project root to search from.
@@ -55,10 +55,10 @@ export interface BackfillAllResult {
 export function resolveVerifierScript(taskId: string, projectRoot: string): string | null {
   const id = taskId.toLowerCase();
   const candidates = [
-    join(projectRoot, 'scripts', `verify-${taskId}-fu.mjs`),
-    join(projectRoot, 'scripts', `verify-${taskId}.mjs`),
     join(projectRoot, 'scripts', `verify-${id}-fu.mjs`),
     join(projectRoot, 'scripts', `verify-${id}.mjs`),
+    join(projectRoot, 'scripts', `verify-${taskId}-fu.mjs`),
+    join(projectRoot, 'scripts', `verify-${taskId}.mjs`),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
