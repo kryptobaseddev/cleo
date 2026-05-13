@@ -5,16 +5,18 @@
  * Every LLM consumer — extraction, dream-cycle, hygiene-scan, dup-detect,
  * observer-reflector, deriver, adapters — MUST use this function.
  *
- * ## 5-tier resolution chain (first match wins)
+ * ## 6-tier resolution chain (first match wins)
  *
- * 1. **explicit** — `options.apiKey` passed by the caller
- * 2. **env**      — provider-specific environment variable
- *                   (`ANTHROPIC_API_KEY` | `OPENAI_API_KEY` | `GEMINI_API_KEY` |
- *                    `MOONSHOT_API_KEY`)
- * 3. **claude-creds** — `~/.claude/.credentials.json` OAuth token
- *                       (only for `anthropic` provider; Claude Code zero-config)
- * 4. **global-config** — `~/.cleo/config.json` → `llm.providers.<provider>.apiKey`
- * 5. **project-config** — `.cleo/config.json`  → `llm.providers.<provider>.apiKey`
+ * 1. **explicit**       — `options.apiKey` passed by the caller
+ * 2. **env**            — provider-specific environment variable
+ *                         (`ANTHROPIC_API_KEY` | `OPENAI_API_KEY` |
+ *                          `GEMINI_API_KEY` | `MOONSHOT_API_KEY`)
+ * 3. **cred-file**      — `~/.cleo/llm-credentials.json` (multi-credential
+ *                         pool, file-locked, 0600). T-LLM-CRED Phase 2.
+ * 4. **claude-creds**   — `~/.claude/.credentials.json` OAuth token
+ *                         (only for `anthropic` provider; Claude Code zero-config)
+ * 5. **global-config**  — `~/.cleo/config.json` → `llm.providers.<provider>.apiKey`
+ * 6. **project-config** — `.cleo/config.json`  → `llm.providers.<provider>.apiKey`
  *
  * Returns `null` when no key is found in any tier.
  *
@@ -35,6 +37,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { pickCredentialForProviderSync } from './credentials-store.js';
 import type { ModelTransport } from './types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -46,6 +49,8 @@ import type { ModelTransport } from './types-config.js';
  *
  * - `explicit`       — caller provided `options.apiKey` directly
  * - `env`            — provider-specific environment variable
+ * - `cred-file`      — `~/.cleo/llm-credentials.json` multi-credential pool
+ *                      (T-LLM-CRED-CENTRALIZATION Phase 2)
  * - `claude-creds`   — `~/.claude/.credentials.json` OAuth token (anthropic only)
  * - `global-config`  — `~/.cleo/config.json` `llm.providers[p].apiKey`
  * - `project-config` — `.cleo/config.json`   `llm.providers[p].apiKey`
@@ -53,6 +58,7 @@ import type { ModelTransport } from './types-config.js';
 export type CredentialSource =
   | 'explicit'
   | 'env'
+  | 'cred-file'
   | 'claude-creds'
   | 'global-config'
   | 'project-config';
@@ -128,15 +134,26 @@ const ENV_VARS: Record<ModelTransport, string> = {
 // Path helpers (mirrors anthropic-key-resolver.ts logic, now centralised)
 // ---------------------------------------------------------------------------
 
-/** XDG-aware global CLEO data directory. */
-function globalCleoDir(): string {
+/**
+ * XDG-aware global CLEO data directory.
+ *
+ * Resolution: `$XDG_DATA_HOME/cleo` when set, else `~/.local/share/cleo`.
+ *
+ * Exported so sibling modules (notably `credentials-store.ts`) can resolve
+ * `~/.cleo/llm-credentials.json` against the SAME XDG-aware home that every
+ * other CLEO global file uses — including this module's tier 4/4b lookups.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2
+ * @task T9257
+ */
+export function cleoHomeDir(): string {
   const xdg = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
   return join(xdg, 'cleo');
 }
 
 /** Path to the global CLEO config file. */
 function globalConfigPath(): string {
-  return join(globalCleoDir(), 'config.json');
+  return join(cleoHomeDir(), 'config.json');
 }
 
 /** Path to the project-level CLEO config file. */
@@ -182,7 +199,7 @@ function readClaudeCredsToken(): string | null {
  */
 function readFlatAnthropicKey(): string | null {
   try {
-    const keyFile = join(globalCleoDir(), 'anthropic-key');
+    const keyFile = join(cleoHomeDir(), 'anthropic-key');
     if (!existsSync(keyFile)) return null;
     const stored = readFileSync(keyFile, 'utf-8').trim();
     return stored || null;
@@ -263,7 +280,27 @@ export function resolveCredentials(
     return { provider, apiKey: token, source: 'env', authType: detectAuthType(provider, token) };
   }
 
-  // Tier 3 — ~/.claude/.credentials.json (anthropic only)
+  // Tier 3 — ~/.cleo/llm-credentials.json (multi-credential pool).
+  // T-LLM-CRED-CENTRALIZATION Phase 2 (T9257). Sync read of the file-locked,
+  // 0600 store. Picks the highest-priority non-disabled, non-expired entry
+  // for `provider`. Returns null when the file is absent or has no eligible
+  // entries — falls through to the legacy claude-creds tier below.
+  const stored = pickCredentialForProviderSync(provider);
+  if (stored) {
+    // Narrow stored.authType back to the on-wire AuthType. Phase 2 widens
+    // stored auth to include `aws_sdk` (Bedrock); Phase 3 will widen the
+    // resolver's AuthType. Until then, treat `aws_sdk` as `api_key` so
+    // downstream callers fall back to existing header logic.
+    const wireAuthType: AuthType = stored.authType === 'oauth' ? 'oauth' : 'api_key';
+    return {
+      provider,
+      apiKey: stored.accessToken || null,
+      source: 'cred-file',
+      authType: wireAuthType,
+    };
+  }
+
+  // Tier 4 — ~/.claude/.credentials.json (anthropic only)
   if (provider === 'anthropic') {
     const oauthToken = readClaudeCredsToken();
     if (oauthToken) {
@@ -422,7 +459,7 @@ export function resolveAnthropicApiKeySource(): 'env' | 'config' | 'oauth' | 'no
  * @param apiKey - The API key to store.
  */
 export function storeAnthropicApiKey(apiKey: string): void {
-  const dir = globalCleoDir();
+  const dir = cleoHomeDir();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }

@@ -28,7 +28,7 @@
  *
  * LLM provider: reads `llm.daemon.provider` and `llm.daemon.model` from the
  * global `~/.cleo/config.json` via `getRawConfigValue`. Credentials resolved
- * via `resolveCredentials` (T1677 — one canonical entry point).
+ * via `resolveLLMForRole('consolidation')` (T9255 — Phase 2 role-based routing).
  *
  * ## Test injection
  *
@@ -51,8 +51,7 @@
 import { randomUUID } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { resolveCredentials } from '../llm/credentials.js';
-import { buildAnthropicSdkClient } from '../llm/registry.js';
+import { IMPLICIT_FALLBACK_MODEL, resolveAnthropicForRole } from '../llm/role-resolver.js';
 import type { MemoryCandidate } from '../memory/extraction-gate.js';
 
 // ---------------------------------------------------------------------------
@@ -90,10 +89,12 @@ export const DREAM_MAX_CLUSTERS = 10;
 export const DREAM_JACCARD_THRESHOLD = 0.15;
 
 /**
- * Default daemon LLM model when `llm.daemon.model` is not configured.
- * Mirrors the fallback used in llm-extraction.ts.
+ * Default daemon LLM model when no `llm.roles.consolidation`, `llm.default`,
+ * nor `llm.daemon` entry is configured. Re-exported for tests + downstream
+ * code that historically relied on this constant — sourced from
+ * `IMPLICIT_FALLBACK_MODEL` (T9255) so there is exactly one literal.
  */
-export const DREAM_DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+export const DREAM_DEFAULT_MODEL = IMPLICIT_FALLBACK_MODEL;
 
 /**
  * Default daemon LLM provider when `llm.daemon.provider` is not configured.
@@ -517,52 +518,24 @@ Extract durable knowledge from these observations. Return empty array if nothing
 }
 
 /**
- * Construct an Anthropic client using `resolveCredentials` (T1677).
+ * Resolve the LLM client + model for the dream cycle via
+ * `resolveAnthropicForRole('consolidation')` (T9255 + T-LLM-CRED Phase 2
+ * DRY review P2-1).
  *
- * Reads provider from `llm.daemon.provider` config (default: anthropic).
- * Only the anthropic transport is fully supported; others are skipped.
+ * The helper walks `config.llm.roles.consolidation` → `config.llm.default`
+ * → `config.llm.daemon` → implicit fallback. Dream cycle currently only
+ * supports Anthropic (same SDK as llm-extraction.ts); the helper returns
+ * `null` for non-anthropic resolutions so the cycle records `no-api-key`
+ * and skips synthesis without breaking the kill-switch / digest paths.
  *
- * @returns Client instance or null when no API key is available.
+ * @returns `{ client, model }` or `null` when no usable credential exists.
  */
-async function buildDaemonClient(projectRoot: string): Promise<Pick<Anthropic, 'messages'> | null> {
-  try {
-    const { getRawConfigValue } = await import('../config.js');
-    const rawProvider = (await getRawConfigValue('llm.daemon.provider', projectRoot)) as
-      | string
-      | undefined;
-    const provider =
-      (rawProvider as 'anthropic' | 'openai' | 'gemini' | 'moonshot' | undefined) ??
-      DREAM_DEFAULT_PROVIDER;
-
-    // Dream cycle currently only supports Anthropic (same SDK as llm-extraction.ts).
-    // Future: add OpenAI/Gemini paths when needed.
-    if (provider !== 'anthropic') {
-      return null;
-    }
-
-    const cred = resolveCredentials('anthropic', { projectRoot });
-    if (!cred.apiKey) return null;
-
-    // buildAnthropicSdkClient honors cred.authType so OAuth tokens use
-    // `authToken` (Bearer) and api_keys use `apiKey` (x-api-key).
-    return buildAnthropicSdkClient(cred) as Pick<Anthropic, 'messages'> | null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Read the configured daemon model from `llm.daemon.model` (global config).
- * Falls back to {@link DREAM_DEFAULT_MODEL} on any error.
- */
-async function resolveDaemonModel(projectRoot: string): Promise<string> {
-  try {
-    const { getRawConfigValue } = await import('../config.js');
-    const model = (await getRawConfigValue('llm.daemon.model', projectRoot)) as string | undefined;
-    return typeof model === 'string' && model.trim() ? model.trim() : DREAM_DEFAULT_MODEL;
-  } catch {
-    return DREAM_DEFAULT_MODEL;
-  }
+async function resolveDreamLlm(
+  projectRoot: string,
+): Promise<{ client: Pick<Anthropic, 'messages'>; model: string } | null> {
+  const llm = await resolveAnthropicForRole('consolidation', { projectRoot });
+  if (!llm) return null;
+  return { client: llm.client, model: llm.model };
 }
 
 /**
@@ -811,15 +784,22 @@ export async function runDreamCycle(options: DreamCycleOptions): Promise<DreamCy
     };
   }
 
-  // Step 2: resolve LLM client.
+  // Step 2: resolve LLM client + model.
   // When options.client is explicitly provided (including null as "no client"), use it.
-  // When options.client is undefined (not set), attempt to build from config + credentials.
+  // When options.client is undefined (not set), resolve from config + credentials
+  // via `resolveLLMForRole('consolidation')` (T9255).
   let client: Pick<Anthropic, 'messages'> | null;
+  let model: string;
   if ('client' in options) {
     // Caller explicitly provided a client (or null to signal "no key available in test").
     client = options.client ?? null;
+    // Test path: also allow callers to skip configuration entirely. Fall back
+    // to DREAM_DEFAULT_MODEL so the synthesise call has a non-empty model arg.
+    model = DREAM_DEFAULT_MODEL;
   } else {
-    client = await buildDaemonClient(projectRoot);
+    const resolved = await resolveDreamLlm(projectRoot);
+    client = resolved?.client ?? null;
+    model = resolved?.model ?? DREAM_DEFAULT_MODEL;
   }
 
   if (!client) {
@@ -829,8 +809,6 @@ export async function runDreamCycle(options: DreamCycleOptions): Promise<DreamCy
         'No LLM API key found (checked ANTHROPIC_API_KEY, ~/.claude/.credentials.json, ~/.cleo/config.json) — dream cycle skipped',
     };
   }
-
-  const model = await resolveDaemonModel(projectRoot);
 
   // Step 3: collect observations.
   const lookbackMs = options.lookbackMs ?? DREAM_LOOKBACK_MS;

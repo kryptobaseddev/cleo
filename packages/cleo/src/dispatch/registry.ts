@@ -7029,6 +7029,234 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+
+  // ---------------------------------------------------------------------------
+  // LLM domain — `cleo llm` CLI surface (T9258 · T-LLM-CRED Phase 2)
+  // ---------------------------------------------------------------------------
+
+  // llm query: list — redacted credential pool view
+  {
+    gateway: 'query',
+    domain: 'llm',
+    operation: 'list',
+    description:
+      'llm.list (query) — list redacted credentials from the multi-credential pool, optionally filtered by provider',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: false,
+        description: 'Filter to a single provider transport',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // llm query: test — round-trip provider ping
+  {
+    gateway: 'query',
+    domain: 'llm',
+    operation: 'test',
+    description:
+      'llm.test (query) — round-trip ping against the resolved provider; returns latency + response id (tokens never surfaced)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['provider'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'Provider transport to probe',
+        cli: { positional: true },
+      },
+      {
+        name: 'label',
+        type: 'string',
+        required: false,
+        description: 'Credential label to pin the test to a specific store entry',
+      },
+      {
+        name: 'model',
+        type: 'string',
+        required: false,
+        description: "Model override (defaults to the provider's implicit fallback)",
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // llm query: whoami — role-by-role resolver dump
+  {
+    gateway: 'query',
+    domain: 'llm',
+    operation: 'whoami',
+    description:
+      'llm.whoami (query) — resolve every role and report which provider / model / credential would be picked',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'role',
+        type: 'string',
+        required: false,
+        description:
+          'Optional role filter (extraction | consolidation | derivation | hygiene | judgement)',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // llm mutate: add — upsert credential into the pool
+  {
+    gateway: 'mutate',
+    domain: 'llm',
+    operation: 'add',
+    description:
+      'llm.add (mutate) — upsert a credential into the multi-credential pool; auto-detects authType from token prefix',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['provider', 'apiKey'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'Provider transport',
+        cli: { positional: true },
+      },
+      {
+        name: 'apiKey',
+        type: 'string',
+        required: true,
+        description: 'API key or OAuth bearer token to persist',
+      },
+      {
+        name: 'label',
+        type: 'string',
+        required: false,
+        description: "Human-readable label, unique within provider (default: 'default')",
+      },
+      {
+        name: 'baseUrl',
+        type: 'string',
+        required: false,
+        description: 'Optional override for the provider base URL',
+      },
+      {
+        name: 'authType',
+        type: 'string',
+        required: false,
+        description: "Explicit auth type override ('api_key' | 'oauth' | 'aws_sdk')",
+      },
+      {
+        name: 'priority',
+        type: 'number',
+        required: false,
+        description: 'Optional priority override (lower wins)',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // llm mutate: remove — delete (provider, label) pair
+  {
+    gateway: 'mutate',
+    domain: 'llm',
+    operation: 'remove',
+    description: 'llm.remove (mutate) — delete a (provider, label) credential pair from the pool',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['provider', 'label'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'Provider transport',
+        cli: { positional: true },
+      },
+      {
+        name: 'label',
+        type: 'string',
+        required: true,
+        description: 'Label of the credential to remove',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // llm mutate: use — set llm.default.{provider,model}
+  {
+    gateway: 'mutate',
+    domain: 'llm',
+    operation: 'use',
+    description: 'llm.use (mutate) — set llm.default.{provider,model} in the global config',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['provider'],
+    params: [
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'Provider transport to mark as default',
+        cli: { positional: true },
+      },
+      {
+        name: 'model',
+        type: 'string',
+        required: false,
+        description: 'Optional default model identifier',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // llm mutate: profile — set llm.roles[role]
+  {
+    gateway: 'mutate',
+    domain: 'llm',
+    operation: 'profile',
+    description:
+      'llm.profile (mutate) — pin a role to a specific provider / model / credential label',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['role', 'provider'],
+    params: [
+      {
+        name: 'role',
+        type: 'string',
+        required: true,
+        description: 'Role name (extraction | consolidation | derivation | hygiene | judgement)',
+        cli: { positional: true },
+      },
+      {
+        name: 'provider',
+        type: 'string',
+        required: true,
+        description: 'Provider transport for this role',
+        cli: { positional: true },
+      },
+      {
+        name: 'model',
+        type: 'string',
+        required: false,
+        description: 'Optional model identifier for this role',
+      },
+      {
+        name: 'credentialLabel',
+        type: 'string',
+        required: false,
+        description: 'Optional credential label to pin this role to a specific store entry',
+      },
+    ] satisfies ParamDef[],
+  },
 ];
 
 // ---------------------------------------------------------------------------

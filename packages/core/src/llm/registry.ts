@@ -8,6 +8,7 @@
  * @epic T1386
  */
 
+import { createHash } from 'node:crypto';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { OpenAI } from 'openai';
@@ -62,19 +63,54 @@ const _openaiOverrideCache = new Map<string, OpenAI>();
 const _geminiOverrideCache = new Map<string, GoogleGenerativeAI>();
 const _moonshotOverrideCache = new Map<string, OpenAI>();
 
+/**
+ * Header names whose values are secret-bearing. Their values are hashed,
+ * not embedded verbatim, into the cache key (S-05). Case-insensitive.
+ */
+const SECRET_HEADER_NAMES = new Set(['authorization', 'x-api-key', 'cookie']);
+
+/**
+ * Hash a string into a short stable token suitable for use in a cache key.
+ *
+ * S-05 (CWE-200 information exposure): the cache key has to be stable
+ * across calls for the same `(baseUrl, apiKey, extraHeaders)` tuple, but
+ * the previous implementation embedded the raw `apiKey` and any
+ * `Authorization: Bearer <token>` header value directly into the key
+ * string. Those strings then lived in module-global `Map<string, …>`
+ * caches for the lifetime of the process, where any future heap-dump
+ * tool / serializer / debug introspection hook would surface them.
+ *
+ * SHA-256 of the secret keeps the cache deterministic without retaining
+ * the plaintext — 16 hex chars (64 bits) is collision-resistant enough
+ * for an in-process LRU keyed on a small handful of tuples per worker.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 — security review S-05
+ */
+function hashSecret(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16);
+}
+
 function makeOverrideKey(
   baseUrl: string | null | undefined,
   apiKey: string | null | undefined,
   extraHeaders?: Record<string, string> | null,
 ): string {
-  // Stable serialization of extraHeaders (sorted by key) so equivalent header
-  // bags hit the same cache entry.
+  // S-05: hash the apiKey and any secret-bearing headers rather than
+  // embedding them in the key string. Non-secret headers (e.g.
+  // `anthropic-beta`, `anthropic-version`) stay readable so the cache
+  // still differentiates client configs correctly.
+  const apiKeyKey = apiKey ? `sha256:${hashSecret(apiKey)}` : '';
+
   let headerKey = '';
   if (extraHeaders) {
     const entries = Object.entries(extraHeaders).sort(([a], [b]) => a.localeCompare(b));
-    headerKey = entries.map(([k, v]) => `${k}=${v}`).join('|');
+    headerKey = entries
+      .map(([k, v]) =>
+        SECRET_HEADER_NAMES.has(k.toLowerCase()) ? `${k}=sha256:${hashSecret(v)}` : `${k}=${v}`,
+      )
+      .join('|');
   }
-  return `${baseUrl ?? ''}::${apiKey ?? ''}::${headerKey}`;
+  return `${baseUrl ?? ''}::${apiKeyKey}::${headerKey}`;
 }
 
 /**
