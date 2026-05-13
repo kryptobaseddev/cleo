@@ -11,9 +11,12 @@
  *   - source_ids=[sourceItemId] (lineage tracking)
  *   - sourceType='deriver'
  *
- * LLM calls: use the Anthropic API if available. If no API key,
- * derivation falls back to a deterministic title-concatenation summary.
- * No LLM = silent degrade (no throw).
+ * LLM calls: routed through `resolveLLMForRole('derivation')` (T9255) so
+ * the provider + model + credential come from
+ * `config.llm.roles.derivation` → `config.llm.default` → `config.llm.daemon`
+ * → implicit fallback. If no credential is reachable, derivation falls back
+ * to a deterministic title-concatenation summary. No LLM = silent degrade
+ * (no throw).
  *
  * @task T1145
  * @epic T1145
@@ -57,6 +60,15 @@ export interface DerivationResult {
 export interface DeriveOptions {
   /** Inject a DatabaseSync for testing without touching the real brain.db. */
   db?: DatabaseSync | null;
+  /**
+   * Absolute path to the project root. Forwarded to
+   * `resolveLLMForRole('derivation')` so the derivation LLM picks up
+   * project-config (`llm.roles.derivation`) and project-scoped credential
+   * tiers. Defaults to `process.cwd()` when omitted.
+   *
+   * @task T9255
+   */
+  projectRoot?: string;
 }
 
 // ============================================================================
@@ -80,19 +92,26 @@ function generateObsId(): string {
 }
 
 /**
- * Resolve the Anthropic credential without importing the full Anthropic SDK.
- * Returns the full `CredentialResult` so the caller can pick the auth scheme
- * (`api_key` vs `oauth`) when constructing the SDK client.
- * Returns null if no credential is available.
+ * Resolve the derivation LLM client + model via
+ * `resolveLLMForRole('derivation')` (T9255). Lazy-imports the resolver so
+ * test environments that never reach the LLM path don't load the SDK.
+ *
+ * Returns null when no credential is reachable or the resolver fails.
  */
-async function tryResolveAnthropicCredential(): Promise<Awaited<
-  ReturnType<typeof import('../llm/credentials.js').resolveCredentials>
-> | null> {
+async function resolveDeriverLlm(projectRoot: string | undefined): Promise<{
+  client: { messages: { create: (req: unknown) => Promise<unknown> } };
+  model: string;
+} | null> {
   try {
-    // Lazy import to avoid SDK load in tests
-    const { resolveCredentials } = await import('../llm/credentials.js');
-    const cred = resolveCredentials('anthropic');
-    return cred.apiKey ? cred : null;
+    const { resolveLLMForRole } = await import('../llm/role-resolver.js');
+    const llm = await resolveLLMForRole('derivation', { projectRoot });
+    if (!llm.credential?.apiKey || !llm.client) return null;
+    return {
+      client: llm.client as unknown as {
+        messages: { create: (req: unknown) => Promise<unknown> };
+      },
+      model: llm.model,
+    };
   } catch {
     return null;
   }
@@ -123,6 +142,7 @@ async function deriveFromObservation(
   queueItemId: string,
   sourceId: string,
   nativeDb: DatabaseSync,
+  projectRoot: string | undefined,
 ): Promise<DerivationResult> {
   // Fetch the source observation
   const sourceRow = nativeDb
@@ -146,34 +166,31 @@ async function deriveFromObservation(
 
   const allSources = [sourceRow, ...siblings];
 
-  // Attempt LLM synthesis; fall back to deterministic on failure
+  // Attempt LLM synthesis; fall back to deterministic on failure.
+  // Provider + model + credential routed through `resolveLLMForRole('derivation')`
+  // (T9255). Test environments that never inject a project root rely on the
+  // default `process.cwd()` to pick up the project config.
   let synthesisText: string;
-  const cred = await tryResolveAnthropicCredential();
+  const resolved = await resolveDeriverLlm(projectRoot);
 
-  if (cred) {
+  if (resolved) {
     try {
-      const { buildAnthropicSdkClient } = await import('../llm/registry.js');
-      const client = buildAnthropicSdkClient(cred);
-      if (!client) {
-        synthesisText = deterministicSynthesis(allSources);
-      } else {
-        const prompt = `You are a memory synthesizer. Given these ${allSources.length} observations, produce ONE concise inductive insight (2-3 sentences) that captures the key pattern or learning:\n\n${allSources
-          .slice(0, 10)
-          .map((r, i) => `${i + 1}. ${r.title ?? ''}: ${(r.narrative ?? '').slice(0, 200)}`)
-          .join('\n')}\n\nProvide only the synthesis text, no preamble.`;
+      const prompt = `You are a memory synthesizer. Given these ${allSources.length} observations, produce ONE concise inductive insight (2-3 sentences) that captures the key pattern or learning:\n\n${allSources
+        .slice(0, 10)
+        .map((r, i) => `${i + 1}. ${r.title ?? ''}: ${(r.narrative ?? '').slice(0, 200)}`)
+        .join('\n')}\n\nProvide only the synthesis text, no preamble.`;
 
-        const msg = await client.messages.create({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 256,
-          messages: [{ role: 'user', content: prompt }],
-        });
+      const msg = (await resolved.client.messages.create({
+        model: resolved.model,
+        max_tokens: 256,
+        messages: [{ role: 'user', content: prompt }],
+      })) as { content: Array<{ type: string; text?: string }> };
 
-        const textBlock = msg.content.find((b) => b.type === 'text');
-        synthesisText =
-          textBlock && textBlock.type === 'text'
-            ? textBlock.text.trim()
-            : deterministicSynthesis(allSources);
-      }
+      const textBlock = msg.content.find((b) => b.type === 'text');
+      synthesisText =
+        textBlock?.type === 'text' && typeof textBlock.text === 'string'
+          ? textBlock.text.trim()
+          : deterministicSynthesis(allSources);
     } catch {
       synthesisText = deterministicSynthesis(allSources);
     }
@@ -235,7 +252,7 @@ export async function deriveItem(
   try {
     switch (item.itemType) {
       case 'observation': {
-        return await deriveFromObservation(item.id, item.itemId, nativeDb);
+        return await deriveFromObservation(item.id, item.itemId, nativeDb, options.projectRoot);
       }
       case 'session':
       case 'narrative':

@@ -81,7 +81,7 @@ export interface DeriverBatchResult {
  * @task T1145
  */
 export async function runDeriverBatch(
-  _projectRoot: string,
+  projectRoot: string,
   options: DeriverBatchOptions = {},
 ): Promise<DeriverBatchResult> {
   const { batchSize = DEFAULT_BATCH_SIZE, workerId, db: injectedDb } = options;
@@ -112,7 +112,7 @@ export async function runDeriverBatch(
     result.attempted++;
 
     try {
-      const derivationResult = await deriveItem(item, { db: nativeDb });
+      const derivationResult = await deriveItem(item, { db: nativeDb, projectRoot });
 
       if (derivationResult.produced) {
         completeItem(item.id, { db: nativeDb });

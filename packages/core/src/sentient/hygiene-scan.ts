@@ -78,9 +78,6 @@
  * @see ADR-054 — Sentient Loop Tier-1/Tier-2
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
@@ -445,69 +442,40 @@ function classifyByJaccard(
 // ---------------------------------------------------------------------------
 
 /**
- * Read the daemon LLM provider and model from the global CLEO config.
- * Falls back to defaults when the config file is missing or incomplete.
+ * Build the real LLM escalation call function using the hygiene-role backend.
  *
- * Uses synchronous fs reads (same pattern as credentials.ts) since this is
- * called during backend construction inside an already-async function.
- */
-function readDaemonLlmConfig(): { provider: string; model: string } {
-  try {
-    const xdg = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-    const globalConfigPath = join(xdg, 'cleo', 'config.json');
-
-    if (!existsSync(globalConfigPath)) {
-      return { provider: DEFAULT_DAEMON_PROVIDER, model: DEFAULT_DAEMON_MODEL };
-    }
-
-    const raw = readFileSync(globalConfigPath, 'utf-8');
-    const config = JSON.parse(raw) as Record<string, unknown>;
-    const llm = config['llm'];
-    if (!llm || typeof llm !== 'object') {
-      return { provider: DEFAULT_DAEMON_PROVIDER, model: DEFAULT_DAEMON_MODEL };
-    }
-    const daemon = (llm as Record<string, unknown>)['daemon'];
-    if (!daemon || typeof daemon !== 'object') {
-      return { provider: DEFAULT_DAEMON_PROVIDER, model: DEFAULT_DAEMON_MODEL };
-    }
-    const d = daemon as Record<string, unknown>;
-    const provider = typeof d['provider'] === 'string' ? d['provider'] : DEFAULT_DAEMON_PROVIDER;
-    const model = typeof d['model'] === 'string' ? d['model'] : DEFAULT_DAEMON_MODEL;
-    return { provider, model };
-  } catch {
-    return { provider: DEFAULT_DAEMON_PROVIDER, model: DEFAULT_DAEMON_MODEL };
-  }
-}
-
-/**
- * Build the real LLM escalation call function using the daemon-provider backend.
- *
- * Uses `resolveCredentials(provider)` from `core/llm/credentials.ts` to obtain
- * the API key — NEVER reads `process.env` directly.
- * Uses `getBackend(modelConfig)` from `core/llm/registry.ts` to construct the
- * backend, then calls `backend.complete(...)`.
+ * Resolves provider + model + credential via `resolveLLMForRole('hygiene')`
+ * (T9255). The historical fallback model (`claude-sonnet-4-6`) is preserved
+ * via `IMPLICIT_FALLBACK_MODEL` override when neither `llm.roles.hygiene`,
+ * `llm.default`, nor `llm.daemon` is configured — the hygiene tier is more
+ * expensive than other consolidation calls (longer reasoning) so it keeps
+ * its own constant.
  *
  * Returns null when credentials are unavailable (LLM tier will be skipped).
  */
 async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallFn | null> {
   try {
-    const { authHeaders, resolveCredentials } = await import('../llm/credentials.js');
+    const { authHeaders } = await import('../llm/credentials.js');
+    const { IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } = await import('../llm/role-resolver.js');
     const { getBackend } = await import('../llm/registry.js');
     const { repairResponseModelJson } = await import('../llm/structured-output.js');
 
-    const { provider, model } = readDaemonLlmConfig();
+    const llm = await resolveLLMForRole('hygiene', { projectRoot });
 
-    // Validate provider is a known transport
-    const knownProviders = ['anthropic', 'openai', 'gemini', 'moonshot'];
-    const transport = knownProviders.includes(provider) ? provider : DEFAULT_DAEMON_PROVIDER;
-
-    const cred = resolveCredentials(transport as 'anthropic' | 'openai' | 'gemini' | 'moonshot', {
-      projectRoot,
-    });
-
-    if (!cred.apiKey) {
+    if (!llm.credential?.apiKey) {
       return null;
     }
+
+    // Hygiene-tier default falls back to sonnet (vs haiku for consolidation).
+    // When the implicit fallback fired AND no project/global config supplied a
+    // model, prefer the historical hygiene default for cost/quality parity.
+    const model =
+      llm.source === 'implicit-fallback' && llm.model === IMPLICIT_FALLBACK_MODEL
+        ? DEFAULT_DAEMON_MODEL
+        : llm.model;
+
+    const cred = llm.credential;
+    const transport = llm.provider;
 
     // For OAuth credentials, pass the Bearer headers through extraHeaders so
     // the registry's getAnthropicOverrideClient uses `authToken` instead of
@@ -516,7 +484,7 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
 
     return async (findingText: string, taskContext: string): Promise<HygieneEscalationResult> => {
       const modelConfig = {
-        transport: transport as 'anthropic' | 'openai' | 'gemini' | 'moonshot',
+        transport,
         model,
         apiKey: cred.apiKey,
         extraHeaders,

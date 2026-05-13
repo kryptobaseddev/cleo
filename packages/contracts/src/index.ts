@@ -618,6 +618,36 @@ export type {
   LifecycleStatusResult,
   StageRecord,
 } from './operations/lifecycle.js';
+// === LLM Credential + Role-Resolver Wire Types (T-LLM-CRED Phase 1/2 — T9255) ===
+export type {
+  AuthTypeWire,
+  CredentialResultWire,
+  CredentialSourceWire,
+  CredentialsStoreStrategyWire,
+  LLMClientWire,
+  // `cleo llm` CLI / dispatch operation contracts (T9258)
+  LlmAddParams,
+  LlmAddResult,
+  LlmListParams,
+  LlmListResult,
+  LlmProfileParams,
+  LlmProfileResult,
+  LlmRemoveParams,
+  LlmRemoveResult,
+  LlmStoredCredentialView,
+  LlmTestParams,
+  LlmTestResult,
+  LlmUseParams,
+  LlmUseResult,
+  LlmWhoamiEntry,
+  LlmWhoamiParams,
+  LlmWhoamiResult,
+  ModelTransport,
+  ResolutionSource,
+  ResolvedLLM,
+  ResolveLLMForRoleOptions,
+  StoredAuthTypeWire,
+} from './operations/llm.js';
 // Multi-pass retrieval bundle types (PSYCHE Wave 4 · T1090)
 export type {
   PassMask,
