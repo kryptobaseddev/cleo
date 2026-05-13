@@ -39,6 +39,11 @@ import type {
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '@cleocode/contracts';
 import { setConfigValue } from '../config.js';
+// S-13 (CWE-209): wrap any user-facing error string in the project-wide
+// `redactContent` helper so a stack trace or fetch error that incidentally
+// contains a credential substring is automatically scrubbed before it
+// reaches the dispatch envelope or the audit log.
+import { redactContent } from '../memory/redaction.js';
 import { authHeaders, resolveCredentials } from './credentials.js';
 import {
   addCredential,
@@ -68,15 +73,25 @@ const ALL_ROLES = ['extraction', 'consolidation', 'derivation', 'hygiene', 'judg
 // ---------------------------------------------------------------------------
 
 /**
- * Return a 4-char redacted preview of a token (e.g. `'…aB7q'`).
+ * Return a redacted preview of a token tagged by auth scheme (S-11).
  *
- * Tokens shorter than 4 characters are surfaced as `'…'` so the caller can
- * distinguish "empty / aws_sdk" from "regular token".
+ * - `api_key` / `aws_sdk` → `…<last4>` (e.g. `'…aB7q'`)
+ * - `oauth`              → `oat-…<last4>` (e.g. `'oat-…7Y2k'`)
+ *
+ * Tokens shorter than 4 characters are surfaced as `…` / `oat-…` so the
+ * caller can still distinguish "empty / aws_sdk" from "regular token"
+ * without exposing the raw value.
+ *
+ * NEVER returns the full token. This is the only redaction code path
+ * used by `cleo llm` result envelopes.
+ *
+ * @task T9258 (S-11)
  */
-function tokenPreviewOf(token: string): string {
-  if (!token) return '…';
-  if (token.length <= 4) return `…${token}`;
-  return `…${token.slice(-4)}`;
+function tokenPreviewOf(token: string, authType: StoredAuthTypeWire): string {
+  const prefix = authType === 'oauth' ? 'oat-…' : '…';
+  if (!token) return prefix;
+  if (token.length <= 4) return `${prefix}${token}`;
+  return `${prefix}${token.slice(-4)}`;
 }
 
 /**
@@ -92,7 +107,7 @@ function viewOf(c: StoredCredential): LlmStoredCredentialView {
     provider: c.provider,
     label: c.label,
     authType: c.authType,
-    tokenPreview: tokenPreviewOf(c.accessToken),
+    tokenPreview: tokenPreviewOf(c.accessToken, c.authType),
     hasRefreshToken: false,
     expiresAt: c.expiresAt ?? null,
     priority: c.priority,
@@ -114,6 +129,24 @@ function viewOf(c: StoredCredential): LlmStoredCredentialView {
 function detectAuthType(token: string): StoredAuthTypeWire {
   if (token.startsWith('sk-ant-oat-')) return 'oauth';
   return 'api_key';
+}
+
+/**
+ * Pull a user-facing message from an unknown error value AND scrub any
+ * substring that matches a credential pattern (S-13 / CWE-209).
+ *
+ * Stack traces from `fetch()` or the SQLite layer can transitively echo a
+ * URL with a bearer token, a Postgres connection string with a password,
+ * or a logged JSON body that contains an `apiKey` field — none of which
+ * should ever reach an `engineError(...)` envelope. `redactContent`
+ * scrubs every known pattern in one pass and is the canonical helper
+ * used elsewhere in `@cleocode/core` (memory/log-redaction paths).
+ *
+ * @task T9258 (S-13)
+ */
+function safeErrMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  return redactContent(raw).content;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,10 +180,7 @@ export async function llmAdd(params: LlmAddParams): Promise<EngineResult<LlmAddR
       detectedAuthType: authType,
     });
   } catch (err) {
-    return engineError(
-      'E_CREDENTIAL_WRITE_FAILED',
-      err instanceof Error ? err.message : String(err),
-    );
+    return engineError('E_CREDENTIAL_WRITE_FAILED', safeErrMessage(err));
   }
 }
 
@@ -168,10 +198,7 @@ export async function llmList(params: LlmListParams): Promise<EngineResult<LlmLi
       credentials: stored.map(viewOf),
     });
   } catch (err) {
-    return engineError(
-      'E_CREDENTIAL_READ_FAILED',
-      err instanceof Error ? err.message : String(err),
-    );
+    return engineError('E_CREDENTIAL_READ_FAILED', safeErrMessage(err));
   }
 }
 
@@ -192,10 +219,7 @@ export async function llmRemove(params: LlmRemoveParams): Promise<EngineResult<L
       label: params.label,
     });
   } catch (err) {
-    return engineError(
-      'E_CREDENTIAL_REMOVE_FAILED',
-      err instanceof Error ? err.message : String(err),
-    );
+    return engineError('E_CREDENTIAL_REMOVE_FAILED', safeErrMessage(err));
   }
 }
 
@@ -216,7 +240,7 @@ export async function llmUse(params: LlmUseParams): Promise<EngineResult<LlmUseR
       scope: 'global',
     });
   } catch (err) {
-    return engineError('E_CONFIG_WRITE_FAILED', err instanceof Error ? err.message : String(err));
+    return engineError('E_CONFIG_WRITE_FAILED', safeErrMessage(err));
   }
 }
 
@@ -263,7 +287,7 @@ export async function llmProfile(
       scope: 'global',
     });
   } catch (err) {
-    return engineError('E_CONFIG_WRITE_FAILED', err instanceof Error ? err.message : String(err));
+    return engineError('E_CONFIG_WRITE_FAILED', safeErrMessage(err));
   }
 }
 
@@ -298,8 +322,8 @@ export async function llmTest(params: LlmTestParams): Promise<EngineResult<LlmTe
     }
     token = stored.accessToken;
     credentialSource = 'cred-file';
-    credentialPreview = tokenPreviewOf(token);
     authType = stored.authType === 'oauth' ? 'oauth' : 'api_key';
+    credentialPreview = tokenPreviewOf(token, authType);
     baseUrl = stored.baseUrl ?? null;
   } else {
     const cred = resolveCredentials(provider);
@@ -311,8 +335,8 @@ export async function llmTest(params: LlmTestParams): Promise<EngineResult<LlmTe
     }
     token = cred.apiKey;
     credentialSource = cred.source ?? 'env';
-    credentialPreview = tokenPreviewOf(token);
     authType = cred.authType;
+    credentialPreview = tokenPreviewOf(token, authType);
   }
 
   // 2. Build a 1-token probe request. We keep this provider-aware but minimal:
@@ -342,16 +366,22 @@ export async function llmTest(params: LlmTestParams): Promise<EngineResult<LlmTe
   try {
     const response = await fetch(url, { method: 'POST', headers, body });
     if (!response.ok) {
-      const errText = await response.text().catch(() => '');
+      // S-11: NEVER echo the response body in the error envelope. Some
+      // provider 4xx responses include reflected request headers (e.g.
+      // Anthropic's error payload can carry `x-api-key` substring matches
+      // back in human-readable form), and a sloppy log pipeline could
+      // surface that to an audit log. Surface only the HTTP status —
+      // operators who need the body can re-run with `CLEO_LOG_LEVEL=debug`
+      // and inspect the underlying fetch trace.
       return engineError(
         'E_PROVIDER_PING_FAILED',
-        `${provider} returned HTTP ${response.status}: ${errText.slice(0, 200)}`,
+        `${provider} returned HTTP ${response.status} (body suppressed for credential safety; rerun with CLEO_LOG_LEVEL=debug to inspect via raw fetch trace)`,
       );
     }
     const parsed = (await response.json()) as { id?: string };
     providerResponseId = typeof parsed.id === 'string' ? parsed.id : null;
   } catch (err) {
-    return engineError('E_PROVIDER_PING_FAILED', err instanceof Error ? err.message : String(err));
+    return engineError('E_PROVIDER_PING_FAILED', safeErrMessage(err));
   }
   const latencyMs = Date.now() - start;
 
@@ -399,6 +429,6 @@ export async function llmWhoami(params: LlmWhoamiParams): Promise<EngineResult<L
     }
     return engineSuccess({ entries });
   } catch (err) {
-    return engineError('E_WHOAMI_FAILED', err instanceof Error ? err.message : String(err));
+    return engineError('E_WHOAMI_FAILED', safeErrMessage(err));
   }
 }

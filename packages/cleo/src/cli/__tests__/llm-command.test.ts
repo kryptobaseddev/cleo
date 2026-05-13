@@ -1,26 +1,24 @@
 /**
  * CLI wiring tests for `cleo llm` subcommands (T9258).
  *
- * Two layers under test:
- *   1. Citty subcommand wiring — every documented subcommand exists, has
- *      meta, and routes through `dispatchFromCli('mutate' | 'query', 'llm',
- *      <op>, <params>)`.
- *   2. Engine-level redaction + envelope shape — `llmList` returns
- *      `tokenPreview` (last 4 chars), `llmAdd` accepts `sk-ant-oat-*` and
- *      auto-detects `'oauth'`, `llmWhoami` returns one entry per role.
+ * Verifies that every documented subcommand exists, has meta, and routes
+ * through `dispatchFromCli('mutate' | 'query', 'llm', <op>, <params>)`.
  *
- * Full end-to-end dispatch through the citty parser is covered indirectly
- * via the dispatch-domain tests; here we focus on the CLI-shape contract.
+ * Engine-level redaction + envelope-shape tests live alongside the engine
+ * code in `packages/core/src/llm/__tests__/cli-ops.test.ts` where relative
+ * mock paths resolve cleanly — mocking the source modules from outside
+ * `packages/core` would require aliasing every internal path, which the
+ * vitest config does not (and should not) do for individual files.
  *
  * @task T9258
  * @epic T-LLM-CRED-CENTRALIZATION
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Mocks for the CLI layer — patched BEFORE importing the command module so
-// the static `dispatchFromCli` binding inside llm.ts is replaced.
+// Mocks — must be declared BEFORE importing the command module so the
+// static `dispatchFromCli` binding inside llm.ts is replaced.
 // ---------------------------------------------------------------------------
 
 const mockDispatchFromCli = vi.fn().mockResolvedValue(undefined);
@@ -28,31 +26,6 @@ const mockDispatchFromCli = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../dispatch/adapters/cli.js', () => ({
   dispatchFromCli: (...args: unknown[]) => mockDispatchFromCli(...args),
 }));
-
-// Mocks for the core engine layer — used by the engine-level tests below.
-// `vi.hoisted` so the mock functions exist before the dynamic import resolves.
-const coreMocks = vi.hoisted(() => {
-  return {
-    listCredentials: vi.fn(),
-    addCredential: vi.fn(),
-    removeCredential: vi.fn(),
-    getCredentialByLabel: vi.fn(),
-    resolveLLMForRole: vi.fn(),
-    setConfigValue: vi.fn(),
-  };
-});
-
-vi.mock('@cleocode/core/internal', async (importOriginal) => {
-  const actual = (await importOriginal()) as Record<string, unknown>;
-  return {
-    ...actual,
-    listCredentials: coreMocks.listCredentials,
-    addCredential: coreMocks.addCredential,
-    removeCredential: coreMocks.removeCredential,
-    getCredentialByLabel: coreMocks.getCredentialByLabel,
-    resolveLLMForRole: coreMocks.resolveLLMForRole,
-  };
-});
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
@@ -100,22 +73,172 @@ describe('cleo llm — CLI wiring', () => {
     );
   });
 
-  it('add — dispatches mutate/llm/add with provider + apiKey + label', async () => {
+  // ---------------------------------------------------------------------
+  // S-11 — secret-on-argv mitigation
+  // ---------------------------------------------------------------------
+
+  it('add (S-11) — --api-key=<value> emits the verbatim deprecation warning on stderr', async () => {
     const subs = await getLlmSubs();
-    await runSub(subs['add']!, {
-      provider: 'anthropic',
-      'api-key': 'sk-ant-oat-abc1234',
-      label: 'work',
-    });
+    // Capture by replacing process.stderr.write directly; vi.spyOn doesn't
+    // intercept the `write` symbol once the citty `run` closure has bound
+    // it earlier in the module-load chain.
+    const origWrite = process.stderr.write.bind(process.stderr);
+    const captured: string[] = [];
+    process.stderr.write = ((s: unknown) => {
+      captured.push(String(s));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      await runSub(subs['add']!, {
+        provider: 'anthropic',
+        'api-key': 'sk-FAKE',
+        label: 'test',
+      });
+    } finally {
+      process.stderr.write = origWrite;
+    }
+    const warned = captured.find((s) =>
+      s.includes(
+        "[warning] --api-key exposes the secret to 'ps' listings and shell history. Prefer --api-key-stdin or --api-key-env=NAME for production use.",
+      ),
+    );
+    expect(warned, 'verbatim S-11 deprecation warning must be emitted').toBeDefined();
     expect(mockDispatchFromCli).toHaveBeenCalledTimes(1);
     const call = mockDispatchFromCli.mock.calls[0]!;
-    expect(call[0]).toBe('mutate');
-    expect(call[1]).toBe('llm');
-    expect(call[2]).toBe('add');
     expect(call[3]).toMatchObject({
       provider: 'anthropic',
-      apiKey: 'sk-ant-oat-abc1234',
-      label: 'work',
+      apiKey: 'sk-FAKE',
+      label: 'test',
+      _source: 'flag',
+    });
+  });
+
+  it('add (S-11) — --api-key-env=NAME reads from env + emits NO deprecation warning', async () => {
+    const subs = await getLlmSubs();
+    const origWrite = process.stderr.write.bind(process.stderr);
+    const captured: string[] = [];
+    process.stderr.write = ((s: unknown) => {
+      captured.push(String(s));
+      return true;
+    }) as typeof process.stderr.write;
+    process.env['__LLM_TEST_KEY'] = 'sk-env-1234';
+    try {
+      await runSub(subs['add']!, {
+        provider: 'openai',
+        'api-key-env': '__LLM_TEST_KEY',
+        label: 'env-test',
+      });
+    } finally {
+      process.stderr.write = origWrite;
+      delete process.env['__LLM_TEST_KEY'];
+    }
+    const warned = captured.find((s) => s.includes('[warning] --api-key exposes'));
+    expect(warned, 'no S-11 deprecation warning on --api-key-env path').toBeUndefined();
+    expect(mockDispatchFromCli).toHaveBeenCalledTimes(1);
+    const call = mockDispatchFromCli.mock.calls[0]!;
+    expect(call[3]).toMatchObject({
+      provider: 'openai',
+      apiKey: 'sk-env-1234',
+      label: 'env-test',
+      _source: 'env',
+    });
+  });
+
+  it('add (S-11) — --api-key-stdin reads from piped stdin + emits NO deprecation warning', async () => {
+    const subs = await getLlmSubs();
+    const origWrite = process.stderr.write.bind(process.stderr);
+    const captured: string[] = [];
+    process.stderr.write = ((s: unknown) => {
+      captured.push(String(s));
+      return true;
+    }) as typeof process.stderr.write;
+    // Patch the stdin stream so the async iterator yields our buffered key
+    // and isTTY=false (i.e. we're being piped).
+    const origStdin = process.stdin;
+    const fakeStdin = {
+      isTTY: false,
+      setEncoding: () => {},
+      async *[Symbol.asyncIterator]() {
+        yield 'sk-stdin-9999\n';
+      },
+    };
+    Object.defineProperty(process, 'stdin', { value: fakeStdin, configurable: true });
+    try {
+      await runSub(subs['add']!, {
+        provider: 'anthropic',
+        'api-key-stdin': true,
+        label: 'pipe',
+      });
+    } finally {
+      Object.defineProperty(process, 'stdin', { value: origStdin, configurable: true });
+      process.stderr.write = origWrite;
+    }
+    const warned = captured.find((s) => s.includes('[warning] --api-key exposes'));
+    expect(warned, 'no S-11 deprecation warning on --api-key-stdin path').toBeUndefined();
+    expect(mockDispatchFromCli).toHaveBeenCalledTimes(1);
+    const call = mockDispatchFromCli.mock.calls[0]!;
+    expect(call[3]).toMatchObject({
+      provider: 'anthropic',
+      apiKey: 'sk-stdin-9999',
+      label: 'pipe',
+      _source: 'stdin',
+    });
+  });
+
+  it('add (S-11) — --api-key-stdin takes priority over --api-key when both supplied', async () => {
+    const subs = await getLlmSubs();
+    const origWrite = process.stderr.write.bind(process.stderr);
+    const captured: string[] = [];
+    process.stderr.write = ((s: unknown) => {
+      captured.push(String(s));
+      return true;
+    }) as typeof process.stderr.write;
+    const origStdin = process.stdin;
+    const fakeStdin = {
+      isTTY: false,
+      setEncoding: () => {},
+      async *[Symbol.asyncIterator]() {
+        yield 'STDIN-WINS\n';
+      },
+    };
+    Object.defineProperty(process, 'stdin', { value: fakeStdin, configurable: true });
+    try {
+      await runSub(subs['add']!, {
+        provider: 'anthropic',
+        'api-key-stdin': true,
+        'api-key': 'FLAG-LOSES',
+      });
+    } finally {
+      Object.defineProperty(process, 'stdin', { value: origStdin, configurable: true });
+      process.stderr.write = origWrite;
+    }
+    const call = mockDispatchFromCli.mock.calls[0]!;
+    expect(call[3]).toMatchObject({ apiKey: 'STDIN-WINS', _source: 'stdin' });
+    // The deprecation warning must NOT fire when stdin wins.
+    const warned = captured.find((s) => s.includes('[warning] --api-key exposes'));
+    expect(warned).toBeUndefined();
+  });
+
+  it('add — forwards base-url and priority when supplied', async () => {
+    const subs = await getLlmSubs();
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      await runSub(subs['add']!, {
+        provider: 'moonshot',
+        'api-key': 'tok',
+        'base-url': 'https://example.test',
+        priority: '5',
+      });
+    } finally {
+      process.stderr.write = origWrite;
+    }
+    const call = mockDispatchFromCli.mock.calls[0]!;
+    expect(call[3]).toMatchObject({
+      provider: 'moonshot',
+      apiKey: 'tok',
+      baseUrl: 'https://example.test',
+      priority: 5,
     });
   });
 
@@ -145,7 +268,44 @@ describe('cleo llm — CLI wiring', () => {
     expect(call[3]).toEqual({ provider: 'anthropic', label: 'work' });
   });
 
-  it('whoami — dispatches query/llm/whoami', async () => {
+  it('use — dispatches mutate/llm/use with provider + model', async () => {
+    const subs = await getLlmSubs();
+    await runSub(subs['use']!, { provider: 'openai', model: 'gpt-5-mini' });
+    const call = mockDispatchFromCli.mock.calls[0]!;
+    expect(call[0]).toBe('mutate');
+    expect(call[2]).toBe('use');
+    expect(call[3]).toEqual({ provider: 'openai', model: 'gpt-5-mini' });
+  });
+
+  it('profile — dispatches mutate/llm/profile with role + provider + model + credentialLabel', async () => {
+    const subs = await getLlmSubs();
+    await runSub(subs['profile']!, {
+      role: 'extraction',
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      'credential-label': 'work',
+    });
+    const call = mockDispatchFromCli.mock.calls[0]!;
+    expect(call[0]).toBe('mutate');
+    expect(call[2]).toBe('profile');
+    expect(call[3]).toEqual({
+      role: 'extraction',
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      credentialLabel: 'work',
+    });
+  });
+
+  it('test — dispatches query/llm/test with provider + label', async () => {
+    const subs = await getLlmSubs();
+    await runSub(subs['test']!, { provider: 'anthropic', label: 'work' });
+    const call = mockDispatchFromCli.mock.calls[0]!;
+    expect(call[0]).toBe('query');
+    expect(call[2]).toBe('test');
+    expect(call[3]).toEqual({ provider: 'anthropic', label: 'work' });
+  });
+
+  it('whoami — dispatches query/llm/whoami without role filter', async () => {
     const subs = await getLlmSubs();
     await runSub(subs['whoami']!, {});
     const call = mockDispatchFromCli.mock.calls[0]!;
@@ -153,145 +313,20 @@ describe('cleo llm — CLI wiring', () => {
     expect(call[2]).toBe('whoami');
     expect(call[3]).toEqual({});
   });
-});
 
-// ---------------------------------------------------------------------------
-// Engine-level redaction + envelope shape tests
-// ---------------------------------------------------------------------------
-
-describe('llm cli-ops engine — redaction + envelope shape', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  it('whoami — forwards role filter when set', async () => {
+    const subs = await getLlmSubs();
+    await runSub(subs['whoami']!, { role: 'extraction' });
+    const call = mockDispatchFromCli.mock.calls[0]!;
+    expect(call[3]).toEqual({ role: 'extraction' });
   });
 
-  afterEach(() => {
-    vi.resetAllMocks();
-  });
-
-  it('llmList — redacts accessToken to last 4 chars via tokenPreview', async () => {
-    coreMocks.listCredentials.mockResolvedValue([
-      {
-        provider: 'anthropic',
-        label: 'work',
-        authType: 'oauth',
-        accessToken: 'sk-ant-oat-1234567890aB7q',
-        priority: 0,
-        source: 'cli-input',
-      },
-    ]);
-    const { llmList } = await import('@cleocode/core/internal');
-    const result = await llmList({});
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.credentials).toHaveLength(1);
-    const view = result.data.credentials[0]!;
-    expect(view.tokenPreview).toBe('…aB7q');
-    expect((view as unknown as Record<string, unknown>).accessToken).toBeUndefined();
-  });
-
-  it('llmAdd — auto-detects oauth from sk-ant-oat-* prefix', async () => {
-    coreMocks.addCredential.mockImplementation(async (input) => ({
-      provider: input.provider,
-      label: input.label,
-      authType: input.authType,
-      accessToken: input.accessToken,
-      priority: 0,
-      source: input.source,
-    }));
-    const { llmAdd } = await import('@cleocode/core/internal');
-    const result = await llmAdd({
-      provider: 'anthropic',
-      apiKey: 'sk-ant-oat-zzz9999',
-    });
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.detectedAuthType).toBe('oauth');
-    expect(result.data.credential.tokenPreview).toBe('…9999');
-  });
-
-  it('llmAdd — defaults non-OAuth tokens to api_key', async () => {
-    coreMocks.addCredential.mockImplementation(async (input) => ({
-      provider: input.provider,
-      label: input.label,
-      authType: input.authType,
-      accessToken: input.accessToken,
-      priority: 0,
-      source: input.source,
-    }));
-    const { llmAdd } = await import('@cleocode/core/internal');
-    const result = await llmAdd({
-      provider: 'openai',
-      apiKey: 'sk-proj-aaaaXYZ1',
-    });
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.detectedAuthType).toBe('api_key');
-  });
-
-  it('llmWhoami — returns one entry per RoleName when role filter absent', async () => {
-    coreMocks.resolveLLMForRole.mockImplementation(async (role: string) => ({
-      provider: 'anthropic',
-      model: 'claude-haiku-4-5-20251001',
-      client: null,
-      credential: { provider: 'anthropic', apiKey: 'tok', source: 'env', authType: 'api_key' },
-      source: 'implicit-fallback' as const,
-      credentialLabel: undefined,
-    }));
-    const { llmWhoami } = await import('@cleocode/core/internal');
-    const result = await llmWhoami({});
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.entries).toHaveLength(5);
-    expect(result.data.entries.map((e) => e.role).sort()).toEqual([
-      'consolidation',
-      'derivation',
-      'extraction',
-      'hygiene',
-      'judgement',
-    ]);
-    expect(result.data.entries.every((e) => e.hasCredential)).toBe(true);
-  });
-
-  it('llmWhoami — surfaces hasCredential=false when resolver returns null credential', async () => {
-    coreMocks.resolveLLMForRole.mockResolvedValue({
-      provider: 'anthropic',
-      model: 'claude-haiku-4-5-20251001',
-      client: null,
-      credential: null,
-      source: 'implicit-fallback',
-      credentialLabel: undefined,
-    });
-    const { llmWhoami } = await import('@cleocode/core/internal');
-    const result = await llmWhoami({ role: 'extraction' });
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.entries).toHaveLength(1);
-    expect(result.data.entries[0]!.hasCredential).toBe(false);
-    expect(result.data.entries[0]!.credentialSource).toBeUndefined();
-  });
-
-  it('llmWhoami — rejects unknown role with E_INVALID_INPUT', async () => {
-    const { llmWhoami } = await import('@cleocode/core/internal');
-    const result = await llmWhoami({ role: 'not-a-role' });
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('E_INVALID_INPUT');
-  });
-
-  it('llmRemove — returns removed=true when underlying store removed an entry', async () => {
-    coreMocks.removeCredential.mockResolvedValue(true);
-    const { llmRemove } = await import('@cleocode/core/internal');
-    const result = await llmRemove({ provider: 'anthropic', label: 'work' });
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data).toEqual({ removed: true, provider: 'anthropic', label: 'work' });
-  });
-
-  it('llmRemove — rejects empty label with E_INVALID_INPUT', async () => {
-    const { llmRemove } = await import('@cleocode/core/internal');
-    const result = await llmRemove({ provider: 'anthropic', label: '' });
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('E_INVALID_INPUT');
+  it('every subcommand has --json flag', async () => {
+    const subs = await getLlmSubs();
+    for (const [name, sub] of Object.entries(subs)) {
+      const resolved = typeof sub === 'function' ? await sub() : sub;
+      const args = (resolved as { args?: Record<string, unknown> }).args ?? {};
+      expect(args, `subcommand '${name}' must expose --json`).toHaveProperty('json');
+    }
   });
 });
