@@ -52,6 +52,7 @@ import { randomUUID } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { resolveCredentials } from '../llm/credentials.js';
+import { buildAnthropicSdkClient } from '../llm/registry.js';
 import type { MemoryCandidate } from '../memory/extraction-gate.js';
 
 // ---------------------------------------------------------------------------
@@ -542,11 +543,9 @@ async function buildDaemonClient(projectRoot: string): Promise<Pick<Anthropic, '
     const cred = resolveCredentials('anthropic', { projectRoot });
     if (!cred.apiKey) return null;
 
-    const AnthropicModule = await import('@anthropic-ai/sdk');
-    const Ctor =
-      (AnthropicModule as { default?: typeof import('@anthropic-ai/sdk').default }).default ??
-      (AnthropicModule as unknown as typeof import('@anthropic-ai/sdk').default);
-    return new Ctor({ apiKey: cred.apiKey }) as Pick<Anthropic, 'messages'>;
+    // buildAnthropicSdkClient honors cred.authType so OAuth tokens use
+    // `authToken` (Bearer) and api_keys use `apiKey` (x-api-key).
+    return buildAnthropicSdkClient(cred) as Pick<Anthropic, 'messages'> | null;
   } catch {
     return null;
   }

@@ -56,6 +56,15 @@ export interface ModelConfig {
   cachePolicy?: PromptCachePolicy | null;
   /** Fallback model config used on final retry attempt. */
   fallback?: Omit<ModelConfig, 'fallback'> | null;
+  /**
+   * Extra HTTP headers to attach to the provider client (merged into the SDK's
+   * `defaultHeaders`). Populated from `authHeaders(cred)` when a credential is
+   * resolved with `authType: 'oauth'` so the provider client uses the
+   * `Authorization: Bearer …` scheme instead of `x-api-key`.
+   *
+   * @task T-LLM-CRED-CENTRALIZATION Phase 1
+   */
+  extraHeaders?: Record<string, string> | null;
 }
 
 /** Parameters for a single LLM call. */
