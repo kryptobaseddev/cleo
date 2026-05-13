@@ -282,7 +282,11 @@ export interface BrainTieringConfig {
 export interface BrainLlmExtractionConfig {
   /** Enable LLM-driven extraction gate (default: true). */
   enabled: boolean;
-  /** Anthropic model to use for extraction (default: 'claude-haiku-4-5-20251001'). */
+  /**
+   * Anthropic model to use for extraction. Default lives in
+   * `@cleocode/core/llm/role-resolver` (`IMPLICIT_FALLBACK_MODEL`) so the
+   * literal stays in a single source location (T9255 grep guard).
+   */
   model: string;
   /** Minimum importance score (0.0–1.0) below which extractions are dropped (default: 0.6). */
   minImportance: number;
@@ -325,10 +329,11 @@ export interface BrainConfig {
    * LLM-driven extraction gate settings.
    * When enabled and ANTHROPIC_API_KEY is present, session transcripts are
    * processed by an LLM to extract typed structured memories instead of the
-   * legacy keyword regex. Defaults are enabled: true and model is the cheap
-   * Haiku class so extraction cost stays bounded.
+   * legacy keyword regex. Defaults are enabled: true and model defaults to
+   * the centralised implicit fallback (cheap Haiku class) defined in
+   * `@cleocode/core/llm/role-resolver` so extraction cost stays bounded.
    *
-   * @defaultValue { enabled: true, model: 'claude-haiku-4-5-20251001', minImportance: 0.6, maxExtractions: 7, maxTranscriptChars: 60000 }
+   * @defaultValue { enabled: true, model: IMPLICIT_FALLBACK_MODEL, minImportance: 0.6, maxExtractions: 7, maxTranscriptChars: 60000 }
    */
   llmExtraction?: BrainLlmExtractionConfig;
 }

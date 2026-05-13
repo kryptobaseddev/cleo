@@ -22,6 +22,16 @@ export { OpenAIBackend, usesMaxCompletionTokens } from './backends/openai.js';
 export type { GeminiCacheHandle } from './caching.js';
 // Caching
 export { buildCacheKey, geminiCacheStore, InMemoryGeminiCacheStore } from './caching.js';
+// `cleo llm` CLI / dispatch engine ops (T9258 — T-LLM-CRED Phase 2 / T-llm-4)
+export {
+  llmAdd,
+  llmList,
+  llmProfile,
+  llmRemove,
+  llmTest,
+  llmUse,
+  llmWhoami,
+} from './cli-ops.js';
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
 export type {
@@ -74,6 +84,18 @@ export {
   clientForModelConfig,
   getBackend,
 } from './registry.js';
+// Role-based LLM resolver (T-LLM-CRED-CENTRALIZATION Phase 2 / T9255)
+export type {
+  LLMClient,
+  ResolutionSource,
+  ResolvedLLM,
+  ResolveLLMForRoleOptions,
+} from './role-resolver.js';
+export {
+  IMPLICIT_FALLBACK_MODEL,
+  IMPLICIT_FALLBACK_PROVIDER,
+  resolveLLMForRole,
+} from './role-resolver.js';
 // Runtime
 export type { AttemptPlan } from './runtime.js';
 export { effectiveTemperature, makeAttemptRef, planAttempt } from './runtime.js';
