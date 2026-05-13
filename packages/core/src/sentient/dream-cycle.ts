@@ -51,7 +51,7 @@
 import { randomUUID } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } from '../llm/role-resolver.js';
+import { IMPLICIT_FALLBACK_MODEL, resolveAnthropicForRole } from '../llm/role-resolver.js';
 import type { MemoryCandidate } from '../memory/extraction-gate.js';
 
 // ---------------------------------------------------------------------------
@@ -519,33 +519,23 @@ Extract durable knowledge from these observations. Return empty array if nothing
 
 /**
  * Resolve the LLM client + model for the dream cycle via
- * `resolveLLMForRole('consolidation')` (T9255).
+ * `resolveAnthropicForRole('consolidation')` (T9255 + T-LLM-CRED Phase 2
+ * DRY review P2-1).
  *
- * Walks `config.llm.roles.consolidation` → `config.llm.default` →
- * `config.llm.daemon` → implicit fallback. Dream cycle currently only
- * supports Anthropic (same SDK as llm-extraction.ts) — non-anthropic
- * resolutions short-circuit to null so the cycle records `no-api-key` and
- * skips synthesis without breaking the kill-switch / digest paths.
+ * The helper walks `config.llm.roles.consolidation` → `config.llm.default`
+ * → `config.llm.daemon` → implicit fallback. Dream cycle currently only
+ * supports Anthropic (same SDK as llm-extraction.ts); the helper returns
+ * `null` for non-anthropic resolutions so the cycle records `no-api-key`
+ * and skips synthesis without breaking the kill-switch / digest paths.
  *
  * @returns `{ client, model }` or `null` when no usable credential exists.
  */
 async function resolveDreamLlm(
   projectRoot: string,
 ): Promise<{ client: Pick<Anthropic, 'messages'>; model: string } | null> {
-  try {
-    const llm = await resolveLLMForRole('consolidation', { projectRoot });
-    if (llm.provider !== 'anthropic') {
-      // Future: add OpenAI/Gemini paths when needed.
-      return null;
-    }
-    if (!llm.credential?.apiKey || !llm.client) return null;
-    return {
-      client: llm.client as unknown as Pick<Anthropic, 'messages'>,
-      model: llm.model,
-    };
-  } catch {
-    return null;
-  }
+  const llm = await resolveAnthropicForRole('consolidation', { projectRoot });
+  if (!llm) return null;
+  return { client: llm.client, model: llm.model };
 }
 
 /**

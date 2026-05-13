@@ -24,8 +24,9 @@
  *
  * ## LLM call structure
  *
- * - Provider resolved from `~/.cleo/config.json` `llm.daemon.provider` (default
- *   'anthropic') and `llm.daemon.model` (default 'claude-sonnet-4-6').
+ * - Provider resolved via `resolveLLMForRole('hygiene')`; falls back through
+ *   `llm.roles.hygiene` → `llm.default` → `llm.daemon` → implicit fallback.
+ *   The implicit fallback uses `HYGIENE_FALLBACK_MODEL` (see role-resolver.ts).
  * - Structured output schema (Zod): {@link HygieneEscalationResult}.
  * - `is_real_defect: boolean` — confident classification.
  * - `confidence: number` — 0..1 from the LLM.
@@ -141,11 +142,6 @@ export const LLM_CONFIDENCE_PROPOSE = 0.7;
  * Default daemon LLM provider when none is configured.
  */
 export const DEFAULT_DAEMON_PROVIDER = 'anthropic' as const;
-
-/**
- * Default daemon LLM model when none is configured.
- */
-export const DEFAULT_DAEMON_MODEL = 'claude-sonnet-4-6';
 
 // ---------------------------------------------------------------------------
 // Structured output schema (Zod)
@@ -445,18 +441,21 @@ function classifyByJaccard(
  * Build the real LLM escalation call function using the hygiene-role backend.
  *
  * Resolves provider + model + credential via `resolveLLMForRole('hygiene')`
- * (T9255). The historical fallback model (`claude-sonnet-4-6`) is preserved
- * via `IMPLICIT_FALLBACK_MODEL` override when neither `llm.roles.hygiene`,
- * `llm.default`, nor `llm.daemon` is configured — the hygiene tier is more
- * expensive than other consolidation calls (longer reasoning) so it keeps
- * its own constant.
+ * (T9255). When neither `llm.roles.hygiene`, `llm.default`, nor `llm.daemon`
+ * is configured, the hygiene tier substitutes {@link HYGIENE_FALLBACK_MODEL}
+ * for the resolver's implicit haiku fallback — hygiene escalation runs
+ * longer reasoning prompts than other consolidation calls, so it keeps its
+ * own one-tier-up default. The literal itself lives in `role-resolver.ts`
+ * (grep-guarded) so this file stays clean (T-LLM-CRED Phase 2 — P2-2).
  *
  * Returns null when credentials are unavailable (LLM tier will be skipped).
  */
 async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallFn | null> {
   try {
     const { authHeaders } = await import('../llm/credentials.js');
-    const { IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } = await import('../llm/role-resolver.js');
+    const { HYGIENE_FALLBACK_MODEL, IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } = await import(
+      '../llm/role-resolver.js'
+    );
     const { getBackend } = await import('../llm/registry.js');
     const { repairResponseModelJson } = await import('../llm/structured-output.js');
 
@@ -469,9 +468,12 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
     // Hygiene-tier default falls back to sonnet (vs haiku for consolidation).
     // When the implicit fallback fired AND no project/global config supplied a
     // model, prefer the historical hygiene default for cost/quality parity.
+    // HYGIENE_FALLBACK_MODEL lives in role-resolver.ts so the literal is
+    // grep-guarded the same way as IMPLICIT_FALLBACK_MODEL (T-LLM-CRED Phase 2
+    // DRY review P2-2).
     const model =
       llm.source === 'implicit-fallback' && llm.model === IMPLICIT_FALLBACK_MODEL
-        ? DEFAULT_DAEMON_MODEL
+        ? HYGIENE_FALLBACK_MODEL
         : llm.model;
 
     const cred = llm.credential;

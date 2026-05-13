@@ -93,25 +93,26 @@ function generateObsId(): string {
 
 /**
  * Resolve the derivation LLM client + model via
- * `resolveLLMForRole('derivation')` (T9255). Lazy-imports the resolver so
- * test environments that never reach the LLM path don't load the SDK.
+ * `resolveAnthropicForRole('derivation')` (T9255 + T-LLM-CRED Phase 2 DRY
+ * review P2-1). Lazy-imports the helper so test environments that never
+ * reach the LLM path don't load the SDK.
  *
- * Returns null when no credential is reachable or the resolver fails.
+ * Returns null when no Anthropic credential is reachable.
+ *
+ * The return type is the helper's native `Pick<Anthropic, 'messages'>` —
+ * downstream call-sites use the SDK's own `messages.create(...)` signature
+ * (concrete request shape, properly typed response) rather than the
+ * previous `(req: unknown) => Promise<unknown>` opaque-cast surface.
  */
 async function resolveDeriverLlm(projectRoot: string | undefined): Promise<{
-  client: { messages: { create: (req: unknown) => Promise<unknown> } };
+  client: Pick<import('@anthropic-ai/sdk').default, 'messages'>;
   model: string;
 } | null> {
   try {
-    const { resolveLLMForRole } = await import('../llm/role-resolver.js');
-    const llm = await resolveLLMForRole('derivation', { projectRoot });
-    if (!llm.credential?.apiKey || !llm.client) return null;
-    return {
-      client: llm.client as unknown as {
-        messages: { create: (req: unknown) => Promise<unknown> };
-      },
-      model: llm.model,
-    };
+    const { resolveAnthropicForRole } = await import('../llm/role-resolver.js');
+    const llm = await resolveAnthropicForRole('derivation', { projectRoot });
+    if (!llm) return null;
+    return { client: llm.client, model: llm.model };
   } catch {
     return null;
   }
@@ -180,11 +181,11 @@ async function deriveFromObservation(
         .map((r, i) => `${i + 1}. ${r.title ?? ''}: ${(r.narrative ?? '').slice(0, 200)}`)
         .join('\n')}\n\nProvide only the synthesis text, no preamble.`;
 
-      const msg = (await resolved.client.messages.create({
+      const msg = await resolved.client.messages.create({
         model: resolved.model,
         max_tokens: 256,
         messages: [{ role: 'user', content: prompt }],
-      })) as { content: Array<{ type: string; text?: string }> };
+      });
 
       const textBlock = msg.content.find((b) => b.type === 'text');
       synthesisText =

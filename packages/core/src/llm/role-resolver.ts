@@ -34,16 +34,18 @@ import type {
   LlmDefaultConfig,
   LlmRoleConfig,
   ResolutionSource,
-  ResolvedLLM as ResolvedLLMWire,
   ResolveLLMForRoleOptions,
   RoleName,
 } from '@cleocode/contracts';
 import type { GoogleGenerativeAI } from '@google/generative-ai';
 import type { OpenAI } from 'openai';
+import { getLogger } from '../logger.js';
 import { authHeaders, type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
 import { clientForModelConfig } from './registry.js';
 import type { ModelConfig, ModelTransport } from './types-config.js';
+
+const logger = getLogger('llm-role-resolver');
 
 /**
  * Implicit fallback model used when no role-specific, no `default`, and no
@@ -65,26 +67,46 @@ export const IMPLICIT_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
 export const IMPLICIT_FALLBACK_PROVIDER: ModelTransport = 'anthropic';
 
 /**
+ * Implicit fallback model for the `hygiene` role.
+ *
+ * Hygiene escalation runs longer reasoning prompts than the
+ * consolidation/extraction tiers; the historical default has been
+ * `claude-sonnet-4-6` (one tier up from {@link IMPLICIT_FALLBACK_MODEL}).
+ * Centralised here so the grep guard catches any drift outside
+ * `packages/core/src/llm/`.
+ *
+ * Only consulted when `resolveLLMForRole('hygiene')` returns
+ * `source === 'implicit-fallback'` AND `model === IMPLICIT_FALLBACK_MODEL`
+ * — i.e. no project/global config and no role pin supplied a model.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 — DRY review P2-2
+ */
+export const HYGIENE_FALLBACK_MODEL = 'claude-sonnet-4-6';
+
+/**
  * Concrete tagged union over the raw SDK client types returned by
  * {@link clientForModelConfig}. This is the runtime-precise version of the
- * loose `LLMClient` shape declared in `@cleocode/contracts` — we keep the
- * SDK classes off the contracts surface to preserve its zero-dependency
- * footprint, but tighten the type here where the SDK packages are real
- * dependencies.
+ * opaque `unknown` carried by `ResolvedLLM.client` in `@cleocode/contracts`
+ * — SDK classes are kept off the contracts surface to preserve its
+ * zero-dependency footprint, but tightened here where the SDK packages are
+ * real dependencies.
  *
  * @task T9255
  */
 export type LLMClient = Anthropic | OpenAI | GoogleGenerativeAI | Record<string, unknown>; // Gemini AIO fallback shape (matches ProviderClient in ./types.ts)
 
 // Re-export the wire types so existing imports from
-// `@cleocode/core/llm/role-resolver` keep working alongside the new
-// canonical home in `@cleocode/contracts`.
+// `@cleocode/core/llm/role-resolver` keep working alongside the canonical
+// home in `@cleocode/contracts`.
 export type { ResolutionSource, ResolveLLMForRoleOptions };
 
 /**
- * Result of {@link resolveLLMForRole} — narrowed extension of
- * {@link ResolvedLLMWire} that swaps the loose contract types for their
- * runtime-precise variants (concrete SDK `LLMClient` + core `CredentialResult`).
+ * Result of {@link resolveLLMForRole} — runtime-precise envelope.
+ *
+ * The contracts-level `ResolvedLLM` (from `@cleocode/contracts`) carries
+ * `client: unknown` to stay SDK-free. This core variant tightens the same
+ * envelope with the concrete SDK union (`LLMClient`) and the local
+ * {@link CredentialResult} — same shape, narrower types.
  *
  * `client` is `null` only when `credential.apiKey` is also null — in which
  * case the caller MUST fall back to its graceful-degradation path
@@ -92,7 +114,11 @@ export type { ResolutionSource, ResolveLLMForRoleOptions };
  *
  * @task T9255
  */
-export interface ResolvedLLM extends Omit<ResolvedLLMWire, 'client' | 'credential'> {
+export interface ResolvedLLM {
+  /** LLM provider transport that was resolved. */
+  provider: ModelTransport;
+  /** Full model identifier. */
+  model: string;
   /**
    * Fully-wired SDK client constructed via `clientForModelConfig`. `null`
    * when no credential is available.
@@ -103,6 +129,10 @@ export interface ResolvedLLM extends Omit<ResolvedLLMWire, 'client' | 'credentia
    * produced a token. Callers MUST handle this case.
    */
   credential: CredentialResult | null;
+  /** Which config path produced this resolution. */
+  source: ResolutionSource;
+  /** When `roles[role].credentialLabel` was set, the label that was used. */
+  credentialLabel?: string;
 }
 
 /**
@@ -111,6 +141,22 @@ export interface ResolvedLLM extends Omit<ResolvedLLMWire, 'client' | 'credentia
  */
 function readLlmBlock(config: CleoConfig | undefined): LlmConfig | undefined {
   return config?.llm;
+}
+
+/**
+ * Per-role deduplication latch for the `llm.daemon` deprecation warn.
+ *
+ * Emits at most once per `RoleName` per process so a noisy hot-path
+ * (e.g. observer-reflector firing every minute) does not flood logs while
+ * still surfacing the deprecation to operators on each fresh role.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 — DRY review P2-3
+ */
+const _daemonLegacyWarned = new Set<RoleName>();
+
+/** Internal test hook: reset the daemon-legacy warn latch. */
+export function _resetDaemonLegacyWarnForTests(): void {
+  _daemonLegacyWarned.clear();
 }
 
 /**
@@ -152,6 +198,13 @@ function selectProviderModel(
 
   const daemonEntry = llm?.daemon;
   if (daemonEntry?.provider && daemonEntry.model) {
+    if (!_daemonLegacyWarned.has(role)) {
+      _daemonLegacyWarned.add(role);
+      logger.warn(
+        { role, provider: daemonEntry.provider, model: daemonEntry.model },
+        'llm.daemon is deprecated; migrate to llm.default or llm.roles.<role> (T-LLM-CRED Phase 2)',
+      );
+    }
     return {
       provider: daemonEntry.provider as ModelTransport,
       model: daemonEntry.model,
@@ -314,5 +367,63 @@ export async function resolveLLMForRole(
     credential,
     source,
     credentialLabel: usedLabel,
+  };
+}
+
+/**
+ * Convenience wrapper over {@link resolveLLMForRole} that narrows the client
+ * union to the Anthropic Messages API surface.
+ *
+ * Returns `null` when:
+ *   - no Anthropic credential is reachable for the role, OR
+ *   - the resolved provider is not `'anthropic'`, OR
+ *   - the SDK client could not be constructed.
+ *
+ * Eliminates the `as unknown as Pick<Anthropic, 'messages'>` cast that the
+ * three Anthropic-only call-sites (memory/llm-extraction, deriver/deriver,
+ * sentient/dream-cycle) previously required. AGENTS.md explicitly forbids
+ * `as unknown as X` casts — this helper is the supported alternative.
+ *
+ * @example
+ * ```ts
+ * const llm = await resolveAnthropicForRole('extraction', { projectRoot });
+ * if (!llm) return null; // graceful no-op — no credential or wrong provider
+ * const response = await llm.client.messages.create({
+ *   model: llm.model,
+ *   max_tokens: 256,
+ *   messages: [{ role: 'user', content: prompt }],
+ * });
+ * ```
+ *
+ * @param role - Logical role name (see `RoleName`).
+ * @param opts - Optional overrides (project root for config + tier-5 lookup).
+ * @returns Typed envelope, or `null` when graceful no-op is required.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 — DRY review P2-1
+ */
+export async function resolveAnthropicForRole(
+  role: RoleName,
+  opts?: ResolveLLMForRoleOptions,
+): Promise<{
+  client: Pick<Anthropic, 'messages'>;
+  model: string;
+  credential: CredentialResult;
+} | null> {
+  let llm: ResolvedLLM;
+  try {
+    llm = await resolveLLMForRole(role, opts);
+  } catch {
+    return null;
+  }
+  if (llm.provider !== 'anthropic') return null;
+  if (!llm.credential?.apiKey || !llm.client) return null;
+  // Safe narrowing: provider === 'anthropic' guarantees clientForModelConfig
+  // returned an Anthropic SDK client. Pick<Anthropic, 'messages'> exposes
+  // only the surface needed by all 3 call-sites today; future widening can
+  // expand the Pick set without changing the helper's contract.
+  return {
+    client: llm.client as Anthropic,
+    model: llm.model,
+    credential: llm.credential,
   };
 }

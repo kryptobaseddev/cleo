@@ -9,6 +9,8 @@
  * @task T5710
  */
 
+import type { ModelTransport } from './operations/llm.js';
+
 /** Output format options. */
 export type OutputFormat = 'json' | 'text' | 'jsonl' | 'markdown' | 'table';
 
@@ -386,7 +388,7 @@ export interface DaemonLLMConfig {
    * LLM provider transport used by daemon loops.
    * @defaultValue 'anthropic'
    */
-  provider: 'anthropic' | 'openai' | 'gemini' | 'moonshot';
+  provider: ModelTransport;
   /**
    * Full model identifier for the selected provider.
    * @defaultValue 'claude-sonnet-4-6'
@@ -395,19 +397,17 @@ export interface DaemonLLMConfig {
 }
 
 /**
- * Canonical model transport identifier shared with `ModelConfig` in the LLM
- * operation contracts. Duplicated as a string-literal union here to keep
- * `packages/contracts/src/config.ts` independent of the operations layer
- * (config is the lower-level leaf; operations import from it, not the other
- * way around).
+ * Canonical model transport identifier — re-export of {@link ModelTransport}
+ * from `operations/llm.ts` so config-layer types stay in lock-step with the
+ * operations layer with no risk of drift.
  *
- * Stays in lock-step with `ModelTransport` in
- * `packages/contracts/src/operations/llm.ts` — any new transport must be
- * added in both places.
+ * Previously declared as a separate string-literal union; collapsed in the
+ * T-LLM-CRED Phase 2 DRY/SOLID review (P1-2). Adding a new transport now
+ * requires editing only `operations/llm.ts`.
  *
- * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 — DRY review P1-2
  */
-export type LlmTransport = 'anthropic' | 'openai' | 'gemini' | 'moonshot';
+export type LlmTransport = ModelTransport;
 
 /**
  * Logical LLM role name used by role-aware resolvers (BRAIN, sentient, etc.).
