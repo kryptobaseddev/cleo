@@ -390,13 +390,86 @@ export interface DaemonLLMConfig {
 }
 
 /**
+ * Canonical model transport identifier shared with `ModelConfig` in the LLM
+ * operation contracts. Duplicated as a string-literal union here to keep
+ * `packages/contracts/src/config.ts` independent of the operations layer
+ * (config is the lower-level leaf; operations import from it, not the other
+ * way around).
+ *
+ * Stays in lock-step with `ModelTransport` in
+ * `packages/contracts/src/operations/llm.ts` — any new transport must be
+ * added in both places.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ */
+export type LlmTransport = 'anthropic' | 'openai' | 'gemini' | 'moonshot';
+
+/**
+ * Logical LLM role name used by role-aware resolvers (BRAIN, sentient, etc.).
+ *
+ * Each role can pin its own provider + model + credential label, with
+ * resolution falling back to `LlmConfig.default` and finally to the legacy
+ * `LlmConfig.daemon` block.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ */
+export type RoleName = 'extraction' | 'consolidation' | 'derivation' | 'hygiene' | 'judgement';
+
+/**
+ * Canonical default LLM target for unscoped (non-role) calls.
+ *
+ * Replaces the role previously played by `LlmConfig.daemon`. The `daemon`
+ * field stays as a deprecated alias for one release cycle to give downstream
+ * consumers time to migrate.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ */
+export interface LlmDefaultConfig {
+  /** LLM provider transport for the default model. */
+  provider: LlmTransport;
+  /** Full model identifier for the selected provider. */
+  model: string;
+}
+
+/**
+ * Per-role LLM configuration entry.
+ *
+ * Each role may optionally pin to a specific credential label (matching a
+ * `CredentialResult.label`) so that, e.g., the `extraction` role can use a
+ * different Anthropic API key than `judgement` without changing the global
+ * default.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ */
+export interface LlmRoleConfig {
+  /** LLM provider transport for this role. */
+  provider: LlmTransport;
+  /** Full model identifier for the selected provider. */
+  model: string;
+  /**
+   * Optional credential label to pin this role to a specific credential
+   * entry resolved by `resolveCredentials()`. When omitted, the role
+   * inherits the default credential resolution order.
+   */
+  credentialLabel?: string;
+}
+
+/**
  * Top-level LLM configuration block inside CleoConfig.
  *
  * Stored at `llm` in config.json.
+ *
+ * Resolution order for role-scoped calls:
+ *   `roles[role]` → `default` → `daemon` (legacy).
  */
 export interface LlmConfig {
   /**
    * Daemon LLM settings (provider + model for background loops).
+   *
+   * @deprecated Use `default` instead. Retained as a fallback alias for
+   * one release cycle (T-LLM-CRED-CENTRALIZATION Phase 2 · T9256). New
+   * code must read `default` first and only fall through to `daemon` when
+   * `default` is absent.
    * @defaultValue { provider: 'anthropic', model: 'claude-sonnet-4-6' }
    */
   daemon?: DaemonLLMConfig;
@@ -405,6 +478,23 @@ export interface LlmConfig {
    * Keys are provider names: 'anthropic' | 'openai' | 'gemini' | 'moonshot'.
    */
   providers?: Record<string, LlmProviderEntry>;
+  /**
+   * Canonical default LLM for unscoped calls. Replaces the role previously
+   * played by `daemon`, which stays as a deprecated alias for one release
+   * cycle.
+   *
+   * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+   */
+  default?: LlmDefaultConfig;
+  /**
+   * Per-role LLM overrides. Each role optionally pins to a credential
+   * label.
+   *
+   * Resolution order: `roles[role]` → `default` → `daemon` (legacy).
+   *
+   * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+   */
+  roles?: Partial<Record<RoleName, LlmRoleConfig>>;
 }
 
 /** SignalDock transport mode. */
