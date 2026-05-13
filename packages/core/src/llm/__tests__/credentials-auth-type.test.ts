@@ -72,6 +72,14 @@ beforeEach(() => {
     tmpdir(),
     `cleo-authtype-xdg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
+  // Point HOME at an empty tmpdir so tier 3 (`~/.claude/.credentials.json`)
+  // cannot pick up the developer's real Claude Code OAuth token. Deleting HOME
+  // is not enough — Node's `os.homedir()` falls back to /etc/passwd. Tests that
+  // need a Claude creds file override this via seedClaudeOauth().
+  process.env['HOME'] = join(
+    tmpdir(),
+    `cleo-authtype-home-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 });
 
 afterEach(() => {
