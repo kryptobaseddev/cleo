@@ -26,8 +26,21 @@
 /** Anthropic API key: sk-ant-api03-... */
 const ANTHROPIC_KEY_RE = /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g;
 
-/** OpenAI / Anthropic short-form API key: sk-[A-Za-z0-9]{32,} */
-const OPENAI_KEY_RE = /\bsk-[A-Za-z0-9]{32,}\b/g;
+/**
+ * OpenAI API key — covers both the legacy short-form and the modern
+ * prefixed variants (`sk-proj-*`, `sk-svcacct-*`, `sk-admin-*`).
+ *
+ * - Legacy:  `sk-<32+ alphanumeric>`           (pre-2024 personal keys)
+ * - Modern:  `sk-(proj|svcacct|admin)-<20+ chars>` (post-Apr 2024)
+ *
+ * The character class includes `-` and `_` for the modern variants since
+ * project-scoped keys mix base64url-style separators into the body. The
+ * `\b` anchor at the start still requires a word boundary so we don't
+ * accidentally consume `prefix-sk-...` inside a URL.
+ *
+ * Tested via the `sk-proj-…` fixture in `cli-ops.test.ts > llmRemove (S-13)`.
+ */
+const OPENAI_KEY_RE = /\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}\b|\bsk-[A-Za-z0-9]{32,}\b/g;
 
 /**
  * Environment variable assignment containing a secret value.
