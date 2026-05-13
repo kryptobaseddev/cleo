@@ -204,19 +204,6 @@ export interface CredentialResultWire {
 export type ResolutionSource = 'role' | 'default' | 'daemon-legacy' | 'implicit-fallback';
 
 /**
- * Loosely-typed SDK client returned by `clientForModelConfig()`.
- *
- * Concrete classes (Anthropic, OpenAI, GoogleGenerativeAI, …) are not
- * referenced from contracts to keep this package zero-dependency. The
- * `@cleocode/core/llm/role-resolver` module narrows this to a concrete
- * tagged union (`LLMClient`) that references the real SDK classes —
- * consumers should prefer the core export when they need the tighter type.
- *
- * @task T9255
- */
-export type LLMClientWire = object | Record<string, unknown>;
-
-/**
  * Result envelope returned by `resolveLLMForRole(role)`.
  *
  * Carries the fully-wired SDK client plus the {@link CredentialResultWire}
@@ -228,6 +215,12 @@ export type LLMClientWire = object | Record<string, unknown>;
  * case the caller MUST fall back to its graceful-degradation path
  * (`return null` / skip / log warn).
  *
+ * `client` is typed as `unknown` here because the concrete SDK classes
+ * (Anthropic, OpenAI, GoogleGenerativeAI) are not referenced from contracts
+ * to preserve its zero-dependency footprint. Consumers MUST narrow via the
+ * typed helpers in `@cleocode/core/llm/role-resolver` (e.g.
+ * `resolveAnthropicForRole`) rather than casting with `as unknown as X`.
+ *
  * @task T9255
  */
 export interface ResolvedLLM {
@@ -237,11 +230,12 @@ export interface ResolvedLLM {
   model: string;
   /**
    * Fully-wired SDK client constructed via `clientForModelConfig`. `null`
-   * when no credential is available. Typed as the loose
-   * {@link LLMClientWire} here; the narrower `LLMClient` tagged union lives
-   * in `@cleocode/core/llm/role-resolver` where SDK classes are dependencies.
+   * when no credential is available. Typed as `unknown` — consumers MUST
+   * narrow via a provider-specific helper (e.g. `resolveAnthropicForRole`
+   * in `@cleocode/core/llm/role-resolver`), NEVER via an `as unknown as X`
+   * cast.
    */
-  client: LLMClientWire | null;
+  client: unknown;
   /**
    * Resolved credential. `null` when no tier produced a token. Callers
    * MUST handle this case.

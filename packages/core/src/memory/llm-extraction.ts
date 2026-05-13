@@ -27,7 +27,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } from '../llm/role-resolver.js';
+import { IMPLICIT_FALLBACK_MODEL, resolveAnthropicForRole } from '../llm/role-resolver.js';
 import { checkHashDedup, type MemoryCandidate, verifyAndStore } from './extraction-gate.js';
 
 // ---------------------------------------------------------------------------
@@ -297,30 +297,23 @@ function mapImportanceToConfidence(importance: number): 'low' | 'medium' | 'high
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve provider+model+credentials via `resolveLLMForRole('extraction')`
- * (T9255) and return the wired SDK client + selected model name.
+ * Resolve provider+model+credentials via `resolveAnthropicForRole('extraction')`
+ * (T-LLM-CRED Phase 2 DRY review P2-1) and return the wired SDK client +
+ * selected model name.
  *
  * Honors `cred.authType` so OAuth tokens (Claude Code) are routed through
  * `Authorization: Bearer` instead of `x-api-key` — the registry's
  * `clientForModelConfig` handles this internally via the `extraHeaders`
  * channel set by the resolver.
- * Returns null when no credential is available.
+ * Returns null when no Anthropic credential is available (helper returns
+ * null on both missing-credential and wrong-provider paths).
  */
 async function buildExtractionClient(
   projectRoot: string,
 ): Promise<{ client: Pick<Anthropic, 'messages'>; model: string } | null> {
-  try {
-    const llm = await resolveLLMForRole('extraction', { projectRoot });
-    if (!llm.credential?.apiKey || !llm.client) {
-      return null;
-    }
-    return {
-      client: llm.client as unknown as Pick<Anthropic, 'messages'>,
-      model: llm.model,
-    };
-  } catch {
-    return null;
-  }
+  const llm = await resolveAnthropicForRole('extraction', { projectRoot });
+  if (!llm) return null;
+  return { client: llm.client, model: llm.model };
 }
 
 /**

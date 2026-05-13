@@ -92,8 +92,10 @@ export type {
   ResolveLLMForRoleOptions,
 } from './role-resolver.js';
 export {
+  HYGIENE_FALLBACK_MODEL,
   IMPLICIT_FALLBACK_MODEL,
   IMPLICIT_FALLBACK_PROVIDER,
+  resolveAnthropicForRole,
   resolveLLMForRole,
 } from './role-resolver.js';
 // Runtime

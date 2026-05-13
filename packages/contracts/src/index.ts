@@ -624,7 +624,6 @@ export type {
   CredentialResultWire,
   CredentialSourceWire,
   CredentialsStoreStrategyWire,
-  LLMClientWire,
   // `cleo llm` CLI / dispatch operation contracts (T9258)
   LlmAddParams,
   LlmAddResult,
