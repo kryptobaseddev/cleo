@@ -34,6 +34,7 @@ export type {
 export {
   authHeaders,
   clearAnthropicKeyCache,
+  cleoHomeDir,
   defaultTransportApiKey,
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
@@ -41,6 +42,22 @@ export {
   resolveModelCredentials,
   storeAnthropicApiKey,
 } from './credentials.js';
+// Credential pool / multi-credential storage (T-LLM-CRED-CENTRALIZATION Phase 2)
+export type {
+  CredentialsStoreData,
+  CredentialsStoreStrategy,
+  StoredAuthType,
+  StoredCredential,
+} from './credentials-store.js';
+export {
+  addCredential,
+  credentialsStorePath,
+  getCredentialByLabel,
+  listCredentials,
+  pickCredentialForProvider,
+  pickCredentialForProviderSync,
+  removeCredential,
+} from './credentials-store.js';
 // Executor (inner call, for testing)
 export { cleoLlmCallInner, completionResultToResponse } from './executor.js';
 // History adapters
