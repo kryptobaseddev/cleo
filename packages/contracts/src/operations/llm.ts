@@ -550,3 +550,8 @@ export interface LlmWhoamiResult {
   /** One entry per role resolved (filtered by `params.role` when set). */
   entries: LlmWhoamiEntry[];
 }
+
+// ProviderProfile interface lives in ./llm/provider-profile.ts (T9262).
+// The generated catalog (packages/core/src/llm/generated/provider-profiles.ts)
+// imports the canonical type from the contracts package and emits each
+// generated entry as a plain ProviderProfile literal.
