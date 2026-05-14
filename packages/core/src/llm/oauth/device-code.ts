@@ -1,0 +1,475 @@
+/**
+ * Generic OAuth 2.0 Device Authorization Grant (RFC 8628) flow runner.
+ *
+ * Implements the two-step device-code protocol:
+ *   1. POST to the device authorization endpoint → receive `device_code`,
+ *      `user_code`, `verification_uri`, `expires_in`, `interval`.
+ *   2. Poll the token endpoint every `interval` seconds until the user
+ *      approves, the code expires, or a non-recoverable error is returned.
+ *
+ * ## Anthropic OAuth status (TODO T9266)
+ *
+ * As of 2026-05-13, Anthropic does **not** publicly document a device-code
+ * OAuth endpoint. The Hermes reference implementation (`anthropic_adapter.py`)
+ * uses PKCE (`/oauth/authorize` → authorization-code exchange), not
+ * device-code. The `anthropic` preset below encodes our best-effort
+ * understanding of where a device-code endpoint *would* live if Anthropic
+ * exposes one in the future:
+ *
+ *   deviceCodeUrl:  https://console.anthropic.com/v1/oauth/device/code
+ *   tokenUrl:       https://console.anthropic.com/v1/oauth/token
+ *
+ * These MUST be verified against official Anthropic documentation before
+ * the `anthropic` provider can be considered production-ready in this flow.
+ *
+ * The client ID `"9d1c250a-e61b-44d9-88ed-5944d1962f5e"` is sourced from
+ * the Hermes reference implementation (`hermes_cli/auth_commands.py`). It
+ * is not an officially published Anthropic client ID and may need to be
+ * replaced when CLEO registers its own OAuth application.
+ *
+ * @module llm/oauth/device-code
+ * @task T9266
+ * @epic T-LLM-CRED-CENTRALIZATION
+ */
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration for a device-code OAuth flow.
+ *
+ * All URLs and client credentials are provider-specific; callers can pass
+ * a preset from `getDeviceCodeConfig()` or build a custom config for any
+ * provider that supports RFC 8628.
+ *
+ * @task T9266
+ */
+export interface DeviceCodeConfig {
+  /** Provider name (used only for logging / error messages). */
+  provider: 'anthropic' | string;
+  /**
+   * Device authorization endpoint (RFC 8628 §3.1).
+   *
+   * POST with `client_id` (and optionally `scope`) → returns
+   * `device_code`, `user_code`, `verification_uri`, etc.
+   */
+  deviceCodeUrl: string;
+  /**
+   * Token polling endpoint.
+   *
+   * POST with `grant_type=urn:ietf:params:oauth:grant-type:device_code`,
+   * `client_id`, and `device_code`.
+   */
+  tokenUrl: string;
+  /** OAuth client ID registered with the provider. */
+  clientId: string;
+  /** Space-separated OAuth scopes to request. Optional. */
+  scope?: string;
+  /**
+   * Additional HTTP headers to include on every request.
+   *
+   * Used to pass provider-specific versioning headers (e.g. Anthropic's
+   * `anthropic-version`).
+   */
+  defaultHeaders?: Record<string, string>;
+}
+
+/**
+ * Response from the device authorization endpoint (RFC 8628 §3.2).
+ *
+ * @task T9266
+ */
+export interface DeviceCodeStartResponse {
+  /** Opaque device code used when polling the token endpoint. */
+  deviceCode: string;
+  /**
+   * Short, human-readable code the user enters at `verificationUri`.
+   *
+   * Typically 8 characters (e.g. `ABCD-1234`).
+   */
+  userCode: string;
+  /** URL the user should visit to enter `userCode`. */
+  verificationUri: string;
+  /**
+   * Complete verification URI with the user code pre-filled.
+   *
+   * Not all providers return this field; falls back to `verificationUri`
+   * when absent.
+   */
+  verificationUriComplete?: string;
+  /** Seconds until the device code + user code expire. */
+  expiresIn: number;
+  /** Minimum polling interval in seconds (RFC 8628 §3.2). */
+  interval: number;
+}
+
+/**
+ * Successful token response from the device-code polling endpoint.
+ *
+ * @task T9266
+ */
+export interface DeviceCodeTokenResponse {
+  /** Bearer access token. */
+  accessToken: string;
+  /**
+   * Refresh token (if the provider returns one).
+   *
+   * Not all providers include a refresh token in the device-code flow.
+   * When present, callers SHOULD store it for later token refresh.
+   */
+  refreshToken?: string;
+  /** Seconds until `accessToken` expires. `undefined` when not provided. */
+  expiresIn?: number;
+  /** Token type (virtually always `'bearer'`). */
+  tokenType: string;
+}
+
+// ---------------------------------------------------------------------------
+// Internal error types
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by `pollForToken` when the device code expires before the user
+ * approves the request.
+ *
+ * @task T9266
+ */
+export class DeviceCodeTimeoutError extends Error {
+  readonly provider: string;
+  readonly elapsed: number;
+
+  constructor(provider: string, elapsed: number) {
+    super(
+      `Device code authorization timed out after ${elapsed}s waiting for user approval (provider: ${provider})`,
+    );
+    this.name = 'DeviceCodeTimeoutError';
+    this.provider = provider;
+    this.elapsed = elapsed;
+  }
+}
+
+/**
+ * Thrown by `pollForToken` when the provider returns an unrecoverable error
+ * (anything other than `authorization_pending` or `slow_down`).
+ *
+ * @task T9266
+ */
+export class DeviceCodeAuthError extends Error {
+  readonly provider: string;
+  readonly errorCode: string;
+
+  constructor(provider: string, errorCode: string, description: string) {
+    super(
+      `Device code authorization failed (provider: ${provider}): ${errorCode} — ${description}`,
+    );
+    this.name = 'DeviceCodeAuthError';
+    this.provider = provider;
+    this.errorCode = errorCode;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provider presets
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `DeviceCodeConfig` for a named provider.
+ *
+ * Currently only `'anthropic'` is wired. The Anthropic preset is based on
+ * best-effort endpoint inference — see the module-level TODO for the
+ * verification requirement.
+ *
+ * @throws {Error} When `provider` is not a known preset.
+ * @task T9266
+ */
+export function getDeviceCodeConfig(provider: 'anthropic' | string): DeviceCodeConfig {
+  if (provider === 'anthropic') {
+    return getAnthropicDeviceCodeConfig();
+  }
+  throw new Error(
+    `No device-code config preset for provider '${provider}'. ` +
+      `Pass a full DeviceCodeConfig object to startDeviceCodeFlow() directly.`,
+  );
+}
+
+/**
+ * Build the `DeviceCodeConfig` for Anthropic.
+ *
+ * ## TODO (T9266) — endpoint verification required
+ *
+ * Anthropic does not currently document a public device-code OAuth endpoint.
+ * The URLs below are inferred from the Hermes reference and the standard
+ * RFC 8628 path layout. They MUST be verified before marking this flow
+ * production-ready.
+ *
+ * - `deviceCodeUrl`: https://console.anthropic.com/v1/oauth/device/code
+ *   (TODO: verify; may not exist — Hermes uses PKCE, not device-code)
+ * - `tokenUrl`: https://console.anthropic.com/v1/oauth/token
+ *   (confirmed from Hermes `refresh_anthropic_oauth_pure`)
+ * - `clientId`: `"9d1c250a-e61b-44d9-88ed-5944d1962f5e"`
+ *   (sourced from Hermes — not officially published by Anthropic; CLEO
+ *   may need to register its own application)
+ *
+ * @task T9266
+ */
+export function getAnthropicDeviceCodeConfig(): DeviceCodeConfig {
+  return {
+    provider: 'anthropic',
+    // TODO(T9266): verify this endpoint exists — Anthropic may not support
+    // device-code OAuth. Fall back to PKCE flow if this returns 404/405.
+    deviceCodeUrl: 'https://console.anthropic.com/v1/oauth/device/code',
+    // Confirmed from Hermes refresh_anthropic_oauth_pure — also tried:
+    // https://platform.claude.com/v1/oauth/token
+    tokenUrl: 'https://console.anthropic.com/v1/oauth/token',
+    // TODO(T9266): replace with CLEO's own registered client ID once
+    // Anthropic OAuth app registration is complete.
+    clientId: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
+    scope: 'org:create_api_key user:profile user:inference',
+    defaultHeaders: {
+      // TODO(T9266): verify the correct anthropic-beta header value for
+      // device-code OAuth (if the endpoint exists).
+      'anthropic-beta': 'oauth-2025-04-20',
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Internal HTTP helpers
+// ---------------------------------------------------------------------------
+
+/** Maximum number of consecutive network-error retries during polling. */
+const MAX_NETWORK_RETRIES = 3;
+
+/** Cap on the polling interval (seconds), regardless of `slow_down` growth. */
+const POLL_INTERVAL_CAP_SECONDS = 30;
+
+/**
+ * Build the base headers for a device-code request.
+ *
+ * Merges `Content-Type` with provider-specific `defaultHeaders`.
+ */
+function buildHeaders(cfg: DeviceCodeConfig): Record<string, string> {
+  return {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    Accept: 'application/json',
+    ...cfg.defaultHeaders,
+  };
+}
+
+/**
+ * Encode a plain record as `application/x-www-form-urlencoded`.
+ */
+function encodeForm(params: Record<string, string>): string {
+  return new URLSearchParams(params).toString();
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the device-code OAuth flow.
+ *
+ * POSTs to `cfg.deviceCodeUrl` with the client ID and optional scope. On
+ * success returns the structured response that the CLI prints to the user
+ * (`userCode`, `verificationUri`, etc.) and that `pollForToken` needs to
+ * poll with.
+ *
+ * @throws {Error} On HTTP errors or a response that is missing required fields.
+ * @task T9266
+ */
+export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<DeviceCodeStartResponse> {
+  const body: Record<string, string> = { client_id: cfg.clientId };
+  if (cfg.scope) body['scope'] = cfg.scope;
+
+  const resp = await fetch(cfg.deviceCodeUrl, {
+    method: 'POST',
+    headers: buildHeaders(cfg),
+    body: encodeForm(body),
+  });
+
+  if (!resp.ok) {
+    let detail = '';
+    try {
+      const errBody = (await resp.json()) as Record<string, unknown>;
+      detail = ` — ${String(errBody['error_description'] ?? errBody['error'] ?? '')}`;
+    } catch {
+      /* ignore — non-JSON body */
+    }
+    throw new Error(
+      `Device code request failed for provider '${cfg.provider}': HTTP ${resp.status}${detail}`,
+    );
+  }
+
+  const data = (await resp.json()) as Record<string, unknown>;
+
+  const deviceCode = data['device_code'];
+  const userCode = data['user_code'];
+  const verificationUri = data['verification_uri'];
+  const expiresIn = data['expires_in'];
+  const interval = data['interval'];
+
+  if (
+    typeof deviceCode !== 'string' ||
+    typeof userCode !== 'string' ||
+    typeof verificationUri !== 'string' ||
+    typeof expiresIn !== 'number' ||
+    typeof interval !== 'number'
+  ) {
+    throw new Error(
+      `Device code response from '${cfg.provider}' missing required fields. ` +
+        `Got: ${JSON.stringify(Object.keys(data))}`,
+    );
+  }
+
+  const verificationUriComplete =
+    typeof data['verification_uri_complete'] === 'string'
+      ? data['verification_uri_complete']
+      : undefined;
+
+  return {
+    deviceCode,
+    userCode,
+    verificationUri,
+    verificationUriComplete,
+    expiresIn,
+    interval,
+  };
+}
+
+/**
+ * Poll the token endpoint until the user approves, the code expires, or an
+ * unrecoverable error is received (RFC 8628 §3.4).
+ *
+ * Handles the two recoverable error codes:
+ *   - `authorization_pending` — user has not yet approved; continue polling.
+ *   - `slow_down` — increase the polling interval by 1 second, then continue.
+ *
+ * Network errors are retried up to `MAX_NETWORK_RETRIES` times before being
+ * re-thrown.
+ *
+ * @param cfg - Device-code flow configuration (same object as passed to
+ *   `startDeviceCodeFlow`).
+ * @param startResp - The response returned by `startDeviceCodeFlow`.
+ * @param options.onPending - Optional callback invoked on each pending poll
+ *   iteration with `(elapsedSeconds, totalExpiresIn)`. Used by the CLI to
+ *   print a live progress counter.
+ * @param options.signal - Optional `AbortSignal` for cooperative cancellation.
+ *
+ * @throws {DeviceCodeTimeoutError} When `expiresIn` is reached without approval.
+ * @throws {DeviceCodeAuthError} When the provider returns a non-recoverable error.
+ * @throws {Error} When network retries are exhausted.
+ * @task T9266
+ */
+export async function pollForToken(
+  cfg: DeviceCodeConfig,
+  startResp: DeviceCodeStartResponse,
+  options?: {
+    onPending?: (elapsed: number, expiresIn: number) => void;
+    signal?: AbortSignal;
+  },
+): Promise<DeviceCodeTokenResponse> {
+  const { deviceCode, expiresIn, interval } = startResp;
+  const { onPending, signal } = options ?? {};
+
+  const deadline = Date.now() + expiresIn * 1000;
+  let currentInterval = Math.max(1, Math.min(interval, POLL_INTERVAL_CAP_SECONDS));
+  let consecutiveNetworkErrors = 0;
+  const startedAt = Date.now();
+
+  while (Date.now() < deadline) {
+    if (signal?.aborted) {
+      throw new Error(`Device code polling aborted for provider '${cfg.provider}'`);
+    }
+
+    let resp: Response;
+    try {
+      resp = await fetch(cfg.tokenUrl, {
+        method: 'POST',
+        headers: buildHeaders(cfg),
+        body: encodeForm({
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: cfg.clientId,
+          device_code: deviceCode,
+        }),
+        signal,
+      });
+      // Reset retry counter on any HTTP response (even error responses).
+      consecutiveNetworkErrors = 0;
+    } catch (err) {
+      consecutiveNetworkErrors++;
+      if (consecutiveNetworkErrors > MAX_NETWORK_RETRIES) {
+        throw err;
+      }
+      // Transient network error — wait one interval then retry.
+      await sleep(currentInterval * 1000);
+      continue;
+    }
+
+    if (resp.ok) {
+      const data = (await resp.json()) as Record<string, unknown>;
+      const accessToken = data['access_token'];
+      if (typeof accessToken !== 'string' || !accessToken) {
+        throw new Error(
+          `Token endpoint for '${cfg.provider}' returned HTTP 200 but no access_token`,
+        );
+      }
+      return {
+        accessToken,
+        refreshToken: typeof data['refresh_token'] === 'string' ? data['refresh_token'] : undefined,
+        expiresIn: typeof data['expires_in'] === 'number' ? data['expires_in'] : undefined,
+        tokenType: typeof data['token_type'] === 'string' ? data['token_type'] : 'bearer',
+      };
+    }
+
+    // Non-200 — parse the error payload.
+    let errorPayload: Record<string, unknown>;
+    try {
+      errorPayload = (await resp.json()) as Record<string, unknown>;
+    } catch {
+      // Non-JSON error body — treat as unrecoverable.
+      throw new Error(
+        `Token endpoint for '${cfg.provider}' returned HTTP ${resp.status} with non-JSON body`,
+      );
+    }
+
+    const errorCode = String(errorPayload['error'] ?? '');
+    const errorDescription = String(
+      errorPayload['error_description'] ?? 'Unknown authorization error',
+    );
+
+    if (errorCode === 'authorization_pending') {
+      const elapsed = Math.round((Date.now() - startedAt) / 1000);
+      onPending?.(elapsed, expiresIn);
+      await sleep(currentInterval * 1000);
+      continue;
+    }
+
+    if (errorCode === 'slow_down') {
+      // RFC 8628 §3.4: increase interval by at least 5 seconds.
+      currentInterval = Math.min(currentInterval + 5, POLL_INTERVAL_CAP_SECONDS);
+      await sleep(currentInterval * 1000);
+      continue;
+    }
+
+    // Any other error code is unrecoverable.
+    throw new DeviceCodeAuthError(cfg.provider, errorCode, errorDescription);
+  }
+
+  const elapsed = Math.round((Date.now() - startedAt) / 1000);
+  throw new DeviceCodeTimeoutError(cfg.provider, elapsed);
+}
+
+// ---------------------------------------------------------------------------
+// Internal utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Promise-based sleep helper (wraps `setTimeout`).
+ *
+ * @internal
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

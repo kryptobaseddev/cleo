@@ -16,6 +16,7 @@ export { cleoLlmCall } from './api.js';
 export type { CompletionResult, ProviderBackend, StreamChunk, ToolCallResult } from './backend.js';
 export { makeCompletionResult } from './backend.js';
 // Backends (for direct use / custom wiring)
+export type { AnthropicBackendCallParams } from './backends/anthropic.js';
 export { AnthropicBackend } from './backends/anthropic.js';
 export { GeminiBackend } from './backends/gemini.js';
 export { OpenAIBackend, usesMaxCompletionTokens } from './backends/openai.js';
@@ -76,6 +77,20 @@ export {
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
+export type { ModelMetadata } from './model-metadata.js';
+// Model metadata — context window resolution (T9264 / T-LLM-CRED Phase 3)
+export {
+  DEFAULT_CONTEXT_LENGTH,
+  getModelContextLength,
+  getModelMetadata,
+} from './model-metadata.js';
+// Prompt-caching strategies (Anthropic) — T9269 / T-LLM-CRED Phase 3
+export type {
+  CacheControlMarker,
+  CacheTtl,
+  PromptCachingStrategy,
+} from './prompt-caching.js';
+export { injectCacheBreakpoints } from './prompt-caching.js';
 // Registry (for testing/DI)
 export {
   backendForProvider,
