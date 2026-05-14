@@ -428,6 +428,26 @@ export {
 } from './lafs.js';
 // === LLM Error Taxonomy (T9270 — Hermes FailoverReason port) ===
 export type { ClassifiedError, FailoverReason } from './llm/failover-reason.js';
+// === Normalized LLM Transport Types (T9263 — Phase 3 T-LLM-CRED) ===
+// Note: LlmTransport (the interface) is intentionally NOT re-exported at the
+// top level here because `config.ts` already exports `LlmTransport` as a type
+// alias for `ModelTransport`. Consumers that need the transport interface
+// should import the LlmTransport interface from the llm/normalized-response.js
+// subpath rather than the package root.
+export type {
+  NormalizedResponse,
+  NormalizedToolCall,
+  NormalizedUsage,
+  TransportMessage,
+  TransportRequest,
+  TransportTool,
+} from './llm/normalized-response.js';
+// === Provider Profile + Plugin Contracts (T9262 — Phase 3 T-LLM-CRED) ===
+export type {
+  ProviderPlugin,
+  ProviderPluginApi,
+  ProviderProfile,
+} from './llm/provider-profile.js';
 export type {
   BridgeDecision,
   BridgeLearning,
@@ -650,26 +670,6 @@ export type {
   ResolveLLMForRoleOptions,
   StoredAuthTypeWire,
 } from './operations/llm.js';
-// === Provider Profile + Plugin Contracts (T9262 — Phase 3 T-LLM-CRED) ===
-export type {
-  ProviderPlugin,
-  ProviderPluginApi,
-  ProviderProfile,
-} from './llm/provider-profile.js';
-// === Normalized LLM Transport Types (T9263 — Phase 3 T-LLM-CRED) ===
-// Note: LlmTransport (the interface) is intentionally NOT re-exported at the
-// top level here because `config.ts` already exports `LlmTransport` as a type
-// alias for `ModelTransport`. Consumers that need the transport interface
-// should import the LlmTransport interface from the llm/normalized-response.js
-// subpath rather than the package root.
-export type {
-  NormalizedResponse,
-  NormalizedToolCall,
-  NormalizedUsage,
-  TransportMessage,
-  TransportRequest,
-  TransportTool,
-} from './llm/normalized-response.js';
 // Multi-pass retrieval bundle types (PSYCHE Wave 4 · T1090)
 export type {
   PassMask,
