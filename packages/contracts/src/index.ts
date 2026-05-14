@@ -647,14 +647,12 @@ export type {
   ResolveLLMForRoleOptions,
   StoredAuthTypeWire,
 } from './operations/llm.js';
-<<<<<<< HEAD
 // === Provider Profile + Plugin Contracts (T9262 — Phase 3 T-LLM-CRED) ===
 export type {
   ProviderPlugin,
   ProviderPluginApi,
   ProviderProfile,
 } from './llm/provider-profile.js';
-=======
 // === Normalized LLM Transport Types (T9263 — Phase 3 T-LLM-CRED) ===
 // Note: LlmTransport (the interface) is intentionally NOT re-exported at the
 // top level here because `config.ts` already exports `LlmTransport` as a type
@@ -668,7 +666,6 @@ export type {
   TransportRequest,
   TransportTool,
 } from './llm/normalized-response.js';
->>>>>>> worktree-agent-a0ef4039e189ab4e2
 // Multi-pass retrieval bundle types (PSYCHE Wave 4 · T1090)
 export type {
   PassMask,
