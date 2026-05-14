@@ -9,8 +9,13 @@
  * where `defaultHeaders` carries OAuth `Authorization: Bearer …` headers when
  * the credential was resolved as `authType: 'oauth'`.
  *
+ * W0c adds stub `stream()` + `apiMode` for compile parity with the extended
+ * `LlmTransport` interface. Wave 1c migration (T-llm-p4-1c) replaces the stub
+ * with a real streaming implementation backed by the Anthropic SDK event stream.
+ *
  * @module llm/transports/anthropic
  * @task T9263
+ * @task T9282 (W0c — stub stream() + apiMode)
  * @epic T-LLM-CRED-CENTRALIZATION
  */
 
@@ -25,6 +30,7 @@ import type {
   ToolUseBlock,
 } from '@anthropic-ai/sdk/resources/messages/messages.js';
 
+import type { NormalizedDelta, TransportContext } from '@cleocode/contracts/llm/interfaces.js';
 import type {
   LlmTransport,
   NormalizedResponse,
@@ -34,6 +40,7 @@ import type {
   TransportRequest,
   TransportTool,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import type { ApiMode } from '@cleocode/contracts/llm/provider-id.js';
 
 // ---------------------------------------------------------------------------
 // Constructor options
@@ -80,11 +87,37 @@ function isThinkingBlock(block: ContentBlock): block is ThinkingBlock {
 // ---------------------------------------------------------------------------
 
 /**
+ * Extract plain-text content from a message's `content` field.
+ *
+ * Handles the W0c multimodal union: when `content` is a string, returns it
+ * directly. When it is a block array, concatenates text blocks and drops image
+ * blocks. The Anthropic native multimodal path (sending actual image blocks in
+ * the API request) is wired in Wave 1c / Wave 4d.
+ *
+ * @param content - Message content field (string or block array).
+ * @returns Plain-text string for Anthropic SDK message params.
+ */
+function extractPlainText(content: TransportMessage['content']): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  return content
+    .filter(
+      (block): block is { readonly type: 'text'; readonly text: string } => block.type === 'text',
+    )
+    .map((block) => block.text)
+    .join('');
+}
+
+/**
  * Maps a provider-neutral {@link TransportMessage} array to the Anthropic
  * `MessageParam[]` format.
  *
  * Tool-result messages (`role: 'tool'`) are mapped to `role: 'user'` with a
  * `tool_result` content block, as required by the Anthropic Messages API.
+ *
+ * Multimodal content blocks (W0c extension): text blocks are concatenated;
+ * image blocks are dropped until Wave 1c wires native Anthropic image support.
  */
 function mapMessages(messages: TransportMessage[]): MessageParam[] {
   return messages.map((msg): MessageParam => {
@@ -95,14 +128,14 @@ function mapMessages(messages: TransportMessage[]): MessageParam[] {
           {
             type: 'tool_result',
             tool_use_id: msg.toolUseId ?? '',
-            content: msg.content,
+            content: extractPlainText(msg.content),
           },
         ],
       };
     }
     return {
       role: msg.role,
-      content: msg.content,
+      content: extractPlainText(msg.content),
     };
   });
 }
@@ -196,6 +229,13 @@ export class AnthropicTransport implements LlmTransport {
   /** Provider identifier — always `'anthropic'`. */
   readonly provider = 'anthropic' as const;
 
+  /**
+   * Wire protocol spoken by this transport — always `'anthropic_messages'`.
+   *
+   * @see ADR-072 §Type lock-in
+   */
+  readonly apiMode: ApiMode = 'anthropic_messages' as const;
+
   private readonly _client: Anthropic;
 
   /**
@@ -219,9 +259,12 @@ export class AnthropicTransport implements LlmTransport {
    * {@link NormalizedResponse}.
    *
    * @param request - Provider-neutral request parameters.
+   * @param _ctx - Transport context (request ID, abort signal). Currently unused
+   *   by this implementation; `request.signal` takes precedence for abort support.
+   *   Wave 1c wires `ctx.requestId` into provider telemetry.
    * @returns Normalized response including content, tool calls, usage, and raw SDK object.
    */
-  async complete(request: TransportRequest): Promise<NormalizedResponse> {
+  async complete(request: TransportRequest, _ctx?: TransportContext): Promise<NormalizedResponse> {
     const { model, messages, maxTokens, system, tools, temperature, signal } = request;
 
     const anthropicMessages = mapMessages(messages);
@@ -254,5 +297,29 @@ export class AnthropicTransport implements LlmTransport {
       ...(reasoning != null ? { reasoning } : {}),
       raw: response,
     };
+  }
+
+  /**
+   * Stream a completion against the Anthropic Messages API.
+   *
+   * STUB: W1 migration will implement stream() for anthropic.
+   *
+   * Wave 1c (T-llm-p4-1c) replaces this stub with a real implementation
+   * backed by the Anthropic SDK's streaming event source. The real
+   * implementation will run deltas through `StreamingThinkScrubber` before
+   * yielding, routing reasoning blocks to `delta.reasoning` and visible text
+   * to `delta.text`.
+   *
+   * @param _request - Ignored until Wave 1c implementation lands.
+   * @param _ctx - Ignored until Wave 1c implementation lands.
+   * @throws {Error} Always, until the real implementation lands in Wave 1c.
+   */
+  // biome-ignore lint/correctness/useYield: stub — Wave 1c replaces with real streaming impl
+  async *stream(
+    _request: TransportRequest,
+    _ctx: TransportContext,
+  ): AsyncIterable<NormalizedDelta> {
+    // STUB: W1 migration will implement stream() for anthropic
+    throw new Error('STUB: W1 migration will implement stream() for anthropic');
   }
 }

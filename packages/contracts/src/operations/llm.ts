@@ -9,8 +9,21 @@
  * @epic T1386
  */
 
-/** Supported provider transport names. */
-export type ModelTransport = 'anthropic' | 'openai' | 'gemini' | 'moonshot';
+import type { BuiltinProviderId, ProviderId } from '../llm/provider-id.js';
+
+/**
+ * @deprecated since Phase 4 (ADR-072). Use {@link ProviderId} from
+ * `@cleocode/contracts/llm/provider-id.js` for new code. This alias remains
+ * for one release cycle to ease migration of legacy callers, then is removed.
+ *
+ * The alias resolves to {@link BuiltinProviderId} — a superset of the previous
+ * closed literal union (`'anthropic' | 'openai' | 'gemini' | 'moonshot'`).
+ * All existing consumers that pattern-match on the previous four values continue
+ * to compile without changes.
+ *
+ * @see ADR-072 §Type lock-in — ModelTransport deprecation cycle
+ */
+export type ModelTransport = Extract<ProviderId, BuiltinProviderId>;
 
 /** Cache policy mode for prompt prefix caching. */
 export type PromptCachePolicyMode = 'gemini_cached_content';
