@@ -13,25 +13,32 @@
  *
  * Deferred from MVP (documented as TODO):
  * - ProviderProfile hook callbacks (prepareMessages, buildExtraBody,
- *   buildApiKwargsExtras) — these require a breaking contract extension.
- *   Tracked as TODO(T9272+): wire ProviderProfile hooks once contract is
- *   extended (deferred to next session).
- * - Streaming (handled at the agent loop level by the auxiliary router).
+ *   buildApiKwargsExtras) — the contract is now extended in W0c. Wire-up is
+ *   tracked as T-llm-p4-1d (Wave 1d — Moonshot + chat-completions quirks
+ *   consolidation moves inline quirks into per-provider profile hooks).
  * - Multi-turn tool replay (agent loop responsibility).
+ *
+ * W0c adds stub `stream()` + `apiMode` for compile parity with the extended
+ * `LlmTransport` interface. Wave 1d migration (T-llm-p4-1d) replaces the stub
+ * with a real streaming implementation.
  *
  * @module llm/transports/chat-completions
  * @task T9272
+ * @task T9282 (W0c — stub stream() + apiMode)
  * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 3)
  */
 
+import type { NormalizedDelta, TransportContext } from '@cleocode/contracts/llm/interfaces.js';
 import type {
   LlmTransport,
   NormalizedResponse,
   NormalizedToolCall,
   NormalizedUsage,
+  TransportMessage,
   TransportRequest,
   TransportTool,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import type { ApiMode } from '@cleocode/contracts/llm/provider-id.js';
 import type { ModelTransport } from '@cleocode/contracts/operations/llm.js';
 import OpenAI from 'openai';
 
@@ -104,6 +111,16 @@ export class ChatCompletionsTransport implements LlmTransport {
    */
   readonly provider: ModelTransport;
 
+  /**
+   * Wire protocol spoken by this transport — always `'chat_completions'`.
+   *
+   * All providers served by this transport (OpenRouter, DeepSeek, xAI, Groq,
+   * Moonshot, Gemini-via-shim, etc.) use the OpenAI chat completions wire format.
+   *
+   * @see ADR-072 §Type lock-in
+   */
+  readonly apiMode: ApiMode = 'chat_completions' as const;
+
   /** Underlying OpenAI-compatible SDK client. */
   private readonly _client: OpenAI;
 
@@ -131,9 +148,11 @@ export class ChatCompletionsTransport implements LlmTransport {
    * raw SDK response into a {@link NormalizedResponse}.
    *
    * @param request - Provider-neutral request parameters.
+   * @param _ctx - Transport context (request ID, abort signal). Currently unused;
+   *   `request.signal` takes precedence for abort support.
    * @returns Normalized response envelope.
    */
-  async complete(request: TransportRequest): Promise<NormalizedResponse> {
+  async complete(request: TransportRequest, _ctx?: TransportContext): Promise<NormalizedResponse> {
     const messages = this._convertMessages(request);
     const tools =
       request.tools && request.tools.length > 0 ? this._convertTools(request.tools) : undefined;
@@ -169,8 +188,13 @@ export class ChatCompletionsTransport implements LlmTransport {
    * message, which is the canonical OpenAI representation understood by all
    * OpenAI-compatible providers.
    *
-   * TODO(T9272+): wire ProviderProfile.prepareMessages hook once the contract
-   * is extended (deferred to next session).
+   * Multimodal content blocks (W0c — {@link TransportMessage.content} union):
+   * when `content` is an array, text blocks are concatenated and image blocks
+   * are dropped (this transport currently operates in `'text'`-equivalent mode).
+   * Wave 1d wires `request.imageMode` and ProviderProfile hooks to control this.
+   *
+   * TODO(T9272+/W1d): wire ProviderProfile.prepareMessages + imageMode routing
+   * once Wave 1d migration lands.
    *
    * @param request - Full transport request.
    * @returns Array of OpenAI-compatible message objects.
@@ -181,7 +205,7 @@ export class ChatCompletionsTransport implements LlmTransport {
       msgs.push({ role: 'system', content: request.system });
     }
     for (const m of request.messages) {
-      msgs.push({ role: m.role, content: m.content });
+      msgs.push({ role: m.role, content: extractTextContent(m) });
     }
     return msgs;
   }
@@ -350,6 +374,57 @@ export class ChatCompletionsTransport implements LlmTransport {
       raw: response,
     };
   }
+
+  /**
+   * Stream a completion against the OpenAI-compatible chat completions endpoint.
+   *
+   * STUB: W1 migration will implement stream() for chat-completions.
+   *
+   * Wave 1d (T-llm-p4-1d) replaces this stub with a real streaming
+   * implementation that wires `ProviderProfile` hooks and routes deltas
+   * through `StreamingThinkScrubber`.
+   *
+   * @param _request - Ignored until Wave 1d implementation lands.
+   * @param _ctx - Ignored until Wave 1d implementation lands.
+   * @throws {Error} Always, until the real implementation lands in Wave 1d.
+   */
+  // biome-ignore lint/correctness/useYield: stub — Wave 1d replaces with real streaming impl
+  async *stream(
+    _request: TransportRequest,
+    _ctx: TransportContext,
+  ): AsyncIterable<NormalizedDelta> {
+    // STUB: W1 migration will implement stream() for chat-completions
+    throw new Error('STUB: W1 migration will implement stream() for chat-completions');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Content extraction helpers (module-private)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract plain-text content from a {@link TransportMessage}.
+ *
+ * When `content` is a plain string, returns it as-is. When it is a multimodal
+ * block array (W0c extension), concatenates all `text` blocks and drops `image`
+ * blocks. This transport currently operates in text-only mode for multimodal
+ * content; Wave 1d will wire `request.imageMode` and `ProviderProfile` hooks
+ * for native image support.
+ *
+ * @param message - The transport message to extract text from.
+ * @returns Plain text string for the OpenAI wire format.
+ */
+function extractTextContent(message: TransportMessage): string {
+  if (typeof message.content === 'string') {
+    return message.content;
+  }
+  // Multimodal array — concatenate text blocks, drop image blocks.
+  return message.content
+    .filter(
+      (block): block is { readonly type: 'text'; readonly text: string } => block.type === 'text',
+    )
+    .map((block) => block.text)
+    .join('');
 }
 
 // ---------------------------------------------------------------------------

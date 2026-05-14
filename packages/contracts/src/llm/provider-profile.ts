@@ -11,6 +11,7 @@
  */
 
 import type { ModelTransport, StoredAuthTypeWire } from '../operations/llm.js';
+import type { TransportMessage, TransportTool } from './normalized-response.js';
 
 /**
  * Describes a single LLM provider — its auth capabilities, base URL,
@@ -85,6 +86,71 @@ export interface ProviderProfile {
    * @param signal - Optional abort signal for request cancellation.
    */
   fetchModels?: (apiKey: string, signal?: AbortSignal) => Promise<ReadonlyArray<string> | null>;
+
+  /**
+   * Hook: transform messages before they are passed to the SDK.
+   *
+   * Default behavior (when `undefined`): identity — messages are forwarded
+   * unchanged. Providers use this hook for shape conversions such as:
+   * - Gemini: hoisting the system message to `systemInstruction`.
+   * - Anthropic: injecting an assistant-prefill block for structured output.
+   * - OpenAI o-series: merging consecutive same-role messages.
+   *
+   * Port of Hermes `ProviderProfile.prepare_messages` (Hermes §3.1).
+   *
+   * @param messages - The transport-level messages prior to provider conversion.
+   * @param model - The resolved model identifier.
+   * @returns Possibly-modified messages array. Implementations MUST NOT mutate
+   *          the input array; return a new array if changes are needed.
+   */
+  readonly prepareMessages?: (
+    messages: readonly TransportMessage[],
+    model: string,
+  ) => readonly TransportMessage[];
+
+  /**
+   * Hook: contribute provider-specific extra body fields.
+   *
+   * The returned object is merged into the SDK request's `extra_body`
+   * (OpenAI-style) or equivalent provider field. Providers use this for:
+   * - Gemini: `thinkingConfig` for extended reasoning budget.
+   * - OpenRouter: Pareto router plugin parameters.
+   * - Anthropic-via-OpenRouter: fine-grained tool streaming control.
+   *
+   * Port of Hermes `ProviderProfile.build_extra_body`.
+   *
+   * @param model - The resolved model identifier.
+   * @param messages - The transport-level messages at call time.
+   * @param tools - The tool definitions at call time.
+   * @returns Object merged into the provider request's `extra_body` field.
+   */
+  readonly buildExtraBody?: (
+    model: string,
+    messages: readonly TransportMessage[],
+    tools: readonly TransportTool[],
+  ) => Readonly<Record<string, unknown>>;
+
+  /**
+   * Hook: contribute provider-specific top-level API kwargs.
+   *
+   * The returned object is shallow-merged into the SDK call kwargs. Providers
+   * use this for top-level fields that do not fit into `extra_body`:
+   * - xAI Grok: `x-grok-conv-id` conversation pinning header.
+   * - Kimi: `reasoning_effort` top-level reasoning control.
+   * - Moonshot: JSON-schema sanitization applied at the request level.
+   *
+   * Port of Hermes `ProviderProfile.build_api_kwargs_extras`.
+   *
+   * @param model - The resolved model identifier.
+   * @param messages - The transport-level messages at call time.
+   * @param tools - The tool definitions at call time.
+   * @returns Object shallow-merged into the SDK call kwargs.
+   */
+  readonly buildApiKwargsExtras?: (
+    model: string,
+    messages: readonly TransportMessage[],
+    tools: readonly TransportTool[],
+  ) => Readonly<Record<string, unknown>>;
 }
 
 /**
