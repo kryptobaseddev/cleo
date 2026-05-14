@@ -11,10 +11,14 @@
  *
  * @module llm/normalized-response
  * @task T9263
+ * @task T9282 (W0c — Phase 4 multimodal + stream extensions)
  * @epic T-LLM-CRED-CENTRALIZATION
+ * @see ADR-072 §LlmTransport — pure wire level
  */
 
 import type { ModelTransport } from '../operations/llm.js';
+import type { NormalizedDelta, TransportContext } from './interfaces.js';
+import type { ApiMode } from './provider-id.js';
 
 /**
  * Token usage reported by the provider for a single API call.
@@ -100,16 +104,70 @@ export interface NormalizedResponse {
 }
 
 /**
+ * An image content block for multimodal messages.
+ *
+ * `source.type` determines how the image data is provided:
+ * - `'base64'` — raw image bytes encoded as base64, with `mediaType` identifying
+ *   the MIME type (e.g. `'image/png'`, `'image/jpeg'`).
+ * - `'url'` — a publicly accessible URL; `data` is the URL string and `mediaType`
+ *   is still populated (sniffed by {@link image-routing.ts} when not supplied by
+ *   the caller).
+ *
+ * @see ADR-072 §LlmTransport — pure wire level (W4d image routing)
+ */
+export interface TransportImageBlock {
+  /** Discriminant — always `'image'`. */
+  readonly type: 'image';
+  readonly source: {
+    /** How the image data is provided. */
+    readonly type: 'base64' | 'url';
+    /**
+     * Base64-encoded image bytes (when `type === 'base64'`) or a URL string
+     * (when `type === 'url'`).
+     */
+    readonly data: string;
+    /** MIME type, e.g. `'image/png'`, `'image/jpeg'`, `'image/webp'`. */
+    readonly mediaType: string;
+  };
+}
+
+/**
+ * A text content block for multimodal messages.
+ */
+export interface TransportTextBlock {
+  /** Discriminant — always `'text'`. */
+  readonly type: 'text';
+  /** Plain text string. */
+  readonly text: string;
+}
+
+/**
  * A single message in a provider-neutral conversation turn.
  *
  * `toolUseId` is required when `role` is `'tool'` — it identifies which
  * tool call this result resolves, matching {@link NormalizedToolCall.id}.
+ *
+ * `content` supports both the legacy plain-string form and a multimodal block
+ * array. When `content` is a string, the transport treats it as a single text
+ * block. When it is an array, each element is either a {@link TransportTextBlock}
+ * or a {@link TransportImageBlock} — enabling image routing (W4d) without
+ * breaking existing transport consumers that only read the string form.
  */
 export interface TransportMessage {
   /** Conversation turn role. */
   role: 'user' | 'assistant' | 'tool';
-  /** Message content as plain text. */
-  content: string;
+  /**
+   * Message content.
+   *
+   * - Plain `string` — backwards-compatible single-text-block form used by
+   *   all existing transports. Transports that do not support images receive
+   *   this form only.
+   * - `ReadonlyArray<TransportTextBlock | TransportImageBlock>` — multimodal
+   *   block array enabling image routing (ADR-072 W4d). Transports that do not
+   *   support images MUST stringify text blocks and drop image blocks (or throw
+   *   if `imageMode` on the request is `'native'` — see {@link TransportRequest}).
+   */
+  readonly content: string | ReadonlyArray<TransportTextBlock | TransportImageBlock>;
   /** Tool-result messages: id of the call this resolves. */
   toolUseId?: string;
 }
@@ -131,13 +189,16 @@ export interface TransportTool {
 }
 
 /**
- * Request parameters passed to {@link LlmTransport.complete}.
+ * Request parameters passed to {@link LlmTransport.complete} and
+ * {@link LlmTransport.stream}.
  *
  * `temperature` is normalized to the 0.0–1.0 range; each transport clamps it
  * to the provider's supported range before sending.
  *
  * `signal` may be used to abort in-flight requests (passed through to the
  * underlying fetch / SDK call where supported).
+ *
+ * @see ADR-072 §LlmTransport — pure wire level
  */
 export interface TransportRequest {
   /** Model identifier — provider-specific (e.g. `'claude-sonnet-4-6'`). */
@@ -154,6 +215,36 @@ export interface TransportRequest {
   temperature?: number;
   /** AbortSignal for request cancellation. */
   signal?: AbortSignal;
+  /**
+   * Prompt-cache breakpoint injection strategy.
+   *
+   * - `'system_and_3'` — inject cache breakpoints after the system prompt and
+   *   after the last 3 user messages (Anthropic extended-caching strategy).
+   * - `'prefix_and_2'` — inject at the shared prefix boundary and after the 2
+   *   most-recent turns (optimised for Gemini cached content).
+   * - `null` — no cache injection (default when not set).
+   *
+   * Transports apply the selected strategy before constructing the SDK request.
+   * Unsupported strategies on a given transport are silently ignored.
+   *
+   * @see ADR-072 §LlmTransport — pure wire level
+   */
+  readonly cacheStrategy?: 'system_and_3' | 'prefix_and_2' | null;
+  /**
+   * Image handling mode for multimodal content blocks in {@link TransportMessage.content}.
+   *
+   * - `'native'` — send image blocks as-is to the provider's multimodal API.
+   *   The transport MUST throw if the provider does not support native images.
+   * - `'text'` — strip all image blocks; only text blocks are sent. Useful for
+   *   text-only providers or when images are redundant.
+   * - `'auto'` — the transport decides based on provider capability (default).
+   *   Falls back to `'text'` for providers that do not support native images.
+   *
+   * Used by the image-routing layer (W4d) to select the per-turn input mode.
+   *
+   * @see ADR-072 §LlmTransport — pure wire level
+   */
+  readonly imageMode?: 'native' | 'text' | 'auto';
 }
 
 /**
@@ -163,6 +254,15 @@ export interface TransportRequest {
  * interface and maps provider-specific API shapes to/from
  * {@link NormalizedResponse}. Role-resolver and executor code works
  * exclusively against this interface so providers are swappable.
+ *
+ * As of Phase 4 (ADR-072) the interface gains two additional members:
+ * - {@link apiMode} — the wire protocol spoken by this transport.
+ * - {@link stream} — streaming completion returning {@link NormalizedDelta} chunks.
+ *
+ * Existing transport implementations MUST add stub implementations of both to
+ * maintain compile parity (W0c). Wave 1 migrations replace stubs with real impls.
+ *
+ * @see ADR-072 §LlmTransport — pure wire level
  */
 export interface LlmTransport {
   /**
@@ -170,6 +270,13 @@ export interface LlmTransport {
    * can select the correct transport at runtime.
    */
   readonly provider: ModelTransport;
+  /**
+   * Wire protocol this transport speaks. Used by the session and executor layers
+   * to select correct transports for providers that support multiple protocols.
+   *
+   * @see ADR-072 §Type lock-in — `ApiMode` closed 4-value union
+   */
+  readonly apiMode: ApiMode;
   /**
    * Execute a single completion call and return a normalized response.
    *
@@ -179,7 +286,28 @@ export interface LlmTransport {
    * - Map provider-specific stop reasons to the canonical set where possible.
    *
    * @param request - Provider-neutral request parameters.
+   * @param ctx - Contextual metadata (request ID, abort signal, feature flags).
    * @returns A promise that resolves to a {@link NormalizedResponse}.
    */
-  complete(request: TransportRequest): Promise<NormalizedResponse>;
+  complete(request: TransportRequest, ctx?: TransportContext): Promise<NormalizedResponse>;
+  /**
+   * Stream a completion. Each {@link NormalizedDelta} carries incremental text
+   * or reasoning content.
+   *
+   * Implementors MUST run streaming deltas through `StreamingThinkScrubber`
+   * before yielding them — reasoning content goes to `delta.reasoning`;
+   * visible text goes to `delta.text`. The final delta has a non-null
+   * `stopReason` and carries full usage stats in `delta.usage`.
+   *
+   * W0c transports carry a stub that throws until Wave 1 migration lands:
+   * ```ts
+   * throw new Error('STUB: W1 migration will implement stream() for <provider>');
+   * ```
+   *
+   * @param request - Provider-neutral request parameters.
+   * @param ctx - Contextual metadata (request ID, abort signal, feature flags).
+   * @returns An async iterable of normalized delta chunks.
+   * @see ADR-072 §LlmTransport — pure wire level
+   */
+  stream(request: TransportRequest, ctx: TransportContext): AsyncIterable<NormalizedDelta>;
 }

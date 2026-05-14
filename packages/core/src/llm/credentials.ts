@@ -122,12 +122,24 @@ export interface CredentialResolveOptions {
 // Environment variable map
 // ---------------------------------------------------------------------------
 
-/** Maps each provider transport to its canonical environment variable name. */
+/**
+ * Maps each provider transport to its canonical environment variable name.
+ *
+ * NOTE: `bedrock` is informational — AWS Bedrock uses the AWS SDK credential
+ * chain (`AWS_PROFILE` / `~/.aws/credentials` / IAM role / SSO), not a single
+ * API-key env var. The credential-pool resolves Bedrock via `authType: 'aws_sdk'`
+ * and never reads the `accessToken` field from env.
+ */
 const ENV_VARS: Record<ModelTransport, string> = {
   anthropic: 'ANTHROPIC_API_KEY',
   openai: 'OPENAI_API_KEY',
   gemini: 'GEMINI_API_KEY',
   moonshot: 'MOONSHOT_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  bedrock: 'AWS_PROFILE',
+  deepseek: 'DEEPSEEK_API_KEY',
+  xai: 'XAI_API_KEY',
+  groq: 'GROQ_API_KEY',
 };
 
 // ---------------------------------------------------------------------------
