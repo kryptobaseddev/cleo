@@ -39,6 +39,7 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { runLlmLogin } from './llm-login.js';
 
 // ---------------------------------------------------------------------------
 // Secret-on-argv mitigation (S-11) — stdin reader
@@ -410,6 +411,72 @@ const whoamiCommand = makeLlmSubcommand({
 });
 
 // ---------------------------------------------------------------------------
+// Login subcommand (device-code OAuth)
+// ---------------------------------------------------------------------------
+
+/**
+ * cleo llm login <provider> — initiate OAuth device-code login.
+ *
+ * Prints the user code + verification URI to stderr, polls the token
+ * endpoint in the background, and stores the resulting credential in the
+ * pool once the user approves.
+ *
+ * Only `anthropic` is supported in the current MVP. See
+ * `@cleocode/core/llm/oauth/device-code.ts` for the TODO items around
+ * endpoint verification.
+ *
+ * @task T9266
+ */
+const loginCommand = defineCommand({
+  meta: {
+    name: 'login',
+    description:
+      'Authenticate with a provider via OAuth device-code flow. Supported providers: anthropic (MVP). ' +
+      'Prints the verification URL and user code, then polls until the user approves.',
+  },
+  args: {
+    provider: {
+      type: 'positional',
+      description: 'Provider to authenticate with (e.g. anthropic)',
+      required: true,
+    },
+    label: {
+      type: 'string',
+      description:
+        "Human-readable label for the stored credential (default: 'oauth-login'). " +
+        'Must be unique within the provider. Use distinct labels when storing multiple OAuth sessions.',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON',
+    },
+  },
+  async run({ args }) {
+    const a = args as Record<string, unknown>;
+    const provider = String(a['provider'] ?? '');
+    const label = typeof a['label'] === 'string' && a['label'] ? a['label'] : undefined;
+    const jsonOutput = a['json'] === true;
+
+    const result = await runLlmLogin(provider, { label });
+
+    if (jsonOutput) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else if (result.success && result.data) {
+      process.stdout.write(
+        `Logged in to ${result.data.provider} as '${result.data.label}'` +
+          (result.data.expiresIn != null
+            ? ` (expires in ${Math.round(result.data.expiresIn / 60)} min)`
+            : '') +
+          '\n',
+      );
+    } else if (result.error) {
+      process.stderr.write(`[error] ${result.error.message}\n`);
+      process.exit(1);
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Parent command
 // ---------------------------------------------------------------------------
 
@@ -428,6 +495,7 @@ export const llmCommand = defineCommand({
   subCommands: {
     add: addCommand,
     list: listCommand,
+    login: loginCommand,
     remove: removeCommand,
     use: useCommand,
     profile: profileCommand,
