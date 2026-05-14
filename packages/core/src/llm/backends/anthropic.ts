@@ -23,7 +23,24 @@ import type {
   ToolCallResult,
 } from '../backend.js';
 import { makeCompletionResult } from '../backend.js';
+import type { CacheControlMarker, PromptCachingStrategy } from '../prompt-caching.js';
+import { injectCacheBreakpoints } from '../prompt-caching.js';
 import { repairResponseModelJson } from '../structured-output.js';
+
+/**
+ * Anthropic-specific extension of `BackendCallParams`.
+ *
+ * Adds an optional `promptCaching` field consumed exclusively by
+ * `AnthropicBackend`. Defaults to `'system_and_3'` when omitted so that
+ * existing callers transparently gain Anthropic prompt-caching breakpoints.
+ *
+ * @see PromptCachingStrategy
+ * @task T9269
+ */
+export interface AnthropicBackendCallParams extends BackendCallParams {
+  /** Prompt-caching injection strategy. Defaults to `'system_and_3'`. */
+  promptCaching?: PromptCachingStrategy;
+}
 
 export class AnthropicBackend implements ProviderBackend {
   private readonly _client: Anthropic;
@@ -32,7 +49,7 @@ export class AnthropicBackend implements ProviderBackend {
     this._client = client;
   }
 
-  async complete(params: BackendCallParams): Promise<CompletionResult> {
+  async complete(params: AnthropicBackendCallParams): Promise<CompletionResult> {
     const {
       model,
       messages,
@@ -45,6 +62,7 @@ export class AnthropicBackend implements ProviderBackend {
       thinkingBudgetTokens,
       thinkingEffort,
       extraParams,
+      promptCaching = 'system_and_3',
     } = params;
 
     if (thinkingEffort !== null && thinkingEffort !== undefined) {
@@ -68,7 +86,6 @@ export class AnthropicBackend implements ProviderBackend {
         {
           type: 'text',
           text: systemMessages.join('\n\n'),
-          cache_control: { type: 'ephemeral' },
         },
       ];
     }
@@ -85,6 +102,18 @@ export class AnthropicBackend implements ProviderBackend {
         if (key in extraParams) reqParams[key] = extraParams[key];
       }
     }
+
+    // Inject Anthropic prompt-caching breakpoints (system + user messages).
+    injectCacheBreakpoints(
+      reqParams as {
+        system?: Array<{ type: string; text?: string; cache_control?: CacheControlMarker }>;
+        messages: Array<{
+          role: 'user' | 'assistant';
+          content: string | Array<Record<string, unknown>>;
+        }>;
+      },
+      promptCaching,
+    );
 
     const useJsonPrefill =
       ((responseFormat !== null && responseFormat !== undefined) || this._jsonMode(extraParams)) &&
@@ -127,7 +156,7 @@ export class AnthropicBackend implements ProviderBackend {
     });
   }
 
-  async *stream(params: BackendCallParams): AsyncGenerator<StreamChunk> {
+  async *stream(params: AnthropicBackendCallParams): AsyncGenerator<StreamChunk> {
     const {
       model,
       messages,
@@ -140,6 +169,7 @@ export class AnthropicBackend implements ProviderBackend {
       thinkingBudgetTokens,
       thinkingEffort,
       extraParams,
+      promptCaching = 'system_and_3',
     } = params;
 
     const isJsonMode = this._jsonMode(extraParams);
@@ -169,7 +199,6 @@ export class AnthropicBackend implements ProviderBackend {
         {
           type: 'text',
           text: systemMessages.join('\n\n'),
-          cache_control: { type: 'ephemeral' },
         },
       ];
     }
@@ -178,6 +207,18 @@ export class AnthropicBackend implements ProviderBackend {
         if (key in extraParams) reqParams[key] = extraParams[key];
       }
     }
+
+    // Inject Anthropic prompt-caching breakpoints (system + user messages).
+    injectCacheBreakpoints(
+      reqParams as {
+        system?: Array<{ type: string; text?: string; cache_control?: CacheControlMarker }>;
+        messages: Array<{
+          role: 'user' | 'assistant';
+          content: string | Array<Record<string, unknown>>;
+        }>;
+      },
+      promptCaching,
+    );
 
     const useJsonPrefill =
       ((responseFormat !== null && responseFormat !== undefined) || isJsonMode) &&
