@@ -76,6 +76,13 @@ export {
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
+export type { ModelMetadata } from './model-metadata.js';
+// Model metadata — context window resolution (T9264 / T-LLM-CRED Phase 3)
+export {
+  DEFAULT_CONTEXT_LENGTH,
+  getModelContextLength,
+  getModelMetadata,
+} from './model-metadata.js';
 // Registry (for testing/DI)
 export {
   backendForProvider,
