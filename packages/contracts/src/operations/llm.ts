@@ -553,5 +553,5 @@ export interface LlmWhoamiResult {
 
 // ProviderProfile interface lives in ./llm/provider-profile.ts (T9262).
 // The generated catalog (packages/core/src/llm/generated/provider-profiles.ts)
-// imports it from '@cleocode/contracts' and intersects an `envVars` field
-// onto each generated entry.
+// imports the canonical type from the contracts package and emits each
+// generated entry as a plain ProviderProfile literal.
