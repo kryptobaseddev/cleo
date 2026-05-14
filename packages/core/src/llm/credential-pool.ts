@@ -35,6 +35,7 @@
 
 import type { StoredCredential } from './credentials-store.js';
 import { addCredential, getCredentialByLabel, listCredentials } from './credentials-store.js';
+import { rateLimitRemaining } from './rate-limit-guard.js';
 import type { ModelTransport } from './types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -239,11 +240,34 @@ export class CredentialPool {
    */
   async pick(opts?: PoolPickOptions): Promise<PoolPickResult> {
     const all = await listCredentials(this.provider);
-    const eligible = all.filter((c) => !c.disabled);
-    const poolSize = eligible.length;
+    const nonDisabled = all.filter((c) => !c.disabled);
 
-    if (poolSize === 0) {
+    // Filter out entries blocked by the cross-session rate-limit guard (T9273).
+    // The guard uses a shared state file so ALL CLEO processes see the same
+    // cooldown — even in separate CLI invocations or daemon ticks.
+    // We pre-check here (async) before handing off to the sync strategy pickers.
+    const eligible: StoredCredential[] = [];
+    for (const entry of nonDisabled) {
+      const guardRemaining = await rateLimitRemaining(this.provider, entry.label);
+      if (guardRemaining == null) {
+        eligible.push(entry);
+      }
+      // If guardRemaining > 0, the entry is still inside a cross-session
+      // rate-limit window — skip it so we don't amplify retries.
+    }
+
+    const poolSize = nonDisabled.length;
+
+    if (nonDisabled.length === 0) {
       throw new PoolExhaustedError(this.provider, 0, 0);
+    }
+
+    if (eligible.length === 0) {
+      // All non-disabled entries are blocked by the cross-session guard.
+      const minResetAt = nonDisabled
+        .map((c) => c.lastErrorResetAt ?? 0)
+        .reduce((min, t) => (t > 0 && (min === 0 || t < min) ? t : min), 0);
+      throw new PoolExhaustedError(this.provider, poolSize, minResetAt);
     }
 
     const strategy: PoolStrategy = opts?.strategy ?? 'fill_first';
