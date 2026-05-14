@@ -428,6 +428,23 @@ export {
 } from './lafs.js';
 // === LLM Error Taxonomy (T9270 — Hermes FailoverReason port) ===
 export type { ClassifiedError, FailoverReason } from './llm/failover-reason.js';
+// === Phase 4 Unified Architecture (T9281 / ADR-072) — Session + Executor interfaces ===
+export type {
+  AggregatedUsage,
+  ExecutionEvent,
+  ExecutionRequest,
+  ExecutorFactoryOptions,
+  LlmExecutor,
+  LlmExecutorFactory,
+  LlmSession,
+  LlmSessionFactory,
+  NormalizedDelta,
+  RetryPolicy,
+  SendOptions,
+  SessionFactoryOptions,
+  ToolCall,
+  TransportContext,
+} from './llm/interfaces.js';
 // === Normalized LLM Transport Types (T9263 — Phase 3 T-LLM-CRED) ===
 // Note: LlmTransport (the interface) is intentionally NOT re-exported at the
 // top level here because `config.ts` already exports `LlmTransport` as a type
@@ -442,12 +459,16 @@ export type {
   TransportRequest,
   TransportTool,
 } from './llm/normalized-response.js';
+// === Phase 4 Unified Architecture (T9281 / ADR-072) — Provider identity ===
+export type { ApiMode, BuiltinProviderId, ProviderId } from './llm/provider-id.js';
 // === Provider Profile + Plugin Contracts (T9262 — Phase 3 T-LLM-CRED) ===
 export type {
   ProviderPlugin,
   ProviderPluginApi,
   ProviderProfile,
 } from './llm/provider-profile.js';
+// === Phase 4 Unified Architecture (T9281 / ADR-072) — Resolved credential ===
+export type { ResolvedCredential } from './llm/resolved-credential.js';
 export type {
   BridgeDecision,
   BridgeLearning,
