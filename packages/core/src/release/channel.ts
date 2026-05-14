@@ -7,20 +7,13 @@
  * @task T5586
  */
 
+import type { ChannelValidationResult, ReleaseChannel } from '@cleocode/contracts';
 import type { ChannelConfig } from './release-config.js';
 
-export type { ChannelConfig };
-
-/** npm dist-tag channel for a release. */
-export type ReleaseChannel = 'latest' | 'beta' | 'alpha';
-
-/** Result of validating a version string against a channel's expectations. */
-export interface ChannelValidationResult {
-  valid: boolean;
-  expected?: string;
-  actual?: string;
-  message: string;
-}
+// Re-export canonical contract types so consumers that previously imported
+// these from `./channel.js` keep working. New code SHOULD import from
+// `@cleocode/contracts`.
+export type { ChannelConfig, ChannelValidationResult, ReleaseChannel };
 
 /** Return the default branch-to-channel mapping. */
 export function getDefaultChannelConfig(): ChannelConfig {

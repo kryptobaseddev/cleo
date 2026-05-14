@@ -740,7 +740,12 @@ export {
   runReleaseGates,
   showManifestRelease,
 } from './release/release-manifest.js';
-export { bumpVersionFromConfig, getVersionBumpConfig } from './release/version-bump.js';
+export {
+  bumpVersionFromConfig,
+  discoverWorkspacePackageJsonFiles,
+  getVersionBumpConfig,
+  resolveVersionBumpTargets,
+} from './release/version-bump.js';
 // Remote
 // Remote git sync status (ahead/behind/branch)
 export {

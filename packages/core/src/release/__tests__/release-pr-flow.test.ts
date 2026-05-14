@@ -204,8 +204,9 @@ describe('T9095 — releaseShip PR-required flow', () => {
         push: { enabled: true, requireCleanTree: false },
       },
     });
+    // Develop branch → channel=beta → version must carry -beta or -rc suffix
     const result = await releaseShip(
-      { version: '2026.5.99', epicId: 'T9095', dryRun: true },
+      { version: '2026.5.99-beta.1', epicId: 'T9095', dryRun: true },
       TEST_ROOT,
     );
 
@@ -216,6 +217,23 @@ describe('T9095 — releaseShip PR-required flow', () => {
 
     const steps = data.wouldDo as string[];
     expect(steps.some((s) => s.includes('--base develop'))).toBe(true);
+  });
+
+  it('rejects stable version when PR target is develop (channel=beta)', async () => {
+    writeConfig({
+      release: {
+        branchModel: 'feat-to-develop-to-main',
+        push: { enabled: true, requireCleanTree: false },
+      },
+    });
+    const result = await releaseShip(
+      { version: '2026.5.99', epicId: 'T9095', dryRun: true },
+      TEST_ROOT,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_VALIDATION');
+    expect(result.error?.message).toMatch(/channel/i);
   });
 
   it('fails with E_GENERAL when gh CLI is unavailable (non-dry-run)', async () => {
