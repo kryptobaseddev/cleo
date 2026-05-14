@@ -39,6 +39,34 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
+
+// Lazy import — avoids circular deps and keeps startup fast.
+// Resolved on first call to `cleo llm list-providers`.
+async function getListProviders(): Promise<
+  () => Promise<
+    ReadonlyArray<{
+      name: string;
+      displayName: string;
+      authTypes: ReadonlyArray<string>;
+      defaultModel: string;
+      baseUrl: string;
+    }>
+  >
+> {
+  const { listProviders } = await import(
+    /* webpackIgnore: true */ '@cleocode/core/llm/provider-registry'
+  );
+  return listProviders as () => Promise<
+    ReadonlyArray<{
+      name: string;
+      displayName: string;
+      authTypes: ReadonlyArray<string>;
+      defaultModel: string;
+      baseUrl: string;
+    }>
+  >;
+}
 
 // ---------------------------------------------------------------------------
 // Secret-on-argv mitigation (S-11) — stdin reader
@@ -410,6 +438,77 @@ const whoamiCommand = makeLlmSubcommand({
 });
 
 // ---------------------------------------------------------------------------
+// cleo llm list-providers
+// ---------------------------------------------------------------------------
+
+/**
+ * `ProviderProfileSummary` — JSON-safe view of a {@link ProviderProfile}.
+ *
+ * The `fetchModels` function is omitted so the output is safe for JSON
+ * serialisation. Sorted by `name` ascending.
+ *
+ * @task T9262
+ */
+interface ProviderProfileSummary {
+  /** Canonical provider name. */
+  name: string;
+  /** Human-readable display name. */
+  displayName: string;
+  /** Supported auth schemes. */
+  authTypes: ReadonlyArray<string>;
+  /** Recommended default model identifier. */
+  defaultModel: string;
+  /** Provider base URL (no trailing slash). */
+  baseUrl: string;
+}
+
+/**
+ * cleo llm list-providers — enumerate all registered provider profiles.
+ *
+ * Triggers plugin discovery on the first call (scans
+ * `${CLEO_HOME}/plugins/model-providers/`). Profiles are sorted ascending
+ * by canonical name for stable output.
+ *
+ * Output shape: `{ providers: ProviderProfileSummary[] }`
+ *
+ * @task T9262
+ * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 3)
+ */
+const listProvidersCommand = defineCommand({
+  meta: {
+    name: 'list-providers',
+    description:
+      'List all registered LLM provider profiles (builtins + user plugins from $CLEO_HOME/plugins/model-providers/).',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+  },
+  async run() {
+    const listProviders = await getListProviders();
+    const profiles = await listProviders();
+
+    const providers: ProviderProfileSummary[] = profiles.map((p) => ({
+      name: p.name,
+      displayName: p.displayName,
+      authTypes: p.authTypes,
+      defaultModel: p.defaultModel,
+      baseUrl: p.baseUrl,
+    }));
+
+    cliOutput(
+      { providers },
+      {
+        command: 'llm-list-providers',
+        operation: 'llm.listProviders',
+      },
+    );
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Parent command
 // ---------------------------------------------------------------------------
 
@@ -433,6 +532,7 @@ export const llmCommand = defineCommand({
     profile: profileCommand,
     test: testCommand,
     whoami: whoamiCommand,
+    'list-providers': listProvidersCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
