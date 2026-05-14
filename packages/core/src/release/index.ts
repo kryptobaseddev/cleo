@@ -76,9 +76,12 @@ export {
   buildPRBody,
   createPullRequest,
   detectBranchProtection,
+  ensureCleoLabelsExist,
   extractRepoOwnerAndName,
   formatManualPRInstructions,
   isGhCliAvailable,
+  listExistingLabels,
+  resolvePRLabels,
 } from './github-pr.js';
 // Release guards
 export type { DoubleListingResult, EpicCompletenessResult } from './guards.js';
@@ -166,8 +169,10 @@ export type { BumpResult, BumpType, VersionBumpTarget } from './version-bump.js'
 export {
   bumpVersionFromConfig,
   calculateNewVersion,
+  discoverWorkspacePackageJsonFiles,
   getVersionBumpConfig,
   isCalVer,
   isVersionBumpConfigured,
+  resolveVersionBumpTargets,
   validateVersionFormat,
 } from './version-bump.js';
