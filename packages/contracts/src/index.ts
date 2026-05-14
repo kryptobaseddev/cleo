@@ -1125,7 +1125,31 @@ export type {
   SyncResult,
   SyncStatus,
 } from './postgres-data-accessor.js';
+// === Project Context (ecosystem detection types) ===
+export type {
+  EcosystemHint,
+  FileNamingConvention,
+  ImportStyle,
+  ProjectContext,
+  ProjectType,
+  TestFramework,
+} from './project-context.js';
 export type { AdapterPathProvider } from './provider-paths.js';
+// === Release Channel ===
+export type { ChannelValidationResult, ReleaseChannel } from './release/channel.js';
+// === Release GitHub PR ===
+export type {
+  BranchProtectionResult,
+  CleoKnownLabel,
+  CleoLabelPalette,
+  LabelDefinition,
+  LabelEnsureResult,
+  PRCreateOptions,
+  PRLabelResolution,
+  PRMode,
+  PRResult,
+  RepoIdentity,
+} from './release/github-pr.js';
 // === Release Pipeline (T1597 / ADR-063) ===
 export type {
   PublishResult,
@@ -1135,6 +1159,16 @@ export type {
   ReleaseVersionScheme,
   VerifyResult,
 } from './release/pipeline.js';
+// === Release Version Bump ===
+export type {
+  BumpResult,
+  BumpType,
+  BumpVersionFromConfigResult,
+  ResolveVersionBumpTargetsResult,
+  VersionBumpStrategy,
+  VersionBumpTarget,
+  VersionBumpTargetSource,
+} from './release/version-bump.js';
 // === Result Types (Dashboard, Stats, Log, Context, Sequence, Analysis, Deps) ===
 export type {
   BottleneckTask,

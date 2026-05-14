@@ -810,9 +810,14 @@
               "default": true,
               "description": "Enable version bump during release ship --bump-version."
             },
+            "autoDiscover": {
+              "type": "boolean",
+              "default": true,
+              "description": "When `files` is empty, auto-discover version-bearing files from the project's ecosystem (pnpm/yarn/npm workspaces, Cargo [workspace.package] / per-crate [package] versions). Set to false to skip auto-discovery and require explicit `files` entries."
+            },
             "files": {
               "type": "array",
-              "description": "Files to update with the new version. Each entry defines a file path, update strategy, and strategy-specific options.",
+              "description": "Files to update with the new version. Each entry defines a file path, update strategy, and strategy-specific options. When empty AND autoDiscover is true (default), the engine falls back to workspace discovery.",
               "items": {
                 "type": "object",
                 "required": ["path", "strategy"],
@@ -826,7 +831,7 @@
                   "strategy": {
                     "type": "string",
                     "enum": ["plain", "json", "toml", "sed"],
-                    "description": "Update strategy. 'plain' overwrites file with version string. 'json' updates a JSON field via jq. 'toml' updates a TOML key via sed. 'sed' applies a custom sed pattern."
+                    "description": "Update strategy. 'plain' overwrites file with version string. 'json' updates a JSON field via jq. 'toml' updates a TOML key. 'sed' applies a custom sed pattern."
                   },
                   "jsonPath": {
                     "type": "string",
@@ -834,7 +839,11 @@
                   },
                   "tomlKey": {
                     "type": "string",
-                    "description": "TOML key to update for 'toml' strategy (e.g., 'version', 'package.version'). Required when strategy is 'toml'."
+                    "description": "TOML key to update for 'toml' strategy (e.g., 'version'). Defaults to 'version'."
+                  },
+                  "tomlSection": {
+                    "type": "string",
+                    "description": "TOML section to scope the key lookup to (e.g., 'package', 'workspace.package'). When omitted, the first top-level matching key is bumped. Use 'workspace.package' for Cargo workspace-inherited versions."
                   },
                   "sedPattern": {
                     "type": "string",

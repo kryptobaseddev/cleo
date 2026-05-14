@@ -8,85 +8,18 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type {
+  FileNamingConvention,
+  ImportStyle,
+  ProjectContext,
+  ProjectType,
+  TestFramework,
+} from '@cleocode/contracts';
 
-/** Detected project type. */
-export type ProjectType =
-  | 'node'
-  | 'python'
-  | 'rust'
-  | 'go'
-  | 'ruby'
-  | 'java'
-  | 'dotnet'
-  | 'bash'
-  | 'elixir'
-  | 'php'
-  | 'deno'
-  | 'bun'
-  | 'unknown';
-
-/** Test framework. */
-export type TestFramework =
-  | 'jest'
-  | 'vitest'
-  | 'mocha'
-  | 'pytest'
-  | 'bats'
-  | 'cargo'
-  | 'go'
-  | 'rspec'
-  | 'junit'
-  | 'playwright'
-  | 'cypress'
-  | 'ava'
-  | 'uvu'
-  | 'tap'
-  | 'node:test'
-  | 'deno'
-  | 'bun'
-  | 'custom'
-  | 'unknown';
-
-export type FileNamingConvention = 'kebab-case' | 'snake_case' | 'camelCase' | 'PascalCase';
-export type ImportStyle = 'esm' | 'commonjs' | 'mixed';
-
-/** Schema-compliant project context for LLM agent consumption. */
-export interface ProjectContext {
-  schemaVersion: string;
-  detectedAt: string;
-  projectTypes: ProjectType[];
-  primaryType?: ProjectType;
-  monorepo: boolean;
-  testing?: {
-    framework?: TestFramework;
-    command?: string;
-    testFilePatterns?: string[];
-    directories?: {
-      unit?: string;
-      integration?: string;
-    };
-  };
-  build?: {
-    command?: string;
-    outputDir?: string;
-  };
-  directories?: {
-    source?: string;
-    tests?: string;
-    docs?: string;
-  };
-  conventions?: {
-    fileNaming?: FileNamingConvention;
-    importStyle?: ImportStyle;
-    typeSystem?: string;
-  };
-  llmHints?: {
-    preferredTestStyle?: string;
-    typeSystem?: string;
-    commonPatterns?: string[];
-    avoidPatterns?: string[];
-  };
-}
+// Re-export canonical contract types so consumers that previously imported
+// from this module keep working. New code SHOULD import from
+// `@cleocode/contracts`.
+export type { FileNamingConvention, ImportStyle, ProjectContext, ProjectType, TestFramework };
 
 /**
  * Detect project type from directory contents.
