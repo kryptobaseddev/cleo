@@ -113,6 +113,25 @@ export interface StoredCredential {
   lastStatus?: string;
   /** When true, the picker skips this entry entirely. */
   disabled?: boolean;
+  /**
+   * OAuth refresh token.
+   *
+   * Stored alongside the access token when an OAuth device-code or PKCE
+   * flow provides one. The refresh flow (T9266 / Phase 3) consumes this
+   * field to obtain a new `accessToken` when the current one expires.
+   *
+   * The writer (`addCredential`) preserves this value through upserts so
+   * that a re-add of the same `(provider, label)` pair does not silently
+   * drop an existing refresh token.
+   *
+   * Security: stored in plaintext alongside the access token. The same
+   * 0600 file permission that protects `accessToken` applies here. See the
+   * security-review note in the S-07 block above for the Phase 2 rationale
+   * for deferral and Phase 3 reintroduction.
+   *
+   * @task T9266
+   */
+  refreshToken?: string;
 }
 
 /**
@@ -493,6 +512,7 @@ export async function addCredential(
         metadata: input.metadata,
         lastStatus: input.lastStatus,
         disabled: input.disabled ?? false,
+        ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
       };
 
       data.credentials = [...remaining, next];
