@@ -660,7 +660,8 @@ export type {
 // Note: LlmTransport (the interface) is intentionally NOT re-exported at the
 // top level here because `config.ts` already exports `LlmTransport` as a type
 // alias for `ModelTransport`. Consumers that need the transport interface
-// should import directly from '@cleocode/contracts/llm/normalized-response.js'.
+// should import the LlmTransport interface from the llm/normalized-response.js
+// subpath rather than the package root.
 export type {
   NormalizedResponse,
   NormalizedToolCall,

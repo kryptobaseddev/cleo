@@ -221,14 +221,8 @@ export async function routeAuxiliaryCall(
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     // Step 3: pick a healthy credential.
-    let picked: StoredCredential;
-    try {
-      const result = await pool.pick({ strategy });
-      picked = result.credential;
-    } catch (e) {
-      // PoolExhaustedError (or unexpected) — propagate immediately.
-      throw e;
-    }
+    // PoolExhaustedError (or unexpected) propagates immediately.
+    const { credential: picked } = await pool.pick({ strategy });
 
     // Step 4: build transport.
     const transport = buildAnthropicTransport(picked);
