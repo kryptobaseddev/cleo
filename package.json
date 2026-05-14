@@ -48,6 +48,7 @@
     "check:ct-cleo-thin": "node scripts/check-ct-cleo-thin.mjs --exit-on-fail",
     "version:bump": "node scripts/version-all.mjs",
     "cleo:dev": "node --disable-warning=ExperimentalWarning packages/cleo/dist/cli/index.js",
+    "gen:llm-catalog": "node scripts/generate-llm-catalog.mjs",
     "hooks:install": "simple-git-hooks"
   },
   "simple-git-hooks": {
