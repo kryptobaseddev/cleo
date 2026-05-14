@@ -1627,26 +1627,32 @@ export async function releaseShip(
       ciSkipped = true;
     } else {
       while (Date.now() - ciStart < ciTimeoutMs) {
+        // `gh pr checks --json` exposes `name`/`state`/`bucket` — NOT
+        // `status`/`conclusion` (that schema belongs to `gh pr view --json
+        // statusCheckRollup`). `bucket` is gh's normalised state and is what
+        // we should poll against: 'pass' | 'fail' | 'pending' | 'skipping' |
+        // 'cancel'.
         const checksResult = spawnSync(
           'gh',
-          ['pr', 'checks', prUrl, '--json', 'name,status,conclusion'],
+          ['pr', 'checks', prUrl, '--json', 'name,state,bucket'],
           { cwd, encoding: 'utf-8', timeout: 30_000 },
         );
         if (checksResult.status === 0 && checksResult.stdout) {
-          let checks: Array<{ name: string; status: string; conclusion: string }> = [];
+          let checks: Array<{ name: string; state: string; bucket: string }> = [];
           try {
             checks = JSON.parse(checksResult.stdout) as typeof checks;
           } catch {
             // malformed JSON — retry
           }
-          const allDone = checks.length > 0 && checks.every((c) => c.status === 'COMPLETED');
-          const anyFailed = checks.some(
-            (c) => c.conclusion === 'FAILURE' || c.conclusion === 'CANCELLED',
-          );
+          const isPending = (c: { bucket: string }): boolean => c.bucket === 'pending';
+          const isFailed = (c: { bucket: string }): boolean =>
+            c.bucket === 'fail' || c.bucket === 'cancel';
+          const allDone = checks.length > 0 && !checks.some(isPending);
+          const anyFailed = checks.some(isFailed);
           if (anyFailed) {
             const failed = checks
-              .filter((c) => c.conclusion === 'FAILURE' || c.conclusion === 'CANCELLED')
-              .map((c) => c.name)
+              .filter(isFailed)
+              .map((c) => `${c.name} (${c.bucket}/${c.state})`)
               .join(', ');
             logStep(8, 12, 'Wait for CI checks', false, `CI failed: ${failed}`);
             return engineError(
@@ -1711,13 +1717,81 @@ export async function releaseShip(
       log.warn({ step: 9 }, m);
     }
 
-    // Step 10: Tag from main + push tag
+    // Step 10: Tag from main + push tag (idempotent: re-running on an
+    // already-tagged release succeeds when the existing tag points at HEAD).
     logStep(10, 12, 'Tag from main and push');
     try {
       runGitWithLockRetry(['checkout', gitflowCfg.branches.main], gitCwd);
       runGitWithLockRetry(['pull', gitRemote, gitflowCfg.branches.main], gitCwd);
-      runGitWithLockRetry(['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
-      runGitWithLockRetry(['push', gitRemote, gitTag], gitCwd);
+
+      // Resolve HEAD so we can compare against any pre-existing tag
+      const headSha = execFileSync('git', ['rev-parse', 'HEAD'], gitCwd).toString().trim();
+
+      // Check if the tag already exists locally
+      let existingTagSha: string | undefined;
+      try {
+        existingTagSha = execFileSync('git', ['rev-list', '-n', '1', gitTag], gitCwd)
+          .toString()
+          .trim();
+      } catch {
+        // Tag does not exist locally — fall through to create it
+      }
+
+      if (existingTagSha) {
+        if (existingTagSha === headSha) {
+          const m = `  i Tag ${gitTag} already exists at HEAD (${headSha.slice(0, 8)}) — skipping create`;
+          steps.push(m);
+          log.info({ step: 10, gitTag, headSha }, m);
+        } else {
+          logStep(
+            10,
+            12,
+            'Tag from main and push',
+            false,
+            `tag ${gitTag} already exists but points at ${existingTagSha.slice(0, 8)} (expected HEAD ${headSha.slice(0, 8)})`,
+          );
+          return engineError(
+            'E_GENERAL',
+            `Tag ${gitTag} already exists at ${existingTagSha} but HEAD is ${headSha}. ` +
+              `Delete the stale tag (\`git tag -d ${gitTag} && git push origin :refs/tags/${gitTag}\`) and re-run.`,
+            { details: { gitTag, headSha, existingTagSha } },
+          );
+        }
+      } else {
+        runGitWithLockRetry(['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
+      }
+
+      // Push the tag. If it already exists on remote at the same SHA, gh treats
+      // it as a no-op; if it exists at a different SHA, push fails (correctly).
+      try {
+        runGitWithLockRetry(['push', gitRemote, gitTag], gitCwd);
+      } catch (pushErr: unknown) {
+        const pushMsg =
+          (pushErr as { stderr?: string; message?: string }).stderr ??
+          (pushErr as { message?: string }).message ??
+          String(pushErr);
+        if (/already exists|up-to-date|stale/i.test(pushMsg)) {
+          // Confirm the remote tag matches HEAD before declaring success
+          let remoteTagSha = '';
+          try {
+            const out = execFileSync('git', ['ls-remote', '--tags', gitRemote, gitTag], gitCwd)
+              .toString()
+              .trim();
+            remoteTagSha = out.split(/\s+/)[0] ?? '';
+          } catch {
+            // ignore
+          }
+          if (remoteTagSha && remoteTagSha === headSha) {
+            const m = `  i Tag ${gitTag} already on remote at HEAD — push is no-op`;
+            steps.push(m);
+            log.info({ step: 10, gitTag, remoteTagSha }, m);
+          } else {
+            throw pushErr;
+          }
+        } else {
+          throw pushErr;
+        }
+      }
     } catch (err: unknown) {
       const msg =
         (err as { stderr?: string; message?: string }).stderr ??
