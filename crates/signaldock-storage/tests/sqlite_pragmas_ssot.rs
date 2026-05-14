@@ -44,7 +44,10 @@ fn pragma_sql_render_rule_is_byte_exact() {
         .collect::<Vec<_>>()
         .join(";\n");
     assert_eq!(rebuilt, sqlite_pragmas::SQLITE_PRAGMA_SQL);
-    assert_eq!(format!("{rebuilt};"), sqlite_pragmas::SQLITE_PRAGMA_SQL_BATCH);
+    assert_eq!(
+        format!("{rebuilt};"),
+        sqlite_pragmas::SQLITE_PRAGMA_SQL_BATCH
+    );
 }
 
 #[test]
