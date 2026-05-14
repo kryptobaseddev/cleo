@@ -64,6 +64,7 @@ const SUBPATH_DIRS = [
   'verification',
   'formatters',
   'events',
+  'llm',
 ];
 
 /**
