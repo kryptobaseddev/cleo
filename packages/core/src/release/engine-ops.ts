@@ -86,9 +86,13 @@ const log = getLogger('release');
 function runGitWithLockRetry(
   args: readonly string[],
   opts: Parameters<typeof execFileSync>[2],
-  maxRetries = 3,
+  maxRetries = 6,
 ): string {
   const lockErrorPattern = /Unable to create '.+\.git\/index\.lock': File exists/;
+  // Exponential backoff: 100ms, 250ms, 500ms, 1s, 2s, 4s → ~7.85s total.
+  // Tuned to survive concurrent prompt-status scripts and the cleo sentient
+  // daemon's git calls which typically hold the index lock for 100-300ms.
+  const backoffSchedule = [100, 250, 500, 1000, 2000, 4000] as const;
   let lastErr: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -116,27 +120,22 @@ function runGitWithLockRetry(
       try {
         if (cwdStr) {
           const lockPath = `${cwdStr.replace(/\/+$/, '')}/.git/index.lock`;
-          // Use rm via child_process to avoid pulling in node:fs.unlinkSync into
-          // a hot path; the synchronous spawn keeps semantics identical to
-          // git's own retry behaviour.
           spawnSync('rm', ['-f', lockPath], { stdio: 'pipe' });
         }
       } catch {
         // ignore — next attempt will surface the real error
       }
 
-      const backoffMs = 50 * (attempt + 1); // 50ms, 100ms, 150ms…
+      const backoffMs = backoffSchedule[attempt] ?? 4000;
       log.warn(
         { attempt: attempt + 1, maxRetries, args: args.join(' '), backoffMs },
         `  ! Transient git lock conflict — retrying in ${backoffMs}ms`,
       );
-      // Synchronous sleep — node has no built-in but we can use Atomics.wait
-      // on a shared buffer (zero-dep, no setTimeout).
+      // Synchronous sleep via Atomics.wait — zero-dep, no setTimeout.
       const sab = new SharedArrayBuffer(4);
       Atomics.wait(new Int32Array(sab), 0, 0, backoffMs);
     }
   }
-  // Unreachable — loop either returns or throws — but TS needs this
   throw lastErr ?? new Error('runGitWithLockRetry exhausted retries');
 }
 
