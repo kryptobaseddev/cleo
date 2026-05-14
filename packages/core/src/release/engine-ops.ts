@@ -26,8 +26,19 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveProjectRoot } from '../store/file-utils.js';
 import { getDb } from '../store/sqlite.js';
 import { releaseManifests } from '../store/tasks-schema.js';
-import { channelToDistTag, resolveChannelFromBranch } from './channel.js';
-import { buildPRBody, createPullRequest, isGhCliAvailable, type PRResult } from './github-pr.js';
+import {
+  channelToDistTag,
+  type ReleaseChannel,
+  resolveChannelFromBranch,
+  validateVersionChannel,
+} from './channel.js';
+import {
+  buildPRBody,
+  createPullRequest,
+  isGhCliAvailable,
+  type PRResult,
+  resolvePRLabels,
+} from './github-pr.js';
 import { checkDoubleListing, checkEpicCompleteness } from './guards.js';
 import { getGitFlowConfig, getReleaseBranchConfig, loadReleaseConfig } from './release-config.js';
 import {
@@ -45,11 +56,7 @@ import {
   showManifestRelease,
   tagRelease,
 } from './release-manifest.js';
-import {
-  bumpVersionFromConfig,
-  getVersionBumpConfig,
-  type VersionBumpTarget,
-} from './version-bump.js';
+import { bumpVersionFromConfig, resolveVersionBumpTargets } from './version-bump.js';
 
 const log = getLogger('release');
 
@@ -1069,8 +1076,18 @@ export async function releaseShip(
     steps.push(msg);
   };
 
-  const bumpTargets: VersionBumpTarget[] = getVersionBumpConfig(cwd);
+  const { targets: bumpTargets, source: bumpSource } = resolveVersionBumpTargets(cwd);
   const shouldBump = bump && bumpTargets.length > 0;
+  if (shouldBump && bumpSource === 'workspace') {
+    const note =
+      `  i Auto-discovered ${bumpTargets.length} workspace package.json file(s) for version bump ` +
+      `(no release.versionBump.files in .cleo/config.json).`;
+    steps.push(note);
+    log.info(
+      { bumpSource, fileCount: bumpTargets.length, files: bumpTargets.map((t) => t.file) },
+      note,
+    );
+  }
 
   // Load config once up-front (used throughout the flow)
   const loadedConfig = loadReleaseConfig(cwd);
@@ -1205,18 +1222,43 @@ export async function releaseShip(
       log.warn({ epicId, forcedBypass: true }, w);
     }
 
-    // Resolve release channel from current branch
-    let resolvedChannel = 'latest';
-    try {
-      const branchName = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-        cwd,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-      }).trim();
-      const channelEnum = resolveChannelFromBranch(branchName);
-      resolvedChannel = channelToDistTag(channelEnum);
-    } catch {
-      // git unavailable — keep default
+    // Resolve release channel from the PR *target* branch — that determines
+    // the npm dist-tag (e.g. main → latest, develop → beta).
+    const targetChannelEnum: ReleaseChannel = resolveChannelFromBranch(prTargetBranch);
+    const resolvedChannel = channelToDistTag(targetChannelEnum);
+
+    // Validate version string matches the channel implied by the PR target.
+    // Fails fast BEFORE any branch cut, commit, push, or PR is performed.
+    if (!force) {
+      const channelCheck = validateVersionChannel(cleanVersion, targetChannelEnum);
+      if (!channelCheck.valid) {
+        logStep(
+          1,
+          12,
+          'Validate version against channel',
+          false,
+          `${channelCheck.message} (target=${prTargetBranch})`,
+        );
+        return engineError(
+          'E_VALIDATION',
+          `Version "${cleanVersion}" does not match channel "${resolvedChannel}" ` +
+            `(PR target branch=${prTargetBranch}). ${channelCheck.message} ` +
+            `Pass --force to override (owner-only).`,
+          {
+            details: {
+              version: cleanVersion,
+              channel: resolvedChannel,
+              prTargetBranch,
+              expected: channelCheck.expected,
+              actual: channelCheck.actual,
+            },
+          },
+        );
+      }
+    } else {
+      const w = `  ! --force: channel/version validation BYPASSED for target '${prTargetBranch}'.`;
+      steps.push(w);
+      log.warn({ epicId, prTargetBranch, forcedBypass: true }, w);
     }
 
     // Step 2: Check epic completeness
@@ -1446,12 +1488,25 @@ export async function releaseShip(
       projectRoot: cwd,
     });
 
+    const requestedLabels = ['release', resolvedChannel];
+    const labelResolution = resolvePRLabels(requestedLabels, cwd);
+    if (labelResolution.created.length > 0) {
+      const m = `  i Auto-created ${labelResolution.created.length} GitHub label(s): ${labelResolution.created.join(', ')}`;
+      steps.push(m);
+      log.info({ step: 7, createdLabels: labelResolution.created }, m);
+    }
+    if (labelResolution.missing.length > 0) {
+      const m = `  ! Dropped ${labelResolution.missing.length} unknown PR label(s): ${labelResolution.missing.join(', ')}`;
+      steps.push(m);
+      log.warn({ step: 7, droppedLabels: labelResolution.missing }, m);
+    }
+
     const prResult: PRResult = await createPullRequest({
       base: prTargetBranch,
       head: releaseBranch,
       title: `Release v${cleanVersion}`,
       body: prBody,
-      labels: ['release', resolvedChannel],
+      labels: labelResolution.labels,
       version: cleanVersion,
       epicId,
       projectRoot: cwd,
