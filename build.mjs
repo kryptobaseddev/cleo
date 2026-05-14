@@ -73,6 +73,7 @@ const SUBPATH_DIRS = [
  */
 const SUBPATH_SUBDIRS = {
   'nexus/api-extractors': 'packages/core/src/nexus/api-extractors',
+  'llm/provider-registry': 'packages/core/src/llm/provider-registry',
 };
 
 /**
