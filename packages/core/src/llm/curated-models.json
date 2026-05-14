@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "models": {
+    "claude-haiku-4-5-20251001": { "contextLength": 200000 },
+    "claude-haiku-4-5": { "contextLength": 200000 },
+    "claude-sonnet-4-6": { "contextLength": 200000 },
+    "claude-sonnet-4-6-20251001": { "contextLength": 200000 },
+    "claude-opus-4-7": { "contextLength": 200000 },
+    "claude-opus-4-7-20251101": { "contextLength": 200000 },
+    "claude-3-5-sonnet-20241022": { "contextLength": 200000 },
+    "claude-3-5-haiku-20241022": { "contextLength": 200000 },
+    "gpt-4o": { "contextLength": 128000 },
+    "gpt-4o-mini": { "contextLength": 128000 },
+    "gpt-4-turbo": { "contextLength": 128000 },
+    "gpt-4": { "contextLength": 8192 },
+    "gpt-3.5-turbo": { "contextLength": 16385 },
+    "gemini-1.5-pro": { "contextLength": 1000000 },
+    "gemini-1.5-pro-latest": { "contextLength": 1000000 },
+    "gemini-1.5-flash": { "contextLength": 1000000 },
+    "gemini-1.5-flash-latest": { "contextLength": 1000000 },
+    "gemini-2.0-flash": { "contextLength": 1000000 }
+  }
+}
