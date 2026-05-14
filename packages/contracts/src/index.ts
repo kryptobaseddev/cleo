@@ -426,6 +426,8 @@ export {
   isLafsError,
   isLafsSuccess,
 } from './lafs.js';
+// === LLM Error Taxonomy (T9270 — Hermes FailoverReason port) ===
+export type { ClassifiedError, FailoverReason } from './llm/failover-reason.js';
 export type {
   BridgeDecision,
   BridgeLearning,
