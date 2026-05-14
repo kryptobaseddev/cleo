@@ -44,7 +44,7 @@ export interface ProviderProfile {
   /**
    * Recommended default model identifier for this provider.
    *
-   * @example 'claude-haiku-4-5-20251001'
+   * @example 'claude-haiku-X-Y' (use the latest haiku from @cleocode/core/llm)
    */
   defaultModel: string;
 
