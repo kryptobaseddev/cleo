@@ -109,8 +109,44 @@ export interface StoredCredential {
   extraHeaders?: Record<string, string>;
   /** Free-form metadata bag (e.g. Bedrock region, account id). */
   metadata?: Record<string, unknown>;
-  /** Last observed health signal (`ok`, `rate-limited`, etc.). */
-  lastStatus?: string;
+  /**
+   * Status of last request through this credential.
+   *
+   * `'ok'` — healthy; `'exhausted'` — in active cooldown (rate-limited /
+   * billing / server error); `'invalid'` — auth rejected and credential
+   * should be considered permanently broken until operator rotation.
+   *
+   * `undefined` means no request has been observed yet.
+   *
+   * @task T9265
+   */
+  lastStatus?: 'ok' | 'exhausted' | 'invalid';
+  /**
+   * Last HTTP error code observed (401, 402, 429, 500, etc.).
+   *
+   * Set by `CredentialPool.markExhausted`; cleared by `markOk`.
+   *
+   * @task T9265
+   */
+  lastErrorCode?: number;
+  /**
+   * Epoch ms when the active cooldown expires.
+   *
+   * `undefined` (or a value <= `Date.now()`) means no active cooldown.
+   * Set by `CredentialPool.markExhausted`; cleared by `markOk`.
+   *
+   * @task T9265
+   */
+  lastErrorResetAt?: number;
+  /**
+   * Cumulative request count via this credential since pool start.
+   *
+   * Incremented on every successful `CredentialPool.pick()` call. Used by
+   * the `least_used` rotation strategy.
+   *
+   * @task T9265
+   */
+  requestCount?: number;
   /** When true, the picker skips this entry entirely. */
   disabled?: boolean;
 }
@@ -492,6 +528,9 @@ export async function addCredential(
         extraHeaders: input.extraHeaders,
         metadata: input.metadata,
         lastStatus: input.lastStatus,
+        lastErrorCode: input.lastErrorCode,
+        lastErrorResetAt: input.lastErrorResetAt,
+        requestCount: input.requestCount,
         disabled: input.disabled ?? false,
       };
 
