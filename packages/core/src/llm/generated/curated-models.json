@@ -333,17 +333,14 @@
     },
     "MiniMax-M1": {
       "contextLength": 1000000,
-      "reasoning": true,
       "toolCall": true
     },
     "MiniMax-M2": {
-      "contextLength": 196608,
-      "reasoning": true,
+      "contextLength": 1000000,
       "toolCall": true
     },
     "MiniMax-M2.1": {
-      "contextLength": 204800,
-      "reasoning": true,
+      "contextLength": 1000000,
       "toolCall": true
     },
     "MiniMax-M2.5": {
@@ -358,12 +355,10 @@
     },
     "MiniMax-M2.7": {
       "contextLength": 204800,
-      "reasoning": true,
       "toolCall": true
     },
     "MiniMax-M2.7-highspeed": {
       "contextLength": 204800,
-      "reasoning": true,
       "toolCall": true
     },
     "MiniMax/MiniMax-M2.7": {
@@ -380,7 +375,8 @@
       "toolCall": true
     },
     "MiniMaxAI/MiniMax-M2.1": {
-      "contextLength": 197000,
+      "contextLength": 204800,
+      "reasoning": true,
       "toolCall": true
     },
     "MiniMaxAI/MiniMax-M2.5": {
@@ -563,12 +559,12 @@
       "toolCall": true
     },
     "Qwen/Qwen2.5-VL-32B-Instruct": {
-      "contextLength": 131000,
+      "contextLength": 16384,
       "toolCall": true,
       "vision": true
     },
     "Qwen/Qwen2.5-VL-72B-Instruct": {
-      "contextLength": 131000,
+      "contextLength": 128000,
       "toolCall": true,
       "vision": true
     },
@@ -587,6 +583,7 @@
     },
     "Qwen/Qwen3-235B-A22B-Instruct-2507": {
       "contextLength": 262144,
+      "reasoning": true,
       "toolCall": true
     },
     "Qwen/Qwen3-235B-A22B-Instruct-2507-TEE": {
@@ -614,7 +611,7 @@
       "toolCall": true
     },
     "Qwen/Qwen3-30B-A3B-Instruct-2507": {
-      "contextLength": 262144,
+      "contextLength": 128000,
       "toolCall": true
     },
     "Qwen/Qwen3-30B-A3B-Instruct-2507-FP8": {
@@ -622,12 +619,12 @@
       "toolCall": true
     },
     "Qwen/Qwen3-30B-A3B-Thinking-2507": {
-      "contextLength": 262144,
+      "contextLength": 262000,
       "reasoning": true,
       "toolCall": true
     },
     "Qwen/Qwen3-32B": {
-      "contextLength": 131000,
+      "contextLength": 128000,
       "toolCall": true
     },
     "Qwen/Qwen3-32B-TEE": {
@@ -640,11 +637,11 @@
       "toolCall": true
     },
     "Qwen/Qwen3-Coder-30B-A3B-Instruct": {
-      "contextLength": 262144,
+      "contextLength": 262000,
       "toolCall": true
     },
     "Qwen/Qwen3-Coder-480B-A35B-Instruct": {
-      "contextLength": 262000,
+      "contextLength": 262144,
       "toolCall": true
     },
     "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8": {
@@ -668,18 +665,21 @@
       "contextLength": 262144,
       "toolCall": true
     },
+    "Qwen/Qwen3-Embedding-0.6B": {
+      "contextLength": 40960
+    },
     "Qwen/Qwen3-Embedding-4B": {
       "contextLength": 32000
     },
     "Qwen/Qwen3-Embedding-8B": {
-      "contextLength": 40960
+      "contextLength": 32768
     },
     "Qwen/Qwen3-Next-80B-A3B-Instruct": {
-      "contextLength": 262000,
+      "contextLength": 262144,
       "toolCall": true
     },
     "Qwen/Qwen3-Next-80B-A3B-Thinking": {
-      "contextLength": 262000,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true
     },
@@ -704,6 +704,9 @@
       "toolCall": true,
       "vision": true
     },
+    "Qwen/Qwen3-Reranker-0.6B": {
+      "contextLength": 40960
+    },
     "Qwen/Qwen3-VL-235B-A22B-Instruct": {
       "contextLength": 262000,
       "toolCall": true,
@@ -721,9 +724,8 @@
       "vision": true
     },
     "Qwen/Qwen3-VL-30B-A3B-Instruct": {
-      "contextLength": 262000,
-      "toolCall": true,
-      "vision": true
+      "contextLength": 100000,
+      "toolCall": true
     },
     "Qwen/Qwen3-VL-30B-A3B-Thinking": {
       "contextLength": 262000,
@@ -770,8 +772,7 @@
     "Qwen/Qwen3.5-35B-A3B": {
       "contextLength": 262144,
       "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "toolCall": true
     },
     "Qwen/Qwen3.5-397B-A17B": {
       "contextLength": 262144,
@@ -816,10 +817,9 @@
       "vision": true
     },
     "Qwen/Qwen3.6-35B-A3B": {
-      "contextLength": 131072,
+      "contextLength": 262144,
       "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "toolCall": true
     },
     "Qwen/Qwen3.6-Plus": {
       "contextLength": 1000000,
@@ -1712,7 +1712,7 @@
       "vision": true
     },
     "anthropic/claude-opus-4-6": {
-      "contextLength": 1000000,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -1800,13 +1800,13 @@
       "vision": true
     },
     "anthropic/claude-sonnet-4-5": {
-      "contextLength": 1000000,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
     },
     "anthropic/claude-sonnet-4-6": {
-      "contextLength": 1000000,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -1975,7 +1975,8 @@
       "contextLength": 123000
     },
     "baidu/ernie-4.5-300b-a47b-paddle": {
-      "contextLength": 123000
+      "contextLength": 123000,
+      "toolCall": true
     },
     "baidu/ernie-4.5-vl-28b-a3b": {
       "contextLength": 30000,
@@ -1992,6 +1993,7 @@
     "baidu/ernie-4.5-vl-424b-a47b": {
       "contextLength": 123000,
       "reasoning": true,
+      "toolCall": true,
       "vision": true
     },
     "baidu/ernie-5.0-thinking-preview": {
@@ -2036,6 +2038,9 @@
       "contextLength": 200000,
       "reasoning": true,
       "toolCall": true
+    },
+    "black-forest-labs/FLUX.2-klein-4B": {
+      "contextLength": 128000
     },
     "black-forest-labs/flux.1-dev": {
       "contextLength": 4096
@@ -2159,7 +2164,7 @@
     },
     "chatgpt-4o-latest": {
       "contextLength": 128000,
-      "toolCall": true
+      "vision": true
     },
     "chutesai/Mistral-Small-3.2-24B-Instruct-2506": {
       "contextLength": 128000
@@ -2170,7 +2175,8 @@
     },
     "claude-3-5-haiku": {
       "contextLength": 200000,
-      "toolCall": true
+      "toolCall": true,
+      "vision": true
     },
     "claude-3-5-haiku-20241022": {
       "contextLength": 200000,
@@ -2275,7 +2281,8 @@
     },
     "claude-3.5-haiku": {
       "contextLength": 200000,
-      "toolCall": true
+      "toolCall": true,
+      "vision": true
     },
     "claude-3.5-sonnet": {
       "contextLength": 200000,
@@ -2289,7 +2296,9 @@
     },
     "claude-3.7-sonnet": {
       "contextLength": 200000,
-      "toolCall": true
+      "reasoning": true,
+      "toolCall": true,
+      "vision": true
     },
     "claude-4-5-sonnet": {
       "contextLength": 200000,
@@ -2323,17 +2332,21 @@
     },
     "claude-4.5-haiku": {
       "contextLength": 200000,
-      "toolCall": true
+      "reasoning": true,
+      "toolCall": true,
+      "vision": true
     },
     "claude-4.5-opus": {
       "contextLength": 200000,
       "reasoning": true,
-      "toolCall": true
+      "toolCall": true,
+      "vision": true
     },
     "claude-4.5-sonnet": {
       "contextLength": 200000,
       "reasoning": true,
-      "toolCall": true
+      "toolCall": true,
+      "vision": true
     },
     "claude-haiku-4-5": {
       "contextLength": 200000,
@@ -2586,8 +2599,10 @@
       "vision": true
     },
     "claude-sonnet-4": {
-      "contextLength": 200000,
-      "toolCall": true
+      "contextLength": 216000,
+      "reasoning": true,
+      "toolCall": true,
+      "vision": true
     },
     "claude-sonnet-4-0": {
       "contextLength": 200000,
@@ -2614,7 +2629,7 @@
       "vision": true
     },
     "claude-sonnet-4-5-20250929-thinking": {
-      "contextLength": 1000000,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -3064,7 +3079,8 @@
     },
     "deepseek-ai/DeepSeek-R1-0528": {
       "contextLength": 163840,
-      "reasoning": true
+      "reasoning": true,
+      "toolCall": true
     },
     "deepseek-ai/DeepSeek-R1-0528-TEE": {
       "contextLength": 163840,
@@ -3106,7 +3122,6 @@
     },
     "deepseek-ai/DeepSeek-V3.1": {
       "contextLength": 164000,
-      "reasoning": true,
       "toolCall": true
     },
     "deepseek-ai/DeepSeek-V3.1-TEE": {
@@ -3127,13 +3142,12 @@
       "contextLength": 128000
     },
     "deepseek-ai/DeepSeek-V3.2": {
-      "contextLength": 164000,
+      "contextLength": 163000,
       "reasoning": true,
       "toolCall": true
     },
     "deepseek-ai/DeepSeek-V3.2-Exp": {
       "contextLength": 164000,
-      "reasoning": true,
       "toolCall": true
     },
     "deepseek-ai/DeepSeek-V3.2-TEE": {
@@ -3207,9 +3221,8 @@
       "vision": true
     },
     "deepseek-chat": {
-      "contextLength": 1000000,
-      "toolCall": true,
-      "vision": true
+      "contextLength": 128000,
+      "toolCall": true
     },
     "deepseek-chat-cheaper": {
       "contextLength": 128000,
@@ -3220,16 +3233,17 @@
       "contextLength": 128000
     },
     "deepseek-r1": {
-      "contextLength": 163840,
-      "reasoning": true
+      "contextLength": 131072,
+      "reasoning": true,
+      "toolCall": true
     },
     "deepseek-r1-0528": {
-      "contextLength": 163840,
+      "contextLength": 131072,
       "reasoning": true,
       "toolCall": true
     },
     "deepseek-r1-distill-llama-70b": {
-      "contextLength": 131072,
+      "contextLength": 32768,
       "reasoning": true,
       "toolCall": true
     },
@@ -3262,7 +3276,9 @@
       "contextLength": 128000
     },
     "deepseek-reasoner": {
-      "contextLength": 128000
+      "contextLength": 128000,
+      "reasoning": true,
+      "toolCall": true
     },
     "deepseek-reasoner-cheaper": {
       "contextLength": 128000
@@ -3272,7 +3288,7 @@
       "toolCall": true
     },
     "deepseek-v3": {
-      "contextLength": 163840,
+      "contextLength": 65536,
       "toolCall": true
     },
     "deepseek-v3-0324": {
@@ -3304,7 +3320,6 @@
     },
     "deepseek-v3.2": {
       "contextLength": 128000,
-      "reasoning": true,
       "toolCall": true
     },
     "deepseek-v3.2-speciale": {
@@ -3347,16 +3362,14 @@
       "toolCall": true
     },
     "deepseek/deepseek-chat": {
-      "contextLength": 163840,
+      "contextLength": 128000,
       "toolCall": true
     },
     "deepseek/deepseek-chat-v3-0324": {
-      "contextLength": 163840,
-      "reasoning": true,
-      "toolCall": true
+      "contextLength": 16384
     },
     "deepseek/deepseek-chat-v3.1": {
-      "contextLength": 32768,
+      "contextLength": 163840,
       "reasoning": true,
       "toolCall": true
     },
@@ -3376,7 +3389,7 @@
       "contextLength": 160000
     },
     "deepseek/deepseek-r1": {
-      "contextLength": 65536,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true
     },
@@ -3390,7 +3403,7 @@
       "reasoning": true
     },
     "deepseek/deepseek-r1-distill-llama-70b": {
-      "contextLength": 131072,
+      "contextLength": 8192,
       "reasoning": true
     },
     "deepseek/deepseek-r1-distill-qwen-14b": {
@@ -3456,7 +3469,8 @@
     },
     "deepseek/deepseek-v3.2-speciale": {
       "contextLength": 163840,
-      "reasoning": true
+      "reasoning": true,
+      "toolCall": true
     },
     "deepseek/deepseek-v3.2-thinking": {
       "contextLength": 128000,
@@ -3575,7 +3589,9 @@
       "vision": true
     },
     "doubao-seed-1-8-251215": {
-      "contextLength": 128000
+      "contextLength": 224000,
+      "toolCall": true,
+      "vision": true
     },
     "doubao-seed-1.6": {
       "contextLength": 256000,
@@ -3919,8 +3935,7 @@
       "contextLength": 32767
     },
     "gemini-2.0-flash-lite": {
-      "contextLength": 1048576,
-      "toolCall": true,
+      "contextLength": 2000000,
       "vision": true
     },
     "gemini-2.0-flash-thinking-exp-01-21": {
@@ -3946,7 +3961,6 @@
     },
     "gemini-2.5-flash-image": {
       "contextLength": 32768,
-      "reasoning": true,
       "vision": true
     },
     "gemini-2.5-flash-image-preview": {
@@ -3967,8 +3981,7 @@
       "vision": true
     },
     "gemini-2.5-flash-lite-preview-09-2025": {
-      "contextLength": 1048576,
-      "reasoning": true,
+      "contextLength": 1000000,
       "toolCall": true,
       "vision": true
     },
@@ -4010,8 +4023,7 @@
       "vision": true
     },
     "gemini-2.5-flash-preview-09-2025": {
-      "contextLength": 1048576,
-      "reasoning": true,
+      "contextLength": 1000000,
       "toolCall": true,
       "vision": true
     },
@@ -4025,8 +4037,7 @@
       "contextLength": 8000
     },
     "gemini-2.5-pro": {
-      "contextLength": 1048576,
-      "reasoning": true,
+      "contextLength": 128000,
       "toolCall": true,
       "vision": true
     },
@@ -4068,7 +4079,7 @@
       "vision": true
     },
     "gemini-3-flash-preview": {
-      "contextLength": 1048576,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -4080,11 +4091,11 @@
       "vision": true
     },
     "gemini-3-pro-image-preview": {
-      "contextLength": 1048756,
+      "contextLength": 32768,
       "vision": true
     },
     "gemini-3-pro-preview": {
-      "contextLength": 1000000,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -4113,7 +4124,6 @@
     },
     "gemini-3.1-flash-image-preview": {
       "contextLength": 131072,
-      "reasoning": true,
       "vision": true
     },
     "gemini-3.1-flash-lite": {
@@ -4135,7 +4145,7 @@
       "vision": true
     },
     "gemini-3.1-pro-preview": {
-      "contextLength": 1048576,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -4194,11 +4204,11 @@
     },
     "gemma-3-27b": {
       "contextLength": 128000,
-      "toolCall": true,
       "vision": true
     },
     "gemma-3-27b-it": {
-      "contextLength": 131072,
+      "contextLength": 40000,
+      "reasoning": true,
       "toolCall": true,
       "vision": true
     },
@@ -4313,7 +4323,6 @@
     },
     "glm-4.5-x": {
       "contextLength": 128000,
-      "reasoning": true,
       "toolCall": true
     },
     "glm-4.5v": {
@@ -4366,7 +4375,7 @@
       "toolCall": true
     },
     "glm-5": {
-      "contextLength": 204800,
+      "contextLength": 202752,
       "reasoning": true,
       "toolCall": true
     },
@@ -4385,7 +4394,7 @@
       "toolCall": true
     },
     "glm-5.1": {
-      "contextLength": 200000,
+      "contextLength": 202752,
       "reasoning": true,
       "toolCall": true
     },
@@ -4642,8 +4651,7 @@
       "contextLength": 8192
     },
     "google/gemma-2-2b-it": {
-      "contextLength": 128000,
-      "toolCall": true
+      "contextLength": 8192
     },
     "google/gemma-2-9b-it": {
       "contextLength": 8192
@@ -4662,7 +4670,8 @@
       "vision": true
     },
     "google/gemma-3-27b-it": {
-      "contextLength": 37000,
+      "contextLength": 110000,
+      "toolCall": true,
       "vision": true
     },
     "google/gemma-3-27b-it:free": {
@@ -4671,7 +4680,7 @@
       "vision": true
     },
     "google/gemma-3-4b-it": {
-      "contextLength": 131072,
+      "contextLength": 96000,
       "vision": true
     },
     "google/gemma-3-4b-it:free": {
@@ -4866,7 +4875,7 @@
       "vision": true
     },
     "gpt-4.1": {
-      "contextLength": 1047576,
+      "contextLength": 128000,
       "toolCall": true,
       "vision": true
     },
@@ -4918,7 +4927,7 @@
       "vision": true
     },
     "gpt-5": {
-      "contextLength": 272000,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -4963,7 +4972,7 @@
       "toolCall": true
     },
     "gpt-5-mini": {
-      "contextLength": 200000,
+      "contextLength": 264000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -4987,7 +4996,7 @@
       "vision": true
     },
     "gpt-5.1": {
-      "contextLength": 272000,
+      "contextLength": 264000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -5021,7 +5030,7 @@
       "toolCall": true
     },
     "gpt-5.2": {
-      "contextLength": 400000,
+      "contextLength": 264000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -5041,8 +5050,7 @@
     "gpt-5.2-codex": {
       "contextLength": 400000,
       "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "toolCall": true
     },
     "gpt-5.2-pro": {
       "contextLength": 400000,
@@ -5069,8 +5077,7 @@
     "gpt-5.3-codex-spark": {
       "contextLength": 128000,
       "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "toolCall": true
     },
     "gpt-5.3-codex-xhigh": {
       "contextLength": 400000,
@@ -5079,10 +5086,9 @@
       "vision": true
     },
     "gpt-5.4": {
-      "contextLength": 1050000,
+      "contextLength": 400000,
       "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "toolCall": true
     },
     "gpt-5.4-mini": {
       "contextLength": 400000,
@@ -5115,10 +5121,9 @@
       "vision": true
     },
     "gpt-5.5": {
-      "contextLength": 1050000,
+      "contextLength": 400000,
       "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "toolCall": true
     },
     "gpt-5.5-pro": {
       "contextLength": 1050000,
@@ -5128,8 +5133,8 @@
     },
     "gpt-oss-120b": {
       "contextLength": 128000,
-      "reasoning": true,
-      "toolCall": true
+      "toolCall": true,
+      "vision": true
     },
     "gpt-oss-20b": {
       "contextLength": 128000,
@@ -5238,12 +5243,12 @@
       "vision": true
     },
     "grok-4-1-fast-non-reasoning": {
-      "contextLength": 128000,
+      "contextLength": 2000000,
       "toolCall": true,
       "vision": true
     },
     "grok-4-1-fast-reasoning": {
-      "contextLength": 128000,
+      "contextLength": 2000000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -5363,7 +5368,7 @@
       "vision": true
     },
     "grok-code-fast-1": {
-      "contextLength": 256000,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true
     },
@@ -5783,7 +5788,7 @@
       "vision": true
     },
     "kimi-k2": {
-      "contextLength": 131072,
+      "contextLength": 128000,
       "toolCall": true
     },
     "kimi-k2-0711": {
@@ -5795,7 +5800,7 @@
       "toolCall": true
     },
     "kimi-k2-0905": {
-      "contextLength": 262144,
+      "contextLength": 256000,
       "toolCall": true
     },
     "kimi-k2-0905-preview": {
@@ -5936,7 +5941,7 @@
       "toolCall": true
     },
     "llama-3.1-8b-instruct": {
-      "contextLength": 120000,
+      "contextLength": 128000,
       "toolCall": true
     },
     "llama-3.1-8b-instruct-turbo": {
@@ -6143,7 +6148,7 @@
       "toolCall": true
     },
     "meta-llama/Llama-3.1-70B-Instruct": {
-      "contextLength": 131072,
+      "contextLength": 128000,
       "toolCall": true
     },
     "meta-llama/Llama-3.1-70B-Instruct-Turbo": {
@@ -6164,7 +6169,6 @@
     },
     "meta-llama/Llama-3.3-70B-Instruct": {
       "contextLength": 128000,
-      "reasoning": true,
       "toolCall": true
     },
     "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
@@ -6173,10 +6177,12 @@
     },
     "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {
       "contextLength": 1000000,
-      "toolCall": true
+      "toolCall": true,
+      "vision": true
     },
     "meta-llama/Llama-4-Scout-17B-16E-Instruct": {
-      "contextLength": 10000000,
+      "contextLength": 64000,
+      "reasoning": true,
       "toolCall": true
     },
     "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo": {
@@ -6184,7 +6190,7 @@
       "toolCall": true
     },
     "meta-llama/Meta-Llama-3.1-8B-Instruct": {
-      "contextLength": 33000,
+      "contextLength": 128000,
       "toolCall": true
     },
     "meta-llama/llama-3-70b-instruct": {
@@ -6311,9 +6317,9 @@
       "vision": true
     },
     "meta/llama-3.2-11b-vision-instruct": {
-      "contextLength": 128000,
-      "reasoning": true,
-      "toolCall": true
+      "contextLength": 16000,
+      "toolCall": true,
+      "vision": true
     },
     "meta/llama-3.2-1b": {
       "contextLength": 128000
@@ -6550,8 +6556,7 @@
       "toolCall": true
     },
     "minimax-m2": {
-      "contextLength": 196608,
-      "reasoning": true,
+      "contextLength": 204800,
       "toolCall": true
     },
     "minimax-m2-5": {
@@ -6584,7 +6589,7 @@
       "reasoning": true
     },
     "minimax-m2.5": {
-      "contextLength": 190000,
+      "contextLength": 204800,
       "reasoning": true,
       "toolCall": true
     },
@@ -6638,7 +6643,9 @@
       "toolCall": true
     },
     "minimax/minimax-01": {
-      "contextLength": 1000192,
+      "contextLength": 1000000,
+      "reasoning": true,
+      "toolCall": true,
       "vision": true
     },
     "minimax/minimax-m1": {
@@ -6717,7 +6724,8 @@
       "toolCall": true
     },
     "ministral-14b-2512": {
-      "contextLength": 262144,
+      "contextLength": 128000,
+      "toolCall": true,
       "vision": true
     },
     "ministral-3-8b-instruct-2512": {
@@ -6809,7 +6817,7 @@
       "toolCall": true
     },
     "mistral-large-2512": {
-      "contextLength": 262144,
+      "contextLength": 128000,
       "toolCall": true,
       "vision": true
     },
@@ -6850,8 +6858,9 @@
       "toolCall": true
     },
     "mistral-nemo-instruct-2407": {
-      "contextLength": 65536,
-      "toolCall": true
+      "contextLength": 128000,
+      "toolCall": true,
+      "vision": true
     },
     "mistral-saba-24b": {
       "contextLength": 32768,
@@ -6880,9 +6889,8 @@
       "toolCall": true
     },
     "mistral-small-3.2-24b-instruct-2506": {
-      "contextLength": 131072,
-      "toolCall": true,
-      "vision": true
+      "contextLength": 128000,
+      "toolCall": true
     },
     "mistral-small-31-24b-instruct": {
       "contextLength": 128000,
@@ -7055,9 +7063,9 @@
       "toolCall": true
     },
     "mistralai/Mistral-Small-3.2-24B-Instruct-2506": {
-      "contextLength": 32000,
-      "reasoning": true,
-      "toolCall": true
+      "contextLength": 32768,
+      "toolCall": true,
+      "vision": true
     },
     "mistralai/Voxtral-Small-24B-2507": {
       "contextLength": 32000
@@ -7183,7 +7191,7 @@
       "vision": true
     },
     "mistralai/mistral-medium-3.1": {
-      "contextLength": 131072,
+      "contextLength": 262144,
       "toolCall": true,
       "vision": true
     },
@@ -7211,10 +7219,11 @@
     },
     "mistralai/mistral-small-3.1-24b-instruct": {
       "contextLength": 128000,
+      "toolCall": true,
       "vision": true
     },
     "mistralai/mistral-small-3.2-24b-instruct": {
-      "contextLength": 131072,
+      "contextLength": 96000,
       "toolCall": true,
       "vision": true
     },
@@ -7283,15 +7292,15 @@
       "vision": true
     },
     "moonshotai/Kimi-K2-Instruct": {
-      "contextLength": 131000,
+      "contextLength": 131072,
       "toolCall": true
     },
     "moonshotai/Kimi-K2-Instruct-0905": {
-      "contextLength": 262000,
+      "contextLength": 262144,
       "toolCall": true
     },
     "moonshotai/Kimi-K2-Thinking": {
-      "contextLength": 262000,
+      "contextLength": 262144,
       "reasoning": true,
       "toolCall": true
     },
@@ -7342,7 +7351,8 @@
       "toolCall": true
     },
     "moonshotai/kimi-k2-instruct": {
-      "contextLength": 131072,
+      "contextLength": 128000,
+      "reasoning": true,
       "toolCall": true
     },
     "moonshotai/kimi-k2-instruct-0711": {
@@ -7490,11 +7500,13 @@
     },
     "nousresearch/hermes-4-405b": {
       "contextLength": 131072,
-      "reasoning": true
+      "reasoning": true,
+      "toolCall": true
     },
     "nousresearch/hermes-4-70b": {
       "contextLength": 131072,
-      "reasoning": true
+      "reasoning": true,
+      "toolCall": true
     },
     "nova-2-lite-v1": {
       "contextLength": 1000000,
@@ -7706,7 +7718,9 @@
       "vision": true
     },
     "nvidia/nemotron-3-super-120b-a12b": {
-      "contextLength": 256000
+      "contextLength": 256000,
+      "reasoning": true,
+      "toolCall": true
     },
     "nvidia/nemotron-3-super-120b-a12b:free": {
       "contextLength": 262144,
@@ -7996,7 +8010,7 @@
       "vision": true
     },
     "openai-gpt-oss-120b": {
-      "contextLength": 131072,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true
     },
@@ -8116,17 +8130,17 @@
       "toolCall": true
     },
     "openai/gpt-4.1": {
-      "contextLength": 128000,
+      "contextLength": 1047576,
       "toolCall": true,
       "vision": true
     },
     "openai/gpt-4.1-mini": {
-      "contextLength": 128000,
+      "contextLength": 1047576,
       "toolCall": true,
       "vision": true
     },
     "openai/gpt-4.1-nano": {
-      "contextLength": 128000,
+      "contextLength": 1047576,
       "toolCall": true,
       "vision": true
     },
@@ -8248,7 +8262,6 @@
     },
     "openai/gpt-5.1-chat": {
       "contextLength": 128000,
-      "reasoning": true,
       "toolCall": true,
       "vision": true
     },
@@ -8432,7 +8445,7 @@
       "toolCall": true
     },
     "openai/gpt-oss-20b": {
-      "contextLength": 16384,
+      "contextLength": 131072,
       "reasoning": true,
       "toolCall": true
     },
@@ -8453,7 +8466,9 @@
     },
     "openai/o1": {
       "contextLength": 200000,
-      "reasoning": true
+      "reasoning": true,
+      "toolCall": true,
+      "vision": true
     },
     "openai/o1-mini": {
       "contextLength": 128000,
@@ -8471,7 +8486,9 @@
     },
     "openai/o3": {
       "contextLength": 200000,
-      "reasoning": true
+      "reasoning": true,
+      "toolCall": true,
+      "vision": true
     },
     "openai/o3-deep-research": {
       "contextLength": 200000,
@@ -8481,7 +8498,8 @@
     },
     "openai/o3-mini": {
       "contextLength": 200000,
-      "reasoning": true
+      "reasoning": true,
+      "toolCall": true
     },
     "openai/o3-mini-high": {
       "contextLength": 200000,
@@ -8507,7 +8525,9 @@
     },
     "openai/o4-mini": {
       "contextLength": 200000,
-      "reasoning": true
+      "reasoning": true,
+      "toolCall": true,
+      "vision": true
     },
     "openai/o4-mini-deep-research": {
       "contextLength": 200000,
@@ -8559,7 +8579,10 @@
       "toolCall": true
     },
     "openrouter/pareto-code": {
-      "contextLength": 200000
+      "contextLength": 200000,
+      "reasoning": true,
+      "toolCall": true,
+      "vision": true
     },
     "osmosis/osmosis-structure-0.6b": {
       "contextLength": 4000,
@@ -8726,9 +8749,7 @@
       "vision": true
     },
     "qwen-3.6-plus": {
-      "contextLength": 1000000,
-      "reasoning": true,
-      "toolCall": true
+      "contextLength": 991800
     },
     "qwen-coder-plus": {
       "contextLength": 131072,
@@ -8763,7 +8784,7 @@
       "toolCall": true
     },
     "qwen-max": {
-      "contextLength": 32768,
+      "contextLength": 131072,
       "toolCall": true
     },
     "qwen-max-2025-01-25": {
@@ -8771,9 +8792,8 @@
       "toolCall": true
     },
     "qwen-max-latest": {
-      "contextLength": 32768,
-      "toolCall": true,
-      "vision": true
+      "contextLength": 131072,
+      "toolCall": true
     },
     "qwen-mt-plus": {
       "contextLength": 16384
@@ -8988,11 +9008,11 @@
       "reasoning": true
     },
     "qwen/qwen3-30b-a3b-instruct-2507": {
-      "contextLength": 262144,
+      "contextLength": 262000,
       "toolCall": true
     },
     "qwen/qwen3-30b-a3b-thinking-2507": {
-      "contextLength": 32768,
+      "contextLength": 262000,
       "reasoning": true,
       "toolCall": true
     },
@@ -9035,7 +9055,7 @@
       "toolCall": true
     },
     "qwen/qwen3-coder-flash": {
-      "contextLength": 1000000,
+      "contextLength": 128000,
       "toolCall": true
     },
     "qwen/qwen3-coder-next": {
@@ -9054,7 +9074,8 @@
       "contextLength": 32000
     },
     "qwen/qwen3-max": {
-      "contextLength": 262144,
+      "contextLength": 256000,
+      "reasoning": true,
       "toolCall": true
     },
     "qwen/qwen3-max-thinking": {
@@ -9123,8 +9144,7 @@
     "qwen/qwen3.5-122b-a10b": {
       "contextLength": 262144,
       "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "toolCall": true
     },
     "qwen/qwen3.5-27b": {
       "contextLength": 262144,
@@ -9139,8 +9159,7 @@
     "qwen/qwen3.5-397b-a17b": {
       "contextLength": 262144,
       "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "toolCall": true
     },
     "qwen/qwen3.5-9b": {
       "contextLength": 262144,
@@ -9201,8 +9220,7 @@
     "qwen/qwen3.6-plus": {
       "contextLength": 1000000,
       "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "toolCall": true
     },
     "qwen/qwenCoder/models/Qwen3-Coder-30B-A3B-Instruct": {
       "contextLength": 262144,
@@ -9270,7 +9288,8 @@
       "contextLength": 32000
     },
     "qwen2.5-vl-72b-instruct": {
-      "contextLength": 32768,
+      "contextLength": 128000,
+      "toolCall": true,
       "vision": true
     },
     "qwen2.5-vl-7b-instruct": {
@@ -9296,7 +9315,8 @@
       "toolCall": true
     },
     "qwen3-235b-a22b": {
-      "contextLength": 128000,
+      "contextLength": 131072,
+      "reasoning": true,
       "toolCall": true
     },
     "qwen3-235b-a22b-fp8": {
@@ -9309,7 +9329,7 @@
       "toolCall": true
     },
     "qwen3-235b-a22b-instruct-2507": {
-      "contextLength": 131072,
+      "contextLength": 128000,
       "toolCall": true
     },
     "qwen3-235b-a22b-thinking": {
@@ -9317,12 +9337,12 @@
       "reasoning": true
     },
     "qwen3-235b-a22b-thinking-2507": {
-      "contextLength": 131072,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true
     },
     "qwen3-30b-a3b": {
-      "contextLength": 41000,
+      "contextLength": 128000,
       "toolCall": true
     },
     "qwen3-30b-a3b-fp8": {
@@ -9331,11 +9351,11 @@
       "toolCall": true
     },
     "qwen3-30b-a3b-instruct-2507": {
-      "contextLength": 131072,
+      "contextLength": 128000,
       "toolCall": true
     },
     "qwen3-30b-a3b-thinking-2507": {
-      "contextLength": 131072,
+      "contextLength": 126000,
       "reasoning": true,
       "toolCall": true
     },
@@ -9412,7 +9432,6 @@
     },
     "qwen3-coder-next": {
       "contextLength": 262144,
-      "reasoning": true,
       "toolCall": true
     },
     "qwen3-coder-plus": {
@@ -9444,10 +9463,8 @@
       "toolCall": true
     },
     "qwen3-max-2026-01-23": {
-      "contextLength": 256000,
-      "reasoning": true,
-      "toolCall": true,
-      "vision": true
+      "contextLength": 262144,
+      "toolCall": true
     },
     "qwen3-max-preview": {
       "contextLength": 256000,
@@ -9487,9 +9504,9 @@
       "contextLength": 32768
     },
     "qwen3-vl-235b-a22b": {
-      "contextLength": 256000,
-      "toolCall": true,
-      "vision": true
+      "contextLength": 131072,
+      "reasoning": true,
+      "toolCall": true
     },
     "qwen3-vl-235b-a22b-instruct": {
       "contextLength": 131072,
@@ -9517,8 +9534,7 @@
       "vision": true
     },
     "qwen3-vl-30b-a3b-thinking": {
-      "contextLength": 131072,
-      "reasoning": true,
+      "contextLength": 128000,
       "toolCall": true,
       "vision": true
     },
@@ -9556,7 +9572,8 @@
     "qwen3.5-122b-a10b": {
       "contextLength": 262144,
       "reasoning": true,
-      "toolCall": true
+      "toolCall": true,
+      "vision": true
     },
     "qwen3.5-27b": {
       "contextLength": 262144,
@@ -9571,7 +9588,7 @@
       "vision": true
     },
     "qwen3.5-397b-a17b": {
-      "contextLength": 250000,
+      "contextLength": 262144,
       "reasoning": true,
       "toolCall": true
     },
@@ -9626,7 +9643,7 @@
       "vision": true
     },
     "qwen3.6-max-preview": {
-      "contextLength": 262144,
+      "contextLength": 245800,
       "reasoning": true,
       "toolCall": true
     },
@@ -9832,7 +9849,7 @@
       "contextLength": 128000
     },
     "sonar-deep-research": {
-      "contextLength": 127000,
+      "contextLength": 128000,
       "reasoning": true
     },
     "sonar-pro": {
@@ -9942,7 +9959,6 @@
     },
     "stepfun/step-3.5-flash": {
       "contextLength": 256000,
-      "reasoning": true,
       "toolCall": true
     },
     "stepfun/step-3.5-flash-free": {
@@ -10455,7 +10471,8 @@
     "x-ai/grok-4": {
       "contextLength": 256000,
       "reasoning": true,
-      "toolCall": true
+      "toolCall": true,
+      "vision": true
     },
     "x-ai/grok-4-07-09": {
       "contextLength": 256000,
@@ -10494,7 +10511,6 @@
     },
     "x-ai/grok-4.1-fast-non-reasoning": {
       "contextLength": 2000000,
-      "reasoning": true,
       "toolCall": true,
       "vision": true
     },
@@ -10559,8 +10575,7 @@
       "vision": true
     },
     "xai/grok-3": {
-      "contextLength": 128000,
-      "reasoning": true,
+      "contextLength": 131072,
       "toolCall": true
     },
     "xai/grok-3-fast": {
@@ -10568,7 +10583,7 @@
       "toolCall": true
     },
     "xai/grok-3-mini": {
-      "contextLength": 128000,
+      "contextLength": 131072,
       "reasoning": true,
       "toolCall": true
     },
@@ -10692,7 +10707,7 @@
       "contextLength": 256000
     },
     "xiaomi/mimo-v2-omni": {
-      "contextLength": 262144,
+      "contextLength": 265000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -10754,12 +10769,12 @@
       "toolCall": true
     },
     "z-ai/glm-4.5": {
-      "contextLength": 131072,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true
     },
     "z-ai/glm-4.5-air": {
-      "contextLength": 131072,
+      "contextLength": 128000,
       "reasoning": true,
       "toolCall": true
     },
@@ -10768,7 +10783,7 @@
       "reasoning": true
     },
     "z-ai/glm-4.5v": {
-      "contextLength": 65536,
+      "contextLength": 64000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -10779,7 +10794,7 @@
       "vision": true
     },
     "z-ai/glm-4.6": {
-      "contextLength": 204800,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true
     },
@@ -10794,7 +10809,7 @@
       "toolCall": true
     },
     "z-ai/glm-4.6v": {
-      "contextLength": 131072,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -10812,12 +10827,12 @@
       "vision": true
     },
     "z-ai/glm-4.7": {
-      "contextLength": 202752,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true
     },
     "z-ai/glm-4.7-flash": {
-      "contextLength": 202752,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true
     },
@@ -10832,22 +10847,23 @@
       "toolCall": true
     },
     "z-ai/glm-5": {
-      "contextLength": 204800,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true
     },
     "z-ai/glm-5-turbo": {
-      "contextLength": 202752,
+      "contextLength": 200000,
       "reasoning": true,
-      "toolCall": true
+      "toolCall": true,
+      "vision": true
     },
     "z-ai/glm-5.1": {
-      "contextLength": 131072,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true
     },
     "z-ai/glm-5v-turbo": {
-      "contextLength": 202752,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true,
       "vision": true
@@ -10915,7 +10931,8 @@
       "vision": true
     },
     "zai-org/GLM-4.6": {
-      "contextLength": 205000,
+      "contextLength": 202752,
+      "reasoning": true,
       "toolCall": true
     },
     "zai-org/GLM-4.6V": {
@@ -10925,7 +10942,7 @@
       "vision": true
     },
     "zai-org/GLM-4.7": {
-      "contextLength": 128000,
+      "contextLength": 204800,
       "reasoning": true,
       "toolCall": true
     },
@@ -10935,7 +10952,7 @@
       "toolCall": true
     },
     "zai-org/GLM-4.7-Flash": {
-      "contextLength": 202752,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true
     },
@@ -10945,7 +10962,7 @@
       "toolCall": true
     },
     "zai-org/GLM-5": {
-      "contextLength": 205000,
+      "contextLength": 200000,
       "reasoning": true,
       "toolCall": true
     },
@@ -11005,8 +11022,7 @@
       "vision": true
     },
     "zai-org/glm-4.6": {
-      "contextLength": 204800,
-      "reasoning": true,
+      "contextLength": 128000,
       "toolCall": true
     },
     "zai-org/glm-4.6v": {
@@ -11031,7 +11047,7 @@
       "toolCall": true
     },
     "zai-org/glm-5": {
-      "contextLength": 202800,
+      "contextLength": 204800,
       "reasoning": true,
       "toolCall": true
     },

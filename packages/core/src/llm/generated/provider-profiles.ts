@@ -19,9 +19,8 @@ import type { ProviderProfile } from '@cleocode/contracts';
  * Provider profiles auto-generated from the models.dev community catalog.
  *
  * Each entry is a static snapshot of provider metadata (base URL, env vars,
- * default model, auth types). These are intentionally narrowed to
- * `Omit<ProviderProfile, 'fetchModels'>` because live model enumeration is
- * never available from a static catalog — it requires a network call, which
+ * default model, auth types). `fetchModels` is intentionally omitted from
+ * generated entries — live model enumeration requires a network call and
  * belongs in the hand-written builtin for each provider.
  *
  * Builtin profiles located in `packages/core/src/llm/backends/` take
@@ -29,15 +28,13 @@ import type { ProviderProfile } from '@cleocode/contracts';
  *
  * @task T9268
  */
-export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
-  Omit<ProviderProfile, 'fetchModels'> & { readonly envVars: ReadonlyArray<string> }
-> = [
+export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<ProviderProfile> = [
   {
     name: '302ai',
     displayName: '302.AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.302.ai/v1',
-    defaultModel: 'qwen3-235b-a22b',
+    defaultModel: 'claude-opus-4-1-20250805',
     envVars: ['302AI_API_KEY'],
   },
   {
@@ -45,7 +42,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Abacus',
     authTypes: ['api_key'],
     baseUrl: 'https://routellm.abacus.ai/v1',
-    defaultModel: 'gpt-5.1-codex-max',
+    defaultModel: 'claude-opus-4-1-20250805',
     envVars: ['ABACUS_API_KEY'],
   },
   {
@@ -61,7 +58,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Alibaba',
     authTypes: ['api_key'],
     baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-    defaultModel: 'qwen3-235b-a22b',
+    defaultModel: 'qwen2-5-7b-instruct',
     envVars: ['DASHSCOPE_API_KEY'],
   },
   {
@@ -69,7 +66,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Alibaba (China)',
     authTypes: ['api_key'],
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    defaultModel: 'qwen3-235b-a22b',
+    defaultModel: 'qwen2-5-math-7b-instruct',
     envVars: ['DASHSCOPE_API_KEY'],
   },
   {
@@ -77,7 +74,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Alibaba Coding Plan',
     authTypes: ['api_key'],
     baseUrl: 'https://coding-intl.dashscope.aliyuncs.com/v1',
-    defaultModel: 'qwen3-coder-plus',
+    defaultModel: 'kimi-k2.5',
     envVars: ['ALIBABA_CODING_PLAN_API_KEY'],
   },
   {
@@ -85,7 +82,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Alibaba Coding Plan (China)',
     authTypes: ['api_key'],
     baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',
-    defaultModel: 'qwen3-coder-plus',
+    defaultModel: 'kimi-k2.5',
     envVars: ['ALIBABA_CODING_PLAN_API_KEY'],
   },
   {
@@ -93,7 +90,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Ambient',
     authTypes: ['api_key'],
     baseUrl: 'https://api.ambient.xyz/v1',
-    defaultModel: 'zai-org/GLM-5.1-FP8',
+    defaultModel: 'moonshotai/kimi-k2.6',
     envVars: ['AMBIENT_API_KEY'],
   },
   {
@@ -117,7 +114,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Baseten',
     authTypes: ['api_key'],
     baseUrl: 'https://inference.baseten.co/v1',
-    defaultModel: 'zai-org/GLM-4.7',
+    defaultModel: 'deepseek-ai/DeepSeek-V3.1',
     envVars: ['BASETEN_API_KEY'],
   },
   {
@@ -125,7 +122,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Berget.AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.berget.ai/v1',
-    defaultModel: 'zai-org/GLM-4.7',
+    defaultModel: 'openai/gpt-oss-120b',
     envVars: ['BERGET_API_KEY'],
   },
   {
@@ -133,7 +130,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Chutes',
     authTypes: ['api_key'],
     baseUrl: 'https://llm.chutes.ai/v1',
-    defaultModel: 'NousResearch/DeepHermes-3-Mistral-24B-Preview',
+    defaultModel: 'deepseek-ai/DeepSeek-R1-0528-TEE',
     envVars: ['CHUTES_API_KEY'],
   },
   {
@@ -141,7 +138,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Clarifai',
     authTypes: ['api_key'],
     baseUrl: 'https://api.clarifai.com/v2/ext/openai/v1',
-    defaultModel: 'arcee_ai/AFM/models/trinity-mini',
+    defaultModel: 'deepseek-ai/deepseek-ocr/models/DeepSeek-OCR',
     envVars: ['CLARIFAI_PAT'],
   },
   {
@@ -157,7 +154,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'CloudFerro Sherlock',
     authTypes: ['api_key'],
     baseUrl: 'https://api-sherlock.cloudferro.com/openai/v1',
-    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
+    defaultModel: 'openai/gpt-oss-120b',
     envVars: ['CLOUDFERRO_SHERLOCK_API_KEY'],
   },
   {
@@ -165,7 +162,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Cloudflare Workers AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1',
-    defaultModel: '@cf/zai-org/glm-4.7-flash',
+    defaultModel: '@cf/moonshotai/kimi-k2.5',
     envVars: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_KEY'],
   },
   {
@@ -173,7 +170,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Cortecs',
     authTypes: ['api_key'],
     baseUrl: 'https://api.cortecs.ai/v1',
-    defaultModel: 'minimax-m2.7',
+    defaultModel: 'minimax-m2.1',
     envVars: ['CORTECS_API_KEY'],
   },
   {
@@ -181,7 +178,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Databricks',
     authTypes: ['api_key'],
     baseUrl: 'https://{DATABRICKS_HOST}/ai-gateway/mlflow/v1',
-    defaultModel: 'databricks-gpt-oss-120b',
+    defaultModel: 'databricks-gpt-oss-20b',
     envVars: ['DATABRICKS_HOST', 'DATABRICKS_TOKEN'],
   },
   {
@@ -197,7 +194,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'DigitalOcean',
     authTypes: ['api_key'],
     baseUrl: 'https://inference.do-ai.run/v1',
-    defaultModel: 'openai-gpt-4o-mini',
+    defaultModel: 'openai-gpt-5.5',
     envVars: ['DIGITALOCEAN_ACCESS_TOKEN'],
   },
   {
@@ -221,7 +218,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'evroc',
     authTypes: ['api_key'],
     baseUrl: 'https://models.think.evroc.com/v1',
-    defaultModel: 'Qwen/Qwen3-VL-30B-A3B-Instruct',
+    defaultModel: 'moonshotai/Kimi-K2.5',
     envVars: ['EVROC_API_KEY'],
   },
   {
@@ -229,7 +226,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'FastRouter',
     authTypes: ['api_key'],
     baseUrl: 'https://go.fastrouter.ai/api/v1',
-    defaultModel: 'x-ai/grok-4',
+    defaultModel: 'deepseek-ai/deepseek-r1-distill-llama-70b',
     envVars: ['FASTROUTER_API_KEY'],
   },
   {
@@ -245,7 +242,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Fireworks AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.fireworks.ai/inference/v1',
-    defaultModel: 'accounts/fireworks/models/glm-5p1',
+    defaultModel: 'accounts/fireworks/models/minimax-m2p7',
     envVars: ['FIREWORKS_API_KEY'],
   },
   {
@@ -253,7 +250,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Friendli',
     authTypes: ['api_key'],
     baseUrl: 'https://api.friendli.ai/serverless/v1',
-    defaultModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
+    defaultModel: 'zai-org/GLM-5',
     envVars: ['FRIENDLI_TOKEN'],
   },
   {
@@ -261,7 +258,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'FrogBot',
     authTypes: ['api_key'],
     baseUrl: 'https://app.frogbot.ai/api/v1',
-    defaultModel: 'grok-4-1-fast-reasoning',
+    defaultModel: 'kimi-k2.5',
     envVars: ['FROGBOT_API_KEY'],
   },
   {
@@ -269,7 +266,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'GitHub Copilot',
     authTypes: ['api_key'],
     baseUrl: 'https://api.githubcopilot.com',
-    defaultModel: 'gpt-5.1-codex-max',
+    defaultModel: 'claude-opus-41',
     envVars: ['GITHUB_TOKEN'],
   },
   {
@@ -277,7 +274,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'GitHub Models',
     authTypes: ['api_key'],
     baseUrl: 'https://models.github.ai/inference',
-    defaultModel: 'deepseek/deepseek-v3-0324',
+    defaultModel: 'cohere/cohere-command-r-plus',
     envVars: ['GITHUB_TOKEN'],
   },
   {
@@ -285,7 +282,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Helicone',
     authTypes: ['api_key'],
     baseUrl: 'https://ai-gateway.helicone.ai/v1',
-    defaultModel: 'mistral-nemo',
+    defaultModel: 'claude-opus-4-1-20250805',
     envVars: ['HELICONE_API_KEY'],
   },
   {
@@ -293,7 +290,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'HPC-AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.hpc-ai.com/inference/v1',
-    defaultModel: 'zai-org/glm-5.1',
+    defaultModel: 'moonshotai/kimi-k2.5',
     envVars: ['HPC_AI_API_KEY'],
   },
   {
@@ -301,7 +298,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Hugging Face',
     authTypes: ['api_key'],
     baseUrl: 'https://router.huggingface.co/v1',
-    defaultModel: 'Qwen/Qwen3.5-397B-A17B',
+    defaultModel: 'deepseek-ai/DeepSeek-R1-0528',
     envVars: ['HF_TOKEN'],
   },
   {
@@ -309,7 +306,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'iFlow',
     authTypes: ['api_key'],
     baseUrl: 'https://apis.iflow.cn/v1',
-    defaultModel: 'qwen3-coder-plus',
+    defaultModel: 'qwen3-max-preview',
     envVars: ['IFLOW_API_KEY'],
   },
   {
@@ -325,7 +322,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Inference',
     authTypes: ['api_key'],
     baseUrl: 'https://inference.net/v1',
-    defaultModel: 'mistral/mistral-nemo-12b-instruct',
+    defaultModel: 'osmosis/osmosis-structure-0.6b',
     envVars: ['INFERENCE_API_KEY'],
   },
   {
@@ -333,7 +330,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'IO.NET',
     authTypes: ['api_key'],
     baseUrl: 'https://api.intelligence.io.solutions/api/v1',
-    defaultModel: 'Intel/Qwen3-Coder-480B-A35B-Instruct-int4-mixed-ar',
+    defaultModel: 'deepseek-ai/DeepSeek-R1-0528',
     envVars: ['IOINTELLIGENCE_API_KEY'],
   },
   {
@@ -341,7 +338,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Jiekou.AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.jiekou.ai/openai',
-    defaultModel: 'gpt-5.1-codex-max',
+    defaultModel: 'claude-opus-4-1-20250805',
     envVars: ['JIEKOU_API_KEY'],
   },
   {
@@ -349,7 +346,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Kilo Gateway',
     authTypes: ['api_key'],
     baseUrl: 'https://api.kilo.ai/api/gateway',
-    defaultModel: 'rekaai/reka-edge',
+    defaultModel: 'prime-intellect/intellect-3',
     envVars: ['KILO_API_KEY'],
   },
   {
@@ -357,7 +354,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Kimi For Coding',
     authTypes: ['api_key'],
     baseUrl: 'https://api.kimi.com/coding/v1',
-    defaultModel: 'k2p6',
+    defaultModel: 'kimi-k2-thinking',
     envVars: ['KIMI_API_KEY'],
   },
   {
@@ -373,7 +370,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Llama',
     authTypes: ['api_key'],
     baseUrl: 'https://api.llama.com/compat/v1',
-    defaultModel: 'llama-3.3-70b-instruct',
+    defaultModel: 'llama-4-maverick-17b-128e-instruct-fp8',
     envVars: ['LLAMA_API_KEY'],
   },
   {
@@ -381,7 +378,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'LLM Gateway',
     authTypes: ['api_key'],
     baseUrl: 'https://api.llmgateway.io/v1',
-    defaultModel: 'gpt-4o-mini-search-preview',
+    defaultModel: 'gemma-2-27b-it-together',
     envVars: ['LLMGATEWAY_API_KEY'],
   },
   {
@@ -397,7 +394,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'LucidQuery AI',
     authTypes: ['api_key'],
     baseUrl: 'https://lucidquery.com/api/v1',
-    defaultModel: 'lucidnova-rf1-100b',
+    defaultModel: 'lucidquery-nexus-coder',
     envVars: ['LUCIDQUERY_API_KEY'],
   },
   {
@@ -405,7 +402,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Meganova',
     authTypes: ['api_key'],
     baseUrl: 'https://api.meganova.ai/v1',
-    defaultModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
+    defaultModel: 'deepseek-ai/DeepSeek-R1-0528',
     envVars: ['MEGANOVA_API_KEY'],
   },
   {
@@ -413,7 +410,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'MiniMax (minimax.io)',
     authTypes: ['api_key'],
     baseUrl: 'https://api.minimax.io/anthropic/v1',
-    defaultModel: 'MiniMax-M2',
+    defaultModel: 'MiniMax-M2.1',
     envVars: ['MINIMAX_API_KEY'],
   },
   {
@@ -421,7 +418,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'MiniMax (minimaxi.com)',
     authTypes: ['api_key'],
     baseUrl: 'https://api.minimaxi.com/anthropic/v1',
-    defaultModel: 'MiniMax-M2',
+    defaultModel: 'MiniMax-M2.1',
     envVars: ['MINIMAX_API_KEY'],
   },
   {
@@ -429,7 +426,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'MiniMax Coding Plan (minimaxi.com)',
     authTypes: ['api_key'],
     baseUrl: 'https://api.minimaxi.com/anthropic/v1',
-    defaultModel: 'MiniMax-M2',
+    defaultModel: 'MiniMax-M2.1',
     envVars: ['MINIMAX_API_KEY'],
   },
   {
@@ -437,7 +434,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'MiniMax Coding Plan (minimax.io)',
     authTypes: ['api_key'],
     baseUrl: 'https://api.minimax.io/anthropic/v1',
-    defaultModel: 'MiniMax-M2',
+    defaultModel: 'MiniMax-M2.1',
     envVars: ['MINIMAX_API_KEY'],
   },
   {
@@ -453,7 +450,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Moark',
     authTypes: ['api_key'],
     baseUrl: 'https://moark.com/v1',
-    defaultModel: 'GLM-4.7',
+    defaultModel: 'MiniMax-M2.1',
     envVars: ['MOARK_API_KEY'],
   },
   {
@@ -461,7 +458,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'ModelScope',
     authTypes: ['api_key'],
     baseUrl: 'https://api-inference.modelscope.cn/v1',
-    defaultModel: 'Qwen/Qwen3-30B-A3B-Thinking-2507',
+    defaultModel: 'ZhipuAI/GLM-4.5',
     envVars: ['MODELSCOPE_API_KEY'],
   },
   {
@@ -469,7 +466,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Moonshot AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.moonshot.ai/v1',
-    defaultModel: 'kimi-k2-0905-preview',
+    defaultModel: 'kimi-k2.5',
     envVars: ['MOONSHOT_API_KEY'],
   },
   {
@@ -477,7 +474,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Moonshot AI (China)',
     authTypes: ['api_key'],
     baseUrl: 'https://api.moonshot.cn/v1',
-    defaultModel: 'kimi-k2-thinking',
+    defaultModel: 'kimi-k2-turbo-preview',
     envVars: ['MOONSHOT_API_KEY'],
   },
   {
@@ -485,7 +482,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Morph',
     authTypes: ['api_key'],
     baseUrl: 'https://api.morphllm.com/v1',
-    defaultModel: 'auto',
+    defaultModel: 'morph-v3-large',
     envVars: ['MORPH_API_KEY'],
   },
   {
@@ -493,15 +490,23 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'NanoGPT',
     authTypes: ['api_key'],
     baseUrl: 'https://nano-gpt.com/api/v1',
-    defaultModel: 'glm-4-flash',
+    defaultModel: 'glm-zero-preview',
     envVars: ['NANO_GPT_API_KEY'],
+  },
+  {
+    name: 'nearai',
+    displayName: 'NEAR AI Cloud',
+    authTypes: ['api_key'],
+    baseUrl: 'https://cloud-api.near.ai/v1',
+    defaultModel: 'openai/whisper-large-v3',
+    envVars: ['NEARAI_API_KEY'],
   },
   {
     name: 'nebius',
     displayName: 'Nebius Token Factory',
     authTypes: ['api_key'],
     baseUrl: 'https://api.tokenfactory.nebius.com/v1',
-    defaultModel: 'NousResearch/Hermes-4-70B',
+    defaultModel: 'deepseek-ai/DeepSeek-V3.2-fast',
     envVars: ['NEBIUS_API_KEY'],
   },
   {
@@ -509,7 +514,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Neuralwatt',
     authTypes: ['api_key'],
     baseUrl: 'https://api.neuralwatt.com/v1',
-    defaultModel: 'glm-5-fast',
+    defaultModel: 'qwen3.5-397b-fast',
     envVars: ['NEURALWATT_API_KEY'],
   },
   {
@@ -517,7 +522,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Nova',
     authTypes: ['api_key'],
     baseUrl: 'https://api.nova.amazon.com/v1',
-    defaultModel: 'nova-2-lite-v1',
+    defaultModel: 'nova-2-pro-v1',
     envVars: ['NOVA_API_KEY'],
   },
   {
@@ -525,7 +530,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'NovitaAI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.novita.ai/openai',
-    defaultModel: 'deepseek/deepseek-r1-turbo',
+    defaultModel: 'sao10k/l3-8b-lunaris',
     envVars: ['NOVITA_API_KEY'],
   },
   {
@@ -533,7 +538,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Nvidia',
     authTypes: ['api_key'],
     baseUrl: 'https://integrate.api.nvidia.com/v1',
-    defaultModel: 'upstage/solar-10_7b-instruct',
+    defaultModel: 'deepseek-ai/deepseek-v3.2',
     envVars: ['NVIDIA_API_KEY'],
   },
   {
@@ -541,7 +546,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Ollama Cloud',
     authTypes: ['api_key'],
     baseUrl: 'https://ollama.com/v1',
-    defaultModel: 'minimax-m2.7',
+    defaultModel: 'minimax-m2.1',
     envVars: ['OLLAMA_API_KEY'],
   },
   {
@@ -549,7 +554,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'OpenCode Zen',
     authTypes: ['api_key'],
     baseUrl: 'https://opencode.ai/zen/v1',
-    defaultModel: 'minimax-m2.7',
+    defaultModel: 'minimax-m2.1',
     envVars: ['OPENCODE_API_KEY'],
   },
   {
@@ -557,7 +562,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'OpenCode Go',
     authTypes: ['api_key'],
     baseUrl: 'https://opencode.ai/zen/go/v1',
-    defaultModel: 'minimax-m2.7',
+    defaultModel: 'kimi-k2.5',
     envVars: ['OPENCODE_API_KEY'],
   },
   {
@@ -565,7 +570,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'OpenRouter',
     authTypes: ['api_key'],
     baseUrl: 'https://openrouter.ai/api/v1',
-    defaultModel: 'liquid/lfm-2.5-1.2b-instruct:free',
+    defaultModel: 'sourceful/riverflow-v2-max-preview',
     envVars: ['OPENROUTER_API_KEY'],
   },
   {
@@ -573,7 +578,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'OVHcloud AI Endpoints',
     authTypes: ['api_key'],
     baseUrl: 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',
-    defaultModel: 'meta-llama-3_3-70b-instruct',
+    defaultModel: 'mistral-7b-instruct-v0.3',
     envVars: ['OVHCLOUD_API_KEY'],
   },
   {
@@ -581,7 +586,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Perplexity Agent',
     authTypes: ['api_key'],
     baseUrl: 'https://api.perplexity.ai/v1',
-    defaultModel: 'perplexity/sonar',
+    defaultModel: 'openai/gpt-5.2',
     envVars: ['PERPLEXITY_API_KEY'],
   },
   {
@@ -589,7 +594,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Poe',
     authTypes: ['api_key'],
     baseUrl: 'https://api.poe.com/v1',
-    defaultModel: 'topazlabs-co/topazlabs',
+    defaultModel: 'ideogramai/ideogram-v2a-turbo',
     envVars: ['POE_API_KEY'],
   },
   {
@@ -605,7 +610,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'QiHang',
     authTypes: ['api_key'],
     baseUrl: 'https://api.qhaigc.net/v1',
-    defaultModel: 'claude-opus-4-5-20251101',
+    defaultModel: 'gpt-5.2',
     envVars: ['QIHANG_API_KEY'],
   },
   {
@@ -613,7 +618,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Qiniu',
     authTypes: ['api_key'],
     baseUrl: 'https://api.qnaigc.com/v1',
-    defaultModel: 'qwen3-235b-a22b',
+    defaultModel: 'qwen3-30b-a3b-instruct-2507',
     envVars: ['QINIU_API_KEY'],
   },
   {
@@ -621,7 +626,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Regolo AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.regolo.ai/v1',
-    defaultModel: 'mistral-small3.2',
+    defaultModel: 'qwen3.5-122b',
     envVars: ['REGOLO_API_KEY'],
   },
   {
@@ -629,7 +634,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Requesty',
     authTypes: ['api_key'],
     baseUrl: 'https://router.requesty.ai/v1',
-    defaultModel: 'xai/grok-4-fast',
+    defaultModel: 'openai/gpt-5.1-codex-mini',
     envVars: ['REQUESTY_API_KEY'],
   },
   {
@@ -637,7 +642,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Sarvam AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.sarvam.ai/v1',
-    defaultModel: 'sarvam-105b',
+    defaultModel: 'sarvam-30b',
     envVars: ['SARVAM_API_KEY'],
   },
   {
@@ -645,7 +650,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Scaleway',
     authTypes: ['api_key'],
     baseUrl: 'https://api.scaleway.ai/v1',
-    defaultModel: 'qwen3-embedding-8b',
+    defaultModel: 'pixtral-12b-2409',
     envVars: ['SCALEWAY_API_KEY'],
   },
   {
@@ -653,7 +658,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'SiliconFlow',
     authTypes: ['api_key'],
     baseUrl: 'https://api.siliconflow.com/v1',
-    defaultModel: 'nex-agi/DeepSeek-V3.1-Nex-N1',
+    defaultModel: 'deepseek-ai/DeepSeek-R1',
     envVars: ['SILICONFLOW_API_KEY'],
   },
   {
@@ -661,7 +666,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'SiliconFlow (China)',
     authTypes: ['api_key'],
     baseUrl: 'https://api.siliconflow.cn/v1',
-    defaultModel: 'Kwaipilot/KAT-Dev',
+    defaultModel: 'Pro/deepseek-ai/DeepSeek-R1',
     envVars: ['SILICONFLOW_CN_API_KEY'],
   },
   {
@@ -669,7 +674,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'STACKIT',
     authTypes: ['api_key'],
     baseUrl: 'https://api.openai-compat.model-serving.eu01.onstackit.cloud/v1',
-    defaultModel: 'Qwen/Qwen3-VL-Embedding-8B',
+    defaultModel: 'neuralmagic/Meta-Llama-3.1-8B-Instruct-FP8',
     envVars: ['STACKIT_API_KEY'],
   },
   {
@@ -677,7 +682,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'StepFun',
     authTypes: ['api_key'],
     baseUrl: 'https://api.stepfun.com/v1',
-    defaultModel: 'step-3.5-flash-2603',
+    defaultModel: 'step-1-32k',
     envVars: ['STEPFUN_API_KEY'],
   },
   {
@@ -685,7 +690,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'submodel',
     authTypes: ['api_key'],
     baseUrl: 'https://llm.submodel.ai/v1',
-    defaultModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
+    defaultModel: 'deepseek-ai/DeepSeek-R1-0528',
     envVars: ['SUBMODEL_INSTAGEN_ACCESS_KEY'],
   },
   {
@@ -693,7 +698,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Synthetic',
     authTypes: ['api_key'],
     baseUrl: 'https://api.synthetic.new/openai/v1',
-    defaultModel: 'hf:meta-llama/Llama-3.1-405B-Instruct',
+    defaultModel: 'hf:deepseek-ai/DeepSeek-R1',
     envVars: ['SYNTHETIC_API_KEY'],
   },
   {
@@ -717,7 +722,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'The Grid AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.thegrid.ai/v1',
-    defaultModel: 'text-prime',
+    defaultModel: 'text-max',
     envVars: ['THEGRIDAI_API_KEY'],
   },
   {
@@ -733,7 +738,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Vivgrid',
     authTypes: ['api_key'],
     baseUrl: 'https://api.vivgrid.com/v1',
-    defaultModel: 'gpt-5.1-codex-max',
+    defaultModel: 'gpt-5.4-nano',
     envVars: ['VIVGRID_API_KEY'],
   },
   {
@@ -741,7 +746,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Vultr',
     authTypes: ['api_key'],
     baseUrl: 'https://api.vultrinference.com/v1',
-    defaultModel: 'MiniMax-M2.5',
+    defaultModel: 'Kimi-K2.5',
     envVars: ['VULTR_API_KEY'],
   },
   {
@@ -757,7 +762,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Weights & Biases',
     authTypes: ['api_key'],
     baseUrl: 'https://api.inference.wandb.ai/v1',
-    defaultModel: 'Qwen/Qwen3-30B-A3B-Instruct-2507',
+    defaultModel: 'deepseek-ai/DeepSeek-V3.1',
     envVars: ['WANDB_API_KEY'],
   },
   {
@@ -765,7 +770,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Xiaomi',
     authTypes: ['api_key'],
     baseUrl: 'https://api.xiaomimimo.com/v1',
-    defaultModel: 'mimo-v2.5-pro',
+    defaultModel: 'mimo-v2-omni',
     envVars: ['XIAOMI_API_KEY'],
   },
   {
@@ -805,7 +810,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Z.AI',
     authTypes: ['api_key'],
     baseUrl: 'https://api.z.ai/api/paas/v4',
-    defaultModel: 'glm-5v-turbo',
+    defaultModel: 'glm-5.1',
     envVars: ['ZHIPU_API_KEY'],
   },
   {
@@ -813,7 +818,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Z.AI Coding Plan',
     authTypes: ['api_key'],
     baseUrl: 'https://api.z.ai/api/coding/paas/v4',
-    defaultModel: 'glm-4.7',
+    defaultModel: 'glm-5.1',
     envVars: ['ZHIPU_API_KEY'],
   },
   {
@@ -821,7 +826,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'ZenMux',
     authTypes: ['api_key'],
     baseUrl: 'https://zenmux.ai/api/v1',
-    defaultModel: 'deepseek/deepseek-chat',
+    defaultModel: 'moonshotai/kimi-k2.5',
     envVars: ['ZENMUX_API_KEY'],
   },
   {
@@ -829,7 +834,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Zhipu AI',
     authTypes: ['api_key'],
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    defaultModel: 'glm-5v-turbo',
+    defaultModel: 'glm-5.1',
     envVars: ['ZHIPU_API_KEY'],
   },
   {
@@ -837,7 +842,7 @@ export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
     displayName: 'Zhipu AI Coding Plan',
     authTypes: ['api_key'],
     baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
-    defaultModel: 'glm-5v-turbo',
+    defaultModel: 'glm-5.1',
     envVars: ['ZHIPU_API_KEY'],
   },
 ];

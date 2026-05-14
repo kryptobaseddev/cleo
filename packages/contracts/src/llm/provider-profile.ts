@@ -64,6 +64,17 @@ export interface ProviderProfile {
   defaultHeaders?: Readonly<Record<string, string>>;
 
   /**
+   * Environment variable names that supply credentials for this provider.
+   * Sourced from the `env` field in the models.dev catalog when generated,
+   * or declared by hand-written builtins and plugins. Resolver chains may
+   * check these env vars for an API key before falling back to the
+   * credentials store.
+   *
+   * @example ['ANTHROPIC_API_KEY']
+   */
+  envVars?: ReadonlyArray<string>;
+
+  /**
    * Optional live model-discovery hook. When present, the registry may
    * call this to enumerate available model identifiers. Returns `null`
    * when the provider does not support live model listing or when the

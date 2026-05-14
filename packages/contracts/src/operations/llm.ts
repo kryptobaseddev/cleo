@@ -551,54 +551,7 @@ export interface LlmWhoamiResult {
   entries: LlmWhoamiEntry[];
 }
 
-// ============================================================================
-// Provider Profile — auto-generated catalog type (T9268 T-llm-p3-8)
-//
-// `ProviderProfile` describes the static metadata for a provider sourced
-// from models.dev. Hand-written builtin profiles (e.g. anthropic) extend
-// or override entries from the generated catalog.
-// ============================================================================
-
-/**
- * Static metadata for a provider as sourced from models.dev.
- *
- * The generated file `packages/core/src/llm/generated/provider-profiles.ts`
- * exports `GENERATED_PROVIDER_PROFILES: ReadonlyArray<Omit<ProviderProfile, 'fetchModels'>>`.
- * Builtin profiles in `packages/core/src/llm/backends/*.ts` may override
- * generated entries to add provider-specific headers, auth flows, or
- * additional fields.
- *
- * Regenerate via: `pnpm run gen:llm-catalog`
- *
- * @task T9268
- * @epic T9261
- */
-export interface ProviderProfile {
-  /**
-   * Unique provider identifier (slug, e.g. `"anthropic"`, `"openai"`).
-   * Matches the key used in the models.dev catalog.
-   */
-  name: string;
-  /** Human-readable provider name (e.g. `"Anthropic"`, `"OpenAI"`). */
-  displayName: string;
-  /**
-   * Authentication types supported by this provider.
-   * Defaults to `['api_key']` in the generated catalog.
-   * Builtin profiles may extend with `'oauth'`, `'aws_sdk'`, `'gcp_sdk'` etc.
-   */
-  authTypes: ReadonlyArray<string>;
-  /** Base API URL for the provider (trailing slash stripped). */
-  baseUrl: string;
-  /** Default model identifier used when no model is specified by the caller. */
-  defaultModel: string;
-  /**
-   * Environment variable names that supply credentials for this provider.
-   * Sourced from the `env` field in the models.dev catalog.
-   */
-  envVars: ReadonlyArray<string>;
-  /**
-   * Optional async function that fetches the provider's live model list.
-   * Omitted in the generated catalog (only present on hand-written builtins).
-   */
-  fetchModels?: () => Promise<ReadonlyArray<string>>;
-}
+// ProviderProfile interface lives in ./llm/provider-profile.ts (T9262).
+// The generated catalog (packages/core/src/llm/generated/provider-profiles.ts)
+// imports it from '@cleocode/contracts' and intersects an `envVars` field
+// onto each generated entry.
