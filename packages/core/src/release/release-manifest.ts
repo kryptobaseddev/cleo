@@ -28,7 +28,7 @@ import {
   getPushMode,
   loadReleaseConfig,
 } from './release-config.js';
-import { getVersionBumpConfig } from './version-bump.js';
+import { resolveVersionBumpTargets } from './version-bump.js';
 
 async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js')['getDb']> {
   const { getDb: _getDb } = await import('../store/sqlite.js');
@@ -867,8 +867,11 @@ export async function runReleaseGates(
       message: 'Skipped in dry-run mode',
     });
   } else {
-    // Dynamically build exclusion set from configured version bump targets + CHANGELOG.md
-    const bumpTargets = getVersionBumpConfig(cwd);
+    // Dynamically build exclusion set from configured + workspace-auto-discovered
+    // version bump targets plus CHANGELOG.md. Using resolveVersionBumpTargets
+    // here (rather than getVersionBumpConfig) means auto-discovered package.json
+    // and Cargo.toml files are recognised as expected-dirty after step 0's bump.
+    const { targets: bumpTargets } = resolveVersionBumpTargets(cwd);
     const allowedDirty = new Set(['CHANGELOG.md', ...bumpTargets.map((t) => t.file)]);
     let workingTreeClean = true;
     let dirtyFiles: string[] = [];
