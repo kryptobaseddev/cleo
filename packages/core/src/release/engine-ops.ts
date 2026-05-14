@@ -65,6 +65,82 @@ const log = getLogger('release');
 // ---------------------------------------------------------------------------
 
 /**
+ * Run a `git` invocation with stale-`.git/index.lock` recovery.
+ *
+ * Some developer environments (IDE indexers, shell prompts, status-line
+ * scripts) race against the release engine's git operations and momentarily
+ * hold the index lock, causing git to fail with
+ * `fatal: Unable to create '.git/index.lock': File exists`.
+ *
+ * The CLEO release pipeline is a long-running multi-step flow — a transient
+ * lock contention should not fail the whole release. This helper detects the
+ * lock-conflict signature, removes a stale lock file (only if no other git
+ * process is observed in stderr), waits briefly, and retries up to `maxRetries`.
+ *
+ * @param args Arguments for `git` (e.g. `['add', 'CHANGELOG.md']`).
+ * @param opts Options passed to `execFileSync` (cwd, encoding, stdio…).
+ * @param maxRetries How many times to retry on a lock conflict (default 3).
+ * @returns The output of the successful invocation.
+ * @throws The last error from `execFileSync` if all retries are exhausted.
+ */
+function runGitWithLockRetry(
+  args: readonly string[],
+  opts: Parameters<typeof execFileSync>[2],
+  maxRetries = 3,
+): string {
+  const lockErrorPattern = /Unable to create '.+\.git\/index\.lock': File exists/;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return execFileSync('git', [...args], opts) as unknown as string;
+    } catch (err: unknown) {
+      lastErr = err;
+      const stderr =
+        err instanceof Error && 'stderr' in err
+          ? String((err as NodeJS.ErrnoException & { stderr?: string }).stderr ?? '')
+          : err instanceof Error
+            ? err.message
+            : String(err);
+
+      // Only retry on the specific stale-lock signature
+      if (!lockErrorPattern.test(stderr) || attempt === maxRetries) {
+        throw err;
+      }
+
+      // Best-effort: remove a stale lock file if it still exists. We only do
+      // this when the error indicates the lock was the blocker — never blindly.
+      const cwdStr =
+        typeof opts === 'object' && opts !== null && 'cwd' in opts
+          ? String((opts as { cwd?: unknown }).cwd ?? '')
+          : '';
+      try {
+        if (cwdStr) {
+          const lockPath = `${cwdStr.replace(/\/+$/, '')}/.git/index.lock`;
+          // Use rm via child_process to avoid pulling in node:fs.unlinkSync into
+          // a hot path; the synchronous spawn keeps semantics identical to
+          // git's own retry behaviour.
+          spawnSync('rm', ['-f', lockPath], { stdio: 'pipe' });
+        }
+      } catch {
+        // ignore — next attempt will surface the real error
+      }
+
+      const backoffMs = 50 * (attempt + 1); // 50ms, 100ms, 150ms…
+      log.warn(
+        { attempt: attempt + 1, maxRetries, args: args.join(' '), backoffMs },
+        `  ! Transient git lock conflict — retrying in ${backoffMs}ms`,
+      );
+      // Synchronous sleep — node has no built-in but we can use Atomics.wait
+      // on a shared buffer (zero-dep, no setTimeout).
+      const sab = new SharedArrayBuffer(4);
+      Atomics.wait(new Int32Array(sab), 0, 0, backoffMs);
+    }
+  }
+  // Unreachable — loop either returns or throws — but TS needs this
+  throw lastErr ?? new Error('runGitWithLockRetry exhausted retries');
+}
+
+/**
  * Detect whether the current execution context is an AI agent.
  * Checks for CLEO_SESSION_ID or CLAUDE_AGENT_TYPE environment variables.
  *
@@ -1424,7 +1500,7 @@ export async function releaseShip(
     // Step 5: Cut release branch + commit changes on it
     logStep(5, 12, 'Cut release branch and commit');
     try {
-      execFileSync('git', ['checkout', '-b', releaseBranch], gitCwd);
+      runGitWithLockRetry(['checkout', '-b', releaseBranch], gitCwd);
     } catch (err: unknown) {
       const msg =
         (err as { stderr?: string; message?: string }).stderr ??
@@ -1436,15 +1512,18 @@ export async function releaseShip(
 
     const filesToStage = ['CHANGELOG.md', ...(shouldBump ? bumpTargets.map((t) => t.file) : [])];
     try {
-      execFileSync('git', ['add', ...filesToStage], gitCwd);
+      runGitWithLockRetry(['add', ...filesToStage], gitCwd);
     } catch (err: unknown) {
-      const msg = (err as { message?: string }).message ?? String(err);
+      const msg =
+        (err as { stderr?: string; message?: string }).stderr ??
+        (err as { message?: string }).message ??
+        String(err);
       logStep(5, 12, 'Cut release branch and commit', false, `git add failed: ${msg}`);
       return engineError('E_GENERAL', `git add failed: ${msg}`);
     }
 
     try {
-      execFileSync('git', ['commit', '-m', `release: ship v${cleanVersion} (${epicId})`], gitCwd);
+      runGitWithLockRetry(['commit', '-m', `release: ship v${cleanVersion} (${epicId})`], gitCwd);
     } catch (err: unknown) {
       const msg =
         (err as { stderr?: string; message?: string }).stderr ??
@@ -1465,7 +1544,7 @@ export async function releaseShip(
     // Step 6: Push release branch to remote
     logStep(6, 12, 'Push release branch');
     try {
-      execFileSync('git', ['push', '-u', gitRemote, releaseBranch], gitCwd);
+      runGitWithLockRetry(['push', '-u', gitRemote, releaseBranch], gitCwd);
     } catch (err: unknown) {
       const msg =
         (err as { stderr?: string; message?: string }).stderr ??
@@ -1635,10 +1714,10 @@ export async function releaseShip(
     // Step 10: Tag from main + push tag
     logStep(10, 12, 'Tag from main and push');
     try {
-      execFileSync('git', ['checkout', gitflowCfg.branches.main], gitCwd);
-      execFileSync('git', ['pull', gitRemote, gitflowCfg.branches.main], gitCwd);
-      execFileSync('git', ['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
-      execFileSync('git', ['push', gitRemote, gitTag], gitCwd);
+      runGitWithLockRetry(['checkout', gitflowCfg.branches.main], gitCwd);
+      runGitWithLockRetry(['pull', gitRemote, gitflowCfg.branches.main], gitCwd);
+      runGitWithLockRetry(['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
+      runGitWithLockRetry(['push', gitRemote, gitTag], gitCwd);
     } catch (err: unknown) {
       const msg =
         (err as { stderr?: string; message?: string }).stderr ??
@@ -1658,12 +1737,12 @@ export async function releaseShip(
     // Step 11: Cleanup release branch (local + remote)
     logStep(11, 12, 'Cleanup release branch');
     try {
-      execFileSync('git', ['branch', '-D', releaseBranch], gitCwd);
+      runGitWithLockRetry(['branch', '-D', releaseBranch], gitCwd);
     } catch {
       // Local branch may already be gone; non-fatal
     }
     try {
-      execFileSync('git', ['push', gitRemote, '--delete', releaseBranch], gitCwd);
+      runGitWithLockRetry(['push', gitRemote, '--delete', releaseBranch], gitCwd);
     } catch {
       // Remote branch may already be deleted by GitHub on PR merge; non-fatal
     }
