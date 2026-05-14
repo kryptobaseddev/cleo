@@ -644,6 +644,7 @@ export type {
   LlmWhoamiParams,
   LlmWhoamiResult,
   ModelTransport,
+  ProviderProfile,
   ResolutionSource,
   ResolvedLLM,
   ResolveLLMForRoleOptions,
