@@ -647,6 +647,12 @@ export type {
   ResolveLLMForRoleOptions,
   StoredAuthTypeWire,
 } from './operations/llm.js';
+// === Provider Profile + Plugin Contracts (T9262 — Phase 3 T-LLM-CRED) ===
+export type {
+  ProviderPlugin,
+  ProviderPluginApi,
+  ProviderProfile,
+} from './llm/provider-profile.js';
 // Multi-pass retrieval bundle types (PSYCHE Wave 4 · T1090)
 export type {
   PassMask,
