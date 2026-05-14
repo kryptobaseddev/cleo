@@ -269,9 +269,8 @@ import type { ProviderProfile } from '@cleocode/contracts';
  * Provider profiles auto-generated from the models.dev community catalog.
  *
  * Each entry is a static snapshot of provider metadata (base URL, env vars,
- * default model, auth types). These are intentionally narrowed to
- * \`Omit<ProviderProfile, 'fetchModels'>\` because live model enumeration is
- * never available from a static catalog — it requires a network call, which
+ * default model, auth types). \`fetchModels\` is intentionally omitted from
+ * generated entries — live model enumeration requires a network call and
  * belongs in the hand-written builtin for each provider.
  *
  * Builtin profiles located in \`packages/core/src/llm/backends/\` take
@@ -279,9 +278,7 @@ import type { ProviderProfile } from '@cleocode/contracts';
  *
  * @task T9268
  */
-export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<
-  Omit<ProviderProfile, 'fetchModels'> & { readonly envVars: ReadonlyArray<string> }
-> = [
+export const GENERATED_PROVIDER_PROFILES: ReadonlyArray<ProviderProfile> = [
 ${rows},
 ];
 `;
