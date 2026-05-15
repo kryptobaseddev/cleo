@@ -163,7 +163,7 @@ export async function llmAdd(params: LlmAddParams): Promise<EngineResult<LlmAddR
     return engineError('E_INVALID_INPUT', 'apiKey is required');
   }
   const authType = params.authType ?? detectAuthType(params.apiKey);
-  const label = params.label && params.label.trim() ? params.label.trim() : 'default';
+  const label = params.label?.trim() ? params.label.trim() : 'default';
 
   try {
     const stored = await addCredential({

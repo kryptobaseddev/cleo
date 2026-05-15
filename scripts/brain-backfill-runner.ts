@@ -81,7 +81,7 @@ let result: {
 
 try {
   result = JSON.parse(jsonText) as typeof result;
-} catch (parseErr) {
+} catch (_parseErr) {
   console.error('Back-fill FAILED: Could not parse JSON output');
   console.error('Raw output:', rawOutput);
   process.exit(1);
