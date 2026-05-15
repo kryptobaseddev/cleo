@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.5.72] (2026-05-15)
+
+### Fixed
+
+- **build.mjs now wipes `packages/*/dist/` + `tsconfig.tsbuildinfo` before each
+  full build** (T9337 follow-up). The v2026.5.71 publish surfaced a latent
+  packaging bug: deleting `packages/core/src/tasks/verifier-runner.ts` and
+  `verifier-stub-generator.ts` left orphan `dist/tasks/verifier-runner.js`
+  and `verifier-stub-generator.js` artifacts (esbuild + tsc overwrite but do
+  not delete). npm shipped those orphans inside the @cleocode/core tarball
+  even though no source imported them. The pre-clean step makes the published
+  tarball reflect the live source tree exactly — files whose source has been
+  removed are guaranteed to be absent.
+
 ## [2026.5.71] (2026-05-15)
 
 ### Breaking Changes
