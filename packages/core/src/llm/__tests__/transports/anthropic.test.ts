@@ -47,6 +47,7 @@ vi.mock('@anthropic-ai/sdk', () => {
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { ImageRoutingError } from '../../image-routing.js';
 import { AnthropicTransport } from '../../transports/anthropic.js';
 
 // ---------------------------------------------------------------------------
@@ -332,5 +333,58 @@ describe('AnthropicTransport._supportsAssistantPrefill', () => {
     expect(AnthropicTransport._supportsAssistantPrefill('claude-3-5-haiku-20241022')).toBe(true);
     expect(AnthropicTransport._supportsAssistantPrefill('claude-3-opus-20240229')).toBe(true);
     expect(AnthropicTransport._supportsAssistantPrefill('claude-3-sonnet')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T9296 (W4d) — image-routing validation in complete()
+// ---------------------------------------------------------------------------
+
+describe('T9296 W4d — image-routing validators in complete()', () => {
+  it('rejects requests exceeding image-count limit', async () => {
+    mockCreate.mockClear();
+    const transport = makeTransport({ promptCaching: 'none' });
+
+    // Build a request with 21 images (Anthropic limit = 20)
+    const imageBlock = {
+      type: 'image' as const,
+      source: { type: 'base64' as const, data: 'abc', mediaType: 'image/png' },
+    };
+    const content = Array.from({ length: 21 }, () => imageBlock);
+
+    await expect(
+      transport.complete({
+        model: 'claude-sonnet-4-6',
+        messages: [{ role: 'user' as const, content }],
+        maxTokens: 128,
+      }),
+    ).rejects.toBeInstanceOf(ImageRoutingError);
+
+    // SDK should NOT have been called (validation throws before SDK)
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects per-image size > 5 MB limit for Anthropic', async () => {
+    mockCreate.mockClear();
+    const transport = makeTransport({ promptCaching: 'none' });
+
+    // 6 MB base64 string — exceeds 5 MB Anthropic limit
+    const sixMbBase64 = 'A'.repeat(Math.ceil((6 * 1024 * 1024 * 4) / 3));
+    const content = [
+      {
+        type: 'image' as const,
+        source: { type: 'base64' as const, data: sixMbBase64, mediaType: 'image/png' },
+      },
+    ];
+
+    await expect(
+      transport.complete({
+        model: 'claude-sonnet-4-6',
+        messages: [{ role: 'user' as const, content }],
+        maxTokens: 128,
+      }),
+    ).rejects.toBeInstanceOf(ImageRoutingError);
+
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });
