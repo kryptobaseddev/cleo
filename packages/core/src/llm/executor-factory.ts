@@ -13,11 +13,12 @@
  */
 
 import type {
-  ContextEngine,
   ExecutorFactoryOptions,
   LlmExecutor,
   LlmExecutorFactory,
 } from '@cleocode/contracts/llm/interfaces.js';
+import type { ContextEngine } from '@cleocode/contracts/memory/context-engine.js';
+import { LlmSummarizationEngine } from '../memory/context-engines/llm-summarizer.js';
 import { ConcreteExecutor } from './concrete-executor.js';
 import { DefaultLlmSessionFactory } from './session-factory.js';
 
@@ -104,6 +105,10 @@ const _executorCache = new Map<string, LlmExecutor>();
  * calls return the same instance. Use for callers that want a stable executor
  * across multiple calls without re-resolving credentials per call.
  *
+ * When `role === 'compression'`, the executor is constructed with a default
+ * {@link LlmSummarizationEngine} so callers receive a compression-capable
+ * executor without additional configuration.
+ *
  * NOTE: The executor's session history accumulates across calls. Callers
  * that need a fresh conversation should use `new DefaultLlmExecutorFactory()
  * .createForRole(role)` directly instead.
@@ -115,8 +120,13 @@ export async function getLlmExecutor(role: string): Promise<LlmExecutor> {
   const cached = _executorCache.get(role);
   if (cached !== undefined) return cached;
 
+  // TODO(T9312): Plugin engine registration hook — Phase 5 will allow plugins to
+  // register custom ContextEngine implementations here before the factory is used.
+  const contextEngine: ContextEngine | undefined =
+    role === 'compression' ? new LlmSummarizationEngine() : undefined;
+
   if (_defaultFactory === undefined) {
-    _defaultFactory = new DefaultLlmExecutorFactory();
+    _defaultFactory = new DefaultLlmExecutorFactory({ contextEngine });
   }
 
   const executor = await _defaultFactory.createForRole(role);

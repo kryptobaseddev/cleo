@@ -37,6 +37,8 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import type { TransportMessage } from '@cleocode/contracts/llm/normalized-response.js';
+import type { ContextEngine } from '@cleocode/contracts/memory/context-engine.js';
 import { executeForRole } from '../llm/role-executor.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
@@ -246,6 +248,37 @@ async function callLlm(
     signal: AbortSignal.timeout(30_000),
   });
   return result?.content ?? null;
+}
+
+/**
+ * Compress a plain-text payload via the injected {@link ContextEngine} when
+ * the payload is large enough to warrant it.
+ *
+ * Converts the text to a single `user` TransportMessage, calls
+ * {@link ContextEngine.compress}, and extracts the summary from the first
+ * returned assistant message. Falls back to the original text on any error
+ * so the consolidation pipeline is never blocked by a compression failure.
+ *
+ * @param text - Raw text payload to (potentially) compress.
+ * @param engine - Optional context engine. When absent the original text is returned.
+ * @param topic - Topic hint forwarded to {@link ContextEngine.compress}.
+ */
+async function _maybeCompress(
+  text: string,
+  engine: ContextEngine | undefined,
+  topic: string,
+): Promise<string> {
+  if (engine === undefined) return text;
+  const msgs: TransportMessage[] = [{ role: 'user', content: text }];
+  const estimatedTokens = Math.ceil(text.length / 4);
+  if (!engine.shouldCompress(estimatedTokens, 100_000)) return text;
+  try {
+    const result = await engine.compress(msgs, topic);
+    const summaryMsg = result.compressedMessages.find((m) => m.role === 'assistant');
+    return summaryMsg && typeof summaryMsg.content === 'string' ? summaryMsg.content : text;
+  } catch {
+    return text;
+  }
 }
 
 /**
@@ -564,8 +597,12 @@ async function stepPruneStale(projectRoot: string): Promise<PruneStaleResult> {
  * source='sleep-consolidation'. The original learnings are left intact.
  *
  * @param projectRoot - Project root for brain.db resolution.
+ * @param contextEngine - Optional engine used to compress oversized learning batches.
  */
-async function stepStrengthenPatterns(projectRoot: string): Promise<StrengthenPatternsResult> {
+async function stepStrengthenPatterns(
+  projectRoot: string,
+  contextEngine?: ContextEngine,
+): Promise<StrengthenPatternsResult> {
   const { getBrainDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
@@ -629,9 +666,13 @@ async function stepStrengthenPatterns(projectRoot: string): Promise<StrengthenPa
     'Return JSON: {"patterns":[{"pattern":"...","context":"...","impact":"high|medium|low"}]}. ' +
     'Skip patterns already captured in the existing list. Output JSON only, no prose.';
 
-  const userContent =
+  const rawUserContent =
     `Frequently-cited learnings to synthesize:\n${JSON.stringify(learningDescriptions, null, 2)}\n\n` +
     `Already captured patterns (do not duplicate): ${existingPatternTexts || 'none'}`;
+
+  // When a ContextEngine is injected, compress oversized learning batches before
+  // sending to the LLM to stay within the context window.
+  const userContent = await _maybeCompress(rawUserContent, contextEngine, 'learning synthesis');
 
   interface SynthesisOutput {
     patterns: Array<{ pattern: string; context: string; impact?: string }>;
@@ -679,8 +720,12 @@ async function stepStrengthenPatterns(projectRoot: string): Promise<StrengthenPa
  * and memory_tier='medium' (they represent synthesized knowledge).
  *
  * @param projectRoot - Project root for brain.db resolution.
+ * @param contextEngine - Optional engine used to compress oversized cluster payloads.
  */
-async function stepGenerateInsights(projectRoot: string): Promise<GenerateInsightsResult> {
+async function stepGenerateInsights(
+  projectRoot: string,
+  contextEngine?: ContextEngine,
+): Promise<GenerateInsightsResult> {
   const { getBrainDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb();
@@ -797,7 +842,10 @@ async function stepGenerateInsights(projectRoot: string): Promise<GenerateInsigh
     'Return JSON: {"insights":[{"cluster":N,"insight":"...","confidence":0.0-1.0}]}. ' +
     'Only include high-value insights (confidence >= 0.7). Output JSON only, no prose.';
 
-  const userContent = `Memory clusters to analyse:\n${JSON.stringify(clusterDescriptions, null, 2)}`;
+  const rawUserContent = `Memory clusters to analyse:\n${JSON.stringify(clusterDescriptions, null, 2)}`;
+
+  // Compress oversized cluster payloads via the injected ContextEngine when available.
+  const userContent = await _maybeCompress(rawUserContent, contextEngine, 'insight extraction');
 
   interface InsightOutput {
     insights: Array<{ cluster: number; insight: string; confidence: number }>;
@@ -882,10 +930,16 @@ async function stepGenerateInsights(projectRoot: string): Promise<GenerateInsigh
  * silently skip their LLM call and fall back to structural heuristics.
  *
  * @param projectRoot - Project root directory for brain.db resolution.
+ * @param contextEngine - Optional context engine for LLM-backed compression of
+ *   large narrative batches. When provided, oversized observation payloads are
+ *   compressed via {@link ContextEngine.compress} before being sent to the LLM,
+ *   staying within the model's context window. When absent, raw payloads are
+ *   used unchanged (the existing behaviour).
  * @returns Aggregated result counts from each step.
  */
 export async function runSleepConsolidation(
   projectRoot: string,
+  contextEngine?: ContextEngine,
 ): Promise<SleepConsolidationResult> {
   const empty: SleepConsolidationResult = {
     ran: false,
@@ -931,14 +985,14 @@ export async function runSleepConsolidation(
 
   // Step 3: Strengthen patterns
   try {
-    result.strengthenPatterns = await stepStrengthenPatterns(projectRoot);
+    result.strengthenPatterns = await stepStrengthenPatterns(projectRoot, contextEngine);
   } catch (err) {
     console.warn('[sleep-consolidation] Step 3 (strengthen patterns) failed:', err);
   }
 
   // Step 4: Generate insights
   try {
-    result.generateInsights = await stepGenerateInsights(projectRoot);
+    result.generateInsights = await stepGenerateInsights(projectRoot, contextEngine);
   } catch (err) {
     console.warn('[sleep-consolidation] Step 4 (generate insights) failed:', err);
   }
