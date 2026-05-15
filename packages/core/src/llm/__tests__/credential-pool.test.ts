@@ -457,7 +457,7 @@ describe('CredentialPool.proactiveRefresh() — OAuth credential threshold', () 
     fetchSpy.mockRestore();
   });
 
-  it('updates credential store with new token after successful refresh', async () => {
+  it('updates kimi-code credential store with new token after successful refresh', async () => {
     isolateHomes();
     vi.useFakeTimers();
 
@@ -489,6 +489,41 @@ describe('CredentialPool.proactiveRefresh() — OAuth credential threshold', () 
     const entry = entries.find((e) => e.label === 'kimi-refresh-test');
     expect(entry?.accessToken).toBe('sk-kimi-brand-new');
     expect(entry?.refreshToken).toBe('new-refresh-tok');
+    vi.restoreAllMocks();
+  });
+
+  it('proactively refreshes Anthropic OAuth credential at <300s remaining', async () => {
+    isolateHomes();
+    vi.useFakeTimers();
+
+    const expiresAt = Date.now() + 200_000;
+    await addCredential(
+      makeCredential('anthropic-oauth', 10, {
+        provider: 'anthropic',
+        authType: 'oauth',
+        expiresAt,
+        refreshToken: 'ant-refresh-tok',
+      }),
+    );
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: 'sk-ant-oat-new-access',
+          refresh_token: 'ant-new-refresh-tok',
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const pool = new CredentialPool('anthropic');
+    const refreshed = await pool.proactiveRefresh('anthropic-oauth');
+
+    expect(refreshed).toBe(true);
+    const entries = await pool.listEntries();
+    const entry = entries.find((e) => e.label === 'anthropic-oauth');
+    expect(entry?.accessToken).toBe('sk-ant-oat-new-access');
     vi.restoreAllMocks();
   });
 });

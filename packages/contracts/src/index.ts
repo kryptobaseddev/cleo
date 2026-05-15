@@ -238,6 +238,12 @@ export type {
   SignalDockMode,
 } from './config.js';
 export type { AdapterContextMonitorProvider } from './context-monitor.js';
+// === Claude Code credential parsing (T9307 — pure helper, no core imports) ===
+export type {
+  ClaudeCodeOAuthBlock,
+  ParsedClaudeCodeCredential,
+} from './credentials.js';
+export { parseClaudeCodeCredentials } from './credentials.js';
 // === DataAccessor Interface ===
 export type {
   ArchiveFields,
@@ -427,8 +433,6 @@ export {
 } from './lafs.js';
 // === LLM Error Taxonomy (T9270 — Hermes FailoverReason port) ===
 export type { ClassifiedError, FailoverReason } from './llm/failover-reason.js';
-// === ContextEngine contract (canonical home — T9304) ===
-export type { CompressedContext, ContextEngine } from './memory/context-engine.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Session + Executor interfaces ===
 export type {
   AggregatedUsage,
@@ -473,6 +477,8 @@ export type {
 } from './llm/provider-profile.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Resolved credential ===
 export type { ResolvedCredential } from './llm/resolved-credential.js';
+// === ContextEngine contract (canonical home — T9304) ===
+export type { CompressedContext, ContextEngine } from './memory/context-engine.js';
 export type {
   BridgeDecision,
   BridgeLearning,
@@ -678,8 +684,11 @@ export type {
   LlmListResult,
   LlmProfileParams,
   LlmProfileResult,
+  LlmProviderSourceWire,
+  LlmProviderStatusEntry,
   LlmRemoveParams,
   LlmRemoveResult,
+  LlmStatusResult,
   LlmStoredCredentialView,
   LlmTestParams,
   LlmTestResult,
@@ -1459,10 +1468,4 @@ export type {
   WarpLink,
   WarpStage,
 } from './warp-chain.js';
-// === Claude Code credential parsing (T9307 — pure helper, no core imports) ===
-export type {
-  ClaudeCodeOAuthBlock,
-  ParsedClaudeCodeCredential,
-} from './credentials.js';
-export { parseClaudeCodeCredentials } from './credentials.js';
 // === WASM SDK (Rust crate bindings) ===
