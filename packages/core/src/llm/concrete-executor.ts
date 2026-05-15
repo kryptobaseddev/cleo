@@ -25,7 +25,15 @@ import type {
   NormalizedResponse,
   TransportMessage,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import { estimateTransportMessageTokens } from './message-utils.js';
 import { computeCost } from './usage-pricing.js';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Default context budget (tokens) used when shouldCompress is invoked without model metadata. */
+const DEFAULT_CONTEXT_BUDGET = 100_000;
 
 // ---------------------------------------------------------------------------
 // ConcreteExecutor
@@ -108,20 +116,19 @@ export class ConcreteExecutor implements LlmExecutor {
       // Context compression check (skip silently when engine absent).
       if (this._contextEngine !== undefined) {
         const history = this.session.history();
-        if (this._contextEngine.shouldCompress(history)) {
-          const tokensBefore = this._contextEngine.estimateTokens(history);
+        const promptTokens = estimateTransportMessageTokens(history);
+        if (this._contextEngine.shouldCompress(promptTokens, DEFAULT_CONTEXT_BUDGET)) {
           try {
             const compressed = await this._contextEngine.compress(history);
-            const tokensAfter = this._contextEngine.estimateTokens(compressed);
-            // Replace session history with compressed version.
+            // Replace session history with the compressed message array.
             this.session.truncateHistory(0, 0);
-            for (const msg of compressed) {
+            for (const msg of compressed.compressedMessages) {
               this.session.append(msg);
             }
             yield {
               kind: 'context_compressed',
-              tokensBefore,
-              tokensAfter,
+              tokensBefore: compressed.beforeTokens,
+              tokensAfter: compressed.afterTokens,
             } satisfies ExecutionEvent;
           } catch (err: unknown) {
             const classified = _toClassifiedError(err, iteration);
