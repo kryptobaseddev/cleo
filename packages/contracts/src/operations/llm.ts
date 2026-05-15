@@ -566,3 +566,49 @@ export interface LlmWhoamiResult {
 // The generated catalog (packages/core/src/llm/generated/provider-profiles.ts)
 // imports the canonical type from the contracts package and emits each
 // generated entry as a plain ProviderProfile literal.
+
+// ---------------------------------------------------------------------------
+// llm-status types (T9323)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolved credential source for a single LLM provider.
+ *
+ * Mirrors the subset of `CredentialSource` relevant for human-facing status
+ * output. `'none'` means no credential was found at any tier.
+ *
+ * @task T9323
+ */
+export type LlmProviderSourceWire = 'env' | 'cred-file' | 'claude-creds' | 'config' | 'none';
+
+/**
+ * Per-provider status entry emitted by `cleo memory llm-status`.
+ *
+ * @task T9323
+ */
+export interface LlmProviderStatusEntry {
+  /** Provider identifier (e.g. `'anthropic'`, `'kimi-code'`). */
+  provider: string;
+  /** Which credential tier resolved the key, or `'none'` if unavailable. */
+  resolvedSource: LlmProviderSourceWire;
+  /** `true` when a usable credential was found. */
+  hasCredential: boolean;
+}
+
+/**
+ * Result envelope for `memory.llm-status` (query).
+ *
+ * @task T9323
+ */
+export interface LlmStatusResult {
+  /** Legacy anthropic-only resolved source (kept for backward compat). */
+  resolvedSource: string;
+  /** `true` when an Anthropic credential is available (legacy compat field). */
+  extractionEnabled: boolean;
+  /** ISO timestamp of the most recent extraction run, or `null`. */
+  lastExtractionRun: string | null;
+  /** Suggested test command. */
+  testCommand: string;
+  /** Per-provider status for all known OAuth providers. */
+  providers: LlmProviderStatusEntry[];
+}

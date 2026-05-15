@@ -43,10 +43,12 @@ export {
   clearAnthropicKeyCache,
   cleoHomeDir,
   defaultTransportApiKey,
+  OAUTH_STATUS_PROVIDERS,
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
   resolveCredentials,
   resolveModelCredentials,
+  resolveProviderStatus,
   storeAnthropicApiKey,
 } from './credentials.js';
 // Credential pool / multi-credential storage (T-LLM-CRED-CENTRALIZATION Phase 2)

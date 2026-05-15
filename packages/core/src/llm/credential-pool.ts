@@ -35,7 +35,7 @@
 
 import type { StoredCredential } from './credentials-store.js';
 import { addCredential, getCredentialByLabel, listCredentials } from './credentials-store.js';
-import { getKimiCodeDeviceCodeConfig } from './oauth/device-code.js';
+import { getAnthropicDeviceCodeConfig, getKimiCodeDeviceCodeConfig } from './oauth/device-code.js';
 import { rateLimitRemaining } from './rate-limit-guard.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -423,58 +423,64 @@ export class CredentialPool {
   /**
    * Perform the actual token refresh for a known OAuth credential.
    *
-   * Currently supports `kimi-code`. Anthropic refresh endpoint is not publicly
-   * confirmed (TODO T9266) — Anthropic entries are no-op until the endpoint
-   * is verified.
+   * Dispatches to the provider-specific token endpoint using the shared
+   * `_refreshTokenViaEndpoint` helper. Both `anthropic` and `kimi-code` use
+   * the standard `grant_type=refresh_token` flow with their respective
+   * `DeviceCodeConfig` token URLs.
    *
-   * On success, persists the new access token (and refresh token if returned)
-   * via `addCredential` upsert so the pool immediately serves the refreshed
-   * credential.
+   * Errors are silently swallowed — the caller's retry path will encounter a
+   * 401 and trigger credential rotation if the token has actually expired.
    *
    * @param existing - The credential entry to refresh.
    * @task T9323
    */
   private async _refreshOAuthCredential(existing: StoredCredential): Promise<void> {
-    if (this.provider === 'kimi-code') {
-      await this._refreshKimiCodeToken(existing);
+    if (this.provider === 'anthropic') {
+      const cfg = getAnthropicDeviceCodeConfig();
+      await this._refreshTokenViaEndpoint(existing, cfg.tokenUrl, cfg.clientId, cfg.defaultHeaders);
+    } else if (this.provider === 'kimi-code') {
+      const cfg = getKimiCodeDeviceCodeConfig();
+      await this._refreshTokenViaEndpoint(existing, cfg.tokenUrl, cfg.clientId);
     }
-    // anthropic: TODO(T9266) — device-code endpoint not confirmed; no-op.
   }
 
   /**
-   * Refresh a Kimi Code OAuth access token using the stored refresh token.
+   * Shared OAuth `refresh_token` grant implementation.
    *
-   * POSTs `grant_type=refresh_token` to the token endpoint configured by
-   * `getKimiCodeDeviceCodeConfig()`. On success, upserts the new access token
-   * (and updated refresh token if provided) into the credential store.
+   * POSTs `grant_type=refresh_token` to `tokenUrl` with the credential's
+   * stored refresh token. On success, upserts the new access token (and
+   * updated refresh token if provided) into the credential store.
    *
-   * Errors during refresh are silently swallowed — the caller's retry path
-   * will encounter a 401 and trigger rotation if the credential has expired.
-   *
-   * @param existing - Kimi Code credential to refresh.
+   * @param existing      - Credential entry to refresh.
+   * @param tokenUrl      - Provider's token endpoint.
+   * @param clientId      - OAuth client ID.
+   * @param extraHeaders  - Optional provider-specific headers (e.g. Anthropic beta flags).
    * @task T9323
    */
-  private async _refreshKimiCodeToken(existing: StoredCredential): Promise<void> {
+  private async _refreshTokenViaEndpoint(
+    existing: StoredCredential,
+    tokenUrl: string,
+    clientId: string,
+    extraHeaders?: Record<string, string>,
+  ): Promise<void> {
     if (!existing.refreshToken) return;
-
-    const cfg = getKimiCodeDeviceCodeConfig();
 
     let resp: Response;
     try {
-      resp = await fetch(cfg.tokenUrl, {
+      resp = await fetch(tokenUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           Accept: 'application/json',
+          ...extraHeaders,
         },
         body: new URLSearchParams({
           grant_type: 'refresh_token',
-          client_id: cfg.clientId,
+          client_id: clientId,
           refresh_token: existing.refreshToken,
         }).toString(),
       });
     } catch {
-      // Network error — leave existing credential intact; retry will handle 401.
       return;
     }
 

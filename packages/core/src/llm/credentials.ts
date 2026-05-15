@@ -464,6 +464,62 @@ export function resolveAnthropicApiKeySource(): 'env' | 'config' | 'oauth' | 'no
 }
 
 /**
+ * Resolve the credential status for a single provider.
+ *
+ * Calls the 6-tier resolution chain and maps the result to a human-facing
+ * `LlmProviderSourceWire` value. Does NOT cache — always re-reads.
+ *
+ * Used by `cleo memory llm-status` to build the `providers[]` array without
+ * branching on provider names.
+ *
+ * @param provider - The provider transport to check.
+ * @returns Status entry with `resolvedSource` and `hasCredential`.
+ * @task T9323
+ */
+export function resolveProviderStatus(provider: ModelTransport): {
+  provider: ModelTransport;
+  resolvedSource: 'env' | 'cred-file' | 'claude-creds' | 'config' | 'none';
+  hasCredential: boolean;
+} {
+  const result = resolveCredentials(provider);
+  if (!result.apiKey) {
+    return { provider, resolvedSource: 'none', hasCredential: false };
+  }
+  let resolvedSource: 'env' | 'cred-file' | 'claude-creds' | 'config' | 'none';
+  switch (result.source) {
+    case 'env':
+      resolvedSource = 'env';
+      break;
+    case 'cred-file':
+      resolvedSource = 'cred-file';
+      break;
+    case 'claude-creds':
+      resolvedSource = 'claude-creds';
+      break;
+    case 'global-config':
+    case 'project-config':
+      resolvedSource = 'config';
+      break;
+    default:
+      resolvedSource = 'none';
+  }
+  return { provider, resolvedSource, hasCredential: true };
+}
+
+/**
+ * The set of OAuth-capable provider transports that surface in `llm-status`.
+ *
+ * Extend this tuple when adding new OAuth-capable providers. The order is
+ * preserved in the `providers[]` array of `cleo memory llm-status` output.
+ *
+ * @task T9323
+ */
+export const OAUTH_STATUS_PROVIDERS: readonly ModelTransport[] = [
+  'anthropic',
+  'kimi-code',
+] as const;
+
+/**
  * Store an Anthropic API key in the CLEO global config directory.
  *
  * Writes to `~/.local/share/cleo/anthropic-key` with 0600 permissions.

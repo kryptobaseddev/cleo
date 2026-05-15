@@ -350,19 +350,20 @@ export class ConcreteSession implements LlmSession {
   /**
    * Refreshes the OAuth credential bound to this session.
    *
-   * Called automatically by {@link send}/{@link stream} when
-   * `credential.expiresAt` is less than 60 seconds in the future.
+   * Called by `_preCallChecks` when the proactive refresh window is entered.
+   * Delegates to `CredentialPool.proactiveRefresh` when a pool is configured;
+   * otherwise falls back to a direct pool-less no-op (callers without a pool
+   * rely on 401-triggered rotation from the retry loop instead).
    *
    * No-op for `api_key` and `aws_sdk` credentials.
    *
-   * TODO(T9292 W3): wire real OAuth token refresh via oauth/device-code.ts
-   * once Anthropic device-code endpoint is confirmed (T9266).
+   * @task T9323
    */
   async refreshCredential(): Promise<void> {
     if (this._credential.authType !== 'oauth') return;
-    // TODO(T9292 W3): call refreshOAuthCredential(this._credential) from
-    // oauth/device-code.ts when the Anthropic device-code endpoint is confirmed
-    // and the OAuth refresh flow is implemented (T9266).
+    if (this._credentialPool) {
+      await this._credentialPool.proactiveRefresh(this._credential.label);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -372,14 +373,9 @@ export class ConcreteSession implements LlmSession {
   /**
    * Pre-call guard: OAuth proactive refresh + RateLimitGuard check.
    *
-   * OAuth refresh is attempted when less than `max(expiresIn * 0.5, 300s)`
-   * remain on the current credential (T9323). The legacy 60s reactive check
-   * is subsumed by the proactive threshold.
-   *
-   * When a `credentialPool` is configured, proactive refresh is delegated to
-   * `CredentialPool.proactiveRefresh()` which handles the token-endpoint call
-   * and persists the updated credential. Without a pool, falls back to the
-   * `refreshCredential()` hook (currently a no-op for Anthropic pending T9266).
+   * OAuth refresh is attempted when remaining lifetime falls below
+   * `max(remaining * 0.5, 300s)`. Both `anthropic` and `kimi-code` refresh
+   * via `CredentialPool.proactiveRefresh()` → `_refreshTokenViaEndpoint()`.
    *
    * @task T9297 (W4e): RateLimitGuard pre-call check is verified here.
    * @task T9323: Proactive refresh at 50% lifetime / 300s floor.
