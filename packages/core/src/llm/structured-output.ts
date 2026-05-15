@@ -17,7 +17,7 @@
 import { jsonrepair } from 'jsonrepair';
 import type { z } from 'zod';
 
-import type { CompletionResult } from './executor.js';
+import type { CompletionResult } from './legacy-types.js';
 
 /** Policy for handling structured output failures after repair attempt. */
 export type StructuredOutputFailurePolicy = 'raise' | 'repair_then_raise' | 'repair_then_empty';

@@ -16,8 +16,9 @@
 
 import pRetry from 'p-retry';
 import { truncateMessagesToFit } from './conversation.js';
-import type { CompletionResult } from './executor.js';
-import { cleoLlmCallInner } from './executor.js';
+// TODO(T9298 W5): migrate tool-loop to ConcreteExecutor / LlmTransport event stream.
+import type { CompletionResult } from './legacy-types.js';
+import { cleoLlmCallInner } from './shim-executor.js';
 import { historyAdapterForProvider } from './registry.js';
 import type { AttemptPlan, AttemptRef } from './runtime.js';
 import { effectiveTemperature } from './runtime.js';

@@ -16,7 +16,8 @@
 
 import pRetry from 'p-retry';
 
-import { cleoLlmCallInner } from './executor.js';
+// TODO(T9298 W5): migrate api.ts to ConcreteExecutor / LlmTransport event stream.
+import { cleoLlmCallInner } from './shim-executor.js';
 import { effectiveTemperature, makeAttemptRef, planAttempt } from './runtime.js';
 import { executeToolLoop } from './tool-loop.js';
 import type {
