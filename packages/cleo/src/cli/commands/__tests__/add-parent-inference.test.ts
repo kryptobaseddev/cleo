@@ -25,6 +25,8 @@ import { addCommand } from '../add.js';
 
 const mockDispatchRaw = vi.fn();
 const mockHandleRawError = vi.fn();
+const mockHumanInfo = vi.fn();
+const mockHumanWarn = vi.fn();
 
 vi.mock('../../../dispatch/adapters/cli.js', () => ({
   dispatchRaw: (...args: unknown[]) => mockDispatchRaw(...args),
@@ -34,6 +36,8 @@ vi.mock('../../../dispatch/adapters/cli.js', () => ({
 vi.mock('../../renderers/index.js', () => ({
   cliOutput: vi.fn(),
   cliError: vi.fn(),
+  humanInfo: (...args: unknown[]) => mockHumanInfo(...args),
+  humanWarn: (...args: unknown[]) => mockHumanWarn(...args),
 }));
 
 // Mock Core inference — add.ts now delegates all inference to inferTaskAddParams (T1490)
@@ -71,6 +75,8 @@ describe('cleo add --parent inference (T1329)', () => {
     mockDispatchRaw.mockClear();
     mockHandleRawError.mockClear();
     mockInferTaskAddParams.mockClear();
+    mockHumanInfo.mockClear();
+    mockHumanWarn.mockClear();
   });
 
   it('infers --parent from session.taskWork.taskId when present', async () => {
@@ -216,17 +222,12 @@ describe('cleo add --parent inference (T1329)', () => {
       },
     });
 
-    // Mock stderr.write
-    const stderrWriteSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
     await invokeAdd('New task');
 
-    // Verify inference notice was logged
-    expect(stderrWriteSpy).toHaveBeenCalledWith(
+    // Verify inference notice was logged via humanInfo (T1490 renderer wrapper)
+    expect(mockHumanInfo).toHaveBeenCalledWith(
       expect.stringContaining('[cleo add] inferred --parent from current task: T999'),
     );
-
-    stderrWriteSpy.mockRestore();
   });
 
   it('does NOT log inference notice when explicit --parent provided', async () => {

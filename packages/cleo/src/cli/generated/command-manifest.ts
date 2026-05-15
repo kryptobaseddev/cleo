@@ -28,7 +28,6 @@ export interface CommandManifestEntry {
   readonly load: () => Promise<CommandDef>;
 }
 
-
 export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'adapterCommand',
@@ -63,8 +62,10 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'agentOutputsCommand',
     name: 'agent-outputs',
-    description: 'Agent output document management — find/search via DocsAccessor (find subcommand)',
-    load: async () => (await import('../commands/agent-outputs.js')).agentOutputsCommand as CommandDef,
+    description:
+      'Agent output document management — find/search via DocsAccessor (find subcommand)',
+    load: async () =>
+      (await import('../commands/agent-outputs.js')).agentOutputsCommand as CommandDef,
   },
   {
     exportName: 'agentCommand',
@@ -82,7 +83,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'archiveStatsCommand',
     name: 'archive-stats',
     description: 'Generate analytics and insights from archived tasks',
-    load: async () => (await import('../commands/archive-stats.js')).archiveStatsCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/archive-stats.js')).archiveStatsCommand as CommandDef,
   },
   {
     exportName: 'archiveCommand',
@@ -100,7 +102,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'backupInspectSubCommand',
     name: 'inspect',
     description: 'Show bundle manifest without extracting or modifying anything',
-    load: async () => (await import('../commands/backup-inspect.js')).backupInspectSubCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/backup-inspect.js')).backupInspectSubCommand as CommandDef,
   },
   {
     exportName: 'backupCommand',
@@ -123,7 +126,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'briefingCommand',
     name: 'briefing',
-    description: 'Session resume context: last handoff, current task, next tasks, bugs, blockers, epics, and memory. Use at session start to restore context.',
+    description:
+      'Session resume context: last handoff, current task, next tasks, bugs, blockers, epics, and memory. Use at session start to restore context.',
     load: async () => (await import('../commands/briefing.js')).briefingCommand as CommandDef,
   },
   {
@@ -226,7 +230,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'contributionCommand',
     name: 'contribution',
     description: 'Validate contribution protocol compliance (alias for ',
-    load: async () => (await import('../commands/contribution.js')).contributionCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/contribution.js')).contributionCommand as CommandDef,
   },
   {
     exportName: 'currentCommand',
@@ -243,14 +248,16 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'dashCommand',
     name: 'dash',
-    description: 'Project health dashboard: status summary, phase progress, recent activity, high priority tasks. Use for overall project status.',
+    description:
+      'Project health dashboard: status summary, phase progress, recent activity, high priority tasks. Use for overall project status.',
     load: async () => (await import('../commands/dash.js')).dashCommand as CommandDef,
   },
   {
     exportName: 'decompositionCommand',
     name: 'decomposition',
     description: 'Validate decomposition protocol compliance (alias for ',
-    load: async () => (await import('../commands/decomposition.js')).decompositionCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/decomposition.js')).decompositionCommand as CommandDef,
   },
   {
     exportName: 'deleteCommand',
@@ -274,7 +281,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'detectDriftCommand',
     name: 'detect-drift',
     description: 'Detect documentation drift against TypeScript source of truth',
-    load: async () => (await import('../commands/detect-drift.js')).detectDriftCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/detect-drift.js')).detectDriftCommand as CommandDef,
   },
   {
     exportName: 'detectCommand',
@@ -285,7 +293,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'diagnosticsCommand',
     name: 'diagnostics',
-    description: 'Autonomous self-improvement telemetry — opt-in command analytics that feed BRAIN observations',
+    description:
+      'Autonomous self-improvement telemetry — opt-in command analytics that feed BRAIN observations',
     load: async () => (await import('../commands/diagnostics.js')).diagnosticsCommand as CommandDef,
   },
   {
@@ -298,7 +307,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doctorProjectsCommand',
     name: 'doctor-projects',
     description: 'Probe every registered project (nexus.db) for DB + config health',
-    load: async () => (await import('../commands/doctor-projects.js')).doctorProjectsCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/doctor-projects.js')).doctorProjectsCommand as CommandDef,
   },
   {
     exportName: 'doctorCommand',
@@ -334,7 +344,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'exportTasksCommand',
     name: 'export-tasks',
     description: 'Export tasks to portable .cleo-export.json package for cross-project transfer',
-    load: async () => (await import('../commands/export-tasks.js')).exportTasksCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/export-tasks.js')).exportTasksCommand as CommandDef,
   },
   {
     exportName: 'exportCommand',
@@ -358,7 +369,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'generateChangelogCommand',
     name: 'generate-changelog',
     description: 'Generate platform-specific changelog from CHANGELOG.md',
-    load: async () => (await import('../commands/generate-changelog.js')).generateChangelogCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/generate-changelog.js')).generateChangelogCommand as CommandDef,
   },
   {
     exportName: 'gradeCommand',
@@ -382,7 +394,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'importTasksCommand',
     name: 'import-tasks',
     description: 'Import tasks from .cleo-export.json package with ID remapping',
-    load: async () => (await import('../commands/import-tasks.js')).importTasksCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/import-tasks.js')).importTasksCommand as CommandDef,
   },
   {
     exportName: 'importCommand',
@@ -405,14 +418,17 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'installGlobalCommand',
     name: 'install-global',
-    description: 'Run the global bootstrap manually (install templates, ~/.cleo symlink, agents, skills). Same as npm postinstall.',
-    load: async () => (await import('../commands/install-global.js')).installGlobalCommand as CommandDef,
+    description:
+      'Run the global bootstrap manually (install templates, ~/.cleo symlink, agents, skills). Same as npm postinstall.',
+    load: async () =>
+      (await import('../commands/install-global.js')).installGlobalCommand as CommandDef,
   },
   {
     exportName: 'intelligenceCommand',
     name: 'intelligence',
     description: 'Predictive intelligence and quality analysis',
-    load: async () => (await import('../commands/intelligence.js')).intelligenceCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/intelligence.js')).intelligenceCommand as CommandDef,
   },
   {
     exportName: 'issueCommand',
@@ -441,7 +457,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'costCommand',
     name: 'cost',
-    description: 'Compute cumulative USD cost for an LLM session from recorded token_usage entries. ',
+    description:
+      'Compute cumulative USD cost for an LLM session from recorded token_usage entries. ',
     load: async () => (await import('../commands/llm-cost.js')).costCommand as CommandDef,
   },
   {
@@ -477,14 +494,17 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'migrateAgentsV2Command',
     name: 'agents-v2',
-    description: 'Register existing .cant agent files into signaldock.db (idempotent, conflict-safe)',
-    load: async () => (await import('../commands/migrate-agents-v2.js')).migrateAgentsV2Command as CommandDef,
+    description:
+      'Register existing .cant agent files into signaldock.db (idempotent, conflict-safe)',
+    load: async () =>
+      (await import('../commands/migrate-agents-v2.js')).migrateAgentsV2Command as CommandDef,
   },
   {
     exportName: 'migrateClaudeMemCommand',
     name: 'migrate',
     description: 'Data migration utilities',
-    load: async () => (await import('../commands/migrate-claude-mem.js')).migrateClaudeMemCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/migrate-claude-mem.js')).migrateClaudeMemCommand as CommandDef,
   },
   {
     exportName: 'nextCommand',
@@ -513,7 +533,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'otelCommand',
     name: 'otel',
-    description: 'Lightweight token metrics from .cleo/metrics/TOKEN_USAGE.jsonl (session-level, spawn-level events)',
+    description:
+      'Lightweight token metrics from .cleo/metrics/TOKEN_USAGE.jsonl (session-level, spawn-level events)',
     load: async () => (await import('../commands/otel.js')).otelCommand as CommandDef,
   },
   {
@@ -525,13 +546,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'pivotCommand',
     name: 'pivot',
-    description: 'Record an audited context switch from one task to another (replaces silent reframes)',
+    description:
+      'Record an audited context switch from one task to another (replaces silent reframes)',
     load: async () => (await import('../commands/pivot.js')).pivotCommand as CommandDef,
   },
   {
     exportName: 'planCommand',
     name: 'plan',
-    description: 'Task prioritization view: in-progress epics, ready tasks, blocked tasks, open bugs with scoring. Use when deciding what to work on next.',
+    description:
+      'Task prioritization view: in-progress epics, ready tasks, blocked tasks, open bugs with scoring. Use when deciding what to work on next.',
     load: async () => (await import('../commands/plan.js')).planCommand as CommandDef,
   },
   {
@@ -568,7 +591,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'refreshMemoryCommand',
     name: 'refresh-memory',
     description: 'Regenerate .cleo/memory-bridge.md from brain.db',
-    load: async () => (await import('../commands/refresh-memory.js')).refreshMemoryCommand as CommandDef,
+    load: async () =>
+      (await import('../commands/refresh-memory.js')).refreshMemoryCommand as CommandDef,
   },
   {
     exportName: 'relatesCommand',
@@ -627,7 +651,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'restoreCommand',
     name: 'restore',
-    description: 'Restore from backup or restore tasks from terminal states (archived, cancelled, completed)',
+    description:
+      'Restore from backup or restore tasks from terminal states (archived, cancelled, completed)',
     load: async () => (await import('../commands/restore.js')).restoreCommand as CommandDef,
   },
   {
@@ -639,7 +664,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'roadmapCommand',
     name: 'roadmap',
-    description: 'Generate project roadmap from task provenance — epics grouped by status with progress',
+    description:
+      'Generate project roadmap from task provenance — epics grouped by status with progress',
     load: async () => (await import('../commands/roadmap.js')).roadmapCommand as CommandDef,
   },
   {
@@ -681,7 +707,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'showCommand',
     name: 'show',
-    description: 'Show full task details by ID (returns complete task record with metadata, verification, lifecycle)',
+    description:
+      'Show full task details by ID (returns complete task record with metadata, verification, lifecycle)',
     load: async () => (await import('../commands/show.js')).showCommand as CommandDef,
   },
   {
@@ -741,7 +768,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'tokenCommand',
     name: 'token',
-    description: 'Provider-aware token telemetry from tasks.db (historical, per-operation tracking)',
+    description:
+      'Provider-aware token telemetry from tasks.db (historical, per-operation tracking)',
     load: async () => (await import('../commands/token.js')).tokenCommand as CommandDef,
   },
   {
@@ -759,7 +787,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'upgradeCommand',
     name: 'upgrade',
-    description: 'Unified project maintenance (storage migration, schema repair, structural fixes, doc refresh)',
+    description:
+      'Unified project maintenance (storage migration, schema repair, structural fixes, doc refresh)',
     load: async () => (await import('../commands/upgrade.js')).upgradeCommand as CommandDef,
   },
   {
