@@ -72,6 +72,20 @@ export interface SentientState {
   /** ISO-8601 timestamp of the last completed tick (any outcome). */
   lastTickAt: string | null;
   /**
+   * ISO-8601 timestamp of the last cron-callback dispatch — written BEFORE
+   * `safeRunTick` is invoked. Distinguishes "cron did not fire" from "cron
+   * fired but tick hung" when diagnosing stale `lastTickAt`:
+   *
+   *   - both stale → cron timer dead (node-cron lock leak, GC'd handle).
+   *   - heartbeat fresh + tick stale → tick hung mid-execution.
+   *
+   * Surfaced by `cleo sentient status` so `lastTickAt - lastCronFiredAt`
+   * exposes per-tick duration trend.
+   *
+   * @task T-DAEMON-LASTTICKAT (T9320 follow-up)
+   */
+  lastCronFiredAt: string | null;
+  /**
    * Kill-switch flag. When true, the daemon re-checks at every step of a tick
    * and exits cleanly without picking or spawning a task.
    */
@@ -186,6 +200,7 @@ export const DEFAULT_SENTIENT_STATE: SentientState = {
   pid: null,
   startedAt: null,
   lastTickAt: null,
+  lastCronFiredAt: null,
   killSwitch: false,
   killSwitchReason: null,
   pausedByRevert: false,
