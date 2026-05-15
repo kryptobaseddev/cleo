@@ -20,6 +20,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import type { CompletionResult } from '../backend.js';
+import { makeCompletionResult } from '../backend.js';
 // --- Cache key determinism ---
 import { buildCacheKey, InMemoryGeminiCacheStore } from '../caching.js';
 // --- Conversation ---
@@ -30,8 +32,6 @@ import {
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from '../history-adapters.js';
-import type { CompletionResult } from '../legacy-types.js';
-import { makeCompletionResult } from '../legacy-types.js';
 // --- Moonshot constants (MoonshotBackend removed in T9286 W1d) ---
 import {
   isMoonshotModel,

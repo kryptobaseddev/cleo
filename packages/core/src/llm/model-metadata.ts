@@ -159,3 +159,18 @@ export async function getModelContextLength(
   const metadata = await getModelMetadata(model, baseUrl, apiKey);
   return metadata.contextLength;
 }
+
+/**
+ * Synchronous variant of {@link getModelContextLength}.
+ *
+ * Returns the curated context length when a table entry exists (exact or alias),
+ * otherwise returns {@link DEFAULT_CONTEXT_LENGTH}. Does NOT perform a live API
+ * probe — safe to call inside hot synchronous paths such as `ConcreteSession.send()`.
+ *
+ * @param model - Model identifier (e.g. `"claude-sonnet-4-6-20251001"`).
+ * @returns Context window size in tokens.
+ */
+export function getModelContextLengthSync(model: string): number {
+  const curated = lookupCurated(model);
+  return curated !== null ? curated.entry.contextLength : DEFAULT_CONTEXT_LENGTH;
+}

@@ -374,30 +374,7 @@ export interface LlmProviderEntry {
 }
 
 /**
- * Daemon LLM configuration — which provider + model the CLEO daemon
- * (sentient tick, dream-cycle, BRAIN extraction, etc.) uses by default.
- *
- * Written via:
- *   cleo config llm.daemon.provider <provider>
- *   cleo config llm.daemon.model <model-id>
- *
- * @defaultValue { provider: 'anthropic', model: 'claude-sonnet-4-6' }
- */
-export interface DaemonLLMConfig {
-  /**
-   * LLM provider transport used by daemon loops.
-   * @defaultValue 'anthropic'
-   */
-  provider: ModelTransport;
-  /**
-   * Full model identifier for the selected provider.
-   * @defaultValue 'claude-sonnet-4-6'
-   */
-  model: string;
-}
-
-/**
- * Canonical model transport identifier — re-export of {@link ModelTransport}
+ * Config-layer transport identifier — re-export of {@link ModelTransport}
  * from `operations/llm.ts` so config-layer types stay in lock-step with the
  * operations layer with no risk of drift.
  *
@@ -405,33 +382,45 @@ export interface DaemonLLMConfig {
  * T-LLM-CRED Phase 2 DRY/SOLID review (P1-2). Adding a new transport now
  * requires editing only `operations/llm.ts`.
  *
+ * **Disambiguation**: This is the *config-level* alias for the
+ * `ModelTransport` string-literal union (`'anthropic' | 'openai' | ...`).
+ * It is intentionally distinct from the `LlmTransport` *interface* defined
+ * in `packages/contracts/src/llm/normalized-response.ts` (Phase 4 wire-level
+ * protocol). Renamed from `LlmTransport` → `LlmProviderTransport` in T9308
+ * to eliminate the name collision.
+ *
  * @task T-LLM-CRED-CENTRALIZATION Phase 2 — DRY review P1-2
+ * @see T9308 — disambiguation rename
  */
-export type LlmTransport = ModelTransport;
+export type LlmProviderTransport = ModelTransport;
 
 /**
  * Logical LLM role name used by role-aware resolvers (BRAIN, sentient, etc.).
  *
  * Each role can pin its own provider + model + credential label, with
- * resolution falling back to `LlmConfig.default` and finally to the legacy
- * `LlmConfig.daemon` block.
+ * resolution falling back to `LlmConfig.default`.
  *
- * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
  */
-export type RoleName = 'extraction' | 'consolidation' | 'derivation' | 'hygiene' | 'judgement';
+export type RoleName =
+  | 'extraction'
+  | 'consolidation'
+  | 'derivation'
+  | 'hygiene'
+  | 'judgement'
+  /** Sandbox role for plugin-scoped single-turn calls (T9305). */
+  | 'plugin'
+  /** Context-compression role — uses a cheap model (haiku) for summarization (T9304). */
+  | 'compression';
 
 /**
  * Canonical default LLM target for unscoped (non-role) calls.
  *
- * Replaces the role previously played by `LlmConfig.daemon`. The `daemon`
- * field stays as a deprecated alias for one release cycle to give downstream
- * consumers time to migrate.
- *
- * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
  */
 export interface LlmDefaultConfig {
   /** LLM provider transport for the default model. */
-  provider: LlmTransport;
+  provider: LlmProviderTransport;
   /** Full model identifier for the selected provider. */
   model: string;
 }
@@ -448,7 +437,7 @@ export interface LlmDefaultConfig {
  */
 export interface LlmRoleConfig {
   /** LLM provider transport for this role. */
-  provider: LlmTransport;
+  provider: LlmProviderTransport;
   /** Full model identifier for the selected provider. */
   model: string;
   /**
@@ -465,39 +454,32 @@ export interface LlmRoleConfig {
  * Stored at `llm` in config.json.
  *
  * Resolution order for role-scoped calls:
- *   `roles[role]` → `default` → `daemon` (legacy).
+ *   `roles[role]` → `default` → implicit fallback.
+ *
+ * Note: configs that still carry a `llm.daemon` key are silently ignored
+ * at parse time — they will not cause a crash. Migration: remove the key
+ * and add `llm.default` or `llm.roles.<role>` instead.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
  */
 export interface LlmConfig {
-  /**
-   * Daemon LLM settings (provider + model for background loops).
-   *
-   * @deprecated Use `default` instead. Retained as a fallback alias for
-   * one release cycle (T-LLM-CRED-CENTRALIZATION Phase 2 · T9256). New
-   * code must read `default` first and only fall through to `daemon` when
-   * `default` is absent.
-   * @defaultValue { provider: 'anthropic', model: 'claude-sonnet-4-6' }
-   */
-  daemon?: DaemonLLMConfig;
   /**
    * Per-provider API key overrides.
    * Keys are provider names: 'anthropic' | 'openai' | 'gemini' | 'moonshot'.
    */
   providers?: Record<string, LlmProviderEntry>;
   /**
-   * Canonical default LLM for unscoped calls. Replaces the role previously
-   * played by `daemon`, which stays as a deprecated alias for one release
-   * cycle.
+   * Canonical default LLM for unscoped calls.
    *
-   * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+   * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
    */
   default?: LlmDefaultConfig;
   /**
-   * Per-role LLM overrides. Each role optionally pins to a credential
-   * label.
+   * Per-role LLM overrides. Each role optionally pins to a credential label.
    *
-   * Resolution order: `roles[role]` → `default` → `daemon` (legacy).
+   * Resolution order: `roles[role]` → `default` → implicit fallback.
    *
-   * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+   * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
    */
   roles?: Partial<Record<RoleName, LlmRoleConfig>>;
 }

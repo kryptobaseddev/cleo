@@ -574,4 +574,70 @@ describe('ConcreteSession', () => {
       expect((err as Error).message).toContain('120.0s remaining');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // T9302 — refreshCredential() PKCE path
+  // ---------------------------------------------------------------------------
+
+  describe('refreshCredential() — PKCE path (T9302)', () => {
+    it('delegates to credentialPool.proactiveRefresh for oauth credentials', async () => {
+      const proactiveRefreshSpy = vi.fn().mockResolvedValue(true);
+      const fakePool = {
+        proactiveRefresh: proactiveRefreshSpy,
+        pick: vi.fn(),
+        markExhausted: vi.fn(),
+        markOk: vi.fn(),
+        listEntries: vi.fn(),
+      } as unknown as import('../credential-pool.js').CredentialPool;
+
+      const oauthCred = makeCredential('oauth', Date.now() + 60_000);
+      const session = new ConcreteSession({
+        transport: makeMockTransport(),
+        model: 'claude-haiku-4-5-20251001',
+        credential: oauthCred,
+        credentialPool: fakePool,
+      });
+
+      await session.refreshCredential();
+
+      expect(proactiveRefreshSpy).toHaveBeenCalledOnce();
+      expect(proactiveRefreshSpy).toHaveBeenCalledWith('personal');
+    });
+
+    it('is a no-op for api_key credentials', async () => {
+      const proactiveRefreshSpy = vi.fn();
+      const fakePool = {
+        proactiveRefresh: proactiveRefreshSpy,
+        pick: vi.fn(),
+        markExhausted: vi.fn(),
+        markOk: vi.fn(),
+        listEntries: vi.fn(),
+      } as unknown as import('../credential-pool.js').CredentialPool;
+
+      const apiKeyCred = makeCredential('api_key');
+      const session = new ConcreteSession({
+        transport: makeMockTransport(),
+        model: 'claude-haiku-4-5-20251001',
+        credential: apiKeyCred,
+        credentialPool: fakePool,
+      });
+
+      await session.refreshCredential();
+
+      expect(proactiveRefreshSpy).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when no credentialPool is configured', async () => {
+      const oauthCred = makeCredential('oauth', Date.now() + 60_000);
+      const session = new ConcreteSession({
+        transport: makeMockTransport(),
+        model: 'claude-haiku-4-5-20251001',
+        credential: oauthCred,
+        // No credentialPool provided
+      });
+
+      // Should not throw — no pool available, silently no-ops
+      await expect(session.refreshCredential()).resolves.toBeUndefined();
+    });
+  });
 });

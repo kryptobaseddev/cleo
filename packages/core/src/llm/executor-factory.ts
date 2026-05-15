@@ -13,11 +13,12 @@
  */
 
 import type {
-  ContextEngine,
   ExecutorFactoryOptions,
   LlmExecutor,
   LlmExecutorFactory,
 } from '@cleocode/contracts/llm/interfaces.js';
+import type { ContextEngine } from '@cleocode/contracts/memory/context-engine.js';
+import { LlmSummarizationEngine } from '../memory/context-engines/llm-summarizer.js';
 import { ConcreteExecutor } from './concrete-executor.js';
 import { DefaultLlmSessionFactory } from './session-factory.js';
 
@@ -91,11 +92,38 @@ export class DefaultLlmExecutorFactory implements LlmExecutorFactory {
 }
 
 // ---------------------------------------------------------------------------
-// Per-role singleton cache
+// Per-role ContextEngine registry + singleton executor cache
 // ---------------------------------------------------------------------------
 
-let _defaultFactory: DefaultLlmExecutorFactory | undefined;
+/**
+ * Per-role ContextEngine registry.
+ *
+ * Seeded with the default {@link LlmSummarizationEngine} for the
+ * `'compression'` role. Callers can swap or add engines via
+ * {@link registerContextEngine} without touching core code.
+ */
+const _engineRegistry = new Map<string, ContextEngine>([
+  ['compression', new LlmSummarizationEngine()],
+]);
+
 const _executorCache = new Map<string, LlmExecutor>();
+
+/**
+ * Register a {@link ContextEngine} for a given role.
+ *
+ * The registered engine is supplied to all executors created for that role
+ * via {@link getLlmExecutor}. Call before the first {@link getLlmExecutor}
+ * for the role, or call {@link clearLlmExecutorCache} first to invalidate
+ * the cached executor.
+ *
+ * @param role - CLEO role name to bind the engine to.
+ * @param engine - The context engine implementation to register.
+ */
+export function registerContextEngine(role: string, engine: ContextEngine): void {
+  _engineRegistry.set(role, engine);
+  // Invalidate the cached executor so the next call rebuilds with the new engine.
+  _executorCache.delete(role);
+}
 
 /**
  * Returns a cached {@link LlmExecutor} for the given role.
@@ -104,22 +132,24 @@ const _executorCache = new Map<string, LlmExecutor>();
  * calls return the same instance. Use for callers that want a stable executor
  * across multiple calls without re-resolving credentials per call.
  *
+ * The executor receives the {@link ContextEngine} registered for this role
+ * (if any) via the {@link _engineRegistry}. The default registry seeds
+ * `'compression'` with a {@link LlmSummarizationEngine}.
+ *
  * NOTE: The executor's session history accumulates across calls. Callers
  * that need a fresh conversation should use `new DefaultLlmExecutorFactory()
  * .createForRole(role)` directly instead.
  *
- * @param role - CLEO role name (e.g. `'orchestrator'`, `'sentient'`).
+ * @param role - CLEO role name (e.g. `'orchestrator'`, `'compression'`).
  * @returns A promise resolving to the cached {@link LlmExecutor} for this role.
  */
 export async function getLlmExecutor(role: string): Promise<LlmExecutor> {
   const cached = _executorCache.get(role);
   if (cached !== undefined) return cached;
 
-  if (_defaultFactory === undefined) {
-    _defaultFactory = new DefaultLlmExecutorFactory();
-  }
-
-  const executor = await _defaultFactory.createForRole(role);
+  const contextEngine = _engineRegistry.get(role);
+  const factory = new DefaultLlmExecutorFactory({ contextEngine });
+  const executor = await factory.createForRole(role);
   _executorCache.set(role, executor);
   return executor;
 }
@@ -137,6 +167,5 @@ export function clearLlmExecutorCache(role?: string): void {
     _executorCache.delete(role);
   } else {
     _executorCache.clear();
-    _defaultFactory = undefined;
   }
 }

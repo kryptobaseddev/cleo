@@ -75,10 +75,12 @@ const SUBPATH_DIRS = [
 const SUBPATH_SUBDIRS = {
   'nexus/api-extractors': 'packages/core/src/nexus/api-extractors',
   'llm/provider-registry': 'packages/core/src/llm/provider-registry',
+  'llm/provider-registry/builtin': 'packages/core/src/llm/provider-registry/builtin',
   'llm/oauth': 'packages/core/src/llm/oauth',
   'llm/transports': 'packages/core/src/llm/transports',
   'llm/generated': 'packages/core/src/llm/generated',
   'llm/backends': 'packages/core/src/llm/backends',
+  'memory/context-engines': 'packages/core/src/memory/context-engines',
 };
 
 /**

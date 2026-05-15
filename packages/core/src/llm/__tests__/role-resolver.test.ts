@@ -1,13 +1,13 @@
 /**
- * Tests for `resolveLLMForRole` (T-LLM-CRED-CENTRALIZATION Phase 2 / T9255).
+ * Tests for `resolveLLMForRole` (T-LLM-CRED-CENTRALIZATION Phase 4 / T9306).
  *
  * Filesystem isolation mirrors `credentials-store.test.ts`: a fresh tmpdir
  * backing `XDG_DATA_HOME` and `HOME` per test, env restored in `afterEach`.
  * Each test seeds a project-local `.cleo/config.json` under its own tmpdir
- * so the chain `roles[role]` → `default` → `daemon` → `implicit-fallback`
+ * so the chain `roles[role]` → `default` → `implicit-fallback`
  * exercises real filesystem state rather than mocks.
  *
- * @task T9255
+ * @task T9306
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -124,15 +124,27 @@ describe('resolveLLMForRole — provider/model resolution chain', () => {
     expect(llm.model).toBe('default-model-y');
   });
 
-  it("source='daemon-legacy' when only llm.daemon is configured", async () => {
+  it('resolves role with no daemon field configured — falls back to implicit', async () => {
+    const { projectRoot } = isolate();
+    // No llm.daemon, no llm.default, no llm.roles → implicit fallback.
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-no-daemon';
+    const llm = await resolveLLMForRole('consolidation', { projectRoot });
+    expect(llm.source).toBe('implicit-fallback');
+    expect(llm.provider).toBe(IMPLICIT_FALLBACK_PROVIDER);
+    expect(llm.model).toBe(IMPLICIT_FALLBACK_MODEL);
+  });
+
+  it('falls back to llm.default when role-specific override absent', async () => {
     const { projectRoot } = isolate();
     seedProjectConfig(projectRoot, {
-      daemon: { provider: 'anthropic', model: 'daemon-model-z' },
+      default: { provider: 'anthropic', model: 'default-model' },
     });
-    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-daemon';
-    const llm = await resolveLLMForRole('consolidation', { projectRoot });
-    expect(llm.source).toBe('daemon-legacy');
-    expect(llm.model).toBe('daemon-model-z');
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-default-fb';
+    // 'hygiene' not configured in roles → should fall to default.
+    const llm = await resolveLLMForRole('hygiene', { projectRoot });
+    expect(llm.source).toBe('default');
+    expect(llm.model).toBe('default-model');
+    expect(llm.provider).toBe('anthropic');
   });
 
   it("source='implicit-fallback' when nothing is configured", async () => {
@@ -145,12 +157,11 @@ describe('resolveLLMForRole — provider/model resolution chain', () => {
     expect(llm.model).toBe(IMPLICIT_FALLBACK_MODEL);
   });
 
-  it('role beats default beats daemon (priority chain)', async () => {
+  it('role beats default (priority chain)', async () => {
     const { projectRoot } = isolate();
     seedProjectConfig(projectRoot, {
       roles: { consolidation: { provider: 'anthropic', model: 'role-wins' } },
       default: { provider: 'anthropic', model: 'default-loses' },
-      daemon: { provider: 'anthropic', model: 'daemon-loses' },
     });
     process.env['ANTHROPIC_API_KEY'] = 'sk-ant';
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
@@ -158,11 +169,10 @@ describe('resolveLLMForRole — provider/model resolution chain', () => {
     expect(llm.model).toBe('role-wins');
   });
 
-  it('default beats daemon when role is unconfigured', async () => {
+  it('default beats implicit-fallback when role is unconfigured', async () => {
     const { projectRoot } = isolate();
     seedProjectConfig(projectRoot, {
       default: { provider: 'anthropic', model: 'default-wins' },
-      daemon: { provider: 'anthropic', model: 'daemon-loses' },
     });
     process.env['ANTHROPIC_API_KEY'] = 'sk-ant';
     const llm = await resolveLLMForRole('extraction', { projectRoot });

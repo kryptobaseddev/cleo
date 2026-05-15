@@ -16,8 +16,10 @@ import {
   generateMemoryBridgeContent,
   getBrainDb,
   getBrainNativeDb,
+  OAUTH_STATUS_PROVIDERS,
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
+  resolveProviderStatus,
   typedAll,
 } from '@cleocode/core/internal';
 import {
@@ -618,6 +620,10 @@ export class MemoryHandler implements DomainHandler {
           const resolvedSource = resolveAnthropicApiKeySource();
           const extractionEnabled = resolveAnthropicApiKey() !== null;
 
+          // Build per-provider status by iterating OAUTH_STATUS_PROVIDERS via
+          // resolveProviderStatus — no provider-specific branching here.
+          const providers = OAUTH_STATUS_PROVIDERS.map(resolveProviderStatus);
+
           // Query brain.db for the most recent extraction event
           let lastExtractionRun: string | null = null;
           try {
@@ -648,6 +654,7 @@ export class MemoryHandler implements DomainHandler {
                 extractionEnabled,
                 lastExtractionRun,
                 testCommand: 'cleo memory reflect --json',
+                providers,
               },
             },
             'query',

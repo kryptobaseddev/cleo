@@ -65,6 +65,14 @@
     "./llm/*.js": {
       "types": "./dist/llm/*.d.ts",
       "import": "./dist/llm/*.js"
+    },
+    "./memory/*": {
+      "types": "./dist/memory/*.d.ts",
+      "import": "./dist/memory/*.js"
+    },
+    "./memory/*.js": {
+      "types": "./dist/memory/*.d.ts",
+      "import": "./dist/memory/*.js"
     }
   },
   "scripts": {
