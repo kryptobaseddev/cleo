@@ -139,9 +139,4 @@ export class StreamingResponseWithMetadata implements AsyncIterable<LLMStreamChu
 }
 
 // Re-export zod for structured output schemas
-export type {
-  /** @deprecated Use LLMCallResponse<T> */
-  LLMCallResponse as PsycheLLMCallResponse,
-  LLMStreamChunk as PsycheLLMCallStreamChunk,
-  z,
-};
+export type { LLMStreamChunk as PsycheLLMCallStreamChunk, z };
