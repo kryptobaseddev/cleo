@@ -575,9 +575,6 @@ export async function addCredential(
   if (!inserted) {
     throw new Error('credentials-store: invariant violation — insert was not recorded');
   }
-  // S-10 (CWE-200 stale module-global cache): invalidate the in-process
-  // Anthropic-key cache so the next resolveAnthropicApiKey() call picks
-  // up the new entry without requiring a CLEO restart.
   clearAnthropicKeyCache();
   return inserted;
 }

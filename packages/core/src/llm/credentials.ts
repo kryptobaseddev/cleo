@@ -20,15 +20,6 @@
  *
  * Returns `null` when no key is found in any tier.
  *
- * ## Backward compatibility
- *
- * `resolveAnthropicApiKey()`, `resolveAnthropicApiKeySource()`,
- * `storeAnthropicApiKey()`, and `clearAnthropicKeyCache()` from the deleted
- * `anthropic-key-resolver.ts` are re-implemented here as thin shims over the
- * unified resolver so existing callers in internal.ts / CLI tests continue to
- * work. They are NOT deprecated — they remain valid public helpers for the
- * Anthropic-specific fast path that many callers need.
- *
  * @module llm/credentials
  * @task T1677
  * @epic T1676
@@ -422,47 +413,6 @@ export function authHeaders(cred: CredentialResult): Record<string, string> {
 //  unified resolver so there is ONE code path, no duplication)
 // ---------------------------------------------------------------------------
 
-/** Cached anthropic key — avoids repeated filesystem reads per process. */
-let _cachedAnthropicKey: string | null | undefined;
-
-/**
- * Resolve the Anthropic API key. Result is cached for the process lifetime.
- *
- * Uses the 5-tier chain (without project-root — callers that need tier 5
- * should call `resolveCredentials('anthropic', { projectRoot })` directly).
- *
- * @returns The API key/token string, or null if unavailable.
- */
-export function resolveAnthropicApiKey(): string | null {
-  if (_cachedAnthropicKey !== undefined) return _cachedAnthropicKey;
-  const result = resolveCredentials('anthropic');
-  _cachedAnthropicKey = result.apiKey;
-  return _cachedAnthropicKey;
-}
-
-/**
- * Identify which source resolved the Anthropic API key.
- *
- * Unlike `resolveAnthropicApiKey()`, this function does NOT cache — every
- * call re-reads all sources so status checks are always fresh.
- *
- * @returns The resolution source, or `'none'` when no key is found.
- */
-export function resolveAnthropicApiKeySource(): 'env' | 'config' | 'oauth' | 'none' {
-  const result = resolveCredentials('anthropic');
-  switch (result.source) {
-    case 'env':
-      return 'env';
-    case 'claude-creds':
-      return 'oauth';
-    case 'global-config':
-    case 'project-config':
-      return 'config';
-    default:
-      return 'none';
-  }
-}
-
 /**
  * Resolve the credential status for a single provider.
  *
@@ -523,8 +473,6 @@ export const OAUTH_STATUS_PROVIDERS: readonly ModelTransport[] = [
  * Store an Anthropic API key in the CLEO global config directory.
  *
  * Writes to `~/.local/share/cleo/anthropic-key` with 0600 permissions.
- * Invalidates the process-level cache so the next `resolveAnthropicApiKey()`
- * call picks up the new key.
  *
  * @param apiKey - The API key to store.
  */
@@ -535,14 +483,18 @@ export function storeAnthropicApiKey(apiKey: string): void {
   }
   const keyFile = join(dir, 'anthropic-key');
   writeFileSync(keyFile, apiKey.trim(), { mode: 0o600 });
-  _cachedAnthropicKey = undefined;
 }
 
 /**
- * Clear the cached Anthropic API key (useful for testing or token refresh).
+ * No-op retained for test call-site compatibility.
+ *
+ * `resolveCredentials` does not maintain an internal cache, so there is
+ * nothing to invalidate. Tests that call this function between assertions
+ * continue to work correctly — they simply rely on the file-system / env-var
+ * isolation they already set up.
  */
 export function clearAnthropicKeyCache(): void {
-  _cachedAnthropicKey = undefined;
+  // no-op — resolveCredentials() reads the filesystem directly; no cache to clear.
 }
 
 // ---------------------------------------------------------------------------
@@ -575,10 +527,15 @@ export function resolveModelCredentials(config: ModelConfig): {
 }
 
 /**
- * Fall back to the global LLM API key for the matching transport.
- * Reads from environment variables only (no config file cascade).
+ * Resolve the global LLM API key for the matching transport from environment
+ * variables only (no config file cascade).
  *
- * @deprecated Use `resolveCredentials(transport)` for the full 5-tier chain.
+ * Used internally by `clientForModelConfig` as a last-resort key source when
+ * the ModelConfig carries no explicit key. New callers should prefer
+ * `resolveCredentials(transport)` for the full 5-tier resolution chain.
+ *
+ * @param transport - The provider transport to look up.
+ * @returns The environment variable value, or null.
  */
 export function defaultTransportApiKey(transport: ModelTransport): string | null {
   const envVar = ENV_VARS[transport];
