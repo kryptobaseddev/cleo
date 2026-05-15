@@ -13,7 +13,6 @@ import { Anthropic } from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { OpenAI } from 'openai';
 
-import type { ProviderBackend } from './backend.js';
 import type { CredentialResult } from './credentials.js';
 import { defaultTransportApiKey } from './credentials.js';
 import type { HistoryAdapter } from './history-adapters.js';
@@ -288,23 +287,6 @@ export function clientForModelConfig(
 }
 
 /**
- * Wrap a raw provider SDK client in the matching ProviderBackend adapter.
- *
- * @deprecated MoonshotBackend was removed in T9286 (W1d). Use
- * {@link ChatCompletionsTransport} with a Moonshot ProviderProfile instead.
- * This function now always throws — callers should migrate to the transport API.
- */
-export function backendForProvider(
-  provider: ModelTransport,
-  _client: ProviderClient,
-): ProviderBackend {
-  throw new Error(
-    `backendForProvider: no backend registered for provider '${provider as string}'. ` +
-      'Use ChatCompletionsTransport with a ProviderProfile instead.',
-  );
-}
-
-/**
  * Provider-appropriate HistoryAdapter for assistant/tool message formatting.
  */
 export function historyAdapterForProvider(provider: ModelTransport): HistoryAdapter {
@@ -312,12 +294,4 @@ export function historyAdapterForProvider(provider: ModelTransport): HistoryAdap
   if (provider === 'gemini') return new GeminiHistoryAdapter();
   // openai and any unknown provider
   return new OpenAIHistoryAdapter();
-}
-
-/**
- * High-level one-shot backend factory: ModelConfig → ProviderBackend.
- */
-export function getBackend(config: ModelConfig): ProviderBackend {
-  const client = clientForModelConfig(config.transport, config);
-  return backendForProvider(config.transport, client);
 }

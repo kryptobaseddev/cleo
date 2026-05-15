@@ -20,12 +20,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import type { CompletionResult } from '../backend.js';
-import { makeCompletionResult } from '../backend.js';
 // --- Cache key determinism ---
 import { buildCacheKey, InMemoryGeminiCacheStore } from '../caching.js';
 // --- Conversation ---
 import { countMessageTokens, truncateMessagesToFit } from '../conversation.js';
+import type { CompletionResult } from '../executor.js';
+import { makeCompletionResult } from '../executor.js';
 // --- History adapters ---
 import {
   AnthropicHistoryAdapter,

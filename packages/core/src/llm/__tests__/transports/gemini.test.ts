@@ -20,18 +20,20 @@ import { describe, expect, it, vi } from 'vitest';
 // Mock @google/generative-ai before imports
 // ---------------------------------------------------------------------------
 
-const { mockGenerateContent, mockGenerateContentStream, MockGoogleGenerativeAI } = vi.hoisted(() => {
-  const mockGenerateContent = vi.fn();
-  const mockGenerateContentStream = vi.fn();
-  const mockGetGenerativeModel = vi.fn(() => ({
-    generateContent: mockGenerateContent,
-    generateContentStream: mockGenerateContentStream,
-  }));
-  function MockGoogleGenerativeAI(_apiKey: string) {
-    return { getGenerativeModel: mockGetGenerativeModel };
-  }
-  return { mockGenerateContent, mockGenerateContentStream, MockGoogleGenerativeAI };
-});
+const { mockGenerateContent, mockGenerateContentStream, MockGoogleGenerativeAI } = vi.hoisted(
+  () => {
+    const mockGenerateContent = vi.fn();
+    const mockGenerateContentStream = vi.fn();
+    const mockGetGenerativeModel = vi.fn(() => ({
+      generateContent: mockGenerateContent,
+      generateContentStream: mockGenerateContentStream,
+    }));
+    function MockGoogleGenerativeAI(_apiKey: string) {
+      return { getGenerativeModel: mockGetGenerativeModel };
+    }
+    return { mockGenerateContent, mockGenerateContentStream, MockGoogleGenerativeAI };
+  },
+);
 
 vi.mock('@google/generative-ai', () => ({
   GoogleGenerativeAI: MockGoogleGenerativeAI,
