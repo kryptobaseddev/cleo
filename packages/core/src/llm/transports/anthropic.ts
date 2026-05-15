@@ -39,7 +39,7 @@ import type {
 } from '@cleocode/contracts/llm/normalized-response.js';
 import type { ApiMode } from '@cleocode/contracts/llm/provider-id.js';
 import { z } from 'zod';
-
+import { validateImagesForProvider } from '../image-routing.js';
 import type { CacheControlMarker, PromptCachingStrategy } from '../prompt-caching.js';
 import { injectCacheBreakpoints } from '../prompt-caching.js';
 import { repairResponseModelJson } from '../structured-output.js';
@@ -380,6 +380,9 @@ export class AnthropicTransport implements LlmTransport {
    * @returns Normalized response including content, tool calls, usage, and raw SDK object.
    */
   async complete(request: TransportRequest, _ctx?: TransportContext): Promise<NormalizedResponse> {
+    // @invariant T9296 W4d — validate image constraints before any SDK call.
+    validateImagesForProvider(request, this.provider);
+
     const ext = request as TransportRequest & {
       thinkingBudgetTokens?: number | null;
       thinkingEffort?: string | null;

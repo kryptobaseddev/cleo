@@ -11,11 +11,19 @@
  *              The main model only sees prose; no pixels are forwarded.
  *
  * Resolution is done once per turn by {@link decideImageInputMode}.
+ * Per-image and per-request validation is done by {@link validateImagesForProvider}.
  *
  * @module image-routing
  * @task T9276 (T-LLM-CRED Phase 3)
+ * @task T9296 (W4d — wire validateImagesForProvider into transport complete())
  * @epic T9261
  */
+
+import type {
+  TransportImageBlock,
+  TransportMessage,
+  TransportRequest,
+} from '@cleocode/contracts/llm/normalized-response.js';
 
 /**
  * Image input mode for an LLM turn.
@@ -225,4 +233,168 @@ export function sniffMimeFromBytes(raw: Uint8Array): string | null {
  */
 export function imageSizeLimitFor(provider: string): number {
   return PROVIDER_IMAGE_SIZE_LIMITS[provider.toLowerCase()] ?? Number.POSITIVE_INFINITY;
+}
+
+// ---------------------------------------------------------------------------
+// Per-provider image count limits
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum number of image blocks allowed per request per provider.
+ *
+ * The limit is conservative — set to the documented hard limit for each
+ * provider. Requests exceeding this count are rejected before the SDK call
+ * so we don't waste a round-trip.
+ *
+ * @task T9296
+ */
+export const PROVIDER_IMAGE_COUNT_LIMITS: Readonly<Record<string, number>> = Object.freeze({
+  anthropic: 20, // Anthropic: up to 20 images per request
+  openai: 10, // OpenAI: max 10 per request (vision-capable models)
+  gemini: 16, // Gemini 1.5 supports up to 16 images
+  google: 16,
+  bedrock: 20, // Claude-on-Bedrock mirrors Anthropic
+});
+
+/**
+ * Maximum image count for a provider.
+ *
+ * Returns `Number.POSITIVE_INFINITY` for unknown providers.
+ *
+ * @param provider - Provider ID (case-insensitive).
+ * @returns Maximum image count.
+ *
+ * @task T9296
+ */
+export function imageCountLimitFor(provider: string): number {
+  return PROVIDER_IMAGE_COUNT_LIMITS[provider.toLowerCase()] ?? Number.POSITIVE_INFINITY;
+}
+
+// ---------------------------------------------------------------------------
+// ImageRoutingError
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by {@link validateImagesForProvider} when the request violates
+ * per-provider image constraints.
+ *
+ * Carries enough context for the caller to log or surface the issue without
+ * re-inspecting the request.
+ *
+ * @task T9296
+ */
+export class ImageRoutingError extends Error {
+  /** Stable LAFS error code. */
+  readonly code = 'E_LLM_IMAGE_ROUTING';
+
+  /**
+   * @param provider   - Provider that rejected the image set.
+   * @param violation  - Human-readable reason.
+   * @param imageCount - Number of images in the rejected request.
+   * @param sizeLimitBytes - Applicable size limit (may be per-image or total).
+   */
+  constructor(
+    public readonly provider: string,
+    public readonly violation: 'image_count_exceeded' | 'image_size_exceeded',
+    public readonly imageCount: number,
+    public readonly sizeLimitBytes?: number,
+  ) {
+    super(
+      violation === 'image_count_exceeded'
+        ? `ImageRoutingError: provider '${provider}' allows at most ${imageCountLimitFor(provider)} images per request (got ${imageCount})`
+        : `ImageRoutingError: provider '${provider}' image size exceeds ${(sizeLimitBytes ?? 0) / 1024 / 1024}MB limit`,
+    );
+    this.name = 'ImageRoutingError';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// validateImagesForProvider
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate images in a {@link TransportRequest} against the per-provider size
+ * and count limits.
+ *
+ * Walks all messages in the request, counts image blocks, and checks each
+ * base64 image's byte-length against the provider's per-image size limit.
+ *
+ * Throws {@link ImageRoutingError} on violation; returns the request unchanged
+ * on success so callers can use it in a fluent pass-through style.
+ *
+ * URL-sourced images (source.type === 'url') are not size-checked — the
+ * provider is responsible for enforcing limits on URLs it fetches.
+ *
+ * @param request  - Provider-neutral transport request.
+ * @param provider - Provider identifier (e.g. `'anthropic'`, `'openai'`).
+ * @returns The original request unchanged (convenience pass-through).
+ * @throws {ImageRoutingError} When image constraints are violated.
+ *
+ * @task T9296
+ */
+export function validateImagesForProvider(
+  request: TransportRequest,
+  provider: string,
+): TransportRequest {
+  const sizeLimit = imageSizeLimitFor(provider);
+  const countLimit = imageCountLimitFor(provider);
+
+  let totalImageCount = 0;
+
+  for (const message of request.messages) {
+    const blocks = extractImageBlocks(message);
+    for (const block of blocks) {
+      totalImageCount++;
+
+      if (totalImageCount > countLimit) {
+        throw new ImageRoutingError(provider, 'image_count_exceeded', totalImageCount);
+      }
+
+      // Only size-check base64 images — URL images are checked by the provider.
+      if (block.source.type === 'base64') {
+        const byteLength = base64ByteLength(block.source.data);
+        if (byteLength > sizeLimit) {
+          throw new ImageRoutingError(provider, 'image_size_exceeded', totalImageCount, sizeLimit);
+        }
+      }
+    }
+  }
+
+  return request;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract all image blocks from a single {@link TransportMessage}.
+ *
+ * Returns an empty array when the message content is a plain string or
+ * contains no image blocks.
+ *
+ * @internal
+ */
+function extractImageBlocks(message: TransportMessage): readonly TransportImageBlock[] {
+  if (typeof message.content === 'string') return [];
+  return message.content.filter((block): block is TransportImageBlock => block.type === 'image');
+}
+
+/**
+ * Estimate the byte length of a base64-encoded string.
+ *
+ * Formula: `floor(base64.length * 3 / 4)` adjusted for trailing `=` padding.
+ * This is an upper-bound estimate — the actual payload may be 1-2 bytes
+ * smaller due to `=` padding, but the overestimate is safe for limit checks.
+ *
+ * @param base64 - Base64-encoded string (may include or omit padding).
+ * @returns Estimated byte length.
+ *
+ * @internal
+ */
+function base64ByteLength(base64: string): number {
+  const len = base64.length;
+  if (len === 0) return 0;
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor((len * 3) / 4) - padding;
 }
