@@ -3,27 +3,26 @@
  *
  * Asserts that:
  *
- * 1. A literal `LlmConfig` object containing the new `default`, `roles`, and
- *    the legacy `daemon` fields typechecks and survives a JSON
- *    serialize/deserialize cycle without structural loss.
+ * 1. A literal `LlmConfig` object containing the `default` and `roles` fields
+ *    typechecks and survives a JSON serialize/deserialize cycle without
+ *    structural loss.
  * 2. All five `RoleName` values (`extraction`, `consolidation`, `derivation`,
  *    `hygiene`, `judgement`) are accepted as keys of `roles`.
  * 3. Omitting `default` and/or `roles` still typechecks (both are optional).
  *
- * These tests guard the Phase 2 schema extension of
- * T-LLM-CRED-CENTRALIZATION against accidental regressions.
+ * These tests guard the Phase 4 schema cleanup of T-LLM-CRED-CENTRALIZATION
+ * (T9306 — daemon field removed) against accidental regressions.
  *
- * @task T9256
+ * @task T9306
  * @epic T-LLM-CRED-CENTRALIZATION
  */
 
 import { describe, expect, it } from 'vitest';
 import type { LlmConfig, LlmDefaultConfig, LlmRoleConfig, RoleName } from '../config.js';
 
-describe('LlmConfig — Phase 2 schema extension (T9256)', () => {
-  it('accepts a fully-populated config with default, roles, and legacy daemon', () => {
+describe('LlmConfig — Phase 4 schema cleanup (T9306)', () => {
+  it('accepts a fully-populated config with default and roles', () => {
     const cfg: LlmConfig = {
-      daemon: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
       providers: {
         anthropic: { apiKey: 'sk-test-anthropic' },
         openai: { apiKey: 'sk-test-openai' },
@@ -102,13 +101,10 @@ describe('LlmConfig — Phase 2 schema extension (T9256)', () => {
   });
 
   it('typechecks when default and roles are both omitted', () => {
-    const cfg: LlmConfig = {
-      daemon: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
-    };
+    const cfg: LlmConfig = {};
 
     expect(cfg.default).toBeUndefined();
     expect(cfg.roles).toBeUndefined();
-    expect(cfg.daemon?.provider).toBe('anthropic');
   });
 
   it('typechecks an empty LlmConfig (all fields optional)', () => {

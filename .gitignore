@@ -170,3 +170,5 @@ temp/
 *.tgz
 # Pomodoro benchmark nested .cleo — has its own git history, skip as submodule
 .cleo/agent-outputs/T-POMODORO-BENCH-2026-04-16/cleo/.cleo/
+
+.gsd/

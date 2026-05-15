@@ -1,7 +1,7 @@
 /**
  * Structured taxonomy of LLM failure modes — mirrors Hermes' FailoverReason enum.
  *
- * Consumers (CredentialPool, auxiliary-router, CLI error envelopes) use this
+ * Consumers (CredentialPool, ConcreteSession, CLI error envelopes) use this
  * to drive deterministic recovery actions instead of ad-hoc status-code
  * inspection.
  *

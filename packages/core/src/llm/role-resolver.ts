@@ -1,5 +1,5 @@
 /**
- * Role-based LLM resolution for CLEO (Phase 2 — T9255).
+ * Role-based LLM resolution for CLEO (Phase 4 — T9306).
  *
  * Each call-site declares its semantic role (`extraction`, `consolidation`,
  * `derivation`, `hygiene`, `judgement`); the resolver walks the config to
@@ -10,9 +10,8 @@
  *
  * Provider/model:
  *   1. `config.llm.roles[role]`        — explicit per-role override
- *   2. `config.llm.default`            — canonical default (T9256)
- *   3. `config.llm.daemon`             — deprecated legacy alias
- *   4. Implicit fallback               — `anthropic` + {@link IMPLICIT_FALLBACK_MODEL}
+ *   2. `config.llm.default`            — canonical default
+ *   3. Implicit fallback               — `anthropic` + {@link IMPLICIT_FALLBACK_MODEL}
  *
  * Credential:
  *   1. When `roles[role].credentialLabel` is set → `getCredentialByLabel(provider, label)`
@@ -23,7 +22,7 @@
  * The resolver never throws on missing credentials: it returns `credential: null`
  * so callers can preserve their existing graceful-degradation paths.
  *
- * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9255)
+ * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
  * @module llm/role-resolver
  */
 
@@ -39,21 +38,17 @@ import type {
 } from '@cleocode/contracts';
 import type { GoogleGenerativeAI } from '@google/generative-ai';
 import type { OpenAI } from 'openai';
-import { getLogger } from '../logger.js';
 import { authHeaders, type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
 import { clientForModelConfig } from './registry.js';
 import type { ModelConfig, ModelTransport } from './types-config.js';
 
-const logger = getLogger('llm-role-resolver');
-
 /**
- * Implicit fallback model used when no role-specific, no `default`, and no
- * `daemon` entry is present in config. Mirrors the historical hardcoded
- * `claude-haiku-4-5-20251001` that the 7 call-sites previously embedded.
- * Lives here (and ONLY here) so the grep guard
- * `grep -rn "claude-haiku-4-5-20251001" packages/` stays clean outside
- * `packages/core/src/llm/`.
+ * Implicit fallback model used when no role-specific and no `default` entry is
+ * present in config. Mirrors the historical hardcoded `claude-haiku-4-5-20251001`
+ * that the 7 call-sites previously embedded. Lives here (and ONLY here) so the
+ * grep guard `grep -rn "claude-haiku-4-5-20251001" packages/` stays clean
+ * outside `packages/core/src/llm/`.
  *
  * @task T9255
  */
@@ -144,28 +139,10 @@ function readLlmBlock(config: CleoConfig | undefined): LlmConfig | undefined {
 }
 
 /**
- * Per-role deduplication latch for the `llm.daemon` deprecation warn.
- *
- * Emits at most once per `RoleName` per process so a noisy hot-path
- * (e.g. observer-reflector firing every minute) does not flood logs while
- * still surfacing the deprecation to operators on each fresh role.
- *
- * @task T-LLM-CRED-CENTRALIZATION Phase 2 — DRY review P2-3
- */
-const _daemonLegacyWarned = new Set<RoleName>();
-
-/** Internal test hook: reset the daemon-legacy warn latch. */
-export function _resetDaemonLegacyWarnForTests(): void {
-  _daemonLegacyWarned.clear();
-}
-
-/**
  * Pick provider/model/credentialLabel from the highest-priority configured
- * tier. Returns `null` only when nothing is configured AND no implicit
- * fallback should be used (always returns a value in practice since we
- * provide an implicit fallback).
+ * tier. Always returns a value because the implicit fallback is unconditional.
  *
- * Resolution order: `roles[role]` → `default` → `daemon` → implicit fallback.
+ * Resolution order: `roles[role]` → `default` → implicit fallback.
  */
 function selectProviderModel(
   llm: LlmConfig | undefined,
@@ -193,23 +170,6 @@ function selectProviderModel(
       model: defaultEntry.model,
       credentialLabel: undefined,
       source: 'default',
-    };
-  }
-
-  const daemonEntry = llm?.daemon;
-  if (daemonEntry?.provider && daemonEntry.model) {
-    if (!_daemonLegacyWarned.has(role)) {
-      _daemonLegacyWarned.add(role);
-      logger.warn(
-        { role, provider: daemonEntry.provider, model: daemonEntry.model },
-        'llm.daemon is deprecated; migrate to llm.default or llm.roles.<role> (T-LLM-CRED Phase 2)',
-      );
-    }
-    return {
-      provider: daemonEntry.provider as ModelTransport,
-      model: daemonEntry.model,
-      credentialLabel: undefined,
-      source: 'daemon-legacy',
     };
   }
 

@@ -12,6 +12,7 @@
 
 import type { ModelTransport, StoredAuthTypeWire } from '../operations/llm.js';
 import type { TransportMessage, TransportTool } from './normalized-response.js';
+import type { ProviderOAuthConfig } from './oauth.js';
 
 /**
  * Describes a single LLM provider — its auth capabilities, base URL,
@@ -162,6 +163,19 @@ export interface ProviderProfile {
    * @default false
    */
   readonly supportsThinkingBudget?: boolean;
+
+  /**
+   * OAuth configuration for this provider.
+   *
+   * When present, `cleo llm login <provider>` dispatches to the specified
+   * OAuth flow rather than requiring a manual API key. The `mode` field
+   * selects the grant type:
+   * - `pkce` — RFC 7636 Authorization Code + PKCE (browser or headless).
+   * - `device-code` — RFC 8628 Device Authorization Grant (polling).
+   *
+   * @task T9302
+   */
+  readonly oauth?: ProviderOAuthConfig;
 }
 
 /**

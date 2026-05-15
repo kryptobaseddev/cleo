@@ -35,6 +35,9 @@
 
 import type { StoredCredential } from './credentials-store.js';
 import { addCredential, getCredentialByLabel, listCredentials } from './credentials-store.js';
+import { getKimiCodeDeviceCodeConfig } from './oauth/device-code.js';
+import { refreshPkceToken } from './oauth/pkce.js';
+import { getProviderProfile } from './provider-registry/index.js';
 import { rateLimitRemaining } from './rate-limit-guard.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -50,6 +53,17 @@ const COOLDOWN_RATE_LIMIT_MS = 60 * 60 * 1_000;
 
 /** Default cooldown for 5xx and all other error codes: 60 seconds. */
 const COOLDOWN_DEFAULT_MS = 60 * 1_000;
+
+/**
+ * Proactive refresh threshold: at least 300 seconds (5 minutes) before expiry.
+ *
+ * The proactive window is `max(expiresIn * 0.5, PROACTIVE_REFRESH_FLOOR_MS)`.
+ * For Kimi Code's ~15 min access tokens: 50% = 450s > 300s → uses 450s.
+ * For very short tokens (< 600s): 50% < 300s → floor kicks in at 300s.
+ *
+ * @task T9323
+ */
+const PROACTIVE_REFRESH_FLOOR_MS = 300_000;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -351,6 +365,44 @@ export class CredentialPool {
   }
 
   /**
+   * Proactively refresh an OAuth credential before it expires.
+   *
+   * Refresh is triggered when the remaining lifetime is less than
+   * `max(expiresIn * 0.5, 300_000ms)`. For a credential without a known
+   * `expiresIn`, only the 300s floor applies (requires `expiresAt`).
+   *
+   * For `api_key` and `aws_sdk` credentials this is a no-op.
+   *
+   * Supported refresh providers:
+   * - `kimi-code` — posts to `auth.kimi.com/api/oauth/token` with
+   *   `grant_type=refresh_token` and the stored `refreshToken`.
+   *
+   * On success, the new access token (and optional refreshed refresh token)
+   * are persisted via `addCredential` upsert.
+   *
+   * @param label - Credential label (unique within provider).
+   * @returns `true` when a refresh was attempted (regardless of success),
+   *   `false` when no refresh was needed or the credential is not OAuth.
+   * @task T9323
+   */
+  async proactiveRefresh(label: string): Promise<boolean> {
+    const existing = await getCredentialByLabel(this.provider, label);
+    if (!existing) return false;
+    if (existing.authType !== 'oauth') return false;
+    if (!existing.refreshToken) return false;
+    if (existing.expiresAt == null) return false;
+
+    const remaining = existing.expiresAt - Date.now();
+    // Refresh when remaining lifetime is less than the floor (300s).
+    // ConcreteSession handles the 50%-of-lifetime check using the original
+    // expiresIn from the token response; CredentialPool covers the floor case.
+    if (remaining >= PROACTIVE_REFRESH_FLOOR_MS) return false;
+
+    await this._refreshOAuthCredential(existing);
+    return true;
+  }
+
+  /**
    * List all entries for the provider sorted by priority descending
    * (highest priority = index 0).
    *
@@ -364,6 +416,148 @@ export class CredentialPool {
   async listEntries(): Promise<readonly StoredCredential[]> {
     const all = await listCredentials(this.provider);
     return sortByPriorityDesc(all);
+  }
+
+  // -------------------------------------------------------------------------
+  // Private OAuth refresh helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Perform the actual token refresh for a known OAuth credential.
+   *
+   * Dispatches based on `profile.oauth.mode`:
+   * - `pkce` — uses `refreshPkceToken` (RFC 6749 §6 refresh via PKCE endpoint).
+   * - `device-code` — uses the device-code token URL + clientId.
+   * - No profile / unknown mode → no-op (caller's 401-retry handles it).
+   *
+   * Errors are silently swallowed — the caller's retry path will encounter a
+   * 401 and trigger credential rotation if the token has actually expired.
+   *
+   * @param existing - The credential entry to refresh.
+   * @task T9302 (generic PKCE dispatch, replaces anthropic-specific branch)
+   * @task T9323 (device-code path)
+   */
+  private async _refreshOAuthCredential(existing: StoredCredential): Promise<void> {
+    if (!existing.refreshToken) return;
+
+    const profile = await getProviderProfile(this.provider);
+    const oauthCfg = profile?.oauth;
+
+    if (oauthCfg?.mode === 'pkce') {
+      await this._refreshViaPkce(existing, oauthCfg.tokenEndpoint, oauthCfg.clientId);
+    } else if (this.provider === 'kimi-code') {
+      const cfg = getKimiCodeDeviceCodeConfig();
+      await this._refreshTokenViaEndpoint(existing, cfg.tokenUrl, cfg.clientId);
+    }
+  }
+
+  /**
+   * Refresh via RFC 7636 PKCE `refresh_token` grant using `refreshPkceToken`.
+   *
+   * On success, upserts the new access token (and optional refresh token)
+   * into the credential store. Errors are silently swallowed.
+   *
+   * @param existing      - Credential entry to refresh.
+   * @param tokenEndpoint - Provider token endpoint URL.
+   * @param clientId      - OAuth client ID.
+   * @task T9302
+   */
+  private async _refreshViaPkce(
+    existing: StoredCredential,
+    tokenEndpoint: string,
+    clientId: string,
+  ): Promise<void> {
+    if (!existing.refreshToken) return;
+
+    let tokens: Awaited<ReturnType<typeof refreshPkceToken>>;
+    try {
+      tokens = await refreshPkceToken({
+        provider: existing.provider,
+        clientId,
+        refreshToken: existing.refreshToken,
+        tokenEndpoint,
+      });
+    } catch {
+      return;
+    }
+
+    await addCredential({
+      ...existing,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken ?? existing.refreshToken,
+      expiresAt:
+        tokens.expiresIn != null ? Date.now() + tokens.expiresIn * 1000 : existing.expiresAt,
+      lastStatus: 'ok',
+      lastErrorCode: undefined,
+      lastErrorResetAt: undefined,
+    });
+  }
+
+  /**
+   * Shared OAuth `refresh_token` grant implementation.
+   *
+   * POSTs `grant_type=refresh_token` to `tokenUrl` with the credential's
+   * stored refresh token. On success, upserts the new access token (and
+   * updated refresh token if provided) into the credential store.
+   *
+   * @param existing      - Credential entry to refresh.
+   * @param tokenUrl      - Provider's token endpoint.
+   * @param clientId      - OAuth client ID.
+   * @param extraHeaders  - Optional provider-specific headers (e.g. Anthropic beta flags).
+   * @task T9323
+   */
+  private async _refreshTokenViaEndpoint(
+    existing: StoredCredential,
+    tokenUrl: string,
+    clientId: string,
+    extraHeaders?: Record<string, string>,
+  ): Promise<void> {
+    if (!existing.refreshToken) return;
+
+    let resp: Response;
+    try {
+      resp = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+          ...extraHeaders,
+        },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          client_id: clientId,
+          refresh_token: existing.refreshToken,
+        }).toString(),
+      });
+    } catch {
+      return;
+    }
+
+    if (!resp.ok) return;
+
+    let data: Record<string, unknown>;
+    try {
+      data = (await resp.json()) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+
+    const newAccessToken = typeof data['access_token'] === 'string' ? data['access_token'] : null;
+    if (!newAccessToken) return;
+
+    const newExpiresIn = typeof data['expires_in'] === 'number' ? data['expires_in'] : null;
+    const newRefreshToken =
+      typeof data['refresh_token'] === 'string' ? data['refresh_token'] : existing.refreshToken;
+
+    await addCredential({
+      ...existing,
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+      expiresAt: newExpiresIn != null ? Date.now() + newExpiresIn * 1000 : existing.expiresAt,
+      lastStatus: 'ok',
+      lastErrorCode: undefined,
+      lastErrorResetAt: undefined,
+    });
   }
 
   // -------------------------------------------------------------------------

@@ -59,6 +59,11 @@ vi.mock('../../config.js', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 import { llmAdd, llmList, llmProfile, llmRemove, llmUse, llmWhoami } from '../cli-ops.js';
+import {
+  OAUTH_STATUS_PROVIDERS,
+  resolveCredentials,
+  resolveProviderStatus,
+} from '../credentials.js';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -381,5 +386,73 @@ describe('llm cli-ops — redaction + envelope shape', () => {
       'sk-proj-abcdefghijklmnopqrstuvwxyz01234567890ABCDEFGHIJ',
     );
     expect(result.error.message).toContain('[REDACTED]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC#3 — resolveProviderStatus SSoT + OAUTH_STATUS_PROVIDERS registry (T9323)
+// ---------------------------------------------------------------------------
+
+describe('resolveProviderStatus — kimi-code resolvedSource (T9323 AC#3)', () => {
+  const SAVED: Record<string, string | undefined> = {};
+  const TRACKED_KEYS = ['KIMI_CODE_API_KEY', 'KIMI_API_KEY', 'ANTHROPIC_API_KEY'];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    for (const k of TRACKED_KEYS) {
+      SAVED[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of TRACKED_KEYS) {
+      if (SAVED[k] === undefined) delete process.env[k];
+      else process.env[k] = SAVED[k];
+    }
+    vi.resetAllMocks();
+  });
+
+  it('reports kimi-code resolvedSource=env when KIMI_CODE_API_KEY is set', () => {
+    process.env['KIMI_CODE_API_KEY'] = 'sk-kimi-test-api-key';
+
+    const status = resolveProviderStatus('kimi-code');
+
+    expect(status.provider).toBe('kimi-code');
+    expect(status.resolvedSource).toBe('env');
+    expect(status.hasCredential).toBe(true);
+  });
+
+  it('reports kimi-code resolvedSource=none when no credential exists', () => {
+    const status = resolveProviderStatus('kimi-code');
+
+    expect(status.provider).toBe('kimi-code');
+    expect(status.hasCredential).toBe(false);
+    expect(status.resolvedSource).toBe('none');
+  });
+
+  it('reports anthropic resolvedSource=env when ANTHROPIC_API_KEY is set', () => {
+    process.env['ANTHROPIC_API_KEY'] = 'sk-ant-api03-test';
+
+    const status = resolveProviderStatus('anthropic');
+
+    expect(status.provider).toBe('anthropic');
+    expect(status.resolvedSource).toBe('env');
+    expect(status.hasCredential).toBe(true);
+  });
+
+  it('OAUTH_STATUS_PROVIDERS includes both anthropic and kimi-code', () => {
+    expect(OAUTH_STATUS_PROVIDERS).toContain('anthropic');
+    expect(OAUTH_STATUS_PROVIDERS).toContain('kimi-code');
+  });
+
+  it('resolveProviderStatus is consistent with resolveCredentials for kimi-code', () => {
+    process.env['KIMI_CODE_API_KEY'] = 'sk-kimi-xyz';
+
+    const raw = resolveCredentials('kimi-code');
+    const status = resolveProviderStatus('kimi-code');
+
+    expect(status.hasCredential).toBe(!!raw.apiKey);
+    expect(status.resolvedSource).toBe('env');
   });
 });

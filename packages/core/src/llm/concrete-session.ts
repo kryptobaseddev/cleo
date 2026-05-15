@@ -26,11 +26,15 @@ import type {
   TransportMessage,
   TransportRequest,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import type { ProviderProfile } from '@cleocode/contracts/llm/provider-profile.js';
 import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
 import type { CredentialPool } from './credential-pool.js';
 import type { StoredCredential } from './credentials-store.js';
 import { classifyError } from './error-classifier.js';
+import { estimateTransportMessageTokens } from './message-utils.js';
+import { getModelContextLengthSync } from './model-metadata.js';
 import { rateLimitRemaining, recordRateLimit } from './rate-limit-guard.js';
+import { computeThinkingBudget } from './thinking-budget.js';
 import type { ModelTransport } from './types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -148,6 +152,17 @@ export interface ConcreteSessionOptions {
    */
   readonly credentialPool?: CredentialPool;
   /**
+   * Provider profile resolved for this session.
+   *
+   * When present and `providerProfile.supportsThinkingBudget === true`, the
+   * session automatically computes and injects a `thinkingBudgetTokens` value
+   * into each `TransportRequest` via {@link computeThinkingBudget} — unless the
+   * caller already set `thinkingBudgetTokens` explicitly.
+   *
+   * @task T9303
+   */
+  readonly providerProfile?: ProviderProfile;
+  /**
    * Factory that rebuilds the transport from a new credential after pool rotation.
    *
    * Required when `credentialPool` is set. Called with the newly-picked
@@ -190,6 +205,7 @@ export class ConcreteSession implements LlmSession {
   private readonly _transportFactory:
     | ((credential: ResolvedCredential) => LlmTransport)
     | undefined;
+  private readonly _providerProfile: ProviderProfile | undefined;
 
   /**
    * @param opts - Session construction options.
@@ -202,6 +218,7 @@ export class ConcreteSession implements LlmSession {
     this._retryPolicy = opts.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this._credentialPool = opts.credentialPool;
     this._transportFactory = opts.transportFactory;
+    this._providerProfile = opts.providerProfile;
   }
 
   /**
@@ -333,19 +350,21 @@ export class ConcreteSession implements LlmSession {
   /**
    * Refreshes the OAuth credential bound to this session.
    *
-   * Called automatically by {@link send}/{@link stream} when
-   * `credential.expiresAt` is less than 60 seconds in the future.
+   * Called by `_preCallChecks` when the proactive refresh window is entered.
+   * Delegates to `CredentialPool.proactiveRefresh` when a pool is configured —
+   * the pool dispatches on `profile.oauth.mode` (`pkce` or `device-code`).
+   * Without a pool, callers rely on 401-triggered rotation from the retry loop.
    *
    * No-op for `api_key` and `aws_sdk` credentials.
    *
-   * TODO(T9292 W3): wire real OAuth token refresh via oauth/device-code.ts
-   * once Anthropic device-code endpoint is confirmed (T9266).
+   * @task T9302 (PKCE dispatch via pool)
+   * @task T9323 (device-code dispatch via pool)
    */
   async refreshCredential(): Promise<void> {
     if (this._credential.authType !== 'oauth') return;
-    // TODO(T9292 W3): call refreshOAuthCredential(this._credential) from
-    // oauth/device-code.ts when the Anthropic device-code endpoint is confirmed
-    // and the OAuth refresh flow is implemented (T9266).
+    if (this._credentialPool) {
+      await this._credentialPool.proactiveRefresh(this._credential.label);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -353,18 +372,31 @@ export class ConcreteSession implements LlmSession {
   // ---------------------------------------------------------------------------
 
   /**
-   * Pre-call guard: OAuth expiry check + RateLimitGuard check.
+   * Pre-call guard: OAuth proactive refresh + RateLimitGuard check.
    *
-   * @task T9297 (W4e): RateLimitGuard pre-call check is now verified here.
+   * OAuth refresh is attempted when remaining lifetime falls below
+   * `max(remaining * 0.5, 300s)`. Both `anthropic` and `kimi-code` refresh
+   * via `CredentialPool.proactiveRefresh()` → `_refreshTokenViaEndpoint()`.
+   *
+   * @task T9297 (W4e): RateLimitGuard pre-call check is verified here.
+   * @task T9323: Proactive refresh at 50% lifetime / 300s floor.
    */
   private async _preCallChecks(): Promise<void> {
-    // OAuth expiry check — refresh when less than 60 s remain.
-    if (
-      this._credential.authType === 'oauth' &&
-      this._credential.expiresAt !== null &&
-      this._credential.expiresAt - Date.now() < 60_000
-    ) {
-      await this.refreshCredential();
+    // Proactive OAuth refresh — attempt when within the proactive window.
+    if (this._credential.authType === 'oauth' && this._credential.expiresAt !== null) {
+      const remaining = this._credential.expiresAt - Date.now();
+      // Compute proactive threshold: max(50% of total lifetime, 300s).
+      // Total lifetime ≈ expiresIn (seconds) if available, else use remaining
+      // as a lower-bound proxy (threshold = max(remaining*0.5, 300s)).
+      const FLOOR_MS = 300_000;
+      const threshold = Math.max(remaining * 0.5, FLOOR_MS);
+      if (remaining < threshold) {
+        if (this._credentialPool) {
+          await this._credentialPool.proactiveRefresh(this._credential.label);
+        } else {
+          await this.refreshCredential();
+        }
+      }
     }
 
     // RateLimitGuard pre-call check (T9297 W4e: verified before each call).
@@ -418,12 +450,31 @@ export class ConcreteSession implements LlmSession {
 
   /** Assemble a {@link TransportRequest} from messages and call-level opts. */
   private _buildRequest(messages: TransportMessage[], opts?: SendOptions): TransportRequest {
-    return {
+    const maxTokens = 4096;
+    const base: TransportRequest = {
       model: this.model,
       messages,
-      maxTokens: 4096,
+      maxTokens,
       cacheStrategy: opts?.cacheStrategy ?? null,
       ...(opts?.systemSuffix != null ? { system: opts.systemSuffix } : {}),
     };
+
+    // Auto-inject thinking budget when the provider supports it and the caller
+    // has not already set thinkingBudgetTokens.
+    if (
+      this._providerProfile?.supportsThinkingBudget === true &&
+      base.thinkingBudgetTokens == null
+    ) {
+      const promptTokens = estimateTransportMessageTokens(messages);
+      const contextLength = getModelContextLengthSync(this.model);
+      const budget = computeThinkingBudget({
+        modelContextLength: contextLength,
+        promptTokens,
+        maxTokens,
+      });
+      return { ...base, thinkingBudgetTokens: budget };
+    }
+
+    return base;
   }
 }

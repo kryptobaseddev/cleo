@@ -364,7 +364,13 @@ function isStoredCredential(value: unknown): value is StoredCredential {
     provider === 'anthropic' ||
     provider === 'openai' ||
     provider === 'gemini' ||
-    provider === 'moonshot';
+    provider === 'moonshot' ||
+    provider === 'kimi-code' ||
+    provider === 'openrouter' ||
+    provider === 'bedrock' ||
+    provider === 'deepseek' ||
+    provider === 'xai' ||
+    provider === 'groq';
   const validAuth = authType === 'api_key' || authType === 'oauth' || authType === 'aws_sdk';
   if (!validProvider) return false;
   if (typeof label !== 'string' || !label) return false;

@@ -1708,10 +1708,12 @@ export {
   authHeaders,
   clearAnthropicKeyCache,
   cleoHomeDir,
+  OAUTH_STATUS_PROVIDERS,
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
   resolveCredentials,
   resolveModelCredentials,
+  resolveProviderStatus,
   storeAnthropicApiKey,
 } from './llm/credentials.js';
 export type {

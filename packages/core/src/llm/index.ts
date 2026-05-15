@@ -12,6 +12,15 @@
 export type { CleoLlmCallParams } from './api.js';
 // Public entrypoint
 export { cleoLlmCall } from './api.js';
+// Backend types — canonical CompletionResult / ProviderBackend shapes used by request-builder, history-adapters, structured-output
+export type {
+  BackendCallParams,
+  CompletionResult,
+  ProviderBackend,
+  StreamChunk,
+  ToolCallResult,
+} from './backend.js';
+export { makeCompletionResult } from './backend.js';
 // Backends (for direct use / custom wiring — AnthropicBackend migrated to transports/anthropic.ts)
 export type { GeminiCacheHandle } from './caching.js';
 // Caching
@@ -43,10 +52,12 @@ export {
   clearAnthropicKeyCache,
   cleoHomeDir,
   defaultTransportApiKey,
+  OAUTH_STATUS_PROVIDERS,
   resolveAnthropicApiKey,
   resolveAnthropicApiKeySource,
   resolveCredentials,
   resolveModelCredentials,
+  resolveProviderStatus,
   storeAnthropicApiKey,
 } from './credentials.js';
 // Credential pool / multi-credential storage (T-LLM-CRED-CENTRALIZATION Phase 2)
@@ -76,14 +87,6 @@ export {
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
-// Legacy backend type shims — TODO(T9298 W5): migrate callers to LlmTransport/NormalizedResponse
-export type {
-  CompletionResult,
-  ProviderBackend,
-  StreamChunk,
-  ToolCallResult,
-} from './legacy-types.js';
-export { completionResultToResponse, makeCompletionResult } from './legacy-types.js';
 export type { ModelMetadata } from './model-metadata.js';
 // Model metadata — context window resolution (T9264 / T-LLM-CRED Phase 3)
 export {
@@ -121,8 +124,6 @@ export {
 // Runtime
 export type { AttemptPlan } from './runtime.js';
 export { effectiveTemperature, makeAttemptRef, planAttempt } from './runtime.js';
-// Legacy executor shim (throws at runtime — migrate to ConcreteExecutor)
-export { cleoLlmCallInner } from './shim-executor.js';
 export type { StructuredOutputFailurePolicy } from './structured-output.js';
 // Structured output utilities
 export {
@@ -154,7 +155,6 @@ export type {
 export { StreamingResponseWithMetadata } from './types.js';
 // Config types (re-exported from contracts)
 export type {
-  DaemonLLMConfig,
   LlmConfig,
   LlmProviderEntry,
   ModelConfig,
