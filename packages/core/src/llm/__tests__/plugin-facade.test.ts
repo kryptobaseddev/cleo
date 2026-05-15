@@ -15,11 +15,11 @@
  * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
+import { PluginLlmError, PluginModelGateError } from '@cleocode/contracts';
 import type {
   NormalizedResponse,
   TransportMessage,
 } from '@cleocode/contracts/llm/normalized-response.js';
-import { PluginLlmError, PluginModelGateError } from '@cleocode/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
