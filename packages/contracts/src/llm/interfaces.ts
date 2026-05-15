@@ -32,16 +32,15 @@ import type {
 } from './normalized-response.js';
 import type { ProviderId } from './provider-id.js';
 
-// Re-export LlmTransport so consumers of this module can reference it without
-// an additional import from normalized-response.js.
-export type { LlmTransport };
-
 // Re-export canonical ContextEngine types from their new home in memory/.
 // The definition was moved to packages/contracts/src/memory/context-engine.ts
 // (T9304) so that the memory package can import it without a circular dep on
 // the llm/ subtree. This re-export preserves back-compat for all existing
 // consumers that import ContextEngine from llm/interfaces.js.
 export type { CompressedContext, ContextEngine } from '../memory/context-engine.js';
+// Re-export LlmTransport so consumers of this module can reference it without
+// an additional import from normalized-response.js.
+export type { LlmTransport };
 
 // ---------------------------------------------------------------------------
 // Streaming delta
