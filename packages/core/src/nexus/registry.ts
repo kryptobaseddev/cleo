@@ -714,17 +714,22 @@ export async function nexusSetPermission(
   permission: NexusPermissionLevel,
 ): Promise<void>;
 export async function nexusSetPermission(
-  projectRootOrName: string,
-  paramsOrPermission?: NexusPermissionSetParams | NexusPermissionLevel,
+  projectRoot: string,
+  params: NexusPermissionSetParams | NexusPermissionLevel,
 ): Promise<void> {
+  // ADR-057 D1 enforces uniform `(projectRoot, params)` shape. The second
+  // overload at line 712 preserves the legacy `(name, level)` call sites
+  // until they migrate; the runtime branch below dispatches by type.
   let nameOrHash: string;
   let permission: NexusPermissionLevel;
-  if (paramsOrPermission !== undefined && typeof paramsOrPermission === 'object') {
-    nameOrHash = paramsOrPermission.name;
-    permission = paramsOrPermission.level as NexusPermissionLevel;
+  if (params !== undefined && typeof params === 'object') {
+    nameOrHash = params.name;
+    permission = params.level as NexusPermissionLevel;
   } else {
-    nameOrHash = projectRootOrName;
-    permission = (paramsOrPermission as NexusPermissionLevel | undefined) ?? 'read';
+    // Legacy call form: `nexusSetPermission(nameOrHash, level)` —
+    // `projectRoot` is actually the name/hash here.
+    nameOrHash = projectRoot;
+    permission = (params as NexusPermissionLevel | undefined) ?? 'read';
   }
   const project = await nexusGetProject(nameOrHash);
   if (!project) {
