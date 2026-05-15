@@ -40,6 +40,7 @@
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
+import { costCommand } from './llm-cost.js';
 import { runLlmLogin } from './llm-login.js';
 
 // Lazy import — avoids circular deps and keeps startup fast.
@@ -593,6 +594,7 @@ export const llmCommand = defineCommand({
   },
   subCommands: {
     add: addCommand,
+    cost: costCommand,
     list: listCommand,
     login: loginCommand,
     remove: removeCommand,

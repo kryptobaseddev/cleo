@@ -141,6 +141,11 @@ export default defineConfig({
         '../../packages/core/src/nexus/index.ts',
         import.meta.url,
       ).pathname,
+      // T9274: llm/usage-pricing subpath — cost tracking helpers (not in package exports map)
+      '@cleocode/core/llm/usage-pricing': new URL(
+        '../../packages/core/src/llm/usage-pricing.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
       // T1113: nexus code sub-path exports — legacy dist-path imports used in nexus.ts
