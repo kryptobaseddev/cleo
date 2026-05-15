@@ -101,11 +101,11 @@ export type {
   PromptCachingStrategy,
 } from './prompt-caching.js';
 export { injectCacheBreakpoints } from './prompt-caching.js';
-// Registry (for testing/DI)
+// Registry — SDK client factory + history adapters
 export {
   buildAnthropicSdkClient,
-  CLIENTS,
   clientForModelConfig,
+  historyAdapterForProvider,
 } from './registry.js';
 // Role-based LLM resolver (T-LLM-CRED-CENTRALIZATION Phase 2 / T9255)
 export type {
