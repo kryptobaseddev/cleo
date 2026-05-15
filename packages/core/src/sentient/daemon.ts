@@ -635,9 +635,10 @@ export async function bootstrapDaemon(
 
   // Kick off one tick immediately, then schedule cron.
   const tickOptions: TickOptions = { projectRoot, statePath };
+  await patchSentientState(statePath, { lastCronFiredAt: new Date().toISOString() });
   const outcome = await safeRunTick(tickOptions);
   process.stdout.write(
-    `[CLEO SENTIENT] boot tick: ${outcome.kind} ` +
+    `${new Date().toISOString()} [CLEO SENTIENT] boot tick: ${outcome.kind} ` +
       `(task=${outcome.taskId ?? 'n/a'}) ${outcome.detail}\n`,
   );
 
@@ -645,11 +646,32 @@ export async function bootstrapDaemon(
   cron.schedule(
     SENTIENT_CRON_EXPR,
     async () => {
-      const result = await safeRunTick(tickOptions);
-      process.stdout.write(
-        `[CLEO SENTIENT] tick: ${result.kind} ` +
-          `(task=${result.taskId ?? 'n/a'}) ${result.detail}\n`,
-      );
+      // Heartbeat BEFORE invoking the tick — distinguishes "cron didn't fire"
+      // from "cron fired but tick hung" (T-DAEMON-LASTTICKAT diagnosis).
+      try {
+        await patchSentientState(statePath, { lastCronFiredAt: new Date().toISOString() });
+      } catch (err) {
+        // Heartbeat write failure is non-fatal — fall through to the tick.
+        process.stderr.write(
+          `${new Date().toISOString()} [CLEO SENTIENT] heartbeat write failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+
+      // Belt-and-braces try/catch — safeRunTick already catches its own
+      // exceptions, but an unhandled rejection here would leak through
+      // node-cron's noOverlap lock and stop subsequent ticks from firing.
+      // (Suspected H1 root cause of the 2026-05-13 lastTickAt freeze.)
+      try {
+        const result = await safeRunTick(tickOptions);
+        process.stdout.write(
+          `${new Date().toISOString()} [CLEO SENTIENT] tick: ${result.kind} ` +
+            `(task=${result.taskId ?? 'n/a'}) ${result.detail}\n`,
+        );
+      } catch (err) {
+        process.stderr.write(
+          `${new Date().toISOString()} [CLEO SENTIENT] tick error (caught at cron boundary): ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+        );
+      }
     },
     {
       timezone: 'UTC',
@@ -665,13 +687,19 @@ export async function bootstrapDaemon(
   cron.schedule(
     SENTIENT_PROPOSE_CRON_EXPR,
     async () => {
-      const state = await readSentientState(statePath);
-      if (!state.tier2Enabled) return;
-      const result = await safeRunProposeTick(proposeOptions);
-      process.stdout.write(
-        `[CLEO SENTIENT T2] propose: ${result.kind} ` +
-          `(written=${result.written}, count=${result.count}) ${result.detail}\n`,
-      );
+      try {
+        const state = await readSentientState(statePath);
+        if (!state.tier2Enabled) return;
+        const result = await safeRunProposeTick(proposeOptions);
+        process.stdout.write(
+          `${new Date().toISOString()} [CLEO SENTIENT T2] propose: ${result.kind} ` +
+            `(written=${result.written}, count=${result.count}) ${result.detail}\n`,
+        );
+      } catch (err) {
+        process.stderr.write(
+          `${new Date().toISOString()} [CLEO SENTIENT T2] propose error (caught at cron boundary): ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+        );
+      }
     },
     {
       timezone: 'UTC',
@@ -686,26 +714,36 @@ export async function bootstrapDaemon(
   cron.schedule(
     SENTIENT_HYGIENE_CRON_EXPR,
     async () => {
-      const hygieneState = await readSentientState(statePath);
-      if (hygieneState.killSwitch) return;
+      try {
+        const hygieneState = await readSentientState(statePath);
+        if (hygieneState.killSwitch) return;
 
-      process.stdout.write('[CLEO SENTIENT HYGIENE] nightly cross-project hygiene loop starting\n');
-      const digest = await safeRunCrossProjectHygiene();
+        process.stdout.write(
+          `${new Date().toISOString()} [CLEO SENTIENT HYGIENE] nightly cross-project hygiene loop starting\n`,
+        );
+        const digest = await safeRunCrossProjectHygiene();
 
-      // Persist digest counts to sentient state so `cleo daemon status` can read them.
-      await patchSentientState(statePath, {
-        hygieneLastRunAt: digest.completedAt,
-        hygieneSummary: digest.summary,
-        hygieneStats: {
-          projectsChecked: digest.nexusIntegrity.total,
-          projectsHealthy: digest.nexusIntegrity.healthy,
-          tempGcCandidates: digest.tempGc.candidates.length,
-          duplicateEpicGroups: digest.duplicateEpics.groups.length,
-          worktreesPruned: digest.worktreePrune.totalPruned,
-        },
-      });
+        // Persist digest counts to sentient state so `cleo daemon status` can read them.
+        await patchSentientState(statePath, {
+          hygieneLastRunAt: digest.completedAt,
+          hygieneSummary: digest.summary,
+          hygieneStats: {
+            projectsChecked: digest.nexusIntegrity.total,
+            projectsHealthy: digest.nexusIntegrity.healthy,
+            tempGcCandidates: digest.tempGc.candidates.length,
+            duplicateEpicGroups: digest.duplicateEpics.groups.length,
+            worktreesPruned: digest.worktreePrune.totalPruned,
+          },
+        });
 
-      process.stdout.write(`[CLEO SENTIENT HYGIENE] complete: ${digest.summary}\n`);
+        process.stdout.write(
+          `${new Date().toISOString()} [CLEO SENTIENT HYGIENE] complete: ${digest.summary}\n`,
+        );
+      } catch (err) {
+        process.stderr.write(
+          `${new Date().toISOString()} [CLEO SENTIENT HYGIENE] error (caught at cron boundary): ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+        );
+      }
     },
     {
       noOverlap: true,
@@ -882,6 +920,15 @@ export interface SentientStatus {
   startedAt: string | null;
   /** ISO-8601 timestamp of the last completed tick. */
   lastTickAt: string | null;
+  /**
+   * ISO-8601 timestamp of the last cron-callback dispatch — written BEFORE
+   * `safeRunTick` runs. Use the delta `lastTickAt - lastCronFiredAt` to
+   * detect tick hangs: when the heartbeat advances but the tick stamp does
+   * not, a tick is stuck mid-execution.
+   *
+   * @task T-DAEMON-LASTTICKAT (T9320 follow-up)
+   */
+  lastCronFiredAt: string | null;
   /** Kill-switch state. */
   killSwitch: boolean;
   /** Reason supplied with the last kill. */
@@ -950,6 +997,7 @@ export async function getSentientDaemonStatus(projectRoot: string): Promise<Sent
     pid: running ? state.pid : null,
     startedAt: state.startedAt,
     lastTickAt: state.lastTickAt,
+    lastCronFiredAt: state.lastCronFiredAt,
     killSwitch: state.killSwitch,
     killSwitchReason: state.killSwitchReason,
     stats: state.stats,
