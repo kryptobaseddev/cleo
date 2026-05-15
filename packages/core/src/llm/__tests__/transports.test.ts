@@ -69,7 +69,7 @@ vi.mock('@anthropic-ai/sdk', () => {
 
 import type { NormalizedResponse } from '@cleocode/contracts/llm/normalized-response.js';
 import { AnthropicTransport, type AnthropicTransportOptions } from '../transports/anthropic.js';
-import { GeminiNotImplementedError, GeminiTransport } from '../transports/gemini.js';
+import { GeminiTransport } from '../transports/gemini.js';
 import { OpenAINotImplementedError, OpenAITransport } from '../transports/openai.js';
 
 // ---------------------------------------------------------------------------
@@ -260,30 +260,14 @@ describe('OpenAITransport', () => {
 // ---------------------------------------------------------------------------
 
 describe('GeminiTransport', () => {
-  it('rejects with GeminiNotImplementedError and code E_NOT_IMPLEMENTED', async () => {
-    const transport = new GeminiTransport({ apiKey: 'AIza-test' });
-
-    let thrownError: unknown;
-    try {
-      await transport.complete({
-        model: 'gemini-pro',
-        messages: [{ role: 'user', content: 'hello' }],
-        maxTokens: 512,
-      });
-    } catch (err) {
-      thrownError = err;
-    }
-
-    expect(thrownError).toBeInstanceOf(GeminiNotImplementedError);
-    if (thrownError instanceof GeminiNotImplementedError) {
-      expect(thrownError.code).toBe('E_NOT_IMPLEMENTED');
-      expect(thrownError.message).toContain('Gemini transport not yet wired');
-    }
-  });
-
   it('exposes provider as "gemini"', () => {
     const transport = new GeminiTransport({ apiKey: 'AIza-test' });
     expect(transport.provider).toBe('gemini');
+  });
+
+  it('exposes apiMode as "chat_completions"', () => {
+    const transport = new GeminiTransport({ apiKey: 'AIza-test' });
+    expect(transport.apiMode).toBe('chat_completions');
   });
 });
 

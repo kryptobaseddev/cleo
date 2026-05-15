@@ -15,7 +15,6 @@ import { OpenAI } from 'openai';
 
 import type { ProviderBackend } from './backend.js';
 import { AnthropicBackend } from './backends/anthropic.js';
-import { GeminiBackend } from './backends/gemini.js';
 import { MOONSHOT_BASE_URL, MoonshotBackend } from './backends/moonshot.js';
 import { OpenAIBackend } from './backends/openai.js';
 import type { CredentialResult } from './credentials.js';
@@ -296,11 +295,9 @@ export function clientForModelConfig(
 export function backendForProvider(
   provider: ModelTransport,
   client: ProviderClient,
-  modelConfig?: ModelConfig,
 ): ProviderBackend {
   if (provider === 'anthropic') return new AnthropicBackend(client as Anthropic);
   if (provider === 'openai') return new OpenAIBackend(client as OpenAI);
-  if (provider === 'gemini') return new GeminiBackend(client as GoogleGenerativeAI, modelConfig);
   if (provider === 'moonshot') return new MoonshotBackend(client as OpenAI);
 
   throw new Error(`Unknown provider: ${provider as string}`);
@@ -321,5 +318,5 @@ export function historyAdapterForProvider(provider: ModelTransport): HistoryAdap
  */
 export function getBackend(config: ModelConfig): ProviderBackend {
   const client = clientForModelConfig(config.transport, config);
-  return backendForProvider(config.transport, client, config);
+  return backendForProvider(config.transport, client);
 }
