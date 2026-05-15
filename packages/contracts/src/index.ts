@@ -210,7 +210,6 @@ export type {
   ClaudeSpawnMode,
   CleoConfig,
   ConfigSource,
-  DaemonLLMConfig,
   DateFormat,
   DecisionsConfig,
   DepsRequiredAt,
@@ -460,6 +459,9 @@ export type {
   TransportRequest,
   TransportTool,
 } from './llm/normalized-response.js';
+// === Phase 4 Plugin LLM facade types (T9305) ===
+export type { PluginLlmComplete, PluginLlmContext } from './llm/plugin-llm.js';
+export { PluginLlmError, PluginModelGateError } from './llm/plugin-llm.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Provider identity ===
 export type { ApiMode, BuiltinProviderId, ProviderId } from './llm/provider-id.js';
 // === Provider Profile + Plugin Contracts (T9262 — Phase 3 T-LLM-CRED) ===
