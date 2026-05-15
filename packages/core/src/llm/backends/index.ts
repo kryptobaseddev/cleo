@@ -5,7 +5,6 @@
  */
 
 export { AnthropicBackend } from './anthropic.js';
-export { GeminiBackend } from './gemini.js';
 export {
   isMoonshotModel,
   MOONSHOT_BASE_URL,
