@@ -8,12 +8,14 @@
  *   3. Synthesize frequently-cited learnings into higher-quality patterns
  *   4. Extract cross-cutting insights from clusters of related observations
  *
- * All LLM calls go through `resolveLLMForRole('consolidation')` (T9255) so
- * the provider + model + credential come from
- * `config.llm.roles.consolidation` → `config.llm.default` →
- * `config.llm.daemon` → implicit fallback. No credential = silent no-op for
- * LLM steps; structural steps still run. All errors are caught and logged —
- * nothing here may block session end.
+ * All LLM calls route through {@link executeForRole} (T9320), which in turn
+ * uses `resolveLLMForRole('consolidation')` (T9255) — so the provider + model
+ * + credential come from `config.llm.roles.consolidation` →
+ * `config.llm.default` → `config.llm.daemon` → implicit fallback, and the
+ * matching transport (Anthropic Messages, OpenAI chat-completions, or any
+ * future api-mode) is selected automatically. No credential = silent no-op
+ * for LLM steps; structural steps still run. All errors are caught and
+ * logged — nothing here may block session end.
  *
  * ## Configuration
  *
@@ -35,13 +37,11 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { authHeaders } from '../llm/credentials.js';
-import { resolveLLMForRole } from '../llm/role-resolver.js';
+import { executeForRole } from '../llm/role-executor.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
-import { redactContent } from './redaction.js';
 
 // ============================================================================
 // Constants
@@ -50,9 +50,10 @@ import { redactContent } from './redaction.js';
 /**
  * Logical role for sleep-consolidation LLM calls.
  *
- * Resolved via `resolveLLMForRole('consolidation')` so the provider + model +
- * credential come from `config.llm.roles.consolidation` → `config.llm.default`
- * → `config.llm.daemon` → implicit fallback (see
+ * Forwarded to {@link executeForRole}, which resolves the concrete
+ * provider/model/credential via `resolveLLMForRole('consolidation')` — so the
+ * provider + model + credential come from `config.llm.roles.consolidation` →
+ * `config.llm.default` → `config.llm.daemon` → implicit fallback (see
  * {@link IMPLICIT_FALLBACK_MODEL} in `llm/role-resolver.ts`).
  *
  * @task T9255
@@ -212,70 +213,39 @@ async function loadSleepConfig(projectRoot: string): Promise<SleepConsolidationC
 // LLM client (shared with observer-reflector pattern)
 // ============================================================================
 
-/** Response envelope from the Anthropic Messages API. */
-interface AnthropicResponse {
-  content: Array<{ type: string; text: string }>;
-  stop_reason: string;
-}
-
 /**
- * Call the Anthropic Messages API via native fetch using the resolved
- * consolidation-role model.
+ * Issue a single LLM call for the consolidation role.
  *
- * Resolves provider/model/credential via `resolveLLMForRole('consolidation')`
- * (T9255). `authHeaders(cred)` ensures the request carries the correct scheme
- * — `x-api-key` for API keys, `Authorization: Bearer` +
- * `anthropic-beta: oauth-2025-04-20` for Claude Code OAuth tokens.
- * Returns null when no credential is available or the call fails.
+ * Routes through {@link executeForRole} which resolves
+ * provider/model/credential via the standard role chain (T9255) and dispatches
+ * to the matching transport — Anthropic Messages, OpenAI chat-completions, or
+ * any future API mode — based on the resolved provider. The previous hardcoded
+ * `fetch('https://api.anthropic.com/v1/messages')` is gone, so changing
+ * `config.llm.roles.consolidation.provider` actually changes the wire target.
+ *
+ * 30-second hard deadline via {@link AbortSignal.timeout} prevents open network
+ * handles from blocking test process teardown (T753 root cause).
+ *
+ * Returns `null` when no credential is available or the call fails — callers
+ * fall back to structural heuristics.
  *
  * @param projectRoot - Project root for config + tier-5 credential lookup.
  * @param systemPrompt - System instruction for the LLM.
  * @param userContent - User message content.
+ *
+ * @task T9320
  */
 async function callLlm(
   projectRoot: string,
   systemPrompt: string,
   userContent: string,
 ): Promise<string | null> {
-  const llm = await resolveLLMForRole(SLEEP_ROLE, { projectRoot });
-  if (!llm.credential?.apiKey) return null;
-
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      // 30-second hard deadline prevents open network handles from blocking
-      // test process teardown (T753: vitest hang root cause).
-      signal: AbortSignal.timeout(30_000),
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(llm.credential),
-      },
-      body: JSON.stringify({
-        model: llm.model,
-        max_tokens: MAX_RESPONSE_TOKENS,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userContent }],
-      }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      // S-04 (CWE-209/532): scrub any echoed auth header / sk-ant-* token
-      // from the error body before logging. See observer-reflector.ts for
-      // the matching site.
-      const safeBody = redactContent(body.slice(0, 200)).content;
-      console.warn(`[sleep-consolidation] Anthropic API error ${response.status}: ${safeBody}`);
-      return null;
-    }
-
-    const data = (await response.json()) as AnthropicResponse;
-    const textBlock = data.content.find((b) => b.type === 'text');
-    return textBlock?.text ?? null;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[sleep-consolidation] LLM call failed: ${msg}`);
-    return null;
-  }
+  const result = await executeForRole(SLEEP_ROLE, systemPrompt, userContent, {
+    projectRoot,
+    maxTokens: MAX_RESPONSE_TOKENS,
+    signal: AbortSignal.timeout(30_000),
+  });
+  return result?.content ?? null;
 }
 
 /**

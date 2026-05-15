@@ -22,11 +22,13 @@
  *
  * ## LLM Backend
  *
- * Calls the Anthropic Messages API directly via native fetch (no SDK dep).
- * Provider + model resolved via `resolveLLMForRole('consolidation')` (T9255)
- * with `CLEO_OBSERVER_MODEL` env override preserved for back-compat.
- * When `ANTHROPIC_API_KEY` is not set, both functions silently no-op — the
- * rest of the memory pipeline still runs normally.
+ * Routes through {@link executeForRole} (T9320), which resolves
+ * provider/model/credential via the standard role chain (T9255) and dispatches
+ * to the matching transport — Anthropic Messages, OpenAI chat-completions, or
+ * any future api-mode. `CLEO_OBSERVER_MODEL` continues to override the
+ * resolved model when set. When no credential is configured for the resolved
+ * provider, both functions silently no-op — the rest of the memory pipeline
+ * still runs normally.
  *
  * ## Configuration
  *
@@ -51,13 +53,11 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { authHeaders } from '../llm/credentials.js';
-import { resolveLLMForRole } from '../llm/role-resolver.js';
+import { executeForRole } from '../llm/role-executor.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { addGraphEdge } from './graph-auto-populate.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
-import { redactContent } from './redaction.js';
 
 // ============================================================================
 // Internal row type (raw SQLite snake_case columns, not Drizzle camelCase)
@@ -81,7 +81,8 @@ interface RawObservationRow {
 /**
  * Logical role for observer/reflector LLM calls.
  *
- * Resolved via `resolveLLMForRole('consolidation')` (T9255) — observer and
+ * Forwarded to {@link executeForRole} (T9320), which resolves the concrete
+ * provider/model/credential via the standard role chain (T9255). Observer and
  * reflector are both consolidation-tier tasks (compress + restructure recent
  * BRAIN observations). The `CLEO_OBSERVER_MODEL` env var still wins when set,
  * preserving the historical override knob.
@@ -234,73 +235,44 @@ async function loadReflectorConfig(projectRoot: string): Promise<ReflectorConfig
 // LLM client
 // ============================================================================
 
-/** Response envelope from the Anthropic Messages API. */
-interface AnthropicResponse {
-  content: Array<{ type: string; text: string }>;
-  stop_reason: string;
-}
-
 /**
- * Call the Anthropic Messages API via native fetch.
+ * Issue a single LLM call for the observer/reflector consolidation role.
  *
- * Resolves provider/model/credential via `resolveLLMForRole('consolidation')`
- * (T9255). `authHeaders(cred)` ensures the request carries the correct auth
- * scheme — `x-api-key` for API keys, `Authorization: Bearer` +
- * `anthropic-beta: oauth-2025-04-20` for Claude Code OAuth tokens.
- * `CLEO_OBSERVER_MODEL` continues to override the resolved model when set.
- * Returns null when no credential is available or the API call fails (caller
- * handles graceful degradation).
+ * Routes through {@link executeForRole}, which resolves
+ * provider/model/credential via the standard role chain (T9255) and dispatches
+ * to the matching transport (Anthropic Messages, OpenAI chat-completions, or
+ * any future api-mode). Replaces the previous hardcoded
+ * `fetch('https://api.anthropic.com/v1/messages')` so changing
+ * `config.llm.roles.consolidation.provider` actually changes the wire target.
+ *
+ * `CLEO_OBSERVER_MODEL` continues to override the resolved model when set —
+ * historical override knob preserved.
+ *
+ * Returns `null` when no credential is available or the call fails — callers
+ * fall back to the no-op path.
  *
  * @param projectRoot - Project root for config + tier-5 credential lookup.
  * @param systemPrompt - System instruction for the LLM.
  * @param userContent - User message content.
- * @returns The assistant response text, or null on failure.
+ * @returns The assistant response text, or `null` on failure.
+ *
+ * @task T9320
  */
 async function callAnthropicLlm(
   projectRoot: string,
   systemPrompt: string,
   userContent: string,
 ): Promise<string | null> {
-  const llm = await resolveLLMForRole(OBSERVER_ROLE, { projectRoot });
-  if (!llm.credential?.apiKey) {
-    return null;
-  }
+  const envOverride = process.env['CLEO_OBSERVER_MODEL'];
+  const modelOverride =
+    envOverride !== undefined && envOverride.length > 0 ? envOverride : undefined;
 
-  const model = process.env['CLEO_OBSERVER_MODEL'] ?? llm.model;
-
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(llm.credential),
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: MAX_RESPONSE_TOKENS,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userContent }],
-      }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      // S-04 (CWE-209/532): route the error body through redactContent
-      // before logging so any echoed authorization-style header or
-      // sk-ant-* token in a malformed-key 401 response is scrubbed.
-      const safeBody = redactContent(body.slice(0, 200)).content;
-      console.warn(`[observer-reflector] Anthropic API error ${response.status}: ${safeBody}`);
-      return null;
-    }
-
-    const data = (await response.json()) as AnthropicResponse;
-    const textBlock = data.content.find((b) => b.type === 'text');
-    return textBlock?.text ?? null;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[observer-reflector] LLM call failed: ${msg}`);
-    return null;
-  }
+  const result = await executeForRole(OBSERVER_ROLE, systemPrompt, userContent, {
+    projectRoot,
+    maxTokens: MAX_RESPONSE_TOKENS,
+    ...(modelOverride !== undefined ? { modelOverride } : {}),
+  });
+  return result?.content ?? null;
 }
 
 // ============================================================================
