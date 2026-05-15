@@ -9,7 +9,7 @@
  * @epic T1386
  */
 
-import type { CompletionResult } from './backend.js';
+import type { CompletionResult } from './executor.js';
 
 /** Protocol for history adapters. */
 export interface HistoryAdapter {

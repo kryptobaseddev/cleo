@@ -15,8 +15,8 @@
  */
 
 import pRetry from 'p-retry';
-import type { CompletionResult } from './backend.js';
 import { truncateMessagesToFit } from './conversation.js';
+import type { CompletionResult } from './executor.js';
 import { cleoLlmCallInner } from './executor.js';
 import { historyAdapterForProvider } from './registry.js';
 import type { AttemptPlan, AttemptRef } from './runtime.js';

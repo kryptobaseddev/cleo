@@ -12,9 +12,6 @@
 export type { CleoLlmCallParams } from './api.js';
 // Public entrypoint
 export { cleoLlmCall } from './api.js';
-// Backend interface (for extensibility)
-export type { CompletionResult, ProviderBackend, StreamChunk, ToolCallResult } from './backend.js';
-export { makeCompletionResult } from './backend.js';
 // Backends (for direct use / custom wiring — AnthropicBackend migrated to transports/anthropic.ts)
 export type { GeminiCacheHandle } from './caching.js';
 // Caching
@@ -65,8 +62,11 @@ export {
   pickCredentialForProviderSync,
   removeCredential,
 } from './credentials-store.js';
+// Backend types (inlined into executor.ts in T9289 — re-exported for callers)
+// TODO(T9292 W3/W5): migrate callers to LlmTransport/NormalizedResponse and remove
+export type { CompletionResult, ProviderBackend, StreamChunk, ToolCallResult } from './executor.js';
 // Executor (inner call, for testing)
-export { cleoLlmCallInner, completionResultToResponse } from './executor.js';
+export { cleoLlmCallInner, completionResultToResponse, makeCompletionResult } from './executor.js';
 // History adapters
 export {
   AnthropicHistoryAdapter,
@@ -89,11 +89,9 @@ export type {
 export { injectCacheBreakpoints } from './prompt-caching.js';
 // Registry (for testing/DI)
 export {
-  backendForProvider,
   buildAnthropicSdkClient,
   CLIENTS,
   clientForModelConfig,
-  getBackend,
 } from './registry.js';
 // Role-based LLM resolver (T-LLM-CRED-CENTRALIZATION Phase 2 / T9255)
 export type {
