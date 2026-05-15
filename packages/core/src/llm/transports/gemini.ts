@@ -107,11 +107,6 @@ export class GeminiTransport implements LlmTransport {
    */
   readonly apiMode: ApiMode = 'chat_completions' as const;
 
-  /** @param _options - Accepted for constructor parity with AnthropicTransport. */
-  constructor(_options: GeminiTransportOptions) {
-    // Intentionally empty — real impl initialises the SDK client here.
-  }
-
   /**
    * Not yet implemented — always throws {@link GeminiNotImplementedError}.
    *
