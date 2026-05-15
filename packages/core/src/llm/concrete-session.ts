@@ -26,11 +26,15 @@ import type {
   TransportMessage,
   TransportRequest,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import type { ProviderProfile } from '@cleocode/contracts/llm/provider-profile.js';
 import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
 import type { CredentialPool } from './credential-pool.js';
 import type { StoredCredential } from './credentials-store.js';
 import { classifyError } from './error-classifier.js';
+import { estimateTransportMessageTokens } from './message-utils.js';
+import { getModelContextLengthSync } from './model-metadata.js';
 import { rateLimitRemaining, recordRateLimit } from './rate-limit-guard.js';
+import { computeThinkingBudget } from './thinking-budget.js';
 import type { ModelTransport } from './types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -148,6 +152,17 @@ export interface ConcreteSessionOptions {
    */
   readonly credentialPool?: CredentialPool;
   /**
+   * Provider profile resolved for this session.
+   *
+   * When present and `providerProfile.supportsThinkingBudget === true`, the
+   * session automatically computes and injects a `thinkingBudgetTokens` value
+   * into each `TransportRequest` via {@link computeThinkingBudget} — unless the
+   * caller already set `thinkingBudgetTokens` explicitly.
+   *
+   * @task T9303
+   */
+  readonly providerProfile?: ProviderProfile;
+  /**
    * Factory that rebuilds the transport from a new credential after pool rotation.
    *
    * Required when `credentialPool` is set. Called with the newly-picked
@@ -190,6 +205,7 @@ export class ConcreteSession implements LlmSession {
   private readonly _transportFactory:
     | ((credential: ResolvedCredential) => LlmTransport)
     | undefined;
+  private readonly _providerProfile: ProviderProfile | undefined;
 
   /**
    * @param opts - Session construction options.
@@ -202,6 +218,7 @@ export class ConcreteSession implements LlmSession {
     this._retryPolicy = opts.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this._credentialPool = opts.credentialPool;
     this._transportFactory = opts.transportFactory;
+    this._providerProfile = opts.providerProfile;
   }
 
   /**
@@ -436,12 +453,31 @@ export class ConcreteSession implements LlmSession {
 
   /** Assemble a {@link TransportRequest} from messages and call-level opts. */
   private _buildRequest(messages: TransportMessage[], opts?: SendOptions): TransportRequest {
-    return {
+    const maxTokens = 4096;
+    const base: TransportRequest = {
       model: this.model,
       messages,
-      maxTokens: 4096,
+      maxTokens,
       cacheStrategy: opts?.cacheStrategy ?? null,
       ...(opts?.systemSuffix != null ? { system: opts.systemSuffix } : {}),
     };
+
+    // Auto-inject thinking budget when the provider supports it and the caller
+    // has not already set thinkingBudgetTokens.
+    if (
+      this._providerProfile?.supportsThinkingBudget === true &&
+      base.thinkingBudgetTokens == null
+    ) {
+      const promptTokens = estimateTransportMessageTokens(messages);
+      const contextLength = getModelContextLengthSync(this.model);
+      const budget = computeThinkingBudget({
+        modelContextLength: contextLength,
+        promptTokens,
+        maxTokens,
+      });
+      return { ...base, thinkingBudgetTokens: budget };
+    }
+
+    return base;
   }
 }
