@@ -37,8 +37,15 @@ import type {
 
 import type { ModelTransport } from './types-config.js';
 import { resolveLLMForRole } from './role-resolver.js';
+import {
+  getKimiCodeMshHeaders,
+  isKimiCodeApiKey,
+} from './provider-registry/builtin/kimi-code.js';
 import { AnthropicTransport } from './transports/anthropic.js';
 import { ChatCompletionsTransport } from './transports/chat-completions.js';
+
+/** Kimi Code chat endpoint — speaks Anthropic Messages protocol. */
+const KIMI_CODE_BASE_URL = 'https://api.kimi.com/coding';
 
 /**
  * Options accepted by {@link executeForRole}.
@@ -138,6 +145,35 @@ export async function executeForRole(
             })
           : new AnthropicTransport({ apiKey: llm.credential.apiKey });
 
+      const resp = await transport.complete(request);
+      return {
+        content: resp.content ?? '',
+        usage: resp.usage,
+        provider: llm.provider,
+        model: resp.model,
+      };
+    }
+
+    if (llm.provider === 'kimi-code') {
+      // Kimi Code speaks Anthropic Messages protocol against
+      // api.kimi.com/coding. Both `sk-kimi-*` API keys and OAuth bearer
+      // tokens authenticate via `Authorization: Bearer …` — the legacy
+      // Moonshot `mk-*` API-key path lives on the separate `moonshot`
+      // provider, not here. Mandatory `X-Msh-*` headers are merged in.
+      // (Defensive: also check the key prefix in case a misconfigured key
+      // routed to kimi-code despite being a legacy moonshot key.)
+      if (!isKimiCodeApiKey(llm.credential.apiKey) && llm.credential.authType !== 'oauth') {
+        console.warn(
+          `[role-executor] kimi-code credential is not sk-kimi- prefixed and not OAuth; ` +
+            `the request may fail. Configure a coding-plan key from kimi.com/code or ` +
+            `switch the provider to 'moonshot' for legacy mk- keys.`,
+        );
+      }
+      const transport = new AnthropicTransport({
+        authToken: llm.credential.apiKey,
+        baseUrl: KIMI_CODE_BASE_URL,
+        defaultHeaders: getKimiCodeMshHeaders(),
+      });
       const resp = await transport.complete(request);
       return {
         content: resp.content ?? '',
