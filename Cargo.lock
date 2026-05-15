@@ -262,7 +262,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cant-core"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "conduit-core",
  "nom",
@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "cant-lsp"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "cant-core",
  "serde",
@@ -283,7 +283,7 @@ dependencies = [
 
 [[package]]
 name = "cant-napi"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "cant-core",
  "cant-router",
@@ -298,7 +298,7 @@ dependencies = [
 
 [[package]]
 name = "cant-router"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "serde",
  "serde_json",
@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "cant-runtime"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "cant-core",
  "serde",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "conduit-core"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "lafs-core",
  "serde",
@@ -1370,7 +1370,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "cant-core",
  "cant-router",
@@ -1454,7 +1454,7 @@ dependencies = [
 
 [[package]]
 name = "lafs-core"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "chrono",
  "jsonschema",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "lafs-napi"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "lafs-core",
  "napi",
@@ -2671,7 +2671,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-core"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "chrono",
  "conduit-core",
@@ -2684,7 +2684,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-payments"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2700,7 +2700,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-protocol"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "cant-core",
  "chrono",
@@ -2715,7 +2715,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-runtime"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2732,7 +2732,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-sdk"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2754,7 +2754,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-storage"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2773,7 +2773,7 @@ dependencies = [
 
 [[package]]
 name = "signaldock-transport"
-version = "2026.4.13"
+version = "2026.5.70"
 dependencies = [
  "anyhow",
  "async-trait",

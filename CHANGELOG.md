@@ -1,5 +1,43 @@
 # Changelog
 
+## [2026.5.70] (2026-05-15)
+
+Auto-prepared by release.ship (T9261)
+
+### Features
+- **T-llm-p4-2a: Implement ConcreteSession**: Wave 2a — ConcreteSession. The state-holder layer. Wires Phase 3 utilities at retry-loop hook points (W4a, W4e fill them in). (T9287)
+- **T-llm-p4-2b: Implement LlmSessionFactory**: Wave 2b — single entry point for session construction. Replaces scattered new Anthropic() + new OpenAI() patterns across the codebase. (T9288)
+- **T-llm-p4-3a: Implement ConcreteExecutor with optional ContextEngine**: Wave 3a — ConcreteExecutor. Critical: contextEngine is OPTIONAL (W6c injects default later). V3 caught this ordering gap — without explicit nullabl... (T9290)
+- **T-llm-p4-3b: Implement LlmExecutorFactory**: Wave 3b — single entry point for executor construction. (T9291)
+
+### Chores
+- **T-llm-p4-1a: Migrate backends/gemini.ts INTO transports/gemini.ts**: Wave 1a — Gemini migration. First in V2-recommended order (lowest blast radius). Zero autonomous consumers. Tests the wrapper pattern before high-r... (T9283)
+- **T-llm-p4-1b: Migrate backends/openai.ts INTO transports/openai.ts**: Wave 1b — OpenAI migration. Can be authored in parallel with W1c (different registry.ts branches) but MERGES after W1a. The usesMaxCompletionTokens... (T9284)
+- **T-llm-p4-1c: Migrate backends/anthropic.ts INTO transports/anthropic.ts**: Wave 1c — Anthropic migration. HIGHEST blast radius. 7 call chains, 5 autonomous. Runs LAST in Wave 1 order. Per V2 top risk: do NOT skip structure... (T9285)
+- **T-llm-p4-1d: Migrate backends/moonshot.ts to ProviderProfile hooks in chat-completions.ts**: Wave 1d — Moonshot + chat-completions quirks consolidation. Closes the TODO(T9272+) debt by moving inline _applyProviderQuirks logic into proper Pr... (T9286)
+- **T-llm-p4-5a: Migrate api.ts to LlmExecutorFactory**: Wave 5a — migrate api.ts call site. (T9298)
+- **T-llm-p4-5b: Migrate tool-loop.ts to executor.run() event stream**: Wave 5b — migrate tool-loop.ts. (T9299)
+- **T-llm-p4-5c: Migrate memory/sentient/tasks consumers to LlmExecutorFactory.createForRole**: Wave 5c — migrate all six Phase 1 call sites that originally bypassed unified architecture. May ship as 6 separate sub-PRs if needed for rollback g... (T9300)
+- **T-llm-p4-6c: ContextEngine interface + default LlmSummarizationEngine + sleep-consolidation refactor**: Wave 6c — ContextEngine (T9278 reframed). Default engine only; plugin registry surface is Phase 5. (T9304)
+- **T-llm-p4-7a: Remove daemon LLM config field + schema bump + role-resolver simplification**: Wave 7a — config cleanup. Deprecated since Phase 2; finally removed under Option C. (T9306)
+
+### Changes
+- **T-llm-p4-2c: Retire ProviderBackend interface + request-builder + runtime.planAttempt**: Wave 2c — retire the legacy interface and supporting modules. After Wave 1 + 2a + 2b land, these files are functionally dead. Combined Wave 1 + 2c ... (T9289)
+- **T-llm-p4-3c: Retire legacy executor.ts (cleoLlmCallInner)**: Wave 3c — retire executor.ts. Combines with W5a/W5b call-site migrations. (T9292)
+- **T-llm-p4-4a: Wire classifyError into ConcreteSession retry path (closes T9270 AC)**: Wave 4a — closes the T9270 AC violation. ClassifiedError flags drive retry decisions instead of raw status codes. Note: per ADR-072 the field is sh... (T9293)
+- **T-llm-p4-4b: Wire usage-pricing + session journal + cleo llm cost CLI (closes T9274 AC)**: Wave 4b — closes the T9274 AC violation. V3 identified session journal schema gap; this task defines + implements it. (T9294)
+- **T-llm-p4-4c: Wire think-scrubber into streaming (BREAKING API change to scrubber)**: Wave 4c — V1 caught that scrubber.feed() returns string and DISCARDS reasoning. Cannot produce delta.reasoning/delta.text split without breaking ch... (T9295)
+- **T-llm-p4-4d: Wire image-routing into LlmTransport.complete() validators**: Wave 4d — wire image-routing utility into transport validators. (T9296)
+- **T-llm-p4-4e: Wire CredentialPool + RateLimitGuard into session retry + storedToResolved adapter**: Wave 4e — pool + guard wiring. V1 caught the storedToResolved adapter gap (pool returns StoredCredential; session needs ResolvedCredential). This t... (T9297)
+- **T-llm-p4-5d: Auxiliary router consolidation — absorb routeAuxiliaryCall into ConcreteExecutor.auxiliary()**: Wave 5d — consolidate auxiliary routing. Default: delete auxiliary-router.ts after callers migrated. Owner can flip at PR review per plan §Open dec... (T9301)
+- **T-llm-p4-6a: OAuth PKCE flow + cleo llm login dispatcher**: Wave 6a — PKCE OAuth (T9277 reframed). Hermes anthropic_adapter §4.3.2 inspires the PKCE flow; we port only the protocol, not the 2080 LOC adapter. (T9302)
+- **T-llm-p4-6b: Adaptive thinking-budget calculator (wires model-metadata)**: Wave 6b — adaptive thinking budget. V1 caught that model-metadata.ts was missing from wire-up table; this closes the loop. (T9303)
+- **T-llm-p4-6d: Plugin LLM facade — pluginLlmComplete with redaction**: Wave 6d — plugin facade (T9279 reframed). MVP only; CLEO worktree isolation already covers sandboxing layer. (T9305)
+- **T-llm-p4-7b: Adapter circular-dep fix — parseClaudeCodeCredentials to contracts**: Wave 7b — break circular dep cleanly per V1 finding. Leaf module in contracts; both core and adapters import from there. (T9307)
+- **T-llm-p4-7c: Rename LlmTransport type alias to LlmProviderTransport**: Wave 7c — disambiguate the alias from the interface. V2 caught the naming conflict. (T9308)
+- T9321 follow-up: wire kimi-code to cleo llm login + CredentialPool refresh hook + llm-status resolvedSource (T9323)
+---
+
 ## [2026.5.69] (2026-05-15)
 
 Auto-prepared by release.ship (T9261)
