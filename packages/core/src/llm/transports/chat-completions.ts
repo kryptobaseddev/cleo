@@ -39,6 +39,7 @@ import type {
   TransportTool,
 } from '@cleocode/contracts/llm/normalized-response.js';
 import type { ApiMode } from '@cleocode/contracts/llm/provider-id.js';
+import type { ProviderProfile } from '@cleocode/contracts/llm/provider-profile.js';
 import type { ModelTransport } from '@cleocode/contracts/operations/llm.js';
 import OpenAI from 'openai';
 
@@ -56,6 +57,11 @@ import OpenAI from 'openai';
  * `defaultHeaders` carries extra HTTP headers merged into every SDK request.
  * Typically used for proxy auth (`X-Title`, `HTTP-Referer` for OpenRouter)
  * or for OAuth bearer tokens on providers that use `Authorization: Bearer`.
+ *
+ * `profile` is an optional {@link ProviderProfile} whose hooks
+ * (`buildExtraBody`, `buildApiKwargsExtras`) are called during request
+ * preparation. When absent, the transport falls back to the legacy inline
+ * model-name quirk dispatch for backward compatibility.
  */
 export interface ChatCompletionsTransportOptions {
   /**
@@ -71,6 +77,12 @@ export interface ChatCompletionsTransportOptions {
   baseUrl?: string;
   /** Extra headers merged into every SDK request. */
   defaultHeaders?: Record<string, string>;
+  /**
+   * Optional provider profile supplying `buildExtraBody` and
+   * `buildApiKwargsExtras` hooks. When present, these hooks are dispatched
+   * instead of the legacy inline model-name pattern quirks.
+   */
+  profile?: ProviderProfile;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,13 +137,20 @@ export class ChatCompletionsTransport implements LlmTransport {
   private readonly _client: OpenAI;
 
   /**
+   * Optional provider profile — when present, its hooks replace the inline
+   * model-name pattern quirks in `_applyProviderQuirks`.
+   */
+  private readonly _profile: ProviderProfile | undefined;
+
+  /**
    * Construct a ChatCompletionsTransport.
    *
    * @param opts - Construction options including provider, API key, and
-   *   optional base URL / default headers.
+   *   optional base URL / default headers / provider profile.
    */
   constructor(opts: ChatCompletionsTransportOptions) {
     this.provider = opts.provider;
+    this._profile = opts.profile;
     this._client = new OpenAI({
       apiKey: opts.apiKey,
       baseURL: opts.baseUrl,
@@ -164,6 +183,20 @@ export class ChatCompletionsTransport implements LlmTransport {
       temperature: request.temperature ?? 0.7,
     };
     if (tools) kwargs['tools'] = tools;
+
+    // @invariant moonshot-no-thinking-budget: reject thinkingBudgetTokens for
+    // providers that do not support it (Moonshot does not expose this parameter).
+    if (
+      request.thinkingBudgetTokens !== null &&
+      request.thinkingBudgetTokens !== undefined &&
+      this._profile &&
+      !this._profile.supportsThinkingBudget
+    ) {
+      throw new Error(
+        `Provider '${this._profile.name}' does not support thinkingBudgetTokens; ` +
+          'remove thinkingBudgetTokens from the request for this provider',
+      );
+    }
 
     // Apply provider-specific quirks before sending
     this._applyProviderQuirks(kwargs, request);
@@ -239,39 +272,89 @@ export class ChatCompletionsTransport implements LlmTransport {
   /**
    * Apply provider-specific request transformations in place.
    *
-   * Dispatch is purely model-name based (case-insensitive substring match).
-   * Each quirk is independent and idempotent — the order only matters when
-   * two quirks modify the same key (currently none do).
+   * When a {@link ProviderProfile} was supplied at construction time, its
+   * `buildExtraBody` and `buildApiKwargsExtras` hooks are called and the
+   * results merged into `kwargs` — this is the canonical W1d path.
    *
-   * Supported quirks:
-   * - **Gemini** (`gemini`): adds `extra_body.thinking_config` with model-
-   *   aware budget selection (`'auto'` for 2.5/flash, `'high'` otherwise).
-   * - **Kimi** (`kimi`): sets `reasoning_effort: 'high'` and
-   *   `extra_body.thinking: { type: 'enabled' }`.
-   * - **Moonshot** (`moonshot`): sanitizes tool parameter schemas by removing
-   *   `$schema` and root-level `additionalProperties` which Moonshot rejects.
-   * - **OpenRouter Pareto** (`openrouter/` + Sonnet/Opus/Grok/GPT-4): injects
-   *   the `pareto` plugin block into `extra_body.plugins`.
-   * - **xAI/Grok** (`grok`): pins a process-scoped conversation id in
-   *   `extra_headers['x-grok-conv-id']` for cache-affinity.
+   * When no profile is present the legacy inline model-name pattern dispatch
+   * is used as a fallback for backward compatibility with callers that have
+   * not yet been migrated to supply a profile.
    *
-   * TODO(T9272+): wire ProviderProfile.buildExtraBody + buildApiKwargsExtras
-   * hooks once the contract is extended (deferred to next session).
+   * Profile hook dispatch (W1d):
+   * - `buildExtraBody` → merged into `kwargs.extra_body` (shallow merge).
+   *   Special key `__sanitizedTools` replaces `kwargs.tools` (Moonshot
+   *   schema sanitization path).
+   * - `buildApiKwargsExtras` → shallow-merged into `kwargs` at top level.
+   *   Nested `extra_headers` is merged (not replaced) with any existing headers.
+   *
+   * Legacy inline quirks (fallback):
+   * - **Gemini** (`gemini`): `extra_body.thinking_config` with model-aware budget.
+   * - **Kimi** (`kimi`): `reasoning_effort: 'high'` + `extra_body.thinking`.
+   * - **Moonshot** (`moonshot`): shallow tool schema sanitization.
+   * - **OpenRouter Pareto** (`openrouter/` + Sonnet/Opus/Grok/GPT-4): plugins.
+   * - **xAI/Grok** (`grok`): `extra_headers['x-grok-conv-id']`.
    *
    * @param kwargs - Mutable request kwargs dict (mutated in place).
    * @param request - Original transport request for model name + tool list.
    */
   private _applyProviderQuirks(kwargs: Record<string, unknown>, request: TransportRequest): void {
+    if (this._profile) {
+      // ── Profile-hook dispatch (W1d canonical path) ───────────────────────
+      const messages = request.messages as readonly TransportMessage[];
+      const tools = (request.tools ?? []) as readonly TransportTool[];
+
+      if (this._profile.buildExtraBody) {
+        const extra = this._profile.buildExtraBody(request.model, messages, tools);
+        if (Object.keys(extra).length > 0) {
+          // __sanitizedTransportTools is a sentinel from moonshotProfile.buildExtraBody
+          // carrying a sanitized TransportTool[] array. The transport applies
+          // _convertTools on the sanitized array to produce OpenAI-format tools.
+          if ('__sanitizedTransportTools' in extra) {
+            const sanitizedTransportTools = extra['__sanitizedTransportTools'] as TransportTool[];
+            kwargs['tools'] = this._convertTools(sanitizedTransportTools);
+            const rest = { ...extra };
+            delete rest['__sanitizedTransportTools'];
+            if (Object.keys(rest).length > 0) {
+              const existing = (kwargs['extra_body'] as Record<string, unknown>) ?? {};
+              kwargs['extra_body'] = { ...existing, ...rest };
+            }
+          } else {
+            const existing = (kwargs['extra_body'] as Record<string, unknown>) ?? {};
+            kwargs['extra_body'] = { ...existing, ...extra };
+          }
+        }
+      }
+
+      if (this._profile.buildApiKwargsExtras) {
+        const extras = this._profile.buildApiKwargsExtras(request.model, messages, tools);
+        for (const [key, value] of Object.entries(extras)) {
+          if (key === 'extra_headers' && typeof value === 'object' && value !== null) {
+            // Merge extra_headers instead of replacing to preserve any headers
+            // already set by defaultHeaders (e.g. for OpenRouter).
+            const existing = (kwargs['extra_headers'] as Record<string, string>) ?? {};
+            kwargs['extra_headers'] = { ...existing, ...(value as Record<string, string>) };
+          } else {
+            kwargs[key] = value;
+          }
+        }
+      }
+
+      return;
+    }
+
+    // ── Legacy inline quirks (fallback for callers without a profile) ─────
     const model = request.model.toLowerCase();
 
-    // ── Gemini thinking config ────────────────────────────────────────────
+    // @invariant gemini-thinking-config: Gemini requires extra_body.thinking_config
+    // with model-aware budget (auto for 1.x/2.x/flash, high for 3.x non-flash).
     if (model.includes('gemini')) {
       const extraBody = (kwargs['extra_body'] as Record<string, unknown>) ?? {};
       extraBody['thinking_config'] = buildGeminiThinkingConfig(model);
       kwargs['extra_body'] = extraBody;
     }
 
-    // ── Kimi reasoning_effort + thinking ──────────────────────────────────
+    // @invariant kimi-reasoning-effort: Kimi Code requires reasoning_effort as
+    // a top-level API kwarg (not inside extra_body) for chain-of-thought reasoning.
     if (model.includes('kimi')) {
       kwargs['reasoning_effort'] = 'high';
       const extraBody = (kwargs['extra_body'] as Record<string, unknown>) ?? {};
@@ -279,21 +362,25 @@ export class ChatCompletionsTransport implements LlmTransport {
       kwargs['extra_body'] = extraBody;
     }
 
-    // ── Moonshot strict JSON Schema sanitization on tools ─────────────────
+    // @invariant moonshot-shallow-sanitize: Moonshot rejects $schema and
+    // root-level additionalProperties in tool parameters. Strip these fields
+    // shallowly (NOT recursively — Gemini has its own separate deep sanitizer).
     if (model.includes('moonshot') && Array.isArray(kwargs['tools'])) {
       kwargs['tools'] = (kwargs['tools'] as Array<Record<string, unknown>>).map(
         sanitizeMoonshotTool,
       );
     }
 
-    // ── OpenRouter Pareto router (model-gated) ─────────────────────────────
+    // @invariant openrouter-pareto-plugin: OpenRouter routes high-capability
+    // models through the Pareto price-optimizer plugin with min_coding_score 0.85.
     if (model.startsWith('openrouter/') && /sonnet|opus|grok|gpt-4/i.test(model)) {
       const extraBody = (kwargs['extra_body'] as Record<string, unknown>) ?? {};
       extraBody['plugins'] = [{ id: 'pareto', min_coding_score: 0.85 }];
       kwargs['extra_body'] = extraBody;
     }
 
-    // ── xAI/Grok conversation pinning ─────────────────────────────────────
+    // @invariant xai-grok-conv-id: xAI's KV-cache requires a stable
+    // x-grok-conv-id header per process for cache affinity.
     if (model.includes('grok')) {
       const headers = (kwargs['extra_headers'] as Record<string, string>) ?? {};
       headers['x-grok-conv-id'] = getGrokConvId();

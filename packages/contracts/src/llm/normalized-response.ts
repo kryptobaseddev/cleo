@@ -245,6 +245,16 @@ export interface TransportRequest {
    * @see ADR-072 §LlmTransport — pure wire level
    */
   readonly imageMode?: 'native' | 'text' | 'auto';
+  /**
+   * Anthropic-style extended thinking budget (token count).
+   *
+   * Providers that do NOT support thinking budgets (e.g. Moonshot) MUST
+   * reject this field with an error. Transports validate this against the
+   * provider profile before constructing the SDK request.
+   *
+   * @task T9286 (W1d — Moonshot thinkingBudgetTokens rejection)
+   */
+  readonly thinkingBudgetTokens?: number | null;
 }
 
 /**

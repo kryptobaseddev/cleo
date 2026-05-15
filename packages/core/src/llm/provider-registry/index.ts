@@ -32,6 +32,11 @@
 
 import type { ProviderProfile } from '@cleocode/contracts';
 import { anthropicProfile } from './builtin/anthropic.js';
+import { geminiProfile } from './builtin/gemini.js';
+import { kimiCodeProfile } from './builtin/kimi-code.js';
+import { moonshotProfile } from './builtin/moonshot.js';
+import { openrouterProfile } from './builtin/openrouter.js';
+import { xaiProfile } from './builtin/xai.js';
 import { runDiscovery } from './loader.js';
 
 // ---------------------------------------------------------------------------
@@ -59,7 +64,14 @@ let _discoveryPromise: Promise<void> | null = null;
  * All builtin provider profiles registered before user plugins are loaded.
  * Add new builtins here — the registry loads them in array order.
  */
-const BUILTIN_PROFILES: ReadonlyArray<ProviderProfile> = [anthropicProfile];
+const BUILTIN_PROFILES: ReadonlyArray<ProviderProfile> = [
+  anthropicProfile,
+  geminiProfile,
+  kimiCodeProfile,
+  moonshotProfile,
+  openrouterProfile,
+  xaiProfile,
+];
 
 // ---------------------------------------------------------------------------
 // Core registration
