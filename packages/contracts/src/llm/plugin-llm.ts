@@ -32,9 +32,8 @@ export interface PluginLlmContext {
   /**
    * Optional list of model identifiers the plugin is permitted to call.
    *
-   * Values are matched against the `model` field on the resolved role config
-   * (e.g. `'claude-haiku-4-5-20251001'`). When omitted or empty any model is
-   * allowed.
+   * Values are matched against the `model` field on the resolved role config.
+   * When omitted or empty any model is allowed.
    */
   readonly allowedModels?: readonly string[];
   /**
