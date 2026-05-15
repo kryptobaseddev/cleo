@@ -1,10 +1,11 @@
 /**
  * Backends barrel — provider backend implementations.
  *
+ * AnthropicBackend has been migrated to transports/anthropic.ts (T9285 W1c).
+ *
  * @task T1386
  */
 
-export { AnthropicBackend } from './anthropic.js';
 export {
   isMoonshotModel,
   MOONSHOT_BASE_URL,

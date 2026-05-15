@@ -22,8 +22,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CompletionResult } from '../backend.js';
 import { makeCompletionResult } from '../backend.js';
-// --- Anthropic backend prefill logic ---
-import { AnthropicBackend } from '../backends/anthropic.js';
 // --- Gemini backend ---
 import { GeminiBackend } from '../backends/gemini.js';
 // --- Moonshot backend ---
@@ -54,6 +52,8 @@ import {
   repairResponseModelJson,
   validateStructuredOutput,
 } from '../structured-output.js';
+// --- AnthropicTransport prefill logic (migrated from AnthropicBackend W1c T9285) ---
+import { AnthropicTransport } from '../transports/anthropic.js';
 import type { ModelConfig, PromptCachePolicy } from '../types-config.js';
 
 // ============================================================================
@@ -257,30 +257,30 @@ describe('emptyStructuredOutput', () => {
 // AnthropicBackend — prefill rejection (R2 critical)
 // ============================================================================
 
-describe('AnthropicBackend._supportsAssistantPrefill (R2)', () => {
+describe('AnthropicTransport._supportsAssistantPrefill (R2 — migrated from AnthropicBackend)', () => {
   it('returns false for claude-sonnet-4-6 (CLEO primary)', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-sonnet-4-6')).toBe(false);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-sonnet-4-6')).toBe(false);
   });
 
   it('returns false for claude-opus-4-anything', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-opus-4-5')).toBe(false);
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-opus-4')).toBe(false);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-opus-4-5')).toBe(false);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-opus-4')).toBe(false);
   });
 
   it('returns false for claude-haiku-4-anything', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-haiku-4-5')).toBe(false);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-haiku-4-5')).toBe(false);
   });
 
   it('returns true for claude-3-5-sonnet (not Claude 4)', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-3-5-sonnet-20241022')).toBe(true);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-3-5-sonnet-20241022')).toBe(true);
   });
 
   it('returns true for claude-3-opus', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-3-opus-20240229')).toBe(true);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-3-opus-20240229')).toBe(true);
   });
 
   it('returns true for claude-3-haiku', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-3-haiku-20240307')).toBe(true);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-3-haiku-20240307')).toBe(true);
   });
 });
 

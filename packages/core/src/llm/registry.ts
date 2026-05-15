@@ -14,7 +14,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { OpenAI } from 'openai';
 
 import type { ProviderBackend } from './backend.js';
-import { AnthropicBackend } from './backends/anthropic.js';
 import { MOONSHOT_BASE_URL, MoonshotBackend } from './backends/moonshot.js';
 import type { CredentialResult } from './credentials.js';
 import { defaultTransportApiKey } from './credentials.js';
@@ -295,7 +294,6 @@ export function backendForProvider(
   provider: ModelTransport,
   client: ProviderClient,
 ): ProviderBackend {
-  if (provider === 'anthropic') return new AnthropicBackend(client as Anthropic);
   if (provider === 'moonshot') return new MoonshotBackend(client as OpenAI);
 
   throw new Error(`Unknown provider: ${provider as string}`);

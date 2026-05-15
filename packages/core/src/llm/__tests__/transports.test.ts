@@ -154,7 +154,10 @@ describe('AnthropicTransport', () => {
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
     const callArgs = mockCreate.mock.calls[0][0] as Record<string, unknown>;
-    expect(callArgs['system']).toBe('You are a helpful assistant.');
+    // system is now an array of text blocks (supports cache breakpoints injection)
+    const systemArg = callArgs['system'] as Array<Record<string, unknown>>;
+    expect(Array.isArray(systemArg)).toBe(true);
+    expect(systemArg[0]?.['text']).toBe('You are a helpful assistant.');
     expect(Array.isArray(callArgs['tools'])).toBe(true);
     expect(callArgs['temperature']).toBe(0.5);
   });

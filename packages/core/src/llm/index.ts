@@ -15,9 +15,7 @@ export { cleoLlmCall } from './api.js';
 // Backend interface (for extensibility)
 export type { CompletionResult, ProviderBackend, StreamChunk, ToolCallResult } from './backend.js';
 export { makeCompletionResult } from './backend.js';
-// Backends (for direct use / custom wiring)
-export type { AnthropicBackendCallParams } from './backends/anthropic.js';
-export { AnthropicBackend } from './backends/anthropic.js';
+// Backends (for direct use / custom wiring — AnthropicBackend migrated to transports/anthropic.ts)
 export type { GeminiCacheHandle } from './caching.js';
 // Caching
 export { buildCacheKey, geminiCacheStore, InMemoryGeminiCacheStore } from './caching.js';
@@ -125,6 +123,8 @@ export {
   validateStructuredOutput,
 } from './structured-output.js';
 // Transports (Phase-4 LlmTransport implementations)
+export type { AnthropicTransportOptions } from './transports/anthropic.js';
+export { AnthropicTransport } from './transports/anthropic.js';
 export type { GeminiTransportOptions } from './transports/gemini.js';
 export { GeminiTransport } from './transports/gemini.js';
 export type { OpenAITransportOptions } from './transports/openai.js';
