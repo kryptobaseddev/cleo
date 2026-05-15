@@ -1,9 +1,10 @@
 /**
- * ConcreteExecutor unit tests (T9290).
+ * ConcreteExecutor unit tests (T9290, T9294 W4b).
  *
  * Uses mock LlmSession implementations — no real network calls.
  *
  * @task T9290
+ * @task T9294 (W4b — usage-pricing wire tests)
  * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
@@ -194,5 +195,51 @@ describe('ConcreteExecutor', () => {
     const historyBefore = session.history().length;
     await executor.auxiliary([{ role: 'user', content: 'aux call' }]);
     expect(session.history().length).toBe(historyBefore);
+  });
+
+  // ---------------------------------------------------------------------------
+  // T9294 (W4b) — usage-pricing wiring tests
+  // ---------------------------------------------------------------------------
+
+  describe('usage-pricing wiring (T9294 W4b)', () => {
+    it('aggregates costUsd per iteration in run()', async () => {
+      // Use a known model (claude-haiku-4-5-20251001) with known pricing
+      const executor = new ConcreteExecutor({ session });
+      const events = await collectEvents(
+        executor.run({ messages: [{ role: 'user', content: 'Hi' }] }),
+      );
+      const done = events.find((e) => e.kind === 'done');
+      expect(done?.kind).toBe('done');
+      if (done?.kind === 'done') {
+        // 10 input tokens + 5 output tokens at $1/$5 per million = $0.000010 + $0.000025
+        // costUsd should be non-null since claude-haiku-4-5-20251001 is in PRICING_SNAPSHOT
+        expect(done.usage.costUsd).not.toBeNull();
+        expect(typeof done.usage.costUsd).toBe('number');
+        expect(done.usage.costUsd).toBeGreaterThan(0);
+      }
+    });
+
+    it('returns null costUsd for unknown model', async () => {
+      transport = makeTransport(() =>
+        Promise.resolve(
+          makeResponse({ model: 'unknown-model-xyz', usage: { inputTokens: 10, outputTokens: 5 } }),
+        ),
+      );
+      session = new ConcreteSession({
+        transport,
+        model: 'unknown-model-xyz',
+        credential: makeCredential(),
+      });
+      const executor = new ConcreteExecutor({ session });
+      const events = await collectEvents(
+        executor.run({ messages: [{ role: 'user', content: 'Hi' }] }),
+      );
+      const done = events.find((e) => e.kind === 'done');
+      expect(done?.kind).toBe('done');
+      if (done?.kind === 'done') {
+        // computeCost returns 0 for unknown models → mapped to null
+        expect(done.usage.costUsd).toBeNull();
+      }
+    });
   });
 });
