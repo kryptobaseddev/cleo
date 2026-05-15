@@ -56,6 +56,13 @@ const FAKE_ANTHROPIC_RESPONSE = {
   },
 };
 
+vi.mock('openai', () => {
+  class MockOpenAI {
+    chat = { completions: { create: vi.fn() } };
+  }
+  return { OpenAI: MockOpenAI };
+});
+
 vi.mock('@anthropic-ai/sdk', () => {
   class MockAnthropic {
     messages = { create: mockCreate };
@@ -70,7 +77,7 @@ vi.mock('@anthropic-ai/sdk', () => {
 import type { NormalizedResponse } from '@cleocode/contracts/llm/normalized-response.js';
 import { AnthropicTransport, type AnthropicTransportOptions } from '../transports/anthropic.js';
 import { GeminiTransport } from '../transports/gemini.js';
-import { OpenAINotImplementedError, OpenAITransport } from '../transports/openai.js';
+import { OpenAITransport } from '../transports/openai.js';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -228,30 +235,14 @@ describe('AnthropicTransport', () => {
 // ---------------------------------------------------------------------------
 
 describe('OpenAITransport', () => {
-  it('rejects with OpenAINotImplementedError and code E_NOT_IMPLEMENTED', async () => {
-    const transport = new OpenAITransport({ apiKey: 'sk-openai-test' });
-
-    let thrownError: unknown;
-    try {
-      await transport.complete({
-        model: 'gpt-4o',
-        messages: [{ role: 'user', content: 'hello' }],
-        maxTokens: 512,
-      });
-    } catch (err) {
-      thrownError = err;
-    }
-
-    expect(thrownError).toBeInstanceOf(OpenAINotImplementedError);
-    if (thrownError instanceof OpenAINotImplementedError) {
-      expect(thrownError.code).toBe('E_NOT_IMPLEMENTED');
-      expect(thrownError.message).toContain('OpenAI transport not yet wired');
-    }
-  });
-
   it('exposes provider as "openai"', () => {
     const transport = new OpenAITransport({ apiKey: 'sk-openai-test' });
     expect(transport.provider).toBe('openai');
+  });
+
+  it('exposes apiMode as "chat_completions"', () => {
+    const transport = new OpenAITransport({ apiKey: 'sk-openai-test' });
+    expect(transport.apiMode).toBe('chat_completions');
   });
 });
 
