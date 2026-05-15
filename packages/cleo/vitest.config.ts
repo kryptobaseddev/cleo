@@ -146,6 +146,19 @@ export default defineConfig({
         '../../packages/core/src/llm/usage-pricing.ts',
         import.meta.url,
       ).pathname,
+      // T9323: llm subpath imports used by llm-login.ts and its tests
+      '@cleocode/core/llm/credentials-store.js': new URL(
+        '../../packages/core/src/llm/credentials-store.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/llm/oauth/device-code.js': new URL(
+        '../../packages/core/src/llm/oauth/device-code.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/llm/provider-registry/builtin/kimi-code.js': new URL(
+        '../../packages/core/src/llm/provider-registry/builtin/kimi-code.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('../../packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('../../packages/lafs/src/index.ts', import.meta.url).pathname,
       // T1113: nexus code sub-path exports — legacy dist-path imports used in nexus.ts

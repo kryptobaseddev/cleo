@@ -339,3 +339,156 @@ describe('CredentialPool — cooldown expiry', () => {
     expect(credential.label).toBe('expiring');
   });
 });
+
+// ---------------------------------------------------------------------------
+// AC#2 — proactiveRefresh (T9323)
+// ---------------------------------------------------------------------------
+
+describe('CredentialPool.proactiveRefresh() — no-ops for non-OAuth credentials', () => {
+  it('no-ops for api_key credentials', async () => {
+    isolateHomes();
+
+    await addCredential(
+      makeCredential('apikey-cred', 10, {
+        authType: 'api_key',
+        expiresAt: Date.now() + 100,
+        refreshToken: undefined,
+      }),
+    );
+
+    const pool = new CredentialPool('anthropic');
+    const refreshed = await pool.proactiveRefresh('apikey-cred');
+    expect(refreshed).toBe(false);
+  });
+
+  it('no-ops when expiresAt is null', async () => {
+    isolateHomes();
+
+    await addCredential(
+      makeCredential('oauth-no-expiry', 10, {
+        authType: 'oauth',
+        expiresAt: null,
+        refreshToken: 'some-refresh-token',
+      }),
+    );
+
+    const pool = new CredentialPool('anthropic');
+    const refreshed = await pool.proactiveRefresh('oauth-no-expiry');
+    expect(refreshed).toBe(false);
+  });
+
+  it('no-ops when no refreshToken is stored', async () => {
+    isolateHomes();
+
+    await addCredential(
+      makeCredential('oauth-no-refresh', 10, {
+        authType: 'oauth',
+        expiresAt: Date.now() + 100,
+        refreshToken: undefined,
+      }),
+    );
+
+    const pool = new CredentialPool('anthropic');
+    const refreshed = await pool.proactiveRefresh('oauth-no-refresh');
+    expect(refreshed).toBe(false);
+  });
+
+  it('no-ops for a non-existent label', async () => {
+    isolateHomes();
+
+    const pool = new CredentialPool('anthropic');
+    const refreshed = await pool.proactiveRefresh('ghost');
+    expect(refreshed).toBe(false);
+  });
+});
+
+describe('CredentialPool.proactiveRefresh() — OAuth credential threshold', () => {
+  it('no-ops when remaining lifetime > 300s (floor not triggered)', async () => {
+    isolateHomes();
+    vi.useFakeTimers();
+
+    // expiresAt = 10 minutes from now; remaining = 600s > 300s floor
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+    await addCredential(
+      makeCredential('long-lived', 10, {
+        authType: 'oauth',
+        expiresAt,
+        refreshToken: 'tok-refresh',
+      }),
+    );
+
+    const pool = new CredentialPool('anthropic');
+    // No fetch mock set up — if refresh is attempted it will fail/throw
+    const refreshed = await pool.proactiveRefresh('long-lived');
+    expect(refreshed).toBe(false);
+  });
+
+  it('returns true when remaining lifetime < 300s (floor threshold)', async () => {
+    isolateHomes();
+    vi.useFakeTimers();
+
+    // expiresAt = 200s from now (< 300s floor)
+    const expiresAt = Date.now() + 200_000;
+    await addCredential(
+      makeCredential('soon-expiring', 10, {
+        provider: 'kimi-code',
+        authType: 'oauth',
+        expiresAt,
+        refreshToken: 'kimi-refresh-tok',
+      }),
+    );
+
+    // Mock global fetch for the kimi-code token endpoint
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: 'sk-kimi-new-access-token',
+          refresh_token: 'kimi-new-refresh-tok',
+          expires_in: 900,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const pool = new CredentialPool('kimi-code');
+    const refreshed = await pool.proactiveRefresh('soon-expiring');
+
+    expect(refreshed).toBe(true);
+    fetchSpy.mockRestore();
+  });
+
+  it('updates credential store with new token after successful refresh', async () => {
+    isolateHomes();
+    vi.useFakeTimers();
+
+    const expiresAt = Date.now() + 200_000;
+    await addCredential(
+      makeCredential('kimi-refresh-test', 10, {
+        provider: 'kimi-code',
+        authType: 'oauth',
+        expiresAt,
+        refreshToken: 'old-refresh-tok',
+      }),
+    );
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: 'sk-kimi-brand-new',
+          refresh_token: 'new-refresh-tok',
+          expires_in: 900,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const pool = new CredentialPool('kimi-code');
+    await pool.proactiveRefresh('kimi-refresh-test');
+
+    const entries = await pool.listEntries();
+    const entry = entries.find((e) => e.label === 'kimi-refresh-test');
+    expect(entry?.accessToken).toBe('sk-kimi-brand-new');
+    expect(entry?.refreshToken).toBe('new-refresh-tok');
+    vi.restoreAllMocks();
+  });
+});
