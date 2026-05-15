@@ -353,18 +353,36 @@ export class ConcreteSession implements LlmSession {
   // ---------------------------------------------------------------------------
 
   /**
-   * Pre-call guard: OAuth expiry check + RateLimitGuard check.
+   * Pre-call guard: OAuth proactive refresh + RateLimitGuard check.
    *
-   * @task T9297 (W4e): RateLimitGuard pre-call check is now verified here.
+   * OAuth refresh is attempted when less than `max(expiresIn * 0.5, 300s)`
+   * remain on the current credential (T9323). The legacy 60s reactive check
+   * is subsumed by the proactive threshold.
+   *
+   * When a `credentialPool` is configured, proactive refresh is delegated to
+   * `CredentialPool.proactiveRefresh()` which handles the token-endpoint call
+   * and persists the updated credential. Without a pool, falls back to the
+   * `refreshCredential()` hook (currently a no-op for Anthropic pending T9266).
+   *
+   * @task T9297 (W4e): RateLimitGuard pre-call check is verified here.
+   * @task T9323: Proactive refresh at 50% lifetime / 300s floor.
    */
   private async _preCallChecks(): Promise<void> {
-    // OAuth expiry check — refresh when less than 60 s remain.
-    if (
-      this._credential.authType === 'oauth' &&
-      this._credential.expiresAt !== null &&
-      this._credential.expiresAt - Date.now() < 60_000
-    ) {
-      await this.refreshCredential();
+    // Proactive OAuth refresh — attempt when within the proactive window.
+    if (this._credential.authType === 'oauth' && this._credential.expiresAt !== null) {
+      const remaining = this._credential.expiresAt - Date.now();
+      // Compute proactive threshold: max(50% of total lifetime, 300s).
+      // Total lifetime ≈ expiresIn (seconds) if available, else use remaining
+      // as a lower-bound proxy (threshold = max(remaining*0.5, 300s)).
+      const FLOOR_MS = 300_000;
+      const threshold = Math.max(remaining * 0.5, FLOOR_MS);
+      if (remaining < threshold) {
+        if (this._credentialPool) {
+          await this._credentialPool.proactiveRefresh(this._credential.label);
+        } else {
+          await this.refreshCredential();
+        }
+      }
     }
 
     // RateLimitGuard pre-call check (T9297 W4e: verified before each call).
