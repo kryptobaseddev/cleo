@@ -7,6 +7,8 @@
  *
  * @module llm/concrete-session
  * @task T9287
+ * @task T9293 (W4a — wire classifyError into retry path)
+ * @task T9297 (W4e — wire CredentialPool + RateLimitGuard into retry)
  * @epic T9261 T-LLM-CRED-CENTRALIZATION
  * @see ADR-072 §Decision §"LlmSession — session level"
  */
@@ -25,7 +27,64 @@ import type {
   TransportRequest,
 } from '@cleocode/contracts/llm/normalized-response.js';
 import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
+import type { CredentialPool } from './credential-pool.js';
+import type { StoredCredential } from './credentials-store.js';
+import { classifyError } from './error-classifier.js';
 import { rateLimitRemaining, recordRateLimit } from './rate-limit-guard.js';
+import type { ModelTransport } from './types-config.js';
+
+// ---------------------------------------------------------------------------
+// Credential adapter (StoredCredential → ResolvedCredential)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a {@link StoredCredential} from the pool to the {@link ResolvedCredential}
+ * contract used by transports and session.
+ *
+ * Maps `accessToken` → `token` and fills optional fields with safe defaults.
+ *
+ * @param stored - Pool entry from CredentialPool.pick().
+ * @returns A fully-typed ResolvedCredential ready for transport construction.
+ *
+ * @task T9297
+ */
+export function storedToResolved(stored: StoredCredential): ResolvedCredential {
+  return {
+    provider: stored.provider as ModelTransport,
+    label: stored.label,
+    token: stored.accessToken,
+    authType: stored.authType,
+    expiresAt: stored.expiresAt ?? null,
+    refreshToken: stored.refreshToken ?? null,
+    extraHeaders: stored.extraHeaders ?? {},
+    baseUrl: stored.baseUrl ?? null,
+    awsProfile: (stored.metadata?.['awsProfile'] as string | undefined) ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Typed error for context overflow (used to trigger compression upstream)
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when classifyError returns `reason === 'context_overflow'` so that
+ * ConcreteExecutor can detect this case and trigger context compression.
+ *
+ * @task T9293
+ */
+export class ContextOverflowError extends Error {
+  /** Stable error code for instanceof / code-based detection. */
+  readonly code = 'E_LLM_CONTEXT_OVERFLOW';
+
+  constructor(cause: unknown) {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    super(`Context overflow: ${msg}`);
+    this.name = 'ContextOverflowError';
+    if (cause instanceof Error && Error.captureStackTrace) {
+      Error.captureStackTrace(this, ContextOverflowError);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Default retry policy
@@ -38,49 +97,6 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
   maxDelayMs: 10_000,
   jitter: true,
 };
-
-// ---------------------------------------------------------------------------
-// Error classification helpers (simplified — W4a wires classifyError)
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true when the error looks like a transient condition worth retrying:
- * HTTP 429, 500-series, or network timeout. Does NOT retry on 4xx (except 429).
- *
- * W4a will replace this with the full `classifyError` from error-classifier.ts.
- */
-function isRetriableError(err: unknown): boolean {
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase();
-    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests')) {
-      return true;
-    }
-    if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504')) {
-      return true;
-    }
-    if (msg.includes('timeout') || msg.includes('econnreset') || msg.includes('econnrefused')) {
-      return true;
-    }
-    const statusMatch = /\bstatus[:\s]+(\d{3})\b/.exec(msg);
-    if (statusMatch) {
-      const code = Number(statusMatch[1]);
-      if (code === 429 || code >= 500) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Returns true when the error is a 429 / rate-limit error so we can record it
- * in the RateLimitGuard's cross-process state file.
- */
-function isRateLimitError(err: unknown): boolean {
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase();
-    return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests');
-  }
-  return false;
-}
 
 // ---------------------------------------------------------------------------
 // Sleep helper
@@ -121,6 +137,26 @@ export interface ConcreteSessionOptions {
   readonly history?: TransportMessage[];
   /** Retry policy for transient errors. Defaults to {@link DEFAULT_RETRY_POLICY}. */
   readonly retryPolicy?: RetryPolicy;
+  /**
+   * Optional credential pool for automatic rotation on 401/429.
+   *
+   * When provided, `classifyError().shouldRotateCredential === true` triggers a
+   * `pool.pick()` call, the session's active credential is replaced, and the
+   * request is retried with the new credential.
+   *
+   * @task T9297
+   */
+  readonly credentialPool?: CredentialPool;
+  /**
+   * Factory that rebuilds the transport from a new credential after pool rotation.
+   *
+   * Required when `credentialPool` is set. Called with the newly-picked
+   * `ResolvedCredential`; should return a fresh `LlmTransport` instance
+   * authenticated with the new credential.
+   *
+   * @task T9297
+   */
+  readonly transportFactory?: (credential: ResolvedCredential) => LlmTransport;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,14 +178,18 @@ export interface ConcreteSessionOptions {
  */
 export class ConcreteSession implements LlmSession {
   /** Underlying wire-level transport. */
-  readonly transport: LlmTransport;
+  transport: LlmTransport;
 
   /** Model identifier this session is bound to. */
   readonly model: string;
 
-  private readonly _credential: ResolvedCredential;
+  private _credential: ResolvedCredential;
   private _history: TransportMessage[];
   private readonly _retryPolicy: RetryPolicy;
+  private readonly _credentialPool: CredentialPool | undefined;
+  private readonly _transportFactory:
+    | ((credential: ResolvedCredential) => LlmTransport)
+    | undefined;
 
   /**
    * @param opts - Session construction options.
@@ -160,6 +200,8 @@ export class ConcreteSession implements LlmSession {
     this._credential = opts.credential;
     this._history = opts.history ? [...opts.history] : [];
     this._retryPolicy = opts.retryPolicy ?? DEFAULT_RETRY_POLICY;
+    this._credentialPool = opts.credentialPool;
+    this._transportFactory = opts.transportFactory;
   }
 
   /**
@@ -227,12 +269,36 @@ export class ConcreteSession implements LlmSession {
         const response = await this.transport.complete(request, ctx);
         return response;
       } catch (err: unknown) {
-        if (isRateLimitError(err)) {
+        const classified = classifyError(err, {
+          provider: this._credential.provider,
+          model: this.model,
+        });
+
+        // Record rate-limit events in the cross-session guard.
+        if (classified.reason === 'rate_limit') {
           await recordRateLimit(this._credential.provider, this._credential.label);
         }
-        if (!isRetriableError(err) || attempt === policy.maxAttempts - 1) {
+
+        // Context overflow → throw a typed error so the executor can trigger compression.
+        if (classified.reason === 'context_overflow') {
+          throw new ContextOverflowError(err);
+        }
+
+        // shouldFallback errors should not be retried — let the caller decide.
+        if (classified.shouldFallback) {
           throw err;
         }
+
+        // shouldRotateCredential → attempt pool rotation before retrying.
+        if (classified.shouldRotateCredential) {
+          // T9297 will rotate via CredentialPool
+          await this._tryRotateCredential(classified.statusCode ?? 401);
+        }
+
+        if (!classified.retryable || attempt === policy.maxAttempts - 1) {
+          throw err;
+        }
+
         lastErr = err;
         await sleep(backoffMs(policy, attempt));
       }
@@ -288,6 +354,8 @@ export class ConcreteSession implements LlmSession {
 
   /**
    * Pre-call guard: OAuth expiry check + RateLimitGuard check.
+   *
+   * @task T9297 (W4e): RateLimitGuard pre-call check is now verified here.
    */
   private async _preCallChecks(): Promise<void> {
     // OAuth expiry check — refresh when less than 60 s remain.
@@ -299,7 +367,7 @@ export class ConcreteSession implements LlmSession {
       await this.refreshCredential();
     }
 
-    // RateLimitGuard pre-call check.
+    // RateLimitGuard pre-call check (T9297 W4e: verified before each call).
     const remaining = await rateLimitRemaining(this._credential.provider, this._credential.label);
     if (remaining !== null && remaining > 0) {
       throw new Error(
@@ -307,6 +375,38 @@ export class ConcreteSession implements LlmSession {
           `${remaining.toFixed(1)}s remaining`,
       );
     }
+  }
+
+  /**
+   * Attempt to rotate the active credential via the pool when a
+   * `shouldRotateCredential` error is received.
+   *
+   * No-op when no pool or transportFactory is configured.
+   *
+   * @param errorCode - HTTP status code that triggered the rotation.
+   * @task T9297
+   */
+  private async _tryRotateCredential(errorCode: number): Promise<void> {
+    if (!this._credentialPool || !this._transportFactory) return;
+
+    // Mark the current credential as exhausted in the pool.
+    await this._credentialPool.markExhausted(this._credential.label, errorCode);
+
+    // Pick a new credential from the pool.
+    let pickResult: Awaited<ReturnType<CredentialPool['pick']>>;
+    try {
+      pickResult = await this._credentialPool.pick();
+    } catch {
+      // Pool exhausted — nothing we can do; let the outer retry fail.
+      return;
+    }
+
+    const newStored = pickResult.credential;
+    const newResolved: ResolvedCredential = storedToResolved(newStored);
+
+    // Swap credential and rebuild transport with new credentials.
+    this._credential = newResolved;
+    this.transport = this._transportFactory(newResolved);
   }
 
   /** Build a {@link TransportContext} for this call. */
