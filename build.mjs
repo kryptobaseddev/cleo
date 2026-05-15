@@ -543,6 +543,41 @@ async function build() {
   // to ship silently (see validateCoreEntryPoints() above for details).
   validateCoreEntryPoints();
 
+  // Pre-build clean: wipe every packages/*/dist/ directory so files whose
+  // source has been deleted cannot survive into the next published tarball.
+  // Without this, deleting src/foo.ts leaves dist/foo.js orphaned and npm
+  // still ships it (the substrate-removal scenario at T9337 hit exactly
+  // this — v2026.5.71's @cleocode/core tarball still contained the stale
+  // verifier-runner.js after the source was deleted). The cost is ~1s for
+  // a full reinstall of the type-declaration cache on the next build.
+  console.log('[build] Pre-clean: wiping packages/*/dist + tsbuildinfo');
+  const PRE_CLEAN_PKGS = [
+    'adapters',
+    'caamp',
+    'cant',
+    'cleo',
+    'cleo-os',
+    'contracts',
+    'core',
+    'git-shim',
+    'lafs',
+    'mcp-adapter',
+    'nexus',
+    'paths',
+    'playbooks',
+    'runtime',
+    'worktree',
+  ];
+  const PRE_CLEAN_TARGETS = PRE_CLEAN_PKGS.flatMap((p) => [
+    `packages/${p}/dist`,
+    `packages/${p}/tsconfig.tsbuildinfo`,
+  ]);
+  await Promise.all(
+    PRE_CLEAN_TARGETS.map((p) =>
+      rm(resolve(__dirname, p), { recursive: true, force: true }),
+    ),
+  );
+
   // Build order is topological. Independent packages within each wave are
   // launched in parallel via Promise.all() to reduce wall-clock time.
   // Dependency constraints (each package must see its deps' dist/ before it
