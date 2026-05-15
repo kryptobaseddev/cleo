@@ -43,6 +43,9 @@ import type { ProviderProfile } from '@cleocode/contracts/llm/provider-profile.j
 import type { ModelTransport } from '@cleocode/contracts/operations/llm.js';
 import OpenAI from 'openai';
 
+import { validateImagesForProvider } from '../image-routing.js';
+import { StreamingThinkScrubber } from '../think-scrubber.js';
+
 // ---------------------------------------------------------------------------
 // Constructor options
 // ---------------------------------------------------------------------------
@@ -172,6 +175,9 @@ export class ChatCompletionsTransport implements LlmTransport {
    * @returns Normalized response envelope.
    */
   async complete(request: TransportRequest, _ctx?: TransportContext): Promise<NormalizedResponse> {
+    // @invariant T9296 W4d — validate image constraints before any SDK call.
+    validateImagesForProvider(request, this.provider);
+
     const messages = this._convertMessages(request);
     const tools =
       request.tools && request.tools.length > 0 ? this._convertTools(request.tools) : undefined;
@@ -469,7 +475,7 @@ export class ChatCompletionsTransport implements LlmTransport {
    *
    * Wave 1d (T-llm-p4-1d) replaces this stub with a real streaming
    * implementation that wires `ProviderProfile` hooks and routes deltas
-   * through `StreamingThinkScrubber`.
+   * through {@link StreamingThinkScrubber} (T9295 W4c).
    *
    * @param _request - Ignored until Wave 1d implementation lands.
    * @param _ctx - Ignored until Wave 1d implementation lands.
@@ -480,7 +486,8 @@ export class ChatCompletionsTransport implements LlmTransport {
     _request: TransportRequest,
     _ctx: TransportContext,
   ): AsyncIterable<NormalizedDelta> {
-    // STUB: W1 migration will implement stream() for chat-completions
+    // TODO(T9295 W4c): route deltas through new StreamingThinkScrubber() before yielding.
+    void StreamingThinkScrubber;
     throw new Error('STUB: W1 migration will implement stream() for chat-completions');
   }
 }

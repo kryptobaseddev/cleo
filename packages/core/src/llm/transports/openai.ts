@@ -36,7 +36,9 @@ import type { OpenAI } from 'openai';
 import { OpenAI as OpenAIClient } from 'openai';
 import { z } from 'zod';
 
+import { validateImagesForProvider } from '../image-routing.js';
 import { repairResponseModelJson } from '../structured-output.js';
+import { StreamingThinkScrubber } from '../think-scrubber.js';
 
 // ---------------------------------------------------------------------------
 // Constructor options
@@ -229,6 +231,9 @@ export class OpenAITransport implements LlmTransport {
    * @returns Normalized response including content, tool calls, usage, and raw SDK object.
    */
   async complete(request: TransportRequest, _ctx?: TransportContext): Promise<NormalizedResponse> {
+    // @invariant T9296 W4d — validate image constraints before any SDK call.
+    validateImagesForProvider(request, this.provider);
+
     const {
       model,
       messages,
@@ -423,15 +428,16 @@ export class OpenAITransport implements LlmTransport {
 
     let finishReason: string | null = null;
     let usageChunkReceived = false;
+    // @invariant T9295 W4c — scrub <think>...</think> blocks from OpenAI o1-series streams.
+    const scrubber = new StreamingThinkScrubber();
 
     for await (const chunk of responseStream) {
       if (chunk.choices[0]?.delta?.content) {
-        yield {
-          text: chunk.choices[0].delta.content,
-          reasoning: '',
-          stopReason: null,
-          usage: null,
-        };
+        const raw = chunk.choices[0].delta.content;
+        const visible = scrubber.feed(raw);
+        if (visible) {
+          yield { text: visible, reasoning: '', stopReason: null, usage: null };
+        }
       }
       if (chunk.choices[0]?.finish_reason) {
         finishReason = chunk.choices[0].finish_reason;
@@ -443,6 +449,11 @@ export class OpenAITransport implements LlmTransport {
           inputTokens: Number(usage['prompt_tokens']) || 0,
           outputTokens: Number(usage['completion_tokens']) || 0,
         };
+        // Flush any held-back partial-tag buffer before the final usage event.
+        const tail = scrubber.flush();
+        if (tail) {
+          yield { text: tail, reasoning: '', stopReason: null, usage: null };
+        }
         yield {
           text: '',
           reasoning: '',
@@ -454,6 +465,10 @@ export class OpenAITransport implements LlmTransport {
     }
 
     if (!usageChunkReceived && finishReason) {
+      const tail = scrubber.flush();
+      if (tail) {
+        yield { text: tail, reasoning: '', stopReason: null, usage: null };
+      }
       yield { text: '', reasoning: '', stopReason: finishReason, usage: null };
     }
   }
