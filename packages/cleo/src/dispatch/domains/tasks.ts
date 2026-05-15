@@ -313,8 +313,6 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         severity: params.severity,
         // T1633: BRAIN duplicate-bypass flag
         forceDuplicate: params.forceDuplicate,
-        // T9218 / ADR-070: mandatory verifier for high-consequence tasks
-        verifier: params.verifier,
       }),
       'add',
     );
@@ -355,6 +353,10 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         reason: params.reason,
         // T9241: clear the free-text blockedBy reason
         clearBlockedBy: params.clearBlockedBy,
+        // T9327: relates mutations
+        relates: params.relates,
+        addRelates: params.addRelates,
+        removeRelates: params.removeRelates,
       }),
       'update',
     );

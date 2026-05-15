@@ -164,7 +164,7 @@ export function discoverByLabels(taskId: string, tasks: Task[]): DiscoveryMatch[
 
     results.push({
       taskId: task.id,
-      type: 'relates-to',
+      type: 'related',
       reason: `${shared.length} shared label(s): ${shared.join(', ')}`,
       score: Math.round(score * 100) / 100,
     });
@@ -203,7 +203,7 @@ export function discoverByDescription(taskId: string, tasks: Task[]): DiscoveryM
 
     results.push({
       taskId: task.id,
-      type: 'relates-to',
+      type: 'related',
       reason: `${sharedCount} shared keyword(s)`,
       score: Math.round(score * 100) / 100,
     });
@@ -238,7 +238,7 @@ export function discoverByFiles(taskId: string, tasks: Task[]): DiscoveryMatch[]
 
     results.push({
       taskId: task.id,
-      type: 'relates-to',
+      type: 'related',
       reason: `${shared.length} shared file(s): ${preview}${suffix}`,
       score: Math.round(score * 100) / 100,
     });
@@ -268,7 +268,7 @@ export function discoverByHierarchy(
     for (const sib of siblings) {
       results.push({
         taskId: sib.id,
-        type: 'relates-to',
+        type: 'related',
         reason: `sibling (shared parent ${source.parentId})`,
         score: siblingBoost,
         _hierarchyBoost: siblingBoost,
@@ -288,7 +288,7 @@ export function discoverByHierarchy(
       for (const cousin of cousins) {
         results.push({
           taskId: cousin.id,
-          type: 'relates-to',
+          type: 'related',
           reason: `cousin (shared grandparent ${parent.parentId})`,
           score: cousinBoost,
           _hierarchyBoost: cousinBoost,

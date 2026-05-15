@@ -203,18 +203,14 @@ export const addCommand = defineCommand({
         'Justification for creating a critical-priority task without --depends (T1856). Records waiver in task metadata.',
     },
     /**
-     * Path to an existing verifier script (T9218 / ADR-070).
-     *
-     * Required when creating tasks with priority=critical, size=large, or
-     * type=epic. The path must point to an existing .mjs file. Omitting
-     * this on high-consequence tasks causes rejection with E_VERIFIER_REQUIRED.
-     *
-     * Use `cleo verify backfill <taskId>` to generate a stub after creation.
+     * Related tasks — semantic relationships (non-dependency).
+     * Comma-separated task IDs with optional type suffix (e.g. "T001:blocks,T002:related").
+     * Default type is 'related'.
      */
-    verifier: {
+    relates: {
       type: 'string',
       description:
-        'Path to existing verifier script for this task (required for priority=critical, size=large, type=epic) (T9218 / ADR-070)',
+        'Comma-separated related task IDs with optional type suffix (e.g. "T001:blocks,T002")',
     },
   },
   async run({ args, cmd }) {
@@ -240,6 +236,12 @@ export const addCommand = defineCommand({
     if (args.labels) params['labels'] = (args.labels as string).split(',').map((s) => s.trim());
 
     if (args.depends) params['depends'] = (args.depends as string).split(',').map((s) => s.trim());
+    if (args.relates) {
+      params['relates'] = (args.relates as string).split(',').map((s) => {
+        const [taskId, relType = 'related'] = s.trim().split(':');
+        return { taskId: taskId.trim(), type: relType.trim() };
+      });
+    }
     if (args.notes !== undefined) params['notes'] = args.notes;
     if (args.note !== undefined) params['notes'] = params['notes'] ?? args.note;
     if (args.position !== undefined)
@@ -252,8 +254,6 @@ export const addCommand = defineCommand({
     if (args.severity !== undefined) params['severity'] = args.severity;
     // T1633: BRAIN duplicate-bypass flag
     if (args['force-duplicate'] !== undefined) params['forceDuplicate'] = args['force-duplicate'];
-    // T9218 / ADR-070: mandatory verifier for high-consequence tasks
-    if (args.verifier !== undefined) params['verifier'] = args.verifier;
 
     // T1856: Critical-priority tasks MUST declare dependencies or provide a waiver.
     // Undeclared dependencies on critical tasks silently break wave-order spawning

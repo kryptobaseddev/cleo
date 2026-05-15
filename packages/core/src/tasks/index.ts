@@ -234,5 +234,3 @@ export {
   semaphoreDir,
 } from './tool-semaphore.js';
 export { taskUpdate, type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';
-// Verifier auto-stub generator (T9218 / ADR-070)
-export { generateVerifierStub, writeVerifierStub } from './verifier-stub-generator.js';

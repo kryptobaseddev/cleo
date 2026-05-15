@@ -69,6 +69,9 @@ const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'st
   'kind',
   'scope',
   'severity',
+  'relates',
+  'addRelates',
+  'removeRelates',
 ];
 
 function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
@@ -136,6 +139,12 @@ export interface UpdateTaskOptions {
    * @task T1590
    */
   reason?: string;
+  /** Set related tasks (replaces existing). @task T9327 */
+  relates?: Array<{ taskId: string; type: string; reason?: string }>;
+  /** Add related tasks without overwriting existing. @task T9327 */
+  addRelates?: Array<{ taskId: string; type: string; reason?: string }>;
+  /** Remove related tasks by taskId. @task T9327 */
+  removeRelates?: string[];
 }
 
 /** Result of updating a task. */
@@ -375,6 +384,35 @@ export async function updateTask(
     changes.push('severity');
   }
 
+  // T9327: relates mutations
+  if (options.relates !== undefined) {
+    task.relates = options.relates.map((r) => ({
+      taskId: r.taskId,
+      type: r.type,
+      ...(r.reason ? { reason: r.reason } : {}),
+    }));
+    changes.push('relates');
+  }
+
+  if (options.addRelates?.length) {
+    const existing = new Map((task.relates ?? []).map((r) => [r.taskId, r]));
+    for (const r of options.addRelates) {
+      existing.set(r.taskId, {
+        taskId: r.taskId,
+        type: r.type,
+        ...(r.reason ? { reason: r.reason } : {}),
+      });
+    }
+    task.relates = [...existing.values()];
+    changes.push('relates');
+  }
+
+  if (options.removeRelates?.length) {
+    const toRemove = new Set(options.removeRelates.map((id) => id.trim()));
+    task.relates = (task.relates ?? []).filter((r) => !toRemove.has(r.taskId));
+    changes.push('relates');
+  }
+
   // Pipeline stage transition — forward-only (T060)
   if (options.pipelineStage !== undefined) {
     validatePipelineTransition(task.pipelineStage, options.pipelineStage);
@@ -562,6 +600,12 @@ export async function taskUpdate(
     severity?: string;
     reason?: string;
     clearBlockedBy?: boolean;
+    /** @task T9327 */
+    relates?: Array<{ taskId: string; type: string; reason?: string }>;
+    /** @task T9327 */
+    addRelates?: Array<{ taskId: string; type: string; reason?: string }>;
+    /** @task T9327 */
+    removeRelates?: string[];
   },
 ): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
@@ -592,6 +636,9 @@ export async function taskUpdate(
         scope: updates.scope as TaskScope | undefined,
         severity: updates.severity as TaskSeverity | undefined,
         reason: updates.reason,
+        relates: updates.relates,
+        addRelates: updates.addRelates,
+        removeRelates: updates.removeRelates,
         clearBlockedBy: updates.clearBlockedBy,
       },
       projectRoot,

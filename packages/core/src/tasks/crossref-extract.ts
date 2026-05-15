@@ -8,18 +8,22 @@
 
 /** Valid relationship types for relates entries. */
 export type RelatesType =
-  | 'relates-to'
-  | 'spawned-from'
-  | 'deferred-to'
-  | 'supersedes'
-  | 'duplicates';
+  | 'related'
+  | 'blocks'
+  | 'duplicates'
+  | 'absorbs'
+  | 'fixes'
+  | 'extends'
+  | 'supersedes';
 
 const VALID_RELATES_TYPES: RelatesType[] = [
-  'relates-to',
-  'spawned-from',
-  'deferred-to',
-  'supersedes',
+  'related',
+  'blocks',
   'duplicates',
+  'absorbs',
+  'fixes',
+  'extends',
+  'supersedes',
 ];
 
 /** A single relates entry. */
@@ -53,13 +57,13 @@ export function extractTaskRefs(text: string, excludeId?: string): string[] {
  */
 export function createRelatesEntries(
   refs: string[],
-  relType: RelatesType = 'relates-to',
+  relType: RelatesType = 'related',
   reason?: string,
 ): RelatesEntry[] {
   if (!refs.length) return [];
 
-  // Validate type, fallback to 'relates-to'
-  const validType = VALID_RELATES_TYPES.includes(relType) ? relType : 'relates-to';
+  // Validate type, fallback to 'related'
+  const validType = VALID_RELATES_TYPES.includes(relType) ? relType : 'related';
 
   return refs.map((taskId) => {
     const entry: RelatesEntry = { taskId, type: validType };
@@ -98,7 +102,7 @@ export function validateRelatesRefs(relates: RelatesEntry[], validTaskIds: strin
 export function extractAndCreateRelates(
   text: string,
   excludeId?: string,
-  relType: RelatesType = 'relates-to',
+  relType: RelatesType = 'related',
   reason?: string,
 ): RelatesEntry[] {
   const refs = extractTaskRefs(text, excludeId);

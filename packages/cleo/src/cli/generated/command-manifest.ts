@@ -99,13 +99,6 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/audit.js')).auditCommand as CommandDef,
   },
   {
-    exportName: 'backfillCommand',
-    name: 'backfill',
-    description:
-      'Retroactively add acceptance criteria and verification metadata to existing tasks',
-    load: async () => (await import('../commands/backfill.js')).backfillCommand as CommandDef,
-  },
-  {
     exportName: 'backupInspectSubCommand',
     name: 'inspect',
     description: 'Show bundle manifest without extracting or modifying anything',
@@ -797,13 +790,6 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     description:
       'Unified project maintenance (storage migration, schema repair, structural fixes, doc refresh)',
     load: async () => (await import('../commands/upgrade.js')).upgradeCommand as CommandDef,
-  },
-  {
-    exportName: 'backfillCommand',
-    name: 'backfill',
-    description:
-      'Auto-generate a verifier stub from AC text for a task lacking one (T9218 / ADR-070)',
-    load: async () => (await import('../commands/verify.js')).backfillCommand as CommandDef,
   },
   {
     exportName: 'verifyCommand',
