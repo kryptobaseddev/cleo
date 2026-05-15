@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/config.schema.json",
-  "schemaVersion": "2.10.0",
+  "schemaVersion": "2.11.0",
   "title": "CLEO Configuration Schema",
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
   "type": "object",
@@ -1183,25 +1183,14 @@
     },
     "llm": {
       "type": "object",
-      "description": "LLM configuration — daemon/default provider+model, per-provider API key overrides, and role-based routing. T-LLM-CRED-CENTRALIZATION Phase 2 (T9256).",
+      "description": "LLM configuration — default provider+model, per-provider API key overrides, and role-based routing. T-LLM-CRED-CENTRALIZATION Phase 4 (T9306).",
       "additionalProperties": false,
       "properties": {
         "daemon": {
           "type": "object",
-          "description": "DEPRECATED — use `default` instead. Retained as a fallback alias for one release cycle.",
-          "additionalProperties": false,
-          "properties": {
-            "provider": {
-              "type": "string",
-              "enum": ["anthropic", "openai", "gemini", "moonshot"],
-              "description": "LLM provider transport used by daemon loops."
-            },
-            "model": {
-              "type": "string",
-              "description": "Full model identifier for the selected provider."
-            }
-          },
-          "required": ["provider", "model"]
+          "description": "REMOVED — this field is no longer read by the resolver. Kept in schema so existing config files that still carry this key are not rejected by AJV. Migrate to `default` or `llm.roles.<role>`.",
+          "x-deprecated": true,
+          "additionalProperties": true
         },
         "providers": {
           "type": "object",
@@ -1236,7 +1225,7 @@
         },
         "roles": {
           "type": "object",
-          "description": "Per-role LLM overrides. Resolution: roles[role] -> default -> daemon (legacy). T-LLM-CRED-CENTRALIZATION Phase 2 (T9256).",
+          "description": "Per-role LLM overrides. Resolution: roles[role] -> default -> implicit fallback. T-LLM-CRED-CENTRALIZATION Phase 4 (T9306).",
           "additionalProperties": false,
           "properties": {
             "extraction": { "$ref": "#/properties/llm/$defs/roleEntry" },

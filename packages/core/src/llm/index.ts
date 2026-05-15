@@ -76,7 +76,7 @@ export {
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
-// Legacy backend type shims — TODO(T9298 W5): migrate callers to LlmTransport/NormalizedResponse
+// Legacy backend type shims — still used by history-adapters.ts (HistoryAdapter.formatAssistantToolMessage)
 export type {
   CompletionResult,
   ProviderBackend,
@@ -121,8 +121,6 @@ export {
 // Runtime
 export type { AttemptPlan } from './runtime.js';
 export { effectiveTemperature, makeAttemptRef, planAttempt } from './runtime.js';
-// Legacy executor shim (throws at runtime — migrate to ConcreteExecutor)
-export { cleoLlmCallInner } from './shim-executor.js';
 export type { StructuredOutputFailurePolicy } from './structured-output.js';
 // Structured output utilities
 export {
@@ -154,7 +152,6 @@ export type {
 export { StreamingResponseWithMetadata } from './types.js';
 // Config types (re-exported from contracts)
 export type {
-  DaemonLLMConfig,
   LlmConfig,
   LlmProviderEntry,
   ModelConfig,
