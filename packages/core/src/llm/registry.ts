@@ -16,7 +16,6 @@ import { OpenAI } from 'openai';
 import type { ProviderBackend } from './backend.js';
 import { AnthropicBackend } from './backends/anthropic.js';
 import { MOONSHOT_BASE_URL, MoonshotBackend } from './backends/moonshot.js';
-import { OpenAIBackend } from './backends/openai.js';
 import type { CredentialResult } from './credentials.js';
 import { defaultTransportApiKey } from './credentials.js';
 import type { HistoryAdapter } from './history-adapters.js';
@@ -297,7 +296,6 @@ export function backendForProvider(
   client: ProviderClient,
 ): ProviderBackend {
   if (provider === 'anthropic') return new AnthropicBackend(client as Anthropic);
-  if (provider === 'openai') return new OpenAIBackend(client as OpenAI);
   if (provider === 'moonshot') return new MoonshotBackend(client as OpenAI);
 
   throw new Error(`Unknown provider: ${provider as string}`);

@@ -11,4 +11,3 @@ export {
   MOONSHOT_DEFAULT_MODEL,
   MoonshotBackend,
 } from './moonshot.js';
-export { OpenAIBackend, usesMaxCompletionTokens } from './openai.js';

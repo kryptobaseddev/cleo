@@ -18,7 +18,6 @@ export { makeCompletionResult } from './backend.js';
 // Backends (for direct use / custom wiring)
 export type { AnthropicBackendCallParams } from './backends/anthropic.js';
 export { AnthropicBackend } from './backends/anthropic.js';
-export { OpenAIBackend, usesMaxCompletionTokens } from './backends/openai.js';
 export type { GeminiCacheHandle } from './caching.js';
 // Caching
 export { buildCacheKey, geminiCacheStore, InMemoryGeminiCacheStore } from './caching.js';
@@ -128,6 +127,8 @@ export {
 // Transports (Phase-4 LlmTransport implementations)
 export type { GeminiTransportOptions } from './transports/gemini.js';
 export { GeminiTransport } from './transports/gemini.js';
+export type { OpenAITransportOptions } from './transports/openai.js';
+export { OpenAITransport, usesMaxCompletionTokens } from './transports/openai.js';
 // Response / stream types (scoped names to avoid collision with Vercel AI SDK)
 export type {
   IterationCallback,

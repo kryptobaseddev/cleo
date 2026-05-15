@@ -1,39 +1,52 @@
 /**
- * OpenAI LLM transport — stub (not yet wired).
+ * OpenAI LLM transport — real implementation.
  *
- * Implements the {@link LlmTransport} interface with the same constructor
- * signature as {@link AnthropicTransport} so the role-resolver can swap
- * providers without changing call sites. `complete()` throws
- * `E_NOT_IMPLEMENTED` until T-llm-p3-X (future task) wires the real
- * OpenAI implementation.
+ * Migrated from {@link OpenAIBackend} (`backends/openai.ts`), adapted to the
+ * provider-neutral {@link LlmTransport} interface. Behavior is preserved
+ * verbatim; only the constructor signature and I/O types change to match the
+ * Phase-4 transport contract.
  *
- * W0c adds stub `stream()` + `apiMode` for compile parity with the extended
- * `LlmTransport` interface. Wave 1b migration (T-llm-p4-1b) replaces the stub
- * with a real implementation backed by the OpenAI SDK streaming API.
+ * Key behavioral invariants (each enforced with `@invariant` TSDoc at the
+ * enforcement site):
+ *
+ * 1. `usesMaxCompletionTokens` o-series branching — `gpt-5*`, `o1*`, `o3*`,
+ *    `o4*` use `max_completion_tokens`; all others use `max_tokens`.
+ * 2. `extractReasoningContent` intentional try/catch swallow — NEVER re-throws.
+ *    Returns null on any parse error.
+ * 3. `parse()` vs `json_schema` streaming split — `complete()` may use `.parse()`
+ *    for non-streaming structured output; `stream()` NEVER uses `.parse()`,
+ *    always `json_schema` response_format.
  *
  * @module llm/transports/openai
- * @task T9263
- * @task T9282 (W0c — stub stream() + apiMode)
+ * @task T9284 (W1b)
  * @epic T-LLM-CRED-CENTRALIZATION
+ * @see ADR-072 §LlmTransport — pure wire level
  */
 
 import type { NormalizedDelta, TransportContext } from '@cleocode/contracts/llm/interfaces.js';
 import type {
   LlmTransport,
   NormalizedResponse,
+  NormalizedToolCall,
+  NormalizedUsage,
   TransportRequest,
 } from '@cleocode/contracts/llm/normalized-response.js';
 import type { ApiMode } from '@cleocode/contracts/llm/provider-id.js';
+import type { OpenAI } from 'openai';
+import { OpenAI as OpenAIClient } from 'openai';
+import { z } from 'zod';
+
+import { repairResponseModelJson } from '../structured-output.js';
 
 // ---------------------------------------------------------------------------
-// Constructor options (parallel to AnthropicTransportOptions)
+// Constructor options
 // ---------------------------------------------------------------------------
 
 /**
  * Options accepted by {@link OpenAITransport}.
  *
- * Kept structurally identical to `AnthropicTransportOptions` so the
- * role-resolver can swap providers by swapping the constructor reference only.
+ * Structurally identical to `AnthropicTransportOptions` so the role-resolver
+ * can swap providers by swapping only the constructor reference.
  */
 export interface OpenAITransportOptions {
   /** API key or bearer token. */
@@ -45,25 +58,107 @@ export interface OpenAITransportOptions {
 }
 
 // ---------------------------------------------------------------------------
-// E_NOT_IMPLEMENTED error
+// usesMaxCompletionTokens
 // ---------------------------------------------------------------------------
 
 /**
- * Thrown by {@link OpenAITransport.complete} until the real implementation
- * is wired.
+ * Determine if the model requires `max_completion_tokens` instead of `max_tokens`.
  *
- * Carries `code: 'E_NOT_IMPLEMENTED'` so callers can pattern-match without
- * relying on the error message string.
+ * @invariant usesMaxCompletionTokens o-series branching — `gpt-5`, `gpt-5-*`,
+ *   `gpt-5.*`, `o1*`, `o3*`, `o4*` use `max_completion_tokens`; all others use
+ *   `max_tokens`. Exported with the SAME name and signature as the old backend
+ *   so all callers via `index.ts` continue to work without change.
+ *
+ * @param model - Provider model identifier to test.
+ * @returns `true` when the model family requires `max_completion_tokens`.
  */
-export class OpenAINotImplementedError extends Error {
-  /** Stable LAFS error code. */
-  readonly code = 'E_NOT_IMPLEMENTED' as const;
-
-  /** @param message - Human-readable description. */
-  constructor(message: string) {
-    super(message);
-    this.name = 'OpenAINotImplementedError';
+export function usesMaxCompletionTokens(model: string): boolean {
+  const m = model.toLowerCase();
+  if (m === 'gpt-5' || m.startsWith('gpt-5-') || m.startsWith('gpt-5.')) return true;
+  for (const prefix of ['o1', 'o3', 'o4']) {
+    if (m === prefix || m.startsWith(`${prefix}-`)) return true;
   }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers (module-level, not exported)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the reasoning / chain-of-thought content from a non-streaming
+ * OpenAI response.
+ *
+ * @invariant extractReasoningContent intentional try/catch swallow — this
+ *   function MUST never re-throw. If any property access or type coercion
+ *   fails, return null. Lints that flag the bare `catch {}` block are
+ *   suppressed with a biome-ignore directive.
+ *
+ * @param response - Raw OpenAI.ChatCompletion from the SDK.
+ * @returns Reasoning text or null when absent / unreadable.
+ */
+function extractReasoningContent(response: OpenAI.ChatCompletion): string | null {
+  try {
+    const message = response.choices[0]?.message;
+    if (!message) return null;
+    const rdAny = message as unknown as Record<string, unknown>;
+    if (
+      Array.isArray(rdAny['reasoning_details']) &&
+      (rdAny['reasoning_details'] as unknown[]).length > 0
+    ) {
+      const parts: string[] = [];
+      for (const detail of rdAny['reasoning_details'] as Array<Record<string, unknown>>) {
+        const c = detail['content'];
+        if (typeof c === 'string' && c) parts.push(c);
+      }
+      if (parts.length > 0) return parts.join('\n');
+    }
+    const rcAny = rdAny['reasoning_content'];
+    if (typeof rcAny === 'string' && rcAny) return rcAny;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function extractReasoningDetails(response: OpenAI.ChatCompletion): Array<Record<string, unknown>> {
+  try {
+    const message = response.choices[0]?.message;
+    if (!message) return [];
+    const rdAny = (message as unknown as Record<string, unknown>)['reasoning_details'];
+    if (!Array.isArray(rdAny)) return [];
+    const details: Array<Record<string, unknown>> = [];
+    for (const detail of rdAny as unknown[]) {
+      if (typeof detail === 'object' && detail !== null) {
+        details.push(detail as Record<string, unknown>);
+      }
+    }
+    return details;
+  } catch {
+    return [];
+  }
+}
+
+function extractCacheTokens(usage: OpenAI.CompletionUsage | null | undefined): {
+  cacheCreation: number;
+  cacheRead: number;
+} {
+  if (!usage) return { cacheCreation: 0, cacheRead: 0 };
+  let cacheRead = 0;
+  const usageAny = usage as unknown as Record<string, unknown>;
+  const promptDetails = usageAny['prompt_tokens_details'] as Record<string, unknown> | undefined;
+  if (promptDetails?.['cached_tokens']) {
+    cacheRead = Number(promptDetails['cached_tokens']);
+  }
+  if (cacheRead === 0 && usageAny['cache_read_input_tokens']) {
+    cacheRead = Number(usageAny['cache_read_input_tokens']);
+  } else if (cacheRead === 0 && usageAny['cached_tokens']) {
+    cacheRead = Number(usageAny['cached_tokens']);
+  }
+  const cacheCreation = usageAny['cache_creation_input_tokens']
+    ? Number(usageAny['cache_creation_input_tokens'])
+    : 0;
+  return { cacheCreation, cacheRead };
 }
 
 // ---------------------------------------------------------------------------
@@ -71,22 +166,22 @@ export class OpenAINotImplementedError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
- * Stub OpenAI transport.
+ * Real OpenAI transport.
  *
- * Satisfies the {@link LlmTransport} interface but always throws
- * {@link OpenAINotImplementedError} from `complete()`. Replace with the real
- * implementation when T-llm-p4-1b (Wave 1b migration) lands.
- *
- * W0c adds stub `stream()` + `apiMode` for compile parity. Wave 1b replaces
- * them with a real implementation backed by the OpenAI SDK streaming API,
- * including `usesMaxCompletionTokens` o-series branching and reasoning content
- * extraction via `extractReasoningContent`.
+ * Wraps the `openai` SDK and normalizes requests/responses to/from the
+ * provider-neutral {@link LlmTransport} interface. Supports o-series models
+ * (via `max_completion_tokens` branching), structured output (via `json_schema`
+ * response_format or Zod `.parse()`), streaming, and reasoning content
+ * extraction.
  *
  * @example
  * ```ts
- * const transport = new OpenAITransport({ apiKey: 'sk-...' });
- * // Will throw OpenAINotImplementedError until the real impl ships.
- * await transport.complete({ model: 'gpt-4o', messages: [], maxTokens: 1024 });
+ * const transport = new OpenAITransport({ apiKey: process.env.OPENAI_API_KEY! });
+ * const response = await transport.complete({
+ *   model: 'gpt-4o',
+ *   messages: [{ role: 'user', content: 'Hello' }],
+ *   maxTokens: 1024,
+ * });
  * ```
  */
 export class OpenAITransport implements LlmTransport {
@@ -100,52 +195,492 @@ export class OpenAITransport implements LlmTransport {
    */
   readonly apiMode: ApiMode = 'chat_completions' as const;
 
+  private readonly _client: OpenAIClient;
+
   /**
-   * @param _options - Accepted for constructor parity with AnthropicTransport.
+   * Create an `OpenAITransport`.
    *
-   * W0c stub — preserved so call-sites and tests can construct the transport
-   * with the final options shape. Wave 1b migration will fill the body with
-   * `new OpenAI(...)` plus `usesMaxCompletionTokens()` o-series detection.
+   * @param options - API key, optional base URL, and optional extra headers.
    */
-  // biome-ignore lint/complexity/noUselessConstructor: W0c-stub — Wave 1b fills the body; signature MUST NOT change.
-  constructor(_options: OpenAITransportOptions) {
-    // Intentionally empty — real impl initialises the SDK client here.
+  constructor(options: OpenAITransportOptions) {
+    this._client = new OpenAIClient({
+      apiKey: options.apiKey,
+      baseURL: options.baseUrl,
+      defaultHeaders: options.defaultHeaders,
+    });
   }
 
   /**
-   * Not yet implemented — always throws {@link OpenAINotImplementedError}.
+   * Execute a single completion call against the OpenAI chat completions API.
    *
-   * @param _request - Ignored.
-   * @param _ctx - Ignored.
-   * @throws {OpenAINotImplementedError} Always, until the real implementation lands.
+   * Maps provider-neutral {@link TransportRequest} to the `openai` SDK
+   * `chat.completions.create` call, then normalizes the response to
+   * {@link NormalizedResponse}.
+   *
+   * When `request` carries a Zod-schema `responseFormat`, uses `.parse()` for
+   * non-streaming structured output (the only path where `.parse()` is safe).
+   *
+   * @invariant parse() vs json_schema streaming split — `complete()` is the ONLY
+   *   path that may use `.parse()` for structured output. `stream()` MUST NOT use
+   *   `.parse()` — it always uses `json_schema` response_format instead.
+   *
+   * @param request - Provider-neutral request parameters.
+   * @param _ctx - Transport context (unused by this transport).
+   * @returns Normalized response including content, tool calls, usage, and raw SDK object.
    */
-  complete(_request: TransportRequest, _ctx?: TransportContext): Promise<NormalizedResponse> {
-    return Promise.reject(
-      new OpenAINotImplementedError(
-        'OpenAI transport not yet wired — use Anthropic until T-llm-p4-1b (Wave 1b migration) lands',
-      ),
-    );
+  async complete(request: TransportRequest, _ctx?: TransportContext): Promise<NormalizedResponse> {
+    const {
+      model,
+      messages,
+      maxTokens,
+      system,
+      tools,
+      temperature,
+      extraParams,
+      thinkingEffort,
+      responseFormat,
+    } = request as TransportRequest & {
+      extraParams?: Record<string, unknown> | null;
+      thinkingEffort?: string | null;
+      thinkingBudgetTokens?: number | null;
+      responseFormat?: (new (...args: unknown[]) => unknown) | Record<string, unknown> | null;
+      maxOutputTokens?: number | null;
+    };
+
+    const thinkingBudgetTokens = (
+      request as TransportRequest & { thinkingBudgetTokens?: number | null }
+    ).thinkingBudgetTokens;
+
+    if (thinkingBudgetTokens !== null && thinkingBudgetTokens !== undefined) {
+      throw new Error(
+        'OpenAI transport does not support thinkingBudgetTokens; use thinkingEffort instead',
+      );
+    }
+
+    const maxOutputTokens = (request as TransportRequest & { maxOutputTokens?: number | null })
+      .maxOutputTokens;
+
+    const rawMessages = messagesToRaw(messages, system);
+    const reqParams = this._buildParams({
+      model,
+      messages: rawMessages,
+      maxTokens: maxOutputTokens ?? maxTokens,
+      temperature,
+      stop: (request as TransportRequest & { stop?: string[] | null }).stop,
+      tools: tools as Array<Record<string, unknown>> | null | undefined,
+      toolChoice: (
+        request as TransportRequest & { toolChoice?: string | Record<string, unknown> | null }
+      ).toolChoice,
+      thinkingEffort: thinkingEffort ?? null,
+      extraParams: extraParams ?? null,
+    });
+
+    // Structured output path
+    if (
+      responseFormat !== null &&
+      responseFormat !== undefined &&
+      typeof responseFormat === 'function'
+    ) {
+      const zodSchema = this._zodSchemaFrom(responseFormat);
+      if (zodSchema) {
+        reqParams['response_format'] = {
+          type: 'json_schema',
+          json_schema: {
+            name: (responseFormat as { name?: string }).name ?? 'response',
+            schema: this._zodToJsonSchema(zodSchema),
+          },
+        };
+        const response = (await this._client.chat.completions.create(
+          reqParams as unknown as Parameters<OpenAIClient['chat']['completions']['create']>[0],
+        )) as OpenAI.ChatCompletion;
+        const rawContent = response.choices[0]?.message.content ?? '';
+        let parsedContent: unknown = rawContent;
+        try {
+          const parsed = JSON.parse(rawContent);
+          parsedContent = zodSchema.parse(parsed);
+        } catch {
+          try {
+            parsedContent = repairResponseModelJson(rawContent, zodSchema, model);
+          } catch {
+            parsedContent = rawContent;
+          }
+        }
+        return this._normalizeResponse(response, model, parsedContent);
+      }
+    }
+
+    if (
+      responseFormat !== null &&
+      responseFormat !== undefined &&
+      typeof responseFormat === 'object'
+    ) {
+      reqParams['response_format'] = responseFormat;
+    }
+
+    if (extraParams?.['json_mode']) {
+      reqParams['response_format'] = { type: 'json_object' };
+    }
+
+    const response = (await this._client.chat.completions.create(
+      reqParams as unknown as Parameters<OpenAIClient['chat']['completions']['create']>[0],
+    )) as OpenAI.ChatCompletion;
+    return this._normalizeResponse(response, model);
   }
 
   /**
    * Stream a completion against the OpenAI chat completions API.
    *
-   * STUB: W1 migration will implement stream() for openai.
+   * Yields {@link NormalizedDelta} chunks including incremental text deltas.
+   * The final delta carries `stopReason` and `usage`.
    *
-   * Wave 1b (T-llm-p4-1b) replaces this stub with a real implementation
-   * backed by the OpenAI SDK streaming API, including `usesMaxCompletionTokens`
-   * o-series branching and `extractReasoningContent` try/catch handling.
+   * @invariant parse() vs json_schema streaming split — `stream()` MUST NOT use
+   *   `.parse()` for structured output. When a `responseFormat` schema is present,
+   *   only `json_schema` response_format is used. `.parse()` would block the
+   *   stream since the full JSON must be assembled first — use `complete()` instead.
    *
-   * @param _request - Ignored until Wave 1b implementation lands.
-   * @param _ctx - Ignored until Wave 1b implementation lands.
-   * @throws {Error} Always, until the real implementation lands in Wave 1b.
+   * @param request - Provider-neutral request parameters.
+   * @param _ctx - Transport context (unused by this transport).
+   * @returns An async iterable of normalized delta chunks.
    */
-  // biome-ignore lint/correctness/useYield: stub — Wave 1b replaces with real streaming impl
-  async *stream(
-    _request: TransportRequest,
-    _ctx: TransportContext,
-  ): AsyncIterable<NormalizedDelta> {
-    // STUB: W1 migration will implement stream() for openai
-    throw new Error('STUB: W1 migration will implement stream() for openai');
+  async *stream(request: TransportRequest, _ctx: TransportContext): AsyncIterable<NormalizedDelta> {
+    const {
+      model,
+      messages,
+      maxTokens,
+      system,
+      tools,
+      temperature,
+      extraParams,
+      thinkingEffort,
+      responseFormat,
+    } = request as TransportRequest & {
+      extraParams?: Record<string, unknown> | null;
+      thinkingEffort?: string | null;
+      thinkingBudgetTokens?: number | null;
+      responseFormat?: (new (...args: unknown[]) => unknown) | Record<string, unknown> | null;
+      maxOutputTokens?: number | null;
+    };
+
+    const thinkingBudgetTokens = (
+      request as TransportRequest & { thinkingBudgetTokens?: number | null }
+    ).thinkingBudgetTokens;
+
+    if (thinkingBudgetTokens !== null && thinkingBudgetTokens !== undefined) {
+      throw new Error(
+        'OpenAI transport does not support thinkingBudgetTokens; use thinkingEffort instead',
+      );
+    }
+
+    const maxOutputTokens = (request as TransportRequest & { maxOutputTokens?: number | null })
+      .maxOutputTokens;
+
+    const rawMessages = messagesToRaw(messages, system);
+    const reqParams = this._buildParams({
+      model,
+      messages: rawMessages,
+      maxTokens: maxOutputTokens ?? maxTokens,
+      temperature,
+      stop: (request as TransportRequest & { stop?: string[] | null }).stop,
+      tools: tools as Array<Record<string, unknown>> | null | undefined,
+      toolChoice: (
+        request as TransportRequest & { toolChoice?: string | Record<string, unknown> | null }
+      ).toolChoice,
+      thinkingEffort: thinkingEffort ?? null,
+      extraParams: extraParams ?? null,
+    });
+    reqParams['stream'] = true;
+    reqParams['stream_options'] = { include_usage: true };
+
+    // @invariant parse() vs json_schema streaming split — ONLY json_schema here, never .parse()
+    if (
+      responseFormat !== null &&
+      responseFormat !== undefined &&
+      typeof responseFormat === 'function'
+    ) {
+      const zodSchema = this._zodSchemaFrom(responseFormat);
+      if (zodSchema) {
+        reqParams['response_format'] = {
+          type: 'json_schema',
+          json_schema: {
+            name: (responseFormat as { name?: string }).name ?? 'response',
+            schema: this._zodToJsonSchema(zodSchema),
+          },
+        };
+      }
+    } else if (
+      responseFormat !== null &&
+      responseFormat !== undefined &&
+      typeof responseFormat === 'object'
+    ) {
+      reqParams['response_format'] = responseFormat;
+    } else if (extraParams?.['json_mode']) {
+      reqParams['response_format'] = { type: 'json_object' };
+    }
+
+    const responseStream = (await this._client.chat.completions.create(
+      reqParams as unknown as Parameters<OpenAIClient['chat']['completions']['create']>[0],
+    )) as AsyncIterable<OpenAI.ChatCompletionChunk>;
+
+    let finishReason: string | null = null;
+    let usageChunkReceived = false;
+
+    for await (const chunk of responseStream) {
+      if (chunk.choices[0]?.delta?.content) {
+        yield {
+          text: chunk.choices[0].delta.content,
+          reasoning: '',
+          stopReason: null,
+          usage: null,
+        };
+      }
+      if (chunk.choices[0]?.finish_reason) {
+        finishReason = chunk.choices[0].finish_reason;
+      }
+      const chunkAny = chunk as unknown as Record<string, unknown>;
+      if (chunkAny['usage']) {
+        const usage = chunkAny['usage'] as Record<string, unknown>;
+        const normalizedUsage: NormalizedUsage = {
+          inputTokens: Number(usage['prompt_tokens']) || 0,
+          outputTokens: Number(usage['completion_tokens']) || 0,
+        };
+        yield {
+          text: '',
+          reasoning: '',
+          stopReason: finishReason ?? 'stop',
+          usage: normalizedUsage,
+        };
+        usageChunkReceived = true;
+      }
+    }
+
+    if (!usageChunkReceived && finishReason) {
+      yield { text: '', reasoning: '', stopReason: finishReason, usage: null };
+    }
   }
+
+  /**
+   * Returns true when the error signals a credential rotation should be attempted.
+   *
+   * @param err - The error thrown by the provider SDK.
+   * @returns Whether a credential rotation should be attempted.
+   */
+  shouldRotateCredential(err: unknown): boolean {
+    if (err instanceof Error) {
+      const msg = err.message.toLowerCase();
+      return msg.includes('401') || msg.includes('429') || msg.includes('api key');
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build the OpenAI API request params from normalized request fields.
+   *
+   * @invariant usesMaxCompletionTokens o-series branching — sets
+   *   `max_completion_tokens` for gpt-5* / o1* / o3* / o4* models;
+   *   `max_tokens` for all others.
+   */
+  private _buildParams(params: {
+    model: string;
+    messages: Array<Record<string, unknown>>;
+    maxTokens: number;
+    temperature?: number | null;
+    stop?: string[] | null;
+    tools?: Array<Record<string, unknown>> | null;
+    toolChoice?: string | Record<string, unknown> | null;
+    thinkingEffort?: string | null;
+    extraParams?: Record<string, unknown> | null;
+  }): Record<string, unknown> {
+    const {
+      model,
+      messages,
+      maxTokens,
+      temperature,
+      stop,
+      tools,
+      toolChoice,
+      thinkingEffort,
+      extraParams,
+    } = params;
+    const reqParams: Record<string, unknown> = { model, messages };
+
+    // @invariant usesMaxCompletionTokens o-series branching
+    if (usesMaxCompletionTokens(model)) {
+      reqParams['max_completion_tokens'] = maxTokens;
+      if (extraParams?.['verbosity']) reqParams['verbosity'] = extraParams['verbosity'];
+    } else {
+      reqParams['max_tokens'] = maxTokens;
+    }
+
+    if (temperature !== null && temperature !== undefined) reqParams['temperature'] = temperature;
+    if (thinkingEffort) reqParams['reasoning_effort'] = thinkingEffort;
+    if (stop && stop.length > 0) reqParams['stop'] = stop;
+
+    if (tools && tools.length > 0) {
+      reqParams['tools'] = this._convertTools(tools);
+      if (toolChoice !== null && toolChoice !== undefined) reqParams['tool_choice'] = toolChoice;
+    }
+
+    if (extraParams) {
+      for (const key of ['top_p', 'frequency_penalty', 'presence_penalty', 'seed']) {
+        if (key in extraParams) reqParams[key] = extraParams[key];
+      }
+    }
+
+    return reqParams;
+  }
+
+  /**
+   * Normalize a raw OpenAI SDK response into {@link NormalizedResponse}.
+   *
+   * @param response - Raw `OpenAI.ChatCompletion` from the SDK.
+   * @param modelName - Model identifier (carried into the response envelope).
+   * @param contentOverride - When set, replaces the message content (used for structured output).
+   */
+  private _normalizeResponse(
+    response: OpenAI.ChatCompletion,
+    modelName: string,
+    contentOverride?: unknown,
+  ): NormalizedResponse {
+    const usage = response.usage ?? null;
+    const finishReason = response.choices[0]?.finish_reason ?? 'stop';
+    const message = response.choices[0]?.message;
+    const toolCalls: NormalizedToolCall[] = [];
+
+    if (message && 'tool_calls' in message && Array.isArray(message.tool_calls)) {
+      for (const tc of message.tool_calls) {
+        if (tc.type !== 'function') continue;
+        let toolInput: Record<string, unknown> = {};
+        if (tc.function.arguments) {
+          try {
+            toolInput = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+          } catch {
+            // Malformed tool arguments — use empty object
+          }
+        }
+        toolCalls.push({
+          id: tc.id,
+          name: tc.function.name,
+          arguments: tc.function.arguments ?? JSON.stringify(toolInput),
+        });
+      }
+    }
+
+    const { cacheCreation, cacheRead } = extractCacheTokens(usage);
+
+    const normalizedUsage: NormalizedUsage = {
+      inputTokens: usage?.prompt_tokens ?? 0,
+      outputTokens: usage?.completion_tokens ?? 0,
+      ...(cacheRead > 0 ? { cachedTokens: cacheRead } : {}),
+    };
+
+    const reasoning = extractReasoningContent(response);
+    const reasoningDetails = extractReasoningDetails(response);
+
+    const rawContent = contentOverride !== undefined ? contentOverride : (message?.content ?? '');
+    const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+
+    return {
+      id: response.id,
+      model: modelName,
+      content: content || null,
+      toolCalls: toolCalls.length > 0 ? toolCalls : null,
+      stopReason: finishReason,
+      usage: normalizedUsage,
+      ...(reasoning ? { reasoning } : {}),
+      ...(reasoningDetails.length > 0 || cacheCreation > 0
+        ? {
+            providerData: {
+              ...(reasoningDetails.length > 0 ? { reasoningDetails } : {}),
+              ...(cacheCreation > 0 ? { cacheCreationInputTokens: cacheCreation } : {}),
+            },
+          }
+        : {}),
+      raw: response,
+    };
+  }
+
+  /**
+   * Convert provider-neutral tools to OpenAI `function` tool format.
+   *
+   * Already-converted inputs (first element has `type: 'function'`) are passed
+   * through unchanged.
+   */
+  private _convertTools(tools: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+    if (!tools.length || tools[0]?.['type'] === 'function') return tools;
+    return tools.map((tool) => ({
+      type: 'function',
+      function: {
+        name: tool['name'],
+        description: tool['description'],
+        parameters: tool['input_schema'] ?? tool['inputSchema'],
+      },
+    }));
+  }
+
+  /**
+   * Extract a Zod schema from a class or constructor that carries a `.schema`
+   * property or IS a ZodType.
+   */
+  private _zodSchemaFrom(responseFormat: new (...args: unknown[]) => unknown): z.ZodTypeAny | null {
+    const asAny = responseFormat as unknown as Record<string, unknown>;
+    if (asAny['schema'] instanceof z.ZodType) return asAny['schema'] as z.ZodTypeAny;
+    if (responseFormat instanceof z.ZodType) return responseFormat as unknown as z.ZodTypeAny;
+    return null;
+  }
+
+  /**
+   * Convert a Zod schema to a minimal JSON Schema object for the
+   * `json_schema` response_format.
+   *
+   * Uses `.shape` for `ZodObject`; returns `{}` for other Zod types.
+   * Full support would require `zod-to-json-schema` — this covers the common case.
+   */
+  private _zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
+    if ('shape' in schema) {
+      const shape = (schema as z.ZodObject<z.ZodRawShape>).shape;
+      const properties: Record<string, unknown> = {};
+      const required: string[] = [];
+      for (const [key, field] of Object.entries(shape)) {
+        properties[key] = { type: 'string' };
+        if (!(field instanceof z.ZodOptional)) required.push(key);
+      }
+      return { type: 'object', properties, required, additionalProperties: false };
+    }
+    return {};
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal: convert TransportMessage[] to raw OpenAI message format
+// ---------------------------------------------------------------------------
+
+/**
+ * Map provider-neutral {@link import('@cleocode/contracts/llm/normalized-response.js').TransportMessage}[]
+ * to raw OpenAI message dicts.
+ *
+ * System is injected as the first message with `role: 'system'`.
+ */
+function messagesToRaw(
+  messages: import('@cleocode/contracts/llm/normalized-response.js').TransportMessage[],
+  system?: string,
+): Array<Record<string, unknown>> {
+  const raw: Array<Record<string, unknown>> = [];
+
+  if (system) {
+    raw.push({ role: 'system', content: system });
+  }
+
+  for (const msg of messages) {
+    if (typeof msg.content === 'string') {
+      raw.push({ role: msg.role, content: msg.content });
+    } else {
+      raw.push({ role: msg.role, content: msg.content });
+    }
+  }
+
+  return raw;
 }
