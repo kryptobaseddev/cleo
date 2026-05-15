@@ -183,7 +183,9 @@ export class DeviceCodeAuthError extends Error {
  * @throws {Error} When `provider` is not a known preset.
  * @task T9266
  */
-export function getDeviceCodeConfig(provider: 'anthropic' | 'kimi-code' | string): DeviceCodeConfig {
+export function getDeviceCodeConfig(
+  provider: 'anthropic' | 'kimi-code' | string,
+): DeviceCodeConfig {
   if (provider === 'anthropic') {
     return getAnthropicDeviceCodeConfig();
   }

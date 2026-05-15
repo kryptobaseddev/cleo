@@ -122,9 +122,7 @@ interface IvtrStatusResult {
   evidenceCount?: number;
 }
 
-async function ivtrStatusOp(
-  params: IvtrStatusParams,
-): Promise<EngineResult<IvtrStatusResult>> {
+async function ivtrStatusOp(params: IvtrStatusParams): Promise<EngineResult<IvtrStatusResult>> {
   const cwd = getProjectRoot();
   const state = await getIvtrState(params.taskId, { cwd });
 
