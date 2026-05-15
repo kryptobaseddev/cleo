@@ -618,6 +618,22 @@ export class MemoryHandler implements DomainHandler {
           const resolvedSource = resolveAnthropicApiKeySource();
           const extractionEnabled = resolveAnthropicApiKey() !== null;
 
+          // Resolve kimi-code credential source (T9323 AC#3).
+          // Check env var first, then the credential pool file.
+          let kimiCodeResolvedSource: 'env' | 'cred-file' | 'none' = 'none';
+          {
+            const { resolveCredentials } = await import('@cleocode/core/llm/credentials.js');
+            const kimiCred = resolveCredentials('kimi-code');
+            if (kimiCred.apiKey) {
+              kimiCodeResolvedSource =
+                kimiCred.source === 'env'
+                  ? 'env'
+                  : kimiCred.source === 'cred-file'
+                    ? 'cred-file'
+                    : 'none';
+            }
+          }
+
           // Query brain.db for the most recent extraction event
           let lastExtractionRun: string | null = null;
           try {
@@ -648,6 +664,18 @@ export class MemoryHandler implements DomainHandler {
                 extractionEnabled,
                 lastExtractionRun,
                 testCommand: 'cleo memory reflect --json',
+                providers: [
+                  {
+                    provider: 'anthropic',
+                    resolvedSource,
+                    hasCredential: extractionEnabled,
+                  },
+                  {
+                    provider: 'kimi-code',
+                    resolvedSource: kimiCodeResolvedSource,
+                    hasCredential: kimiCodeResolvedSource !== 'none',
+                  },
+                ],
               },
             },
             'query',
