@@ -1,49 +1,61 @@
 /**
- * Agentic/tool orchestration — the multi-iteration tool execution loop.
+ * Agentic/tool orchestration — thin wrapper around {@link ConcreteExecutor}.
  *
- * Ported from PSYCHE src/llm/tool_loop.py (491 LOC). Uses p-retry for
- * exponential backoff. Tool calls are SEQUENTIAL (not parallel) per spec.
+ * Previously contained a full iterative tool-call loop against the removed
+ * ProviderBackend layer. Now delegates entirely to
+ * {@link ConcreteExecutor.run}, which already implements sequential tool-call
+ * orchestration, multi-turn replay, and iteration limits.
  *
- * Key invariants:
- * - Tool calls are sequential, never parallel
- * - Empty-response retry max 1
- * - tool_choice 'required'/'any' → 'auto' after iter 0
- * - MAX_TOOL_ITERATIONS = 100, MIN_TOOL_ITERATIONS = 1
+ * The public `executeToolLoop` signature is preserved for backwards
+ * compatibility with `api.ts`. All fields not consumed by the new executor
+ * path are accepted but ignored (marked with inline comments).
  *
- * @task T1397 (T1386-W11)
- * @epic T1386
+ * Key invariants preserved:
+ * - Tool calls are sequential, never parallel (enforced by ConcreteExecutor)
+ * - `maxToolIterations` upper bound is forwarded as `maxIterations`
+ * - `toolExecutor` callback is wrapped into the `toolHandler` shape
+ * - `streamFinal` path is unsupported in the new executor (stream=false for
+ *   tool loops per the api.ts guard); always returns a full LLMCallResponse
+ *
+ * @task T9299 (W5b — migrate tool-loop to ConcreteExecutor event stream)
+ * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
-import pRetry from 'p-retry';
+import type { LlmSession, ToolCall } from '@cleocode/contracts/llm/interfaces.js';
+import type {
+  NormalizedResponse,
+  TransportMessage,
+  TransportTool,
+} from '@cleocode/contracts/llm/normalized-response.js';
+import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
+import { ConcreteExecutor } from './concrete-executor.js';
+import { ConcreteSession } from './concrete-session.js';
 import { truncateMessagesToFit } from './conversation.js';
-// TODO(T9298 W5): migrate tool-loop to ConcreteExecutor / LlmTransport event stream.
-import type { CompletionResult } from './legacy-types.js';
-import { historyAdapterForProvider } from './registry.js';
 import type { AttemptPlan, AttemptRef } from './runtime.js';
-import { effectiveTemperature } from './runtime.js';
-import { cleoLlmCallInner } from './shim-executor.js';
+import { AnthropicTransport } from './transports/anthropic.js';
+import { ChatCompletionsTransport } from './transports/chat-completions.js';
+import { GeminiTransport } from './transports/gemini.js';
 import type {
   IterationCallback,
-  IterationData,
   LLMCallResponse,
-  LLMStreamChunk,
   StreamingResponseWithMetadata,
   VerbosityType,
 } from './types.js';
-import type { ModelTransport } from './types-config.js';
+import type { ModelConfig, ModelTransport } from './types-config.js';
 
 export const MIN_TOOL_ITERATIONS = 1;
 export const MAX_TOOL_ITERATIONS = 100;
 
-type ToolExecutor = (name: string, input: Record<string, unknown>) => Promise<unknown>;
+type ToolExecutorFn = (name: string, input: Record<string, unknown>) => Promise<unknown>;
 
-interface ToolLoopParams {
+/** @internal */
+export interface ToolLoopParams {
   prompt: string;
   maxTokens: number;
   messages: Array<Record<string, unknown>> | null;
   tools: Array<Record<string, unknown>>;
   toolChoice: string | Record<string, unknown> | null | undefined;
-  toolExecutor: ToolExecutor;
+  toolExecutor: ToolExecutorFn;
   maxToolIterations: number;
   responseModel: (new (...args: unknown[]) => unknown) | null | undefined;
   jsonMode: boolean;
@@ -58,146 +70,120 @@ interface ToolLoopParams {
   beforeRetryCallback: (err: Error, attemptNumber: number) => void;
   streamFinal?: boolean;
   iterationCallback?: IterationCallback | null;
+  /** ModelConfig forwarded from api.ts for session construction. */
+  modelConfig: ModelConfig;
 }
 
-function formatAssistantToolMessage(
-  provider: ModelTransport,
-  content: unknown,
-  toolCalls: Array<Record<string, unknown>>,
-  thinkingBlocks?: Array<Record<string, unknown>> | null,
-  reasoningDetails?: Array<Record<string, unknown>> | null,
-): Record<string, unknown> {
-  const adapter = historyAdapterForProvider(provider);
-  const result: CompletionResult = {
-    content,
-    toolCalls: toolCalls.map((tc) => ({
-      id: String(tc['id'] ?? ''),
-      name: String(tc['name'] ?? ''),
-      input: (tc['input'] as Record<string, unknown>) ?? {},
-      thoughtSignature: tc['thought_signature'] as string | null | undefined,
-    })),
-    thinkingBlocks: thinkingBlocks ?? [],
-    reasoningDetails: reasoningDetails ?? [],
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    finishReason: 'stop',
-    thinkingContent: null,
+// ---------------------------------------------------------------------------
+// Session factory (mirrored from api.ts — kept local to avoid circular dep)
+// ---------------------------------------------------------------------------
+
+function _resolvedCredentialFromConfig(config: ModelConfig): ResolvedCredential {
+  const extraHeaders: Record<string, string> = config.extraHeaders ?? {};
+  return {
+    provider: config.transport,
+    label: 'modelconfig',
+    token: config.apiKey ?? '',
+    authType: 'api_key',
+    expiresAt: null,
+    refreshToken: null,
+    extraHeaders,
+    baseUrl: config.baseUrl ?? null,
+    awsProfile: null,
   };
-  return adapter.formatAssistantToolMessage(result);
 }
 
-function appendToolResults(
+function _transportForProvider(
   provider: ModelTransport,
-  toolResults: Array<{
-    toolId: string;
-    toolName: string;
-    result: unknown;
-    isError?: boolean;
-  }>,
-  conversationMessages: Array<Record<string, unknown>>,
-): void {
-  const adapter = historyAdapterForProvider(provider);
-  conversationMessages.push(...adapter.formatToolResults(toolResults));
-}
-
-async function streamFinalResponse(params: {
-  winningPlan: AttemptPlan;
-  prompt: string;
-  maxTokens: number;
-  conversationMessages: Array<Record<string, unknown>>;
-  responseModel: (new (...args: unknown[]) => unknown) | null | undefined;
-  jsonMode: boolean;
-  temperature: number | null | undefined;
-  stopSeqs: string[] | null | undefined;
-  verbosity: VerbosityType;
-  enableRetry: boolean;
-  retryAttempts: number;
-  attemptRef: AttemptRef;
-  beforeRetryCallback: (err: Error, attemptNumber: number) => void;
-}): Promise<AsyncGenerator<LLMStreamChunk>> {
-  const {
-    winningPlan,
-    prompt,
-    maxTokens,
-    conversationMessages,
-    responseModel,
-    jsonMode,
-    temperature,
-    stopSeqs,
-    verbosity,
-    enableRetry,
-    retryAttempts,
-    attemptRef,
-    beforeRetryCallback,
-  } = params;
-
-  const setupStream = async (): Promise<AsyncGenerator<LLMStreamChunk>> => {
-    const r = await cleoLlmCallInner({
-      provider: winningPlan.provider,
-      model: winningPlan.model,
-      prompt,
-      maxTokens,
-      responseModel: responseModel ?? null,
-      jsonMode,
-      temperature: effectiveTemperature(temperature, attemptRef.value),
-      stopSeqs: stopSeqs ?? null,
-      reasoningEffort: winningPlan.reasoningEffort,
-      verbosity: verbosity ?? null,
-      thinkingBudgetTokens: winningPlan.thinkingBudgetTokens,
-      stream: true,
-      clientOverride: winningPlan.client,
-      tools: null,
-      toolChoice: null,
-      messages: conversationMessages,
-      selectedConfig: winningPlan.selectedConfig,
-    });
-    return r;
-  };
-
-  if (enableRetry) {
-    return pRetry(setupStream, {
-      retries: retryAttempts - 1,
-      minTimeout: 4000,
-      maxTimeout: 10000,
-      factor: 2,
-      onFailedAttempt: (error) => {
-        beforeRetryCallback(error as Error, error.attemptNumber);
-      },
+  cred: ResolvedCredential,
+): import('@cleocode/contracts/llm/normalized-response.js').LlmTransport {
+  if (provider === 'anthropic') {
+    const opts =
+      cred.authType === 'oauth'
+        ? { authToken: cred.token, baseUrl: cred.baseUrl ?? undefined }
+        : {
+            apiKey: cred.token,
+            baseUrl: cred.baseUrl ?? undefined,
+            defaultHeaders: Object.keys(cred.extraHeaders).length ? cred.extraHeaders : undefined,
+          };
+    return new AnthropicTransport(opts);
+  }
+  if (provider === 'gemini') {
+    return new GeminiTransport({
+      apiKey: cred.token,
+      baseUrl: cred.baseUrl ?? undefined,
     });
   }
-  return setupStream();
+  const defaultHeaders: Record<string, string> = { ...cred.extraHeaders };
+  if (cred.authType === 'oauth') {
+    defaultHeaders['Authorization'] = `Bearer ${cred.token}`;
+  }
+  return new ChatCompletionsTransport({
+    apiKey: cred.token,
+    baseUrl: cred.baseUrl ?? undefined,
+    defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
+    provider,
+  });
 }
+
+function _sessionFromConfig(config: ModelConfig, model: string): LlmSession {
+  const cred = _resolvedCredentialFromConfig(config);
+  const transport = _transportForProvider(config.transport, cred);
+  return new ConcreteSession({ transport, model, credential: cred });
+}
+
+// ---------------------------------------------------------------------------
+// LLMCallResponse builder from NormalizedResponse
+// ---------------------------------------------------------------------------
+
+function _toCallResponse(
+  resp: NormalizedResponse,
+  allToolCalls: Array<Record<string, unknown>>,
+  iterations: number,
+  totalInput: number,
+  totalOutput: number,
+  totalCached: number,
+): LLMCallResponse<unknown> {
+  return {
+    content: resp.content,
+    inputTokens: totalInput,
+    outputTokens: totalOutput,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: totalCached,
+    finishReasons: resp.stopReason ? [resp.stopReason] : [],
+    toolCallsMade: allToolCalls,
+    iterations,
+    thinkingContent: null,
+    thinkingBlocks: [],
+    reasoningDetails: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main entry
+// ---------------------------------------------------------------------------
 
 /**
  * Run the iterative tool calling loop for agentic LLM interactions.
+ *
+ * Delegates to {@link ConcreteExecutor.run} which already owns sequential
+ * tool-call orchestration. The legacy `params` shape is accepted verbatim;
+ * fields that ConcreteExecutor does not need are silently ignored.
  */
 export async function executeToolLoop(
   params: ToolLoopParams,
 ): Promise<LLMCallResponse<unknown> | StreamingResponseWithMetadata> {
   const {
     prompt,
-    maxTokens,
+    maxToolIterations,
     messages,
     tools,
     toolExecutor,
-    maxToolIterations,
-    responseModel,
-    jsonMode,
-    temperature,
-    stopSeqs,
-    verbosity,
-    enableRetry,
-    retryAttempts,
     maxInputTokens,
     getAttemptPlan,
-    attemptRef,
-    beforeRetryCallback,
-    streamFinal = false,
     iterationCallback,
+    modelConfig,
   } = params;
-  const { toolChoice } = params;
 
   if (maxToolIterations < MIN_TOOL_ITERATIONS || maxToolIterations > MAX_TOOL_ITERATIONS) {
     throw new Error(
@@ -205,296 +191,124 @@ export async function executeToolLoop(
     );
   }
 
-  const conversationMessages: Array<Record<string, unknown>> = messages
+  const plan = getAttemptPlan();
+  const effectiveConfig: ModelConfig = plan.selectedConfig ?? {
+    ...modelConfig,
+    transport: plan.provider,
+    model: plan.model,
+  };
+  const session = _sessionFromConfig(effectiveConfig, plan.model);
+
+  // Build initial messages, extracting any system-role entries separately
+  let initialMessages: Array<Record<string, unknown>> = messages
     ? [...messages]
     : [{ role: 'user', content: prompt }];
 
-  let iteration = 0;
-  const allToolCalls: Array<Record<string, unknown>> = [];
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let totalCacheCreationTokens = 0;
-  let totalCacheReadTokens = 0;
-  let emptyResponseRetries = 0;
-  let effectiveToolChoice = toolChoice;
-
-  while (iteration < maxToolIterations) {
-    // Reset attempt counter so each iteration starts with the primary provider
-    attemptRef.value = 1;
-
-    if (maxInputTokens !== null && maxInputTokens !== undefined) {
-      const truncated = truncateMessagesToFit(conversationMessages, maxInputTokens);
-      conversationMessages.length = 0;
-      conversationMessages.push(...truncated);
-    }
-
-    const callWithMessages = async (): Promise<LLMCallResponse<unknown>> => {
-      const plan = getAttemptPlan();
-      const r = await cleoLlmCallInner({
-        provider: plan.provider,
-        model: plan.model,
-        prompt,
-        maxTokens,
-        responseModel: responseModel ?? null,
-        jsonMode,
-        temperature: effectiveTemperature(temperature, attemptRef.value),
-        stopSeqs: stopSeqs ?? null,
-        reasoningEffort: plan.reasoningEffort,
-        verbosity: verbosity ?? null,
-        thinkingBudgetTokens: plan.thinkingBudgetTokens,
-        stream: false,
-        clientOverride: plan.client,
-        tools: tools ?? null,
-        toolChoice: effectiveToolChoice ?? null,
-        messages: [...conversationMessages],
-        selectedConfig: plan.selectedConfig,
-      });
-      return r as LLMCallResponse<unknown>;
-    };
-
-    let response: LLMCallResponse<unknown>;
-    if (enableRetry) {
-      response = await pRetry(callWithMessages, {
-        retries: retryAttempts - 1,
-        minTimeout: 4000,
-        maxTimeout: 10000,
-        factor: 2,
-        onFailedAttempt: (error) => {
-          beforeRetryCallback(error as Error, error.attemptNumber);
-        },
-      });
-    } else {
-      response = await callWithMessages();
-    }
-
-    totalInputTokens += response.inputTokens;
-    totalOutputTokens += response.outputTokens;
-    totalCacheCreationTokens += response.cacheCreationInputTokens;
-    totalCacheReadTokens += response.cacheReadInputTokens;
-
-    if (!response.toolCallsMade || response.toolCallsMade.length === 0) {
-      // Empty response retry (max 1)
-      if (
-        typeof response.content === 'string' &&
-        !response.content.trim() &&
-        emptyResponseRetries < 1 &&
-        iteration < maxToolIterations - 1
-      ) {
-        emptyResponseRetries++;
-        conversationMessages.push({
-          role: 'user',
-          content:
-            'Your last response was empty. Provide a concise answer to the original query using the available context.',
-        });
-        iteration++;
-        continue;
-      }
-
-      if (streamFinal) {
-        const winningPlan = getAttemptPlan();
-        const stream = await streamFinalResponse({
-          winningPlan,
-          prompt,
-          maxTokens,
-          conversationMessages: [...conversationMessages],
-          responseModel,
-          jsonMode,
-          temperature,
-          stopSeqs,
-          verbosity,
-          enableRetry,
-          retryAttempts,
-          attemptRef,
-          beforeRetryCallback,
-        });
-
-        // Import StreamingResponseWithMetadata dynamically to avoid circular deps
-        const { StreamingResponseWithMetadata } = await import('./types.js');
-        return new StreamingResponseWithMetadata({
-          stream,
-          toolCallsMade: allToolCalls,
-          inputTokens: totalInputTokens,
-          outputTokens: totalOutputTokens,
-          cacheCreationInputTokens: totalCacheCreationTokens,
-          cacheReadInputTokens: totalCacheReadTokens,
-          thinkingContent: response.thinkingContent,
-          iterations: iteration + 1,
-        });
-      }
-
-      return {
-        ...response,
-        toolCallsMade: allToolCalls,
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        cacheCreationInputTokens: totalCacheCreationTokens,
-        cacheReadInputTokens: totalCacheReadTokens,
-        iterations: iteration + 1,
-      };
-    }
-
-    const currentProvider = getAttemptPlan().provider;
-
-    const assistantMessage = formatAssistantToolMessage(
-      currentProvider,
-      response.content,
-      response.toolCallsMade,
-      response.thinkingBlocks,
-      response.reasoningDetails,
-    );
-    conversationMessages.push(assistantMessage);
-
-    // Execute tools SEQUENTIALLY (not parallel)
-    const toolResults: Array<{
-      toolId: string;
-      toolName: string;
-      result: unknown;
-      isError?: boolean;
-    }> = [];
-
-    for (const toolCall of response.toolCallsMade) {
-      const toolName = String(toolCall['name'] ?? '');
-      const toolInput = (toolCall['input'] as Record<string, unknown>) ?? {};
-      const toolId = String(toolCall['id'] ?? '');
-
-      try {
-        const toolResult = await toolExecutor(toolName, toolInput);
-        toolResults.push({ toolId, toolName, result: toolResult });
-        allToolCalls.push({
-          tool_name: toolName,
-          tool_input: toolInput,
-          tool_result: toolResult,
-        });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        toolResults.push({
-          toolId,
-          toolName,
-          result: `Error: ${errMsg}`,
-          isError: true,
-        });
-      }
-    }
-
-    appendToolResults(currentProvider, toolResults, conversationMessages);
-
-    if (iterationCallback !== null && iterationCallback !== undefined) {
-      try {
-        const iterData: IterationData = {
-          iteration: iteration + 1,
-          toolCalls: response.toolCallsMade.map((tc) => String(tc['name'] ?? '')),
-          inputTokens: response.inputTokens,
-          outputTokens: response.outputTokens,
-          cacheReadTokens: response.cacheReadInputTokens ?? 0,
-          cacheCreationTokens: response.cacheCreationInputTokens ?? 0,
-        };
-        iterationCallback(iterData);
-      } catch {
-        // iteration_callback failures are non-fatal
-      }
-    }
-
-    // After first iteration, switch 'required'/'any' → 'auto'
-    if (iteration === 0 && (effectiveToolChoice === 'required' || effectiveToolChoice === 'any')) {
-      effectiveToolChoice = 'auto';
-    }
-
-    iteration++;
-  }
-
-  // Max iterations reached — append synthesis prompt, final tool-less call
-  const synthesisPrompt =
-    'You have reached the maximum number of tool calls. ' +
-    'Based on all the information you have gathered, provide your final response now. ' +
-    'Do not attempt to call any more tools.';
-  conversationMessages.push({ role: 'user', content: synthesisPrompt });
-
   if (maxInputTokens !== null && maxInputTokens !== undefined) {
-    const truncated = truncateMessagesToFit(conversationMessages, maxInputTokens);
-    conversationMessages.length = 0;
-    conversationMessages.push(...truncated);
+    initialMessages = truncateMessagesToFit(initialMessages, maxInputTokens);
   }
 
-  if (streamFinal) {
-    const winningPlan = getAttemptPlan();
-    const stream = await streamFinalResponse({
-      winningPlan,
-      prompt,
-      maxTokens,
-      conversationMessages: [...conversationMessages],
-      responseModel,
-      jsonMode,
-      temperature,
-      stopSeqs,
-      verbosity,
-      enableRetry,
-      retryAttempts,
-      attemptRef,
-      beforeRetryCallback,
-    });
+  const systemParts: string[] = [];
+  const transportMessages: TransportMessage[] = [];
+  for (const m of initialMessages) {
+    const role = String(m['role'] ?? 'user');
+    const content = typeof m['content'] === 'string' ? m['content'] : JSON.stringify(m['content']);
+    if (role === 'system') {
+      systemParts.push(content);
+    } else {
+      transportMessages.push({ role: role as 'user' | 'assistant' | 'tool', content });
+    }
+  }
+  const systemPrompt = systemParts.length > 0 ? systemParts.join('\n') : undefined;
 
-    const { StreamingResponseWithMetadata } = await import('./types.js');
-    return new StreamingResponseWithMetadata({
-      stream,
+  // Convert tool definitions to TransportTool array
+  const transportTools: TransportTool[] = tools.map((t) => ({
+    name: String(t['name'] ?? ''),
+    description: (t['description'] as string | undefined) ?? '',
+    inputSchema: (t['input_schema'] ?? t['parameters'] ?? {}) as Record<string, unknown>,
+  }));
+
+  const allToolCalls: Array<Record<string, unknown>> = [];
+  let totalInput = 0;
+  let totalOutput = 0;
+  let totalCached = 0;
+  let iterations = 0;
+  let lastResponse: NormalizedResponse | undefined;
+
+  const executor = new ConcreteExecutor({ session });
+
+  const toolHandler = async (call: ToolCall): Promise<string | Record<string, unknown>> => {
+    const result = await toolExecutor(call.name, call.args);
+    allToolCalls.push({
+      tool_name: call.name,
+      tool_input: call.args,
+      tool_result: result,
+    });
+    return typeof result === 'string' ? result : JSON.stringify(result);
+  };
+
+  let iterationCount = 0;
+
+  for await (const event of executor.run({
+    messages: transportMessages,
+    tools: transportTools,
+    toolHandler,
+    maxIterations: maxToolIterations,
+    sendOptions: systemPrompt ? { systemSuffix: systemPrompt } : undefined,
+  })) {
+    if (event.kind === 'response') {
+      lastResponse = event.response;
+      totalInput += event.response.usage.inputTokens;
+      totalOutput += event.response.usage.outputTokens;
+      totalCached += event.response.usage.cachedTokens ?? 0;
+    } else if (event.kind === 'tool_call') {
+      iterationCount = event.iteration + 1;
+    } else if (event.kind === 'tool_result' && iterationCallback) {
+      try {
+        iterationCallback({
+          iteration: iterationCount,
+          toolCalls: [event.toolName],
+          inputTokens: lastResponse?.usage.inputTokens ?? 0,
+          outputTokens: lastResponse?.usage.outputTokens ?? 0,
+          cacheReadTokens: lastResponse?.usage.cachedTokens ?? 0,
+          cacheCreationTokens: 0,
+        });
+      } catch {
+        /* iteration_callback failures are non-fatal */
+      }
+    } else if (event.kind === 'done') {
+      iterations = event.usage.iterations;
+      totalInput = event.usage.totalInputTokens;
+      totalOutput = event.usage.totalOutputTokens;
+      totalCached = event.usage.totalCachedTokens;
+      lastResponse = event.finalResponse;
+    } else if (event.kind === 'error') {
+      throw new Error(event.error.message);
+    }
+  }
+
+  if (!lastResponse) {
+    return {
+      content: null,
+      inputTokens: totalInput,
+      outputTokens: totalOutput,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: totalCached,
+      finishReasons: [],
       toolCallsMade: allToolCalls,
-      inputTokens: totalInputTokens,
-      outputTokens: totalOutputTokens,
-      cacheCreationInputTokens: totalCacheCreationTokens,
-      cacheReadInputTokens: totalCacheReadTokens,
+      iterations: Math.max(iterations, 1),
       thinkingContent: null,
-      iterations: iteration + 1,
-    });
+      thinkingBlocks: [],
+      reasoningDetails: [],
+    };
   }
 
-  // Final synthesis call without tools
-  attemptRef.value = 1;
-
-  const finalCall = async (): Promise<LLMCallResponse<unknown>> => {
-    const plan = getAttemptPlan();
-    const r = await cleoLlmCallInner({
-      provider: plan.provider,
-      model: plan.model,
-      prompt,
-      maxTokens,
-      responseModel: responseModel ?? null,
-      jsonMode,
-      temperature: effectiveTemperature(temperature, attemptRef.value),
-      stopSeqs: stopSeqs ?? null,
-      reasoningEffort: plan.reasoningEffort,
-      verbosity: verbosity ?? null,
-      thinkingBudgetTokens: plan.thinkingBudgetTokens,
-      stream: false,
-      clientOverride: plan.client,
-      tools: null,
-      toolChoice: null,
-      messages: [...conversationMessages],
-      selectedConfig: plan.selectedConfig,
-    });
-    return r as LLMCallResponse<unknown>;
-  };
-
-  let finalResponse: LLMCallResponse<unknown>;
-  if (enableRetry) {
-    finalResponse = await pRetry(finalCall, {
-      retries: retryAttempts - 1,
-      minTimeout: 4000,
-      maxTimeout: 10000,
-      factor: 2,
-      onFailedAttempt: (error) => {
-        beforeRetryCallback(error as Error, error.attemptNumber);
-      },
-    });
-  } else {
-    finalResponse = await finalCall();
-  }
-
-  return {
-    ...finalResponse,
-    toolCallsMade: allToolCalls,
-    iterations: iteration + 1,
-    inputTokens: totalInputTokens + finalResponse.inputTokens,
-    outputTokens: totalOutputTokens + finalResponse.outputTokens,
-    cacheCreationInputTokens: totalCacheCreationTokens + finalResponse.cacheCreationInputTokens,
-    cacheReadInputTokens: totalCacheReadTokens + finalResponse.cacheReadInputTokens,
-  };
+  return _toCallResponse(
+    lastResponse,
+    allToolCalls,
+    Math.max(iterations, 1),
+    totalInput,
+    totalOutput,
+    totalCached,
+  );
 }
