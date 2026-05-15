@@ -1,9 +1,11 @@
 /**
- * ConcreteSession unit tests (T9287).
+ * ConcreteSession unit tests (T9287, T9293 W4a, T9297 W4e).
  *
  * Uses mock LlmTransport implementations — no real network calls.
  *
  * @task T9287
+ * @task T9293 (W4a — classifyError routing tests)
+ * @task T9297 (W4e — CredentialPool rotation + RateLimitGuard tests)
  * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
@@ -20,8 +22,8 @@ import type {
   TransportRequest,
 } from '@cleocode/contracts/llm/normalized-response.js';
 import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConcreteSession } from '../concrete-session.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ConcreteSession, ContextOverflowError } from '../concrete-session.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,8 +88,21 @@ const NO_RETRY: RetryPolicy = { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0, j
 // ---------------------------------------------------------------------------
 
 describe('ConcreteSession', () => {
-  beforeEach(() => {
+  // Mock rate-limit I/O globally for all session tests to prevent real filesystem reads.
+  let _rlMod: typeof import('../rate-limit-guard.js');
+  let _rlRemainingMock: ReturnType<typeof vi.spyOn>;
+  let _rlRecordMock: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
     vi.clearAllMocks();
+    _rlMod = await import('../rate-limit-guard.js');
+    _rlRemainingMock = vi.spyOn(_rlMod, 'rateLimitRemaining').mockResolvedValue(null);
+    _rlRecordMock = vi.spyOn(_rlMod, 'recordRateLimit').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    _rlRemainingMock.mockRestore();
+    _rlRecordMock.mockRestore();
   });
 
   it('returns defensive copy from history()', () => {
@@ -215,7 +230,9 @@ describe('ConcreteSession', () => {
       apiMode: 'anthropic_messages' as const,
       async complete() {
         callCount++;
-        if (callCount < 3) throw new Error('HTTP 500 Internal Server Error');
+        if (callCount < 3) {
+          throw Object.assign(new Error('HTTP 500 Internal Server Error'), { status: 500 });
+        }
         return makeResponse();
       },
       async *stream(): AsyncIterable<NormalizedDelta> {},
@@ -247,7 +264,7 @@ describe('ConcreteSession', () => {
       apiMode: 'anthropic_messages' as const,
       async complete() {
         callCount++;
-        throw new Error('HTTP 400 Bad Request');
+        throw Object.assign(new Error('HTTP 400 Bad Request'), { status: 400 });
       },
       async *stream(): AsyncIterable<NormalizedDelta> {},
     };
@@ -275,7 +292,7 @@ describe('ConcreteSession', () => {
       provider: 'anthropic' as const,
       apiMode: 'anthropic_messages' as const,
       async complete() {
-        throw new Error('HTTP 503 Service Unavailable');
+        throw Object.assign(new Error('HTTP 503 Service Unavailable'), { status: 503 });
       },
       async *stream(): AsyncIterable<NormalizedDelta> {},
     };
@@ -346,5 +363,215 @@ describe('ConcreteSession', () => {
     });
 
     await expect(session.refreshCredential()).resolves.toBeUndefined();
+  });
+
+  // ---------------------------------------------------------------------------
+  // T9293 (W4a) — classifyError routing tests
+  // ---------------------------------------------------------------------------
+
+  describe('classifyError routing (T9293 W4a)', () => {
+    // Rate-limit I/O is mocked by the outer describe block's beforeEach.
+
+    it('routes 401 through classifyError → shouldRotateCredential true (no throw on retry)', async () => {
+      let callCount = 0;
+      const transport: LlmTransport = {
+        provider: 'anthropic' as const,
+        apiMode: 'anthropic_messages' as const,
+        async complete() {
+          callCount++;
+          if (callCount === 1) {
+            const err = Object.assign(new Error('HTTP 401 Unauthorized'), { status: 401 });
+            throw err;
+          }
+          return makeResponse();
+        },
+        async *stream(): AsyncIterable<NormalizedDelta> {},
+      };
+
+      const policy: RetryPolicy = { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0, jitter: false };
+      const session = new ConcreteSession({
+        transport,
+        model: 'claude-haiku-4-5-20251001',
+        credential: makeCredential(),
+        retryPolicy: policy,
+      });
+
+      const response = await session.send([{ role: 'user', content: 'Hi' }]);
+      expect(callCount).toBe(2);
+      expect(response.content).toBe('Hello!');
+    });
+
+    it('routes 429 through classifyError → retryable true with backoff', async () => {
+      let callCount = 0;
+      const transport: LlmTransport = {
+        provider: 'anthropic' as const,
+        apiMode: 'anthropic_messages' as const,
+        async complete() {
+          callCount++;
+          if (callCount < 3) {
+            const err = Object.assign(new Error('HTTP 429 Too Many Requests'), { status: 429 });
+            throw err;
+          }
+          return makeResponse();
+        },
+        async *stream(): AsyncIterable<NormalizedDelta> {},
+      };
+
+      const policy: RetryPolicy = { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0, jitter: false };
+      const session = new ConcreteSession({
+        transport,
+        model: 'claude-haiku-4-5-20251001',
+        credential: makeCredential(),
+        retryPolicy: policy,
+      });
+
+      const response = await session.send([{ role: 'user', content: 'Hi' }]);
+      expect(callCount).toBe(3);
+      expect(response.content).toBe('Hello!');
+    });
+
+    it('routes 400 format_error through classifyError → shouldFallback true (no retry)', async () => {
+      let callCount = 0;
+      const transport: LlmTransport = {
+        provider: 'anthropic' as const,
+        apiMode: 'anthropic_messages' as const,
+        async complete() {
+          callCount++;
+          const err = Object.assign(new Error('HTTP 400 Bad Request'), { status: 400 });
+          throw err;
+        },
+        async *stream(): AsyncIterable<NormalizedDelta> {},
+      };
+
+      const policy: RetryPolicy = { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0, jitter: false };
+      const session = new ConcreteSession({
+        transport,
+        model: 'claude-haiku-4-5-20251001',
+        credential: makeCredential(),
+        retryPolicy: policy,
+      });
+
+      await expect(session.send([{ role: 'user', content: 'Hi' }])).rejects.toThrow('400');
+      expect(callCount).toBe(1);
+    });
+
+    it('routes context_overflow error → throws ContextOverflowError', async () => {
+      const transport: LlmTransport = {
+        provider: 'anthropic' as const,
+        apiMode: 'anthropic_messages' as const,
+        async complete() {
+          const err = Object.assign(new Error('context length exceeded'), { status: 400 });
+          throw err;
+        },
+        async *stream(): AsyncIterable<NormalizedDelta> {},
+      };
+
+      const session = new ConcreteSession({
+        transport,
+        model: 'claude-haiku-4-5-20251001',
+        credential: makeCredential(),
+        retryPolicy: NO_RETRY,
+      });
+
+      await expect(session.send([{ role: 'user', content: 'Hi' }])).rejects.toBeInstanceOf(
+        ContextOverflowError,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // T9297 (W4e) — CredentialPool rotation + RateLimitGuard tests
+  // ---------------------------------------------------------------------------
+
+  describe('CredentialPool rotation + RateLimitGuard (T9297 W4e)', () => {
+    // Rate-limit I/O is mocked by the outer describe block's beforeEach.
+
+    it('rotates credential on 401 from credential pool', async () => {
+      let callCount = 0;
+      let usedToken = '';
+
+      const makeTransportForCred = (cred: ResolvedCredential): LlmTransport => ({
+        provider: 'anthropic' as const,
+        apiMode: 'anthropic_messages' as const,
+        async complete() {
+          callCount++;
+          usedToken = cred.token;
+          if (callCount === 1) {
+            const err = Object.assign(new Error('HTTP 401 Unauthorized'), { status: 401 });
+            throw err;
+          }
+          return makeResponse();
+        },
+        async *stream(): AsyncIterable<NormalizedDelta> {},
+      });
+
+      // Simulate a minimal pool with two credentials.
+      const poolPickSpy = vi.fn().mockResolvedValue({
+        credential: {
+          provider: 'anthropic' as const,
+          label: 'rotated',
+          authType: 'api_key' as const,
+          accessToken: 'sk-rotated',
+          priority: 1,
+          requestCount: 0,
+        },
+        poolSize: 2,
+      });
+      const poolMarkExhaustedSpy = vi.fn().mockResolvedValue(undefined);
+
+      const fakePool = {
+        pick: poolPickSpy,
+        markExhausted: poolMarkExhaustedSpy,
+        markOk: vi.fn().mockResolvedValue(undefined),
+        listEntries: vi.fn().mockResolvedValue([]),
+      } as unknown as import('../credential-pool.js').CredentialPool;
+
+      const policy: RetryPolicy = { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0, jitter: false };
+      const session = new ConcreteSession({
+        transport: makeTransportForCred(makeCredential()),
+        model: 'claude-haiku-4-5-20251001',
+        credential: makeCredential(),
+        retryPolicy: policy,
+        credentialPool: fakePool,
+        transportFactory: makeTransportForCred,
+      });
+
+      await session.send([{ role: 'user', content: 'Hi' }]);
+
+      expect(poolMarkExhaustedSpy).toHaveBeenCalledWith('personal', 401);
+      expect(poolPickSpy).toHaveBeenCalledOnce();
+      expect(usedToken).toBe('sk-rotated');
+    });
+
+    it('checks rate limit guard before sending', async () => {
+      // Override mock to return a positive remaining value — should block.
+      _rlRemainingMock.mockResolvedValueOnce(30);
+
+      const session = new ConcreteSession({
+        transport: makeMockTransport(),
+        model: 'claude-haiku-4-5-20251001',
+        credential: makeCredential(),
+        retryPolicy: NO_RETRY,
+      });
+
+      await expect(session.send([{ role: 'user', content: 'Hi' }])).rejects.toThrow(
+        'Rate limit active',
+      );
+    });
+
+    it('throws when rate-limited with no retry-after info', async () => {
+      _rlRemainingMock.mockResolvedValueOnce(120);
+
+      const session = new ConcreteSession({
+        transport: makeMockTransport(),
+        model: 'claude-haiku-4-5-20251001',
+        credential: makeCredential(),
+        retryPolicy: NO_RETRY,
+      });
+
+      const err = await session.send([{ role: 'user', content: 'Hi' }]).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toContain('120.0s remaining');
+    });
   });
 });
