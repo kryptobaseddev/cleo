@@ -206,15 +206,13 @@ export interface CredentialResultWire {
  * Resolution chain order:
  *   1. `role`               — `config.llm.roles[role]` (explicit override)
  *   2. `default`            — `config.llm.default` (canonical default)
- *   3. `daemon-legacy`      — `config.llm.daemon` (deprecated alias)
- *   4. `implicit-fallback`  — hard-coded fallback inside the resolver
+ *   3. `implicit-fallback`  — hard-coded fallback inside the resolver
  *
- * Useful for `cleo llm whoami` diagnostics and for migration tooling that
- * needs to identify call-sites still on the legacy `daemon` block.
+ * Useful for `cleo llm whoami` diagnostics.
  *
- * @task T9255
+ * @task T9306
  */
-export type ResolutionSource = 'role' | 'default' | 'daemon-legacy' | 'implicit-fallback';
+export type ResolutionSource = 'role' | 'default' | 'implicit-fallback';
 
 /**
  * Result envelope returned by `resolveLLMForRole(role)`.

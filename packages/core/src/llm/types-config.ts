@@ -8,7 +8,7 @@
  * @task T1386
  */
 
-export type { DaemonLLMConfig, LlmConfig, LlmProviderEntry } from '@cleocode/contracts';
+export type { LlmConfig, LlmProviderEntry } from '@cleocode/contracts';
 export type {
   LLMCallParams,
   LLMCallResult,
