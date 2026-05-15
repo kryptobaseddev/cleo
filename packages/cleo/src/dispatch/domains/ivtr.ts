@@ -25,6 +25,7 @@
  * @task T1539 — OpsFromCore migration per ADR-058
  */
 
+import type { EngineResult } from '@cleocode/core';
 import type { IvtrPhase, IvtrPhaseEntry } from '@cleocode/core/internal';
 import {
   advanceIvtr,
@@ -123,7 +124,7 @@ interface IvtrStatusResult {
 
 async function ivtrStatusOp(
   params: IvtrStatusParams,
-): Promise<import('@cleocode/core').EngineResult<IvtrStatusResult>> {
+): Promise<EngineResult<IvtrStatusResult>> {
   const cwd = getProjectRoot();
   const state = await getIvtrState(params.taskId, { cwd });
 

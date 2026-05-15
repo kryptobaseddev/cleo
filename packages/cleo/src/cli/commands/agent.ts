@@ -34,6 +34,7 @@
  * @task T178
  */
 
+import type { AgentDoctorFinding } from '@cleocode/contracts';
 import {
   checkAgentHealth,
   detectCrashedAgents,
@@ -2807,7 +2808,7 @@ const pruneOrphansCommand = defineCommand({
       const db = _sdDb2 as import('node:sqlite').DatabaseSync;
       try {
         const report = await buildDoctorReport(db, {});
-        const d002 = report.findings.filter((f) => f.code === 'D-002');
+        const d002 = report.findings.filter((f: AgentDoctorFinding) => f.code === 'D-002');
         const dryRun = args['dry-run'] === true;
         let repaired: string[] = [],
           skipped: string[] = [];
