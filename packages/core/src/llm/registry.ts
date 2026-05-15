@@ -14,7 +14,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { OpenAI } from 'openai';
 
 import type { ProviderBackend } from './backend.js';
-import { MOONSHOT_BASE_URL, MoonshotBackend } from './backends/moonshot.js';
 import type { CredentialResult } from './credentials.js';
 import { defaultTransportApiKey } from './credentials.js';
 import type { HistoryAdapter } from './history-adapters.js';
@@ -23,6 +22,7 @@ import {
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
+import { MOONSHOT_BASE_URL } from './provider-registry/builtin/moonshot.js';
 import type { ProviderClient } from './types.js';
 import type { ModelConfig, ModelTransport } from './types-config.js';
 
@@ -289,14 +289,19 @@ export function clientForModelConfig(
 
 /**
  * Wrap a raw provider SDK client in the matching ProviderBackend adapter.
+ *
+ * @deprecated MoonshotBackend was removed in T9286 (W1d). Use
+ * {@link ChatCompletionsTransport} with a Moonshot ProviderProfile instead.
+ * This function now always throws — callers should migrate to the transport API.
  */
 export function backendForProvider(
   provider: ModelTransport,
-  client: ProviderClient,
+  _client: ProviderClient,
 ): ProviderBackend {
-  if (provider === 'moonshot') return new MoonshotBackend(client as OpenAI);
-
-  throw new Error(`Unknown provider: ${provider as string}`);
+  throw new Error(
+    `backendForProvider: no backend registered for provider '${provider as string}'. ` +
+      'Use ChatCompletionsTransport with a ProviderProfile instead.',
+  );
 }
 
 /**

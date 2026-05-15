@@ -1,14 +1,21 @@
 /**
- * Backends barrel — provider backend implementations.
+ * Backends barrel — DEPRECATED after T9286 (W1d).
  *
- * AnthropicBackend has been migrated to transports/anthropic.ts (T9285 W1c).
+ * `MoonshotBackend` and `OpenAIBackend` have been removed. Constants
+ * `MOONSHOT_BASE_URL`, `MOONSHOT_DEFAULT_MODEL`, and `isMoonshotModel` are
+ * re-exported from their new canonical location for backward compatibility.
  *
- * @task T1386
+ * `usesMaxCompletionTokens` is re-exported from `transports/openai.ts`.
+ *
+ * @deprecated Import directly from `provider-registry/builtin/moonshot.js`
+ *   or `transports/openai.js`.
+ * @task T9286 (W1d)
  */
 
 export {
   isMoonshotModel,
   MOONSHOT_BASE_URL,
   MOONSHOT_DEFAULT_MODEL,
-  MoonshotBackend,
-} from './moonshot.js';
+} from '../provider-registry/builtin/moonshot.js';
+
+export { usesMaxCompletionTokens } from '../transports/openai.js';
