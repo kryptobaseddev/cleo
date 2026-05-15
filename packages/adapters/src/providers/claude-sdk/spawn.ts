@@ -27,17 +27,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
-import { getErrorMessage } from '@cleocode/contracts';
+import { getErrorMessage, parseClaudeCodeCredentials } from '@cleocode/contracts';
 import { SessionStore } from './session-store.js';
 import { resolveTools } from './tool-bridge.js';
 
 // ---------------------------------------------------------------------------
-// Inline 3-tier Anthropic key resolver
-// NOTE: Cannot import from @cleocode/core — circular dependency
-//       (@cleocode/core depends on @cleocode/adapters). This is a deliberate
-//       inline copy of the resolution logic from anthropic-key-resolver.ts.
-//       Keep in sync with packages/core/src/memory/anthropic-key-resolver.ts.
-//       T752 — OAuth fix for canSpawn()
+// 3-tier Anthropic key resolver
 // ---------------------------------------------------------------------------
 
 /**
@@ -50,12 +45,12 @@ import { resolveTools } from './tool-bridge.js';
  */
 function resolveAnthropicApiKey(): string | null {
   // 1. Explicit env var
-  const envKey = process.env.ANTHROPIC_API_KEY;
+  const envKey = process.env['ANTHROPIC_API_KEY'];
   if (envKey?.trim()) return envKey;
 
   // 2. CLEO global stored key
   try {
-    const xdg = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share');
+    const xdg = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
     const keyFile = join(xdg, 'cleo', 'anthropic-key');
     if (existsSync(keyFile)) {
       const stored = readFileSync(keyFile, 'utf-8').trim();
@@ -65,20 +60,13 @@ function resolveAnthropicApiKey(): string | null {
     // Not available — continue
   }
 
-  // 3. Claude Code OAuth token (free for Claude Code users)
+  // 3. Claude Code OAuth token — parsed by the shared contracts helper
   try {
     const credPath = join(homedir(), '.claude', '.credentials.json');
     if (!existsSync(credPath)) return null;
     const raw = readFileSync(credPath, 'utf-8');
-    const creds = JSON.parse(raw) as {
-      claudeAiOauth?: { accessToken?: string; expiresAt?: number };
-    };
-    const token = creds.claudeAiOauth?.accessToken;
-    if (token?.trim()) {
-      const expiresAt = creds.claudeAiOauth?.expiresAt;
-      if (expiresAt && Date.now() > expiresAt) return null;
-      return token;
-    }
+    const cred = parseClaudeCodeCredentials(raw);
+    return cred?.accessToken ?? null;
   } catch {
     // Credentials file missing or unreadable — not an error
   }

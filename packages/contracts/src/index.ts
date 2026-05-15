@@ -1458,4 +1458,10 @@ export type {
   WarpLink,
   WarpStage,
 } from './warp-chain.js';
+// === Claude Code credential parsing (T9307 — pure helper, no core imports) ===
+export type {
+  ClaudeCodeOAuthBlock,
+  ParsedClaudeCodeCredential,
+} from './credentials.js';
+export { parseClaudeCodeCredentials } from './credentials.js';
 // === WASM SDK (Rust crate bindings) ===
