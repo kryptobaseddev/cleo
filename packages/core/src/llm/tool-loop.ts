@@ -18,10 +18,10 @@ import pRetry from 'p-retry';
 import { truncateMessagesToFit } from './conversation.js';
 // TODO(T9298 W5): migrate tool-loop to ConcreteExecutor / LlmTransport event stream.
 import type { CompletionResult } from './legacy-types.js';
-import { cleoLlmCallInner } from './shim-executor.js';
 import { historyAdapterForProvider } from './registry.js';
 import type { AttemptPlan, AttemptRef } from './runtime.js';
 import { effectiveTemperature } from './runtime.js';
+import { cleoLlmCallInner } from './shim-executor.js';
 import type {
   IterationCallback,
   IterationData,
