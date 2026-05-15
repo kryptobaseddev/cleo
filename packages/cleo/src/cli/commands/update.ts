@@ -205,6 +205,24 @@ export const updateCommand = defineCommand({
       description:
         'Justification for promoting a task to critical priority without --depends (T1856). Records waiver in task metadata.',
     },
+    /**
+     * Related tasks — semantic relationships (non-dependency).
+     * Comma-separated task IDs with optional type suffix (e.g. "T001:blocks,T002").
+     * Default type is 'related'. Replaces existing relates list.
+     */
+    relates: {
+      type: 'string',
+      description: 'Set related tasks (comma-separated, optional type suffix: "T001:blocks,T002")',
+    },
+    'add-relates': {
+      type: 'string',
+      description:
+        'Add related tasks without overwriting existing (comma-separated, optional type suffix)',
+    },
+    'remove-relates': {
+      type: 'string',
+      description: 'Remove related tasks by taskId (comma-separated)',
+    },
   },
   async run({ args, cmd }) {
     if (!args.taskId) {
@@ -230,6 +248,21 @@ export const updateCommand = defineCommand({
       params['addDepends'] = (args['add-depends'] as string).split(',').map((s) => s.trim());
     if (args['remove-depends'])
       params['removeDepends'] = (args['remove-depends'] as string).split(',').map((s) => s.trim());
+    if (args.relates) {
+      params['relates'] = (args.relates as string).split(',').map((s) => {
+        const [taskId, relType = 'related'] = s.trim().split(':');
+        return { taskId: taskId.trim(), type: relType.trim() };
+      });
+    }
+    if (args['add-relates']) {
+      params['addRelates'] = (args['add-relates'] as string).split(',').map((s) => {
+        const [taskId, relType = 'related'] = s.trim().split(':');
+        return { taskId: taskId.trim(), type: relType.trim() };
+      });
+    }
+    if (args['remove-relates']) {
+      params['removeRelates'] = (args['remove-relates'] as string).split(',').map((s) => s.trim());
+    }
     if (args.notes !== undefined) params['notes'] = args.notes;
     if (args.note !== undefined) params['notes'] = params['notes'] ?? args.note;
     if (args.acceptance)

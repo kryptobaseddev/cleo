@@ -147,15 +147,6 @@ export interface CreateWorktreeOptions {
    */
   spawnCloneExclude?: readonly string[];
   /**
-   * Specific file paths to re-include after the exclude filter is applied.
-   *
-   * Used to preserve the task's own verifier (`scripts/verify-<taskId>.mjs`)
-   * after the broad `scripts/verify-*.mjs` exclusion.
-   *
-   * @task T9226
-   */
-  spawnCloneExcludeExempt?: readonly string[];
-  /**
    * When `true`, forcibly reset an existing `task/<taskId>` branch that has
    * orphan commits (commits not reachable from `baseRef`).
    *

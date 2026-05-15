@@ -1,5 +1,39 @@
 # Changelog
 
+## [2026.5.71] (2026-05-15)
+
+### Breaking Changes
+
+- **Verifier substrate removed (T9337 · Council 20260515T211404Z)**: The per-task `.mjs` verifier-script substrate (T9192 / T9218 / ADR-070) is deleted. The `--verifier` flag on `cleo add`, the `cleo verify backfill` subcommand, the `cleo verify --acceptance-check` flag, the `cleo audit verifier` subcommand, and the `E_VERIFIER_REQUIRED` create-time gate are all removed. Enforcement of the anti-scaffold-and-mark-done invariant now lives entirely at `cleo complete` via the ADR-051 evidence-atom Pre-Complete Gate Ritual (commit, files, tool, test-run, decision atoms — re-validated against git/fs/toolchain). Independent re-verification is handled by `cleo verify <taskId> --explain`. Council verdict: replace, not retain — per-task scripts authored by the same actor who marks the task done failed the "externally verifiable evidence the actor did not author" invariant. (T9337)
+
+### Removed (no replacement needed — ADR-051 evidence atoms cover the surface)
+
+- `packages/core/src/tasks/verifier-runner.ts` (resolveVerifierScript, runVerifier, backfillVerifier, backfillAllPendingVerifiers, VerifierResult, BackfillAllResult, BackfillSingleResult)
+- `packages/core/src/tasks/verifier-stub-generator.ts` (generateVerifierStub, writeVerifierStub)
+- `packages/core/src/tasks/__tests__/verifier-runner.test.ts`
+- All 16 `scripts/verify-*.mjs` files
+- `scripts/migrate-verifiers.mjs`
+- All 22 `.cleo/verifiers/*.mjs` files and the directory itself
+- `--verifier` flag on `cleo add`
+- `cleo verify backfill <taskId>` subcommand and `--all-pending` / `--force` flags
+- `cleo verify --acceptance-check` flag
+- `cleo audit verifier` subcommand (the auditor-loop is now `cleo verify <id> --explain` re-validating evidence atoms)
+- `requiresVerifier()` and `E_VERIFIER_REQUIRED` rejection branch in `addTaskWithSessionScope` (`packages/core/src/tasks/session-scope.ts`)
+- `verifier?: string` field on `TasksAddParams` contract (`packages/contracts/src/operations/tasks.ts`)
+- `spawnCloneExcludeExempt` option on `CreateWorktreeOptions` contract (no longer needed without per-task verifier exemption)
+- Per-task verifier exclusion from `SPAWN_CLONE_EXCLUDE_PATTERNS`
+
+### Fixes (incidental, surfaced by typecheck during cleanup)
+
+- `packages/core/src/tasks/update.ts`: fixed `RelatesType` undefined reference and added missing `relates`/`addRelates`/`removeRelates` fields to `taskUpdate` engine wrapper signature (T9327 leftover wiring)
+- `packages/cleo/src/cli/commands/__tests__/add-parent-inference.test.ts`: updated mocks to cover `humanInfo`/`humanWarn` exports from renderers (T1490 leftover)
+- `packages/cleo/src/cli/commands/__tests__/__snapshots__/schema.test.ts.snap`: refreshed to reflect current type enum (T9072 cleanup)
+
+### Documentation
+
+- Council run preserved at `~/.claude/skills/ct-council/.cleo/council-runs/20260515T211404Z-d3749e90/` (`output.md`, `verdict.md`, `tldr.md`)
+- IVTR audit-phase prompt now references ADR-051 evidence-atom re-validation (`cleo verify <taskId> --explain`) instead of `scripts/verify-<taskId>.mjs`
+
 ## [2026.5.70] (2026-05-15)
 
 Auto-prepared by release.ship (T9261)

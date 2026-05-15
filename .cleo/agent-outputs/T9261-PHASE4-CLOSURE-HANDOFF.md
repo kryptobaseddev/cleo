@@ -3,7 +3,26 @@
 
 **Date**: 2026-05-15
 **Author**: cleo-prime orchestrator (Opus 4.7 1M)
-**Status**: Phase 4 substantially shipped in v2026.5.68 + v2026.5.69 with **3 known-debt follow-ups filed** (T9324/T9325/T9326). Phase 5 is **dependency-unblocked but conditionally unblocked** — see "Before starting Phase 5" below.
+**Status (UPDATED 20:45 UTC)**: Phase 4 fully shipped across v2026.5.68 + v2026.5.69 + **v2026.5.70** (T9324 closure). **T9324 DONE.** Remaining open follow-ups: T9325 (test un-skip) + T9326 (Anthropic OAuth placeholder) — both small, neither blocks Phase 5.
+
+## v2026.5.70 (PR #147 + #148, merged 2026-05-15 20:21 + 20:44 UTC)
+Phase 4 residual-debt closure (T9324):
+- **`chat-completions.ts.stream()` wired** — real SSE iteration via OpenAI SDK + StreamingThinkScrubber routing; handles `delta.reasoning_content` (DeepSeek-R1 style) and trailing usage chunks. 3 new tests.
+- **`registry.ts` retired CLIENTS map + 4 override factories** (D-ph4-01 closure per ADR-072). File shrank from ~300 → ~220 LOC.
+- **`resolveAnthropicApiKey` + `resolveAnthropicApiKeySource` shims DELETED** (D-ph4-02 closure). 4 call sites migrated to `resolveCredentials('anthropic').apiKey/.source`.
+- **`backends/index.ts` DELETED** (last vestige of `backends/` directory gone).
+- **`PsycheLLMCallResponse` deprecated alias DELETED**.
+- 527 LLM tests + 951 memory tests pass. Repo-wide typecheck + biome ci green.
+
+## Phase 5 readiness — ALL 9 TASKS UNBLOCKED
+After T9324 lands in v2026.5.70:
+- T9315 `cleo llm stream` CLI — UNBLOCKED ✓
+- T9316 Streaming tool-call yield — UNBLOCKED ✓
+- T9311, T9312, T9313, T9314, T9317, T9318, T9319 — were always ready
+
+## Remaining tiny follow-ups (do NOT block Phase 5)
+- **T9325** — Un-skip 5 `it.skip` tests (brain-stdp×3, event-bus, performance-safety). Small, mechanical.
+- **T9326** — Anthropic OAuth `client_id` placeholder in `provider-registry/builtin/anthropic.ts:32` + stale `TODO(T9266)` device-code comments in `oauth/device-code.ts`. Small, mostly comment sweep + a real OAuth client_id registration needed for `cleo llm login anthropic --pkce` to work end-to-end.
 
 ---
 

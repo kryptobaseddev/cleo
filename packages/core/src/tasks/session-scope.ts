@@ -7,22 +7,19 @@
  * Extracted from task-engine.ts as part of the T1566 engine-migration epic
  * (ADR-057, ADR-058).
  *
- * T9218 / ADR-070: addTaskWithSessionScope enforces mandatory verifier at
- * creation time for high-consequence tasks (priority=critical OR size=large
- * OR type=epic). The caller must pass a `verifier` path that points to an
- * existing `.mjs` file, or the operation is rejected with E_VERIFIER_REQUIRED.
- * Use `cleo verify backfill <taskId>` to generate stubs for existing tasks.
+ * Per T9337 / Council 20260515T211404Z, the create-time verifier gate
+ * (T9218 / ADR-070) is removed. Enforcement of the anti-scaffold-and-mark-done
+ * invariant now lives entirely at `cleo complete` via the ADR-051 evidence-atom
+ * Pre-Complete Gate Ritual (commit, files, tool, test-run, decision atoms).
  *
  * @task T1568
+ * @task T9337
  * @epic T1566
- * @task T9218
  * @adr ADR-057
  * @adr ADR-058
- * @adr ADR-070
+ * @adr ADR-051
  */
 
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type {
   TaskKind,
   TaskPriority,
@@ -114,22 +111,6 @@ export async function resolveParentFromSession(
  * @task T1568
  * @epic T1566
  */
-/**
- * Check whether a task creation is a "high-consequence" task that requires a
- * verifier script to be registered at creation time (T9218 / ADR-070).
- *
- * High-consequence conditions (any one triggers requirement):
- *   - priority is 'critical'
- *   - size is 'large'
- *   - type is 'epic'
- *
- * @param params - Subset of task creation parameters to evaluate.
- * @returns True when a verifier is required.
- */
-function requiresVerifier(params: { priority?: string; size?: string; type?: string }): boolean {
-  return params.priority === 'critical' || params.size === 'large' || params.type === 'epic';
-}
-
 export async function addTaskWithSessionScope(
   projectRoot: string,
   params: {
@@ -155,69 +136,11 @@ export async function addTaskWithSessionScope(
      * Audited to `.cleo/audit/duplicate-bypass.jsonl`.
      */
     forceDuplicate?: boolean;
-    /**
-     * Path to an existing verifier script for this task (T9218 / ADR-070).
-     *
-     * Required when priority=critical OR size=large OR type=epic. The path
-     * must point to an existing `.mjs` file (absolute or relative to
-     * projectRoot). Omitting this on high-consequence tasks causes the
-     * operation to be rejected with E_VERIFIER_REQUIRED.
-     *
-     * Use `cleo verify backfill <taskId>` to auto-generate a stub verifier
-     * for existing tasks that lack one.
-     */
-    verifier?: string;
   },
 ): Promise<
   EngineResult<{ task: TaskRecord; duplicate: boolean; dryRun?: boolean; warnings?: string[] }>
 > {
   try {
-    // T9218 / ADR-070: Strict-mode verifier enforcement.
-    // High-consequence tasks (priority=critical, size=large, type=epic) MUST
-    // provide a verifier path at creation time. Skip enforcement for dry-run.
-    if (!params.dryRun && requiresVerifier(params)) {
-      if (!params.verifier) {
-        const why =
-          params.priority === 'critical'
-            ? 'priority=critical'
-            : params.size === 'large'
-              ? 'size=large'
-              : 'type=epic';
-        return engineError(
-          'E_VERIFIER_REQUIRED',
-          `Task creation rejected: ${why} tasks require a verifier script.\n` +
-            `  Pass --verifier <path/to/verify-<id>.mjs> or run:\n` +
-            `    cleo verify backfill <taskId>\n` +
-            `  after creating the task to auto-generate a stub from the AC text.\n` +
-            `  See ADR-070 for rationale.`,
-        ) as EngineResult<{
-          task: TaskRecord;
-          duplicate: boolean;
-          dryRun?: boolean;
-          warnings?: string[];
-        }>;
-      }
-
-      // Verifier was provided — validate the path exists
-      const verifierAbs = params.verifier.startsWith('/')
-        ? params.verifier
-        : resolve(projectRoot, params.verifier);
-      if (!existsSync(verifierAbs)) {
-        return engineError(
-          'E_VERIFIER_REQUIRED',
-          `Task creation rejected: verifier script not found: ${verifierAbs}\n` +
-            `  The --verifier path must point to an existing .mjs file.\n` +
-            `  Run: cleo verify backfill <taskId> to auto-generate a stub.\n` +
-            `  See ADR-070 for rationale.`,
-        ) as EngineResult<{
-          task: TaskRecord;
-          duplicate: boolean;
-          dryRun?: boolean;
-          warnings?: string[];
-        }>;
-      }
-    }
-
     const { resolvedParent, error } = await resolveParentFromSession(projectRoot, {
       parent: params.parent,
       parentSearch: params.parentSearch,
