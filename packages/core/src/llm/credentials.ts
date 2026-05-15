@@ -140,6 +140,10 @@ const ENV_VARS: Record<ModelTransport, string> = {
   deepseek: 'DEEPSEEK_API_KEY',
   xai: 'XAI_API_KEY',
   groq: 'GROQ_API_KEY',
+  // Kimi Code (kimi.com/code) — `sk-kimi-*` API keys route to
+  // `https://api.kimi.com/coding` and speak Anthropic Messages protocol.
+  // Device-code OAuth via auth.kimi.com is also supported (T9266 preset).
+  'kimi-code': 'KIMI_CODE_API_KEY',
 };
 
 // ---------------------------------------------------------------------------
