@@ -1,3 +1,4 @@
+<!-- @no-cleo-register: standalone handoff doc; not a registered agent output -->
 # T9261 — Phase 4 Closure & Phase 5 Handoff
 
 **Date**: 2026-05-15
