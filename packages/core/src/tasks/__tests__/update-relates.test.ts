@@ -2,19 +2,21 @@
  * Unit tests for relates mutations in updateTask.
  * @task T9334
  */
-import { describe, expect, it } from 'vitest';
-import { updateTask } from '../update.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
+
 import type { Task } from '@cleocode/contracts';
+import { describe, expect, it } from 'vitest';
+import type { DataAccessor } from '../../store/data-accessor.js';
+import { updateTask } from '../update.js';
 
 function makeMockAccessor(task: Task): DataAccessor {
   return {
     loadSingleTask: async () => task,
     upsertSingleTask: async () => {},
-    transaction: async (fn) => fn({
-      upsertSingleTask: async () => {},
-      appendLog: async () => {},
-    } as unknown as Parameters<Parameters<DataAccessor['transaction']>[0]>[0]),
+    transaction: async (fn) =>
+      fn({
+        upsertSingleTask: async () => {},
+        appendLog: async () => {},
+      } as unknown as Parameters<Parameters<DataAccessor['transaction']>[0]>[0]),
     getSubtree: async () => [],
     getAncestorChain: async () => [],
   } as unknown as DataAccessor;

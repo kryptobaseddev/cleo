@@ -98,7 +98,6 @@ exports[`cleo schema command (T340) > tasks.add snapshot > full schema matches s
         "epic",
         "task",
         "subtask",
-        "bug",
       ],
       "name": "type",
       "required": false,
