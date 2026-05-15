@@ -1,11 +1,13 @@
 /**
- * Unit tests for `runLlmLogin` — kimi-code device-code login flow (T9323 AC#1).
+ * Unit tests for `runLlmLogin` — PKCE (anthropic) + device-code (kimi-code) flows.
  *
- * Mocks the device-code OAuth helpers and credential store so no network
- * or filesystem I/O occurs. Verifies the kimi-code success path, error
- * cases (start failure, timeout, auth error, poll failure, store failure),
- * and that unsupported providers return E_NOT_IMPLEMENTED.
+ * Mocks the OAuth helpers, provider registry, and credential store so no
+ * network or filesystem I/O occurs. Covers:
+ * - kimi-code device-code success + error paths (T9323 AC#1)
+ * - anthropic PKCE headless success + error paths (T9302)
+ * - unsupported provider returns E_NOT_IMPLEMENTED
  *
+ * @task T9302
  * @task T9323
  */
 
@@ -18,7 +20,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   startDeviceCodeFlow: vi.fn(),
   pollForToken: vi.fn(),
-  getAnthropicDeviceCodeConfig: vi.fn(),
   getKimiCodeDeviceCodeConfig: vi.fn(),
   DeviceCodeTimeoutError: class DeviceCodeTimeoutError extends Error {
     provider: string;
@@ -42,12 +43,16 @@ const m = vi.hoisted(() => ({
   },
   addCredential: vi.fn(),
   getKimiCodeMshHeaders: vi.fn(),
+  getProviderProfile: vi.fn(),
+  generatePkcePair: vi.fn(),
+  buildAuthorizationUrl: vi.fn(),
+  exchangePkceCode: vi.fn(),
+  refreshPkceToken: vi.fn(),
 }));
 
 vi.mock('@cleocode/core/llm/oauth/device-code.js', () => ({
   startDeviceCodeFlow: m.startDeviceCodeFlow,
   pollForToken: m.pollForToken,
-  getAnthropicDeviceCodeConfig: m.getAnthropicDeviceCodeConfig,
   getKimiCodeDeviceCodeConfig: m.getKimiCodeDeviceCodeConfig,
   DeviceCodeTimeoutError: m.DeviceCodeTimeoutError,
   DeviceCodeAuthError: m.DeviceCodeAuthError,
@@ -59,6 +64,17 @@ vi.mock('@cleocode/core/llm/credentials-store.js', () => ({
 
 vi.mock('@cleocode/core/llm/provider-registry/builtin/kimi-code.js', () => ({
   getKimiCodeMshHeaders: m.getKimiCodeMshHeaders,
+}));
+
+vi.mock('@cleocode/core/llm/provider-registry/index.js', () => ({
+  getProviderProfile: m.getProviderProfile,
+}));
+
+vi.mock('@cleocode/core/llm/oauth/pkce.js', () => ({
+  generatePkcePair: m.generatePkcePair,
+  buildAuthorizationUrl: m.buildAuthorizationUrl,
+  exchangePkceCode: m.exchangePkceCode,
+  refreshPkceToken: m.refreshPkceToken,
 }));
 
 // ---------------------------------------------------------------------------
@@ -110,17 +126,52 @@ let stderrSpy: ReturnType<typeof vi.spyOn>;
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+const ANTHROPIC_PROFILE = {
+  name: 'anthropic',
+  displayName: 'Anthropic Claude',
+  authTypes: ['api_key', 'oauth'],
+  baseUrl: 'https://api.anthropic.com',
+  defaultModel: 'claude-haiku-4-5-20251001',
+  oauth: {
+    mode: 'pkce' as const,
+    clientId: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
+    authorizationEndpoint: 'https://claude.ai/oauth/authorize',
+    tokenEndpoint: 'https://console.anthropic.com/v1/oauth/token',
+    scope: 'org:create_api_key user:profile user:inference',
+    redirectUri: 'http://localhost',
+  },
+};
+
+const KIMI_PROFILE = {
+  name: 'kimi-code',
+  displayName: 'Kimi Code',
+  authTypes: ['oauth'],
+  baseUrl: 'https://api.kimi.com',
+  defaultModel: 'kimi-latest',
+  oauth: {
+    mode: 'device-code' as const,
+    clientId: '17e5f671',
+    tokenEndpoint: 'https://auth.kimi.com/api/oauth/token',
+  },
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   m.getKimiCodeDeviceCodeConfig.mockReturnValue(KIMI_CFG);
-  m.getAnthropicDeviceCodeConfig.mockReturnValue({
-    provider: 'anthropic',
-    deviceCodeUrl: 'https://console.anthropic.com/v1/oauth/device/code',
-    tokenUrl: 'https://console.anthropic.com/v1/oauth/token',
-    clientId: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
-  });
   m.getKimiCodeMshHeaders.mockReturnValue(MSH_HEADERS);
   m.addCredential.mockResolvedValue({ provider: 'kimi-code', label: 'oauth-login' });
+  // Default: anthropic → PKCE profile, kimi-code → device-code profile
+  m.getProviderProfile.mockImplementation(async (provider: string) => {
+    if (provider === 'anthropic') return ANTHROPIC_PROFILE;
+    if (provider === 'kimi-code') return KIMI_PROFILE;
+    return undefined;
+  });
+  // PKCE helpers defaults
+  m.generatePkcePair.mockResolvedValue({
+    codeVerifier: 'test-verifier',
+    codeChallenge: 'test-challenge',
+  });
+  m.buildAuthorizationUrl.mockReturnValue('https://claude.ai/oauth/authorize?code_challenge=test');
   stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 });
 
@@ -194,13 +245,13 @@ describe('runLlmLogin — kimi-code success path', () => {
     expect(stored.expiresAt).toBeLessThanOrEqual(now + 900_000 + 5_000);
   });
 
-  it('does NOT call getAnthropicDeviceCodeConfig for kimi-code', async () => {
+  it('does NOT call generatePkcePair for kimi-code (device-code path)', async () => {
     m.startDeviceCodeFlow.mockResolvedValue(KIMI_START_RESP);
     m.pollForToken.mockResolvedValue(KIMI_TOKEN_RESP);
 
     await runLlmLogin('kimi-code', {});
 
-    expect(m.getAnthropicDeviceCodeConfig).not.toHaveBeenCalled();
+    expect(m.generatePkcePair).not.toHaveBeenCalled();
   });
 });
 
@@ -302,14 +353,147 @@ describe('runLlmLogin — E_NOT_IMPLEMENTED for unsupported providers', () => {
     expect(result.error?.code).toBe('E_NOT_IMPLEMENTED');
   });
 
-  it('does NOT return E_NOT_IMPLEMENTED for anthropic', async () => {
-    m.startDeviceCodeFlow.mockResolvedValue(KIMI_START_RESP);
-    m.pollForToken.mockResolvedValue({ ...KIMI_TOKEN_RESP, accessToken: 'sk-ant-oat-xyz' });
+  it('does NOT return E_NOT_IMPLEMENTED for anthropic (PKCE path)', async () => {
+    // Anthropic has oauth.mode='pkce' → should dispatch to PKCE flow, not E_NOT_IMPLEMENTED.
+    // It will dispatch to _runPkceLogin — which may fail on stdin read in test,
+    // but it must NOT return E_NOT_IMPLEMENTED first.
+    const result = await runLlmLogin('anthropic', {}).catch((e: unknown) => ({
+      success: false as const,
+      error: { code: 'E_TEST_ERROR', codeName: 'E_TEST_ERROR', message: String(e) },
+      meta: { operation: 'llm.login', timestamp: '' },
+    }));
+
+    expect(result.error?.code).not.toBe('E_NOT_IMPLEMENTED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — anthropic PKCE path (T9302)
+// ---------------------------------------------------------------------------
+
+describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', () => {
+  it('calls generatePkcePair and buildAuthorizationUrl for anthropic', async () => {
+    // Simulate headless mode: mock exchangePkceCode to succeed, bypass stdin
+    // by having the flow call exchangePkceCode (which we intercept via the mock).
+    // We can't easily trigger the full headless stdin path in tests, but we can
+    // verify generatePkcePair and buildAuthorizationUrl are called.
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'sk-ant-oat-new',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
+
+    // Run with headless:true but the stdin mock returns empty; _headlessPkceFlow will
+    // fail parsing, but generatePkcePair + buildAuthorizationUrl are called before stdin.
+    // We capture the side effects before stdin read:
+    const pairSpy = m.generatePkcePair;
+    const urlSpy = m.buildAuthorizationUrl;
+
+    await runLlmLogin('anthropic', {}).catch(() => {
+      /* headless stdin read may fail in test — that's expected */
+    });
+
+    expect(pairSpy).toHaveBeenCalledOnce();
+    expect(urlSpy).toHaveBeenCalledOnce();
+    const urlCallArgs = urlSpy.mock.calls[0]![0] as Record<string, string>;
+    expect(urlCallArgs.clientId).toBe('9d1c250a-e61b-44d9-88ed-5944d1962f5e');
+    expect(urlCallArgs.codeChallenge).toBe('test-challenge');
+    expect(urlCallArgs.state).toBeTruthy();
+  });
+
+  it('returns E_PKCE_EXCHANGE_FAILED when exchangePkceCode throws', async () => {
+    // To fully test exchange failure, we need a way to inject a code.
+    // We do this by simulating the headless stdin path: provide a mock stdin
+    // that emits a redirect URL with code.
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          // Emit a fake redirect URL with code after a tick
+          setTimeout(() => listener('http://localhost?code=test-auth-code&state='), 0);
+        }
+        return process.stdin;
+      });
+
+    m.exchangePkceCode.mockRejectedValue(new Error('invalid_grant'));
     m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
 
     const result = await runLlmLogin('anthropic', {});
 
-    // anthropic path should not short-circuit with E_NOT_IMPLEMENTED
-    expect(result.error?.code).not.toBe('E_NOT_IMPLEMENTED');
+    expect(result.success).toBe(false);
+    if (result.success) {
+      stdinSpy.mockRestore();
+      return;
+    }
+    expect(result.error?.code).toBe('E_PKCE_EXCHANGE_FAILED');
+    stdinSpy.mockRestore();
+  });
+
+  it('returns E_CREDENTIAL_STORE_FAILED when addCredential throws after PKCE exchange', async () => {
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(() => listener('http://localhost?code=good-code&state='), 0);
+        }
+        return process.stdin;
+      });
+
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'sk-ant-oat-new',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockRejectedValue(new Error('lock timeout'));
+
+    const result = await runLlmLogin('anthropic', {});
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      stdinSpy.mockRestore();
+      return;
+    }
+    expect(result.error?.code).toBe('E_CREDENTIAL_STORE_FAILED');
+    stdinSpy.mockRestore();
+  });
+
+  it('returns success with provider=anthropic on happy PKCE path', async () => {
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(() => listener('http://localhost?code=good-code&state='), 0);
+        }
+        return process.stdin;
+      });
+
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'sk-ant-oat-success',
+      refreshToken: 'sk-ant-oat-refresh',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
+
+    const result = await runLlmLogin('anthropic', {});
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      stdinSpy.mockRestore();
+      return;
+    }
+    expect(result.data?.provider).toBe('anthropic');
+    expect(result.data?.expiresIn).toBe(3600);
+    expect(result.data?.label).toBe('oauth-login');
+
+    // Verify credential was stored with source='oauth-pkce'
+    expect(m.addCredential).toHaveBeenCalledOnce();
+    const stored = m.addCredential.mock.calls[0]![0];
+    expect(stored.source).toBe('oauth-pkce');
+    expect(stored.authType).toBe('oauth');
+    expect(stored.accessToken).toBe('sk-ant-oat-success');
+
+    stdinSpy.mockRestore();
   });
 });

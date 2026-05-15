@@ -351,13 +351,14 @@ export class ConcreteSession implements LlmSession {
    * Refreshes the OAuth credential bound to this session.
    *
    * Called by `_preCallChecks` when the proactive refresh window is entered.
-   * Delegates to `CredentialPool.proactiveRefresh` when a pool is configured;
-   * otherwise falls back to a direct pool-less no-op (callers without a pool
-   * rely on 401-triggered rotation from the retry loop instead).
+   * Delegates to `CredentialPool.proactiveRefresh` when a pool is configured —
+   * the pool dispatches on `profile.oauth.mode` (`pkce` or `device-code`).
+   * Without a pool, callers rely on 401-triggered rotation from the retry loop.
    *
    * No-op for `api_key` and `aws_sdk` credentials.
    *
-   * @task T9323
+   * @task T9302 (PKCE dispatch via pool)
+   * @task T9323 (device-code dispatch via pool)
    */
   async refreshCredential(): Promise<void> {
     if (this._credential.authType !== 'oauth') return;
