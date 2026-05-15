@@ -374,7 +374,7 @@ export interface LlmProviderEntry {
 }
 
 /**
- * Canonical model transport identifier — re-export of {@link ModelTransport}
+ * Config-layer transport identifier — re-export of {@link ModelTransport}
  * from `operations/llm.ts` so config-layer types stay in lock-step with the
  * operations layer with no risk of drift.
  *
@@ -382,9 +382,17 @@ export interface LlmProviderEntry {
  * T-LLM-CRED Phase 2 DRY/SOLID review (P1-2). Adding a new transport now
  * requires editing only `operations/llm.ts`.
  *
+ * **Disambiguation**: This is the *config-level* alias for the
+ * `ModelTransport` string-literal union (`'anthropic' | 'openai' | ...`).
+ * It is intentionally distinct from the `LlmTransport` *interface* defined
+ * in `packages/contracts/src/llm/normalized-response.ts` (Phase 4 wire-level
+ * protocol). Renamed from `LlmTransport` → `LlmProviderTransport` in T9308
+ * to eliminate the name collision.
+ *
  * @task T-LLM-CRED-CENTRALIZATION Phase 2 — DRY review P1-2
+ * @see T9308 — disambiguation rename
  */
-export type LlmTransport = ModelTransport;
+export type LlmProviderTransport = ModelTransport;
 
 /**
  * Logical LLM role name used by role-aware resolvers (BRAIN, sentient, etc.).
@@ -412,7 +420,7 @@ export type RoleName =
  */
 export interface LlmDefaultConfig {
   /** LLM provider transport for the default model. */
-  provider: LlmTransport;
+  provider: LlmProviderTransport;
   /** Full model identifier for the selected provider. */
   model: string;
 }
@@ -429,7 +437,7 @@ export interface LlmDefaultConfig {
  */
 export interface LlmRoleConfig {
   /** LLM provider transport for this role. */
-  provider: LlmTransport;
+  provider: LlmProviderTransport;
   /** Full model identifier for the selected provider. */
   model: string;
   /**

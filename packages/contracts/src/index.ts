@@ -220,8 +220,8 @@ export type {
   LlmConfig,
   LlmDefaultConfig,
   LlmProviderEntry,
+  LlmProviderTransport,
   LlmRoleConfig,
-  LlmTransport,
   LoggingConfig,
   LogLevel,
   MemoryBridgeMode,
@@ -451,11 +451,11 @@ export type {
   TransportContext,
 } from './llm/interfaces.js';
 // === Normalized LLM Transport Types (T9263 — Phase 3 T-LLM-CRED) ===
-// Note: LlmTransport (the interface) is intentionally NOT re-exported at the
-// top level here because `config.ts` already exports `LlmTransport` as a type
-// alias for `ModelTransport`. Consumers that need the transport interface
-// should import the LlmTransport interface from the llm/normalized-response.js
-// subpath rather than the package root.
+// Note: LlmTransport (the wire-level interface from normalized-response.ts) is
+// intentionally NOT re-exported at the top level here. The config-layer alias
+// was renamed LlmProviderTransport (T9308) to eliminate the name collision.
+// Consumers that need the transport interface should import LlmTransport from
+// the llm/normalized-response.js subpath rather than the package root.
 export type {
   NormalizedResponse,
   NormalizedToolCall,
@@ -475,6 +475,8 @@ export type {
   ProviderPluginApi,
   ProviderProfile,
 } from './llm/provider-profile.js';
+// === OAuth types — SSoT shared between core and cleo (T9302) ===
+export type { OAuthMode, OAuthTokens, PkceFlowConfig, ProviderOAuthConfig } from './llm/oauth.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Resolved credential ===
 export type { ResolvedCredential } from './llm/resolved-credential.js';
 // === ContextEngine contract (canonical home — T9304) ===
