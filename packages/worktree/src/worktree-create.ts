@@ -61,11 +61,10 @@ import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-in
 function applySpawnCloneExcludeFilter(
   worktreePath: string,
   excludePatterns: readonly string[],
-  exemptPaths: readonly string[],
 ): string[] {
   if (excludePatterns.length === 0) return [];
   try {
-    const rules = ['/*', '/**', ...excludePatterns.map((p) => `!${p}`), ...exemptPaths];
+    const rules = ['/*', '/**', ...excludePatterns.map((p) => `!${p}`)];
     gitSilent(['sparse-checkout', 'init', '--no-cone'], worktreePath);
     gitSilent(['sparse-checkout', 'set', '--no-cone', ...rules], worktreePath);
     return [...excludePatterns];
@@ -234,11 +233,8 @@ export async function createWorktree(
   // T9226 — spawn-clone-exclude filter: hide files matching the exclude
   // patterns from the worktree via sparse-checkout. Best-effort.
   const excludePatterns = options.spawnCloneExclude ?? [];
-  const exemptPaths = options.spawnCloneExcludeExempt ?? [];
   const appliedExcludePatterns =
-    excludePatterns.length > 0
-      ? applySpawnCloneExcludeFilter(worktreePath, excludePatterns, exemptPaths)
-      : [];
+    excludePatterns.length > 0 ? applySpawnCloneExcludeFilter(worktreePath, excludePatterns) : [];
 
   // Run post-create hooks before returning the handle.
   const postCreateHookResults = await runWorktreeHooks(hooks, 'post-create', worktreePath);

@@ -107,20 +107,17 @@ function locateCleoInjectionTemplate(): string | null {
  * heavyweight or task-irrelevant artefacts that would otherwise grow
  * linearly with the number of tasks in the project.
  *
- * `scripts/verify-*.mjs` is a per-task artefact — a spawned worker needs
- * only its own verifier. The orchestrate engine adds
- * `!scripts/verify-<taskId>.mjs` to the include list so the task-scoped
- * verifier is preserved while all others are excluded.
- *
  * `.gitnexus/` contains large vector/graph indices that agents never need
  * inside a worktree (queries route through the primary project root).
  *
+ * Per T9337 / Council 20260515T211404Z, the per-task `scripts/verify-*.mjs`
+ * exclusion was removed alongside the verifier substrate itself. Workers
+ * attest completion via ADR-051 evidence atoms, not per-task scripts.
+ *
  * @task T9226
+ * @task T9337
  */
-export const SPAWN_CLONE_EXCLUDE_PATTERNS: readonly string[] = [
-  'scripts/verify-*.mjs',
-  '.gitnexus',
-] as const;
+export const SPAWN_CLONE_EXCLUDE_PATTERNS: readonly string[] = ['.gitnexus'] as const;
 
 // ============================================================================
 // Types
@@ -621,13 +618,12 @@ function buildWorktreeSetupBlock(
  * absent from its working tree so it does not waste time searching for them.
  *
  * @param excludePatterns - Effective glob patterns that were excluded.
- * @param taskId - Task ID whose own verifier was preserved.
  * @returns Markdown section ready to inject. Returns empty string when the
  *          `excludePatterns` array is empty (no exclusions applied).
  *
  * @task T9226
  */
-function buildSpawnCloneExcludeBlock(excludePatterns: readonly string[], taskId: string): string {
+function buildSpawnCloneExcludeBlock(excludePatterns: readonly string[]): string {
   if (excludePatterns.length === 0) return '';
 
   const patternList = excludePatterns.map((p) => `- \`${p}\``).join('\n');
@@ -639,9 +635,6 @@ function buildSpawnCloneExcludeBlock(excludePatterns: readonly string[], taskId:
     '',
     patternList,
     '',
-    `Exception: \`scripts/verify-${taskId}.mjs\` is **included** — it is the verifier for your task.`,
-    '',
-    'Do not look for other `scripts/verify-*.mjs` files in this worktree — they are absent by design.',
     'To access any excluded file, check it out explicitly:',
     '```bash',
     'git sparse-checkout add <path>',
@@ -1696,7 +1689,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // Spawn-clone exclude filter (T9226) — emitted when the engine applied
   // sparse-checkout exclusions to keep the worktree lean.
   if (input.spawnCloneExclude && input.spawnCloneExclude.length > 0) {
-    const excludeBlock = buildSpawnCloneExcludeBlock(input.spawnCloneExclude, taskId);
+    const excludeBlock = buildSpawnCloneExcludeBlock(input.spawnCloneExclude);
     if (excludeBlock) {
       authoredSections.push(excludeBlock);
     }

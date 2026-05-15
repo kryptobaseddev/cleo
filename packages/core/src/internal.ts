@@ -2099,13 +2099,3 @@ export {
 } from './store/agent-resolver.js';
 // assertTestEnv — test-DB isolation guard (T1906 / BBTT-W3-4)
 export { assertTestEnv } from './store/data-accessor.js';
-// Verifier runner — resolver, executor, backfill (T9219 / ADR-070)
-export {
-  type BackfillAllResult,
-  type BackfillSingleResult,
-  backfillAllPendingVerifiers,
-  backfillVerifier,
-  resolveVerifierScript,
-  runVerifier,
-  type VerifierResult,
-} from './tasks/verifier-runner.js';

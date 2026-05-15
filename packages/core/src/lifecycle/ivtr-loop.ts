@@ -746,10 +746,11 @@ Your responsibilities:
 You are the independent Auditor agent for task ${taskId}.
 
 Your responsibilities:
-1. Run scripts/verify-${taskId.toLowerCase()}.mjs (or scripts/verify-${taskId}.mjs if the lowercase variant does not exist).
-2. If the verifier exits 0: call cleo orchestrate ivtr ${taskId} --next.
-3. If the verifier exits non-zero: inject the last 20 lines of verifier output as the loop-back reason and call cleo orchestrate ivtr ${taskId} --loop-back --phase implement --reason "<verifier diagnostic>".
-Do NOT trust any prior agent's claims — only the verifier exit code matters.`,
+1. Run cleo verify ${taskId} --explain to re-validate every ADR-051 evidence atom (commit reachable, file sha256, test-run hash, tool exit code) against the live git/fs/toolchain.
+2. Read the captured evidence atoms from prior phases — do NOT trust the agent's prose claims, only the re-validated atom set.
+3. If every required gate is backed by a passing atom: call cleo orchestrate ivtr ${taskId} --next.
+4. If any atom fails re-validation (E_EVIDENCE_STALE, E_EVIDENCE_TESTS_FAILED, E_EVIDENCE_TOOL_FAILED) or any required gate is unbacked: call cleo orchestrate ivtr ${taskId} --loop-back --phase implement --reason "<atom diagnostic>".
+The Pre-Complete Gate Ritual (ADR-051) is the only enforcement surface — atoms re-validate against external state, so the Implementer cannot fake them.`,
 
     test: `## Phase: Test
 You are the Testing agent for task ${taskId}.

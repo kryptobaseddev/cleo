@@ -684,16 +684,6 @@ export interface TasksAddParams {
    * @task T1633
    */
   forceDuplicate?: boolean;
-  /**
-   * Path to an existing verifier script for this task (T9218 / ADR-070).
-   *
-   * Required when priority=critical OR size=large OR type=epic. The path
-   * must point to an existing `.mjs` file. Omitting this on high-consequence
-   * tasks causes rejection with E_VERIFIER_REQUIRED.
-   *
-   * Use `cleo verify backfill <taskId>` to auto-generate a stub verifier.
-   */
-  verifier?: string;
 }
 /**
  * Result of `tasks.add` — the newly created task.
@@ -754,6 +744,12 @@ export interface TasksUpdateQueryParams {
   dependsWaiver?: string;
   /** Clear the blockedBy free-text reason (set to undefined). @task T9241 */
   clearBlockedBy?: boolean;
+  /** Set related tasks (replaces existing). @task T9327 */
+  relates?: Array<{ taskId: string; type: string; reason?: string }>;
+  /** Add related tasks without overwriting existing. @task T9327 */
+  addRelates?: Array<{ taskId: string; type: string; reason?: string }>;
+  /** Remove related tasks by taskId. @task T9327 */
+  removeRelates?: string[];
 }
 /**
  * Result of `tasks.update` — the updated task record with change list.
