@@ -107,7 +107,15 @@ export class GeminiTransport implements LlmTransport {
    */
   readonly apiMode: ApiMode = 'chat_completions' as const;
 
-  /** @param _options - Accepted for constructor parity with AnthropicTransport. */
+  /**
+   * @param _options - Accepted for constructor parity with AnthropicTransport.
+   *
+   * W0c stub — preserved so call-sites and tests can construct the transport
+   * with the final options shape. Wave 1a migration will fill the body with
+   * `new GoogleGenerativeAI(...)` plus cache-store init (geminiCacheStore +
+   * GEMINI_ALLOWED_SCHEMA_KEYS).
+   */
+  // biome-ignore lint/complexity/noUselessConstructor: W0c-stub — Wave 1a fills the body; signature MUST NOT change.
   constructor(_options: GeminiTransportOptions) {
     // Intentionally empty — real impl initialises the SDK client here.
   }
