@@ -167,9 +167,13 @@ describe('IVTR loop-back', () => {
     await advanceIvtr('T999', ['val-sha'], { cwd: testDir });
     // Now in audit phase (T9216)
 
-    const state = await loopBackIvtr('T999', 'implement', 'Audit failed: verifier exit 1', [], {
-      cwd: testDir,
-    });
+    const state = await loopBackIvtr(
+      'T999',
+      'implement',
+      'Audit failed: evidence atom re-validation E_EVIDENCE_STALE',
+      [],
+      { cwd: testDir },
+    );
 
     expect(state.currentPhase).toBe('implement');
     // History: implement(pass) + validate(pass) + audit(fail) + implement(new)
@@ -178,7 +182,7 @@ describe('IVTR loop-back', () => {
     const failedAudit = state.phaseHistory[2]!;
     expect(failedAudit.phase).toBe('audit');
     expect(failedAudit.passed).toBe(false);
-    expect(failedAudit.reason).toBe('Audit failed: verifier exit 1');
+    expect(failedAudit.reason).toBe('Audit failed: evidence atom re-validation E_EVIDENCE_STALE');
 
     const newImpl = state.phaseHistory[3]!;
     expect(newImpl.phase).toBe('implement');
@@ -306,8 +310,10 @@ describe('resolvePhasePrompt', () => {
     const prompt = resolvePhasePrompt('T999', state, 'My Task', 'Do the thing');
 
     expect(prompt).toContain('Phase: **AUDIT**');
-    // Audit phase: references the verifier script convention
+    // Audit phase: references ADR-051 evidence-atom re-validation (T9337)
     expect(prompt).toContain('Auditor agent');
+    expect(prompt).toContain('cleo verify');
+    expect(prompt).toContain('ADR-051');
   });
 
   it('generates test prompt with prior evidence', async () => {

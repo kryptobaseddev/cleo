@@ -761,13 +761,12 @@ export async function orchestrateSpawn(
       // causing workers to hallucinate paths. Surface the error as a structured
       // LAFS envelope so callers can react programmatically.
       try {
-        // T9226 — spawn-clone-exclude: exclude all verify-*.mjs scripts except
-        // the task's own verifier to keep the worktree lean.
+        // T9226 — spawn-clone-exclude: exclude heavyweight artefacts to keep
+        // the worktree lean (T9337 removed per-task verifier exclusions).
         const { SPAWN_CLONE_EXCLUDE_PATTERNS } = await import('../orchestration/spawn-prompt.js');
         sdkWorktreeResult = await spawnWorktree(root, {
           taskId,
           spawnCloneExclude: SPAWN_CLONE_EXCLUDE_PATTERNS,
-          spawnCloneExcludeExempt: [`scripts/verify-${taskId.toLowerCase()}.mjs`],
         });
         worktreePath = sdkWorktreeResult.path;
         worktreeBranch = sdkWorktreeResult.branch;
