@@ -452,11 +452,11 @@ function classifyByJaccard(
  */
 async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallFn | null> {
   try {
-    const { authHeaders } = await import('../llm/credentials.js');
     const { HYGIENE_FALLBACK_MODEL, IMPLICIT_FALLBACK_MODEL, resolveLLMForRole } = await import(
       '../llm/role-resolver.js'
     );
-    const { getBackend } = await import('../llm/registry.js');
+    const { authHeaders } = await import('../llm/credentials.js');
+    const { cleoLlmCall } = await import('../llm/api.js');
     const { repairResponseModelJson } = await import('../llm/structured-output.js');
 
     const llm = await resolveLLMForRole('hygiene', { projectRoot });
@@ -466,11 +466,6 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
     }
 
     // Hygiene-tier default falls back to sonnet (vs haiku for consolidation).
-    // When the implicit fallback fired AND no project/global config supplied a
-    // model, prefer the historical hygiene default for cost/quality parity.
-    // HYGIENE_FALLBACK_MODEL lives in role-resolver.ts so the literal is
-    // grep-guarded the same way as IMPLICIT_FALLBACK_MODEL (T-LLM-CRED Phase 2
-    // DRY review P2-2).
     const model =
       llm.source === 'implicit-fallback' && llm.model === IMPLICIT_FALLBACK_MODEL
         ? HYGIENE_FALLBACK_MODEL
@@ -479,9 +474,7 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
     const cred = llm.credential;
     const transport = llm.provider;
 
-    // For OAuth credentials, pass the Bearer headers through extraHeaders so
-    // the registry's getAnthropicOverrideClient uses `authToken` instead of
-    // `apiKey` when constructing the SDK client.
+    // TODO(T9292 W3): migrate to ConcreteSession/LlmTransport when executor lands.
     const extraHeaders = cred.authType === 'oauth' ? authHeaders(cred) : undefined;
 
     return async (findingText: string, taskContext: string): Promise<HygieneEscalationResult> => {
@@ -491,8 +484,6 @@ async function buildRealLlmCallFn(projectRoot: string): Promise<LlmEscalateCallF
         apiKey: cred.apiKey,
         extraHeaders,
       };
-
-      const backend = getBackend(modelConfig);
 
       const prompt = `You are a CLEO task hygiene analyzer. Evaluate whether the following finding about a task is a genuine defect requiring action.
 
@@ -513,15 +504,18 @@ Respond with a JSON object with these exact fields:
 
 Respond ONLY with the JSON object, no other text.`;
 
-      const result = await backend.complete({
-        model,
-        messages: [{ role: 'user', content: prompt }],
+      const result = await cleoLlmCall({
+        modelConfig,
+        prompt,
         maxTokens: 256,
         temperature: 0.1,
       });
 
+      const responseObj = result as { content?: unknown };
       const content =
-        typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+        typeof responseObj.content === 'string'
+          ? responseObj.content
+          : JSON.stringify(responseObj.content);
 
       // Attempt direct parse first, then repair
       try {

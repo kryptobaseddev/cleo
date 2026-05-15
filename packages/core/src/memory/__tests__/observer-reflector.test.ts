@@ -28,6 +28,7 @@ const {
   mockLoadConfig,
   mockResolveKey,
   mockResolveCredentials,
+  mockExecuteForRole,
 } = vi.hoisted(() => ({
   mockGetBrainDb: vi.fn().mockResolvedValue({}),
   mockGetBrainNativeDb: vi.fn(),
@@ -41,6 +42,7 @@ const {
     source: undefined,
     authType: 'api_key' as const,
   }),
+  mockExecuteForRole: vi.fn(),
 }));
 
 vi.mock('../../store/memory-sqlite.js', () => ({
@@ -78,6 +80,13 @@ vi.mock('../../llm/credentials.js', async () => {
     clearAnthropicKeyCache: vi.fn(),
   };
 });
+
+// T9320 routed observer-reflector through executeForRole (AnthropicTransport/
+// ChatCompletionsTransport) which bypasses globalThis.fetch entirely.
+// Mock at the module boundary instead.
+vi.mock('../../llm/role-executor.js', () => ({
+  executeForRole: mockExecuteForRole,
+}));
 
 // ============================================================================
 // Import module under test (after all mocks)
@@ -153,14 +162,19 @@ function makeObs(n: number, sessionId: string | null = null): RawObs[] {
   }));
 }
 
-function mockFetchOk(responseBody: string): ReturnType<typeof vi.spyOn> {
-  return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-    ok: true,
-    json: vi.fn().mockResolvedValue({
-      content: [{ type: 'text', text: responseBody }],
-      stop_reason: 'end_turn',
-    }),
-  } as unknown as Response);
+function mockExecuteOk(responseBody: string): void {
+  mockExecuteForRole.mockResolvedValue({
+    content: responseBody,
+    usage: { inputTokens: 100, outputTokens: 50 },
+    provider: 'anthropic' as const,
+    model: 'claude-sonnet-4-6',
+  });
+}
+
+// executeForRole catches all transport errors internally and returns null.
+// Simulate the same by resolving with null (not rejecting).
+function mockExecuteReject(_err?: Error): void {
+  mockExecuteForRole.mockResolvedValue(null);
 }
 
 // ============================================================================
@@ -217,13 +231,11 @@ describe('runObserver', () => {
     mockGetBrainNativeDb.mockReturnValue(
       buildMockNativeDb({ observationCount: 12, observations: makeObs(12, 'ses_abc') }),
     );
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
+    mockExecuteReject(new Error('Network error'));
 
     const result = await runObserver('/tmp/project', 'ses_abc');
     expect(result.ran).toBe(false);
     expect(result.stored).toBe(0);
-
-    fetchSpy.mockRestore();
   });
 
   it('stores observer notes when LLM returns valid JSON', async () => {
@@ -248,7 +260,7 @@ describe('runObserver', () => {
       },
     ];
 
-    const fetchSpy = mockFetchOk(JSON.stringify(notes));
+    mockExecuteOk(JSON.stringify(notes));
     const result = await runObserver('/tmp/project', 'ses_abc');
 
     expect(result.ran).toBe(true);
@@ -256,8 +268,6 @@ describe('runObserver', () => {
     expect(result.notes).toHaveLength(2);
     expect(result.compressedIds).toContain('O-001');
     expect(result.compressedIds).toContain('O-004');
-
-    fetchSpy.mockRestore();
   });
 
   it('returns empty result when LLM response is malformed JSON', async () => {
@@ -265,13 +275,11 @@ describe('runObserver', () => {
     mockGetBrainNativeDb.mockReturnValue(
       buildMockNativeDb({ observationCount: 12, observations: makeObs(12) }),
     );
-    const fetchSpy = mockFetchOk('not json at all {broken');
+    mockExecuteOk('not json at all {broken');
 
     const result = await runObserver('/tmp/project');
     expect(result.ran).toBe(false);
     expect(result.stored).toBe(0);
-
-    fetchSpy.mockRestore();
   });
 
   it('strips markdown code fences from LLM response', async () => {
@@ -282,14 +290,12 @@ describe('runObserver', () => {
 
     const noteWithFence =
       '```json\n[{"date":"2026-04-13","priority":2,"observation":"Test note","source_ids":["O-001"]}]\n```';
-    const fetchSpy = mockFetchOk(noteWithFence);
+    mockExecuteOk(noteWithFence);
 
     const result = await runObserver('/tmp/project');
     expect(result.ran).toBe(true);
     expect(result.stored).toBe(1);
     expect(result.notes[0]?.observation).toBe('Test note');
-
-    fetchSpy.mockRestore();
   });
 
   it('handles Anthropic API HTTP error gracefully', async () => {
@@ -297,16 +303,10 @@ describe('runObserver', () => {
     mockGetBrainNativeDb.mockReturnValue(
       buildMockNativeDb({ observationCount: 15, observations: makeObs(15) }),
     );
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: false,
-      status: 401,
-      text: vi.fn().mockResolvedValue('Unauthorized'),
-    } as unknown as Response);
+    mockExecuteReject(new Error('401 Unauthorized'));
 
     const result = await runObserver('/tmp/project');
     expect(result.ran).toBe(false);
-
-    fetchSpy.mockRestore();
   });
 });
 
@@ -380,7 +380,7 @@ describe('runReflector', () => {
       superseded: ['O-001', 'O-002'],
     };
 
-    const fetchSpy = mockFetchOk(JSON.stringify(reflectorOutput));
+    mockExecuteOk(JSON.stringify(reflectorOutput));
     const result = await runReflector('/tmp/project', 'ses_test');
 
     expect(result.ran).toBe(true);
@@ -399,8 +399,6 @@ describe('runReflector', () => {
       '/tmp/project',
       expect.objectContaining({ source: 'reflector-synthesized', confidence: 0.85 }),
     );
-
-    fetchSpy.mockRestore();
   });
 
   it('clamps confidence to [0.1, 1.0] range', async () => {
@@ -416,7 +414,7 @@ describe('runReflector', () => {
       superseded: [],
     };
 
-    const fetchSpy = mockFetchOk(JSON.stringify(reflectorOutput));
+    mockExecuteOk(JSON.stringify(reflectorOutput));
     await runReflector('/tmp/project');
 
     expect(mockStoreLearning).toHaveBeenCalledWith(
@@ -427,32 +425,26 @@ describe('runReflector', () => {
       '/tmp/project',
       expect.objectContaining({ confidence: 1.0 }),
     );
-
-    fetchSpy.mockRestore();
   });
 
   it('handles fetch failure gracefully', async () => {
     setApiKey(FAKE_API_KEY);
     mockGetBrainNativeDb.mockReturnValue(buildMockNativeDb({ observations: makeObs(5) }));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('timeout'));
+    mockExecuteReject(new Error('timeout'));
 
     const result = await runReflector('/tmp/project');
     expect(result.ran).toBe(false);
     expect(result.patternsStored).toBe(0);
     expect(result.learningsStored).toBe(0);
-
-    fetchSpy.mockRestore();
   });
 
   it('handles malformed LLM response gracefully', async () => {
     setApiKey(FAKE_API_KEY);
     mockGetBrainNativeDb.mockReturnValue(buildMockNativeDb({ observations: makeObs(5) }));
-    const fetchSpy = mockFetchOk('{ this is not valid json ]');
+    mockExecuteOk('{ this is not valid json ]');
 
     const result = await runReflector('/tmp/project');
     expect(result.ran).toBe(false);
-
-    fetchSpy.mockRestore();
   });
 
   it('skips invalid pattern/learning entries without crashing', async () => {
@@ -472,14 +464,12 @@ describe('runReflector', () => {
       superseded: [],
     };
 
-    const fetchSpy = mockFetchOk(JSON.stringify(reflectorOutput));
+    mockExecuteOk(JSON.stringify(reflectorOutput));
     const result = await runReflector('/tmp/project');
 
     expect(result.ran).toBe(true);
     expect(result.patternsStored).toBe(1); // only the valid one
     expect(result.learningsStored).toBe(1); // only the valid one
-
-    fetchSpy.mockRestore();
   });
 });
 

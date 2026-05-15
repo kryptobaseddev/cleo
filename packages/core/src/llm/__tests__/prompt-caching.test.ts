@@ -17,14 +17,14 @@
  * @epic T9261
  */
 
+// Shared hoisted spy so all AnthropicTransport instances share the same create mock.
+const { sharedMockCreate } = vi.hoisted(() => ({ sharedMockCreate: vi.fn() }));
+
 // Mock @anthropic-ai/sdk before any module that imports it is loaded.
-// This prevents the package-not-found error in the worktree environment
-// (no local node_modules install) while still allowing AnthropicBackend
-// to be imported and exercised.
 vi.mock('@anthropic-ai/sdk', () => {
   class MockAnthropic {
     messages = {
-      create: vi.fn(),
+      create: sharedMockCreate,
       stream: vi.fn(),
     };
   }
@@ -38,11 +38,9 @@ vi.mock('jsonrepair', () => ({
 }));
 
 import { describe, expect, it, vi } from 'vitest';
-
-import type { AnthropicBackendCallParams } from '../backends/anthropic.js';
-import { AnthropicBackend } from '../backends/anthropic.js';
 import type { AnthropicKwargs } from '../prompt-caching.js';
 import { injectCacheBreakpoints } from '../prompt-caching.js';
+import { AnthropicTransport } from '../transports/anthropic.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -239,58 +237,39 @@ describe('injectCacheBreakpoints — none', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AnthropicBackend.complete — prompt-caching wiring
+// AnthropicTransport.complete — prompt-caching wiring (migrated from AnthropicBackend W1c T9285)
 // ---------------------------------------------------------------------------
 
-/** Build a minimal mock Anthropic client and expose the inner create spy. */
-function makeMockBackendAndSpy(): {
-  backend: AnthropicBackend;
-  mockCreate: ReturnType<typeof vi.fn>;
-} {
-  const mockCreate = vi.fn();
-  // Minimal response that AnthropicBackend._normalizeResponse can handle
-  mockCreate.mockResolvedValue({
-    id: 'msg_test',
-    type: 'message',
-    role: 'assistant',
-    content: [{ type: 'text', text: 'ok' }],
-    model: 'claude-sonnet-4-6',
-    stop_reason: 'end_turn',
-    usage: {
-      input_tokens: 10,
-      output_tokens: 5,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
-    },
-  });
+// sharedMockCreate is declared at the top of this file via vi.hoisted().
 
-  // Cast through unknown — @anthropic-ai/sdk is stubbed by vi.mock() above so the
-  // Anthropic constructor type is not available at runtime; the cast is safe.
-  const fakeClient = { messages: { create: mockCreate } } as unknown as ConstructorParameters<
-    typeof AnthropicBackend
-  >[0];
+const MOCK_RESPONSE = {
+  id: 'msg_test',
+  type: 'message',
+  role: 'assistant',
+  content: [{ type: 'text', text: 'ok' }],
+  model: 'claude-sonnet-4-6',
+  stop_reason: 'end_turn',
+  usage: {
+    input_tokens: 10,
+    output_tokens: 5,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  },
+};
 
-  const backend = new AnthropicBackend(fakeClient);
-  return { backend, mockCreate };
-}
-
-describe('AnthropicBackend.complete — prompt-caching wiring', () => {
+describe('AnthropicTransport.complete — prompt-caching wiring', () => {
   it('applies system_and_3 breakpoints when promptCaching is system_and_3', async () => {
-    const { backend, mockCreate } = makeMockBackendAndSpy();
+    sharedMockCreate.mockResolvedValue(MOCK_RESPONSE);
+    const transport = new AnthropicTransport({ apiKey: 'test', promptCaching: 'system_and_3' });
 
-    const params: AnthropicBackendCallParams = {
+    await transport.complete({
       model: 'claude-sonnet-4-6',
-      messages: [
-        { role: 'system', content: 'You are helpful.' },
-        { role: 'user', content: 'Hello!' },
-      ],
+      messages: [{ role: 'user', content: 'Hello!' }],
+      system: 'You are helpful.',
       maxTokens: 100,
-      promptCaching: 'system_and_3',
-    };
+    });
 
-    await backend.complete(params);
-
-    const callArgs = mockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
+    const callArgs = sharedMockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
 
     // System block should have cache_control with ttl 300
     const systemBlocks = callArgs['system'] as Array<Record<string, unknown>>;
@@ -307,21 +286,18 @@ describe('AnthropicBackend.complete — prompt-caching wiring', () => {
   });
 
   it('applies no breakpoints when promptCaching is none', async () => {
-    const { backend, mockCreate } = makeMockBackendAndSpy();
+    sharedMockCreate.mockClear();
+    sharedMockCreate.mockResolvedValue(MOCK_RESPONSE);
+    const transport = new AnthropicTransport({ apiKey: 'test', promptCaching: 'none' });
 
-    const params: AnthropicBackendCallParams = {
+    await transport.complete({
       model: 'claude-sonnet-4-6',
-      messages: [
-        { role: 'system', content: 'You are helpful.' },
-        { role: 'user', content: 'Hello!' },
-      ],
+      messages: [{ role: 'user', content: 'Hello!' }],
+      system: 'You are helpful.',
       maxTokens: 100,
-      promptCaching: 'none',
-    };
+    });
 
-    await backend.complete(params);
-
-    const callArgs = mockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
+    const callArgs = sharedMockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
 
     // System block must NOT have cache_control when strategy is 'none'
     const systemBlocks = callArgs['system'] as Array<Record<string, unknown>>;
@@ -329,42 +305,39 @@ describe('AnthropicBackend.complete — prompt-caching wiring', () => {
   });
 
   it('defaults to system_and_3 when promptCaching is omitted', async () => {
-    const { backend, mockCreate } = makeMockBackendAndSpy();
+    sharedMockCreate.mockClear();
+    sharedMockCreate.mockResolvedValue(MOCK_RESPONSE);
+    // No promptCaching option — should default to system_and_3
+    const transport = new AnthropicTransport({ apiKey: 'test' });
 
-    // No promptCaching field — should default to system_and_3
-    const params: AnthropicBackendCallParams = {
+    await transport.complete({
       model: 'claude-sonnet-4-6',
-      messages: [
-        { role: 'system', content: 'You are helpful.' },
-        { role: 'user', content: 'Hello!' },
-      ],
+      messages: [{ role: 'user', content: 'Hello!' }],
+      system: 'You are helpful.',
       maxTokens: 100,
-    };
+    });
 
-    await backend.complete(params);
-
-    const callArgs = mockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
+    const callArgs = sharedMockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
     const systemBlocks = callArgs['system'] as Array<Record<string, unknown>>;
     expect(systemBlocks[0]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: 300 });
   });
 
   it('applies prefix_and_2 breakpoints: first system at 3600, users at 300', async () => {
-    const { backend, mockCreate } = makeMockBackendAndSpy();
+    sharedMockCreate.mockClear();
+    sharedMockCreate.mockResolvedValue(MOCK_RESPONSE);
+    const transport = new AnthropicTransport({ apiKey: 'test', promptCaching: 'prefix_and_2' });
 
-    const params: AnthropicBackendCallParams = {
+    await transport.complete({
       model: 'claude-sonnet-4-6',
       messages: [
-        { role: 'system', content: 'Stable system prefix.' },
         { role: 'user', content: 'Turn 1' },
         { role: 'user', content: 'Turn 2' },
       ],
+      system: 'Stable system prefix.',
       maxTokens: 100,
-      promptCaching: 'prefix_and_2',
-    };
+    });
 
-    await backend.complete(params);
-
-    const callArgs = mockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
+    const callArgs = sharedMockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
 
     // First system block: long TTL
     const systemBlocks = callArgs['system'] as Array<Record<string, unknown>>;

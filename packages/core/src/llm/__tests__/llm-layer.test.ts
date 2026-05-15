@@ -18,23 +18,8 @@
  * @epic T1386
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import type { CompletionResult } from '../backend.js';
-import { makeCompletionResult } from '../backend.js';
-// --- Anthropic backend prefill logic ---
-import { AnthropicBackend } from '../backends/anthropic.js';
-// --- Gemini backend ---
-import { GeminiBackend } from '../backends/gemini.js';
-// --- Moonshot backend ---
-import {
-  isMoonshotModel,
-  MOONSHOT_BASE_URL,
-  MOONSHOT_DEFAULT_MODEL,
-  MoonshotBackend,
-} from '../backends/moonshot.js';
-// --- OpenAI backend ---
-import { usesMaxCompletionTokens } from '../backends/openai.js';
 // --- Cache key determinism ---
 import { buildCacheKey, InMemoryGeminiCacheStore } from '../caching.js';
 // --- Conversation ---
@@ -45,6 +30,14 @@ import {
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from '../history-adapters.js';
+import type { CompletionResult } from '../legacy-types.js';
+import { makeCompletionResult } from '../legacy-types.js';
+// --- Moonshot constants (MoonshotBackend removed in T9286 W1d) ---
+import {
+  isMoonshotModel,
+  MOONSHOT_BASE_URL,
+  MOONSHOT_DEFAULT_MODEL,
+} from '../provider-registry/builtin/moonshot.js';
 // --- Runtime ---
 import { effectiveTemperature, makeAttemptRef, selectModelConfigForAttempt } from '../runtime.js';
 // --- Structured output ---
@@ -54,6 +47,12 @@ import {
   repairResponseModelJson,
   validateStructuredOutput,
 } from '../structured-output.js';
+// --- AnthropicTransport prefill logic (migrated from AnthropicBackend W1c T9285) ---
+import { AnthropicTransport } from '../transports/anthropic.js';
+// --- Gemini transport (W1a: backends/gemini.ts removed; static helpers preserved on GeminiTransport) ---
+import { GeminiTransport as GeminiBackend } from '../transports/gemini.js';
+// --- OpenAI transport (backends/openai.ts deleted in T9286 W1d) ---
+import { usesMaxCompletionTokens } from '../transports/openai.js';
 import type { ModelConfig, PromptCachePolicy } from '../types-config.js';
 
 // ============================================================================
@@ -257,30 +256,30 @@ describe('emptyStructuredOutput', () => {
 // AnthropicBackend — prefill rejection (R2 critical)
 // ============================================================================
 
-describe('AnthropicBackend._supportsAssistantPrefill (R2)', () => {
+describe('AnthropicTransport._supportsAssistantPrefill (R2 — migrated from AnthropicBackend)', () => {
   it('returns false for claude-sonnet-4-6 (CLEO primary)', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-sonnet-4-6')).toBe(false);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-sonnet-4-6')).toBe(false);
   });
 
   it('returns false for claude-opus-4-anything', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-opus-4-5')).toBe(false);
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-opus-4')).toBe(false);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-opus-4-5')).toBe(false);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-opus-4')).toBe(false);
   });
 
   it('returns false for claude-haiku-4-anything', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-haiku-4-5')).toBe(false);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-haiku-4-5')).toBe(false);
   });
 
   it('returns true for claude-3-5-sonnet (not Claude 4)', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-3-5-sonnet-20241022')).toBe(true);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-3-5-sonnet-20241022')).toBe(true);
   });
 
   it('returns true for claude-3-opus', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-3-opus-20240229')).toBe(true);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-3-opus-20240229')).toBe(true);
   });
 
   it('returns true for claude-3-haiku', () => {
-    expect(AnthropicBackend._supportsAssistantPrefill('claude-3-haiku-20240307')).toBe(true);
+    expect(AnthropicTransport._supportsAssistantPrefill('claude-3-haiku-20240307')).toBe(true);
   });
 });
 
@@ -608,90 +607,7 @@ describe('MOONSHOT_BASE_URL', () => {
   });
 });
 
-describe('MoonshotBackend', () => {
-  /** Build a minimal mock OpenAI client that returns a preset response. */
-  function makeMockClient(content: string): OpenAI {
-    const mockCreate = vi.fn().mockResolvedValue({
-      id: 'chatcmpl-test',
-      object: 'chat.completion',
-      created: 1_700_000_000,
-      model: MOONSHOT_DEFAULT_MODEL,
-      choices: [
-        {
-          index: 0,
-          message: { role: 'assistant', content },
-          finish_reason: 'stop',
-          delta: {},
-        },
-      ],
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-    });
-    return {
-      chat: { completions: { create: mockCreate } },
-    } as unknown as OpenAI;
-  }
-
-  it('complete — roundtrips a simple prompt via mock client', async () => {
-    const client = makeMockClient('Hello from Kimi!');
-    const backend = new MoonshotBackend(client);
-    const result = await backend.complete({
-      model: MOONSHOT_DEFAULT_MODEL,
-      messages: [{ role: 'user', content: 'Say hello' }],
-      maxTokens: 100,
-      temperature: 0,
-      stop: null,
-      tools: null,
-      toolChoice: null,
-      responseFormat: null,
-      thinkingBudgetTokens: null,
-      thinkingEffort: null,
-      maxOutputTokens: null,
-      extraParams: null,
-    });
-    expect(result.content).toBe('Hello from Kimi!');
-    expect(result.finishReason).toBe('stop');
-  });
-
-  it('complete — rejects thinkingBudgetTokens', async () => {
-    const client = makeMockClient('');
-    const backend = new MoonshotBackend(client);
-    await expect(
-      backend.complete({
-        model: MOONSHOT_DEFAULT_MODEL,
-        messages: [{ role: 'user', content: 'hi' }],
-        maxTokens: 100,
-        temperature: null,
-        stop: null,
-        tools: null,
-        toolChoice: null,
-        responseFormat: null,
-        thinkingBudgetTokens: 1024,
-        thinkingEffort: null,
-        maxOutputTokens: null,
-        extraParams: null,
-      }),
-    ).rejects.toThrow('MoonshotBackend does not support thinkingBudgetTokens');
-  });
-
-  it('stream — rejects thinkingBudgetTokens', async () => {
-    const client = makeMockClient('');
-    const backend = new MoonshotBackend(client);
-    const gen = backend.stream({
-      model: MOONSHOT_DEFAULT_MODEL,
-      messages: [{ role: 'user', content: 'hi' }],
-      maxTokens: 100,
-      temperature: null,
-      stop: null,
-      tools: null,
-      toolChoice: null,
-      responseFormat: null,
-      thinkingBudgetTokens: 512,
-      thinkingEffort: null,
-      maxOutputTokens: null,
-      extraParams: null,
-    });
-    await expect(gen.next()).rejects.toThrow(
-      'MoonshotBackend does not support thinkingBudgetTokens',
-    );
-  });
-});
+// MoonshotBackend was removed in T9286 (W1d). Thinking-budget rejection
+// is now tested via ChatCompletionsTransport + moonshotProfile in
+// __tests__/transports/chat-completions.test.ts. The isMoonshotModel /
+// MOONSHOT_BASE_URL / MOONSHOT_DEFAULT_MODEL constant tests above remain valid.

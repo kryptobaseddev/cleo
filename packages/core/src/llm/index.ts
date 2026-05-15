@@ -12,14 +12,7 @@
 export type { CleoLlmCallParams } from './api.js';
 // Public entrypoint
 export { cleoLlmCall } from './api.js';
-// Backend interface (for extensibility)
-export type { CompletionResult, ProviderBackend, StreamChunk, ToolCallResult } from './backend.js';
-export { makeCompletionResult } from './backend.js';
-// Backends (for direct use / custom wiring)
-export type { AnthropicBackendCallParams } from './backends/anthropic.js';
-export { AnthropicBackend } from './backends/anthropic.js';
-export { GeminiBackend } from './backends/gemini.js';
-export { OpenAIBackend, usesMaxCompletionTokens } from './backends/openai.js';
+// Backends (for direct use / custom wiring — AnthropicBackend migrated to transports/anthropic.ts)
 export type { GeminiCacheHandle } from './caching.js';
 // Caching
 export { buildCacheKey, geminiCacheStore, InMemoryGeminiCacheStore } from './caching.js';
@@ -33,6 +26,9 @@ export {
   llmUse,
   llmWhoami,
 } from './cli-ops.js';
+// New Phase 4 executor layer (T9290/T9291)
+export type { ConcreteExecutorOptions } from './concrete-executor.js';
+export { ConcreteExecutor } from './concrete-executor.js';
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
 export type {
@@ -69,14 +65,25 @@ export {
   pickCredentialForProviderSync,
   removeCredential,
 } from './credentials-store.js';
-// Executor (inner call, for testing)
-export { cleoLlmCallInner, completionResultToResponse } from './executor.js';
+export {
+  clearLlmExecutorCache,
+  DefaultLlmExecutorFactory,
+  getLlmExecutor,
+} from './executor-factory.js';
 // History adapters
 export {
   AnthropicHistoryAdapter,
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
+// Legacy backend type shims — TODO(T9298 W5): migrate callers to LlmTransport/NormalizedResponse
+export type {
+  CompletionResult,
+  ProviderBackend,
+  StreamChunk,
+  ToolCallResult,
+} from './legacy-types.js';
+export { completionResultToResponse, makeCompletionResult } from './legacy-types.js';
 export type { ModelMetadata } from './model-metadata.js';
 // Model metadata — context window resolution (T9264 / T-LLM-CRED Phase 3)
 export {
@@ -93,11 +100,9 @@ export type {
 export { injectCacheBreakpoints } from './prompt-caching.js';
 // Registry (for testing/DI)
 export {
-  backendForProvider,
   buildAnthropicSdkClient,
   CLIENTS,
   clientForModelConfig,
-  getBackend,
 } from './registry.js';
 // Role-based LLM resolver (T-LLM-CRED-CENTRALIZATION Phase 2 / T9255)
 export type {
@@ -116,6 +121,8 @@ export {
 // Runtime
 export type { AttemptPlan } from './runtime.js';
 export { effectiveTemperature, makeAttemptRef, planAttempt } from './runtime.js';
+// Legacy executor shim (throws at runtime — migrate to ConcreteExecutor)
+export { cleoLlmCallInner } from './shim-executor.js';
 export type { StructuredOutputFailurePolicy } from './structured-output.js';
 // Structured output utilities
 export {
@@ -126,6 +133,13 @@ export {
   StructuredOutputError,
   validateStructuredOutput,
 } from './structured-output.js';
+// Transports (Phase-4 LlmTransport implementations)
+export type { AnthropicTransportOptions } from './transports/anthropic.js';
+export { AnthropicTransport } from './transports/anthropic.js';
+export type { GeminiTransportOptions } from './transports/gemini.js';
+export { GeminiTransport } from './transports/gemini.js';
+export type { OpenAITransportOptions } from './transports/openai.js';
+export { OpenAITransport, usesMaxCompletionTokens } from './transports/openai.js';
 // Response / stream types (scoped names to avoid collision with Vercel AI SDK)
 export type {
   IterationCallback,
