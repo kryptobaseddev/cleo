@@ -17,8 +17,7 @@ import {
   getBrainDb,
   getBrainNativeDb,
   OAUTH_STATUS_PROVIDERS,
-  resolveAnthropicApiKey,
-  resolveAnthropicApiKeySource,
+  resolveCredentials,
   resolveProviderStatus,
   typedAll,
 } from '@cleocode/core/internal';
@@ -617,8 +616,21 @@ export class MemoryHandler implements DomainHandler {
 
         // T791 — LLM extraction backend status
         case 'llm-status': {
-          const resolvedSource = resolveAnthropicApiKeySource();
-          const extractionEnabled = resolveAnthropicApiKey() !== null;
+          const _anthropicCred = resolveCredentials('anthropic');
+          const extractionEnabled = _anthropicCred.apiKey !== null;
+          const resolvedSource: 'env' | 'config' | 'oauth' | 'none' = (() => {
+            switch (_anthropicCred.source) {
+              case 'env':
+                return 'env';
+              case 'claude-creds':
+                return 'oauth';
+              case 'global-config':
+              case 'project-config':
+                return 'config';
+              default:
+                return 'none';
+            }
+          })();
 
           // Build per-provider status by iterating OAUTH_STATUS_PROVIDERS via
           // resolveProviderStatus — no provider-specific branching here.

@@ -567,8 +567,8 @@ export async function runObserver(
   const empty: ObserverResult = { ran: false, stored: 0, compressedIds: [], notes: [] };
 
   // Gate 1: API key must be present
-  const { resolveAnthropicApiKey: resolveKey } = await import('../llm/credentials.js');
-  if (!resolveKey()) return empty;
+  const { resolveCredentials } = await import('../llm/credentials.js');
+  if (!resolveCredentials('anthropic').apiKey) return empty;
 
   // Gate 2: Configuration must allow observer
   const cfg = await loadObserverConfig(projectRoot);
@@ -701,8 +701,8 @@ export async function runReflector(
   };
 
   // Gate 1: API key must be present
-  const { resolveAnthropicApiKey: resolveKey } = await import('../llm/credentials.js');
-  if (!resolveKey()) return empty;
+  const { resolveCredentials } = await import('../llm/credentials.js');
+  if (!resolveCredentials('anthropic').apiKey) return empty;
 
   // Gate 2: Configuration must allow reflector
   const cfg = await loadReflectorConfig(projectRoot);
