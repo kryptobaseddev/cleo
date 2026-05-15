@@ -37,7 +37,9 @@ import { z } from 'zod';
 
 import type { PromptCachePolicy } from '../caching.js';
 import { buildCacheKey, geminiCacheStore } from '../caching.js';
+import { validateImagesForProvider } from '../image-routing.js';
 import { repairResponseModelJson } from '../structured-output.js';
+import { StreamingThinkScrubber } from '../think-scrubber.js';
 import type { ModelConfig } from '../types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -179,6 +181,9 @@ export class GeminiTransport implements LlmTransport {
    * @returns Normalized response including content, tool calls, usage, and raw SDK object.
    */
   async complete(request: TransportRequest, _ctx?: TransportContext): Promise<NormalizedResponse> {
+    // @invariant T9296 W4d — validate image constraints before any SDK call.
+    validateImagesForProvider(request, this.provider);
+
     const { model, messages, maxTokens, system, tools, temperature, signal: _signal } = request;
 
     // Build a list of raw Gemini-format messages
@@ -288,6 +293,8 @@ export class GeminiTransport implements LlmTransport {
 
     let finalChunk: Record<string, unknown> | null = null;
     let anyText = false;
+    // @invariant T9295 W4c — scrub <think>...</think> blocks from Gemini streams.
+    const scrubber = new StreamingThinkScrubber();
 
     for await (const chunk of streamResult.stream) {
       const chunkAny = chunk as unknown as Record<string, unknown>;
@@ -299,15 +306,25 @@ export class GeminiTransport implements LlmTransport {
         textResult = text;
       }
       if (textResult) {
-        anyText = true;
-        yield {
-          text: textResult,
-          reasoning: '',
-          stopReason: null,
-          usage: null,
-        };
+        const visible = scrubber.feed(textResult);
+        if (visible) {
+          anyText = true;
+          yield {
+            text: visible,
+            reasoning: '',
+            stopReason: null,
+            usage: null,
+          };
+        }
       }
       finalChunk = chunkAny;
+    }
+
+    // Flush any held-back partial-tag buffer at end of stream.
+    const scrubberTail = scrubber.flush();
+    if (scrubberTail) {
+      anyText = true;
+      yield { text: scrubberTail, reasoning: '', stopReason: null, usage: null };
     }
 
     let finishReason = 'stop';

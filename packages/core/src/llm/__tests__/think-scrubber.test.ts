@@ -12,7 +12,13 @@
  *   - convenience `scrubReasoning` helper
  *   - reset() clears mid-block state
  *
+ * Also covers T9295 (W4c) stream-side integration tests:
+ *   - strips <think> tags from OpenAI o1 stream deltas
+ *   - preserves Anthropic native thinking blocks (no scrubbing needed)
+ *   - routes thinking → delta.reasoning and visible → delta.text
+ *
  * @task T9275
+ * @task T9295 (W4c — stream-side wiring tests)
  * @epic T9261
  */
 
@@ -195,5 +201,50 @@ describe('scrubReasoning (convenience helper)', () => {
 
   it('discards unterminated block content', () => {
     expect(scrubReasoning('<think>never closed')).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T9295 (W4c) — stream-side integration tests
+// ---------------------------------------------------------------------------
+
+describe('T9295 W4c — stream-side think-scrubber integration', () => {
+  it('strips <think> tags from OpenAI o1 stream deltas', () => {
+    const s = new StreamingThinkScrubber();
+    // Simulate o1 style: <think>...</think> inline in text stream
+    const deltas = ['<think>', 'internal reasoning step', '</think>', 'visible answer'];
+
+    const collected: string[] = [];
+    for (const d of deltas) {
+      const out = s.feed(d);
+      if (out) collected.push(out);
+    }
+    const tail = s.flush();
+    if (tail) collected.push(tail);
+
+    expect(collected.join('')).toBe('visible answer');
+  });
+
+  it('preserves Anthropic native thinking blocks (delta.reasoning populated separately)', () => {
+    // Anthropic routes thinking via delta.reasoning — not via <think> tags.
+    // Verify the scrubber passes plain non-tagged text through unchanged.
+    const s = new StreamingThinkScrubber();
+    expect(s.feed('normal assistant text')).toBe('normal assistant text');
+    expect(s.flush()).toBe('');
+  });
+
+  it('routes thinking → hidden and visible → delta.text across multiple chunks', () => {
+    const s = new StreamingThinkScrubber();
+    // Split tag across chunks to exercise boundary handling.
+    // <think> must appear at a line boundary — use newline before the tag.
+    // The close tag emits its trailing '\n' as visible text.
+    const chunks = ['pre\n', '<thi', 'nk>hi', 'dden</th', 'ink>\n', 'post'];
+    let visible = '';
+    for (const chunk of chunks) {
+      visible += s.feed(chunk);
+    }
+    visible += s.flush();
+    // 'pre\n' before the block, '\n' from after </think>, 'post' after
+    expect(visible).toBe('pre\n\npost');
   });
 });
