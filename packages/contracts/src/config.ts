@@ -401,7 +401,9 @@ export type RoleName =
   | 'hygiene'
   | 'judgement'
   /** Sandbox role for plugin-scoped single-turn calls (T9305). */
-  | 'plugin';
+  | 'plugin'
+  /** Context-compression role — uses a cheap model (haiku) for summarization (T9304). */
+  | 'compression';
 
 /**
  * Canonical default LLM target for unscoped (non-role) calls.
