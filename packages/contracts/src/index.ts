@@ -431,6 +431,7 @@ export type { ClassifiedError, FailoverReason } from './llm/failover-reason.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Session + Executor interfaces ===
 export type {
   AggregatedUsage,
+  ContextEngine,
   ExecutionEvent,
   ExecutionRequest,
   ExecutorFactoryOptions,

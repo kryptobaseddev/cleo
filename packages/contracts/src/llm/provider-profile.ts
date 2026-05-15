@@ -151,6 +151,17 @@ export interface ProviderProfile {
     messages: readonly TransportMessage[],
     tools: readonly TransportTool[],
   ) => Readonly<Record<string, unknown>>;
+
+  /**
+   * Whether this provider supports Anthropic-style extended thinking budget
+   * tokens (`thinkingBudgetTokens` on the transport request).
+   *
+   * When `false` (or absent), the transport MUST throw if a caller sets
+   * `thinkingBudgetTokens` on the request — the provider's API will reject it.
+   *
+   * @default false
+   */
+  readonly supportsThinkingBudget?: boolean;
 }
 
 /**

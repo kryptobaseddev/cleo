@@ -88,6 +88,7 @@ export function isKimiCodeApiKey(apiKey: string): boolean {
  * are accepted alongside `sk-kimi-` API keys.
  *
  * @task T9321
+ * @task T9286 (W1d — added reasoning_effort hook)
  */
 export const kimiCodeProfile: ProviderProfile = {
   name: 'kimi-code',
@@ -102,4 +103,18 @@ export const kimiCodeProfile: ProviderProfile = {
   // ever re-evaluated at runtime the device-id remains stable.
   defaultHeaders: getKimiCodeMshHeaders(),
   envVars: ['KIMI_CODE_API_KEY', 'KIMI_API_KEY'],
+
+  /**
+   * Inject `reasoning_effort` for Kimi Code's top-level reasoning control.
+   *
+   * @invariant kimi-reasoning-effort: Kimi Code requires `reasoning_effort`
+   * as a TOP-LEVEL API kwarg (not inside `extra_body`) to enable extended
+   * chain-of-thought reasoning. This is distinct from Gemini's thinking_config
+   * (which lives inside extra_body) and Moonshot's thinkingBudgetTokens rejection.
+   *
+   * @returns API kwargs extras with `reasoning_effort: 'high'` set.
+   */
+  buildApiKwargsExtras(): Readonly<Record<string, unknown>> {
+    return { reasoning_effort: 'high' };
+  },
 };

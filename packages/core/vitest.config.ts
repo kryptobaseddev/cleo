@@ -36,6 +36,7 @@ export default defineConfig({
     include: [
       'src/**/*.test.ts',
       'src/**/__tests__/*.test.ts',
+      'src/**/__tests__/**/*.test.ts',
       'tests/**/*.test.ts',
     ],
     // Exclude the same patterns as root config so integration tests do not run

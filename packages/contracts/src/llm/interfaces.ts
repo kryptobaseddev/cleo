@@ -391,6 +391,53 @@ export interface ExecutionRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Context engine
+// ---------------------------------------------------------------------------
+
+/**
+ * Optional context-compression engine supplied to {@link LlmExecutor}.
+ *
+ * When present, the executor calls {@link shouldCompress} after each model
+ * turn. If it returns `true`, the executor calls {@link compress} to reduce
+ * the session history before the next iteration, then emits a
+ * `context_compressed` event.
+ *
+ * When absent (undefined), the executor skips all compression checks silently.
+ *
+ * @see ADR-072 §"LlmExecutor — agent-loop level"
+ */
+export interface ContextEngine {
+  /**
+   * Returns `true` when the current history warrants compression.
+   *
+   * @param history - Current read-only conversation history snapshot.
+   * @returns Whether compression should be applied before the next model turn.
+   */
+  shouldCompress(history: readonly TransportMessage[]): boolean;
+  /**
+   * Compresses the session history in-place (or returns a compressed copy).
+   *
+   * The executor replaces the session history with the returned messages after
+   * calling this method. It also emits a `context_compressed` event carrying
+   * the token counts before and after.
+   *
+   * @param history - Current read-only conversation history snapshot.
+   * @returns The compressed message array.
+   */
+  compress(history: readonly TransportMessage[]): Promise<TransportMessage[]>;
+  /**
+   * Estimate token count for a history snapshot.
+   *
+   * Used by the executor to populate {@link ExecutionEvent} `tokensBefore` /
+   * `tokensAfter` fields. May be an approximation (e.g. character / 4).
+   *
+   * @param history - Conversation history snapshot to measure.
+   * @returns Estimated token count.
+   */
+  estimateTokens(history: readonly TransportMessage[]): number;
+}
+
+// ---------------------------------------------------------------------------
 // Executor interface
 // ---------------------------------------------------------------------------
 

@@ -29,6 +29,7 @@ const {
   mockLoadConfig,
   mockResolveKey,
   mockResolveCredentials,
+  mockExecuteForRole,
 } = vi.hoisted(() => ({
   mockGetBrainDb: vi.fn().mockResolvedValue({}),
   mockGetBrainNativeDb: vi.fn(),
@@ -42,6 +43,7 @@ const {
     source: undefined,
     authType: 'api_key' as const,
   }),
+  mockExecuteForRole: vi.fn(),
 }));
 
 vi.mock('../../store/memory-sqlite.js', () => ({
@@ -79,6 +81,13 @@ vi.mock('../../llm/credentials.js', async () => {
     clearAnthropicKeyCache: vi.fn(),
   };
 });
+
+// T9320 routed sleep-consolidation through executeForRole (AnthropicTransport/
+// ChatCompletionsTransport) which bypasses globalThis.fetch entirely.
+// Mock at the module boundary instead.
+vi.mock('../../llm/role-executor.js', () => ({
+  executeForRole: mockExecuteForRole,
+}));
 
 // ============================================================================
 // Import module under test (after all mocks)
@@ -205,18 +214,19 @@ function buildMockNativeDb(options: {
   return { prepare, _stmtMock: stmtMock };
 }
 
-function mockFetchOk(responseBody: string): ReturnType<typeof vi.spyOn> {
-  return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-    ok: true,
-    json: vi.fn().mockResolvedValue({
-      content: [{ type: 'text', text: responseBody }],
-      stop_reason: 'end_turn',
-    }),
-  } as unknown as Response);
+function mockFetchOk(responseBody: string): void {
+  mockExecuteForRole.mockResolvedValue({
+    content: responseBody,
+    usage: { inputTokens: 100, outputTokens: 50 },
+    provider: 'anthropic' as const,
+    model: 'claude-sonnet-4-6',
+  });
 }
 
-function mockFetchError(): ReturnType<typeof vi.spyOn> {
-  return vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
+// executeForRole catches all transport errors internally and returns null.
+// Simulate the same by resolving with null (not rejecting).
+function mockFetchError(): void {
+  mockExecuteForRole.mockResolvedValue(null);
 }
 
 // ============================================================================

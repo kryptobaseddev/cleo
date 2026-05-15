@@ -56,6 +56,13 @@ const FAKE_ANTHROPIC_RESPONSE = {
   },
 };
 
+vi.mock('openai', () => {
+  class MockOpenAI {
+    chat = { completions: { create: vi.fn() } };
+  }
+  return { OpenAI: MockOpenAI };
+});
+
 vi.mock('@anthropic-ai/sdk', () => {
   class MockAnthropic {
     messages = { create: mockCreate };
@@ -69,8 +76,8 @@ vi.mock('@anthropic-ai/sdk', () => {
 
 import type { NormalizedResponse } from '@cleocode/contracts/llm/normalized-response.js';
 import { AnthropicTransport, type AnthropicTransportOptions } from '../transports/anthropic.js';
-import { GeminiNotImplementedError, GeminiTransport } from '../transports/gemini.js';
-import { OpenAINotImplementedError, OpenAITransport } from '../transports/openai.js';
+import { GeminiTransport } from '../transports/gemini.js';
+import { OpenAITransport } from '../transports/openai.js';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -147,7 +154,10 @@ describe('AnthropicTransport', () => {
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
     const callArgs = mockCreate.mock.calls[0][0] as Record<string, unknown>;
-    expect(callArgs['system']).toBe('You are a helpful assistant.');
+    // system is now an array of text blocks (supports cache breakpoints injection)
+    const systemArg = callArgs['system'] as Array<Record<string, unknown>>;
+    expect(Array.isArray(systemArg)).toBe(true);
+    expect(systemArg[0]?.['text']).toBe('You are a helpful assistant.');
     expect(Array.isArray(callArgs['tools'])).toBe(true);
     expect(callArgs['temperature']).toBe(0.5);
   });
@@ -228,30 +238,14 @@ describe('AnthropicTransport', () => {
 // ---------------------------------------------------------------------------
 
 describe('OpenAITransport', () => {
-  it('rejects with OpenAINotImplementedError and code E_NOT_IMPLEMENTED', async () => {
-    const transport = new OpenAITransport({ apiKey: 'sk-openai-test' });
-
-    let thrownError: unknown;
-    try {
-      await transport.complete({
-        model: 'gpt-4o',
-        messages: [{ role: 'user', content: 'hello' }],
-        maxTokens: 512,
-      });
-    } catch (err) {
-      thrownError = err;
-    }
-
-    expect(thrownError).toBeInstanceOf(OpenAINotImplementedError);
-    if (thrownError instanceof OpenAINotImplementedError) {
-      expect(thrownError.code).toBe('E_NOT_IMPLEMENTED');
-      expect(thrownError.message).toContain('OpenAI transport not yet wired');
-    }
-  });
-
   it('exposes provider as "openai"', () => {
     const transport = new OpenAITransport({ apiKey: 'sk-openai-test' });
     expect(transport.provider).toBe('openai');
+  });
+
+  it('exposes apiMode as "chat_completions"', () => {
+    const transport = new OpenAITransport({ apiKey: 'sk-openai-test' });
+    expect(transport.apiMode).toBe('chat_completions');
   });
 });
 
@@ -260,30 +254,14 @@ describe('OpenAITransport', () => {
 // ---------------------------------------------------------------------------
 
 describe('GeminiTransport', () => {
-  it('rejects with GeminiNotImplementedError and code E_NOT_IMPLEMENTED', async () => {
-    const transport = new GeminiTransport({ apiKey: 'AIza-test' });
-
-    let thrownError: unknown;
-    try {
-      await transport.complete({
-        model: 'gemini-pro',
-        messages: [{ role: 'user', content: 'hello' }],
-        maxTokens: 512,
-      });
-    } catch (err) {
-      thrownError = err;
-    }
-
-    expect(thrownError).toBeInstanceOf(GeminiNotImplementedError);
-    if (thrownError instanceof GeminiNotImplementedError) {
-      expect(thrownError.code).toBe('E_NOT_IMPLEMENTED');
-      expect(thrownError.message).toContain('Gemini transport not yet wired');
-    }
-  });
-
   it('exposes provider as "gemini"', () => {
     const transport = new GeminiTransport({ apiKey: 'AIza-test' });
     expect(transport.provider).toBe('gemini');
+  });
+
+  it('exposes apiMode as "chat_completions"', () => {
+    const transport = new GeminiTransport({ apiKey: 'AIza-test' });
+    expect(transport.apiMode).toBe('chat_completions');
   });
 });
 
