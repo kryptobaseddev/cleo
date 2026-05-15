@@ -21,8 +21,8 @@
  *   Exit 0 if clean, exit 1 if any violation (CI mode), exit 0 if any (report mode).
  */
 
-import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 const REPO = process.cwd();
@@ -30,6 +30,8 @@ const DISPATCH_DOMAINS_DIR = join(REPO, 'packages/cleo/src/dispatch/domains');
 const CONTRACTS_OPS_DIR = join(REPO, 'packages/contracts/src/operations');
 const CORE_DIR = join(REPO, 'packages/core/src');
 const CORE_INDEX = join(REPO, 'packages/core/src/index.ts');
+const CACHE_DIR = join(REPO, '.cache');
+const CORE_EXPORT_CACHE = join(CACHE_DIR, 'core-export-map.json');
 
 const RULES = {
   L1: 'SSOT_VIOLATION_NON_UNIFORM_SIGNATURE',
@@ -137,6 +139,125 @@ function addWildcardExports(fromFile, content, exports) {
 }
 
 // --------------------------------------------------------------------------
+// Core export map — built once, cached, used by L1
+// --------------------------------------------------------------------------
+
+/**
+ * Scans packages/core/src once and builds a map of exported function names
+ * to their definition metadata. This avoids spawning grep for every entry point.
+ *
+ * The result is cached to .cache/core-export-map.json with mtime-based
+ * invalidation so subsequent runs (e.g. pre-commit) are sub-second.
+ */
+async function buildCoreExportMap() {
+  const map = new Map();
+  const mtimes = {};
+  const files = [];
+
+  /** @param {string} dir */
+  function collect(dir) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name === '__tests__' || e.name === 'node_modules') continue;
+        collect(p);
+      } else if (
+        e.isFile() &&
+        /\.[cm]?tsx?$/.test(e.name) &&
+        !/\.(test|spec)\.[cm]?tsx?$/.test(e.name)
+      ) {
+        files.push(p);
+      }
+    }
+  }
+  collect(CORE_DIR);
+
+  // Parallel stat + read + parse to avoid sequential FUSE overhead
+  const batchSize = 50;
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, i + batchSize);
+    const stats = await Promise.all(batch.map((p) => stat(p)));
+    const contents = await Promise.all(batch.map((p) => readFile(p)));
+
+    for (let j = 0; j < batch.length; j++) {
+      const p = batch[j];
+      const buf = contents[j];
+      mtimes[p] = stats[j].mtimeMs;
+
+      if (!buf.includes('export function') && !buf.includes('export async function')) {
+        continue;
+      }
+      const content = buf.toString('utf-8');
+      const lines = content.split('\n');
+      for (let k = 0; k < lines.length; k++) {
+        const line = lines[k];
+        const m = line.match(/^(export\s+(?:async\s+)?function\s+)(\w+)/);
+        if (m) {
+          const fnName = m[2];
+          // Read up to 8 lines to capture full signature (multi-line generics)
+          const sigChunk = lines.slice(k, k + 8).join(' ');
+          map.set(fnName, { file: p, line: k + 1, sigChunk });
+        }
+      }
+    }
+  }
+
+  // Persist cache
+  try {
+    if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(CORE_EXPORT_CACHE, JSON.stringify({ mtimes, map: Object.fromEntries(map) }));
+  } catch {
+    // Cache write is best-effort
+  }
+
+  return map;
+}
+
+/**
+ * Loads the core export map from cache if valid, otherwise rebuilds.
+ * Cache is valid when every tracked file's mtime matches the cached value.
+ * New files are silently ignored until a tracked file changes (acceptable
+ * trade-off for pre-commit hook performance).
+ *
+ * Validation is async + parallel to avoid sequential stat overhead on slow
+ * filesystems (e.g. FUSE/NTFS where statSync can take 10ms+ per call).
+ */
+async function getCoreExportMap() {
+  try {
+    const raw = readFileSync(CORE_EXPORT_CACHE, 'utf-8');
+    const cache = JSON.parse(raw);
+    const { mtimes } = cache;
+
+    // Verify cache validity in parallel
+    const checks = Object.entries(mtimes).map(async ([file, cachedMtime]) => {
+      const s = await stat(file);
+      if (s.mtimeMs !== cachedMtime) {
+        throw new Error('stale');
+      }
+    });
+    await Promise.all(checks);
+
+    // Cache is valid — reconstruct Map
+    const map = new Map();
+    for (const [fnName, val] of Object.entries(cache.map)) {
+      map.set(fnName, val);
+    }
+    return map;
+  } catch {
+    return buildCoreExportMap();
+  }
+}
+
+/**
+ * Checks whether a line in a file is exempt via SSoT-EXEMPT annotation.
+ * Reads the file on demand — used by L1 where context is not pre-loaded.
+ */
+function isExemptAt(filePath, lineIdx) {
+  const lines = readText(filePath).split('\n');
+  return isExempt(lines, lineIdx);
+}
+
+// --------------------------------------------------------------------------
 // L1 — Core fn signature uniformity
 // --------------------------------------------------------------------------
 //
@@ -194,7 +315,8 @@ function extractDispatchEntryPoints(content, importedNames) {
   return entryPoints;
 }
 
-function lintCoreSignatures() {
+async function lintCoreSignatures() {
+  const coreMap = await getCoreExportMap();
   const dispatchFiles = readdirSync(DISPATCH_DOMAINS_DIR).filter(
     (f) =>
       f.endsWith('.ts') &&
@@ -222,32 +344,18 @@ function lintCoreSignatures() {
     // Scope to only dispatch entry points (fns called within defineTypedHandler block)
     const entryPoints = extractDispatchEntryPoints(content, importedNames);
 
-    // Check each entry-point fn signature
+    // Check each entry-point fn signature against pre-built map (O(1) lookup)
     for (const fnName of entryPoints) {
-      const proc = spawnSync(
-        'grep',
-        [
-          '-rnE',
-          `^export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+${fnName}\\b`,
-          CORE_DIR,
-        ],
-        { encoding: 'utf-8' },
-      );
-      const lines = (proc.stdout ?? '').trim().split('\n').filter(Boolean);
-      if (lines.length === 0) continue; // not a Core fn (might be from engine file)
-      const [defLine] = lines;
-      const m = defLine.match(/^([^:]+):(\d+):(.+)$/);
-      if (!m) continue;
-      const [, defFile, ln] = m;
-      const fileContent = readText(defFile).split('\n');
-      const lineNum = parseInt(ln, 10);
-      // Read up to 8 lines to capture full signature (including multi-line generics)
-      const sigChunk = fileContent.slice(lineNum - 1, lineNum + 8).join(' ');
+      const def = coreMap.get(fnName);
+      if (!def) continue; // not a Core fn (might be from engine file)
+
+      const { file: defFile, line: lineNum, sigChunk } = def;
+
       // Acceptance: has `(projectRoot: string, params: <Op>Params` per ADR-057 D1.
       // Note: \s* after the opening paren handles multi-line signatures joined with spaces.
       // _params is allowed (underscore prefix for unused params per TS convention).
       if (!/\(\s*_?projectRoot:\s*string,\s*_?params:\s*\w+Params\b/.test(sigChunk)) {
-        if (!isExempt(fileContent, lineNum - 1)) {
+        if (!isExemptAt(defFile, lineNum - 1)) {
           report(
             'L1',
             defFile,
@@ -407,15 +515,17 @@ const exitOnFail = args.includes('--exit-on-fail');
 console.error('# lint-contracts-core-ssot');
 console.error('# ADR-057 enforcement\n');
 
-lintContractsForAliases();
-lintDispatchForNormalization();
-lintCoreSignatures();
-lintCorePublic();
+(async () => {
+  lintContractsForAliases();
+  lintDispatchForNormalization();
+  await lintCoreSignatures();
+  lintCorePublic();
 
-if (violations === 0) {
-  console.error('\n✅ No SSoT violations found.');
-  process.exit(0);
-} else {
-  console.error(`\n❌ ${violations} SSoT violation(s) found.`);
-  process.exit(exitOnFail ? 1 : 0);
-}
+  if (violations === 0) {
+    console.error('\n✅ No SSoT violations found.');
+    process.exit(0);
+  } else {
+    console.error(`\n❌ ${violations} SSoT violation(s) found.`);
+    process.exit(exitOnFail ? 1 : 0);
+  }
+})();
