@@ -183,9 +183,12 @@ export class DeviceCodeAuthError extends Error {
  * @throws {Error} When `provider` is not a known preset.
  * @task T9266
  */
-export function getDeviceCodeConfig(provider: 'anthropic' | string): DeviceCodeConfig {
+export function getDeviceCodeConfig(provider: 'anthropic' | 'kimi-code' | string): DeviceCodeConfig {
   if (provider === 'anthropic') {
     return getAnthropicDeviceCodeConfig();
+  }
+  if (provider === 'kimi-code') {
+    return getKimiCodeDeviceCodeConfig();
   }
   throw new Error(
     `No device-code config preset for provider '${provider}'. ` +
@@ -213,6 +216,46 @@ export function getDeviceCodeConfig(provider: 'anthropic' | string): DeviceCodeC
  *
  * @task T9266
  */
+/**
+ * Build the `DeviceCodeConfig` for Kimi Code (kimi.com/code).
+ *
+ * Authentication endpoints are hosted at `auth.kimi.com` (override via
+ * `KIMI_CODE_OAUTH_HOST` env var). The shared community client ID is reused
+ * by kimi-cli and other integrations — no private registration required.
+ *
+ * Token lifecycle:
+ *   - Access token: ~15 minutes
+ *   - Refresh token: ~30 days
+ *   - Recommended refresh strategy: 50% of lifetime or 300s, whichever is larger
+ *
+ * After OAuth completes, the resulting bearer token targets
+ * `https://api.kimi.com/coding` (Anthropic Messages protocol). The six
+ * mandatory `X-Msh-*` headers — built by {@link getKimiCodeMshHeaders} — MUST
+ * be merged into every chat request alongside the bearer token.
+ *
+ * @returns Device-code configuration for Kimi Code OAuth.
+ *
+ * @task T9321
+ * @epic T9261 T-LLM-CRED-CENTRALIZATION
+ * @see https://github.com/gsd-build/gsd-2/issues/4642 — design reference
+ * @see MoonshotAI/kimi-cli `src/kimi_cli/auth/oauth.py` — protocol reference
+ */
+export function getKimiCodeDeviceCodeConfig(): DeviceCodeConfig {
+  const host = process.env['KIMI_CODE_OAUTH_HOST'] ?? 'https://auth.kimi.com';
+  return {
+    provider: 'kimi-code',
+    deviceCodeUrl: `${host}/api/oauth/device_authorization`,
+    tokenUrl: `${host}/api/oauth/token`,
+    // Public client ID shared by kimi-cli and community integrations.
+    // The Kimi backend does NOT require a per-app client registration for
+    // the device-code grant.
+    clientId: '17e5f671-d194-4dfb-9706-5516cb48c098',
+    // Scope is returned by the server as `kimi-code` but is not sent on the
+    // device-authorization request per RFC 8628 §3.1 (optional). Including
+    // it has no effect; the server ignores unknown scopes.
+  };
+}
+
 export function getAnthropicDeviceCodeConfig(): DeviceCodeConfig {
   return {
     provider: 'anthropic',

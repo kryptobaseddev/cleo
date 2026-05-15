@@ -46,7 +46,8 @@ export type BuiltinProviderId =
   | 'bedrock'
   | 'deepseek'
   | 'xai'
-  | 'groq';
+  | 'groq'
+  | 'kimi-code';
 
 /**
  * Provider identity string.
