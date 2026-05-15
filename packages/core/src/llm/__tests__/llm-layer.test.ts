@@ -22,8 +22,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CompletionResult } from '../backend.js';
 import { makeCompletionResult } from '../backend.js';
-// --- Gemini backend ---
-import { GeminiBackend } from '../backends/gemini.js';
+// --- Gemini transport (W1a: backends/gemini.ts removed; static helpers preserved on GeminiTransport) ---
+import { GeminiTransport as GeminiBackend } from '../transports/gemini.js';
 // --- Moonshot backend ---
 import {
   isMoonshotModel,
