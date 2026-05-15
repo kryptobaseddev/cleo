@@ -24,8 +24,8 @@ import { z } from 'zod';
 import { buildCacheKey, InMemoryGeminiCacheStore } from '../caching.js';
 // --- Conversation ---
 import { countMessageTokens, truncateMessagesToFit } from '../conversation.js';
-import type { CompletionResult } from '../executor.js';
-import { makeCompletionResult } from '../executor.js';
+import type { CompletionResult } from '../legacy-types.js';
+import { makeCompletionResult } from '../legacy-types.js';
 // --- History adapters ---
 import {
   AnthropicHistoryAdapter,

@@ -26,6 +26,9 @@ export {
   llmUse,
   llmWhoami,
 } from './cli-ops.js';
+// New Phase 4 executor layer (T9290/T9291)
+export type { ConcreteExecutorOptions } from './concrete-executor.js';
+export { ConcreteExecutor } from './concrete-executor.js';
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
 export type {
@@ -62,17 +65,25 @@ export {
   pickCredentialForProviderSync,
   removeCredential,
 } from './credentials-store.js';
-// Backend types (inlined into executor.ts in T9289 — re-exported for callers)
-// TODO(T9292 W3/W5): migrate callers to LlmTransport/NormalizedResponse and remove
-export type { CompletionResult, ProviderBackend, StreamChunk, ToolCallResult } from './executor.js';
-// Executor (inner call, for testing)
-export { cleoLlmCallInner, completionResultToResponse, makeCompletionResult } from './executor.js';
+export {
+  clearLlmExecutorCache,
+  DefaultLlmExecutorFactory,
+  getLlmExecutor,
+} from './executor-factory.js';
 // History adapters
 export {
   AnthropicHistoryAdapter,
   GeminiHistoryAdapter,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
+// Legacy backend type shims — TODO(T9298 W5): migrate callers to LlmTransport/NormalizedResponse
+export type {
+  CompletionResult,
+  ProviderBackend,
+  StreamChunk,
+  ToolCallResult,
+} from './legacy-types.js';
+export { completionResultToResponse, makeCompletionResult } from './legacy-types.js';
 export type { ModelMetadata } from './model-metadata.js';
 // Model metadata — context window resolution (T9264 / T-LLM-CRED Phase 3)
 export {
@@ -110,6 +121,8 @@ export {
 // Runtime
 export type { AttemptPlan } from './runtime.js';
 export { effectiveTemperature, makeAttemptRef, planAttempt } from './runtime.js';
+// Legacy executor shim (throws at runtime — migrate to ConcreteExecutor)
+export { cleoLlmCallInner } from './shim-executor.js';
 export type { StructuredOutputFailurePolicy } from './structured-output.js';
 // Structured output utilities
 export {
