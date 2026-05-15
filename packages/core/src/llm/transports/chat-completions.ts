@@ -471,24 +471,114 @@ export class ChatCompletionsTransport implements LlmTransport {
   /**
    * Stream a completion against the OpenAI-compatible chat completions endpoint.
    *
-   * STUB: W1 migration will implement stream() for chat-completions.
+   * Requests a server-sent-events stream via `stream: true` + `stream_options:
+   * { include_usage: true }`. Each SSE chunk carrying `delta.content` is routed
+   * through {@link StreamingThinkScrubber} so that `<think>…</think>` blocks
+   * emitted by reasoning models (e.g. o1-series, DeepSeek-R1) are separated from
+   * visible text before being yielded as {@link NormalizedDelta}. The final delta
+   * carries `stopReason` and `usage`.
    *
-   * Wave 1d (T-llm-p4-1d) replaces this stub with a real streaming
-   * implementation that wires `ProviderProfile` hooks and routes deltas
-   * through {@link StreamingThinkScrubber} (T9295 W4c).
+   * Provider quirks (`_applyProviderQuirks`) are applied to the request kwargs
+   * before the stream is opened, matching the behaviour of {@link complete}.
    *
-   * @param _request - Ignored until Wave 1d implementation lands.
-   * @param _ctx - Ignored until Wave 1d implementation lands.
-   * @throws {Error} Always, until the real implementation lands in Wave 1d.
+   * @param request - Provider-neutral request parameters.
+   * @param _ctx - Transport context (unused; `request.signal` handles abort).
+   * @returns Async iterable of normalized delta chunks.
    */
-  // biome-ignore lint/correctness/useYield: stub — Wave 1d replaces with real streaming impl
-  async *stream(
-    _request: TransportRequest,
-    _ctx: TransportContext,
-  ): AsyncIterable<NormalizedDelta> {
-    // TODO(T9295 W4c): route deltas through new StreamingThinkScrubber() before yielding.
-    void StreamingThinkScrubber;
-    throw new Error('STUB: W1 migration will implement stream() for chat-completions');
+  async *stream(request: TransportRequest, _ctx: TransportContext): AsyncIterable<NormalizedDelta> {
+    validateImagesForProvider(request, this.provider);
+
+    const messages = this._convertMessages(request);
+    const tools =
+      request.tools && request.tools.length > 0 ? this._convertTools(request.tools) : undefined;
+
+    const kwargs: Record<string, unknown> = {
+      model: request.model,
+      messages,
+      max_tokens: request.maxTokens,
+      temperature: request.temperature ?? 0.7,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+    if (tools) kwargs['tools'] = tools;
+
+    if (
+      request.thinkingBudgetTokens !== null &&
+      request.thinkingBudgetTokens !== undefined &&
+      this._profile &&
+      !this._profile.supportsThinkingBudget
+    ) {
+      throw new Error(
+        `Provider '${this._profile.name}' does not support thinkingBudgetTokens; ` +
+          'remove thinkingBudgetTokens from the request for this provider',
+      );
+    }
+
+    this._applyProviderQuirks(kwargs, request);
+
+    const responseStream = (await this._client.chat.completions.create(
+      kwargs as unknown as Parameters<typeof this._client.chat.completions.create>[0],
+      { signal: request.signal },
+    )) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+
+    let finishReason: string | null = null;
+    let usageChunkReceived = false;
+    const scrubber = new StreamingThinkScrubber();
+
+    for await (const chunk of responseStream) {
+      const delta = chunk.choices[0]?.delta;
+      if (delta?.content) {
+        const visible = scrubber.feed(delta.content);
+        if (visible) {
+          yield { text: visible, reasoning: '', stopReason: null, usage: null };
+        }
+      }
+
+      // Some providers surface reasoning_content as a separate delta field
+      // (e.g. DeepSeek-R1 via OpenRouter).
+      const deltaAny = delta as unknown as Record<string, unknown> | undefined;
+      const rawReasoning =
+        deltaAny &&
+        typeof deltaAny['reasoning_content'] === 'string' &&
+        deltaAny['reasoning_content'].length > 0
+          ? (deltaAny['reasoning_content'] as string)
+          : '';
+      if (rawReasoning) {
+        yield { text: '', reasoning: rawReasoning, stopReason: null, usage: null };
+      }
+
+      if (chunk.choices[0]?.finish_reason) {
+        finishReason = chunk.choices[0].finish_reason;
+      }
+
+      const chunkAny = chunk as unknown as Record<string, unknown>;
+      if (chunkAny['usage']) {
+        const usageRaw = chunkAny['usage'] as Record<string, unknown>;
+        const normalizedUsage: NormalizedUsage = {
+          inputTokens: Number(usageRaw['prompt_tokens']) || 0,
+          outputTokens: Number(usageRaw['completion_tokens']) || 0,
+        };
+        const tail = scrubber.flush();
+        if (tail) {
+          yield { text: tail, reasoning: '', stopReason: null, usage: null };
+        }
+        yield {
+          text: '',
+          reasoning: '',
+          stopReason: finishReason ?? 'stop',
+          usage: normalizedUsage,
+        };
+        usageChunkReceived = true;
+      }
+    }
+
+    if (!usageChunkReceived && finishReason) {
+      const tail = scrubber.flush();
+      if (tail) {
+        yield { text: tail, reasoning: '', stopReason: null, usage: null };
+      }
+      yield { text: '', reasoning: '', stopReason: finishReason, usage: null };
+    }
   }
 }
 
