@@ -55,8 +55,23 @@ import type { ApiMode } from '@cleocode/contracts/llm/provider-id.js';
  * `anthropic-beta` header for extended-thinking enablement.
  */
 export interface AnthropicTransportOptions {
-  /** API key or OAuth bearer token. */
-  apiKey: string;
+  /**
+   * API key (sent as `x-api-key`).
+   *
+   * Use this for legacy API-key auth. For OAuth bearer auth (Claude Code
+   * tokens, `kimi-code` OAuth, etc.) pass {@link authToken} instead — the
+   * Anthropic SDK routes `authToken` to `Authorization: Bearer …` and skips
+   * the `x-api-key` header, which is what the OAuth gateways require.
+   */
+  apiKey?: string;
+  /**
+   * OAuth bearer token (sent as `Authorization: Bearer …`).
+   *
+   * Mutually exclusive with {@link apiKey} at the wire level — the Anthropic
+   * SDK uses `authToken` when both are set, but callers SHOULD pass only one
+   * to avoid confusion.
+   */
+  authToken?: string;
   /** Override base URL (e.g. for proxies or on-prem deployments). */
   baseUrl?: string;
   /** Extra headers merged into every SDK request. */
@@ -246,6 +261,7 @@ export class AnthropicTransport implements LlmTransport {
   constructor(options: AnthropicTransportOptions) {
     this._client = new Anthropic({
       apiKey: options.apiKey,
+      authToken: options.authToken,
       baseURL: options.baseUrl,
       defaultHeaders: options.defaultHeaders,
     });
