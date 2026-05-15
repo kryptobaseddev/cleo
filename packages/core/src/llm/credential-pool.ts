@@ -35,7 +35,9 @@
 
 import type { StoredCredential } from './credentials-store.js';
 import { addCredential, getCredentialByLabel, listCredentials } from './credentials-store.js';
-import { getAnthropicDeviceCodeConfig, getKimiCodeDeviceCodeConfig } from './oauth/device-code.js';
+import { getKimiCodeDeviceCodeConfig } from './oauth/device-code.js';
+import { refreshPkceToken } from './oauth/pkce.js';
+import { getProviderProfile } from './provider-registry/index.js';
 import { rateLimitRemaining } from './rate-limit-guard.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -423,25 +425,72 @@ export class CredentialPool {
   /**
    * Perform the actual token refresh for a known OAuth credential.
    *
-   * Dispatches to the provider-specific token endpoint using the shared
-   * `_refreshTokenViaEndpoint` helper. Both `anthropic` and `kimi-code` use
-   * the standard `grant_type=refresh_token` flow with their respective
-   * `DeviceCodeConfig` token URLs.
+   * Dispatches based on `profile.oauth.mode`:
+   * - `pkce` — uses `refreshPkceToken` (RFC 6749 §6 refresh via PKCE endpoint).
+   * - `device-code` — uses the device-code token URL + clientId.
+   * - No profile / unknown mode → no-op (caller's 401-retry handles it).
    *
    * Errors are silently swallowed — the caller's retry path will encounter a
    * 401 and trigger credential rotation if the token has actually expired.
    *
    * @param existing - The credential entry to refresh.
-   * @task T9323
+   * @task T9302 (generic PKCE dispatch, replaces anthropic-specific branch)
+   * @task T9323 (device-code path)
    */
   private async _refreshOAuthCredential(existing: StoredCredential): Promise<void> {
-    if (this.provider === 'anthropic') {
-      const cfg = getAnthropicDeviceCodeConfig();
-      await this._refreshTokenViaEndpoint(existing, cfg.tokenUrl, cfg.clientId, cfg.defaultHeaders);
+    if (!existing.refreshToken) return;
+
+    const profile = await getProviderProfile(this.provider);
+    const oauthCfg = profile?.oauth;
+
+    if (oauthCfg?.mode === 'pkce') {
+      await this._refreshViaPkce(existing, oauthCfg.tokenEndpoint, oauthCfg.clientId);
     } else if (this.provider === 'kimi-code') {
       const cfg = getKimiCodeDeviceCodeConfig();
       await this._refreshTokenViaEndpoint(existing, cfg.tokenUrl, cfg.clientId);
     }
+  }
+
+  /**
+   * Refresh via RFC 7636 PKCE `refresh_token` grant using `refreshPkceToken`.
+   *
+   * On success, upserts the new access token (and optional refresh token)
+   * into the credential store. Errors are silently swallowed.
+   *
+   * @param existing      - Credential entry to refresh.
+   * @param tokenEndpoint - Provider token endpoint URL.
+   * @param clientId      - OAuth client ID.
+   * @task T9302
+   */
+  private async _refreshViaPkce(
+    existing: StoredCredential,
+    tokenEndpoint: string,
+    clientId: string,
+  ): Promise<void> {
+    if (!existing.refreshToken) return;
+
+    let tokens: Awaited<ReturnType<typeof refreshPkceToken>>;
+    try {
+      tokens = await refreshPkceToken({
+        provider: existing.provider,
+        clientId,
+        refreshToken: existing.refreshToken,
+        tokenEndpoint,
+      });
+    } catch {
+      return;
+    }
+
+    await addCredential({
+      ...existing,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken ?? existing.refreshToken,
+      expiresAt:
+        tokens.expiresIn != null ? Date.now() + tokens.expiresIn * 1000 : existing.expiresAt,
+      lastStatus: 'ok',
+      lastErrorCode: undefined,
+      lastErrorResetAt: undefined,
+    });
   }
 
   /**

@@ -526,4 +526,79 @@ describe('CredentialPool.proactiveRefresh() — OAuth credential threshold', () 
     expect(entry?.accessToken).toBe('sk-ant-oat-new-access');
     vi.restoreAllMocks();
   });
+
+  it('PKCE-mode refresh POSTs grant_type=refresh_token to the PKCE token endpoint', async () => {
+    isolateHomes();
+    vi.useFakeTimers();
+
+    const expiresAt = Date.now() + 200_000;
+    await addCredential(
+      makeCredential('anthropic-pkce', 10, {
+        provider: 'anthropic',
+        authType: 'oauth',
+        expiresAt,
+        refreshToken: 'ant-pkce-refresh-tok',
+      }),
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: 'sk-ant-pkce-new',
+          refresh_token: 'ant-pkce-new-refresh',
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const pool = new CredentialPool('anthropic');
+    await pool.proactiveRefresh('anthropic-pkce');
+
+    // Verify it called the Anthropic token endpoint with refresh_token grant.
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('anthropic.com');
+    expect(String(init.body)).toContain('grant_type=refresh_token');
+    expect(String(init.body)).toContain('refresh_token=ant-pkce-refresh-tok');
+
+    const entries = await pool.listEntries();
+    const entry = entries.find((e) => e.label === 'anthropic-pkce');
+    expect(entry?.accessToken).toBe('sk-ant-pkce-new');
+    vi.restoreAllMocks();
+  });
+
+  it('silently no-ops when the PKCE refresh endpoint returns a non-200', async () => {
+    isolateHomes();
+    vi.useFakeTimers();
+
+    const expiresAt = Date.now() + 200_000;
+    await addCredential(
+      makeCredential('anthropic-pkce-fail', 10, {
+        provider: 'anthropic',
+        authType: 'oauth',
+        expiresAt,
+        refreshToken: 'old-tok',
+        accessToken: 'old-access-tok',
+      }),
+    );
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'invalid_grant' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const pool = new CredentialPool('anthropic');
+    // Should return true (refresh attempted), but not throw.
+    const refreshed = await pool.proactiveRefresh('anthropic-pkce-fail');
+    expect(refreshed).toBe(true);
+
+    // Token should be unchanged.
+    const entries = await pool.listEntries();
+    const entry = entries.find((e) => e.label === 'anthropic-pkce-fail');
+    expect(entry?.accessToken).toBe('old-access-tok');
+    vi.restoreAllMocks();
+  });
 });
