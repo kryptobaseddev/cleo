@@ -28,6 +28,23 @@ const { mockCreate } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
 }));
 
+/** Build a fake async iterable of ChatCompletionChunk objects. */
+function makeFakeStream(
+  chunks: Array<Record<string, unknown>>,
+): AsyncIterable<Record<string, unknown>> {
+  return {
+    [Symbol.asyncIterator]() {
+      let i = 0;
+      return {
+        async next() {
+          if (i < chunks.length) return { value: chunks[i++], done: false };
+          return { value: undefined, done: true };
+        },
+      };
+    },
+  };
+}
+
 vi.mock('openai', () => {
   class MockOpenAI {
     chat = {
@@ -254,6 +271,96 @@ describe('ChatCompletionsTransport — ProviderProfile hook dispatch (T9286 W1d)
     const headers = callArgs['extra_headers'] as Record<string, string>;
     expect(typeof headers['x-grok-conv-id']).toBe('string');
     expect(headers['x-grok-conv-id'].startsWith('cleo-')).toBe(true);
+  });
+
+  // ── Streaming tests ───────────────────────────────────────────────────────
+
+  it('streams text deltas via OpenAI chat.completions stream', async () => {
+    const transport = new ChatCompletionsTransport({ ...BASE_OPTS });
+
+    mockCreate.mockResolvedValue(
+      makeFakeStream([
+        { choices: [{ delta: { content: 'Hello' }, finish_reason: null, index: 0 }] },
+        { choices: [{ delta: { content: ' world' }, finish_reason: 'stop', index: 0 }] },
+        { choices: [], usage: { prompt_tokens: 5, completion_tokens: 2 } },
+      ]),
+    );
+
+    const deltas = [];
+    for await (const d of transport.stream(
+      { model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }], maxTokens: 64 },
+      {} as Parameters<typeof transport.stream>[1],
+    )) {
+      deltas.push(d);
+    }
+
+    const textDeltas = deltas.filter((d) => d.text.length > 0);
+    expect(textDeltas.map((d) => d.text).join('')).toBe('Hello world');
+
+    const finalDelta = deltas[deltas.length - 1];
+    expect(finalDelta.stopReason).toBe('stop');
+    expect(finalDelta.usage?.inputTokens).toBe(5);
+    expect(finalDelta.usage?.outputTokens).toBe(2);
+  });
+
+  it('routes <think> blocks through StreamingThinkScrubber to delta.reasoning', async () => {
+    const transport = new ChatCompletionsTransport({ ...BASE_OPTS });
+
+    // Simulate reasoning_content field (DeepSeek-R1 / OpenRouter style)
+    mockCreate.mockResolvedValue(
+      makeFakeStream([
+        {
+          choices: [
+            {
+              delta: { content: '', reasoning_content: 'step one' },
+              finish_reason: null,
+              index: 0,
+            },
+          ],
+        },
+        { choices: [{ delta: { content: 'Answer' }, finish_reason: 'stop', index: 0 }] },
+        { choices: [], usage: { prompt_tokens: 10, completion_tokens: 3 } },
+      ]),
+    );
+
+    const deltas = [];
+    for await (const d of transport.stream(
+      { model: 'deepseek-r1', messages: [{ role: 'user', content: 'reason' }], maxTokens: 64 },
+      {} as Parameters<typeof transport.stream>[1],
+    )) {
+      deltas.push(d);
+    }
+
+    const reasoningDeltas = deltas.filter((d) => d.reasoning.length > 0);
+    expect(reasoningDeltas[0].reasoning).toBe('step one');
+
+    const textDeltas = deltas.filter((d) => d.text.length > 0);
+    expect(textDeltas[0].text).toBe('Answer');
+  });
+
+  it('yields final delta with stopReason + usage when stream ends without usage chunk', async () => {
+    const transport = new ChatCompletionsTransport({ ...BASE_OPTS });
+
+    // No trailing usage chunk — stream ends with only a finish_reason
+    mockCreate.mockResolvedValue(
+      makeFakeStream([
+        { choices: [{ delta: { content: 'Hi' }, finish_reason: null, index: 0 }] },
+        { choices: [{ delta: {}, finish_reason: 'stop', index: 0 }] },
+      ]),
+    );
+
+    const deltas = [];
+    for await (const d of transport.stream(
+      { model: 'gpt-3.5-turbo', messages: [{ role: 'user', content: 'hey' }], maxTokens: 16 },
+      {} as Parameters<typeof transport.stream>[1],
+    )) {
+      deltas.push(d);
+    }
+
+    const finalDelta = deltas[deltas.length - 1];
+    expect(finalDelta.stopReason).toBe('stop');
+    // No usage chunk provided — usage should be null
+    expect(finalDelta.usage).toBeNull();
   });
 
   // ── Invariant 7: Gemini deep sanitizer preserved distinct from Moonshot shallow strip

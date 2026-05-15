@@ -2,9 +2,7 @@
  * Tests for the unified credentials resolver (T1677).
  *
  * Covers all 5 resolution tiers for `resolveCredentials()` and the
- * backward-compatible Anthropic shims:
- *   - resolveAnthropicApiKey()
- *   - resolveAnthropicApiKeySource()
+ * Anthropic key helpers:
  *   - storeAnthropicApiKey() / clearAnthropicKeyCache()
  *
  * Filesystem is isolated via XDG_DATA_HOME + temp directories.
@@ -31,8 +29,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   clearAnthropicKeyCache,
-  resolveAnthropicApiKey,
-  resolveAnthropicApiKeySource,
   resolveCredentials,
   storeAnthropicApiKey,
 } from '../credentials.js';
@@ -305,63 +301,52 @@ describe('No key found', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Backward-compatible Anthropic shims
+// resolveCredentials — Anthropic key resolution
 // ---------------------------------------------------------------------------
 
-describe('resolveAnthropicApiKey() — backward-compat shim', () => {
+describe('resolveCredentials("anthropic") — key resolution', () => {
   it('returns key from env var', () => {
-    process.env['ANTHROPIC_API_KEY'] = 'sk-shim-env';
-    expect(resolveAnthropicApiKey()).toBe('sk-shim-env');
+    process.env['ANTHROPIC_API_KEY'] = 'sk-env-direct';
+    const result = resolveCredentials('anthropic');
+    expect(result.apiKey).toBe('sk-env-direct');
+    expect(result.source).toBe('env');
   });
 
-  it('caches the result within the process', () => {
-    process.env['ANTHROPIC_API_KEY'] = 'sk-cached';
-    const first = resolveAnthropicApiKey();
-    delete process.env['ANTHROPIC_API_KEY'];
-    const second = resolveAnthropicApiKey(); // should return cached
-    expect(first).toBe('sk-cached');
-    expect(second).toBe('sk-cached');
-  });
-
-  it('returns a non-null key when at least one tier resolves (env or creds file)', () => {
-    // On developer machines, ~/.claude/.credentials.json provides a token (tier 3).
-    // The test verifies the resolver chain works — we use env to guarantee a non-null result.
+  it('returns a non-null key when env tier resolves', () => {
     process.env['ANTHROPIC_API_KEY'] = 'sk-explicit-env';
-    expect(resolveAnthropicApiKey()).toBe('sk-explicit-env');
+    expect(resolveCredentials('anthropic').apiKey).toBe('sk-explicit-env');
   });
 });
 
 describe('clearAnthropicKeyCache()', () => {
-  it('clears the cache so next call re-resolves to env key', () => {
-    process.env['ANTHROPIC_API_KEY'] = 'sk-before';
-    resolveAnthropicApiKey(); // populate cache
-    // Change env var and clear cache — next call should see new value
-    process.env['ANTHROPIC_API_KEY'] = 'sk-after';
-    clearAnthropicKeyCache();
-    expect(resolveAnthropicApiKey()).toBe('sk-after');
+  it('is a no-op that does not throw', () => {
+    // resolveCredentials has no internal cache; clearAnthropicKeyCache is retained
+    // for test call-site compatibility.
+    expect(() => clearAnthropicKeyCache()).not.toThrow();
   });
 
-  it('returns null for env-only resolution when env is cleared and cache invalidated', () => {
-    // Use explicit option to guarantee we get a specific key
-    process.env['ANTHROPIC_API_KEY'] = 'sk-known';
-    resolveAnthropicApiKey(); // populate cache with sk-known
+  it('resolveCredentials still reads env after clearAnthropicKeyCache call', () => {
+    process.env['ANTHROPIC_API_KEY'] = 'sk-after';
+    clearAnthropicKeyCache();
+    expect(resolveCredentials('anthropic').apiKey).toBe('sk-after');
+  });
+
+  it('returns explicit key when env is cleared after cache call', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     clearAnthropicKeyCache();
-    // Without env var, resolveCredentials with explicit key wins
     const result = resolveCredentials('anthropic', { apiKey: 'sk-fallback' });
     expect(result.apiKey).toBe('sk-fallback');
     expect(result.source).toBe('explicit');
   });
 });
 
-describe('resolveAnthropicApiKeySource() — backward-compat shim', () => {
-  it('returns "env" when ANTHROPIC_API_KEY is set', () => {
+describe('resolveCredentials source mapping — anthropic', () => {
+  it('source is "env" when ANTHROPIC_API_KEY is set', () => {
     process.env['ANTHROPIC_API_KEY'] = 'sk-env-source';
-    expect(resolveAnthropicApiKeySource()).toBe('env');
+    expect(resolveCredentials('anthropic').source).toBe('env');
   });
 
-  it('returns "config" when openai key comes from global config (openai unaffected by claude-creds)', () => {
-    // Use openai to avoid the Claude OAuth tier-3 check
+  it('source is "global-config" when openai key comes from global config', () => {
     const { configPath } = makeTempXdg();
     writeGlobalProviderKey(configPath, 'openai', 'sk-openai-config');
     const result = resolveCredentials('openai');
@@ -369,45 +354,28 @@ describe('resolveAnthropicApiKeySource() — backward-compat shim', () => {
     expect(result.apiKey).toBe('sk-openai-config');
   });
 
-  it('returns "none" when no openai key is available (openai unaffected by claude-creds)', () => {
-    // Use openai to avoid the Claude OAuth tier-3 check
-    makeTempXdg(); // XDG set to empty dir
+  it('source is undefined when no openai key is available', () => {
+    makeTempXdg();
     const result = resolveCredentials('openai');
     expect(result.apiKey).toBeNull();
     expect(result.source).toBeUndefined();
   });
-
-  it('resolveAnthropicApiKeySource returns "env" consistently with resolveCredentials', () => {
-    process.env['ANTHROPIC_API_KEY'] = 'sk-consistency-test';
-    clearAnthropicKeyCache();
-    expect(resolveAnthropicApiKeySource()).toBe('env');
-    clearAnthropicKeyCache();
-    expect(resolveAnthropicApiKey()).toBe('sk-consistency-test');
-  });
 });
 
 describe('storeAnthropicApiKey()', () => {
-  it('writes the flat key file (verified via resolveCredentials with env override)', () => {
+  it('writes the flat key file readable via resolveCredentials', () => {
     const { cleoDir } = makeTempXdg();
-    void cleoDir; // XDG is set
+    void cleoDir;
     storeAnthropicApiKey('sk-stored-key');
-    // Verify the file was written by checking with openai provider (unaffected by claude-creds)
-    // and by asserting the flat key file resolves when env + oauth + global-config.providers missing.
-    // The easiest verification: resolveCredentials reads the flat file when nothing else matches.
-    // We use a temp XDG that has no config.json (only the flat key file written by storeAnthropicApiKey).
-    // Since tier 3 (claude-creds) may win on developer machines, we just verify the
-    // cache-invalidation behavior: after storeAnthropicApiKey, resolveAnthropicApiKey() is non-null.
     clearAnthropicKeyCache();
-    // Either from flat file (tier 4b) or from claude-creds (tier 3) — either way key is found
-    expect(resolveAnthropicApiKey()).not.toBeNull();
+    // Either from flat file (tier 4b) or from claude-creds (tier 3) — key is non-null
+    expect(resolveCredentials('anthropic').apiKey).not.toBeNull();
   });
 
-  it('clearAnthropicKeyCache() invalidates the cache after storeAnthropicApiKey()', () => {
+  it('env key takes precedence over stored key after store', () => {
     makeTempXdg();
     storeAnthropicApiKey('sk-cache-test');
-    // Cache was cleared by storeAnthropicApiKey — next call resolves fresh
-    // We set the env key to ensure we know what value to expect
     process.env['ANTHROPIC_API_KEY'] = 'sk-env-after-store';
-    expect(resolveAnthropicApiKey()).toBe('sk-env-after-store');
+    expect(resolveCredentials('anthropic').apiKey).toBe('sk-env-after-store');
   });
 });

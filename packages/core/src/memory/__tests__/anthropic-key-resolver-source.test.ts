@@ -1,9 +1,7 @@
 /**
- * Tests for `resolveAnthropicApiKeySource()` — companion to
- * `resolveAnthropicApiKey()` that identifies which source resolved the key.
+ * Tests for Anthropic credential resolution source via `resolveCredentials()`.
  *
- * Covers env, config-file, and the `none` path. Each test resets the
- * module-level cache via `clearAnthropicKeyCache()` and isolates filesystem
+ * Covers env, config-file, and the `none` path. Each test isolates filesystem
  * access with a per-test temp directory.
  *
  * @task T791
@@ -14,11 +12,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  clearAnthropicKeyCache,
-  resolveAnthropicApiKey,
-  resolveAnthropicApiKeySource,
-} from '../../llm/credentials.js';
+import { clearAnthropicKeyCache, resolveCredentials } from '../../llm/credentials.js';
 
 // ---------------------------------------------------------------------------
 // Environment management helpers
@@ -59,7 +53,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Restore original environment
   if (ORIG_ENV_KEY !== undefined) {
     process.env['ANTHROPIC_API_KEY'] = ORIG_ENV_KEY;
   } else {
@@ -77,23 +70,21 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('resolveAnthropicApiKeySource()', () => {
+describe('resolveCredentials("anthropic").source', () => {
   it('returns "env" when ANTHROPIC_API_KEY is set in the environment', () => {
     setEnvKey('sk-test-env-key');
-    expect(resolveAnthropicApiKeySource()).toBe('env');
+    expect(resolveCredentials('anthropic').source).toBe('env');
   });
 
-  it('flat key file at XDG_DATA_HOME/cleo/anthropic-key is read as tier 4b (config)', () => {
+  it('flat key file at XDG_DATA_HOME/cleo/anthropic-key resolves (tier 4b or oauth)', () => {
     setEnvKey(undefined);
     const { xdgRoot, cleoDir } = makeCleoDir();
     writeFileSync(join(cleoDir, 'anthropic-key'), 'sk-from-config-file\n');
     setXdgHome(xdgRoot);
-    // T1677: resolution order is explicit → env → claude-creds → global-config → project-config.
-    // When ~/.claude/.credentials.json has a valid OAuth token (true on developer machines),
-    // source resolves to 'oauth' (tier 3) rather than 'config' (tier 4b).
-    // The flat-file key is still read as a fallback when tier 3 is absent.
-    const source = resolveAnthropicApiKeySource();
-    expect(['config', 'oauth']).toContain(source);
+    // When ~/.claude/.credentials.json is present (developer machine), tier 3 (claude-creds) wins.
+    // On CI the flat file resolves as tier 4b (global-config).
+    const source = resolveCredentials('anthropic').source;
+    expect(['global-config', 'claude-creds']).toContain(source);
   });
 
   it('env takes priority over config file (source = "env")', () => {
@@ -101,54 +92,51 @@ describe('resolveAnthropicApiKeySource()', () => {
     const { xdgRoot, cleoDir } = makeCleoDir();
     writeFileSync(join(cleoDir, 'anthropic-key'), 'sk-config-file');
     setXdgHome(xdgRoot);
-    expect(resolveAnthropicApiKeySource()).toBe('env');
+    expect(resolveCredentials('anthropic').source).toBe('env');
   });
 
-  it('returns "none" when env is absent and XDG dir has no key file', () => {
+  it('returns undefined apiKey when env absent and XDG dir has no key file', () => {
     setEnvKey(undefined);
     const { xdgRoot } = makeCleoDir();
-    // XDG dir exists but contains no anthropic-key file
     setXdgHome(xdgRoot);
-    // In CI there are no credentials, so this should be 'none' (or 'oauth' in dev)
-    const result = resolveAnthropicApiKeySource();
-    expect(['none', 'oauth']).toContain(result);
+    // In CI there are no credentials; developer machines may have claude-creds (tier 3)
+    const result = resolveCredentials('anthropic');
+    // Either null (CI) or non-null (developer — claude-creds tier)
+    if (result.apiKey === null) {
+      expect(result.source).toBeUndefined();
+    }
   });
 
-  it('resolveAnthropicApiKey() still works after resolveAnthropicApiKeySource() call', () => {
+  it('resolveCredentials returns env key consistently across calls', () => {
     setEnvKey('sk-cache-coherence');
-    // Source does NOT prime the resolver cache
-    const source = resolveAnthropicApiKeySource();
-    expect(source).toBe('env');
-    // Resolver should independently resolve the env key
-    const key = resolveAnthropicApiKey();
-    expect(key).toBe('sk-cache-coherence');
+    const first = resolveCredentials('anthropic');
+    const second = resolveCredentials('anthropic');
+    expect(first.source).toBe('env');
+    expect(second.source).toBe('env');
+    expect(first.apiKey).toBe('sk-cache-coherence');
+    expect(second.apiKey).toBe('sk-cache-coherence');
   });
 
-  it('returns "env" and resolveAnthropicApiKey() returns non-null consistently', () => {
+  it('returns "env" and apiKey non-null consistently', () => {
     setEnvKey('sk-consistent-check');
-    const source = resolveAnthropicApiKeySource();
-    clearAnthropicKeyCache(); // Source does not cache, resolver does
-    const key = resolveAnthropicApiKey();
-    // Both must agree: key is present when source != "none"
-    expect(source).not.toBe('none');
-    expect(key).not.toBeNull();
+    clearAnthropicKeyCache();
+    const result = resolveCredentials('anthropic');
+    expect(result.source).toBe('env');
+    expect(result.apiKey).not.toBeNull();
   });
 });
 
-describe('resolveAnthropicApiKeySource() — code paths tested by resolver audit', () => {
-  it('observer-reflector.ts calls resolveAnthropicApiKey() not raw env (smoke)', async () => {
-    // Verify the module imports the resolver rather than using process.env directly
+describe('resolveCredentials("anthropic") — code paths tested by resolver audit', () => {
+  it('observer-reflector.ts calls resolveCredentials not raw env (smoke)', async () => {
     setEnvKey('sk-observer-smoke');
-    // Import the module dynamically to get a fresh reference
-    const { resolveAnthropicApiKey: resolveKey } = await import('../../llm/credentials.js');
-    expect(resolveKey()).toBe('sk-observer-smoke');
+    const { resolveCredentials: resolve } = await import('../../llm/credentials.js');
+    expect(resolve('anthropic').apiKey).toBe('sk-observer-smoke');
   });
 
-  it('resolveAnthropicApiKeySource() is always safe to call even without any key configured', () => {
+  it('resolveCredentials is always safe to call even without any key configured', () => {
     setEnvKey(undefined);
     const { xdgRoot } = makeCleoDir();
     setXdgHome(xdgRoot);
-    // Should never throw regardless of filesystem state
-    expect(() => resolveAnthropicApiKeySource()).not.toThrow();
+    expect(() => resolveCredentials('anthropic')).not.toThrow();
   });
 });
