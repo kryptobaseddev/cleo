@@ -34,15 +34,11 @@ import type {
   NormalizedUsage,
   TransportRequest,
 } from '@cleocode/contracts/llm/normalized-response.js';
-
-import type { ModelTransport } from './types-config.js';
+import { getKimiCodeMshHeaders, isKimiCodeApiKey } from './provider-registry/builtin/kimi-code.js';
 import { resolveLLMForRole } from './role-resolver.js';
-import {
-  getKimiCodeMshHeaders,
-  isKimiCodeApiKey,
-} from './provider-registry/builtin/kimi-code.js';
 import { AnthropicTransport } from './transports/anthropic.js';
 import { ChatCompletionsTransport } from './transports/chat-completions.js';
+import type { ModelTransport } from './types-config.js';
 
 /** Kimi Code chat endpoint — speaks Anthropic Messages protocol. */
 const KIMI_CODE_BASE_URL = 'https://api.kimi.com/coding';

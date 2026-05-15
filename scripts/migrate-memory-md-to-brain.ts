@@ -333,7 +333,7 @@ function importEntry(entry: ParsedMemoryFile, dryRun: boolean): boolean {
   }
 
   const result = callCleo(cmdArgs);
-  if (!result || !result.success) {
+  if (!result?.success) {
     console.error(`  [ERROR] ${entry.fileName}: ${result?.error ?? 'unknown error'}`);
     return false;
   }

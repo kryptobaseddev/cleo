@@ -669,7 +669,7 @@ export async function bootstrapDaemon(
         );
       } catch (err) {
         process.stderr.write(
-          `${new Date().toISOString()} [CLEO SENTIENT] tick error (caught at cron boundary): ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+          `${new Date().toISOString()} [CLEO SENTIENT] tick error (caught at cron boundary): ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
         );
       }
     },
@@ -697,7 +697,7 @@ export async function bootstrapDaemon(
         );
       } catch (err) {
         process.stderr.write(
-          `${new Date().toISOString()} [CLEO SENTIENT T2] propose error (caught at cron boundary): ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+          `${new Date().toISOString()} [CLEO SENTIENT T2] propose error (caught at cron boundary): ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
         );
       }
     },
@@ -741,7 +741,7 @@ export async function bootstrapDaemon(
         );
       } catch (err) {
         process.stderr.write(
-          `${new Date().toISOString()} [CLEO SENTIENT HYGIENE] error (caught at cron boundary): ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+          `${new Date().toISOString()} [CLEO SENTIENT HYGIENE] error (caught at cron boundary): ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
         );
       }
     },
