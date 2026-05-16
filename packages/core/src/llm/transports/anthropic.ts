@@ -498,16 +498,22 @@ export class AnthropicTransport implements LlmTransport {
   /**
    * Stream a completion against the Anthropic Messages API.
    *
-   * Yields text deltas as they arrive. Thinking/reasoning blocks are routed to
-   * `delta.reasoning`; visible text goes to `delta.text`. Tool-use content
-   * blocks are dropped from streaming output (the full tool call is only
-   * available from the final message, which callers should fetch via
-   * `complete()` for tool-call scenarios).
+   * Yields text, reasoning, and tool-call argument deltas as they arrive.
+   * Thinking/reasoning blocks are routed to `delta.reasoning`; visible text
+   * goes to `delta.text`. Tool-use content blocks emit incremental
+   * `toolCallDelta` chunks so consumers can accumulate argument JSON in real
+   * time without waiting for the final message.
    *
-   * @invariant stream tool-call yield contract — text-only deltas are yielded
-   *   from streaming output; `tool_use` content blocks are DROPPED during
-   *   streaming. Callers that need tool call arguments MUST use `complete()`
-   *   instead of `stream()`, or accumulate deltas and parse the final message.
+   * Tool-call streaming sequence per tool-use block:
+   * 1. `content_block_start` (type=tool_use) → yields delta with `toolCallDelta`
+   *    carrying `{ index, name, argumentsChunk: '' }` (start marker).
+   * 2. `content_block_delta` (type=input_json_delta) → yields delta with
+   *    `toolCallDelta` carrying `{ index, argumentsChunk }` (incremental JSON).
+   * 3. `content_block_stop` → yields delta with `toolCallDelta` carrying
+   *    `{ index, argumentsChunk: '' }` and `stopReason: null` (end marker, no name).
+   *
+   * Consumers accumulate `argumentsChunk` fragments in index order to
+   * reconstruct the full arguments JSON string before invoking tool handlers.
    *
    * @invariant thinkingBudgetTokens vs useJsonPrefill MUTEX in stream() — same
    *   mutex as complete(): when `thinkingBudgetTokens` is set, `useJsonPrefill`
@@ -623,15 +629,31 @@ export class AnthropicTransport implements LlmTransport {
     );
 
     let inThinkingBlock = false;
+    // Tracks tool-use block state per content-block index.
+    // Maps index → tool name so we can emit the start delta with the name.
+    const toolBlockNames = new Map<number, string>();
 
     for await (const chunk of stream as AsyncIterable<MessageStreamEvent>) {
       const chunkAny = chunk as unknown as Record<string, unknown>;
       const chunkType = chunkAny['type'];
 
       if (chunkType === 'content_block_start') {
+        const index = Number(chunkAny['index'] ?? 0);
         const blockStart = chunkAny['content_block'] as Record<string, unknown> | undefined;
         if (blockStart?.['type'] === 'thinking') {
           inThinkingBlock = true;
+        } else if (blockStart?.['type'] === 'tool_use') {
+          inThinkingBlock = false;
+          const name = String(blockStart['name'] ?? '');
+          toolBlockNames.set(index, name);
+          // Emit start marker — name present, empty argumentsChunk.
+          yield {
+            text: '',
+            reasoning: '',
+            stopReason: null,
+            usage: null,
+            toolCallDelta: { index, name, argumentsChunk: '' },
+          };
         } else {
           inThinkingBlock = false;
         }
@@ -639,13 +661,24 @@ export class AnthropicTransport implements LlmTransport {
       }
 
       if (chunkType === 'content_block_stop') {
+        const index = Number(chunkAny['index'] ?? 0);
+        if (toolBlockNames.has(index)) {
+          // Emit end marker — no name, empty argumentsChunk.
+          yield {
+            text: '',
+            reasoning: '',
+            stopReason: null,
+            usage: null,
+            toolCallDelta: { index, argumentsChunk: '' },
+          };
+          toolBlockNames.delete(index);
+        }
         inThinkingBlock = false;
         continue;
       }
 
-      // @invariant stream tool-call yield contract — tool_use blocks are DROPPED.
-      // Only text deltas (and thinking deltas routed to delta.reasoning) are yielded.
       if (chunkType === 'content_block_delta') {
+        const index = Number(chunkAny['index'] ?? 0);
         const delta = chunkAny['delta'] as Record<string, unknown> | undefined;
         if (!delta) continue;
 
@@ -664,9 +697,19 @@ export class AnthropicTransport implements LlmTransport {
           if (text) {
             yield { text, reasoning: '', stopReason: null, usage: null };
           }
+          continue;
         }
 
-        // input_json_delta (tool_use streaming) — dropped per @invariant
+        if (deltaType === 'input_json_delta') {
+          const argumentsChunk = String(delta['partial_json'] ?? '');
+          yield {
+            text: '',
+            reasoning: '',
+            stopReason: null,
+            usage: null,
+            toolCallDelta: { index, argumentsChunk },
+          };
+        }
       }
     }
 
