@@ -20,6 +20,8 @@
 import type {
   LlmAddParams,
   LlmAddResult,
+  LlmAuxiliaryStatusParams,
+  LlmAuxiliaryStatusResult,
   LlmListParams,
   LlmListResult,
   LlmProfileParams,
@@ -44,6 +46,11 @@ import { setConfigValue } from '../config.js';
 // contains a credential substring is automatically scrubbed before it
 // reaches the dispatch envelope or the audit log.
 import { redactContent } from '../memory/redaction.js';
+import {
+  DEFAULT_AUXILIARY_FALLBACK_CHAIN,
+  parseAuxiliaryFallbackChain,
+  resolveAuxiliaryFallbackChain,
+} from './auxiliary-fallback.js';
 import { authHeaders, resolveCredentials } from './credentials.js';
 import {
   addCredential,
@@ -432,3 +439,46 @@ export async function llmWhoami(params: LlmWhoamiParams): Promise<EngineResult<L
     return engineError('E_WHOAMI_FAILED', safeErrMessage(err));
   }
 }
+
+/**
+ * `llm.auxiliary-status` — report the active auxiliary fallback chain
+ * and how to configure it.
+ *
+ * The chain determines which providers are tried (in order) when an auxiliary
+ * LLM call fails due to pool exhaustion. Configured via:
+ *
+ * ```
+ * cleo config set llm.auxiliaryFallback "anthropic,openrouter,groq"
+ * ```
+ *
+ * Returns the resolved chain plus the config key and an example value so
+ * users can copy-paste to customise.
+ *
+ * @task T9319
+ */
+export async function llmAuxiliaryStatus(
+  params: LlmAuxiliaryStatusParams,
+): Promise<EngineResult<LlmAuxiliaryStatusResult>> {
+  try {
+    const { loadConfig } = await import('../config.js');
+    const config = await loadConfig(params.projectRoot);
+    const rawValue = (config.llm as Record<string, unknown> | undefined)?.['auxiliaryFallback'];
+    const hasConfig = typeof rawValue === 'string' && rawValue.trim().length > 0;
+
+    const chain = hasConfig
+      ? parseAuxiliaryFallbackChain(rawValue as string)
+      : DEFAULT_AUXILIARY_FALLBACK_CHAIN;
+
+    return engineSuccess({
+      chain: chain.map((e) => ({ provider: e.provider, ...(e.model ? { model: e.model } : {}) })),
+      source: hasConfig ? 'config' : 'default',
+      configKey: 'llm.auxiliaryFallback',
+      configExample: 'anthropic,openrouter,groq',
+    });
+  } catch (err) {
+    return engineError('E_AUXILIARY_STATUS_FAILED', safeErrMessage(err));
+  }
+}
+
+// Re-export for tree-shaking clarity (consumers import only what they use).
+export { resolveAuxiliaryFallbackChain };

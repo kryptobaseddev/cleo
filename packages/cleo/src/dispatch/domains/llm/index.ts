@@ -17,6 +17,7 @@
 
 import {
   llmAdd,
+  llmAuxiliaryStatus,
   llmList,
   llmProfile,
   llmRemove,
@@ -42,6 +43,7 @@ const coreOps = {
   list: llmList,
   test: llmTest,
   whoami: llmWhoami,
+  'auxiliary-status': llmAuxiliaryStatus,
   add: llmAdd,
   remove: llmRemove,
   use: llmUse,
@@ -91,6 +93,8 @@ const _llmTypedHandler = defineTypedHandler<LlmOps>('llm', {
   list: async (params) => wrap(coreOps['list'], params, 'list'),
   test: async (params) => wrap(coreOps['test'], params, 'test'),
   whoami: async (params) => wrap(coreOps['whoami'], params, 'whoami'),
+  'auxiliary-status': async (params) =>
+    wrap(coreOps['auxiliary-status'], params, 'auxiliary-status'),
 
   // -------------------------------------------------------------------------
   // Mutate ops
@@ -106,7 +110,7 @@ const _llmTypedHandler = defineTypedHandler<LlmOps>('llm', {
 // Op sets — validated before dispatch
 // ---------------------------------------------------------------------------
 
-const QUERY_OPS = new Set<string>(['list', 'test', 'whoami']);
+const QUERY_OPS = new Set<string>(['list', 'test', 'whoami', 'auxiliary-status']);
 const MUTATE_OPS = new Set<string>(['add', 'remove', 'use', 'profile']);
 
 // ---------------------------------------------------------------------------
@@ -127,7 +131,7 @@ export class LlmHandler implements DomainHandler {
   /** Declared operations for introspection and validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['list', 'test', 'whoami'],
+      query: ['list', 'test', 'whoami', 'auxiliary-status'],
       mutate: ['add', 'remove', 'use', 'profile'],
     };
   }
