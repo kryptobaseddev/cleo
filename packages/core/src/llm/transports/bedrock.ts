@@ -22,8 +22,8 @@
 import {
   BedrockRuntimeClient,
   ConverseCommand,
-  ConverseStreamCommand,
   type ConverseCommandOutput,
+  ConverseStreamCommand,
   type ConverseStreamCommandOutput,
   type GuardrailConfiguration,
   type InferenceConfiguration,
@@ -429,7 +429,10 @@ export class BedrockTransport implements LlmTransport {
   /**
    * Normalize a raw `ConverseCommandOutput` into a {@link NormalizedResponse}.
    */
-  private _normalizeResponse(response: ConverseCommandOutput, modelName: string): NormalizedResponse {
+  private _normalizeResponse(
+    response: ConverseCommandOutput,
+    modelName: string,
+  ): NormalizedResponse {
     const r = response as unknown as {
       output?: { message?: { content?: RawContentBlock[] } };
       stopReason?: string;
