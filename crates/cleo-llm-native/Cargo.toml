@@ -1,0 +1,20 @@
+[package]
+name = "cleo-llm-native"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+description = "napi-rs bindings for CLEO LLM hot-path operations (think-scrubber, rate-limit-guard)"
+
+[lib]
+name = "cleo_llm_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "3", features = ["napi4"] }
+napi-derive = "3"
+
+[build-dependencies]
+napi-build = "1"
+
+[lints]
+workspace = true
