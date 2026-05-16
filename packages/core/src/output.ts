@@ -137,7 +137,28 @@ export function formatSuccess<T>(
   const opts: FormatOptions =
     typeof operationOrOpts === 'string' ? { operation: operationOrOpts } : (operationOrOpts ?? {});
 
-  const meta = createCliMeta(opts.operation ?? 'cli.output');
+  const baseMeta = createCliMeta(opts.operation ?? 'cli.output');
+
+  // T9393: merge caller-supplied extensions into envelope meta. The `extensions`
+  // field has been declared on FormatOptions since T4670 but was never consumed
+  // here — silently dropping decorator-stamped fields (e.g. `_nexus`, `deprecated`,
+  // measured `duration_ms`) into the void. Canonical fields (operation, requestId,
+  // timestamp) are still produced by createCliMeta and listed last so they always
+  // win against any extension overrides.
+  const meta: CliMeta = {
+    ...(opts.extensions ?? {}),
+    ...baseMeta,
+    operation: baseMeta.operation,
+    requestId: baseMeta.requestId,
+    timestamp: baseMeta.timestamp,
+    // duration_ms is special: extensions wins when caller measured it, otherwise
+    // the createCliMeta default (0) is used. Both above spreads handle this —
+    // extensions sets it, then baseMeta's 0 only wins if extensions had none.
+    duration_ms:
+      typeof opts.extensions?.['duration_ms'] === 'number'
+        ? (opts.extensions['duration_ms'] as number)
+        : baseMeta.duration_ms,
+  };
 
   const envelope: CliEnvelope<T> = {
     success: true,

@@ -20,6 +20,10 @@ import path from 'node:path';
 import { generateGexf, getSymbolImpact } from '@cleocode/core/nexus';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
+import {
+  buildNexusMetaExtensions,
+  pickDecoratorMetaExtensions,
+} from '../../dispatch/nexus-decorator.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
@@ -180,7 +184,10 @@ const statusCommand = defineCommand({
         {
           command: 'nexus-status',
           operation: 'nexus.status',
-          extensions: { duration_ms: durationMs },
+          extensions: {
+            duration_ms: durationMs,
+            ...buildNexusMetaExtensions('status', { projectId, path: repoPath }),
+          },
         },
       );
     } catch (err) {
@@ -910,7 +917,10 @@ const impactCommand = defineCommand({
       cliOutput({ ...result, _symbolName: symbolName, _why: whyFlag } as Record<string, unknown>, {
         command: 'nexus-impact',
         operation: 'nexus.impact',
-        extensions: { duration_ms: durationMs },
+        extensions: {
+          duration_ms: durationMs,
+          ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
+        },
       });
     } catch (err) {
       const code =
