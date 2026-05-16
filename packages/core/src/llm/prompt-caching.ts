@@ -26,12 +26,15 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Anthropic cache breakpoint TTL options (seconds).
+ * Anthropic cache breakpoint TTL options.
  *
- * 300 = 5-minute rolling window (default ephemeral tier).
- * 3600 = 1-hour stable prefix (long-cache tier).
+ * The Anthropic API accepts string duration values:
+ * - `'5m'` = 5-minute rolling window (default ephemeral tier).
+ * - `'1h'` = 1-hour stable prefix (long-cache tier).
+ *
+ * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
  */
-export type CacheTtl = 300 | 3600;
+export type CacheTtl = '5m' | '1h';
 
 /**
  * The three supported prompt-caching injection strategies.
@@ -51,9 +54,9 @@ export interface CacheControlMarker {
   /** Must be `'ephemeral'` per the Anthropic API. */
   type: 'ephemeral';
   /**
-   * Optional TTL in seconds.
-   * 300 = 5-minute tier (default when omitted).
-   * 3600 = 1-hour tier (long-cache stable prefix).
+   * Optional TTL duration string.
+   * `'5m'` = 5-minute tier (default when omitted).
+   * `'1h'` = 1-hour tier (long-cache stable prefix).
    */
   ttl?: CacheTtl;
 }
@@ -95,11 +98,11 @@ export interface AnthropicKwargs {
 
 /**
  * Build a `CacheControlMarker` for the given TTL.
- * The `ttl` field is omitted when it equals 300 to keep the payload minimal
- * (300 s is Anthropic's implicit default for the ephemeral tier).
+ * The `ttl` field is omitted when it equals `'5m'` to keep the payload minimal
+ * (`'5m'` is Anthropic's implicit default for the ephemeral tier).
  */
 function buildMarker(ttl: CacheTtl): CacheControlMarker {
-  return ttl === 3600 ? { type: 'ephemeral', ttl: 3600 } : { type: 'ephemeral', ttl: 300 };
+  return ttl === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral', ttl: '5m' };
 }
 
 /**
@@ -135,10 +138,10 @@ function attachMarkerToLastBlock(msg: AnthropicMessage, marker: CacheControlMark
  *
  * Strategy details:
  * - `system_and_3`: every system block + the last 3 user messages receive
- *   `{ type: 'ephemeral', ttl: 300 }`.
+ *   `{ type: 'ephemeral', ttl: '5m' }`.
  * - `prefix_and_2`: the **first** system block receives
- *   `{ type: 'ephemeral', ttl: 3600 }` (stable long-cache prefix); the last
- *   2 user messages receive `{ type: 'ephemeral', ttl: 300 }` (rolling
+ *   `{ type: 'ephemeral', ttl: '1h' }` (stable long-cache prefix); the last
+ *   2 user messages receive `{ type: 'ephemeral', ttl: '5m' }` (rolling
  *   window).
  * - `none`: kwargs returned unchanged.
  *
@@ -155,7 +158,7 @@ export function injectCacheBreakpoints<T extends AnthropicKwargs>(
   if (strategy === 'none') return kwargs;
 
   if (strategy === 'system_and_3') {
-    const shortMarker = buildMarker(300);
+    const shortMarker = buildMarker('5m');
 
     // Mark every system block at the 5-minute TTL
     if (Array.isArray(kwargs.system)) {
@@ -178,8 +181,8 @@ export function injectCacheBreakpoints<T extends AnthropicKwargs>(
   }
 
   if (strategy === 'prefix_and_2') {
-    const longMarker = buildMarker(3600);
-    const shortMarker = buildMarker(300);
+    const longMarker = buildMarker('1h');
+    const shortMarker = buildMarker('5m');
 
     // Mark ONLY the first system block with the 1-hour TTL (stable prefix)
     if (Array.isArray(kwargs.system) && kwargs.system.length > 0) {
