@@ -2,13 +2,14 @@
  * Provider SDK client factory — credential-aware construction with per-tuple caching.
  *
  * Exposes `clientForModelConfig` as the single entry point for building SDK
- * clients from a resolved `ModelConfig`. The legacy module-load `CLIENTS` map
- * and per-provider override-factory exports have been removed (D-ph4-01):
- * transports construct their own SDK clients in their constructors, so no
- * global registry is needed for the streaming path. `clientForModelConfig`
- * is retained for the legacy `runtime.ts` / `role-resolver.ts` code path.
+ * clients from a resolved `ModelConfig`. The legacy module-load `CLIENTS` map,
+ * `buildAnthropicSdkClient`, and `historyAdapterForProvider` have been removed
+ * (D-ph4-01, T9356): transports construct their own SDK clients in their
+ * constructors. `clientForModelConfig` is retained for the legacy
+ * `role-resolver.ts` code path (to be removed in T9370).
  *
  * @task T1392 (T1386-W6)
+ * @task T9356 (D-ph4-01 factory retirement — T9369)
  * @epic T1386
  */
 
@@ -17,14 +18,7 @@ import { Anthropic } from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { OpenAI } from 'openai';
 
-import type { CredentialResult } from './credentials.js';
 import { defaultTransportApiKey } from './credentials.js';
-import type { HistoryAdapter } from './history-adapters.js';
-import {
-  AnthropicHistoryAdapter,
-  GeminiHistoryAdapter,
-  OpenAIHistoryAdapter,
-} from './history-adapters.js';
 import { MOONSHOT_BASE_URL } from './provider-registry/builtin/moonshot.js';
 import type { ProviderClient } from './types.js';
 import type { ModelConfig, ModelTransport } from './types-config.js';
@@ -104,37 +98,6 @@ function extractBearerToken(headers: Record<string, string>): string | null {
     if (match?.[1]) return match[1].trim();
   }
   return null;
-}
-
-// ---------------------------------------------------------------------------
-// buildAnthropicSdkClient — convenience factory for CredentialResult
-// ---------------------------------------------------------------------------
-
-/**
- * Build a fresh Anthropic SDK client for a resolved credential.
- *
- * Centralises the dynamic-import + constructor dance previously duplicated in
- * `memory/llm-extraction.ts`, `sentient/dream-cycle.ts`, and `deriver/deriver.ts`.
- * Honors `cred.authType` so OAuth tokens are passed via `authToken` (Bearer)
- * and api_key credentials via `apiKey` (`x-api-key`).
- *
- * Returns null when the credential has no resolvable token.
- *
- * @param cred - Resolved credential from `resolveCredentials`.
- * @returns Constructed Anthropic SDK client, or null when no key is available.
- *
- * @task T-LLM-CRED-CENTRALIZATION Phase 1
- */
-export function buildAnthropicSdkClient(cred: CredentialResult): Anthropic | null {
-  if (!cred.apiKey) return null;
-  if (cred.authType === 'oauth') {
-    return new Anthropic({
-      authToken: cred.apiKey,
-      timeout: 600_000,
-      defaultHeaders: { 'anthropic-beta': 'oauth-2025-04-20' },
-    });
-  }
-  return new Anthropic({ apiKey: cred.apiKey, timeout: 600_000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -232,18 +195,3 @@ export function clientForModelConfig(
   throw new Error(`Unknown provider: ${provider as string}`);
 }
 
-// ---------------------------------------------------------------------------
-// historyAdapterForProvider
-// ---------------------------------------------------------------------------
-
-/**
- * Provider-appropriate HistoryAdapter for assistant/tool message formatting.
- *
- * @param provider - Target transport identifier.
- * @returns A history adapter appropriate for the provider wire format.
- */
-export function historyAdapterForProvider(provider: ModelTransport): HistoryAdapter {
-  if (provider === 'anthropic') return new AnthropicHistoryAdapter();
-  if (provider === 'gemini') return new GeminiHistoryAdapter();
-  return new OpenAIHistoryAdapter();
-}

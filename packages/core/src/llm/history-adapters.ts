@@ -149,3 +149,22 @@ export class OpenAIHistoryAdapter implements HistoryAdapter {
     }));
   }
 }
+
+// ---------------------------------------------------------------------------
+// historyAdapterForProvider
+// ---------------------------------------------------------------------------
+
+/**
+ * Provider-appropriate HistoryAdapter for assistant/tool message formatting.
+ *
+ * Relocated from `registry.ts` as part of D-ph4-01 factory retirement
+ * (T9356/T9369). Lives here alongside the adapter classes it constructs.
+ *
+ * @param provider - Target transport identifier.
+ * @returns A history adapter appropriate for the provider wire format.
+ */
+export function historyAdapterForProvider(provider: string): HistoryAdapter {
+  if (provider === 'anthropic') return new AnthropicHistoryAdapter();
+  if (provider === 'gemini') return new GeminiHistoryAdapter();
+  return new OpenAIHistoryAdapter();
+}

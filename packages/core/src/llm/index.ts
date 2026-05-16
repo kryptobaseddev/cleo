@@ -129,6 +129,7 @@ export {
 export {
   AnthropicHistoryAdapter,
   GeminiHistoryAdapter,
+  historyAdapterForProvider,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
 export type { ModelMetadata } from './model-metadata.js';
@@ -145,12 +146,8 @@ export type {
   PromptCachingStrategy,
 } from './prompt-caching.js';
 export { injectCacheBreakpoints } from './prompt-caching.js';
-// Registry — SDK client factory + history adapters
-export {
-  buildAnthropicSdkClient,
-  clientForModelConfig,
-  historyAdapterForProvider,
-} from './registry.js';
+// Registry — SDK client factory (D-ph4-01 partial: buildAnthropicSdkClient removed T9369)
+export { clientForModelConfig } from './registry.js';
 // Role-based LLM resolver (T-LLM-CRED-CENTRALIZATION Phase 2 / T9255)
 export type {
   LLMClient,
