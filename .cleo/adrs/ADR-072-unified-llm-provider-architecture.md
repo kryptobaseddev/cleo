@@ -1,20 +1,20 @@
 ---
 id: ADR-072
 title: Unified LLM Provider Architecture — Three-Interface Stack (Transport / Session / Executor)
-status: Accepted (committed via Wave 0a / T9280 PR)
+status: Implemented (T9354 closure epic · v2026.5.74 + Phase 6 PRs)
 date: 2026-05-14
 task: T9280
-linkedTasks: [T9261, T9281, T9282, T9283]
+linkedTasks: [T9261, T9281, T9282, T9283, T9354, T9355, T9356, T9357, T9358, T9359, T9360, T9361, T9362, T9363, T9364]
 supersedes: null
 supersededBy: null
 ---
 
 # ADR-072: Unified LLM Provider Architecture — Three-Interface Stack
 
-**Status:** Accepted (committed via Wave 0a / T9280 PR)
+**Status:** Implemented (T9354 closure epic · v2026.5.74 + Phase 6 PRs)
 **Date:** 2026-05-14
 **Task:** T9280
-**Linked Tasks:** T9261, T9281, T9282, T9283
+**Linked Tasks:** T9261, T9281, T9282, T9283, T9354 (closure epic)
 
 ## Context
 
@@ -377,10 +377,48 @@ Full mapping and reasons: `.cleo/rcasd/T9363/specification/plan-doc-retro-spec.m
 
 ---
 
+---
+
+## Implementation Notes (T9354 · 2026-05-16)
+
+All Phase 4 acceptance criteria (AC1–AC7 per Phase 4 plan) and Phase 6 closure criteria
+(AC1–AC13 per T9354) have been verified. The following PRs closed the remaining gaps after
+the Wave 0a–W8 baseline merged:
+
+| PR | Task | What shipped |
+|----|------|--------------|
+| #167 | T9358 | Coverage measurement: `packages/core/src/llm/` ≥ 80% line coverage via Istanbul/v8; per-role integration test audit |
+| #168 | T9357 | `resolveAnthropicApiKey` shim removed from `packages/adapters/src/providers/claude-sdk/`; D-ph4-02 final close |
+| #169 | T9360 | Fixed `cleo llm whoami` `hasCredential` lookup bug — role-to-credential join was broken |
+| #170 | T9361 | Real-world CLI smoke matrix: 4 PASS / 2 SKIP (anthropic + stream + refresh-catalog + profile+whoami verified); prompt-caching TTL fix |
+| #171 | T9363 | Plan-doc retro: planned-vs-shipped filename annotations for Phase 4 committed to ADR-072 §As-Shipped and plan doc |
+| #172 | T9355 | OllamaTransport + ProviderProfile + factory wire; real-world smoke test (qwen2:0.5b PASS); AC6 + D-ph4-05 close |
+| #173 | T9356 | `registry.ts` factory function retirement: `new Anthropic(` outside `transports/` reaches zero non-test hits; D-ph4-01 final close |
+| #174 | T9362 | Streaming tool-call delta parity (openai.ts + gemini.ts, AC8/T9316); `ExecutorFactory.create` fallback chain wiring (AC9/T9319); `validateFsAccess` invoked at tool-dispatch sites (AC10/T9313) |
+
+### Owner-action follow-up (AC5 — real-world sentient daemon)
+
+**AC5** (Phase 6 criterion 6: live `cleo sentient` run for 30 min, ≥1 LLM-backed task, zero 401
+lines in `sentient.err`) was **not verified** in this closure session. The environment has no live
+credentials loaded — `cleo llm whoami` shows `hasCredential: false` for all roles and no live
+daemon is running. All code-level changes required for AC5 have shipped (OAuth header routing,
+credential-pool rotation, executor-factory wiring). AC5 remains as an owner-action follow-up:
+restart the daemon with valid credentials, observe 30 min of tick activity, and confirm zero 401
+entries. No code changes are gated on this verification.
+
+### Release tag
+
+The primary Phase 5 baseline shipped as `v2026.5.73` (PR #162, 2026-05-15). The T9344 hotfix
+shipped as `v2026.5.74` (PR #164). Phase 6 closure PRs (#167–#174) are feature branches merged
+to `main` after v2026.5.74; the next CalVer release will carry the T9354 closure.
+
+---
+
 ## References
 
 - Hermes Agent architecture: `docs/specs/hermes-agent-llm-provider-architecture.md`
 - Phase 4 plan: `docs/plans/T-LLM-CRED-CENTRALIZATION.md` § "Phase 4"
+- Phase 6 closure: `docs/plans/T-LLM-CRED-CENTRALIZATION.md` § "Phase 6"
 - Hermes `ProviderProfile`: `/mnt/projects/hermes-agent/providers/base.py`
 - Hermes `CredentialPool`: `/mnt/projects/hermes-agent/agent/credential_pool.py:92-1095`
 - Hermes `NormalizedResponse`: `/mnt/projects/hermes-agent/agent/transports/types.py:1-163`
