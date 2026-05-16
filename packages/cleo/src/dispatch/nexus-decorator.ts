@@ -213,3 +213,62 @@ export function stampNexusMeta(
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// pickDecoratorMetaExtensions — forward decorator fields into CLI envelope
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick the decorator-stamped fields (`_nexus`, `deprecated`) from a dispatch
+ * response's `meta` so they can be forwarded via `cliOutput`'s `extensions`
+ * option into the emitted LAFS envelope.
+ *
+ * Without this, `cliOutput(response.data, ...)` discards `response.meta._nexus`
+ * + `response.meta.deprecated` (T9393 defect). Canonical CLI meta fields
+ * (`operation`, `requestId`, `timestamp`) are intentionally NOT forwarded —
+ * those are produced by {@link createCliMeta} on the CLI side.
+ *
+ * @task T9393
+ */
+export function pickDecoratorMetaExtensions(
+  responseMeta: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!responseMeta) return {};
+  const out: Record<string, unknown> = {};
+  if (responseMeta['_nexus'] !== undefined) out['_nexus'] = responseMeta['_nexus'];
+  if (responseMeta['deprecated'] !== undefined) out['deprecated'] = responseMeta['deprecated'];
+  return out;
+}
+
+/**
+ * Build CLI envelope extensions for nexus commands that bypass the dispatcher
+ * (e.g. `cleo nexus status` SSoT-EXEMPT path). Runs the same {@link stampNexusMeta}
+ * logic against a synthetic response so the resulting envelope still carries
+ * `meta._nexus` (and `meta.deprecated` for alias shims).
+ *
+ * Use this only where the command does NOT call `dispatchRaw`. When you have a
+ * real dispatch response, use {@link pickDecoratorMetaExtensions} on
+ * `response.meta` instead — that path already ran the decorator.
+ *
+ * @task T9393
+ */
+export function buildNexusMetaExtensions(
+  operation: string,
+  params: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const synthetic: DispatchResponse = {
+    success: true,
+    data: undefined,
+    meta: {
+      gateway: 'query',
+      domain: 'nexus',
+      operation,
+      timestamp: new Date().toISOString(),
+      duration_ms: 0,
+      source: 'cli',
+      requestId: '',
+    },
+  } as DispatchResponse;
+  const stamped = stampNexusMeta(synthetic, operation, params);
+  return pickDecoratorMetaExtensions(stamped.meta as Record<string, unknown>);
+}

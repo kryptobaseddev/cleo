@@ -80,34 +80,58 @@ function cliColorize(text: string, style: ColorStyle): string {
 // ---------------------------------------------------------------------------
 
 export function renderDoctor(data: Record<string, unknown>, quiet: boolean): string {
-  const healthy = data['healthy'] as boolean | undefined;
-  const errors = data['errors'] as number | undefined;
-  const warnings = data['warnings'] as number | undefined;
+  // T9393-followup: dispatcher returns `overall: 'pass'|'warning'|'fail'`,
+  // per-check `status: 'pass'|'warn'|'fail'`. The previous implementation read
+  // `healthy` (never set) so every check rendered as red \u2717 regardless of state.
+  const overall = (data['overall'] as string | undefined) ?? 'unknown';
+  const version = data['version'] as string | undefined;
+  const installation = data['installation'] as string | undefined;
   const checks = data['checks'] as Array<Record<string, unknown>> | undefined;
 
   if (quiet) {
-    return healthy ? 'healthy' : 'unhealthy';
+    return overall;
   }
 
   const lines: string[] = [];
-  const statusText = healthy ? `${GREEN}${BOLD}HEALTHY${NC}` : `${RED}${BOLD}UNHEALTHY${NC}`;
+  const statusBadge =
+    overall === 'pass'
+      ? `${GREEN}${BOLD}HEALTHY${NC}`
+      : overall === 'warning'
+        ? `${YELLOW}${BOLD}DEGRADED${NC}`
+        : overall === 'fail'
+          ? `${RED}${BOLD}UNHEALTHY${NC}`
+          : `${DIM}${overall.toUpperCase()}${NC}`;
 
-  lines.push(`System Status: ${statusText}`);
-  if ((errors ?? 0) > 0) lines.push(`  ${RED}Errors: ${errors}${NC}`);
-  if ((warnings ?? 0) > 0) lines.push(`  ${YELLOW}Warnings: ${warnings}${NC}`);
-  lines.push('');
+  lines.push(`System Status: ${statusBadge}`);
+  if (version) lines.push(`  ${DIM}Version:${NC} ${version}`);
+  if (installation) lines.push(`  ${DIM}Installation:${NC} ${installation}`);
 
-  if (checks) {
+  if (checks && checks.length > 0) {
+    let passCount = 0;
+    let warnCount = 0;
+    let failCount = 0;
+    for (const c of checks) {
+      const s = c['status'] as string;
+      if (s === 'pass') passCount++;
+      else if (s === 'warn' || s === 'warning') warnCount++;
+      else failCount++;
+    }
+    lines.push(
+      `  ${DIM}Checks:${NC} ${GREEN}${passCount} pass${NC} \u00B7 ${YELLOW}${warnCount} warn${NC} \u00B7 ${RED}${failCount} fail${NC}`,
+    );
+    lines.push('');
     for (const check of checks) {
       const status = check['status'] as string;
+      const name = check['name'] as string | undefined;
       const message = check['message'] as string;
       const icon =
-        status === 'ok'
+        status === 'pass'
           ? `${GREEN}\u2713${NC}`
-          : status === 'warning'
+          : status === 'warn' || status === 'warning'
             ? `${YELLOW}\u26A0${NC}`
             : `${RED}\u2717${NC}`;
-      lines.push(`  ${icon} ${message}`);
+      const label = name ? `${BOLD}${name}${NC}` : '';
+      lines.push(`  ${icon} ${label}${label && message ? ` \u2014 ${message}` : message}`);
     }
   }
 
@@ -192,31 +216,66 @@ export function renderNext(data: Record<string, unknown>, quiet: boolean): strin
 // ---------------------------------------------------------------------------
 
 export function renderBlockers(data: Record<string, unknown>, quiet: boolean): string {
-  const blockers = data['blockers'] as Array<Record<string, unknown>> | undefined;
-  const tasks = data['tasks'] as Task[] | undefined;
-  const items = blockers ?? tasks;
+  // T9393-followup: dispatcher returns `blockedTasks` (not `blockers`/`tasks`),
+  // plus `criticalBlockers`, `summary`, `total`, `limit`. The previous keys
+  // never matched so `cleo blockers --human` printed "No blocked tasks" while
+  // JSON had hundreds.
+  const blockedTasks =
+    (data['blockedTasks'] as Array<Record<string, unknown>> | undefined) ??
+    (data['blockers'] as Array<Record<string, unknown>> | undefined) ??
+    (data['tasks'] as Array<Record<string, unknown>> | undefined);
+  const criticalBlockers = data['criticalBlockers'] as Array<Record<string, unknown>> | undefined;
+  const summary = data['summary'] as string | undefined;
+  const total = data['total'] as number | undefined;
+  const limit = data['limit'] as number | undefined;
 
-  if (!items || items.length === 0) {
-    return quiet ? '' : 'No blocked tasks.';
+  if (!blockedTasks || blockedTasks.length === 0) {
+    return quiet ? '' : (summary ?? 'No blocked tasks.');
   }
 
   if (quiet) {
-    return items
-      .map((b) => String((b as Record<string, unknown>)['id'] ?? (b as Task).id))
-      .join('\n');
+    return blockedTasks.map((b) => String(b['id'])).join('\n');
   }
 
   const lines: string[] = [];
-  lines.push(`${RED}${BOLD}Blocked Tasks (${items.length})${NC}`);
+  const shown = blockedTasks.length;
+  const totalLabel = typeof total === 'number' && total !== shown ? ` of ${total}` : '';
+  lines.push(`${RED}${BOLD}Blocked Tasks (${shown}${totalLabel})${NC}`);
+  if (summary && summary !== `${shown} blocked task(s)`) {
+    lines.push(`${DIM}${summary}${NC}`);
+  }
   lines.push('');
 
-  for (const item of items) {
-    const t = item as Task & Record<string, unknown>;
-    const id = t.id ?? String(t['id']);
-    const title = t.title ?? String(t['title']);
-    const blockedBy = t.blockedBy ?? String(t['blockedBy'] ?? '');
-    lines.push(`  ${RED}\u2297${NC} ${BOLD}${id}${NC} ${title}`);
-    if (blockedBy) lines.push(`    ${DIM}Blocked by: ${blockedBy}${NC}`);
+  if (criticalBlockers && criticalBlockers.length > 0) {
+    lines.push(`${RED}${BOLD}Critical Blockers (${criticalBlockers.length})${NC}`);
+    for (const cb of criticalBlockers) {
+      const id = String(cb['id'] ?? cb['taskId'] ?? '');
+      const title = String(cb['title'] ?? '');
+      const blocks = cb['blocks'] as string[] | undefined;
+      lines.push(`  ${RED}\u2297${NC} ${BOLD}${id}${NC} ${title}`);
+      if (blocks && blocks.length > 0) {
+        lines.push(`    ${DIM}Blocks: ${blocks.join(', ')}${NC}`);
+      }
+    }
+    lines.push('');
+  }
+
+  for (const item of blockedTasks) {
+    const id = String(item['id']);
+    const title = String(item['title'] ?? '');
+    const priority = item['priority'] as string | undefined;
+    const blockedBy = item['blockedBy'] as string[] | string | undefined;
+    const blockedByStr = Array.isArray(blockedBy) ? blockedBy.join(', ') : (blockedBy ?? '');
+    const pBadge = priority ? `${priorityColor(priority)}[${priority}]${NC} ` : '';
+    lines.push(`  ${RED}\u2297${NC} ${BOLD}${id}${NC} ${pBadge}${title}`);
+    if (blockedByStr) lines.push(`    ${DIM}Blocked by: ${blockedByStr}${NC}`);
+  }
+
+  if (typeof limit === 'number' && typeof total === 'number' && total > shown) {
+    lines.push('');
+    lines.push(
+      `${DIM}\u2500\u2500\u2500 ${shown} of ${total} (--limit ${limit}, --json for full set) \u2500\u2500\u2500${NC}`,
+    );
   }
 
   return lines.join('\n');

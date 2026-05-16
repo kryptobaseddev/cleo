@@ -31,6 +31,7 @@ import type { CliEnvelope, CliMeta } from '@cleocode/lafs';
 import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
+import { metaFooter, pagerFooter } from './format-helpers.js';
 import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
 import { normalizeForHuman } from './normalizer.js';
 // System renderers
@@ -208,6 +209,30 @@ const renderers: Record<string, HumanRenderer> = {
 };
 
 // ---------------------------------------------------------------------------
+// Decorator passthrough — local pick to avoid renderers → dispatch import cycle
+// (dispatch/adapters/cli.ts already imports cliOutput from this module).
+// Kept in sync with the canonical `pickDecoratorMetaExtensions` in
+// `packages/cleo/src/dispatch/nexus-decorator.ts`. If the canonical list of
+// decorator-stamped fields grows, update both call sites.
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract decorator-stamped meta fields (`_nexus`, `deprecated`) from a
+ * `DispatchResponse.meta` so cliOutput can forward them into the envelope.
+ *
+ * @task T9393
+ */
+function pickDecoratorMetaExtensionsLocal(
+  responseMeta: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!responseMeta) return {};
+  const out: Record<string, unknown> = {};
+  if (responseMeta['_nexus'] !== undefined) out['_nexus'] = responseMeta['_nexus'];
+  if (responseMeta['deprecated'] !== undefined) out['deprecated'] = responseMeta['deprecated'];
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Options for cliOutput
 // ---------------------------------------------------------------------------
 
@@ -222,6 +247,18 @@ export interface CliOutputOptions {
   page?: FormatOptions['page'];
   /** Extra metadata extensions merged into `meta`. */
   extensions?: Record<string, unknown>;
+  /**
+   * Optional `DispatchResponse.meta` to forward decorator-stamped fields
+   * (`_nexus`, `deprecated`, etc.) into the emitted envelope. Use this when
+   * the command goes through `dispatchRaw` and the dispatcher's decorators
+   * have stamped fields the caller wants surfaced to JSON consumers.
+   *
+   * Canonical meta fields (operation, requestId, timestamp) are NOT forwarded —
+   * those are always produced fresh by `formatSuccess` via `createCliMeta`.
+   *
+   * @task T9393
+   */
+  responseMeta?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +316,40 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     const text = renderer(normalized, ctx.quiet);
     if (text) {
       process.stdout.write(text + '\n');
+    }
+    // T9393-followup: surface LAFS pagination + decorator-stamped meta so
+    // human-mode users see the same windowing + scope info JSON consumers do.
+    // Renderer audit found 12+ commands silently truncated lists with no
+    // hint that `--limit` was active, and EVERY renderer dropped `_nexus` /
+    // `deprecated` warnings. Centralising the chrome here means every
+    // command picks it up automatically without per-renderer wiring.
+    if (!ctx.quiet) {
+      const pagerData = data as Record<string, unknown> | undefined;
+      const pagerArrays =
+        pagerData && typeof pagerData === 'object'
+          ? Object.values(pagerData).filter((v) => Array.isArray(v))
+          : [];
+      const shown = pagerArrays.reduce((max, arr) => Math.max(max, (arr as unknown[]).length), 0);
+      if (shown > 0 && opts.page) {
+        const pager = pagerFooter({
+          shown,
+          page: opts.page as Parameters<typeof pagerFooter>[0]['page'],
+          total: pagerData?.['total'] as number | undefined,
+          filtered: pagerData?.['filtered'] as number | undefined,
+        });
+        if (pager) process.stdout.write(`${pager}\n`);
+      }
+      // Decorator-stamped meta can arrive via `responseMeta` (dispatchRaw
+      // path) or be inlined into `extensions` by bypass-dispatch commands
+      // (e.g. `cleo nexus status` via buildNexusMetaExtensions). Merge so
+      // metaFooter sees both — extensions wins on collision to match the
+      // JSON envelope precedence rule.
+      const combinedMeta = {
+        ...(opts.responseMeta ?? {}),
+        ...(opts.extensions ?? {}),
+      };
+      const footer = metaFooter(combinedMeta);
+      if (footer) process.stdout.write(`${footer}\n`);
     }
     return;
   }
@@ -340,7 +411,18 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const formatOpts: FormatOptions = {};
   if (opts.operation) formatOpts.operation = opts.operation;
   if (opts.page) formatOpts.page = opts.page;
-  if (opts.extensions) formatOpts.extensions = opts.extensions;
+
+  // T9393: merge decorator-stamped fields from response.meta into envelope
+  // extensions. Without this, _nexus / deprecated stamped by dispatch
+  // decorators are silently dropped when the caller passes response.data
+  // directly to cliOutput.
+  const decoratorExt = pickDecoratorMetaExtensionsLocal(opts.responseMeta);
+  const mergedExt =
+    opts.extensions || Object.keys(decoratorExt).length > 0
+      ? { ...decoratorExt, ...(opts.extensions ?? {}) }
+      : undefined;
+  if (mergedExt) formatOpts.extensions = mergedExt;
+
   if (fieldCtx.mvi) formatOpts.mvi = fieldCtx.mvi;
 
   // Phase 6 — LAFS envelope validation middleware.
