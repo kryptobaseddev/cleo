@@ -285,6 +285,60 @@ describe('resolveLLMForRole — credential resolution', () => {
     expect(llm.credential?.apiKey).toBe('sk-env-rescue');
     expect(llm.credential?.source).toBe('env');
   });
+
+  // T9360 — hasCredential lookup AC tests
+  it('hasCredential is true when role pins credentialLabel and matching default credential exists (T9360)', async () => {
+    const { projectRoot } = isolate();
+    // Role explicitly pins credentialLabel='default'.
+    seedProjectConfig(projectRoot, {
+      roles: {
+        extraction: {
+          provider: 'anthropic',
+          model: 'claude-haiku-4-5-20251001',
+          credentialLabel: 'default',
+        },
+      },
+    });
+    await addCredential({
+      provider: 'anthropic',
+      label: 'default',
+      authType: 'api_key',
+      accessToken: 'sk-ant-default-pinned',
+      priority: 1,
+    });
+    const llm = await resolveLLMForRole('extraction', { projectRoot });
+    expect(llm.credential?.apiKey).toBe('sk-ant-default-pinned');
+    expect(llm.credential?.source).toBe('cred-file');
+    expect(llm.credentialLabel).toBe('default');
+    // The key assertion for the T9360 AC: hasCredential equivalence.
+    expect(!!llm.credential?.apiKey).toBe(true);
+  });
+
+  it('hasCredential is true when no credentialLabel but default-labelled credential exists (T9360)', async () => {
+    const { projectRoot } = isolate();
+    // Role has provider+model but NO credentialLabel set — picker should
+    // find the 'default' entry from the cred-store automatically.
+    seedProjectConfig(projectRoot, {
+      roles: {
+        extraction: {
+          provider: 'anthropic',
+          model: 'claude-haiku-4-5-20251001',
+        },
+      },
+    });
+    await addCredential({
+      provider: 'anthropic',
+      label: 'default',
+      authType: 'api_key',
+      accessToken: 'sk-ant-no-label-default',
+      priority: 1,
+    });
+    const llm = await resolveLLMForRole('extraction', { projectRoot });
+    expect(llm.credential?.apiKey).toBe('sk-ant-no-label-default');
+    expect(llm.credential?.source).toBe('cred-file');
+    expect(llm.credentialLabel).toBe('default');
+    expect(!!llm.credential?.apiKey).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
