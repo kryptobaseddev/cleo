@@ -423,7 +423,28 @@ export async function validateAtom(
   }
 }
 
-/** T9178: Validates commit is on task branch when taskId provided. */
+/**
+ * T9178: Validates commit is on task branch when taskId provided.
+ *
+ * T9245: ALSO validates commit's diff intersects the task's acceptance-criteria
+ * file list. Closes the content-mismatch loophole proven 2026-05-12: a worker
+ * could pass `--evidence commit:<sha>` with a SHA that touched zero AC files
+ * because validateCommit only ever checked SHA reachability. 13 mis-completed
+ * tasks across the 2026-05-11 campaign exploited this. Audit:
+ * `.cleo/rcasd/campaign-validation-2026-05-12/SYNTHESIS.md`.
+ *
+ * Content-intersect skips when:
+ *   - taskId is not provided (legacy call sites)
+ *   - task cannot be loaded (best-effort tolerance — do not break verify)
+ *   - task.kind ∈ {research, spike} (no code change expected)
+ *   - the task declares no AC file paths at all (neither task.files nor
+ *     parseable path tokens in task.acceptance strings) — see
+ *     {@link extractTaskAcFiles}
+ *
+ * @task T9178
+ * @task T9245
+ * @adr ADR-051
+ */
 async function validateCommit(
   sha: string,
   projectRoot: string,
@@ -479,12 +500,188 @@ async function validateCommit(
         };
       }
     }
+
+    // T9245: content-intersect check — diff MUST touch at least one AC file.
+    const intersectResult = await checkCommitContentIntersect(sha, taskId, projectRoot);
+    if (!intersectResult.ok) {
+      return intersectResult;
+    }
   }
   const short = await runCommand('git', ['rev-parse', '--short', sha], projectRoot);
   const shortSha = short.stdout.trim() || sha.slice(0, 7);
   const full = await runCommand('git', ['rev-parse', sha], projectRoot);
   const fullSha = full.stdout.trim() || sha;
   return { ok: true, atom: { kind: 'commit', sha: fullSha, shortSha } };
+}
+
+/**
+ * Path-token regex used by {@link extractTaskAcFiles} to recover AC file paths
+ * from free-text acceptance strings when {@link Task.files} is empty.
+ *
+ * Matches dotted/slashed tokens that look like a source path. Permissive on
+ * extension to allow `.md`, `.json`, `.sql`, etc. The orchestrator's preferred
+ * SSoT is the explicit `task.files` array — string-token parsing is a
+ * fallback for legacy tasks that predate the `--files` flag.
+ *
+ * @task T9245
+ */
+const AC_PATH_TOKEN =
+  /(?:^|[\s"'`([])([a-zA-Z0-9_\-./@]+\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,8})(?=$|[\s"'`)\],;:])/g;
+
+/**
+ * Extract the canonical list of files a task's acceptance criteria declare.
+ *
+ * Resolution order:
+ *   1. `task.files` array — authoritative when populated (set via `--files`)
+ *   2. AC string parsing — extract path-like tokens from each
+ *      `task.acceptance` string
+ *
+ * Returns `null` when the task declares no AC files at all — caller MUST
+ * interpret this as "skip content-intersect" rather than "verify fails".
+ *
+ * @internal
+ * @task T9245
+ */
+export function extractTaskAcFiles(task: {
+  files?: string[] | null;
+  acceptance?: ReadonlyArray<unknown> | null;
+}): string[] | null {
+  // 1. Explicit files array wins.
+  if (task.files && task.files.length > 0) {
+    return [...task.files];
+  }
+  // 2. Parse path tokens from AC strings.
+  if (!task.acceptance || task.acceptance.length === 0) {
+    return null;
+  }
+  const parsed = new Set<string>();
+  for (const item of task.acceptance) {
+    if (typeof item !== 'string') continue;
+    // Reset regex state for each iteration (g flag).
+    AC_PATH_TOKEN.lastIndex = 0;
+    let m: RegExpExecArray | null = AC_PATH_TOKEN.exec(item);
+    while (m !== null) {
+      if (m[1]) parsed.add(m[1]);
+      m = AC_PATH_TOKEN.exec(item);
+    }
+  }
+  return parsed.size > 0 ? Array.from(parsed) : null;
+}
+
+/**
+ * Run `git show --name-only <sha>` and return the list of file paths the
+ * commit touched (added, modified, or deleted). Empty array on git failure.
+ *
+ * @internal
+ * @task T9245
+ */
+async function gitShowFiles(sha: string, projectRoot: string): Promise<string[]> {
+  const r = await runCommand('git', ['show', '--name-only', '--pretty=format:', sha], projectRoot);
+  if (r.exitCode !== 0) return [];
+  return r.stdout
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Determine whether `<commit-diff> ∩ <task-AC-files>` is non-empty.
+ *
+ * Tolerates path mismatches caused by:
+ *   - leading `./` prefix
+ *   - trailing slashes (directories listed in AC)
+ *   - case-insensitive filesystems (rare on Linux/CI but defensive)
+ *
+ * @internal
+ * @task T9245
+ */
+function diffIntersectsAc(diffFiles: string[], acFiles: string[]): boolean {
+  const norm = (s: string): string => s.replace(/^\.\//, '').replace(/\/+$/, '').toLowerCase();
+  const acSet = new Set(acFiles.map(norm));
+  const acPrefixes = acFiles.map(norm).filter((p) => !p.includes('.') || p.endsWith('/'));
+  for (const f of diffFiles) {
+    const nf = norm(f);
+    if (acSet.has(nf)) return true;
+    // Directory-style AC entry: e.g. AC says `packages/core/src/tasks/`,
+    // diff touches `packages/core/src/tasks/evidence.ts`.
+    for (const prefix of acPrefixes) {
+      if (nf.startsWith(`${prefix}/`)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Content-intersect check for {@link validateCommit}.
+ *
+ * Loads the task by ID, derives the AC file list, runs
+ * `git show --name-only <sha>`, and verifies the intersection is non-empty.
+ *
+ * Returns `ok: true` (the no-op signal) when the task cannot be loaded or
+ * when AC file extraction returns null — these are tolerated to avoid
+ * breaking legacy / decision-only / research tasks.
+ *
+ * @internal
+ * @task T9245
+ */
+async function checkCommitContentIntersect(
+  sha: string,
+  taskId: string,
+  projectRoot: string,
+): Promise<AtomValidation> {
+  // Best-effort load — DB unavailability MUST NOT block verify.
+  let task: {
+    files?: string[] | null;
+    acceptance?: unknown[] | null;
+    kind?: string | null;
+  } | null = null;
+  try {
+    const { getTaskAccessor } = await import('../store/data-accessor.js');
+    const accessor = await getTaskAccessor(projectRoot);
+    task = await accessor.loadSingleTask(taskId);
+  } catch {
+    // Tolerate: legacy callers, init-time use, test stubs.
+    return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
+  }
+  if (!task) {
+    return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
+  }
+  // Research / spike tasks legitimately produce no code change.
+  if (task.kind === 'research' || task.kind === 'spike') {
+    return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
+  }
+  const acFiles = extractTaskAcFiles({
+    files: task.files,
+    acceptance: task.acceptance as ReadonlyArray<unknown> | null | undefined,
+  });
+  // No declared AC files — cannot enforce intersection (legacy tasks).
+  if (!acFiles || acFiles.length === 0) {
+    return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
+  }
+  const diffFiles = await gitShowFiles(sha, projectRoot);
+  if (diffFiles.length === 0) {
+    return {
+      ok: false,
+      reason:
+        `Commit ${sha.slice(0, 7)} touches no files — cannot satisfy implemented gate ` +
+        `for task ${taskId} (expected diff to include at least one of: ${acFiles.slice(0, 5).join(', ')}` +
+        `${acFiles.length > 5 ? '…' : ''})`,
+      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
+    };
+  }
+  if (!diffIntersectsAc(diffFiles, acFiles)) {
+    return {
+      ok: false,
+      reason:
+        `Commit ${sha.slice(0, 7)} diff does not intersect task ${taskId} AC files. ` +
+        `Diff touched: [${diffFiles.slice(0, 5).join(', ')}${diffFiles.length > 5 ? '…' : ''}]. ` +
+        `AC declared: [${acFiles.slice(0, 5).join(', ')}${acFiles.length > 5 ? '…' : ''}]. ` +
+        `T9245: the commit MUST modify at least one declared AC file.`,
+      codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
+    };
+  }
+  // Pass — caller's outer validateCommit will produce the final atom.
+  return { ok: true, atom: { kind: 'commit', sha, shortSha: sha.slice(0, 7) } };
 }
 
 async function validateFiles(paths: string[], projectRoot: string): Promise<AtomValidation> {
@@ -1097,25 +1294,75 @@ export interface RevalidationResult {
 }
 
 /**
+ * Critical gates for which `override`-only evidence is NEVER accepted. Closes
+ * the override-loophole proven 2026-05-12 — 13 mis-completed tasks in the
+ * 2026-05-11 campaign passed `implemented`/`testsPassed` with override-only
+ * evidence. Audit: `.cleo/rcasd/campaign-validation-2026-05-12/SYNTHESIS.md`.
+ *
+ * Other gates (`qaPassed`, `documented`, `securityPassed`, `cleanupDone`,
+ * `nexusImpact`) MAY still accept `note:` waivers / overrides per ADR-051.
+ *
+ * @task T9245
+ * @adr ADR-051
+ */
+export const CRITICAL_GATES_NO_OVERRIDE: readonly VerificationGate[] = Object.freeze([
+  'implemented',
+  'testsPassed',
+]);
+
+/**
  * Re-validate stored evidence to detect tampering between verify and complete.
  *
  * Hard atoms (commit, files, test-run, tool) are re-executed. Soft atoms
  * (url, note, override) pass through unchanged.
  *
+ * T9245: when `gate` ∈ {@link CRITICAL_GATES_NO_OVERRIDE}, override-only
+ * evidence is rejected at re-validation time. Forces the worker to produce
+ * real programmatic proof for `implemented` and `testsPassed`.
+ *
  * @param evidence - Previously-stored evidence
  * @param projectRoot - Absolute path to project root
+ * @param gate - Optional gate name; when provided enables the critical-gate
+ *   override-rejection check (T9245). Omit for back-compat callers.
  * @returns Revalidation outcome
  *
  * @task T832
+ * @task T9245
  * @adr ADR-051 §5 / §8 (Decision 8)
  */
 export async function revalidateEvidence(
   evidence: GateEvidence,
   projectRoot: string,
+  gate?: VerificationGate,
 ): Promise<RevalidationResult> {
+  // T9245: critical-gate override rejection.
+  // When the gate is `implemented` or `testsPassed`, evidence that has no
+  // non-override hard atom is rejected outright. We define "override-only"
+  // as: evidence.override === true AND every recorded atom is either
+  // `kind: 'override'` or `kind: 'note'` (notes alone are insufficient too).
+  if (gate && CRITICAL_GATES_NO_OVERRIDE.includes(gate)) {
+    const hasHardAtom = evidence.atoms.some(
+      (a) => a.kind !== 'override' && a.kind !== 'note' && a.kind !== 'url',
+    );
+    if (evidence.override === true && !hasHardAtom) {
+      return {
+        stillValid: false,
+        failedAtoms: [
+          {
+            atom: { kind: 'override', reason: evidence.overrideReason ?? 'unspecified' },
+            reason:
+              `T9245: gate '${gate}' rejects override-only evidence. ` +
+              `Critical gates (${CRITICAL_GATES_NO_OVERRIDE.join(', ')}) require a hard atom ` +
+              `(commit/files/test-run/tool). Re-verify with real evidence.`,
+          },
+        ],
+      };
+    }
+  }
+
   if (evidence.override) {
-    // Override evidence is not re-validated — it had no programmatic proof
-    // to begin with.
+    // Override evidence on non-critical gates is not re-validated — it had no
+    // programmatic proof to begin with.
     return { stillValid: true, failedAtoms: [] };
   }
 
