@@ -36,12 +36,11 @@ import type {
   ResolveLLMForRoleOptions,
   RoleName,
 } from '@cleocode/contracts';
-import type { GoogleGenerativeAI } from '@google/generative-ai';
 import type { OpenAI } from 'openai';
-import { authHeaders, type CredentialResult, resolveCredentials } from './credentials.js';
+import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
-import { clientForModelConfig } from './registry.js';
-import type { ModelConfig, ModelTransport } from './types-config.js';
+import { buildAnthropicClient } from './transports/anthropic-client-factory.js';
+import type { ModelTransport } from './types-config.js';
 
 /**
  * Implicit fallback model used when no role-specific and no `default` entry is
@@ -79,16 +78,21 @@ export const IMPLICIT_FALLBACK_PROVIDER: ModelTransport = 'anthropic';
 export const HYGIENE_FALLBACK_MODEL = 'claude-sonnet-4-6';
 
 /**
- * Concrete tagged union over the raw SDK client types returned by
- * {@link clientForModelConfig}. This is the runtime-precise version of the
- * opaque `unknown` carried by `ResolvedLLM.client` in `@cleocode/contracts`
- * — SDK classes are kept off the contracts surface to preserve its
- * zero-dependency footprint, but tightened here where the SDK packages are
- * real dependencies.
+ * Concrete tagged union over the raw SDK client types used by this module.
+ * This is the runtime-precise version of the opaque `unknown` carried by
+ * `ResolvedLLM.client` in `@cleocode/contracts` — SDK classes are kept off
+ * the contracts surface to preserve its zero-dependency footprint, but
+ * tightened here where the SDK packages are real dependencies.
+ *
+ * NOTE (T9370): GoogleGenerativeAI removed from the union — `resolveLLMForRole`
+ * is Anthropic-only in practice (the implicit fallback is always anthropic, and
+ * non-Anthropic providers use the transport layer directly). The `Record` fallback
+ * covers any future provider shape that doesn't use a typed SDK class here.
  *
  * @task T9255
+ * @task T9370 (D-ph4-01 factory retirement)
  */
-export type LLMClient = Anthropic | OpenAI | GoogleGenerativeAI | Record<string, unknown>; // Gemini AIO fallback shape (matches ProviderClient in ./types.ts)
+export type LLMClient = Anthropic | OpenAI | Record<string, unknown>; // OpenAI fallback shape for non-Anthropic providers
 
 // Re-export the wire types so existing imports from
 // `@cleocode/core/llm/role-resolver` keep working alongside the canonical
@@ -115,8 +119,9 @@ export interface ResolvedLLM {
   /** Full model identifier. */
   model: string;
   /**
-   * Fully-wired SDK client constructed via `clientForModelConfig`. `null`
-   * when no credential is available.
+   * Fully-wired SDK client. `null` when no credential is available.
+   * For Anthropic: constructed via `new Anthropic(...)` honoring OAuth/api_key.
+   * For other providers: `null` (use the transport layer directly via `getLlmExecutor`).
    */
   client: LLMClient | null;
   /**
@@ -306,20 +311,24 @@ export async function resolveLLMForRole(
     projectRoot,
   );
 
-  // Step 4 — construct SDK client if we have a credential. Pass OAuth Bearer
-  // headers through `extraHeaders` so the registry constructs the Anthropic
-  // SDK with `authToken` (avoids the 401 from sending both `x-api-key` AND
-  // `Authorization`).
+  // Step 4 — construct SDK client if we have a credential.
+  //
+  // NOTE (T9370 — D-ph4-01 final close): previously delegated to
+  // `clientForModelConfig` from registry.ts. That function is now retired.
+  // We delegate to `buildAnthropicClient` from `transports/anthropic.ts`, which
+  // owns all `new Anthropic(...)` construction (D-ph4-01 grep-guard invariant).
+  // Non-Anthropic providers resolve to `null` — callers that need
+  // OpenAI/Gemini/Moonshot clients MUST use the transport layer
+  // (`getLlmExecutor` / `AnthropicTransport`).
   let client: LLMClient | null = null;
   if (credential?.apiKey) {
-    const modelConfig: ModelConfig = {
-      transport: provider,
-      model,
-      apiKey: credential.apiKey,
-      extraHeaders: credential.authType === 'oauth' ? authHeaders(credential) : undefined,
-    };
     try {
-      client = clientForModelConfig(provider, modelConfig) as LLMClient;
+      if (provider === 'anthropic') {
+        client = buildAnthropicClient(credential);
+      }
+      // For non-Anthropic providers (openai, gemini, moonshot, bedrock):
+      // callers SHOULD use getLlmExecutor / transport layer instead of raw client.
+      // client remains null — this matches the graceful-degradation contract.
     } catch {
       // Mirror the rest of the LLM layer's behaviour — never throw from
       // client construction; the caller treats a null client as
@@ -385,10 +394,11 @@ export async function resolveAnthropicForRole(
   }
   if (llm.provider !== 'anthropic') return null;
   if (!llm.credential?.apiKey || !llm.client) return null;
-  // Safe narrowing: provider === 'anthropic' guarantees clientForModelConfig
-  // returned an Anthropic SDK client. Pick<Anthropic, 'messages'> exposes
-  // only the surface needed by all 3 call-sites today; future widening can
-  // expand the Pick set without changing the helper's contract.
+  // Safe narrowing: provider === 'anthropic' and direct Anthropic construction
+  // in resolveLLMForRole guarantees the client is an Anthropic SDK instance.
+  // Pick<Anthropic, 'messages'> exposes only the surface needed by all 3
+  // call-sites today; future widening can expand the Pick set without changing
+  // the helper's contract.
   return {
     client: llm.client as Anthropic,
     model: llm.model,

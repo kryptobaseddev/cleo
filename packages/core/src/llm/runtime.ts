@@ -15,15 +15,21 @@
  * @epic T1386
  */
 
-import { clientForModelConfig } from './registry.js';
-import type { ProviderClient, ReasoningEffortType } from './types.js';
+import type { ReasoningEffortType } from './types.js';
 import type { ModelConfig, ModelTransport } from './types-config.js';
 
-/** Per-attempt plan produced by planAttempt. */
+/**
+ * Per-attempt plan produced by planAttempt.
+ *
+ * NOTE (T9370 — D-ph4-01 final close): the `client` field was removed.
+ * It previously held the raw SDK client from `clientForModelConfig`, but no
+ * caller in `api.ts` or `tool-loop.ts` ever accessed `plan.client` — those
+ * callers build their own transport sessions via `_sessionFromConfig`. The
+ * field carried dead weight and forced a dependency on the retired factory.
+ */
 export interface AttemptPlan {
   readonly provider: ModelTransport;
   readonly model: string;
-  readonly client: ProviderClient;
   readonly thinkingBudgetTokens: number | null | undefined;
   readonly reasoningEffort: ReasoningEffortType;
   readonly selectedConfig: ModelConfig;
@@ -82,6 +88,11 @@ export function selectModelConfigForAttempt(
 
 /**
  * Build the AttemptPlan for the current attempt.
+ *
+ * NOTE (T9370): no longer calls `clientForModelConfig` — the `client` field
+ * was removed from `AttemptPlan` because no caller ever used it. Transport
+ * construction is the responsibility of the session layer (`_sessionFromConfig`
+ * in `api.ts` / `tool-loop.ts`).
  */
 export function planAttempt(params: {
   runtimeModelConfig: ModelConfig;
@@ -100,7 +111,6 @@ export function planAttempt(params: {
 
   const selected = selectModelConfigForAttempt(runtimeModelConfig, attempt, retryAttempts);
   const provider = selected.transport;
-  const client = clientForModelConfig(provider, selected);
 
   const isPrimary = selected === runtimeModelConfig;
   const attemptThinkingBudget = isPrimary
@@ -113,7 +123,6 @@ export function planAttempt(params: {
   return {
     provider,
     model: selected.model,
-    client,
     thinkingBudgetTokens: attemptThinkingBudget,
     reasoningEffort: attemptReasoningEffort,
     selectedConfig: selected,

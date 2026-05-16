@@ -129,6 +129,7 @@ export {
 export {
   AnthropicHistoryAdapter,
   GeminiHistoryAdapter,
+  historyAdapterForProvider,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
 export type { ModelMetadata } from './model-metadata.js';
@@ -145,12 +146,8 @@ export type {
   PromptCachingStrategy,
 } from './prompt-caching.js';
 export { injectCacheBreakpoints } from './prompt-caching.js';
-// Registry — SDK client factory + history adapters
-export {
-  buildAnthropicSdkClient,
-  clientForModelConfig,
-  historyAdapterForProvider,
-} from './registry.js';
+// Registry — all factory exports retired (D-ph4-01 complete, T9356/T9370)
+// clientForModelConfig, buildAnthropicSdkClient removed; historyAdapterForProvider → history-adapters.js
 // Role-based LLM resolver (T-LLM-CRED-CENTRALIZATION Phase 2 / T9255)
 export type {
   LLMClient,
@@ -181,6 +178,8 @@ export {
 // Transports (Phase-4/5 LlmTransport implementations)
 export type { AnthropicTransportOptions } from './transports/anthropic.js';
 export { AnthropicTransport } from './transports/anthropic.js';
+// Anthropic client factory — thin factory, D-ph4-01 grep-guard compliant (T9356)
+export { buildAnthropicClient } from './transports/anthropic-client-factory.js';
 export type { BedrockTransportOptions } from './transports/bedrock.js';
 export { BedrockTransport } from './transports/bedrock.js';
 export type { CodexResponsesTransportOptions } from './transports/codex-responses.js';
