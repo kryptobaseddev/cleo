@@ -443,7 +443,27 @@ export async function validateGateVerify(
       // Parse evidence if provided.
       let validatedAtoms: EvidenceAtom[] = [];
       if (override.override) {
-        // Override — no evidence required.
+        // T9245: critical gates reject override-only evidence at VERIFY time.
+        // Closes the loophole proven 2026-05-12 (13 mis-completed tasks across
+        // the 2026-05-11 campaign passed `implemented`/`testsPassed` with
+        // CLEO_OWNER_OVERRIDE=1 alone). Audit:
+        // `.cleo/rcasd/campaign-validation-2026-05-12/SYNTHESIS.md`.
+        //
+        // Workers can still supply `--evidence` alongside the override (in
+        // which case parsedAtoms below would apply); the rejection only
+        // fires when no `--evidence` was provided.
+        const criticalTargets = targets.filter((g) => g === 'implemented' || g === 'testsPassed');
+        if (criticalTargets.length > 0 && !params.evidence) {
+          return engineError(
+            'E_CRITICAL_GATE_OVERRIDE_REJECTED',
+            `T9245: gate(s) ${criticalTargets.join(', ')} reject CLEO_OWNER_OVERRIDE-only ` +
+              `evidence. Critical gates require a hard atom (commit/files/test-run/tool). ` +
+              `Re-run 'cleo verify ${taskId} --gate ${criticalTargets[0]} --evidence "commit:<sha>;files:<paths>"' ` +
+              `with real evidence. Override may still bypass non-critical gates ` +
+              `(qaPassed, documented, securityPassed, cleanupDone).`,
+          );
+        }
+        // Override — no evidence required for non-critical gates.
         validatedAtoms = [{ kind: 'override', reason: override.reason }];
       } else {
         if (!params.evidence) {
