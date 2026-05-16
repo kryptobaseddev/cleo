@@ -311,6 +311,10 @@ The following known debts are accepted and tracked:
 
 ## Implementation notes for W0b/W0c
 
+> **RETRO ANNOTATION (T9363 — 2026-05-16)**: The filenames below were the PLANNED names.
+> None of them exist at these paths in the shipped codebase.
+> See §As-Shipped Filename Addendum below for the actual file mapping.
+
 Contract types to add to `packages/contracts/src/llm/`:
 
 ```
@@ -326,6 +330,50 @@ All of the above are pure interface + type files. Zero implementation. The
 implementation lives in `packages/core/src/llm/` (W1-W3).
 
 Re-export through `packages/contracts/src/index.ts`.
+
+---
+
+## As-Shipped Filename Addendum (T9363 · 2026-05-16)
+
+The W0b/W0c implementation drifted from the planned filenames above.
+This section records the canonical as-shipped state for audit purposes.
+
+### packages/contracts/src/llm/ — actual shipped files
+
+| Planned | As-Shipped | Content |
+|---------|-----------|---------|
+| `credential.ts` | `resolved-credential.ts` | `ResolvedCredential` interface — named after the type to distinguish from credential-input shapes |
+| `transport.ts` | `normalized-response.ts` | `LlmTransport` + `NormalizedResponse` + `TransportMessage` + wire types — pre-dates ADR-072 (T9263) |
+| `session.ts` | `interfaces.ts` | `LlmSession` + `LlmExecutor` + `NormalizedDelta` + 10+ co-dependent supporting types |
+| `executor.ts` | `interfaces.ts` | Collapsed into `interfaces.ts` (co-dependent with `LlmSession`) |
+| `normalized-message.ts` | *(not created)* | Message types live as `TransportMessage` in `normalized-response.ts` and `NormalizedDelta` in `interfaces.ts` |
+
+Additional contract files not in the plan (added during Phases 4-5):
+- `provider-id.ts` — `ProviderId` / `ApiMode` / `BuiltinProviderId`
+- `provider-profile.ts` — `ProviderProfile` hooks
+- `failover-reason.ts` — `ClassifiedError` / `FailoverReason`
+- `oauth.ts` — OAuth PKCE types
+- `plugin-llm.ts` — Plugin facade types
+
+### packages/core/src/llm/ — Wave 2 actual shipped files
+
+| Planned | As-Shipped | Task |
+|---------|-----------|------|
+| `default-session.ts` | `concrete-session.ts` | T9287 — class `ConcreteSession` |
+| `default-executor.ts` | `concrete-executor.ts` | T9290 — class `ConcreteExecutor` |
+| *(implicit in executor)* | `session-factory.ts` | T9288 — class `DefaultLlmSessionFactory` |
+| *(implicit in executor)* | `executor-factory.ts` | T9291 — `getLlmExecutor()` singleton |
+
+Naming rationale: "Concrete*" chosen over "Default*" to signal non-abstract implementation
+(not "fallback among options"). Factory responsibilities split into two files per SRP.
+
+### core/src/llm/ — normalized-message-utils.ts
+
+`packages/core/src/llm/normalized-message-utils.ts` was **never created**.
+Message-format conversion is inlined per transport (anthropic.ts, gemini.ts, chat-completions.ts).
+A `message-utils.ts` exists for token-count estimation only (T9289 DRY cleanup).
+
+Full mapping and reasons: `.cleo/rcasd/T9363/specification/plan-doc-retro-spec.md`
 
 ---
 
