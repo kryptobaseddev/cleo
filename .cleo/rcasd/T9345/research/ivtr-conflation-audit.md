@@ -479,7 +479,7 @@ JOIN tasks b ON tr.related_to = b.id;
 
 ## Recommendations
 
-### Priority 1: Decouple Release from IVTR (T9350)
+### Priority 1: Decouple Release from IVTR (Phase 5 — T9498)
 
 **Action**: Remove IVTR gate check from `prepareRelease()`.
 
@@ -494,18 +494,18 @@ JOIN tasks b ON tr.related_to = b.id;
 
 **Impact**: Release no longer depends on IVTR state. Evidence gates become sole blocker.
 
-### Priority 2: Make Evidence Gates Mandatory (T9351)
+### Priority 2: Make Evidence Gates Mandatory (Phase 5 — T9498)
 
 **Action**: Implement ADR-051 D1–D9 fully (in-progress; some code merged, some not).
 
 - ✓ Implement `cleo verify --gate --evidence` (in-code)
 - ✓ Reject `cleo verify --all` without per-gate evidence (in-code)
 - ✓ Audit trail to `.cleo/audit/gates.jsonl` (in-code)
-- ❌ Evidence staleness check on `cleo complete` (NOT implemented; T9351)
-- ❌ Remove `--force` from completion (NOT implemented; T9351)
+- ❌ Evidence staleness check on `cleo complete` (NOT implemented; T9498 — Phase 5)
+- ❌ Remove `--force` from completion (NOT implemented; T9498 — Phase 5)
 - ❌ `CLEO_OWNER_OVERRIDE` audit logging (PARTIAL; needs `.cleo/audit/force-bypass.jsonl`)
 
-### Priority 3: Build Release-Provenance Graph (T9352)
+### Priority 3: Build Release-Provenance Graph (Phase 0 — T9491)
 
 **Action**: Implement `release_manifest_commits` table + `releases` table + view.
 
@@ -526,7 +526,7 @@ JOIN tasks b ON tr.related_to = b.id
 WHERE r.version = '1.2.3' AND b.kind = 'bug';
 ```
 
-### Priority 4: Deprecate IVTR State Machine (T9353)
+### Priority 4: Deprecate IVTR State Machine (Phase 5 — T9498)
 
 **Action**: Mark `tasks.ivtr_state` column as @deprecated. Provide read-only view.
 
@@ -562,7 +562,7 @@ This audit identifies:
 - ✓ 6 overlapping gate concepts
 - ✓ 5 missing provenance graph components
 - ✓ 2 viable decoupling paths (evidence-first, graph-normalized)
-- ✓ 4 high-priority follow-up tasks (T9350–T9353)
+- ✓ 4 high-priority follow-up tasks (T9491, T9497, T9498, T9499)
 
 **Output**: `/mnt/projects/cleocode/.cleo/rcasd/T9345/research/ivtr-conflation-audit.md`
 

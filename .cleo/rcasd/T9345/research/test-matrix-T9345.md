@@ -451,7 +451,7 @@ When all items above are checked, the owner signs the T9345 completion record by
 4. Running `cleo verify T9345 --gate documented --evidence "files:.cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md,.cleo/rcasd/T9345/research/migration-plan-T9345.md,.cleo/rcasd/T9345/research/test-matrix-T9345.md,.cleo/adrs/ADR-073-ivtr-release-overhaul.md"`.
 5. Running `cleo complete T9345`.
 
-Per ADR-051, this records evidence atoms for the spec-deliverable phase. Subsequent child epics (T9346-T9353) each record their own evidence on completion.
+Per ADR-051, this records evidence atoms for the spec-deliverable phase. Subsequent child epics (T9491, T9492, T9493, T9494, T9495, T9496, T9497, T9498, T9499) each record their own evidence on completion.
 
 ---
 
