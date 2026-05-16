@@ -3,14 +3,17 @@
  *
  * Verifies:
  *   1. `CLEO_ANTHROPIC_OAUTH_CLIENT_ID` env var is honored when set.
- *   2. A warning is emitted to stderr when the placeholder is used.
- *   3. `ANTHROPIC_OAUTH_CLIENT_ID_PLACEHOLDER` exports the known placeholder value.
+ *   2. The canonical public client_id is used by default (no stderr noise).
+ *   3. `ANTHROPIC_OAUTH_CLIENT_ID` exports the documented Hermes-compatible value.
+ *   4. The redirect URI points at the Anthropic-hosted callback (paste-back flow),
+ *      matching the Hermes / Claude Code PKCE flow.
  *
  * Note: `anthropicProfile` is constructed at module load time, so tests must
- * reset the module cache between runs (via `vi.resetModules()`) to exercise
- * different env-var states.
+ * bust the module cache between runs (via a query-suffixed dynamic import) to
+ * exercise different env-var states.
  *
  * @task T9326
+ * @task T9344
  * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
@@ -56,42 +59,48 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('ANTHROPIC_OAUTH_CLIENT_ID_PLACEHOLDER', () => {
-  it('exports the Hermes-sourced placeholder value', async () => {
+describe('ANTHROPIC_OAUTH_CLIENT_ID', () => {
+  it('exports the canonical public Anthropic OAuth client_id (matches Hermes)', async () => {
     delete process.env[ENV_KEY];
-    const { ANTHROPIC_OAUTH_CLIENT_ID_PLACEHOLDER } = await loadAnthropicModule();
-    expect(ANTHROPIC_OAUTH_CLIENT_ID_PLACEHOLDER).toBe('9d1c250a-e61b-44d9-88ed-5944d1962f5e');
+    const { ANTHROPIC_OAUTH_CLIENT_ID } = await loadAnthropicModule();
+    expect(ANTHROPIC_OAUTH_CLIENT_ID).toBe('9d1c250a-e61b-44d9-88ed-5944d1962f5e');
   });
 });
 
 describe('anthropicProfile.oauth.clientId — env override', () => {
   it('uses CLEO_ANTHROPIC_OAUTH_CLIENT_ID when set', async () => {
-    process.env[ENV_KEY] = 'my-real-client-id';
+    process.env[ENV_KEY] = 'my-custom-client-id';
     const { anthropicProfile } = await loadAnthropicModule();
-    expect(anthropicProfile.oauth?.clientId).toBe('my-real-client-id');
+    expect(anthropicProfile.oauth?.clientId).toBe('my-custom-client-id');
   });
 
   it('does NOT emit a stderr warning when env override is set', async () => {
-    process.env[ENV_KEY] = 'my-real-client-id';
+    process.env[ENV_KEY] = 'my-custom-client-id';
     await loadAnthropicModule();
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 });
 
-describe('anthropicProfile.oauth.clientId — placeholder fallback', () => {
-  it('falls back to the placeholder when env var is absent', async () => {
+describe('anthropicProfile.oauth.clientId — default (no env var)', () => {
+  it('uses the canonical public client_id when env var is absent', async () => {
     delete process.env[ENV_KEY];
-    const { anthropicProfile, ANTHROPIC_OAUTH_CLIENT_ID_PLACEHOLDER } = await loadAnthropicModule();
-    expect(anthropicProfile.oauth?.clientId).toBe(ANTHROPIC_OAUTH_CLIENT_ID_PLACEHOLDER);
+    const { anthropicProfile, ANTHROPIC_OAUTH_CLIENT_ID } = await loadAnthropicModule();
+    expect(anthropicProfile.oauth?.clientId).toBe(ANTHROPIC_OAUTH_CLIENT_ID);
   });
 
-  it('emits a stderr warning that references T9341 when placeholder is used', async () => {
+  it('does NOT emit any stderr warning in the default path', async () => {
     delete process.env[ENV_KEY];
     await loadAnthropicModule();
-    expect(stderrSpy).toHaveBeenCalledOnce();
-    const [msg] = stderrSpy.mock.calls[0] as [string];
-    expect(msg).toContain('[anthropic-oauth]');
-    expect(msg).toContain('CLEO_ANTHROPIC_OAUTH_CLIENT_ID');
-    expect(msg).toContain('T9341');
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('anthropicProfile.oauth.redirectUri', () => {
+  it('points at the Anthropic-hosted paste-back callback (matches Hermes)', async () => {
+    delete process.env[ENV_KEY];
+    const { anthropicProfile } = await loadAnthropicModule();
+    expect(anthropicProfile.oauth?.redirectUri).toBe(
+      'https://console.anthropic.com/oauth/code/callback',
+    );
   });
 });

@@ -7,6 +7,7 @@
  *
  * @task T9262
  * @task T9302
+ * @task T9344
  * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 3)
  */
 
@@ -14,49 +15,48 @@ import type { ProviderProfile } from '@cleocode/contracts';
 import type { ProviderOAuthConfig } from '@cleocode/contracts/llm/oauth.js';
 
 /**
- * Placeholder Anthropic OAuth client ID sourced from the Hermes reference
- * implementation (`hermes_cli/auth_commands.py`).
+ * Canonical public Anthropic OAuth PKCE client ID.
  *
- * This is NOT an officially published Anthropic client ID. CLEO must register
- * its own OAuth application before end-to-end PKCE login can work against real
- * Anthropic OAuth endpoints. See T9341 for the owner-action registration step.
+ * This is the same client_id used by Claude Code, Claude Desktop, pi-ai,
+ * OpenCode, and Hermes Agent. Anthropic publishes it for first-party CLI
+ * OAuth flows — no per-application registration is required.
  *
- * Override at runtime via `CLEO_ANTHROPIC_OAUTH_CLIENT_ID` env var once a real
- * client ID is obtained — no code change required.
+ * Source: `/mnt/projects/hermes-agent/agent/anthropic_adapter.py:1041`
+ * (constant `_OAUTH_CLIENT_ID`).
  *
- * @see T9341 — owner-action: register CLEO as an Anthropic OAuth application
+ * Override at runtime via `CLEO_ANTHROPIC_OAUTH_CLIENT_ID` env var if you
+ * need to test with your own registered OAuth application.
  */
-export const ANTHROPIC_OAUTH_CLIENT_ID_PLACEHOLDER = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+export const ANTHROPIC_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 
 /**
  * Resolve the Anthropic OAuth client ID.
  *
  * Prefers `CLEO_ANTHROPIC_OAUTH_CLIENT_ID` env var; falls back to the
- * placeholder and emits a one-time stderr warning so operators know the
- * placeholder is in use.
+ * canonical public client_id. No warning is emitted in the fallback path —
+ * the public client_id is the production-correct default.
  */
 function resolveAnthropicClientId(): string {
-  const envId = process.env['CLEO_ANTHROPIC_OAUTH_CLIENT_ID'];
-  if (envId) return envId;
-  process.stderr.write(
-    '[anthropic-oauth] Using placeholder client_id; set CLEO_ANTHROPIC_OAUTH_CLIENT_ID to your registered ID. See T9341.\n',
-  );
-  return ANTHROPIC_OAUTH_CLIENT_ID_PLACEHOLDER;
+  return process.env['CLEO_ANTHROPIC_OAUTH_CLIENT_ID'] ?? ANTHROPIC_OAUTH_CLIENT_ID;
 }
 
 /**
  * Anthropic OAuth PKCE configuration.
  *
- * Anthropic uses RFC 7636 PKCE (not device-code). The client ID is resolved
- * from `CLEO_ANTHROPIC_OAUTH_CLIENT_ID` env var at runtime, falling back to
- * the Hermes-sourced placeholder when the env var is absent.
- *
- * Endpoints sourced from the Hermes `anthropic_adapter.py` PKCE flow:
+ * Anthropic uses RFC 7636 PKCE (not device-code). Endpoints and redirect
+ * URI mirror the Hermes Agent reference implementation
+ * (`agent/anthropic_adapter.py` `_OAUTH_*` constants):
  *   - authorizationEndpoint: https://claude.ai/oauth/authorize
  *   - tokenEndpoint:         https://console.anthropic.com/v1/oauth/token
+ *   - redirectUri:           https://console.anthropic.com/oauth/code/callback
+ *
+ * The Anthropic-hosted redirect URI displays the authorization code on the
+ * post-redirect page so the user can paste it back into the CLI prompt
+ * (the same headless paste-back flow Hermes and Claude Code use). No local
+ * HTTP listener is required.
  *
  * @task T9302
- * @see T9341 — register CLEO as an Anthropic OAuth application (owner action)
+ * @task T9344
  */
 const ANTHROPIC_OAUTH: ProviderOAuthConfig = {
   mode: 'pkce',
@@ -64,9 +64,7 @@ const ANTHROPIC_OAUTH: ProviderOAuthConfig = {
   authorizationEndpoint: 'https://claude.ai/oauth/authorize',
   tokenEndpoint: 'https://console.anthropic.com/v1/oauth/token',
   scope: 'org:create_api_key user:profile user:inference',
-  // CLI callback: local HTTP server on random port catches the redirect.
-  // Headless mode: print URL; user pastes the full redirect URL back.
-  redirectUri: 'http://localhost',
+  redirectUri: 'https://console.anthropic.com/oauth/code/callback',
 };
 
 /**
