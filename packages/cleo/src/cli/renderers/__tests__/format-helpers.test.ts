@@ -17,8 +17,8 @@ import {
   metaFooter,
   padVisible,
   pagerFooter,
-  truncateVisible,
   truncated,
+  truncateVisible,
   visibleLength,
 } from '../format-helpers.js';
 

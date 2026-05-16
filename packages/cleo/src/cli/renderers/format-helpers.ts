@@ -101,9 +101,7 @@ export function kvBlock(rows: Array<[string, string]>, indent = 2): string {
   // and so its position drifted with each row's label length).
   const labelWidth = Math.max(...rows.map(([k]) => visibleLength(k)));
   const pad = ' '.repeat(indent);
-  return rows
-    .map(([k, v]) => `${pad}${DIM}${padVisible(k, labelWidth)}:${NC} ${v}`)
-    .join('\n');
+  return rows.map(([k, v]) => `${pad}${DIM}${padVisible(k, labelWidth)}:${NC} ${v}`).join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +204,10 @@ export function dataTable<T>(
   const lines: string[] = [];
   if (showHeader) {
     const header = columns
-      .map((c, i) => `${BOLD}${padVisible(truncateVisible(c.header, widths[i] ?? 0), widths[i] ?? 0)}${NC}`)
+      .map(
+        (c, i) =>
+          `${BOLD}${padVisible(truncateVisible(c.header, widths[i] ?? 0), widths[i] ?? 0)}${NC}`,
+      )
       .join(sep);
     lines.push(`${pad}${header}`);
   }

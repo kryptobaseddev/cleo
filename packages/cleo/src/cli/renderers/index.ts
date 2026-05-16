@@ -340,10 +340,10 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
         if (pager) process.stdout.write(`${pager}\n`);
       }
       // Decorator-stamped meta can arrive via `responseMeta` (dispatchRaw
-       // path) or be inlined into `extensions` by bypass-dispatch commands
-       // (e.g. `cleo nexus status` via buildNexusMetaExtensions). Merge so
-       // metaFooter sees both — extensions wins on collision to match the
-       // JSON envelope precedence rule.
+      // path) or be inlined into `extensions` by bypass-dispatch commands
+      // (e.g. `cleo nexus status` via buildNexusMetaExtensions). Merge so
+      // metaFooter sees both — extensions wins on collision to match the
+      // JSON envelope precedence rule.
       const combinedMeta = {
         ...(opts.responseMeta ?? {}),
         ...(opts.extensions ?? {}),
