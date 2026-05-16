@@ -178,9 +178,11 @@ export {
   StructuredOutputError,
   validateStructuredOutput,
 } from './structured-output.js';
-// Transports (Phase-4 LlmTransport implementations)
+// Transports (Phase-4/5 LlmTransport implementations)
 export type { AnthropicTransportOptions } from './transports/anthropic.js';
 export { AnthropicTransport } from './transports/anthropic.js';
+export type { BedrockTransportOptions } from './transports/bedrock.js';
+export { BedrockTransport } from './transports/bedrock.js';
 export type { GeminiTransportOptions } from './transports/gemini.js';
 export { GeminiTransport } from './transports/gemini.js';
 export type { OpenAITransportOptions } from './transports/openai.js';
