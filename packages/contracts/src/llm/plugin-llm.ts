@@ -2,12 +2,13 @@
  * Plugin LLM access types for the CLEO trust-gating layer.
  *
  * Defines the context, completion signature, and error types that the plugin
- * LLM facade exposes to plugin consumers. Sandboxing (filesystem/network
- * isolation) is deferred to Phase 5 (T9313). This module covers model-gating
- * and credential-redaction concerns only.
+ * LLM facade exposes to plugin consumers. Phase 5 (T9313) adds full
+ * sandboxing: permissions descriptor, filesystem ACL, and per-plugin
+ * in-memory token-bucket rate limiting.
  *
  * @module llm/plugin-llm
  * @task T9305
+ * @task T9313
  * @epic T9261 T-LLM-CRED-CENTRALIZATION
  * @see ADR-072 §6 plugin facade
  */
@@ -124,5 +125,62 @@ export class PluginLlmError extends Error {
     super(redactedMessage, { cause });
     this.name = 'PluginLlmError';
     this.pluginId = pluginId;
+  }
+}
+
+/**
+ * Thrown when a plugin call is denied by the permissions descriptor.
+ *
+ * Covers violations of `maxTokens`, `maxCostUsd`, `allowedRoles`, and other
+ * call-site constraints declared in {@link PluginPermissionDescriptor}.
+ *
+ * Error code: `E_PLUGIN_DENIED`
+ */
+export class PluginDeniedError extends Error {
+  /** Plugin whose request was denied. */
+  readonly pluginId: string;
+  /** Human-readable reason for the denial. */
+  readonly reason: string;
+  /** Machine-readable error code. */
+  readonly code = 'E_PLUGIN_DENIED' as const;
+
+  /**
+   * @param pluginId - Plugin whose request was denied.
+   * @param reason - Reason the request was denied.
+   */
+  constructor(pluginId: string, reason: string) {
+    super(`Plugin "${pluginId}" was denied: ${reason}`);
+    this.name = 'PluginDeniedError';
+    this.pluginId = pluginId;
+    this.reason = reason;
+  }
+}
+
+/**
+ * Thrown when a plugin has exhausted its in-memory token-bucket rate limit.
+ *
+ * The `retryAfterMs` field indicates how many milliseconds until the bucket
+ * refills enough for one token. Callers should surface this as a
+ * `Retry-After` header or equivalent.
+ *
+ * Error code: `E_PLUGIN_RATE_LIMITED`
+ */
+export class PluginRateLimitedError extends Error {
+  /** Plugin that triggered the rate limit. */
+  readonly pluginId: string;
+  /** Milliseconds until the bucket refills enough for one token. */
+  readonly retryAfterMs: number;
+  /** Machine-readable error code. */
+  readonly code = 'E_PLUGIN_RATE_LIMITED' as const;
+
+  /**
+   * @param pluginId - Plugin that was rate-limited.
+   * @param retryAfterMs - Milliseconds until capacity is available.
+   */
+  constructor(pluginId: string, retryAfterMs: number) {
+    super(`Plugin "${pluginId}" is rate-limited. Retry after ${retryAfterMs}ms.`);
+    this.name = 'PluginRateLimitedError';
+    this.pluginId = pluginId;
+    this.retryAfterMs = retryAfterMs;
   }
 }
