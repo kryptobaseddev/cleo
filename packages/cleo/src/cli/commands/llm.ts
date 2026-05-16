@@ -511,6 +511,67 @@ const listProvidersCommand = defineCommand({
 });
 
 // ---------------------------------------------------------------------------
+// cleo llm context-engines list
+// ---------------------------------------------------------------------------
+
+/**
+ * `cleo llm context-engines list` — enumerate all registered ContextEngine names.
+ *
+ * Lists every engine registered in the plugin registry (both builtins and
+ * user-registered engines). Output is sorted ascending by name.
+ *
+ * Output shape: `{ engines: string[] }`
+ *
+ * @task T9312
+ * @epic T9261 T-LLM-CRED-CENTRALIZATION
+ */
+const contextEnginesListCommand = defineCommand({
+  meta: {
+    name: 'list',
+    description: 'List all registered ContextEngine names (builtins + user plugins).',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON',
+    },
+  },
+  async run() {
+    const { listContextEngines } = await import(
+      /* webpackIgnore: true */ '@cleocode/core/llm/executor-factory'
+    );
+    const engines = listContextEngines();
+    cliOutput(
+      { engines: [...engines] },
+      {
+        command: 'llm-context-engines-list',
+        operation: 'llm.contextEngines.list',
+      },
+    );
+  },
+});
+
+/**
+ * `cleo llm context-engines` — ContextEngine plugin registry subgroup.
+ *
+ * @task T9312
+ */
+const contextEnginesCommand = defineCommand({
+  meta: {
+    name: 'context-engines',
+    description: 'Manage registered ContextEngine plugins.',
+  },
+  subCommands: {
+    list: contextEnginesListCommand,
+  },
+  async run({ cmd, rawArgs }) {
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
+    await showUsage(cmd);
+  },
+});
+
+// ---------------------------------------------------------------------------
 // cleo llm login (device-code OAuth)
 // ---------------------------------------------------------------------------
 
@@ -594,6 +655,7 @@ export const llmCommand = defineCommand({
   },
   subCommands: {
     add: addCommand,
+    'context-engines': contextEnginesCommand,
     cost: costCommand,
     list: listCommand,
     login: loginCommand,

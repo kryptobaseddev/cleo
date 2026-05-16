@@ -20,7 +20,14 @@ import type {
 import type { ContextEngine } from '@cleocode/contracts/memory/context-engine.js';
 import { LlmSummarizationEngine } from '../memory/context-engines/llm-summarizer.js';
 import { ConcreteExecutor } from './concrete-executor.js';
+import {
+  listContextEngines,
+  registerContextEngine as registerPluginEngine,
+} from './context-engines/index.js';
 import { DefaultLlmSessionFactory } from './session-factory.js';
+
+// Re-export so callers that only touch executor-factory have one import.
+export { listContextEngines };
 
 // ---------------------------------------------------------------------------
 // DefaultLlmExecutorFactory
@@ -101,10 +108,18 @@ export class DefaultLlmExecutorFactory implements LlmExecutorFactory {
  * Seeded with the default {@link LlmSummarizationEngine} for the
  * `'compression'` role. Callers can swap or add engines via
  * {@link registerContextEngine} without touching core code.
+ *
+ * The `LlmSummarizationEngine` is also registered in the plugin registry
+ * under the name `'llm-summarization'` so it appears in `cleo llm
+ * context-engines list` alongside the built-in rule-based engine.
  */
 const _engineRegistry = new Map<string, ContextEngine>([
   ['compression', new LlmSummarizationEngine()],
 ]);
+
+// Register the LLM summarizer in the named plugin registry so it is visible
+// in `cleo llm context-engines list`.
+registerPluginEngine('llm-summarization', _engineRegistry.get('compression') as ContextEngine);
 
 const _executorCache = new Map<string, LlmExecutor>();
 
@@ -116,11 +131,16 @@ const _executorCache = new Map<string, LlmExecutor>();
  * for the role, or call {@link clearLlmExecutorCache} first to invalidate
  * the cached executor.
  *
+ * Also registers the engine in the plugin registry under the same name so
+ * it appears in `cleo llm context-engines list`.
+ *
  * @param role - CLEO role name to bind the engine to.
  * @param engine - The context engine implementation to register.
  */
 export function registerContextEngine(role: string, engine: ContextEngine): void {
   _engineRegistry.set(role, engine);
+  // Mirror into the named plugin registry for discovery.
+  registerPluginEngine(role, engine);
   // Invalidate the cached executor so the next call rebuilds with the new engine.
   _executorCache.delete(role);
 }
