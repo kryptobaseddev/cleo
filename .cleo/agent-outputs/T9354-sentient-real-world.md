@@ -1,5 +1,7 @@
 # T9359 — Real-World Sentient Daemon Validation Attempt
 
+<!-- @no-cleo-register: evidence file, no task attachment needed -->
+
 **Task**: T9359 (Task E — REAL-WORLD sentient daemon validation, AC5: 30 min no-401)
 **Status**: BLOCKED — no valid LLM credentials available
 **Timestamp**: 2026-05-16T14:40:00Z
