@@ -146,6 +146,11 @@ export default defineConfig({
         '../../packages/core/src/llm/usage-pricing.ts',
         import.meta.url,
       ).pathname,
+      // T9314: llm/catalog-cache subpath — models.dev live catalog cache
+      '@cleocode/core/llm/catalog-cache': new URL(
+        '../../packages/core/src/llm/catalog-cache.ts',
+        import.meta.url,
+      ).pathname,
       // T9323: llm subpath imports used by llm-login.ts and its tests
       '@cleocode/core/llm/credentials-store.js': new URL(
         '../../packages/core/src/llm/credentials-store.ts',

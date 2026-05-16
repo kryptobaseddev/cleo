@@ -2,10 +2,14 @@
  * Model metadata resolution — context window lengths and provenance.
  *
  * Resolution priority (mirrors Hermes `_resolve_context_length`):
- *   1. Live API probe (DEFERRED — see TODO below)
- *   2. Curated table exact match
+ *   1. Disk cache from `cleo llm refresh-catalog` (models.dev snapshot)
+ *   2. Curated table exact match (bundled curated-models.json)
  *   3. Curated table prefix-alias (strips date / version suffix)
  *   4. {@link DEFAULT_CONTEXT_LENGTH} fallback
+ *
+ * Tier 1 is populated by {@link resolveContextIndex} from catalog-cache.ts,
+ * which itself fetches https://models.dev/api.json (T9314) and falls back to
+ * the most-recent disk snapshot when offline.
  *
  * @task T9264
  * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 3)
@@ -14,6 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { type ModelContextIndex, resolveContextIndex } from './catalog-cache.js';
 
 /** Shape of a single entry in the curated model table. */
 type CuratedModelEntry = { contextLength: number };
@@ -27,6 +32,41 @@ type CuratedModelsFile = {
 
 /** Lazily-loaded curated model table (read once on first call). */
 let _curated: Record<string, CuratedModelEntry> | undefined;
+
+/**
+ * In-memory cache of the last-resolved catalog index.
+ *
+ * Set to `null` on first call to signal "attempted but not available";
+ * `undefined` means "not yet attempted".
+ */
+let _catalogIndex: ModelContextIndex | null | undefined;
+let _catalogSource: 'live-catalog' | 'stale-catalog' | undefined;
+
+/**
+ * Resolve the catalog context index, caching the result for the process
+ * lifetime. Returns `null` when no catalog is available (no network + no
+ * disk cache).
+ *
+ * @internal
+ */
+async function getCatalogIndex(): Promise<{
+  index: ModelContextIndex;
+  source: 'live-catalog' | 'stale-catalog';
+} | null> {
+  if (_catalogIndex !== undefined) {
+    return _catalogIndex !== null && _catalogSource !== undefined
+      ? { index: _catalogIndex, source: _catalogSource }
+      : null;
+  }
+  const result = await resolveContextIndex();
+  if (result === null) {
+    _catalogIndex = null;
+    return null;
+  }
+  _catalogIndex = result.index;
+  _catalogSource = result.source === 'live' ? 'live-catalog' : 'stale-catalog';
+  return { index: _catalogIndex, source: _catalogSource };
+}
 
 /**
  * Load the curated model table from the bundled JSON file.
@@ -60,7 +100,7 @@ export interface ModelMetadata {
   /** Context window size in tokens. */
   contextLength: number;
   /** Where this value came from. */
-  source: 'curated' | 'curated-alias' | 'default';
+  source: 'live-catalog' | 'stale-catalog' | 'curated' | 'curated-alias' | 'default';
   /** True iff a live-API probe would change this answer. */
   livePending?: boolean;
 }
@@ -104,36 +144,49 @@ function lookupCurated(model: string): { entry: CuratedModelEntry; strips: numbe
  *
  * Prefer this for diagnostic output (e.g. `cleo llm whoami`).
  *
+ * Resolution priority:
+ *   1. Disk catalog cache (models.dev — populated by `cleo llm refresh-catalog`)
+ *   2. Bundled curated table exact match
+ *   3. Bundled curated table alias (strips date / version suffix)
+ *   4. {@link DEFAULT_CONTEXT_LENGTH} fallback
+ *
  * @param model   - Model identifier (e.g. `"claude-sonnet-4-6-20251001"`).
- * @param baseUrl - Base URL of the provider API (reserved for Tier-1 live probe).
- * @param apiKey  - API key for the provider (reserved for Tier-1 live probe).
+ * @param baseUrl - Reserved for future provider-specific probes.
+ * @param apiKey  - Reserved for future provider-specific probes.
  * @returns Resolved metadata with provenance.
+ *
+ * @task T9314
  */
 export async function getModelMetadata(
   model: string,
   baseUrl?: string,
   apiKey?: string,
 ): Promise<ModelMetadata> {
-  // TODO(T9264): Tier-1 — live API probe. When baseUrl + apiKey are provided,
-  // fetch /models or equivalent endpoint and return { contextLength, source: 'live' }.
-  // For now, fall through to curated/alias/default.
   void baseUrl;
   void apiKey;
 
+  // Tier 1: disk catalog from `cleo llm refresh-catalog` (models.dev).
+  const catalog = await getCatalogIndex();
+  if (catalog !== null) {
+    const ctx = catalog.index[model];
+    if (typeof ctx === 'number') {
+      return { contextLength: ctx, source: catalog.source };
+    }
+  }
+
+  // Tier 2 / 3: bundled curated table (exact + alias).
   const curated = lookupCurated(model);
   if (curated !== null) {
     return {
       contextLength: curated.entry.contextLength,
       source: curated.strips === 0 ? 'curated' : 'curated-alias',
-      livePending: true,
     };
   }
 
-  // Tier 4: default fallback
+  // Tier 4: default fallback.
   return {
     contextLength: DEFAULT_CONTEXT_LENGTH,
     source: 'default',
-    livePending: true,
   };
 }
 
@@ -141,7 +194,7 @@ export async function getModelMetadata(
  * Resolve the context window length for a model.
  *
  * Resolution priority:
- *   1. Live API probe (DEFERRED — Tier 1 lands in a follow-up task)
+ *   1. Disk catalog from `cleo llm refresh-catalog` (models.dev)
  *   2. Curated table exact match
  *   3. Curated table prefix-alias (strip trailing date / version suffix)
  *   4. {@link DEFAULT_CONTEXT_LENGTH} fallback (256000)
@@ -158,6 +211,19 @@ export async function getModelContextLength(
 ): Promise<number> {
   const metadata = await getModelMetadata(model, baseUrl, apiKey);
   return metadata.contextLength;
+}
+
+/**
+ * Reset the in-memory catalog index cache.
+ *
+ * Exposed for testing only — allows test suites to inject a fresh
+ * catalog between test cases without restarting the process.
+ *
+ * @internal
+ */
+export function _resetCatalogIndexCache(): void {
+  _catalogIndex = undefined;
+  _catalogSource = undefined;
 }
 
 /**
