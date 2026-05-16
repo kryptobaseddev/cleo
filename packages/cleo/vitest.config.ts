@@ -200,6 +200,13 @@ export default defineConfig({
         import.meta.url,
       ).pathname,
       '@cleocode/nexus': new URL('../../packages/nexus/src/index.ts', import.meta.url).pathname,
+      // T9315: citty is not symlinked into root node_modules in sparse worktrees;
+      // alias it to the pnpm store copy so tests that import CLI command files
+      // (which use defineCommand) resolve without node_modules setup.
+      'citty': new URL(
+        '../../node_modules/.pnpm/citty@0.2.1/node_modules/citty/dist/index.mjs',
+        import.meta.url,
+      ).pathname,
     },
   },
 });
