@@ -7111,6 +7111,27 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
 
+  // llm query: auxiliary-status — show configured auxiliary fallback chain
+  {
+    gateway: 'query',
+    domain: 'llm',
+    operation: 'auxiliary-status',
+    description:
+      'llm.auxiliary-status (query) — show the active multi-provider auxiliary fallback chain and how to configure it (T9319)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'projectRoot',
+        type: 'string',
+        required: false,
+        description: 'Optional project root for config resolution',
+      },
+    ] satisfies ParamDef[],
+  },
+
   // llm mutate: add — upsert credential into the pool
   {
     gateway: 'mutate',

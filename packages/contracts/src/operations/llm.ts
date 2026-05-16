@@ -568,6 +568,59 @@ export interface LlmWhoamiResult {
 // generated entry as a plain ProviderProfile literal.
 
 // ---------------------------------------------------------------------------
+// llm auxiliary-status types (T9319)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single entry in the auxiliary fallback chain as surfaced by
+ * `cleo llm auxiliary-status`.
+ *
+ * @task T9319
+ */
+export interface LlmAuxiliaryChainEntry {
+  /** Provider transport identifier (e.g. `'anthropic'`, `'openrouter'`). */
+  provider: ModelTransport;
+  /** Optional pinned model for this provider. Omitted when using role-resolved default. */
+  model?: string;
+}
+
+/**
+ * Parameters for `llm.auxiliary-status` (query).
+ *
+ * @task T9319
+ */
+export interface LlmAuxiliaryStatusParams {
+  /** Optional project root for config resolution. */
+  projectRoot?: string;
+}
+
+/**
+ * Result envelope for `llm.auxiliary-status` (query).
+ *
+ * @task T9319
+ */
+export interface LlmAuxiliaryStatusResult {
+  /**
+   * The active auxiliary fallback chain.
+   *
+   * When `source === 'config'`, reflects `llm.auxiliaryFallback` in config.
+   * When `source === 'default'`, the built-in default chain is active.
+   */
+  chain: LlmAuxiliaryChainEntry[];
+  /**
+   * How the chain was resolved.
+   *
+   * - `'config'` — explicitly configured via `cleo config set llm.auxiliaryFallback`.
+   * - `'default'` — no config found; built-in default chain in use.
+   */
+  source: 'config' | 'default';
+  /** Human-readable config path users can set to change the chain. */
+  configKey: string;
+  /** Example value for the config key. */
+  configExample: string;
+}
+
+// ---------------------------------------------------------------------------
 // llm-status types (T9323)
 // ---------------------------------------------------------------------------
 
