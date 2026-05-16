@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.5.74] (2026-05-16)
+
+Auto-prepared by release.ship (T9261)
+
+### Changes
+- **T9344: Hotfix Anthropic OAuth — drop false placeholder framing + fix redirectUri**: T9326 (shipped v2026.5.73) labeled the canonical public Anthropic PKCE client_id 9d1c250a-e61b-44d9-88ed-5944d1962f5e as a 'placeholder' and added ... (T9344)
+---
 ## [2026.5.73] (2026-05-16)
 
 Auto-prepared by release.ship (T9261)
