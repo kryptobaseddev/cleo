@@ -1691,12 +1691,14 @@ export {
 export { initCoreSkills, installHandoffRedirectStubs } from './init.js';
 export {
   llmAdd,
+  llmAuxiliaryStatus,
   llmList,
   llmProfile,
   llmRemove,
   llmTest,
   llmUse,
   llmWhoami,
+  resolveAuxiliaryFallbackChain,
 } from './llm/cli-ops.js';
 export type {
   CredentialResolveOptions,
