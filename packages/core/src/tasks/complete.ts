@@ -910,7 +910,9 @@ export async function completeTaskStrict(
         const staleGates: Array<{ gate: string; failures: string[] }> = [];
         for (const [gate, ev] of evidenceEntries) {
           if (!ev) continue;
-          const check = await revalidateEvidence(ev, projectRoot);
+          // T9245: pass gate so revalidate can enforce the
+          // critical-gate override-rejection rule.
+          const check = await revalidateEvidence(ev, projectRoot, gate as VerificationGate);
           if (!check.stillValid) {
             staleGates.push({
               gate,
