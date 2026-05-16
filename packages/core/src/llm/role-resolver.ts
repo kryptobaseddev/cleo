@@ -197,31 +197,40 @@ async function resolveCredentialForRole(
   // Pinned-label path: must match exactly OR fall through to the generic chain.
   if (credentialLabel) {
     const stored = await getCredentialByLabel(provider, credentialLabel);
-    if (stored) {
+    // Only return early when the stored entry has a usable token. An entry
+    // with an empty `accessToken` (e.g. `aws_sdk` credentials where the SDK
+    // owns auth) is treated as a cache miss so the 6-tier chain below can
+    // surface an env-var or claude-creds token for the same provider.
+    if (stored?.accessToken) {
       const wireAuthType = stored.authType === 'oauth' ? 'oauth' : 'api_key';
       return {
         credential: {
           provider,
-          apiKey: stored.accessToken || null,
+          apiKey: stored.accessToken,
           source: 'cred-file',
           authType: wireAuthType,
         },
         usedLabel: stored.label,
       };
     }
-    // Label was set but did not match — fall through; resolveCredentials still
-    // exercises tiers 1, 2, 4, 4a, 4b, 5 and may surface a usable credential.
+    // Label was set but did not match (or matched with empty token) — fall
+    // through; resolveCredentials exercises all tiers including tier 3
+    // (cred-file picker without label preference), tier 2 (env), tier 4
+    // (claude-creds), tier 4a (global-config), and tier 5 (project-config).
   } else {
     // No pinned label: ask the picker for the highest-priority eligible entry.
+    // Only return when the entry carries a usable `accessToken`. Empty tokens
+    // (e.g. `aws_sdk` entries where the SDK injects credentials out-of-band)
+    // fall through so the 6-tier chain can surface a different credential.
     const picked = await pickCredentialForProvider(provider, {
       strategy: 'priorityWithFallback',
     });
-    if (picked) {
+    if (picked?.accessToken) {
       const wireAuthType = picked.authType === 'oauth' ? 'oauth' : 'api_key';
       return {
         credential: {
           provider,
-          apiKey: picked.accessToken || null,
+          apiKey: picked.accessToken,
           source: 'cred-file',
           authType: wireAuthType,
         },
@@ -230,11 +239,10 @@ async function resolveCredentialForRole(
     }
   }
 
-  // Fallback: full 6-tier resolver. Note that resolveCredentials() itself ALSO
-  // calls pickCredentialForProviderSync as its tier 3 — for the no-label
-  // path we have already consulted that tier, but re-running it here is
-  // idempotent (same store, same filters) and keeps the env / claude-creds /
-  // config tiers reachable.
+  // Fallback: full 6-tier resolver. `resolveCredentials()` itself calls
+  // `pickCredentialForProviderSync` at tier 3 — for the no-label path we
+  // have already consulted that tier, but re-running it is idempotent (same
+  // store, same filters) and keeps env / claude-creds / config tiers reachable.
   const cred = resolveCredentials(provider, { projectRoot });
   if (cred.apiKey) {
     return { credential: cred, usedLabel: undefined };
