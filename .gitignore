@@ -111,6 +111,9 @@ packages/*/extensions/**/*.d.ts.map
 !packages/cleo/bin/postinstall.js
 !packages/skills/index.js
 !packages/skills/index.d.ts
+# T9318: napi-rs fallback loader — CJS + declarations, not compiled output
+!packages/core/src/llm/rust/index.js
+!packages/core/src/llm/rust/index.d.ts
 
 # Misc noise
 clawmsgr-agent.json
