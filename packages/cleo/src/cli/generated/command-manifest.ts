@@ -469,6 +469,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/llm-cost.js')).costCommand as CommandDef,
   },
   {
+    exportName: 'streamCommand',
+    name: 'stream',
+    description: 'Stream a single-prompt completion via LlmTransport.stream(). ',
+    load: async () => (await import('../commands/llm-stream.js')).streamCommand as CommandDef,
+  },
+  {
     exportName: 'llmCommand',
     name: 'llm',
     description: 'Manage LLM credentials, role profiles, and resolver diagnostics',

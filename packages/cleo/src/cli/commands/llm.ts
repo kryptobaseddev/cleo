@@ -43,6 +43,7 @@ import { cliOutput } from '../renderers/index.js';
 import { costCommand } from './llm-cost.js';
 import { runLlmLogin } from './llm-login.js';
 import { runLlmRefreshCatalog } from './llm-refresh-catalog.js';
+import { streamCommand } from './llm-stream.js';
 
 // Lazy import — avoids circular deps and keeps startup fast.
 // Resolved on first call to `cleo llm list-providers`.
@@ -709,6 +710,7 @@ export const llmCommand = defineCommand({
     list: listCommand,
     login: loginCommand,
     remove: removeCommand,
+    stream: streamCommand,
     use: useCommand,
     profile: profileCommand,
     'refresh-catalog': refreshCatalogCommand,
