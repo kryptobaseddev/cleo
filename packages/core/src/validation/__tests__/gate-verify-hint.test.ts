@@ -15,6 +15,8 @@
  * @epic T911
  */
 
+import { execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +30,30 @@ import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 
 /** Absolute project root for each test — recreated per test. */
 let TEST_ROOT: string;
+
+/**
+ * Real commit SHA produced by initGitRepoWithCommit — used as `commit:` evidence
+ * so writes to critical gates (implemented/testsPassed) pass content-intersect
+ * (T9245) without relying on CLEO_OWNER_OVERRIDE (which T9245 also blocks).
+ */
+let SEED_COMMIT_SHA: string;
+
+/**
+ * Initialise a git repo at TEST_ROOT with a single commit touching the path
+ * declared by the task's AC. The commit SHA is captured in SEED_COMMIT_SHA
+ * and used as evidence in the verify calls below.
+ */
+function initGitRepoWithCommit(taskFile: string): void {
+  const git = (args: string[]): string => execFileSync('git', args, { cwd: TEST_ROOT }).toString();
+  git(['init', '-q']);
+  git(['config', 'user.name', 'gate-verify-hint test']);
+  git(['config', 'user.email', 'hint@example.com']);
+  git(['config', 'commit.gpgsign', 'false']);
+  writeFileSync(join(TEST_ROOT, taskFile), 'seed\n');
+  git(['add', taskFile]);
+  git(['commit', '-q', '-m', 'seed']);
+  SEED_COMMIT_SHA = git(['rev-parse', 'HEAD']).trim();
+}
 
 /**
  * Minimal config that:
@@ -64,10 +90,59 @@ async function seedTask(taskId: string): Promise<void> {
       status: 'active',
       priority: 'medium',
       acceptance: ['AC1'],
+      // T9245: declare an AC file so commit content-intersect can validate.
+      files: ['seed.ts'],
     },
   ]);
   await accessor.close();
   resetDbState();
+}
+
+/**
+ * Path to a synthetic vitest-format test-run JSON written under TEST_ROOT.
+ * Provides hard evidence for the `testsPassed` gate without invoking a real
+ * toolchain.
+ */
+let TEST_RUN_JSON_PATH: string;
+
+/**
+ * Write a synthetic vitest-format JSON file representing a passing test run.
+ * Captured in TEST_RUN_JSON_PATH for use as `test-run:` evidence.
+ */
+function writeTestRunJson(): void {
+  TEST_RUN_JSON_PATH = join(TEST_ROOT, 'test-run.json');
+  writeFileSync(
+    TEST_RUN_JSON_PATH,
+    JSON.stringify({
+      numTotalTests: 1,
+      numPassedTests: 1,
+      numFailedTests: 0,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      testResults: [{ status: 'passed', name: 'seed' }],
+    }),
+  );
+}
+
+/**
+ * Returns the evidence string suitable for the requested critical gate.
+ * - implemented: commit + files (intersects task.files = ['seed.ts'])
+ * - testsPassed: test-run JSON anchored under TEST_ROOT
+ *
+ * Returns undefined for non-critical gates — caller can omit evidence safely.
+ */
+function evidenceFor(gate: string): string | undefined {
+  if (gate === 'implemented') return `commit:${SEED_COMMIT_SHA};files:seed.ts`;
+  if (gate === 'testsPassed') return `test-run:${TEST_RUN_JSON_PATH}`;
+  return undefined;
+}
+
+/**
+ * Build an evidence string for `all:true` (sets every required gate at once).
+ * Combines all hard atoms for implemented + testsPassed in a single payload.
+ */
+function evidenceForAll(): string {
+  return `commit:${SEED_COMMIT_SHA};files:seed.ts;test-run:${TEST_RUN_JSON_PATH}`;
 }
 
 describe('validateGateVerify — hint field (GH #94 / T919)', () => {
@@ -75,14 +150,14 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
     resetDbState();
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-gate-hint-'));
     await setupTestRoot();
-    // Use CLEO_OWNER_OVERRIDE to bypass evidence validation in unit tests.
-    process.env['CLEO_OWNER_OVERRIDE'] = '1';
-    process.env['CLEO_OWNER_OVERRIDE_REASON'] = 'unit-test';
+    // T9245: real evidence is required for critical gates (implemented/
+    // testsPassed). Initialise a tiny git repo + synthetic test-run JSON so
+    // the verify calls below can supply hard atoms without override.
+    initGitRepoWithCommit('seed.ts');
+    writeTestRunJson();
   });
 
   afterEach(async () => {
-    delete process.env['CLEO_OWNER_OVERRIDE'];
-    delete process.env['CLEO_OWNER_OVERRIDE_REASON'];
     resetDbState();
     await rm(TEST_ROOT, { recursive: true, force: true });
   });
@@ -90,13 +165,19 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
   it('emits hint when setting the final gate drives verification.passed to true', async () => {
     await seedTask('T100');
     // First: set 'implemented'
-    await validateGateVerify(TEST_ROOT, { taskId: 'T100', gate: 'implemented', value: true });
+    await validateGateVerify(TEST_ROOT, {
+      taskId: 'T100',
+      gate: 'implemented',
+      value: true,
+      evidence: evidenceFor('implemented'),
+    });
     resetDbState();
     // Second: set 'testsPassed' — this is the final required gate
     const result = await validateGateVerify(TEST_ROOT, {
       taskId: 'T100',
       gate: 'testsPassed',
       value: true,
+      evidence: evidenceFor('testsPassed'),
     });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -112,6 +193,7 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
       taskId: 'T101',
       gate: 'implemented',
       value: true,
+      evidence: evidenceFor('implemented'),
     });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -132,9 +214,19 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
   it('does NOT emit hint on reset mode', async () => {
     await seedTask('T103');
     // First set all gates green
-    await validateGateVerify({ taskId: 'T103', gate: 'implemented', value: true }, TEST_ROOT);
+    await validateGateVerify(TEST_ROOT, {
+      taskId: 'T103',
+      gate: 'implemented',
+      value: true,
+      evidence: evidenceFor('implemented'),
+    });
     resetDbState();
-    await validateGateVerify(TEST_ROOT, { taskId: 'T103', gate: 'testsPassed', value: true });
+    await validateGateVerify(TEST_ROOT, {
+      taskId: 'T103',
+      gate: 'testsPassed',
+      value: true,
+      evidence: evidenceFor('testsPassed'),
+    });
     resetDbState();
     // Now reset — should not emit hint even though gates were green before
     const result = await validateGateVerify(TEST_ROOT, { taskId: 'T103', reset: true });
@@ -147,8 +239,13 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
 
   it('emits hint when --all is used and all gates become green', async () => {
     await seedTask('T104');
-    // Set all required gates at once via all=true
-    const result = await validateGateVerify(TEST_ROOT, { taskId: 'T104', all: true });
+    // Set all required gates at once via all=true. T9245 requires hard atoms
+    // for implemented + testsPassed; provide both in a single evidence string.
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T104',
+      all: true,
+      evidence: evidenceForAll(),
+    });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.passed).toBe(true);
