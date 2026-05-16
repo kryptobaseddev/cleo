@@ -228,9 +228,7 @@ describe.skipIf(!CLEO_BIN_AVAILABLE)(
     // T682-1: Core functional — CLI dream cycle writes LTP events to real brain.db
     // =========================================================================
 
-    // TODO(T9298 W5): re-enable when test environment provides installed cleo CLI.
-    // Times out in CI because the local dist binary runs the full dream pipeline.
-    it.skip('T682-1: cleo memory dream writes brain_plasticity_events with kind=ltp to real brain.db', async () => {
+    it('T682-1: cleo memory dream writes brain_plasticity_events with kind=ltp to real brain.db', async () => {
       const cleoDirAbsolute = join(tempDir, '.cleo');
 
       // Step 1: Initialise DB and insert retrieval pairs
@@ -339,8 +337,7 @@ describe.skipIf(!CLEO_BIN_AVAILABLE)(
     // T682-2: CLI stats surface — `cleo brain plasticity stats --json` reflects events
     // =========================================================================
 
-    // TODO(T9298 W5): re-enable when test environment provides installed cleo CLI.
-    it.skip('T682-2: cleo brain plasticity stats --json reports totalEvents > 0 after dream cycle', async () => {
+    it('T682-2: cleo brain plasticity stats --json reports totalEvents > 0 after dream cycle', async () => {
       const cleoDirAbsolute = join(tempDir, '.cleo');
 
       // Setup DB with retrieval pairs (same approach as T682-1)
@@ -409,8 +406,7 @@ describe.skipIf(!CLEO_BIN_AVAILABLE)(
     // T682-3: LTP edge weight delta — delta_w must be non-zero for LTP events
     // =========================================================================
 
-    // TODO(T9298 W5): re-enable when test environment provides installed cleo CLI.
-    it.skip('T682-3: LTP plasticity events have non-zero weight delta (delta_w > 0)', async () => {
+    it('T682-3: LTP plasticity events have non-zero weight delta (delta_w > 0)', async () => {
       const cleoDirAbsolute = join(tempDir, '.cleo');
 
       const { nativeDb, closeBrainDb } = await setupBrainDb(tempDir);

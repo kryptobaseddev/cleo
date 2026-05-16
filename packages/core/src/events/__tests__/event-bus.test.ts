@@ -18,6 +18,23 @@ import {
   resolveEventTransportMode,
 } from '../event-bus.js';
 
+// Mock LocalTransport so the conduit-fallback test is deterministic regardless
+// of whether conduit.db exists in the project cwd. The mock isAvailable()
+// defaults to false; individual tests that need it available can override via
+// mockConduitAvailable.
+let _mockConduitAvailable = false;
+
+/** Toggle LocalTransport.isAvailable() return value for the conduit-fallback test. */
+function mockConduitAvailable(value: boolean) {
+  _mockConduitAvailable = value;
+}
+
+vi.mock('../conduit/local-transport.js', () => ({
+  LocalTransport: {
+    isAvailable: () => _mockConduitAvailable,
+  },
+}));
+
 const TMP_ROOT = '/tmp/cleo-event-bus-test';
 
 beforeEach(async () => {
@@ -130,13 +147,15 @@ describe('appendEvent — file transport', () => {
 });
 
 describe('appendEvent — conduit fallback to file', () => {
-  // TODO(T9298 W5): this test assumes conduit.db is absent so LocalTransport
-  // reports unavailable and triggers the stderr fallback warning. In a fully
-  // initialised dev environment (where .cleo/conduit.db exists in cwd) the
-  // conduit succeeds and no warning is emitted, making the assertion false.
-  // Re-enable once event-bus exposes a conduit-availability seam for injection.
-  it.skip('falls back to file when conduit is unavailable', async () => {
-    // Conduit transport but in test env it will fail to init → fallback.
+  afterEach(() => {
+    // Reset mock conduit availability so other tests are not affected.
+    mockConduitAvailable(false);
+  });
+
+  it('falls back to file when conduit is unavailable', async () => {
+    // LocalTransport.isAvailable() is mocked to false (default) so the conduit
+    // path reports unavailable and triggers the stderr warning + file fallback.
+    mockConduitAvailable(false);
     process.env['CLEO_EVENTS_TRANSPORT'] = 'conduit';
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
