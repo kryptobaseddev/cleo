@@ -282,6 +282,8 @@
     "@ai-sdk/anthropic": "^3.0.69",
     "@ai-sdk/openai-compatible": "^2.0.41",
     "@anthropic-ai/sdk": "^0.88.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.0.0",
+    "@aws-sdk/credential-providers": "^3.0.0",
     "@cleocode/adapters": "workspace:*",
     "@cleocode/agents": "workspace:*",
     "@cleocode/caamp": "workspace:*",

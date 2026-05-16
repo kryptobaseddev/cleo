@@ -21,6 +21,7 @@ import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-creden
 import { ConcreteSession } from './concrete-session.js';
 import { resolveLLMForRole } from './role-resolver.js';
 import { AnthropicTransport } from './transports/anthropic.js';
+import { BedrockTransport } from './transports/bedrock.js';
 import { ChatCompletionsTransport } from './transports/chat-completions.js';
 import { GeminiTransport } from './transports/gemini.js';
 import type { ModelTransport } from './types-config.js';
@@ -34,6 +35,7 @@ import type { ModelTransport } from './types-config.js';
  *
  * Provider mapping:
  * - `'anthropic'` → {@link AnthropicTransport}
+ * - `'bedrock'` → {@link BedrockTransport} (AWS credential chain; token unused)
  * - `'gemini'` → {@link GeminiTransport}
  * - everything else → {@link ChatCompletionsTransport} (OpenAI-compatible)
  *
@@ -59,6 +61,14 @@ function transportForProvider(
     return new AnthropicTransport(opts);
   }
 
+  if (provider === 'bedrock') {
+    // BedrockTransport resolves credentials via fromNodeProviderChain() internally.
+    // The credential.awsProfile field carries the optional profile override.
+    return new BedrockTransport({
+      awsProfile: credential.awsProfile ?? undefined,
+    });
+  }
+
   if (provider === 'gemini') {
     return new GeminiTransport({
       apiKey: credential.token,
@@ -67,7 +77,7 @@ function transportForProvider(
   }
 
   // All other providers (openai, moonshot, openrouter, deepseek, xai, groq,
-  // kimi-code, bedrock, …) use ChatCompletionsTransport.
+  // kimi-code, …) use ChatCompletionsTransport.
   const defaultHeaders: Record<string, string> = { ...credential.extraHeaders };
   if (credential.authType === 'oauth') {
     defaultHeaders['Authorization'] = `Bearer ${credential.token}`;
