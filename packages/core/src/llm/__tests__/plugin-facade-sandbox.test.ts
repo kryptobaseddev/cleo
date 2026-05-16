@@ -332,3 +332,100 @@ describe('rate limit — token bucket', () => {
     expect(mockAuxiliary).toHaveBeenCalledTimes(20);
   });
 });
+
+// ---------------------------------------------------------------------------
+// T9313 enforcement: auto-validateFsAccess via pluginLlmComplete (T9362)
+// ---------------------------------------------------------------------------
+
+describe('T9313 fs-ACL enforcement via pluginLlmComplete toolCall option', () => {
+  beforeEach(() => {
+    registerPluginManifest({
+      pluginId: 'fs-enforced-plugin',
+      allowedModels: [],
+      allowedProviders: [],
+      permissions: {
+        fsAccess: {
+          read: ['/tmp/plugin-data/**'],
+          write: ['/tmp/plugin-output/**'],
+        },
+      },
+    });
+  });
+
+  it('deny path: file_read outside declared patterns throws PluginDeniedError', async () => {
+    await expect(
+      pluginLlmComplete('fs-enforced-plugin', MESSAGES, {
+        toolCall: { name: 'file_read', path: '/etc/passwd' },
+      }),
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!(err instanceof PluginDeniedError)) return false;
+      expect(err.pluginId).toBe('fs-enforced-plugin');
+      expect(err.reason).toMatch(/file read denied/);
+      return true;
+    });
+
+    // Executor must NOT have been called — gate fires before dispatch.
+    expect(mockGetLlmExecutor).not.toHaveBeenCalled();
+  });
+
+  it('allow path: file_read inside declared patterns succeeds and dispatches', async () => {
+    const result = await pluginLlmComplete('fs-enforced-plugin', MESSAGES, {
+      toolCall: { name: 'file_read', path: '/tmp/plugin-data/config.json' },
+    });
+
+    expect(result).toBeDefined();
+    expect(mockAuxiliary).toHaveBeenCalledOnce();
+  });
+
+  it('deny path: file_write outside declared patterns throws PluginDeniedError', async () => {
+    await expect(
+      pluginLlmComplete('fs-enforced-plugin', MESSAGES, {
+        toolCall: { name: 'file_write', path: '/tmp/plugin-data/out.txt' },
+      }),
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!(err instanceof PluginDeniedError)) return false;
+      expect(err.reason).toMatch(/file write denied/);
+      return true;
+    });
+
+    expect(mockGetLlmExecutor).not.toHaveBeenCalled();
+  });
+
+  it('allow path: file_write inside declared write patterns succeeds', async () => {
+    const result = await pluginLlmComplete('fs-enforced-plugin', MESSAGES, {
+      toolCall: { name: 'file_write', path: '/tmp/plugin-output/result.txt' },
+    });
+
+    expect(result).toBeDefined();
+    expect(mockAuxiliary).toHaveBeenCalledOnce();
+  });
+
+  it('non-file tool (e.g. http_get) is not subject to fs-ACL enforcement', async () => {
+    // http_get is not a file tool — no ACL check, dispatch proceeds normally.
+    const result = await pluginLlmComplete('fs-enforced-plugin', MESSAGES, {
+      toolCall: { name: 'http_get', path: 'https://example.com/api' },
+    });
+
+    expect(result).toBeDefined();
+    expect(mockAuxiliary).toHaveBeenCalledOnce();
+  });
+
+  it('unknown plugin with no fsAccess declared is denied by default', async () => {
+    // 'no-acl-plugin' has no manifest → default deny
+    await expect(
+      pluginLlmComplete('no-acl-plugin', MESSAGES, {
+        toolCall: { name: 'file_read', path: '/tmp/anything' },
+      }),
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!(err instanceof PluginDeniedError)) return false;
+      return true;
+    });
+  });
+
+  it('omitting toolCall option bypasses fs-ACL gate entirely', async () => {
+    // No toolCall supplied — gate 5 is skipped, dispatch proceeds.
+    const result = await pluginLlmComplete('fs-enforced-plugin', MESSAGES);
+    expect(result).toBeDefined();
+    expect(mockAuxiliary).toHaveBeenCalledOnce();
+  });
+});
