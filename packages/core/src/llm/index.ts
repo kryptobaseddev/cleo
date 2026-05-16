@@ -47,7 +47,12 @@ export type {
   ModelsCatalogProvider,
 } from './catalog-cache.js';
 // Live catalog cache — models.dev fetch + disk persistence (T9314)
-export { CatalogRefreshError, getCatalogDir, MODELS_DEV_URL } from './catalog-cache.js';
+export {
+  CatalogRefreshError,
+  getCatalogDir,
+  loadDiskCatalogIndex,
+  MODELS_DEV_URL,
+} from './catalog-cache.js';
 // `cleo llm` CLI / dispatch engine ops (T9258 — T-LLM-CRED Phase 2 / T-llm-4)
 export {
   llmAdd,

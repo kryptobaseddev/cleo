@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type ModelContextIndex, resolveContextIndex } from './catalog-cache.js';
+import { loadDiskCatalogIndex, type ModelContextIndex } from './catalog-cache.js';
 
 /** Shape of a single entry in the curated model table. */
 type CuratedModelEntry = { contextLength: number };
@@ -34,38 +34,38 @@ type CuratedModelsFile = {
 let _curated: Record<string, CuratedModelEntry> | undefined;
 
 /**
- * In-memory cache of the last-resolved catalog index.
+ * In-memory cache of the disk catalog index.
  *
- * Set to `null` on first call to signal "attempted but not available";
+ * Set to `null` on first call to signal "no disk snapshot available";
  * `undefined` means "not yet attempted".
+ *
+ * Populated from disk only — network refresh is handled explicitly by
+ * `cleo llm refresh-catalog` via {@link resolveContextIndex}.
  */
 let _catalogIndex: ModelContextIndex | null | undefined;
-let _catalogSource: 'live-catalog' | 'stale-catalog' | undefined;
 
 /**
- * Resolve the catalog context index, caching the result for the process
- * lifetime. Returns `null` when no catalog is available (no network + no
- * disk cache).
+ * Load the context index from the disk cache, caching the result for the
+ * process lifetime. Returns `null` when no disk snapshot is available.
+ *
+ * Never performs a network request — safe to call on any hot path.
  *
  * @internal
  */
-async function getCatalogIndex(): Promise<{
+function getCatalogIndex(): {
   index: ModelContextIndex;
-  source: 'live-catalog' | 'stale-catalog';
-} | null> {
+  source: 'disk-cache';
+} | null {
   if (_catalogIndex !== undefined) {
-    return _catalogIndex !== null && _catalogSource !== undefined
-      ? { index: _catalogIndex, source: _catalogSource }
-      : null;
+    return _catalogIndex !== null ? { index: _catalogIndex, source: 'disk-cache' } : null;
   }
-  const result = await resolveContextIndex();
+  const result = loadDiskCatalogIndex();
   if (result === null) {
     _catalogIndex = null;
     return null;
   }
   _catalogIndex = result.index;
-  _catalogSource = result.source === 'live' ? 'live-catalog' : 'stale-catalog';
-  return { index: _catalogIndex, source: _catalogSource };
+  return { index: _catalogIndex, source: 'disk-cache' };
 }
 
 /**
@@ -99,8 +99,16 @@ const ALIAS_STRIP_PATTERNS: RegExp[] = [
 export interface ModelMetadata {
   /** Context window size in tokens. */
   contextLength: number;
-  /** Where this value came from. */
-  source: 'live-catalog' | 'stale-catalog' | 'curated' | 'curated-alias' | 'default';
+  /**
+   * Where this value came from.
+   *
+   * - `disk-catalog` — read from the local catalog snapshot written by
+   *   `cleo llm refresh-catalog` (models.dev data, no network at read time)
+   * - `curated` — bundled curated-models.json exact match
+   * - `curated-alias` — bundled curated-models.json after stripping date/version suffix
+   * - `default` — {@link DEFAULT_CONTEXT_LENGTH} fallback (model unknown)
+   */
+  source: 'disk-catalog' | 'curated' | 'curated-alias' | 'default';
   /** True iff a live-API probe would change this answer. */
   livePending?: boolean;
 }
@@ -165,12 +173,13 @@ export async function getModelMetadata(
   void baseUrl;
   void apiKey;
 
-  // Tier 1: disk catalog from `cleo llm refresh-catalog` (models.dev).
-  const catalog = await getCatalogIndex();
+  // Tier 1: disk catalog snapshot written by `cleo llm refresh-catalog`.
+  // Disk-only read — no outbound network request at resolution time.
+  const catalog = getCatalogIndex();
   if (catalog !== null) {
     const ctx = catalog.index[model];
     if (typeof ctx === 'number') {
-      return { contextLength: ctx, source: catalog.source };
+      return { contextLength: ctx, source: 'disk-catalog' };
     }
   }
 
@@ -194,7 +203,7 @@ export async function getModelMetadata(
  * Resolve the context window length for a model.
  *
  * Resolution priority:
- *   1. Disk catalog from `cleo llm refresh-catalog` (models.dev)
+ *   1. Disk catalog snapshot (populated by `cleo llm refresh-catalog`, no network at read time)
  *   2. Curated table exact match
  *   3. Curated table prefix-alias (strip trailing date / version suffix)
  *   4. {@link DEFAULT_CONTEXT_LENGTH} fallback (256000)
@@ -223,7 +232,6 @@ export async function getModelContextLength(
  */
 export function _resetCatalogIndexCache(): void {
   _catalogIndex = undefined;
-  _catalogSource = undefined;
 }
 
 /**

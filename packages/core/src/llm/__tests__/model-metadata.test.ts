@@ -2,11 +2,13 @@
  * Unit tests for `getModelContextLength` / `getModelMetadata`.
  *
  * Covers all resolution tiers:
- *   - Tier 1: live catalog from catalog-cache (mocked)
- *   - Tier 1: stale-cache fallback from catalog-cache (mocked)
+ *   - Tier 1: disk catalog snapshot from catalog-cache (mocked)
  *   - Tier 2: curated exact match
  *   - Tier 3: curated alias (date / version suffix stripped)
  *   - Tier 4: default fallback
+ *
+ * The catalog-cache module is mocked so tests run without touching the
+ * filesystem or network.
  *
  * @task T9264
  * @task T9314
@@ -19,10 +21,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock catalog-cache before importing model-metadata
 // ---------------------------------------------------------------------------
 
-const mockResolveContextIndex = vi.fn();
+const mockLoadDiskCatalogIndex = vi.fn();
 
 vi.mock('../catalog-cache.js', () => ({
-  resolveContextIndex: (...args: unknown[]) => mockResolveContextIndex(...args),
+  loadDiskCatalogIndex: (...args: unknown[]) => mockLoadDiskCatalogIndex(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -43,42 +45,32 @@ import {
 /** Force the module-level catalog index cache to clear between tests. */
 function resetCache(): void {
   _resetCatalogIndexCache();
-  mockResolveContextIndex.mockReset();
+  mockLoadDiskCatalogIndex.mockReset();
 }
 
 // ---------------------------------------------------------------------------
-// Tests — Tier 1: live catalog
+// Tests — Tier 1: disk catalog
 // ---------------------------------------------------------------------------
 
-describe('getModelMetadata — Tier 1: live catalog', () => {
+describe('getModelMetadata — Tier 1: disk catalog', () => {
   beforeEach(resetCache);
   afterEach(resetCache);
 
-  it('returns source "live-catalog" when catalog index has an exact match', async () => {
-    mockResolveContextIndex.mockResolvedValue({
-      index: { 'test-model-live': 512_000 },
-      source: 'live',
+  it('returns source "disk-catalog" when disk index has an exact match', async () => {
+    mockLoadDiskCatalogIndex.mockReturnValue({
+      index: { 'test-model-cached': 512_000 },
+      source: 'disk-cache',
     });
-    const meta = await getModelMetadata('test-model-live');
-    expect(meta.source).toBe('live-catalog');
+    const meta = await getModelMetadata('test-model-cached');
+    expect(meta.source).toBe('disk-catalog');
     expect(meta.contextLength).toBe(512_000);
     expect(meta.livePending).toBeUndefined();
   });
 
-  it('returns source "stale-catalog" when catalog source is stale-cache', async () => {
-    mockResolveContextIndex.mockResolvedValue({
-      index: { 'test-model-stale': 300_000 },
-      source: 'stale-cache',
-    });
-    const meta = await getModelMetadata('test-model-stale');
-    expect(meta.source).toBe('stale-catalog');
-    expect(meta.contextLength).toBe(300_000);
-  });
-
-  it('falls through to curated tier when model not in catalog index', async () => {
-    mockResolveContextIndex.mockResolvedValue({
+  it('falls through to curated tier when model not in disk index', async () => {
+    mockLoadDiskCatalogIndex.mockReturnValue({
       index: { 'other-model': 128_000 },
-      source: 'live',
+      source: 'disk-cache',
     });
     // claude-haiku-4-5-20251001 is in the bundled curated table
     const meta = await getModelMetadata('claude-haiku-4-5-20251001');
@@ -86,33 +78,33 @@ describe('getModelMetadata — Tier 1: live catalog', () => {
     expect(meta.contextLength).toBe(200_000);
   });
 
-  it('falls through to default when catalog returns null', async () => {
-    mockResolveContextIndex.mockResolvedValue(null);
+  it('falls through to default when disk catalog returns null', async () => {
+    mockLoadDiskCatalogIndex.mockReturnValue(null);
     const meta = await getModelMetadata('unknown-model-no-catalog');
     expect(meta.source).toBe('default');
     expect(meta.contextLength).toBe(DEFAULT_CONTEXT_LENGTH);
   });
 
-  it('catalog index result is cached in-process (resolveContextIndex called once)', async () => {
-    mockResolveContextIndex.mockResolvedValue({
+  it('disk index result is cached in-process (loadDiskCatalogIndex called once)', async () => {
+    mockLoadDiskCatalogIndex.mockReturnValue({
       index: { 'cached-model': 100_000 },
-      source: 'live',
+      source: 'disk-cache',
     });
     await getModelMetadata('cached-model');
     await getModelMetadata('cached-model');
-    expect(mockResolveContextIndex).toHaveBeenCalledTimes(1);
+    expect(mockLoadDiskCatalogIndex).toHaveBeenCalledTimes(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Tests — Tier 2 / 3 / 4: bundled curated table (catalog returns null)
+// Tests — Tier 2 / 3 / 4: bundled curated table (disk catalog returns null)
 // ---------------------------------------------------------------------------
 
 describe('getModelContextLength — curated tiers', () => {
   beforeEach(() => {
     resetCache();
     // Disable Tier 1 so curated tiers are exercised.
-    mockResolveContextIndex.mockResolvedValue(null);
+    mockLoadDiskCatalogIndex.mockReturnValue(null);
   });
   afterEach(resetCache);
 
@@ -145,7 +137,7 @@ describe('getModelContextLength — curated tiers', () => {
 describe('getModelMetadata — curated tiers', () => {
   beforeEach(() => {
     resetCache();
-    mockResolveContextIndex.mockResolvedValue(null);
+    mockLoadDiskCatalogIndex.mockReturnValue(null);
   });
   afterEach(resetCache);
 
@@ -168,7 +160,7 @@ describe('getModelMetadata — curated tiers', () => {
     expect(meta.contextLength).toBe(DEFAULT_CONTEXT_LENGTH);
   });
 
-  it('curated result no longer sets livePending (Tier 1 now implemented)', async () => {
+  it('curated result does not set livePending', async () => {
     const meta = await getModelMetadata('gpt-4o');
     expect(meta.livePending).toBeUndefined();
   });

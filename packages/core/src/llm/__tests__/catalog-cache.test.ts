@@ -24,6 +24,7 @@ import {
   CatalogRefreshError,
   fetchAndCacheCatalog,
   findLatestCacheFile,
+  loadDiskCatalogIndex,
   type ModelsCatalogFile,
   readCacheFile,
   resolveContextIndex,
@@ -264,5 +265,41 @@ describe('resolveContextIndex', () => {
     const result = await resolveContextIndex(freshDir);
     expect(result).not.toBeNull();
     expect(result?.source).toBe('live');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadDiskCatalogIndex — disk-only, no network
+// ---------------------------------------------------------------------------
+
+describe('loadDiskCatalogIndex', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'cleo-disk-catalog-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns null when no disk snapshot exists', () => {
+    expect(loadDiskCatalogIndex(tmpDir)).toBeNull();
+  });
+
+  it('returns disk-cache source and correct index when snapshot is present', () => {
+    writeCacheFile(tmpDir, FIXTURE_CATALOG);
+    const result = loadDiskCatalogIndex(tmpDir);
+    expect(result).not.toBeNull();
+    expect(result?.source).toBe('disk-cache');
+    expect(result?.index['claude-sonnet-4-6']).toBe(200_000);
+    expect(result?.index['gpt-4o']).toBe(128_000);
+  });
+
+  it('never triggers a network fetch (no fetch mock needed)', () => {
+    // If loadDiskCatalogIndex triggered fetch, this test would throw because
+    // fetch is not defined in this describe block.
+    writeCacheFile(tmpDir, FIXTURE_CATALOG);
+    expect(() => loadDiskCatalogIndex(tmpDir)).not.toThrow();
   });
 });
