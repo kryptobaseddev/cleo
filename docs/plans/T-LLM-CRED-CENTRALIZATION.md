@@ -45,6 +45,15 @@ Goal: every LLM call in `@cleocode/core` goes through one resolver returning a t
    ```
    Re-export through `packages/contracts/src/index.ts`.
 
+   > **AS-SHIPPED (T9363 retro — 2026-05-16)**: `packages/contracts/src/llm/credential.ts` was
+   > **never created**. The `ResolvedCredential` type was created in W0b (T9281) as
+   > `packages/contracts/src/llm/resolved-credential.ts` to be unambiguous about the type's role
+   > as the OUTPUT of the resolution chain (not a credential input shape). The `AuthType` values
+   > shipped as defined here. `CredentialSource` was not included in the final type (credential
+   > source tracking is handled internally by the resolver, not exposed on `ResolvedCredential`).
+   > The shipped interface has `expiresAt`, `refreshToken`, `awsProfile`, and `baseUrl` fields
+   > that were refined from this plan.
+
 2. **`packages/core/src/llm/credentials.ts` (edit ~50 LOC)** — add a sibling resolver and a header builder:
    ```ts
    export function resolveCredential(
@@ -336,7 +345,7 @@ No code changes. Gates W0b/W0c from starting.
 
 **Goal**: Add the three interface files to `packages/contracts/src/llm/`. Zero implementation.
 
-**Files to create**:
+**Files to create** (planned):
 ```
 packages/contracts/src/llm/normalized-message.ts   — NormalizedMessage, ToolCall, NormalizedRole
 packages/contracts/src/llm/transport.ts            — LlmTransport, TransportRequestPayload, TransportChunk, NormalizedResponse, PingResult
@@ -344,6 +353,19 @@ packages/contracts/src/llm/session.ts              — LlmSession, SessionChunk,
 packages/contracts/src/llm/executor.ts             — LlmExecutor, ExecutorOptions, ExecutorChunk, SessionOptions
 packages/contracts/src/llm/index.ts                — re-exports all four above
 ```
+
+> **AS-SHIPPED (T9363 retro — 2026-05-16)**: None of the planned filenames above were created.
+> The implementation (T9281 + T9263 + T9282) produced a different but equivalent file set:
+> - `normalized-response.ts` — holds `LlmTransport` + `NormalizedResponse` + `TransportMessage` + related wire types (pre-ADR-072, T9263)
+> - `interfaces.ts` — holds `LlmSession` + `LlmExecutor` + `NormalizedDelta` + 10+ supporting types (T9281)
+> - `resolved-credential.ts` — holds `ResolvedCredential` (was planned as `credential.ts` in Phase 1; named after the type for clarity)
+> - `provider-id.ts` — holds `ProviderId` / `ApiMode` / `BuiltinProviderId` (not in original plan, added T9281)
+> - `provider-profile.ts` — holds `ProviderProfile` hooks (not in original plan, added via Phase 3 port)
+> - `failover-reason.ts`, `oauth.ts`, `plugin-llm.ts` — additional types added in Phase 5
+>
+> Reason for divergence: `LlmTransport` was established in `normalized-response.ts` by T9263 (pre-ADR-072).
+> When W0b ran, moving it would have broken existing consumers. `LlmSession`/`LlmExecutor` were collapsed
+> into a single `interfaces.ts` because they are co-dependent and share supporting types (see T9363 spec).
 
 **Files to edit**:
 - `packages/contracts/src/index.ts` — add `export * from './llm/index.js'`
@@ -361,9 +383,17 @@ packages/contracts/src/llm/index.ts                — re-exports all four above
 **Goal**: Add a `toNormalizedMessage(anthropicMsg)` conversion utility and update
 `packages/core/src/llm/` to use `NormalizedMessage` internally (no call-site changes yet).
 
-**Files to create/edit**:
+**Files to create/edit** (planned):
 - `packages/core/src/llm/normalized-message-utils.ts` *(new)* — conversion helpers
 - `packages/core/src/llm/__tests__/normalized-message.test.ts` *(new)* — 6+ unit tests
+
+> **AS-SHIPPED (T9363 retro — 2026-05-16)**: `normalized-message-utils.ts` was **never created**.
+> The W0c commit (T9282, `8cdf10f79`) focused on extending `LlmTransport` with `stream()` + `apiMode`
+> and adding `ProviderProfile` hooks — not adding a conversion helper. Message-format conversion was
+> inlined into each transport's `complete()` / `stream()` methods (anthropic.ts, gemini.ts,
+> chat-completions.ts) because conversion requires provider-specific SDK types. A `message-utils.ts`
+> was later extracted (T9289 DRY cleanup) for token-count estimation only, not message conversion.
+> **This planned file is superseded. Do not create it.**
 
 **Acceptance gates**:
 - Conversion helper covers Anthropic, OpenAI-compat, and Bedrock message formats.
@@ -406,12 +436,30 @@ packages/core/src/llm/__tests__/transports/             — unit tests (mock HTT
 
 **Goal**: Implement `DefaultLlmSession` and `DefaultLlmExecutor`. Wire to Phase 3 credential pool.
 
-**Files to create**:
+**Files to create** (planned):
 ```
 packages/core/src/llm/default-session.ts     — DefaultLlmSession
 packages/core/src/llm/default-executor.ts    — DefaultLlmExecutor (singleton factory)
 packages/core/src/llm/__tests__/executor/    — integration tests with mock transports
 ```
+
+> **AS-SHIPPED (T9363 retro — 2026-05-16)**: `default-session.ts` and `default-executor.ts` were
+> never created. The Wave 2 implementation was split across 4 tasks (T9287–T9291) and produced:
+> - `concrete-session.ts` (T9287 W2a) — implements `LlmSession` as `ConcreteSession`
+> - `session-factory.ts` (T9288 W2b) — implements `LlmSessionFactory` as `DefaultLlmSessionFactory`;
+>   bridges `resolveLLMForRole` → transport routing → `ConcreteSession`
+> - `concrete-executor.ts` (T9290 W3a) — implements `LlmExecutor` as `ConcreteExecutor`
+> - `executor-factory.ts` (T9291 W3b) — provides `getLlmExecutor()` singleton + `ExecutorFactory`
+>
+> Naming change: "Default*" → "Concrete*" because "Concrete" more clearly signals
+> "non-abstract implementation of an interface" vs "default fallback." The class name
+> and filename match (class `ConcreteSession` lives in `concrete-session.ts`).
+>
+> Split rationale: Session factory and executor factory have distinct responsibilities
+> (transport routing vs singleton lifecycle), so SRP favored two files over one.
+>
+> The singleton pattern (`getLlmExecutor()`) was preserved from the plan; it lives in
+> `executor-factory.ts` not the executor itself.
 
 **Key implementation notes**:
 - `DefaultLlmExecutor` is a singleton. `getLlmExecutor()` returns the shared instance.
