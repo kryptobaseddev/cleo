@@ -13,11 +13,11 @@
 /**
  * Canonical wire-level API protocol supported by a provider.
  *
- * Closed 4-value union. Providers that speak multiple protocols (e.g. OpenAI
- * supports both chat_completions and codex_responses) declare separate
- * ProviderProfiles, one per ApiMode.
+ * Closed union. Providers that speak multiple protocols (e.g. OpenAI supports
+ * both chat_completions and codex_responses) declare separate ProviderProfiles,
+ * one per ApiMode.
  *
- * Adding a fifth value is a major breaking change — confirm in ADR-072 before doing so.
+ * Adding a new value is a significant change — confirm in ADR-072 before doing so.
  *
  * @see ADR-072 §Type lock-in
  */
@@ -25,7 +25,8 @@ export type ApiMode =
   | 'chat_completions' // OpenAI, OpenRouter, Groq, DeepSeek, Moonshot, xAI, Gemini-via-OR
   | 'anthropic_messages' // Native Anthropic SDK — full prompt-cache + thinking
   | 'codex_responses' // OpenAI Responses API (Codex CLI, xAI-responses)
-  | 'bedrock_converse'; // AWS Bedrock ConversationAPI
+  | 'bedrock_converse' // AWS Bedrock ConversationAPI
+  | 'ollama_native'; // Ollama /api/chat NDJSON-streaming protocol
 
 /**
  * Fixed set of builtin provider identifiers shipped with CLEO core.
@@ -47,7 +48,8 @@ export type BuiltinProviderId =
   | 'deepseek'
   | 'xai'
   | 'groq'
-  | 'kimi-code';
+  | 'kimi-code'
+  | 'ollama';
 
 /**
  * Provider identity string.
