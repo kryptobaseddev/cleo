@@ -92,18 +92,21 @@ async function getComputeCost(): Promise<
   return computeCost;
 }
 
-/** Default model per provider used when no --model flag is supplied. */
-const DEFAULT_MODELS: Partial<Record<ModelTransport, string>> = {
-  anthropic: 'claude-haiku-4-5-20251001',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.0-flash',
-  moonshot: 'moonshot-v1-8k',
-  openrouter: 'openrouter/auto',
-  deepseek: 'deepseek-chat',
-  xai: 'grok-beta',
-  groq: 'llama3-8b-8192',
-  'kimi-code': 'kimi-latest',
-};
+/**
+ * Resolve the default model for a provider via the provider registry.
+ *
+ * Delegates to `getProviderProfile(provider).defaultModel` so all model IDs
+ * stay in the `packages/core/src/llm/` SSoT (no literals in CLI code).
+ * Falls back to `IMPLICIT_FALLBACK_MODEL` when the provider is unknown.
+ */
+async function resolveDefaultModel(provider: ModelTransport): Promise<string> {
+  const [{ getProviderProfile }, { IMPLICIT_FALLBACK_MODEL }] = await Promise.all([
+    import(/* webpackIgnore: true */ '@cleocode/core/llm/provider-registry/index.js'),
+    import(/* webpackIgnore: true */ '@cleocode/core/llm/role-resolver.js'),
+  ]);
+  const profile = await getProviderProfile(provider);
+  return profile?.defaultModel ?? IMPLICIT_FALLBACK_MODEL;
+}
 
 // ---------------------------------------------------------------------------
 // runLlmStream — testable core logic, decoupled from citty wiring
@@ -171,9 +174,9 @@ export async function runLlmStream(opts: LlmStreamOptions): Promise<StreamUsageS
   const stdout = opts.stdout ?? process.stdout;
   const stderr = opts.stderr ?? process.stderr;
 
-  const model = opts.model ?? DEFAULT_MODELS[opts.provider] ?? 'claude-haiku-4-5-20251001';
-
-  const session = opts._sessionOverride ?? (await buildSession(opts.provider, model));
+  const session =
+    opts._sessionOverride ??
+    (await buildSession(opts.provider, opts.model ?? (await resolveDefaultModel(opts.provider))));
 
   const sendOpts: SendOptions = {
     ...(opts.system != null ? { systemSuffix: opts.system } : {}),

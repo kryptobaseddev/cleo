@@ -168,6 +168,31 @@ export default defineConfig({
         '../../packages/core/src/llm/provider-registry/index.ts',
         import.meta.url,
       ).pathname,
+      // T9315: dynamic imports used by resolveDefaultModel + buildSession
+      '@cleocode/core/llm/role-resolver.js': new URL(
+        '../../packages/core/src/llm/role-resolver.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/llm/concrete-session.js': new URL(
+        '../../packages/core/src/llm/concrete-session.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/llm/credentials.js': new URL(
+        '../../packages/core/src/llm/credentials.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/llm/transports/anthropic.js': new URL(
+        '../../packages/core/src/llm/transports/anthropic.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/llm/transports/chat-completions.js': new URL(
+        '../../packages/core/src/llm/transports/chat-completions.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/llm/transports/gemini.js': new URL(
+        '../../packages/core/src/llm/transports/gemini.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core/llm/oauth/pkce.js': new URL(
         '../../packages/core/src/llm/oauth/pkce.ts',
         import.meta.url,
