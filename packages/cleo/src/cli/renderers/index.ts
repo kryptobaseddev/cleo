@@ -31,6 +31,7 @@ import type { CliEnvelope, CliMeta } from '@cleocode/lafs';
 import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
+import { metaFooter, pagerFooter } from './format-helpers.js';
 import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
 import { normalizeForHuman } from './normalizer.js';
 // System renderers
@@ -315,6 +316,40 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     const text = renderer(normalized, ctx.quiet);
     if (text) {
       process.stdout.write(text + '\n');
+    }
+    // T9393-followup: surface LAFS pagination + decorator-stamped meta so
+    // human-mode users see the same windowing + scope info JSON consumers do.
+    // Renderer audit found 12+ commands silently truncated lists with no
+    // hint that `--limit` was active, and EVERY renderer dropped `_nexus` /
+    // `deprecated` warnings. Centralising the chrome here means every
+    // command picks it up automatically without per-renderer wiring.
+    if (!ctx.quiet) {
+      const pagerData = data as Record<string, unknown> | undefined;
+      const pagerArrays =
+        pagerData && typeof pagerData === 'object'
+          ? Object.values(pagerData).filter((v) => Array.isArray(v))
+          : [];
+      const shown = pagerArrays.reduce((max, arr) => Math.max(max, (arr as unknown[]).length), 0);
+      if (shown > 0 && opts.page) {
+        const pager = pagerFooter({
+          shown,
+          page: opts.page as Parameters<typeof pagerFooter>[0]['page'],
+          total: pagerData?.['total'] as number | undefined,
+          filtered: pagerData?.['filtered'] as number | undefined,
+        });
+        if (pager) process.stdout.write(`${pager}\n`);
+      }
+      // Decorator-stamped meta can arrive via `responseMeta` (dispatchRaw
+       // path) or be inlined into `extensions` by bypass-dispatch commands
+       // (e.g. `cleo nexus status` via buildNexusMetaExtensions). Merge so
+       // metaFooter sees both — extensions wins on collision to match the
+       // JSON envelope precedence rule.
+      const combinedMeta = {
+        ...(opts.responseMeta ?? {}),
+        ...(opts.extensions ?? {}),
+      };
+      const footer = metaFooter(combinedMeta);
+      if (footer) process.stdout.write(`${footer}\n`);
     }
     return;
   }
