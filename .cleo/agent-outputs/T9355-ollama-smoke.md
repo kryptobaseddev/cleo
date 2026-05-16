@@ -1,5 +1,7 @@
 # T9355 Ollama Smoke Test
 
+<!-- @no-cleo-register: evidence file, no task attachment needed -->
+
 **Date**: 2026-05-16T15:46:31Z
 **Status**: PASS
 **Base URL**: http://localhost:11434
