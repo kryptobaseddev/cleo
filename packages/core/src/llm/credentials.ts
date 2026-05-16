@@ -136,6 +136,9 @@ const ENV_VARS: Record<ModelTransport, string> = {
   // `https://api.kimi.com/coding` and speak Anthropic Messages protocol.
   // Device-code OAuth via auth.kimi.com is also supported (T9266 preset).
   'kimi-code': 'KIMI_CODE_API_KEY',
+  // Ollama runs locally without an API key by default. OLLAMA_HOST overrides
+  // the base URL (e.g. for remote ollama servers). Empty string allowed.
+  ollama: 'OLLAMA_HOST',
 };
 
 // ---------------------------------------------------------------------------
