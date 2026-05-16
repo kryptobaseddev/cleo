@@ -258,6 +258,29 @@ export class CatalogRefreshError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
+ * Load the context index from the disk cache only — no network fetch.
+ *
+ * Used by the runtime model-metadata resolver so that reading context lengths
+ * never triggers an outbound HTTP request. Populate the cache first with
+ * {@link resolveContextIndex} (called by `cleo llm refresh-catalog`).
+ *
+ * Returns `null` when no disk snapshot exists yet.
+ *
+ * @param dir - Cache directory override (used in tests).
+ */
+export function loadDiskCatalogIndex(dir?: string): {
+  index: ModelContextIndex;
+  source: 'disk-cache';
+} | null {
+  const cacheDir = dir ?? getCatalogDir();
+  const latest = findLatestCacheFile(cacheDir);
+  if (!latest) return null;
+  const catalog = readCacheFile(latest);
+  if (!catalog) return null;
+  return { index: buildContextIndex(catalog), source: 'disk-cache' };
+}
+
+/**
  * Resolve a live (or stale-cached) {@link ModelContextIndex}.
  *
  * Resolution order:
@@ -265,6 +288,9 @@ export class CatalogRefreshError extends Error {
  *   2. On network failure, fall back to the most-recent disk cache entry.
  *   3. If the cache is empty, return `null` so the caller can use the
  *      bundled curated-models.json snapshot.
+ *
+ * This function performs a network request. Use {@link loadDiskCatalogIndex}
+ * when you only need to read the locally-cached snapshot.
  *
  * @param dir - Cache directory override (used in tests).
  */
