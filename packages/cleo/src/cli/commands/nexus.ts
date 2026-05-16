@@ -20,6 +20,7 @@ import path from 'node:path';
 import { generateGexf, getSymbolImpact } from '@cleocode/core/nexus';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { buildNexusMetaExtensions } from '../../dispatch/nexus-decorator.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
@@ -180,7 +181,10 @@ const statusCommand = defineCommand({
         {
           command: 'nexus-status',
           operation: 'nexus.status',
-          extensions: { duration_ms: durationMs },
+          extensions: {
+            duration_ms: durationMs,
+            ...buildNexusMetaExtensions('status', { projectId, path: repoPath }),
+          },
         },
       );
     } catch (err) {
@@ -757,6 +761,7 @@ const clustersCommand = defineCommand({
       command: 'nexus-clusters',
       operation: 'nexus.clusters',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
@@ -802,6 +807,7 @@ const flowsCommand = defineCommand({
       command: 'nexus-flows',
       operation: 'nexus.flows',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
@@ -868,6 +874,7 @@ const contextCommand = defineCommand({
       command: 'nexus-context',
       operation: 'nexus.context',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
@@ -910,7 +917,10 @@ const impactCommand = defineCommand({
       cliOutput({ ...result, _symbolName: symbolName, _why: whyFlag } as Record<string, unknown>, {
         command: 'nexus-impact',
         operation: 'nexus.impact',
-        extensions: { duration_ms: durationMs },
+        extensions: {
+          duration_ms: durationMs,
+          ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
+        },
       });
     } catch (err) {
       const code =
@@ -1144,6 +1154,7 @@ const projectsListCommand = defineCommand({
       command: 'nexus-projects-list',
       operation: 'nexus.projects.list',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
@@ -1195,6 +1206,7 @@ const projectsRegisterCommand = defineCommand({
       command: 'nexus-projects-register',
       operation: 'nexus.projects.register',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
@@ -1240,6 +1252,7 @@ const projectsRemoveCommand = defineCommand({
         command: 'nexus-projects-remove',
         operation: 'nexus.projects.remove',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -1308,6 +1321,7 @@ const projectsScanCommand = defineCommand({
         command: 'nexus-projects-scan',
         operation: 'nexus.projects.scan',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -1411,7 +1425,11 @@ const projectsCleanCommand = defineCommand({
       if (ctx.format !== 'json') {
         cliOutput(
           { matched: matchCount, totalCount, sample: samplePaths },
-          { command: 'nexus-projects-clean-preview', operation: 'nexus.projects.clean' },
+          {
+            command: 'nexus-projects-clean-preview',
+            operation: 'nexus.projects.clean',
+            responseMeta: previewResp.meta as unknown as Record<string, unknown>,
+          },
         );
       }
 
@@ -1429,6 +1447,7 @@ const projectsCleanCommand = defineCommand({
             command: 'nexus-projects-clean',
             operation: 'nexus.projects.clean',
             extensions: { duration_ms: durationMs },
+            responseMeta: previewResp.meta as unknown as Record<string, unknown>,
           },
         );
         return;
@@ -1499,6 +1518,7 @@ const projectsCleanCommand = defineCommand({
           command: 'nexus-projects-clean',
           operation: 'nexus.projects.clean',
           extensions: { duration_ms: durationMs },
+          responseMeta: deleteResp.meta as unknown as Record<string, unknown>,
         },
       );
     } catch (err) {
@@ -1576,6 +1596,7 @@ const refreshBridgeCommand = defineCommand({
       command: 'nexus-refresh-bridge',
       operation: 'nexus.refresh-bridge',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
@@ -1768,6 +1789,7 @@ const diffCommand = defineCommand({
       command: 'nexus-diff',
       operation: 'nexus.diff',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
@@ -1852,6 +1874,7 @@ const queryCommand = defineCommand({
         command: 'nexus-query',
         operation: 'nexus.query-cte',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -1905,6 +1928,7 @@ const routeMapCommand = defineCommand({
         command: 'nexus-route-map',
         operation: 'nexus.route-map',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -1964,6 +1988,7 @@ const shapeCheckCommand = defineCommand({
         command: 'nexus-shape-check',
         operation: 'nexus.shape-check',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2020,6 +2045,7 @@ const fullContextCommand = defineCommand({
         command: 'nexus-full-context',
         operation: 'nexus.full-context',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2065,6 +2091,7 @@ const taskFootprintCommand = defineCommand({
         command: 'nexus-task-footprint',
         operation: 'nexus.task-footprint',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2110,6 +2137,7 @@ const brainAnchorsCommand = defineCommand({
         command: 'nexus-brain-anchors',
         operation: 'nexus.brain-anchors',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2155,7 +2183,12 @@ const whyCommand = defineCommand({
     const durationMs = Date.now() - startTime;
     cliOutput(
       { ...((response.data as Record<string, unknown>) ?? {}), _durationMs: durationMs },
-      { command: 'nexus-why', operation: 'nexus.why', extensions: { duration_ms: durationMs } },
+      {
+        command: 'nexus-why',
+        operation: 'nexus.why',
+        extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
+      },
     );
   },
 });
@@ -2200,6 +2233,7 @@ const impactFullCommand = defineCommand({
         command: 'nexus-impact-full',
         operation: 'nexus.impact-full',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2252,6 +2286,7 @@ const conduitScanCommand = defineCommand({
         command: 'nexus-conduit-scan',
         operation: 'nexus.conduit-scan',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2313,6 +2348,7 @@ const taskSymbolsCommand = defineCommand({
         command: 'nexus-task-symbols',
         operation: 'nexus.task-symbols',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2430,6 +2466,7 @@ const contractsSyncCommand = defineCommand({
         command: 'nexus-contracts-sync',
         operation: 'nexus.contracts.sync',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2486,6 +2523,7 @@ const contractsShowCommand = defineCommand({
         command: 'nexus-contracts-show',
         operation: 'nexus.contracts.show',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2535,6 +2573,7 @@ const contractsLinkTasksCommand = defineCommand({
         command: 'nexus-contracts-link-tasks',
         operation: 'nexus.contracts.link-tasks',
         extensions: { duration_ms: durationMs },
+        responseMeta: response.meta as unknown as Record<string, unknown>,
       },
     );
   },
@@ -2728,6 +2767,7 @@ const hotPathsCommand = defineCommand({
       command: 'nexus-hot-paths',
       operation: 'nexus.hot-paths',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
@@ -2779,6 +2819,7 @@ const hotNodesCommand = defineCommand({
       command: 'nexus-hot-nodes',
       operation: 'nexus.hot-nodes',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
@@ -2831,6 +2872,7 @@ const coldSymbolsCommand = defineCommand({
       command: 'nexus-cold-symbols',
       operation: 'nexus.cold-symbols',
       extensions: { duration_ms: durationMs },
+      responseMeta: response.meta as unknown as Record<string, unknown>,
     });
   },
 });
