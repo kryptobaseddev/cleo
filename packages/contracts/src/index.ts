@@ -466,9 +466,14 @@ export type {
 } from './llm/normalized-response.js';
 // === OAuth types — SSoT shared between core and cleo (T9302) ===
 export type { OAuthMode, OAuthTokens, PkceFlowConfig, ProviderOAuthConfig } from './llm/oauth.js';
-// === Phase 4 Plugin LLM facade types (T9305) ===
+// === Phase 4/5 Plugin LLM facade types (T9305 / T9313) ===
 export type { PluginLlmComplete, PluginLlmContext } from './llm/plugin-llm.js';
-export { PluginLlmError, PluginModelGateError } from './llm/plugin-llm.js';
+export {
+  PluginDeniedError,
+  PluginLlmError,
+  PluginModelGateError,
+  PluginRateLimitedError,
+} from './llm/plugin-llm.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Provider identity ===
 export type { ApiMode, BuiltinProviderId, ProviderId } from './llm/provider-id.js';
 // === Provider Profile + Plugin Contracts (T9262 — Phase 3 T-LLM-CRED) ===
