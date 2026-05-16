@@ -682,6 +682,9 @@ export type {
   // `cleo llm` CLI / dispatch operation contracts (T9258)
   LlmAddParams,
   LlmAddResult,
+  LlmAuxiliaryChainEntry,
+  LlmAuxiliaryStatusParams,
+  LlmAuxiliaryStatusResult,
   LlmListParams,
   LlmListResult,
   LlmProfileParams,

@@ -12,6 +12,21 @@
 export type { CleoLlmCallParams } from './api.js';
 // Public entrypoint
 export { cleoLlmCall } from './api.js';
+// Multi-provider auxiliary fallback chain (T9319)
+export type {
+  AllProvidersExhaustedError,
+  AuxiliaryFallbackChain,
+  AuxiliaryFallbackEntry,
+  AuxiliaryFallbackMeta,
+  AuxiliaryFallbackResult,
+  AuxiliaryProvider,
+  FallbackChainStep,
+} from './auxiliary-fallback.js';
+export {
+  DEFAULT_AUXILIARY_FALLBACK_CHAIN,
+  parseAuxiliaryFallbackChain,
+  runAuxiliaryWithFallback,
+} from './auxiliary-fallback.js';
 // Backend types — canonical CompletionResult / ProviderBackend shapes used by request-builder, history-adapters, structured-output
 export type {
   BackendCallParams,
@@ -28,12 +43,14 @@ export { buildCacheKey, geminiCacheStore, InMemoryGeminiCacheStore } from './cac
 // `cleo llm` CLI / dispatch engine ops (T9258 — T-LLM-CRED Phase 2 / T-llm-4)
 export {
   llmAdd,
+  llmAuxiliaryStatus,
   llmList,
   llmProfile,
   llmRemove,
   llmTest,
   llmUse,
   llmWhoami,
+  resolveAuxiliaryFallbackChain,
 } from './cli-ops.js';
 // New Phase 4 executor layer (T9290/T9291)
 export type { ConcreteExecutorOptions } from './concrete-executor.js';

@@ -25,6 +25,8 @@ import type {
   NormalizedResponse,
   TransportMessage,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import type { AuxiliaryFallbackChain, AuxiliaryFallbackResult } from './auxiliary-fallback.js';
+import { runAuxiliaryWithFallback } from './auxiliary-fallback.js';
 import { estimateTransportMessageTokens } from './message-utils.js';
 import { computeCost } from './usage-pricing.js';
 
@@ -52,6 +54,19 @@ export interface ConcreteExecutorOptions {
    * emitted and no errors are thrown.
    */
   readonly contextEngine?: ContextEngine;
+  /**
+   * Optional auxiliary fallback chain for cross-provider fallover.
+   *
+   * When set, {@link ConcreteExecutor.auxiliary} will fall through to the next
+   * provider in the chain when the primary provider's credential pool is
+   * exhausted. When absent, auxiliary calls use only the bound session's
+   * provider (original behaviour).
+   *
+   * Configure via `cleo config set llm.auxiliaryFallback "anthropic,openrouter,groq"`.
+   *
+   * @task T9319
+   */
+  readonly auxiliaryFallbackChain?: AuxiliaryFallbackChain;
 }
 
 /**
@@ -74,6 +89,7 @@ export class ConcreteExecutor implements LlmExecutor {
   readonly session: LlmSession;
 
   private readonly _contextEngine: ContextEngine | undefined;
+  private readonly _auxiliaryFallbackChain: AuxiliaryFallbackChain | undefined;
 
   /**
    * @param opts - Executor construction options.
@@ -81,6 +97,7 @@ export class ConcreteExecutor implements LlmExecutor {
   constructor(opts: ConcreteExecutorOptions) {
     this.session = opts.session;
     this._contextEngine = opts.contextEngine;
+    this._auxiliaryFallbackChain = opts.auxiliaryFallbackChain;
   }
 
   /**
@@ -259,11 +276,29 @@ export class ConcreteExecutor implements LlmExecutor {
    * hygiene scans). Uses the same underlying session but does NOT append messages
    * to the session history.
    *
+   * When {@link ConcreteExecutorOptions.auxiliaryFallbackChain} is configured,
+   * automatically falls through to the next provider in the chain when the
+   * primary provider's credential pool is exhausted (all credentials on cooldown
+   * due to 401/429 errors). Returns an {@link AuxiliaryFallbackResult} that
+   * includes `meta.fallbackChain` describing the path taken.
+   *
+   * Without a fallback chain, falls back to the original single-provider
+   * behaviour (calls the bound session directly).
+   *
    * @param messages - Messages to send.
    * @param opts - Optional per-call overrides.
-   * @returns The normalized provider response.
+   * @returns The normalized provider response (or AuxiliaryFallbackResult when
+   *   a fallback chain is active).
+   *
+   * @task T9319
    */
-  async auxiliary(messages: TransportMessage[], opts?: SendOptions): Promise<NormalizedResponse> {
+  async auxiliary(
+    messages: TransportMessage[],
+    opts?: SendOptions,
+  ): Promise<NormalizedResponse | AuxiliaryFallbackResult> {
+    if (this._auxiliaryFallbackChain !== undefined && this._auxiliaryFallbackChain.length > 0) {
+      return runAuxiliaryWithFallback(this._auxiliaryFallbackChain, messages, opts);
+    }
     return this.session.send(messages, opts);
   }
 }
