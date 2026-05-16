@@ -68,6 +68,20 @@ export {
 // New Phase 4 executor layer (T9290/T9291)
 export type { ConcreteExecutorOptions } from './concrete-executor.js';
 export { ConcreteExecutor } from './concrete-executor.js';
+// ContextEngine plugin registry (T9312)
+export {
+  _resetContextEngineRegistryForTesting,
+  getContextEngine,
+  listContextEngines as listContextEnginesByName,
+  registerContextEngine as registerNamedContextEngine,
+} from './context-engines/index.js';
+// RuleBasedTruncationEngine (T9312)
+export {
+  KEEP_TAIL,
+  MIN_TRUNCATION_TOKENS,
+  RuleBasedTruncationEngine,
+  TRUNCATION_RATIO,
+} from './context-engines/rule-based-truncation.js';
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
 export type {
@@ -108,6 +122,8 @@ export {
   clearLlmExecutorCache,
   DefaultLlmExecutorFactory,
   getLlmExecutor,
+  listContextEngines,
+  registerContextEngine,
 } from './executor-factory.js';
 // History adapters
 export {
