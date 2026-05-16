@@ -146,8 +146,8 @@ export type {
   PromptCachingStrategy,
 } from './prompt-caching.js';
 export { injectCacheBreakpoints } from './prompt-caching.js';
-// Registry — SDK client factory (D-ph4-01 partial: buildAnthropicSdkClient removed T9369)
-export { clientForModelConfig } from './registry.js';
+// Registry — all factory exports retired (D-ph4-01 complete, T9356/T9370)
+// clientForModelConfig, buildAnthropicSdkClient removed; historyAdapterForProvider → history-adapters.js
 // Role-based LLM resolver (T-LLM-CRED-CENTRALIZATION Phase 2 / T9255)
 export type {
   LLMClient,
