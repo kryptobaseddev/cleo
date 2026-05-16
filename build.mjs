@@ -256,6 +256,13 @@ const sharedExternals = [
   // the runtime needs to load from node_modules anyway.
   '@anthropic-ai/sdk',
   /^@anthropic-ai\//,
+  // AWS SDK v3 modules — pull in @smithy/* runtime, node:buffer dynamic require,
+  // and large transitive CJS shims that crash with "Dynamic require of buffer
+  // is not supported" if inlined into the ESM bundle. (T9317)
+  '@aws-sdk/client-bedrock-runtime',
+  /^@aws-sdk\//,
+  '@smithy/types',
+  /^@smithy\//,
 ];
 
 // ---------------------------------------------------------------------------
