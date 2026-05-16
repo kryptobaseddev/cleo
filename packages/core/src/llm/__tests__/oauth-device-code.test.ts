@@ -5,8 +5,9 @@
  * real HTTP requests are made. Vitest fake timers are used to advance past
  * polling intervals without wall-clock delays.
  *
- * @task T9266
- * @epic T-LLM-CRED-CENTRALIZATION
+ * @task T9321
+ * @task T9326
+ * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +15,8 @@ import {
   DeviceCodeAuthError,
   type DeviceCodeConfig,
   DeviceCodeTimeoutError,
+  getDeviceCodeConfig,
+  getKimiCodeDeviceCodeConfig,
   pollForToken,
   startDeviceCodeFlow,
 } from '../oauth/device-code.js';
@@ -383,5 +386,48 @@ describe('pollForToken — network error retry', () => {
     expect(result.ok).toBe(false);
     expect((result as { ok: false; error: unknown }).error).toBeInstanceOf(TypeError);
     expect(String((result as { ok: false; error: unknown }).error)).toContain('fetch failed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Provider scope — kimi-code is the only device-code provider (T9326)
+// ---------------------------------------------------------------------------
+
+describe('getDeviceCodeConfig — provider scope', () => {
+  it('returns a config for kimi-code', () => {
+    const cfg = getDeviceCodeConfig('kimi-code');
+    expect(cfg.provider).toBe('kimi-code');
+    expect(cfg.deviceCodeUrl).toContain('device_authorization');
+    expect(cfg.tokenUrl).toContain('oauth/token');
+    expect(cfg.clientId).toBeTruthy();
+  });
+
+  it('throws for anthropic — device-code is not supported (PKCE is canonical)', () => {
+    expect(() => getDeviceCodeConfig('anthropic')).toThrow(
+      "No device-code config preset for provider 'anthropic'",
+    );
+  });
+
+  it('throws for unknown provider', () => {
+    expect(() => getDeviceCodeConfig('unknown-provider')).toThrow(
+      "No device-code config preset for provider 'unknown-provider'",
+    );
+  });
+});
+
+describe('getKimiCodeDeviceCodeConfig', () => {
+  it('uses KIMI_CODE_OAUTH_HOST env var when set', () => {
+    process.env['KIMI_CODE_OAUTH_HOST'] = 'https://custom-auth.example.com';
+    const cfg = getKimiCodeDeviceCodeConfig();
+    expect(cfg.deviceCodeUrl.startsWith('https://custom-auth.example.com')).toBe(true);
+    expect(cfg.tokenUrl.startsWith('https://custom-auth.example.com')).toBe(true);
+    delete process.env['KIMI_CODE_OAUTH_HOST'];
+  });
+
+  it('defaults to https://auth.kimi.com when env var is absent', () => {
+    delete process.env['KIMI_CODE_OAUTH_HOST'];
+    const cfg = getKimiCodeDeviceCodeConfig();
+    expect(cfg.deviceCodeUrl.startsWith('https://auth.kimi.com')).toBe(true);
+    expect(cfg.tokenUrl.startsWith('https://auth.kimi.com')).toBe(true);
   });
 });

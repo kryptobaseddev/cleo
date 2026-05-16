@@ -7,29 +7,15 @@
  *   2. Poll the token endpoint every `interval` seconds until the user
  *      approves, the code expires, or a non-recoverable error is returned.
  *
- * ## Anthropic OAuth status (TODO T9266)
+ * ## Provider scope
  *
- * As of 2026-05-13, Anthropic does **not** publicly document a device-code
- * OAuth endpoint. The Hermes reference implementation (`anthropic_adapter.py`)
- * uses PKCE (`/oauth/authorize` → authorization-code exchange), not
- * device-code. The `anthropic` preset below encodes our best-effort
- * understanding of where a device-code endpoint *would* live if Anthropic
- * exposes one in the future:
- *
- *   deviceCodeUrl:  https://console.anthropic.com/v1/oauth/device/code
- *   tokenUrl:       https://console.anthropic.com/v1/oauth/token
- *
- * These MUST be verified against official Anthropic documentation before
- * the `anthropic` provider can be considered production-ready in this flow.
- *
- * The client ID `"9d1c250a-e61b-44d9-88ed-5944d1962f5e"` is sourced from
- * the Hermes reference implementation (`hermes_cli/auth_commands.py`). It
- * is not an officially published Anthropic client ID and may need to be
- * replaced when CLEO registers its own OAuth application.
+ * Device-code OAuth is used by **kimi-code** only. Anthropic uses RFC 7636
+ * PKCE (see `pkce.ts` and `builtin/anthropic.ts`). The `anthropic` preset
+ * was removed in T9326 — PKCE is the canonical Anthropic OAuth path per T9302.
  *
  * @module llm/oauth/device-code
- * @task T9266
- * @epic T-LLM-CRED-CENTRALIZATION
+ * @task T9321
+ * @epic T9261 T-LLM-CRED-CENTRALIZATION
  */
 
 // ---------------------------------------------------------------------------
@@ -42,12 +28,10 @@
  * All URLs and client credentials are provider-specific; callers can pass
  * a preset from `getDeviceCodeConfig()` or build a custom config for any
  * provider that supports RFC 8628.
- *
- * @task T9266
  */
 export interface DeviceCodeConfig {
   /** Provider name (used only for logging / error messages). */
-  provider: 'anthropic' | string;
+  provider: 'kimi-code' | string;
   /**
    * Device authorization endpoint (RFC 8628 §3.1).
    *
@@ -77,8 +61,6 @@ export interface DeviceCodeConfig {
 
 /**
  * Response from the device authorization endpoint (RFC 8628 §3.2).
- *
- * @task T9266
  */
 export interface DeviceCodeStartResponse {
   /** Opaque device code used when polling the token endpoint. */
@@ -106,8 +88,6 @@ export interface DeviceCodeStartResponse {
 
 /**
  * Successful token response from the device-code polling endpoint.
- *
- * @task T9266
  */
 export interface DeviceCodeTokenResponse {
   /** Bearer access token. */
@@ -132,8 +112,6 @@ export interface DeviceCodeTokenResponse {
 /**
  * Thrown by `pollForToken` when the device code expires before the user
  * approves the request.
- *
- * @task T9266
  */
 export class DeviceCodeTimeoutError extends Error {
   readonly provider: string;
@@ -152,8 +130,6 @@ export class DeviceCodeTimeoutError extends Error {
 /**
  * Thrown by `pollForToken` when the provider returns an unrecoverable error
  * (anything other than `authorization_pending` or `slow_down`).
- *
- * @task T9266
  */
 export class DeviceCodeAuthError extends Error {
   readonly provider: string;
@@ -176,19 +152,12 @@ export class DeviceCodeAuthError extends Error {
 /**
  * Build a `DeviceCodeConfig` for a named provider.
  *
- * Currently only `'anthropic'` is wired. The Anthropic preset is based on
- * best-effort endpoint inference — see the module-level TODO for the
- * verification requirement.
+ * Currently only `'kimi-code'` is wired. Anthropic uses PKCE, not
+ * device-code — see `pkce.ts` and `builtin/anthropic.ts`.
  *
  * @throws {Error} When `provider` is not a known preset.
- * @task T9266
  */
-export function getDeviceCodeConfig(
-  provider: 'anthropic' | 'kimi-code' | string,
-): DeviceCodeConfig {
-  if (provider === 'anthropic') {
-    return getAnthropicDeviceCodeConfig();
-  }
+export function getDeviceCodeConfig(provider: 'kimi-code' | string): DeviceCodeConfig {
   if (provider === 'kimi-code') {
     return getKimiCodeDeviceCodeConfig();
   }
@@ -198,26 +167,6 @@ export function getDeviceCodeConfig(
   );
 }
 
-/**
- * Build the `DeviceCodeConfig` for Anthropic.
- *
- * ## TODO (T9266) — endpoint verification required
- *
- * Anthropic does not currently document a public device-code OAuth endpoint.
- * The URLs below are inferred from the Hermes reference and the standard
- * RFC 8628 path layout. They MUST be verified before marking this flow
- * production-ready.
- *
- * - `deviceCodeUrl`: https://console.anthropic.com/v1/oauth/device/code
- *   (TODO: verify; may not exist — Hermes uses PKCE, not device-code)
- * - `tokenUrl`: https://console.anthropic.com/v1/oauth/token
- *   (confirmed from Hermes `refresh_anthropic_oauth_pure`)
- * - `clientId`: `"9d1c250a-e61b-44d9-88ed-5944d1962f5e"`
- *   (sourced from Hermes — not officially published by Anthropic; CLEO
- *   may need to register its own application)
- *
- * @task T9266
- */
 /**
  * Build the `DeviceCodeConfig` for Kimi Code (kimi.com/code).
  *
@@ -255,27 +204,6 @@ export function getKimiCodeDeviceCodeConfig(): DeviceCodeConfig {
     // Scope is returned by the server as `kimi-code` but is not sent on the
     // device-authorization request per RFC 8628 §3.1 (optional). Including
     // it has no effect; the server ignores unknown scopes.
-  };
-}
-
-export function getAnthropicDeviceCodeConfig(): DeviceCodeConfig {
-  return {
-    provider: 'anthropic',
-    // TODO(T9266): verify this endpoint exists — Anthropic may not support
-    // device-code OAuth. Fall back to PKCE flow if this returns 404/405.
-    deviceCodeUrl: 'https://console.anthropic.com/v1/oauth/device/code',
-    // Confirmed from Hermes refresh_anthropic_oauth_pure — also tried:
-    // https://platform.claude.com/v1/oauth/token
-    tokenUrl: 'https://console.anthropic.com/v1/oauth/token',
-    // TODO(T9266): replace with CLEO's own registered client ID once
-    // Anthropic OAuth app registration is complete.
-    clientId: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
-    scope: 'org:create_api_key user:profile user:inference',
-    defaultHeaders: {
-      // TODO(T9266): verify the correct anthropic-beta header value for
-      // device-code OAuth (if the endpoint exists).
-      'anthropic-beta': 'oauth-2025-04-20',
-    },
   };
 }
 
@@ -322,7 +250,6 @@ function encodeForm(params: Record<string, string>): string {
  * poll with.
  *
  * @throws {Error} On HTTP errors or a response that is missing required fields.
- * @task T9266
  */
 export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<DeviceCodeStartResponse> {
   const body: Record<string, string> = { client_id: cfg.clientId };
@@ -405,7 +332,6 @@ export async function startDeviceCodeFlow(cfg: DeviceCodeConfig): Promise<Device
  * @throws {DeviceCodeTimeoutError} When `expiresIn` is reached without approval.
  * @throws {DeviceCodeAuthError} When the provider returns a non-recoverable error.
  * @throws {Error} When network retries are exhausted.
- * @task T9266
  */
 export async function pollForToken(
   cfg: DeviceCodeConfig,
