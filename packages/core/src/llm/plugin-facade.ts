@@ -396,15 +396,63 @@ function _consumeToken(pluginId: string, config: PluginRateLimitConfig): void {
 // Public facade
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// File-tool names that require ACL enforcement (T9313)
+// ---------------------------------------------------------------------------
+
+/** Tool names treated as file-read operations for ACL enforcement. */
+const FILE_READ_TOOLS = new Set(['file_read', 'read_file', 'fs_read']);
+
+/** Tool names treated as file-write operations for ACL enforcement. */
+const FILE_WRITE_TOOLS = new Set(['file_write', 'write_file', 'fs_write', 'file_append']);
+
+// ---------------------------------------------------------------------------
+// Gate 5: filesystem ACL call-site enforcement (T9313)
+// ---------------------------------------------------------------------------
+
+/**
+ * Auto-enforce filesystem ACL for a tool invocation.
+ *
+ * Called automatically by {@link pluginLlmComplete} when `opts.toolCall` is
+ * supplied and the tool name is a recognized file-access tool. Returns normally
+ * when the path is permitted; throws {@link PluginDeniedError} on denial.
+ *
+ * @param pluginId - Plugin requesting filesystem access.
+ * @param toolName - Tool being invoked (e.g. `'file_read'`, `'file_write'`).
+ * @param path - Filesystem path being accessed.
+ * @throws {@link PluginDeniedError} when the path is denied by the plugin's ACL.
+ */
+function _assertFsAccess(pluginId: string, toolName: string, path: string): void {
+  let operation: 'read' | 'write' | null = null;
+  if (FILE_READ_TOOLS.has(toolName)) {
+    operation = 'read';
+  } else if (FILE_WRITE_TOOLS.has(toolName)) {
+    operation = 'write';
+  }
+
+  if (operation === null) return; // Not a file tool — no ACL check needed.
+
+  if (!validateFsAccess(pluginId, path, operation)) {
+    throw new PluginDeniedError(
+      pluginId,
+      `file ${operation} denied for path "${path}" — not in plugin's fsAccess.${operation} allow-list`,
+    );
+  }
+}
+
 /**
  * Execute a single-turn LLM completion on behalf of a plugin.
  *
  * This is the sole sanctioned LLM entry point for plugin code. It enforces
- * four gates in order before dispatching:
+ * five gates in order before dispatching:
  *   1. Model allow-list — {@link PluginModelGateError} on violation.
  *   2. Provider allow-list — {@link PluginModelGateError} on violation.
  *   3. Permission descriptor (maxTokens, allowedRoles) — {@link PluginDeniedError}.
  *   4. Token-bucket rate limit — {@link PluginRateLimitedError} with `retryAfterMs`.
+ *   5. Filesystem ACL enforcement — when `opts.toolCall` is a file tool, auto-validates
+ *      the path against the plugin's `permissions.fsAccess` allow-list
+ *      ({@link PluginDeniedError} on denial). Pass `toolCall` whenever you are
+ *      about to dispatch a `file_read` / `file_write` tool on behalf of the plugin.
  *
  * All executor errors are caught and re-thrown as {@link PluginLlmError} with
  * credentials redacted from the message and stack.
@@ -416,11 +464,19 @@ function _consumeToken(pluginId: string, config: PluginRateLimitConfig): void {
  * @throws {@link PluginModelGateError} when the requested model/provider is
  *   not in the plugin's allow-list.
  * @throws {@link PluginDeniedError} when the request violates the plugin's
- *   permission descriptor (`maxTokens` cap or `allowedRoles`).
+ *   permission descriptor (`maxTokens` cap, `allowedRoles`, or filesystem ACL).
  * @throws {@link PluginRateLimitedError} when the plugin's token bucket is
  *   exhausted. Check `err.retryAfterMs` for the backoff duration.
  * @throws {@link PluginLlmError} for all other executor failures (credentials
  *   are redacted from the error message before re-throwing).
+ *
+ * @example
+ * ```ts
+ * // Enforce fs-ACL when a plugin requests a file_read tool:
+ * await pluginLlmComplete('my-plugin', messages, {
+ *   toolCall: { name: 'file_read', path: '/tmp/scratch/data.json' },
+ * });
+ * ```
  */
 export async function pluginLlmComplete(
   pluginId: string,
@@ -434,6 +490,15 @@ export async function pluginLlmComplete(
     readonly maxTokens?: number;
     /** Role name — validated against the plugin's permissions.allowedRoles list. */
     readonly role?: string;
+    /**
+     * Filesystem tool invocation to validate before dispatch (Gate 5, T9313).
+     *
+     * When supplied and the tool name is a recognised file-access tool
+     * (`file_read`, `file_write`, etc.), the path is automatically validated
+     * against the plugin's `permissions.fsAccess` allow-list.
+     * Throws {@link PluginDeniedError} when denied.
+     */
+    readonly toolCall?: { readonly name: string; readonly path: string };
   },
 ): Promise<NormalizedResponse> {
   const manifest = _resolveManifest(pluginId);
@@ -457,6 +522,12 @@ export async function pluginLlmComplete(
   // Gate 4: rate limit — consume one token.
   if (manifest.permissions?.rateLimit !== undefined) {
     _consumeToken(pluginId, manifest.permissions.rateLimit);
+  }
+
+  // Gate 5: filesystem ACL enforcement (T9313).
+  // Auto-validates file-access tools against the plugin's declared glob patterns.
+  if (opts?.toolCall !== undefined) {
+    _assertFsAccess(pluginId, opts.toolCall.name, opts.toolCall.path);
   }
 
   // Dispatch via the 'plugin' role executor.

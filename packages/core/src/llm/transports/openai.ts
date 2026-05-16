@@ -335,8 +335,17 @@ export class OpenAITransport implements LlmTransport {
   /**
    * Stream a completion against the OpenAI chat completions API.
    *
-   * Yields {@link NormalizedDelta} chunks including incremental text deltas.
-   * The final delta carries `stopReason` and `usage`.
+   * Yields {@link NormalizedDelta} chunks including incremental text deltas and
+   * tool-call argument deltas. The final delta carries `stopReason` and `usage`.
+   *
+   * Tool-call streaming sequence per tool index:
+   * 1. First chunk for index `i` (`tool_calls[i].function.name` present) → yields
+   *    `toolCallDelta` with `{ index, name, argumentsChunk }` (start marker).
+   * 2. Subsequent chunks (name absent) → yields `toolCallDelta` with
+   *    `{ index, argumentsChunk }` (incremental JSON fragment).
+   *
+   * @invariant T9316 tool-call streaming parity — emits same toolCallDelta shape
+   *   as AnthropicTransport and ChatCompletionsTransport.
    *
    * @invariant parse() vs json_schema streaming split — `stream()` MUST NOT use
    *   `.parse()` for structured output. When a `responseFormat` schema is present,
@@ -430,15 +439,52 @@ export class OpenAITransport implements LlmTransport {
     let usageChunkReceived = false;
     // @invariant T9295 W4c — scrub <think>...</think> blocks from OpenAI o1-series streams.
     const scrubber = new StreamingThinkScrubber();
+    // Tracks which tool-call indices have already received a start delta (with name).
+    // @invariant T9316 tool-call streaming parity — OpenAI transport emits toolCallDelta
+    //   entries matching the pattern of AnthropicTransport and ChatCompletionsTransport:
+    //   first delta for index i carries name; subsequent deltas carry argumentsChunk only.
+    const seenToolCallIndices = new Set<number>();
 
     for await (const chunk of responseStream) {
-      if (chunk.choices[0]?.delta?.content) {
-        const raw = chunk.choices[0].delta.content;
+      const delta = chunk.choices[0]?.delta;
+      if (delta?.content) {
+        const raw = delta.content;
         const visible = scrubber.feed(raw);
         if (visible) {
           yield { text: visible, reasoning: '', stopReason: null, usage: null };
         }
       }
+
+      // @invariant T9316 tool-call streaming — emit incremental tool-call deltas so
+      //   consumers can accumulate partial argument JSON without waiting for the final message.
+      if (delta?.tool_calls && delta.tool_calls.length > 0) {
+        for (const tc of delta.tool_calls) {
+          const index = tc.index ?? 0;
+          const argumentsChunk = tc.function?.arguments ?? '';
+          const name = tc.function?.name;
+          if (!seenToolCallIndices.has(index)) {
+            // First delta for this index — emit start marker with name.
+            seenToolCallIndices.add(index);
+            yield {
+              text: '',
+              reasoning: '',
+              stopReason: null,
+              usage: null,
+              toolCallDelta: { index, name: name ?? '', argumentsChunk },
+            };
+          } else if (argumentsChunk) {
+            // Subsequent chunks — emit incremental arguments fragment.
+            yield {
+              text: '',
+              reasoning: '',
+              stopReason: null,
+              usage: null,
+              toolCallDelta: { index, argumentsChunk },
+            };
+          }
+        }
+      }
+
       if (chunk.choices[0]?.finish_reason) {
         finishReason = chunk.choices[0].finish_reason;
       }

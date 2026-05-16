@@ -19,6 +19,7 @@ import type {
 } from '@cleocode/contracts/llm/interfaces.js';
 import type { ContextEngine } from '@cleocode/contracts/memory/context-engine.js';
 import { LlmSummarizationEngine } from '../memory/context-engines/llm-summarizer.js';
+import { resolveAuxiliaryFallbackChain } from './auxiliary-fallback.js';
 import { ConcreteExecutor } from './concrete-executor.js';
 import {
   listContextEngines,
@@ -38,7 +39,9 @@ export { listContextEngines };
  *
  * Resolves provider + credential via `DefaultLlmSessionFactory`, wraps the
  * session in a {@link ConcreteExecutor}, and optionally attaches a
- * {@link ContextEngine}.
+ * {@link ContextEngine}. When `llm.auxiliaryFallback` is set in the project
+ * config, the resolved chain is automatically passed to every {@link ConcreteExecutor}
+ * so cross-provider fallover works without any call-site changes.
  *
  * @example
  * ```ts
@@ -69,13 +72,25 @@ export class DefaultLlmExecutorFactory implements LlmExecutorFactory {
    * `role → config.llm.roles[role] → config.llm.default → config.llm.daemon
    *  → implicit anthropic/haiku fallback`.
    *
+   * The resolved executor automatically receives the `llm.auxiliaryFallback`
+   * chain from project config (if set), enabling cross-provider fallover.
+   *
    * @param role - CLEO role name (e.g. `'orchestrator'`, `'sentient'`).
    * @returns A promise resolving to an initialized {@link LlmExecutor}.
    * @throws When no credential is available for the resolved provider.
+   *
+   * @task T9319 — auto-wire auxiliaryFallbackChain from config
    */
   async createForRole(role: string): Promise<LlmExecutor> {
-    const session = await this._sessionFactory.createForRole(role);
-    return new ConcreteExecutor({ session, contextEngine: this._contextEngine });
+    const [session, auxiliaryFallbackChain] = await Promise.all([
+      this._sessionFactory.createForRole(role),
+      resolveAuxiliaryFallbackChain(),
+    ]);
+    return new ConcreteExecutor({
+      session,
+      contextEngine: this._contextEngine,
+      auxiliaryFallbackChain,
+    });
   }
 
   /**
@@ -84,17 +99,32 @@ export class DefaultLlmExecutorFactory implements LlmExecutorFactory {
    * When `opts.session` is supplied, wraps it directly. Otherwise delegates
    * to `sessionFactory.create(opts.sessionOptions)`.
    *
+   * The resolved executor automatically receives the `llm.auxiliaryFallback`
+   * chain from project config (if set), enabling cross-provider fallover.
+   *
    * @param opts - Executor construction options.
    * @returns A promise resolving to an initialized {@link LlmExecutor}.
    * @throws When neither `session` nor valid session options are supplied.
+   *
+   * @task T9319 — auto-wire auxiliaryFallbackChain from config
    */
   async create(opts: ExecutorFactoryOptions): Promise<LlmExecutor> {
+    const auxiliaryFallbackChain = await resolveAuxiliaryFallbackChain();
+
     if (opts.session !== undefined) {
-      return new ConcreteExecutor({ session: opts.session, contextEngine: this._contextEngine });
+      return new ConcreteExecutor({
+        session: opts.session,
+        contextEngine: this._contextEngine,
+        auxiliaryFallbackChain,
+      });
     }
 
     const session = await this._sessionFactory.create(opts.sessionOptions ?? {});
-    return new ConcreteExecutor({ session, contextEngine: this._contextEngine });
+    return new ConcreteExecutor({
+      session,
+      contextEngine: this._contextEngine,
+      auxiliaryFallbackChain,
+    });
   }
 }
 
