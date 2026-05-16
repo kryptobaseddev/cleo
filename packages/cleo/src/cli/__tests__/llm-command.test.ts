@@ -69,7 +69,19 @@ describe('cleo llm — CLI wiring', () => {
   it('exposes every documented subcommand', async () => {
     const subs = await getLlmSubs();
     expect(Object.keys(subs).sort()).toEqual(
-      ['add', 'list', 'profile', 'remove', 'test', 'use', 'whoami'].sort(),
+      [
+        'add',
+        'cost',
+        'list',
+        'list-providers',
+        'login',
+        'profile',
+        'refresh-catalog',
+        'remove',
+        'test',
+        'use',
+        'whoami',
+      ].sort(),
     );
   });
 
