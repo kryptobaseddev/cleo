@@ -4,10 +4,10 @@
  *
  * Coverage:
  * 1. `system_and_3` on a 5-message conversation: system + last 3 user messages
- *    get ttl 300; earlier user message is NOT marked.
+ *    get ttl '5m'; earlier user message is NOT marked.
  * 2. `system_and_3` with string content auto-converts to block array.
- * 3. `prefix_and_2`: first system block at ttl 3600; last 2 user messages at
- *    ttl 300.
+ * 3. `prefix_and_2`: first system block at ttl '1h'; last 2 user messages at
+ *    ttl '5m'.
  * 4. `none` strategy: no cache_control fields added.
  * 5. `system_and_3` with no system array: only user messages marked.
  * 6. `AnthropicBackend.complete` with mocked SDK verifies breakpoints are
@@ -76,14 +76,14 @@ function lastBlockCacheControl(
 // ---------------------------------------------------------------------------
 
 describe('injectCacheBreakpoints — system_and_3', () => {
-  it('marks every system block with ttl 300', () => {
+  it("marks every system block with ttl '5m'", () => {
     const kwargs = makeKwargs('You are a helpful assistant.', ['u1', 'u2']);
     injectCacheBreakpoints(kwargs, 'system_and_3');
 
-    expect(kwargs.system?.[0]?.cache_control).toEqual({ type: 'ephemeral', ttl: 300 });
+    expect(kwargs.system?.[0]?.cache_control).toEqual({ type: 'ephemeral', ttl: '5m' });
   });
 
-  it('marks last 3 user messages with ttl 300 in a 5-message conversation', () => {
+  it("marks last 3 user messages with ttl '5m' in a 5-message conversation", () => {
     // 5 user messages: u1 (oldest) … u5 (newest)
     const kwargs: AnthropicKwargs = {
       system: [{ type: 'text', text: 'sys' }],
@@ -103,9 +103,9 @@ describe('injectCacheBreakpoints — system_and_3', () => {
     expect(lastBlockCacheControl(kwargs.messages[1]!)).toBeUndefined();
 
     // u3, u4, u5 must be marked
-    expect(lastBlockCacheControl(kwargs.messages[2]!)).toEqual({ type: 'ephemeral', ttl: 300 });
-    expect(lastBlockCacheControl(kwargs.messages[3]!)).toEqual({ type: 'ephemeral', ttl: 300 });
-    expect(lastBlockCacheControl(kwargs.messages[4]!)).toEqual({ type: 'ephemeral', ttl: 300 });
+    expect(lastBlockCacheControl(kwargs.messages[2]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(lastBlockCacheControl(kwargs.messages[3]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(lastBlockCacheControl(kwargs.messages[4]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
   });
 
   it('auto-converts string content to block array when marking user messages', () => {
@@ -120,7 +120,7 @@ describe('injectCacheBreakpoints — system_and_3', () => {
     const blocks = kwargs.messages[0]!.content as Array<Record<string, unknown>>;
     expect(blocks[0]?.['type']).toBe('text');
     expect(blocks[0]?.['text']).toBe('plain string message');
-    expect(blocks[0]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: 300 });
+    expect(blocks[0]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: '5m' });
   });
 
   it('handles missing system gracefully — only user messages marked', () => {
@@ -137,8 +137,8 @@ describe('injectCacheBreakpoints — system_and_3', () => {
     expect(kwargs.system).toBeUndefined();
 
     // Both user messages are within the last-3 window — both marked
-    expect(lastBlockCacheControl(kwargs.messages[0]!)).toEqual({ type: 'ephemeral', ttl: 300 });
-    expect(lastBlockCacheControl(kwargs.messages[1]!)).toEqual({ type: 'ephemeral', ttl: 300 });
+    expect(lastBlockCacheControl(kwargs.messages[0]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(lastBlockCacheControl(kwargs.messages[1]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
   });
 
   it('skips assistant messages when counting user-message window', () => {
@@ -159,9 +159,9 @@ describe('injectCacheBreakpoints — system_and_3', () => {
     // u1 is the 4th user message from the end — outside the window of 3
     expect(lastBlockCacheControl(kwargs.messages[0]!)).toBeUndefined();
     // u2, u3, u4 are last 3 user messages — all marked
-    expect(lastBlockCacheControl(kwargs.messages[2]!)).toEqual({ type: 'ephemeral', ttl: 300 });
-    expect(lastBlockCacheControl(kwargs.messages[4]!)).toEqual({ type: 'ephemeral', ttl: 300 });
-    expect(lastBlockCacheControl(kwargs.messages[6]!)).toEqual({ type: 'ephemeral', ttl: 300 });
+    expect(lastBlockCacheControl(kwargs.messages[2]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(lastBlockCacheControl(kwargs.messages[4]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(lastBlockCacheControl(kwargs.messages[6]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
     // Assistant messages must never be marked
     expect(lastBlockCacheControl(kwargs.messages[1]!)).toBeUndefined();
     expect(lastBlockCacheControl(kwargs.messages[3]!)).toBeUndefined();
@@ -174,7 +174,7 @@ describe('injectCacheBreakpoints — system_and_3', () => {
 // ---------------------------------------------------------------------------
 
 describe('injectCacheBreakpoints — prefix_and_2', () => {
-  it('marks first system block with ttl 3600 (long-cache prefix)', () => {
+  it("marks first system block with ttl '1h' (long-cache prefix)", () => {
     const kwargs: AnthropicKwargs = {
       system: [
         { type: 'text', text: 'stable prefix' },
@@ -186,12 +186,12 @@ describe('injectCacheBreakpoints — prefix_and_2', () => {
     injectCacheBreakpoints(kwargs, 'prefix_and_2');
 
     // Only the first system block gets the 1-hour marker
-    expect(kwargs.system?.[0]?.cache_control).toEqual({ type: 'ephemeral', ttl: 3600 });
+    expect(kwargs.system?.[0]?.cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
     // Second system block must NOT be marked
     expect(kwargs.system?.[1]?.cache_control).toBeUndefined();
   });
 
-  it('marks last 2 user messages with ttl 300 (rolling window)', () => {
+  it("marks last 2 user messages with ttl '5m' (rolling window)", () => {
     const kwargs: AnthropicKwargs = {
       system: [{ type: 'text', text: 'sys' }],
       messages: [
@@ -205,9 +205,9 @@ describe('injectCacheBreakpoints — prefix_and_2', () => {
 
     // u1 is outside the 2-message rolling window
     expect(lastBlockCacheControl(kwargs.messages[0]!)).toBeUndefined();
-    // u2 and u3 are the last 2 user messages — marked at ttl 300
-    expect(lastBlockCacheControl(kwargs.messages[1]!)).toEqual({ type: 'ephemeral', ttl: 300 });
-    expect(lastBlockCacheControl(kwargs.messages[2]!)).toEqual({ type: 'ephemeral', ttl: 300 });
+    // u2 and u3 are the last 2 user messages — marked at ttl '5m'
+    expect(lastBlockCacheControl(kwargs.messages[1]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(lastBlockCacheControl(kwargs.messages[2]!)).toEqual({ type: 'ephemeral', ttl: '5m' });
   });
 });
 
@@ -271,18 +271,18 @@ describe('AnthropicTransport.complete — prompt-caching wiring', () => {
 
     const callArgs = sharedMockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
 
-    // System block should have cache_control with ttl 300
+    // System block should have cache_control with ttl '5m'
     const systemBlocks = callArgs['system'] as Array<Record<string, unknown>>;
     expect(systemBlocks).toBeDefined();
-    expect(systemBlocks[0]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: 300 });
+    expect(systemBlocks[0]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: '5m' });
 
-    // User message block should have cache_control with ttl 300
+    // User message block should have cache_control with ttl '5m'
     const msgs = callArgs['messages'] as Array<{ role: string; content: unknown }>;
     const userMsg = msgs.find((m) => m.role === 'user');
     expect(userMsg).toBeDefined();
     const userBlocks = userMsg?.content as Array<Record<string, unknown>>;
     const lastBlock = userBlocks[userBlocks.length - 1];
-    expect(lastBlock?.['cache_control']).toEqual({ type: 'ephemeral', ttl: 300 });
+    expect(lastBlock?.['cache_control']).toEqual({ type: 'ephemeral', ttl: '5m' });
   });
 
   it('applies no breakpoints when promptCaching is none', async () => {
@@ -319,7 +319,7 @@ describe('AnthropicTransport.complete — prompt-caching wiring', () => {
 
     const callArgs = sharedMockCreate.mock.calls[0]?.[0] as Record<string, unknown>;
     const systemBlocks = callArgs['system'] as Array<Record<string, unknown>>;
-    expect(systemBlocks[0]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: 300 });
+    expect(systemBlocks[0]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: '5m' });
   });
 
   it('applies prefix_and_2 breakpoints: first system at 3600, users at 300', async () => {
@@ -341,14 +341,17 @@ describe('AnthropicTransport.complete — prompt-caching wiring', () => {
 
     // First system block: long TTL
     const systemBlocks = callArgs['system'] as Array<Record<string, unknown>>;
-    expect(systemBlocks[0]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: 3600 });
+    expect(systemBlocks[0]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: '1h' });
 
     // Both user messages in rolling window: short TTL
     const msgs = callArgs['messages'] as Array<{ role: string; content: unknown }>;
     for (const msg of msgs) {
       if (msg.role !== 'user') continue;
       const blocks = msg.content as Array<Record<string, unknown>>;
-      expect(blocks[blocks.length - 1]?.['cache_control']).toEqual({ type: 'ephemeral', ttl: 300 });
+      expect(blocks[blocks.length - 1]?.['cache_control']).toEqual({
+        type: 'ephemeral',
+        ttl: '5m',
+      });
     }
   });
 });
