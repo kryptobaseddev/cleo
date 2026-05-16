@@ -17,12 +17,14 @@ import type {
   SessionFactoryOptions,
 } from '@cleocode/contracts/llm/interfaces.js';
 import type { LlmTransport } from '@cleocode/contracts/llm/normalized-response.js';
+import type { ApiMode } from '@cleocode/contracts/llm/provider-id.js';
 import type { ResolvedCredential } from '@cleocode/contracts/llm/resolved-credential.js';
 import { ConcreteSession } from './concrete-session.js';
 import { resolveLLMForRole } from './role-resolver.js';
 import { AnthropicTransport } from './transports/anthropic.js';
 import { BedrockTransport } from './transports/bedrock.js';
 import { ChatCompletionsTransport } from './transports/chat-completions.js';
+import { CodexResponsesTransport } from './transports/codex-responses.js';
 import { GeminiTransport } from './transports/gemini.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -37,15 +39,23 @@ import type { ModelTransport } from './types-config.js';
  * - `'anthropic'` → {@link AnthropicTransport}
  * - `'bedrock'` → {@link BedrockTransport} (AWS credential chain; token unused)
  * - `'gemini'` → {@link GeminiTransport}
+ * - `apiMode === 'codex_responses'` → {@link CodexResponsesTransport}
  * - everything else → {@link ChatCompletionsTransport} (OpenAI-compatible)
+ *
+ * `apiMode` takes precedence over provider name when `'codex_responses'` is
+ * supplied — this allows xAI `grok-*` models to be served via the Responses
+ * API endpoint instead of the default chat-completions path.
  *
  * @param provider - Provider identifier.
  * @param credential - Resolved credential to wire into the transport.
+ * @param apiMode - Optional wire protocol override. When `'codex_responses'`,
+ *   constructs a {@link CodexResponsesTransport} regardless of provider name.
  * @returns The appropriate transport instance.
  */
 function transportForProvider(
   provider: ModelTransport,
   credential: ResolvedCredential,
+  apiMode?: ApiMode,
 ): LlmTransport {
   if (provider === 'anthropic') {
     const opts =
@@ -73,6 +83,19 @@ function transportForProvider(
     return new GeminiTransport({
       apiKey: credential.token,
       baseUrl: credential.baseUrl ?? undefined,
+    });
+  }
+
+  if (apiMode === 'codex_responses') {
+    const defaultHeaders: Record<string, string> = { ...credential.extraHeaders };
+    if (credential.authType === 'oauth') {
+      defaultHeaders['Authorization'] = `Bearer ${credential.token}`;
+    }
+    return new CodexResponsesTransport({
+      apiKey: credential.token,
+      baseUrl: credential.baseUrl ?? undefined,
+      defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
+      provider,
     });
   }
 
@@ -220,3 +243,16 @@ export class DefaultLlmSessionFactory implements LlmSessionFactory {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Test helper (package-internal)
+// ---------------------------------------------------------------------------
+
+/**
+ * Expose `transportForProvider` for unit testing.
+ *
+ * @internal — NOT part of the public API. Exported so the test suite can
+ *   assert which transport is instantiated for a given provider/apiMode pair
+ *   without going through the full role-resolution chain.
+ */
+export { transportForProvider as _transportForProviderForTesting };

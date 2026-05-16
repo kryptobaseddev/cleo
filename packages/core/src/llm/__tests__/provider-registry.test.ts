@@ -228,7 +228,28 @@ export function register(api) {
     expect(profile).toBeUndefined();
   });
 
-  // ── 8. Plugin import error is tolerated ──────────────────────────────────
+  // ── 8. xaiResponsesProfile aliases (T9311) ───────────────────────────────
+
+  it('resolves alias "grok-responses" to xaiResponsesProfile', async () => {
+    process.env['CLEO_HOME'] = join(tmpdir(), 'no-such-cleo-home-' + Date.now());
+
+    const profile = await getProviderProfile('grok-responses');
+    expect(profile).toBeDefined();
+    expect(profile?.name).toBe('xai');
+    expect(profile?.displayName).toBe('xAI Grok (Responses)');
+    expect(profile?.baseUrl).toBe('https://api.x.ai/v1');
+  });
+
+  it('resolves alias "x-ai-responses" to xaiResponsesProfile', async () => {
+    process.env['CLEO_HOME'] = join(tmpdir(), 'no-such-cleo-home-' + Date.now());
+
+    const profile = await getProviderProfile('x-ai-responses');
+    expect(profile).toBeDefined();
+    expect(profile?.name).toBe('xai');
+    expect(profile?.displayName).toBe('xAI Grok (Responses)');
+  });
+
+  // ── 10. Plugin import error is tolerated ─────────────────────────────────
 
   it('tolerates a plugin file that throws on import', async () => {
     const { cleoHome, pluginDir } = makeTempCleoHome();

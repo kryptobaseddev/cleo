@@ -183,6 +183,8 @@ export type { AnthropicTransportOptions } from './transports/anthropic.js';
 export { AnthropicTransport } from './transports/anthropic.js';
 export type { BedrockTransportOptions } from './transports/bedrock.js';
 export { BedrockTransport } from './transports/bedrock.js';
+export type { CodexResponsesTransportOptions } from './transports/codex-responses.js';
+export { CodexResponsesTransport } from './transports/codex-responses.js';
 export type { GeminiTransportOptions } from './transports/gemini.js';
 export { GeminiTransport } from './transports/gemini.js';
 export type { OpenAITransportOptions } from './transports/openai.js';
