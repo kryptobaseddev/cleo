@@ -270,6 +270,12 @@ export async function dispatchFromCli(
     if (opts.page === undefined && response.page !== undefined) {
       opts.page = response.page;
     }
+    // T9393: auto-forward decorator-stamped meta fields (e.g. `_nexus`,
+    // `deprecated`) so JSON consumers see what the dispatcher decorators
+    // attached. Callers can still pass `responseMeta` explicitly to override.
+    if (opts.responseMeta === undefined) {
+      opts.responseMeta = response.meta as unknown as Record<string, unknown>;
+    }
     cliOutput(response.data, opts);
   } else {
     // Derive exit code from the string error code when exitCode is not set
