@@ -1,23 +1,121 @@
 /**
  * Unit tests for `getModelContextLength` / `getModelMetadata`.
  *
- * Covers all four resolution tiers:
+ * Covers all resolution tiers:
+ *   - Tier 1: live catalog from catalog-cache (mocked)
+ *   - Tier 1: stale-cache fallback from catalog-cache (mocked)
  *   - Tier 2: curated exact match
  *   - Tier 3: curated alias (date / version suffix stripped)
  *   - Tier 4: default fallback
  *
  * @task T9264
- * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 3)
+ * @task T9314
+ * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 3 + Phase 5)
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// ---------------------------------------------------------------------------
+// Mock catalog-cache before importing model-metadata
+// ---------------------------------------------------------------------------
+
+const mockResolveContextIndex = vi.fn();
+
+vi.mock('../catalog-cache.js', () => ({
+  resolveContextIndex: (...args: unknown[]) => mockResolveContextIndex(...args),
+}));
+
+// ---------------------------------------------------------------------------
+// Imports (after mocks)
+// ---------------------------------------------------------------------------
+
 import {
+  _resetCatalogIndexCache,
   DEFAULT_CONTEXT_LENGTH,
   getModelContextLength,
   getModelMetadata,
 } from '../model-metadata.js';
 
-describe('getModelContextLength', () => {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Force the module-level catalog index cache to clear between tests. */
+function resetCache(): void {
+  _resetCatalogIndexCache();
+  mockResolveContextIndex.mockReset();
+}
+
+// ---------------------------------------------------------------------------
+// Tests — Tier 1: live catalog
+// ---------------------------------------------------------------------------
+
+describe('getModelMetadata — Tier 1: live catalog', () => {
+  beforeEach(resetCache);
+  afterEach(resetCache);
+
+  it('returns source "live-catalog" when catalog index has an exact match', async () => {
+    mockResolveContextIndex.mockResolvedValue({
+      index: { 'test-model-live': 512_000 },
+      source: 'live',
+    });
+    const meta = await getModelMetadata('test-model-live');
+    expect(meta.source).toBe('live-catalog');
+    expect(meta.contextLength).toBe(512_000);
+    expect(meta.livePending).toBeUndefined();
+  });
+
+  it('returns source "stale-catalog" when catalog source is stale-cache', async () => {
+    mockResolveContextIndex.mockResolvedValue({
+      index: { 'test-model-stale': 300_000 },
+      source: 'stale-cache',
+    });
+    const meta = await getModelMetadata('test-model-stale');
+    expect(meta.source).toBe('stale-catalog');
+    expect(meta.contextLength).toBe(300_000);
+  });
+
+  it('falls through to curated tier when model not in catalog index', async () => {
+    mockResolveContextIndex.mockResolvedValue({
+      index: { 'other-model': 128_000 },
+      source: 'live',
+    });
+    // claude-haiku-4-5-20251001 is in the bundled curated table
+    const meta = await getModelMetadata('claude-haiku-4-5-20251001');
+    expect(meta.source).toBe('curated');
+    expect(meta.contextLength).toBe(200_000);
+  });
+
+  it('falls through to default when catalog returns null', async () => {
+    mockResolveContextIndex.mockResolvedValue(null);
+    const meta = await getModelMetadata('unknown-model-no-catalog');
+    expect(meta.source).toBe('default');
+    expect(meta.contextLength).toBe(DEFAULT_CONTEXT_LENGTH);
+  });
+
+  it('catalog index result is cached in-process (resolveContextIndex called once)', async () => {
+    mockResolveContextIndex.mockResolvedValue({
+      index: { 'cached-model': 100_000 },
+      source: 'live',
+    });
+    await getModelMetadata('cached-model');
+    await getModelMetadata('cached-model');
+    expect(mockResolveContextIndex).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — Tier 2 / 3 / 4: bundled curated table (catalog returns null)
+// ---------------------------------------------------------------------------
+
+describe('getModelContextLength — curated tiers', () => {
+  beforeEach(() => {
+    resetCache();
+    // Disable Tier 1 so curated tiers are exercised.
+    mockResolveContextIndex.mockResolvedValue(null);
+  });
+  afterEach(resetCache);
+
   it('returns 200000 for claude-haiku-4-5-20251001 (exact curated match)', async () => {
     await expect(getModelContextLength('claude-haiku-4-5-20251001')).resolves.toBe(200_000);
   });
@@ -44,7 +142,13 @@ describe('getModelContextLength', () => {
   });
 });
 
-describe('getModelMetadata', () => {
+describe('getModelMetadata — curated tiers', () => {
+  beforeEach(() => {
+    resetCache();
+    mockResolveContextIndex.mockResolvedValue(null);
+  });
+  afterEach(resetCache);
+
   it('returns source "curated" for an exact curated match', async () => {
     const meta = await getModelMetadata('claude-haiku-4-5-20251001');
     expect(meta.source).toBe('curated');
@@ -52,11 +156,7 @@ describe('getModelMetadata', () => {
   });
 
   it('returns source "curated-alias" for a date-stripped alias', async () => {
-    // claude-3-5-sonnet-20300101 strips to claude-3-5-sonnet which is NOT in the table,
-    // but claude-3-5-sonnet-20241022 IS — strip the date from that one.
-    // Specifically: claude-3-5-sonnet-20300101 → strip -20300101 → claude-3-5-sonnet (not found)
-    // So use a model whose base IS in the table: claude-3-5-sonnet-20241022 → strip -20241022 → claude-3-5-sonnet (not found either)
-    // Use claude-sonnet-4-6-20300101 → strip -20300101 → claude-sonnet-4-6 (IS in table)
+    // claude-sonnet-4-6-20300101 → strip -20300101 → claude-sonnet-4-6 (IS in table)
     const meta = await getModelMetadata('claude-sonnet-4-6-20300101');
     expect(meta.source).toBe('curated-alias');
     expect(meta.contextLength).toBe(200_000);
@@ -68,13 +168,8 @@ describe('getModelMetadata', () => {
     expect(meta.contextLength).toBe(DEFAULT_CONTEXT_LENGTH);
   });
 
-  it('returns livePending true for curated results (Tier 1 not yet implemented)', async () => {
+  it('curated result no longer sets livePending (Tier 1 now implemented)', async () => {
     const meta = await getModelMetadata('gpt-4o');
-    expect(meta.livePending).toBe(true);
-  });
-
-  it('returns livePending true for default fallback (Tier 1 not yet implemented)', async () => {
-    const meta = await getModelMetadata('nonexistent-model');
-    expect(meta.livePending).toBe(true);
+    expect(meta.livePending).toBeUndefined();
   });
 });

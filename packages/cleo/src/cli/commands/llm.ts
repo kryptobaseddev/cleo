@@ -42,6 +42,7 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 import { costCommand } from './llm-cost.js';
 import { runLlmLogin } from './llm-login.js';
+import { runLlmRefreshCatalog } from './llm-refresh-catalog.js';
 
 // Lazy import — avoids circular deps and keeps startup fast.
 // Resolved on first call to `cleo llm list-providers`.
@@ -577,6 +578,54 @@ const loginCommand = defineCommand({
 });
 
 // ---------------------------------------------------------------------------
+// cleo llm refresh-catalog
+// ---------------------------------------------------------------------------
+
+/**
+ * cleo llm refresh-catalog — fetch and cache the live model catalog.
+ *
+ * Pulls https://models.dev/api.json and persists it under
+ * `<CLEO_DATA_DIR>/llm-catalog/<unix-timestamp>-models.json`, then
+ * updates the `latest.json` symlink. Falls back to the most-recent disk
+ * snapshot when the network is unavailable.
+ *
+ * On success prints the number of providers and models written. On network
+ * failure falls back gracefully and exits with code 0 (stale cache used).
+ *
+ * @task T9314
+ * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 5)
+ */
+const refreshCatalogCommand = defineCommand({
+  meta: {
+    name: 'refresh-catalog',
+    description:
+      'Fetch the live model catalog from models.dev and persist it to disk. ' +
+      'Falls back to the most-recent cached snapshot on network failure.',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Output result as JSON',
+    },
+  },
+  async run({ args }) {
+    const jsonOutput = (args as Record<string, unknown>)['json'] === true;
+    const result = await runLlmRefreshCatalog();
+    if (jsonOutput) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else if (result.success && result.data) {
+      const d = result.data;
+      process.stdout.write(
+        `Catalog refreshed: ${d.providers} providers, ${d.models} models written to ${d.filePath}\n`,
+      );
+    } else if (!result.success) {
+      process.stderr.write(`[error] ${result.error?.message ?? 'refresh failed'}\n`);
+      process.exit(1);
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Parent command
 // ---------------------------------------------------------------------------
 
@@ -600,6 +649,7 @@ export const llmCommand = defineCommand({
     remove: removeCommand,
     use: useCommand,
     profile: profileCommand,
+    'refresh-catalog': refreshCatalogCommand,
     test: testCommand,
     whoami: whoamiCommand,
     'list-providers': listProvidersCommand,
