@@ -9,7 +9,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConcreteSession } from '../concrete-session.js';
-import { DefaultLlmSessionFactory } from '../session-factory.js';
+import { _transportForProviderForTesting, DefaultLlmSessionFactory } from '../session-factory.js';
+import { ChatCompletionsTransport } from '../transports/chat-completions.js';
+import { CodexResponsesTransport } from '../transports/codex-responses.js';
 
 // ---------------------------------------------------------------------------
 // Mock resolveLLMForRole
@@ -128,5 +130,67 @@ describe('DefaultLlmSessionFactory', () => {
 
     const session = await factory.create({ role: 'consolidation', retryPolicy: callPolicy });
     expect(session).toBeInstanceOf(ConcreteSession);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// transportForProvider — ApiMode dispatch (T9311)
+// ---------------------------------------------------------------------------
+
+/** Minimal ResolvedCredential for unit testing transport dispatch. */
+function makeCredential(provider = 'xai', baseUrl?: string) {
+  return {
+    provider,
+    label: 'test',
+    token: 'test-api-key',
+    authType: 'api_key' as const,
+    expiresAt: null,
+    refreshToken: null,
+    extraHeaders: {},
+    baseUrl: baseUrl ?? null,
+    awsProfile: null,
+  };
+}
+
+describe('_transportForProviderForTesting — codex_responses ApiMode dispatch (T9311)', () => {
+  it('produces CodexResponsesTransport when apiMode is codex_responses', () => {
+    const transport = _transportForProviderForTesting(
+      'xai',
+      makeCredential('xai', 'https://api.x.ai/v1'),
+      'codex_responses',
+    );
+
+    expect(transport).toBeInstanceOf(CodexResponsesTransport);
+    expect(transport.apiMode).toBe('codex_responses');
+    expect(transport.provider).toBe('xai');
+  });
+
+  it('produces CodexResponsesTransport for openai provider with codex_responses apiMode', () => {
+    const transport = _transportForProviderForTesting(
+      'openai',
+      makeCredential('openai'),
+      'codex_responses',
+    );
+
+    expect(transport).toBeInstanceOf(CodexResponsesTransport);
+    expect(transport.apiMode).toBe('codex_responses');
+  });
+
+  it('produces ChatCompletionsTransport for xai provider without apiMode override', () => {
+    const transport = _transportForProviderForTesting('xai', makeCredential('xai'));
+
+    expect(transport).toBeInstanceOf(ChatCompletionsTransport);
+    expect(transport.apiMode).toBe('chat_completions');
+  });
+
+  it('produces ChatCompletionsTransport when apiMode is chat_completions', () => {
+    const transport = _transportForProviderForTesting(
+      'xai',
+      makeCredential('xai'),
+      'chat_completions',
+    );
+
+    expect(transport).toBeInstanceOf(ChatCompletionsTransport);
+    expect(transport.apiMode).toBe('chat_completions');
   });
 });
