@@ -178,6 +178,8 @@ export {
 // Transports (Phase-4/5 LlmTransport implementations)
 export type { AnthropicTransportOptions } from './transports/anthropic.js';
 export { AnthropicTransport } from './transports/anthropic.js';
+// Anthropic client factory — thin factory, D-ph4-01 grep-guard compliant (T9356)
+export { buildAnthropicClient } from './transports/anthropic-client-factory.js';
 export type { BedrockTransportOptions } from './transports/bedrock.js';
 export { BedrockTransport } from './transports/bedrock.js';
 export type { CodexResponsesTransportOptions } from './transports/codex-responses.js';
