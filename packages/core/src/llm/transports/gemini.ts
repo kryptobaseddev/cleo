@@ -241,8 +241,21 @@ export class GeminiTransport implements LlmTransport {
   /**
    * Stream a completion against the Gemini API.
    *
-   * Yields {@link NormalizedDelta} chunks including incremental text deltas.
-   * The final delta carries `stopReason` and `usage`.
+   * Yields {@link NormalizedDelta} chunks including incremental text deltas and
+   * tool-call argument deltas. The final delta carries `stopReason` and `usage`.
+   *
+   * Tool-call streaming: Gemini does not stream function-call arguments
+   * incrementally across chunks. When a chunk contains `functionCall` parts,
+   * this transport emits the standard three-delta sequence for each call:
+   * 1. Start marker: `toolCallDelta` with `{ index, name, argumentsChunk: '' }`.
+   * 2. Args delta: `toolCallDelta` with `{ index, argumentsChunk: JSON.stringify(args) }`.
+   * 3. End marker: `toolCallDelta` with `{ index, argumentsChunk: '' }` (no name).
+   *
+   * This matches the shape emitted by {@link AnthropicTransport} and
+   * {@link ChatCompletionsTransport} so consumers can handle all providers uniformly.
+   *
+   * @invariant T9316 tool-call streaming parity — Gemini stream emits the same
+   *   toolCallDelta sequence (start / args / end) as the Anthropic transport.
    *
    * @param request - Provider-neutral request parameters.
    * @param _ctx - Transport context (unused by this transport in W1a).
@@ -293,8 +306,12 @@ export class GeminiTransport implements LlmTransport {
 
     let finalChunk: Record<string, unknown> | null = null;
     let anyText = false;
+    let anyToolCalls = false;
     // @invariant T9295 W4c — scrub <think>...</think> blocks from Gemini streams.
     const scrubber = new StreamingThinkScrubber();
+    // @invariant T9316 tool-call streaming parity — monotonic index counter across
+    //   all chunks in this stream so each functionCall part gets a unique index.
+    let toolCallIndex = 0;
 
     for await (const chunk of streamResult.stream) {
       const chunkAny = chunk as unknown as Record<string, unknown>;
@@ -317,6 +334,51 @@ export class GeminiTransport implements LlmTransport {
           };
         }
       }
+
+      // @invariant T9316 tool-call streaming parity — emit start/args/end triple
+      //   for each functionCall part in this chunk, matching the AnthropicTransport shape.
+      const candidates = chunkAny['candidates'] as Array<Record<string, unknown>> | undefined;
+      const candidateContent = candidates?.[0]?.['content'] as Record<string, unknown> | undefined;
+      const parts = candidateContent?.['parts'] as Array<Record<string, unknown>> | undefined;
+      if (Array.isArray(parts)) {
+        for (const part of parts) {
+          const funcCall = part['functionCall'] as Record<string, unknown> | undefined;
+          if (funcCall) {
+            const fname = String(funcCall['name'] ?? '');
+            const fargs = funcCall['args'] as Record<string, unknown> | undefined;
+            const index = toolCallIndex++;
+            const argsJson = JSON.stringify(fargs ?? {});
+            anyToolCalls = true;
+            // Start marker — name present, empty argumentsChunk.
+            yield {
+              text: '',
+              reasoning: '',
+              stopReason: null,
+              usage: null,
+              toolCallDelta: { index, name: fname, argumentsChunk: '' },
+            };
+            // Args delta — full serialized arguments as a single chunk.
+            if (argsJson.length > 0) {
+              yield {
+                text: '',
+                reasoning: '',
+                stopReason: null,
+                usage: null,
+                toolCallDelta: { index, argumentsChunk: argsJson },
+              };
+            }
+            // End marker — no name, empty argumentsChunk.
+            yield {
+              text: '',
+              reasoning: '',
+              stopReason: null,
+              usage: null,
+              toolCallDelta: { index, argumentsChunk: '' },
+            };
+          }
+        }
+      }
+
       finalChunk = chunkAny;
     }
 
@@ -350,9 +412,10 @@ export class GeminiTransport implements LlmTransport {
 
     /**
      * @invariant GEMINI_BLOCKED_FINISH_REASONS — 3 separate throw sites.
-     * Stream site (site 1 of 3): throw when no text was produced and finish reason is blocked.
+     * Stream site (site 1 of 3): throw when no text or tool calls were produced
+     * and finish reason is blocked.
      */
-    if (!anyText && GEMINI_BLOCKED_FINISH_REASONS.has(finishReason)) {
+    if (!anyText && !anyToolCalls && GEMINI_BLOCKED_FINISH_REASONS.has(finishReason)) {
       throw new Error(`Gemini response blocked (finish_reason=${finishReason}, model=${model})`);
     }
 
