@@ -214,7 +214,7 @@ describe('ConcreteSession', () => {
     const session = new ConcreteSession({
       transport: makeMockTransport(),
       model: 'claude-haiku-4-5-20251001',
-      credential: makeCredential('oauth', Date.now() + 300_000), // 5 min
+      credential: makeCredential('oauth', Date.now() + 3_600_000), // 1 hour, above 300s floor
       retryPolicy: NO_RETRY,
     });
 

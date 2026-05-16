@@ -1,5 +1,7 @@
 # T9354 LLM CLI Smoke Matrix — Evidence File
 
+<!-- @no-cleo-register: evidence file, no task attachment needed -->
+
 **Task**: T9361  
 **Date**: 2026-05-16  
 **Executor**: cleo-agent-t9361 (Sonnet 4.6)
