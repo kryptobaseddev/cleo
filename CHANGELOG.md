@@ -1,5 +1,24 @@
 # Changelog
 
+## [2026.5.75] (2026-05-16)
+
+Auto-prepared by release.ship (T1892)
+
+### Bug Fixes
+- **P0 BUG: validateCommit content-mismatch loophole — verifier accepts commits not touching AC files**: Probe proved validateCommit at evidence.ts:427 checks only commit SHA reachability — never intersects diff with AC-listed files. Campaign 2026-05-1... (T9245)
+
+### Chores
+- **S-B1: Audit + remove buildAnthropicSdkClient callers**: Find every caller of buildAnthropicSdkClient via grep. The function is exported in llm/index.ts but has NO external callers outside registry.ts and... (T9369)
+- **S-B2: Remove clientForModelConfig + per-provider client caches**: Remove clientForModelConfig and per-provider caches from registry.ts. Two callers: (1) packages/core/src/llm/runtime.ts:103 in planAttempt() - migr... (T9370)
+
+### Changes
+- S-A1: Write OllamaTransport with complete + stream methods (T9365)
+- S-A2: Register ollama provider profile in builtin registry (T9366)
+- S-A3: Wire ollama into transports/index.ts + session-factory.ts (T9367)
+- S-B3: Final grep verification + full test suite green (T9371)
+- S-A4: Unit tests + REAL-WORLD ollama serve smoke (T9368)
+- **T9344: Hotfix Anthropic OAuth — drop false placeholder framing + fix redirectUri**: T9326 (shipped v2026.5.73) labeled the canonical public Anthropic PKCE client_id 9d1c250a-e61b-44d9-88ed-5944d1962f5e as a 'placeholder' and added ... (T9344)
+---
 ## [2026.5.74] (2026-05-16)
 
 Auto-prepared by release.ship (T9261)

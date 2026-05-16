@@ -208,6 +208,30 @@ const renderers: Record<string, HumanRenderer> = {
 };
 
 // ---------------------------------------------------------------------------
+// Decorator passthrough — local pick to avoid renderers → dispatch import cycle
+// (dispatch/adapters/cli.ts already imports cliOutput from this module).
+// Kept in sync with the canonical `pickDecoratorMetaExtensions` in
+// `packages/cleo/src/dispatch/nexus-decorator.ts`. If the canonical list of
+// decorator-stamped fields grows, update both call sites.
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract decorator-stamped meta fields (`_nexus`, `deprecated`) from a
+ * `DispatchResponse.meta` so cliOutput can forward them into the envelope.
+ *
+ * @task T9393
+ */
+function pickDecoratorMetaExtensionsLocal(
+  responseMeta: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!responseMeta) return {};
+  const out: Record<string, unknown> = {};
+  if (responseMeta['_nexus'] !== undefined) out['_nexus'] = responseMeta['_nexus'];
+  if (responseMeta['deprecated'] !== undefined) out['deprecated'] = responseMeta['deprecated'];
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Options for cliOutput
 // ---------------------------------------------------------------------------
 
@@ -222,6 +246,18 @@ export interface CliOutputOptions {
   page?: FormatOptions['page'];
   /** Extra metadata extensions merged into `meta`. */
   extensions?: Record<string, unknown>;
+  /**
+   * Optional `DispatchResponse.meta` to forward decorator-stamped fields
+   * (`_nexus`, `deprecated`, etc.) into the emitted envelope. Use this when
+   * the command goes through `dispatchRaw` and the dispatcher's decorators
+   * have stamped fields the caller wants surfaced to JSON consumers.
+   *
+   * Canonical meta fields (operation, requestId, timestamp) are NOT forwarded —
+   * those are always produced fresh by `formatSuccess` via `createCliMeta`.
+   *
+   * @task T9393
+   */
+  responseMeta?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +376,18 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const formatOpts: FormatOptions = {};
   if (opts.operation) formatOpts.operation = opts.operation;
   if (opts.page) formatOpts.page = opts.page;
-  if (opts.extensions) formatOpts.extensions = opts.extensions;
+
+  // T9393: merge decorator-stamped fields from response.meta into envelope
+  // extensions. Without this, _nexus / deprecated stamped by dispatch
+  // decorators are silently dropped when the caller passes response.data
+  // directly to cliOutput.
+  const decoratorExt = pickDecoratorMetaExtensionsLocal(opts.responseMeta);
+  const mergedExt =
+    opts.extensions || Object.keys(decoratorExt).length > 0
+      ? { ...decoratorExt, ...(opts.extensions ?? {}) }
+      : undefined;
+  if (mergedExt) formatOpts.extensions = mergedExt;
+
   if (fieldCtx.mvi) formatOpts.mvi = fieldCtx.mvi;
 
   // Phase 6 — LAFS envelope validation middleware.
