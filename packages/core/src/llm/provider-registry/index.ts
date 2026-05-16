@@ -37,7 +37,7 @@ import { geminiProfile } from './builtin/gemini.js';
 import { kimiCodeProfile } from './builtin/kimi-code.js';
 import { moonshotProfile } from './builtin/moonshot.js';
 import { openrouterProfile } from './builtin/openrouter.js';
-import { xaiProfile } from './builtin/xai.js';
+import { xaiProfile, xaiResponsesProfile } from './builtin/xai.js';
 import { runDiscovery } from './loader.js';
 
 // ---------------------------------------------------------------------------
@@ -73,6 +73,7 @@ const BUILTIN_PROFILES: ReadonlyArray<ProviderProfile> = [
   moonshotProfile,
   openrouterProfile,
   xaiProfile,
+  xaiResponsesProfile,
 ];
 
 // ---------------------------------------------------------------------------
