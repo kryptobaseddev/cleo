@@ -23,56 +23,11 @@
  * @see ADR-052 — SDK consolidation decision
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
-import { getErrorMessage, parseClaudeCodeCredentials } from '@cleocode/contracts';
+import { getErrorMessage } from '@cleocode/contracts';
+import { resolveCredentials } from '../shared/credentials.js';
 import { SessionStore } from './session-store.js';
 import { resolveTools } from './tool-bridge.js';
-
-// ---------------------------------------------------------------------------
-// 3-tier Anthropic key resolver
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve the Anthropic API key using a 3-tier priority chain:
- * 1. `ANTHROPIC_API_KEY` environment variable
- * 2. `~/.local/share/cleo/anthropic-key` (user-stored via cleo config)
- * 3. `~/.claude/.credentials.json` → claudeAiOauth.accessToken (Claude Code OAuth)
- *
- * @returns The key/token string, or null if unavailable.
- */
-function resolveAnthropicApiKey(): string | null {
-  // 1. Explicit env var
-  const envKey = process.env['ANTHROPIC_API_KEY'];
-  if (envKey?.trim()) return envKey;
-
-  // 2. CLEO global stored key
-  try {
-    const xdg = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-    const keyFile = join(xdg, 'cleo', 'anthropic-key');
-    if (existsSync(keyFile)) {
-      const stored = readFileSync(keyFile, 'utf-8').trim();
-      if (stored) return stored;
-    }
-  } catch {
-    // Not available — continue
-  }
-
-  // 3. Claude Code OAuth token — parsed by the shared contracts helper
-  try {
-    const credPath = join(homedir(), '.claude', '.credentials.json');
-    if (!existsSync(credPath)) return null;
-    const raw = readFileSync(credPath, 'utf-8');
-    const cred = parseClaudeCodeCredentials(raw);
-    return cred?.accessToken ?? null;
-  } catch {
-    // Credentials file missing or unreadable — not an error
-  }
-
-  return null;
-}
 
 /** Model used when no model is specified in spawn options. */
 const DEFAULT_MODEL = 'claude-sonnet-4-5';
@@ -107,7 +62,7 @@ export class ClaudeSDKSpawnProvider implements AdapterSpawnProvider {
    * @returns `true` when any Anthropic credential is available
    */
   async canSpawn(): Promise<boolean> {
-    return !!resolveAnthropicApiKey();
+    return !!resolveCredentials('anthropic').apiKey;
   }
 
   /**
@@ -153,7 +108,7 @@ export class ClaudeSDKSpawnProvider implements AdapterSpawnProvider {
       const { createAnthropic } = await import('@ai-sdk/anthropic');
       const { generateText } = await import('ai');
 
-      const apiKey = resolveAnthropicApiKey();
+      const apiKey = resolveCredentials('anthropic').apiKey;
       if (!apiKey) {
         this.sessions.remove(instanceId);
         return {
