@@ -478,6 +478,14 @@ export class ChatCompletionsTransport implements LlmTransport {
    * visible text before being yielded as {@link NormalizedDelta}. The final delta
    * carries `stopReason` and `usage`.
    *
+   * Tool-call streaming: when a chunk carries `delta.tool_calls[i]`, the
+   * transport emits `toolCallDelta` entries so consumers can accumulate partial
+   * argument JSON in real time. Sequence per tool call index:
+   * 1. First chunk for index `i` (`tool_calls[i].function.name` present) → yields
+   *    `toolCallDelta` with `{ index, name, argumentsChunk }`.
+   * 2. Subsequent chunks (name absent) → yields `toolCallDelta` with
+   *    `{ index, argumentsChunk }` containing the partial JSON fragment.
+   *
    * Provider quirks (`_applyProviderQuirks`) are applied to the request kwargs
    * before the stream is opened, matching the behaviour of {@link complete}.
    *
@@ -524,6 +532,8 @@ export class ChatCompletionsTransport implements LlmTransport {
     let finishReason: string | null = null;
     let usageChunkReceived = false;
     const scrubber = new StreamingThinkScrubber();
+    // Tracks which tool-call indices have already received a start delta (with name).
+    const seenToolCallIndices = new Set<number>();
 
     for await (const chunk of responseStream) {
       const delta = chunk.choices[0]?.delta;
@@ -545,6 +555,35 @@ export class ChatCompletionsTransport implements LlmTransport {
           : '';
       if (rawReasoning) {
         yield { text: '', reasoning: rawReasoning, stopReason: null, usage: null };
+      }
+
+      // Emit incremental tool-call argument deltas when the chunk carries them.
+      if (delta?.tool_calls && delta.tool_calls.length > 0) {
+        for (const tc of delta.tool_calls) {
+          const index = tc.index ?? 0;
+          const argumentsChunk = tc.function?.arguments ?? '';
+          const name = tc.function?.name;
+          if (!seenToolCallIndices.has(index)) {
+            // First delta for this index — always emit a start marker with name.
+            seenToolCallIndices.add(index);
+            yield {
+              text: '',
+              reasoning: '',
+              stopReason: null,
+              usage: null,
+              toolCallDelta: { index, name: name ?? '', argumentsChunk },
+            };
+          } else if (argumentsChunk) {
+            // Subsequent chunks — emit incremental arguments fragment.
+            yield {
+              text: '',
+              reasoning: '',
+              stopReason: null,
+              usage: null,
+              toolCallDelta: { index, argumentsChunk },
+            };
+          }
+        }
       }
 
       if (chunk.choices[0]?.finish_reason) {
