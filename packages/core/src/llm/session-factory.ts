@@ -26,6 +26,7 @@ import { BedrockTransport } from './transports/bedrock.js';
 import { ChatCompletionsTransport } from './transports/chat-completions.js';
 import { CodexResponsesTransport } from './transports/codex-responses.js';
 import { GeminiTransport } from './transports/gemini.js';
+import { OllamaTransport } from './transports/ollama.js';
 import type { ModelTransport } from './types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,18 @@ function transportForProvider(
     return new GeminiTransport({
       apiKey: credential.token,
       baseUrl: credential.baseUrl ?? undefined,
+    });
+  }
+
+  if (provider === 'ollama') {
+    // Ollama typically requires no auth key for local deployments; the token
+    // is passed through anyway so remote/proxied deployments work transparently.
+    return new OllamaTransport({
+      baseUrl: credential.baseUrl ?? undefined,
+      apiKey: credential.token || undefined,
+      defaultHeaders: Object.keys(credential.extraHeaders).length
+        ? credential.extraHeaders
+        : undefined,
     });
   }
 
