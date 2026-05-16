@@ -15,7 +15,7 @@
 
 This plan describes how the CLEO codebase moves from the ADR-065 12-step `cleo release ship` monolith (currently shipping every release since v2026.5.43) to the SPEC-T9345 v2 architecture (4 operator verbs + 4 GHA workflows + 11 new provenance tables) **without breaking the next release**. The migration is sequenced as six phases over a maximum of twelve operator-weeks (≈8 calendar weeks with two parallel orchestrators). Each phase has explicit entry criteria, exit criteria, a measurable rollback trigger, and a defined LOC-change budget. Phases 0-2 are additive — they introduce new schema and read-only verbs alongside the legacy monolith with zero behavior change. Phases 3-5 are cutovers where the operator surface flips: Phase 3 introduces `cleo release open` and the prepare workflow opt-in, Phase 4 introduces publish + reconcile workflows, Phase 5 deprecates `cleo release ship` and makes the new path the default. Phase 6 is cleanup — deletion of the 761-line monolith and the parallel 4-step pipeline. The plan also defines a compatibility shim (`cleo release ship --workflow=false`) that preserves the legacy path for emergency use through the third release cycle after Phase 5 completes.
 
-Risk grading is honest: Phases 0-2 and 6 are LOW (additive or post-cutover); Phases 3-4 are MEDIUM (new workflows are load-bearing); Phase 5 is HIGH (operator surface flip). Each high-risk phase has a defined rollback path with exact git/SQL commands and a dogfooded test release on a non-main branch as a phase gate. Eight child epics are pre-decomposed at the bottom of this document (T9346-T9353) so the orchestrator can spawn them in parallel where independent.
+Risk grading is honest: Phases 0-2 and 6 are LOW (additive or post-cutover); Phases 3-4 are MEDIUM (new workflows are load-bearing); Phase 5 is HIGH (operator surface flip). Each high-risk phase has a defined rollback path with exact git/SQL commands and a dogfooded test release on a non-main branch as a phase gate. Eight child epics are pre-decomposed at the bottom of this document (T9491-T9495) so the orchestrator can spawn them in parallel where independent.
 
 The plan binds tightly to `SPEC-T9345-release-pipeline-v2.md`: every phase's deliverables map to a specific subset of normative requirements (R-NNN), every phase's exit criterion is a scenario from `test-matrix-T9345.md`, and every rollback path preserves the legacy `release_manifests` table per Force F12 (backward compatibility). Total LLM spend across the migration is estimated at ~$300; total operator-week cost (orchestrator + human review) is ~12 operator-weeks. The migration ships zero data loss, zero forced downtime on `tasks.db`, and zero release blackouts (the legacy path is available throughout Phases 0-5).
 
@@ -42,7 +42,7 @@ Six phases, each bounded to 2 calendar weeks max. Each row in the table is norma
 | 0 | Schema migration + dual-write kill-switch | LOW | 1 wk | +400 (DDL + accessors) | trivial revert | Migrations applied; `CLEO_PROVENANCE_DUAL_WRITE=1` (default off) |
 | 1 | `plan` + `reconcile` (read-mostly) | LOW | 2 wks | +700 (new modules) | trivial revert | Both verbs return correct envelopes against test fixtures |
 | 2 | Provenance backfill (`cleo provenance backfill`) | MEDIUM | 2 wks | +400 (backfill writer) | idempotent UPSERT; safe to re-run | Historical releases (v2026.5.0 → v2026.5.74) backfilled with `provenance_quality='inferred'` ≤5% of rows |
-| 3 | `release-prepare.yml` + `open` verb | MEDIUM | 2 wks | +200 + 1 YAML | revertible via PR; legacy path untouched | Test release `v2026.7.0-test-1` shipped on `release-test/T9347` branch through new prepare workflow |
+| 3 | `release-prepare.yml` + `open` verb | MEDIUM | 2 wks | +200 + 1 YAML | revertible via PR; legacy path untouched | Test release `v2026.7.0-test-1` shipped on `release-test/T9492` branch through new prepare workflow |
 | 4 | `release-publish.yml` + `release-fanout.yml` + matrix | HIGH | 2 wks | +200 + 2 YAML | revertible via workflow rename + branch reset | Real minor release (target: `v2026.7.0`) ships through new publish path while `cleo release ship` available as `--workflow=false` fallback |
 | 5 | Operator surface flip (`ship` deprecated) | HIGH | 2 wks | -800 (monolith deleted) +200 (shim) | possible via PR revert during transition window | Two consecutive releases ship without invoking `--workflow=false`; deprecation warnings active |
 | 6 | Cleanup | LOW | 1 wk | -1500 net | not reversible; do last | `releaseShip` monolith deleted; IVTR-from-release code removed; CI green; `cleo release --help` shows 4 verbs |
@@ -81,7 +81,7 @@ cleo restore backup --file tasks.db --from tasks-20260520-120000.db
 git revert <phase-0-commit-sha>
 ```
 
-**Owner approval gate**: T9346 (Phase 0 epic) closed by HITL approval before Phase 1 begins.
+**Owner approval gate**: T9491 (Phase 0 epic) closed by HITL approval before Phase 1 begins.
 
 ### 2.2 Phase 1 — `plan` + `reconcile` (2 weeks, LOW)
 
@@ -109,7 +109,7 @@ git revert <phase-0-commit-sha>
 **Rollback trigger**: any of the new verbs corrupts existing `tasks.db` data (caught by invariant checks).
 **Rollback**: `git revert <phase-1-commit-range>`. Schema from Phase 0 stays; verbs disappear.
 
-**Owner approval gate**: T9347 (Phase 1 epic) closed; demo of the 6 scenarios green.
+**Owner approval gate**: T9492 (Phase 1 epic) closed; demo of the 6 scenarios green.
 
 ### 2.3 Phase 2 — Provenance backfill (2 weeks, MEDIUM)
 
@@ -139,14 +139,14 @@ DELETE FROM task_commits WHERE created_at >= '2026-05-20T00:00:00Z' AND link_sou
 ```
 Backfill is timestamped + tagged with `link_source='backfill'`; clean deletion is straightforward.
 
-**Owner approval gate**: T9348 (Phase 2 epic) closed; backfill report reviewed.
+**Owner approval gate**: T9493 (Phase 2 epic) closed; backfill report reviewed.
 
 ### 2.4 Phase 3 — `release-prepare.yml` + `open` verb (2 weeks, MEDIUM)
 
 **Scope**:
 - Write `release-prepare.yml` per SPEC §5.1 (R-200 through R-210). Triggers on `workflow_dispatch`. Runs preflight (lint+typecheck+build+test). Bumps version + CHANGELOG. Opens bump-PR.
 - Implement `cleo release open <version>` per SPEC R-050 through R-071. Reads plan file; invokes `gh workflow run`.
-- Test on a non-main branch: cut `release-test/T9349`, set up branch protection mimicking main, dispatch the workflow against `v2026.7.0-test-1`, verify the bump-PR opens correctly with all gates green.
+- Test on a non-main branch: cut `release-test/T9494`, set up branch protection mimicking main, dispatch the workflow against `v2026.7.0-test-1`, verify the bump-PR opens correctly with all gates green.
 - Do NOT touch `release-publish.yml` yet; the test release does NOT publish. The bump-PR is reviewed and closed without merge.
 
 **Deliverables**:
@@ -170,10 +170,10 @@ mv .github/workflows/release-prepare.yml .github/workflows/release-prepare.yml.d
 # 2. Revert the open verb wiring.
 git revert <phase-3-commit-sha>
 # 3. Manually clean up any orphaned release-test/* branches.
-git push origin --delete release-test/T9349
+git push origin --delete release-test/T9494
 ```
 
-**Owner approval gate**: T9349 (Phase 3 epic) closed; dogfood demo on `release-test/T9349` green.
+**Owner approval gate**: T9494 (Phase 3 epic) closed; dogfood demo on `release-test/T9494` green.
 
 ### 2.5 Phase 4 — `release-publish.yml` + `release-fanout.yml` (2 weeks, HIGH)
 
@@ -244,7 +244,7 @@ mv .github/workflows/release-fanout.yml .github/workflows/release-fanout.yml.dis
 # 5. Operator falls back to cleo release ship --workflow=false for the next release.
 ```
 
-**Owner approval gate**: T9350 (Phase 4 epic) closed; v2026.7.0 shipped clean; rollback path TESTED at least once in dry-run (S10).
+**Owner approval gate**: T9497 (Phase 4 epic) closed; v2026.7.0 shipped clean; rollback path TESTED at least once in dry-run (S10).
 
 ### 2.6 Phase 5 — Operator surface flip (2 weeks, HIGH)
 
@@ -279,7 +279,7 @@ git push origin fix/T9345-phase5-rollback
 CLEO_RELEASE_EMERGENCY=1 cleo release ship vNEXT --workflow=false --epic T<n>
 ```
 
-**Owner approval gate**: T9351 (Phase 5 epic) closed; 2 releases green; emergency shim usage = 0.
+**Owner approval gate**: T9498 (Phase 5 epic) closed; 2 releases green; emergency shim usage = 0.
 
 ### 2.7 Phase 6 — Cleanup (1 week, LOW)
 
@@ -306,7 +306,7 @@ CLEO_RELEASE_EMERGENCY=1 cleo release ship vNEXT --workflow=false --epic T<n>
 **Rollback trigger**: a test or production release breaks because a deleted symbol is still referenced.
 **Rollback**: `git revert <phase-6-commit-range>`. The previous phases' code is intact; only the cleanup is rolled back.
 
-**Owner approval gate**: T9353 (Phase 6 epic) closed; final demo of the 4-verb surface; migration complete.
+**Owner approval gate**: T9495 (Phase 6 epic) closed; final demo of the 4-verb surface; migration complete.
 
 ---
 
@@ -400,9 +400,9 @@ Mostly automated. The operator's job is to observe and approve.
 
 ```bash
 # Monitor migration progress.
-cleo find "T9346" --status in_progress  # Phase 0 epic
-cleo find "T9347" --status in_progress  # Phase 1 epic
-cleo find "T9348" --status in_progress  # Phase 2 epic
+cleo find "T9491" --status in_progress  # Phase 0 epic
+cleo find "T9492" --status in_progress  # Phase 1 epic
+cleo find "T9493" --status in_progress  # Phase 2 epic
 
 # Inspect backfill state after Phase 2 completes.
 cleo provenance verify v2026.5.74  # spot-check most recent release
@@ -415,14 +415,14 @@ Test-release-driven. Operator initiates each test release.
 
 ```bash
 # Phase 3: dispatch the prepare workflow against a non-main branch.
-git checkout -b release-test/T9349
-git push origin release-test/T9349
-cleo release plan v2026.7.0-test-1 --epic T9349
+git checkout -b release-test/T9494
+git push origin release-test/T9494
+cleo release plan v2026.7.0-test-1 --epic T9494
 cleo release open v2026.7.0-test-1
 # Inspect the bump-PR; close without merging.
 
 # Phase 4: ship the real v2026.7.0 through the new path.
-cleo release plan v2026.7.0 --epic T9349
+cleo release plan v2026.7.0 --epic T9494
 cleo release open v2026.7.0
 # Wait for bump-PR review + auto-merge.
 # release-publish.yml runs automatically.
@@ -437,7 +437,7 @@ Default-flip; operators ship normally with deprecation warnings.
 
 ```bash
 # Normal release flow under the new default.
-cleo release ship v2026.7.1 --epic T9351
+cleo release ship v2026.7.1 --epic T9498
 # Now prints: "DEPRECATED: 'cleo release ship' will be removed in v2027.1. Use 'cleo release plan/open' instead."
 # Under the hood: invokes plan + open.
 
@@ -486,7 +486,7 @@ SELECT version, status, change_count, bug_count, hotfix_count, breaking_count FR
 
 The migration is delivered as eight child epics filed under T9345. Each epic has a slot, a kind, a size, dependencies, and three top-line acceptance criteria. Orchestrators MAY spawn the independent epics in parallel.
 
-### T9346 — Phase 0: Schema migration + dual-write kill-switch
+### T9491 — Phase 0: Schema migration + dual-write kill-switch
 
 - **Kind**: work
 - **Size**: small
@@ -498,84 +498,84 @@ The migration is delivered as eight child epics filed under T9345. Each epic has
   2. `cleo provenance verify <version>` CLI verb exists and returns pass for an empty schema.
   3. `CLEO_PROVENANCE_DUAL_WRITE=1` env var causes `cleo release ship` to ALSO write to `releases` + `release_changes` without breaking the legacy `release_manifests.tasksJson` path.
 
-### T9347 — Phase 1: `plan` + `reconcile` (read-mostly)
+### T9492 — Phase 1: `plan` + `reconcile` (read-mostly)
 
 - **Kind**: work
 - **Size**: medium
 - **Priority**: P1
-- **BlockedBy**: T9346
+- **BlockedBy**: T9491
 - **Owner**: orchestrator + 2 workers (plan, reconcile, tests in parallel)
 - **Acceptance**:
-  1. `cleo release plan v2026.7.0-test-1 --epic T9347` produces a valid plan file conforming to SPEC §6 against the cleocode repo.
+  1. `cleo release plan v2026.7.0-test-1 --epic T9492` produces a valid plan file conforming to SPEC §6 against the cleocode repo.
   2. `cleo release reconcile v2026.7.0-test-1` against a hand-prepared test release populates the 11 provenance tables; `cleo provenance verify` passes.
   3. 14 read verbs (`cleo release graph/diff/impact/authors/orphans` + `cleo provenance task/commit/pr/feature/release/change/backfill/link/verify`) return correct envelopes against `test-matrix-T9345.md` fixtures.
 
-### T9348 — Phase 2: Provenance backfill
+### T9493 — Phase 2: Provenance backfill
 
 - **Kind**: work
 - **Size**: medium
 - **Priority**: P2
-- **BlockedBy**: T9347
+- **BlockedBy**: T9492
 - **Owner**: orchestrator + 1 worker
 - **Acceptance**:
   1. `cleo provenance backfill --since v2026.4.0` populates `commits`, `task_commits`, `release_commits`, `release_changes`, `release_artifacts`, `pull_requests`, `pr_commits`, `pr_tasks`, `commit_files`, `brain_release_links` for all 70+ historical releases.
   2. ≥95% of `release_changes` rows have `provenance_quality='inferred'` (high-confidence extraction).
   3. Re-running the backfill is a verified no-op (UPSERT idempotency proven via integration test).
 
-### T9349 — Phase 3: `release-prepare.yml` + `open` verb
+### T9494 — Phase 3: `release-prepare.yml` + `open` verb
 
 - **Kind**: work
 - **Size**: medium
 - **Priority**: P1
-- **BlockedBy**: T9347
+- **BlockedBy**: T9492
 - **Owner**: orchestrator + 2 workers (workflow YAML, open verb)
 - **Acceptance**:
-  1. `release-prepare.yml` passes `actionlint` and successfully opens a bump-PR for a test release on a non-main branch (`release-test/T9349`).
+  1. `release-prepare.yml` passes `actionlint` and successfully opens a bump-PR for a test release on a non-main branch (`release-test/T9494`).
   2. `cleo release open <version>` invokes `gh workflow run` and polls until the run reaches in-progress; updates `releases.status='pr-opened'`; emits LAFS envelope with `workflowRunUrl`.
   3. Test scenario S3 (epic-completeness scope) and S9 (orphan-commit detection) pass on the test fixture.
 
-### T9350 — Phase 4: `release-publish.yml` + `release-fanout.yml` + matrix
+### T9497 — Phase 4: `release-publish.yml` + `release-fanout.yml` + matrix
 
 - **Kind**: work
 - **Size**: large
 - **Priority**: P1
-- **BlockedBy**: T9349
+- **BlockedBy**: T9494
 - **Owner**: orchestrator + 3 workers (publish, fanout, matrix)
 - **Acceptance**:
   1. `v2026.7.0` ships entirely through the new path with operator wall-time ≤5 minutes from `cleo release plan` to `cleo provenance verify` passing.
   2. Build matrix produces 5 platform artifacts (linux-x64/arm64, macos-x64/arm64, windows-x64) attached to the GitHub Release.
   3. Failure modes F1 (wedged commit), F6 (tag at wrong SHA), F8 (release start no-op) DO NOT reproduce. Verified by injecting F1/F6/F8 conditions on a test branch and confirming the new path catches them.
 
-### T9351 — Phase 5: Operator surface flip + `cleo release ship` deprecation
+### T9498 — Phase 5: Operator surface flip + `cleo release ship` deprecation
 
 - **Kind**: work
 - **Size**: small
 - **Priority**: P1
-- **BlockedBy**: T9350
+- **BlockedBy**: T9497
 - **Owner**: orchestrator + 1 worker + docs writer
 - **Acceptance**:
   1. `cleo release ship` defaults to `--workflow=true`; prints deprecation warning; forwards to `plan + open`.
   2. Two consecutive real releases (`v2026.7.1` and `v2026.7.2`) ship through the new path with no `--workflow=false` invocations.
   3. `ct-orchestrator` skill documentation updated; operator survey returns ≥7/10 ease-of-use score from ≥3 operators.
 
-### T9352 — IVTR decoupling from release path (parallel to Phases 3-5)
+### T9499 — IVTR decoupling from release path (parallel to Phases 3-5)
 
 - **Kind**: work
 - **Size**: small
 - **Priority**: P1
-- **BlockedBy**: T9346 (schema), T9347 (plan)
+- **BlockedBy**: T9491 (schema), T9492 (plan)
 - **Owner**: orchestrator + 1 worker
 - **Acceptance**:
   1. `releaseGateCheck`, `releaseIvtrAutoSuggest`, `checkIvtrGates` removed from `engine-ops.ts` (post Phase 5).
   2. `task.ivtr_state` marked `@deprecated`; read-only view derived from ADR-051 evidence atoms.
   3. `cleo orchestrate ivtr --start/--next/--release` deprecated; only `--status` remains as a read-only view.
 
-### T9353 — Phase 6: Cleanup (monolith deletion)
+### T9495 — Phase 6: Cleanup (monolith deletion)
 
 - **Kind**: work
 - **Size**: small
 - **Priority**: P2
-- **BlockedBy**: T9351, T9352
+- **BlockedBy**: T9498, T9499
 - **Owner**: orchestrator + 1 worker
 - **Acceptance**:
   1. `releaseShip` (engine-ops.ts:1105-1866, 761 LOC) deleted.
@@ -605,12 +605,12 @@ gantt
     section Phase 6
     Cleanup                 :p6, after p5, 1w
     section Parallel
-    T9352 IVTR decouple     :ivtr, after p1, 4w
+    T9499 IVTR decouple     :ivtr, after p1, 4w
 ```
 
 Parallel orchestrators MAY collapse the timeline:
-- T9348 (backfill) can run in parallel with T9349 (prepare workflow) — neither depends on the other after T9347.
-- T9352 (IVTR decouple) can run in parallel with Phases 3-5.
+- T9493 (backfill) can run in parallel with T9494 (prepare workflow) — neither depends on the other after T9492.
+- T9499 (IVTR decouple) can run in parallel with Phases 3-5.
 
 Best-case calendar (2 parallel orchestrators): **8 weeks**. Worst-case (single sequential orchestrator): **12 weeks**.
 
