@@ -1,5 +1,18 @@
 # T-LLM-CRED-CENTRALIZATION — Centralize CLEO LLM credentials, provider registry, and role-based routing
 
+> **Status snapshot — audited 2026-05-15 against source after v2026.5.74**
+>
+> | Phase | Plan as-written | Actual shipped state |
+> |-------|-----------------|----------------------|
+> | Phase 1 | ResolvedCredential type + 6 broken call-sites fixed | Call-sites fixed via `resolveCredentials` (plural shim) + `authHeaders`; **planned `packages/contracts/src/llm/credential.ts` was never created** (types live elsewhere); **AC5 "30 min no-401 sentient daemon" not verified in real-world** (daemon idle, 0 tasks picked) |
+> | Phase 2 | `cleo llm` CLI + cred store + role resolver | Shipped; `cleo llm whoami` returns `hasCredential: false` for all 5 roles despite `cleo llm list` showing entries — **role-to-credential join broken**; no real-world `cleo llm test` round-trip verified |
+> | Phase 3 | Plugin registry + CredentialPool + OAuth + NormalizedResponse + auxiliary fallback | All 6 sub-deliverables exist as files; not exercised end-to-end |
+> | Phase 4 | 8 waves; ADR-072 acceptance criteria AC1-AC7 + D-ph4-01..05 | **AC1 FAIL** (4 `new Anthropic` hits in `registry.ts`); **AC2 PASS-IF-TESTS-EXEMPT** (4 test-only hits); **AC3 unverified** (no coverage measurement); **AC4 unverified** (per-role test count not audited); **AC5 unverified** (sentient real-world); **AC6 FAIL** (Ollama transport missing); **D-ph4-01 PARTIAL** (CLIENTS map gone but factory functions remain); **D-ph4-02 PARTIAL** (3 live call-sites in `packages/adapters/src/providers/claude-sdk/spawn.ts`); **D-ph4-03 PARTIAL** (4 test-file hits); **D-ph4-04 CLOSED**; **D-ph4-05 PARTIAL** (Gemini ✓, Ollama ✗); planned files `default-session.ts`, `default-executor.ts`, `normalized-message-utils.ts`, contract files `credential.ts/transport.ts/session.ts/executor.ts` were never created with those names (replaced by `concrete-session.ts`, `concrete-executor.ts`, `executor-factory.ts`, `interfaces.ts`, `normalized-response.ts`) |
+> | Phase 5 | **Not in this doc** | T9311-T9319 + T9325 + T9326 shipped this session under T9261. See `## Phase 5 — Provider expansion + plugin extension + streaming` below |
+> | Phase 6 | **Not in this doc** | Closure tasks tracked under **T9354 EPIC: T9261 closure + Ollama + real-world validation + remaining debt**. See `## Phase 6 — Closure & real-world validation` below |
+>
+> **Honesty note**: prior session summaries described this plan as "fully shipped" — that was inaccurate. The Phase 4 acceptance-criteria failures and unverified ACs (3, 4, 5) mean the epic is **substantially shipped but not formally complete per its own ACs**. Phase 6 (T9354) closes the residuals.
+
 ## Context
 
 The sentient daemon (`pid 2119947`, 105 ticks) has been 401-failing every dream/sleep cycle since 2026-05-12. Root cause confirmed: `packages/core/src/memory/sleep-consolidation.ts:228` sends the resolved token as `x-api-key`, but `resolveCredentials('anthropic')` tier 3 returns a Claude Code OAuth token from `~/.claude/.credentials.json` — those need `Authorization: Bearer <token>` + `anthropic-beta: oauth-2025-04-20` and a *missing* `x-api-key`. Anthropic rejects the mismatch. The same defect exists at every Anthropic-fetch and `new Anthropic({ apiKey })` call-site in `core/src/memory/*`, `core/src/sentient/*`, `core/src/deriver/*`, and `core/src/tasks/duplicate-detector.ts` — so for any user whose only credential is Claude Code OAuth (the dominant install), most of CLEO's autonomous LLM work is silently broken.
@@ -563,3 +576,90 @@ Risk register:
 | Gemini transport diverges from `NormalizedResponse` contract | Medium | Medium | Port Hermes `gemini_native_adapter.py` shape directly; test with mock responses |
 | W7 deletion breaks an undiscovered call-site | Low | High | Pre-delete grep (required in W7 acceptance) + full test suite green before delete |
 | cleo-os harness has different auth context than core | Low | Medium | W6 AC requires `grep` clean + harness test suite green |
+
+---
+
+## Phase 5 — Provider expansion + plugin extension + streaming (shipped v2026.5.71 → v2026.5.74)
+
+Phase 5 was **not pre-planned in this document**. The 9 ready tasks (T9311-T9319) descended from `## Phase 3` and `## Phase 4 § Wave 8` deferred items and were built in a single orchestration session under T9261. Two residual Phase-4 follow-ups (T9325 test un-skips, T9326 Anthropic OAuth placeholder hardening) shipped alongside. T9344 hotfix corrected an incorrect "placeholder" framing in T9326.
+
+### What shipped under Phase 5
+
+| Task | Title | Notes |
+|------|-------|-------|
+| T9311 | CodexResponsesTransport (OpenAI Responses API + xAI grok) | `xaiResponsesProfile` registered; `transportForProvider()` `codex_responses` branch wired |
+| T9312 | ContextEngine plugin registry + RuleBasedTruncationEngine | Mirrors `provider-registry/index.ts` pattern; CLI `cleo llm context-engines list` |
+| T9313 | Plugin LLM facade sandboxing | Permissions whitelist + fs ACL + per-plugin rate-limit token-bucket. **Caveat**: `validateFsAccess` is advisory-only (not auto-invoked by `pluginLlmComplete`); enforcement at the tool-dispatch layer is a follow-up |
+| T9314 | Live model catalog refresh CLI | `cleo llm refresh-catalog` fetches `https://models.dev/api.json`, versioned cache at `$CLEO_DATA_DIR/llm-catalog/`. **Bugfix**: initial impl introduced async network on every `getModelMetadata`; fixed to disk-only read |
+| T9315 | `cleo llm stream` CLI | Streams text + reasoning via `ConcreteSession.stream()` |
+| T9316 | Streaming tool-call deltas | `NormalizedDelta` extended; **anthropic + chat-completions only** — openai.ts and gemini.ts symmetry deferred (3-file-cap rule on subtask atomicity) |
+| T9317 | BedrockTransport (Converse API + cross-region + guardrail) | Recovery PR #159 after worker-T9317 merged its task branch directly into local main without opening a PR — required cherry-pick recovery + `build.mjs` esbuild externals fix for `@aws-sdk/*` + `@smithy/*` |
+| T9318 | Rust napi-rs hot-paths | `crates/cleo-llm-native` + `packages/core/src/llm/rust/` JS fallback. **Gaps**: no `package.json` for the napi binary distribution; native path opt-in via `CLEO_USE_RUST=1`; **binary distribution targets unresolved** — was Pi armv6 in original plan but Pi-harness is being retired in favor of T1737 Sentient Harness v3 |
+| T9319 | Multi-provider auxiliary fallback chain | `runAuxiliaryWithFallback()` + `AllProvidersExhaustedError`. **Caveat**: production executor factory (`getLlmExecutor` / `ExecutorFactory.create`) does NOT auto-pass `auxiliaryFallbackChain` from config — the function exists, the mechanism works in unit tests, but the chain is dead in production code paths |
+| T9325 | Un-skip 5 Phase 4 prep test skips | brain-stdp×3, event-bus conduit-fallback, performance-safety perf-timeout |
+| T9326 | Anthropic OAuth client_id hardening | **T9344 superseded the "placeholder" framing** — `9d1c250a-e61b-44d9-88ed-5944d1962f5e` is the canonical public PKCE client_id (matches Hermes `agent/anthropic_adapter.py:1041`); no Anthropic registration required |
+| T9344 | Hotfix — drop false placeholder framing + fix `redirectUri` | Cancels misconceived followups T9341/T9342/T9343 |
+
+### Phase 5 release timeline
+
+- **v2026.5.71** (PR #150): T9337 verifier-substrate removal (parallel cleanup, not Phase 5)
+- **v2026.5.73** (PR #162): 11 Phase-5 PRs (#151-161) merged
+- **v2026.5.74** (PR #164): T9344 hotfix; cancels T9341/T9342/T9343
+
+### Phase 5 not-yet-validated items
+
+| Gap | Why open | Phase 6 task |
+|-----|----------|--------------|
+| T9316 openai.ts + gemini.ts tool-call delta parity | 3-file atomicity cap split the work | T9362 (Task H) |
+| T9319 production auto-wire of `auxiliaryFallbackChain` in `ExecutorFactory.create` | Mechanism shipped without factory plumbing | T9362 (Task H) |
+| T9313 `validateFsAccess` call-site enforcement | Helper is advisory-only; tool-dispatch layer doesn't invoke it | T9362 (Task H) |
+| T9318 napi binary distribution strategy | Pi armv6 obsolete; Sentient Harness v3 (T1737) platforms not yet defined | Deferred to T1737 |
+
+---
+
+## Phase 6 — Closure & real-world validation (T9354 · pending)
+
+Phase 6 closes the gaps surfaced by the 2026-05-15 audit. It is an **orchestrated closure epic** — not new feature work, just discipline cleanup so the plan's own acceptance criteria pass cleanly.
+
+### Phase 6 epic: T9354
+
+```
+T9354 EPIC — T9261 closure: ship missing Phase 4 deliverables + Ollama + real-world validation + residual debt
+├── T9355  Task A — Ollama transport (AC6 + D-ph4-05 closure)
+├── T9356  Task B — registry.ts factory function retirement (D-ph4-01 final close)
+├── T9357  Task C — adapters-package resolveAnthropicApiKey shim removal (D-ph4-02 final close)
+├── T9358  Task D — Coverage measurement + per-role integration test audit (AC3 + AC4)
+├── T9359  Task E — REAL-WORLD sentient daemon validation (AC5 — 30 min no-401)
+├── T9360  Task F — Fix `cleo llm whoami` hasCredential lookup bug
+├── T9361  Task G — REAL-WORLD `cleo llm` CLI smoke matrix against actual providers
+├── T9362  Task H — Phase 5 deferred parity work (T9316 openai+gemini, T9319 factory wire, T9313 fs-ACL enforcement)
+├── T9363  Task I — Plan-doc retro: formally retire planned-but-not-built filenames (credential.ts, default-session.ts, etc.) by recording the actual shipped names + reasoning
+└── T9364  Task J — ADR-072 status update to "Implemented" only after AC1-AC7 verified
+```
+
+Each task contains 1-7 atomic subtasks (one context window each per the hierarchy rule). Subtask filing happens at the start of the Phase 6 session.
+
+### Phase 6 acceptance criteria
+
+1. `grep 'new Anthropic({' packages/ --include='*.ts' | grep -v dist/ | grep -v /llm/transports/ | grep -v /__tests__/` returns zero hits.
+2. `packages/core/src/llm/transports/ollama.ts` exists with `LlmTransport` implementation + unit tests + real-world smoke test against a local `ollama serve`.
+3. `grep 'resolveAnthropicApiKey' packages/ --include='*.ts' | grep -v dist/ | grep -v /__tests__/` returns zero hits.
+4. `pnpm test --coverage` reports `packages/core/src/llm/` ≥ 80% line coverage.
+5. Each of the 5 roles (extraction, consolidation, derivation, hygiene, judgement) has ≥ 3 integration tests against a mock transport.
+6. **Real-world**: live `cleo sentient` run for 30 min with at least 1 LLM-backed task picked + completed; `sentient.err` shows zero new `401` lines.
+7. **Real-world**: `cleo llm test <provider>` round-trip succeeds for at least anthropic (OAuth) + openai + one OAI-compat (kimi-code or groq); each command returns `{success: true, data: {latencyMs, model}}` in < 5s.
+8. **Real-world**: `cleo llm whoami` shows `hasCredential: true` for at least one role after `cleo llm profile consolidation anthropic --label default`.
+9. T9316 openai.ts + gemini.ts streaming tool-call deltas parity test added + passing.
+10. T9319 fallback chain wired through `ExecutorFactory.create` with integration test verifying exhaustion → next-provider activation in a real factory call.
+11. T9313 `validateFsAccess` invoked at every tool-dispatch site that may read/write files; documented enforcement model in `plugin-facade.ts` header.
+12. ADR-072 status updated to "Implemented" with the v2026.5.X release that closes T9354.
+13. `docs/plans/T-LLM-CRED-CENTRALIZATION.md` final-state table at the top of this doc shows all phases ✓ with verified evidence rows.
+
+### Phase 6 dependency on T1737 (Sentient Harness v3 redesign)
+
+Phase 6 explicitly does **not** address Rust napi binary distribution (T9318 follow-up). That work is gated on T1737's platform target decisions — T1737 will define which platforms (linux x64/arm64, macos x64/arm64, win x64, and any others) the Sentient Harness ships binaries for, after which the napi-rs prebuild matrix can be written. Filing this as a Phase 6 task would assume a Pi-armv6 target that's been retired.
+
+### Phase 6 related research/work — separate epics
+
+- **T9345** — IVTR Release System research + RCASD overhaul (filed 2026-05-15 after multiple `cleo release ship` failures this session)
+- **T1737** — EPIC CleoOS Sentient Harness v3 — Full Native Stack Replacement (full redesign of CleoOS, supersedes ADR-035 Pi-harness; ports ~150K LOC of Hermes Agent to TypeScript)
