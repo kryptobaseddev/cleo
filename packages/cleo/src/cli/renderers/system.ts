@@ -273,7 +273,9 @@ export function renderBlockers(data: Record<string, unknown>, quiet: boolean): s
 
   if (typeof limit === 'number' && typeof total === 'number' && total > shown) {
     lines.push('');
-    lines.push(`${DIM}\u2500\u2500\u2500 ${shown} of ${total} (--limit ${limit}, --json for full set) \u2500\u2500\u2500${NC}`);
+    lines.push(
+      `${DIM}\u2500\u2500\u2500 ${shown} of ${total} (--limit ${limit}, --json for full set) \u2500\u2500\u2500${NC}`,
+    );
   }
 
   return lines.join('\n');

@@ -160,10 +160,7 @@ describe('cliOutput — responseMeta decorator passthrough (T9393)', () => {
 
   it('handles missing responseMeta gracefully (no decorator fields)', () => {
     const env = captureEnvelope(() => {
-      cliOutput(
-        { ok: true },
-        { command: 'nexus-status', operation: 'nexus.status' },
-      );
+      cliOutput({ ok: true }, { command: 'nexus-status', operation: 'nexus.status' });
     });
 
     const meta = env['meta'] as Record<string, unknown>;
