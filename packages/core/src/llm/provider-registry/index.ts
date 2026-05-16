@@ -32,6 +32,7 @@
 
 import type { ProviderProfile } from '@cleocode/contracts';
 import { anthropicProfile } from './builtin/anthropic.js';
+import { bedrockProfile } from './builtin/bedrock.js';
 import { geminiProfile } from './builtin/gemini.js';
 import { kimiCodeProfile } from './builtin/kimi-code.js';
 import { moonshotProfile } from './builtin/moonshot.js';
@@ -66,6 +67,7 @@ let _discoveryPromise: Promise<void> | null = null;
  */
 const BUILTIN_PROFILES: ReadonlyArray<ProviderProfile> = [
   anthropicProfile,
+  bedrockProfile,
   geminiProfile,
   kimiCodeProfile,
   moonshotProfile,
