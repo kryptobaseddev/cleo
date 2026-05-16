@@ -26,7 +26,7 @@
  * @module llm/role-resolver
  */
 
-import { Anthropic } from '@anthropic-ai/sdk';
+import type { Anthropic } from '@anthropic-ai/sdk';
 import type {
   CleoConfig,
   LlmConfig,
@@ -37,8 +37,9 @@ import type {
   RoleName,
 } from '@cleocode/contracts';
 import type { OpenAI } from 'openai';
-import { authHeaders, type CredentialResult, resolveCredentials } from './credentials.js';
+import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
+import { buildAnthropicClient } from './transports/anthropic-client-factory.js';
 import type { ModelTransport } from './types-config.js';
 
 /**
@@ -314,39 +315,16 @@ export async function resolveLLMForRole(
   //
   // NOTE (T9370 — D-ph4-01 final close): previously delegated to
   // `clientForModelConfig` from registry.ts. That function is now retired.
-  // We construct the Anthropic SDK client directly here, mirroring the OAuth /
-  // api_key dispatch that `clientForModelConfig` performed. Non-Anthropic
-  // providers resolve to `null` — callers that need OpenAI/Gemini/Moonshot
-  // clients MUST use the transport layer (`getLlmExecutor` / `AnthropicTransport`)
-  // rather than the raw SDK client returned here.
+  // We delegate to `buildAnthropicClient` from `transports/anthropic.ts`, which
+  // owns all `new Anthropic(...)` construction (D-ph4-01 grep-guard invariant).
+  // Non-Anthropic providers resolve to `null` — callers that need
+  // OpenAI/Gemini/Moonshot clients MUST use the transport layer
+  // (`getLlmExecutor` / `AnthropicTransport`).
   let client: LLMClient | null = null;
   if (credential?.apiKey) {
     try {
       if (provider === 'anthropic') {
-        if (credential.authType === 'oauth') {
-          const oauthHeaders = authHeaders(credential);
-          // Extract non-Authorization headers for defaultHeaders
-          const extraHeaders: Record<string, string> = {};
-          for (const [k, v] of Object.entries(oauthHeaders)) {
-            if (k.toLowerCase() !== 'authorization') extraHeaders[k] = v;
-          }
-          // Extract the bearer token from the Authorization header
-          let authToken = credential.apiKey;
-          const authHeader = Object.entries(oauthHeaders).find(
-            ([k]) => k.toLowerCase() === 'authorization',
-          );
-          if (authHeader) {
-            const match = /^Bearer\s+(.+)$/i.exec(authHeader[1]);
-            if (match?.[1]) authToken = match[1].trim();
-          }
-          client = new Anthropic({
-            authToken,
-            timeout: 600_000,
-            defaultHeaders: Object.keys(extraHeaders).length > 0 ? extraHeaders : undefined,
-          });
-        } else {
-          client = new Anthropic({ apiKey: credential.apiKey, timeout: 600_000 });
-        }
+        client = buildAnthropicClient(credential);
       }
       // For non-Anthropic providers (openai, gemini, moonshot, bedrock):
       // callers SHOULD use getLlmExecutor / transport layer instead of raw client.
