@@ -1,23 +1,113 @@
 /**
  * Unit tests for `getModelContextLength` / `getModelMetadata`.
  *
- * Covers all four resolution tiers:
+ * Covers all resolution tiers:
+ *   - Tier 1: disk catalog snapshot from catalog-cache (mocked)
  *   - Tier 2: curated exact match
  *   - Tier 3: curated alias (date / version suffix stripped)
  *   - Tier 4: default fallback
  *
+ * The catalog-cache module is mocked so tests run without touching the
+ * filesystem or network.
+ *
  * @task T9264
- * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 3)
+ * @task T9314
+ * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 3 + Phase 5)
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// ---------------------------------------------------------------------------
+// Mock catalog-cache before importing model-metadata
+// ---------------------------------------------------------------------------
+
+const mockLoadDiskCatalogIndex = vi.fn();
+
+vi.mock('../catalog-cache.js', () => ({
+  loadDiskCatalogIndex: (...args: unknown[]) => mockLoadDiskCatalogIndex(...args),
+}));
+
+// ---------------------------------------------------------------------------
+// Imports (after mocks)
+// ---------------------------------------------------------------------------
+
 import {
+  _resetCatalogIndexCache,
   DEFAULT_CONTEXT_LENGTH,
   getModelContextLength,
   getModelMetadata,
 } from '../model-metadata.js';
 
-describe('getModelContextLength', () => {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Force the module-level catalog index cache to clear between tests. */
+function resetCache(): void {
+  _resetCatalogIndexCache();
+  mockLoadDiskCatalogIndex.mockReset();
+}
+
+// ---------------------------------------------------------------------------
+// Tests — Tier 1: disk catalog
+// ---------------------------------------------------------------------------
+
+describe('getModelMetadata — Tier 1: disk catalog', () => {
+  beforeEach(resetCache);
+  afterEach(resetCache);
+
+  it('returns source "disk-catalog" when disk index has an exact match', async () => {
+    mockLoadDiskCatalogIndex.mockReturnValue({
+      index: { 'test-model-cached': 512_000 },
+      source: 'disk-cache',
+    });
+    const meta = await getModelMetadata('test-model-cached');
+    expect(meta.source).toBe('disk-catalog');
+    expect(meta.contextLength).toBe(512_000);
+    expect(meta.livePending).toBeUndefined();
+  });
+
+  it('falls through to curated tier when model not in disk index', async () => {
+    mockLoadDiskCatalogIndex.mockReturnValue({
+      index: { 'other-model': 128_000 },
+      source: 'disk-cache',
+    });
+    // claude-haiku-4-5-20251001 is in the bundled curated table
+    const meta = await getModelMetadata('claude-haiku-4-5-20251001');
+    expect(meta.source).toBe('curated');
+    expect(meta.contextLength).toBe(200_000);
+  });
+
+  it('falls through to default when disk catalog returns null', async () => {
+    mockLoadDiskCatalogIndex.mockReturnValue(null);
+    const meta = await getModelMetadata('unknown-model-no-catalog');
+    expect(meta.source).toBe('default');
+    expect(meta.contextLength).toBe(DEFAULT_CONTEXT_LENGTH);
+  });
+
+  it('disk index result is cached in-process (loadDiskCatalogIndex called once)', async () => {
+    mockLoadDiskCatalogIndex.mockReturnValue({
+      index: { 'cached-model': 100_000 },
+      source: 'disk-cache',
+    });
+    await getModelMetadata('cached-model');
+    await getModelMetadata('cached-model');
+    expect(mockLoadDiskCatalogIndex).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — Tier 2 / 3 / 4: bundled curated table (disk catalog returns null)
+// ---------------------------------------------------------------------------
+
+describe('getModelContextLength — curated tiers', () => {
+  beforeEach(() => {
+    resetCache();
+    // Disable Tier 1 so curated tiers are exercised.
+    mockLoadDiskCatalogIndex.mockReturnValue(null);
+  });
+  afterEach(resetCache);
+
   it('returns 200000 for claude-haiku-4-5-20251001 (exact curated match)', async () => {
     await expect(getModelContextLength('claude-haiku-4-5-20251001')).resolves.toBe(200_000);
   });
@@ -44,7 +134,13 @@ describe('getModelContextLength', () => {
   });
 });
 
-describe('getModelMetadata', () => {
+describe('getModelMetadata — curated tiers', () => {
+  beforeEach(() => {
+    resetCache();
+    mockLoadDiskCatalogIndex.mockReturnValue(null);
+  });
+  afterEach(resetCache);
+
   it('returns source "curated" for an exact curated match', async () => {
     const meta = await getModelMetadata('claude-haiku-4-5-20251001');
     expect(meta.source).toBe('curated');
@@ -52,11 +148,7 @@ describe('getModelMetadata', () => {
   });
 
   it('returns source "curated-alias" for a date-stripped alias', async () => {
-    // claude-3-5-sonnet-20300101 strips to claude-3-5-sonnet which is NOT in the table,
-    // but claude-3-5-sonnet-20241022 IS — strip the date from that one.
-    // Specifically: claude-3-5-sonnet-20300101 → strip -20300101 → claude-3-5-sonnet (not found)
-    // So use a model whose base IS in the table: claude-3-5-sonnet-20241022 → strip -20241022 → claude-3-5-sonnet (not found either)
-    // Use claude-sonnet-4-6-20300101 → strip -20300101 → claude-sonnet-4-6 (IS in table)
+    // claude-sonnet-4-6-20300101 → strip -20300101 → claude-sonnet-4-6 (IS in table)
     const meta = await getModelMetadata('claude-sonnet-4-6-20300101');
     expect(meta.source).toBe('curated-alias');
     expect(meta.contextLength).toBe(200_000);
@@ -68,13 +160,8 @@ describe('getModelMetadata', () => {
     expect(meta.contextLength).toBe(DEFAULT_CONTEXT_LENGTH);
   });
 
-  it('returns livePending true for curated results (Tier 1 not yet implemented)', async () => {
+  it('curated result does not set livePending', async () => {
     const meta = await getModelMetadata('gpt-4o');
-    expect(meta.livePending).toBe(true);
-  });
-
-  it('returns livePending true for default fallback (Tier 1 not yet implemented)', async () => {
-    const meta = await getModelMetadata('nonexistent-model');
-    expect(meta.livePending).toBe(true);
+    expect(meta.livePending).toBeUndefined();
   });
 });

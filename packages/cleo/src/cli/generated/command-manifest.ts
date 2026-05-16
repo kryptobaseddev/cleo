@@ -99,6 +99,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/audit.js')).auditCommand as CommandDef,
   },
   {
+    exportName: 'backfillCommand',
+    name: 'backfill',
+    description:
+      'Retroactively add acceptance criteria and verification metadata to existing tasks',
+    load: async () => (await import('../commands/backfill.js')).backfillCommand as CommandDef,
+  },
+  {
     exportName: 'backupInspectSubCommand',
     name: 'inspect',
     description: 'Show bundle manifest without extracting or modifying anything',
