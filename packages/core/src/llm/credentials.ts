@@ -15,7 +15,10 @@
  *                         pool, file-locked, 0600). T-LLM-CRED Phase 2.
  * 4. **claude-creds**   — `~/.claude/.credentials.json` OAuth token
  *                         (only for `anthropic` provider; Claude Code zero-config)
- * 5. **global-config**  — `~/.cleo/config.json` → `llm.providers.<provider>.apiKey`
+ * 5. **global-config**  — `~/.config/cleo/config.json` (XDG config dir, post-T9405)
+ *                         → `llm.providers.<provider>.apiKey`. The legacy
+ *                         `~/.local/share/cleo/config.json` location is still
+ *                         read as a fallback during the transition window.
  * 6. **project-config** — `.cleo/config.json`  → `llm.providers.<provider>.apiKey`
  *
  * Returns `null` when no key is found in any tier.
@@ -31,6 +34,11 @@ import { join } from 'node:path';
 import { parseClaudeCodeCredentials } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
 import { pickCredentialForProviderSync } from './credentials-store.js';
+import {
+  configDirGlobalConfigPath,
+  ensureGlobalConfigMigrated,
+  legacyGlobalConfigPath,
+} from './global-config-migration.js';
 import type { ModelTransport } from './types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -148,15 +156,42 @@ const ENV_VARS: Record<ModelTransport, string> = {
 // resolution apply uniformly across the LLM layer (T9403).
 // ---------------------------------------------------------------------------
 
-/** Path to the global CLEO config file. */
+/**
+ * Path to the global CLEO config file.
+ *
+ * Canonical location is the XDG **config** dir (`~/.config/cleo/config.json`
+ * on Linux) — T9405 moved it here from the data dir to comply with XDG. The
+ * data-dir copy is still consulted as a read-only fallback during the
+ * transition window via {@link readGlobalProviderKey}; existing installs are
+ * migrated in-place on first credentials read by
+ * {@link ensureGlobalConfigMigrated}.
+ */
 function globalConfigPath(): string {
-  return join(getCleoHome(), 'config.json');
+  return configDirGlobalConfigPath();
 }
 
 /** Path to the project-level CLEO config file. */
 function projectConfigPath(projectRoot: string): string {
   const cleoDir = process.env['CLEO_DIR'] ?? '.cleo';
   return join(projectRoot, cleoDir, 'config.json');
+}
+
+/**
+ * Tier 4a reader — finds the global provider key, preferring the config-dir
+ * location and falling back to the legacy data-dir location during the
+ * transition window (T9405).
+ *
+ * Migration runs at most once per process via {@link ensureGlobalConfigMigrated}
+ * so the data-dir fallback is only reachable when the migration itself failed
+ * (e.g. permission errors) or when a brand-new file lands in the data dir
+ * after the marker was already stamped. Both situations resolve to the legacy
+ * copy so users never get a "key disappeared" surprise.
+ */
+function readGlobalProviderKey(provider: ModelTransport): string | null {
+  ensureGlobalConfigMigrated();
+  const configDirKey = readProviderKeyFromConfig(globalConfigPath(), provider);
+  if (configDirKey) return configDirKey;
+  return readProviderKeyFromConfig(legacyGlobalConfigPath(), provider);
 }
 
 // ---------------------------------------------------------------------------
@@ -302,8 +337,12 @@ export function resolveCredentials(
     }
   }
 
-  // Tier 4a — global config (~/.local/share/cleo/config.json → llm.providers[p].apiKey)
-  const globalKey = readProviderKeyFromConfig(globalConfigPath(), provider);
+  // Tier 4a — global config. Canonical path is the XDG config dir
+  // (`~/.config/cleo/config.json` on Linux); the data-dir copy
+  // (`~/.local/share/cleo/config.json`) is consulted as a read-only fallback
+  // during the transition window so existing installs keep working until
+  // `ensureGlobalConfigMigrated()` upgrades them (T9405).
+  const globalKey = readGlobalProviderKey(provider);
   if (globalKey) {
     return {
       provider,

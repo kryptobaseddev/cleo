@@ -26,12 +26,14 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   clearAnthropicKeyCache,
   resolveCredentials,
   storeAnthropicApiKey,
 } from '../credentials.js';
+import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,6 +48,12 @@ const ENV_KEYS = [
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
   'XDG_DATA_HOME',
+  // T9405: getCleoPlatformPaths().config reads XDG_CONFIG_HOME, so the
+  // resolver's config-dir tier (where T9405 moved config.json) must also be
+  // isolated to a per-test temp dir — otherwise the real user's
+  // ~/.config/cleo/config.json leaks through.
+  'XDG_CONFIG_HOME',
+  'CLEO_CONFIG_HOME',
   // T9403: getCleoHome() honours CLEO_HOME first, so we must save/restore it.
   // The global vitest setup pins CLEO_HOME per-fork; per-test makeTempXdg()
   // overrides it for filesystem isolation.
@@ -76,10 +84,20 @@ function clearEnv(): void {
 }
 
 /**
- * Create a fresh temp dir and set XDG_DATA_HOME + CLEO_HOME to it, returning
- * the cleo dir. Sets both env vars so the test isolates the global CLEO home
- * regardless of whether the resolver consults XDG_DATA_HOME (legacy) or
- * CLEO_HOME (T9403 — getCleoHome() from @cleocode/paths takes precedence).
+ * Create a fresh temp dir and pin the CLEO env vars to it, returning the
+ * cleo data dir. Sets every env var the resolver might consult so a test
+ * cannot leak to (or read from) the real user's `~/.cleo` / `~/.config/cleo`:
+ *
+ * - `XDG_DATA_HOME`   → legacy resolver path
+ * - `CLEO_HOME`       → `getCleoHome()` from `@cleocode/paths` (T9403)
+ * - `XDG_CONFIG_HOME` → `getCleoPlatformPaths().config` (T9405)
+ *
+ * The returned `configPath` points at the **legacy data-dir** location so
+ * existing tests that write `config.json` there continue to exercise tier 4a
+ * via the transition-window fallback in `readGlobalProviderKey()`.
+ *
+ * Also resets the `@cleocode/paths` system-info cache and the once-per-process
+ * migration latch so each test re-runs the migration with its own fresh env.
  */
 function makeTempXdg(): { xdgRoot: string; cleoDir: string; configPath: string } {
   const xdgRoot = join(
@@ -87,9 +105,15 @@ function makeTempXdg(): { xdgRoot: string; cleoDir: string; configPath: string }
     `cleo-cred-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   const cleoDir = join(xdgRoot, 'cleo');
+  const xdgConfigHome = join(xdgRoot, 'config-home');
   mkdirSync(cleoDir, { recursive: true });
+  mkdirSync(xdgConfigHome, { recursive: true });
   process.env['XDG_DATA_HOME'] = xdgRoot;
+  process.env['XDG_CONFIG_HOME'] = xdgConfigHome;
+  process.env['CLEO_CONFIG_HOME'] = xdgConfigHome;
   process.env['CLEO_HOME'] = cleoDir;
+  _resetCleoPlatformPathsCache();
+  _resetGlobalConfigMigrationLatch();
   return { xdgRoot, cleoDir, configPath: join(cleoDir, 'config.json') };
 }
 
@@ -121,11 +145,15 @@ beforeEach(() => {
   saveEnv();
   clearEnv();
   clearAnthropicKeyCache();
+  _resetCleoPlatformPathsCache();
+  _resetGlobalConfigMigrationLatch();
 });
 
 afterEach(() => {
   restoreEnv();
   clearAnthropicKeyCache();
+  _resetCleoPlatformPathsCache();
+  _resetGlobalConfigMigrationLatch();
 });
 
 // ---------------------------------------------------------------------------
