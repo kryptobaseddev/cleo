@@ -62,7 +62,7 @@ The 10 failures collapse into 6 root-cause clusters (forensics §Cross-Failure S
 - **Missing provenance graph**: no `commits` table, no `release_manifest.commits → tasks` FK, no `releases` table — the owner-required "feature → bug → hotfix → epic → task → commit → release" graph is **derivable but not queryable** (audit Q4). `tasks.verification` and `task_relations` exist but lack `(release_id, commit_sha, task_id)` triples.
 - **~600 LOC of coupling to remove**: 17 IVTR gate references in `engine-ops.ts` lines 1251-1295 alone; plus 7 files directly integrating IVTR into release paths (audit §Phase 1).
 
-The audit's Priority 1 action is unambiguous: **decouple release from IVTR; evidence gates (ADR-051) become the sole release blocker** (audit §Recommendations, T9350).
+The audit's Priority 1 action is unambiguous: **decouple release from IVTR; evidence gates (ADR-051) become the sole release blocker** (audit §Recommendations, T9497).
 
 ### 4. External precedents (wave-1 research)
 
