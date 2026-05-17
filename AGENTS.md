@@ -95,6 +95,31 @@ When a task introduces new modules, the orchestrator MUST include an acceptance 
 
 If existing files violate the boundary, flag as a separate cleanup task (e.g., T1015-style relocation epic). Do NOT continue appending to the wrong package.
 
+## Task Hierarchy Canon
+
+CLEO uses a four-tier task hierarchy. Each tier has a canonical prefix; prefixes are permanent
+(no rename primitive exists). The prefix registry lives in ADR-073.
+
+| Tier     | Prefix | Description |
+|----------|--------|-------------|
+| Subtask  | (none) | Leaf-level work unit, child of a Task |
+| Task     | `T-`   | Atomic unit of work |
+| Epic     | `E-`   | Multi-task initiative, owns a lifecycle pipeline |
+| Saga     | `SG-`  | Multi-release theme grouping multiple Epics via `task_relations.type=groups` (ADR-073) |
+
+Saga (SG-) — multi-release theme grouping multiple Epics via task_relations.type=groups (ADR-073)
+
+- Saga is a **labeled role** on a top-level Epic (`label = 'saga'`), NOT a new `TaskType` value.
+- Link Epics to a Saga via `cleo update SG-X --relates E-Y:groups`.
+- Gating dep: T9514 (`cleo update --relates` writer fix) must merge before creating any Saga.
+
+**Prefix registry** (from ADR-073 — all above-task prefixes must be registered here):
+
+| Prefix | Reserved for |
+|--------|-------------|
+| `SG-`  | Saga (above-Epic grouping) |
+| `SD-`  | SignalDock (identity / messaging subsystem) |
+
 ## Sentient / Tier-2 Proposals
 
 The `cleo sentient` subsystem manages autonomous task proposals.

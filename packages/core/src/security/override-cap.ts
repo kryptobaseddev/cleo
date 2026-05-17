@@ -30,7 +30,7 @@
  * @task T1504
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
@@ -157,6 +157,31 @@ export function writeSessionOverrideCount(
     });
   } catch {
     // Non-fatal — audit count should not block operations.
+  }
+}
+
+/**
+ * Clear the persisted override count for a session.
+ *
+ * Called at session end to reset the counter so a subsequent session always
+ * starts at zero (T9505 — BUG #5: override-cap session-end cleanup).
+ *
+ * Errors are swallowed — a missing or already-deleted file is treated as
+ * already cleared.  Clearing failures must never block session end.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param sessionId - The session ID whose counter file should be removed.
+ *
+ * @task T9505
+ */
+export function clearSessionOverrideCount(projectRoot: string, sessionId: string): void {
+  try {
+    const path = getSessionOverrideCountPath(projectRoot, sessionId);
+    if (existsSync(path)) {
+      rmSync(path, { force: true });
+    }
+  } catch {
+    // Non-fatal — clearing the counter file must never block session end.
   }
 }
 

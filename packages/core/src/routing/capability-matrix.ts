@@ -212,6 +212,42 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
+  // Saga sub-domain (ADR-073)
+  {
+    domain: 'tasks',
+    operation: 'saga.create',
+    gateway: 'mutate',
+    mode: 'native',
+    preferredChannel: 'cli',
+  },
+  {
+    domain: 'tasks',
+    operation: 'saga.add',
+    gateway: 'mutate',
+    mode: 'native',
+    preferredChannel: 'cli',
+  },
+  {
+    domain: 'tasks',
+    operation: 'saga.list',
+    gateway: 'query',
+    mode: 'native',
+    preferredChannel: 'cli',
+  },
+  {
+    domain: 'tasks',
+    operation: 'saga.members',
+    gateway: 'query',
+    mode: 'native',
+    preferredChannel: 'cli',
+  },
+  {
+    domain: 'tasks',
+    operation: 'saga.rollup',
+    gateway: 'query',
+    mode: 'native',
+    preferredChannel: 'cli',
+  },
   {
     domain: 'tasks',
     operation: 'start',
