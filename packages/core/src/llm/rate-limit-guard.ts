@@ -11,7 +11,7 @@
  * before subsequent attempts, we eliminate retry amplification across sessions.
  *
  * State is keyed on `(provider, label)` and stored at:
- *   `${cleoHomeDir()}/rate-limit-state/<provider>-<label>.json`
+ *   `${getCleoHome()}/rate-limit-state/<provider>-<label>.json`
  *
  * @module llm/rate-limit-guard
  * @task T9273
@@ -20,8 +20,8 @@
 
 import { existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { getCleoHome } from '@cleocode/paths';
 import { readJsonFile, withFileLock, writeJsonFileAtomic } from '../store/file-utils.js';
-import { cleoHomeDir } from './credentials.js';
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -71,7 +71,7 @@ function sanitize(value: string): string {
  * @task T9273
  */
 export function rateLimitStatePath(provider: string, label: string): string {
-  const dir = join(cleoHomeDir(), 'rate-limit-state');
+  const dir = join(getCleoHome(), 'rate-limit-state');
   return join(dir, `${sanitize(provider)}-${sanitize(label)}.json`);
 }
 
@@ -137,7 +137,7 @@ function parseResetFromHeaders(headers: Headers | Record<string, string>): numbe
  *
  * Parses the reset time from HTTP response headers when available, then
  * falls back to `defaultCooldownSeconds` (default 300 s).  Writes state to
- * `${cleoHomeDir()}/rate-limit-state/<provider>-<label>.json` so that ALL
+ * `${getCleoHome()}/rate-limit-state/<provider>-<label>.json` so that ALL
  * CLEO processes (sentient daemon, CLI calls, auxiliary router) see the same
  * cooldown — preventing pile-on retries from independent sessions.
  *
@@ -181,7 +181,7 @@ export async function recordRateLimit(
   }
 
   const filePath = rateLimitStatePath(provider, label);
-  const dir = join(cleoHomeDir(), 'rate-limit-state');
+  const dir = join(getCleoHome(), 'rate-limit-state');
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -259,7 +259,7 @@ export async function clearRateLimit(provider: string, label: string): Promise<v
  * @task T9273
  */
 export function ensureRateLimitStateDir(): string {
-  const dir = join(cleoHomeDir(), 'rate-limit-state');
+  const dir = join(getCleoHome(), 'rate-limit-state');
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }

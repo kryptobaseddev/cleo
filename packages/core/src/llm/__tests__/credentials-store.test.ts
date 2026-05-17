@@ -37,6 +37,9 @@ const ENV_KEYS = [
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
   'XDG_DATA_HOME',
+  // T9403: getCleoHome() honours CLEO_HOME first; save/restore so the
+  // global vitest setup's per-fork pin is not destroyed by these tests.
+  'CLEO_HOME',
   'HOME',
   'CLEO_DIR',
 ];
@@ -67,6 +70,9 @@ function isolateHomes(): { xdgRoot: string; home: string } {
   mkdirSync(join(xdgRoot, 'cleo'), { recursive: true });
   mkdirSync(home, { recursive: true });
   process.env['XDG_DATA_HOME'] = xdgRoot;
+  // T9403: mirror XDG layout under CLEO_HOME so getCleoHome() resolves to
+  // the same per-test sandbox.
+  process.env['CLEO_HOME'] = join(xdgRoot, 'cleo');
   process.env['HOME'] = home;
   return { xdgRoot, home };
 }
