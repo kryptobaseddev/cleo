@@ -49,7 +49,7 @@ The owner directive (2026-05-15) called for a full RCASD research wave on T9345 
 | # | Artifact | Lines | Purpose |
 |---|----------|------:|---------|
 | 8 | [`SPEC-T9345-release-pipeline-v2.md`](./SPEC-T9345-release-pipeline-v2.md) | 822 | **RFC-2119 normative spec**. 162 numbered requirements (R-001 → R-441). 16 sections covering CLI verbs, GHA workflows, evidence-gate integration (ADR-051 surface), provenance recording, project-agnostic resolution (7 archetypes), `releases.status` FSM, hotfix path, backward-compatibility window, failure-mode → spec-section mapping (8/10 structurally eliminated). |
-| 9 | [`migration-plan-T9345.md`](./migration-plan-T9345.md) | 619 | 6-phase migration plan (8–12 weeks). Each phase has scope, exit criteria, rollback trigger, LOC budget, owner-approval gates. 8 child epics decomposed (T9346 → T9353). Compatibility shim `cleo release ship --workflow=false` available for ≥3 release cycles post-cutover. Historical `release_manifests` never dropped. |
+| 9 | [`migration-plan-T9345.md`](./migration-plan-T9345.md) | 619 | 6-phase migration plan (8–12 weeks). Each phase has scope, exit criteria, rollback trigger, LOC budget, owner-approval gates. 8 child epics decomposed (T9491–T9499 — Phase 0: T9491, Phase 1: T9492, Phase 2: T9493, Phase 3: T9494, Phase 4: T9497, Phase 5: T9498, Phase 6: T9499, Tests: T9495). Bonus parallel forensics-fixes epic: T9496. Compatibility shim `cleo release ship --workflow=false` available for ≥3 release cycles post-cutover. Historical `release_manifests` never dropped. |
 | 10 | [`test-matrix-T9345.md`](./test-matrix-T9345.md) | 529 | 12 scenarios × 4 archetypes (monorepo-w-workspaces, single-npm-lib, single-rust-crate + python stretch). 25-slot GHA matrix. Each scenario maps to one or more of the 10 acceptance criteria + the 10 forensics failure modes. Owner sign-off checklist (30+ specific artifacts). |
 
 ## Acceptance-criteria mapping (against T9345 task description)
@@ -63,7 +63,7 @@ The owner directive (2026-05-15) called for a full RCASD research wave on T9345 
 | "Spec written for chosen direction with RFC 2119 must/should/may language" | #8 `SPEC-T9345-release-pipeline-v2.md` (162 R-numbered requirements) |
 | "Migration plan from current state with rollback path" | #9 `migration-plan-T9345.md` (6 phases × rollback per phase) |
 | "Test matrix proves IVTR works for at least 3 git-managed project archetypes: monorepo with workspaces (cleocode itself), single-package npm lib, single-binary rust crate" | #10 `test-matrix-T9345.md` (A1/A2/A3 required, A4 stretch) |
-| "All epic children produced or scheduled as separate IVTR tasks" | #7 + #9 enumerate 8 child epics (T9346 → T9353) — to be filed by the orchestrator when this research is signed off |
+| "All epic children produced or scheduled as separate IVTR tasks" | #7 + #9 enumerate 8 child epics — filed as T9491 (Phase 0), T9492 (Phase 1), T9493 (Phase 2), T9494 (Phase 3), T9497 (Phase 4), T9498 (Phase 5), T9499 (Phase 6), T9495 (tests). Bonus T9496 (5 forensics bug fixes, parallelizable with Phase 0) |
 
 ## Owner ask: "Have we conflated and over-engineered the IVTR system?"
 
@@ -75,9 +75,9 @@ The owner directive (2026-05-15) called for a full RCASD research wave on T9345 
 - `--force` undermines evidence integrity (already on removal track per ADR-051)
 
 **Streamlining path** (sketched in #5, normatively defined in #8):
-1. **Decouple release from IVTR** (T9346 / T9351 in the plan). `task.ivtr_state` becomes observation-only; the release pipeline never reads it for gate decisions.
+1. **Decouple release from IVTR** (Phase 5 epic T9498). `task.ivtr_state` becomes observation-only; the release pipeline never reads it for gate decisions.
 2. **Single gate surface** — ADR-051 evidence atoms are the only release gate. No parallel `runReleaseGates`, no IVTR phase gate, no `defaultRunGate` stub.
-3. **First-class provenance graph** (T9347). 11 new tables, 1 view, 14 new CLI verbs. Owner's "tracking graph of released code" becomes a SQL query.
+3. **First-class provenance graph** (Phase 0 epic T9491 + Phase 1 epic T9492). 11 new tables, 1 view, 14 new CLI verbs. Owner's "tracking graph of released code" becomes a SQL query.
 4. **Project-agnostic by default** — ADR-061 tool resolver is the only path; per-archetype assumptions (npm/pnpm/biome) are deleted.
 
 ## Owner ask: "scope of tracking is wider than a release — features, bugs, hotfixes, full provenance"
@@ -96,20 +96,66 @@ Both projects were researched against their **actual code**, not assumptions:
 
 The 5-platform target (linux x64/arm64, macos x64/arm64, win x64) is first-class in spec §9.2 (R-370, R-371). `plan.platformMatrix[]` enumerates publisher × platform pairs; `release-fanout.yml` runs the matrix job. Adding a new platform requires only an entry in `.cleo/project-context.json`, no release-pipeline code change.
 
+## GHA workflow architecture (clarification — NOT cleocode-specific)
+
+The four YAML workflows referenced throughout the ADR + SPEC (`release-prepare.yml`,
+`release-publish.yml`, `release-fanout.yml`, `release-rollback.yml`) are **CLEO-templated
+artifacts that any consuming project receives** — they are NOT files unique to the cleocode
+monorepo. The design is:
+
+- **Templates live in CLEO** at `packages/cleo/templates/workflows/release-*.yml.tmpl` (new path).
+- **`cleo init` / `cleo upgrade workflows`** scaffolds them into the consuming project's
+  `.github/workflows/` directory, parameterized by `.cleo/release-config.json` +
+  `.cleo/project-context.json`.
+- **Workflow structure is universal** (same trigger events, same job names, same
+  concurrency policy, same status checks emitted). What differs across projects is the
+  *contents* of the steps — which is resolved via ADR-061's tool resolver
+  (`tool:test`, `tool:build`, `tool:lint`, `tool:typecheck`, `tool:audit`,
+  `tool:security-scan`, `tool:publish`). A Rust crate runs `cargo test`; a Python
+  package runs `pytest`; a pnpm monorepo runs `pnpm run test`. The workflow doesn't know
+  or care — it invokes `cleo release plan|open|reconcile|rollback` (CLEO's own verbs)
+  and those verbs invoke the resolved tool.
+- **Per-archetype matrix** lives in `release-fanout.yml` and reads `plan.platformMatrix[]`
+  from the plan JSON file. Adding a new platform (e.g. `aarch64-linux-android`) is one
+  entry in `.cleo/project-context.json` — no workflow code change required.
+- **Project-agnosticism is structurally enforced**: the SPEC's R-362 mandates that adding a
+  new archetype MUST NOT require a release-pipeline code change. The workflow templates
+  pass this test because every project-specific concern routes through tool resolution.
+- **Upgrade story**: when CLEO ships a new workflow template version, consuming projects
+  run `cleo upgrade workflows` to merge the new template against any local customizations
+  (3-way merge with `.workflow-overrides.yml` for project-specific tweaks).
+
+This is the "highly opinionated, spec-driven workflow system any project can use" promise
+that ADR-073 makes operational. The workflows are CLEO's opinion *encoded as scaffold*,
+not as one-off files in cleocode.
+
+---
+
 ## Next steps for the orchestrator (after owner sign-off)
 
 1. **Council review** (optional but recommended) — invoke `/ct-council` to stress-test the ADR + SPEC against five advisors.
-2. **File 8 child epics** under T9345 per #9 `migration-plan-T9345.md` §"Child-epic decomposition":
-   - T9346 — Schema migration + provenance tables (Phase 0)
-   - T9347 — Read-mostly verbs `plan` + `reconcile` (Phase 1)
-   - T9348 — Provenance backfill across historical releases (Phase 2)
-   - T9349 — `release-prepare.yml` + `cleo release open` (Phase 3)
-   - T9350 — `release-publish.yml` + `release-fanout.yml` (Phase 4)
-   - T9351 — Operator surface flip + IVTR decoupling (Phase 5)
-   - T9352 — Cleanup: delete `releaseShip` monolith + parallel 4-step pipeline (Phase 6)
-   - T9353 — Test matrix + 3-archetype fixtures
+2. **File 8 real child epics** under T9345 via `cleo add --parent T9345 --type epic --kind work --pipelineStage spec --acceptance "..."` — task IDs are assigned by CLEO at creation time. The intended decomposition (one epic per migration phase, plus the test-matrix epic) per `migration-plan-T9345.md` §"Child-epic decomposition" is:
+   - Schema migration + provenance tables (Phase 0)
+   - Read-mostly verbs `plan` + `reconcile` (Phase 1)
+   - Provenance backfill across historical releases (Phase 2)
+   - `release-prepare.yml` template + `cleo release open` verb (Phase 3)
+   - `release-publish.yml` + `release-fanout.yml` templates + `cleo init/upgrade workflows` scaffolding (Phase 4)
+   - Operator surface flip + IVTR decoupling (Phase 5)
+   - Cleanup: delete `releaseShip` monolith + parallel 4-step pipeline (Phase 6)
+   - Test matrix + 3-archetype fixtures (cross-phase)
+
+   The real IDs assigned by `cleo add` MUST be recorded back into this index and into `migration-plan-T9345.md` §"Child-epic decomposition" before any implementation work begins. **No fabricated IDs in any artifact.**
+
 3. **Advance T9345 to `pipelineStage=spec`** once council convergence is reached.
 4. **Run RCASD's spec stage** on each child epic before its implementation begins.
+
+---
+
+## Honest corrections (post-review, 2026-05-16)
+
+- **Prior version of this index named fabricated task IDs `T9346`–`T9353`.** Those were planning placeholders, NOT real tasks in `tasks.db`. They have been removed. Real IDs will be assigned by `cleo add` at the moment each child epic is filed.
+- **Prior version of this index did not explain that the GHA workflows are CLEO-templated scaffolds, not cleocode-only files.** The new "GHA workflow architecture" section above corrects this. The ADR-073 SPEC §5 always intended this — it just was not surfaced in the index.
+- **2026-05-16 implementation kickoff exposed an 11th failure mode missing from the forensics doc: `cleo orchestrate spawn` hangs indefinitely.** Reproduced at 30s/60s/90s timeouts with and without `--no-worktree`. Forced fallback to raw `git worktree add --lock -b task/T<id> <path> main` for all 6 worker provisions. Filed as **epic T9515 — "EPIC: cleo orchestrate spawn hang + full worktree lifecycle reliability"** (kind=bug, severity=P1, parent=T9345). T9515 is a hard prerequisite for the GitOps release pipeline (ADR-073 / T9491+ / T9498) because that vision assumes reliable per-task worktrees. Scope: CREATE (fix spawn hang + timeout supervisors) / MANAGE (`cleo worktree list` structured discovery) / CLEANUP (`cleo worktree prune --orphaned` + `force-unlock` + auto-`worktree-complete`).
 
 ## Notes
 
