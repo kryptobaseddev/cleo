@@ -288,6 +288,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         'fixes',
         'extends',
         'supersedes',
+        'groups', // ADR-073: Saga member linkage
       ] as const;
       if (!validTypes.includes(relationType as (typeof validTypes)[number])) {
         throw new Error(
@@ -321,6 +322,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           'fixes',
           'extends',
           'supersedes',
+          'groups', // ADR-073: Saga member linkage
         ] as const;
         if (!validTypes.includes(relationType as (typeof validTypes)[number])) {
           throw new Error(
