@@ -108,6 +108,11 @@ export default defineConfig({
         '../../packages/core/src/sentient/index.ts',
         import.meta.url,
       ).pathname,
+      // T9421: setup subpath export used by `cleo setup` CLI command + tests.
+      '@cleocode/core/setup': new URL(
+        '../../packages/core/src/setup/index.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core/gc/daemon.js': new URL(
         '../../packages/core/src/gc/daemon.ts',
         import.meta.url,
