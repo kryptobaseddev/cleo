@@ -2073,6 +2073,190 @@ export const releaseChanges = sqliteTable(
   ],
 );
 
+/**
+ * Artifact type enum for {@link releaseArtifacts.artifactType}.
+ *
+ * Polymorphic: a single table covers all publishing archetypes. Adding a new
+ * artifact type (e.g. `gem`, `maven`) requires adding a value here and writing
+ * new rows — zero schema changes required.
+ *
+ * - `npm`            — Node.js package published to npmjs.com or a private registry
+ * - `cargo`          — Rust crate published to crates.io
+ * - `docker`         — Container image pushed to an OCI registry
+ * - `pypi`           — Python package published to pypi.org
+ * - `github-release` — GitHub Releases asset attached to a git tag
+ * - `binary`         — Generic compiled binary distributed via direct URL
+ * - `github-tag`     — Lightweight git tag (no attached assets)
+ *
+ * @task T9509
+ * @see SPEC-T9345 §3.9
+ */
+export const RELEASE_ARTIFACT_TYPES = [
+  'npm',
+  'cargo',
+  'docker',
+  'pypi',
+  'github-release',
+  'binary',
+  'github-tag',
+] as const;
+
+/** Union type for {@link RELEASE_ARTIFACT_TYPES}. */
+export type ReleaseArtifactType = (typeof RELEASE_ARTIFACT_TYPES)[number];
+
+/**
+ * Link type enum for {@link brainReleaseLinks.linkType}.
+ *
+ * Describes the semantic relationship between a BRAIN entry and a release:
+ * - `approved-by`    — A BRAIN decision approved a change that shipped in this release.
+ * - `documented-in`  — This release is where the BRAIN entry was first formally documented.
+ * - `derived-from`   — The release's failure or outcome produced this BRAIN learning/pattern.
+ * - `observed-in`    — A BRAIN observation was made about this release (e.g. performance note).
+ *
+ * @task T9509
+ * @see SPEC-T9345 §8.1
+ */
+export const BRAIN_RELEASE_LINK_TYPES = [
+  'approved-by',
+  'documented-in',
+  'derived-from',
+  'observed-in',
+] as const;
+
+/** Union type for {@link BRAIN_RELEASE_LINK_TYPES}. */
+export type BrainReleaseLinkType = (typeof BRAIN_RELEASE_LINK_TYPES)[number];
+
+/**
+ * `release_artifacts` — Polymorphic artifact registry (ADR-073 / SPEC-T9345 §3.9).
+ *
+ * One row per (release × artifact type × identifier) triple. A monorepo release
+ * that publishes 22 npm packages + 1 cargo crate + 1 docker image produces 24 rows
+ * for that single release.
+ *
+ * **Polymorphic design**: The `metadata` column is a JSON blob that holds
+ * type-specific extras (e.g. `{"dist-tag":"latest","integrity":"sha512-..."}` for
+ * npm; `{"digest":"sha256:abc","registry":"ghcr.io"}` for docker). This eliminates
+ * the need for separate per-archetype tables and means adding a new artifact type
+ * requires zero schema changes.
+ *
+ * `identifier` is type-specific:
+ *   - npm      → package name (e.g. `@cleocode/cleo`)
+ *   - cargo    → crate name (e.g. `cleo-core`)
+ *   - docker   → image reference (e.g. `ghcr.io/org/cleo:v2026.6.0`)
+ *   - binary   → filename or slug (e.g. `cleo-linux-x64`)
+ *   - github-release / github-tag → tag name (e.g. `v2026.6.0`)
+ *
+ * Composite PRIMARY KEY: (release_id, artifact_type, identifier).
+ *
+ * FK:
+ *   release_id → releases(id) ON DELETE CASCADE
+ *
+ * @task T9509
+ * @epic T9491
+ * @see SPEC-T9345 §3.9
+ */
+export const releaseArtifacts = sqliteTable(
+  'release_artifacts',
+  {
+    /** FK → releases.id. ON DELETE CASCADE — purging a release removes its artifact rows. */
+    releaseId: text('release_id')
+      .notNull()
+      .references(() => releasesNew.id, { onDelete: 'cascade' }),
+    /**
+     * Artifact archetype. See {@link RELEASE_ARTIFACT_TYPES}.
+     * Stored as plain text for forward-compat: adding a new type is a code-only change.
+     */
+    artifactType: text('artifact_type').notNull(),
+    /**
+     * Artifact-specific identifier.
+     * npm: package name; cargo: crate name; docker: image ref; binary: filename.
+     */
+    identifier: text('identifier').notNull(),
+    /** Published version string (artifact-specific format). */
+    version: text('version').notNull(),
+    /** Registry URL, OCI ref, or asset download URL. Nullable (not all archetypes have one). */
+    url: text('url'),
+    /** ISO-8601 timestamp when the artifact was published to its registry. */
+    publishedAt: text('published_at'),
+    /**
+     * JSON blob for type-specific metadata.
+     * npm: `{"dist-tag":"latest","integrity":"sha512-...","provenance":true}`
+     * docker: `{"digest":"sha256:abc","registry":"ghcr.io"}`
+     * cargo: `{"checksum":"sha256:def","yanked":false}`
+     * Defaults to `{}` for archetypes that have no extras.
+     */
+    metadata: text('metadata').notNull().default('{}'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.releaseId, table.artifactType, table.identifier] }),
+    index('idx_release_artifacts_release_id').on(table.releaseId),
+    index('idx_release_artifacts_artifact_type').on(table.artifactType),
+    index('idx_release_artifacts_published_at').on(table.publishedAt),
+  ],
+);
+
+/**
+ * `brain_release_links` — M:N junction closing the BRAIN↔release loop
+ * (ADR-073 / SPEC-T9345 §8).
+ *
+ * Links BRAIN entries (decisions, observations, patterns, learnings stored in
+ * the project-level `.cleo/brain.db`) to releases stored in `tasks.db`, so that
+ * queries like "Which decision approved the fix in v2026.5.74?" are SQL-answerable.
+ *
+ * **Cross-DB soft FK strategy** (SPEC-T9345 §8.2):
+ * `brain_entry_id` is an intentionally un-constrained TEXT column. `brain.db` is
+ * a separate SQLite file and SQLite cannot enforce cross-file foreign keys.
+ * `ON DELETE SET NULL` semantics are handled at the application layer — when a
+ * BRAIN entry is deleted, the calling code sets `brain_entry_id = NULL` on
+ * associated rows (or removes the link row entirely). This matches the existing
+ * cross-DB pattern in `packages/core/src/store/brain-accessor-impl.ts`.
+ *
+ * `release_id` carries a hard REFERENCES constraint to `releases(id)` in the
+ * same `tasks.db` file. ON DELETE CASCADE: purging a release removes all its
+ * brain link rows.
+ *
+ * Composite PRIMARY KEY: (brain_entry_id, release_id, link_type).
+ * Multiple link_type values between the same pair are valid — a decision can
+ * both `approved-by` and `documented-in` the same release.
+ *
+ * @task T9509
+ * @epic T9491
+ * @see SPEC-T9345 §8.1
+ */
+export const brainReleaseLinks = sqliteTable(
+  'brain_release_links',
+  {
+    /**
+     * Soft FK to `brain_entries.id` in `brain.db`.
+     * NOT a hard REFERENCES — brain.db is a separate SQLite file.
+     * Nullable: application sets to NULL when the BRAIN entry is deleted (SET NULL semantics).
+     */
+    brainEntryId: text('brain_entry_id'),
+    /** FK → releases.id. ON DELETE CASCADE. */
+    releaseId: text('release_id')
+      .notNull()
+      .references(() => releasesNew.id, { onDelete: 'cascade' }),
+    /**
+     * Semantic relationship type. See {@link BRAIN_RELEASE_LINK_TYPES}.
+     * - `approved-by`   — BRAIN decision approved this release's change.
+     * - `documented-in` — Release where the BRAIN entry was first documented.
+     * - `derived-from`  — Release outcome produced this BRAIN learning/pattern.
+     * - `observed-in`   — BRAIN observation made about this release.
+     */
+    linkType: text('link_type', { enum: BRAIN_RELEASE_LINK_TYPES }).notNull(),
+    /** ISO-8601 timestamp when this link was created. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** Identifier of the agent or user that created this link. Nullable. */
+    createdBy: text('created_by'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.brainEntryId, table.releaseId, table.linkType] }),
+    index('idx_brain_release_links_brain_entry_id').on(table.brainEntryId),
+    index('idx_brain_release_links_release_id').on(table.releaseId),
+    index('idx_brain_release_links_link_type').on(table.linkType),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type AttachmentRow = typeof attachments.$inferSelect;
@@ -2138,6 +2322,11 @@ export type ReleaseCommitRow = typeof releaseCommits.$inferSelect;
 export type NewReleaseCommitRow = typeof releaseCommits.$inferInsert;
 export type ReleaseChangeRow = typeof releaseChanges.$inferSelect;
 export type NewReleaseChangeRow = typeof releaseChanges.$inferInsert;
+// T9509 provenance graph row types (release_artifacts + brain_release_links)
+export type ReleaseArtifactRow = typeof releaseArtifacts.$inferSelect;
+export type NewReleaseArtifactRow = typeof releaseArtifacts.$inferInsert;
+export type BrainReleaseLinkRow = typeof brainReleaseLinks.$inferSelect;
+export type NewBrainReleaseLinkRow = typeof brainReleaseLinks.$inferInsert;
 
 // agent_credentials REMOVED from tasks.db — T234 clean-cut.
 // Agent data (identity, credentials, capabilities, skills) now lives
