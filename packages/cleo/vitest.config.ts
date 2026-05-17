@@ -165,6 +165,13 @@ export default defineConfig({
         '../../packages/core/src/llm/credential-removal.ts',
         import.meta.url,
       ).pathname,
+      // T9419: credential-seeders/index subpath used by E2b integration tests
+      // to construct SeederRegistry + CredentialSeeder fixtures without going
+      // through the BUILTIN_SEEDERS singleton.
+      '@cleocode/core/llm/credential-seeders/index.js': new URL(
+        '../../packages/core/src/llm/credential-seeders/index.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core/llm/oauth/device-code.js': new URL(
         '../../packages/core/src/llm/oauth/device-code.ts',
         import.meta.url,
