@@ -896,6 +896,116 @@ export interface TasksStopQueryResult {
 }
 
 // ---------------------------------------------------------------------------
+// tasks.saga.* — Saga management (ADR-073, T9521)
+// ---------------------------------------------------------------------------
+
+/** Params for `tasks.saga.create` — create a labeled top-level Epic as a Saga. */
+export interface TasksSagaCreateParams {
+  /** Saga title (3–500 characters). */
+  title: string;
+  /** Saga description. */
+  description?: string;
+  /** Pipe-separated acceptance criteria. */
+  acceptance?: string[];
+}
+
+/**
+ * Result of `tasks.saga.create` — the newly created Saga task.
+ *
+ * @see ADR-073
+ * @task T9521
+ */
+export interface TasksSagaCreateResult {
+  /** The created task record (type=epic, labels includes 'saga'). */
+  task: TaskRecord;
+}
+
+/** Params for `tasks.saga.add` — link an Epic to a Saga. */
+export interface TasksSagaAddParams {
+  /** Saga task ID (must have label='saga'). */
+  sagaId: string;
+  /** Epic task ID to link as a member. */
+  epicId: string;
+}
+
+/**
+ * Result of `tasks.saga.add` — relation creation confirmation.
+ *
+ * @task T9521
+ */
+export interface TasksSagaAddResult {
+  /** Saga task ID. */
+  sagaId: string;
+  /** Epic task ID linked as member. */
+  epicId: string;
+  /** Whether the relation was newly created. */
+  added: boolean;
+}
+
+/** Params for `tasks.saga.list` — list all Sagas. */
+export type TasksSagaListParams = Record<string, never>;
+
+/**
+ * Result of `tasks.saga.list` — all labeled top-level Epics.
+ *
+ * @task T9521
+ */
+export interface TasksSagaListResult {
+  /** Array of Saga task records. */
+  sagas: TaskRecord[];
+  /** Total count. */
+  total: number;
+}
+
+/** Params for `tasks.saga.members` — list member Epics linked to a Saga. */
+export interface TasksSagaMembersParams {
+  /** Saga task ID. */
+  sagaId: string;
+}
+
+/**
+ * Result of `tasks.saga.members` — member Epics linked via type='groups'.
+ *
+ * @task T9521
+ */
+export interface TasksSagaMembersResult {
+  /** Saga task ID. */
+  sagaId: string;
+  /** Member Epic task IDs and their relation details. */
+  members: Array<{ epicId: string; type: string; reason?: string }>;
+  /** Total count. */
+  total: number;
+}
+
+/** Params for `tasks.saga.rollup` — aggregate member Epic statuses. */
+export interface TasksSagaRollupParams {
+  /** Saga task ID. */
+  sagaId: string;
+}
+
+/**
+ * Result of `tasks.saga.rollup` — aggregated status counts across member Epics.
+ *
+ * @task T9521
+ */
+export interface TasksSagaRollupResult {
+  /** Saga task ID. */
+  sagaId: string;
+  /** Total number of member Epics. */
+  total: number;
+  /** Number of member Epics with status='done'. */
+  done: number;
+  /** Number of member Epics with status='active'. */
+  active: number;
+  /** Number of member Epics with status='blocked'. */
+  blocked: number;
+  /** Number of member Epics with status='pending'. */
+  pending: number;
+  /** Completion percentage (done / total * 100), 0 when total=0. */
+  completionPct: number;
+}
+
+// ---------------------------------------------------------------------------
 // Typed operation record (Wave D adapter — T1425)
 // ---------------------------------------------------------------------------
 
@@ -949,4 +1059,10 @@ export type TasksOps = {
   readonly 'sync.links.remove': readonly [TasksSyncLinksRemoveParams, TasksSyncLinksRemoveResult];
   readonly claim: readonly [TasksClaimParams, TasksClaimResult];
   readonly unclaim: readonly [TasksUnclaimParams, TasksUnclaimResult];
+  // Saga sub-domain ops (ADR-073)
+  readonly 'saga.create': readonly [TasksSagaCreateParams, TasksSagaCreateResult];
+  readonly 'saga.add': readonly [TasksSagaAddParams, TasksSagaAddResult];
+  readonly 'saga.list': readonly [TasksSagaListParams, TasksSagaListResult];
+  readonly 'saga.members': readonly [TasksSagaMembersParams, TasksSagaMembersResult];
+  readonly 'saga.rollup': readonly [TasksSagaRollupParams, TasksSagaRollupResult];
 };
