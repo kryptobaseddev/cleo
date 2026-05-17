@@ -139,6 +139,23 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-core-ssot.mjs --exit-on-fail
 
+  path-drift-lint:
+    # T9407 / E-CONFIG-AUTH-UNIFY E1 close-out: reject hard-coded CLEO data
+    # paths in packages/core/src/. Catches regressions of the T9403 →
+    # @cleocode/paths migration (cleoHomeDir(), literal ~/.local/share/cleo,
+    # and un-allowlisted bare process.env['XDG_DATA_HOME'] reads). Pure
+    # static analysis of checked-in source — no untrusted input.
+    name: Path Drift Lint (T9407)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint CLEO data-path drift in packages/core/src
+        run: node scripts/lint-path-drift.mjs
+
   contracts-dep-lint:
     name: Contracts Dep Lint
     runs-on: ubuntu-latest
