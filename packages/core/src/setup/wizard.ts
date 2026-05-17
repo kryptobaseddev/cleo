@@ -109,6 +109,20 @@ export interface WizardOptions {
   tier2Enabled?: boolean;
   /** Strictness preset to apply for `project-conventions`. */
   strictness?: 'strict' | 'standard' | 'minimal';
+  /**
+   * Active harness for the `harness` section (T9425).
+   *
+   * Mirrors the `CLEO_HARNESS` env var surface today (`pi` | `claude-code`)
+   * and is persisted to `harness.active` in the global config.
+   */
+  harness?: 'pi' | 'claude-code';
+  /**
+   * BRAIN memory-bridge mode for the `brain` section (T9425).
+   *
+   * Operator-facing label: `'digest'` maps to the on-disk `'cli'` mode;
+   * `'file'` and `'disabled'` round-trip 1:1.
+   */
+  brainBridgeMode?: 'digest' | 'file' | 'disabled';
   /** Project root override; defaults to `process.cwd()`. */
   projectRoot?: string;
 }
