@@ -141,6 +141,17 @@ export {
   historyAdapterForProvider,
   OpenAIHistoryAdapter,
 } from './history-adapters.js';
+// One-shot legacy flat-key migration (T9406 — E-CONFIG-AUTH-UNIFY E1)
+export type {
+  LegacyFlatKeyImportResult,
+  LegacyFlatKeyImportStatus,
+} from './legacy-flat-key-import.js';
+export {
+  importLegacyFlatAnthropicKey,
+  LEGACY_FLAT_KEY_BAK_SUFFIX,
+  LEGACY_FLAT_KEY_LABEL,
+  LEGACY_FLAT_KEY_MARKER,
+} from './legacy-flat-key-import.js';
 export type { ModelMetadata } from './model-metadata.js';
 // Model metadata — context window resolution (T9264 / T-LLM-CRED Phase 3)
 export {
