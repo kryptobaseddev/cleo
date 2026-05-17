@@ -141,15 +141,24 @@ function resolveHomeOverride(value: string | undefined): string | undefined {
 export function createPlatformPathsResolver(
   appName: string,
   homeEnvVar: string,
+  configEnvVar?: string,
 ): PlatformPathsResolver {
   let cachedSysInfo: SystemInfo | null = null;
 
   function readPlatformPaths(): PlatformPaths {
     const ep = envPaths(appName, { suffix: '' });
-    const override = resolveHomeOverride(process.env[homeEnvVar]);
+    const dataOverride = resolveHomeOverride(process.env[homeEnvVar]);
+    // env-paths reads XDG_CONFIG_HOME on Linux only — macOS returns
+    // ~/Library/Preferences/<app> and Windows returns %APPDATA%\<app>\Config
+    // regardless of any env var. Cross-platform tests need a way to redirect
+    // the config dir; honor `configEnvVar` (T9405) the same way `homeEnvVar`
+    // overrides the data dir.
+    const configOverride = configEnvVar
+      ? resolveHomeOverride(process.env[configEnvVar])
+      : undefined;
     return {
-      data: override ?? ep.data,
-      config: ep.config,
+      data: dataOverride ?? ep.data,
+      config: configOverride ?? ep.config,
       cache: ep.cache,
       log: ep.log,
       temp: ep.temp,
