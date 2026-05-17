@@ -15,8 +15,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { addCredential, getCredentialByLabel, listCredentials } from '../credentials-store.js';
 import { clearAnthropicKeyCache } from '../credentials.js';
+import { addCredential, getCredentialByLabel, listCredentials } from '../credentials-store.js';
 import {
   importLegacyFlatAnthropicKey,
   LEGACY_FLAT_KEY_BAK_SUFFIX,
