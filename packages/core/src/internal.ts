@@ -715,6 +715,7 @@ export { checkDoubleListing, checkEpicCompleteness } from './release/guards.js';
 // T1726: canonical 4-step release pipeline (ADR-063 / T1597) — exposed via internal for dispatch layer
 export {
   loadActiveReleaseHandle,
+  makeAdr061GateRunner,
   releasePublish,
   releaseReconcile,
   releaseStart,

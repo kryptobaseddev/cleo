@@ -181,6 +181,7 @@ export const TASK_RELATION_TYPES = [
   'fixes',
   'extends',
   'supersedes',
+  'groups',
 ] as const;
 
 /** Lifecycle transition types matching DB CHECK constraint on lifecycle_transitions.transition_type. */
@@ -1455,6 +1456,244 @@ export const commitFiles = sqliteTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// T9507 — PR provenance graph tables (provenance graph 2/4)
+// Refs: SPEC-T9345 §3.4 (pull_requests), §3.5 (pr_commits, pr_tasks)
+// ---------------------------------------------------------------------------
+
+/**
+ * State enum for {@link pullRequests.state}.
+ *
+ * Mirrors the GitHub PR state machine:
+ * - `open`   — PR is open and not yet merged
+ * - `closed` — PR was closed without merging
+ * - `merged` — PR was merged into the target branch
+ *
+ * @task T9507
+ */
+export const PR_STATES = ['open', 'closed', 'merged'] as const;
+
+/** Union type for {@link PR_STATES}. */
+export type PrState = (typeof PR_STATES)[number];
+
+/**
+ * Link-source enum for {@link prTasks.linkSource}.
+ *
+ * Describes how a PR↔task link was discovered:
+ * - `pr-title`       — task ID matched in the PR title
+ * - `pr-body`        — task ID matched in the PR body markdown
+ * - `branch-name`    — parsed from the branch name (e.g. `feat/T9507-...`)
+ * - `commit-trailer` — extracted from a git trailer in a PR commit
+ * - `manual`         — explicitly linked via `cleo provenance link`
+ *
+ * @task T9507
+ */
+export const PR_LINK_SOURCES = [
+  'pr-title',
+  'pr-body',
+  'branch-name',
+  'commit-trailer',
+  'manual',
+] as const;
+
+/** Union type for {@link PR_LINK_SOURCES}. */
+export type PrLinkSource = (typeof PR_LINK_SOURCES)[number];
+
+/**
+ * Link-kind enum for {@link prTasks.linkKind}.
+ *
+ * Extends {@link COMMIT_LINK_KINDS} with `'tracks'` for PRs that observe
+ * a task without directly implementing, fixing, or documenting it.
+ *
+ * - `implements` — the PR directly implements the task's acceptance criteria
+ * - `fixes`      — the PR fixes a bug or regression in the task's work
+ * - `refactors`  — the PR restructures code introduced by the task
+ * - `tests`      — the PR adds or updates tests for the task
+ * - `docs`       — the PR updates documentation for the task
+ * - `reverts`    — the PR reverts work introduced by the task
+ * - `tracks`     — the PR is related to but does not directly implement the task
+ *
+ * @task T9507
+ */
+export const PR_LINK_KINDS = [
+  'implements',
+  'fixes',
+  'refactors',
+  'tests',
+  'docs',
+  'reverts',
+  'tracks',
+] as const;
+
+/** Union type for {@link PR_LINK_KINDS}. */
+export type PrLinkKind = (typeof PR_LINK_KINDS)[number];
+
+/**
+ * `pull_requests` — PR metadata for the provenance graph.
+ *
+ * Captures PR identity, lifecycle state, and release classification so that
+ * SQL queries can answer "which PRs shipped in vX.Y.Z?" and "which tasks did
+ * PR #185 implement?" without calling the GitHub API at query time.
+ *
+ * ID format: `"<projectHash>:<prNumber>"` — unique per CLEO project,
+ * avoids collision in multi-repo installs.
+ *
+ * `head_sha` and `merge_commit_sha` are soft FKs to `commits.sha` (ON DELETE
+ * SET NULL) so that a commit purge does not cascade-delete PR records.
+ *
+ * @task T9507
+ * @epic T9491
+ * @see SPEC-T9345 §3.4
+ */
+export const pullRequests = sqliteTable(
+  'pull_requests',
+  {
+    /** Primary key: `"<projectHash>:<prNumber>"`. */
+    id: text('id').primaryKey(),
+    /** GitHub PR number (unique within a repo). */
+    prNumber: integer('pr_number').notNull(),
+    /** Full URL of the repository (e.g. `https://github.com/org/repo`). */
+    repoUrl: text('repo_url').notNull(),
+    /** PR title. */
+    title: text('title').notNull(),
+    /** PR body markdown (may be NULL if the PR had no description). */
+    body: text('body'),
+    /**
+     * Current PR state. See {@link PR_STATES}.
+     * Values: `open` | `closed` | `merged`.
+     */
+    state: text('state').notNull(),
+    /** Target branch name (e.g. `main`). */
+    baseRef: text('base_ref').notNull(),
+    /** Source branch name (e.g. `release/v2026.5.74`). */
+    headRef: text('head_ref').notNull(),
+    /**
+     * HEAD SHA of the PR at merge time.
+     * Soft FK → commits.sha (ON DELETE SET NULL).
+     */
+    headSha: text('head_sha').references(() => commits.sha, { onDelete: 'set null' }),
+    /**
+     * The actual merge commit SHA (NULL if the PR was not merged).
+     * Soft FK → commits.sha (ON DELETE SET NULL).
+     */
+    mergeCommitSha: text('merge_commit_sha').references(() => commits.sha, {
+      onDelete: 'set null',
+    }),
+    /** GitHub login of the PR author. */
+    authorLogin: text('author_login'),
+    /** ISO-8601 timestamp when the PR was opened. */
+    openedAt: text('opened_at').notNull(),
+    /** ISO-8601 timestamp when the PR was merged (NULL if not merged). */
+    mergedAt: text('merged_at'),
+    /** ISO-8601 timestamp when the PR was closed (NULL if still open). */
+    closedAt: text('closed_at'),
+    /** 1 if this PR is a release PR (e.g. opened by `cleo release ship`). */
+    isReleasePr: integer('is_release_pr').notNull().default(0),
+    /** CalVer version string this PR ships (NULL for non-release PRs). */
+    releaseVersion: text('release_version'),
+    /** 1 if this PR contains only a version bump (no feature/fix commits). */
+    isBumpOnly: integer('is_bump_only').notNull().default(0),
+    /**
+     * Project hash from `audit_log.project_hash` — correlates PRs to a
+     * specific CLEO project in multi-repo installs.
+     */
+    projectHash: text('project_hash'),
+    /** ISO-8601 timestamp when this row was first inserted into tasks.db. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 timestamp of the last update to this row. */
+    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_pr_number').on(table.prNumber),
+    index('idx_pr_state').on(table.state),
+    index('idx_pr_merge_commit_sha').on(table.mergeCommitSha),
+    index('idx_pr_head_sha').on(table.headSha),
+    index('idx_pr_release_version').on(table.releaseVersion),
+    index('idx_pr_project_hash').on(table.projectHash),
+  ],
+);
+
+/**
+ * `pr_commits` — M:N ordered junction between pull_requests and commits.
+ *
+ * Each row records one commit that was part of a PR, along with its ordinal
+ * position within the PR commit list. The composite PK `(pr_id, commit_sha)`
+ * ensures a commit appears at most once per PR.
+ *
+ * Both FKs use ON DELETE CASCADE — purging a PR or commit removes its junction rows.
+ *
+ * @task T9507
+ * @epic T9491
+ * @see SPEC-T9345 §3.5
+ */
+export const prCommits = sqliteTable(
+  'pr_commits',
+  {
+    /** FK → pull_requests.id. ON DELETE CASCADE. */
+    prId: text('pr_id')
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: 'cascade' }),
+    /** FK → commits.sha. ON DELETE CASCADE. */
+    commitSha: text('commit_sha')
+      .notNull()
+      .references(() => commits.sha, { onDelete: 'cascade' }),
+    /** Ordinal position of this commit within the PR commit list (0-based). */
+    position: integer('position').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.prId, table.commitSha] }),
+    index('idx_pr_commits_pr_id').on(table.prId),
+    index('idx_pr_commits_commit_sha').on(table.commitSha),
+    index('idx_pr_commits_position').on(table.prId, table.position),
+  ],
+);
+
+/**
+ * `pr_tasks` — M:N junction between pull_requests and tasks.
+ *
+ * Each row records one typed link between a PR and a CLEO task. The composite
+ * PK `(pr_id, task_id, link_kind)` allows a PR to be linked to the same task
+ * via multiple relationship types (e.g., both `implements` and `fixes`).
+ *
+ * `pr_id` uses ON DELETE CASCADE — if a PR is purged its task links go too.
+ * `task_id` uses ON DELETE SET NULL — if a task is purged the PR audit trail
+ * is preserved as an orphaned link row (task_id = NULL).
+ *
+ * @task T9507
+ * @epic T9491
+ * @see SPEC-T9345 §3.5
+ */
+export const prTasks = sqliteTable(
+  'pr_tasks',
+  {
+    /** FK → pull_requests.id. ON DELETE CASCADE. */
+    prId: text('pr_id')
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: 'cascade' }),
+    /**
+     * FK → tasks.id. ON DELETE SET NULL to preserve the PR audit trail
+     * after task deletion. NULL = orphaned link (task was purged).
+     */
+    taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+    /**
+     * How this link was discovered. See {@link PR_LINK_SOURCES}.
+     */
+    linkSource: text('link_source').notNull(),
+    /**
+     * Semantic relationship classification. See {@link PR_LINK_KINDS}.
+     */
+    linkKind: text('link_kind').notNull(),
+    /** ISO-8601 timestamp when this link was created. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.prId, table.taskId, table.linkKind] }),
+    index('idx_pr_tasks_pr_id').on(table.prId),
+    index('idx_pr_tasks_task_id').on(table.taskId),
+    index('idx_pr_tasks_link_source').on(table.linkSource),
+  ],
+);
+
 // === PROVENANCE GRAPH TABLES — RELEASES (T9508 — ADR-073 / SPEC-T9345) ===
 
 /**
@@ -2069,6 +2308,13 @@ export type TaskCommitRow = typeof taskCommits.$inferSelect;
 export type NewTaskCommitRow = typeof taskCommits.$inferInsert;
 export type CommitFileRow = typeof commitFiles.$inferSelect;
 export type NewCommitFileRow = typeof commitFiles.$inferInsert;
+// T9507 PR provenance graph row types
+export type PullRequestRow = typeof pullRequests.$inferSelect;
+export type NewPullRequestRow = typeof pullRequests.$inferInsert;
+export type PrCommitRow = typeof prCommits.$inferSelect;
+export type NewPrCommitRow = typeof prCommits.$inferInsert;
+export type PrTaskRow = typeof prTasks.$inferSelect;
+export type NewPrTaskRow = typeof prTasks.$inferInsert;
 // T9508 provenance graph row types (releases + release_commits + release_changes)
 export type ReleaseRow = typeof releasesNew.$inferSelect;
 export type NewReleaseRow = typeof releasesNew.$inferInsert;

@@ -313,11 +313,21 @@ const startCommand = defineCommand({
   },
 });
 
-/** cleo release verify — Step 2: run gates + audit child tasks of release epic. */
+/**
+ * cleo release verify — Step 2: run gates + audit child tasks of release epic.
+ *
+ * Injects a real ADR-061-based gate runner so each gate (test, lint,
+ * typecheck, audit, security-scan) actually executes the resolved tool
+ * command. Prior to T9503 the runner was always-failing theater.
+ */
 const verifyCommand = defineCommand({
   meta: { name: 'verify', description: 'Verify release gates + child task gate state' },
   async run() {
-    const result = await release.releaseVerify(release.loadActiveReleaseHandle(process.cwd()));
+    const projectRoot = process.cwd();
+    const handle = release.loadActiveReleaseHandle(projectRoot);
+    const result = await release.releaseVerify(handle, {
+      runGate: release.makeAdr061GateRunner(projectRoot),
+    });
     cliOutput(result, { command: 'release', operation: 'release.verify' });
     if (!result.passed) process.exit(1);
   },

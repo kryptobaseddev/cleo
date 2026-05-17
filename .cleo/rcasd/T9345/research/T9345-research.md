@@ -155,6 +155,7 @@ not as one-off files in cleocode.
 
 - **Prior version of this index named fabricated task IDs `T9346`–`T9353`.** Those were planning placeholders, NOT real tasks in `tasks.db`. They have been removed. Real IDs will be assigned by `cleo add` at the moment each child epic is filed.
 - **Prior version of this index did not explain that the GHA workflows are CLEO-templated scaffolds, not cleocode-only files.** The new "GHA workflow architecture" section above corrects this. The ADR-073 SPEC §5 always intended this — it just was not surfaced in the index.
+- **2026-05-16 implementation kickoff exposed an 11th failure mode missing from the forensics doc: `cleo orchestrate spawn` hangs indefinitely.** Reproduced at 30s/60s/90s timeouts with and without `--no-worktree`. Forced fallback to raw `git worktree add --lock -b task/T<id> <path> main` for all 6 worker provisions. Filed as **epic T9515 — "EPIC: cleo orchestrate spawn hang + full worktree lifecycle reliability"** (kind=bug, severity=P1, parent=T9345). T9515 is a hard prerequisite for the GitOps release pipeline (ADR-073 / T9491+ / T9498) because that vision assumes reliable per-task worktrees. Scope: CREATE (fix spawn hang + timeout supervisors) / MANAGE (`cleo worktree list` structured discovery) / CLEANUP (`cleo worktree prune --orphaned` + `force-unlock` + auto-`worktree-complete`).
 
 ## Notes
 
