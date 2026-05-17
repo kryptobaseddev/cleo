@@ -138,8 +138,11 @@ afterEach(() => {
 // Acceptance criterion — legacy `llm.providers[p].apiKey` still resolves
 // ---------------------------------------------------------------------------
 
-describe('Phase 1 → Phase 2 migration — legacy project-config fallback', () => {
-  it('a Phase 1 .cleo/config.json with only llm.providers.anthropic.apiKey still resolves', async () => {
+describe('Phase 1 → Phase 2 migration — legacy project-config REJECTED (T9413)', () => {
+  it('a Phase 1 .cleo/config.json with only llm.providers.anthropic.apiKey NO LONGER resolves (footgun kill)', async () => {
+    // T9413 (E-CONFIG-AUTH-UNIFY §5.2 T-E2-6): project-config apiKey is now
+    // rejected. The legacy Phase 1 path no longer resolves — operators
+    // must migrate via `cleo auth migrate-project-secrets`.
     const { projectRoot } = isolate();
     seedPhase1ProjectConfig(projectRoot, 'anthropic', 'sk-ant-api03-FIXTURE');
 
@@ -156,19 +159,12 @@ describe('Phase 1 → Phase 2 migration — legacy project-config fallback', () 
     expect(llm.provider).toBe(IMPLICIT_FALLBACK_PROVIDER);
     expect(llm.model).toBe(IMPLICIT_FALLBACK_MODEL);
 
-    // Credential resolves via the project-config tier (tier 5 in
-    // resolveCredentials), which is the legacy Phase 1 path.
-    expect(llm.credential).not.toBeNull();
-    expect(llm.credential?.apiKey).toBe('sk-ant-api03-FIXTURE');
-    expect(llm.credential?.source).toBe('project-config');
-    expect(llm.credential?.authType).toBe('api_key');
-
-    // Client must be wired (not null) since a credential is available.
-    expect(llm.client).not.toBeNull();
-    expect(llm.credentialLabel).toBeUndefined();
+    // The project-config tier is rejected — credential MUST be null.
+    expect(llm.credential).toBeNull();
+    expect(llm.client).toBeNull();
   });
 
-  it('every RoleName resolves identically from a Phase 1 config', async () => {
+  it('every RoleName falls through to null credential from a Phase 1 config (T9413)', async () => {
     const { projectRoot } = isolate();
     seedPhase1ProjectConfig(projectRoot, 'anthropic', 'sk-ant-api03-LEGACY');
 
@@ -176,9 +172,8 @@ describe('Phase 1 → Phase 2 migration — legacy project-config fallback', () 
     for (const role of roles) {
       const llm = await resolveLLMForRole(role, { projectRoot });
       expect(llm.source).toBe('implicit-fallback');
-      expect(llm.credential?.source).toBe('project-config');
-      expect(llm.credential?.apiKey).toBe('sk-ant-api03-LEGACY');
-      expect(llm.client).not.toBeNull();
+      expect(llm.credential).toBeNull();
+      expect(llm.client).toBeNull();
     }
   });
 
@@ -206,7 +201,7 @@ describe('Phase 1 → Phase 2 migration — legacy project-config fallback', () 
 // ---------------------------------------------------------------------------
 
 describe('Phase 1 → Phase 2 migration — additive upgrade', () => {
-  it('adding only llm.default upgrades provider/model without breaking credential resolution', async () => {
+  it('adding only llm.default upgrades provider/model but project-config apiKey is REJECTED (T9413)', async () => {
     const { projectRoot } = isolate();
     // Phase 1 fixture: providers map only.
     seedPhase1ProjectConfig(projectRoot, 'anthropic', 'sk-ant-api03-LEGACY-KEY');
@@ -233,9 +228,10 @@ describe('Phase 1 → Phase 2 migration — additive upgrade', () => {
     // Provider/model now come from llm.default.
     expect(llm.source).toBe('default');
     expect(llm.model).toBe('phase2-default-model');
-    // But the credential still resolves via the legacy project-config tier.
-    expect(llm.credential?.source).toBe('project-config');
-    expect(llm.credential?.apiKey).toBe('sk-ant-api03-LEGACY-KEY');
+    // The project-config apiKey is now rejected (T9413 footgun kill); the
+    // credential resolves to null until the operator migrates via
+    // `cleo auth migrate-project-secrets`.
+    expect(llm.credential).toBeNull();
   });
 
   it('seeding ~/.cleo/llm-credentials.json (Phase 2) overtakes legacy project-config tier', async () => {

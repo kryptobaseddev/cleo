@@ -498,7 +498,12 @@ describe('resolveCredentials() integration — cred-file tier', () => {
     expect(cred.apiKey).toBe('sk-env-wins');
   });
 
-  it('falls through to claude-creds when cred-file has no eligible entry', async () => {
+  it('returns null when cred-file has no eligible entry (T9413 — claude-creds direct read removed)', async () => {
+    // T9413 (E-CONFIG-AUTH-UNIFY §5.2 T-E2-6): the sync resolver no longer
+    // reads `~/.claude/.credentials.json` directly. With every cred-file
+    // entry disabled and no pool-seeded claude-code entry, the resolver
+    // returns null. The claude-code seeder (T9410) is the supported path
+    // for importing the file into the pool.
     const { home } = isolateHomes();
     seedClaudeOauth(home, 'sk-ant-oat-fallback');
     // Add a disabled cred-file entry — it MUST be skipped.
@@ -512,8 +517,8 @@ describe('resolveCredentials() integration — cred-file tier', () => {
     });
     clearAnthropicKeyCache();
     const cred = resolveCredentials('anthropic');
-    expect(cred.source).toBe('claude-creds');
-    expect(cred.apiKey).toBe('sk-ant-oat-fallback');
+    expect(cred.apiKey).toBeNull();
+    expect(cred.source).toBeUndefined();
   });
 
   it('aws_sdk stored auth narrows to api_key on the wire (Phase 2 compat)', async () => {
