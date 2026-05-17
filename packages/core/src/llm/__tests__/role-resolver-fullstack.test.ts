@@ -233,7 +233,16 @@ describe('resolveLLMForRole — credential tier precedence (full chain)', () => 
     expect(llm.credential?.apiKey).toBe('sk-ant-oat-credfile-wins');
   });
 
-  it('claude-creds (tier 4) beats global-config (tier 4a)', async () => {
+  it('claude-creds via pool seeder beats global-config (T9413 — pool tier replaces tier 4)', async () => {
+    // T9413 (E-CONFIG-AUTH-UNIFY §5.2 T-E2-6): direct read of
+    // `~/.claude/.credentials.json` was removed from the sync resolver.
+    // The `claude-code` seeder now imports the token into the unified
+    // pool, where the cred-file tier (formerly tier 3) picks it up — and
+    // still beats global-config. We use a hand-built test seeder so the
+    // consent gate (which reads the global config in production) is
+    // short-circuited without writing config files.
+    const { UnifiedCredentialPool } = await import('../credential-pool.js');
+    const { SeederRegistry } = await import('../credential-seeders/index.js');
     const { home, xdgRoot, projectRoot } = isolate();
     seedProjectConfig(projectRoot, { default: { provider: 'anthropic', model: 'm' } });
     seedClaudeOauth(home, 'sk-ant-oat-claude-wins');
@@ -241,8 +250,31 @@ describe('resolveLLMForRole — credential tier precedence (full chain)', () => 
       providers: { anthropic: { apiKey: 'sk-ant-global-loses' } },
     });
 
+    const registry = new SeederRegistry();
+    registry.register({
+      sourceId: 'claude-code',
+      provider: 'anthropic',
+      isConsentEstablished: async () => true,
+      async seed() {
+        return {
+          entries: [
+            {
+              provider: 'anthropic',
+              label: 'claude-code',
+              authType: 'oauth',
+              source: 'claude-code',
+              accessToken: 'sk-ant-oat-claude-wins',
+              expiresAt: Date.now() + 60 * 60_000,
+            },
+          ],
+        };
+      },
+    });
+    const pool = new UnifiedCredentialPool(() => registry.getAll());
+    await pool.seed();
+
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
-    expect(llm.credential?.source).toBe('claude-creds');
+    expect(llm.credential?.source).toBe('cred-file');
     expect(llm.credential?.apiKey).toBe('sk-ant-oat-claude-wins');
   });
 
@@ -261,7 +293,10 @@ describe('resolveLLMForRole — credential tier precedence (full chain)', () => 
     expect(llm.credential?.apiKey).toBe('sk-global-wins');
   });
 
-  it('project-config (tier 5) is the floor when every higher tier is empty', async () => {
+  it('project-config (tier 5) is REJECTED — never resolves even as floor (T9413)', async () => {
+    // T9413 (E-CONFIG-AUTH-UNIFY §5.2 T-E2-6): the project-config apiKey
+    // tier is the footgun this task killed. When it is the only source,
+    // the resolver returns null and emits a stderr warning instead.
     const { projectRoot } = isolate();
     seedProjectConfig(projectRoot, {
       default: { provider: 'anthropic', model: 'm' },
@@ -269,8 +304,7 @@ describe('resolveLLMForRole — credential tier precedence (full chain)', () => 
     });
 
     const llm = await resolveLLMForRole('consolidation', { projectRoot });
-    expect(llm.credential?.source).toBe('project-config');
-    expect(llm.credential?.apiKey).toBe('sk-project-floor');
+    expect(llm.credential).toBeNull();
   });
 });
 
