@@ -2,7 +2,7 @@
  * Multi-credential pool storage for the CLEO LLM layer (T-LLM-CRED Phase 2).
  *
  * Persists a versioned list of provider credentials at
- * `~/.cleo/llm-credentials.json` (XDG-aware, resolved via `cleoHomeDir()` so
+ * `~/.cleo/llm-credentials.json` (XDG-aware, resolved via `getCleoHome()` so
  * the test-only `XDG_DATA_HOME` override applies identically to every CLEO
  * global file).
  *
@@ -37,15 +37,16 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { getLogger } from '../logger.js';
-// `withLock` already calls `writeJsonFileAtomic` under the hood — we
-// piggy-back on it for atomic writes + numbered backups.
-import { withLock } from '../store/file-utils.js';
 // Note: `credentials.ts` already depends on `credentials-store.ts`
 // (`pickCredentialForProviderSync`). The reverse arrow here closes a
 // cycle, but every imported symbol is a function reference read at
 // call-time — ESM's late binding makes the cycle safe.
-import { clearAnthropicKeyCache, cleoHomeDir } from './credentials.js';
+import { getCleoHome } from '@cleocode/paths';
+import { getLogger } from '../logger.js';
+// `withLock` already calls `writeJsonFileAtomic` under the hood — we
+// piggy-back on it for atomic writes + numbered backups.
+import { withLock } from '../store/file-utils.js';
+import { clearAnthropicKeyCache } from './credentials.js';
 import type { ModelTransport } from './types-config.js';
 
 const logger = getLogger('llm-credentials-store');
@@ -207,13 +208,13 @@ export interface CredentialsStoreData {
 /**
  * Absolute path of the credential store file.
  *
- * Resolved through `cleoHomeDir()` so XDG overrides apply uniformly with
+ * Resolved through `getCleoHome()` so XDG overrides apply uniformly with
  * `credentials.ts`'s global-config tier.
  *
  * @task T9257
  */
 export function credentialsStorePath(): string {
-  return join(cleoHomeDir(), 'llm-credentials.json');
+  return join(getCleoHome(), 'llm-credentials.json');
 }
 
 /**

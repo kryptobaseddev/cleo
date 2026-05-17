@@ -1707,10 +1707,11 @@ export type {
   CredentialSource,
 } from './llm/credentials.js';
 // LLM — credential resolver (T1677: moved from memory/anthropic-key-resolver.ts)
+// T9403: `cleoHomeDir` removed — callers MUST use `getCleoHome` from
+// `@cleocode/paths` directly so the `CLEO_HOME` env override applies.
 export {
   authHeaders,
   clearAnthropicKeyCache,
-  cleoHomeDir,
   OAUTH_STATUS_PROVIDERS,
   resolveCredentials,
   resolveModelCredentials,
