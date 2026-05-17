@@ -210,6 +210,11 @@ export default defineConfig({
         './packages/core/src/nexus/index.ts',
         import.meta.url,
       ).pathname,
+      // T9424: status subpath export used by `cleo status` CLI thin wrapper
+      '@cleocode/core/status': new URL(
+        './packages/core/src/status/index.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('./packages/core/src/index.ts', import.meta.url).pathname,
       '@cleocode/adapters': new URL('./packages/adapters/src/index.ts', import.meta.url).pathname,
       '@cleocode/lafs': new URL('./packages/lafs/src/index.ts', import.meta.url).pathname,

@@ -46,6 +46,11 @@
       "import": "./dist/sessions/index.js",
       "require": "./dist/sessions/index.js"
     },
+    "./status": {
+      "types": "./dist/status/index.d.ts",
+      "import": "./dist/status/index.js",
+      "require": "./dist/status/index.js"
+    },
     "./nexus": {
       "types": "./dist/nexus/index.d.ts",
       "import": "./dist/nexus/index.js",
