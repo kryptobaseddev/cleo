@@ -41,6 +41,17 @@ const sandbox = mkdtempSync(join(tmpdir(), 'cleo-vitest-fork-'));
 if (!process.env.CLEO_HOME) {
   process.env.CLEO_HOME = sandbox;
 }
+// T9405: getCleoPlatformPaths().config now resolves the global config file
+// (config.json) — formerly under CLEO_HOME. env-paths reads XDG_CONFIG_HOME /
+// XDG_CACHE_HOME, so pin them to the per-fork sandbox too. Without these, a
+// test that writes to globalConfigPath() lands in the real user's
+// ~/.config/cleo and persists across runs.
+if (!process.env.XDG_CONFIG_HOME) {
+  process.env.XDG_CONFIG_HOME = join(sandbox, 'config-home');
+}
+if (!process.env.XDG_CACHE_HOME) {
+  process.env.XDG_CACHE_HOME = join(sandbox, 'cache-home');
+}
 if (!process.env.NEXUS_HOME) {
   process.env.NEXUS_HOME = join(sandbox, 'nexus');
 }

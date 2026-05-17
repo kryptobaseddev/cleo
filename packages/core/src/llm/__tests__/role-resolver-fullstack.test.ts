@@ -29,6 +29,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RoleName } from '@cleocode/contracts';
+import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { clearAnthropicKeyCache } from '../credentials.js';
 import {
@@ -36,6 +37,7 @@ import {
   _resetRoundRobinForTests,
   addCredential,
 } from '../credentials-store.js';
+import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 import { resolveLLMForRole } from '../role-resolver.js';
 
 const SAVED_ENV: Record<string, string | undefined> = {};
@@ -45,6 +47,9 @@ const ENV_KEYS = [
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
   'XDG_DATA_HOME',
+  // T9405: getCleoPlatformPaths().config reads XDG_CONFIG_HOME — must be
+  // isolated per-test so the global-config-dir tier doesn't leak across runs.
+  'XDG_CONFIG_HOME',
   // T9403: getCleoHome() honours CLEO_HOME first; save/restore here.
   'CLEO_HOME',
   'HOME',
@@ -69,15 +74,25 @@ function clearEnv(): void {
 function isolate(): { xdgRoot: string; home: string; projectRoot: string } {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const xdgRoot = join(tmpdir(), `cleo-rri-xdg-${stamp}`);
+  const xdgConfigHome = join(tmpdir(), `cleo-rri-cfg-${stamp}`);
   const home = join(tmpdir(), `cleo-rri-home-${stamp}`);
   const projectRoot = join(tmpdir(), `cleo-rri-proj-${stamp}`);
   mkdirSync(join(xdgRoot, 'cleo'), { recursive: true });
+  mkdirSync(xdgConfigHome, { recursive: true });
   mkdirSync(home, { recursive: true });
   mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
   process.env['XDG_DATA_HOME'] = xdgRoot;
+  // T9405: pin XDG_CONFIG_HOME so getCleoPlatformPaths().config resolves to
+  // a per-test temp dir — without this, the global-config-dir tier leaks
+  // across tests within the same process.
+  process.env['XDG_CONFIG_HOME'] = xdgConfigHome;
   // T9403: mirror XDG layout under CLEO_HOME for getCleoHome().
   process.env['CLEO_HOME'] = join(xdgRoot, 'cleo');
   process.env['HOME'] = home;
+  // T9405: env-paths reads fresh, but our cleo-paths system-info cache and
+  // the global-config migration latch must be re-armed for each test.
+  _resetCleoPlatformPathsCache();
+  _resetGlobalConfigMigrationLatch();
   return { xdgRoot, home, projectRoot };
 }
 
