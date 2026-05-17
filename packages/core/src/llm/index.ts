@@ -117,6 +117,18 @@ export {
 // the populated singleton without an explicit second import.
 import './credential-seeders/register.js';
 
+// Unified credential pool — seed/pick/list singleton (E-CONFIG-AUTH-UNIFY E2a / T9412)
+export type {
+  PoolSeedResult,
+  SeederStatus,
+  UnifiedPoolPickOptions,
+} from './credential-pool.js';
+export {
+  _resetCredentialPoolSingletonForTests,
+  getCredentialPool,
+  POOL_SEED_CACHE_TTL_MS,
+  UnifiedCredentialPool,
+} from './credential-pool.js';
 export {
   ENV_SEEDER_PRIORITY,
   EnvSeeder,
