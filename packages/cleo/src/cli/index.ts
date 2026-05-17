@@ -50,6 +50,7 @@ import { COMMAND_MANIFEST } from './generated/command-manifest.js';
 import { buildAliasMap, createCustomShowUsage } from './help-renderer.js';
 import { lazyCommand } from './lazy-command.js';
 import { didYouMean } from './lib/did-you-mean.js';
+import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { resolveFormat } from './middleware/output-format.js';
 
 function getPackageVersion(): string {
@@ -168,6 +169,27 @@ async function startCli(): Promise<void> {
 
   if (!isHelpOrVersion) {
     await runStartupMaintenance();
+  }
+
+  // ---------------------------------------------------------------------------
+  // First-run reminder (T9422 / §5.3 T-E3-3).
+  //
+  // Skipped on the help / version fast-path so `cleo --help` and
+  // `cleo --version` stay near-instant. For real commands we prompt only
+  // when ALL three signals point to "unconfigured" (no global config,
+  // empty credential pool, no ANTHROPIC_API_KEY). The helper itself
+  // silently no-ops on non-TTY stdin so CI / piped invocations never
+  // block, and any failure inside detection is swallowed so the prompt
+  // can never break the CLI.
+  // ---------------------------------------------------------------------------
+  if (!isHelpOrVersion) {
+    try {
+      await maybePromptFirstRun();
+    } catch {
+      // Belt-and-braces: maybePromptFirstRun already swallows its own
+      // errors, but we double-guard here so an unexpected throw never
+      // blocks startup.
+    }
   }
 
   const main = defineCommand({
