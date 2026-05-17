@@ -762,6 +762,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/stats.js')).statsCommand as CommandDef,
   },
   {
+    exportName: 'statusCommand',
+    name: 'status',
+    description: 'Unified config + credential + session + harness + daemon snapshot. ',
+    load: async () => (await import('../commands/status.js')).statusCommand as CommandDef,
+  },
+  {
     exportName: 'stickyCommand',
     name: 'sticky',
     description: 'Manage sticky notes - quick project-wide ephemeral captures',
