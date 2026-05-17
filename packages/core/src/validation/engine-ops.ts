@@ -380,12 +380,30 @@ export async function validateGateVerify(
     let isWorktreeCtx = false;
     if (override.override && isWriteRequiringEvidence) {
       const command = (process.argv.slice(1).join(' ') || 'cleo').slice(0, 512);
-      const capResult = checkAndIncrementOverrideCap(
-        projectRoot,
-        sessionId ?? 'global',
-        undefined,
-        command,
-      );
+
+      // T9505 — Resolve the cap sessionId: prefer the explicit sessionId from params,
+      // then fall back to the currently active session in the DB, then to 'global'.
+      // Using 'global' as a final fallback avoids hard-breaking callers that do not
+      // pass a sessionId (e.g. view-mode calls, scripted integrations), but it means
+      // orphan invocations without any active session still share a single 'global'
+      // bucket.  That bucket is explicitly NOT reset on session end (there is no
+      // session to attach cleanup to), so it will accumulate across restarts.
+      // To prevent runaway orphan counts, set CLEO_OVERRIDE_STRICT_SESSION=1 in
+      // environments where every verify call is expected to carry a sessionId.
+      let capSessionId: string;
+      if (sessionId) {
+        capSessionId = sessionId;
+      } else {
+        // Attempt to resolve the active session from the DB as a better key.
+        try {
+          const activeSession = await accessor.getActiveSession();
+          capSessionId = activeSession?.id ?? 'global';
+        } catch {
+          capSessionId = 'global';
+        }
+      }
+
+      const capResult = checkAndIncrementOverrideCap(projectRoot, capSessionId, undefined, command);
       if (!capResult.allowed) {
         return engineError(
           capResult.errorCode ?? 'E_OVERRIDE_CAP_EXCEEDED',

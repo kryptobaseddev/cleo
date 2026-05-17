@@ -118,6 +118,17 @@ export interface TransactionAccessor {
   setMetaValue(key: string, value: unknown): Promise<void>;
   updateTaskFields(taskId: string, fields: TaskFieldUpdates): Promise<void>;
   appendLog(entry: Record<string, unknown>): Promise<void>;
+  /** Persist a relation row to task_relations. @task T9514 */
+  addRelation(
+    taskId: string,
+    relatedTo: string,
+    relationType: string,
+    reason?: string,
+  ): Promise<void>;
+  /** Remove a relation row from task_relations. @task T9514 */
+  removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void>;
+  /** Remove all relations for a task (both directions) — used for set-replace. @task T9514 */
+  clearRelations(taskId: string): Promise<void>;
 }
 
 /**

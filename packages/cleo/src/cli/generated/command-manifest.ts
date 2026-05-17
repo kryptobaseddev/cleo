@@ -688,6 +688,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/safestop.js')).safestopCommand as CommandDef,
   },
   {
+    exportName: 'sagaCommand',
+    name: 'saga',
+    description: 'Saga management — above-Epic grouping tier (ADR-073)',
+    load: async () => (await import('../commands/saga.js')).sagaCommand as CommandDef,
+  },
+  {
     exportName: 'schemaCommand',
     name: 'schema',
     description: 'Introspect a CLEO operation: show params, types, enums, and declared gates',
