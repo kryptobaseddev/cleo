@@ -539,9 +539,39 @@ export async function updateTask(
 
   task.updatedAt = now;
 
+  // Capture final relates state before transaction (built above from options)
+  const finalRelates = task.relates ?? [];
+  const isRelatesChange = changes.includes('relates');
+
   // Wrap writes in a transaction for TOCTOU safety (T023)
   await acc.transaction(async (tx) => {
     await tx.upsertSingleTask(task);
+
+    // T9514: persist relates mutations to task_relations table.
+    // The in-memory task.relates update is not enough — upsertSingleTask
+    // only writes the tasks row and task_dependencies; task_relations is a
+    // separate table that must be written explicitly.
+    if (isRelatesChange) {
+      if (options.relates !== undefined) {
+        // Set-replace: clear existing rows then insert the new set.
+        await tx.clearRelations(options.taskId);
+        for (const r of finalRelates) {
+          await tx.addRelation(options.taskId, r.taskId, r.type, r.reason);
+        }
+      } else {
+        if (options.addRelates?.length) {
+          for (const r of options.addRelates) {
+            await tx.addRelation(options.taskId, r.taskId, r.type, r.reason);
+          }
+        }
+        if (options.removeRelates?.length) {
+          for (const id of options.removeRelates) {
+            await tx.removeRelation(options.taskId, id.trim());
+          }
+        }
+      }
+    }
+
     await tx.appendLog({
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
