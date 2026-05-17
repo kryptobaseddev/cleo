@@ -606,6 +606,18 @@ export async function sessionEnd(
       await accessor.setMetaValue('file_meta', fileMetaEnd);
     }
 
+    // T9505 — Reset CLEO_OWNER_OVERRIDE counter for this session.
+    // The counter is keyed by sessionId and written to
+    // `.cleo/audit/session-override-count.<sessionId>.json`.  Without this
+    // cleanup the count accumulates indefinitely across sessions, leading to
+    // "823 of 10 overrides used" production symptoms.
+    try {
+      const { clearSessionOverrideCount } = await import('../security/override-cap.js');
+      clearSessionOverrideCount(projectRoot, sessionId);
+    } catch {
+      // Best-effort — must never block session end.
+    }
+
     // Update session record — status is the source of truth
     if (sessionId !== 'default') {
       activeSession.status = 'ended';
