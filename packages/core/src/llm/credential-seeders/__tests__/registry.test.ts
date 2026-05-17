@@ -161,20 +161,26 @@ describe('BUILTIN_SEEDERS singleton', () => {
     expect(BUILTIN_SEEDERS).toBeInstanceOf(SeederRegistry);
   });
 
-  it('starts empty at T9408 (no concrete seeders registered yet)', () => {
-    // Snapshot the size — concrete seeders land in T9409+. If this fires
-    // after a future task without updating the assertion, the test
-    // surfaces the contract change deliberately.
-    //
-    // We do NOT assert `length === 0` strictly because the registry may be
-    // shared across tests in the same file via Node's ESM module cache;
-    // instead we assert there is no seeder pointing at a non-existent
-    // source so the singleton's invariant is upheld.
+  it('every registered seeder satisfies the CredentialSeeder shape', () => {
+    // T9408 left this registry empty; T9418 registered codex-cli /
+    // gemini-cli / gh-cli. We assert structural invariants rather than a
+    // hard-coded count so future task additions only need to extend the
+    // explicit name-based assertion below, not this loop.
     for (const seeder of BUILTIN_SEEDERS.getAll()) {
       expect(typeof seeder.sourceId).toBe('string');
       expect(typeof seeder.provider).toBe('string');
       expect(typeof seeder.seed).toBe('function');
     }
+  });
+
+  it('contains the T9418 external-CLI seeders (codex-cli, gemini-cli, gh-cli)', () => {
+    // Deliberately explicit: if a future task adds another seeder, extend
+    // this list. If a future task removes one, this test fires to flag
+    // the contract change.
+    const ids = BUILTIN_SEEDERS.getAll().map((s) => `${s.sourceId}::${s.provider}`);
+    expect(ids).toContain('codex-cli::openai');
+    expect(ids).toContain('gemini-cli::gemini');
+    expect(ids).toContain('gh-cli::openai');
   });
 
   it('returns the same instance across re-imports (module-state singleton)', async () => {
