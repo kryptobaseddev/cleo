@@ -104,7 +104,12 @@ afterEach(() => {
 // migrateGlobalConfigToConfigDir()
 // ---------------------------------------------------------------------------
 
-describe('migrateGlobalConfigToConfigDir()', () => {
+// The fixture stages a temp dir and points env-paths via XDG_CONFIG_HOME, but
+// XDG_CONFIG_HOME is Linux-only — env-paths returns ~/Library/Preferences/cleo
+// on macOS and %APPDATA%\cleo\Config on Windows regardless of the env var.
+// The migration code itself is platform-agnostic; the Ubuntu CI shard
+// exercises it fully. Skip the fixture-dependent suites elsewhere.
+describe.skipIf(process.platform !== 'linux')('migrateGlobalConfigToConfigDir()', () => {
   it('copies data-dir config.json to config dir when no marker exists', () => {
     const { dataDir } = stageTempHome();
     const source = legacyGlobalConfigPath();
@@ -219,7 +224,7 @@ describe('migrateGlobalConfigToConfigDir()', () => {
 // resolveCredentials() integration — config-dir wins over legacy
 // ---------------------------------------------------------------------------
 
-describe('resolveCredentials() + migration', () => {
+describe.skipIf(process.platform !== 'linux')('resolveCredentials() + migration', () => {
   it('finds the config-dir copy when both locations exist (config-dir wins)', () => {
     const { configDir, dataDir } = stageTempHome();
     // Pre-stamp the marker so the resolver short-circuits the migration and
