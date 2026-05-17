@@ -31,8 +31,11 @@ function setEnvKey(value: string | undefined): void {
 }
 
 function setXdgHome(value: string): void {
-  delete process.env['CLEO_HOME'];
+  // XDG_DATA_HOME is Linux-only: env-paths ignores it on macOS/Windows.
+  // Set CLEO_HOME to `<xdg>/cleo` so getCleoHome() returns the staged path on
+  // every platform.
   process.env['XDG_DATA_HOME'] = value;
+  process.env['CLEO_HOME'] = join(value, 'cleo');
 }
 
 function makeCleoDir(): { xdgRoot: string; cleoDir: string } {
