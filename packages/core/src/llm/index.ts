@@ -84,6 +84,32 @@ export {
 } from './context-engines/rule-based-truncation.js';
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
+// Credential removal — RemovalStep registry + suppression state
+// (E-CONFIG-AUTH-UNIFY E2a / T9415)
+export type {
+  RemovalResult,
+  RemovalStep,
+  SuppressionEntry,
+  SuppressionFile,
+} from './credential-removal.js';
+export {
+  addSuppression,
+  buildBuiltinRemovalRegistry,
+  CLAUDE_CODE_REMOVAL_STEP,
+  CLEO_PKCE_REMOVAL_STEP,
+  CODEX_CLI_REMOVAL_STEP,
+  ENV_REMOVAL_STEP,
+  GEMINI_CLI_REMOVAL_STEP,
+  GH_CLI_REMOVAL_STEP,
+  isSuppressed,
+  MANUAL_REMOVAL_STEP,
+  REMOVAL_REGISTRY,
+  RemovalRegistry,
+  readSuppressionFile,
+  removeSuppression,
+  suppressionStatePath,
+  writeSuppressionFile,
+} from './credential-removal.js';
 // Credential seeders — unified pool foundation (E-CONFIG-AUTH-UNIFY E2a / T9408)
 export type {
   CredentialSeeder,
