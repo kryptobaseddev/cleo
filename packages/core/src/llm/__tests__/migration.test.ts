@@ -22,6 +22,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { clearAnthropicKeyCache } from '../credentials.js';
 import {
@@ -30,6 +31,7 @@ import {
   addCredential,
   credentialsStorePath,
 } from '../credentials-store.js';
+import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 import {
   IMPLICIT_FALLBACK_MODEL,
   IMPLICIT_FALLBACK_PROVIDER,
@@ -43,6 +45,11 @@ const ENV_KEYS = [
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
   'XDG_DATA_HOME',
+  // T9405: pin XDG_CONFIG_HOME so getCleoPlatformPaths().config resolves to
+  // a per-test temp dir; without this the global-config-dir tier leaks
+  // across tests within the same process.
+  'XDG_CONFIG_HOME',
+  'CLEO_CONFIG_HOME',
   // T9403: getCleoHome() honours CLEO_HOME first; save/restore here.
   'CLEO_HOME',
   'HOME',
@@ -73,15 +80,26 @@ function clearEnv(): void {
 function isolate(): { xdgRoot: string; home: string; projectRoot: string } {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const xdgRoot = join(tmpdir(), `cleo-mig-xdg-${stamp}`);
+  const xdgConfigHome = join(tmpdir(), `cleo-mig-cfg-${stamp}`);
   const home = join(tmpdir(), `cleo-mig-home-${stamp}`);
   const projectRoot = join(tmpdir(), `cleo-mig-proj-${stamp}`);
   mkdirSync(join(xdgRoot, 'cleo'), { recursive: true });
+  mkdirSync(xdgConfigHome, { recursive: true });
   mkdirSync(home, { recursive: true });
   mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
   process.env['XDG_DATA_HOME'] = xdgRoot;
+  // T9405: pin XDG_CONFIG_HOME so getCleoPlatformPaths().config resolves to
+  // a per-test temp dir; without this the global-config-dir tier leaks
+  // across tests within the same process.
+  process.env['XDG_CONFIG_HOME'] = xdgConfigHome;
+  process.env['CLEO_CONFIG_HOME'] = xdgConfigHome;
   // T9403: mirror XDG layout under CLEO_HOME for getCleoHome().
   process.env['CLEO_HOME'] = join(xdgRoot, 'cleo');
   process.env['HOME'] = home;
+  // T9405: re-arm the path-cache and migration latch so each test runs the
+  // migration against its own fresh env.
+  _resetCleoPlatformPathsCache();
+  _resetGlobalConfigMigrationLatch();
   return { xdgRoot, home, projectRoot };
 }
 

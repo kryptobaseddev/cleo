@@ -19,7 +19,7 @@ import {
 
 const TEMPLATES_SUBDIR = 'templates';
 
-const cleoResolver = createPlatformPathsResolver('cleo', 'CLEO_HOME');
+const cleoResolver = createPlatformPathsResolver('cleo', 'CLEO_HOME', 'CLEO_CONFIG_HOME');
 
 /**
  * Get OS-appropriate paths for CLEO's global directories.
