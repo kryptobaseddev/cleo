@@ -181,6 +181,7 @@ export const TASK_RELATION_TYPES = [
   'fixes',
   'extends',
   'supersedes',
+  'groups',
 ] as const;
 
 /** Lifecycle transition types matching DB CHECK constraint on lifecycle_transitions.transition_type. */

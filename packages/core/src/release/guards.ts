@@ -49,12 +49,22 @@ function findEpicAncestor(taskId: string, tasksById: Map<string, Task>): string 
  * Check epic completeness for a set of release task IDs.
  * Verifies all children of each referenced epic are included in the current or
  * a prior release (tasks shipped in previous releases are not flagged as missing).
+ *
+ * @param releaseTaskIds      - Task IDs being shipped in this release.
+ * @param cwd                 - Working directory (used to resolve accessor when none provided).
+ * @param accessor            - Optional pre-constructed DataAccessor.
+ * @param priorReleasedTaskIds - Task IDs already shipped in prior releases (not flagged missing).
+ * @param scopedEpicId        - When provided, only audit tasks whose ancestor chain terminates
+ *                              at this epic. Tasks belonging to other epics are ignored entirely.
+ *                              When omitted, all epics referenced by `releaseTaskIds` are audited
+ *                              (legacy behavior).
  */
 export async function checkEpicCompleteness(
   releaseTaskIds: string[],
   cwd?: string,
   accessor?: DataAccessor,
   priorReleasedTaskIds?: string[],
+  scopedEpicId?: string,
 ): Promise<EpicCompletenessResult> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
   const { tasks: allTasks } = await acc.queryTasks({});
@@ -70,14 +80,21 @@ export async function checkEpicCompleteness(
   const releaseSet = new Set(releaseTaskIds);
   const priorSet = new Set(priorReleasedTaskIds ?? []);
 
-  // Map each release task to its epic
+  // Map each release task to its epic.
+  // When scopedEpicId is set, tasks that do NOT belong to that epic are excluded
+  // from the audit entirely (they are treated as if they don't exist for this check).
   const taskToEpic = new Map<string, string | null>();
   for (const taskId of releaseTaskIds) {
-    taskToEpic.set(taskId, findEpicAncestor(taskId, tasksById));
+    const epicAncestor = findEpicAncestor(taskId, tasksById);
+    if (scopedEpicId !== undefined && epicAncestor !== scopedEpicId) {
+      // Task belongs to a different epic — skip it when a scope is declared.
+      continue;
+    }
+    taskToEpic.set(taskId, epicAncestor);
   }
 
-  // Find orphan tasks (no epic)
-  const orphanTasks = releaseTaskIds.filter((id) => !taskToEpic.get(id));
+  // Find orphan tasks (no epic) — only among tasks that passed the scope filter.
+  const orphanTasks = [...taskToEpic.keys()].filter((id) => !taskToEpic.get(id));
 
   // Group by epic
   const byEpic = new Map<string, string[]>();
@@ -85,6 +102,14 @@ export async function checkEpicCompleteness(
     if (!epicId) continue;
     if (!byEpic.has(epicId)) byEpic.set(epicId, []);
     byEpic.get(epicId)!.push(taskId);
+  }
+
+  // When scopedEpicId is provided and no release tasks map to it, we still want to
+  // audit that epic if it exists (e.g. operator explicitly declared it). Ensure it
+  // appears in byEpic so we check its completeness even when none of its children
+  // are in releaseTaskIds (which would happen when all children are in priorSet).
+  if (scopedEpicId !== undefined && !byEpic.has(scopedEpicId) && tasksById.has(scopedEpicId)) {
+    byEpic.set(scopedEpicId, []);
   }
 
   // Check each epic for completeness
