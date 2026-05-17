@@ -20,6 +20,7 @@ import { clearAnthropicKeyCache, resolveCredentials } from '../../llm/credential
 
 const ORIG_ENV_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIG_XDG = process.env.XDG_DATA_HOME;
+const ORIG_CLEO_HOME = process.env.CLEO_HOME;
 
 function setEnvKey(value: string | undefined): void {
   if (value === undefined) {
@@ -30,6 +31,7 @@ function setEnvKey(value: string | undefined): void {
 }
 
 function setXdgHome(value: string): void {
+  delete process.env['CLEO_HOME'];
   process.env['XDG_DATA_HOME'] = value;
 }
 
@@ -62,6 +64,11 @@ afterEach(() => {
     process.env['XDG_DATA_HOME'] = ORIG_XDG;
   } else {
     delete process.env['XDG_DATA_HOME'];
+  }
+  if (ORIG_CLEO_HOME !== undefined) {
+    process.env['CLEO_HOME'] = ORIG_CLEO_HOME;
+  } else {
+    delete process.env['CLEO_HOME'];
   }
   clearAnthropicKeyCache();
 });
