@@ -146,6 +146,11 @@ export default defineConfig({
         '../../packages/core/src/nexus/index.ts',
         import.meta.url,
       ).pathname,
+      // T9424: status subpath export used by `cleo status` CLI thin wrapper
+      '@cleocode/core/status': new URL(
+        '../../packages/core/src/status/index.ts',
+        import.meta.url,
+      ).pathname,
       // T9274: llm/usage-pricing subpath — cost tracking helpers (not in package exports map)
       '@cleocode/core/llm/usage-pricing': new URL(
         '../../packages/core/src/llm/usage-pricing.ts',
