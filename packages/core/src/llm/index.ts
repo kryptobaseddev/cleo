@@ -147,6 +147,8 @@ export type {
   LegacyFlatKeyImportStatus,
 } from './legacy-flat-key-import.js';
 export {
+  _resetLegacyFlatKeyImportLatch,
+  ensureLegacyFlatAnthropicKeyImported,
   importLegacyFlatAnthropicKey,
   LEGACY_FLAT_KEY_BAK_SUFFIX,
   LEGACY_FLAT_KEY_LABEL,
