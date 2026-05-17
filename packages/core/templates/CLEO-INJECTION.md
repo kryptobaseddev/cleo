@@ -63,13 +63,21 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 ### Sagas — above-Epic grouping (ADR-073)
 
 A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. It is a labeled top-level
-Epic, not a new TaskType. Gating dependency: T9514 must merge before creating Sagas.
+Epic (`label='saga'`), NOT a new TaskType. Members are linked via `task_relations.relation_type='groups'` —
+Sagas do NOT use parent edges, so `cleo list --parent` will not surface members.
+
+Available since v2026.5.77 (T9518 epic; T9514 relates-writer fix as gating dep).
 
 | Goal | Command |
 |------|---------|
-| Create a Saga | `cleo add --type epic --label saga --title "SG-X: ..." --acceptance "..."` |
-| Link an Epic to a Saga | `cleo update SG-X --relates E-Y:groups` |
-| List Epics in a Saga | `cleo list --parent SG-X` (or `cleo find "label:saga"`) |
+| Create a Saga | `cleo saga create --title "..." --description "..." --acceptance "ac1\|ac2\|ac3\|ac4\|ac5"` |
+| Link an Epic to a Saga | `cleo saga add <sagaId> <epicId>` |
+| List all Sagas | `cleo saga list` |
+| List member Epics of a Saga | `cleo saga members <sagaId>` |
+| Aggregate status across members | `cleo saga rollup <sagaId>` |
+
+Sagas hold N Epics at zero nesting-budget cost — the Epic→Task→Subtask depth ladder (maxDepth=3) stays
+untouched under each member Epic. Use Sagas for release themes that span multiple shippable Epics.
 <!-- /CLEO-INJECTION:section=task-creation -->
 
 <!-- CLEO-INJECTION:section=task-discovery -->

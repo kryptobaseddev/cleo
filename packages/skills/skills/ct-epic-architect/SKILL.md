@@ -90,6 +90,21 @@ Epic (type: epic, size: large)
 | Task | medium | 3-7 files, single feature |
 | Subtask | small | 1-2 files, single function |
 
+### Above-Epic: Sagas (ADR-073, v2026.5.77+)
+
+A **Saga** groups multiple Epics into a multi-release theme. Use a Saga when the work spans
+more than one shippable Epic and you want a stable handle for rollup/reporting. A Saga is a
+labeled top-level Epic (`label='saga'`) — NOT a new TaskType — so the parent ladder (maxDepth=3)
+under each member Epic is unaffected.
+
+```bash
+cleo saga create --title "Auth Modernization" --description "..." --acceptance "ac1|ac2|ac3|ac4|ac5"
+# returns SG-id (stored as T#### with label=saga)
+cleo saga add <sagaId> <epicId>          # links member Epic via task_relations.type='groups'
+cleo saga members <sagaId>               # returns member list (NOT cleo list --parent)
+cleo saga rollup <sagaId>                # aggregates child statuses + completionPct
+```
+
 ---
 
 ## Epic Creation
