@@ -1,5 +1,35 @@
 # Changelog
 
+## [2026.5.77] (2026-05-17)
+
+### Features — Saga foundation (T9518 / ADR-073)
+
+- **Saga — above-Epic grouping tier** — New canonical tier above Epic for grouping multiple Epics into a multi-release theme. Saga is a **labeled role** on a top-level Epic (`label='saga'`), NOT a new `TaskType`. Member Epics link via `task_relations.relation_type='groups'`. Council-validated (`.cleo/council-runs/20260517T002448Z-e4223249/`) — winning name over `Initiative` (rejected: too generic, weak prefix) and `Arc` (rejected: `AR-` collides with `ADR-` in fuzzy CLI search).
+- **`cleo saga` CLI suite** — 5 subcommands: `create`, `add`, `list`, `members`, `rollup`. Thin wrappers over existing `tasks.add` + `tasks.relates.add` + queries. Operations registered as `tasks.saga.{create,add,list,members,rollup}` (T9521).
+- **`groups` relation type** — 8th value in `TASK_RELATION_TYPES` tuple; forward-only drizzle migration extends the `task_relations.relation_type` CHECK constraint. Reuses the canonical SQLite table-rebuild pattern (T9519).
+- **Prefix registry** — `SG-` reserved for Saga, `SD-` reserved for SignalDock (ADR-073). Closes Council's strongest identified risk (Contrarian finding: latent `SG-` ↔ SignalDock namespace collision).
+
+### Bug Fixes
+
+- **fix(T9514)**: `cleo update --relates` / `--add-relates` now persists writes to `task_relations` (previously a no-op — mutation envelope returned populated relates but rows never reached DB). Root cause: `upsertSingleTask` wrote to `tasks` row + `task_dependencies` only; relates writes were missing from the transaction callback. Adds `addRelation`/`removeRelation`/`clearRelations` to `TransactionAccessor` interface. 4 new integration regression tests (real SQLite).
+- **fix(T9521)**: Replace invalid `as Record<string, unknown>` casts in saga handlers with typed narrowing (caught by CI Type Check post-rebase).
+
+### Test additions
+
+- **T9522** — End-to-end saga lifecycle integration test (8-step flow: create saga → add 2 epic members → list members → rollup → mark done → re-rollup). 4 tests, ~45 assertions. Uses direct dispatch via `TasksHandler` (no CLI shelling) for cleaner integration testing. Collateral fix: added `@cleocode/worktree` alias to `packages/cleo/vitest.config.ts` (was preventing `docs-integration.test.ts` from running).
+
+### Documentation
+
+- **ADR-073** — Above-Epic naming decision. Records the Council verdict, name/prefix/storage/wire-mechanism, prefix registry (`SG-` + `SD-`), Saga-is-a-role-not-TaskType clause, T9514 gating dependency, alternatives considered (T9520).
+- **AGENTS.md** — New "Task Hierarchy Canon" section with the four-tier hierarchy table (Subtask / Task / Epic / Saga) and the prefix registry.
+- **CLEO-INJECTION.md** (`packages/core/templates/`) — Saga subsection under Task Creation with the 3 canonical commands.
+
+### Tasks shipped under T9518 (epic)
+
+T9514 (relates writer fix — gating dep), T9519 (`groups` type + migration), T9520 (ADR-073 + canon docs), T9521 (`cleo saga` CLI suite), T9522 (lifecycle integration test).
+
+---
+
 ## [2026.5.76] (2026-05-17)
 
 ### Features
