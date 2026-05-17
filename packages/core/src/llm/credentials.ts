@@ -29,10 +29,9 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { parseClaudeCodeCredentials } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
+import { getCredentialPool } from './credential-pool.js';
 import { pickCredentialForProviderSync } from './credentials-store.js';
 import {
   configDirGlobalConfigPath,
@@ -206,26 +205,12 @@ function readGlobalProviderKey(provider: ModelTransport): string | null {
 // Tier helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Tier 3: read the Anthropic OAuth token from Claude Code credentials.
- *
- * Only applicable for the `anthropic` provider. Checks token expiry and
- * returns null if the token is present but expired.
- *
- * Delegates parsing to `parseClaudeCodeCredentials` from @cleocode/contracts
- * so the pure parsing logic has a single canonical home.
- */
-function readClaudeCredsToken(): string | null {
-  try {
-    const credPath = join(homedir(), '.claude', '.credentials.json');
-    if (!existsSync(credPath)) return null;
-    const raw = readFileSync(credPath, 'utf-8');
-    const cred = parseClaudeCodeCredentials(raw);
-    return cred?.accessToken ?? null;
-  } catch {
-    return null;
-  }
-}
+// NOTE — direct read of `~/.claude/.credentials.json` was removed in T9413
+// (E-CONFIG-AUTH-UNIFY §5.2 T-E2-6). The claude-code seeder
+// (`credential-seeders/claude-code-seeder.ts`) is now the sole owner of that
+// file; its imported entries land in the unified credential pool and are
+// served by tier 3 (`pickCredentialForProviderSync`) alongside every other
+// seeded source.
 
 /**
  * Tier 4b backward compat: read the legacy flat key file written by
@@ -273,19 +258,33 @@ function readProviderKeyFromConfig(configFile: string, provider: ModelTransport)
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the API key for a provider using the 5-tier priority chain.
+ * Resolve the API key for a provider using the synchronous tier chain.
  *
  * Resolution order (first non-empty match wins):
  * 1. `options.apiKey`  — explicit caller override
  * 2. `ENV_VARS[provider]` environment variable
- * 3. `~/.claude/.credentials.json` OAuth token (anthropic only)
- * 4. `~/.cleo/config.json` → `llm.providers[provider].apiKey`
- * 5. `<projectRoot>/.cleo/config.json` → `llm.providers[provider].apiKey`
+ * 3. `~/.cleo/llm-credentials.json` — unified credential pool (read-only;
+ *    seeding is the unified pool's responsibility — the sync path does not
+ *    re-seed)
+ * 4a. `~/.cleo/config.json` → `llm.providers[provider].apiKey` — **deprecated**
+ *     (emits stderr warning; still resolves during the transition window)
+ * 5. `<projectRoot>/.cleo/config.json` → `llm.providers[provider].apiKey` —
+ *    **rejected** (T-E2-6 footgun kill; emits stderr warning, never resolves)
+ *
+ * Direct reading of `~/.claude/.credentials.json` was removed in T9413; the
+ * `claude-code` seeder is now the sole owner of that file and its imported
+ * entries land in the pool, which the tier-3 read picks up.
+ *
+ * For new code prefer {@link resolveCredentialsAsync}, which delegates to the
+ * {@link UnifiedCredentialPool} singleton (`getCredentialPool().pick()`) and
+ * triggers a lazy seed pass on first call. The sync variant is retained for
+ * call-sites that cannot move to async (e.g. `defaultTransportApiKey`,
+ * `resolveModelCredentials`).
  *
  * Never throws. All filesystem errors are caught and treated as "not found".
  *
  * @param provider - The LLM provider transport to resolve credentials for.
- * @param options  - Optional overrides and project root for tier 5.
+ * @param options  - Optional overrides and project root for tier 5 warning.
  * @returns A `CredentialResult` with `provider`, `apiKey`, and `source`.
  *
  * @example
@@ -293,6 +292,9 @@ function readProviderKeyFromConfig(configFile: string, provider: ModelTransport)
  * const cred = resolveCredentials('anthropic', { projectRoot: cwd });
  * if (!cred.apiKey) throw new Error('No Anthropic key found');
  * ```
+ *
+ * @task T9413
+ * @epic E-CONFIG-AUTH-UNIFY
  */
 export function resolveCredentials(
   provider: ModelTransport,
@@ -328,8 +330,9 @@ export function resolveCredentials(
   // Tier 3 — ~/.cleo/llm-credentials.json (multi-credential pool).
   // T-LLM-CRED-CENTRALIZATION Phase 2 (T9257). Sync read of the file-locked,
   // 0600 store. Picks the highest-priority non-disabled, non-expired entry
-  // for `provider`. Returns null when the file is absent or has no eligible
-  // entries — falls through to the legacy claude-creds tier below.
+  // for `provider`. The sync path NEVER re-seeds — seeding is the unified
+  // pool's responsibility (T9412 / T9413). Returns null when the file is
+  // absent or has no eligible entries — falls through to the legacy tiers.
   const stored = pickCredentialForProviderSync(provider);
   if (stored) {
     // Narrow stored.authType back to the on-wire AuthType. Phase 2 widens
@@ -345,21 +348,17 @@ export function resolveCredentials(
     };
   }
 
-  // Tier 4 — ~/.claude/.credentials.json (anthropic only)
-  if (provider === 'anthropic') {
-    const oauthToken = readClaudeCredsToken();
-    if (oauthToken) {
-      return { provider, apiKey: oauthToken, source: 'claude-creds', authType: 'oauth' };
-    }
-  }
+  // Tier 4 (legacy direct claude-creds read) — REMOVED in T9413. The
+  // `claude-code` seeder owns `~/.claude/.credentials.json`; its imported
+  // entries surface via tier 3 above.
 
-  // Tier 4a — global config. Canonical path is the XDG config dir
-  // (`~/.config/cleo/config.json` on Linux); the data-dir copy
-  // (`~/.local/share/cleo/config.json`) is consulted as a read-only fallback
-  // during the transition window so existing installs keep working until
-  // `ensureGlobalConfigMigrated()` upgrades them (T9405).
+  // Tier 4a — global config. **DEPRECATED** (T9413). Emits a stderr warning
+  // on every hit so operators discover the migration path; still resolves
+  // for now so existing installs keep working. Canonical XDG config dir is
+  // preferred; the data-dir copy is the transition-window fallback.
   const globalKey = readGlobalProviderKey(provider);
   if (globalKey) {
+    warnGlobalConfigApiKeyDeprecated(provider);
     return {
       provider,
       apiKey: globalKey,
@@ -383,20 +382,153 @@ export function resolveCredentials(
     }
   }
 
-  // Tier 5 — project config (.cleo/config.json)
+  // Tier 5 — project config (.cleo/config.json). **REJECTED** in T9413
+  // (E-CONFIG-AUTH-UNIFY §5.2 T-E2-6 footgun kill). When a project config
+  // still has `llm.providers.*.apiKey` set, emit a stderr warning with the
+  // migration command and DO NOT resolve. The key MUST be migrated via
+  // `cleo auth migrate-project-secrets` (T-E2-9).
   if (options.projectRoot) {
     const projectKey = readProviderKeyFromConfig(projectConfigPath(options.projectRoot), provider);
     if (projectKey) {
-      return {
-        provider,
-        apiKey: projectKey,
-        source: 'project-config',
-        authType: detectAuthType(provider, projectKey),
-      };
+      warnProjectConfigApiKeyRejected(provider);
+      // Intentionally fall through to the null return below.
     }
   }
 
   return { provider, apiKey: null, source: undefined, authType: 'api_key' };
+}
+
+/**
+ * Async resolver that delegates to the unified credential pool (T9413).
+ *
+ * Resolution order:
+ *
+ * 1. `options.apiKey` — explicit caller override (identical to the sync
+ *    behaviour; short-circuits before touching the pool).
+ * 2. `await getCredentialPool().pick(provider, ...)` — the unified pool
+ *    transparently runs a lazy seed pass on first call (60s cache; force
+ *    via `force: true` on the pool directly). The returned entry's
+ *    `authType` is narrowed to the on-wire {@link AuthType}: `'oauth'` for
+ *    OAuth tokens, `'api_key'` for everything else (including `'aws_sdk'`).
+ *
+ * Returns `{ apiKey: null }` with `source: undefined` when the pool has no
+ * eligible entry for the provider — callers should treat this as
+ * "no credential available" and emit a setup hint.
+ *
+ * Unlike the sync resolver, the async path does NOT consult the legacy
+ * tiers 4a/4b/5: any deprecated source must be seeded into the pool first
+ * (via a seeder) to be picked up here. This is the steady-state code path
+ * the rest of E-CONFIG-AUTH-UNIFY converges on.
+ *
+ * @param provider - The LLM provider transport to resolve credentials for.
+ * @param options  - Optional explicit `apiKey` override.
+ * @returns A `CredentialResult` shaped identically to the sync resolver.
+ *
+ * @example
+ * ```ts
+ * const cred = await resolveCredentialsAsync('anthropic');
+ * if (!cred.apiKey) {
+ *   throw new Error('No anthropic credential — run `cleo auth add anthropic`');
+ * }
+ * ```
+ *
+ * @task T9413
+ * @epic E-CONFIG-AUTH-UNIFY
+ */
+export async function resolveCredentialsAsync(
+  provider: ModelTransport,
+  options: CredentialResolveOptions = {},
+): Promise<CredentialResult> {
+  // Tier 1 — explicit caller-supplied key (matches sync behaviour exactly).
+  if (options.apiKey?.trim()) {
+    const token = options.apiKey.trim();
+    return {
+      provider,
+      apiKey: token,
+      source: 'explicit',
+      authType: detectAuthType(provider, token),
+    };
+  }
+
+  // Tier 2+ — delegate to the unified pool. The pool seeds lazily on the
+  // first call (and at most once every POOL_SEED_CACHE_TTL_MS), then picks
+  // a non-disabled, non-expired entry using the store's default strategy.
+  const entry = await getCredentialPool().pick(provider);
+  if (entry) {
+    const wireAuthType: AuthType = entry.authType === 'oauth' ? 'oauth' : 'api_key';
+    return {
+      provider,
+      apiKey: entry.accessToken || null,
+      source: 'cred-file',
+      authType: wireAuthType,
+    };
+  }
+
+  return { provider, apiKey: null, source: undefined, authType: 'api_key' };
+}
+
+// ---------------------------------------------------------------------------
+// Deprecation warnings — T9413 (E-CONFIG-AUTH-UNIFY §5.2 T-E2-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Latch the deprecation warning per (provider, message) so a hot loop does
+ * not flood stderr. Keys are simple strings — small, opaque to the rest of
+ * the module.
+ *
+ * @internal
+ */
+const WARNED_GLOBAL_CONFIG = new Set<string>();
+const WARNED_PROJECT_CONFIG = new Set<string>();
+
+/**
+ * Emit a one-shot stderr warning that the global-config `apiKey` path is
+ * deprecated. Re-emits only if the latch is cleared (test-only via
+ * {@link _resetCredentialDeprecationLatchesForTests}).
+ *
+ * @internal
+ * @task T9413
+ */
+function warnGlobalConfigApiKeyDeprecated(provider: ModelTransport): void {
+  if (WARNED_GLOBAL_CONFIG.has(provider)) return;
+  WARNED_GLOBAL_CONFIG.add(provider);
+  process.stderr.write(
+    `[cleo] DEPRECATED: \`llm.providers.${provider}.apiKey\` in the global ` +
+      `config.json is deprecated and will be removed. Migrate with ` +
+      `\`cleo auth add ${provider}\` or \`cleo llm add\`.\n`,
+  );
+}
+
+/**
+ * Emit a one-shot stderr warning that the project-config `apiKey` path is
+ * rejected. The key is NOT resolved — operators must migrate.
+ *
+ * @internal
+ * @task T9413
+ */
+function warnProjectConfigApiKeyRejected(provider: ModelTransport): void {
+  if (WARNED_PROJECT_CONFIG.has(provider)) return;
+  WARNED_PROJECT_CONFIG.add(provider);
+  process.stderr.write(
+    `[cleo] REJECTED: \`llm.providers.${provider}.apiKey\` in \`.cleo/config.json\` ` +
+      `(project-scoped) is a security footgun and is no longer honoured. ` +
+      `Run \`cleo auth migrate-project-secrets\` to move the key into the ` +
+      `unified credential pool.\n`,
+  );
+}
+
+/**
+ * Test-only: clear the one-shot deprecation latches so a test asserting
+ * the warning emission can run independently of sibling tests.
+ *
+ * Production code MUST NOT call this — re-emitting the warning on every
+ * hit would flood stderr.
+ *
+ * @internal
+ */
+export function _resetCredentialDeprecationLatchesForTests(): void {
+  WARNED_GLOBAL_CONFIG.clear();
+  WARNED_PROJECT_CONFIG.clear();
 }
 
 /**

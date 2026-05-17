@@ -112,11 +112,44 @@ afterEach(() => {
 });
 
 describe('authType detection — anthropic', () => {
-  it('marks Claude Code OAuth tokens (tier 3) as oauth', () => {
+  it('marks Claude Code OAuth tokens (tier 3) as oauth (via async resolver / pool)', async () => {
+    // T9413 (E-CONFIG-AUTH-UNIFY §5.2 T-E2-6): the sync resolver no longer
+    // reads `~/.claude/.credentials.json` directly. The `claude-code`
+    // seeder now owns that file and surfaces the OAuth token via the
+    // unified credential pool. Use a hand-built test seeder so the consent
+    // gate (which reads the global config in production) is short-circuited.
+    const { UnifiedCredentialPool } = await import('../credential-pool.js');
+    const { SeederRegistry } = await import('../credential-seeders/index.js');
     seedClaudeOauth('sk-ant-oat-XXXXX');
+
+    const registry = new SeederRegistry();
+    registry.register({
+      sourceId: 'claude-code',
+      provider: 'anthropic',
+      isConsentEstablished: async () => true,
+      async seed() {
+        return {
+          entries: [
+            {
+              provider: 'anthropic',
+              label: 'claude-code',
+              authType: 'oauth',
+              source: 'claude-code',
+              accessToken: 'sk-ant-oat-XXXXX',
+              expiresAt: Date.now() + 60 * 60_000,
+            },
+          ],
+        };
+      },
+    });
+    const pool = new UnifiedCredentialPool(() => registry.getAll());
+    await pool.seed();
+
     const cred = resolveCredentials('anthropic');
     expect(cred.apiKey).toBe('sk-ant-oat-XXXXX');
-    expect(cred.source).toBe('claude-creds');
+    // Sync resolver tags the pool tier as `cred-file`, not `claude-creds`,
+    // because the seeder writes the entry into the pool first.
+    expect(cred.source).toBe('cred-file');
     expect(cred.authType).toBe('oauth');
   });
 
@@ -159,8 +192,35 @@ describe('authType detection — non-anthropic providers', () => {
 });
 
 describe('authHeaders()', () => {
-  it('produces Bearer + anthropic-beta headers for anthropic oauth', () => {
+  it('produces Bearer + anthropic-beta headers for anthropic oauth', async () => {
+    // T9413: seed the pool via an inline test seeder rather than relying on
+    // the now-removed direct `~/.claude/.credentials.json` sync read.
+    const { UnifiedCredentialPool } = await import('../credential-pool.js');
+    const { SeederRegistry } = await import('../credential-seeders/index.js');
     seedClaudeOauth('sk-ant-oat-XXXXX');
+    const registry = new SeederRegistry();
+    registry.register({
+      sourceId: 'claude-code',
+      provider: 'anthropic',
+      isConsentEstablished: async () => true,
+      async seed() {
+        return {
+          entries: [
+            {
+              provider: 'anthropic',
+              label: 'claude-code',
+              authType: 'oauth',
+              source: 'claude-code',
+              accessToken: 'sk-ant-oat-XXXXX',
+              expiresAt: Date.now() + 60 * 60_000,
+            },
+          ],
+        };
+      },
+    });
+    const pool = new UnifiedCredentialPool(() => registry.getAll());
+    await pool.seed();
+
     const cred = resolveCredentials('anthropic');
     const headers = authHeaders(cred);
     expect(headers['Authorization']).toBe('Bearer sk-ant-oat-XXXXX');
