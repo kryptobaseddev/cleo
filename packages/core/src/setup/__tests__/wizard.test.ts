@@ -21,7 +21,9 @@ import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { _resetCredentialPoolSingletonForTests } from '../../llm/credential-pool.js';
 import {
+  createBrainSection,
   createBuiltinSections,
+  createHarnessSection,
   createIdentitySection,
   createLlmSection,
   createProjectConventionsSection,
@@ -112,6 +114,8 @@ describe('WizardRunner — registration + dispatch', () => {
       'identity',
       'sentient',
       'project-conventions',
+      'harness',
+      'brain',
     ]);
   });
 
@@ -354,5 +358,149 @@ describe('project-conventions section', () => {
     });
     expect(result.changed).toBe(false);
     expect(result.summary).toMatch(/^skipped/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T9425 — harness + brain sections
+// ---------------------------------------------------------------------------
+
+describe('harness section', () => {
+  it('non-interactive: writes harness.active to global config', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createHarnessSection()]);
+    const io = new StubWizardIO();
+    const result = await runner.runSection('harness', io, {
+      nonInteractive: true,
+      harness: 'claude-code',
+      projectRoot,
+    });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('set harness.active=claude-code');
+
+    const globalCfgPath = join(root, 'cleo-home', 'config.json');
+    expect(existsSync(globalCfgPath)).toBe(true);
+    const cfg = JSON.parse(readFileSync(globalCfgPath, 'utf-8')) as {
+      harness?: { active?: string };
+    };
+    expect(cfg.harness?.active).toBe('claude-code');
+  });
+
+  it('non-interactive without --harness: skipped silently', async () => {
+    const { projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createHarnessSection()]);
+    const io = new StubWizardIO();
+    const result = await runner.runSection('harness', io, {
+      nonInteractive: true,
+      projectRoot,
+    });
+    expect(result.changed).toBe(false);
+    expect(result.summary).toMatch(/^skipped/);
+  });
+
+  it('interactive: select prompt drives the harness pick + display reads CLEO_HARNESS', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    process.env['CLEO_HARNESS'] = 'pi';
+    try {
+      const runner = new WizardRunner([createHarnessSection()]);
+      const io = new StubWizardIO({ selects: ['claude-code'] });
+      const result = await runner.runSection('harness', io, { projectRoot });
+      expect(result.changed).toBe(true);
+      expect(result.summary).toContain('set harness.active=claude-code');
+      expect(result.summary).toContain('was pi');
+      // Persisted to global config.
+      const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+        harness?: { active?: string };
+      };
+      expect(cfg.harness?.active).toBe('claude-code');
+    } finally {
+      delete process.env['CLEO_HARNESS'];
+    }
+  });
+
+  it('interactive: missing CLEO_HARNESS env reports "unknown" as current', async () => {
+    const { projectRoot } = makeTempRoot();
+    delete process.env['CLEO_HARNESS'];
+    const runner = new WizardRunner([createHarnessSection()]);
+    const io = new StubWizardIO({ selects: ['pi'] });
+    await runner.runSection('harness', io, { projectRoot });
+    expect(io.infos.some((m) => m.includes('Current harness: unknown'))).toBe(true);
+  });
+});
+
+describe('brain section', () => {
+  it('non-interactive: persists "file" mode to global config', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createBrainSection()]);
+    const io = new StubWizardIO();
+    const result = await runner.runSection('brain', io, {
+      nonInteractive: true,
+      brainBridgeMode: 'file',
+      projectRoot,
+    });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('set brain.memoryBridge.mode=file');
+
+    const globalCfgPath = join(root, 'cleo-home', 'config.json');
+    expect(existsSync(globalCfgPath)).toBe(true);
+    const cfg = JSON.parse(readFileSync(globalCfgPath, 'utf-8')) as {
+      brain?: { memoryBridge?: { mode?: string } };
+    };
+    expect(cfg.brain?.memoryBridge?.mode).toBe('file');
+  });
+
+  it('non-interactive: "digest" label round-trips to wire value "cli"', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createBrainSection()]);
+    const io = new StubWizardIO();
+    const result = await runner.runSection('brain', io, {
+      nonInteractive: true,
+      brainBridgeMode: 'digest',
+      projectRoot,
+    });
+    expect(result.changed).toBe(true);
+
+    const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+      brain?: { memoryBridge?: { mode?: string } };
+    };
+    expect(cfg.brain?.memoryBridge?.mode).toBe('cli');
+  });
+
+  it('non-interactive: "disabled" mode persists verbatim', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createBrainSection()]);
+    const io = new StubWizardIO();
+    await runner.runSection('brain', io, {
+      nonInteractive: true,
+      brainBridgeMode: 'disabled',
+      projectRoot,
+    });
+    const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+      brain?: { memoryBridge?: { mode?: string } };
+    };
+    expect(cfg.brain?.memoryBridge?.mode).toBe('disabled');
+  });
+
+  it('non-interactive without --brain-bridge-mode: skipped silently', async () => {
+    const { projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createBrainSection()]);
+    const io = new StubWizardIO();
+    const result = await runner.runSection('brain', io, {
+      nonInteractive: true,
+      projectRoot,
+    });
+    expect(result.changed).toBe(false);
+    expect(result.summary).toMatch(/^skipped/);
+  });
+
+  it('interactive: select prompt drives the mode pick + reports current mode', async () => {
+    const { projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createBrainSection()]);
+    const io = new StubWizardIO({ selects: ['file'] });
+    const result = await runner.runSection('brain', io, { projectRoot });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('set brain.memoryBridge.mode=file');
+    // Default mode is 'cli' which surfaces as 'digest' to the operator.
+    expect(io.infos.some((m) => m.includes('Current BRAIN bridge mode: digest'))).toBe(true);
   });
 });

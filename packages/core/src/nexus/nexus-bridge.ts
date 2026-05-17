@@ -377,11 +377,13 @@ export async function writeNexusBridge(
     projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
 
   try {
-    // Mode gate (T999 · T1013): skip file write when mode='cli'.
+    // Mode gate (T999 · T1013, extended in T9425): only write when mode='file'.
     // Aligns nexus-bridge with the existing memory-bridge gate so both siblings
-    // honour the same `brain.memoryBridge.mode` config key.
+    // honour the same `brain.memoryBridge.mode` config key. 'cli' (default)
+    // emits a CLI directive via the injection layer; 'disabled' suppresses
+    // BRAIN-driven AGENTS.md augmentation entirely.
     const mode = await resolveBridgeMode(projectRoot);
-    if (mode === 'cli') {
+    if (mode !== 'file') {
       return { path: bridgePath, written: false };
     }
 

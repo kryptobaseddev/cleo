@@ -9,12 +9,16 @@
  * @epic T9402
  */
 
+import { createBrainSection } from './sections/brain.js';
+import { createHarnessSection } from './sections/harness.js';
 import { createIdentitySection } from './sections/identity.js';
 import { createLlmSection } from './sections/llm.js';
 import { createProjectConventionsSection } from './sections/project-conventions.js';
 import { createSentientSection } from './sections/sentient.js';
 import { WizardRunner, type WizardSectionRunner } from './wizard.js';
 
+export { createBrainSection } from './sections/brain.js';
+export { createHarnessSection } from './sections/harness.js';
 export { createIdentitySection } from './sections/identity.js';
 
 export { createLlmSection } from './sections/llm.js';
@@ -39,13 +43,13 @@ export {
  *   1. `llm`                 — credentials are the prerequisite for everything else
  *   2. `identity`            — agent name / SOUL.md before any agent dispatch
  *   3. `sentient`            — daemon enablement after credentials exist
- *   4. `project-conventions` — strictness preset last so it overrides defaults
- *
- * The `harness` and `brain` slots from `WizardSection` are reserved
- * for T-E3-6 and not yet wired.
+ *   4. `project-conventions` — strictness preset before harness/brain layering
+ *   5. `harness`             — operator selects Pi vs Claude Code (T9425)
+ *   6. `brain`               — BRAIN memory bridge mode (T9425)
  *
  * @returns Fresh array of section runner instances.
  * @task T9420
+ * @task T9425
  */
 export function createBuiltinSections(): WizardSectionRunner[] {
   return [
@@ -53,6 +57,8 @@ export function createBuiltinSections(): WizardSectionRunner[] {
     createIdentitySection(),
     createSentientSection(),
     createProjectConventionsSection(),
+    createHarnessSection(),
+    createBrainSection(),
   ];
 }
 
