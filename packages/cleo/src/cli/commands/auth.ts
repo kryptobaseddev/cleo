@@ -15,7 +15,11 @@
  */
 
 import { defineCommand, showUsage } from 'citty';
-import { authListCommand, authRemoveCommand } from './auth/index.js';
+import {
+  authListCommand,
+  authMigrateProjectSecretsCommand,
+  authRemoveCommand,
+} from './auth/index.js';
 
 /**
  * `cleo auth` — unified credential surface.
@@ -31,6 +35,7 @@ export const authCommand = defineCommand({
   subCommands: {
     list: authListCommand,
     remove: authRemoveCommand,
+    'migrate-project-secrets': authMigrateProjectSecretsCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
