@@ -624,6 +624,25 @@ export interface AuthConfig {
    * @defaultValue false
    */
   claudeCodeConsentGiven?: boolean;
+  /**
+   * Whether CLEO writes refreshed Anthropic OAuth tokens back to Claude
+   * Code's credential file (`~/.claude/.credentials.json`) in addition to
+   * CLEO's own canonical token file (`${getCleoHome()}/anthropic-oauth.json`).
+   *
+   * CLEO ALWAYS writes its own file on every refresh. The cooperative write
+   * to Claude Code's file is gated by this flag AND by either
+   * (a) the Claude Code file already existing on disk, or
+   * (b) `claudeCodeConsentGiven` being `true`.
+   *
+   * This mirrors the OQ-1 decision in `docs/plans/E-CONFIG-AUTH-UNIFY.md`:
+   * cooperative write-back is enabled by default so two CLIs sharing one
+   * machine stay token-coherent, but CLEO never creates Claude Code's file
+   * unless the operator has explicitly opted in.
+   *
+   * @defaultValue true
+   * @task T9411
+   */
+  cooperativeWriteBack?: boolean;
 }
 
 /**
