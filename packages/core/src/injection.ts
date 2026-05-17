@@ -168,9 +168,10 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     agentsMdLines.push('@.cleo/project-context.json');
   }
 
-  // Memory bridge + nexus bridge: gated by brain.memoryBridge.mode (T999)
+  // Memory bridge + nexus bridge: gated by brain.memoryBridge.mode (T999 · T9425)
   // mode='cli' (default): inject a CLI directive so agents query brain.db live
   // mode='file': legacy @-inject of auto-generated markdown files (backcompat)
+  // mode='disabled': suppress BRAIN-driven AGENTS.md augmentation entirely
   const bridgeMode = await resolveBridgeMode(projectRoot);
   if (bridgeMode === 'file') {
     const memoryBridgePath = join(projectRoot, '.cleo', 'memory-bridge.md');
@@ -182,10 +183,11 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     if (existsSync(nexusBridgePath)) {
       agentsMdLines.push('@.cleo/nexus-bridge.md');
     }
-  } else {
+  } else if (bridgeMode === 'cli') {
     // cli mode: inject a directive instructing agents to query live context
     agentsMdLines.push('# Run: cleo memory digest --brief');
   }
+  // 'disabled' mode: no bridge injection at all (T9425).
 
   // Contributor project warning (ADR-029): inject dev-channel guidance when
   // this project IS the CLEO source repo, so agents use cleo-dev not @latest.
