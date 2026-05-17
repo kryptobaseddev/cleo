@@ -156,6 +156,15 @@ export default defineConfig({
         '../../packages/core/src/llm/credentials-store.ts',
         import.meta.url,
       ).pathname,
+      // T9416: llm subpath imports used by `cleo auth list` / `cleo auth remove`
+      '@cleocode/core/llm/credential-pool.js': new URL(
+        '../../packages/core/src/llm/credential-pool.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/core/llm/credential-removal.js': new URL(
+        '../../packages/core/src/llm/credential-removal.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core/llm/oauth/device-code.js': new URL(
         '../../packages/core/src/llm/oauth/device-code.ts',
         import.meta.url,
