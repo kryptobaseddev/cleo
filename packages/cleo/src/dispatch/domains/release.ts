@@ -35,6 +35,7 @@ import { getLogger, getProjectRoot } from '@cleocode/core/internal';
 import type { OpsFromCore } from '../adapters/typed.js';
 import {
   loadActiveReleaseHandle,
+  makeAdr061GateRunner,
   releaseGateCheck,
   releaseIvtrAutoSuggest,
   releasePublish,
@@ -178,8 +179,11 @@ export class ReleaseHandler implements DomainHandler {
 
         // release.verify — Step 2 of 4: run gates + audit child tasks (T1597 / ADR-063)
         case 'verify': {
-          const handle = loadActiveReleaseHandle(getProjectRoot());
-          const result = await releaseVerify(handle);
+          const projectRoot = getProjectRoot();
+          const handle = loadActiveReleaseHandle(projectRoot);
+          const result = await releaseVerify(handle, {
+            runGate: makeAdr061GateRunner(projectRoot),
+          });
           return {
             success: true,
             data: result,
