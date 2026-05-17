@@ -59,6 +59,17 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 ## Task Creation (ADR-066)
 
 `--acceptance` required for ALL tasks. `cleo bug`/`--role` removed — use `cleo add --kind bug --severity Px --acceptance "..."`. Axes: `--type {epic|task|subtask}`, `--kind {work|research|experiment|bug|spike|release}`, `--severity {P0-P3}` (orthogonal to `--priority`; triggers Ed25519 attestation).
+
+### Sagas — above-Epic grouping (ADR-073)
+
+A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. It is a labeled top-level
+Epic, not a new TaskType. Gating dependency: T9514 must merge before creating Sagas.
+
+| Goal | Command |
+|------|---------|
+| Create a Saga | `cleo add --type epic --label saga --title "SG-X: ..." --acceptance "..."` |
+| Link an Epic to a Saga | `cleo update SG-X --relates E-Y:groups` |
+| List Epics in a Saga | `cleo list --parent SG-X` (or `cleo find "label:saga"`) |
 <!-- /CLEO-INJECTION:section=task-creation -->
 
 <!-- CLEO-INJECTION:section=task-discovery -->
