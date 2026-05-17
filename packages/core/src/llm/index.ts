@@ -84,6 +84,14 @@ export {
 } from './context-engines/rule-based-truncation.js';
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
+// Credential seeders — unified pool foundation (E-CONFIG-AUTH-UNIFY E2a / T9408)
+export type {
+  CredentialSeeder,
+  SeederCredentialEntry,
+  SeederResult,
+  SeederSourceId,
+} from './credential-seeders/index.js';
+export { BUILTIN_SEEDERS, SeederRegistry } from './credential-seeders/index.js';
 export type {
   AuthType,
   CredentialResolveOptions,
