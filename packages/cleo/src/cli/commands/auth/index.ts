@@ -12,5 +12,14 @@
 
 export type { AuthListEntry } from './list.js';
 export { authListCommand } from './list.js';
+export type {
+  AuthMigrateProjectSecretsResult,
+  MigratedSecret,
+  RunMigrateOptions,
+} from './migrate-project-secrets.js';
+export {
+  authMigrateProjectSecretsCommand,
+  runMigrateProjectSecrets,
+} from './migrate-project-secrets.js';
 export type { AuthRemoveResult } from './remove.js';
 export { authRemoveCommand } from './remove.js';
