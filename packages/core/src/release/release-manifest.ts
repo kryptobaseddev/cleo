@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, renameSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { and, count, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { createPage } from '../pagination.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import * as schema from '../store/tasks-schema.js';
@@ -29,6 +29,16 @@ import {
   loadReleaseConfig,
 } from './release-config.js';
 import { resolveVersionBumpTargets } from './version-bump.js';
+
+// ── Dual-write state ─────────────────────────────────────────────────────────
+
+/**
+ * Whether the CLEO_PROVENANCE_DUAL_WRITE advisory warning has already been
+ * emitted for this process lifetime. Resets on module load (per-process).
+ *
+ * @task T9510
+ */
+let _dualWriteOffWarnEmitted = false;
 
 async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js')['getDb']> {
   const { getDb: _getDb } = await import('../store/sqlite.js');
@@ -1291,6 +1301,107 @@ export async function markReleasePushed(
     })
     .where(eq(schema.releaseManifests.version, normalizedVersion))
     .run();
+}
+
+/**
+ * Mark a release as shipped (pushed) and optionally dual-write task→commit
+ * provenance rows into `task_commits`.
+ *
+ * Dual-write semantics (SPEC-T9345 §8.3):
+ *   - Controlled by the `CLEO_PROVENANCE_DUAL_WRITE` environment variable.
+ *   - Default is `'1'` (ON). Set to `'0'` to disable.
+ *   - When ON: every task ID in `release_manifests.tasksJson` gets a
+ *     corresponding row in `task_commits` using the provided `commitSha` and
+ *     `link_kind='implements'` / `link_source='manual'`.
+ *   - When OFF: legacy path only; `task_commits` is not touched.
+ *   - A `console.warn` is emitted once per process on the first write when
+ *     dual-write is disabled, so operators know provenance is not accumulating.
+ *
+ * The underlying `release_manifests.tasksJson` write is identical in both
+ * modes (F12 — the legacy table is untouched per ADR-073).
+ *
+ * @param version     - Release version string (e.g. `v2026.6.0`).
+ * @param pushedAt    - ISO-8601 timestamp of the push event.
+ * @param cwd         - Optional project root override.
+ * @param provenance  - Optional commit SHA and git tag.
+ * @returns           Promise resolving to the number of `task_commits` rows inserted.
+ *
+ * @task T9510
+ * @see SPEC-T9345 §8.3
+ */
+export async function markReleaseShipped(
+  version: string,
+  pushedAt: string,
+  cwd?: string,
+  provenance?: { commitSha?: string; gitTag?: string },
+): Promise<{ taskCommitsInserted: number }> {
+  const dualWrite = (process.env['CLEO_PROVENANCE_DUAL_WRITE'] ?? '1') === '1';
+
+  if (!dualWrite && !_dualWriteOffWarnEmitted) {
+    _dualWriteOffWarnEmitted = true;
+    // Advisory only — operators may intentionally disable dual-write.
+    // biome-ignore lint/suspicious/noConsole: advisory advisory for operators
+    console.warn(
+      '[cleo] CLEO_PROVENANCE_DUAL_WRITE=0: provenance task_commits rows will NOT be written. ' +
+        'Set CLEO_PROVENANCE_DUAL_WRITE=1 to enable (default on).',
+    );
+  }
+
+  // Step 1: legacy write (F12 — release_manifests is never removed).
+  await markReleasePushed(version, pushedAt, cwd, provenance);
+
+  if (!dualWrite) {
+    return { taskCommitsInserted: 0 };
+  }
+
+  // Step 2: dual-write — infer task→commit links from tasksJson.
+  const commitSha = provenance?.commitSha;
+  if (!commitSha) {
+    // Without a concrete commit SHA we cannot write valid FK rows.
+    return { taskCommitsInserted: 0 };
+  }
+
+  const normalizedVersion = normalizeVersion(version);
+  const db = await getDb(cwd);
+
+  // Read the manifest row to get the task list.
+  const rows = await db
+    .select({ tasksJson: schema.releaseManifests.tasksJson })
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .limit(1)
+    .all();
+
+  if (rows.length === 0) {
+    return { taskCommitsInserted: 0 };
+  }
+
+  const taskIds = JSON.parse(rows[0]!.tasksJson) as string[];
+  if (taskIds.length === 0) {
+    return { taskCommitsInserted: 0 };
+  }
+
+  let inserted = 0;
+  const now = new Date().toISOString();
+
+  for (const taskId of taskIds) {
+    // Best-effort: INSERT OR IGNORE avoids failure when the row already exists
+    // (composite PK: task_id, commit_sha, link_kind).
+    try {
+      await db.run(
+        sql`INSERT OR IGNORE INTO task_commits
+          (task_id, commit_sha, link_kind, link_source, created_at)
+          VALUES
+          (${taskId}, ${commitSha}, ${'implements'}, ${'manual'}, ${now})`,
+      );
+      inserted++;
+    } catch {
+      // Non-fatal: if task_commits table doesn't exist yet (pre-migration env)
+      // or a constraint fires unexpectedly, skip gracefully.
+    }
+  }
+
+  return { taskCommitsInserted: inserted };
 }
 
 /**
