@@ -234,9 +234,11 @@ export async function writeMemoryBridge(
   const bridgePath = join(cleoDir, 'memory-bridge.md');
 
   try {
-    // Mode gate (T999): skip file write when mode='cli'
+    // Mode gate (T999, extended in T9425): only write when mode='file'.
+    // 'cli' (default) emits a CLI directive via the injection layer; 'disabled'
+    // suppresses BRAIN-driven AGENTS.md augmentation entirely.
     const mode = await resolveBridgeMode(projectRoot);
-    if (mode === 'cli') {
+    if (mode !== 'file') {
       return { path: bridgePath, written: false };
     }
 
