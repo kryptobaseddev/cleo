@@ -244,9 +244,11 @@ export class SeederRegistry {
 /**
  * Process-wide singleton registry used by the resolver.
  *
- * Future tasks (T9409+) register concrete seeder instances into this
- * registry at module load. As of T9408 it is **empty** — no production
- * code path consumes `BUILTIN_SEEDERS` yet.
+ * Concrete seeder modules (e.g. `./env-seeder.ts`, registered in T9409)
+ * import this singleton and call `register()` at module load. The
+ * `./register.ts` barrel module aggregates those side-effect imports so a
+ * single `import './credential-seeders/register.js'` populates every
+ * built-in seeder.
  *
  * The singleton is a module-scoped constant (`export const`) rather than a
  * class static so re-importing this module from different entry points
