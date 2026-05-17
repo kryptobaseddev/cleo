@@ -5,7 +5,8 @@
  * tree, blockers, depends, analyze, next, relates, complexity.estimate,
  * current, add, update, complete, delete, archive, restore, reparent,
  * promote, reorder, relates.add, relates.remove, start, stop,
- * sync.reconcile, sync.links, sync.links.remove.
+ * sync.reconcile, sync.links, sync.links.remove,
+ * saga.create, saga.add, saga.list, saga.members, saga.rollup.
  *
  * Query operations delegate to task-engine; start/stop/current delegate
  * to session-engine (which hosts task-work functions).
@@ -20,6 +21,7 @@
  * @task T1445 — OpsFromCore inference migration
  */
 
+import type { LafsEnvelope } from '@cleocode/contracts';
 import type { tasks as coreTasks } from '@cleocode/core';
 import { getLogger, getProjectRoot } from '@cleocode/core';
 import {
@@ -550,6 +552,10 @@ const QUERY_OPS = new Set<string>([
   'current',
   'label.list',
   'sync.links',
+  // Saga sub-domain (ADR-073)
+  'saga.list',
+  'saga.members',
+  'saga.rollup',
 ]);
 
 const MUTATE_OPS = new Set<string>([
@@ -570,7 +576,191 @@ const MUTATE_OPS = new Set<string>([
   'sync.links.remove',
   'claim',
   'unclaim',
+  // Saga sub-domain (ADR-073)
+  'saga.create',
+  'saga.add',
 ]);
+
+// ---------------------------------------------------------------------------
+// Saga sub-domain handlers (ADR-073 — T9521)
+//
+// Thin composites over tasks.add + tasks.relates.add + tasks.list/relates
+// queries. Implemented as standalone async functions to avoid touching the
+// typed-handler's OpsFromCore inference (which runs from dist, not src).
+// ---------------------------------------------------------------------------
+
+/**
+ * saga.create — create a labeled top-level Epic as a Saga.
+ *
+ * @task T9521
+ * @see ADR-073
+ */
+async function sagaCreate(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
+  const projectRoot = getProjectRoot();
+  const title = typeof params.title === 'string' ? params.title : '';
+  const description = typeof params.description === 'string' ? params.description : undefined;
+  const acceptance = Array.isArray(params.acceptance) ? (params.acceptance as string[]) : undefined;
+  return wrapCoreResult(
+    await addTaskWithSessionScope(projectRoot, {
+      title,
+      description,
+      labels: ['saga'],
+      type: 'epic',
+      acceptance,
+    }),
+    'saga.create',
+  );
+}
+
+/**
+ * saga.add — link a member Epic to a Saga via task_relations type='groups'.
+ *
+ * Validates: sagaId must have label='saga', epicId must have type='epic'.
+ *
+ * @task T9521
+ * @see ADR-073
+ */
+async function sagaAdd(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
+  const projectRoot = getProjectRoot();
+  const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
+  const epicId = typeof params.epicId === 'string' ? params.epicId : '';
+  if (!sagaId || !epicId) {
+    return lafsError('E_INVALID_INPUT', 'sagaId and epicId are required', 'saga.add');
+  }
+  // Validate: sagaId must have label='saga'
+  const sagaResult = await taskShow(projectRoot, sagaId);
+  if (!sagaResult.success || !sagaResult.data) {
+    return lafsError('E_NOT_FOUND', `Saga not found: ${sagaId}`, 'saga.add');
+  }
+  const sagaTask = sagaResult.data.task as { labels?: string[] } | undefined;
+  const sagaLabels: string[] = sagaTask?.labels ?? [];
+  if (!sagaLabels.includes('saga')) {
+    return lafsError('E_INVALID_INPUT', `Task ${sagaId} does not have label='saga'`, 'saga.add');
+  }
+  // Validate: epicId must have type='epic'
+  const epicResult = await taskShow(projectRoot, epicId);
+  if (!epicResult.success || !epicResult.data) {
+    return lafsError('E_NOT_FOUND', `Epic not found: ${epicId}`, 'saga.add');
+  }
+  const epicType = (epicResult.data.task as { type?: string } | undefined)?.type;
+  if (epicType !== 'epic') {
+    return lafsError(
+      'E_INVALID_INPUT',
+      `Task ${epicId} has type='${String(epicType)}', expected type='epic'`,
+      'saga.add',
+    );
+  }
+  const relResult = await taskRelatesAdd(projectRoot, sagaId, epicId, 'groups', undefined);
+  if (!relResult.success) {
+    return lafsError(
+      'E_GENERAL',
+      relResult.error?.message ?? 'Failed to link Epic to Saga',
+      'saga.add',
+    );
+  }
+  return lafsSuccess({ sagaId, epicId, added: relResult.data?.added ?? true }, 'saga.add');
+}
+
+/**
+ * saga.list — list all Sagas (labeled top-level Epics).
+ *
+ * @task T9521
+ * @see ADR-073
+ */
+async function sagaList(): Promise<LafsEnvelope<unknown>> {
+  const projectRoot = getProjectRoot();
+  const result = await taskList(projectRoot, { type: 'epic', label: 'saga' });
+  if (!result.success) {
+    return lafsError('E_GENERAL', result.error?.message ?? 'Failed to list Sagas', 'saga.list');
+  }
+  const tasks = result.data?.tasks ?? [];
+  // Filter to top-level only (no parent)
+  const topLevel = tasks.filter((t) => {
+    const parentId = (t as { parentId?: string | null }).parentId;
+    return !parentId;
+  });
+  return lafsSuccess({ sagas: topLevel, total: topLevel.length }, 'saga.list');
+}
+
+/**
+ * saga.members — list member Epics linked to a Saga via type='groups'.
+ *
+ * @task T9521
+ * @see ADR-073
+ */
+async function sagaMembers(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
+  const projectRoot = getProjectRoot();
+  const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
+  if (!sagaId) {
+    return lafsError('E_INVALID_INPUT', 'sagaId is required', 'saga.members');
+  }
+  const result = await taskRelates(projectRoot, sagaId);
+  if (!result.success) {
+    return lafsError(
+      'E_GENERAL',
+      result.error?.message ?? 'Failed to list Saga members',
+      'saga.members',
+    );
+  }
+  const relations = result.data?.relations ?? [];
+  const members = relations.filter((r) => r.type === 'groups');
+  return lafsSuccess(
+    {
+      sagaId,
+      members: members.map((r) => ({ epicId: r.taskId, type: r.type, reason: r.reason })),
+      total: members.length,
+    },
+    'saga.members',
+  );
+}
+
+/**
+ * saga.rollup — aggregate member Epic statuses for a Saga.
+ *
+ * @task T9521
+ * @see ADR-073
+ */
+async function sagaRollup(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
+  const projectRoot = getProjectRoot();
+  const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
+  if (!sagaId) {
+    return lafsError('E_INVALID_INPUT', 'sagaId is required', 'saga.rollup');
+  }
+  const relResult = await taskRelates(projectRoot, sagaId);
+  if (!relResult.success) {
+    return lafsError(
+      'E_GENERAL',
+      relResult.error?.message ?? 'Failed to fetch Saga members for rollup',
+      'saga.rollup',
+    );
+  }
+  const members = (relResult.data?.relations ?? []).filter((r) => r.type === 'groups');
+  const total = members.length;
+  if (total === 0) {
+    return lafsSuccess(
+      { sagaId, total: 0, done: 0, active: 0, blocked: 0, pending: 0, completionPct: 0 },
+      'saga.rollup',
+    );
+  }
+  const shows = await Promise.all(members.map((m) => taskShow(projectRoot, m.taskId)));
+  let done = 0;
+  let active = 0;
+  let blocked = 0;
+  let pending = 0;
+  for (const r of shows) {
+    if (!r.success) continue;
+    const status = (r.data?.task as { status?: string } | undefined)?.status ?? 'pending';
+    if (status === 'done') done++;
+    else if (status === 'active') active++;
+    else if (status === 'blocked') blocked++;
+    else pending++;
+  }
+  const completionPct = total > 0 ? Math.round((done / total) * 100) : 0;
+  return lafsSuccess(
+    { sagaId, total, done, active, blocked, pending, completionPct },
+    'saga.rollup',
+  );
+}
 
 // ---------------------------------------------------------------------------
 // TasksHandler — DomainHandler-compatible wrapper for the registry
@@ -620,6 +810,29 @@ export class TasksHandler implements DomainHandler {
       );
     }
 
+    // Saga sub-domain query ops (ADR-073) — handled outside typed handler
+    // because they call existing functions and don't need OpsFromCore inference.
+    try {
+      if (operation === 'saga.list') {
+        const envelope = await sagaList();
+        return wrapResult(envelopeToEngineResult(envelope), 'query', 'tasks', operation, startTime);
+      }
+      if (operation === 'saga.members') {
+        const envelope = await sagaMembers(params ?? {});
+        return wrapResult(envelopeToEngineResult(envelope), 'query', 'tasks', operation, startTime);
+      }
+      if (operation === 'saga.rollup') {
+        const envelope = await sagaRollup(params ?? {});
+        return wrapResult(envelopeToEngineResult(envelope), 'query', 'tasks', operation, startTime);
+      }
+    } catch (error) {
+      getLogger('domain:tasks').error(
+        { gateway: 'query', domain: 'tasks', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
+      return handleErrorResult('query', 'tasks', operation, error, startTime);
+    }
+
     try {
       // operation is validated above — cast to the typed key is safe.
       // This is the single documented trust boundary: the registry guarantees
@@ -654,6 +867,36 @@ export class TasksHandler implements DomainHandler {
 
     if (!MUTATE_OPS.has(operation)) {
       return unsupportedOp('mutate', 'tasks', operation, startTime);
+    }
+
+    // Saga sub-domain mutate ops (ADR-073) — handled outside typed handler.
+    try {
+      if (operation === 'saga.create') {
+        const envelope = await sagaCreate(params ?? {});
+        return wrapResult(
+          envelopeToEngineResult(envelope),
+          'mutate',
+          'tasks',
+          operation,
+          startTime,
+        );
+      }
+      if (operation === 'saga.add') {
+        const envelope = await sagaAdd(params ?? {});
+        return wrapResult(
+          envelopeToEngineResult(envelope),
+          'mutate',
+          'tasks',
+          operation,
+          startTime,
+        );
+      }
+    } catch (error) {
+      getLogger('domain:tasks').error(
+        { gateway: 'mutate', domain: 'tasks', operation, err: error },
+        error instanceof Error ? error.message : String(error),
+      );
+      return handleErrorResult('mutate', 'tasks', operation, error, startTime);
     }
 
     try {
@@ -701,6 +944,10 @@ export class TasksHandler implements DomainHandler {
         'current',
         'label.list',
         'sync.links',
+        // Saga sub-domain (ADR-073)
+        'saga.list',
+        'saga.members',
+        'saga.rollup',
       ],
       mutate: [
         'add',
@@ -720,6 +967,9 @@ export class TasksHandler implements DomainHandler {
         'sync.links.remove',
         'claim',
         'unclaim',
+        // Saga sub-domain (ADR-073)
+        'saga.create',
+        'saga.add',
       ],
     };
   }
