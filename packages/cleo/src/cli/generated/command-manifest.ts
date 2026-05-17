@@ -731,6 +731,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/session.js')).sessionCommand as CommandDef,
   },
   {
+    exportName: 'setupCommand',
+    name: 'setup',
+    description:
+      'Interactive setup wizard — runs all sections (llm, identity, sentient, project-conventions) in canonical order. Use --section <name> for a single section or --non-interactive with --provider/--api-key to configure LLM without prompts.',
+    load: async () => (await import('../commands/setup.js')).setupCommand as CommandDef,
+  },
+  {
     exportName: 'showCommand',
     name: 'show',
     description:
