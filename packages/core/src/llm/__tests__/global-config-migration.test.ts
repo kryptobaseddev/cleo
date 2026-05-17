@@ -22,7 +22,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { _resetCleoPlatformPathsCache, getCleoPlatformPaths } from '@cleocode/paths';
+import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveCredentials } from '../credentials.js';
 import {
@@ -43,6 +43,7 @@ const ENV_KEYS = [
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
   'CLEO_HOME',
+  'CLEO_CONFIG_HOME',
   'CLEO_DIR',
   'XDG_DATA_HOME',
   'XDG_CONFIG_HOME',
@@ -76,11 +77,15 @@ function stageTempHome(): { root: string; dataDir: string; configRoot: string; c
   const configRoot = join(root, 'config');
   mkdirSync(dataDir, { recursive: true });
   mkdirSync(configRoot, { recursive: true });
+  // Pin the config dir via CLEO_CONFIG_HOME (cross-platform — env-paths
+  // ignores XDG_CONFIG_HOME on macOS/Windows); keep XDG_CONFIG_HOME for
+  // Linux env-paths parity in case other code paths read it.
+  const configDir = join(configRoot, 'cleo');
   process.env['CLEO_HOME'] = dataDir;
+  process.env['CLEO_CONFIG_HOME'] = configDir;
   process.env['XDG_CONFIG_HOME'] = configRoot;
   _resetCleoPlatformPathsCache();
   _resetGlobalConfigMigrationLatch();
-  const configDir = getCleoPlatformPaths().config;
   return { root, dataDir, configRoot, configDir };
 }
 
@@ -104,12 +109,7 @@ afterEach(() => {
 // migrateGlobalConfigToConfigDir()
 // ---------------------------------------------------------------------------
 
-// The fixture stages a temp dir and points env-paths via XDG_CONFIG_HOME, but
-// XDG_CONFIG_HOME is Linux-only — env-paths returns ~/Library/Preferences/cleo
-// on macOS and %APPDATA%\cleo\Config on Windows regardless of the env var.
-// The migration code itself is platform-agnostic; the Ubuntu CI shard
-// exercises it fully. Skip the fixture-dependent suites elsewhere.
-describe.skipIf(process.platform !== 'linux')('migrateGlobalConfigToConfigDir()', () => {
+describe('migrateGlobalConfigToConfigDir()', () => {
   it('copies data-dir config.json to config dir when no marker exists', () => {
     const { dataDir } = stageTempHome();
     const source = legacyGlobalConfigPath();
@@ -224,7 +224,7 @@ describe.skipIf(process.platform !== 'linux')('migrateGlobalConfigToConfigDir()'
 // resolveCredentials() integration — config-dir wins over legacy
 // ---------------------------------------------------------------------------
 
-describe.skipIf(process.platform !== 'linux')('resolveCredentials() + migration', () => {
+describe('resolveCredentials() + migration', () => {
   it('finds the config-dir copy when both locations exist (config-dir wins)', () => {
     const { configDir, dataDir } = stageTempHome();
     // Pre-stamp the marker so the resolver short-circuits the migration and

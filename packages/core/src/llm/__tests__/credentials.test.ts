@@ -53,6 +53,7 @@ const ENV_KEYS = [
   // isolated to a per-test temp dir — otherwise the real user's
   // ~/.config/cleo/config.json leaks through.
   'XDG_CONFIG_HOME',
+  'CLEO_CONFIG_HOME',
   // T9403: getCleoHome() honours CLEO_HOME first, so we must save/restore it.
   // The global vitest setup pins CLEO_HOME per-fork; per-test makeTempXdg()
   // overrides it for filesystem isolation.
@@ -109,6 +110,7 @@ function makeTempXdg(): { xdgRoot: string; cleoDir: string; configPath: string }
   mkdirSync(xdgConfigHome, { recursive: true });
   process.env['XDG_DATA_HOME'] = xdgRoot;
   process.env['XDG_CONFIG_HOME'] = xdgConfigHome;
+  process.env['CLEO_CONFIG_HOME'] = xdgConfigHome;
   process.env['CLEO_HOME'] = cleoDir;
   _resetCleoPlatformPathsCache();
   _resetGlobalConfigMigrationLatch();

@@ -41,6 +41,7 @@ const ENV_KEYS = [
   // to a per-test temp dir — without this, the global-config-dir tier
   // leaks across tests within the same process.
   'XDG_CONFIG_HOME',
+  'CLEO_CONFIG_HOME',
   // T9403: getCleoHome() honours CLEO_HOME first; save/restore here.
   'CLEO_HOME',
   'HOME',
@@ -83,6 +84,7 @@ function isolate(): { xdgRoot: string; home: string; projectRoot: string } {
   // a per-test temp dir; without this the global-config-dir tier leaks
   // across tests within the same process.
   process.env['XDG_CONFIG_HOME'] = xdgConfigHome;
+  process.env['CLEO_CONFIG_HOME'] = xdgConfigHome;
   // T9403: mirror XDG layout under CLEO_HOME for getCleoHome().
   process.env['CLEO_HOME'] = join(xdgRoot, 'cleo');
   process.env['HOME'] = home;

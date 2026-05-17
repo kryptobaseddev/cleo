@@ -31,6 +31,7 @@ const ENV_KEYS = [
   // a per-test temp dir; without this the global-config-dir tier leaks
   // across tests within the same process.
   'XDG_CONFIG_HOME',
+  'CLEO_CONFIG_HOME',
   // T9403: getCleoHome() honours CLEO_HOME first; save/restore here.
   'CLEO_HOME',
   'HOME',
@@ -90,6 +91,7 @@ beforeEach(() => {
   // T9405: pin XDG_CONFIG_HOME so the global-config-dir tier resolves to a
   // per-test temp dir, not the real `~/.config/cleo`.
   process.env['XDG_CONFIG_HOME'] = xdgConfigHome;
+  process.env['CLEO_CONFIG_HOME'] = xdgConfigHome;
   // T9403: getCleoHome() honours CLEO_HOME first; mirror XDG layout.
   process.env['CLEO_HOME'] = join(xdgRoot, 'cleo');
   // Point HOME at an empty tmpdir so tier 3 (`~/.claude/.credentials.json`)
