@@ -29,7 +29,15 @@ import {
 // ---------------------------------------------------------------------------
 
 const SAVED_ENV: Record<string, string | undefined> = {};
-const ENV_KEYS = ['XDG_DATA_HOME', 'HOME', 'CLEO_DIR', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'];
+// T9403: include CLEO_HOME so getCleoHome() resolves into per-test sandbox.
+const ENV_KEYS = [
+  'XDG_DATA_HOME',
+  'CLEO_HOME',
+  'HOME',
+  'CLEO_DIR',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+];
 
 function saveEnv(): void {
   for (const k of ENV_KEYS) SAVED_ENV[k] = process.env[k];
@@ -57,6 +65,8 @@ function isolateHomes(): { xdgRoot: string; home: string } {
   mkdirSync(join(xdgRoot, 'cleo'), { recursive: true });
   mkdirSync(home, { recursive: true });
   process.env['XDG_DATA_HOME'] = xdgRoot;
+  // T9403: getCleoHome() honours CLEO_HOME first; mirror the XDG layout.
+  process.env['CLEO_HOME'] = join(xdgRoot, 'cleo');
   process.env['HOME'] = home;
   return { xdgRoot, home };
 }

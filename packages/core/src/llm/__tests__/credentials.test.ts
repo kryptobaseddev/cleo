@@ -46,6 +46,10 @@ const ENV_KEYS = [
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
   'XDG_DATA_HOME',
+  // T9403: getCleoHome() honours CLEO_HOME first, so we must save/restore it.
+  // The global vitest setup pins CLEO_HOME per-fork; per-test makeTempXdg()
+  // overrides it for filesystem isolation.
+  'CLEO_HOME',
   'CLEO_DIR',
 ];
 
@@ -71,7 +75,12 @@ function clearEnv(): void {
   }
 }
 
-/** Create a fresh temp dir and set XDG_DATA_HOME to it, returning the cleo dir. */
+/**
+ * Create a fresh temp dir and set XDG_DATA_HOME + CLEO_HOME to it, returning
+ * the cleo dir. Sets both env vars so the test isolates the global CLEO home
+ * regardless of whether the resolver consults XDG_DATA_HOME (legacy) or
+ * CLEO_HOME (T9403 — getCleoHome() from @cleocode/paths takes precedence).
+ */
 function makeTempXdg(): { xdgRoot: string; cleoDir: string; configPath: string } {
   const xdgRoot = join(
     tmpdir(),
@@ -80,6 +89,7 @@ function makeTempXdg(): { xdgRoot: string; cleoDir: string; configPath: string }
   const cleoDir = join(xdgRoot, 'cleo');
   mkdirSync(cleoDir, { recursive: true });
   process.env['XDG_DATA_HOME'] = xdgRoot;
+  process.env['CLEO_HOME'] = cleoDir;
   return { xdgRoot, cleoDir, configPath: join(cleoDir, 'config.json') };
 }
 

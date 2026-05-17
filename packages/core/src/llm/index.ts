@@ -91,10 +91,11 @@ export type {
   CredentialSource,
 } from './credentials.js';
 // Credential resolver (T1677 + T-LLM-CRED-CENTRALIZATION Phase 1)
+// T9403: `cleoHomeDir` removed — callers MUST use `getCleoHome` from
+// `@cleocode/paths` directly so the `CLEO_HOME` env override applies.
 export {
   authHeaders,
   clearAnthropicKeyCache,
-  cleoHomeDir,
   defaultTransportApiKey,
   OAUTH_STATUS_PROVIDERS,
   resolveCredentials,

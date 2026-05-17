@@ -29,6 +29,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseClaudeCodeCredentials } from '@cleocode/contracts';
+import { getCleoHome } from '@cleocode/paths';
 import { pickCredentialForProviderSync } from './credentials-store.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -142,29 +143,14 @@ const ENV_VARS: Record<ModelTransport, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Path helpers (mirrors anthropic-key-resolver.ts logic, now centralised)
+// Path helpers — all CLEO-home resolution routes through `getCleoHome()` from
+// `@cleocode/paths` so the `CLEO_HOME` env override and platform-aware XDG
+// resolution apply uniformly across the LLM layer (T9403).
 // ---------------------------------------------------------------------------
-
-/**
- * XDG-aware global CLEO data directory.
- *
- * Resolution: `$XDG_DATA_HOME/cleo` when set, else `~/.local/share/cleo`.
- *
- * Exported so sibling modules (notably `credentials-store.ts`) can resolve
- * `~/.cleo/llm-credentials.json` against the SAME XDG-aware home that every
- * other CLEO global file uses — including this module's tier 4/4b lookups.
- *
- * @task T-LLM-CRED-CENTRALIZATION Phase 2
- * @task T9257
- */
-export function cleoHomeDir(): string {
-  const xdg = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-  return join(xdg, 'cleo');
-}
 
 /** Path to the global CLEO config file. */
 function globalConfigPath(): string {
-  return join(cleoHomeDir(), 'config.json');
+  return join(getCleoHome(), 'config.json');
 }
 
 /** Path to the project-level CLEO config file. */
@@ -207,7 +193,7 @@ function readClaudeCredsToken(): string | null {
  */
 function readFlatAnthropicKey(): string | null {
   try {
-    const keyFile = join(cleoHomeDir(), 'anthropic-key');
+    const keyFile = join(getCleoHome(), 'anthropic-key');
     if (!existsSync(keyFile)) return null;
     const stored = readFileSync(keyFile, 'utf-8').trim();
     return stored || null;
@@ -480,7 +466,7 @@ export const OAUTH_STATUS_PROVIDERS: readonly ModelTransport[] = [
  * @param apiKey - The API key to store.
  */
 export function storeAnthropicApiKey(apiKey: string): void {
-  const dir = cleoHomeDir();
+  const dir = getCleoHome();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
