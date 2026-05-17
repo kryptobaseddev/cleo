@@ -83,7 +83,10 @@ const log = getLogger('release');
  * @returns The output of the successful invocation.
  * @throws The last error from `execFileSync` if all retries are exhausted.
  */
-function runGitWithLockRetry(
+/**
+ * @internal Exported for unit testing only. Not part of the public API.
+ */
+export function runGitWithLockRetry(
   args: readonly string[],
   opts: Parameters<typeof execFileSync>[2],
   maxRetries = 6,
@@ -93,18 +96,68 @@ function runGitWithLockRetry(
   // Tuned to survive concurrent prompt-status scripts and the cleo sentient
   // daemon's git calls which typically hold the index lock for 100-300ms.
   const backoffSchedule = [100, 250, 500, 1000, 2000, 4000] as const;
+
+  // Ensure a supervisor timeout is always set. Callers may omit it, but we
+  // must never allow a hung git child process to wedge the parent forever.
+  // Default: 60s. Callers that pass an explicit timeout in opts take precedence.
+  const effectiveOpts: Parameters<typeof execFileSync>[2] =
+    typeof opts === 'object' && opts !== null
+      ? 'timeout' in opts
+        ? opts
+        : { ...opts, timeout: 60_000 }
+      : { timeout: 60_000 };
+
+  // Extract cwd once — used for lock-file cleanup on both timeout and lock errors.
+  const cwdStr =
+    typeof effectiveOpts === 'object' && effectiveOpts !== null && 'cwd' in effectiveOpts
+      ? String((effectiveOpts as { cwd?: unknown }).cwd ?? '')
+      : '';
+
+  /** Best-effort removal of `.git/index.lock` under `cwdStr`. */
+  const removeStaleLock = (): void => {
+    try {
+      if (cwdStr) {
+        const lockPath = `${cwdStr.replace(/\/+$/, '')}/.git/index.lock`;
+        spawnSync('rm', ['-f', lockPath], { stdio: 'pipe' });
+      }
+    } catch {
+      // ignore — surfacing the primary error is more important
+    }
+  };
+
   let lastErr: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return execFileSync('git', [...args], opts) as unknown as string;
+      return execFileSync('git', [...args], effectiveOpts) as unknown as string;
     } catch (err: unknown) {
       lastErr = err;
+      const errCode = (err as NodeJS.ErrnoException).code ?? '';
       const stderr =
         err instanceof Error && 'stderr' in err
           ? String((err as NodeJS.ErrnoException & { stderr?: string }).stderr ?? '')
           : err instanceof Error
             ? err.message
             : String(err);
+
+      // Detect a subprocess timeout (Node.js sets code ETIMEDOUT or kills with SIGTERM).
+      // When git itself hangs (not a lock conflict), we must NOT retry — surface
+      // a clear error immediately and clean up any stale lock file.
+      const isTimeout =
+        errCode === 'ETIMEDOUT' ||
+        (err instanceof Error && err.message.includes('spawnSync git ETIMEDOUT')) ||
+        (err instanceof Error && err.message.includes('Command timed out')) ||
+        (err instanceof Error && (err as { killed?: boolean }).killed === true);
+
+      if (isTimeout) {
+        removeStaleLock();
+        const cmd = `git ${args.join(' ')}`;
+        const timeoutMs =
+          typeof effectiveOpts === 'object' && effectiveOpts !== null && 'timeout' in effectiveOpts
+            ? ((effectiveOpts as { timeout?: number }).timeout ?? 60_000)
+            : 60_000;
+        const timeoutSec = Math.round(timeoutMs / 1000);
+        throw new Error(`git timeout after ${timeoutSec}s: ${cmd}`);
+      }
 
       // Only retry on the specific stale-lock signature
       if (!lockErrorPattern.test(stderr) || attempt === maxRetries) {
@@ -113,18 +166,7 @@ function runGitWithLockRetry(
 
       // Best-effort: remove a stale lock file if it still exists. We only do
       // this when the error indicates the lock was the blocker — never blindly.
-      const cwdStr =
-        typeof opts === 'object' && opts !== null && 'cwd' in opts
-          ? String((opts as { cwd?: unknown }).cwd ?? '')
-          : '';
-      try {
-        if (cwdStr) {
-          const lockPath = `${cwdStr.replace(/\/+$/, '')}/.git/index.lock`;
-          spawnSync('rm', ['-f', lockPath], { stdio: 'pipe' });
-        }
-      } catch {
-        // ignore — next attempt will surface the real error
-      }
+      removeStaleLock();
 
       const backoffMs = backoffSchedule[attempt] ?? 4000;
       log.warn(
@@ -768,7 +810,12 @@ export async function releaseRollbackFull(
   const cwd = projectRoot ?? resolveProjectRoot();
   const gitTag = `v${version.replace(/^v/, '')}`;
   const reason = options.reason ?? 'Rollback via cleo release rollback';
-  const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
+  const gitCwd = {
+    cwd,
+    encoding: 'utf-8' as const,
+    stdio: 'pipe' as const,
+    timeout: 60_000,
+  };
   const steps: string[] = [];
 
   try {
@@ -903,6 +950,7 @@ export async function releaseChangelogSince(
         cwd,
         encoding: 'utf-8',
         stdio: 'pipe',
+        timeout: 60_000,
       });
     } catch (err: unknown) {
       const msg =
@@ -1051,6 +1099,7 @@ export async function releasePush(
         cwd: projectRoot ?? process.cwd(),
         encoding: 'utf-8',
         stdio: 'pipe',
+        timeout: 60_000,
       })
         .toString()
         .trim();
@@ -1494,7 +1543,12 @@ export async function releaseShip(
       }
     }
 
-    const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
+    const gitCwd = {
+      cwd,
+      encoding: 'utf-8' as const,
+      stdio: 'pipe' as const,
+      timeout: 60_000,
+    };
 
     // Step 5: Cut release branch + commit changes on it
     logStep(5, 12, 'Cut release branch and commit');
