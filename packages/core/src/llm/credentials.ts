@@ -130,8 +130,15 @@ export interface CredentialResolveOptions {
  * chain (`AWS_PROFILE` / `~/.aws/credentials` / IAM role / SSO), not a single
  * API-key env var. The credential-pool resolves Bedrock via `authType: 'aws_sdk'`
  * and never reads the `accessToken` field from env.
+ *
+ * Exported so concrete seeders (e.g. the env seeder under
+ * `./credential-seeders/env-seeder.ts`) reuse the same mapping instead of
+ * inlining a duplicate. Treat this as the single source of truth for
+ * `(provider → env var name)`.
+ *
+ * @task T9409
  */
-const ENV_VARS: Record<ModelTransport, string> = {
+export const ENV_VARS: Record<ModelTransport, string> = {
   anthropic: 'ANTHROPIC_API_KEY',
   openai: 'OPENAI_API_KEY',
   gemini: 'GEMINI_API_KEY',

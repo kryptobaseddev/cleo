@@ -85,6 +85,17 @@ export {
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
 // Credential seeders — unified pool foundation (E-CONFIG-AUTH-UNIFY E2a / T9408)
+// T9409 adds the concrete `EnvSeeder` and the `./register.js` barrel that
+// populates `BUILTIN_SEEDERS` at module load. Importing this `llm/index.js`
+// implicitly imports `register.js` so consumers of `@cleocode/core/llm` get
+// the populated singleton without an explicit second import.
+import './credential-seeders/register.js';
+
+export {
+  ENV_SEEDER_PRIORITY,
+  EnvSeeder,
+  registerEnvSeeders,
+} from './credential-seeders/env-seeder.js';
 export type {
   CredentialSeeder,
   SeederCredentialEntry,
