@@ -32,6 +32,16 @@ export interface ClaudeCodeOAuthBlock {
   expiresAt?: number;
   /** Refresh token for obtaining new access tokens. Optional. */
   refreshToken?: string;
+  /**
+   * OAuth scopes granted to the token, e.g. `['user:inference']`.
+   *
+   * Claude Code >= 2.1.81 requires the `user:inference` scope on its OAuth
+   * tokens; cooperative write-back (T9411) preserves whatever scopes are
+   * already on disk so we never strip the field on refresh.
+   *
+   * @task T9411
+   */
+  scopes?: string[];
 }
 
 /**
@@ -47,6 +57,16 @@ export interface ParsedClaudeCodeCredential {
   expiresAt?: number;
   /** Refresh token, if present in the credentials file. */
   refreshToken?: string;
+  /**
+   * OAuth scopes granted to the token, if present in the credentials file.
+   *
+   * Preserved verbatim by the parser — `parseClaudeCodeCredentials` does not
+   * filter or normalize the array. Cooperative write-back (T9411) relies on
+   * this to keep Claude Code's `user:inference` scope intact across refreshes.
+   *
+   * @task T9411
+   */
+  scopes?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -103,10 +123,19 @@ export function parseClaudeCodeCredentials(
         ? block['refreshToken']
         : undefined;
 
+    // T9411 — preserve `scopes` verbatim so cooperative write-back keeps
+    // Claude Code's `user:inference` grant intact across refreshes.
+    const rawScopes = block['scopes'];
+    const scopes =
+      Array.isArray(rawScopes) && rawScopes.every((s) => typeof s === 'string')
+        ? (rawScopes as string[])
+        : undefined;
+
     return {
       accessToken: accessToken.trim(),
       ...(expiresAt !== undefined ? { expiresAt } : {}),
       ...(refreshToken !== undefined ? { refreshToken } : {}),
+      ...(scopes !== undefined ? { scopes } : {}),
     };
   } catch {
     return null;
