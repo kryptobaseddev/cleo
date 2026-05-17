@@ -7,7 +7,7 @@
  * trigger device re-registration prompts upstream.
  *
  * Storage: `${CLEO_HOME}/device-id` — single-line UUIDv4, no metadata. Path
- * resolves through `cleoHomeDir()` so it follows XDG conventions on Linux
+ * resolves through `getCleoHome()` so it follows XDG conventions on Linux
  * and stays inside the CLEO home on Windows/macOS.
  *
  * @module llm/stable-device-id
@@ -19,9 +19,9 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { cleoHomeDir } from './credentials.js';
+import { getCleoHome } from '@cleocode/paths';
 
-/** Filename within `cleoHomeDir()` storing the persisted UUID. */
+/** Filename within `getCleoHome()` storing the persisted UUID. */
 const DEVICE_ID_FILE = 'device-id';
 
 /** Process-lifetime cache so repeat callers do not re-read the disk. */
@@ -44,7 +44,7 @@ let _cachedDeviceId: string | null = null;
 export function getStableDeviceId(): string {
   if (_cachedDeviceId !== null) return _cachedDeviceId;
 
-  const path = join(cleoHomeDir(), DEVICE_ID_FILE);
+  const path = join(getCleoHome(), DEVICE_ID_FILE);
 
   if (existsSync(path)) {
     try {
@@ -75,7 +75,7 @@ export function getStableDeviceId(): string {
   } catch {
     // If we cannot persist, still return the UUID for THIS process. The
     // next process will regenerate. Callers that need true cross-process
-    // stability MUST surface a writable cleoHomeDir at install time.
+    // stability MUST surface a writable getCleoHome at install time.
   }
 
   _cachedDeviceId = fresh;

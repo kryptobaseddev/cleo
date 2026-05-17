@@ -26,7 +26,8 @@ import {
 // ---------------------------------------------------------------------------
 
 const SAVED_ENV: Record<string, string | undefined> = {};
-const ENV_KEYS = ['XDG_DATA_HOME', 'HOME'];
+// T9403: getCleoHome() honours CLEO_HOME first; save/restore here.
+const ENV_KEYS = ['XDG_DATA_HOME', 'CLEO_HOME', 'HOME'];
 
 function saveEnv(): void {
   for (const k of ENV_KEYS) SAVED_ENV[k] = process.env[k];
@@ -46,6 +47,8 @@ function isolateHomes(): string {
   mkdirSync(join(xdgRoot, 'cleo'), { recursive: true });
   mkdirSync(home, { recursive: true });
   process.env['XDG_DATA_HOME'] = xdgRoot;
+  // T9403: mirror XDG layout under CLEO_HOME for getCleoHome().
+  process.env['CLEO_HOME'] = join(xdgRoot, 'cleo');
   process.env['HOME'] = home;
   return xdgRoot;
 }

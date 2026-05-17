@@ -25,6 +25,8 @@ const ENV_KEYS = [
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
   'XDG_DATA_HOME',
+  // T9403: getCleoHome() honours CLEO_HOME first; save/restore here.
+  'CLEO_HOME',
   'HOME',
   'CLEO_DIR',
 ];
@@ -68,10 +70,13 @@ beforeEach(() => {
   clearEnv();
   clearAnthropicKeyCache();
   // Isolate XDG so global config tier never reads developer credentials.
-  process.env['XDG_DATA_HOME'] = join(
+  const xdgRoot = join(
     tmpdir(),
     `cleo-authtype-xdg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
+  process.env['XDG_DATA_HOME'] = xdgRoot;
+  // T9403: getCleoHome() honours CLEO_HOME first; mirror XDG layout.
+  process.env['CLEO_HOME'] = join(xdgRoot, 'cleo');
   // Point HOME at an empty tmpdir so tier 3 (`~/.claude/.credentials.json`)
   // cannot pick up the developer's real Claude Code OAuth token. Deleting HOME
   // is not enough — Node's `os.homedir()` falls back to /etc/passwd. Tests that
