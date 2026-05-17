@@ -99,6 +99,7 @@ export {
   lifecycleStatus,
   loadActiveReleaseHandle,
   type ManifestEntry as ResearchManifestEntry,
+  makeAdr061GateRunner,
   mapCodebase,
   memoryBrainStats,
   memoryContradictions,

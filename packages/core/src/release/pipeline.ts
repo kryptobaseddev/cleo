@@ -42,6 +42,8 @@ import type {
   VerifyResult,
 } from '@cleocode/contracts';
 import { loadProjectContext } from '../agents/variable-substitution.js';
+import { runToolCached } from '../tasks/tool-cache.js';
+import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { runInvariants } from './invariants/index.js';
 import { isCalVer, validateVersionFormat } from './version-bump.js';
 
@@ -61,8 +63,15 @@ export interface ReleaseStartOptions {
 export interface ReleaseVerifyOptions {
   /** Skip the child-task gate audit (e.g. for ad-hoc patch releases). */
   skipChildAudit?: boolean;
-  /** Override the gate executor — primarily for testing. */
-  runGate?: (canonicalTool: string, cwd: string) => Promise<{ passed: boolean; reason?: string }>;
+  /**
+   * Gate executor — REQUIRED. Callers MUST supply a real runner (see
+   * {@link makeAdr061GateRunner}) or a test double. The pipeline no longer
+   * provides a default because the former default always returned
+   * `passed: false` without executing anything, producing silent theater.
+   *
+   * @required
+   */
+  runGate: (canonicalTool: string, cwd: string) => Promise<{ passed: boolean; reason?: string }>;
   /** Override the child-task auditor — primarily for testing. */
   auditChildren?: (
     epicId: string,
@@ -239,25 +248,65 @@ function clearHandle(projectRoot: string): void {
 }
 
 /**
- * Default gate runner — shells out to the canonical CLEO verify resolver.
+ * Build an ADR-061-based gate runner for use in {@link releaseVerify}.
  *
- * The real CLEO verify CLI lives in `@cleocode/cleo`, which would create a
- * dependency cycle if imported here. Instead we shell out to the binary,
- * mirroring the contract of the ADR-061 alias map. Tests substitute via
- * `runGate` injection.
+ * Each gate is run by resolving the canonical tool name via
+ * {@link resolveToolCommand} (which reads `.cleo/project-context.json` and
+ * falls back to per-`primaryType` language defaults), then executing the
+ * resolved command via {@link runToolCached} (which is cache-aware and
+ * semaphore-bounded per ADR-061).
+ *
+ * Exit code 0 → `passed: true`. Non-zero exit or spawn error → `passed: false`
+ * with captured stderr in `reason`.
+ *
+ * @param projectRoot - Absolute path to the project root (used for context
+ *   resolution and tool execution cwd).
+ * @returns A gate-runner function compatible with {@link ReleaseVerifyOptions.runGate}.
+ *
+ * @example
+ * ```ts
+ * const result = await releaseVerify(handle, {
+ *   runGate: makeAdr061GateRunner(handle.projectRoot),
+ * });
+ * ```
+ *
+ * @task T9503
+ * @adr ADR-061
  */
-async function defaultRunGate(
-  canonicalTool: string,
-  _cwd: string,
-): Promise<{ passed: boolean; reason?: string }> {
-  // Map canonical name → npm script per project-context fallback chain.
-  // We intentionally do NOT execute here in the default impl — the wrapping
-  // CLI is responsible for invoking `cleo verify --gate <…> --evidence
-  // tool:<canonical>` which already drives the cache-aware tool runner.
-  // For programmatic callers (tests) this default is overridable.
-  return {
-    passed: false,
-    reason: `gate "${canonicalTool}" runner not configured (inject via opts.runGate)`,
+export function makeAdr061GateRunner(
+  projectRoot: string,
+): (canonicalTool: string, cwd: string) => Promise<{ passed: boolean; reason?: string }> {
+  return async (canonicalTool: string, _cwd: string) => {
+    const resolution = resolveToolCommand(canonicalTool, projectRoot);
+    if (!resolution.ok) {
+      return {
+        passed: false,
+        reason: `gate "${canonicalTool}" could not be resolved: ${resolution.reason}`,
+      };
+    }
+
+    const result = await runToolCached(resolution.command, projectRoot);
+
+    if (result.exitCode === null) {
+      return {
+        passed: false,
+        reason:
+          `gate "${canonicalTool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
+          `could not be executed (binary missing or spawn error)`,
+      };
+    }
+
+    if (result.exitCode !== 0) {
+      const tail = `${result.stdoutTail}\n${result.stderrTail}`.trim().slice(0, 512);
+      return {
+        passed: false,
+        reason:
+          `gate "${canonicalTool}" exited with code ${result.exitCode}` +
+          `${result.cacheHit ? ' (cached)' : ''}${tail ? `. Output tail: ${tail}` : ''}`,
+      };
+    }
+
+    return { passed: true };
   };
 }
 
@@ -327,9 +376,9 @@ export async function releaseStart(
  */
 export async function releaseVerify(
   handle: ReleaseHandle,
-  opts: ReleaseVerifyOptions = {},
+  opts: ReleaseVerifyOptions,
 ): Promise<VerifyResult> {
-  const runGate = opts.runGate ?? defaultRunGate;
+  const runGate = opts.runGate;
   const auditChildren = opts.auditChildren ?? defaultAuditChildren;
 
   const gates: ReleaseGateStatus[] = [];
