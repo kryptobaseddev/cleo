@@ -39,6 +39,7 @@ import {
   ensureGlobalConfigMigrated,
   legacyGlobalConfigPath,
 } from './global-config-migration.js';
+import { ensureLegacyFlatAnthropicKeyImported } from './legacy-flat-key-import.js';
 import type { ModelTransport } from './types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -130,8 +131,15 @@ export interface CredentialResolveOptions {
  * chain (`AWS_PROFILE` / `~/.aws/credentials` / IAM role / SSO), not a single
  * API-key env var. The credential-pool resolves Bedrock via `authType: 'aws_sdk'`
  * and never reads the `accessToken` field from env.
+ *
+ * Exported so concrete seeders (e.g. the env seeder under
+ * `./credential-seeders/env-seeder.ts`) reuse the same mapping instead of
+ * inlining a duplicate. Treat this as the single source of truth for
+ * `(provider → env var name)`.
+ *
+ * @task T9409
  */
-const ENV_VARS: Record<ModelTransport, string> = {
+export const ENV_VARS: Record<ModelTransport, string> = {
   anthropic: 'ANTHROPIC_API_KEY',
   openai: 'OPENAI_API_KEY',
   gemini: 'GEMINI_API_KEY',
@@ -290,6 +298,14 @@ export function resolveCredentials(
   provider: ModelTransport,
   options: CredentialResolveOptions = {},
 ): CredentialResult {
+  // T9407 — fire-and-forget bootstrap migrations. Both helpers are idempotent
+  // (in-process latch + filesystem marker) so this is O(1) on warm calls and
+  // never re-runs once the migration is complete. The flat-key import is
+  // async; we never await it because the tier-4b fallback still picks up
+  // the file even before the pool entry lands, so resolution stays correct
+  // mid-import.
+  ensureLegacyFlatAnthropicKeyImported();
+
   // Tier 1 — explicit caller-supplied key
   if (options.apiKey?.trim()) {
     const token = options.apiKey.trim();

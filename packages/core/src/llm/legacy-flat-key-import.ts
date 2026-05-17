@@ -281,3 +281,53 @@ export async function importLegacyFlatAnthropicKey(): Promise<LegacyFlatKeyImpor
 
   return { status: 'imported', flatPath, bakPath, markerPath };
 }
+
+// ---------------------------------------------------------------------------
+// First-invocation latch (T9407 — E1 close-out)
+// ---------------------------------------------------------------------------
+
+let hasRunInProcess = false;
+
+/**
+ * Run {@link importLegacyFlatAnthropicKey} at most once per Node process.
+ *
+ * Fire-and-forget: the credentials resolver is synchronous, but the import
+ * is async (the credential-store API is async). Callers MUST NOT await
+ * this — the helper is fully idempotent and the marker / pool-entry checks
+ * ensure later invocations observe the imported entry without re-running.
+ *
+ * Errors are caught and dropped on the floor (the underlying helper already
+ * logs through the structured logger). Returning a no-op promise keeps the
+ * call site uniform with {@link ensureGlobalConfigMigrated} from
+ * `global-config-migration.ts`.
+ *
+ * Wired into `resolveCredentials()` so a stale install gets its legacy flat
+ * key promoted into the credential pool on first credentials read.
+ *
+ * Use {@link _resetLegacyFlatKeyImportLatch} in tests to re-arm the latch.
+ *
+ * @public
+ * @task T9407
+ */
+export function ensureLegacyFlatAnthropicKeyImported(): void {
+  if (hasRunInProcess) return;
+  hasRunInProcess = true;
+  // Fire-and-forget. The helper never throws, but the await chain could in
+  // theory propagate a logger error; swallow defensively so a wedge here can
+  // never break credential resolution.
+  importLegacyFlatAnthropicKey().catch(() => {
+    // Already logged in `importLegacyFlatAnthropicKey()` — drop silently.
+  });
+}
+
+/**
+ * Reset the in-process import latch. Test-only — use in `beforeEach` so each
+ * test re-runs the import with its own fresh `CLEO_HOME` / `XDG_DATA_HOME`
+ * overrides.
+ *
+ * @internal
+ * @task T9407
+ */
+export function _resetLegacyFlatKeyImportLatch(): void {
+  hasRunInProcess = false;
+}

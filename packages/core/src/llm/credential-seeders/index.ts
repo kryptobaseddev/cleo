@@ -246,9 +246,11 @@ export class SeederRegistry {
  * Process-wide singleton registry used by the resolver.
  *
  * Concrete seeder instances are auto-registered into this registry at
- * module load — see the registration block below. As of T9410 the
- * registry contains:
+ * module load via the auto-registration block below + the
+ * `./register.ts` barrel which aggregates side-effect imports (T9409+).
+ * As of this merge the registry contains:
  *
+ * - env seeders for every provider in ENV_VARS (T9409)
  * - `claude-code` × `anthropic` (T9410)
  *
  * The singleton is a module-scoped constant (`export const`) rather than a
