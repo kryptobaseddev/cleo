@@ -39,6 +39,7 @@ import {
   ensureGlobalConfigMigrated,
   legacyGlobalConfigPath,
 } from './global-config-migration.js';
+import { ensureLegacyFlatAnthropicKeyImported } from './legacy-flat-key-import.js';
 import type { ModelTransport } from './types-config.js';
 
 // ---------------------------------------------------------------------------
@@ -290,6 +291,14 @@ export function resolveCredentials(
   provider: ModelTransport,
   options: CredentialResolveOptions = {},
 ): CredentialResult {
+  // T9407 — fire-and-forget bootstrap migrations. Both helpers are idempotent
+  // (in-process latch + filesystem marker) so this is O(1) on warm calls and
+  // never re-runs once the migration is complete. The flat-key import is
+  // async; we never await it because the tier-4b fallback still picks up
+  // the file even before the pool entry lands, so resolution stays correct
+  // mid-import.
+  ensureLegacyFlatAnthropicKeyImported();
+
   // Tier 1 — explicit caller-supplied key
   if (options.apiKey?.trim()) {
     const token = options.apiKey.trim();
