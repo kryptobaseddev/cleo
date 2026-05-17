@@ -52,6 +52,7 @@ const SUBPATH_DIRS = [
   'memory',
   'tasks',
   'sessions',
+  'setup',
   'status',
   'nexus',
   'lifecycle',
@@ -68,6 +69,7 @@ const SUBPATH_DIRS = [
   'llm',
 ];
 
+
 /**
  * Explicit nested subdirectories that also need their files scanned.
  * Key: relative path from packages/core/src/ (used as the `out` prefix).
@@ -82,6 +84,7 @@ const SUBPATH_SUBDIRS = {
   'llm/generated': 'packages/core/src/llm/generated',
   'llm/backends': 'packages/core/src/llm/backends',
   'memory/context-engines': 'packages/core/src/memory/context-engines',
+  'setup/sections': 'packages/core/src/setup/sections',
 };
 
 /**

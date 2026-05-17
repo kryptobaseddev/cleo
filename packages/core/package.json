@@ -71,6 +71,21 @@
       "import": "./dist/sentient/index.js",
       "require": "./dist/sentient/index.js"
     },
+    "./setup": {
+      "types": "./dist/setup/index.d.ts",
+      "import": "./dist/setup/index.js",
+      "require": "./dist/setup/index.js"
+    },
+    "./setup/*": {
+      "types": "./dist/setup/*.d.ts",
+      "import": "./dist/setup/*.js",
+      "require": "./dist/setup/*.js"
+    },
+    "./setup/*.js": {
+      "types": "./dist/setup/*.d.ts",
+      "import": "./dist/setup/*.js",
+      "require": "./dist/setup/*.js"
+    },
     "./gc": {
       "types": "./dist/gc/index.d.ts",
       "import": "./dist/gc/index.js",
