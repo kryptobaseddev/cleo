@@ -42,6 +42,7 @@ import type {
   VerifyResult,
 } from '@cleocode/contracts';
 import { loadProjectContext } from '../agents/variable-substitution.js';
+import { getProjectRoot } from '../paths.js';
 import { runToolCached } from '../tasks/tool-cache.js';
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { runInvariants } from './invariants/index.js';
@@ -276,8 +277,19 @@ function clearHandle(projectRoot: string): void {
 export function makeAdr061GateRunner(
   projectRoot: string,
 ): (canonicalTool: string, cwd: string) => Promise<{ passed: boolean; reason?: string }> {
-  return async (canonicalTool: string, _cwd: string) => {
-    const resolution = resolveToolCommand(canonicalTool, projectRoot);
+  return async (canonicalTool: string, cwd: string) => {
+    // T9550: Caller-supplied `cwd` can be any path (project root, monorepo
+    // subdir, worktree). Normalize via the canonical resolver per ADR-067:
+    // `getProjectRoot()` walks up from the candidate, honors worktree
+    // AsyncLocalStorage scope, CLEO_ROOT/CLEO_PROJECT_ROOT/CLEO_DIR env
+    // overrides, and validates against `.cleo/project-info.json`. If `cwd`
+    // is omitted, fall back to the factory-captured `projectRoot`. The
+    // factory value is itself passed through `getProjectRoot()` so the
+    // entire pipeline shares one canonical-root contract.
+    const candidate = cwd && cwd.length > 0 ? cwd : projectRoot;
+    const effectiveRoot = getProjectRoot(candidate);
+
+    const resolution = resolveToolCommand(canonicalTool, effectiveRoot);
     if (!resolution.ok) {
       return {
         passed: false,
@@ -285,7 +297,7 @@ export function makeAdr061GateRunner(
       };
     }
 
-    const result = await runToolCached(resolution.command, projectRoot);
+    const result = await runToolCached(resolution.command, effectiveRoot);
 
     if (result.exitCode === null) {
       return {
