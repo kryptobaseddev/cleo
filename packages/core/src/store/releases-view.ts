@@ -15,8 +15,8 @@
  * @see SPEC-T9345 §3.12
  */
 
-import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { sql } from 'drizzle-orm';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 
 // ── Sub-shapes (parsed from JSON columns) ─────────────────────────────────────
 
@@ -334,7 +334,8 @@ export async function queryReleasesView(
   const offsetClause =
     typeof offset === 'number' && offset > 0 && limitClause ? `OFFSET ${offset}` : '';
 
-  const query = `SELECT * FROM releases_view ${whereClause} ORDER BY created_at DESC ${limitClause} ${offsetClause}`.trim();
+  const query =
+    `SELECT * FROM releases_view ${whereClause} ORDER BY created_at DESC ${limitClause} ${offsetClause}`.trim();
 
   const rawRows = db.all(sql.raw(query)) as ReleasesViewRawRow[];
   return rawRows.map(mapRawRow);

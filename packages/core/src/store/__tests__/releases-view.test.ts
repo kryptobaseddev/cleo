@@ -128,9 +128,9 @@ describe('releases_view integration', () => {
   it('releases_view has the expected column list', () => {
     // sqlite doesn't have PRAGMA table_info for views; use table_xinfo or
     // a test SELECT to enumerate columns.
-    const result = nativeDb
-      .prepare('SELECT * FROM releases_view LIMIT 0')
-      .all() as Array<Record<string, unknown>>;
+    const result = nativeDb.prepare('SELECT * FROM releases_view LIMIT 0').all() as Array<
+      Record<string, unknown>
+    >;
     // When there are no rows the result is empty; introspect columns from the
     // statement object instead.
     const stmt = nativeDb.prepare('SELECT * FROM releases_view LIMIT 0');
