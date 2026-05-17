@@ -884,6 +884,28 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           async appendLog(entry: Record<string, unknown>): Promise<void> {
             await accessor.appendLog(entry);
           },
+          // T9514: persist relates mutations inside the transaction
+          async addRelation(
+            taskId: string,
+            relatedTo: string,
+            relationType: string,
+            reason?: string,
+          ): Promise<void> {
+            await accessor.addRelation(taskId, relatedTo, relationType, reason);
+          },
+          async removeRelation(
+            taskId: string,
+            relatedTo: string,
+            relationType?: string,
+          ): Promise<void> {
+            await accessor.removeRelation(taskId, relatedTo, relationType);
+          },
+          async clearRelations(taskId: string): Promise<void> {
+            await db
+              .delete(schema.taskRelations)
+              .where(eq(schema.taskRelations.taskId, taskId))
+              .run();
+          },
         };
 
         const result = await fn(tx);
