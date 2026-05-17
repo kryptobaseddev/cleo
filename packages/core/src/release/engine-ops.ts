@@ -1362,6 +1362,7 @@ export async function releaseShip(
       projectRoot,
       epicAccessor,
       priorReleasedTaskIds,
+      epicId,
     );
     if (epicCheck.hasIncomplete) {
       const incomplete = epicCheck.epics
