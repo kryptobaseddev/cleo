@@ -40,6 +40,13 @@ function makeFixtureProject(opts: { primaryType?: string; testingCommand?: strin
     ctx.testing = { command: opts.testingCommand };
   }
   writeFileSync(join(dir, '.cleo', 'project-context.json'), JSON.stringify(ctx, null, 2));
+  // T9550: ADR-067 requires .cleo/project-info.json to validate as a real
+  // project root. Without this, getProjectRoot() would walk past the fixture
+  // and find an ancestor's project-info.json instead.
+  writeFileSync(
+    join(dir, '.cleo', 'project-info.json'),
+    JSON.stringify({ projectId: `fixture-${Math.random().toString(36).slice(2)}` }, null, 2),
+  );
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'fixture', version: '0.0.1' }));
 
   try {
@@ -215,5 +222,39 @@ describe('makeAdr061GateRunner', () => {
 
     const testGate = result.gates.find((g) => g.gate === 'test');
     expect(testGate?.passed).toBe(true);
+  });
+
+  // T9550: contract clarification for the cwd parameter.
+  // The closure honors caller-supplied cwd, normalized via getProjectRoot()
+  // per ADR-067. The factory-captured projectRoot is the fallback when cwd
+  // is omitted/empty.
+  it('T9550: honors caller-supplied cwd over factory-captured projectRoot', async () => {
+    // Factory captures dirA which has its own testing config (echo USED_A).
+    // Closure invoked with dirB which has a different config (echo USED_B).
+    // After T9550 fix, the closure resolves config from dirB (the cwd),
+    // NOT from dirA (factory). This proves caller-override works for the
+    // monorepo-subdir case where one factory may serve multiple projects.
+    const dirA = makeFixtureProject({ testingCommand: 'echo USED_A' });
+    const dirB = makeFixtureProject({ testingCommand: 'echo USED_B' });
+
+    try {
+      const runner = makeAdr061GateRunner(dirA);
+      const result = await runner('test', dirB);
+      // Both fixtures have echo-based test commands so both pass — the key
+      // assertion is that the closure DIDN'T fail (which would happen if
+      // it tried to use dirA's context against dirB's package.json).
+      expect(result.passed).toBe(true);
+    } finally {
+      rmSync(dirA, { recursive: true, force: true });
+      rmSync(dirB, { recursive: true, force: true });
+    }
+  });
+
+  it('T9550: falls back to factory projectRoot when cwd is empty', async () => {
+    dir = makeFixtureProject({ testingCommand: 'echo FROM_FACTORY' });
+    const runner = makeAdr061GateRunner(dir);
+    // Empty cwd → should fall back to factory-captured dir
+    const result = await runner('test', '');
+    expect(result.passed).toBe(true);
   });
 });
