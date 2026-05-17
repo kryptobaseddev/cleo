@@ -588,6 +588,42 @@ export interface CleoConfig {
    * @defaultValue undefined
    */
   briefing?: BriefingConfig;
+  /**
+   * Auth-source consent gates for credential seeders.
+   *
+   * Gates third-party credential imports (e.g. Claude Code OAuth) behind
+   * explicit operator opt-in. Mirrors Hermes Agent's PR #4210 consent gate.
+   *
+   * @defaultValue undefined
+   * @task T9410
+   */
+  auth?: AuthConfig;
+}
+
+/**
+ * Auth-source consent configuration.
+ *
+ * Concrete `CredentialSeeder` implementations consult these flags before
+ * reading any third-party credential file (e.g. `~/.claude/.credentials.json`).
+ * Defaulting every flag to `false` keeps auxiliary fallback chains opt-in:
+ * aux callers cannot silently read user credentials they were never granted.
+ *
+ * @task T9410
+ */
+export interface AuthConfig {
+  /**
+   * Whether the operator has explicitly opted in to import the Claude Code
+   * OAuth token (`~/.claude/.credentials.json`) into the CLEO credential
+   * pool.
+   *
+   * When `false` (default), the `claude-code` seeder MUST NOT read the file
+   * and MUST return an empty seeder result. When `true`, the seeder reads
+   * the file and emits a single `source: 'claude-code'` entry for the
+   * `anthropic` provider.
+   *
+   * @defaultValue false
+   */
+  claudeCodeConsentGiven?: boolean;
 }
 
 /**

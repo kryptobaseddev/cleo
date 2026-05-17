@@ -107,6 +107,12 @@ const DEFAULTS: CleoConfig = {
       maxTranscriptChars: 60000,
     },
   },
+  auth: {
+    // T9410 — Claude Code OAuth import gated behind explicit opt-in.
+    // Mirrors Hermes Agent PR #4210: aux fallback chains cannot silently
+    // read `~/.claude/.credentials.json` without the operator's consent.
+    claudeCodeConsentGiven: false,
+  },
 };
 
 /** Environment variable to config path mapping. */
