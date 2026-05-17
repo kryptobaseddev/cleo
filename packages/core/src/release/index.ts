@@ -114,6 +114,7 @@ export type { ReleaseIvtrSuggestParams, releaseCoreOps } from './ops.js';
 // T1597 release pipeline (canonical 4-step flow)
 export {
   loadActiveReleaseHandle,
+  makeAdr061GateRunner,
   releasePublish,
   releaseReconcile,
   releaseStart,
