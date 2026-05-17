@@ -1455,6 +1455,385 @@ export const commitFiles = sqliteTable(
   ],
 );
 
+// === PROVENANCE GRAPH TABLES — RELEASES (T9508 — ADR-073 / SPEC-T9345) ===
+
+/**
+ * Versioning scheme enum for {@link releasesNew.scheme}.
+ *
+ * - `calver`        — YYYY.MM.patch (e.g. 2026.5.74) — CLEO default
+ * - `semver`        — MAJOR.MINOR.PATCH (e.g. 1.2.3)
+ * - `calver-suffix` — YYYY.MM.patch.N suffix hotfix (e.g. 2026.5.74.2)
+ *
+ * @task T9508
+ */
+export const RELEASE_SCHEMES = ['calver', 'semver', 'calver-suffix'] as const;
+
+/** Union type for {@link RELEASE_SCHEMES}. */
+export type ReleaseScheme = (typeof RELEASE_SCHEMES)[number];
+
+/**
+ * Release channel enum for {@link releasesNew.channel}.
+ *
+ * Controls which npm dist-tag (or equivalent for non-npm archetypes) the
+ * artifact is published under. Resolved from git branch via
+ * `release-config.ts:resolveChannelFromBranch`.
+ *
+ * @task T9508
+ */
+export const RELEASE_CHANNELS = ['latest', 'beta', 'dev', 'hotfix'] as const;
+
+/** Union type for {@link RELEASE_CHANNELS}. */
+export type ReleaseChannel = (typeof RELEASE_CHANNELS)[number];
+
+/**
+ * Release kind enum for {@link releasesNew.releaseKind}.
+ *
+ * Describes the whole release packaging, orthogonal to individual
+ * {@link RELEASE_CHANGE_TYPES} within the release.
+ * - `regular`    — standard scheduled release
+ * - `hotfix`     — emergency patch outside regular cadence
+ * - `prerelease` — alpha/beta/rc release for early adopters
+ *
+ * @task T9508
+ */
+export const RELEASE_KINDS = ['regular', 'hotfix', 'prerelease'] as const;
+
+/** Union type for {@link RELEASE_KINDS}. */
+export type ReleaseKind = (typeof RELEASE_KINDS)[number];
+
+/**
+ * Release status FSM enum for {@link releasesNew.status}.
+ *
+ * Defines the 8-state FSM from SPEC-T9345 §10.1:
+ *   planned → pr-opened → pr-merged → published → reconciled
+ *   with rolled_back | failed | cancelled as terminal off-ramps.
+ *
+ * State transitions per R-302 MUST be monotonic; illegal transitions return
+ * `E_INVALID_STATE` and MUST NOT mutate any row.
+ *
+ * @task T9508
+ * @see SPEC-T9345 §10.1
+ */
+export const RELEASE_STATUSES = [
+  'planned',
+  'pr-opened',
+  'pr-merged',
+  'published',
+  'reconciled',
+  'rolled_back',
+  'failed',
+  'cancelled',
+] as const;
+
+/** Union type for {@link RELEASE_STATUSES}. */
+export type ReleaseStatus = (typeof RELEASE_STATUSES)[number];
+
+/**
+ * Release change type enum for {@link releaseChanges.changeType}.
+ *
+ * 12-value CLEO taxonomy (Option B from provenance-graph-design.md §2.2).
+ * Lives at the release-changes level (not on `tasks.kind`) so that:
+ * - A single task can produce multiple change rows across releases.
+ * - Hotfix classification is a release-packaging decision, not a task property.
+ * - Auto-classification is agent-writable without touching OWNER-WRITE-ONLY fields.
+ *
+ * @task T9508
+ * @see SPEC-T9345 §2.2
+ */
+export const RELEASE_CHANGE_TYPES = [
+  'feature',
+  'enhancement',
+  'bug',
+  'hotfix',
+  'security',
+  'breaking',
+  'refactor',
+  'docs',
+  'chore',
+  'revert',
+  'deprecation',
+  'infrastructure',
+] as const;
+
+/** Union type for {@link RELEASE_CHANGE_TYPES}. */
+export type ReleaseChangeType = (typeof RELEASE_CHANGE_TYPES)[number];
+
+/**
+ * Impact level enum for {@link releaseChanges.impact}.
+ *
+ * Maps to semver bump assessment:
+ * - `major` — breaking change (MAJOR bump)
+ * - `minor` — new feature (MINOR bump)
+ * - `patch` — bug fix / chore (PATCH bump)
+ * - `none`  — cosmetic / docs / trivial (no version bump warranted alone)
+ *
+ * @task T9508
+ */
+export const RELEASE_IMPACTS = ['major', 'minor', 'patch', 'none'] as const;
+
+/** Union type for {@link RELEASE_IMPACTS}. */
+export type ReleaseImpact = (typeof RELEASE_IMPACTS)[number];
+
+/**
+ * Classification provenance enum for {@link releaseChanges.classifiedBy}.
+ *
+ * Tracks how a change was classified:
+ * - `auto`     — derived by the classification engine from CC prefix + heuristics
+ * - `manual`   — owner overrode the auto classification via `cleo release classify`
+ * - `approved` — owner approved an agent-proposed classification
+ *
+ * @task T9508
+ */
+export const RELEASE_CLASSIFIED_BY = ['auto', 'manual', 'approved'] as const;
+
+/** Union type for {@link RELEASE_CLASSIFIED_BY}. */
+export type ReleaseClassifiedBy = (typeof RELEASE_CLASSIFIED_BY)[number];
+
+/**
+ * `releases` — Normalized release record (ADR-073 / SPEC-T9345 §3.6).
+ *
+ * Separate from the legacy {@link releaseManifests} table, which is preserved as-is
+ * per F12 force in ADR-073. This table is the canonical normalized fact for a
+ * shipped release; the legacy manifest row stays as the in-flight scratchpad during
+ * the 12-step pipeline.
+ *
+ * ID format: `<projectHash>:<version>` (e.g., `abc123:v2026.6.0`).
+ *
+ * status FSM: planned → pr-opened → pr-merged → published → reconciled, with
+ * `rolled_back`, `failed`, and `cancelled` as terminal off-ramps from any non-terminal
+ * state. See {@link RELEASE_STATUSES} and SPEC-T9345 §10.1.
+ *
+ * Named `releasesNew` in Drizzle to avoid TypeScript identifier collision with the
+ * word "releases" that could conflict with other exports. The actual SQL table name
+ * is `releases`.
+ *
+ * @task T9508
+ * @epic T9491
+ * @see SPEC-T9345 §3.6
+ */
+export const releasesNew = sqliteTable(
+  'releases',
+  {
+    /** Canonical PK: `<projectHash>:<version>` (e.g., `abc123:v2026.6.0`). */
+    id: text('id').primaryKey(),
+    /** Release version string, e.g. `v2026.6.0`. UNIQUE — one row per version. */
+    version: text('version').notNull().unique(),
+    /**
+     * Versioning scheme used for this release. See {@link RELEASE_SCHEMES}.
+     */
+    scheme: text('scheme', { enum: RELEASE_SCHEMES }).notNull().default('calver'),
+    /**
+     * Publication channel governing the npm dist-tag (or equivalent).
+     * See {@link RELEASE_CHANNELS}.
+     */
+    channel: text('channel', { enum: RELEASE_CHANNELS }).notNull().default('latest'),
+    /**
+     * FK → tasks.id (ON DELETE SET NULL). The epic that scoped this release.
+     * NULL for hotfixes scoped to a single task, not an epic.
+     */
+    epicId: text('epic_id').references(() => tasks.id, { onDelete: 'set null' }),
+    /**
+     * Release packaging kind — describes the whole release, not individual changes.
+     * See {@link RELEASE_KINDS}.
+     */
+    releaseKind: text('release_kind', { enum: RELEASE_KINDS }).notNull().default('regular'),
+    /**
+     * Current FSM status. Transitions MUST follow SPEC-T9345 §10.1.
+     * See {@link RELEASE_STATUSES}.
+     */
+    status: text('status', { enum: RELEASE_STATUSES }).notNull().default('planned'),
+    /** Previous release version string (denormalized for fast prior-release walks). */
+    previousVersion: text('previous_version'),
+    /**
+     * FK → commits.sha (ON DELETE SET NULL). The git merge commit that landed
+     * the release branch into main (populated by release-prepare.yml at pr-merged time).
+     */
+    mergeCommitSha: text('merge_commit_sha').references(() => commits.sha, {
+      onDelete: 'set null',
+    }),
+    /**
+     * FK → pull_requests.id (ON DELETE SET NULL). The bump-PR opened by `cleo release open`.
+     * pull_requests table is added by migration 20260516000003-000005 (T9507).
+     * Soft FK at application layer until T9507 is merged.
+     */
+    prId: text('pr_id'),
+    /** URL of the GitHub Actions workflow run that built and published this release. */
+    workflowRunUrl: text('workflow_run_url'),
+    /** ISO-8601 timestamp when this row was inserted. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 timestamp when `cleo release plan` created the plan. */
+    plannedAt: text('planned_at'),
+    /** ISO-8601 timestamp when the bump-PR was opened. */
+    prOpenedAt: text('pr_opened_at'),
+    /** ISO-8601 timestamp when the bump-PR was merged. */
+    prMergedAt: text('pr_merged_at'),
+    /** ISO-8601 timestamp when npm/cargo/etc. publish completed. */
+    publishedAt: text('published_at'),
+    /** ISO-8601 timestamp when `cleo release reconcile` completed. */
+    reconciledAt: text('reconciled_at'),
+    /** ISO-8601 timestamp when `cleo release rollback` completed (terminal). */
+    rolledBackAt: text('rolled_back_at'),
+    /** ISO-8601 timestamp when a failure was detected (terminal). */
+    failedAt: text('failed_at'),
+    /** ISO-8601 timestamp when the operator cancelled the release (terminal). */
+    cancelledAt: text('cancelled_at'),
+    /** Human-readable reason for the failure (populated when status='failed'). */
+    failureReason: text('failure_reason'),
+    /** Agent or operator identity that initiated the rollback. */
+    rolledBackBy: text('rolled_back_by'),
+    /** Project hash for multi-repo CLEO installs (matches audit_log.project_hash). */
+    projectHash: text('project_hash'),
+  },
+  (table) => [
+    index('idx_releases_version').on(table.version),
+    index('idx_releases_status').on(table.status),
+    index('idx_releases_channel').on(table.channel),
+    index('idx_releases_epic_id').on(table.epicId),
+    index('idx_releases_merge_commit_sha').on(table.mergeCommitSha),
+    index('idx_releases_project_hash').on(table.projectHash),
+    index('idx_releases_published_at').on(table.publishedAt),
+  ],
+);
+
+/**
+ * `release_commits` — M:N junction between releases and commits (SPEC-T9345 §3.8).
+ *
+ * Each row records one commit that belongs to a given release range, derived from
+ * `git log <prev_tag>..<tag>` at ship time and persisted for query speed.
+ *
+ * `position` is topo-sorted ascending: 0 = oldest commit, N = newest/tag commit.
+ *
+ * Mutual-exclusivity constraint (application-layer enforced):
+ * `is_first`, `is_last`, and `is_release_chore` are logically mutually exclusive —
+ * a commit should hold at most one of these roles. Enforced by parity tests and
+ * application-layer validation rather than a SQLite CHECK because the three-way
+ * `CHECK (is_first + is_last + is_release_chore <= 1)` would require an ALTER TABLE
+ * for older SQLite versions that don't support partial CHECK syntax cleanly.
+ *
+ * FKs:
+ *   release_id → releases(id) ON DELETE CASCADE
+ *   commit_sha → commits(sha) ON DELETE CASCADE
+ *
+ * @task T9508
+ * @epic T9491
+ * @see SPEC-T9345 §3.8
+ */
+export const releaseCommits = sqliteTable(
+  'release_commits',
+  {
+    /** FK → releases.id. ON DELETE CASCADE — purging a release removes its junction rows. */
+    releaseId: text('release_id')
+      .notNull()
+      .references(() => releasesNew.id, { onDelete: 'cascade' }),
+    /** FK → commits.sha. ON DELETE CASCADE — purging a commit removes its junction rows. */
+    commitSha: text('commit_sha')
+      .notNull()
+      .references(() => commits.sha, { onDelete: 'cascade' }),
+    /** Topo-sorted ascending position: 0 = oldest commit reachable since prev release. */
+    position: integer('position').notNull(),
+    /**
+     * 1 if this is the first commit after the previous release boundary.
+     * MUTUALLY EXCLUSIVE with is_last and is_release_chore (application enforced).
+     */
+    isFirst: integer('is_first').notNull().default(0),
+    /**
+     * 1 if this is the tag/merge commit that closed this release.
+     * MUTUALLY EXCLUSIVE with is_first and is_release_chore (application enforced).
+     */
+    isLast: integer('is_last').notNull().default(0),
+    /**
+     * 1 for "chore(release): vX.Y.Z" version-bump commits.
+     * MUTUALLY EXCLUSIVE with is_first and is_last (application enforced).
+     */
+    isReleaseChore: integer('is_release_chore').notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.releaseId, table.commitSha] }),
+    index('idx_release_commits_release_id').on(table.releaseId),
+    index('idx_release_commits_commit_sha').on(table.commitSha),
+    index('idx_release_commits_position').on(table.releaseId, table.position),
+  ],
+);
+
+/**
+ * `release_changes` — Editorial CHANGELOG generation layer (SPEC-T9345 §3.7).
+ *
+ * Each row represents one bullet in the rendered CHANGELOG for a release.
+ * A release with 10 features + 3 bugfixes + 1 breaking change has 14 rows here.
+ *
+ * `change_type` uses the CLEO 12-value taxonomy ({@link RELEASE_CHANGE_TYPES}) rather
+ * than `tasks.kind`, so that:
+ *   - A single task can appear in multiple releases with different change types
+ *     (feature in v1, hotfix in v2, reverted in v3).
+ *   - `hotfix` is a release-packaging decision, not a task property.
+ *   - Classification is agent-writable without touching OWNER-WRITE-ONLY fields.
+ *
+ * `task_id` is nullable: some changes are not task-linked (e.g., a dependency bump
+ * detected from commit diff analysis with no associated CLEO task).
+ *
+ * `summary` is limited to 200 characters (application-layer enforced; parity tests
+ * validate the constraint is documented on the column).
+ *
+ * `id` is generated as a UUID-ish string via `$defaultFn`.
+ *
+ * FKs:
+ *   release_id → releases(id) ON DELETE CASCADE
+ *   task_id    → tasks(id)    ON DELETE SET NULL
+ *
+ * @task T9508
+ * @epic T9491
+ * @see SPEC-T9345 §3.7
+ */
+export const releaseChanges = sqliteTable(
+  'release_changes',
+  {
+    /** UUID primary key generated at insert time. */
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    /** FK → releases.id. ON DELETE CASCADE. */
+    releaseId: text('release_id')
+      .notNull()
+      .references(() => releasesNew.id, { onDelete: 'cascade' }),
+    /**
+     * FK → tasks.id (ON DELETE SET NULL). Nullable — some changes are
+     * not task-linked (e.g., automated dependency bumps).
+     */
+    taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+    /**
+     * CLEO 12-value change taxonomy. See {@link RELEASE_CHANGE_TYPES}.
+     * Orthogonal to `tasks.kind` — classification happens at the release level.
+     */
+    changeType: text('change_type', { enum: RELEASE_CHANGE_TYPES }).notNull(),
+    /**
+     * User-facing one-liner summary for the CHANGELOG. MUST be ≤ 200 characters.
+     * Enforced at application layer; parity tests document this constraint.
+     */
+    summary: text('summary').notNull(),
+    /** Optional markdown body with additional detail (multi-line allowed). */
+    description: text('description'),
+    /**
+     * Semver bump impact assessment. See {@link RELEASE_IMPACTS}.
+     * Defaults to 'patch' (conservative — can be promoted to 'minor' or 'major').
+     */
+    impact: text('impact', { enum: RELEASE_IMPACTS }).notNull().default('patch'),
+    /**
+     * Provenance of the classification. See {@link RELEASE_CLASSIFIED_BY}.
+     * Starts as 'auto' on machine classification; updated to 'manual' or 'approved'
+     * when a human reviews.
+     */
+    classifiedBy: text('classified_by', { enum: RELEASE_CLASSIFIED_BY }).notNull().default('auto'),
+    /** ISO-8601 timestamp when this change was classified. */
+    classifiedAt: text('classified_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_release_changes_release_id').on(table.releaseId),
+    index('idx_release_changes_task_id').on(table.taskId),
+    index('idx_release_changes_change_type').on(table.changeType),
+    index('idx_release_changes_impact').on(table.impact),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type AttachmentRow = typeof attachments.$inferSelect;
@@ -1506,6 +1885,13 @@ export type TaskCommitRow = typeof taskCommits.$inferSelect;
 export type NewTaskCommitRow = typeof taskCommits.$inferInsert;
 export type CommitFileRow = typeof commitFiles.$inferSelect;
 export type NewCommitFileRow = typeof commitFiles.$inferInsert;
+// T9508 provenance graph row types (releases + release_commits + release_changes)
+export type ReleaseRow = typeof releasesNew.$inferSelect;
+export type NewReleaseRow = typeof releasesNew.$inferInsert;
+export type ReleaseCommitRow = typeof releaseCommits.$inferSelect;
+export type NewReleaseCommitRow = typeof releaseCommits.$inferInsert;
+export type ReleaseChangeRow = typeof releaseChanges.$inferSelect;
+export type NewReleaseChangeRow = typeof releaseChanges.$inferInsert;
 
 // agent_credentials REMOVED from tasks.db — T234 clean-cut.
 // Agent data (identity, credentials, capabilities, skills) now lives
