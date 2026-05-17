@@ -33,8 +33,19 @@
  * @epic T-LLM-CRED-CENTRALIZATION
  */
 
-import type { StoredCredential } from './credentials-store.js';
-import { addCredential, getCredentialByLabel, listCredentials } from './credentials-store.js';
+import { isSuppressed } from './credential-removal.js';
+import {
+  BUILTIN_SEEDERS,
+  type CredentialSeeder,
+  type SeederCredentialEntry,
+} from './credential-seeders/index.js';
+import type { CredentialsStoreStrategy, StoredCredential } from './credentials-store.js';
+import {
+  addCredential,
+  getCredentialByLabel,
+  listCredentials,
+  pickCredentialForProviderSync,
+} from './credentials-store.js';
 import { getKimiCodeDeviceCodeConfig } from './oauth/device-code.js';
 import { refreshPkceToken } from './oauth/pkce.js';
 import { getProviderProfile } from './provider-registry/index.js';
@@ -629,4 +640,448 @@ export class CredentialPool {
       return b.priority - a.priority;
     })[0];
   }
+}
+
+// ===========================================================================
+// UnifiedCredentialPool — seed/pick/list over all registered seeders (T9412)
+// ===========================================================================
+//
+// `UnifiedCredentialPool` is the unified credential pool described in
+// E-CONFIG-AUTH-UNIFY E2a §5.2 T-E2-5. Where the per-provider `CredentialPool`
+// above manages rotation/cooldown for an already-populated pool, the unified
+// pool is the *seeding* layer: it walks `BUILTIN_SEEDERS`, applies consent +
+// suppression gating, and upserts the discovered entries into the credential
+// store via `addCredential` so a downstream resolver (T9413) can pick from a
+// populated pool.
+//
+// The pool exposes:
+//   - `seed({ force? })` — iterate every registered seeder, gate on consent
+//     and suppression, swallow per-seeder errors (so one bad source can never
+//     break the whole bootstrap), and upsert the returned entries.
+//   - `pick(provider, opts)` — lazy-seed on first call, then read the store
+//     synchronously via `pickCredentialForProviderSync`.
+//   - `list()` — return every entry currently in the store without seeding.
+//   - `getSeederStatus()` — snapshot of the last-result of every registered
+//     seeder, suitable for `cleo status` / `cleo auth list` diagnostics.
+//
+// The pool is exposed as a process-wide singleton via `getCredentialPool()`.
+// Tests requiring isolation MUST construct a fresh `new UnifiedCredentialPool()`
+// (the registry argument allows pointing at an isolated `SeederRegistry`).
+
+/**
+ * Seed-attempt cache TTL — 60 seconds per E2a §5.2 T-E2-5 acceptance criterion.
+ *
+ * After a successful (non-`force`) seed pass, repeat calls to `seed()` are
+ * short-circuited until this TTL elapses. `force: true` always bypasses the
+ * cache. `lazy-seed` from `pick()` also honours the cache.
+ *
+ * @task T9412
+ */
+export const POOL_SEED_CACHE_TTL_MS = 60 * 1_000;
+
+/**
+ * Outcome of a single seeder's most-recent invocation.
+ *
+ * Returned in {@link UnifiedCredentialPool.getSeederStatus} for diagnostic
+ * surfaces (`cleo status`, `cleo auth list --verbose`).
+ *
+ * @task T9412
+ */
+export interface SeederStatus {
+  /** Source id (e.g. `'env'`, `'claude-code'`). */
+  sourceId: string;
+  /** Provider this seeder produces credentials for. */
+  provider: string;
+  /** Epoch ms of the most recent invocation; `undefined` if never invoked. */
+  lastSeededAt?: number;
+  /** Outcome of the most recent invocation. */
+  lastResult: 'ok' | 'failed' | 'skipped-consent' | 'skipped-suppressed';
+  /** Number of entries the seeder produced on `lastSeededAt`. */
+  entriesProduced?: number;
+  /** Error message when `lastResult === 'failed'`. */
+  error?: string;
+}
+
+/**
+ * Aggregate counts returned by {@link UnifiedCredentialPool.seed}.
+ *
+ * @task T9412
+ */
+export interface PoolSeedResult {
+  /** Number of seeders whose entries were successfully upserted. */
+  added: number;
+  /** Number of seeders that threw or whose upsert failed. */
+  failed: number;
+  /** Number of seeders skipped due to consent / suppression / cache. */
+  skipped: number;
+}
+
+/**
+ * Options accepted by {@link UnifiedCredentialPool.pick}.
+ *
+ * Forwarded to `pickCredentialForProviderSync` so callers can request a
+ * specific strategy or label; the pool itself only handles the lazy-seed
+ * hook before delegating.
+ *
+ * @task T9412
+ */
+export interface UnifiedPoolPickOptions {
+  /** Override the store's default strategy. */
+  strategy?: CredentialsStoreStrategy;
+  /** Prefer a specific label (collapses to that entry if present). */
+  preferLabel?: string;
+  /** Skip the lazy-seed step (e.g. for diagnostic reads). Default `false`. */
+  noSeed?: boolean;
+}
+
+/**
+ * Process-wide debug log channel — kept minimal so the pool does not pull in
+ * the broader `cleo log` plumbing. Mirrors the pattern used by the per-provider
+ * pool above.
+ *
+ * Reads `process.env.CLEO_DEBUG` at call time so tests can toggle without
+ * module reload. Output goes to `console.debug` so it shows under `--verbose`
+ * but stays out of clean CLI output by default.
+ *
+ * @internal
+ */
+function debugLog(msg: string, ...rest: unknown[]): void {
+  if (process.env['CLEO_DEBUG']) {
+    console.debug(`[cleo:credential-pool] ${msg}`, ...rest);
+  }
+}
+
+/**
+ * Unified credential pool — drives every registered seeder, upserts the
+ * discovered entries, and exposes `pick`/`list` over the populated store.
+ *
+ * Lifecycle:
+ *
+ *   1. First `pick()` (or explicit `seed()`) walks `BUILTIN_SEEDERS`.
+ *   2. For each seeder: consent gate → suppression gate → `seed()` →
+ *      upsert each returned entry via `addCredential` (preserves the
+ *      seeder's `priority` hint when provided, otherwise the store's
+ *      `max + 10` rule applies).
+ *   3. A successful sweep stamps the cache; subsequent calls within
+ *      {@link POOL_SEED_CACHE_TTL_MS} short-circuit unless `force: true`.
+ *   4. `list()` reads the store directly — never triggers seeding so
+ *      diagnostic surfaces (`cleo auth list`) are pure-read.
+ *
+ * Error isolation: a single seeder that throws does NOT short-circuit the
+ * sweep. The failure is counted, the error stashed in `getSeederStatus`,
+ * and the next seeder runs.
+ *
+ * @example
+ * ```ts
+ * const pool = getCredentialPool();
+ * const entry = await pool.pick('anthropic');
+ * if (entry) {
+ *   // use entry.accessToken
+ * }
+ * ```
+ *
+ * @task T9412
+ */
+export class UnifiedCredentialPool {
+  /** Epoch ms of last successful seed pass (`0` = never seeded). */
+  private lastSeededAt = 0;
+
+  /** Per-seeder diagnostics keyed on `${sourceId}::${provider}`. */
+  private readonly seederStatus = new Map<string, SeederStatus>();
+
+  /**
+   * Construct a pool wired to a specific seeder registry.
+   *
+   * Production code uses the {@link getCredentialPool} singleton which wires
+   * to `BUILTIN_SEEDERS`. Tests pass a fresh `SeederRegistry` to isolate
+   * registration semantics from the process-wide singleton.
+   *
+   * @param registryGetter - Getter that returns the active list of seeders.
+   *   Defaults to `BUILTIN_SEEDERS.getAll()`. A getter (not the array
+   *   directly) is used so the pool stays in sync with seeders registered
+   *   after construction.
+   */
+  constructor(
+    private readonly registryGetter: () => readonly CredentialSeeder[] = () =>
+      BUILTIN_SEEDERS.getAll(),
+  ) {}
+
+  /**
+   * Walk every registered seeder, gate on consent + suppression, and upsert
+   * the returned entries into the store.
+   *
+   * Cache rules:
+   * - If `force !== true` and the last successful seed pass was less than
+   *   {@link POOL_SEED_CACHE_TTL_MS} ago, the sweep is skipped entirely
+   *   and `{ added: 0, failed: 0, skipped: <total-seeders> }` is returned.
+   * - `force: true` always re-runs every seeder.
+   *
+   * Per-seeder rules:
+   * - `isConsentEstablished?` returning `false` → skip (status:
+   *   `'skipped-consent'`).
+   * - `isSuppressed(provider, sourceId)` returning `true` → skip (status:
+   *   `'skipped-suppressed'`).
+   * - `seed()` throwing → counted as `failed`; the error is logged
+   *   and stashed in `getSeederStatus`; the next seeder still runs.
+   * - Each returned entry is upserted via `addCredential`; an upsert
+   *   failure counts the seeder as `failed`.
+   *
+   * @param options - `{ force }` — bypass the 60s cache when `true`.
+   * @returns Aggregate counts across every seeder.
+   * @task T9412
+   */
+  async seed(options: { force?: boolean } = {}): Promise<PoolSeedResult> {
+    const seeders = this.registryGetter();
+    const now = Date.now();
+
+    // ----- Cache short-circuit ------------------------------------------------
+    if (
+      !options.force &&
+      this.lastSeededAt > 0 &&
+      now - this.lastSeededAt < POOL_SEED_CACHE_TTL_MS
+    ) {
+      debugLog('seed: cache hit, skipping sweep', {
+        ageMs: now - this.lastSeededAt,
+        ttlMs: POOL_SEED_CACHE_TTL_MS,
+      });
+      return { added: 0, failed: 0, skipped: seeders.length };
+    }
+
+    let added = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (const seeder of seeders) {
+      const key = `${seeder.sourceId}::${seeder.provider}`;
+      const stampedAt = Date.now();
+
+      // -- Consent gate -------------------------------------------------------
+      if (typeof seeder.isConsentEstablished === 'function') {
+        let consented: boolean;
+        try {
+          consented = await seeder.isConsentEstablished(seeder.provider);
+        } catch (err) {
+          // Treat a consent-gate exception as a failure rather than a skip:
+          // the operator should know that a gate is broken.
+          failed++;
+          this.seederStatus.set(key, {
+            sourceId: seeder.sourceId,
+            provider: seeder.provider,
+            lastSeededAt: stampedAt,
+            lastResult: 'failed',
+            error: `consent gate threw: ${err instanceof Error ? err.message : String(err)}`,
+          });
+          debugLog('seed: consent gate threw', { seeder: key, err });
+          continue;
+        }
+        if (!consented) {
+          skipped++;
+          this.seederStatus.set(key, {
+            sourceId: seeder.sourceId,
+            provider: seeder.provider,
+            lastSeededAt: stampedAt,
+            lastResult: 'skipped-consent',
+          });
+          continue;
+        }
+      }
+
+      // -- Suppression gate ---------------------------------------------------
+      // The suppression list is keyed on `(provider, SeederSourceId)`; since
+      // `SeederSourceId` is the union the seeder's `sourceId` is constrained
+      // to, the cast is sound.
+      let suppressed: boolean;
+      try {
+        suppressed = isSuppressed(seeder.provider, seeder.sourceId);
+      } catch (err) {
+        // A broken suppression-file read should not block seeding — treat as
+        // un-suppressed but log the failure for diagnostics.
+        debugLog('seed: isSuppressed threw — treating as un-suppressed', {
+          seeder: key,
+          err,
+        });
+        suppressed = false;
+      }
+      if (suppressed) {
+        skipped++;
+        this.seederStatus.set(key, {
+          sourceId: seeder.sourceId,
+          provider: seeder.provider,
+          lastSeededAt: stampedAt,
+          lastResult: 'skipped-suppressed',
+        });
+        continue;
+      }
+
+      // -- Invoke seeder ------------------------------------------------------
+      let entries: SeederCredentialEntry[];
+      try {
+        const result = await seeder.seed();
+        entries = result.entries;
+      } catch (err) {
+        failed++;
+        this.seederStatus.set(key, {
+          sourceId: seeder.sourceId,
+          provider: seeder.provider,
+          lastSeededAt: stampedAt,
+          lastResult: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        });
+        debugLog('seed: seeder threw', { seeder: key, err });
+        continue;
+      }
+
+      // -- Upsert entries -----------------------------------------------------
+      let upsertFailed = false;
+      for (const entry of entries) {
+        try {
+          await addCredential(entry);
+        } catch (err) {
+          upsertFailed = true;
+          debugLog('seed: addCredential threw', { seeder: key, label: entry.label, err });
+          // Stash the first upsert error so getSeederStatus surfaces something.
+          this.seederStatus.set(key, {
+            sourceId: seeder.sourceId,
+            provider: seeder.provider,
+            lastSeededAt: stampedAt,
+            lastResult: 'failed',
+            entriesProduced: entries.length,
+            error: `addCredential threw for '${entry.label}': ${err instanceof Error ? err.message : String(err)}`,
+          });
+          break;
+        }
+      }
+      if (upsertFailed) {
+        failed++;
+        continue;
+      }
+
+      added++;
+      this.seederStatus.set(key, {
+        sourceId: seeder.sourceId,
+        provider: seeder.provider,
+        lastSeededAt: stampedAt,
+        lastResult: 'ok',
+        entriesProduced: entries.length,
+      });
+    }
+
+    // Only stamp the cache on a complete sweep — caller may still force-rerun.
+    this.lastSeededAt = Date.now();
+
+    return { added, failed, skipped };
+  }
+
+  /**
+   * Pick a credential for the given provider, lazy-seeding on first call.
+   *
+   * Behaviour:
+   * - First call (or after `resetForTests()`) triggers a `seed()` pass.
+   * - Subsequent calls within {@link POOL_SEED_CACHE_TTL_MS} skip seeding.
+   * - The actual pick delegates to `pickCredentialForProviderSync` so the
+   *   strategy + label-preference semantics match the rest of the store.
+   *
+   * @param provider - LLM transport to pick for.
+   * @param options - Optional strategy / label / no-seed flag.
+   * @returns The selected `StoredCredential`, or `null` when the pool is
+   *   empty (or every entry has expired / been disabled).
+   * @task T9412
+   */
+  async pick(
+    provider: ModelTransport,
+    options: UnifiedPoolPickOptions = {},
+  ): Promise<StoredCredential | null> {
+    if (!options.noSeed) {
+      await this.seed();
+    }
+    return pickCredentialForProviderSync(provider, {
+      ...(options.strategy != null && { strategy: options.strategy }),
+      ...(options.preferLabel != null && { preferLabel: options.preferLabel }),
+    });
+  }
+
+  /**
+   * List every entry currently in the credential store.
+   *
+   * Pure read — never triggers seeding. Intended for diagnostic surfaces
+   * (`cleo auth list`, `cleo status`) where calling `seed()` would be
+   * surprising side-effect.
+   *
+   * @returns Read-only snapshot sorted by file order (insertion).
+   * @task T9412
+   */
+  async list(): Promise<readonly StoredCredential[]> {
+    return listCredentials();
+  }
+
+  /**
+   * Snapshot of the last-known outcome of every registered seeder.
+   *
+   * Seeders that have never been invoked do not appear in the snapshot.
+   *
+   * @returns Read-only array of {@link SeederStatus} entries.
+   * @task T9412
+   */
+  getSeederStatus(): readonly SeederStatus[] {
+    return Array.from(this.seederStatus.values());
+  }
+
+  /**
+   * Test-only: invalidate the seed cache and clear status snapshots.
+   *
+   * Production code MUST NOT call this — it bypasses the 60s rate-limit
+   * that exists specifically to prevent runaway seeding under tight retry
+   * loops. The export is prefixed `_` to match the convention used by
+   * `credentials-store.ts` for analogous helpers (`_resetRoundRobinForTests`).
+   *
+   * @internal
+   */
+  _resetForTests(): void {
+    this.lastSeededAt = 0;
+    this.seederStatus.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Singleton accessor
+// ---------------------------------------------------------------------------
+
+/**
+ * Module-state singleton — `null` until the first {@link getCredentialPool}
+ * call constructs the instance. Lazy construction keeps test runners that
+ * import the module without ever calling `getCredentialPool` from paying the
+ * seeder-registration cost.
+ *
+ * @internal
+ */
+let _singleton: UnifiedCredentialPool | null = null;
+
+/**
+ * Return the process-wide {@link UnifiedCredentialPool} singleton.
+ *
+ * Re-imports of this module yield the same instance under Node ESM's module
+ * cache. Tests that need an isolated pool MUST construct one directly
+ * (`new UnifiedCredentialPool(...)`) rather than mutating this singleton.
+ *
+ * @returns The shared pool instance.
+ * @task T9412
+ */
+export function getCredentialPool(): UnifiedCredentialPool {
+  if (_singleton === null) {
+    _singleton = new UnifiedCredentialPool();
+  }
+  return _singleton;
+}
+
+/**
+ * Test-only: drop the singleton so the next {@link getCredentialPool} call
+ * constructs a fresh instance.
+ *
+ * Production callers MUST NOT use this — recreating the pool drops the seed
+ * cache and forces a re-sweep on the next `pick()`.
+ *
+ * @internal
+ */
+export function _resetCredentialPoolSingletonForTests(): void {
+  _singleton = null;
 }
