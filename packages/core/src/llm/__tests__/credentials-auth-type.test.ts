@@ -15,8 +15,10 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { authHeaders, clearAnthropicKeyCache, resolveCredentials } from '../credentials.js';
+import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 
 const SAVED_ENV: Record<string, string | undefined> = {};
 const ENV_KEYS = [
@@ -25,6 +27,10 @@ const ENV_KEYS = [
   'GEMINI_API_KEY',
   'MOONSHOT_API_KEY',
   'XDG_DATA_HOME',
+  // T9405: pin XDG_CONFIG_HOME so getCleoPlatformPaths().config resolves to
+  // a per-test temp dir; without this the global-config-dir tier leaks
+  // across tests within the same process.
+  'XDG_CONFIG_HOME',
   // T9403: getCleoHome() honours CLEO_HOME first; save/restore here.
   'CLEO_HOME',
   'HOME',
@@ -69,12 +75,21 @@ beforeEach(() => {
   saveEnv();
   clearEnv();
   clearAnthropicKeyCache();
+  _resetCleoPlatformPathsCache();
+  _resetGlobalConfigMigrationLatch();
   // Isolate XDG so global config tier never reads developer credentials.
   const xdgRoot = join(
     tmpdir(),
     `cleo-authtype-xdg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
+  const xdgConfigHome = join(
+    tmpdir(),
+    `cleo-authtype-cfg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   process.env['XDG_DATA_HOME'] = xdgRoot;
+  // T9405: pin XDG_CONFIG_HOME so the global-config-dir tier resolves to a
+  // per-test temp dir, not the real `~/.config/cleo`.
+  process.env['XDG_CONFIG_HOME'] = xdgConfigHome;
   // T9403: getCleoHome() honours CLEO_HOME first; mirror XDG layout.
   process.env['CLEO_HOME'] = join(xdgRoot, 'cleo');
   // Point HOME at an empty tmpdir so tier 3 (`~/.claude/.credentials.json`)
@@ -90,6 +105,8 @@ beforeEach(() => {
 afterEach(() => {
   restoreEnv();
   clearAnthropicKeyCache();
+  _resetCleoPlatformPathsCache();
+  _resetGlobalConfigMigrationLatch();
 });
 
 describe('authType detection — anthropic', () => {
