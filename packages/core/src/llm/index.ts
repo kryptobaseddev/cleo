@@ -84,7 +84,44 @@ export {
 } from './context-engines/rule-based-truncation.js';
 // Conversation utilities
 export { countMessageTokens, truncateMessagesToFit } from './conversation.js';
+// Credential removal — RemovalStep registry + suppression state
+// (E-CONFIG-AUTH-UNIFY E2a / T9415)
+export type {
+  RemovalResult,
+  RemovalStep,
+  SuppressionEntry,
+  SuppressionFile,
+} from './credential-removal.js';
+export {
+  addSuppression,
+  buildBuiltinRemovalRegistry,
+  CLAUDE_CODE_REMOVAL_STEP,
+  CLEO_PKCE_REMOVAL_STEP,
+  CODEX_CLI_REMOVAL_STEP,
+  ENV_REMOVAL_STEP,
+  GEMINI_CLI_REMOVAL_STEP,
+  GH_CLI_REMOVAL_STEP,
+  isSuppressed,
+  MANUAL_REMOVAL_STEP,
+  REMOVAL_REGISTRY,
+  RemovalRegistry,
+  readSuppressionFile,
+  removeSuppression,
+  suppressionStatePath,
+  writeSuppressionFile,
+} from './credential-removal.js';
 // Credential seeders — unified pool foundation (E-CONFIG-AUTH-UNIFY E2a / T9408)
+// T9409 adds the concrete `EnvSeeder` and the `./register.js` barrel that
+// populates `BUILTIN_SEEDERS` at module load. Importing this `llm/index.js`
+// implicitly imports `register.js` so consumers of `@cleocode/core/llm` get
+// the populated singleton without an explicit second import.
+import './credential-seeders/register.js';
+
+export {
+  ENV_SEEDER_PRIORITY,
+  EnvSeeder,
+  registerEnvSeeders,
+} from './credential-seeders/env-seeder.js';
 export type {
   CredentialSeeder,
   SeederCredentialEntry,
@@ -147,6 +184,8 @@ export type {
   LegacyFlatKeyImportStatus,
 } from './legacy-flat-key-import.js';
 export {
+  _resetLegacyFlatKeyImportLatch,
+  ensureLegacyFlatAnthropicKeyImported,
   importLegacyFlatAnthropicKey,
   LEGACY_FLAT_KEY_BAK_SUFFIX,
   LEGACY_FLAT_KEY_LABEL,

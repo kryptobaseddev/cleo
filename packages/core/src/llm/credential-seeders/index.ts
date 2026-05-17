@@ -248,9 +248,12 @@ export class SeederRegistry {
  * Process-wide singleton registry used by the resolver.
  *
  * Concrete seeder instances are registered into this registry at module
- * load. T9418 added the three external-CLI seeders (codex-cli, gemini-cli,
- * gh-cli) implementing the "delegate-to-partner-CLI" pattern. Earlier
- * seeders (env, claude-code, cleo-pkce, manual) land in sibling tasks.
+ * load. T9409 added env seeders; T9418 adds the three external-CLI seeders
+ * (codex-cli, gemini-cli, gh-cli) implementing the "delegate-to-partner-CLI"
+ * pattern. The `./register.ts` barrel module aggregates side-effect
+ * imports for env seeders so a single `import './register.js'` populates
+ * every built-in seeder. T9418 seeders self-register at the bottom of
+ * this file.
  *
  * The singleton is a module-scoped constant (`export const`) rather than a
  * class static so re-importing this module from different entry points
