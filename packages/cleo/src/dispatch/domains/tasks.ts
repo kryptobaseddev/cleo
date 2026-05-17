@@ -632,8 +632,8 @@ async function sagaAdd(params: Record<string, unknown>): Promise<LafsEnvelope<un
   if (!sagaResult.success || !sagaResult.data) {
     return lafsError('E_NOT_FOUND', `Saga not found: ${sagaId}`, 'saga.add');
   }
-  const sagaLabels: string[] =
-    ((sagaResult.data.task as Record<string, unknown>)?.labels as string[]) ?? [];
+  const sagaTask = sagaResult.data.task as { labels?: string[] } | undefined;
+  const sagaLabels: string[] = sagaTask?.labels ?? [];
   if (!sagaLabels.includes('saga')) {
     return lafsError('E_INVALID_INPUT', `Task ${sagaId} does not have label='saga'`, 'saga.add');
   }
@@ -642,7 +642,7 @@ async function sagaAdd(params: Record<string, unknown>): Promise<LafsEnvelope<un
   if (!epicResult.success || !epicResult.data) {
     return lafsError('E_NOT_FOUND', `Epic not found: ${epicId}`, 'saga.add');
   }
-  const epicType = (epicResult.data.task as Record<string, unknown>)?.type;
+  const epicType = (epicResult.data.task as { type?: string } | undefined)?.type;
   if (epicType !== 'epic') {
     return lafsError(
       'E_INVALID_INPUT',
@@ -675,9 +675,10 @@ async function sagaList(): Promise<LafsEnvelope<unknown>> {
   }
   const tasks = result.data?.tasks ?? [];
   // Filter to top-level only (no parent)
-  const topLevel = tasks.filter(
-    (t) => !('parentId' in t && (t as Record<string, unknown>).parentId),
-  );
+  const topLevel = tasks.filter((t) => {
+    const parentId = (t as { parentId?: string | null }).parentId;
+    return !parentId;
+  });
   return lafsSuccess({ sagas: topLevel, total: topLevel.length }, 'saga.list');
 }
 
@@ -748,7 +749,7 @@ async function sagaRollup(params: Record<string, unknown>): Promise<LafsEnvelope
   let pending = 0;
   for (const r of shows) {
     if (!r.success) continue;
-    const status = (r.data?.task as Record<string, unknown>)?.status ?? 'pending';
+    const status = (r.data?.task as { status?: string } | undefined)?.status ?? 'pending';
     if (status === 'done') done++;
     else if (status === 'active') active++;
     else if (status === 'blocked') blocked++;
