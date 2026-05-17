@@ -182,6 +182,82 @@ export function runGitWithLockRetry(
 }
 
 /**
+ * Result returned by {@link pollPrMerged} on success.
+ */
+export interface PollPrMergedResult {
+  /** The canonical merge commit OID returned by GitHub (40-char hex). */
+  mergeCommitOid: string;
+}
+
+/**
+ * Poll `gh pr view <prUrl> --json state,mergeCommit` until the PR reaches
+ * `state === "MERGED"` with a non-empty `mergeCommit.oid`, then return
+ * the merge-commit OID.
+ *
+ * This prevents the tag-after-merge race where `git rev-parse HEAD` is
+ * called before GitHub has landed the merge commit on the target branch
+ * (T9504).
+ *
+ * @param prUrl     The GitHub PR URL (or `owner/repo#number` form).
+ * @param opts      Polling options.
+ * @param opts.pollIntervalMs  Delay between polls. Default: 5 000.
+ * @param opts.timeoutMs       Total wait budget. Default: 300 000.
+ * @param opts.cwd             Working directory for `gh` invocation.
+ * @returns `{ mergeCommitOid }` on success, `null` on timeout.
+ *
+ * @task T9504
+ */
+export function pollPrMerged(
+  prUrl: string,
+  opts: { pollIntervalMs?: number; timeoutMs?: number; cwd?: string } = {},
+): PollPrMergedResult | null {
+  const pollIntervalMs = opts.pollIntervalMs ?? 5_000;
+  const timeoutMs = opts.timeoutMs ?? 300_000;
+  const execOpts = {
+    cwd: opts.cwd,
+    encoding: 'utf-8' as const,
+    stdio: 'pipe' as const,
+  };
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let raw: string;
+    try {
+      raw = execFileSync(
+        'gh',
+        ['pr', 'view', prUrl, '--json', 'state,mergeCommit'],
+        execOpts,
+      ) as unknown as string;
+    } catch {
+      // Transient gh CLI error — keep polling
+      raw = '';
+    }
+
+    if (raw) {
+      let parsed: { state?: string; mergeCommit?: { oid?: string } | null };
+      try {
+        parsed = JSON.parse(raw) as { state?: string; mergeCommit?: { oid?: string } | null };
+      } catch {
+        parsed = {};
+      }
+
+      if (parsed.state === 'MERGED' && parsed.mergeCommit?.oid) {
+        return { mergeCommitOid: parsed.mergeCommit.oid };
+      }
+    }
+
+    // Synchronous sleep between polls — keeps the release engine single-threaded.
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    const sleepMs = Math.min(pollIntervalMs, remaining);
+    const sab = new SharedArrayBuffer(4);
+    Atomics.wait(new Int32Array(sab), 0, 0, sleepMs);
+  }
+
+  return null;
+}
+
+/**
  * Detect whether the current execution context is an AI agent.
  * Checks for CLEO_SESSION_ID or CLAUDE_AGENT_TYPE environment variables.
  *
@@ -1736,6 +1812,10 @@ export async function releaseShip(
 
     // Step 9: Merge PR with --merge (preserves commit SHAs)
     logStep(9, 12, 'Merge PR');
+    // mergeCommitOid is populated by the post-merge poll (T9504) when a PR
+    // URL is present.  When no PR exists (direct-push path) it stays null
+    // and Step 10 falls back to `git rev-parse HEAD`.
+    let mergeCommitOid: string | null = null;
     if (prUrl) {
       try {
         execFileSync('gh', ['pr', 'merge', prUrl, '--merge', '--auto'], {
@@ -1765,6 +1845,27 @@ export async function releaseShip(
           return engineError('E_GENERAL', `Failed to merge PR: ${msg}`, { details: { prUrl } });
         }
       }
+
+      // T9504 — Poll until GitHub confirms the merge commit has landed.
+      // `gh pr merge --auto` is fire-and-forget; the merge may not be
+      // visible yet when we immediately run `git pull && git rev-parse HEAD`.
+      const mergeWaitMs = loadedConfig.mergeWaitMs ?? 300_000;
+      const m9poll = `  · Polling gh pr view until MERGED (timeout ${mergeWaitMs / 1000}s)…`;
+      steps.push(m9poll);
+      log.info({ step: 9, prUrl, mergeWaitMs }, m9poll);
+
+      const pollResult = pollPrMerged(prUrl, { timeoutMs: mergeWaitMs, cwd });
+      if (!pollResult) {
+        const errMsg =
+          `PR ${prUrl} did not reach MERGED state within ${mergeWaitMs / 1000}s. ` +
+          `Check GitHub manually and re-run \`cleo release pr-status ${cleanVersion}\`.`;
+        logStep(9, 12, 'Merge PR', false, errMsg);
+        return engineError('E_GENERAL', errMsg, { details: { prUrl, mergeWaitMs } });
+      }
+      mergeCommitOid = pollResult.mergeCommitOid;
+      const m9done = `  ✓ PR merged — mergeCommit.oid ${mergeCommitOid.slice(0, 8)}`;
+      steps.push(m9done);
+      log.info({ step: 9, prUrl, mergeCommitOid }, m9done);
     } else {
       const m = '  ! No PR URL — skipping merge step';
       steps.push(m);
@@ -1772,14 +1873,23 @@ export async function releaseShip(
     }
 
     // Step 10: Tag from main + push tag (idempotent: re-running on an
-    // already-tagged release succeeds when the existing tag points at HEAD).
+    // already-tagged release succeeds when the existing tag points at the
+    // merge commit).
+    //
+    // T9504 fix: When a PR was merged we use the `mergeCommit.oid` returned
+    // by the poll above instead of `git rev-parse HEAD`.  `HEAD` races with
+    // GitHub's merge — the merge commit may not have propagated to the remote
+    // yet when we run `git pull`, producing a tag on the pre-merge SHA.
     logStep(10, 12, 'Tag from main and push');
     try {
       runGitWithLockRetry(['checkout', gitflowCfg.branches.main], gitCwd);
       runGitWithLockRetry(['pull', gitRemote, gitflowCfg.branches.main], gitCwd);
 
-      // Resolve HEAD so we can compare against any pre-existing tag
-      const headSha = execFileSync('git', ['rev-parse', 'HEAD'], gitCwd).toString().trim();
+      // Canonical SHA to tag: the mergeCommit.oid from gh (T9504), or HEAD
+      // when running without a PR (direct-push path).
+      const canonicalSha =
+        mergeCommitOid ??
+        (execFileSync('git', ['rev-parse', 'HEAD'], gitCwd) as unknown as string).toString().trim();
 
       // Check if the tag already exists locally
       let existingTagSha: string | undefined;
@@ -1792,27 +1902,29 @@ export async function releaseShip(
       }
 
       if (existingTagSha) {
-        if (existingTagSha === headSha) {
-          const m = `  i Tag ${gitTag} already exists at HEAD (${headSha.slice(0, 8)}) — skipping create`;
+        if (existingTagSha === canonicalSha) {
+          const m = `  i Tag ${gitTag} already exists at mergeCommit (${canonicalSha.slice(0, 8)}) — skipping create`;
           steps.push(m);
-          log.info({ step: 10, gitTag, headSha }, m);
+          log.info({ step: 10, gitTag, canonicalSha }, m);
         } else {
           logStep(
             10,
             12,
             'Tag from main and push',
             false,
-            `tag ${gitTag} already exists but points at ${existingTagSha.slice(0, 8)} (expected HEAD ${headSha.slice(0, 8)})`,
+            `tag ${gitTag} already exists but points at ${existingTagSha.slice(0, 8)} (expected mergeCommit ${canonicalSha.slice(0, 8)})`,
           );
           return engineError(
             'E_GENERAL',
-            `Tag ${gitTag} already exists at ${existingTagSha} but HEAD is ${headSha}. ` +
+            `Tag ${gitTag} already exists at ${existingTagSha} but expected mergeCommit is ${canonicalSha}. ` +
               `Delete the stale tag (\`git tag -d ${gitTag} && git push origin :refs/tags/${gitTag}\`) and re-run.`,
-            { details: { gitTag, headSha, existingTagSha } },
+            { details: { gitTag, canonicalSha, existingTagSha } },
           );
         }
       } else {
-        runGitWithLockRetry(['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
+        // Tag the exact merge-commit OID — never the local HEAD which may
+        // race against GitHub's merge propagation (T9504).
+        runGitWithLockRetry(['tag', '-a', gitTag, canonicalSha, '-m', `Release ${gitTag}`], gitCwd);
       }
 
       // Push the tag. If it already exists on remote at the same SHA, gh treats
@@ -1825,7 +1937,7 @@ export async function releaseShip(
           (pushErr as { message?: string }).message ??
           String(pushErr);
         if (/already exists|up-to-date|stale/i.test(pushMsg)) {
-          // Confirm the remote tag matches HEAD before declaring success
+          // Confirm the remote tag matches the canonical merge commit before declaring success
           let remoteTagSha = '';
           try {
             const out = execFileSync('git', ['ls-remote', '--tags', gitRemote, gitTag], gitCwd)
@@ -1835,8 +1947,8 @@ export async function releaseShip(
           } catch {
             // ignore
           }
-          if (remoteTagSha && remoteTagSha === headSha) {
-            const m = `  i Tag ${gitTag} already on remote at HEAD — push is no-op`;
+          if (remoteTagSha && remoteTagSha === canonicalSha) {
+            const m = `  i Tag ${gitTag} already on remote at mergeCommit — push is no-op`;
             steps.push(m);
             log.info({ step: 10, gitTag, remoteTagSha }, m);
           } else {
@@ -1856,10 +1968,16 @@ export async function releaseShip(
     }
     logStep(10, 12, 'Tag from main and push', true);
 
-    try {
-      commitSha = execFileSync('git', ['rev-parse', 'HEAD'], gitCwd).toString().trim();
-    } catch {
-      // Non-fatal
+    // Prefer mergeCommit.oid (T9504) over rev-parse HEAD which may still
+    // race on slow network propagation.
+    if (mergeCommitOid) {
+      commitSha = mergeCommitOid;
+    } else {
+      try {
+        commitSha = execFileSync('git', ['rev-parse', 'HEAD'], gitCwd).toString().trim();
+      } catch {
+        // Non-fatal
+      }
     }
 
     // Step 11: Cleanup release branch (local + remote)
