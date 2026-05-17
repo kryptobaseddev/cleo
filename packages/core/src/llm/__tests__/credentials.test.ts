@@ -27,12 +27,24 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  _resetCredentialPoolSingletonForTests,
+  UnifiedCredentialPool,
+} from '../credential-pool.js';
+import {
+  type CredentialSeeder,
+  SeederRegistry,
+  type SeederSourceId,
+} from '../credential-seeders/index.js';
+import {
+  _resetCredentialDeprecationLatchesForTests,
   clearAnthropicKeyCache,
   resolveCredentials,
+  resolveCredentialsAsync,
   storeAnthropicApiKey,
 } from '../credentials.js';
+import { _resetPermsWarningForTests } from '../credentials-store.js';
 import { _resetGlobalConfigMigrationLatch } from '../global-config-migration.js';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +71,9 @@ const ENV_KEYS = [
   // overrides it for filesystem isolation.
   'CLEO_HOME',
   'CLEO_DIR',
+  // T9413: tier-3 (pool) reads files under HOME; isolate so developer state
+  // does not bleed into the async resolver tests.
+  'HOME',
 ];
 
 function saveEnv(): void {
@@ -147,6 +162,9 @@ beforeEach(() => {
   clearAnthropicKeyCache();
   _resetCleoPlatformPathsCache();
   _resetGlobalConfigMigrationLatch();
+  _resetCredentialDeprecationLatchesForTests();
+  _resetCredentialPoolSingletonForTests();
+  _resetPermsWarningForTests();
 });
 
 afterEach(() => {
@@ -154,6 +172,9 @@ afterEach(() => {
   clearAnthropicKeyCache();
   _resetCleoPlatformPathsCache();
   _resetGlobalConfigMigrationLatch();
+  _resetCredentialDeprecationLatchesForTests();
+  _resetCredentialPoolSingletonForTests();
+  _resetPermsWarningForTests();
 });
 
 // ---------------------------------------------------------------------------
@@ -269,50 +290,116 @@ describe('Tier 4 — global config (llm.providers[p].apiKey)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tier 5 — project-config
+// Tier 5 — project-config (REJECTED in T9413 — emits stderr warning,
+// MUST NOT resolve)
 // ---------------------------------------------------------------------------
 
-describe('Tier 5 — project config (.cleo/config.json)', () => {
-  it('resolves openai key from project config (openai unaffected by claude-creds)', () => {
+describe('Tier 5 — project config (.cleo/config.json) — REJECTED (T9413)', () => {
+  it('does NOT resolve openai key from project config and emits stderr warning', () => {
     const { xdgRoot } = makeTempXdg();
     const projectRoot = join(xdgRoot, 'myproject');
     mkdirSync(projectRoot, { recursive: true });
     writeProjectProviderKey(projectRoot, 'openai', 'sk-project-openai');
-    const result = resolveCredentials('openai', { projectRoot });
-    expect(result.apiKey).toBe('sk-project-openai');
-    expect(result.source).toBe('project-config');
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const result = resolveCredentials('openai', { projectRoot });
+      expect(result.apiKey).toBeNull();
+      expect(result.source).toBeUndefined();
+      const writes = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(writes).toMatch(/REJECTED/);
+      expect(writes).toMatch(/migrate-project-secrets/);
+    } finally {
+      writeSpy.mockRestore();
+    }
   });
 
-  it('resolves gemini key from project config', () => {
+  it('does NOT resolve gemini key from project config', () => {
     const { xdgRoot } = makeTempXdg();
     const projectRoot = join(xdgRoot, 'myproject');
     mkdirSync(projectRoot, { recursive: true });
     writeProjectProviderKey(projectRoot, 'gemini', 'sk-project-gemini');
-    const result = resolveCredentials('gemini', { projectRoot });
-    expect(result.apiKey).toBe('sk-project-gemini');
-    expect(result.source).toBe('project-config');
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const result = resolveCredentials('gemini', { projectRoot });
+      expect(result.apiKey).toBeNull();
+      expect(result.source).toBeUndefined();
+    } finally {
+      writeSpy.mockRestore();
+    }
   });
 
-  it('project-config is NOT used when projectRoot is not provided (openai)', () => {
+  it('does not warn when no project apiKey is present', () => {
     const { xdgRoot } = makeTempXdg();
     const projectRoot = join(xdgRoot, 'myproject');
     mkdirSync(projectRoot, { recursive: true });
-    writeProjectProviderKey(projectRoot, 'openai', 'sk-project-key');
-    // No projectRoot passed — should not find the key
-    const result = resolveCredentials('openai');
-    expect(result.apiKey).toBeNull();
-    expect(result.source).toBeUndefined();
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const result = resolveCredentials('openai', { projectRoot });
+      expect(result.apiKey).toBeNull();
+      // No REJECTED warning should fire when the key is simply absent.
+      const writes = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(writes).not.toMatch(/REJECTED/);
+    } finally {
+      writeSpy.mockRestore();
+    }
   });
 
-  it('global-config takes priority over project-config (openai)', () => {
-    const { xdgRoot, configPath } = makeTempXdg();
-    writeGlobalProviderKey(configPath, 'openai', 'sk-global-wins');
+  it('emits the rejection warning only once per provider', () => {
+    const { xdgRoot } = makeTempXdg();
     const projectRoot = join(xdgRoot, 'myproject');
     mkdirSync(projectRoot, { recursive: true });
-    writeProjectProviderKey(projectRoot, 'openai', 'sk-project-loses');
-    const result = resolveCredentials('openai', { projectRoot });
-    expect(result.apiKey).toBe('sk-global-wins');
-    expect(result.source).toBe('global-config');
+    writeProjectProviderKey(projectRoot, 'openai', 'sk-project-openai');
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      resolveCredentials('openai', { projectRoot });
+      resolveCredentials('openai', { projectRoot });
+      resolveCredentials('openai', { projectRoot });
+      const rejectionWrites = writeSpy.mock.calls
+        .map((c) => String(c[0]))
+        .filter((s) => s.includes('REJECTED'));
+      expect(rejectionWrites).toHaveLength(1);
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tier 4a — global config DEPRECATION warning (T9413)
+// ---------------------------------------------------------------------------
+
+describe('Tier 4a — global-config apiKey deprecation (T9413)', () => {
+  it('still resolves the key but emits a DEPRECATED stderr warning', () => {
+    const { configPath } = makeTempXdg();
+    writeGlobalProviderKey(configPath, 'openai', 'sk-global-openai');
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const result = resolveCredentials('openai');
+      expect(result.apiKey).toBe('sk-global-openai');
+      expect(result.source).toBe('global-config');
+      const writes = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(writes).toMatch(/DEPRECATED/);
+      expect(writes).toMatch(/cleo auth add/);
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+
+  it('emits the deprecation warning only once per provider', () => {
+    const { configPath } = makeTempXdg();
+    writeGlobalProviderKey(configPath, 'openai', 'sk-global-openai');
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      resolveCredentials('openai');
+      resolveCredentials('openai');
+      resolveCredentials('openai');
+      const deprecationWrites = writeSpy.mock.calls
+        .map((c) => String(c[0]))
+        .filter((s) => s.includes('DEPRECATED'));
+      expect(deprecationWrites).toHaveLength(1);
+    } finally {
+      writeSpy.mockRestore();
+    }
   });
 });
 
@@ -415,5 +502,138 @@ describe('storeAnthropicApiKey()', () => {
     storeAnthropicApiKey('sk-cache-test');
     process.env['ANTHROPIC_API_KEY'] = 'sk-env-after-store';
     expect(resolveCredentials('anthropic').apiKey).toBe('sk-env-after-store');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCredentialsAsync (T9413 — E-CONFIG-AUTH-UNIFY §5.2 T-E2-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a one-shot seeder that returns a single canned entry. Mirrors the
+ * helper in `credential-pool-unified.test.ts` — duplicated here so this
+ * file does not cross test-file boundaries.
+ */
+function makeAsyncTestSeeder(opts: {
+  sourceId: SeederSourceId;
+  provider: string;
+  token: string;
+  authType?: 'api_key' | 'oauth';
+}): CredentialSeeder {
+  return {
+    sourceId: opts.sourceId,
+    provider: opts.provider,
+    async seed() {
+      return {
+        entries: [
+          {
+            provider: opts.provider as never,
+            label: `${opts.sourceId}:${opts.provider}`,
+            authType: opts.authType ?? 'api_key',
+            source: opts.sourceId,
+            accessToken: opts.token,
+          },
+        ],
+      };
+    },
+  };
+}
+
+describe('resolveCredentialsAsync (T9413) — pool-backed', () => {
+  it('returns the explicit apiKey via tier 1 without touching the pool', async () => {
+    makeTempXdg();
+    const result = await resolveCredentialsAsync('anthropic', { apiKey: 'sk-explicit-async' });
+    expect(result.apiKey).toBe('sk-explicit-async');
+    expect(result.source).toBe('explicit');
+    expect(result.authType).toBe('api_key');
+  });
+
+  it('detects an OAuth-prefixed explicit key as authType=oauth', async () => {
+    makeTempXdg();
+    const result = await resolveCredentialsAsync('anthropic', {
+      apiKey: 'sk-ant-oat-explicit',
+    });
+    expect(result.source).toBe('explicit');
+    expect(result.authType).toBe('oauth');
+  });
+
+  it('delegates to getCredentialPool().pick() and returns the seeded entry', async () => {
+    makeTempXdg();
+    // Pre-seed the on-disk credential store via a test seeder. The default
+    // singleton's seeder sweep will run on the next pick() but is gated on
+    // consent + on-disk files that the isolated HOME does not provide — so
+    // the seeded entry below is the only thing the singleton can pick up
+    // when it reads the store.
+    const registry = new SeederRegistry();
+    registry.register(
+      makeAsyncTestSeeder({
+        sourceId: 'env',
+        provider: 'openai',
+        token: 'sk-pool-openai',
+      }),
+    );
+    const seedingPool = new UnifiedCredentialPool(() => registry.getAll());
+    await seedingPool.seed();
+
+    // The async resolver delegates to the singleton pool which now reads the
+    // pre-seeded entry from the store.
+    const result = await resolveCredentialsAsync('openai');
+    expect(result.apiKey).toBe('sk-pool-openai');
+    expect(result.source).toBe('cred-file');
+    expect(result.authType).toBe('api_key');
+  });
+
+  it('narrows oauth pool entries to authType=oauth', async () => {
+    makeTempXdg();
+    const registry = new SeederRegistry();
+    registry.register(
+      makeAsyncTestSeeder({
+        sourceId: 'cleo-pkce',
+        provider: 'anthropic',
+        token: 'sk-ant-oat-pkce',
+        authType: 'oauth',
+      }),
+    );
+    const pool = new UnifiedCredentialPool(() => registry.getAll());
+    await pool.seed();
+    const entry = await pool.pick('anthropic');
+    expect(entry?.authType).toBe('oauth');
+    expect(entry?.accessToken).toBe('sk-ant-oat-pkce');
+  });
+
+  it('returns null with undefined source when the pool is empty', async () => {
+    makeTempXdg();
+    const result = await resolveCredentialsAsync('moonshot');
+    expect(result.apiKey).toBeNull();
+    expect(result.source).toBeUndefined();
+    expect(result.provider).toBe('moonshot');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sync resolveCredentials — pool tier read (no re-seeding) (T9413)
+// ---------------------------------------------------------------------------
+
+describe('resolveCredentials sync — pool file read without seeding (T9413)', () => {
+  it('reads a pre-seeded entry from the pool file synchronously', async () => {
+    makeTempXdg();
+    const registry = new SeederRegistry();
+    registry.register(
+      makeAsyncTestSeeder({
+        sourceId: 'env',
+        provider: 'openai',
+        token: 'sk-openai-from-pool',
+      }),
+    );
+    // Seed once via the unified pool — this writes the entry into the
+    // on-disk credential store under the isolated CLEO_HOME.
+    const pool = new UnifiedCredentialPool(() => registry.getAll());
+    await pool.seed();
+
+    // The sync resolver MUST read that entry without re-seeding.
+    const result = resolveCredentials('openai');
+    expect(result.apiKey).toBe('sk-openai-from-pool');
+    expect(result.source).toBe('cred-file');
+    expect(result.authType).toBe('api_key');
   });
 });
