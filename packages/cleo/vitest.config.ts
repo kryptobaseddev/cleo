@@ -225,6 +225,13 @@ export default defineConfig({
         import.meta.url,
       ).pathname,
       '@cleocode/nexus': new URL('../../packages/nexus/src/index.ts', import.meta.url).pathname,
+      // T9522: @cleocode/worktree — worktree provisioning helpers, transitively
+      // imported by @cleocode/core/internal via orchestrate/spawn-ops.ts.
+      // Required for integration tests that instantiate TasksHandler.
+      '@cleocode/worktree': new URL(
+        '../../packages/worktree/src/index.ts',
+        import.meta.url,
+      ).pathname,
       // T9315: citty is not symlinked into root node_modules in sparse worktrees;
       // alias it to the pnpm store copy so tests that import CLI command files
       // (which use defineCommand) resolve without node_modules setup.
