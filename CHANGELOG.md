@@ -1,5 +1,32 @@
 # Changelog
 
+## [2026.5.76] (2026-05-17)
+
+### Features
+
+- **Provenance Graph (T9491, Phase 0)** — 11 new SQLite tables + `releases_view` for first-class release-provenance graph per ADR-073. Adds `commits`, `task_commits`, `commit_files`, `pull_requests`, `pr_commits`, `pr_tasks`, `releases`, `release_commits`, `release_changes`, `release_artifacts`, `brain_release_links` + a `releases_view` SQL view joining all 11 via `json_group_array`. Net-additive — legacy `release_manifests` preserved (T9506, T9507, T9508, T9509, T9510).
+- **Dual-write kill switch** — `CLEO_PROVENANCE_DUAL_WRITE` env var gates new task↔commit junction writes during the migration window (default `1` = on); legacy `release_manifests` writes are byte-identical regardless (T9510).
+
+### Bug Fixes
+
+- **fix(T9501)**: Add 60s supervisor timeout to git/gh subprocess calls in release engine. Eliminates the "wedged git commit" failure mode that hung v2026.5.74 ship indefinitely (PID 4011255). 11 new git-timeout tests.
+- **fix(T9502)**: Scope `checkEpicCompleteness` to declared `--epic` argument. Releases targeting one epic no longer fail completeness checks against unrelated epics. 5 new isolation tests.
+- **fix(T9503)**: Wire real gate runners via ADR-061 tool resolver. `makeAdr061GateRunner(projectRoot)` factory replaces the always-fails `defaultRunGate` stub. `runGate` is now REQUIRED at construction time. 14 new tests (10 pipeline + 4 CLI injection).
+- **fix(T9504)**: Poll `gh pr view --json mergeCommit.oid` until `state=MERGED` before tagging. Tag now lands on the canonical merge commit, never the pre-merge SHA. New `release.mergeWaitMs` config (default 300s). 6 new tests.
+- **fix(T9505)**: Reset `CLEO_OWNER_OVERRIDE` counter on `sessionEnd`. Counter is keyed by real `sessionId` via DB lookup, no longer collapsed to `'global'` bucket. 5 new session-cleanup tests.
+- **fix(T9550)**: Normalize gate-runner cwd via `getProjectRoot()` per ADR-067. Honors worktree AsyncLocalStorage scope and env overrides for monorepo subdir / worktree call sites. 2 new tests.
+- **fix(T9551)**: Resolve T9506 migration timestamp collision with T9519 (both used `20260516000000`). Renamed T9506 migrations to `20260517000000-000002`.
+
+### Test additions
+
+53 new tests across the 12 PRs (#180–#196): 25 git/release timeout & scope, 28 schema parity (commits + PR + releases + artifacts), 12 releases-view integration, 3 dual-write regression. Forensics failures #1-6 + #5 from `failure-forensics-10-modes.md` are now structurally eliminated by tests.
+
+### Tasks shipped under T9345 (epic)
+
+T9491 (Phase 0 schema), T9496 (5 forensics fixes), T9506-T9510 (Phase 0 sets 1-4 + integration), T9550 (cwd contract), T9551 (timestamp collision fix), plus T9501-T9505 forensics.
+
+---
+
 ## [2026.5.75] (2026-05-16)
 
 Auto-prepared by release.ship (T1892)
