@@ -276,8 +276,8 @@ function clearHandle(projectRoot: string): void {
 export function makeAdr061GateRunner(
   projectRoot: string,
 ): (canonicalTool: string, cwd: string) => Promise<{ passed: boolean; reason?: string }> {
-  return async (canonicalTool: string, cwd: string) => {
-    const resolution = resolveToolCommand(canonicalTool, cwd);
+  return async (canonicalTool: string, _cwd: string) => {
+    const resolution = resolveToolCommand(canonicalTool, projectRoot);
     if (!resolution.ok) {
       return {
         passed: false,
@@ -285,7 +285,7 @@ export function makeAdr061GateRunner(
       };
     }
 
-    const result = await runToolCached(resolution.command, cwd);
+    const result = await runToolCached(resolution.command, projectRoot);
 
     if (result.exitCode === null) {
       return {
