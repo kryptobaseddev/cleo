@@ -32,6 +32,7 @@
  */
 
 import type { StoredCredential } from '../credentials-store.js';
+import { createClaudeCodeSeeder } from './claude-code-seeder.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -244,11 +245,13 @@ export class SeederRegistry {
 /**
  * Process-wide singleton registry used by the resolver.
  *
- * Concrete seeder modules (e.g. `./env-seeder.ts`, registered in T9409)
- * import this singleton and call `register()` at module load. The
- * `./register.ts` barrel module aggregates those side-effect imports so a
- * single `import './credential-seeders/register.js'` populates every
- * built-in seeder.
+ * Concrete seeder instances are auto-registered into this registry at
+ * module load via the auto-registration block below + the
+ * `./register.ts` barrel which aggregates side-effect imports (T9409+).
+ * As of this merge the registry contains:
+ *
+ * - env seeders for every provider in ENV_VARS (T9409)
+ * - `claude-code` × `anthropic` (T9410)
  *
  * The singleton is a module-scoped constant (`export const`) rather than a
  * class static so re-importing this module from different entry points
@@ -257,5 +260,23 @@ export class SeederRegistry {
  * mutating `BUILTIN_SEEDERS`.
  *
  * @task T9408
+ * @task T9410
  */
 export const BUILTIN_SEEDERS: SeederRegistry = new SeederRegistry();
+
+// ---------------------------------------------------------------------------
+// Auto-registration of concrete seeders (T9410+)
+// ---------------------------------------------------------------------------
+//
+// Concrete seeders import `CredentialSeeder` as a TYPE only from this
+// module, so the value-level import here does not create a runtime cycle.
+// Registration happens AFTER `BUILTIN_SEEDERS` is declared above so the
+// registry is fully initialized when `register()` is called.
+//
+// To disable a built-in seeder during tests, do NOT mutate this list —
+// construct a fresh `new SeederRegistry()` instead (the contract documented
+// on `BUILTIN_SEEDERS`).
+
+export { ClaudeCodeSeeder, createClaudeCodeSeeder } from './claude-code-seeder.js';
+
+BUILTIN_SEEDERS.register(createClaudeCodeSeeder());
