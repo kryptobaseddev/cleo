@@ -30,6 +30,7 @@
     { "path": "../adapters" },
     { "path": "../runtime" },
     { "path": "../cant" },
+    { "path": "../paths" },
     { "path": "../playbooks" }
   ],
   "include": ["src/**/*"],

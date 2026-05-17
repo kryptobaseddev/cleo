@@ -29,6 +29,7 @@
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/nexus": "workspace:*",
+    "@cleocode/paths": "workspace:*",
     "@cleocode/playbooks": "workspace:*",
     "@cleocode/runtime": "workspace:*",
     "check-disk-space": "^3.4.0",
