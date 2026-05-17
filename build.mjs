@@ -52,6 +52,7 @@ const SUBPATH_DIRS = [
   'memory',
   'tasks',
   'sessions',
+  'status',
   'nexus',
   'lifecycle',
   'conduit',
