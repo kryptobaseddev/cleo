@@ -130,6 +130,11 @@ export interface ProjectReleaseConfig {
     slsaLevel?: number;
     requireSignedCommits?: boolean;
   };
+  /**
+   * Maximum milliseconds to wait for a PR to reach MERGED state after
+   * `gh pr merge` is called (T9504). Default: 300_000 (5 minutes).
+   */
+  mergeWaitMs?: number;
 }
 
 /** Default configuration values. */
@@ -208,6 +213,11 @@ export interface ReleaseConfig {
   push?: {
     mode?: PushMode;
   };
+  /**
+   * Maximum milliseconds to wait for a PR to reach MERGED state after
+   * `gh pr merge` is called (T9504). Default: 300_000 (5 minutes).
+   */
+  mergeWaitMs?: number;
 }
 
 /** Release gate definition. */
@@ -290,6 +300,10 @@ export function loadReleaseConfig(cwd?: string): ReleaseConfig {
     projectConfig.releaseBranchPrefix ??
     (readConfigValueSync('release.releaseBranchPrefix', 'release/', cwd) as string);
 
+  const mergeWaitMs =
+    projectConfig.mergeWaitMs ??
+    (readConfigValueSync('release.mergeWaitMs', 300_000, cwd) as number);
+
   return {
     versioningScheme,
     tagPrefix,
@@ -309,6 +323,8 @@ export function loadReleaseConfig(cwd?: string): ReleaseConfig {
     branchModel,
     prRequired,
     releaseBranchPrefix,
+    // T9504 — PR merge wait timeout
+    mergeWaitMs,
   };
 }
 
