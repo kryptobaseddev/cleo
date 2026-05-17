@@ -99,6 +99,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/audit.js')).auditCommand as CommandDef,
   },
   {
+    exportName: 'authCommand',
+    name: 'auth',
+    description:
+      'Unified credential view across all seeded sources (cleo llm list is the LLM-scoped sister command).',
+    load: async () => (await import('../commands/auth.js')).authCommand as CommandDef,
+  },
+  {
     exportName: 'backfillCommand',
     name: 'backfill',
     description:
