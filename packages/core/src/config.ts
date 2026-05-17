@@ -112,6 +112,11 @@ const DEFAULTS: CleoConfig = {
     // Mirrors Hermes Agent PR #4210: aux fallback chains cannot silently
     // read `~/.claude/.credentials.json` without the operator's consent.
     claudeCodeConsentGiven: false,
+    // T9411 — Cooperative write-back to ~/.claude/.credentials.json is ON
+    // by default per OQ-1 in docs/plans/E-CONFIG-AUTH-UNIFY.md. CLEO still
+    // never creates Claude Code's file unless the operator has consented;
+    // this default only governs whether an existing file gets co-written.
+    cooperativeWriteBack: true,
   },
 };
 
