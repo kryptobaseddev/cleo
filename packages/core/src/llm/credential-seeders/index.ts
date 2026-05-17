@@ -32,6 +32,7 @@
  */
 
 import type { StoredCredential } from '../credentials-store.js';
+import { createClaudeCodeSeeder } from './claude-code-seeder.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -244,9 +245,11 @@ export class SeederRegistry {
 /**
  * Process-wide singleton registry used by the resolver.
  *
- * Future tasks (T9409+) register concrete seeder instances into this
- * registry at module load. As of T9408 it is **empty** — no production
- * code path consumes `BUILTIN_SEEDERS` yet.
+ * Concrete seeder instances are auto-registered into this registry at
+ * module load — see the registration block below. As of T9410 the
+ * registry contains:
+ *
+ * - `claude-code` × `anthropic` (T9410)
  *
  * The singleton is a module-scoped constant (`export const`) rather than a
  * class static so re-importing this module from different entry points
@@ -255,5 +258,23 @@ export class SeederRegistry {
  * mutating `BUILTIN_SEEDERS`.
  *
  * @task T9408
+ * @task T9410
  */
 export const BUILTIN_SEEDERS: SeederRegistry = new SeederRegistry();
+
+// ---------------------------------------------------------------------------
+// Auto-registration of concrete seeders (T9410+)
+// ---------------------------------------------------------------------------
+//
+// Concrete seeders import `CredentialSeeder` as a TYPE only from this
+// module, so the value-level import here does not create a runtime cycle.
+// Registration happens AFTER `BUILTIN_SEEDERS` is declared above so the
+// registry is fully initialized when `register()` is called.
+//
+// To disable a built-in seeder during tests, do NOT mutate this list —
+// construct a fresh `new SeederRegistry()` instead (the contract documented
+// on `BUILTIN_SEEDERS`).
+
+export { ClaudeCodeSeeder, createClaudeCodeSeeder } from './claude-code-seeder.js';
+
+BUILTIN_SEEDERS.register(createClaudeCodeSeeder());
