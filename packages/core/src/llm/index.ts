@@ -119,6 +119,17 @@ export {
   pickCredentialForProviderSync,
   removeCredential,
 } from './credentials-store.js';
+// One-shot legacy flat-key migration (T9406 — E-CONFIG-AUTH-UNIFY E1)
+export type {
+  LegacyFlatKeyImportResult,
+  LegacyFlatKeyImportStatus,
+} from './legacy-flat-key-import.js';
+export {
+  importLegacyFlatAnthropicKey,
+  LEGACY_FLAT_KEY_BAK_SUFFIX,
+  LEGACY_FLAT_KEY_LABEL,
+  LEGACY_FLAT_KEY_MARKER,
+} from './legacy-flat-key-import.js';
 export {
   clearLlmExecutorCache,
   DefaultLlmExecutorFactory,
