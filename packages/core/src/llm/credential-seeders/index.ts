@@ -32,6 +32,9 @@
  */
 
 import type { StoredCredential } from '../credentials-store.js';
+import { codexCliSeeder } from './codex-cli-seeder.js';
+import { geminiCliSeeder } from './gemini-cli-seeder.js';
+import { ghCliSeeder } from './gh-cli-seeder.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -244,9 +247,10 @@ export class SeederRegistry {
 /**
  * Process-wide singleton registry used by the resolver.
  *
- * Future tasks (T9409+) register concrete seeder instances into this
- * registry at module load. As of T9408 it is **empty** — no production
- * code path consumes `BUILTIN_SEEDERS` yet.
+ * Concrete seeder instances are registered into this registry at module
+ * load. T9418 added the three external-CLI seeders (codex-cli, gemini-cli,
+ * gh-cli) implementing the "delegate-to-partner-CLI" pattern. Earlier
+ * seeders (env, claude-code, cleo-pkce, manual) land in sibling tasks.
  *
  * The singleton is a module-scoped constant (`export const`) rather than a
  * class static so re-importing this module from different entry points
@@ -254,6 +258,24 @@ export class SeederRegistry {
  * isolation MUST construct a fresh `new SeederRegistry()` instead of
  * mutating `BUILTIN_SEEDERS`.
  *
- * @task T9408
+ * @task T9408 (foundation), T9418 (codex-cli/gemini-cli/gh-cli)
  */
 export const BUILTIN_SEEDERS: SeederRegistry = new SeederRegistry();
+
+// ---------------------------------------------------------------------------
+// Builtin seeder registration (T9418)
+// ---------------------------------------------------------------------------
+
+// The seeders below `import type` from this module, so type imports are
+// erased at runtime — there is no cyclic init even though the imports sit
+// at the top of the file.
+
+BUILTIN_SEEDERS.register(codexCliSeeder);
+BUILTIN_SEEDERS.register(geminiCliSeeder);
+BUILTIN_SEEDERS.register(ghCliSeeder);
+
+// Re-export the seeder singletons for callers that want a direct handle
+// without walking the registry.
+export { codexCliSeeder } from './codex-cli-seeder.js';
+export { geminiCliSeeder } from './gemini-cli-seeder.js';
+export { ghCliSeeder } from './gh-cli-seeder.js';
