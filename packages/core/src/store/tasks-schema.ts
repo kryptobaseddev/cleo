@@ -1196,6 +1196,266 @@ export const experiments = sqliteTable(
   (table) => [index('idx_experiments_merged').on(table.mergedAt)],
 );
 
+// === PROVENANCE GRAPH TABLES (T9506 — ADR-073 / SPEC-T9345) ===
+
+/**
+ * Canonical enum values for {@link commits.conventionalType}.
+ *
+ * Mirrors the Conventional Commits specification prefixes plus `breaking`
+ * to flag BREAKING CHANGE footers. Stored as TEXT in SQLite.
+ *
+ * @task T9506
+ */
+export const COMMIT_CONVENTIONAL_TYPES = [
+  'feat',
+  'fix',
+  'chore',
+  'docs',
+  'refactor',
+  'test',
+  'build',
+  'ci',
+  'perf',
+  'revert',
+  'breaking',
+] as const;
+
+/** Union type for {@link COMMIT_CONVENTIONAL_TYPES}. */
+export type CommitConventionalType = (typeof COMMIT_CONVENTIONAL_TYPES)[number];
+
+/**
+ * Link-kind enum for {@link taskCommits.linkKind}.
+ *
+ * Describes the semantic relationship between a task and a commit:
+ * - `implements` — the commit directly implements the task's acceptance criteria
+ * - `fixes`      — the commit fixes a bug or regression in the task's work
+ * - `refactors`  — the commit restructures code introduced by the task
+ * - `tests`      — the commit adds or updates tests for the task
+ * - `docs`       — the commit updates documentation for the task
+ * - `reverts`    — the commit reverts work introduced by the task
+ *
+ * @task T9506
+ */
+export const COMMIT_LINK_KINDS = [
+  'implements',
+  'fixes',
+  'refactors',
+  'tests',
+  'docs',
+  'reverts',
+] as const;
+
+/** Union type for {@link COMMIT_LINK_KINDS}. */
+export type CommitLinkKind = (typeof COMMIT_LINK_KINDS)[number];
+
+/**
+ * Link-source enum for {@link taskCommits.linkSource}.
+ *
+ * Describes how a task↔commit link was discovered:
+ * - `commit-trailer` — extracted from a `T####:` or `Task-Id:` git trailer
+ * - `commit-subject` — matched `T####` regex in the commit subject line
+ * - `pr-title`       — matched task ID in the PR title
+ * - `pr-body`        — matched task ID in the PR body markdown
+ * - `branch-name`    — parsed from the branch name (e.g., `feat/T9506-...`)
+ * - `manual`         — explicitly linked via `cleo provenance link`
+ *
+ * @task T9506
+ */
+export const COMMIT_LINK_SOURCES = [
+  'commit-trailer',
+  'commit-subject',
+  'pr-title',
+  'pr-body',
+  'branch-name',
+  'manual',
+] as const;
+
+/** Union type for {@link COMMIT_LINK_SOURCES}. */
+export type CommitLinkSource = (typeof COMMIT_LINK_SOURCES)[number];
+
+/**
+ * Change-type enum for {@link commitFiles.changeType}.
+ *
+ * Uses git status letter codes: A=added, M=modified, D=deleted, R=renamed, C=copied.
+ *
+ * @task T9506
+ */
+export const COMMIT_FILE_CHANGE_TYPES = ['A', 'M', 'D', 'R', 'C'] as const;
+
+/** Union type for {@link COMMIT_FILE_CHANGE_TYPES}. */
+export type CommitFileChangeType = (typeof COMMIT_FILE_CHANGE_TYPES)[number];
+
+/**
+ * `commits` — Every git commit reachable from a release tag.
+ *
+ * Captures commit identity, author attribution, Conventional Commits
+ * classification, and project correlation so that SQL queries can answer
+ * "which commits shipped in release vX.Y.Z?" without shelling out to git
+ * at query time.
+ *
+ * Enabled edges (once junction tables are populated):
+ *   commit → task     via `task_commits`
+ *   commit → release  via `release_commits` (T9507)
+ *   commit → file     via `commit_files`
+ *
+ * @task T9506
+ * @epic T9491
+ * @see SPEC-T9345 §3.1
+ */
+export const commits = sqliteTable(
+  'commits',
+  {
+    /** Full 40-char git SHA — primary key. */
+    sha: text('sha').primaryKey(),
+    /** First 7 characters of the SHA for display purposes. */
+    shortSha: text('short_sha').notNull(),
+    /** Author display name (from `git log %an`). */
+    authorName: text('author_name'),
+    /** Author email (from `git log %ae`). */
+    authorEmail: text('author_email'),
+    /** ISO-8601 author timestamp (from `git log %aI`). */
+    authoredAt: text('authored_at').notNull(),
+    /** Committer display name (from `git log %cn`). */
+    committerName: text('committer_name'),
+    /** Committer email (from `git log %ce`). */
+    committerEmail: text('committer_email'),
+    /** ISO-8601 committer timestamp (from `git log %cI`). */
+    committedAt: text('committed_at').notNull(),
+    /** Full commit message body (subject + blank line + body if present). */
+    message: text('message').notNull(),
+    /** First line of the commit message (the subject). */
+    subject: text('subject').notNull(),
+    /**
+     * Conventional Commits type parsed from the subject line.
+     * NULL when the commit does not follow Conventional Commits format.
+     * See {@link COMMIT_CONVENTIONAL_TYPES}.
+     */
+    conventionalType: text('conventional_type'),
+    /** 1 when this commit matches the `chore(release): vX.Y.Z` release pattern. */
+    isReleaseCommit: integer('is_release_commit').notNull().default(0),
+    /** 1 when the commit has more than one parent (merge commit). */
+    isMergeCommit: integer('is_merge_commit').notNull().default(0),
+    /** JSON array of parent SHA strings. Most commits have exactly one element. */
+    parentShas: text('parent_shas').notNull().default('[]'),
+    /** 0=signature absent or invalid, 1=signature verified, NULL=not checked. */
+    signatureVerified: integer('signature_verified'),
+    /** Best-effort: branch HEAD was on at commit time. NULL if unavailable. */
+    branchAtCommit: text('branch_at_commit'),
+    /**
+     * Project hash from `audit_log.project_hash` — correlates commits to a
+     * specific CLEO project in multi-repo installs.
+     */
+    projectHash: text('project_hash'),
+    /** ISO-8601 timestamp when this row was inserted into tasks.db. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('idx_commits_short_sha').on(table.shortSha),
+    index('idx_commits_author_email').on(table.authorEmail),
+    index('idx_commits_authored_at').on(table.authoredAt),
+    index('idx_commits_conventional_type').on(table.conventionalType),
+    index('idx_commits_is_release').on(table.isReleaseCommit),
+    index('idx_commits_project_hash').on(table.projectHash),
+  ],
+);
+
+/**
+ * `task_commits` — M:N junction between tasks and commits.
+ *
+ * Each row records one typed linkage edge (task ↔ commit × link_kind).
+ * The composite PK `(task_id, commit_sha, link_kind)` permits a single commit
+ * to be linked to a single task via multiple relationship types (e.g., both
+ * `implements` and `tests`).
+ *
+ * `task_id` uses ON DELETE SET NULL so provenance history is preserved even
+ * when a task is purged from the system.
+ * `commit_sha` uses ON DELETE CASCADE — a purged commit removes its junction rows.
+ *
+ * @task T9506
+ * @epic T9491
+ * @see SPEC-T9345 §3.2
+ */
+export const taskCommits = sqliteTable(
+  'task_commits',
+  {
+    /**
+     * FK → tasks.id. Uses ON DELETE SET NULL to preserve linkage history
+     * after task deletion. NULL = orphaned link (task was purged).
+     */
+    taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+    /** FK → commits.sha. ON DELETE CASCADE — purging a commit clears its links. */
+    commitSha: text('commit_sha')
+      .notNull()
+      .references(() => commits.sha, { onDelete: 'cascade' }),
+    /**
+     * Semantic classification of the task↔commit relationship.
+     * See {@link COMMIT_LINK_KINDS}.
+     */
+    linkKind: text('link_kind').notNull(),
+    /**
+     * How this link was discovered (commit-trailer, branch-name, manual, etc.).
+     * See {@link COMMIT_LINK_SOURCES}.
+     */
+    linkSource: text('link_source').notNull(),
+    /** ISO-8601 timestamp when this link was created. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.taskId, table.commitSha, table.linkKind] }),
+    index('idx_task_commits_task_id').on(table.taskId),
+    index('idx_task_commits_commit_sha').on(table.commitSha),
+    index('idx_task_commits_link_kind').on(table.linkKind),
+  ],
+);
+
+/**
+ * `commit_files` — Per-file × SHA materialization (blast-radius enabler).
+ *
+ * Every `(commit_sha, path)` pair has one row describing the type of change
+ * (A/M/D/R/C), diff stats, and whether the file is binary. Enables queries
+ * such as "which tasks last modified this file path?" and diff-by-file for
+ * `cleo release diff`.
+ *
+ * `old_path` is non-NULL only for R (rename) and C (copy) change types.
+ * FK uses ON DELETE CASCADE — purging a commit removes its file rows.
+ *
+ * @task T9506
+ * @epic T9491
+ * @see SPEC-T9345 §3.3
+ */
+export const commitFiles = sqliteTable(
+  'commit_files',
+  {
+    /** FK → commits.sha. ON DELETE CASCADE. */
+    commitSha: text('commit_sha')
+      .notNull()
+      .references(() => commits.sha, { onDelete: 'cascade' }),
+    /** Canonical repo-relative file path (after rename, if any). */
+    path: text('path').notNull(),
+    /**
+     * Previous path before a rename or copy operation.
+     * NULL for A / M / D change types.
+     */
+    oldPath: text('old_path'),
+    /**
+     * Git status letter: A=added, M=modified, D=deleted, R=renamed, C=copied.
+     * See {@link COMMIT_FILE_CHANGE_TYPES}.
+     */
+    changeType: text('change_type').notNull(),
+    /** Lines added in this commit for this file (0 for deletions and binary files). */
+    linesAdded: integer('lines_added').notNull().default(0),
+    /** Lines deleted in this commit for this file (0 for additions and binary files). */
+    linesDeleted: integer('lines_deleted').notNull().default(0),
+    /** 1 if the file is binary (diff stats are 0/0). */
+    isBinary: integer('is_binary').notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.commitSha, table.path] }),
+    index('idx_commit_files_path').on(table.path),
+    index('idx_commit_files_change_type').on(table.changeType),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 export type AttachmentRow = typeof attachments.$inferSelect;
@@ -1240,6 +1500,13 @@ export type NewExternalTaskLinkRow = typeof externalTaskLinks.$inferInsert;
 // T944 experiments side-table row types
 export type ExperimentRow = typeof experiments.$inferSelect;
 export type NewExperimentRow = typeof experiments.$inferInsert;
+// T9506 provenance graph row types
+export type CommitRow = typeof commits.$inferSelect;
+export type NewCommitRow = typeof commits.$inferInsert;
+export type TaskCommitRow = typeof taskCommits.$inferSelect;
+export type NewTaskCommitRow = typeof taskCommits.$inferInsert;
+export type CommitFileRow = typeof commitFiles.$inferSelect;
+export type NewCommitFileRow = typeof commitFiles.$inferInsert;
 
 // agent_credentials REMOVED from tasks.db — T234 clean-cut.
 // Agent data (identity, credentials, capabilities, skills) now lives
