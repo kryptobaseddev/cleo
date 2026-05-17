@@ -199,6 +199,8 @@ When operating without continuous HITL oversight, additional constraints apply: 
 | `cleo orchestrate ready --epic T1575` | Parallel-safe tasks in current wave |
 | `cleo orchestrate spawn T1586 --json` | Generate resolved spawn prompt |
 | `cleo orchestrate next --epic T1575` | Suggest next task |
+| `cleo saga rollup <sagaId>` | Cross-Epic status aggregation when orchestrating a multi-Epic Saga (ADR-073) |
+| `cleo saga members <sagaId>` | Member Epics of a Saga (NOT `cleo list --parent` — Sagas use `task_relations.type=groups`) |
 | `cleo pipeline stage.status --epic T1575` | Current pipeline stage |
 | `cleo pipeline stage.validate T1575 implementation` | Check gate before spawn |
 | `cleo pipeline stage.gate.pass T1575 research` | Advance pipeline stage |
