@@ -1,20 +1,24 @@
 /**
- * Regression tests for CLEO_PROVENANCE_DUAL_WRITE env var.
+ * Regression tests for retired CLEO_PROVENANCE_DUAL_WRITE env var.
  *
- * Validates that `markReleaseShipped`:
- *   1. With CLEO_PROVENANCE_DUAL_WRITE='1' (default ON): inserts `task_commits`
- *      rows for every task in the release manifest, using the provided commit SHA.
- *   2. With CLEO_PROVENANCE_DUAL_WRITE='0' (OFF): writes nothing to `task_commits`.
- *   3. `release_manifests.tasksJson` is identical in both modes (F12 — ADR-073).
+ * After T9541, the env var is gone — `markReleaseShipped` writes to
+ * `task_commits` unconditionally. These tests validate the new behavior:
+ *
+ *   1. New-table writes happen unconditionally (no env var required).
+ *   2. The env var being present (set to either value) has no effect.
+ *   3. `release_manifests.tasksJson` is preserved (F12 — ADR-073).
+ *   4. The retirement audit sentinel is written on first invocation.
  *
  * Each test runs in a fully isolated tmp directory with a real SQLite database
  * and all migrations applied.
  *
  * @task T9510
+ * @task T9541
  * @epic T9491
+ * @epic T9499
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -131,7 +135,7 @@ async function readTasksJson(projectRoot: string, version: string): Promise<stri
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe('CLEO_PROVENANCE_DUAL_WRITE — dual-write regression', () => {
+describe('CLEO_PROVENANCE_DUAL_WRITE — retired (T9541)', () => {
   let projectRoot: string;
   let cleanup: () => void;
   const COMMIT_SHA = 'aaaa1111bbbb2222cccc3333dddd4444eeee5555';
@@ -144,22 +148,19 @@ describe('CLEO_PROVENANCE_DUAL_WRITE — dual-write regression', () => {
     cleanup = env.cleanup;
     // Insert synthetic release manifest with 3 tasks.
     await insertManifest(projectRoot, VERSION, TASK_IDS);
+    // Defensive: if a stale env var is set from another test, remove it.
+    delete process.env['CLEO_PROVENANCE_DUAL_WRITE'];
   });
 
   afterEach(async () => {
     const { resetDbState } = await import('../../store/sqlite.js');
     resetDbState();
     cleanup();
-    // Reset the per-process warn flag between tests.
-    const mod = await import('../release-manifest.js');
-    // Force reset of the module-level warn flag via environment toggle.
-    process.env['CLEO_PROVENANCE_DUAL_WRITE'] = '1';
     delete process.env['CLEO_PROVENANCE_DUAL_WRITE'];
   });
 
-  it('Test 1: DUAL_WRITE=1 inserts task_commits rows for all 3 tasks', async () => {
-    process.env['CLEO_PROVENANCE_DUAL_WRITE'] = '1';
-
+  it('Test 1: writes task_commits rows for all tasks unconditionally', async () => {
+    // Env var unset — writes must still happen.
     const { markReleaseShipped } = await import('../release-manifest.js');
     const result = await markReleaseShipped(VERSION, new Date().toISOString(), projectRoot, {
       commitSha: COMMIT_SHA,
@@ -170,10 +171,10 @@ describe('CLEO_PROVENANCE_DUAL_WRITE — dual-write regression', () => {
     expect(count).toBe(TASK_IDS.length);
   });
 
-  it('Test 2: DUAL_WRITE=0 inserts NO task_commits rows', async () => {
+  it('Test 2: env var present (legacy "0") is ignored — writes still happen', async () => {
+    // Even with the retired var set to its old disable-value, writes proceed.
     process.env['CLEO_PROVENANCE_DUAL_WRITE'] = '0';
 
-    // Use a different version/commit to avoid collision with test 1.
     const version2 = 'v2026.99.2';
     const commit2 = 'ffff0000aaaa1111bbbb2222cccc3333dddd4444';
     await insertManifest(projectRoot, version2, TASK_IDS);
@@ -183,37 +184,63 @@ describe('CLEO_PROVENANCE_DUAL_WRITE — dual-write regression', () => {
       commitSha: commit2,
     });
 
-    expect(result.taskCommitsInserted).toBe(0);
+    expect(result.taskCommitsInserted).toBe(TASK_IDS.length);
     const count = await countTaskCommits(projectRoot, commit2);
-    expect(count).toBe(0);
+    expect(count).toBe(TASK_IDS.length);
   });
 
-  it('Test 3: release_manifests.tasksJson is identical regardless of DUAL_WRITE mode', async () => {
-    // Test with dual-write ON.
-    process.env['CLEO_PROVENANCE_DUAL_WRITE'] = '1';
-    const vON = 'v2026.99.3';
-    const commitON = '1111aaaa2222bbbb3333cccc4444dddd5555eeee';
-    await insertManifest(projectRoot, vON, TASK_IDS);
+  it('Test 3: release_manifests.tasksJson is preserved (F12 backward-compat)', async () => {
+    const vA = 'v2026.99.3';
+    const commitA = '1111aaaa2222bbbb3333cccc4444dddd5555eeee';
+    await insertManifest(projectRoot, vA, TASK_IDS);
     const { markReleaseShipped } = await import('../release-manifest.js');
-    await markReleaseShipped(vON, new Date().toISOString(), projectRoot, {
-      commitSha: commitON,
+    await markReleaseShipped(vA, new Date().toISOString(), projectRoot, {
+      commitSha: commitA,
     });
-    const tasksJsonON = await readTasksJson(projectRoot, vON);
+    const tasksJsonA = await readTasksJson(projectRoot, vA);
 
-    // Test with dual-write OFF.
-    process.env['CLEO_PROVENANCE_DUAL_WRITE'] = '0';
-    const vOFF = 'v2026.99.4';
-    const commitOFF = '9999aaaa8888bbbb7777cccc6666dddd5555eeee';
-    await insertManifest(projectRoot, vOFF, TASK_IDS);
-    await markReleaseShipped(vOFF, new Date().toISOString(), projectRoot, {
-      commitSha: commitOFF,
+    const vB = 'v2026.99.4';
+    const commitB = '9999aaaa8888bbbb7777cccc6666dddd5555eeee';
+    await insertManifest(projectRoot, vB, TASK_IDS);
+    await markReleaseShipped(vB, new Date().toISOString(), projectRoot, {
+      commitSha: commitB,
     });
-    const tasksJsonOFF = await readTasksJson(projectRoot, vOFF);
+    const tasksJsonB = await readTasksJson(projectRoot, vB);
 
-    // Both runs should preserve the same task list in release_manifests.
-    const parsedON = JSON.parse(tasksJsonON) as string[];
-    const parsedOFF = JSON.parse(tasksJsonOFF) as string[];
-    expect(parsedON.sort()).toEqual(parsedOFF.sort());
-    expect(parsedON.sort()).toEqual([...TASK_IDS].sort());
+    // The legacy release_manifests table preserves the task list verbatim.
+    const parsedA = JSON.parse(tasksJsonA) as string[];
+    const parsedB = JSON.parse(tasksJsonB) as string[];
+    expect(parsedA.sort()).toEqual([...TASK_IDS].sort());
+    expect(parsedB.sort()).toEqual([...TASK_IDS].sort());
+  });
+
+  it('Test 4: writes retirement audit sentinel + JSONL entry on first run', async () => {
+    const { markReleaseShipped } = await import('../release-manifest.js');
+    await markReleaseShipped(VERSION, new Date().toISOString(), projectRoot, {
+      commitSha: COMMIT_SHA,
+    });
+
+    const flagPath = join(projectRoot, '.cleo', 'audit', 'dual-write-retired.flag');
+    const logPath = join(projectRoot, '.cleo', 'audit', 'dual-write-retired.jsonl');
+    expect(existsSync(flagPath)).toBe(true);
+    expect(existsSync(logPath)).toBe(true);
+
+    const flagContents = JSON.parse(readFileSync(flagPath, 'utf-8')) as {
+      task: string;
+      retiredAt: string;
+    };
+    expect(flagContents.task).toBe('T9541');
+    expect(typeof flagContents.retiredAt).toBe('string');
+
+    const logLines = readFileSync(logPath, 'utf-8').trim().split('\n');
+    expect(logLines.length).toBeGreaterThanOrEqual(1);
+    const firstEntry = JSON.parse(logLines[0]!) as {
+      event: string;
+      task: string;
+      version: string;
+    };
+    expect(firstEntry.event).toBe('dual-write-retired');
+    expect(firstEntry.task).toBe('T9541');
+    expect(firstEntry.version).toBe(VERSION);
   });
 });
