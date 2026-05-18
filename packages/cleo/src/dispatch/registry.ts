@@ -7196,6 +7196,39 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
 
+  // provenance query: verify (T9529 / SPEC-T9345 §4.6)
+  {
+    gateway: 'query',
+    domain: 'provenance',
+    operation: 'verify',
+    description:
+      'provenance.verify (query) — READ-ONLY audit of the 11 provenance tables for a release. Checks FK integrity (release_commits, task_commits, pr_commits, pr_tasks, release_changes, release_artifacts), orphan rows, and ADR-051 evidence-atom staleness. Exit code 0 on pass, non-zero on any fail (T9529 / SPEC-T9345 §4.6).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: false,
+        description: 'Release version to verify (e.g. v2026.6.0). Required unless --all is set.',
+      },
+      {
+        name: 'all',
+        type: 'boolean',
+        required: false,
+        description: 'Verify the most-recent N releases instead of a single version',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'How many releases to verify in --all mode (default 5)',
+      },
+    ] satisfies ParamDef[],
+  },
+
   // ---------------------------------------------------------------------------
   // LLM domain — `cleo llm` CLI surface (T9258 · T-LLM-CRED Phase 2)
   // ---------------------------------------------------------------------------

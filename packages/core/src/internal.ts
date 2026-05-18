@@ -758,6 +758,16 @@ export {
   runReleaseGates,
   showManifestRelease,
 } from './release/release-manifest.js';
+// T9529: provenance verify verb (Phase 2 of T9493) — READ-ONLY audit of the
+// 11 provenance tables for a release tag.
+export type {
+  StaleEvidenceAtom as ProvenanceStaleEvidenceAtom,
+  VerifyProvenanceCategories,
+  VerifyProvenanceOptions,
+  VerifyProvenanceReleaseResult,
+  VerifyProvenanceResult,
+} from './release/verify-provenance.js';
+export { verifyProvenance } from './release/verify-provenance.js';
 export {
   bumpVersionFromConfig,
   discoverWorkspacePackageJsonFiles,
