@@ -79,7 +79,6 @@ import {
   releasePrStatus,
   releaseRollback,
   releaseRollbackFull,
-  releaseShip,
   releaseShow,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
@@ -113,14 +112,10 @@ type ReleaseListParams = { status?: ReleaseListOptions['status']; limit?: number
 type ReleaseShowParams = { version: string };
 type ReleaseChannelShowParams = Record<string, never>;
 type ReleaseChangelogSinceParams = { sinceTag: string };
-type ReleaseShipParams = {
-  version: string;
-  epicId: string;
-  remote?: string;
-  dryRun?: boolean;
-  bump?: boolean;
-  force?: boolean;
-};
+// ReleaseShipParams + releaseShipOp removed in T9540 (Phase 6 of T9499) —
+// the legacy `releaseShip` monolith was deleted; `cleo release ship` now
+// forwards to `release.plan` + `release.open` (handled by the release
+// domain handler), so the pipeline domain no longer surfaces a ship op.
 type ReleaseCancelParams = { version: string };
 type ReleaseRollbackParams = { version: string; reason?: string };
 type ReleaseRollbackFullParams = {
@@ -272,20 +267,6 @@ async function releaseChangelogSinceOp(params: ReleaseChangelogSinceParams) {
   return releaseChangelogSince(params.sinceTag, getProjectRoot());
 }
 
-async function releaseShipOp(params: ReleaseShipParams) {
-  return releaseShip(
-    {
-      version: params.version,
-      epicId: params.epicId,
-      remote: params.remote,
-      dryRun: params.dryRun,
-      bump: params.bump,
-      force: params.force,
-    },
-    getProjectRoot(),
-  );
-}
-
 /** T9095 — poll CI check status for in-progress release PR. */
 async function releasePrStatusOp(params: ReleasePrStatusParams) {
   return releasePrStatus(params.version, getProjectRoot());
@@ -427,7 +408,6 @@ const coreOps = {
   'release.show': releaseShowOp,
   'release.channel.show': releaseChannelShowOp,
   'release.changelog.since': releaseChangelogSinceOp,
-  'release.ship': releaseShipOp,
   'release.pr-status': releasePrStatusOp,
   'release.cancel': releaseCancelOp,
   'release.rollback': releaseRollbackOp,
@@ -610,14 +590,12 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
 
   // -------------------------------------------------------------------------
   // Release mutations
+  //
+  // T9540 removed `release.ship` from the pipeline domain — the
+  // `cleo release ship` CLI alias now forwards to `release.plan` +
+  // `release.open` (handled by the release domain), not the deleted
+  // `releaseShip` monolith.
   // -------------------------------------------------------------------------
-
-  'release.ship': async (params: PipelineOps['release.ship'][0]) => {
-    if (!params.version || !params.epicId) {
-      return lafsError('E_INVALID_INPUT', 'version and epicId are required', 'release.ship');
-    }
-    return wrapCoreResult(await coreOps['release.ship'](params), 'release.ship');
-  },
 
   // release.pr-status — T9095 query: poll CI checks for an in-progress release PR
   'release.pr-status': async (params: PipelineOps['release.pr-status'][0]) => {
@@ -971,7 +949,6 @@ export class PipelineHandler implements DomainHandler {
       'stage.reset',
       'stage.gate.pass',
       'stage.gate.fail',
-      'release.ship',
       'release.cancel',
       'release.rollback',
       'release.rollback.full',
@@ -1052,7 +1029,6 @@ export class PipelineHandler implements DomainHandler {
         'stage.reset',
         'stage.gate.pass',
         'stage.gate.fail',
-        'release.ship',
         'release.cancel',
         'release.rollback',
         'release.rollback.full',

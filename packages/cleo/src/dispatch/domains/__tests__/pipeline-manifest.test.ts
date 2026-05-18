@@ -25,7 +25,7 @@ vi.mock('../../lib/engine.js', () => ({
   lifecycleGatePass: vi.fn(),
   lifecycleGateFail: vi.fn(),
   releaseRollback: vi.fn(),
-  releaseShip: vi.fn(),
+  // releaseShip removed in T9540 (Phase 6 of T9499) — legacy monolith deleted
   releaseList: vi.fn(),
   releaseShow: vi.fn(),
   releaseCancel: vi.fn(),

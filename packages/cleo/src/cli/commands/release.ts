@@ -8,10 +8,8 @@
  *   cleo release rollback <version>          — roll back a shipped release
  *
  * Deprecated (kept for the migration window — see SPEC-T9345 §12):
- *   cleo release ship    — alias that forwards to plan + open + (auto-)publish
- *   cleo release start   — alias for plan
- *   cleo release verify  — see `cleo verify <task> --gate X --evidence …` (ADR-051)
- *   cleo release publish — see `cleo release open <version>`
+ *   cleo release ship    — alias that ALWAYS forwards to plan + open (T9540
+ *                          removed the `--workflow=false` legacy fallback)
  *
  * Read-only helpers:
  *   cleo release list / show / cancel / changelog / pr-status / channel
@@ -19,7 +17,12 @@
  * @task T4467
  * @task T820
  * @task T9538 — ship deprecation shim
+ * @task T9540 — Phase 6 cleanup: remove legacy start/verify/publish CLI verbs
+ *               + `--workflow=false` escape hatch (their backing functions
+ *               in pipeline.ts and releaseShip in engine-ops.ts were
+ *               deleted alongside this change)
  * @epic T9498 — release v2 cutover
+ * @epic T9499 — Phase 6 cleanup epic
  */
 
 import { release } from '@cleocode/core';
@@ -33,40 +36,40 @@ import { cliOutput } from '../renderers/index.js';
  * invocation and the target removal release per R-431.
  *
  * @task T9538
+ * @task T9540 — removed `--workflow=false` escape hatch from the notice
+ *               (legacy `releaseShip` monolith was deleted; no fallback exists)
  * @spec SPEC-T9345 §12 R-420
  */
 export const SHIP_DEPRECATION_NOTICE =
   '[DEPRECATED] `cleo release ship` is a deprecated alias and will be removed no earlier than the third release cycle after T9498. ' +
   'Use `cleo release plan <version> --epic <id>` followed by `cleo release open <version>`; publish runs via GHA workflow. ' +
-  'Emergency escape hatch (audit-logged to .cleo/audit/release-workflow-bypass.jsonl): pass `--workflow=false` to run the legacy 12-step monolith locally. ' +
   'Docs: T9345-CHILD-1.';
 
 /**
  * cleo release ship — DEPRECATED alias per SPEC-T9345 §12 R-420.
  *
- * Default behavior (workflow !== false): emits {@link SHIP_DEPRECATION_NOTICE}
- * to stderr and forwards to the new 4-verb pipeline by calling
- * `release.plan` then `release.open` via dispatch. Publish happens through
- * the GHA `release-prepare.yml` workflow dispatched by `release.open`, so
- * the CLI returns once the workflow has been triggered.
- *
- * Emergency escape hatch (`--workflow=false`): bypasses the new flow and
- * runs the legacy 12-step monolith via the existing `release.ship` dispatch
- * route. Each such invocation MUST append a CRITICAL-severity record to
- * `.cleo/audit/release-workflow-bypass.jsonl` (R-441). This flag is slated
- * for removal in Phase 6 (T9540).
+ * Emits {@link SHIP_DEPRECATION_NOTICE} to stderr and forwards to the new
+ * 4-verb pipeline by calling `release.plan` then `release.open` via
+ * dispatch. Publish happens through the GHA `release-prepare.yml` workflow
+ * dispatched by `release.open`, so the CLI returns once the workflow has
+ * been triggered.
  *
  * The deprecation warning is written to **stderr** (NOT stdout) so JSON
  * envelope output on stdout stays parseable for downstream tooling.
  *
+ * Historical note: prior to T9540, this shim accepted `--workflow=false`
+ * as an emergency escape hatch that ran the legacy 12-step `releaseShip`
+ * monolith locally. T9540 (Phase 6 of T9499) deleted that monolith — the
+ * flag and its audit hook are removed because no legacy fallback exists.
+ *
  * @task T9538
- * @spec SPEC-T9345 §12 R-420 / R-440 / R-441
+ * @task T9540 — removed `--workflow=false` + audit hook
+ * @spec SPEC-T9345 §12 R-420 / R-441 (escape-hatch removal)
  */
 const shipCommand = defineCommand({
   meta: {
     name: 'ship',
-    description:
-      '[DEPRECATED] Forwards to `release plan` + `release open` (use --workflow=false for legacy path)',
+    description: '[DEPRECATED] Forwards to `release plan` + `release open`',
   },
   args: {
     version: {
@@ -79,37 +82,9 @@ const shipCommand = defineCommand({
       description: 'Epic task ID (forwarded to release plan / release open)',
       required: true,
     },
-    workflow: {
-      type: 'boolean',
-      description:
-        'Default true: route through new plan+open verbs. Pass --workflow=false (or --no-workflow) to run the legacy 12-step monolith (CRITICAL audit-logged)',
-      default: true,
-    },
-    'workflow-bypass-reason': {
-      type: 'string',
-      description: 'Operator-supplied rationale recorded in the workflow-bypass audit log',
-    },
     'dry-run': {
       type: 'boolean',
-      description: 'Preview all actions without writing anything (legacy path only)',
-    },
-    push: {
-      type: 'boolean',
-      description: 'Push commit and tag (legacy path only — default: true)',
-      default: true,
-    },
-    bump: {
-      type: 'boolean',
-      description: 'Bump version files (legacy path only — default: true)',
-      default: true,
-    },
-    remote: {
-      type: 'string',
-      description: 'Git remote to push to (legacy path only — default: origin)',
-    },
-    force: {
-      type: 'boolean',
-      description: 'Bypass IVTR gate check (legacy path only — breaks accountability chain)',
+      description: 'Preview all actions without writing anything (plan dry-run only)',
     },
   },
   async run({ args }) {
@@ -117,38 +92,10 @@ const shipCommand = defineCommand({
     // stays parseable for piped tooling.
     process.stderr.write(`${SHIP_DEPRECATION_NOTICE}\n`);
 
-    // R-440 / R-441: --workflow=false retains the legacy releaseShip monolith
-    // path and audits the bypass to `.cleo/audit/release-workflow-bypass.jsonl`.
-    if (args.workflow === false) {
-      release.appendReleaseWorkflowBypass({
-        projectRoot: process.cwd(),
-        version: args.version,
-        reason:
-          (args['workflow-bypass-reason'] as string | undefined) ??
-          '(no reason supplied — set --workflow-bypass-reason)',
-        epicId: args.epic,
-        source: 'cli-flag',
-      });
-      await dispatchFromCli(
-        'mutate',
-        'pipeline',
-        'release.ship',
-        {
-          version: args.version,
-          epicId: args.epic,
-          dryRun: args['dry-run'],
-          push: args.push !== false,
-          bump: args.bump !== false,
-          remote: args.remote as string | undefined,
-          force: args.force,
-        },
-        { command: 'release' },
-      );
-      return;
-    }
-
-    // Default: forward to the new 4-verb pipeline (R-420). Plan first, then
-    // open — publish runs in the dispatched GHA workflow.
+    // T9540: --workflow=false escape hatch and the legacy releaseShip
+    // monolith were removed. Ship ALWAYS forwards to the new 4-verb
+    // pipeline: plan, then open. Publish runs in the dispatched GHA
+    // workflow.
     await dispatchFromCli(
       'mutate',
       'release',
@@ -380,61 +327,14 @@ const channelCommand = defineCommand({
 });
 
 // ---------------------------------------------------------------------------
-// Canonical 4-step release pipeline (T1597 / ADR-063)
+// Canonical SPEC-T9345 release pipeline v2 (T9492 / T9494 / T9495)
+//
+// Legacy 4-step verbs (`start`, `verify`, `publish`) and their backing
+// functions in `packages/core/src/release/pipeline.ts` were deleted in
+// T9540 (Phase 6 of T9499) — superseded by `plan` / `open` / `reconcile`.
+// `cleo verify <task> --gate X --evidence …` replaces `release verify` per
+// SPEC-T9345 §12 R-422 / ADR-051.
 // ---------------------------------------------------------------------------
-
-/** cleo release start — Step 1: validate version, capture branch, persist handle. */
-const startCommand = defineCommand({
-  meta: {
-    name: 'start',
-    description: 'Begin a release (validates version, captures branch, persists handle)',
-  },
-  args: {
-    version: { type: 'positional', description: 'Version to release', required: true },
-    epic: { type: 'string', description: 'Epic ID this release ships' },
-    branch: { type: 'string', description: 'Override detected branch' },
-  },
-  async run({ args }) {
-    const handle = await release.releaseStart(args.version, {
-      epicId: args.epic as string | undefined,
-      branch: args.branch as string | undefined,
-    });
-    cliOutput(handle, { command: 'release', operation: 'release.start' });
-  },
-});
-
-/**
- * cleo release verify — Step 2: run gates + audit child tasks of release epic.
- *
- * Injects a real ADR-061-based gate runner so each gate (test, lint,
- * typecheck, audit, security-scan) actually executes the resolved tool
- * command. Prior to T9503 the runner was always-failing theater.
- */
-const verifyCommand = defineCommand({
-  meta: { name: 'verify', description: 'Verify release gates + child task gate state' },
-  async run() {
-    const projectRoot = process.cwd();
-    const handle = release.loadActiveReleaseHandle(projectRoot);
-    const result = await release.releaseVerify(handle, {
-      runGate: release.makeAdr061GateRunner(projectRoot),
-    });
-    cliOutput(result, { command: 'release', operation: 'release.verify' });
-    if (!result.passed) process.exit(1);
-  },
-});
-
-/** cleo release publish — Step 3: invoke project-context publish.command. */
-const publishCommand = defineCommand({
-  meta: { name: 'publish', description: 'Publish release artifact (project-context driven)' },
-  args: { 'dry-run': { type: 'boolean', description: 'Print command without executing' } },
-  async run({ args }) {
-    const result = await release.releasePublish(release.loadActiveReleaseHandle(process.cwd()), {
-      dryRun: args['dry-run'] === true,
-    });
-    cliOutput(result, { command: 'release', operation: 'release.publish' });
-    if (!result.success) process.exit(1);
-  },
-});
 
 /**
  * cleo release plan — Phase 1 verb of SPEC-T9345 release pipeline v2.
@@ -599,15 +499,18 @@ const reconcileCommand = defineCommand({
  * Root release command group — release lifecycle management.
  *
  * Surfaces the SPEC-T9345 4-verb pipeline (`plan`, `open`, `reconcile`,
- * `rollback`) as the canonical entry points. Legacy verbs (`ship`, `start`,
- * `verify`, `publish`) remain wired for the compatibility window (R-420 →
- * R-423) but are listed under the Deprecated section of the command
- * description (T9538).
+ * `rollback`) as the canonical entry points. The `ship` alias is the only
+ * remaining deprecated verb (kept for the migration window — R-420); it
+ * forwards to `plan` + `open`. The legacy `start`, `verify`, `publish`
+ * verbs and the `--workflow=false` legacy fallback were deleted in T9540
+ * (Phase 6 of T9499) along with the backing functions in
+ * `packages/core/src/release/pipeline.ts` and the `releaseShip` monolith
+ * in `engine-ops.ts`.
  *
- * Dispatches to `release.*` for the new verbs and to `pipeline.release.*`
- * for the legacy compatibility shim path.
+ * Dispatches to `release.*` for the new verbs.
  *
  * @task T9538
+ * @task T9540 — Phase 6 cleanup
  * @spec SPEC-T9345 §12
  */
 export const releaseCommand = defineCommand({
@@ -615,7 +518,7 @@ export const releaseCommand = defineCommand({
     name: 'release',
     description:
       'Release lifecycle management — 4-verb pipeline: plan → open → reconcile / rollback. ' +
-      'Deprecated: ship/start/verify/publish (use the 4 verbs above; see SPEC-T9345 §12).',
+      'Deprecated: ship (forwards to plan + open; see SPEC-T9345 §12).',
   },
   subCommands: {
     // Canonical SPEC-T9345 4-verb pipeline — list these first so `--help`
@@ -633,14 +536,8 @@ export const releaseCommand = defineCommand({
     channel: channelCommand,
     'rollback-full': rollbackFullCommand,
     // Deprecated verbs (kept for the migration window — SPEC-T9345 §12).
-    // R-420: ship → plan + open + (auto-)publish
+    // R-420: ship → plan + open
     ship: shipCommand,
-    // R-421: start → plan
-    start: startCommand,
-    // R-422: verify → cleo verify <task> --gate X --evidence …
-    verify: verifyCommand,
-    // R-423: publish → release open
-    publish: publishCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

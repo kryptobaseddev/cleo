@@ -7,14 +7,13 @@
  *   gate           — check all IVTR loops in a release epic are `released`
  *   ivtr-suggest   — query whether all sibling tasks in an epic are
  *                    released and emit a `cleo release ship` suggestion
- *   verify         — Step 2 of 4: run gates + audit child tasks (T1597 / ADR-063)
  *
  * MUTATE operations:
  *   gate           — same semantics as query.gate; safe in both gateways
  *   ivtr-suggest   — same semantics as query.ivtr-suggest; safe in both gateways
- *   start          — Step 1 of 4: validate version, capture branch, persist handle
- *   publish        — Step 3 of 4: invoke project-context publish.command
- *   reconcile      — Step 4 of 4: run post-release invariants, auto-complete tasks
+ *   plan           — SPEC-T9345 §4.2 (T9525): build canonical Release Plan envelope
+ *   open           — SPEC-T9345 §4.3 (T9530): dispatch release-prepare workflow
+ *   reconcile      — SPEC-T9345 §4.4 (T9526 v2): backfill 11 provenance tables
  *
  * Ship, list, show, cancel, changelog, rollback, channel are handled by the
  * pipeline domain handler (via `pipeline.release.*` operations).
@@ -23,11 +22,18 @@
  * Param extraction inferred by coreOps — zero `params?.x as Type` casts.
  * Engine result fields (fix, exitCode, details) preserved via wrapResult.
  *
+ * Historical note: the legacy 4-step pipeline operations (`start`,
+ * `verify`, `publish`, and the legacy `reconcile`) were deleted in T9540
+ * (Phase 6 of T9499) along with the backing functions in
+ * `packages/core/src/release/pipeline.ts`. The plan/open/reconcile-v2
+ * verbs above are the canonical replacement per SPEC-T9345 §4.
+ *
  * @task T820 RELEASE-03
  * @task T820 RELEASE-07
  * @task T1416
  * @task T1543 — OpsFromCore migration per ADR-058
  * @task T1726 — Register release domain in OPERATIONS (SDK surface parity)
+ * @task T9540 — remove legacy start/verify/publish handlers
  */
 
 import type { ReleaseGateCheckParams } from '@cleocode/contracts/operations/release';
@@ -35,20 +41,14 @@ import type { ReleaseOpenOptions, ReleasePlanOptions } from '@cleocode/core/inte
 import { getLogger, getProjectRoot } from '@cleocode/core/internal';
 import type { OpsFromCore } from '../adapters/typed.js';
 import {
-  loadActiveReleaseHandle,
-  makeAdr061GateRunner,
   releaseGateCheck,
   releaseIvtrAutoSuggest,
   releaseOpen,
   releasePlan,
-  releasePublish,
   releaseReconcileV2,
-  releaseStart,
-  releaseVerify,
 } from '../lib/engine.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
-import { dispatchMeta } from './_meta.js';
 
 const log = getLogger('domain:release');
 
@@ -134,7 +134,10 @@ export class ReleaseHandler implements DomainHandler {
    * Supported operations:
    * - `gate`         — check IVTR phase state for all tasks in a release epic
    * - `ivtr-suggest` — check if all epic tasks are released and suggest `release ship`
-   * - `verify`       — Step 2 of 4: run gates + audit child tasks (T1597 / ADR-063)
+   *
+   * The legacy `verify` query (run gates + audit child tasks) was removed
+   * in T9540 — use `cleo verify <task> --gate X --evidence …` per
+   * SPEC-T9345 §12 R-422 / ADR-051.
    */
   async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
@@ -180,20 +183,6 @@ export class ReleaseHandler implements DomainHandler {
           );
         }
 
-        // release.verify — Step 2 of 4: run gates + audit child tasks (T1597 / ADR-063)
-        case 'verify': {
-          const projectRoot = getProjectRoot();
-          const handle = loadActiveReleaseHandle(projectRoot);
-          const result = await releaseVerify(handle, {
-            runGate: makeAdr061GateRunner(projectRoot),
-          });
-          return {
-            success: true,
-            data: result,
-            meta: dispatchMeta('query', 'release', operation, startTime),
-          };
-        }
-
         default:
           return unsupportedOp('query', 'release', operation, startTime);
       }
@@ -217,9 +206,14 @@ export class ReleaseHandler implements DomainHandler {
    * Supported operations:
    * - `gate`         — same IVTR gate check as query.gate (no DB writes)
    * - `ivtr-suggest` — same auto-suggest as query.ivtr-suggest (no DB writes)
-   * - `start`        — Step 1 of 4: validate version, capture branch, persist handle
-   * - `publish`      — Step 3 of 4: invoke project-context publish.command
-   * - `reconcile`    — Step 4 of 4: run post-release invariants, auto-complete tasks
+   * - `plan`         — SPEC-T9345 §4.2 (T9525): build canonical Release Plan envelope
+   * - `open`         — SPEC-T9345 §4.3 (T9530): dispatch release-prepare workflow
+   * - `reconcile`    — SPEC-T9345 §4.4 (T9526 v2): backfill 11 provenance tables
+   *
+   * The legacy `start` / `publish` mutations (and the legacy v1
+   * `reconcile`) were removed in T9540 — their backing functions in
+   * `packages/core/src/release/pipeline.ts` were deleted as part of
+   * Phase 6 of T9499.
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
@@ -263,42 +257,6 @@ export class ReleaseHandler implements DomainHandler {
             operation,
             startTime,
           );
-        }
-
-        // release.start — Step 1 of 4 (T1597 / ADR-063)
-        case 'start': {
-          const version = typeof params?.version === 'string' ? params.version : undefined;
-          if (!version)
-            return errorResult(
-              'mutate',
-              'release',
-              operation,
-              'E_INVALID_INPUT',
-              'version is required',
-              startTime,
-            );
-          const result = await releaseStart(version, {
-            epicId: typeof params?.epicId === 'string' ? params.epicId : undefined,
-            branch: typeof params?.branch === 'string' ? params.branch : undefined,
-          });
-          return {
-            success: true,
-            data: result,
-            meta: dispatchMeta('mutate', 'release', operation, startTime),
-          };
-        }
-
-        // release.publish — Step 3 of 4 (T1597 / ADR-063)
-        case 'publish': {
-          const handle = loadActiveReleaseHandle(getProjectRoot());
-          const result = await releasePublish(handle, {
-            dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
-          });
-          return {
-            success: true,
-            data: result,
-            meta: dispatchMeta('mutate', 'release', operation, startTime),
-          };
         }
 
         // release.plan — SPEC-T9345 §4.2 (T9525): build canonical Release Plan envelope
@@ -402,8 +360,8 @@ export class ReleaseHandler implements DomainHandler {
   /** Return declared operations for introspection and registry validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['gate', 'ivtr-suggest', 'verify'],
-      mutate: ['gate', 'ivtr-suggest', 'start', 'publish', 'reconcile', 'plan', 'open'],
+      query: ['gate', 'ivtr-suggest'],
+      mutate: ['gate', 'ivtr-suggest', 'reconcile', 'plan', 'open'],
     };
   }
 }
