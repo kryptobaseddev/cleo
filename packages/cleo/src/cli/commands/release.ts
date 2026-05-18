@@ -412,6 +412,57 @@ const planCommand = defineCommand({
 });
 
 /**
+ * cleo release open <version> — Phase 3 of the new release pipeline (T9530).
+ *
+ * Consumes `.cleo/release/<version>.plan.json`, dispatches the
+ * `release-prepare.yml` workflow via `gh workflow run`, and UPDATEs the
+ * `releases` row's status to `pr-opened`. Implements SPEC-T9345 §4.3.
+ *
+ * @task T9530
+ * @epic T9494
+ * @spec SPEC-T9345 §4.3
+ */
+const openCommand = defineCommand({
+  meta: {
+    name: 'open',
+    description: 'Dispatch release-prepare workflow + transition releases.status to pr-opened',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version (e.g. v2026.6.0)',
+      required: true,
+    },
+    workflow: {
+      type: 'string',
+      description: 'Workflow file to dispatch (default: release-prepare.yml)',
+    },
+    watch: {
+      type: 'boolean',
+      description: 'Poll gh run watch until the run reaches a terminal state',
+    },
+    'commit-plan': {
+      type: 'boolean',
+      description: 'Commit the plan file to the active branch before dispatching',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'release',
+      'release.open',
+      {
+        version: args.version,
+        workflow: args.workflow as string | undefined,
+        watch: args.watch === true,
+        commitPlan: args['commit-plan'] === true,
+      },
+      { command: 'release' },
+    );
+  },
+});
+
+/**
  * cleo release reconcile <version> — v2 reconcile verb (T9526 / SPEC-T9345 §4.4).
  *
  * Post-publish: backfills the 11 provenance tables (commits, task_commits,
@@ -478,6 +529,8 @@ export const releaseCommand = defineCommand({
     reconcile: reconcileCommand,
     // SPEC-T9345 release pipeline v2 verbs (T9492)
     plan: planCommand,
+    // SPEC-T9345 release pipeline v2 (T9494 Phase 3 / T9530)
+    open: openCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

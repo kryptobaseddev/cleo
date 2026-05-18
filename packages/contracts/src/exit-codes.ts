@@ -255,6 +255,30 @@ export const E_EVIDENCE_INSUFFICIENT = 'E_EVIDENCE_INSUFFICIENT' as const;
 export const E_PLAN_NOT_FOUND = 'E_PLAN_NOT_FOUND' as const;
 /** Generic release-plan validation failure (e.g. schema). Exit code 6. */
 export const E_RELEASE_PLAN_INVALID = 'E_RELEASE_PLAN_INVALID' as const;
+/**
+ * Release row exists but is not in the status FSM state required by the
+ * caller (R-051 — `cleo release open` requires status='planned'). Exit code 6.
+ * `error.details.currentStatus` MUST report the actual status; `error.details.expectedStatus`
+ * SHOULD list the accepted state(s).
+ *
+ * @task T9530
+ */
+export const E_INVALID_STATE = 'E_INVALID_STATE' as const;
+/**
+ * `gh auth status` exited non-zero (R-052). The GitHub CLI is either not
+ * installed or not authenticated for the active hostname. Exit code 5.
+ *
+ * @task T9530
+ */
+export const E_GH_NOT_AUTHENTICATED = 'E_GH_NOT_AUTHENTICATED' as const;
+/**
+ * The expected GitHub Actions workflow file is missing under `.github/workflows/`
+ * (R-053). Without it, `gh workflow run` would fail with a non-recoverable error.
+ * Exit code 4.
+ *
+ * @task T9530
+ */
+export const E_WORKFLOW_NOT_FOUND = 'E_WORKFLOW_NOT_FOUND' as const;
 
 /** Check if an exit code represents an error (1-99). */
 export function isErrorCode(code: ExitCode): boolean {

@@ -119,6 +119,9 @@ export {
   registerInvariant,
   runInvariants,
 } from './invariants/index.js';
+// T9530 — v2 release open verb (Phase 3 of T9494)
+export type { ReleaseOpenOptions, ReleaseOpenResult, ReleaseOpenRunner } from './open.js';
+export { DEFAULT_OPEN_WORKFLOW, releaseOpen } from './open.js';
 // Dispatch op registry (ADR-058 OpsFromCore inference — T1543).
 // Type-only export: ops.ts declares `releaseCoreOps` via `export declare const`
 // for `typeof` inference; there is NO runtime value. Re-exporting as `type`
