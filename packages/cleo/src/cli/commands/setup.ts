@@ -38,8 +38,8 @@ import type {
 } from '@cleocode/core/setup';
 import { createDefaultWizardRunner } from '@cleocode/core/setup';
 import { defineCommand } from 'citty';
-import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
-import { cliOutput } from '../renderers/index.js';
+import { ReadlineWizardIO, StdinClosedError } from '../lib/readline-wizard-io.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Public types — exported so the Studio `/setup` route (T-E3-8) can reuse
@@ -244,6 +244,21 @@ export const setupCommand = defineCommand({
     let result: CleoSetupResult;
     try {
       result = await runSetup(args as Record<string, unknown>, io);
+    } catch (err) {
+      // close() is idempotent — safe to call here even though the finally
+      // block will call it again; ensures readline releases stdin before exit.
+      io.close();
+      // Bug #10 (T9599): stdin closed before the wizard finished — emit a
+      // LAFS error envelope and exit 1 instead of silently exiting 0 with
+      // no JSON output.
+      if (StdinClosedError.is(err)) {
+        cliError(err.message, 1, {
+          name: err.codeName,
+          fix: 'Run cleo setup interactively (with a TTY) or use --non-interactive flags.',
+        });
+        process.exit(1);
+      }
+      throw err;
     } finally {
       io.close();
     }

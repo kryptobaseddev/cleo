@@ -148,7 +148,7 @@ export interface WizardIO {
   confirm(question: string, defaultValue?: boolean): Promise<boolean>;
   /** Single-choice selection across a finite option list. */
   select<T extends string>(question: string, options: readonly T[]): Promise<T>;
-  /** Informational message (goes to stdout in the CLI). */
+  /** Informational message (goes to stderr in the CLI — never to stdout). */
   info(message: string): void;
   /** Non-fatal warning (goes to stderr in the CLI). */
   warn(message: string): void;
