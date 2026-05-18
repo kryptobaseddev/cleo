@@ -7,8 +7,13 @@
  * - anthropic PKCE headless success + error paths (T9302)
  * - unsupported provider returns E_NOT_IMPLEMENTED
  *
+ * REGRESSION GUARD (T9579): node:child_process is mocked to prevent real
+ * browser windows from opening during test runs. Every PKCE test asserts
+ * that the spawn mock is NOT called.
+ *
  * @task T9302
  * @task T9323
+ * @task T9579
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +21,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports so vi.mock hoisting works
 // ---------------------------------------------------------------------------
+
+// Prevent any real browser launch: mock node:child_process before the module
+// under test is imported. Without this mock, _tryOpenBrowser calls
+// spawn('xdg-open', [url], ...) and actually opens a browser window during
+// test runs (regression fixed in T9579).
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(() => ({ unref: vi.fn() })),
+}));
 
 const m = vi.hoisted(() => ({
   startDeviceCodeFlow: vi.fn(),
@@ -81,7 +94,11 @@ vi.mock('@cleocode/core/llm/oauth/pkce.js', () => ({
 // Import under test (after mocks)
 // ---------------------------------------------------------------------------
 
+import { spawn } from 'node:child_process';
 import { runLlmLogin } from '../llm-login.js';
+
+// Typed reference to the mocked spawn for assertions.
+const spawnMock = spawn as ReturnType<typeof vi.fn>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -157,6 +174,9 @@ const KIMI_PROFILE = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset the child_process spawn mock so each test starts clean.
+  spawnMock.mockClear();
+  spawnMock.mockReturnValue({ unref: vi.fn() });
   m.getKimiCodeDeviceCodeConfig.mockReturnValue(KIMI_CFG);
   m.getKimiCodeMshHeaders.mockReturnValue(MSH_HEADERS);
   m.addCredential.mockResolvedValue({ provider: 'kimi-code', label: 'oauth-login' });
@@ -355,14 +375,24 @@ describe('runLlmLogin — E_NOT_IMPLEMENTED for unsupported providers', () => {
 
   it('does NOT return E_NOT_IMPLEMENTED for anthropic (PKCE path)', async () => {
     // Anthropic has oauth.mode='pkce' → should dispatch to PKCE flow, not E_NOT_IMPLEMENTED.
-    // It will dispatch to _runPkceLogin — which may fail on stdin read in test,
-    // but it must NOT return E_NOT_IMPLEMENTED first.
-    const result = await runLlmLogin('anthropic', {}).catch((e: unknown) => ({
+    // Use headless: true + mock stdin to emit an invalid URL so _headlessPkceFlow
+    // rejects quickly. The key assertion is that the error is NOT E_NOT_IMPLEMENTED.
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(() => listener('not-a-valid-url'), 0);
+        }
+        return process.stdin;
+      });
+
+    const result = await runLlmLogin('anthropic', { headless: true }).catch((e: unknown) => ({
       success: false as const,
       error: { code: 'E_TEST_ERROR', codeName: 'E_TEST_ERROR', message: String(e) },
       meta: { operation: 'llm.login', timestamp: '' },
     }));
 
+    stdinSpy.mockRestore();
     expect(result.error?.code).not.toBe('E_NOT_IMPLEMENTED');
   });
 });
@@ -373,10 +403,18 @@ describe('runLlmLogin — E_NOT_IMPLEMENTED for unsupported providers', () => {
 
 describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', () => {
   it('calls generatePkcePair and buildAuthorizationUrl for anthropic', async () => {
-    // Simulate headless mode: mock exchangePkceCode to succeed, bypass stdin
-    // by having the flow call exchangePkceCode (which we intercept via the mock).
-    // We can't easily trigger the full headless stdin path in tests, but we can
-    // verify generatePkcePair and buildAuthorizationUrl are called.
+    // Use headless mode so _headlessPkceFlow runs (stdin-based, no HTTP server,
+    // no browser spawn). Mock stdin to emit an invalid URL so the flow exits
+    // quickly. generatePkcePair + buildAuthorizationUrl are called before stdin.
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(() => listener('not-a-valid-url'), 0);
+        }
+        return process.stdin;
+      });
+
     m.exchangePkceCode.mockResolvedValue({
       accessToken: 'sk-ant-oat-new',
       expiresIn: 3600,
@@ -384,15 +422,14 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
     });
     m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
 
-    // Run with headless:true but the stdin mock returns empty; _headlessPkceFlow will
-    // fail parsing, but generatePkcePair + buildAuthorizationUrl are called before stdin.
-    // We capture the side effects before stdin read:
     const pairSpy = m.generatePkcePair;
     const urlSpy = m.buildAuthorizationUrl;
 
-    await runLlmLogin('anthropic', {}).catch(() => {
-      /* headless stdin read may fail in test — that's expected */
+    await runLlmLogin('anthropic', { headless: true }).catch(() => {
+      /* invalid stdin URL causes a rejection — expected */
     });
+
+    stdinSpy.mockRestore();
 
     expect(pairSpy).toHaveBeenCalledOnce();
     expect(urlSpy).toHaveBeenCalledOnce();
@@ -400,12 +437,14 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
     expect(urlCallArgs.clientId).toBe('9d1c250a-e61b-44d9-88ed-5944d1962f5e');
     expect(urlCallArgs.codeChallenge).toBe('test-challenge');
     expect(urlCallArgs.state).toBeTruthy();
+
+    // Regression guard (T9579): headless path must NOT spawn a browser process.
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 
   it('returns E_PKCE_EXCHANGE_FAILED when exchangePkceCode throws', async () => {
-    // To fully test exchange failure, we need a way to inject a code.
-    // We do this by simulating the headless stdin path: provide a mock stdin
-    // that emits a redirect URL with code.
+    // Use headless: true so _headlessPkceFlow reads from stdin (no HTTP server,
+    // no browser spawn). Mock stdin to emit a redirect URL with a code.
     const stdinSpy = vi
       .spyOn(process.stdin, 'once')
       .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
@@ -419,7 +458,7 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
     m.exchangePkceCode.mockRejectedValue(new Error('invalid_grant'));
     m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
 
-    const result = await runLlmLogin('anthropic', {});
+    const result = await runLlmLogin('anthropic', { headless: true });
 
     expect(result.success).toBe(false);
     if (result.success) {
@@ -427,6 +466,10 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
       return;
     }
     expect(result.error?.code).toBe('E_PKCE_EXCHANGE_FAILED');
+
+    // Regression guard (T9579): headless path must NOT spawn a browser process.
+    expect(spawnMock).not.toHaveBeenCalled();
+
     stdinSpy.mockRestore();
   });
 
@@ -447,7 +490,7 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
     });
     m.addCredential.mockRejectedValue(new Error('lock timeout'));
 
-    const result = await runLlmLogin('anthropic', {});
+    const result = await runLlmLogin('anthropic', { headless: true });
 
     expect(result.success).toBe(false);
     if (result.success) {
@@ -455,6 +498,10 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
       return;
     }
     expect(result.error?.code).toBe('E_CREDENTIAL_STORE_FAILED');
+
+    // Regression guard (T9579): headless path must NOT spawn a browser process.
+    expect(spawnMock).not.toHaveBeenCalled();
+
     stdinSpy.mockRestore();
   });
 
@@ -476,7 +523,7 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
     });
     m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
 
-    const result = await runLlmLogin('anthropic', {});
+    const result = await runLlmLogin('anthropic', { headless: true });
 
     expect(result.success).toBe(true);
     if (!result.success) {
@@ -493,6 +540,64 @@ describe('runLlmLogin — anthropic PKCE success (headless + mocked exchange)', 
     expect(stored.source).toBe('oauth-pkce');
     expect(stored.authType).toBe('oauth');
     expect(stored.accessToken).toBe('sk-ant-oat-success');
+
+    // Regression guard (T9579): headless path must NOT spawn a browser process.
+    expect(spawnMock).not.toHaveBeenCalled();
+
+    stdinSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression tests — T9579: no real browser spawn during test runs
+// ---------------------------------------------------------------------------
+
+describe('runLlmLogin — T9579 regression: no real browser spawn', () => {
+  it('kimi-code device-code flow never calls spawn', async () => {
+    m.startDeviceCodeFlow.mockResolvedValue({
+      deviceCode: 'dc-abc',
+      userCode: 'KIMI-1234',
+      verificationUri: 'https://auth.kimi.com/activate',
+      verificationUriComplete: 'https://auth.kimi.com/activate?user_code=KIMI-1234',
+      expiresIn: 300,
+      interval: 5,
+    });
+    m.pollForToken.mockResolvedValue({
+      accessToken: 'sk-kimi-access-token',
+      refreshToken: 'kimi-refresh-token',
+      expiresIn: 900,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'kimi-code', label: 'oauth-login' });
+
+    await runLlmLogin('kimi-code', {});
+
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('anthropic PKCE headless flow never calls spawn', async () => {
+    const stdinSpy = vi
+      .spyOn(process.stdin, 'once')
+      .mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === 'data') {
+          setTimeout(() => listener('http://localhost?code=no-browser-code&state='), 0);
+        }
+        return process.stdin;
+      });
+
+    m.exchangePkceCode.mockResolvedValue({
+      accessToken: 'sk-ant-no-browser',
+      expiresIn: 3600,
+      tokenType: 'bearer',
+    });
+    m.addCredential.mockResolvedValue({ provider: 'anthropic', label: 'oauth-login' });
+
+    await runLlmLogin('anthropic', { headless: true });
+
+    // The core assertion: spawn (used by _tryOpenBrowser) must NOT be called
+    // in headless mode. A regression here means tests would open real browser
+    // windows pointing at the mock auth URL.
+    expect(spawnMock).not.toHaveBeenCalled();
 
     stdinSpy.mockRestore();
   });
