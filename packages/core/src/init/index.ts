@@ -15,3 +15,17 @@ export {
   initProject,
   isAutoInitEnabled,
 } from './engine-ops.js';
+
+// T9531 — workflow scaffolder (`cleo init --workflows`).
+export type {
+  ResolvedToolPlaceholders,
+  ScaffoldReleaseConfig,
+  ScaffoldWorkflowOutcome,
+  ScaffoldWorkflowsOptions,
+  ScaffoldWorkflowsResult,
+  WorkflowName,
+} from './scaffold-workflows.js';
+export {
+  listAvailableWorkflowTemplates,
+  scaffoldWorkflows,
+} from './scaffold-workflows.js';
