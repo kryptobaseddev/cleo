@@ -165,20 +165,54 @@ function scanForProjectSecrets(projectConfig: unknown): string[] {
 }
 
 /**
- * Detect the active harness from the `CLEO_HARNESS` env var.
+ * Detect the active harness using a layered resolution chain (first match wins):
  *
- * Accepts `'pi'` and `'claude-code'`; anything else (including unset) resolves
- * to `'unknown'`. Harness health is reported as `true` with no issues — the
- * deep harness probe lives in `cleoos doctor` and is intentionally out of
- * scope for the status surface.
+ * 1. `CLEO_HARNESS` env var — explicit override; wins unconditionally.
+ * 2. Provider auto-detect:
+ *    - `CLAUDECODE=1` → `'claude-code'` (Claude Code CLI sets this marker).
+ *    - `CLEO_PI=1`    → `'pi'` (reserved Pi harness identity signal).
+ * 3. Global config `harness.active` — user-pinned value written by
+ *    `cleo setup --section harness`.
+ * 4. Default: `'unknown'`.
+ *
+ * Harness health is always reported as `true` — the deep probe lives in
+ * `cleoos doctor` and is intentionally out of scope for the status surface.
  *
  * @internal
  */
-function detectHarness(): CleoStatus['harness'] {
-  const raw = process.env['CLEO_HARNESS'];
-  const active: CleoStatus['harness']['active'] =
-    raw === 'pi' || raw === 'claude-code' ? raw : 'unknown';
-  return { active, healthy: true, issues: [] };
+async function detectHarness(): Promise<CleoStatus['harness']> {
+  // Layer 1: explicit env override.
+  const explicitEnv = process.env['CLEO_HARNESS'];
+  if (explicitEnv === 'pi' || explicitEnv === 'claude-code') {
+    return { active: explicitEnv, healthy: true, issues: [] };
+  }
+
+  // Layer 2: provider auto-detect via well-known env markers.
+  if (process.env['CLAUDECODE'] === '1') {
+    return { active: 'claude-code', healthy: true, issues: [] };
+  }
+  if (process.env['CLEO_PI'] === '1') {
+    return { active: 'pi', healthy: true, issues: [] };
+  }
+
+  // Layer 3: user-pinned value from global config (`cleo setup --section harness`).
+  try {
+    const globalCfg = await readJson<Record<string, unknown>>(getGlobalConfigPath());
+    if (globalCfg !== null) {
+      const harnessSection = globalCfg['harness'];
+      if (typeof harnessSection === 'object' && harnessSection !== null) {
+        const pinned = (harnessSection as Record<string, unknown>)['active'];
+        if (pinned === 'pi' || pinned === 'claude-code') {
+          return { active: pinned, healthy: true, issues: [] };
+        }
+      }
+    }
+  } catch {
+    // Corrupt or absent global config must not block the status surface.
+  }
+
+  // Layer 4: default.
+  return { active: 'unknown', healthy: true, issues: [] };
 }
 
 /**
@@ -407,11 +441,12 @@ async function buildDaemonBlock(projectRoot: string): Promise<CleoStatus['daemon
 export async function getCleoStatus(): Promise<CleoStatus> {
   const projectRoot = getProjectRoot();
 
-  const [identity, credentials, config, session, daemon] = await Promise.all([
+  const [identity, credentials, config, session, harness, daemon] = await Promise.all([
     buildIdentityBlock(projectRoot),
     buildCredentialsBlock(),
     buildConfigBlock(projectRoot),
     buildSessionBlock(projectRoot),
+    detectHarness(),
     buildDaemonBlock(projectRoot),
   ]);
 
@@ -420,7 +455,7 @@ export async function getCleoStatus(): Promise<CleoStatus> {
     credentials,
     config,
     session,
-    harness: detectHarness(),
+    harness,
     daemon,
   };
 }

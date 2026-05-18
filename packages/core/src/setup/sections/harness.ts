@@ -91,15 +91,25 @@ export function createHarnessSection(): WizardSectionRunner {
 }
 
 /**
- * Read the active harness from `CLEO_HARNESS` for display purposes only.
+ * Read the active harness for display purposes using the same layered chain as
+ * {@link detectHarness} in `packages/core/src/status/index.ts`.
  *
- * Mirrors {@link detectHarness} in `packages/core/src/status/index.ts` so
- * the wizard's "current" line never diverges from `cleo status`.
+ * Synchronous (reads env only; skips the async global-config layer) so the
+ * wizard can call it without `await` before the prompt is shown.  The
+ * full async chain runs at status-snapshot time via `cleo status`.
+ *
+ * Resolution order (first match wins):
+ * 1. `CLEO_HARNESS` env var — explicit override.
+ * 2. `CLAUDECODE=1` → `'claude-code'`.
+ * 3. `CLEO_PI=1`    → `'pi'`.
+ * 4. Fallback: `'unknown'`.
  *
  * @internal
  */
 function readActiveHarness(): WizardHarness | 'unknown' {
   const raw = process.env['CLEO_HARNESS'];
   if (raw === 'pi' || raw === 'claude-code') return raw;
+  if (process.env['CLAUDECODE'] === '1') return 'claude-code';
+  if (process.env['CLEO_PI'] === '1') return 'pi';
   return 'unknown';
 }
