@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "primaryType": "node",
+  "monorepo": false,
+  "testing": {
+    "framework": "vitest",
+    "command": "npm test",
+    "testFilePatterns": ["**/*.test.ts"]
+  },
+  "build": {
+    "command": "npm run build",
+    "outputDir": "dist"
+  }
+}
