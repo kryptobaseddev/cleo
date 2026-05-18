@@ -87,6 +87,13 @@ export interface ResolvedToolPlaceholders {
  * `packages/cleo/templates/workflows/README.md`.
  */
 export interface ScaffoldReleaseConfig {
+  /**
+   * Override the package-install command. NOT part of the ADR-061 canonical
+   * tool list (those are test/build/lint/typecheck/audit/security-scan), so
+   * it falls through `.cleo/release-config.json` instead of the resolver.
+   * Defaults to {@link DEFAULT_INSTALL_CMD}.
+   */
+  installCmd?: string;
   nodeVersion?: string;
   releaseBranchPrefix?: string;
   prLabel?: string;
@@ -250,10 +257,10 @@ function resolveToolLine(
  */
 function resolvePlaceholders(
   projectRoot: string,
-  _cfg: ScaffoldReleaseConfig,
+  cfg: ScaffoldReleaseConfig,
 ): ResolvedToolPlaceholders {
   return {
-    install: DEFAULT_INSTALL_CMD,
+    install: cfg.installCmd ?? DEFAULT_INSTALL_CMD,
     lint: resolveToolLine('lint', projectRoot, DEFAULT_LINT_CMD),
     typecheck: resolveToolLine('typecheck', projectRoot, DEFAULT_TYPECHECK_CMD),
     test: resolveToolLine('test', projectRoot, DEFAULT_TEST_CMD),
