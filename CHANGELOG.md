@@ -1,5 +1,64 @@
 # Changelog
 
+## [2026.6.0] (2026-05-18) — T9345 IVTR Release System overhaul
+
+Major release: complete overhaul of the CLEO release pipeline per SPEC-T9345 / ADR-073. Replaces the 761-line releaseShip monolith with four operator verbs (`plan`, `open`, `reconcile`, `rollback`) backed by four GHA workflow templates. Eliminates 10 production failure modes catalogued in `failure-forensics-10-modes.md` (8 by structural prevention, 2 by race-window narrowing). IVTR is decoupled from the release blocking path — ADR-051 evidence atoms become the sole gate execution surface.
+
+### Added
+
+#### Provenance graph (T9491 — Phase 0)
+- 11 new SQLite tables: `commits`, `task_commits`, `commit_files`, `pull_requests`, `pr_commits`, `pr_tasks`, `releases`, `release_commits`, `release_changes`, `release_artifacts`, `brain_release_links` (T9506/T9507/T9508/T9509/T9510)
+- `releases_view` materialized view for joined query consumers (T9510)
+- `CLEO_PROVENANCE_DUAL_WRITE` env var gates dual-write to legacy + new tables (T9510)
+
+#### CLI verbs (T9492 / T9493)
+- `cleo release plan <version> --epic <id>` — builds Release Plan envelope, writes `.cleo/release/<version>.plan.json`, INSERTs releases row with status=planned (T9525)
+- `cleo release reconcile <version>` — backfills 11 provenance tables from git log + gh api, single SQLite TX, UPSERT-everywhere (T9526)
+- `cleo release open <version>` — dispatches `release-prepare.yml` workflow, UPDATEs releases.status=pr-opened (T9530)
+- `cleo provenance backfill --since <version>` — walks historical tags forward, populates 11 tables, restartable via checkpoint (T9528)
+- `cleo provenance verify <version>` — audits FK integrity + orphan rows + evidence staleness across 8 categories (T9529)
+
+#### GHA workflow templates (T9494 / T9497)
+- `release-prepare.yml.tmpl` — bump-PR creation per SPEC §5.1 (T9532)
+- `release-publish.yml.tmpl` — push-to-main → tag-on-merge-SHA per SPEC §5.2; eliminates F6 race by construction via gh pr view --json state,mergeCommit polling (T9533)
+- `release-fanout.yml.tmpl` — release:published trigger with 5 best-effort jobs per SPEC §5.3 (T9534)
+- `release-rollback.yml.tmpl` — workflow_dispatch revert-PR (NOT direct main push per ADR-065) per SPEC §5.4 (T9535)
+- `cleo init --workflows` + `cleo upgrade workflows` scaffolders (T9531, T9536)
+
+#### Test infrastructure (T9495)
+- 3 archetype fixtures: monorepo / single-npm-lib / single-rust-crate (T9542)
+- 12 release-pipeline scenarios as Vitest integration tests (T9543)
+- GHA matrix workflow runs 32 scenario × archetype combinations on PR labeled release-pipeline (T9544)
+
+#### Worktree lifecycle (T9515)
+- 60s timeout supervisor + AbortController budget on `cleo orchestrate spawn` (T9545)
+- `cleo worktree list` with 5 status categories (active|stale|merged|orphan|locked) (T9546)
+- `cleo worktree prune --orphaned` + `cleo worktree force-unlock <taskId>` (T9547)
+- Auto-invoke worktree-complete post-success (T9548)
+- `docs/spec/worktree-lifecycle.md` canonical spec (T9549)
+
+#### Schema contract
+- `@cleocode/contracts/release/plan` — ReleasePlanSchema (Zod) + `parseReleasePlan` helper (T9527)
+
+### Changed
+
+- `cleo release ship` is now a deprecated alias forwarding to plan + open + auto-publish flow (T9538). `--workflow=false` emergency escape hatch preserves legacy path with audit-log entry.
+- `cleo release --help` lists new 4-verb surface (plan/open/reconcile/rollback) prominently; deprecated verbs (ship/start/verify/publish) shown below in Deprecated section.
+
+### Fixed (T9496 — Forensics 5-bug bundle)
+
+- F1: 60s supervisor timeout on every git invocation in release pipeline (T9501)
+- F2: epic-completeness scope confined to declared `--epic` argument (T9502)
+- F3/F4: gate runners actually execute via ADR-061 tool resolver (no more theater) (T9503)
+- F6: tag lands on `mergeCommit.oid` after gh pr view confirms state=MERGED (T9504)
+- F5: CLEO_OWNER_OVERRIDE counter resets per session (T9505)
+- F3b: makeAdr061GateRunner cwd-vs-projectRoot contract clarified (T9550)
+- Migration timestamp collision: T9506 renumbered 20260516000000-000002 → 20260517000000-000002 to avoid colliding with T9519 (T9551)
+
+### Removed
+
+- E_IVTR_INCOMPLETE blocking gate from release path (T9537). `task.ivtr_state` becomes observation-only; ADR-051 evidence atoms are the sole gate execution surface for release per SPEC R-310 through R-316.
+
 ## [2026.5.78] (2026-05-17) — E-CONFIG-AUTH-UNIFY
 
 ### Added
