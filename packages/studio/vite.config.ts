@@ -70,6 +70,10 @@ export default defineConfig({
     // T1693: noExternal ensures Vite bundles @cleocode/* packages by default.
     // The explicit excludes below override that for WASM-dependent packages.
     noExternal: [/^@cleocode\//],
-    external: ['loro-crdt', 'llmtxt'],
+    // T9593: @cleocode/cant ships as CommonJS (no "type":"module"). Vite ESM
+    // SSR runner cannot inline CJS when noExternal forces bundling — every route
+    // crashes via +layout.server.ts → @cleocode/core → @cleocode/caamp →
+    // @cleocode/cant. Mark it external so Node.js resolves it natively.
+    external: ['loro-crdt', 'llmtxt', '@cleocode/cant'],
   },
 });
