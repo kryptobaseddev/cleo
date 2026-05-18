@@ -30,6 +30,10 @@ export default defineConfig({
       // T9532: template snapshot tests live under packages/cleo/test/templates
       // (singular `test/`, matching the existing fixtures dir convention).
       'packages/cleo/test/templates/**/*.test.ts',
+      // T9543: release-pipeline integration scenarios live under
+      // packages/cleo/test/integration/release-pipeline/. They mock gh + git
+      // and consume fixtures from packages/cleo/test/fixtures/release-test-*.
+      'packages/cleo/test/integration/release-pipeline/**/*.test.ts',
     ],
     exclude: [
       'node_modules',
