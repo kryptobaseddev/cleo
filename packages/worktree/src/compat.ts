@@ -16,7 +16,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { gitSilent, gitSync } from './git.js';
+import { DEFAULT_GIT_TIMEOUT_MS, gitSilent, gitSync } from './git.js';
 import { resolveWorktreeRootForHash } from './paths.js';
 
 // ---------------------------------------------------------------------------
@@ -192,9 +192,12 @@ export function legacyMergeWorktree(
  */
 export function legacyListWorktrees(config: LegacyWorktreeConfig): LegacyWorktreeEntry[] {
   try {
+    // T9545 — bound `git worktree list` with a default timeout so a wedged
+    // child can never block legacy worktree enumeration callers.
     const output = execFileSync('git', ['worktree', 'list', '--porcelain'], {
       cwd: config.gitRoot,
       encoding: 'utf-8',
+      timeout: DEFAULT_GIT_TIMEOUT_MS,
     }) as string;
     const entries: LegacyWorktreeEntry[] = [];
     const root = legacyResolveWorktreeRoot(config);
