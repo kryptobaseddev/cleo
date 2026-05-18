@@ -264,6 +264,19 @@ export {
   signAuditLine,
   verifyAuditLine,
 } from './identity/index.js';
+// Init — workflow scaffolder (T9531)
+export type {
+  ResolvedToolPlaceholders,
+  ScaffoldReleaseConfig,
+  ScaffoldWorkflowOutcome,
+  ScaffoldWorkflowsOptions,
+  ScaffoldWorkflowsResult,
+  WorkflowName,
+} from './init/scaffold-workflows.js';
+export {
+  listAvailableWorkflowTemplates,
+  scaffoldWorkflows,
+} from './init/scaffold-workflows.js';
 export type { InitOptions, InitResult } from './init.js';
 // Init
 export { ensureInitialized, getVersion, initProject } from './init.js';
