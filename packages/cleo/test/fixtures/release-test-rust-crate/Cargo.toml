@@ -1,0 +1,8 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+[package]
+name = "release-test-rust-crate"
+version = "0.0.0"
+edition = "2021"

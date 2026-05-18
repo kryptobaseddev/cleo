@@ -1,0 +1,11 @@
+{
+  "versionScheme": "semver",
+  "tagPrefix": "v",
+  "gitWorkflow": "feat-to-main",
+  "archetype": "single-rust-crate",
+  "branchModel": "release/v<version>",
+  "platformMatrix": [
+    { "platform": "linux-x64", "publisher": "cargo", "package": "release-test-rust-crate" },
+    { "platform": "linux-arm64", "publisher": "cargo", "package": "release-test-rust-crate" }
+  ]
+}
