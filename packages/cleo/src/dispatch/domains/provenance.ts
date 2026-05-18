@@ -3,6 +3,11 @@
  *
  * Handles `cleo provenance <operation>` dispatch operations:
  *
+ * QUERY operations:
+ *   verify    — Phase 2 of T9493 (T9529). READ-ONLY audit of the 11
+ *               provenance tables for a release. Checks FK integrity,
+ *               orphan rows, and ADR-051 evidence-atom staleness.
+ *
  * MUTATE operations:
  *   backfill  — Phase 2 of T9493 (T9528). Walks historical git tags from
  *               `since` forward and populates the 11 provenance tables
@@ -13,17 +18,22 @@
  *               restartable via checkpoint at
  *               `.cleo/release/backfill-state.json`.
  *
- * Future verbs (T9529+) will live here too:
- *   verify    — diff DB rows against re-parsed git log per release tag.
+ * Future verbs:
  *   repair    — re-reconcile a single tag in place.
  *
  * @task T9528
+ * @task T9529
  * @epic T9493
  * @adr  ADR-T9345 (IVTR-release-overhaul)
- * @spec .cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md §8.3
+ * @spec .cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md §4.6, §8.3
  */
 
-import { getLogger, getProjectRoot, provenanceBackfill } from '@cleocode/core/internal';
+import {
+  getLogger,
+  getProjectRoot,
+  provenanceBackfill,
+  verifyProvenance,
+} from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
@@ -40,18 +50,55 @@ const log = getLogger('domain:provenance');
  */
 export class ProvenanceHandler implements DomainHandler {
   // -----------------------------------------------------------------------
-  // Query — no query operations defined yet (verify lands in T9529)
+  // Query
   // -----------------------------------------------------------------------
 
   /**
-   * Provenance query operations.
+   * Provenance query operations. Currently only `verify` is implemented.
    *
-   * No query ops are registered in T9528. Returns `E_UNSUPPORTED_OP` for any
-   * incoming operation. The `verify` query op will land in T9529.
+   * @param operation - The provenance query op name (`verify`).
+   * @param params    - The dispatch params object: `version`, `all`, `limit`.
    */
-  async query(operation: string, _params?: Record<string, unknown>): Promise<DispatchResponse> {
+  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
-    return unsupportedOp('query', 'provenance', operation, startTime);
+
+    try {
+      switch (operation) {
+        // ------------------------------------------------------------------
+        // provenance.verify — T9529 / SPEC-T9345 §4.6
+        // ------------------------------------------------------------------
+        case 'verify': {
+          const version = typeof params?.['version'] === 'string' ? params['version'] : undefined;
+          const all = typeof params?.['all'] === 'boolean' ? params['all'] : false;
+          const limit = typeof params?.['limit'] === 'number' ? params['limit'] : undefined;
+
+          if (!version && !all) {
+            return errorResult(
+              'query',
+              'provenance',
+              operation,
+              'E_INVALID_INPUT',
+              'verify requires either <version> or --all',
+              startTime,
+            );
+          }
+
+          const result = await verifyProvenance({
+            ...(version ? { version } : {}),
+            all,
+            ...(limit !== undefined ? { limit } : {}),
+            projectRoot: getProjectRoot(),
+          });
+          return wrapResult(result, 'query', 'provenance', operation, startTime);
+        }
+
+        default:
+          return unsupportedOp('query', 'provenance', operation, startTime);
+      }
+    } catch (err) {
+      log.error({ err, operation }, 'ProvenanceHandler query error');
+      return handleErrorResult('query', 'provenance', operation, err, startTime);
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -118,7 +165,7 @@ export class ProvenanceHandler implements DomainHandler {
   /** Return declared operations for introspection and registry validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: [],
+      query: ['verify'],
       mutate: ['backfill'],
     };
   }
