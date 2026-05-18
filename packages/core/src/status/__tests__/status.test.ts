@@ -63,6 +63,8 @@ beforeEach(() => {
     'CLEO_HOME',
     'CLEO_ROOT',
     'CLEO_HARNESS',
+    'CLAUDECODE',
+    'CLEO_PI',
   ]) {
     SAVED_ENV[k] = process.env[k];
   }
@@ -70,6 +72,8 @@ beforeEach(() => {
   process.env['CLEO_ROOT'] = testRoot;
   process.env['CLEO_HOME'] = cleoHome;
   delete process.env['CLEO_HARNESS'];
+  delete process.env['CLAUDECODE'];
+  delete process.env['CLEO_PI'];
 
   // Mock baselines — every test overrides what it needs.
   vi.mocked(getCredentialPool).mockReturnValue({
@@ -305,12 +309,16 @@ describe('getCleoStatus.session', () => {
 // ---------------------------------------------------------------------------
 
 describe('getCleoStatus.harness', () => {
-  it('defaults to unknown when CLEO_HARNESS is unset', async () => {
+  // --- Layer 4: default ---
+
+  it('defaults to unknown when no env vars or config are set', async () => {
     const status = await getCleoStatus();
     expect(status.harness.active).toBe('unknown');
     expect(status.harness.healthy).toBe(true);
     expect(status.harness.issues).toEqual([]);
   });
+
+  // --- Layer 1: explicit CLEO_HARNESS env var ---
 
   it('detects pi when CLEO_HARNESS=pi', async () => {
     process.env['CLEO_HARNESS'] = 'pi';
@@ -324,8 +332,94 @@ describe('getCleoStatus.harness', () => {
     expect(status.harness.active).toBe('claude-code');
   });
 
-  it('falls back to unknown for unrecognised harness values', async () => {
+  it('falls back to unknown for unrecognised CLEO_HARNESS values', async () => {
     process.env['CLEO_HARNESS'] = 'not-a-known-harness';
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('unknown');
+  });
+
+  it('CLEO_HARNESS wins over CLAUDECODE=1 (layer 1 beats layer 2)', async () => {
+    process.env['CLEO_HARNESS'] = 'pi';
+    process.env['CLAUDECODE'] = '1';
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('pi');
+  });
+
+  // --- Layer 2: provider auto-detect ---
+
+  it('auto-detects claude-code when CLAUDECODE=1', async () => {
+    process.env['CLAUDECODE'] = '1';
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('claude-code');
+  });
+
+  it('auto-detects pi when CLEO_PI=1', async () => {
+    process.env['CLEO_PI'] = '1';
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('pi');
+  });
+
+  it('CLAUDECODE wins over CLEO_PI (layer 2 order: claude-code first)', async () => {
+    process.env['CLAUDECODE'] = '1';
+    process.env['CLEO_PI'] = '1';
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('claude-code');
+  });
+
+  // --- Layer 3: global config harness.active ---
+
+  it('reads harness.active from global config when no env vars are set', async () => {
+    const cleoHome = process.env['CLEO_HOME'] ?? '';
+    writeFileSync(join(cleoHome, 'config.json'), JSON.stringify({ harness: { active: 'pi' } }));
+
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('pi');
+  });
+
+  it('reads harness.active=claude-code from global config', async () => {
+    const cleoHome = process.env['CLEO_HOME'] ?? '';
+    writeFileSync(
+      join(cleoHome, 'config.json'),
+      JSON.stringify({ harness: { active: 'claude-code' } }),
+    );
+
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('claude-code');
+  });
+
+  it('ignores unrecognised harness.active values in global config (falls back to unknown)', async () => {
+    const cleoHome = process.env['CLEO_HOME'] ?? '';
+    writeFileSync(
+      join(cleoHome, 'config.json'),
+      JSON.stringify({ harness: { active: 'bogus-value' } }),
+    );
+
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('unknown');
+  });
+
+  it('CLEO_HARNESS env wins over global config (layer 1 beats layer 3)', async () => {
+    const cleoHome = process.env['CLEO_HOME'] ?? '';
+    writeFileSync(join(cleoHome, 'config.json'), JSON.stringify({ harness: { active: 'pi' } }));
+    process.env['CLEO_HARNESS'] = 'claude-code';
+
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('claude-code');
+  });
+
+  it('CLAUDECODE=1 wins over global config (layer 2 beats layer 3)', async () => {
+    const cleoHome = process.env['CLEO_HOME'] ?? '';
+    writeFileSync(join(cleoHome, 'config.json'), JSON.stringify({ harness: { active: 'pi' } }));
+    process.env['CLAUDECODE'] = '1';
+
+    const status = await getCleoStatus();
+    expect(status.harness.active).toBe('claude-code');
+  });
+
+  it('degrades to unknown when global config is corrupt', async () => {
+    const cleoHome = process.env['CLEO_HOME'] ?? '';
+    writeFileSync(join(cleoHome, 'config.json'), '{ invalid json >>>');
+
     const status = await getCleoStatus();
     expect(status.harness.active).toBe('unknown');
   });
