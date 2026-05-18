@@ -57,8 +57,11 @@ import { ghCliSeeder } from './gh-cli-seeder.js';
  * - `gemini-cli`  — Google Gemini CLI application default credentials.
  * - `gh-cli`      — GitHub CLI token (for `github-models` provider).
  * - `manual`      — operator-added entry via `cleo llm add` or store edit.
+ * - `cli-input`   — credential supplied directly via `cleo auth add` /
+ *                   `cleo setup --api-key` (interactive or flag-driven CLI).
  *
  * @task T9408
+ * @task T9596
  */
 export type SeederSourceId =
   | 'env'
@@ -67,7 +70,8 @@ export type SeederSourceId =
   | 'codex-cli'
   | 'gemini-cli'
   | 'gh-cli'
-  | 'manual';
+  | 'manual'
+  | 'cli-input';
 
 /**
  * Canonical pre-persist credential entry shape emitted by seeders.

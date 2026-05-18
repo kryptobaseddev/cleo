@@ -221,6 +221,107 @@ describe('getCleoStatus.credentials', () => {
     const status = await getCleoStatus();
     expect(status.credentials).toEqual([]);
   });
+
+  it('preserves cli-input source — credentials added via cleo auth add / cleo setup --api-key (T9596 BUG-3)', async () => {
+    // This is the regression case from T9573 BUG-3: cli-input was not in
+    // KNOWN_SEEDER_SOURCES so getCleoStatus downgraded it to 'none'.
+    vi.mocked(getCredentialPool).mockReturnValue({
+      list: async () => [
+        {
+          provider: 'anthropic',
+          label: 'cli-input',
+          authType: 'api_key',
+          accessToken: 'sk-manual',
+          priority: 0,
+          source: 'cli-input',
+        },
+      ],
+    } as unknown as ReturnType<typeof getCredentialPool>);
+
+    const status = await getCleoStatus();
+    expect(status.credentials).toHaveLength(1);
+    expect(status.credentials[0].source).toBe('cli-input');
+  });
+
+  it('preserves manual source — credentials added via cleo llm add or store edit (T9596)', async () => {
+    vi.mocked(getCredentialPool).mockReturnValue({
+      list: async () => [
+        {
+          provider: 'openai',
+          label: 'operator-added',
+          authType: 'api_key',
+          accessToken: 'sk-manual',
+          priority: 0,
+          source: 'manual',
+        },
+      ],
+    } as unknown as ReturnType<typeof getCredentialPool>);
+
+    const status = await getCleoStatus();
+    expect(status.credentials).toHaveLength(1);
+    expect(status.credentials[0].source).toBe('manual');
+  });
+
+  it('preserves all known seeder sources without downgrading to none (T9596)', async () => {
+    const knownSources = [
+      'env',
+      'claude-code',
+      'cleo-pkce',
+      'codex-cli',
+      'gemini-cli',
+      'gh-cli',
+      'manual',
+      'cli-input',
+    ] as const;
+
+    vi.mocked(getCredentialPool).mockReturnValue({
+      list: async () =>
+        knownSources.map((source, i) => ({
+          provider: 'anthropic',
+          label: `entry-${i}`,
+          authType: 'api_key' as const,
+          accessToken: `sk-${i}`,
+          priority: i,
+          source,
+        })),
+    } as unknown as ReturnType<typeof getCredentialPool>);
+
+    const status = await getCleoStatus();
+    expect(status.credentials).toHaveLength(knownSources.length);
+    for (let i = 0; i < knownSources.length; i++) {
+      expect(status.credentials[i].source).toBe(knownSources[i]);
+    }
+  });
+
+  it('downgrades only truly unknown/empty source strings to none (T9596)', async () => {
+    vi.mocked(getCredentialPool).mockReturnValue({
+      list: async () => [
+        {
+          provider: 'anthropic',
+          label: 'mystery',
+          authType: 'api_key',
+          accessToken: 'sk-x',
+          priority: 0,
+          source: 'some-future-unknown-seeder',
+        },
+        {
+          provider: 'openai',
+          label: 'legacy',
+          authType: 'api_key',
+          accessToken: 'sk-y',
+          priority: 1,
+          source: undefined,
+        },
+      ],
+    } as unknown as ReturnType<typeof getCredentialPool>);
+
+    const status = await getCleoStatus();
+    expect(status.credentials).toHaveLength(2);
+    // Unrecognised source strings → 'none'
+    expect(status.credentials[0].source).toBe('none');
+    // Missing/undefined source → 'none'
+    expect(status.credentials[1].source).toBe('none');
+  });
 });
 
 // ---------------------------------------------------------------------------
