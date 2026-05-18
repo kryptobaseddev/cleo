@@ -21,6 +21,7 @@ import { NexusHandler } from './nexus.js';
 import { OrchestrateHandler } from './orchestrate.js';
 import { PipelineHandler } from './pipeline.js';
 import { PlaybookHandler } from './playbook.js';
+import { ProvenanceHandler } from './provenance.js';
 import { ReleaseHandler } from './release.js';
 import { SentientHandler } from './sentient.js';
 import { SessionHandler } from './session.js';
@@ -42,6 +43,7 @@ export {
   OrchestrateHandler,
   PipelineHandler,
   PlaybookHandler,
+  ProvenanceHandler,
   ReleaseHandler,
   SentientHandler,
   SessionHandler,
@@ -80,6 +82,9 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('sentient', new SentientHandler());
   // T1416: release domain — IVTR gate check (RELEASE-03) + auto-suggest (RELEASE-07).
   handlers.set('release', new ReleaseHandler());
+  // T9528: provenance domain — backfill the 11 provenance tables for historical
+  // releases. Verify + repair verbs land in T9529+.
+  handlers.set('provenance', new ProvenanceHandler());
   // T9258: `cleo llm` CLI surface — credential pool + role-aware resolver + config writer.
   handlers.set('llm', new LlmHandler());
   // T9546: `cleo worktree` CLI surface — structured worktree enumeration with status classification
