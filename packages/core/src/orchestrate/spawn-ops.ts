@@ -435,15 +435,43 @@ export async function orchestrateSpawnSelectProvider(
 }
 
 /**
+ * Options accepted by {@link orchestrateSpawnExecute} that go beyond the
+ * primitive positional args. Currently used by T9548 to thread the auto-merge
+ * toggle through without breaking the existing 5-arg signature.
+ *
+ * @task T9548
+ */
+export interface OrchestrateSpawnExecuteOpts {
+  /**
+   * When `true` (default), auto-invoke {@link completeWorktreeForTask} after
+   * a successful worker spawn returns. Idempotent — re-running on an already
+   * completed worktree is a no-op. Set to `false` to skip the auto-merge step
+   * (e.g. when the orchestrator wants to inspect the worktree before
+   * integration, or for `--no-auto-complete` flows).
+   *
+   * @default true
+   */
+  autoComplete?: boolean;
+}
+
+/**
  * orchestrate.spawn.execute - Execute spawn for a task using adapter registry
+ *
+ * T9548 — after a successful spawn returns, the function auto-invokes
+ * {@link completeWorktreeForTask} so the worker's worktree is merged
+ * (`git merge --no-ff` per ADR-062) back into the project default branch
+ * and pruned. The behaviour is idempotent and can be disabled by passing
+ * `autoComplete: false` in {@link OrchestrateSpawnExecuteOpts}.
  *
  * @param taskId - Task to spawn.
  * @param adapterId - Optional adapter id to use. Auto-selects if not provided.
  * @param protocolType - Optional protocol type override.
  * @param projectRoot - Optional project root path.
  * @param tier - Optional spawn tier (0=worker, 1=lead, 2=orchestrator).
+ * @param opts - Optional behaviour overrides (T9548 auto-complete toggle).
  * @returns Engine result with spawn execution data.
  * @task T5236
+ * @task T9548
  */
 export async function orchestrateSpawnExecute(
   taskId: string,
@@ -451,8 +479,10 @@ export async function orchestrateSpawnExecute(
   protocolType?: string,
   projectRoot?: string,
   tier?: 0 | 1 | 2,
+  opts: OrchestrateSpawnExecuteOpts = {},
 ): Promise<EngineResult> {
   const cwd = projectRoot ?? process.cwd();
+  const autoComplete = opts.autoComplete ?? true;
 
   try {
     // Get spawn registry
@@ -695,6 +725,61 @@ export async function orchestrateSpawnExecute(
       spawnedAt: new Date().toISOString(),
     });
 
+    // ---- T9548 — Auto-invoke worktree-complete post-success. --------------
+    //
+    // After the worker has returned a clean exit, integrate its worktree back
+    // to the project default branch via the canonical ADR-062 merge path.
+    // The call is idempotent: re-running on an already-completed worktree
+    // returns `outcome: 'noop'`. Merge conflicts preserve the worktree.
+    //
+    // The auto-invoke is gated by:
+    //  1. `opts.autoComplete !== false`
+    //  2. The worker returning a non-zero exit code is treated as failure —
+    //     the worktree is preserved and the auto-complete step skipped so
+    //     the operator can inspect the failed work.
+    //  3. Failure to import / run the SDK is non-fatal: the spawn envelope
+    //     is returned unchanged.
+    let autoCompleteOutcome:
+      | {
+          ran: boolean;
+          outcome: import('./worktree-complete.js').CompleteWorktreeForTaskResult['outcome'];
+          reason: string;
+        }
+      | { ran: false; reason: string } = { ran: false, reason: 'autoComplete disabled' };
+
+    if (autoComplete && result.exitCode === 0) {
+      try {
+        const { completeWorktreeForTask } = await import('./worktree-complete.js');
+        const completion = completeWorktreeForTask(taskId, cwd);
+        autoCompleteOutcome = {
+          ran: true,
+          outcome: completion.outcome,
+          reason: completion.reason,
+        };
+        getLogger('engine:orchestrate').info(
+          { taskId, outcome: completion.outcome, reason: completion.reason },
+          'T9548 auto-complete invoked',
+        );
+      } catch (err) {
+        // Auto-complete is best-effort. The spawn itself succeeded; surface
+        // the integration error in the envelope but do not fail the spawn.
+        const message = err instanceof Error ? err.message : String(err);
+        autoCompleteOutcome = { ran: false, reason: `auto-complete failed: ${message}` };
+        getLogger('engine:orchestrate').warn(
+          { taskId, err: message },
+          'T9548 auto-complete threw — spawn envelope returned unchanged',
+        );
+      }
+    } else if (!autoComplete) {
+      autoCompleteOutcome = { ran: false, reason: 'autoComplete disabled (--no-auto-complete)' };
+    } else {
+      // exitCode !== 0 — worker failed; preserve worktree for inspection.
+      autoCompleteOutcome = {
+        ran: false,
+        reason: `worker exitCode=${result.exitCode} — worktree preserved for inspection`,
+      };
+    }
+
     return {
       success: true,
       data: {
@@ -717,6 +802,8 @@ export async function orchestrateSpawnExecute(
               ? { reason: templateSubstitution.reason }
               : {}),
           },
+          // T9548 — auto-complete diagnostics surfaced for orchestrator visibility.
+          autoComplete: autoCompleteOutcome,
         },
         agentId: payload.agentId,
         role: payload.role,
