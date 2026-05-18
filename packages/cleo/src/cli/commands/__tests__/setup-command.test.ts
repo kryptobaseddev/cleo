@@ -1,5 +1,5 @@
 /**
- * CLI wiring tests for `cleo setup` (T9421).
+ * CLI wiring tests for `cleo setup` (T9421 + T9599).
  *
  * The core {@link WizardRunner} is exercised in
  * `packages/core/src/setup/__tests__/wizard.test.ts`. These tests only
@@ -12,11 +12,13 @@
  *     threads the right `WizardOptions` through to the wizard runner.
  *   - `buildWizardOptions()` maps every documented CLI flag onto the
  *     `WizardOptions` bag the runner expects.
+ *   - T9599: `StdinClosedError` propagates cleanly out of `runSetup`.
  *
  * We mock `createDefaultWizardRunner` so the test never touches the
  * credential pool, the sentient daemon config, or `SOUL.md`.
  *
  * @task T9421
+ * @task T9599
  * @epic E-CONFIG-AUTH-UNIFY (E3 §5.3 T-E3-2)
  */
 
@@ -103,6 +105,7 @@ vi.mock('@cleocode/core/setup', async () => {
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { StdinClosedError } from '../../lib/readline-wizard-io.js';
 import { buildWizardOptions, runSetup, setupCommand } from '../setup.js';
 
 // ---------------------------------------------------------------------------
@@ -266,5 +269,41 @@ describe('cleo setup — CLI wiring', () => {
       expect(opts.apiKey).toBeUndefined();
       expect(opts.label).toBeUndefined();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T9599 — StdinClosedError propagation from runSetup
+// ---------------------------------------------------------------------------
+
+describe('T9599 — StdinClosedError propagates out of runSetup', () => {
+  it('runSetup re-throws StdinClosedError so the command handler can emit a LAFS envelope', async () => {
+    // A WizardIO that throws StdinClosedError on every prompt — simulates
+    // the ReadlineWizardIO behaviour when stdin closes mid-section.
+    const eofIo: WizardIO = {
+      prompt: () => Promise.reject(new StdinClosedError()),
+      confirm: () => Promise.reject(new StdinClosedError()),
+      select: () => Promise.reject(new StdinClosedError()),
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    };
+
+    // runSetup should let StdinClosedError propagate (not swallow it).
+    await expect(runSetup({}, eofIo)).rejects.toThrow(StdinClosedError);
+  });
+
+  it('StdinClosedError.is() type-guard identifies instances correctly', () => {
+    const err = new StdinClosedError();
+    expect(StdinClosedError.is(err)).toBe(true);
+    expect(StdinClosedError.is(new Error('other'))).toBe(false);
+    expect(StdinClosedError.is(null)).toBe(false);
+    expect(StdinClosedError.is('string')).toBe(false);
+  });
+
+  it('StdinClosedError carries the canonical codeName', () => {
+    const err = new StdinClosedError();
+    expect(err.codeName).toBe('E_SETUP_STDIN_CLOSED');
+    expect(err.message).toBe('stdin closed before section completed');
   });
 });
