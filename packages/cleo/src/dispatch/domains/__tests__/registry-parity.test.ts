@@ -207,7 +207,7 @@ vi.mock('../../lib/engine.js', () => {
     releaseRollback: mockFn(),
     releaseCancel: mockFn(),
     releasePush: mockFn(),
-    releaseShip: mockFn(),
+    // releaseShip removed in T9540 (Phase 6 of T9499)
     // Template parser
     parseIssueTemplates: mockFn(),
     getTemplateForSubcommand: mockFn(),
@@ -501,19 +501,17 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(() => 'main\n'),
 }));
 
-// T1726: Mock @cleocode/core release namespace for release domain handler
-// (ReleaseHandler now imports release.releaseStart/releaseVerify/releasePublish/releaseReconcile)
+// T1726: Mock @cleocode/core release namespace for release domain handler.
+// T9540 removed the legacy releaseStart/releaseVerify/releasePublish/releaseReconcile
+// mocks alongside the deletion of `packages/core/src/release/pipeline.ts`.
+// ReleaseHandler now only invokes the SPEC-T9345 v2 verbs (plan/open/reconcile-v2).
 vi.mock('@cleocode/core', async () => {
   const actual = await vi.importActual<typeof import('@cleocode/core')>('@cleocode/core');
   return {
     ...actual,
     release: {
       ...(actual.release as object),
-      releaseStart: vi.fn().mockResolvedValue({ version: '2026.5.0', tag: 'v2026.5.0' }),
-      releaseVerify: vi.fn().mockResolvedValue({ passed: true, gates: [], ungreenChildren: [] }),
-      releasePublish: vi.fn().mockResolvedValue({ success: true }),
-      releaseReconcile: vi.fn().mockResolvedValue({ success: true, completedTasks: [] }),
-      // T9526: v2 reconcile verb — ReleaseHandler.mutate('reconcile') now routes to v2
+      // T9526: v2 reconcile verb — ReleaseHandler.mutate('reconcile') routes here.
       releaseReconcileV2: vi.fn().mockResolvedValue({
         success: true,
         data: {
@@ -528,7 +526,6 @@ vi.mock('@cleocode/core', async () => {
           orphanCommits: [],
         },
       }),
-      loadActiveReleaseHandle: vi.fn().mockReturnValue({ version: '2026.5.0', tag: 'v2026.5.0' }),
     },
   };
 });
@@ -633,7 +630,6 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     'stage.gate.pass': { taskId: 'T001', gateName: 'g1' },
     'stage.gate.fail': { taskId: 'T001', gateName: 'g1' },
     'release.show': { version: '1.0.0' },
-    'release.ship': { version: '1.0.0', epicId: 'T001' },
     'release.rollback': { version: '1.0.0' },
     'release.cancel': { version: '1.0.0' },
     'manifest.show': { entryId: 'e1' },
@@ -717,7 +713,6 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
   release: {
     gate: { epicId: 'T001' },
     'ivtr-suggest': { taskId: 'T001' },
-    start: { version: '2026.5.1' },
   },
 };
 

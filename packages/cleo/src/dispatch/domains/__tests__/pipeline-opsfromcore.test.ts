@@ -31,7 +31,7 @@ describe('pipeline dispatch OpsFromCore inference', () => {
     expect(source).toContain('export type PipelineOps');
   });
 
-  it('covers all 34 pipeline operations in coreOps', async () => {
+  it('covers all pipeline operations in coreOps (release.ship removed in T9540)', async () => {
     const source = await readFile(sourcePath, 'utf-8');
 
     // Stage ops
@@ -50,7 +50,8 @@ describe('pipeline dispatch OpsFromCore inference', () => {
     expect(source).toContain("'release.show'");
     expect(source).toContain("'release.channel.show'");
     expect(source).toContain("'release.changelog.since'");
-    expect(source).toContain("'release.ship'");
+    // T9540: release.ship deleted alongside the legacy releaseShip monolith.
+    expect(source).not.toContain("'release.ship'");
     expect(source).toContain("'release.cancel'");
     expect(source).toContain("'release.rollback'");
     expect(source).toContain("'release.rollback.full'");
@@ -86,8 +87,9 @@ describe('pipeline dispatch OpsFromCore inference', () => {
     expect(source).toContain("'stage.guidance'");
     expect(source).toContain("'release.channel.show'");
     expect(source).toContain("'chain.list'");
-    // Spot-check required mutate ops
-    expect(source).toContain("'release.ship'");
+    // Spot-check required mutate ops — T9540 removed release.ship; pick a
+    // representative release mutate that survived.
+    expect(source).toContain("'release.cancel'");
     expect(source).toContain("'chain.advance'");
   });
 });

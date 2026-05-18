@@ -767,19 +767,13 @@ export type {
   ReleaseOpenRunner,
 } from './release/open.js';
 export { DEFAULT_OPEN_WORKFLOW, releaseOpen } from './release/open.js';
-// T1726: canonical 4-step release pipeline (ADR-063 / T1597) — exposed via internal for dispatch layer
-export {
-  loadActiveReleaseHandle,
-  makeAdr061GateRunner,
-  releasePublish,
-  releaseReconcile,
-  releaseStart,
-  releaseVerify,
-} from './release/pipeline.js';
-// T9525: SPEC-T9345 release pipeline v2 verbs — exposed via internal for dispatch layer
+// T9525: SPEC-T9345 release pipeline v2 verbs — exposed via internal for dispatch layer.
+// The legacy 4-step pipeline (releaseStart/Verify/Publish/Reconcile) was
+// deleted in T9540 (Phase 6 of T9499); the new 4-verb surface — plan, open,
+// reconcile, rollback — is the canonical replacement (SPEC-T9345 §4).
 export type { ReleasePlanOptions, ReleasePlanResult } from './release/plan.js';
 export { releasePlan } from './release/plan.js';
-// T9526: new release reconcile v2 (provenance-graph aware) — exported alongside legacy
+// T9526: new release reconcile v2 (provenance-graph aware)
 export { releaseReconcileV2 } from './release/reconcile.js';
 export type { ProjectReleaseConfig, ReleaseConfig, ReleaseGate } from './release/release-config.js';
 export {
@@ -1501,7 +1495,6 @@ export {
   releasePush,
   releaseRollback,
   releaseRollbackFull,
-  releaseShip,
   releaseShow,
   releaseTag,
   writeIvtrDecouplingAuditOnce,

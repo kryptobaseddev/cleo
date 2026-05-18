@@ -3672,33 +3672,10 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
-  {
-    gateway: 'mutate',
-    domain: 'pipeline',
-    operation: 'release.ship',
-    description:
-      'Ship a release: validate gates → write CHANGELOG → git commit/tag/push → record provenance; absorbs prepare/changelog/commit/tag/push/gates.run via step param',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: ['version', 'epicId'],
-    params: [
-      {
-        name: 'version',
-        type: 'string',
-        required: true,
-        description: 'version parameter',
-        cli: { positional: true },
-      },
-      {
-        name: 'epicId',
-        type: 'string',
-        required: true,
-        description: 'epicId parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
-  },
+  // pipeline.release.ship removed in T9540 (Phase 6 of T9499) — the legacy
+  // `releaseShip` monolith was deleted. `cleo release ship` is still a
+  // deprecated CLI alias (R-420) but now forwards to `release.plan` +
+  // `release.open` (handled by the release domain), not the pipeline domain.
   {
     gateway: 'mutate',
     domain: 'pipeline',
@@ -7057,74 +7034,13 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
 
-  // release mutate: start (T1597 / ADR-063 canonical step 1)
-  {
-    gateway: 'mutate',
-    domain: 'release',
-    operation: 'start',
-    description:
-      'release.start (mutate) — Step 1 of 4: validate version, capture branch, persist release handle (T1597 / ADR-063)',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: ['version'],
-    params: [
-      {
-        name: 'version',
-        type: 'string',
-        required: true,
-        description: 'Version to release (e.g. 2026.5.4)',
-        cli: { positional: true },
-      },
-      {
-        name: 'epicId',
-        type: 'string',
-        required: false,
-        description: 'Epic ID this release ships',
-      },
-      {
-        name: 'branch',
-        type: 'string',
-        required: false,
-        description: 'Override detected branch',
-      },
-    ] satisfies ParamDef[],
-  },
-
-  // release query: verify (T1597 / ADR-063 canonical step 2)
-  {
-    gateway: 'query',
-    domain: 'release',
-    operation: 'verify',
-    description:
-      'release.verify (query) — Step 2 of 4: run gates + audit child tasks of the active release epic (T1597 / ADR-063)',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-    params: [] satisfies ParamDef[],
-  },
-
-  // release mutate: publish (T1597 / ADR-063 canonical step 3)
-  {
-    gateway: 'mutate',
-    domain: 'release',
-    operation: 'publish',
-    description:
-      'release.publish (mutate) — Step 3 of 4: invoke project-context publish.command to publish the release artifact (T1597 / ADR-063)',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-    params: [
-      {
-        name: 'dryRun',
-        type: 'boolean',
-        required: false,
-        description: 'Print command without executing',
-      },
-    ] satisfies ParamDef[],
-  },
+  // release.start / release.verify / release.publish removed in T9540
+  // (Phase 6 of T9499) — backing functions in
+  // `packages/core/src/release/pipeline.ts` (the legacy 4-step pipeline)
+  // were deleted. The canonical replacement surface is the SPEC-T9345
+  // 4-verb pipeline registered below: `release.plan`, `release.open`,
+  // `release.reconcile`, plus `cleo verify <task> --gate X --evidence …`
+  // for per-task gate verification (R-422 / ADR-051).
 
   // release mutate: reconcile (T9526 / SPEC-T9345 §4.4 — v2 reconcile verb)
   {

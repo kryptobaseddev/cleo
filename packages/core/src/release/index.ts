@@ -76,7 +76,6 @@ export {
   releasePush,
   releaseRollback,
   releaseRollbackFull,
-  releaseShip,
   releaseShow,
   releaseTag,
   writeIvtrDecouplingAuditOnce,
@@ -139,20 +138,13 @@ export { DEFAULT_OPEN_WORKFLOW, releaseOpen } from './open.js';
 // for `typeof` inference; there is NO runtime value. Re-exporting as `type`
 // avoids ERR_EXPORT_NOT_DEFINED when ESM loaders evaluate this barrel.
 export type { ReleaseIvtrSuggestParams, releaseCoreOps } from './ops.js';
-// T1597 release pipeline (canonical 4-step flow)
-export {
-  loadActiveReleaseHandle,
-  makeAdr061GateRunner,
-  releasePublish,
-  releaseReconcile,
-  releaseStart,
-  releaseVerify,
-} from './pipeline.js';
 // SPEC-T9345 release pipeline v2 verbs (T9492)
+// The legacy 4-step pipeline (releaseStart/Verify/Publish/Reconcile) was
+// deleted in T9540 (Phase 6 of T9499); the new 4-verb surface — plan, open,
+// reconcile, rollback — is the canonical replacement (SPEC-T9345 §4).
 export type { ReleasePlanOptions, ReleasePlanResult } from './plan.js';
 export { releasePlan } from './plan.js';
 // T9526 — v2 release reconcile verb (Phase 1 of T9492)
-// Named V2 to coexist with the legacy 4-step pipeline `releaseReconcile`.
 export type { ReleaseReconcileV2Options, ReleaseReconcileV2Result } from './reconcile.js';
 export { releaseReconcileV2 } from './reconcile.js';
 // Release configuration
