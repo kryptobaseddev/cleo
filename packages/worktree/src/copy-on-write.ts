@@ -17,8 +17,17 @@ import { execFile } from 'node:child_process';
 import { constants, existsSync, promises as fs, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { DEFAULT_GIT_TIMEOUT_MS } from './git.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Default per-copy subprocess timeout in milliseconds (T9545).
+ *
+ * Reuses {@link DEFAULT_GIT_TIMEOUT_MS} so spawn-pipeline subprocess budgets
+ * stay aligned across git and `cp` invocations.
+ */
+const DEFAULT_COPY_TIMEOUT_MS = DEFAULT_GIT_TIMEOUT_MS;
 
 /**
  * Copy multiple paths from a source directory to a target directory using
@@ -96,12 +105,19 @@ async function copyWithReflock(sourcePath: string, targetPath: string): Promise<
   const platform = process.platform;
 
   if (platform === 'darwin') {
-    await execFileAsync('cp', ['-cR', sourcePath, targetPath]);
+    // T9545 — bound cp -cR with a default timeout to keep the spawn pipeline
+    // safe against runaway / wedged subprocesses.
+    await execFileAsync('cp', ['-cR', sourcePath, targetPath], {
+      timeout: DEFAULT_COPY_TIMEOUT_MS,
+    });
     return;
   }
 
   if (platform === 'linux') {
-    await execFileAsync('cp', ['-R', '--reflink=auto', sourcePath, targetPath]);
+    // T9545 — bound cp --reflink with a default timeout.
+    await execFileAsync('cp', ['-R', '--reflink=auto', sourcePath, targetPath], {
+      timeout: DEFAULT_COPY_TIMEOUT_MS,
+    });
     return;
   }
 

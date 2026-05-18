@@ -623,12 +623,14 @@ export {
   orchestrateWaves,
 } from './orchestrate/query-ops.js';
 // Orchestrate spawn ops (T1570 Wave 3 — migrated from orchestrate-engine.ts)
-export type { ConduitOrchestrationEvent } from './orchestrate/spawn-ops.js';
+export type { ConduitOrchestrationEvent, SpawnPipelineStep } from './orchestrate/spawn-ops.js';
 export {
   composeSpawnForTask,
   orchestrateSpawn,
   orchestrateSpawnExecute,
   orchestrateSpawnSelectProvider,
+  // T9545 — overall spawn budget exposed for diagnostics + integration tests.
+  SPAWN_BUDGET_MS,
   sendConduitEvent,
 } from './orchestrate/spawn-ops.js';
 // Context
