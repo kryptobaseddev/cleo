@@ -120,6 +120,9 @@ export {
   releaseStart,
   releaseVerify,
 } from './pipeline.js';
+// SPEC-T9345 release pipeline v2 verbs (T9492)
+export type { ReleasePlanOptions, ReleasePlanResult } from './plan.js';
+export { releasePlan } from './plan.js';
 // Release configuration
 export type {
   ChannelConfig,
