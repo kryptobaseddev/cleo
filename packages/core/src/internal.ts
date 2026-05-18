@@ -709,6 +709,16 @@ export {
   removeLinksByProvider,
   touchLink,
 } from './reconciliation/link-store.js';
+// T9528: provenance backfill verb — walks historical tags and populates 11 tables.
+// Re-exported under `Provenance*` aliases to avoid collision with the
+// pre-existing `BackfillOptions`/`BackfillResult` from `./backfill/index.js`
+// (legacy task backfill — unrelated to provenance-graph backfill).
+export type {
+  BackfillOptions as ProvenanceBackfillOptions,
+  BackfillResult as ProvenanceBackfillResult,
+  BackfillTagResult as ProvenanceBackfillTagResult,
+} from './release/backfill.js';
+export { provenanceBackfill } from './release/backfill.js';
 // Release
 export { channelToDistTag, describeChannel, resolveChannelFromBranch } from './release/channel.js';
 export type { PRResult } from './release/github-pr.js';

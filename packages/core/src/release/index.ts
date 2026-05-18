@@ -18,10 +18,24 @@ export {
   publishArtifact,
   validateArtifact,
 } from './artifacts.js';
-
+// T9528 — provenance backfill verb (Phase 2 of T9493). Aliased to
+// `Provenance*` so this barrel can be re-flattened in `../internal.ts`
+// without colliding with the legacy task-backfill module in `../backfill/`.
+export type {
+  BackfillOptions as ProvenanceBackfillOptions,
+  BackfillResult as ProvenanceBackfillResult,
+  BackfillTagResult as ProvenanceBackfillTagResult,
+} from './backfill.js';
+export {
+  clearCheckpoint as backfillClearCheckpoint,
+  enumerateHistoricalTags,
+  loadCheckpoint as backfillLoadCheckpoint,
+  provenanceBackfill,
+  saveCheckpoint as backfillSaveCheckpoint,
+  synthesizePlanFromTag,
+} from './backfill.js';
 // Changelog writing
 export { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
-
 // Channel resolution
 export type { ChannelValidationResult, ReleaseChannel } from './channel.js';
 // Note: getDefaultChannelConfig is exported from both channel.ts and release-config.ts
@@ -34,7 +48,6 @@ export {
   resolveChannelFromBranch,
   validateVersionChannel,
 } from './channel.js';
-
 // CI/CD generation
 export type { CIPlatform } from './ci.js';
 export {

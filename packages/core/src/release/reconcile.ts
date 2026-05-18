@@ -67,6 +67,17 @@ const PLAN_ARCHIVE_DIR_REL = '.cleo/release/archive';
  * `fromWorkflow` mirrors the SPEC §4.4.1 `--from-workflow` flag (affects
  * logging verbosity only). `rollback` flips behavior for the rollback path
  * (deferred to T9527/T9528 — set false in this phase).
+ *
+ * `backfill` (T9528) signals that this invocation is part of a historical
+ * backfill walk: the tag is by definition reachable (it is being reconciled
+ * AFTER the fact), so the ADR-051 evidence-staleness check (R-313) is
+ * skipped. Without this flag, historical commits referenced by old plan
+ * evidence atoms may have been GC'd, file paths may have moved, and the
+ * staleness gate would reject every historical release. `forceOverwrite`
+ * (also T9528) signals the caller wants existing rows UPDATED — currently
+ * implemented as a UPSERT-on-conflict-DO-UPDATE semantic which already
+ * matches the reconcile insert pattern, so this flag is informational
+ * (audit-logged by callers) but does not alter the SQL path.
  */
 export interface ReleaseReconcileV2Options {
   /** Project root override (defaults to CLEO_ROOT or cwd). */
@@ -75,6 +86,14 @@ export interface ReleaseReconcileV2Options {
   fromWorkflow?: boolean;
   /** When true, drives the rollback flow (not implemented in T9526). */
   rollback?: boolean;
+  /** When true (T9528), skips evidence-staleness re-validation per R-313. */
+  backfill?: boolean;
+  /**
+   * When true (T9528), forces UPDATE of existing rows on conflict. The
+   * underlying SQL already UPSERTs on conflict, so this flag is currently
+   * informational; the backfill verb audit-logs overwrites separately.
+   */
+  forceOverwrite?: boolean;
 }
 
 /** Successful reconcile result envelope (SPEC §4.4.5 `data` payload). */
@@ -818,8 +837,13 @@ export async function releaseReconcileV2(
   const releaseRes = assertReleaseMatchesTag(version, projectRoot);
   if (!releaseRes.success) return releaseRes;
 
-  const stalenessRes = revalidateEvidenceStaleness(plan, version, projectRoot);
-  if (!stalenessRes.success) return stalenessRes;
+  // T9528: backfill walks historical tags whose evidence atoms may reference
+  // long-deleted files or rebased commits — skip the R-313 staleness gate.
+  // Production publish flows still pass through this check.
+  if (!opts.backfill) {
+    const stalenessRes = revalidateEvidenceStaleness(plan, version, projectRoot);
+    if (!stalenessRes.success) return stalenessRes;
+  }
 
   // ── 2. Walk git log (outside the transaction — read-only) ──
   let commits: ParsedCommit[];
