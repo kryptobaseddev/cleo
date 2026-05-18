@@ -173,14 +173,18 @@ describe('BUILTIN_SEEDERS singleton', () => {
     }
   });
 
-  it('contains the T9418 external-CLI seeders (codex-cli, gemini-cli, gh-cli)', () => {
+  it('contains the T9418 external-CLI seeders (codex-cli, gemini-cli) but NOT gh-cli (T9594)', () => {
     // Deliberately explicit: if a future task adds another seeder, extend
     // this list. If a future task removes one, this test fires to flag
     // the contract change.
+    //
+    // gh-cli is intentionally absent: `gh auth token` returns a GitHub PAT
+    // that cannot authenticate against api.openai.com (T9594).  It will be
+    // re-added once a real github-models provider exists.
     const ids = BUILTIN_SEEDERS.getAll().map((s) => `${s.sourceId}::${s.provider}`);
     expect(ids).toContain('codex-cli::openai');
     expect(ids).toContain('gemini-cli::gemini');
-    expect(ids).toContain('gh-cli::openai');
+    expect(ids).not.toContain('gh-cli::openai');
   });
 
   it('returns the same instance across re-imports (module-state singleton)', async () => {

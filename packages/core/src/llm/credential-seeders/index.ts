@@ -36,7 +36,8 @@ import { createClaudeCodeSeeder } from './claude-code-seeder.js';
 import { createCleoPkceSeeder } from './cleo-pkce-seeder.js';
 import { codexCliSeeder } from './codex-cli-seeder.js';
 import { geminiCliSeeder } from './gemini-cli-seeder.js';
-import { ghCliSeeder } from './gh-cli-seeder.js';
+// ghCliSeeder is NOT imported here for registration (T9594 — removed from BUILTIN_SEEDERS);
+// it is still re-exported below for consumers that want to construct it directly.
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -261,7 +262,8 @@ export class SeederRegistry {
  * - env seeders for every provider in ENV_VARS (T9409)
  * - `claude-code` × `anthropic` (T9410)
  * - `cleo-pkce` × `anthropic` (T9411)
- * - `codex-cli`, `gemini-cli`, `gh-cli` external seeders (T9418)
+ * - `codex-cli`, `gemini-cli` external seeders (T9418)
+ * - `gh-cli` seeder is present but NOT registered (T9594 — GitHub PAT cannot auth OpenAI)
  *
  * The singleton is a module-scoped constant (`export const`) rather than a
  * class static so re-importing this module from different entry points
@@ -299,4 +301,8 @@ BUILTIN_SEEDERS.register(createClaudeCodeSeeder());
 BUILTIN_SEEDERS.register(createCleoPkceSeeder());
 BUILTIN_SEEDERS.register(codexCliSeeder);
 BUILTIN_SEEDERS.register(geminiCliSeeder);
-BUILTIN_SEEDERS.register(ghCliSeeder);
+// gh-cli seeder is intentionally NOT registered here (T9594).
+// `gh auth token` returns a GitHub PAT (ghp_*/gho_*) that cannot authenticate
+// against api.openai.com.  The seeder is kept in tree for the future
+// github-models provider — re-enable once that transport exists.
+// See: packages/core/src/llm/credential-seeders/gh-cli-seeder.ts
