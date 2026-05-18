@@ -12,7 +12,7 @@ local `.cleo/project-context.json` and the ADR-061 tool resolver.
 | Template                          | SPEC section | Purpose                                                |
 |-----------------------------------|--------------|--------------------------------------------------------|
 | `release-prepare.yml.tmpl`        | §5.1         | Cut release branch, bump version, open bump-PR.        |
-| `release-publish.yml.tmpl`        | §5.2 *(T9533, future)* | Publish + tag once the bump-PR is merged.    |
+| `release-publish.yml.tmpl`        | §5.2         | Publish + tag once the bump-PR is merged.              |
 | `release-fanout.yml.tmpl`         | §5.3 *(T9534, future)* | Best-effort post-publish fanout (docs, docker, etc.). |
 | `release-reconcile.yml.tmpl`      | §5.4 *(T9535, future)* | Provenance reconciliation across systems.    |
 
@@ -35,16 +35,18 @@ local `.cleo/project-context.json` and the ADR-061 tool resolver.
 All four templates draw from the same placeholder vocabulary. Unused
 placeholders for a given template are silently ignored by the scaffolder.
 
-| Placeholder         | Source                                                 | Default                              | Example                              |
-|---------------------|--------------------------------------------------------|--------------------------------------|--------------------------------------|
-| `{{NODE_VERSION}}`  | `.cleo/project-context.json` `node.version`            | `22.x`                               | `"22.x"`                             |
-| `{{INSTALL_CMD}}`   | ADR-061 archetype defaults (`primaryType`-specific)    | `pnpm install --frozen-lockfile`     | `pnpm install --frozen-lockfile`     |
-| `{{LINT_CMD}}`      | ADR-061 `tool:lint` resolution                         | `pnpm run lint`                      | `pnpm biome ci .`                    |
-| `{{TYPECHECK_CMD}}` | ADR-061 `tool:typecheck` resolution                    | `pnpm run typecheck`                 | `pnpm run typecheck`                 |
-| `{{TEST_CMD}}`      | ADR-061 `tool:test` resolution                         | `pnpm run test`                      | `pnpm run test`                      |
-| `{{BUILD_CMD}}`     | ADR-061 `tool:build` resolution                        | `pnpm run build`                     | `pnpm run build`                     |
-| `{{BRANCH_PREFIX}}` | `release.branchPrefix` in `.cleo/config.json`          | `release`                            | `release`                            |
-| `{{PR_LABEL}}`      | `release.prLabel` in `.cleo/config.json`               | `release`                            | `release`                            |
+| Placeholder           | Source                                                 | Default                              | Example                              |
+|-----------------------|--------------------------------------------------------|--------------------------------------|--------------------------------------|
+| `{{NODE_VERSION}}`    | `.cleo/project-context.json` `node.version`            | `22.x`                               | `"22.x"`                             |
+| `{{INSTALL_CMD}}`     | ADR-061 archetype defaults (`primaryType`-specific)    | `pnpm install --frozen-lockfile`     | `pnpm install --frozen-lockfile`     |
+| `{{LINT_CMD}}`        | ADR-061 `tool:lint` resolution                         | `pnpm run lint`                      | `pnpm biome ci .`                    |
+| `{{TYPECHECK_CMD}}`   | ADR-061 `tool:typecheck` resolution                    | `pnpm run typecheck`                 | `pnpm run typecheck`                 |
+| `{{TEST_CMD}}`        | ADR-061 `tool:test` resolution                         | `pnpm run test`                      | `pnpm run test`                      |
+| `{{BUILD_CMD}}`       | ADR-061 `tool:build` resolution                        | `pnpm run build`                     | `pnpm run build`                     |
+| `{{BRANCH_PREFIX}}`   | `release.branchPrefix` in `.cleo/config.json`          | `release`                            | `release`                            |
+| `{{PR_LABEL}}`        | `release.prLabel` in `.cleo/config.json`               | `release`                            | `release`                            |
+| `{{NPM_PUBLISH_CMD}}` | `release.npmPublishCmd` in `.cleo/config.json`         | `pnpm publish --access public --tag latest` | `pnpm publish -r --access public --tag latest` |
+| `{{PUBLISHERS}}`      | `release.publishers` in `.cleo/config.json`            | `npm`                                | `npm cargo`                          |
 
 Source precedence (highest first):
 
@@ -115,11 +117,13 @@ declared permissions.
 ## Cross-references
 
 - SPEC: `.cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md`
-  - §5.1 → `release-prepare.yml.tmpl`
-  - §5.2 → `release-publish.yml.tmpl` *(T9533)*
+  - §5.1 → `release-prepare.yml.tmpl` *(T9532, landed)*
+  - §5.2 → `release-publish.yml.tmpl` *(T9533, current)*
   - §5.3 → `release-fanout.yml.tmpl` *(T9534)*
   - §5.4 → `release-reconcile.yml.tmpl` *(T9535)*
 - ADR-061 (tool resolver): governs `tool:*` placeholder resolution.
 - ADR-073 (release pipeline v2): umbrella architectural decision.
 - T9531: `cleo init --workflows` scaffold command (consumes these templates).
-- T9532: this template + README + snapshot test (current task).
+- T9532: `release-prepare.yml.tmpl` + README skeleton + snapshot test.
+- T9533: `release-publish.yml.tmpl` + README placeholders + snapshot test
+  (current task — eliminates F6 tag-on-pre-merge-SHA race by construction).
