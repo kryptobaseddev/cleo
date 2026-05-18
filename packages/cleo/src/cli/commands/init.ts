@@ -4,6 +4,12 @@
  * Thin handler: parse args -> call core -> format output.
  * All business logic lives in src/core/init.ts (shared-core pattern).
  *
+ * The `--workflows` flag dispatches to a separate scaffolder primitive
+ * (`scaffoldWorkflows`) that renders `*.yml.tmpl` templates into the
+ * project's `.github/workflows/` — see T9531 for details. The two
+ * surfaces share the `init` command name to keep the project-setup
+ * surface small.
+ *
  * @task T4454
  * @task T4681
  * @task T4682
@@ -14,13 +20,20 @@
  * @task T4689
  * @task T4706
  * @task T4707
+ * @task T9531
  * @epic T4663
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CleoError, formatError, type InitOptions, initProject } from '@cleocode/core';
+import {
+  CleoError,
+  formatError,
+  type InitOptions,
+  initProject,
+  scaffoldWorkflows,
+} from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -56,6 +69,24 @@ export function getGitignoreTemplate(): string {
  * @task T4681
  * @epic T4663
  */
+/**
+ * Resolve the absolute path to the `@cleocode/cleo` package's
+ * `templates/workflows/` directory. Works in both monorepo development
+ * (`packages/cleo/templates/...`) and installed npm package
+ * (`node_modules/@cleocode/cleo/templates/...`) layouts.
+ *
+ * Exposed for `scaffoldWorkflows` consumers that need to point at the
+ * shipped templates without hard-coding the path.
+ *
+ * @task T9531
+ */
+export function getWorkflowTemplatesDir(): string {
+  const thisFile = fileURLToPath(import.meta.url);
+  // dist/cli/commands/init.js → up four levels → packages/cleo
+  const packageRoot = resolve(dirname(thisFile), '..', '..', '..', '..');
+  return join(packageRoot, 'templates', 'workflows');
+}
+
 export const initCommand = defineCommand({
   meta: { name: 'init', description: 'Initialize CLEO in a project directory' },
   args: {
@@ -88,9 +119,48 @@ export const initCommand = defineCommand({
       description: 'Install canonical CleoOS seed agent personas (.cant)',
       default: false,
     },
+    workflows: {
+      type: 'boolean',
+      description: 'Scaffold the release-prepare.yml workflow into .github/workflows/ (T9531).',
+      default: false,
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'With --workflows: print the rendered YAML without writing.',
+      default: false,
+    },
   },
   async run({ args }) {
     try {
+      // T9531 — `cleo init --workflows` short-circuits the project-init path
+      // and dispatches to the workflow scaffolder primitive. Both flags are
+      // hung off the same `init` command (rather than a new top-level verb)
+      // because they belong to the same conceptual "set up CLEO in this
+      // project" surface.
+      if (args.workflows) {
+        const projectRoot = process.cwd();
+        const templatesDir = getWorkflowTemplatesDir();
+        const result = await scaffoldWorkflows({
+          projectRoot,
+          templatesDir,
+          dryRun: !!args['dry-run'],
+          force: !!args.force,
+        });
+        cliOutput(
+          {
+            scaffolded: result.outcomes.map((o) => ({
+              template: o.template,
+              targetPath: o.targetPath,
+              status: o.status,
+            })),
+            resolvedTools: result.resolvedTools,
+            ...(args['dry-run'] ? { rendered: result.outcomes.map((o) => o.rendered) } : {}),
+          },
+          { command: 'init' },
+        );
+        return;
+      }
+
       const initOpts: InitOptions = {
         name: args.name || (args.projectName as string | undefined) || undefined,
         force: !!args.force,

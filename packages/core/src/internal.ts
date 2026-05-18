@@ -183,6 +183,21 @@ export type { HookEvent, ProviderHookEvent } from './hooks/provider-hooks.js';
 export { isProviderHookEvent } from './hooks/types.js';
 // Init engine-ops (ENG-MIG-14 / T1581) — EngineResult wrappers for init operations
 export { ensureInitialized, getVersion, initProject } from './init/engine-ops.js';
+// Init — workflow scaffolder (T9531, Phase 3 of T9494). Renders
+// packages/cleo/templates/workflows/*.yml.tmpl into a consuming project's
+// .github/workflows/ via ADR-061 tool resolver + .cleo/release-config.json.
+export type {
+  ResolvedToolPlaceholders,
+  ScaffoldReleaseConfig,
+  ScaffoldWorkflowOutcome,
+  ScaffoldWorkflowsOptions,
+  ScaffoldWorkflowsResult,
+  WorkflowName,
+} from './init/scaffold-workflows.js';
+export {
+  listAvailableWorkflowTemplates,
+  scaffoldWorkflows,
+} from './init/scaffold-workflows.js';
 // Init (additional)
 export { isAutoInitEnabled } from './init.js';
 export type {
