@@ -108,10 +108,9 @@ export function createBrainSection(): WizardSectionRunner {
 
       if (options.nonInteractive === true) {
         if (!options.brainBridgeMode) {
-          return {
-            changed: false,
-            summary: 'skipped (non-interactive: --brain-bridge-mode required)',
-          };
+          throw new Error(
+            'E_SETUP_MISSING_FLAG: --section brain --non-interactive requires --brain-bridge-mode <digest|file|disabled>',
+          );
         }
         choice = options.brainBridgeMode;
       } else {
