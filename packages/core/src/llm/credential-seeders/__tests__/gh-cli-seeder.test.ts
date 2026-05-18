@@ -1,10 +1,16 @@
 /**
- * Unit tests for the GitHub CLI credential seeder (T9418).
+ * Unit tests for the GitHub CLI credential seeder (T9418 / T9594).
+ *
+ * The seeder is intentionally NOT registered in BUILTIN_SEEDERS (T9594):
+ * `gh auth token` returns a GitHub PAT that cannot authenticate against
+ * api.openai.com.  The file (and these tests) are kept in tree so the
+ * implementation is available for the future github-models provider.
  *
  * `node:child_process` is mocked so no real `gh` is invoked. ENOENT and
  * non-zero exit paths are exercised separately.
  *
  * @task T9418
+ * @task T9594
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

@@ -2,10 +2,23 @@
  * Credential seeder for the GitHub CLI (`gh`)
  * (E-CONFIG-AUTH-UNIFY E2a / T9418).
  *
- * Shells out to `gh auth token` and returns the captured token as an
- * `openai` credential — GitHub Copilot's API is OpenAI-compatible and
- * routes through OpenAI's transport in CLEO, so the credential's
- * `provider` is `'openai'` even though the upstream auth source is GitHub.
+ * ## DISABLED — T9594
+ *
+ * This seeder is intentionally NOT registered in `BUILTIN_SEEDERS` until a
+ * real `github-models` provider exists in CLEO.  The token returned by
+ * `gh auth token` is a GitHub Personal Access Token (`ghp_*` / `gho_*`) that
+ * **cannot authenticate against `api.openai.com`**.  Tagging the entry as
+ * `provider:'openai'` created unusable pool entries.
+ *
+ * Re-enable by:
+ *   1. Implementing a `github-models` transport in `packages/core/src/llm/`.
+ *   2. Changing `readonly provider = 'openai'` below to `'github-models'` (or
+ *      whichever id the transport registers under).
+ *   3. Adding `BUILTIN_SEEDERS.register(ghCliSeeder)` back to `./index.ts`.
+ *
+ * The file is kept in tree so the `readGhAuthToken` helper and the
+ * `GhCliSeeder` class are available for the future provider without a
+ * `git revert`.
  *
  * ## Security note
  *
@@ -27,6 +40,7 @@
  *
  * @module llm/credential-seeders/gh-cli-seeder
  * @task T9418
+ * @task T9594 (disabled — see note above)
  * @epic E-CONFIG-AUTH-UNIFY (E2a)
  */
 
