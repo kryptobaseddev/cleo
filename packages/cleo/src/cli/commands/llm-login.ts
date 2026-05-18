@@ -544,9 +544,11 @@ function _findFreePort(): Promise<number> {
  * Attempt to open a URL in the default browser using the OS `open` / `xdg-open`
  * command. Silently swallows errors — headless environments are expected to fail.
  *
+ * Exported so tests can mock it via `vi.spyOn` to prevent real browser launches.
+ *
  * @internal
  */
-function _tryOpenBrowser(url: string): void {
+export function _tryOpenBrowser(url: string): void {
   const cmd =
     process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
 
