@@ -349,3 +349,91 @@ export interface PruneWorktreesResult {
   /** Whether `git worktree prune` was run. */
   gitPruneRan: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Structured listing (T9546 — worktree-lifecycle 2/5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mutually-exclusive worktree status category assigned by orphan-detection
+ * heuristics in {@link WorktreeInfo}.
+ *
+ * Resolution precedence (first match wins):
+ *  1. `locked` — git porcelain reports the worktree is locked.
+ *  2. `orphan` — owning task is cancelled OR the branch has been deleted.
+ *  3. `merged` — the branch is reachable from `main` (already integrated).
+ *  4. `stale`  — no commits in N days AND (task=done OR no live owner).
+ *  5. `active` — everything else (default).
+ *
+ * @task T9546
+ */
+export type WorktreeStatusCategory = 'active' | 'stale' | 'merged' | 'orphan' | 'locked';
+
+/**
+ * A single structured worktree entry with full status classification.
+ *
+ * Returned by `cleo worktree list` and the `worktree.list` dispatch operation.
+ * Each entry combines filesystem state, git state, and owning-task state into
+ * a single JSON envelope payload that downstream consumers (prune, dashboard,
+ * sentient daemon) can act on without re-querying git.
+ *
+ * @task T9546
+ */
+export interface WorktreeInfo {
+  /** Absolute path to the worktree directory. */
+  path: string;
+  /** Branch checked out in this worktree. */
+  branch: string;
+  /** Task ID derived from the branch name (`task/T####`), or null. */
+  taskId: string | null;
+  /** Agent identifier that owns this worktree (from audit log / metadata), or null. */
+  owningAgent: string | null;
+  /** ISO-8601 timestamp of last activity (newest commit OR mtime of working tree). */
+  lastActivity: string;
+  /** Whether `git worktree list --porcelain` reports the worktree as locked. */
+  isLocked: boolean;
+  /** Whether the worktree is stale: no activity > N days AND (task done/cancelled OR branch merged). */
+  isStale: boolean;
+  /** Whether the branch is reachable from `main` (already integrated). */
+  isMerged: boolean;
+  /** Status of the owning task (if {@link taskId} is present and resolvable), or null. */
+  owningTaskStatus: string | null;
+  /** Mutually-exclusive status category — see {@link WorktreeStatusCategory}. */
+  statusCategory: WorktreeStatusCategory;
+}
+
+/**
+ * Options for the structured worktree listing operation.
+ *
+ * @task T9546
+ */
+export interface ListWorktreesOpts {
+  /**
+   * Absolute path to the project root (used to compute the project hash
+   * and resolve the canonical worktrees directory).
+   */
+  projectRoot?: string;
+  /**
+   * Filter results to entries with one of these status categories.
+   * When omitted, all entries are returned.
+   */
+  statusFilter?: WorktreeStatusCategory[];
+  /**
+   * Staleness threshold in days. An entry is marked stale when its last
+   * activity is older than this AND either the owning task is done/cancelled
+   * or no owning task can be resolved while the branch is merged.
+   *
+   * @default 7
+   */
+  staleDays?: number;
+}
+
+/**
+ * Result of the structured worktree listing operation.
+ *
+ * @task T9546
+ */
+export interface ListWorktreesResult {
+  /** All matched worktree entries (post-filter). */
+  worktrees: WorktreeInfo[];
+}
