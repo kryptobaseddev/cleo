@@ -1,0 +1,388 @@
+# CLEO release pipeline — Publish + tag workflow.
+#
+# Generated from packages/cleo/templates/workflows/release-publish.yml.tmpl by
+# `cleo init --workflows` (T9531). DO NOT EDIT the rendered file directly —
+# extend via `.workflow-overrides.yml` per SPEC-T9345 R-260.
+#
+# Implements SPEC-T9345-release-pipeline-v2.md §5.2 (R-220 — R-235, R-260 —
+# R-263). Triggers on push to main when the commit subject matches the
+# canonical `release: prepare v<version>` prefix produced by
+# release-prepare.yml. Tags ONLY after `gh pr view` confirms state=MERGED
+# AND mergeCommit.oid == $GITHUB_SHA — this eliminates the F6 race
+# (tag-on-pre-merge-SHA) by construction.
+#
+# Placeholders (replaced at scaffold time — see workflows/README.md):
+#   <NODE_VERSION>      Node.js version    (e.g. "22.x")
+#   <INSTALL_CMD>       Install command    (e.g. "pnpm install --frozen-lockfile")
+#   <LINT_CMD>          tool:lint          (ADR-061 resolved)
+#   <TYPECHECK_CMD>     tool:typecheck     (ADR-061 resolved)
+#   <TEST_CMD>          tool:test          (ADR-061 resolved)
+#   <BUILD_CMD>         tool:build         (ADR-061 resolved)
+#   <NPM_PUBLISH_CMD>   Publish command    (e.g. "pnpm publish --access public --tag latest")
+#   <PUBLISHERS>        Space-separated publisher list (e.g. "npm cargo")
+# (Angle-brackets in this doc comment are intentional — they avoid being
+#  substituted by the {{...}} regex pass. The placeholders below use {{...}}.)
+
+name: Release Publish
+
+# R-220: push to main filtered to version-file paths only — bypasses unrelated
+# main commits without spinning up the full matrix.
+# R-221: workflow_dispatch with `version` input for manual re-runs and
+# idempotency tests.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'package.json'
+      - 'packages/*/package.json'
+      - 'Cargo.toml'
+      - 'packages/*/Cargo.toml'
+      - 'pyproject.toml'
+      - 'packages/*/pyproject.toml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. v2026.6.0)'
+        type: string
+        required: true
+
+# R-222: workflow-level grants the minimum read+tag scopes. `packages: write`
+# is granted PER-JOB on publish-and-tag only — fanout/reconcile jobs MUST
+# NOT inherit publish scope.
+permissions:
+  contents: write
+  id-token: write
+
+# R-230: concurrent publishes against the same version queue rather than
+# collide. cancel-in-progress=false preserves in-flight publishes.
+concurrency:
+  group: release-publish-${{ github.sha }}
+  cancel-in-progress: false
+
+# R-262: bash everywhere — no cross-platform shell drift across the matrix.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # R-223 (1/4) + R-224: classify the triggering commit. If the subject
+  # doesn't match `release: prepare v<version>`, ALL downstream jobs skip
+  # (`should_publish=false`). Manual workflow_dispatch always publishes.
+  detect:
+    name: Detect release commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      should_publish: ${{ steps.classify.outputs.should_publish }}
+      version: ${{ steps.classify.outputs.version }}
+    steps:
+      # R-263: third-party Actions pinned to major+minor.
+      - name: Checkout
+        uses: actions/checkout@v4.1
+        with:
+          fetch-depth: 0
+        timeout-minutes: 5
+
+      - name: Classify triggering commit
+        id: classify
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.version }}" ]; then
+            # Manual dispatch — trust the input.
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          SHA="${{ github.sha }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            BEFORE="$SHA^"
+          fi
+          if subject=$(git log --format=%s "$BEFORE..$SHA" 2>/dev/null | grep -E '^release: prepare v' | head -1); then
+            VERSION=$(echo "$subject" | sed -E 's/^release: prepare (v[^ ]+).*/\1/')
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+        timeout-minutes: 2
+
+  # R-223 (2/4) + R-225: matrix expansion across the five T1737 platform
+  # tuples. fail-fast=true so a single platform failure prevents the
+  # publish-and-tag job from running (R-228).
+  build-matrix:
+    name: Build & test (${{ matrix.platform }})
+    needs: detect
+    if: needs.detect.outputs.should_publish == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            runner: ubuntu-22.04-arm
+          - platform: macos-x64
+            runner: macos-15-intel
+          - platform: macos-arm64
+            runner: macos-14
+          - platform: windows-x64
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1
+        with:
+          fetch-depth: 0
+        timeout-minutes: 5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4.0
+        with:
+          node-version: '{{NODE_VERSION}}'
+        timeout-minutes: 3
+
+      - name: Install dependencies
+        run: {{INSTALL_CMD}}
+        timeout-minutes: 10
+
+      - name: Lint
+        run: {{LINT_CMD}}
+        timeout-minutes: 5
+
+      - name: Typecheck
+        run: {{TYPECHECK_CMD}}
+        timeout-minutes: 5
+
+      - name: Test
+        run: {{TEST_CMD}}
+        timeout-minutes: 15
+
+      - name: Build
+        run: {{BUILD_CMD}}
+        timeout-minutes: 10
+
+      # R-225: integration smoke — `cleo --version` and `cleo briefing --json
+      # | jq .ok`. ANTHROPIC_API_KEY is scoped to the environment so an
+      # unmerged PR can't smoke-test against production credentials.
+      - name: Integration smoke
+        run: |
+          set -euo pipefail
+          ./bin/cleo --version
+          ./bin/cleo briefing --json | jq '.ok'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        timeout-minutes: 5
+
+      # R-232: on failure the matrix slot artifacts are uploaded for
+      # 30-day retention so operators can triage cross-platform regressions.
+      - name: Upload build artifact
+        if: always()
+        uses: actions/upload-artifact@v4.3
+        with:
+          name: cleo-${{ needs.detect.outputs.version }}-${{ matrix.platform }}
+          path: |
+            dist/
+            packages/*/dist/
+          if-no-files-found: warn
+          retention-days: 30
+        timeout-minutes: 5
+
+  # R-223 (3/4) + R-226: publish + tag. Gated by `environment: cleo-publish`
+  # (Letta §3.4 step 7) for reviewer-policy enforcement. R-228 enforces
+  # that any matrix slot failure blocks this job via the `needs` edge.
+  publish-and-tag:
+    name: Publish & tag
+    needs:
+      - detect
+      - build-matrix
+    if: needs.detect.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    environment: cleo-publish
+    timeout-minutes: 25
+    # R-222: packages:write scoped to THIS job only.
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    env:
+      VERSION: ${{ needs.detect.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # `{{PUBLISHERS}}` is a render-time placeholder. Hoisting it into env
+      # turns the downstream `contains(env.PUBLISHERS, 'npm')` into a
+      # dynamic expression so actionlint doesn't flag it as a constant `if:`.
+      PUBLISHERS: '{{PUBLISHERS}}'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 5
+
+      - name: Configure git identity
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+        timeout-minutes: 1
+
+      # R-229 (CRITICAL — F6 race elimination): poll `gh pr view` and assert
+      # state=MERGED AND mergeCommit.oid == $GITHUB_SHA BEFORE issuing any
+      # `git tag`. Mismatch fails with E_TAG_MISMATCH and never pushes.
+      - name: Confirm PR merge state (R-229)
+        id: confirm
+        run: |
+          set -euo pipefail
+          PR_NUMBER=$(gh pr list \
+            --search "${{ github.sha }}" \
+            --state merged \
+            --json number \
+            --jq '.[0].number // empty')
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::E_TAG_MISMATCH no merged PR found for SHA ${{ github.sha }}"
+            exit 1
+          fi
+          PR_JSON=$(gh pr view "$PR_NUMBER" --json state,mergeCommit)
+          STATE=$(echo "$PR_JSON" | jq -r '.state')
+          MERGE_OID=$(echo "$PR_JSON" | jq -r '.mergeCommit.oid // ""')
+          if [ "$STATE" != "MERGED" ]; then
+            echo "::error::E_TAG_MISMATCH PR #$PR_NUMBER state=$STATE (expected MERGED)"
+            exit 1
+          fi
+          if [ -z "$MERGE_OID" ] || [ "$MERGE_OID" != "${{ github.sha }}" ]; then
+            echo "::error::E_TAG_MISMATCH PR #$PR_NUMBER merge_oid=$MERGE_OID expected=${{ github.sha }}"
+            exit 1
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "merge_oid=$MERGE_OID" >> "$GITHUB_OUTPUT"
+        timeout-minutes: 5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4.0
+        with:
+          node-version: '{{NODE_VERSION}}'
+          registry-url: 'https://registry.npmjs.org'
+        timeout-minutes: 3
+
+      - name: Install dependencies
+        run: {{INSTALL_CMD}}
+        timeout-minutes: 10
+
+      - name: Build
+        run: {{BUILD_CMD}}
+        timeout-minutes: 10
+
+      # R-226(b): npm publish — gated on PUBLISHERS env containing "npm".
+      - name: Publish npm packages
+        if: contains(env.PUBLISHERS, 'npm')
+        run: {{NPM_PUBLISH_CMD}}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        timeout-minutes: 10
+
+      # R-226(c): cargo publish — gated on PUBLISHERS env containing "cargo".
+      - name: Publish cargo crates
+        if: contains(env.PUBLISHERS, 'cargo')
+        run: cargo publish --token "${{ secrets.CARGO_TOKEN }}"
+        timeout-minutes: 10
+
+      # R-226(d): tag the merge commit (NOT $GITHUB_SHA directly — they're
+      # equivalent here but using the confirm step's output makes the
+      # F6-eliminating proof explicit).
+      - name: Tag release
+        run: |
+          set -euo pipefail
+          git tag "$VERSION" "${{ steps.confirm.outputs.merge_oid }}"
+          git push origin "$VERSION"
+        timeout-minutes: 5
+
+      # R-226(e): GitHub Release with auto-generated notes, matrix
+      # artifacts attached. fail_on_unmatched_files=true asserts artifacts
+      # actually exist.
+      - name: Download matrix artifacts
+        uses: actions/download-artifact@v4.1
+        with:
+          path: release-artifacts/
+          merge-multiple: false
+        timeout-minutes: 5
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2.0
+        with:
+          tag_name: ${{ env.VERSION }}
+          target_commitish: ${{ steps.confirm.outputs.merge_oid }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # R-233: partial-publish failure handler — emits a critical issue when
+      # one registry succeeded but a later step failed.
+      - name: Emit partial-publish incident on failure
+        if: failure()
+        continue-on-error: true
+        run: |
+          gh issue create \
+            --label release-incident \
+            --title "Partial publish failure: ${VERSION}" \
+            --body "release-publish.yml failed AFTER one or more registries had succeeded. Manual reconciliation required: re-run reconcile or run \`cleo release reconcile ${VERSION}\` from a local checkout. Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 5
+
+  # R-223 (4/4) + R-227: provenance reconciliation. NON-BLOCKING —
+  # continue-on-error: true at the job level so reconcile failure cannot
+  # roll back the tag/publish. Failure opens a backfill issue.
+  reconcile:
+    name: Reconcile provenance
+    needs:
+      - detect
+      - publish-and-tag
+    if: needs.detect.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    env:
+      VERSION: ${{ needs.detect.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1
+        with:
+          fetch-depth: 0
+        timeout-minutes: 5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4.0
+        with:
+          node-version: '{{NODE_VERSION}}'
+          registry-url: 'https://registry.npmjs.org'
+        timeout-minutes: 3
+
+      - name: Install cleo (freshly published version)
+        run: npm install -g "@cleocode/cleo@${VERSION#v}"
+        timeout-minutes: 5
+
+      - name: Reconcile release provenance
+        id: rec
+        continue-on-error: true
+        run: cleo release reconcile "$VERSION" --from-workflow --json
+        timeout-minutes: 5
+
+      # R-227: reconcile failure opens a backfill issue but MUST NOT roll
+      # back the tag or the publish.
+      - name: Open provenance-backfill issue on failure
+        if: steps.rec.outcome == 'failure'
+        run: |
+          gh issue create \
+            --label release-incident \
+            --title "Provenance backfill needed for ${VERSION}" \
+            --body "release-publish.yml reconcile job failed for ${VERSION}. Tag and publish completed successfully; only the provenance graph is incomplete. To recover, run \`cleo release reconcile ${VERSION} --backfill\` from a local checkout. Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 5
