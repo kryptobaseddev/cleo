@@ -590,6 +590,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/promote.js')).promoteCommand as CommandDef,
   },
   {
+    exportName: 'provenanceCommand',
+    name: 'provenance',
+    description: 'Provenance-graph maintenance: backfill, verify, repair',
+    load: async () => (await import('../commands/provenance.js')).provenanceCommand as CommandDef,
+  },
+  {
     exportName: 'providerCommand',
     name: 'provider',
     description: 'CAAMP provider registry: list, detect, supports, hooks, inject',

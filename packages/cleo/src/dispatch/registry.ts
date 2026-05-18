@@ -7153,6 +7153,50 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
+  // Provenance domain — `cleo provenance` CLI surface (T9528 · Phase 2 of T9493)
+  // ---------------------------------------------------------------------------
+
+  // provenance mutate: backfill (T9528 / SPEC-T9345 §8.3)
+  {
+    gateway: 'mutate',
+    domain: 'provenance',
+    operation: 'backfill',
+    description:
+      'provenance.backfill (mutate) — walk historical git tags from --since forward and populate the 11 provenance tables. UPSERT-everywhere, idempotent, restartable via .cleo/release/backfill-state.json (T9528 / SPEC-T9345 §8.3).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['since'],
+    params: [
+      {
+        name: 'since',
+        type: 'string',
+        required: true,
+        description:
+          'Lower-bound version (exclusive). Empty string = walk every reachable tag from the beginning of history.',
+      },
+      {
+        name: 'forceOverwrite',
+        type: 'boolean',
+        required: false,
+        description: 'UPDATE existing rows on conflict (audit-logged). Default: UPSERT only.',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Enumerate the tag set and return the plan without writing to the DB',
+      },
+      {
+        name: 'resetCheckpoint',
+        type: 'boolean',
+        required: false,
+        description: 'Clear .cleo/release/backfill-state.json before starting (do NOT resume)',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // ---------------------------------------------------------------------------
   // LLM domain — `cleo llm` CLI surface (T9258 · T-LLM-CRED Phase 2)
   // ---------------------------------------------------------------------------
 

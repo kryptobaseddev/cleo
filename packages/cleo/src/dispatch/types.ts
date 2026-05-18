@@ -74,6 +74,8 @@ export const CANONICAL_DOMAINS = [
   'sentient',
   'release',
   'llm',
+  // T9528: provenance-graph maintenance verbs (backfill, verify, repair).
+  'provenance',
 ] as const;
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];
