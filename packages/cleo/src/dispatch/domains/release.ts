@@ -31,6 +31,7 @@
  */
 
 import type { ReleaseGateCheckParams } from '@cleocode/contracts/operations/release';
+import type { ReleasePlanOptions } from '@cleocode/core/internal';
 import { getLogger, getProjectRoot } from '@cleocode/core/internal';
 import type { OpsFromCore } from '../adapters/typed.js';
 import {
@@ -38,6 +39,7 @@ import {
   makeAdr061GateRunner,
   releaseGateCheck,
   releaseIvtrAutoSuggest,
+  releasePlan,
   releasePublish,
   releaseReconcile,
   releaseStart,
@@ -298,6 +300,48 @@ export class ReleaseHandler implements DomainHandler {
           };
         }
 
+        // release.plan — SPEC-T9345 §4.2 (T9525): build canonical Release Plan envelope
+        case 'plan': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          const epicId = typeof params?.epicId === 'string' ? params.epicId : undefined;
+          if (!version) {
+            return errorResult(
+              'mutate',
+              'release',
+              operation,
+              'E_INVALID_INPUT',
+              'version is required',
+              startTime,
+            );
+          }
+          if (!epicId) {
+            return errorResult(
+              'mutate',
+              'release',
+              operation,
+              'E_INVALID_INPUT',
+              'epicId is required',
+              startTime,
+            );
+          }
+          const typed: ReleasePlanOptions = {
+            version,
+            epicId,
+            scheme:
+              typeof params?.scheme === 'string'
+                ? (params.scheme as ReleasePlanOptions['scheme'])
+                : undefined,
+            channel:
+              typeof params?.channel === 'string'
+                ? (params.channel as ReleasePlanOptions['channel'])
+                : undefined,
+            hotfix: typeof params?.hotfix === 'boolean' ? params.hotfix : false,
+            dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
+            projectRoot: getProjectRoot(),
+          };
+          return wrapResult(await releasePlan(typed), 'mutate', 'release', operation, startTime);
+        }
+
         // release.reconcile — Step 4 of 4 (T1597 / ADR-063)
         case 'reconcile': {
           const handle = loadActiveReleaseHandle(getProjectRoot());
@@ -328,7 +372,7 @@ export class ReleaseHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['gate', 'ivtr-suggest', 'verify'],
-      mutate: ['gate', 'ivtr-suggest', 'start', 'publish', 'reconcile'],
+      mutate: ['gate', 'ivtr-suggest', 'start', 'publish', 'reconcile', 'plan'],
     };
   }
 }

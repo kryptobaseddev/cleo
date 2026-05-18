@@ -723,6 +723,9 @@ export {
   releaseStart,
   releaseVerify,
 } from './release/pipeline.js';
+// T9525: SPEC-T9345 release pipeline v2 verbs — exposed via internal for dispatch layer
+export type { ReleasePlanOptions, ReleasePlanResult } from './release/plan.js';
+export { releasePlan } from './release/plan.js';
 export type { ProjectReleaseConfig, ReleaseConfig, ReleaseGate } from './release/release-config.js';
 export {
   getGitFlowConfig,

@@ -346,6 +346,71 @@ const publishCommand = defineCommand({
   },
 });
 
+/**
+ * cleo release plan — Phase 1 verb of SPEC-T9345 release pipeline v2.
+ *
+ * Builds the canonical Release Plan envelope from `tasks.db` + git log +
+ * previous-release state; writes `.cleo/release/<resolved-version>.plan.json`;
+ * INSERTs/UPDATEs one row in the `releases` table with `status='planned'`.
+ *
+ * Read-mostly: NO git mutations, NO `gh` calls, NO network. Only writes are
+ * the plan file under `.cleo/release/` and the `releases` table row.
+ *
+ * @task T9525
+ * @epic T9492
+ * @spec SPEC-T9345 §4.2
+ */
+const planCommand = defineCommand({
+  meta: {
+    name: 'plan',
+    description: 'Build the canonical Release Plan envelope and persist status=planned (T9525)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Candidate release version (e.g. v2026.6.0 or 2026.6.0)',
+      required: true,
+    },
+    epic: {
+      type: 'string',
+      description: 'Epic task ID whose children are candidates for inclusion',
+      required: true,
+    },
+    scheme: {
+      type: 'string',
+      description: 'Versioning scheme: calver | semver | calver-suffix',
+    },
+    channel: {
+      type: 'string',
+      description: 'Release channel: latest | beta | alpha | rc',
+    },
+    hotfix: {
+      type: 'boolean',
+      description: 'Mark plan as release_kind=hotfix',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Compute plan + envelope without writing the plan file or DB row',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'release',
+      'release.plan',
+      {
+        version: args.version,
+        epicId: args.epic,
+        scheme: args.scheme as string | undefined,
+        channel: args.channel as string | undefined,
+        hotfix: args.hotfix === true,
+        dryRun: args['dry-run'] === true,
+      },
+      { command: 'release' },
+    );
+  },
+});
+
 /** cleo release reconcile — Step 4: run post-release invariants, auto-complete tasks. */
 const reconcileCommand = defineCommand({
   meta: { name: 'reconcile', description: 'Run post-release invariants for the active release' },
@@ -381,6 +446,8 @@ export const releaseCommand = defineCommand({
     verify: verifyCommand,
     publish: publishCommand,
     reconcile: reconcileCommand,
+    // SPEC-T9345 release pipeline v2 verbs (T9492)
+    plan: planCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
