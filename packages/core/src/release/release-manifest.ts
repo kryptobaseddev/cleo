@@ -9,9 +9,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, renameSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { createPage } from '../pagination.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
@@ -30,15 +30,80 @@ import {
 } from './release-config.js';
 import { resolveVersionBumpTargets } from './version-bump.js';
 
-// ── Dual-write state ─────────────────────────────────────────────────────────
+// ── Provenance dual-write retirement (T9541) ─────────────────────────────────
 
 /**
- * Whether the CLEO_PROVENANCE_DUAL_WRITE advisory warning has already been
- * emitted for this process lifetime. Resets on module load (per-process).
+ * Sentinel file recording that the CLEO_PROVENANCE_DUAL_WRITE env var has been
+ * retired. Written once per project on the first shipped release after the
+ * upgrade — its presence is the audit signal that retirement has occurred.
  *
- * @task T9510
+ * @task T9541
+ * @see SPEC-T9345 §12.2
  */
-let _dualWriteOffWarnEmitted = false;
+const DUAL_WRITE_RETIRED_FLAG = '.cleo/audit/dual-write-retired.flag';
+
+/**
+ * Append-only JSONL log of dual-write retirement events. Each entry records a
+ * single observation that `markReleaseShipped` ran post-retirement (env var
+ * gone, new-table writes unconditional). Errors are swallowed so audit writes
+ * never block release operations.
+ *
+ * @task T9541
+ */
+const DUAL_WRITE_RETIRED_LOG = '.cleo/audit/dual-write-retired.jsonl';
+
+/**
+ * Record the first post-retirement run for a project (idempotent).
+ *
+ * Writes a sentinel flag file plus a single JSONL entry the first time
+ * {@link markReleaseShipped} executes after the env var is removed. Subsequent
+ * runs are no-ops (sentinel already exists).
+ *
+ * Audit writes are best-effort — filesystem errors never propagate.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param version     - Release version being shipped.
+ *
+ * @task T9541
+ */
+function recordDualWriteRetirementOnce(projectRoot: string, version: string): void {
+  try {
+    const flagPath = join(projectRoot, DUAL_WRITE_RETIRED_FLAG);
+    if (existsSync(flagPath)) {
+      return;
+    }
+    mkdirSync(dirname(flagPath), { recursive: true });
+    const timestamp = new Date().toISOString();
+    writeFileSync(
+      flagPath,
+      JSON.stringify(
+        {
+          retiredAt: timestamp,
+          task: 'T9541',
+          phase: 'Phase 6 / 2 of 2 of T9499',
+          note: 'CLEO_PROVENANCE_DUAL_WRITE env var retired; new-table writes are unconditional.',
+        },
+        null,
+        2,
+      ),
+      { encoding: 'utf-8' },
+    );
+    const logPath = join(projectRoot, DUAL_WRITE_RETIRED_LOG);
+    appendFileSync(
+      logPath,
+      `${JSON.stringify({
+        timestamp,
+        task: 'T9541',
+        event: 'dual-write-retired',
+        version,
+        note: 'First post-retirement markReleaseShipped invocation observed.',
+      })}\n`,
+      { encoding: 'utf-8' },
+    );
+  } catch {
+    // non-fatal — audit writes must never block release operations
+  }
+}
 
 async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js')['getDb']> {
   const { getDb: _getDb } = await import('../store/sqlite.js');
@@ -1304,21 +1369,18 @@ export async function markReleasePushed(
 }
 
 /**
- * Mark a release as shipped (pushed) and optionally dual-write task→commit
- * provenance rows into `task_commits`.
+ * Mark a release as shipped (pushed) and write task→commit provenance rows
+ * into `task_commits` unconditionally.
  *
- * Dual-write semantics (SPEC-T9345 §8.3):
- *   - Controlled by the `CLEO_PROVENANCE_DUAL_WRITE` environment variable.
- *   - Default is `'1'` (ON). Set to `'0'` to disable.
- *   - When ON: every task ID in `release_manifests.tasksJson` gets a
- *     corresponding row in `task_commits` using the provided `commitSha` and
- *     `link_kind='implements'` / `link_source='manual'`.
- *   - When OFF: legacy path only; `task_commits` is not touched.
- *   - A `console.warn` is emitted once per process on the first write when
- *     dual-write is disabled, so operators know provenance is not accumulating.
- *
- * The underlying `release_manifests.tasksJson` write is identical in both
- * modes (F12 — the legacy table is untouched per ADR-073).
+ * Post-retirement semantics (SPEC-T9345 §12.2 · T9541):
+ *   - The `CLEO_PROVENANCE_DUAL_WRITE` env var is retired — new-table writes
+ *     are now unconditional. The legacy `release_manifests` row is preserved
+ *     (F12 backward-compat per ADR-073).
+ *   - Every task ID in `release_manifests.tasksJson` gets a corresponding row
+ *     in `task_commits` using the provided `commitSha`,
+ *     `link_kind='implements'` and `link_source='manual'`.
+ *   - On the first invocation per project after the upgrade, a sentinel flag
+ *     and audit log entry are written to record retirement (best-effort).
  *
  * @param version     - Release version string (e.g. `v2026.6.0`).
  * @param pushedAt    - ISO-8601 timestamp of the push event.
@@ -1327,7 +1389,9 @@ export async function markReleasePushed(
  * @returns           Promise resolving to the number of `task_commits` rows inserted.
  *
  * @task T9510
+ * @task T9541
  * @see SPEC-T9345 §8.3
+ * @see SPEC-T9345 §12.2
  */
 export async function markReleaseShipped(
   version: string,
@@ -1335,26 +1399,13 @@ export async function markReleaseShipped(
   cwd?: string,
   provenance?: { commitSha?: string; gitTag?: string },
 ): Promise<{ taskCommitsInserted: number }> {
-  const dualWrite = (process.env['CLEO_PROVENANCE_DUAL_WRITE'] ?? '1') === '1';
-
-  if (!dualWrite && !_dualWriteOffWarnEmitted) {
-    _dualWriteOffWarnEmitted = true;
-    // Advisory only — operators may intentionally disable dual-write.
-    // biome-ignore lint/suspicious/noConsole: advisory advisory for operators
-    console.warn(
-      '[cleo] CLEO_PROVENANCE_DUAL_WRITE=0: provenance task_commits rows will NOT be written. ' +
-        'Set CLEO_PROVENANCE_DUAL_WRITE=1 to enable (default on).',
-    );
-  }
+  // Record retirement audit signal on first post-upgrade run (idempotent).
+  recordDualWriteRetirementOnce(cwd ?? getProjectRoot(), version);
 
   // Step 1: legacy write (F12 — release_manifests is never removed).
   await markReleasePushed(version, pushedAt, cwd, provenance);
 
-  if (!dualWrite) {
-    return { taskCommitsInserted: 0 };
-  }
-
-  // Step 2: dual-write — infer task→commit links from tasksJson.
+  // Step 2: provenance write — infer task→commit links from tasksJson.
   const commitSha = provenance?.commitSha;
   if (!commitSha) {
     // Without a concrete commit SHA we cannot write valid FK rows.
