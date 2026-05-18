@@ -31,7 +31,7 @@
  */
 
 import type { ReleaseGateCheckParams } from '@cleocode/contracts/operations/release';
-import type { ReleasePlanOptions } from '@cleocode/core/internal';
+import type { ReleaseOpenOptions, ReleasePlanOptions } from '@cleocode/core/internal';
 import { getLogger, getProjectRoot } from '@cleocode/core/internal';
 import type { OpsFromCore } from '../adapters/typed.js';
 import {
@@ -39,6 +39,7 @@ import {
   makeAdr061GateRunner,
   releaseGateCheck,
   releaseIvtrAutoSuggest,
+  releaseOpen,
   releasePlan,
   releasePublish,
   releaseReconcileV2,
@@ -342,6 +343,29 @@ export class ReleaseHandler implements DomainHandler {
           return wrapResult(await releasePlan(typed), 'mutate', 'release', operation, startTime);
         }
 
+        // release.open — SPEC-T9345 §4.3 (T9530): dispatch release-prepare workflow
+        case 'open': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version) {
+            return errorResult(
+              'mutate',
+              'release',
+              operation,
+              'E_INVALID_INPUT',
+              'version is required',
+              startTime,
+            );
+          }
+          const typed: ReleaseOpenOptions = {
+            version,
+            workflow: typeof params?.workflow === 'string' ? params.workflow : undefined,
+            watch: typeof params?.watch === 'boolean' ? params.watch : false,
+            commitPlan: typeof params?.commitPlan === 'boolean' ? params.commitPlan : false,
+            projectRoot: getProjectRoot(),
+          };
+          return wrapResult(await releaseOpen(typed), 'mutate', 'release', operation, startTime);
+        }
+
         // release.reconcile — v2 reconcile verb (T9526 / SPEC-T9345 §4.4)
         case 'reconcile': {
           const version = typeof params?.version === 'string' ? params.version : undefined;
@@ -379,7 +403,7 @@ export class ReleaseHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['gate', 'ivtr-suggest', 'verify'],
-      mutate: ['gate', 'ivtr-suggest', 'start', 'publish', 'reconcile', 'plan'],
+      mutate: ['gate', 'ivtr-suggest', 'start', 'publish', 'reconcile', 'plan', 'open'],
     };
   }
 }

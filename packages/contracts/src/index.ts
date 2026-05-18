@@ -338,8 +338,12 @@ export {
   E_EPIC_EMPTY,
   E_EPIC_NOT_FOUND,
   E_EVIDENCE_INSUFFICIENT,
+  // SPEC-T9345 release pipeline v2 error code names (T9530)
+  E_GH_NOT_AUTHENTICATED,
+  E_INVALID_STATE,
   E_PLAN_NOT_FOUND,
   E_RELEASE_PLAN_INVALID,
+  E_WORKFLOW_NOT_FOUND,
   ExitCode,
   getExitCodeName,
   isErrorCode,
