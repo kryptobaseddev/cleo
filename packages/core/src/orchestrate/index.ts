@@ -76,3 +76,12 @@ export {
   reVerifyWorkerReport,
   WORKER_MISMATCH_AUDIT_FILE,
 } from './worker-verify.js';
+export type {
+  CompleteWorktreeForTaskOpts,
+  CompleteWorktreeForTaskResult,
+  WorktreeCompleteResolveMode,
+} from './worktree-complete.js';
+export {
+  completeWorktreeForTask,
+  WORKTREE_LIFECYCLE_AUDIT_FILE,
+} from './worktree-complete.js';

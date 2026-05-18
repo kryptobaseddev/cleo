@@ -172,6 +172,8 @@ interface OrchestratePivotParams {
 
 interface OrchestrateWorktreeCompleteParams {
   taskId: string;
+  /** Conflict-recovery strategy (T9548). Defaults to `'auto'`. */
+  resolve?: 'auto' | 'manual';
 }
 
 interface OrchestrateWorktreeCleanupParams {
@@ -439,7 +441,7 @@ async function orchestratePivotOp(params: OrchestratePivotParams) {
 }
 
 async function orchestrateWorktreeCompleteOp(params: OrchestrateWorktreeCompleteParams) {
-  return handleWorktreeComplete(params.taskId, getProjectRoot());
+  return handleWorktreeComplete(params.taskId, getProjectRoot(), params.resolve);
 }
 
 async function orchestrateWorktreeCleanupOp(params: OrchestrateWorktreeCleanupParams) {
@@ -928,7 +930,15 @@ export class OrchestrateHandler implements DomainHandler {
               'taskId is required',
               startTime,
             );
-          const p: OrchestrateWorktreeCompleteParams = { taskId: params.taskId as string };
+          // T9548 — resolve flag passes through to the new SDK. Only 'auto' /
+          // 'manual' are accepted; any other value falls back to 'auto'.
+          const rawResolve = params.resolve as unknown;
+          const resolve: 'auto' | 'manual' | undefined =
+            rawResolve === 'manual' ? 'manual' : rawResolve === 'auto' ? 'auto' : undefined;
+          const p: OrchestrateWorktreeCompleteParams = {
+            taskId: params.taskId as string,
+            ...(resolve !== undefined ? { resolve } : {}),
+          };
           return wrapResult(
             (await coreOps['worktree.complete'](p)) as EngineResult<unknown>,
             'mutate',
@@ -1468,22 +1478,39 @@ async function orchestrateAnalyzeParallelSafety(
 async function handleWorktreeComplete(
   taskId: string,
   projectRoot: string,
-): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
+  resolve?: 'auto' | 'manual',
+): Promise<{
+  success: boolean;
+  data?: unknown;
+  error?: { code: string; message: string; details?: unknown };
+}> {
   try {
-    const { completeAgentWorktreeViaMerge } = await import('@cleocode/core/internal');
-    const result = completeAgentWorktreeViaMerge(taskId, projectRoot);
-    // Surface a non-fatal merge error as a dispatch-level failure so callers
-    // can react (rebase conflicts, missing branch, etc.) rather than treating
-    // a partial result as success.
-    if (!result.merged && result.error) {
+    // T9548 — route through the new completeWorktreeForTask SDK so the dispatch
+    // handler gains:
+    //  - Idempotency (re-run on completed worktree = noop)
+    //  - `--resolve manual` support (skip auto-merge, record audit row)
+    //  - Conflict envelope with recovery instructions
+    const { completeWorktreeForTask } = await import('@cleocode/core/internal');
+    const result = completeWorktreeForTask(taskId, projectRoot, {
+      resolve: resolve ?? 'auto',
+    });
+
+    // Conflict outcome → structured failure envelope with recovery block.
+    if (result.outcome === 'conflict') {
       return {
         success: false,
         error: {
           code: 'E_WORKTREE_COMPLETE_FAILED',
-          message: result.error,
+          message: result.reason,
+          details: {
+            taskId: result.taskId,
+            integration: result.integration,
+            recovery: result.recovery,
+          },
         },
       };
     }
+
     return { success: true, data: result };
   } catch (error) {
     getLogger('domain:orchestrate').error(

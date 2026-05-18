@@ -815,7 +815,7 @@ const worktreeCompleteCommand = defineCommand({
   meta: {
     name: 'worktree-complete',
     description:
-      'Integrate subagent worktree into default branch via canonical git merge --no-ff (ADR-062)',
+      'Integrate subagent worktree into default branch via canonical git merge --no-ff (ADR-062). T9548: idempotent — re-running on a completed worktree is a no-op.',
   },
   args: {
     taskId: {
@@ -823,15 +823,24 @@ const worktreeCompleteCommand = defineCommand({
       description: 'Task ID whose worktree branch should be merged (e.g. T1625)',
       required: true,
     },
+    resolve: {
+      type: 'string',
+      description:
+        'T9548 conflict-recovery mode: "auto" (default — attempt merge) or "manual" (skip merge, mark worktree as manually-handled in audit log)',
+      default: 'auto',
+    },
   },
   async run({ args }) {
-    await dispatchFromCli(
-      'mutate',
-      'orchestrate',
-      'worktree.complete',
-      { taskId: args.taskId },
-      { command: 'orchestrate' },
-    );
+    // T9548 — only forward `resolve` when explicitly set to 'manual'. The
+    // dispatch handler normalises any other value to 'auto'.
+    const resolveArg = typeof args.resolve === 'string' ? args.resolve : undefined;
+    const params: Record<string, unknown> = { taskId: args.taskId };
+    if (resolveArg === 'manual') {
+      params.resolve = 'manual';
+    }
+    await dispatchFromCli('mutate', 'orchestrate', 'worktree.complete', params, {
+      command: 'orchestrate',
+    });
   },
 });
 
