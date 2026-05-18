@@ -130,7 +130,34 @@ export const authListCommand = defineCommand({
     // Force a seed pass so the listing matches what `pick()` would return.
     // The pool's internal 60s cache makes repeat calls cheap.
     await pool.seed();
-    const stored = await pool.list();
+
+    // T9594 one-shot migration: purge any stale source=gh-cli entries that
+    // were persisted before the gh-cli seeder was removed from BUILTIN_SEEDERS.
+    // `gh auth token` returns a GitHub PAT (ghp_*/gho_*) which cannot
+    // authenticate against api.openai.com — these entries are unusable.
+    // Uses pool.list() (pure store read; already called below) so no extra import.
+    const allStored = await pool.list();
+    const ghCliEntries = allStored.filter((c) => c.source === 'gh-cli');
+    if (ghCliEntries.length > 0) {
+      const { removeCredential } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/llm/credentials-store.js'
+      );
+      const { addSuppression } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/llm/credential-removal.js'
+      );
+      for (const entry of ghCliEntries) {
+        // removeCredential is typed to require a ModelTransport for provider;
+        // cast is safe because we are removing an entry that already exists.
+        await removeCredential(
+          entry.provider as Parameters<typeof removeCredential>[0],
+          entry.label,
+        );
+      }
+      // Suppress re-seeding; provider was 'openai' when these entries were created.
+      addSuppression('openai', 'gh-cli');
+    }
+
+    const stored = allStored.filter((c) => c.source !== 'gh-cli');
 
     const entries: AuthListEntry[] = stored
       .filter((c) => (providerFilter ? c.provider === providerFilter : true))
