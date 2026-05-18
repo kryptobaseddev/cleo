@@ -81,6 +81,15 @@ export {
   releaseTag,
   writeIvtrDecouplingAuditOnce,
 } from './engine-ops.js';
+// T9538 — release workflow bypass audit logger (SPEC-T9345 §12.3 / R-441)
+export type {
+  AppendReleaseWorkflowBypassOptions,
+  ReleaseWorkflowBypassRecord,
+} from './escape-hatch.js';
+export {
+  appendReleaseWorkflowBypass,
+  RELEASE_WORKFLOW_BYPASS_FILE,
+} from './escape-hatch.js';
 // GitHub PR management
 export type {
   BranchProtectionResult,

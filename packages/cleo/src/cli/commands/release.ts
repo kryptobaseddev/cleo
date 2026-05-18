@@ -1,22 +1,25 @@
 /**
  * CLI release command group — release lifecycle management.
  *
- * Commands:
- *   cleo release ship <version>         — composite release: gates → changelog → commit → tag → push
- *   cleo release list                   — list all releases
- *   cleo release show <version>         — show release details
- *   cleo release cancel <version>       — cancel a draft/prepared release
- *   cleo release changelog --since <tag> — generate CHANGELOG from git log (T820 RELEASE-02)
- *   cleo release rollback <version>     — roll back a shipped release (metadata only)
- *   cleo release rollback-full <version> — real rollback: delete tag, revert commit, remove record (T820 RELEASE-05)
- *   cleo release channel                — show current release channel
+ * Canonical 4-verb pipeline (SPEC-T9345):
+ *   cleo release plan <version> --epic <id>  — build the Release Plan envelope
+ *   cleo release open <version>              — dispatch release-prepare workflow
+ *   cleo release reconcile <version>         — post-publish provenance backfill
+ *   cleo release rollback <version>          — roll back a shipped release
  *
- * REMOVED: release add/plan commands were consolidated into release.ship as part
- * of the API rationalization (T5615). For preview/dry-run: cleo release ship <version> --epic <id> --dry-run
+ * Deprecated (kept for the migration window — see SPEC-T9345 §12):
+ *   cleo release ship    — alias that forwards to plan + open + (auto-)publish
+ *   cleo release start   — alias for plan
+ *   cleo release verify  — see `cleo verify <task> --gate X --evidence …` (ADR-051)
+ *   cleo release publish — see `cleo release open <version>`
+ *
+ * Read-only helpers:
+ *   cleo release list / show / cancel / changelog / pr-status / channel
  *
  * @task T4467
  * @task T820
- * @epic T4454
+ * @task T9538 — ship deprecation shim
+ * @epic T9498 — release v2 cutover
  */
 
 import { release } from '@cleocode/core';
@@ -25,15 +28,45 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
- * cleo release ship — composite release: prepare → gates → changelog → commit → tag → push.
+ * Deprecation notice emitted to stderr by {@link shipCommand} per
+ * SPEC-T9345 §12 R-420 / R-431. The notice MUST include the replacement
+ * invocation and the target removal release per R-431.
  *
- * Requires --epic <id>. Use --dry-run to preview without writing anything.
- * Use --force to bypass IVTR gate check (T820 RELEASE-03).
+ * @task T9538
+ * @spec SPEC-T9345 §12 R-420
+ */
+export const SHIP_DEPRECATION_NOTICE =
+  '[DEPRECATED] `cleo release ship` is a deprecated alias and will be removed no earlier than the third release cycle after T9498. ' +
+  'Use `cleo release plan <version> --epic <id>` followed by `cleo release open <version>`; publish runs via GHA workflow. ' +
+  'Emergency escape hatch (audit-logged to .cleo/audit/release-workflow-bypass.jsonl): pass `--workflow=false` to run the legacy 12-step monolith locally. ' +
+  'Docs: T9345-CHILD-1.';
+
+/**
+ * cleo release ship — DEPRECATED alias per SPEC-T9345 §12 R-420.
+ *
+ * Default behavior (workflow !== false): emits {@link SHIP_DEPRECATION_NOTICE}
+ * to stderr and forwards to the new 4-verb pipeline by calling
+ * `release.plan` then `release.open` via dispatch. Publish happens through
+ * the GHA `release-prepare.yml` workflow dispatched by `release.open`, so
+ * the CLI returns once the workflow has been triggered.
+ *
+ * Emergency escape hatch (`--workflow=false`): bypasses the new flow and
+ * runs the legacy 12-step monolith via the existing `release.ship` dispatch
+ * route. Each such invocation MUST append a CRITICAL-severity record to
+ * `.cleo/audit/release-workflow-bypass.jsonl` (R-441). This flag is slated
+ * for removal in Phase 6 (T9540).
+ *
+ * The deprecation warning is written to **stderr** (NOT stdout) so JSON
+ * envelope output on stdout stays parseable for downstream tooling.
+ *
+ * @task T9538
+ * @spec SPEC-T9345 §12 R-420 / R-440 / R-441
  */
 const shipCommand = defineCommand({
   meta: {
     name: 'ship',
-    description: 'Ship a release: gates → changelog → commit → tag → push',
+    description:
+      '[DEPRECATED] Forwards to `release plan` + `release open` (use --workflow=false for legacy path)',
   },
   args: {
     version: {
@@ -43,45 +76,102 @@ const shipCommand = defineCommand({
     },
     epic: {
       type: 'string',
-      description: 'Epic task ID for commit message (e.g. T5576)',
+      description: 'Epic task ID (forwarded to release plan / release open)',
       required: true,
+    },
+    workflow: {
+      type: 'boolean',
+      description:
+        'Default true: route through new plan+open verbs. Pass --workflow=false (or --no-workflow) to run the legacy 12-step monolith (CRITICAL audit-logged)',
+      default: true,
+    },
+    'workflow-bypass-reason': {
+      type: 'string',
+      description: 'Operator-supplied rationale recorded in the workflow-bypass audit log',
     },
     'dry-run': {
       type: 'boolean',
-      description: 'Preview all actions without writing anything',
+      description: 'Preview all actions without writing anything (legacy path only)',
     },
     push: {
       type: 'boolean',
-      description: 'Push commit and tag (default: true)',
+      description: 'Push commit and tag (legacy path only — default: true)',
       default: true,
     },
     bump: {
       type: 'boolean',
-      description: 'Bump version files (default: true)',
+      description: 'Bump version files (legacy path only — default: true)',
       default: true,
     },
     remote: {
       type: 'string',
-      description: 'Git remote to push to (default: origin)',
+      description: 'Git remote to push to (legacy path only — default: origin)',
     },
     force: {
       type: 'boolean',
-      description: 'Bypass IVTR gate check with owner warning (breaks accountability chain)',
+      description: 'Bypass IVTR gate check (legacy path only — breaks accountability chain)',
     },
   },
   async run({ args }) {
+    // R-420: deprecation warning MUST go to stderr so JSON envelope on stdout
+    // stays parseable for piped tooling.
+    process.stderr.write(`${SHIP_DEPRECATION_NOTICE}\n`);
+
+    // R-440 / R-441: --workflow=false retains the legacy releaseShip monolith
+    // path and audits the bypass to `.cleo/audit/release-workflow-bypass.jsonl`.
+    if (args.workflow === false) {
+      release.appendReleaseWorkflowBypass({
+        projectRoot: process.cwd(),
+        version: args.version,
+        reason:
+          (args['workflow-bypass-reason'] as string | undefined) ??
+          '(no reason supplied — set --workflow-bypass-reason)',
+        epicId: args.epic,
+        source: 'cli-flag',
+      });
+      await dispatchFromCli(
+        'mutate',
+        'pipeline',
+        'release.ship',
+        {
+          version: args.version,
+          epicId: args.epic,
+          dryRun: args['dry-run'],
+          push: args.push !== false,
+          bump: args.bump !== false,
+          remote: args.remote as string | undefined,
+          force: args.force,
+        },
+        { command: 'release' },
+      );
+      return;
+    }
+
+    // Default: forward to the new 4-verb pipeline (R-420). Plan first, then
+    // open — publish runs in the dispatched GHA workflow.
     await dispatchFromCli(
       'mutate',
-      'pipeline',
-      'release.ship',
+      'release',
+      'release.plan',
       {
         version: args.version,
         epicId: args.epic,
-        dryRun: args['dry-run'],
-        push: args.push !== false,
-        bump: args.bump !== false,
-        remote: args.remote as string | undefined,
-        force: args.force,
+        dryRun: args['dry-run'] === true,
+      },
+      { command: 'release' },
+    );
+    if (args['dry-run'] === true) {
+      // Match the new-verb semantics: dry-run stops after plan with no side
+      // effects, so don't trip the open workflow when the operator asked
+      // for a preview.
+      return;
+    }
+    await dispatchFromCli(
+      'mutate',
+      'release',
+      'release.open',
+      {
+        version: args.version,
       },
       { command: 'release' },
     );
@@ -508,29 +598,49 @@ const reconcileCommand = defineCommand({
 /**
  * Root release command group — release lifecycle management.
  *
- * Dispatches to `pipeline.release.*` registry operations.
+ * Surfaces the SPEC-T9345 4-verb pipeline (`plan`, `open`, `reconcile`,
+ * `rollback`) as the canonical entry points. Legacy verbs (`ship`, `start`,
+ * `verify`, `publish`) remain wired for the compatibility window (R-420 →
+ * R-423) but are listed under the Deprecated section of the command
+ * description (T9538).
+ *
+ * Dispatches to `release.*` for the new verbs and to `pipeline.release.*`
+ * for the legacy compatibility shim path.
+ *
+ * @task T9538
+ * @spec SPEC-T9345 §12
  */
 export const releaseCommand = defineCommand({
-  meta: { name: 'release', description: 'Release lifecycle management' },
+  meta: {
+    name: 'release',
+    description:
+      'Release lifecycle management — 4-verb pipeline: plan → open → reconcile / rollback. ' +
+      'Deprecated: ship/start/verify/publish (use the 4 verbs above; see SPEC-T9345 §12).',
+  },
   subCommands: {
-    ship: shipCommand,
+    // Canonical SPEC-T9345 4-verb pipeline — list these first so `--help`
+    // surfaces them as the documented default (T9538 / R-420).
+    plan: planCommand,
+    open: openCommand,
+    reconcile: reconcileCommand,
+    rollback: rollbackCommand,
+    // Read-only helpers — not deprecated.
     list: listCommand,
     show: showCommand,
     cancel: cancelCommand,
     changelog: changelogCommand,
-    rollback: rollbackCommand,
-    'rollback-full': rollbackFullCommand,
-    channel: channelCommand,
     'pr-status': prStatusCommand,
-    // Canonical 4-step pipeline (T1597 / ADR-063)
+    channel: channelCommand,
+    'rollback-full': rollbackFullCommand,
+    // Deprecated verbs (kept for the migration window — SPEC-T9345 §12).
+    // R-420: ship → plan + open + (auto-)publish
+    ship: shipCommand,
+    // R-421: start → plan
     start: startCommand,
+    // R-422: verify → cleo verify <task> --gate X --evidence …
     verify: verifyCommand,
+    // R-423: publish → release open
     publish: publishCommand,
-    reconcile: reconcileCommand,
-    // SPEC-T9345 release pipeline v2 verbs (T9492)
-    plan: planCommand,
-    // SPEC-T9345 release pipeline v2 (T9494 Phase 3 / T9530)
-    open: openCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
