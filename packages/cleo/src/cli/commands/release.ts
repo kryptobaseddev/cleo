@@ -411,13 +411,43 @@ const planCommand = defineCommand({
   },
 });
 
-/** cleo release reconcile — Step 4: run post-release invariants, auto-complete tasks. */
+/**
+ * cleo release reconcile <version> — v2 reconcile verb (T9526 / SPEC-T9345 §4.4).
+ *
+ * Post-publish: backfills the 11 provenance tables (commits, task_commits,
+ * commit_files, pull_requests, pr_commits, pr_tasks, releases, release_commits,
+ * release_changes, release_artifacts, brain_release_links) from git log and
+ * gh api. Single SQLite transaction, UPSERT-everywhere, full idempotency.
+ *
+ * Coexists with the legacy 4-step pipeline reconcile (`releaseReconcile`).
+ * The legacy path stays available via the dispatch handler for backward
+ * compatibility; the CLI routes to v2.
+ */
 const reconcileCommand = defineCommand({
-  meta: { name: 'reconcile', description: 'Run post-release invariants for the active release' },
-  args: { 'dry-run': { type: 'boolean', description: 'Preview without mutations' } },
+  meta: {
+    name: 'reconcile',
+    description: 'Reconcile a published release: backfill the 11 provenance tables',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Version string (e.g. v2026.6.0)',
+      required: true,
+    },
+    'from-workflow': {
+      type: 'boolean',
+      description: 'Indicates invocation from release-publish.yml (affects logging only)',
+    },
+    rollback: {
+      type: 'boolean',
+      description: 'Reconcile a rollback rather than a publish (deferred to T9528)',
+    },
+    json: { type: 'boolean', description: 'Emit LAFS envelope' },
+  },
   async run({ args }) {
-    const result = await release.releaseReconcile(release.loadActiveReleaseHandle(process.cwd()), {
-      dryRun: args['dry-run'] === true,
+    const result = await release.releaseReconcileV2(args.version, {
+      fromWorkflow: args['from-workflow'] === true,
+      rollback: args.rollback === true,
     });
     cliOutput(result, { command: 'release', operation: 'release.reconcile' });
     if (!result.success) process.exit(1);

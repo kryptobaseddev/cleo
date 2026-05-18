@@ -726,6 +726,8 @@ export {
 // T9525: SPEC-T9345 release pipeline v2 verbs — exposed via internal for dispatch layer
 export type { ReleasePlanOptions, ReleasePlanResult } from './release/plan.js';
 export { releasePlan } from './release/plan.js';
+// T9526: new release reconcile v2 (provenance-graph aware) — exported alongside legacy
+export { releaseReconcileV2 } from './release/reconcile.js';
 export type { ProjectReleaseConfig, ReleaseConfig, ReleaseGate } from './release/release-config.js';
 export {
   getGitFlowConfig,
