@@ -27,6 +27,7 @@ import { SessionHandler } from './session.js';
 import { StickyHandler } from './sticky.js';
 import { TasksHandler } from './tasks.js';
 import { ToolsHandler } from './tools.js';
+import { WorktreeHandler } from './worktree.js';
 
 export {
   AdminHandler,
@@ -47,6 +48,7 @@ export {
   StickyHandler,
   TasksHandler,
   ToolsHandler,
+  WorktreeHandler,
 };
 
 /**
@@ -80,5 +82,8 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('release', new ReleaseHandler());
   // T9258: `cleo llm` CLI surface — credential pool + role-aware resolver + config writer.
   handlers.set('llm', new LlmHandler());
+  // T9546: `cleo worktree` CLI surface — structured worktree enumeration with status classification
+  // (T9515 worktree-lifecycle bug fix epic, 2 of 5).
+  handlers.set('worktree', new WorktreeHandler());
   return handlers;
 }

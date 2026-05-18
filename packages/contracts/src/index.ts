@@ -1145,12 +1145,16 @@ export type {
   DestroyWorktreeOptions,
   DestroyWorktreeResult,
   ListWorktreesOptions,
+  ListWorktreesOpts,
+  ListWorktreesResult,
   PruneWorktreesOptions,
   PruneWorktreesResult,
   WorktreeHook,
   WorktreeHookResult,
   WorktreeIncludePattern,
+  WorktreeInfo,
   WorktreeListEntry,
+  WorktreeStatusCategory,
 } from './operations/worktree.js';
 // === Orchestration Roll-up Types (T9082, ADR-070) ===
 export type {
