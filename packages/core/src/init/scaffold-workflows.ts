@@ -14,11 +14,12 @@
  *   3. Hard-coded fallbacks — `22.x` for Node, `release` for branch/label
  *      prefixes, the conventional pnpm-flavoured commands.
  *
- * For T9531 (Phase 3 of T9494) we ship the prepare scaffold only —
+ * T9531 (Phase 3 of T9494) shipped the prepare-only scaffold —
  * `release-prepare.yml.tmpl` → `.github/workflows/release-prepare.yml`.
- * T9536 will extend this primitive to walk the full four-template set
- * (`prepare` + `publish` + `fanout` + `rollback`) without further
- * scaffolder changes.
+ * T9536 (Phase 4 of T9497) extended the default to walk the full
+ * four-template set: `release-prepare`, `release-publish`,
+ * `release-fanout`, `release-rollback`. Callers MAY still pass an
+ * explicit single-template `templates` array to scaffold a subset.
  *
  * Implementation notes:
  *
@@ -57,9 +58,10 @@ import { resolveToolCommand } from '../tasks/tool-resolver.js';
  * `<templatesDir>/<name>.yml.tmpl` and writes
  * `<projectRoot>/.github/workflows/<name>.yml`.
  *
- * For T9531 only `release-prepare` is wired. The other three names are
- * declared here so T9536 can extend the scaffolder by flipping the
- * default `templates` set without further type changes.
+ * All four canonical templates are now wired by default (T9536). Callers
+ * that need a single-template subset (legacy T9531 behaviour) MUST pass
+ * an explicit `templates` array — the default is the full four-template
+ * set so a fresh `cleo init --workflows` produces the complete pipeline.
  */
 export type WorkflowName =
   | 'release-prepare'
@@ -135,8 +137,13 @@ export interface ScaffoldWorkflowsOptions {
    */
   templatesDir: string;
   /**
-   * Which templates to render. Defaults to `['release-prepare']` for
-   * T9531 (prepare-only scaffolder). T9536 flips this to all four.
+   * Which templates to render. T9531 shipped a prepare-only default;
+   * T9536 flipped the default to ALL four canonical templates —
+   * `release-prepare`, `release-publish`, `release-fanout`,
+   * `release-rollback`. Callers MAY still pass a subset (e.g.
+   * `['release-prepare']`) to scaffold one template at a time.
+   *
+   * See {@link DEFAULT_WORKFLOW_TEMPLATES} for the default ordering.
    */
   templates?: ReadonlyArray<WorkflowName>;
   /**
@@ -194,6 +201,23 @@ export interface ScaffoldWorkflowsResult {
 // ---------------------------------------------------------------------------
 // Defaults & helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Canonical full set of release-pipeline workflow templates rendered by
+ * `cleo init --workflows` when no explicit `templates` array is provided.
+ *
+ * Ordering matters for the audit log + CLI stdout summary: prepare lands
+ * first (the entrypoint), publish second (tag-on-merge), fanout third
+ * (best-effort downstream), rollback last (workflow_dispatch only).
+ *
+ * @task T9536
+ */
+export const DEFAULT_WORKFLOW_TEMPLATES: ReadonlyArray<WorkflowName> = [
+  'release-prepare',
+  'release-publish',
+  'release-fanout',
+  'release-rollback',
+] as const;
 
 const DEFAULT_NODE_VERSION = '22.x' as const;
 const DEFAULT_BRANCH_PREFIX = 'release' as const;
@@ -397,8 +421,11 @@ async function readIfExists(path: string): Promise<string | null> {
 /**
  * Render and write the requested workflow templates.
  *
- * Default behaviour for T9531 is to render `release-prepare` only. Pass
- * `templates: ['release-prepare', 'release-publish', ...]` to extend.
+ * T9536 default behaviour: renders ALL four canonical templates
+ * (`release-prepare`, `release-publish`, `release-fanout`,
+ * `release-rollback`). Pass an explicit `templates` array to scaffold a
+ * subset (legacy T9531 prepare-only behaviour is recovered by passing
+ * `templates: ['release-prepare']`).
  *
  * @example
  * ```ts
@@ -412,6 +439,7 @@ async function readIfExists(path: string): Promise<string | null> {
  * ```
  *
  * @task T9531
+ * @task T9536 — full four-template default
  */
 export async function scaffoldWorkflows(
   opts: ScaffoldWorkflowsOptions,
@@ -420,7 +448,7 @@ export async function scaffoldWorkflows(
   const dryRun = opts.dryRun === true;
   const force = opts.force === true;
   const templates: ReadonlyArray<WorkflowName> =
-    opts.templates && opts.templates.length > 0 ? opts.templates : ['release-prepare'];
+    opts.templates && opts.templates.length > 0 ? opts.templates : DEFAULT_WORKFLOW_TEMPLATES;
 
   // 1. Inputs: release-config.json (override-aware) + ADR-061 resolved tools.
   const cfg =

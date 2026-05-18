@@ -195,9 +195,21 @@ export type {
   WorkflowName,
 } from './init/scaffold-workflows.js';
 export {
+  DEFAULT_WORKFLOW_TEMPLATES,
   listAvailableWorkflowTemplates,
   scaffoldWorkflows,
 } from './init/scaffold-workflows.js';
+// Init — workflow upgrade primitive (T9536, Phase 4 of T9497). Re-renders
+// every shipped template, compares against the on-disk file, and honours
+// .workflow-overrides.yml for operator-declared customizations.
+export type {
+  UpgradeWorkflowOutcome,
+  UpgradeWorkflowStatus,
+  UpgradeWorkflowsOptions,
+  UpgradeWorkflowsResult,
+  WorkflowOverrides,
+} from './init/upgrade-workflows.js';
+export { parseOverridesYamlBody, upgradeWorkflows } from './init/upgrade-workflows.js';
 // Init (additional)
 export { isAutoInitEnabled } from './init.js';
 export type {

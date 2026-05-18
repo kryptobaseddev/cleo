@@ -28,6 +28,7 @@ import { SessionHandler } from './session.js';
 import { StickyHandler } from './sticky.js';
 import { TasksHandler } from './tasks.js';
 import { ToolsHandler } from './tools.js';
+import { UpgradeHandler } from './upgrade.js';
 import { WorktreeHandler } from './worktree.js';
 
 export {
@@ -50,6 +51,7 @@ export {
   StickyHandler,
   TasksHandler,
   ToolsHandler,
+  UpgradeHandler,
   WorktreeHandler,
 };
 
@@ -90,5 +92,9 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   // T9546: `cleo worktree` CLI surface — structured worktree enumeration with status classification
   // (T9515 worktree-lifecycle bug fix epic, 2 of 5).
   handlers.set('worktree', new WorktreeHandler());
+  // T9536: `cleo upgrade workflows` — re-render the four release-pipeline
+  // workflow templates and report drift with 3-way merge against
+  // .workflow-overrides.yml (Phase 4 / 4 of 4 of T9497).
+  handlers.set('upgrade', new UpgradeHandler());
   return handlers;
 }
