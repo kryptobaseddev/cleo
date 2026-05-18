@@ -17,7 +17,8 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
@@ -330,6 +331,70 @@ async function checkIvtrGates(
 }
 
 /**
+ * Project-relative audit sentinel that proves the IVTR decoupling has run at
+ * least once for a project. First-run also appends a JSONL audit row so the
+ * decoupling event is traceable (matches the convention used by
+ * `force-bypass.jsonl`, `worker-mismatch.jsonl`, etc.).
+ *
+ * @task T9537
+ */
+export const IVTR_DECOUPLED_SENTINEL_FILE = '.cleo/audit/ivtr-decoupled.flag';
+
+/**
+ * Project-relative JSONL audit log for IVTR-decoupling events. Appended once
+ * on the first {@link releaseShip} invocation per project; subsequent runs are
+ * no-ops because the sentinel file already exists.
+ *
+ * @task T9537
+ */
+export const IVTR_DECOUPLED_AUDIT_FILE = '.cleo/audit/ivtr-decoupled.jsonl';
+
+/**
+ * Write a one-time audit entry confirming the IVTR gate has been decoupled
+ * from the release pipeline per T9537. The sentinel file
+ * `.cleo/audit/ivtr-decoupled.flag` prevents re-logging on subsequent runs.
+ *
+ * Best-effort: never throws — release flow must not fail because the audit
+ * directory is read-only or missing.
+ *
+ * @task T9537
+ */
+export function writeIvtrDecouplingAuditOnce(cwd: string, epicId: string): boolean {
+  try {
+    const sentinelPath = join(cwd, IVTR_DECOUPLED_SENTINEL_FILE);
+    if (existsSync(sentinelPath)) {
+      return false;
+    }
+    mkdirSync(dirname(sentinelPath), { recursive: true });
+    const payload = {
+      ts: new Date().toISOString(),
+      event: 'ivtr-decoupled',
+      task: 'T9537',
+      spec: 'SPEC-T9345 §7 / ivtr-conflation-audit.md Priority 1',
+      firstEpic: epicId,
+      message:
+        'IVTR decoupled from release per T9537 (Phase 5 of T9498). task.ivtr_state is observation-only; ADR-051 evidence atoms are the sole gate.',
+    };
+    writeFileSync(sentinelPath, `${JSON.stringify(payload)}\n`, 'utf-8');
+    const auditPath = join(cwd, IVTR_DECOUPLED_AUDIT_FILE);
+    mkdirSync(dirname(auditPath), { recursive: true });
+    appendFileSync(auditPath, `${JSON.stringify(payload)}\n`, 'utf-8');
+    log.info(
+      { audit: 'ivtr-decoupled', task: 'T9537', epicId, sentinel: IVTR_DECOUPLED_SENTINEL_FILE },
+      'IVTR decoupled from release per T9537 — sentinel written.',
+    );
+    return true;
+  } catch (err: unknown) {
+    // Audit writes are best-effort; never fail the release on filesystem errors.
+    log.debug(
+      { audit: 'ivtr-decoupled', task: 'T9537', error: (err as Error).message ?? String(err) },
+      'IVTR-decoupled audit write failed (non-blocking)',
+    );
+    return false;
+  }
+}
+
+/**
  * Build a per-task IVTR status list for the given task IDs.
  *
  * Each entry carries the task ID, current IVTR phase (or null), and whether
@@ -596,12 +661,20 @@ export async function releaseGateCheck(
  * Checks whether all sibling tasks in the parent epic are also released. If
  * so, emits a `suggestedCommand` pointing the operator toward `release ship`.
  *
+ * @deprecated As of T9537 (Phase 5 of T9498), the IVTR gate has been
+ * decoupled from the release pipeline per SPEC-T9345 §7 / ivtr-conflation-audit.md
+ * Priority 1. This function still works for telemetry and external callers,
+ * but `releaseShip` no longer reads or recommends it. ADR-051 evidence atoms
+ * (validated by `runReleaseGates`) are the sole gate execution surface.
+ * Remove in a future major version once all external integrations migrate.
+ *
  * @param taskId      - Task that just reached the `released` phase.
  * @param projectRoot - Optional working directory.
  * @returns EngineResult with IvtrAutoSuggestResult data.
  *
  * @task T820 RELEASE-07
  * @task T1416
+ * @task T9537 — deprecated marker (decoupled from releaseShip)
  */
 export async function releaseIvtrAutoSuggest(
   taskId: string,
@@ -1208,8 +1281,7 @@ export async function releasePush(
  * Sequence:
  *   0.   Bump version files (optional)
  *   0.5. Auto-prepare release record
- *   1.   Validate release gates
- *   1.5. IVTR gate check
+ *   1.   Validate release gates (ADR-051 evidence atoms — sole gate surface per T9537)
  *   2.   Check epic completeness
  *   3.   Check task double-listing
  *   4.   Generate CHANGELOG + lint check
@@ -1222,9 +1294,18 @@ export async function releasePush(
  *   11.  Cleanup release branch (local + remote)
  *   12.  Record provenance
  *
+ * IVTR decoupling (T9537 / Phase 5 of T9498): `task.ivtr_state` is no longer
+ * read by `releaseShip` for gate decisions. The legacy step 1.5 IVTR gate
+ * (E_IVTR_INCOMPLETE) was removed per SPEC-T9345 §7 (R-310 through R-316) and
+ * ivtr-conflation-audit.md Priority 1. ADR-051 evidence atoms are now the sole
+ * release gate execution surface. The schema column, the `cleo ivtr` CLI, and
+ * the `release.gate` / `release.ivtr-suggest` dispatch ops remain for telemetry
+ * and backward-compat (`releaseIvtrAutoSuggest` is `@deprecated`).
+ *
  * @task T5582
  * @task T5586
  * @task T9095 — PR-required flow
+ * @task T9537 — IVTR decoupling
  * @epic T5576
  */
 export async function releaseShip(
@@ -1234,7 +1315,12 @@ export async function releaseShip(
     remote?: string;
     dryRun?: boolean;
     bump?: boolean;
-    /** Skip IVTR gate check — requires owner confirmation (T820 RELEASE-03). */
+    /**
+     * Bypass channel/version validation — owner-level override. As of T9537,
+     * the IVTR gate is no longer part of `releaseShip` (decoupled per
+     * SPEC-T9345 §7 / ivtr-conflation-audit.md Priority 1) so `force` no
+     * longer affects IVTR state — it only bypasses the channel check below.
+     */
     force?: boolean;
   },
   projectRoot?: string,
@@ -1373,53 +1459,47 @@ export async function releaseShip(
     }
     logStep(1, 12, 'Validate release gates', true);
 
-    // Step 1.5 (T820 RELEASE-03): IVTR gate enforcement
-    if (!force) {
-      logStep(1, 12, 'Check IVTR gate for epic tasks');
-      let epicTaskIds: string[] = [];
-      try {
-        const epicAccessorForIvtr = await getTaskAccessor(cwd);
-        const epicResult = await epicAccessorForIvtr.queryTasks({ parentId: epicId });
-        epicTaskIds = ((epicResult?.tasks as Array<{ id: string; type?: string }>) ?? [])
-          .filter((t) => t.type !== 'epic')
-          .map((t) => t.id);
-      } catch {
-        // If we cannot load tasks, skip IVTR check (project may not have them)
-      }
-
+    // Step 1.5 (T9537 / Phase 5 of T9498): IVTR decoupling.
+    //
+    // The legacy E_IVTR_INCOMPLETE / E_LIFECYCLE_GATE_FAILED blocker that used
+    // to read `task.ivtr_state` for every epic child has been removed per
+    // SPEC-T9345 §7 (R-310 through R-316) and ivtr-conflation-audit.md
+    // Priority 1. ADR-051 evidence atoms validated by `runReleaseGates` (Step
+    // 1 above) are the sole release gate execution surface.
+    //
+    // `task.ivtr_state` is preserved as an observation-only column for
+    // telemetry — we still read it here to surface release-time IVTR state in
+    // the structured logs (useful for ivtr-loop dashboards) but the result
+    // NEVER blocks the pipeline. The first time a release runs after the
+    // decoupling, we write a one-time audit sentinel to
+    // `.cleo/audit/ivtr-decoupled.flag` so the change is traceable.
+    writeIvtrDecouplingAuditOnce(cwd, epicId);
+    try {
+      const epicAccessorForIvtr = await getTaskAccessor(cwd);
+      const epicResult = await epicAccessorForIvtr.queryTasks({ parentId: epicId });
+      const epicTaskIds = ((epicResult?.tasks as Array<{ id: string; type?: string }>) ?? [])
+        .filter((t) => t.type !== 'epic')
+        .map((t) => t.id);
       if (epicTaskIds.length > 0) {
         const { blocked, unchecked } = await checkIvtrGates(epicTaskIds, projectRoot);
-        if (blocked.length > 0) {
-          logStep(
-            1,
-            12,
-            'Check IVTR gate for epic tasks',
-            false,
-            `${blocked.length} task(s) not released in IVTR`,
-          );
-          return engineError(
-            'E_LIFECYCLE_GATE_FAILED',
-            `IVTR gate rejected: ${blocked.length} task(s) in epic ${epicId} have not reached IVTR 'released' phase: ${blocked.join(', ')}. ` +
-              'Run `cleo orchestrate ivtr <taskId> --release` for each blocking task, or pass --force to bypass with owner warning.',
-            {
-              fix: `cleo orchestrate ivtr ${blocked[0]} --release`,
-              details: { blocked, unchecked, epicId },
-            },
-          );
-        }
-        if (unchecked.length > 0) {
-          const w = `  ! IVTR gate: ${unchecked.length} task(s) have no IVTR state (non-blocking): ${unchecked.join(', ')}`;
-          steps.push(w);
-          log.warn({ epicId, unchecked, count: unchecked.length }, w);
-        }
-        logStep(1, 12, 'Check IVTR gate for epic tasks', true);
-      } else {
-        logStep(1, 12, 'Check IVTR gate for epic tasks', true);
+        log.info(
+          {
+            epicId,
+            ivtrTelemetry: true,
+            decoupled: true,
+            totalTasks: epicTaskIds.length,
+            blockedCount: blocked.length,
+            uncheckedCount: unchecked.length,
+          },
+          `IVTR telemetry (T9537, non-blocking): epic ${epicId} — ${epicTaskIds.length} task(s), ${blocked.length} not released, ${unchecked.length} unchecked. ADR-051 evidence atoms are the sole gate.`,
+        );
       }
-    } else {
-      const w = `  ! --force: IVTR gate check BYPASSED. Owner-level override only.`;
-      steps.push(w);
-      log.warn({ epicId, forcedBypass: true }, w);
+    } catch (err: unknown) {
+      // Telemetry is best-effort — never fail the release on IVTR read errors.
+      log.debug(
+        { epicId, ivtrTelemetry: true, error: (err as Error).message ?? String(err) },
+        'IVTR telemetry read failed (non-blocking)',
+      );
     }
 
     // Resolve release channel from the PR *target* branch — that determines
