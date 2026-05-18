@@ -2006,8 +2006,16 @@ export {
 } from './tools/engine-ops.js';
 // Verification gates — enums/classes
 export { GateStatus, VerificationGate } from './validation/operation-verification-gates.js';
+// Worktree lifecycle — audit log + prune + force-unlock (T9547 / T9515)
+export {
+  appendWorktreeAuditEntry,
+  resolveWorktreeAuditActor,
+  WORKTREE_LIFECYCLE_AUDIT_FILE,
+} from './worktree/audit.js';
+export { forceUnlockWorktree } from './worktree/force-unlock.js';
 // Worktree listing — structured enumeration with status classification (T9546 / T9515)
 export { listWorktrees } from './worktree/list.js';
+export { pruneOrphanedWorktreesByStatus } from './worktree/prune.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers (used by cleo test files)
