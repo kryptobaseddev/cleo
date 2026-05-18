@@ -724,6 +724,13 @@ export { channelToDistTag, describeChannel, resolveChannelFromBranch } from './r
 export type { PRResult } from './release/github-pr.js';
 export { buildPRBody, createPullRequest, isGhCliAvailable } from './release/github-pr.js';
 export { checkDoubleListing, checkEpicCompleteness } from './release/guards.js';
+// T9530: release open verb (Phase 3 of T9494) — exposed via internal for dispatch layer
+export type {
+  ReleaseOpenOptions,
+  ReleaseOpenResult,
+  ReleaseOpenRunner,
+} from './release/open.js';
+export { DEFAULT_OPEN_WORKFLOW, releaseOpen } from './release/open.js';
 // T1726: canonical 4-step release pipeline (ADR-063 / T1597) — exposed via internal for dispatch layer
 export {
   loadActiveReleaseHandle,

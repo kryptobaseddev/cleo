@@ -179,6 +179,7 @@ export {
   releaseGatesRun,
   releaseIvtrAutoSuggest,
   releaseList,
+  releaseOpen,
   releasePlan,
   releasePrepare,
   releasePrStatus,
