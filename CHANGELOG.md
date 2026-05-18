@@ -1,5 +1,25 @@
 # Changelog
 
+## [unreleased]
+
+### Added
+
+- E-CONFIG-AUTH-UNIFY: paths SSoT (T9399) + unified credential pool (T9400/T9401) + setup wizard + status + Studio Keys/Setup UI (T9402)
+- `cleo auth list` / `cleo auth remove` / `cleo auth migrate-project-secrets` commands
+- `cleo setup` interactive wizard with LLM / identity / sentient / harness / BRAIN / project-conventions sections (non-interactive mode via `--non-interactive --provider --api-key`)
+- `cleo status` CLI with `--json` mode — six-block snapshot (Identity / Credentials / Config / Session / Harness / Daemon)
+- `CLEO_CONFIG_HOME` env var override for the XDG config dir
+- Studio `/keys` + `/setup` routes
+
+### Changed
+
+- Global `config.json` migrated from data dir to config dir (XDG-compliant)
+- Tier-5 project-config `apiKey` is now rejected — operators must move secrets to the pool with `cleo auth migrate-project-secrets`
+
+### Removed
+
+- `cleoHomeDir()` helper (use `getCleoHome` from `@cleocode/paths`)
+
 ## [2026.5.77] (2026-05-17)
 
 ### Features — Saga foundation (T9518 / ADR-073)
