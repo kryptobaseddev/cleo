@@ -124,6 +124,7 @@ const KNOWN_SEEDER_SOURCES: readonly SeederSourceId[] = [
   'gemini-cli',
   'gh-cli',
   'manual',
+  'cli-input',
 ];
 
 function narrowSeederSource(raw: string | undefined): SeederSourceId | 'none' {
