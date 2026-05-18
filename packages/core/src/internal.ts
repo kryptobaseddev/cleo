@@ -748,6 +748,15 @@ export type {
 export { provenanceBackfill } from './release/backfill.js';
 // Release
 export { channelToDistTag, describeChannel, resolveChannelFromBranch } from './release/channel.js';
+// T9538: release workflow bypass audit logger (SPEC-T9345 §12.3 / R-441)
+export type {
+  AppendReleaseWorkflowBypassOptions,
+  ReleaseWorkflowBypassRecord,
+} from './release/escape-hatch.js';
+export {
+  appendReleaseWorkflowBypass,
+  RELEASE_WORKFLOW_BYPASS_FILE,
+} from './release/escape-hatch.js';
 export type { PRResult } from './release/github-pr.js';
 export { buildPRBody, createPullRequest, isGhCliAvailable } from './release/github-pr.js';
 export { checkDoubleListing, checkEpicCompleteness } from './release/guards.js';
