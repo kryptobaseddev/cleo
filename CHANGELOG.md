@@ -1,29 +1,8 @@
 # Changelog
 
-## [2026.6.1] (2026-05-18) — T9499 Phase 6 cleanup
+## [2026.5.79] (2026-05-18) — T9345 IVTR Release System overhaul + T9499 cleanup
 
-Cleanup release following v2026.6.0. Completes the IVTR release system overhaul (T9345) by deleting the legacy `releaseShip` monolith and retiring the `CLEO_PROVENANCE_DUAL_WRITE` env var now that the new 4-verb pipeline is the unconditional default.
-
-### Removed
-
-- `packages/core/src/release/pipeline.ts` (T9540) — 4-step legacy pipeline (releaseStart/releaseVerify/releasePublish/releaseReconcile) — superseded by SPEC-T9345 §4 verbs
-- `releaseShip` function (~841 LOC) from `packages/core/src/release/engine-ops.ts` (T9540) — superseded by `cleo release plan` + `cleo release open` + GHA publish workflow
-- `cleo release ship --workflow=false` escape-hatch flag (T9540) — shim always forwards to new flow now
-- `cleo release start` / `cleo release verify` / `cleo release publish` CLI subcommands (T9540) — superseded by 4-verb surface
-- `CLEO_PROVENANCE_DUAL_WRITE` env var reads (T9541) — new-table writes are now unconditional
-
-Net code delta: **−3178 LOC**. See PR #251 + #250.
-
-### Preserved (F12 backward-compat)
-
-- `release_manifests` SQLite table (NOT dropped — still readable for historical queries)
-- `task.ivtr_state` schema column (still written for telemetry; just no longer blocks release per T9537)
-- `cleo release reconcile` (now routes to v2 via T9526)
-- `cleo release rollback` + `cleo release rollback-full` + `cleo release cancel` + `cleo release changelog` + `cleo release pr-status` + `cleo release channel` + `cleo release list` + `cleo release show`
-
-## [2026.6.0] (2026-05-18) — T9345 IVTR Release System overhaul
-
-Major release: complete overhaul of the CLEO release pipeline per SPEC-T9345 / ADR-073. Replaces the 761-line releaseShip monolith with four operator verbs (`plan`, `open`, `reconcile`, `rollback`) backed by four GHA workflow templates. Eliminates 10 production failure modes catalogued in `failure-forensics-10-modes.md` (8 by structural prevention, 2 by race-window narrowing). IVTR is decoupled from the release blocking path — ADR-051 evidence atoms become the sole gate execution surface.
+Major release: complete overhaul of the CLEO release pipeline per SPEC-T9345 / ADR-073. Replaces the 761-line releaseShip monolith with four operator verbs (`plan`, `open`, `reconcile`, `rollback`) backed by four GHA workflow templates. Eliminates 10 production failure modes catalogued in `failure-forensics-10-modes.md` (8 by structural prevention, 2 by race-window narrowing). IVTR is decoupled from the release blocking path — ADR-051 evidence atoms become the sole gate execution surface. Bundles the Phase 6 cleanup (T9499) that removes the now-superseded legacy code.
 
 ### Added
 
@@ -79,6 +58,20 @@ Major release: complete overhaul of the CLEO release pipeline per SPEC-T9345 / A
 ### Removed
 
 - E_IVTR_INCOMPLETE blocking gate from release path (T9537). `task.ivtr_state` becomes observation-only; ADR-051 evidence atoms are the sole gate execution surface for release per SPEC R-310 through R-316.
+- `packages/core/src/release/pipeline.ts` (T9540) — 4-step legacy pipeline (releaseStart/releaseVerify/releasePublish/releaseReconcile) — superseded by SPEC-T9345 §4 verbs.
+- `releaseShip` function (~841 LOC) from `packages/core/src/release/engine-ops.ts` (T9540) — superseded by `cleo release plan` + `cleo release open` + GHA publish workflow.
+- `cleo release ship --workflow=false` escape-hatch flag (T9540) — shim always forwards to new flow now.
+- `cleo release start` / `cleo release verify` / `cleo release publish` CLI subcommands (T9540) — superseded by 4-verb surface.
+- `CLEO_PROVENANCE_DUAL_WRITE` env var reads (T9541) — new-table writes are now unconditional.
+
+Net code delta from cleanup: **−3178 LOC**. See PRs #251, #250.
+
+### Preserved (F12 backward-compat)
+
+- `release_manifests` SQLite table (NOT dropped — still readable for historical queries)
+- `task.ivtr_state` schema column (still written for telemetry; just no longer blocks release per T9537)
+- `cleo release reconcile` (now routes to v2 via T9526)
+- `cleo release rollback` + `cleo release rollback-full` + `cleo release cancel` + `cleo release changelog` + `cleo release pr-status` + `cleo release channel` + `cleo release list` + `cleo release show`
 
 ## [2026.5.78] (2026-05-17) — E-CONFIG-AUTH-UNIFY
 
