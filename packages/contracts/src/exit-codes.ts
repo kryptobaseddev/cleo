@@ -226,6 +226,36 @@ export enum ExitCode {
   LEAD_BYPASS_DETECTED = 107,
 }
 
+// ---------------------------------------------------------------------------
+// Release pipeline v2 error code names (SPEC-T9345 §4.7)
+//
+// String-valued error codes emitted by the new release verbs (plan, open,
+// reconcile, rollback). These are the `code` field of EngineErrorPayload;
+// the numeric exit code is the bucket the verb resolves to (per SPEC §4.7).
+//
+// @task T9525
+// @epic T9492
+// @spec .cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md §4.7
+// ---------------------------------------------------------------------------
+
+/** Dirty version files block `cleo release plan` (R-020). Exit code 13. */
+export const E_DIRTY_TREE = 'E_DIRTY_TREE' as const;
+/** Epic referenced by `--epic` has zero children (R-021). Exit code 4. */
+export const E_EPIC_EMPTY = 'E_EPIC_EMPTY' as const;
+/** Epic referenced by `--epic` does not exist (R-021). Exit code 10. */
+export const E_EPIC_NOT_FOUND = 'E_EPIC_NOT_FOUND' as const;
+/** Channel + version scheme are incompatible (R-022). Exit code 6. */
+export const E_CHANNEL_MISMATCH = 'E_CHANNEL_MISMATCH' as const;
+/**
+ * One or more tasks in the plan are missing required ADR-051 evidence atoms
+ * (R-301 / R-310). Exit code 83. `error.details.tasks[]` lists offenders.
+ */
+export const E_EVIDENCE_INSUFFICIENT = 'E_EVIDENCE_INSUFFICIENT' as const;
+/** Plan file at `.cleo/release/<version>.plan.json` is absent. Exit code 4. */
+export const E_PLAN_NOT_FOUND = 'E_PLAN_NOT_FOUND' as const;
+/** Generic release-plan validation failure (e.g. schema). Exit code 6. */
+export const E_RELEASE_PLAN_INVALID = 'E_RELEASE_PLAN_INVALID' as const;
+
 /** Check if an exit code represents an error (1-99). */
 export function isErrorCode(code: ExitCode): boolean {
   return code >= 1 && code < 100;

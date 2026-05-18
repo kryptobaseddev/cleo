@@ -332,6 +332,14 @@ export {
 } from './evidence-record-schema.js';
 // === Exit Codes ===
 export {
+  // SPEC-T9345 release pipeline v2 error code names (T9525)
+  E_CHANNEL_MISMATCH,
+  E_DIRTY_TREE,
+  E_EPIC_EMPTY,
+  E_EPIC_NOT_FOUND,
+  E_EVIDENCE_INSUFFICIENT,
+  E_PLAN_NOT_FOUND,
+  E_RELEASE_PLAN_INVALID,
   ExitCode,
   getExitCodeName,
   isErrorCode,
