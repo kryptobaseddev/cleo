@@ -1,0 +1,11 @@
+{
+  "versionScheme": "calver",
+  "tagPrefix": "v",
+  "gitWorkflow": "feat-to-main",
+  "archetype": "monorepo-w-workspaces",
+  "branchModel": "release/v<version>",
+  "platformMatrix": [
+    { "platform": "any", "publisher": "npm", "package": "@release-test/pkg-a" },
+    { "platform": "any", "publisher": "npm", "package": "@release-test/pkg-b" }
+  ]
+}
