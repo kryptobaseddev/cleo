@@ -1,0 +1,173 @@
+name: Release Pipeline Matrix
+
+# T9544 — Release-pipeline integration matrix.
+#
+# Runs the 12 release-pipeline scenarios (S1-S12 — landed in T9543) across the
+# 3 archetype fixtures (monorepo / npm-lib / rust-crate — landed in T9542) as
+# a GitHub Actions matrix. Scenarios S1-S10 apply to all 3 archetypes; S11 is
+# npm-lib-only and S12 is rust-crate-only per
+# `packages/cleo/test/integration/release-pipeline/README.md` (T9543).
+#
+# Job count: 10 × 3 + 1 + 1 = 32 matrix jobs.
+#
+# Triggers:
+#   - pull_request labeled `release-pipeline` (synchronize keeps it running on
+#     subsequent pushes once the label is set)
+#   - push to main affecting the fixtures or scenarios themselves
+#
+# References:
+#   - .cleo/rcasd/T9345/research/test-matrix-T9345.md §3 (CI matrix configuration)
+#   - packages/cleo/test/integration/release-pipeline/README.md
+#   - packages/cleo/test/fixtures/release-test-* (T9542)
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+    paths:
+      - 'packages/cleo/test/fixtures/release-test-**'
+      - 'packages/cleo/test/integration/release-pipeline/**'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/cleo/test/fixtures/release-test-**'
+      - 'packages/cleo/test/integration/release-pipeline/**'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: release-pipeline-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix-gate:
+    name: Build matrix
+    # On pull_request, only run when the release-pipeline label is present.
+    # On push events the conditional is a no-op (true).
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'release-pipeline')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        # Scenario × archetype matrix per T9543 README:
+        #   S1-S10 run on all 3 archetypes (30 jobs)
+        #   S11    is npm-lib-only (1 job)
+        #   S12    is rust-crate-only (1 job)
+        # Total: 32 jobs.
+        run: |
+          cat <<'JSON' > /tmp/matrix.json
+          {
+            "include": [
+              {"scenario": "S1",  "scenario_file": "S1-happy-path",            "archetype": "monorepo"},
+              {"scenario": "S1",  "scenario_file": "S1-happy-path",            "archetype": "npm-lib"},
+              {"scenario": "S1",  "scenario_file": "S1-happy-path",            "archetype": "rust-crate"},
+              {"scenario": "S2",  "scenario_file": "S2-wedged-git-recovery",   "archetype": "monorepo"},
+              {"scenario": "S2",  "scenario_file": "S2-wedged-git-recovery",   "archetype": "npm-lib"},
+              {"scenario": "S2",  "scenario_file": "S2-wedged-git-recovery",   "archetype": "rust-crate"},
+              {"scenario": "S3",  "scenario_file": "S3-epic-scope-confined",   "archetype": "monorepo"},
+              {"scenario": "S3",  "scenario_file": "S3-epic-scope-confined",   "archetype": "npm-lib"},
+              {"scenario": "S3",  "scenario_file": "S3-epic-scope-confined",   "archetype": "rust-crate"},
+              {"scenario": "S4",  "scenario_file": "S4-gate-runners-execute",  "archetype": "monorepo"},
+              {"scenario": "S4",  "scenario_file": "S4-gate-runners-execute",  "archetype": "npm-lib"},
+              {"scenario": "S4",  "scenario_file": "S4-gate-runners-execute",  "archetype": "rust-crate"},
+              {"scenario": "S5",  "scenario_file": "S5-tag-on-merge-sha",      "archetype": "monorepo"},
+              {"scenario": "S5",  "scenario_file": "S5-tag-on-merge-sha",      "archetype": "npm-lib"},
+              {"scenario": "S5",  "scenario_file": "S5-tag-on-merge-sha",      "archetype": "rust-crate"},
+              {"scenario": "S6",  "scenario_file": "S6-hotfix-bypass",         "archetype": "monorepo"},
+              {"scenario": "S6",  "scenario_file": "S6-hotfix-bypass",         "archetype": "npm-lib"},
+              {"scenario": "S6",  "scenario_file": "S6-hotfix-bypass",         "archetype": "rust-crate"},
+              {"scenario": "S7",  "scenario_file": "S7-resume-after-ci-fail",  "archetype": "monorepo"},
+              {"scenario": "S7",  "scenario_file": "S7-resume-after-ci-fail",  "archetype": "npm-lib"},
+              {"scenario": "S7",  "scenario_file": "S7-resume-after-ci-fail",  "archetype": "rust-crate"},
+              {"scenario": "S8",  "scenario_file": "S8-provenance-populated",  "archetype": "monorepo"},
+              {"scenario": "S8",  "scenario_file": "S8-provenance-populated",  "archetype": "npm-lib"},
+              {"scenario": "S8",  "scenario_file": "S8-provenance-populated",  "archetype": "rust-crate"},
+              {"scenario": "S9",  "scenario_file": "S9-orphan-detect",         "archetype": "monorepo"},
+              {"scenario": "S9",  "scenario_file": "S9-orphan-detect",         "archetype": "npm-lib"},
+              {"scenario": "S9",  "scenario_file": "S9-orphan-detect",         "archetype": "rust-crate"},
+              {"scenario": "S10", "scenario_file": "S10-rollback-clean",       "archetype": "monorepo"},
+              {"scenario": "S10", "scenario_file": "S10-rollback-clean",       "archetype": "npm-lib"},
+              {"scenario": "S10", "scenario_file": "S10-rollback-clean",       "archetype": "rust-crate"},
+              {"scenario": "S11", "scenario_file": "S11-npm-lib-ships",        "archetype": "npm-lib"},
+              {"scenario": "S12", "scenario_file": "S12-rust-crate-ships",     "archetype": "rust-crate"}
+            ]
+          }
+          JSON
+          # Collapse to single-line JSON for the GHA output.
+          echo "matrix=$(jq -c . /tmp/matrix.json)" >> "$GITHUB_OUTPUT"
+
+  scenario:
+    name: ${{ matrix.scenario }} / ${{ matrix.archetype }}
+    needs: matrix-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # fail-fast: false so a single scenario regression does not mask others.
+      fail-fast: false
+      matrix: ${{ fromJson(needs.matrix-gate.outputs.matrix) }}
+    env:
+      # Scenarios that iterate internally over archetypes can use this to skip
+      # to the matrix-pinned archetype (S1 currently iterates internally; this
+      # env var is forward-compatible for scenarios that adopt single-archetype
+      # mode). Scenarios that ignore it simply run their internal loop.
+      CLEO_TEST_ARCHETYPE: ${{ matrix.archetype }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 10
+      - name: Run scenario ${{ matrix.scenario }} for ${{ matrix.archetype }}
+        # The vitest config at packages/cleo/vitest.config.ts already includes
+        # `packages/cleo/test/integration/release-pipeline/**/*.test.ts`. We
+        # invoke vitest directly with the scenario file as a positional path
+        # filter, which restricts the run to that one scenario while keeping
+        # the @cleocode/cleo project's resolver and aliases.
+        run: |
+          pnpm --filter @cleocode/cleo exec vitest run \
+            "packages/cleo/test/integration/release-pipeline/${{ matrix.scenario_file }}.test.ts" \
+            --reporter=verbose \
+            --reporter=junit \
+            --outputFile.junit="./test-results/${{ matrix.scenario }}-${{ matrix.archetype }}.junit.xml"
+        timeout-minutes: 10
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-${{ matrix.scenario }}-${{ matrix.archetype }}
+          path: |
+            ./test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  summarize:
+    name: Matrix summary
+    if: always()
+    needs: scenario
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Summary
+        run: |
+          {
+            echo "## Release Pipeline Matrix"
+            echo ""
+            echo "Outcome: \`${{ needs.scenario.result }}\`"
+            echo ""
+            echo "32 matrix jobs: S1-S10 × {monorepo, npm-lib, rust-crate} (30) + S11 npm-lib + S12 rust-crate."
+            echo ""
+            echo "Source of truth: \`packages/cleo/test/integration/release-pipeline/README.md\` (T9543)."
+          } >> "$GITHUB_STEP_SUMMARY"
