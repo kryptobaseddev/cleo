@@ -5,6 +5,39 @@
  * and private spawn helpers migrated from
  * packages/cleo/src/dispatch/engines/orchestrate-engine.ts.
  *
+ * # T9545 — Spawn hang root cause + timeout supervisor
+ *
+ * **Root cause (file:line evidence):**
+ * The spawn pipeline invokes git/`cp` subprocesses through helpers in
+ * `packages/worktree/src/git.ts:23` (`gitSync`), `:40` (`gitSilent`),
+ * `:57` (`gitAsync`) — none had an `execFileSync` / `execFile` `timeout`
+ * option set. The same gap existed at
+ * `packages/worktree/src/worktree-list.ts:110`,
+ * `packages/worktree/src/compat.ts:195`, and
+ * `packages/worktree/src/copy-on-write.ts:99,104`.
+ *
+ * When `.git/index.lock` contention persists, a wedged `git worktree add`
+ * (called from `worktree-create.ts:193,209,214`) would block
+ * {@link spawnWorktree} forever, silently wedging `orchestrateSpawn`. The
+ * parent CLI exited without surfacing the hang.
+ *
+ * **Fix (T9545):**
+ * 1. Every subprocess call in the spawn pipeline now has an explicit
+ *    `timeout` option (`DEFAULT_GIT_TIMEOUT_MS = 60_000` in
+ *    `packages/worktree/src/git.ts`).
+ * 2. `orchestrateSpawn` runs under an overall {@link AbortController} budget
+ *    (`SPAWN_BUDGET_MS = 60_000`). On budget exhaustion the function returns
+ *    an `E_TIMEOUT` envelope rather than hanging.
+ * 3. Progress logs (`engine:orchestrate`) emit at each major step:
+ *    `validate-readiness`, `provision-worktree`, `compose-prompt`,
+ *    `persist-state` — giving the orchestrator observability.
+ * 4. On timeout the partial worktree is **preserved** (NOT deleted) — the
+ *    `cleo worktree prune` lifecycle handles orphan cleanup so we never lose
+ *    work the agent might have committed before the parent gave up.
+ *
+ * Pattern mirrors {@link runGitWithLockRetry} from
+ * `packages/core/src/release/engine-ops.ts:86-182` (T9501).
+ *
  * @task T1570
  * @task T4478
  * @task T5236
@@ -12,6 +45,7 @@
  * @task T1238
  * @task T1140
  * @task T1253
+ * @task T9545
  */
 
 import type {
@@ -42,6 +76,87 @@ import { provisionIsolatedShell } from '../tools/sdk/isolation.js';
 import { openSignaldockDbForComposer } from './plan.js';
 
 export type { EngineResult };
+
+// ---------------------------------------------------------------------------
+// T9545 — Spawn pipeline timeout supervisor
+// ---------------------------------------------------------------------------
+
+/**
+ * Overall budget for a single {@link orchestrateSpawn} invocation in
+ * milliseconds. Enforced via an {@link AbortController} that races against
+ * the spawn pipeline; on expiry an `E_TIMEOUT` envelope is returned.
+ *
+ * 60s mirrors `DEFAULT_GIT_TIMEOUT_MS` so the wrapper never fires before a
+ * single bounded subprocess would have surfaced its own timeout error.
+ *
+ * @task T9545
+ */
+export const SPAWN_BUDGET_MS = 60_000;
+
+/**
+ * Step name emitted in spawn-pipeline progress logs. Used by the integration
+ * test harness to assert each major step is announced.
+ *
+ * @task T9545
+ */
+export type SpawnPipelineStep =
+  | 'validate-readiness'
+  | 'provision-worktree'
+  | 'compose-prompt'
+  | 'persist-state'
+  | 'budget-exceeded';
+
+/**
+ * Race a promise against an `AbortSignal`. Resolves with the promise's value
+ * when it settles first; rejects with a tagged "E_TIMEOUT" error when the
+ * signal aborts first.
+ *
+ * The original promise is NOT cancelled — Node's stdlib does not propagate
+ * cancellation into in-flight tasks. The supervisor wrapper relies on every
+ * subprocess having its own `timeout` so the underlying child eventually
+ * exits even after the parent has returned.
+ *
+ * @param promise   - The work to race.
+ * @param signal    - Abort signal that fires on budget exhaustion.
+ * @param stepName  - Step name embedded in the timeout error message.
+ * @returns The work's resolved value.
+ * @throws Error tagged `E_TIMEOUT` when `signal.aborted` fires first.
+ * @task T9545
+ */
+async function raceAgainstAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  stepName: SpawnPipelineStep,
+): Promise<T> {
+  if (signal.aborted) {
+    const err = new Error(
+      `E_TIMEOUT: spawn pipeline step '${stepName}' aborted (budget ${SPAWN_BUDGET_MS}ms exceeded)`,
+    );
+    (err as Error & { code?: string }).code = 'E_TIMEOUT';
+    throw err;
+  }
+
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      const err = new Error(
+        `E_TIMEOUT: spawn pipeline step '${stepName}' aborted (budget ${SPAWN_BUDGET_MS}ms exceeded)`,
+      );
+      (err as Error & { code?: string }).code = 'E_TIMEOUT';
+      reject(err);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(e);
+      },
+    );
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Worktree hooks loader — best-effort, never throws
@@ -640,6 +755,13 @@ export async function orchestrateSpawnExecute(
  * the full verdict attached to `error.details.atomicity` so callers can
  * inspect the rejection reason before retrying.
  *
+ * T9545 — every invocation runs under a {@link SPAWN_BUDGET_MS} overall
+ * timeout enforced via an {@link AbortController}. When the budget expires
+ * the function returns an `E_TIMEOUT` envelope without deleting any
+ * partially-provisioned worktree (the lifecycle prune step handles orphan
+ * cleanup). Progress is logged per step via the `engine:orchestrate` logger
+ * so a wedged step is observable in real time.
+ *
  * @param taskId - Task to generate spawn prompt for.
  * @param protocolType - Optional protocol type override.
  * @param projectRoot - Optional project root path.
@@ -648,6 +770,7 @@ export async function orchestrateSpawnExecute(
  * @returns Engine result with spawn prompt data.
  * @task T4478
  * @task T932
+ * @task T9545
  */
 export async function orchestrateSpawn(
   taskId: string,
@@ -660,15 +783,63 @@ export async function orchestrateSpawn(
     return engineError('E_INVALID_INPUT', 'taskId is required');
   }
 
+  // T9545 — overall budget supervisor. Fires once SPAWN_BUDGET_MS elapses;
+  // every async step in the pipeline below is raced against the resulting
+  // AbortSignal so a wedged subprocess cannot block the parent indefinitely.
+  const budgetCtrl = new AbortController();
+  const budgetTimer = setTimeout(() => budgetCtrl.abort(), SPAWN_BUDGET_MS);
+  const spawnLogger = getLogger('engine:orchestrate');
+  const spawnStartedAt = Date.now();
+
+  /** Persist a partial-state breadcrumb on timeout so callers can recover. */
+  const buildTimeoutEnvelope = (
+    step: SpawnPipelineStep,
+    partial: { worktreePath?: string; worktreeBranch?: string },
+  ): EngineResult => {
+    spawnLogger.error(
+      { taskId, step, elapsedMs: Date.now() - spawnStartedAt, partial },
+      `T9545 spawn budget (${SPAWN_BUDGET_MS}ms) exceeded at step '${step}' — preserving partial state`,
+    );
+    return engineError(
+      'E_TIMEOUT',
+      `Spawn pipeline exceeded ${SPAWN_BUDGET_MS}ms budget at step '${step}'`,
+      {
+        details: {
+          taskId,
+          step,
+          budgetMs: SPAWN_BUDGET_MS,
+          elapsedMs: Date.now() - spawnStartedAt,
+          // Partial worktree is intentionally NOT removed — the
+          // `cleo orchestrate worktree.prune` lifecycle handles orphans.
+          partial,
+        },
+        fix: 'Run `cleo orchestrate worktree.prune --taskId <id>` if a stale worktree was left behind, then retry the spawn.',
+      },
+    );
+  };
+
   try {
     const root = projectRoot || resolveProjectRoot();
+    spawnLogger.info(
+      { taskId, tier, noWorktree, budgetMs: SPAWN_BUDGET_MS },
+      'T9545 spawn pipeline started',
+    );
 
-    // Validate readiness first.
+    // Step 1: Validate readiness.
     // T929: a V_NOT_FOUND issue means the task ID doesn't exist in the DB —
     // surface E_NOT_FOUND (exit 4) so callers get a clear, actionable error
     // instead of a generic spawn-validation failure that obscures the root cause.
-    const accessor = await getTaskAccessor(root);
-    const validation = await validateSpawnReadiness(taskId, root, accessor);
+    spawnLogger.info({ taskId, step: 'validate-readiness' }, 'validating spawn readiness');
+    const accessor = await raceAgainstAbort(
+      getTaskAccessor(root),
+      budgetCtrl.signal,
+      'validate-readiness',
+    );
+    const validation = await raceAgainstAbort(
+      validateSpawnReadiness(taskId, root, accessor),
+      budgetCtrl.signal,
+      'validate-readiness',
+    );
     if (!validation.ready) {
       const notFound = validation.issues.some((i) => i.code === 'V_NOT_FOUND');
       if (notFound) {
@@ -760,14 +931,22 @@ export async function orchestrateSpawn(
       // means the spawn prompt's `## Worktree Setup` section would be omitted,
       // causing workers to hallucinate paths. Surface the error as a structured
       // LAFS envelope so callers can react programmatically.
+      //
+      // T9545: the spawnWorktree call is the historical hang site — wrap it
+      // in the budget supervisor so a wedged git child cannot block forever.
+      spawnLogger.info({ taskId, step: 'provision-worktree' }, 'provisioning worktree');
       try {
         // T9226 — spawn-clone-exclude: exclude heavyweight artefacts to keep
         // the worktree lean (T9337 removed per-task verifier exclusions).
         const { SPAWN_CLONE_EXCLUDE_PATTERNS } = await import('../orchestration/spawn-prompt.js');
-        sdkWorktreeResult = await spawnWorktree(root, {
-          taskId,
-          spawnCloneExclude: SPAWN_CLONE_EXCLUDE_PATTERNS,
-        });
+        sdkWorktreeResult = await raceAgainstAbort(
+          spawnWorktree(root, {
+            taskId,
+            spawnCloneExclude: SPAWN_CLONE_EXCLUDE_PATTERNS,
+          }),
+          budgetCtrl.signal,
+          'provision-worktree',
+        );
         worktreePath = sdkWorktreeResult.path;
         worktreeBranch = sdkWorktreeResult.branch;
         const extResult =
@@ -801,15 +980,23 @@ export async function orchestrateSpawn(
     //
     // T1253: conduitSubscription derived above from task.parentId is threaded
     // through so the `## CONDUIT Subscription` section appears on tier-1+ prompts.
-    const payload = await composeSpawnForTask(taskId, root, {
-      tier,
-      sessionId: activeSessionId,
-      protocol: protocolType,
-      worktreePath,
-      worktreeBranch,
-      conduitSubscription,
-      spawnCloneExclude: appliedWorktreeExcludePatterns,
-    });
+    //
+    // T9545: bounded by the overall spawn budget — a stalled DB or composer
+    // step now surfaces as E_TIMEOUT instead of wedging the parent.
+    spawnLogger.info({ taskId, step: 'compose-prompt' }, 'generating spawn prompt');
+    const payload = await raceAgainstAbort(
+      composeSpawnForTask(taskId, root, {
+        tier,
+        sessionId: activeSessionId,
+        protocol: protocolType,
+        worktreePath,
+        worktreeBranch,
+        conduitSubscription,
+        spawnCloneExclude: appliedWorktreeExcludePatterns,
+      }),
+      budgetCtrl.signal,
+      'compose-prompt',
+    );
 
     // Surface atomicity violations as a first-class error envelope so callers
     // can react programmatically. The full verdict is attached to
@@ -855,6 +1042,13 @@ export async function orchestrateSpawn(
           }
         : null;
 
+    // T9545 — last major step before return: persist-state. The envelope
+    // returned here is what callers consume to dispatch the agent.
+    spawnLogger.info(
+      { taskId, step: 'persist-state', elapsedMs: Date.now() - spawnStartedAt },
+      'persisting spawn envelope',
+    );
+
     // Return shape: `prompt` at the top level is the primary payload every
     // caller should consume. `atomicity` + `meta` surface the T932 composer
     // guarantees. `spawnContext` mirrors the prompt for legacy readers.
@@ -886,6 +1080,21 @@ export async function orchestrateSpawn(
     };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
+    // T9545 — when our budget supervisor aborts a step, the helper throws
+    // an Error with `code === 'E_TIMEOUT'`. Surface a structured envelope
+    // that preserves partial state (worktree path NOT removed) so callers
+    // can decide whether to prune-and-retry or resume from the leftover.
+    if (code === 'E_TIMEOUT') {
+      // Best-effort: extract the step name from the message so the envelope
+      // tells the caller exactly which step blew the budget.
+      const message = (err as Error).message;
+      const stepMatch = /step '([^']+)'/.exec(message);
+      const step = (stepMatch?.[1] ?? 'budget-exceeded') as SpawnPipelineStep;
+      return buildTimeoutEnvelope(step, {});
+    }
     return engineError(code, (err as Error).message);
+  } finally {
+    // T9545 — always release the budget timer so the Node event loop can exit.
+    clearTimeout(budgetTimer);
   }
 }
