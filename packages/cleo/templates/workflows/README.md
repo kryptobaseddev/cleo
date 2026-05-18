@@ -14,7 +14,7 @@ local `.cleo/project-context.json` and the ADR-061 tool resolver.
 | `release-prepare.yml.tmpl`        | §5.1         | Cut release branch, bump version, open bump-PR.        |
 | `release-publish.yml.tmpl`        | §5.2         | Publish + tag once the bump-PR is merged.              |
 | `release-fanout.yml.tmpl`         | §5.3         | Best-effort post-publish fanout (docs, docker, etc.).  |
-| `release-rollback.yml.tmpl`       | §5.4 *(T9535, future)* | Rollback workflow (revert PR + npm deprecate). |
+| `release-rollback.yml.tmpl`       | §5.4         | Rollback workflow (revert PR + npm deprecate + reconcile). |
 
 ## Template contract
 
@@ -57,6 +57,8 @@ placeholders for a given template are silently ignored by the scaffolder.
 | `{{DOCKER_HUB_USER}}` | `release.fanout.dockerHubUser` in `.cleo/config.json`  | *(none — required if `dockerRetag=true`)* | `cleocode`                     |
 | `{{SENTINEL_WEBHOOK_URL}}` | `release.fanout.sentinelWebhookUrl` in `.cleo/config.json` | *(none — required if `sentinelNotify=true`)* | `https://sentinel.example.com/hooks/release` |
 | `{{STUDIO_DEPLOY_HOOK}}` | `release.fanout.studioDeployHook` in `.cleo/config.json` | *(none — required if `studioDeploy=true`)*   | `https://studio.example.com/deploy`        |
+| `{{NPM_PACKAGES}}`    | `release.rollback.npmPackages` in `.cleo/config.json`  | *(none — required if `PUBLISHERS` contains `npm`)*   | `@cleocode/cleo @cleocode/core`            |
+| `{{CARGO_CRATES}}`    | `release.rollback.cargoCrates` in `.cleo/config.json`  | *(none — required if `PUBLISHERS` contains `cargo`)* | `cleo-core cleo-cli`                       |
 
 Source precedence (highest first):
 
@@ -83,6 +85,7 @@ Source precedence (highest first):
 | `release-prepare.yml.tmpl`   | `GITHUB_TOKEN` (auto)   | *(none)* — MUST NOT require `NPM_TOKEN` (R-210)   |
 | `release-publish.yml.tmpl`   | `GITHUB_TOKEN`, `NPM_TOKEN`, `ANTHROPIC_API_KEY` | `CARGO_TOKEN`, `PYPI_TOKEN`, `DOCKER_HUB_TOKEN` |
 | `release-fanout.yml.tmpl`    | `GITHUB_TOKEN` (auto)   | `DOCKER_HUB_TOKEN` (if `dockerRetag=true`), `SENTINEL_TOKEN` (if `sentinelNotify=true`), `STUDIO_DEPLOY_TOKEN` (if `studioDeploy=true`) |
+| `release-rollback.yml.tmpl`  | `GITHUB_TOKEN` (auto), `NPM_TOKEN` (if `PUBLISHERS` contains `npm`) | `CARGO_TOKEN` (if `PUBLISHERS` contains `cargo`) |
 
 ## Scaffolding workflow
 
@@ -130,8 +133,8 @@ declared permissions.
 - SPEC: `.cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md`
   - §5.1 → `release-prepare.yml.tmpl` *(T9532, landed)*
   - §5.2 → `release-publish.yml.tmpl` *(T9533, landed)*
-  - §5.3 → `release-fanout.yml.tmpl` *(T9534, current)*
-  - §5.4 → `release-rollback.yml.tmpl` *(T9535)*
+  - §5.3 → `release-fanout.yml.tmpl` *(T9534, landed)*
+  - §5.4 → `release-rollback.yml.tmpl` *(T9535, current)*
 - ADR-061 (tool resolver): governs `tool:*` placeholder resolution.
 - ADR-073 (release pipeline v2): umbrella architectural decision.
 - T9531: `cleo init --workflows` scaffold command (consumes these templates).
@@ -139,7 +142,16 @@ declared permissions.
 - T9533: `release-publish.yml.tmpl` + README placeholders + snapshot test
   (eliminates F6 tag-on-pre-merge-SHA race by construction).
 - T9534: `release-fanout.yml.tmpl` + 11 fanout placeholders + snapshot test
-  (current task — five independent best-effort jobs gated on env toggles,
-  every job carries `continue-on-error: true` so fanout failures cannot
-  mark the release as failed; fanout jobs MUST NOT be required status
-  checks per R-244).
+  (five independent best-effort jobs gated on env toggles, every job
+  carries `continue-on-error: true` so fanout failures cannot mark the
+  release as failed; fanout jobs MUST NOT be required status checks per
+  R-244).
+- T9535: `release-rollback.yml.tmpl` + rollback placeholders (`NPM_PACKAGES`,
+  `CARGO_CRATES`) + snapshot test (current task — `workflow_dispatch`-only
+  rollback with 4 jobs `validate` → `revert` → `deprecate` →
+  `reconcile-rollback`. The `revert` job opens a revert PR against `main`
+  via `gh pr create --label rollback` — NEVER pushes directly to `main`
+  per ADR-065. The `deprecate` job is best-effort
+  (`continue-on-error: true`); reconcile runs whenever validate succeeded
+  so the provenance graph records the operator's intent even if a
+  downstream side-effect failed).
