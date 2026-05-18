@@ -623,12 +623,14 @@ export {
   orchestrateWaves,
 } from './orchestrate/query-ops.js';
 // Orchestrate spawn ops (T1570 Wave 3 — migrated from orchestrate-engine.ts)
-export type { ConduitOrchestrationEvent } from './orchestrate/spawn-ops.js';
+export type { ConduitOrchestrationEvent, SpawnPipelineStep } from './orchestrate/spawn-ops.js';
 export {
   composeSpawnForTask,
   orchestrateSpawn,
   orchestrateSpawnExecute,
   orchestrateSpawnSelectProvider,
+  // T9545 — overall spawn budget exposed for diagnostics + integration tests.
+  SPAWN_BUDGET_MS,
   sendConduitEvent,
 } from './orchestrate/spawn-ops.js';
 // Context
@@ -721,6 +723,9 @@ export {
   releaseStart,
   releaseVerify,
 } from './release/pipeline.js';
+// T9525: SPEC-T9345 release pipeline v2 verbs — exposed via internal for dispatch layer
+export type { ReleasePlanOptions, ReleasePlanResult } from './release/plan.js';
+export { releasePlan } from './release/plan.js';
 // T9526: new release reconcile v2 (provenance-graph aware) — exported alongside legacy
 export { releaseReconcileV2 } from './release/reconcile.js';
 export type { ProjectReleaseConfig, ReleaseConfig, ReleaseGate } from './release/release-config.js';

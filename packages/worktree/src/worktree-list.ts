@@ -16,6 +16,7 @@ import {
   getCleoWorktreesRoot,
   resolveWorktreeRootForHash,
 } from '@cleocode/paths';
+import { DEFAULT_GIT_TIMEOUT_MS } from './git.js';
 
 /**
  * Resolve the worktree root directory for a given project hash.
@@ -107,9 +108,12 @@ export function listWorktreesByProjectRoot(projectRoot: string): WorktreeListEnt
  */
 function resolveWorktreeBranch(worktreePath: string): string | null {
   try {
+    // T9545 — bound git rev-parse with a default timeout so a wedged child
+    // can never block worktree enumeration in the spawn pipeline.
     return execFileSync('git', ['-C', worktreePath, 'rev-parse', '--abbrev-ref', 'HEAD'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: DEFAULT_GIT_TIMEOUT_MS,
     }).trim();
   } catch {
     return null;

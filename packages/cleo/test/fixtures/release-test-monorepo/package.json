@@ -1,0 +1,11 @@
+{
+  "name": "release-test-monorepo",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "lint": "echo lint-ok",
+    "typecheck": "echo typecheck-ok"
+  }
+}

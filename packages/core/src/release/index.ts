@@ -120,6 +120,9 @@ export {
   releaseStart,
   releaseVerify,
 } from './pipeline.js';
+// SPEC-T9345 release pipeline v2 verbs (T9492)
+export type { ReleasePlanOptions, ReleasePlanResult } from './plan.js';
+export { releasePlan } from './plan.js';
 // T9526 — v2 release reconcile verb (Phase 1 of T9492)
 // Named V2 to coexist with the legacy 4-step pipeline `releaseReconcile`.
 export type { ReleaseReconcileV2Options, ReleaseReconcileV2Result } from './reconcile.js';
