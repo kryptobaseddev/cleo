@@ -41,7 +41,7 @@ import {
   releaseIvtrAutoSuggest,
   releasePlan,
   releasePublish,
-  releaseReconcile,
+  releaseReconcileV2,
   releaseStart,
   releaseVerify,
 } from '../lib/engine.js';
@@ -342,17 +342,24 @@ export class ReleaseHandler implements DomainHandler {
           return wrapResult(await releasePlan(typed), 'mutate', 'release', operation, startTime);
         }
 
-        // release.reconcile — Step 4 of 4 (T1597 / ADR-063)
+        // release.reconcile — v2 reconcile verb (T9526 / SPEC-T9345 §4.4)
         case 'reconcile': {
-          const handle = loadActiveReleaseHandle(getProjectRoot());
-          const result = await releaseReconcile(handle, {
-            dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version)
+            return errorResult(
+              'mutate',
+              'release',
+              operation,
+              'E_INVALID_INPUT',
+              'version is required',
+              startTime,
+            );
+          const result = await releaseReconcileV2(version, {
+            projectRoot: getProjectRoot(),
+            fromWorkflow: typeof params?.fromWorkflow === 'boolean' ? params.fromWorkflow : false,
+            rollback: typeof params?.rollback === 'boolean' ? params.rollback : false,
           });
-          return {
-            success: true,
-            data: result,
-            meta: dispatchMeta('mutate', 'release', operation, startTime),
-          };
+          return wrapResult(result, 'mutate', 'release', operation, startTime);
         }
 
         default:

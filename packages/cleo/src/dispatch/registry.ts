@@ -7119,23 +7119,35 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
 
-  // release mutate: reconcile (T1597 / ADR-063 canonical step 4)
+  // release mutate: reconcile (T9526 / SPEC-T9345 §4.4 — v2 reconcile verb)
   {
     gateway: 'mutate',
     domain: 'release',
     operation: 'reconcile',
     description:
-      'release.reconcile (mutate) — Step 4 of 4: run post-release invariants, auto-complete tasks for the active release (T1597 / ADR-063)',
+      'release.reconcile (mutate) — v2 reconcile verb: backfill the 11 provenance tables from git log + gh api. Single SQLite TX, UPSERT-everywhere, idempotent (T9526 / SPEC-T9345 §4.4).',
     tier: 1,
-    idempotent: false,
+    idempotent: true,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['version'],
     params: [
       {
-        name: 'dryRun',
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Version string whose tag has landed on main (e.g. v2026.6.0)',
+      },
+      {
+        name: 'fromWorkflow',
         type: 'boolean',
         required: false,
-        description: 'Preview without mutations',
+        description: 'Indicates invocation from release-publish.yml (affects logging only)',
+      },
+      {
+        name: 'rollback',
+        type: 'boolean',
+        required: false,
+        description: 'Reconcile a rollback rather than a publish (deferred to T9528)',
       },
     ] satisfies ParamDef[],
   },
