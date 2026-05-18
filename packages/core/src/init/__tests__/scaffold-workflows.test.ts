@@ -142,6 +142,7 @@ describe('scaffoldWorkflows (T9531)', () => {
     const result = await scaffoldWorkflows({
       projectRoot,
       templatesDir,
+      templates: ['release-prepare'],
       dryRun: true,
     });
 
@@ -174,6 +175,7 @@ describe('scaffoldWorkflows (T9531)', () => {
     const result = await scaffoldWorkflows({
       projectRoot,
       templatesDir,
+      templates: ['release-prepare'],
       dryRun: true,
     });
 
@@ -200,6 +202,7 @@ describe('scaffoldWorkflows (T9531)', () => {
     const result = await scaffoldWorkflows({
       projectRoot,
       templatesDir,
+      templates: ['release-prepare'],
       dryRun: true,
     });
 
@@ -217,7 +220,11 @@ describe('scaffoldWorkflows (T9531)', () => {
   it('creates .github/workflows/release-prepare.yml on first run', async () => {
     const { projectRoot, templatesDir } = await makeFixture();
 
-    const result = await scaffoldWorkflows({ projectRoot, templatesDir });
+    const result = await scaffoldWorkflows({
+      projectRoot,
+      templatesDir,
+      templates: ['release-prepare'],
+    });
 
     expect(result.outcomes).toHaveLength(1);
     expect(result.outcomes[0]?.status).toBe('created');
@@ -232,10 +239,18 @@ describe('scaffoldWorkflows (T9531)', () => {
   it('is idempotent: re-running with the same config returns unchanged', async () => {
     const { projectRoot, templatesDir } = await makeFixture();
 
-    const first = await scaffoldWorkflows({ projectRoot, templatesDir });
+    const first = await scaffoldWorkflows({
+      projectRoot,
+      templatesDir,
+      templates: ['release-prepare'],
+    });
     expect(first.outcomes[0]?.status).toBe('created');
 
-    const second = await scaffoldWorkflows({ projectRoot, templatesDir });
+    const second = await scaffoldWorkflows({
+      projectRoot,
+      templatesDir,
+      templates: ['release-prepare'],
+    });
     expect(second.outcomes[0]?.status).toBe('unchanged');
   });
 
@@ -249,7 +264,11 @@ describe('scaffoldWorkflows (T9531)', () => {
     const targetPath = join(projectRoot, '.github', 'workflows', 'release-prepare.yml');
     await writeFile(targetPath, 'name: stale handcrafted yaml\n', 'utf-8');
 
-    const result = await scaffoldWorkflows({ projectRoot, templatesDir });
+    const result = await scaffoldWorkflows({
+      projectRoot,
+      templatesDir,
+      templates: ['release-prepare'],
+    });
     expect(result.outcomes[0]?.status).toBe('skipped');
 
     // The drifted file must NOT have been overwritten.
@@ -267,6 +286,7 @@ describe('scaffoldWorkflows (T9531)', () => {
     const result = await scaffoldWorkflows({
       projectRoot,
       templatesDir,
+      templates: ['release-prepare'],
       force: true,
     });
     expect(result.outcomes[0]?.status).toBe('updated');
@@ -294,6 +314,7 @@ describe('scaffoldWorkflows (T9531)', () => {
     const result = await scaffoldWorkflows({
       projectRoot,
       templatesDir,
+      templates: ['release-prepare'],
       dryRun: true,
     });
     expect(result.outcomes[0]?.status).toBe('dry-run');
@@ -311,6 +332,7 @@ describe('scaffoldWorkflows (T9531)', () => {
     const result = await scaffoldWorkflows({
       projectRoot,
       templatesDir,
+      templates: ['release-prepare'],
       dryRun: true,
       releaseConfigOverride: {
         nodeVersion: '21.x',

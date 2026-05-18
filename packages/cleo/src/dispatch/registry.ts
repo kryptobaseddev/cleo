@@ -7484,6 +7484,64 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+
+  // ---------------------------------------------------------------------------
+  // Upgrade domain — `cleo upgrade workflows` (T9536 · Phase 4 of T9497)
+  // ---------------------------------------------------------------------------
+
+  // upgrade query: workflows — read-only drift detection.
+  {
+    gateway: 'query',
+    domain: 'upgrade',
+    operation: 'workflows',
+    description:
+      'upgrade.workflows (query) — re-render the four release-pipeline workflow templates and report drift against .github/workflows/release-*.yml. Read-only (forces dryRun). Honours .workflow-overrides.yml for operator-declared customizations (T9536).',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'includeRendered',
+        type: 'boolean',
+        required: false,
+        description: 'Include the freshly rendered YAML in the response (for diff display)',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // upgrade mutate: workflows — re-render + optional re-write with --force.
+  {
+    gateway: 'mutate',
+    domain: 'upgrade',
+    operation: 'workflows',
+    description:
+      'upgrade.workflows (mutate) — re-render the four release-pipeline workflow templates; with force=true, overwrite drifted files and audit-log to .cleo/audit/upgrade-workflows.jsonl. .workflow-overrides.yml entries are preserved (operator-declared customization). hasDrift flag in the response drives the --check exit-code contract (T9536).',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'force',
+        type: 'boolean',
+        required: false,
+        description: 'Overwrite drifted files (excluding .workflow-overrides.yml keys)',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Print the per-template diff without writing',
+      },
+      {
+        name: 'includeRendered',
+        type: 'boolean',
+        required: false,
+        description: 'Include the freshly rendered YAML in the response (for diff display)',
+      },
+    ] satisfies ParamDef[],
+  },
 ];
 
 // ---------------------------------------------------------------------------

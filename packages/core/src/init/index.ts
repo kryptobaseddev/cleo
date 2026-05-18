@@ -26,6 +26,16 @@ export type {
   WorkflowName,
 } from './scaffold-workflows.js';
 export {
+  DEFAULT_WORKFLOW_TEMPLATES,
   listAvailableWorkflowTemplates,
   scaffoldWorkflows,
 } from './scaffold-workflows.js';
+// T9536 — workflow upgrade (`cleo upgrade workflows`).
+export type {
+  UpgradeWorkflowOutcome,
+  UpgradeWorkflowStatus,
+  UpgradeWorkflowsOptions,
+  UpgradeWorkflowsResult,
+  WorkflowOverrides,
+} from './upgrade-workflows.js';
+export { parseOverridesYamlBody, upgradeWorkflows } from './upgrade-workflows.js';

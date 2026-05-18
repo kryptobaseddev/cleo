@@ -76,6 +76,9 @@ export const CANONICAL_DOMAINS = [
   'llm',
   // T9528: provenance-graph maintenance verbs (backfill, verify, repair).
   'provenance',
+  // T9536: `cleo upgrade workflows` — re-render release-pipeline workflow
+  // templates + 3-way merge with `.workflow-overrides.yml`.
+  'upgrade',
 ] as const;
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];

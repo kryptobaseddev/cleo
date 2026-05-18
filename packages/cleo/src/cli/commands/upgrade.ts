@@ -15,6 +15,12 @@
  *   - Global `{cleoHome}` data checks (via --include-global)
  *   - Deep diagnostics via --diagnose
  *
+ * Subcommands:
+ *   - `cleo upgrade workflows` (T9536) — re-render the four shipped
+ *     `release-*.yml` workflow templates and report drift against the
+ *     project's `.github/workflows/` directory. Supports `--dry-run`,
+ *     `--check` (exit-code contract), and `--force` (overwrite drift).
+ *
  * Global output flags (--json, --human, --quiet) are declared in args so
  * citty parses them directly. This replaces the Commander.js optsWithGlobals()
  * pattern that is unavailable in native citty commands.
@@ -22,13 +28,115 @@
  * @task T4699
  * @task T5243
  * @task T131
+ * @task T9536 — `workflows` subcommand
  * @epic T4454
  */
 
-import { CleoError, diagnoseUpgrade, runUpgrade } from '@cleocode/core/internal';
+import { resolve } from 'node:path';
+import { CleoError, diagnoseUpgrade, runUpgrade, upgradeWorkflows } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
 import { createUpgradeProgress } from '../progress.js';
 import { cliError, cliOutput } from '../renderers/index.js';
+import { getWorkflowTemplatesDir } from './init.js';
+
+/**
+ * `cleo upgrade workflows` — Phase 4 / 4 of T9497.
+ *
+ * Re-renders the four shipped `*.yml.tmpl` workflow templates against
+ * the project's current `.cleo/release-config.json` + ADR-061 tool
+ * state, compares against the on-disk `.github/workflows/release-*.yml`
+ * files, and reports per-template drift.
+ *
+ * Flags:
+ *   - `--dry-run`  Print the per-template diff/status without writing.
+ *   - `--check`    Exit 0 if every file is current (`unchanged` or
+ *                  `override-kept`); exit 1 if ANY drift is detected.
+ *                  Implies `--dry-run` semantics for the on-disk state.
+ *   - `--force`    Overwrite drifted files with the rendered output.
+ *                  Files with a key in `.workflow-overrides.yml` are
+ *                  STILL preserved (operator-declared customization).
+ *                  Audit row lands in `.cleo/audit/upgrade-workflows.jsonl`.
+ *
+ * Exit codes:
+ *   - 0   every outcome was `unchanged` / `override-kept` / `updated` /
+ *         `dry-run` (i.e. no actionable drift remains).
+ *   - 1   at least one outcome reports `drift-detected` or `missing`
+ *         and `--force` was NOT supplied.
+ *
+ * @task T9536
+ */
+const workflowsSubcommand = defineCommand({
+  meta: {
+    name: 'workflows',
+    description: 'Re-render the four release-pipeline workflow templates and report drift (T9536).',
+  },
+  args: {
+    'dry-run': {
+      type: 'boolean',
+      description: 'Print the per-template diff without writing.',
+      default: false,
+    },
+    check: {
+      type: 'boolean',
+      description: 'Exit 1 if drift is detected. Implies --dry-run for write semantics.',
+      default: false,
+    },
+    force: {
+      type: 'boolean',
+      description: 'Overwrite drifted files (excluding `.workflow-overrides.yml` keys).',
+      default: false,
+    },
+    json: { type: 'boolean', description: 'Output as JSON' },
+    human: { type: 'boolean', description: 'Force human-readable output' },
+    quiet: { type: 'boolean', description: 'Suppress non-essential output' },
+  },
+  async run({ args }) {
+    try {
+      const dryRun = args['dry-run'] === true || args.check === true;
+      const force = args.force === true && !dryRun;
+
+      const result = await upgradeWorkflows({
+        projectRoot: resolve(process.cwd()),
+        templatesDir: getWorkflowTemplatesDir(),
+        dryRun,
+        force,
+      });
+
+      cliOutput(
+        {
+          outcomes: result.outcomes.map((o) => ({
+            template: o.template,
+            targetPath: o.targetPath,
+            status: o.status,
+            overrideDeclared: o.overrideDeclared,
+          })),
+          resolvedTools: result.resolvedTools,
+          hasDrift: result.hasDrift,
+          ...(dryRun
+            ? {
+                rendered: result.outcomes.map((o) => ({
+                  template: o.template,
+                  rendered: o.rendered,
+                })),
+              }
+            : {}),
+        },
+        { command: 'upgrade', operation: 'upgrade.workflows' },
+      );
+
+      // --check contract: exit 1 when drift remains.
+      if (args.check === true && result.hasDrift) {
+        process.exit(1);
+      }
+    } catch (err) {
+      if (err instanceof CleoError) {
+        cliError(err.message, err.code, { name: 'CleoError', fix: err.fix });
+        process.exit(err.code);
+      }
+      throw err;
+    }
+  },
+});
 
 /**
  * Upgrade command — unified project maintenance (storage migration, schema repair, structural fixes).
@@ -38,6 +146,9 @@ export const upgradeCommand = defineCommand({
     name: 'upgrade',
     description:
       'Unified project maintenance (storage migration, schema repair, structural fixes, doc refresh)',
+  },
+  subCommands: {
+    workflows: workflowsSubcommand,
   },
   args: {
     status: {
@@ -86,7 +197,13 @@ export const upgradeCommand = defineCommand({
       description: 'Suppress non-essential output',
     },
   },
-  async run({ args }) {
+  async run({ args, cmd, rawArgs }) {
+    // Citty subcommand routing: if the first positional argument matches a
+    // declared subcommand (e.g. `workflows`), let citty dispatch to the
+    // subcommand handler instead of running the legacy maintenance flow.
+    const firstPositional = rawArgs?.find((a: string) => !a.startsWith('-'));
+    if (firstPositional && cmd.subCommands && firstPositional in cmd.subCommands) return;
+
     const isHuman = args.human === true || (!!process.stdout.isTTY && args.json !== true);
     const progress = createUpgradeProgress(isHuman);
 
