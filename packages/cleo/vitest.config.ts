@@ -27,6 +27,9 @@ export default defineConfig({
       'packages/cleo/src/**/*.test.ts',
       'packages/cleo/src/**/__tests__/*.test.ts',
       'packages/cleo/tests/**/*.test.ts',
+      // T9532: template snapshot tests live under packages/cleo/test/templates
+      // (singular `test/`, matching the existing fixtures dir convention).
+      'packages/cleo/test/templates/**/*.test.ts',
     ],
     exclude: [
       'node_modules',
