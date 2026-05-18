@@ -513,6 +513,21 @@ vi.mock('@cleocode/core', async () => {
       releaseVerify: vi.fn().mockResolvedValue({ passed: true, gates: [], ungreenChildren: [] }),
       releasePublish: vi.fn().mockResolvedValue({ success: true }),
       releaseReconcile: vi.fn().mockResolvedValue({ success: true, completedTasks: [] }),
+      // T9526: v2 reconcile verb — ReleaseHandler.mutate('reconcile') now routes to v2
+      releaseReconcileV2: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          version: 'v2026.5.0',
+          tag: 'v2026.5.0',
+          tagSha: 'a'.repeat(40),
+          commitCount: 0,
+          taskCount: 0,
+          changeCount: 0,
+          artifactCount: 0,
+          brainLinkCount: 0,
+          orphanCommits: [],
+        },
+      }),
       loadActiveReleaseHandle: vi.fn().mockReturnValue({ version: '2026.5.0', tag: 'v2026.5.0' }),
     },
   };

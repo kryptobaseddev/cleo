@@ -120,6 +120,10 @@ export {
   releaseStart,
   releaseVerify,
 } from './pipeline.js';
+// T9526 — v2 release reconcile verb (Phase 1 of T9492)
+// Named V2 to coexist with the legacy 4-step pipeline `releaseReconcile`.
+export type { ReleaseReconcileV2Options, ReleaseReconcileV2Result } from './reconcile.js';
+export { releaseReconcileV2 } from './reconcile.js';
 // Release configuration
 export type {
   ChannelConfig,

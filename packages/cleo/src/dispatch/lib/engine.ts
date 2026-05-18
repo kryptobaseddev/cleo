@@ -184,6 +184,7 @@ export {
   releasePublish,
   releasePush,
   releaseReconcile,
+  releaseReconcileV2,
   releaseRollback,
   releaseRollbackFull,
   releaseShip,
