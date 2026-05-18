@@ -1,6 +1,6 @@
 # Changelog
 
-## [unreleased]
+## [2026.5.78] (2026-05-17) — E-CONFIG-AUTH-UNIFY
 
 ### Added
 
