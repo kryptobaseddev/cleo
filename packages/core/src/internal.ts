@@ -1465,6 +1465,8 @@ export { getOtelStatus } from './otel/index.js';
 export { completePhase } from './phases/index.js';
 // Release engine operations (T1572 — ENG-MIG-5: migrated from dispatch layer)
 export {
+  IVTR_DECOUPLED_AUDIT_FILE,
+  IVTR_DECOUPLED_SENTINEL_FILE,
   releaseCancel,
   releaseChangelog,
   releaseChangelogSince,
@@ -1481,6 +1483,7 @@ export {
   releaseShip,
   releaseShow,
   releaseTag,
+  writeIvtrDecouplingAuditOnce,
 } from './release/engine-ops.js';
 // Release (additional)
 export { tagRelease } from './release/release-manifest.js';

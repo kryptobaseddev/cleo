@@ -61,6 +61,8 @@ export {
 // Engine operations — CLI-callable release operations migrated from dispatch layer (T1572)
 export type { PRCheckStatus, PRStatusResult } from './engine-ops.js';
 export {
+  IVTR_DECOUPLED_AUDIT_FILE,
+  IVTR_DECOUPLED_SENTINEL_FILE,
   releaseCancel,
   releaseChangelog,
   releaseChangelogSince,
@@ -77,6 +79,7 @@ export {
   releaseShip,
   releaseShow,
   releaseTag,
+  writeIvtrDecouplingAuditOnce,
 } from './engine-ops.js';
 // GitHub PR management
 export type {
