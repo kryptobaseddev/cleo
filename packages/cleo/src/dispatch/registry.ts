@@ -6693,9 +6693,9 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'orchestrate',
     operation: 'worktree.complete',
     description:
-      'orchestrate.worktree.complete (mutate) — merge (--no-ff) a task worktree branch into the project default branch (preserves agent commit SHAs per ADR-062) and clean up the worktree',
+      'orchestrate.worktree.complete (mutate) — merge (--no-ff) a task worktree branch into the project default branch (preserves agent commit SHAs per ADR-062) and clean up the worktree. T9548: idempotent (re-run on completed worktree = no-op).',
     tier: 2,
-    idempotent: false,
+    idempotent: true,
     sessionRequired: false,
     requiredParams: ['taskId'],
     params: [
@@ -6704,6 +6704,13 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string' as const,
         required: true,
         description: 'Task ID whose worktree should be merged and cleaned up',
+      },
+      {
+        name: 'resolve',
+        type: 'string' as const,
+        required: false,
+        description:
+          'T9548 conflict-recovery mode: "auto" (default — attempt git merge --no-ff) or "manual" (skip merge, mark worktree as manually-handled in audit log)',
       },
     ],
   },

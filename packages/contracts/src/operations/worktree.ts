@@ -448,10 +448,24 @@ export interface ListWorktreesResult {
  * - `prune` — orphaned/merged worktree was removed.
  * - `prune-skip` — orphan was detected but skipped (user said N, or had uncommitted changes).
  * - `force-unlock` — git index.lock removed + `git worktree unlock` ran.
+ * - `complete` — worktree was merged (`--no-ff`) into the default branch and pruned (T9548).
+ * - `complete-skip` — idempotent no-op (worktree already integrated or branch absent) (T9548).
+ * - `complete-manual` — operator marked the worktree as manually-handled via
+ *                       `--resolve manual`; no automatic merge attempted (T9548).
+ * - `complete-conflict` — auto-merge attempted but failed (e.g. rebase/merge conflict);
+ *                          worktree was preserved for manual resolution (T9548).
  *
  * @task T9547
+ * @task T9548
  */
-export type WorktreeLifecycleAction = 'prune' | 'prune-skip' | 'force-unlock';
+export type WorktreeLifecycleAction =
+  | 'prune'
+  | 'prune-skip'
+  | 'force-unlock'
+  | 'complete'
+  | 'complete-skip'
+  | 'complete-manual'
+  | 'complete-conflict';
 
 /**
  * One append-only entry written to `.cleo/audit/worktree-lifecycle.jsonl` by
