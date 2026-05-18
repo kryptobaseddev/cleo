@@ -7042,6 +7042,46 @@ export const OPERATIONS: OperationDef[] = [
   // `release.reconcile`, plus `cleo verify <task> --gate X --evidence …`
   // for per-task gate verification (R-422 / ADR-051).
 
+  // release mutate: plan (T9525 / SPEC-T9345 §4.2 — Phase 1 plan verb)
+  {
+    gateway: 'mutate',
+    domain: 'release',
+    operation: 'plan',
+    description:
+      'release.plan (mutate) — build canonical Release Plan envelope, write .cleo/release/<version>.plan.json, INSERT/UPDATE releases row status=planned (T9525 / SPEC-T9345 §4.2).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['version', 'epicId'],
+    params: [
+      { name: 'version', type: 'string', required: true, description: 'Candidate version (e.g. v2026.5.80)' },
+      { name: 'epicId', type: 'string', required: true, description: 'Epic task ID whose children scope the release (R-303)' },
+      { name: 'scheme', type: 'string', required: false, description: 'Versioning scheme: calver | semver | calver-suffix' },
+      { name: 'channel', type: 'string', required: false, description: 'Release channel: latest | beta | alpha | rc' },
+      { name: 'hotfix', type: 'boolean', required: false, description: 'Mark plan as release_kind=hotfix' },
+      { name: 'dryRun', type: 'boolean', required: false, description: 'Compute the plan without writing file or DB row' },
+    ] satisfies ParamDef[],
+  },
+
+  // release mutate: open (T9530 / SPEC-T9345 §4.3 — Phase 3 open verb)
+  {
+    gateway: 'mutate',
+    domain: 'release',
+    operation: 'open',
+    description:
+      'release.open (mutate) — dispatch release-prepare.yml via gh workflow run, UPDATE releases.status to pr-opened (T9530 / SPEC-T9345 §4.3).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['version'],
+    params: [
+      { name: 'version', type: 'string', required: true, description: 'Release version whose plan file lives at .cleo/release/<version>.plan.json' },
+      { name: 'workflow', type: 'string', required: false, description: 'Workflow file name (default: release-prepare.yml)' },
+      { name: 'watch', type: 'boolean', required: false, description: 'Poll gh run watch until terminal state' },
+      { name: 'commitPlan', type: 'boolean', required: false, description: 'Commit plan file before dispatching' },
+    ] satisfies ParamDef[],
+  },
+
   // release mutate: reconcile (T9526 / SPEC-T9345 §4.4 — v2 reconcile verb)
   {
     gateway: 'mutate',
@@ -7456,6 +7496,54 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description: 'Include the freshly rendered YAML in the response (for diff display)',
       },
+    ] satisfies ParamDef[],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Worktree domain — `cleo worktree list/prune/force-unlock` (T9546/T9547)
+  // ---------------------------------------------------------------------------
+  {
+    gateway: 'query',
+    domain: 'worktree',
+    operation: 'list',
+    description:
+      'worktree.list (query) — enumerate git worktrees with 5 status categories (active|stale|merged|orphan|locked). Reads tasks.db for owning-task status. 60s git timeout (T9546).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      { name: 'statusFilter', type: 'string', required: false, description: 'Filter to one or more status categories (comma-separated)' },
+      { name: 'staleDays', type: 'number', required: false, description: 'Days of inactivity before flagging stale (default 7)' },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'worktree',
+    operation: 'prune',
+    description:
+      'worktree.prune (mutate) — remove orphaned worktrees with per-orphan confirmation. Audit-logs to .cleo/audit/worktree-lifecycle.jsonl (T9547).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      { name: 'paths', type: 'array', required: false, description: 'Pre-confirmed paths to remove' },
+      { name: 'dryRun', type: 'boolean', required: false, description: 'Enumerate orphans without acting' },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'worktree',
+    operation: 'forceUnlock',
+    description:
+      'worktree.forceUnlock (mutate) — remove .git/index.lock and run git worktree unlock for a task. Warns on uncommitted changes (T9547).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      { name: 'taskId', type: 'string', required: true, description: 'Task ID whose worktree (branch task/T<id>) to unlock' },
     ] satisfies ParamDef[],
   },
 ];

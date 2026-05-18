@@ -79,6 +79,8 @@ export const CANONICAL_DOMAINS = [
   // T9536: `cleo upgrade workflows` — re-render release-pipeline workflow
   // templates + 3-way merge with `.workflow-overrides.yml`.
   'upgrade',
+  // T9546/T9547: 'cleo worktree list/prune/force-unlock' — worktree lifecycle.
+  'worktree',
 ] as const;
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];
