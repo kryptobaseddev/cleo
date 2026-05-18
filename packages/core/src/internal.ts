@@ -721,6 +721,8 @@ export {
   releaseStart,
   releaseVerify,
 } from './release/pipeline.js';
+// T9526: new release reconcile v2 (provenance-graph aware) — exported alongside legacy
+export { releaseReconcileV2 } from './release/reconcile.js';
 export type { ProjectReleaseConfig, ReleaseConfig, ReleaseGate } from './release/release-config.js';
 export {
   getGitFlowConfig,
