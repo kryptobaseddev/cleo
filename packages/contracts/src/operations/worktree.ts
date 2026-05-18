@@ -437,3 +437,175 @@ export interface ListWorktreesResult {
   /** All matched worktree entries (post-filter). */
   worktrees: WorktreeInfo[];
 }
+
+// ---------------------------------------------------------------------------
+// Lifecycle prune + force-unlock (T9547 — worktree-lifecycle 3/5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical action recorded in `.cleo/audit/worktree-lifecycle.jsonl`.
+ *
+ * - `prune` — orphaned/merged worktree was removed.
+ * - `prune-skip` — orphan was detected but skipped (user said N, or had uncommitted changes).
+ * - `force-unlock` — git index.lock removed + `git worktree unlock` ran.
+ *
+ * @task T9547
+ */
+export type WorktreeLifecycleAction = 'prune' | 'prune-skip' | 'force-unlock';
+
+/**
+ * One append-only entry written to `.cleo/audit/worktree-lifecycle.jsonl` by
+ * the prune + force-unlock commands.
+ *
+ * The shape intentionally mirrors the existing audit-jsonl pattern used by
+ * `worktree-prune.jsonl` (single-task path) so downstream log shippers can
+ * unify both streams. Optional fields are omitted (not null) when absent,
+ * keeping the JSONL surface compact and grep-friendly.
+ *
+ * @task T9547
+ */
+export interface WorktreeLifecycleAuditEntry {
+  /** ISO-8601 timestamp when the action was attempted. */
+  timestamp: string;
+  /** Agent / actor that initiated the action (env `CLEO_AGENT_ID` ?? `'cleo'`). */
+  actor: string;
+  /** The action performed — see {@link WorktreeLifecycleAction}. */
+  action: WorktreeLifecycleAction;
+  /** Absolute path to the worktree directory the action targeted. */
+  target: string;
+  /** Branch name (e.g. `task/T9547`) when known. */
+  branch?: string;
+  /** Task ID parsed from the branch name when known. */
+  taskId?: string;
+  /** Free-form reason — e.g. `orphaned-merged`, `dirty-skip`, `index-lock`. */
+  reason?: string;
+  /** Whether the action completed without error. */
+  success: boolean;
+  /** Error message when {@link success} is false. */
+  error?: string;
+}
+
+/**
+ * Options for {@link pruneOrphanedWorktreesByStatus} — the SDK primitive behind
+ * `cleo worktree prune --orphaned`.
+ *
+ * Per-orphan Y/N confirmation is the responsibility of the CLI layer; the SDK
+ * primitive itself is non-interactive and acts on the input set wholesale.
+ *
+ * @task T9547
+ */
+export interface PruneOrphanedWorktreesOpts {
+  /** Absolute path to the project root used for git invocations + audit log. */
+  projectRoot: string;
+  /**
+   * When true, do not actually remove worktrees — return the set that WOULD
+   * be pruned with `success: true` and the appropriate `reason`. The audit
+   * log is NOT written under `--dry-run`.
+   *
+   * @default false
+   */
+  dryRun?: boolean;
+  /**
+   * Staleness threshold in days passed through to {@link listWorktrees} when
+   * the caller wants a non-default `isStale` window.
+   *
+   * @default 7
+   */
+  staleDays?: number;
+  /**
+   * Optional subset of paths to prune. When supplied, only worktrees whose
+   * absolute `path` matches one of these strings are removed. The CLI passes
+   * this set after the user has confirmed per-orphan; in pure SDK use, omit
+   * the field to prune every orphan/merged entry the listing surfaces.
+   */
+  paths?: readonly string[];
+  /**
+   * Override actor name written to the audit log. Defaults to
+   * `process.env.CLEO_AGENT_ID ?? 'cleo'`.
+   */
+  actor?: string;
+  /**
+   * Optional override for the audit-log file path (testing). When omitted,
+   * writes to `<projectRoot>/.cleo/audit/worktree-lifecycle.jsonl`.
+   */
+  auditLogPath?: string;
+}
+
+/**
+ * Per-worktree outcome from a prune attempt.
+ *
+ * @task T9547
+ */
+export interface PrunedWorktreeOutcome {
+  /** Absolute path of the worktree. */
+  path: string;
+  /** Branch name (when known) — used by callers to render audit summaries. */
+  branch: string;
+  /** Task ID derived from the branch (when known). */
+  taskId: string | null;
+  /** Why this worktree was selected — e.g. `orphaned-merged`, `orphan-cancelled`. */
+  reason: string;
+  /** Whether the worktree was actually removed (false under --dry-run or on error). */
+  pruned: boolean;
+  /** Whether the task branch was deleted (only true when it was safe to do so). */
+  branchDeleted: boolean;
+  /** Error message when prune failed (set only on `pruned=false` + error path). */
+  error?: string;
+}
+
+/**
+ * Result of {@link pruneOrphanedWorktreesByStatus}.
+ *
+ * @task T9547
+ */
+export interface PruneOrphanedWorktreesResult {
+  /** Number of worktrees successfully pruned. */
+  prunedCount: number;
+  /** Number of orphans detected but NOT pruned (filtered by `paths`, dry-run, or errored). */
+  skippedCount: number;
+  /** Per-worktree outcomes, one entry per orphan that was considered. */
+  outcomes: PrunedWorktreeOutcome[];
+  /** Per-worktree errors raised during prune (subset of {@link outcomes} where `error` is set). */
+  errors: Array<{ path: string; error: string }>;
+  /** Whether {@link PruneOrphanedWorktreesOpts.dryRun} was set. */
+  dryRun: boolean;
+}
+
+/**
+ * Options for {@link forceUnlockWorktree} — the SDK primitive behind
+ * `cleo worktree force-unlock <taskId>`.
+ *
+ * @task T9547
+ */
+export interface ForceUnlockWorktreeOpts {
+  /** Absolute path to the project root used for git invocations. */
+  projectRoot: string;
+  /** Task ID whose worktree should be force-unlocked. */
+  taskId: string;
+  /** Override actor name written to the audit log. */
+  actor?: string;
+  /** Optional override for the audit-log file path (testing). */
+  auditLogPath?: string;
+}
+
+/**
+ * Result of {@link forceUnlockWorktree}.
+ *
+ * @task T9547
+ */
+export interface ForceUnlockWorktreeResult {
+  /** Task ID whose worktree was located. */
+  taskId: string;
+  /** Absolute path to the worktree (when located). */
+  path: string | null;
+  /** Whether `.git/index.lock` was present and removed. */
+  indexLockRemoved: boolean;
+  /** Whether `git worktree unlock` was executed (because porcelain reported `locked`). */
+  worktreeUnlocked: boolean;
+  /** Whether the worktree had uncommitted changes at the time of unlock (warn-only). */
+  hadUncommittedChanges: boolean;
+  /** Aggregate success — true when at least one unlock action ran without error. */
+  success: boolean;
+  /** Error message when no worktree could be located or all actions failed. */
+  error?: string;
+}

@@ -8,24 +8,39 @@
  *          project with status classification (active|stale|merged|orphan|locked).
  *
  * MUTATE operations:
- *   (none yet — pending T9547 prune + force-unlock work)
+ *   prune       — remove orphaned + merged worktrees (T9547). Non-interactive;
+ *                 the CLI handles per-orphan Y/N prompts and passes the
+ *                 confirmed `paths` subset through `params`.
+ *   forceUnlock — clear wedged worktree locks (`.git/index.lock` +
+ *                 `git worktree unlock`) for a single task ID (T9547).
  *
- * The `list` operation wraps the SDK primitive {@link listWorktrees} so the
- * canonical EngineResult shape (LAFS envelope) is preserved on both the CLI
- * and the typed SDK surface.
+ * All mutate ops route through SDK primitives in
+ * `packages/core/src/worktree/{prune,force-unlock}.ts` and append
+ * audit entries to `.cleo/audit/worktree-lifecycle.jsonl`.
  *
  * @task T9546
- * @epic T9515 — worktree-lifecycle bug-fix epic (2 of 5)
+ * @task T9547
+ * @epic T9515 — worktree-lifecycle bug-fix epic
  */
 
 import type {
+  ForceUnlockWorktreeOpts,
+  ForceUnlockWorktreeResult,
   ListWorktreesOpts,
   ListWorktreesResult,
+  PruneOrphanedWorktreesOpts,
+  PruneOrphanedWorktreesResult,
   WorktreeStatusCategory,
 } from '@cleocode/contracts';
-import { getLogger, getProjectRoot, listWorktrees } from '@cleocode/core/internal';
+import {
+  forceUnlockWorktree,
+  getLogger,
+  getProjectRoot,
+  listWorktrees,
+  pruneOrphanedWorktreesByStatus,
+} from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 const log = getLogger('domain:worktree');
 
@@ -59,11 +74,34 @@ function coerceStatusFilter(value: unknown): WorktreeStatusCategory[] | undefine
 }
 
 /**
- * Dispatch domain handler for read-only worktree operations.
+ * Narrow `params.paths` into a `string[]`. The CLI passes the user-confirmed
+ * subset of orphan paths here; non-string entries are dropped.
+ *
+ * @internal
+ */
+function coerceStringList(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) {
+    const out = value.filter((v): v is string => typeof v === 'string');
+    return out.length > 0 ? out : undefined;
+  }
+  if (typeof value === 'string') {
+    const parts = value
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    return parts.length > 0 ? parts : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Dispatch domain handler for worktree lifecycle operations.
  *
  * Registered under the `worktree` domain key in {@link createDomainHandlers}.
  *
  * @task T9546
+ * @task T9547
  */
 export class WorktreeHandler implements DomainHandler {
   /**
@@ -105,15 +143,79 @@ export class WorktreeHandler implements DomainHandler {
   }
 
   /**
-   * Worktree mutations (prune / unlock) are reserved for T9547 — this handler
-   * accepts no mutate operations today.
+   * Handle worktree mutations.
    *
-   * @param operation - Operation name (always returns unsupported).
-   * @returns DispatchResponse with E_INVALID_OPERATION.
+   * Supported operations:
+   *  - `prune` — remove orphan/merged worktrees. Params:
+   *              `{ dryRun?, staleDays?, paths?, actor? }`. Returns a
+   *              {@link PruneOrphanedWorktreesResult} envelope.
+   *  - `forceUnlock` — clear wedge state for a single worktree. Params:
+   *              `{ taskId, actor? }`. Returns a {@link ForceUnlockWorktreeResult}.
+   *
+   * @task T9547
    */
-  async mutate(operation: string, _params?: Record<string, unknown>): Promise<DispatchResponse> {
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
-    return unsupportedOp('mutate', 'worktree', operation, startTime);
+    try {
+      switch (operation) {
+        case 'prune': {
+          const opts: PruneOrphanedWorktreesOpts = {
+            projectRoot: getProjectRoot(),
+            dryRun: params?.['dryRun'] === true,
+            ...(typeof params?.['staleDays'] === 'number'
+              ? { staleDays: params['staleDays'] as number }
+              : {}),
+            ...(coerceStringList(params?.['paths']) !== undefined
+              ? { paths: coerceStringList(params?.['paths']) as string[] }
+              : {}),
+            ...(typeof params?.['actor'] === 'string' && params['actor'].length > 0
+              ? { actor: params['actor'] as string }
+              : {}),
+          };
+          const result = await pruneOrphanedWorktreesByStatus(opts);
+          return wrapResult(
+            result as Parameters<typeof wrapResult>[0],
+            'mutate',
+            'worktree',
+            operation,
+            startTime,
+          );
+        }
+        case 'forceUnlock': {
+          const taskId = params?.['taskId'];
+          if (typeof taskId !== 'string' || taskId.length === 0) {
+            return errorResult(
+              'mutate',
+              'worktree',
+              operation,
+              'E_VALIDATION',
+              'Missing required param: taskId (pass --task-id T####).',
+              startTime,
+            );
+          }
+          const opts: ForceUnlockWorktreeOpts = {
+            projectRoot: getProjectRoot(),
+            taskId,
+            ...(typeof params?.['actor'] === 'string' && params['actor'].length > 0
+              ? { actor: params['actor'] as string }
+              : {}),
+          };
+          const result = await forceUnlockWorktree(opts);
+          return wrapResult(
+            result as Parameters<typeof wrapResult>[0],
+            'mutate',
+            'worktree',
+            operation,
+            startTime,
+          );
+        }
+        default:
+          return unsupportedOp('mutate', 'worktree', operation, startTime);
+      }
+    } catch (err) {
+      log.error({ err, operation }, 'WorktreeHandler mutate error');
+      return handleErrorResult('mutate', 'worktree', operation, err, startTime);
+    }
   }
 
   /**
@@ -125,11 +227,11 @@ export class WorktreeHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['list'],
-      mutate: [],
+      mutate: ['prune', 'forceUnlock'],
     };
   }
 }
 
-// Re-export the listing result type so dispatch callers that import the
-// handler don't also have to reach into @cleocode/contracts.
-export type { ListWorktreesResult };
+// Re-export the result types so dispatch callers that import the handler don't
+// also have to reach into @cleocode/contracts.
+export type { ForceUnlockWorktreeResult, ListWorktreesResult, PruneOrphanedWorktreesResult };
