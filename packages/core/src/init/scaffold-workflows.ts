@@ -250,7 +250,7 @@ function resolveToolLine(
  */
 function resolvePlaceholders(
   projectRoot: string,
-  cfg: ScaffoldReleaseConfig,
+  _cfg: ScaffoldReleaseConfig,
 ): ResolvedToolPlaceholders {
   return {
     install: DEFAULT_INSTALL_CMD,
