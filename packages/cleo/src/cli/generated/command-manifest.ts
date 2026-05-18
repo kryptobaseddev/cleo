@@ -842,4 +842,10 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     description: 'Manage CLEO Web UI server',
     load: async () => (await import('../commands/web.js')).webCommand as CommandDef,
   },
+  {
+    exportName: 'worktreeCommand',
+    name: 'worktree',
+    description: 'Inspect CLEO-managed git worktrees attached to this project. ',
+    load: async () => (await import('../commands/worktree.js')).worktreeCommand as CommandDef,
+  },
 ] as const;

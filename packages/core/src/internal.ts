@@ -2004,6 +2004,8 @@ export {
 } from './tools/engine-ops.js';
 // Verification gates — enums/classes
 export { GateStatus, VerificationGate } from './validation/operation-verification-gates.js';
+// Worktree listing — structured enumeration with status classification (T9546 / T9515)
+export { listWorktrees } from './worktree/list.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers (used by cleo test files)
