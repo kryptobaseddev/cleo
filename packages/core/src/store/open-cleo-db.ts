@@ -34,6 +34,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { getConduitNativeDb } from './conduit-sqlite.js';
 import { getNexusDb } from './nexus-sqlite.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
+import { openSkillsDb } from './skills-db.js';
 import { getDb as getTasksDb } from './sqlite.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
@@ -45,6 +46,7 @@ export type CleoDbRole =
   | 'signaldock'
   | 'conduit'
   | 'nexus'
+  | 'skills'
   | 'llmtxt';
 
 type ImplementedCleoDbRole = Exclude<CleoDbRole, 'llmtxt'>;
@@ -79,6 +81,20 @@ async function openConduitDb(cwd?: string): Promise<unknown> {
   return getConduitNativeDb();
 }
 
+/**
+ * Open the per-user skills.db registry (global-tier, `getCleoHome()`).
+ *
+ * Delegates to `openSkillsDb()` in `./skills-db.ts` — the canonical lifecycle
+ * module for skills.db (mirrors signaldock/conduit/nexus modules).
+ *
+ * @task T9651
+ */
+async function openSkillsDbHandle(_cwd?: string): Promise<unknown> {
+  // The drizzle handle wraps the native DatabaseSync via `$client`; the
+  // caller of openCleoDb() unwraps it through `unwrapNativeSqliteDb()` below.
+  return openSkillsDb();
+}
+
 const ROLE_OPENERS: Record<ImplementedCleoDbRole, DbOpener> = {
   tasks: getTasksDb as unknown as DbOpener,
   brain: getTasksDb as unknown as DbOpener,
@@ -86,6 +102,7 @@ const ROLE_OPENERS: Record<ImplementedCleoDbRole, DbOpener> = {
   signaldock: openSignaldockDb,
   conduit: openConduitDb,
   nexus: getNexusDb as unknown as DbOpener,
+  skills: openSkillsDbHandle,
 };
 
 function unwrapNativeSqliteDb(db: unknown): unknown {
