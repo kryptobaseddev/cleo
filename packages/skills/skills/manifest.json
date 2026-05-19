@@ -187,7 +187,12 @@
       "protocol": "research",
       "loomStage": "research",
       "adrRefs": ["ADR-023", "ADR-070"],
-      "references": [],
+      "references": [
+        "skills/ct-research-agent/references/triggers-and-routing.md",
+        "skills/ct-research-agent/references/source-strategy.md",
+        "skills/ct-research-agent/references/citation-and-evidence.md",
+        "skills/ct-research-agent/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "TOPIC", "RESEARCH_QUESTIONS"],
         "outputs": ["research-file", "manifest-entry"],
