@@ -400,6 +400,8 @@ function wrapSingleSection(name: WizardSection, result: WizardSectionResult): Wi
   return {
     sectionsRun: [name],
     summary: [`${name}: ${result.summary}`],
+    // Single-section runs never trigger the full first-run completion flow.
+    firstRunComplete: false,
   };
 }
 
