@@ -629,7 +629,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'releaseCommand',
     name: 'release',
-    description: 'Release lifecycle management',
+    description:
+      'Release lifecycle management — 4-verb pipeline: plan → open → reconcile / rollback. ',
     load: async () => (await import('../commands/release.js')).releaseCommand as CommandDef,
   },
   {
@@ -851,7 +852,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'worktreeCommand',
     name: 'worktree',
-    description: 'Inspect CLEO-managed git worktrees attached to this project. ',
+    description: 'Inspect and manage CLEO-attached git worktrees. ',
     load: async () => (await import('../commands/worktree.js')).worktreeCommand as CommandDef,
   },
 ] as const;

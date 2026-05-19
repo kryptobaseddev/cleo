@@ -16,6 +16,7 @@
 
 import { defineCommand, showUsage } from 'citty';
 import {
+  authConsentCommand,
   authListCommand,
   authMigrateProjectSecretsCommand,
   authRemoveCommand,
@@ -25,6 +26,7 @@ import {
  * `cleo auth` — unified credential surface.
  *
  * @task T9416
+ * @task T9598
  */
 export const authCommand = defineCommand({
   meta: {
@@ -33,6 +35,7 @@ export const authCommand = defineCommand({
       'Unified credential view across all seeded sources (cleo llm list is the LLM-scoped sister command).',
   },
   subCommands: {
+    consent: authConsentCommand,
     list: authListCommand,
     remove: authRemoveCommand,
     'migrate-project-secrets': authMigrateProjectSecretsCommand,

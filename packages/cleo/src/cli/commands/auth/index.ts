@@ -10,6 +10,8 @@
  * @epic E-CONFIG-AUTH-UNIFY (E2b)
  */
 
+export type { ConsentGate, ConsentStatusResult, ConsentToggleResult } from './consent.js';
+export { authConsentCommand } from './consent.js';
 export type { AuthListEntry } from './list.js';
 export { authListCommand } from './list.js';
 export type {
