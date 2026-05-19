@@ -182,14 +182,14 @@ export {
   cancelRelease,
   commitRelease,
   generateReleaseChangelog,
-  listManifestReleases,
+  listReleases,
   markReleasePushed,
   migrateReleasesJsonToSqlite,
   prepareRelease,
   pushRelease,
   rollbackRelease,
   runReleaseGates,
-  showManifestRelease,
+  showRelease,
   tagRelease,
 } from './release-manifest.js';
 // T9529 — provenance verify verb (Phase 2 of T9493). READ-ONLY audit of the

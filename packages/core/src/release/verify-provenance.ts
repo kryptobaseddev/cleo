@@ -8,7 +8,7 @@
  *
  * Design (read-only):
  *
- *   - Loads the release row by `version` from `releasesNew`.
+ *   - Loads the release row by `version` from `releases` (the unified table).
  *   - For each junction table associated with the release (`release_commits`,
  *     `task_commits` for that release's commits, `pr_commits`, `pr_tasks`,
  *     `release_changes`, `release_artifacts`), runs a LEFT JOIN query and
