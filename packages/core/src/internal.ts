@@ -120,7 +120,7 @@ export {
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
 // Docs ops — llmtxt primitive wrappers (search, merge, graph, rank, versions, publish) (T1041)
-// + publishDocs hardening (T9701 — Saga T9625 / Epic T9626)
+// + publishDocs hardening (T9701) + sync reverse-ingest (T9702) — Saga T9625 / Epic T9626
 export type {
   DocsGraphEdge,
   DocsGraphNode,
@@ -131,6 +131,7 @@ export type {
   DocsRankResult,
   DocsSearchHit,
   DocsSearchResult,
+  DocsSyncFromGitResult,
   DocsVersionEntry,
   DocsVersionsResult,
 } from './docs/docs-ops.js';
@@ -141,6 +142,7 @@ export {
   publishDocs,
   rankDocs,
   searchDocs,
+  syncFromGit,
 } from './docs/docs-ops.js';
 // Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
 export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';

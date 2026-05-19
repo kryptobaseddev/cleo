@@ -655,3 +655,132 @@ export async function publishDocs(opts: {
     ownerId: opts.ownerId,
   };
 }
+
+// ─── syncFromGit (T9702 — reverse-ingest) ─────────────────────────────────────
+
+/**
+ * Result returned by {@link syncFromGit}.
+ *
+ * @epic T9626 (W0)
+ * @task T9702 (ST-PUB-2b — reverse-ingest)
+ */
+export interface DocsSyncFromGitResult {
+  /** Owner entity ID the file was ingested under. */
+  readonly ownerId: string;
+  /** Attachment name as stored in the blob manifest. */
+  readonly blobName: string;
+  /** Project-root-relative source path. */
+  readonly sourcePath: string;
+  /** SHA-256 of the bytes that were ingested. */
+  readonly newSha: string;
+  /** SHA-256 of the previously-stored blob with the same name, when present. */
+  readonly oldSha?: string;
+  /** Byte count of the ingested file. */
+  readonly bytes: number;
+  /**
+   * What happened during ingest:
+   *   - `created` — first time this `(ownerId, name)` pair was seen.
+   *   - `updated` — content differs from the latest stored blob.
+   *   - `noop`    — content sha matches the latest stored blob; no new blob was written.
+   */
+  readonly action: 'created' | 'updated' | 'noop';
+}
+
+/**
+ * Ingest a git-tracked file as a new blob version on the docs SSoT.
+ *
+ * Reads `fromPath`, computes its SHA-256, and:
+ *   - Returns `{action: 'noop'}` when the latest stored blob for
+ *     `(ownerId, blobName)` already matches the content sha (idempotency).
+ *   - Otherwise attaches a new blob via `CleoBlobStore.attach` and returns
+ *     `{action: 'created' | 'updated', newSha, oldSha?}`.
+ *
+ * The `blobName` defaults to `path.basename(fromPath)` unless explicitly
+ * passed. Use `--name <slug>` from the CLI to override.
+ *
+ * @param opts - Required `ownerId` and `fromPath`, optional `blobName`,
+ *               `contentType`, and `projectRoot`.
+ * @returns Action taken + before/after SHAs.
+ *
+ * @throws {Error} when `fromPath` cannot be read.
+ *
+ * @epic T9626 (W0)
+ * @task T9702 (ST-PUB-2b)
+ *
+ * @example
+ * ```ts
+ * const out = await syncFromGit({ ownerId: 'T123', fromPath: 'docs/spec.md' });
+ * if (out.action === 'noop') console.log('already in sync');
+ * ```
+ */
+export async function syncFromGit(opts: {
+  ownerId: string;
+  fromPath: string;
+  blobName?: string;
+  contentType?: string;
+  projectRoot?: string;
+}): Promise<DocsSyncFromGitResult> {
+  const root = opts.projectRoot ?? getProjectRoot();
+
+  const sourceAbs = isAbsolute(opts.fromPath)
+    ? resolvePath(opts.fromPath)
+    : resolvePath(root, opts.fromPath);
+  const sourceRel = relative(root, sourceAbs);
+
+  const { readFile } = await import('node:fs/promises');
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(sourceAbs);
+  } catch (cause) {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    const err = new Error(`syncFromGit: cannot read "${sourceAbs}": ${msg}`);
+    err.cause = cause;
+    throw err;
+  }
+
+  const blobName = opts.blobName ?? sourceAbs.split(/[\\/]/).pop() ?? 'doc';
+  const newSha = createHash('sha256').update(bytes).digest('hex');
+
+  // Probe the existing manifest for a same-named blob.
+  const existing = await blobList(opts.ownerId, root).catch(() => []);
+  const latest = existing.find((b) => b.name === blobName);
+  const oldSha = latest?.sha256;
+
+  if (latest && latest.sha256 === newSha) {
+    return {
+      ownerId: opts.ownerId,
+      blobName,
+      sourcePath: sourceRel,
+      newSha,
+      oldSha,
+      bytes: bytes.byteLength,
+      action: 'noop',
+    };
+  }
+
+  // Open the blob store and attach the new version. Same content under the
+  // same name with a different sha overwrites the manifest row (LWW).
+  const { CleoBlobStore } = await import('../store/llmtxt-blob-adapter.js');
+  const store = new CleoBlobStore({ projectRoot: root });
+  await store.open();
+  try {
+    await store.attach(
+      opts.ownerId,
+      blobName,
+      new Uint8Array(bytes),
+      opts.contentType ?? 'application/octet-stream',
+    );
+  } finally {
+    await store.close();
+  }
+
+  return {
+    ownerId: opts.ownerId,
+    blobName,
+    sourcePath: sourceRel,
+    newSha,
+    oldSha,
+    bytes: bytes.byteLength,
+    action: latest ? 'updated' : 'created',
+  };
+}

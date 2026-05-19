@@ -27,6 +27,7 @@ export type {
   DocsRankResult,
   DocsSearchHit,
   DocsSearchResult,
+  DocsSyncFromGitResult,
   DocsVersionEntry,
   DocsVersionsResult,
 } from './docs-ops.js';
@@ -37,6 +38,7 @@ export {
   publishDocs,
   rankDocs,
   searchDocs,
+  syncFromGit,
 } from './docs-ops.js';
 
 export type { ExportDocumentOptions, ExportDocumentResult } from './export-document.js';
