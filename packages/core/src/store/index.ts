@@ -62,6 +62,25 @@ export {
   SafetyDataAccessor,
   wrapWithSafety,
 } from './safety-data-accessor.js';
+// Skills DB helpers (per-user skills.db chokepoint — T9651 / T9657)
+export {
+  closeSkillsDb,
+  getDefaultSkillsDbPath,
+  getSkillRow,
+  getSkillsNativeDb,
+  listSkillsBySource,
+  openSkillsDb,
+  resetSkillsDbState,
+  resolveSkillsMigrationsFolder,
+  SKILLS_DB_FILENAME,
+  SKILLS_SCHEMA_VERSION,
+  upsertSkillRow,
+} from './skills-db.js';
+export type {
+  NewSkillRow,
+  SkillRow,
+  SkillSourceType,
+} from './skills-schema.js';
 export {
   listBrainBackups,
   listSqliteBackups,
