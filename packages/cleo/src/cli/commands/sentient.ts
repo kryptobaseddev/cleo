@@ -343,7 +343,7 @@ const proposeAcceptSub = defineCommand({
     const id = args.id as string;
 
     try {
-      const { getDb } = await import('@cleocode/core/internal');
+      const { getDb } = await import('@cleocode/core/store/sqlite.js');
       const { tasks } = await import('@cleocode/core/store/tasks-schema');
       const { and, eq, like } = await import('drizzle-orm');
 
@@ -412,7 +412,7 @@ const proposeRejectSub = defineCommand({
     const reason = (args.reason as string | undefined) ?? 'rejected by owner';
 
     try {
-      const { getDb } = await import('@cleocode/core/internal');
+      const { getDb } = await import('@cleocode/core/store/sqlite.js');
       const { tasks } = await import('@cleocode/core/store/tasks-schema');
       const { and, eq, like } = await import('drizzle-orm');
 
