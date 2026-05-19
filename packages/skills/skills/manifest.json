@@ -125,7 +125,13 @@
       "protocol": "implementation",
       "loomStage": "implementation",
       "adrRefs": ["ADR-070", "ADR-062"],
-      "references": [],
+      "references": [
+        "skills/ct-task-executor/references/implementation-patterns.md",
+        "skills/ct-task-executor/references/acceptance-criteria-mapping.md",
+        "skills/ct-task-executor/references/evidence-and-gates.md",
+        "skills/ct-task-executor/references/common-failures.md",
+        "skills/ct-task-executor/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "TASK_NAME", "TASK_INSTRUCTIONS", "DELIVERABLES_LIST", "ACCEPTANCE_CRITERIA"],
         "outputs": ["deliverables", "manifest-entry"],
