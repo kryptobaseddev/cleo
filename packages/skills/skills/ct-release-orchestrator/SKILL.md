@@ -1,6 +1,8 @@
 ---
 name: ct-release-orchestrator
 description: "Orchestrates the full release pipeline: version bump, then changelog, then commit, then tag, then conditionally forks to artifact-publish and provenance based on release config. Parent protocol that composes ct-artifact-publisher and ct-provenance-keeper as sub-protocols: not every release publishes artifacts (source-only releases skip it), and artifact publishers delegate signing and attestation to provenance. Use when shipping a new version, running cleo release ship, or promoting a completed epic to released status."
+protocol: release
+loomStage: release
 ---
 
 # Release Orchestrator

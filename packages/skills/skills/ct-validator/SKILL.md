@@ -6,6 +6,7 @@ tier: 2
 core: false
 category: recommended
 protocol: validation
+loomStage: validation
 dependencies: []
 sharedResources:
   - subagent-protocol-base

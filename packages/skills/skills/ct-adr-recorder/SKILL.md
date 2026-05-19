@@ -1,6 +1,8 @@
 ---
 name: ct-adr-recorder
 description: "Records Architecture Decision Records from accepted consensus verdicts. Use when promoting a consensus outcome to a formal ADR: drafts the document in the proposed-then-accepted HITL lifecycle, links to the originating consensus manifest, persists the decision to the canonical SQLite decisions table, and triggers downstream invalidation when an accepted ADR is later superseded. Triggers on phrases like 'write ADR', 'record architecture decision', 'formalize this decision', 'lock in the choice', 'create ADR-XXX', or when a consensus task reaches completed status and needs formalization."
+protocol: architecture_decision
+loomStage: architecture_decision
 ---
 
 # ADR Recorder
