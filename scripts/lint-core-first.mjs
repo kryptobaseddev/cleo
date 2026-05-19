@@ -282,9 +282,7 @@ if (MODE_BASELINE) {
 
 if (MODE_CHECK) {
   if (!existsSync(BASELINE_PATH)) {
-    process.stderr.write(
-      `[core-first-lint] ERROR: baseline file not found at ${BASELINE_PATH}\n`,
-    );
+    process.stderr.write(`[core-first-lint] ERROR: baseline file not found at ${BASELINE_PATH}\n`);
     process.stderr.write(
       `[core-first-lint] Run: node scripts/lint-core-first.mjs --baseline > /dev/null\n`,
     );
@@ -383,9 +381,7 @@ if (violations.length > 0) {
   if (!MODE_JSON) {
     process.stderr.write(`\n`);
     for (const v of violations) {
-      process.stderr.write(
-        `${v.file}:${v.line}  [${v.rule}]  ${v.description}\n`,
-      );
+      process.stderr.write(`${v.file}:${v.line}  [${v.rule}]  ${v.description}\n`);
     }
     process.stderr.write(`\n`);
     process.stderr.write(`============================================================\n`);
@@ -395,11 +391,15 @@ if (violations.length > 0) {
     process.stderr.write(`============================================================\n`);
     process.stderr.write(`\n`);
     process.stderr.write(`RULE-1: route DB access through @cleocode/core operations.\n`);
-    process.stderr.write(`RULE-2: use openCleoDb(role, cwd) from @cleocode/core/store/open-cleo-db.\n`);
+    process.stderr.write(
+      `RULE-2: use openCleoDb(role, cwd) from @cleocode/core/store/open-cleo-db.\n`,
+    );
     process.stderr.write(`RULE-3: import from @cleocode/core (public barrel), not /internal.\n`);
     process.stderr.write(`\n`);
     process.stderr.write(`See docs/plans/E-CORE-FIRST-ARCH.md for migration patterns.\n`);
-    process.stderr.write(`Opt-out: append \`// core-first-allowed\` with a justification comment.\n`);
+    process.stderr.write(
+      `Opt-out: append \`// core-first-allowed\` with a justification comment.\n`,
+    );
     process.stderr.write(`\n`);
     process.stderr.write(
       `Tip: while T9616-T9621 are in-flight, use --baseline + --check mode in CI.\n`,
