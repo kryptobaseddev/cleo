@@ -27,7 +27,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -427,8 +427,9 @@ describe('T-WT-2 — resolveCanonicalProjectRoot', () => {
     });
 
     // Verify resolveCanonicalProjectRoot maps the real worktree back to the main repo.
+    // Use realpathSync for both sides to handle macOS /var → /private/var symlink.
     const resolved = resolveCanonicalProjectRoot(worktreeDir);
-    expect(resolved).toBe(env.tempDir);
+    expect(resolved).toBe(realpathSync(env.tempDir));
 
     // validateAtom with projectRoot = MAIN repo (simulating step 2.5 resolution)
     // should accept the commit since its diff intersects the declared AC file.
