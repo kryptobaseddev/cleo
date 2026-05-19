@@ -1,8 +1,14 @@
 /**
  * Skill installer - canonical + symlink model
  *
- * Skills are stored once in a canonical location (.agents/skills/<name>/)
- * and symlinked to each target agent's skills directory.
+ * Skills are stored once in a canonical location (`~/.cleo/skills/<name>/`
+ * per architecture-v3 §1, with legacy `~/.local/share/agents/skills/` as a
+ * read-only fallback for one release cycle) and symlinked to each target
+ * agent's skills directory.
+ *
+ * @task T9659
+ * @epic T9571
+ * @saga T9560
  */
 
 import { existsSync, lstatSync } from 'node:fs';
@@ -10,6 +16,98 @@ import { cp, mkdir, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Provider } from '../../types.js';
 import { getCanonicalSkillsDir, resolveProviderSkillsDirs } from '../paths/standard.js';
+
+/**
+ * Source-type discriminator emitted with {@link SkillRowData}.
+ *
+ * @remarks
+ * Mirrors the `source_type` column on the `skills` table defined in
+ * architecture-v3 §4. Kept as a local string-literal union (NOT a
+ * `@cleocode/core` import) so caamp stays free of a circular dep on core —
+ * the dispatch layer in `packages/cleo/` is responsible for plugging the
+ * `upsertSkillRow` callback that consumes this shape.
+ *
+ * @public
+ */
+export type SkillRowSourceType = 'canonical' | 'user' | 'community' | 'agent-created';
+
+/**
+ * Provenance payload emitted by {@link installSkill} after a successful copy.
+ *
+ * @remarks
+ * The CAAMP installer ONLY emits this shape — it never writes to
+ * `skills.db` directly. The dispatch layer in `packages/cleo/` (where it's
+ * legal to import from `@cleocode/core`) plugs an `upsertSkillRow` callback
+ * via {@link InstallSkillOptions.recordRow}. This keeps caamp free of a
+ * `@cleocode/core` dependency (mirrors the migration callback pattern
+ * established by T9653 — see `migration.ts`).
+ *
+ * @public
+ */
+export interface SkillRowData {
+  /** Skill folder basename (matches `skills.name` column). */
+  name: string;
+  /** Resolved canonical install path under `~/.cleo/skills/<name>/`. */
+  installPath: string;
+  /** Source URL or identifier (matches `skills.source_url`). */
+  sourceUrl: string | null;
+  /**
+   * Source provenance discriminator (matches `skills.source_type`).
+   *
+   * @remarks
+   * Set to `'canonical'` for skills whose name appears in the bundled
+   * Sphere A manifest; `'community'` for marketplace / GitHub-clone installs;
+   * `'user'` for everything else (local-path installs, library installs).
+   * Architecture-v3 §4 enumerates the full set.
+   */
+  sourceType: SkillRowSourceType;
+}
+
+/**
+ * Optional knobs accepted by {@link installSkill}.
+ *
+ * @remarks
+ * Encoded as an interface so future T-STORE follow-ups (e.g. `pinned`,
+ * `version`) can be added without churning the call sites.
+ *
+ * @public
+ */
+export interface InstallSkillOptions {
+  /**
+   * Per-install sink invoked after a successful canonical copy.
+   *
+   * @remarks
+   * Caamp NEVER imports `@cleocode/core` directly — the dispatch layer in
+   * `packages/cleo/` plugs `upsertSkillRow` here so installs are recorded
+   * to `~/.cleo/skills.db`. Defaults to a no-op when omitted. May be sync
+   * or async; thrown errors propagate to the caller.
+   */
+  recordRow?: (row: SkillRowData) => Promise<void> | void;
+
+  /**
+   * Explicit `sourceUrl` to record on the row.
+   *
+   * @remarks
+   * When omitted, falls back to the `sourcePath` argument. Callers that
+   * resolve a library or marketplace identifier (e.g. `library:ct-foo` or
+   * `https://github.com/owner/repo`) BEFORE copying to a tmpdir should set
+   * this so the row preserves the original provenance string instead of
+   * the disposable filesystem path.
+   */
+  sourceUrl?: string | null;
+
+  /**
+   * Explicit `sourceType` to record on the row.
+   *
+   * @remarks
+   * When omitted, the type is heuristically inferred from
+   * {@link InstallSkillOptions.sourceUrl} (or `sourcePath` as a fallback)
+   * via {@link inferSkillSourceType}. Dispatch-layer callers that know the
+   * authoritative provenance (e.g. catalog → `'canonical'`, GitHub URL →
+   * `'community'`) SHOULD set this explicitly to bypass the heuristic.
+   */
+  sourceType?: SkillRowSourceType;
+}
 
 /**
  * Result of installing a skill to the canonical location and linking to agents.
@@ -147,25 +245,82 @@ async function linkToAgent(
 }
 
 /**
+ * Heuristic source-type classifier for installs that don't carry an explicit
+ * `source_type`.
+ *
+ * @remarks
+ * Pure string inspection — keeps the installer free of network calls and
+ * filesystem reads. The dispatch layer can ALWAYS override the result by
+ * passing an explicit row through {@link InstallSkillOptions.recordRow}.
+ *
+ * Classification rules:
+ *
+ * 1. `library:<name>` → `'canonical'` (installed from the bundled Sphere A
+ *    skill library — `packages/skills/skills/`).
+ * 2. `github.com` / `gitlab.com` / scoped `@author/name` → `'community'`.
+ * 3. Anything else (local paths, opaque values) → `'user'`.
+ *
+ * @param sourceUrl - The source identifier passed to {@link installSkill}.
+ *   `null` is treated as `'user'`.
+ * @returns The inferred source-type discriminator.
+ *
+ * @public
+ */
+export function inferSkillSourceType(sourceUrl: string | null | undefined): SkillRowSourceType {
+  if (!sourceUrl) return 'user';
+  if (sourceUrl.startsWith('library:')) return 'canonical';
+  if (
+    sourceUrl.startsWith('@') ||
+    sourceUrl.includes('github.com') ||
+    sourceUrl.includes('gitlab.com') ||
+    sourceUrl.includes('://')
+  ) {
+    return 'community';
+  }
+  return 'user';
+}
+
+/**
  * Install a skill from a local path to the canonical location and link to agents.
  *
  * @remarks
  * Copies the skill directory to the canonical skills directory and creates symlinks
  * (or copies on Windows) from each provider's skills directory to the canonical path.
  *
+ * **T9659** — when `options.recordRow` is supplied, the callback is invoked
+ * with a {@link SkillRowData} payload after the canonical copy lands and
+ * BEFORE provider linking. This is the integration seam that the cleo
+ * dispatch layer uses to plug `upsertSkillRow` from
+ * `@cleocode/core/store/skills-db` into `~/.cleo/skills.db`. The row is
+ * recorded regardless of whether subsequent provider linking succeeds — the
+ * canonical install is itself the durable artefact.
+ *
  * @param sourcePath - Local path to the skill directory to install
  * @param skillName - Name for the installed skill
  * @param providers - Target providers to link the skill to
  * @param isGlobal - Whether to link to global or project skill directories
  * @param projectDir - Project directory (defaults to `process.cwd()`)
+ * @param options - Optional callbacks (incl. `recordRow` for `skills.db`)
  * @returns Install result with linked agents and any errors
  *
  * @example
  * ```typescript
- * const result = await installSkill("/tmp/my-skill", "my-skill", providers, true, "/my/project");
- * if (result.success) {
- *   console.log(`Linked to: ${result.linkedAgents.join(", ")}`);
- * }
+ * const result = await installSkill(
+ *   "/tmp/my-skill",
+ *   "my-skill",
+ *   providers,
+ *   true,
+ *   "/my/project",
+ *   {
+ *     recordRow: async (row) => upsertSkillRow({
+ *       name: row.name,
+ *       installPath: row.installPath,
+ *       sourceType: row.sourceType,
+ *       sourceUrl: row.sourceUrl,
+ *       installedAt: new Date().toISOString(),
+ *     }),
+ *   },
+ * );
  * ```
  *
  * @public
@@ -176,6 +331,7 @@ export async function installSkill(
   providers: Provider[],
   isGlobal: boolean,
   projectDir?: string,
+  options?: InstallSkillOptions,
 ): Promise<SkillInstallResult> {
   const errors: string[] = [];
   const linkedAgents: string[] = [];
@@ -183,7 +339,20 @@ export async function installSkill(
   // Step 1: Install to canonical location
   const canonicalPath = await installToCanonical(sourcePath, skillName);
 
-  // Step 2: Link to each agent
+  // Step 2: Emit provenance row (T9659) BEFORE provider linking so the DB
+  // reflects the canonical artefact even when downstream linking fails.
+  if (options?.recordRow) {
+    const resolvedSourceUrl = options.sourceUrl ?? sourcePath;
+    const resolvedSourceType = options.sourceType ?? inferSkillSourceType(resolvedSourceUrl);
+    await options.recordRow({
+      name: skillName,
+      installPath: canonicalPath,
+      sourceUrl: resolvedSourceUrl,
+      sourceType: resolvedSourceType,
+    });
+  }
+
+  // Step 3: Link to each agent
   for (const provider of providers) {
     const result = await linkToAgent(canonicalPath, provider, skillName, isGlobal, projectDir);
     if (result.success) {
