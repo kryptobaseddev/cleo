@@ -186,6 +186,14 @@ To suppress for a genuinely-justified exception, append
 `// CWD-OK: <reason>` (or `// path-drift-allowed` for the homedir form). Long-lived
 exceptions should be listed in the script's allowlist with a one-line rationale.
 
+**Strict mode (T9685-B4).** As of T9685-B4 the linter is strict-by-default:
+zero violations allowed. The original T9584 `.cleo/project-root-baseline.json`
+file (which tolerated 57 → 12 → 1 long-tail violations during the migration)
+was deleted once the T9685-B1/B2/B3 batches drove the count to zero. New
+anti-pattern instances now fail CI immediately on the offending PR. The CI
+workflow passes `--strict` explicitly for intent; the flag is accepted as a
+no-op for workflow stability.
+
 ---
 
 ## 7. References
@@ -197,6 +205,9 @@ exceptions should be listed in the script's allowlist with a one-line rationale.
 - **T9582** — Batch 3 fix: `agent.ts`, `nexus.ts`, `dispatch/conduit.ts`, `dispatch/nexus.ts`.
 - **T9583** — Batch 1 fix: `release/`, `orchestrate/`, `spawn/`.
 - **T9584** — long-tail fix + `resolveOrCwd()` helper + this doc + CI guard.
+- **T9685-B1/B2/B3** — drove baseline 57 → 0 (CORE `process.cwd()` migration,
+  `homedir`-`.cleo` consolidation, raw `DatabaseSync` chokepoint).
+- **T9685-B4** — flip CI guard to strict mode; delete baseline file.
 - **T1463** — parent-`.cleo/` trap rejection.
 - **T1864** — `project-info.json` contract.
 - **T9092** — git-worktree gitlink handling.
