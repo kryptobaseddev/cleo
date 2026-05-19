@@ -44,6 +44,7 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve as resolvePath } from 'node:path';
 import type { AgentSession, ContributionReceipt } from 'llmtxt/sdk';
+import { resolveOrCwd } from '../paths.js';
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -153,7 +154,7 @@ export function getReceiptsAuditPath(projectRoot: string): string {
 export async function openAgentSession(
   options: AgentSessionAdapterOptions = {},
 ): Promise<AgentSessionHandle | null> {
-  const projectRoot = options.projectRoot ?? process.cwd();
+  const projectRoot = resolveOrCwd(options.projectRoot);
   const agentId = options.agentId ?? process.env.CLEO_AGENT_ID ?? 'cleo';
 
   let createBackendFn: typeof import('llmtxt').createBackend;

@@ -11,7 +11,7 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { getCleoDir } from '../paths.js';
+import { getCleoDir, resolveOrCwd } from '../paths.js';
 import { getContextStatePath, getCurrentSessionId, THRESHOLDS } from './context-alert.js';
 
 /** Context window input from Claude Code. */
@@ -52,7 +52,7 @@ export async function processContextInput(
   // Try adapter-based context monitoring first
   try {
     const { AdapterManager } = await import('../adapters/index.js');
-    const mgr = AdapterManager.getInstance(cwd ?? process.cwd());
+    const mgr = AdapterManager.getInstance(resolveOrCwd(cwd));
     const adapter = mgr.getActive();
     if (adapter?.contextMonitor) {
       return adapter.contextMonitor.processContextInput(input, cwd);
