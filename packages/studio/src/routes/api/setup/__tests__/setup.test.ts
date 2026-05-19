@@ -109,6 +109,8 @@ vi.mock('@cleocode/core/setup/index.js', () => {
       makeRunner('project-conventions'),
       makeRunner('harness'),
       makeRunner('brain'),
+      makeRunner('integrations'),
+      makeRunner('verification'),
     ],
     WizardRunner: MockWizardRunner,
   };
@@ -297,5 +299,109 @@ describe('POST /api/setup/section/:name — dispatch', () => {
     expect(opts['strictness']).toBeUndefined();
     expect(opts['harness']).toBeUndefined();
     expect(opts['brainBridgeMode']).toBeUndefined();
+  });
+
+  it('accepts integrations section and forwards V2 integration fields (T9614)', async () => {
+    sectionScripts['integrations'] = {
+      changed: true,
+      summary: 'signaldock.enabled=true + studio.enabled=false',
+    };
+    const POST = await importHandler();
+    const res = await POST(
+      makeEvent({
+        name: 'integrations',
+        body: {
+          signaldockEnabled: true,
+          signaldockEndpoint: 'http://localhost:4000',
+          studioEnabled: false,
+          conduitPath: '/tmp/conduit.db',
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { section: string; success: boolean; changes: boolean };
+    };
+    expect(body.data.section).toBe('integrations');
+    expect(body.data.changes).toBe(true);
+
+    const opts = recordedRuns[0]?.options ?? {};
+    expect(opts['signaldockEnabled']).toBe(true);
+    expect(opts['signaldockEndpoint']).toBe('http://localhost:4000');
+    expect(opts['studioEnabled']).toBe(false);
+    expect(opts['conduitPath']).toBe('/tmp/conduit.db');
+  });
+
+  it('accepts verification section and forwards nonInteractive (T9614)', async () => {
+    sectionScripts['verification'] = {
+      changed: false,
+      summary: 'verification passed: 3 PASS, 3 SKIP',
+    };
+    const POST = await importHandler();
+    const res = await POST(
+      makeEvent({
+        name: 'verification',
+        body: {},
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { section: string; success: boolean; changes: boolean; summary: string };
+    };
+    expect(body.data.section).toBe('verification');
+    expect(body.data.success).toBe(true);
+    expect(body.data.changes).toBe(false);
+
+    // Verification always runs with nonInteractive=true (HTTP surface default).
+    expect(recordedRuns[0]?.options['nonInteractive']).toBe(true);
+  });
+
+  it('forwards V2 brain fields (brainRetentionDays, brainEmbeddingEnabled) (T9614)', async () => {
+    sectionScripts['brain'] = { changed: true, summary: 'set brain.memoryBridge.mode=digest' };
+    const POST = await importHandler();
+    await POST(
+      makeEvent({
+        name: 'brain',
+        body: {
+          brainBridgeMode: 'digest',
+          brainRetentionDays: 30,
+          brainEmbeddingEnabled: true,
+        },
+      }),
+    );
+    const opts = recordedRuns[0]?.options ?? {};
+    expect(opts['brainBridgeMode']).toBe('digest');
+    expect(opts['brainRetentionDays']).toBe(30);
+    expect(opts['brainEmbeddingEnabled']).toBe(true);
+  });
+
+  it('ignores unknown acEnforcementMode values (T9614)', async () => {
+    sectionScripts['project-conventions'] = { changed: false, summary: 'noop' };
+    const POST = await importHandler();
+    await POST(
+      makeEvent({
+        name: 'project-conventions',
+        body: { acEnforcementMode: 'unknown-value' },
+      }),
+    );
+    expect(recordedRuns[0]?.options['acEnforcementMode']).toBeUndefined();
+  });
+
+  it('forwards valid acEnforcementMode (T9614)', async () => {
+    sectionScripts['project-conventions'] = {
+      changed: true,
+      summary: "applied 'strict' preset",
+    };
+    const POST = await importHandler();
+    await POST(
+      makeEvent({
+        name: 'project-conventions',
+        body: { strictness: 'strict', acEnforcementMode: 'block', sessionAutoStart: false },
+      }),
+    );
+    const opts = recordedRuns[0]?.options ?? {};
+    expect(opts['strictness']).toBe('strict');
+    expect(opts['acEnforcementMode']).toBe('block');
+    expect(opts['sessionAutoStart']).toBe(false);
   });
 });
