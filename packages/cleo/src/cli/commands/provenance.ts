@@ -75,7 +75,7 @@ const backfillCommand = defineCommand({
     await dispatchFromCli(
       'mutate',
       'provenance',
-      'provenance.backfill',
+      'backfill',
       {
         since: args.since,
         forceOverwrite: args['force-overwrite'] === true,
@@ -131,7 +131,7 @@ const verifyCommand = defineCommand({
     await dispatchFromCli(
       'query',
       'provenance',
-      'provenance.verify',
+      'verify',
       {
         ...(version ? { version } : {}),
         all,
