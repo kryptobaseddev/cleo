@@ -1,6 +1,12 @@
 /**
  * Memory learning-store write endpoint (T990 Wave 1D).
  *
+ * @remarks T9616 follow-up: `storeLearning` from
+ * `packages/core/src/memory/learnings.ts` is not yet promoted to the CORE
+ * public API (`packages/core/src/memory/public-api.ts`). Once promoted, this
+ * handler should be migrated to call `storeLearning` rather than issuing raw
+ * SQL. See docs/plans/E-CORE-FIRST-ARCH.md Task 2.
+ *
  * POST /api/memory/learning-store
  *   body: {
  *     insight: string,

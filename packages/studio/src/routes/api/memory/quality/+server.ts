@@ -1,6 +1,14 @@
 /**
  * Memory quality distribution API endpoint.
  * GET /api/memory/quality → quality distribution stats across all brain tables.
+ *
+ * @remarks T9616 follow-up: This route still uses raw SQL because the CORE
+ * public API (`getMemoryQualityReport`) returns a different shape (3 aggregate
+ * buckets per memory tier) rather than the per-table 5-range quality buckets
+ * and per-count stats consumed by the Studio quality dashboard. A future task
+ * should extend `getMemoryQualityReport` (or add a `getTableQualityStats` op)
+ * in `packages/core/src/memory/public-api.ts` to cover this shape, then
+ * migrate this handler to use it.
  */
 
 import { json } from '@sveltejs/kit';
