@@ -144,7 +144,7 @@ const listCommand = defineCommand({
 /**
  * `cleo backup export <name>` — export project + global state to a portable archive.
  *
- * Delegates to `packBundle` from `@cleocode/core/internal`. When `--encrypt`
+ * Delegates to `packBundle` from `@cleocode/core/store/backup-pack.js`. When `--encrypt`
  * is requested, the passphrase is read from the `CLEO_BACKUP_PASSPHRASE`
  * environment variable (agent-friendly) or prompted interactively on a TTY.
  *
@@ -179,7 +179,8 @@ const exportCommand = defineCommand({
   async run({ args }): Promise<void> {
     const scope = args.scope as 'project' | 'global' | 'all';
 
-    const { packBundle, getProjectRoot } = await import('@cleocode/core/internal');
+    const { packBundle } = await import('@cleocode/core/store/backup-pack.js');
+    const { getProjectRoot } = await import('@cleocode/core');
 
     const includesProject = scope === 'project' || scope === 'all';
     const projectRoot = includesProject ? getProjectRoot() : undefined;
@@ -278,15 +279,24 @@ const importCommand = defineCommand({
   },
   async run({ args }): Promise<void> {
     const bundlePath = args.bundle;
-    const core = await import('@cleocode/core/internal');
+    const { getProjectRoot, getCleoHome, getCleoVersion } = await import('@cleocode/core');
+    const { BundleError, cleanupStaging, unpackBundle } = await import(
+      '@cleocode/core/store/backup-unpack.js'
+    );
+    const { regenerateConfigJson, regenerateProjectContextJson, regenerateProjectInfoJson } =
+      await import('@cleocode/core/store/regenerators.js');
+    const { regenerateAndCompare } = await import('@cleocode/core/store/restore-json-merge.js');
+    const { buildConflictReport, writeConflictReport } = await import(
+      '@cleocode/core/store/restore-conflict-report.js'
+    );
 
-    const projectRoot = core.getProjectRoot();
+    const projectRoot = getProjectRoot();
 
     // -----------------------------------------------------------------------
     // Step 1: Pre-check existing data (skip when --force)
     // -----------------------------------------------------------------------
     if (args.force !== true) {
-      const existing = checkForExistingData(projectRoot, core.getCleoHome());
+      const existing = checkForExistingData(projectRoot, getCleoHome());
       if (existing.length > 0) {
         process.stderr.write(
           JSON.stringify({
@@ -326,11 +336,11 @@ const importCommand = defineCommand({
     // -----------------------------------------------------------------------
     // Step 3: Unpack + verify (layers 1–6 delegated to unpackBundle)
     // -----------------------------------------------------------------------
-    let result: Awaited<ReturnType<typeof core.unpackBundle>>;
+    let result: Awaited<ReturnType<typeof unpackBundle>>;
     try {
-      result = await core.unpackBundle({ bundlePath, passphrase });
+      result = await unpackBundle({ bundlePath, passphrase });
     } catch (err) {
-      if (err instanceof core.BundleError) {
+      if (err instanceof BundleError) {
         process.stderr.write(
           JSON.stringify({
             success: false,
@@ -355,7 +365,7 @@ const importCommand = defineCommand({
       for (const dbEntry of manifest.databases) {
         const src = path.join(stagingDir, dbEntry.filename);
         if (!fs.existsSync(src)) continue;
-        const dst = resolveDbTarget(projectRoot, dbEntry.name, core.getCleoHome());
+        const dst = resolveDbTarget(projectRoot, dbEntry.name, getCleoHome());
         fs.mkdirSync(path.dirname(dst), { recursive: true });
 
         // Atomic: write to tmp then rename
@@ -378,7 +388,7 @@ const importCommand = defineCommand({
       // -----------------------------------------------------------------------
       // Step 5: A/B regenerate-and-compare for JSON files
       // -----------------------------------------------------------------------
-      const jsonReports: Array<ReturnType<typeof core.regenerateAndCompare>> = [];
+      const jsonReports: Array<ReturnType<typeof regenerateAndCompare>> = [];
 
       for (const jsonEntry of manifest.json) {
         const importedPath = path.join(stagingDir, jsonEntry.filename);
@@ -395,14 +405,14 @@ const importCommand = defineCommand({
 
         let localGenerated: unknown;
         if (basename === CONFIG_JSON) {
-          localGenerated = core.regenerateConfigJson(projectRoot).content;
+          localGenerated = regenerateConfigJson(projectRoot).content;
         } else if (basename === PROJECT_INFO_JSON) {
-          localGenerated = core.regenerateProjectInfoJson(projectRoot).content;
+          localGenerated = regenerateProjectInfoJson(projectRoot).content;
         } else {
-          localGenerated = core.regenerateProjectContextJson(projectRoot).content;
+          localGenerated = regenerateProjectContextJson(projectRoot).content;
         }
 
-        const report = core.regenerateAndCompare({
+        const report = regenerateAndCompare({
           filename: basename,
           imported,
           localGenerated,
@@ -418,12 +428,12 @@ const importCommand = defineCommand({
       // -----------------------------------------------------------------------
       // Step 6: Write .cleo/restore-conflicts.md
       // -----------------------------------------------------------------------
-      const cleoVersion = core.getCleoVersion();
-      const conflictMd = core.buildConflictReport({
+      const cleoVersion = getCleoVersion();
+      const conflictMd = buildConflictReport({
         reports: jsonReports,
         bundlePath,
         sourceMachineFingerprint: manifest.backup.machineFingerprint,
-        targetMachineFingerprint: sha256OfMachineKey(core.getCleoHome()),
+        targetMachineFingerprint: sha256OfMachineKey(getCleoHome()),
         cleoVersion,
         schemaWarnings: warnings.map((w) => ({
           db: w.db,
@@ -432,7 +442,7 @@ const importCommand = defineCommand({
           severity: w.severity,
         })),
       });
-      core.writeConflictReport(projectRoot, conflictMd);
+      writeConflictReport(projectRoot, conflictMd);
 
       // -----------------------------------------------------------------------
       // Step 7: Move raw imported JSON files to .cleo/restore-imported/
@@ -489,7 +499,7 @@ const importCommand = defineCommand({
       process.exitCode = 79;
     } finally {
       // Always clean up staging dir regardless of success or failure
-      core.cleanupStaging(stagingDir);
+      cleanupStaging(stagingDir);
     }
   },
 });
