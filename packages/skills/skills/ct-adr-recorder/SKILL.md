@@ -186,4 +186,8 @@ This skill binds to the **architecture_decision** LOOM lifecycle stage (undersco
 - [ADR-053 — playbook runtime](../../../../.cleo/adrs/ADR-053-playbook-runtime.md) — defines the lifecycle state machine; the ADR stage is one of its 10 nodes.
 - [ADR-070 — three-tier orchestration](../../../../.cleo/adrs/ADR-070-three-tier-orchestration.md) — defines the Orchestrator HITL gate that owns the `proposed → accepted` ADR transition.
 
+### Naming Note (T9672)
+
+The stage's canonical name is **`architecture_decision`** (underscored) because the `cleo lifecycle` CLI emits it that way. Historically `packages/skills/skills/manifest.json` `dispatch_matrix.by_protocol` used the dashed form `architecture-decision` — T9672 reconciled that key to the underscored form. The dashed form is retained only as a keyword alias under `dispatch_matrix.by_keyword` so legacy dispatch paths continue to resolve. Frontmatter on this skill (`protocol: architecture_decision`, `loomStage: architecture_decision`) uses the underscored form.
+
 LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
