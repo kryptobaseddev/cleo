@@ -214,6 +214,26 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-no-raw-db-opens.mjs
 
+  core-first-lint:
+    name: CORE-First Architecture Lint (T9622 / E-CORE-FIRST-ARCH)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: CORE-first boundary check (baseline mode — T9616-T9621 in-flight)
+        # T9622: enforce that CLI commands and Studio routes do not issue raw SQLite
+        # calls (.prepare()) or import from @cleocode/core/internal.
+        #
+        # Running in --check mode: fails only when violations EXCEED the committed
+        # baseline in .cleo/core-first-baseline.json. Once T9616-T9621 land, the
+        # baseline shrinks to zero and --check becomes equivalent to a strict ban.
+        #
+        # No untrusted input used — pure static analysis of checked-in source files.
+        run: node scripts/lint-core-first.mjs --check
+
   canon-drift:
     name: Canon Drift Check
     needs: [biome]
