@@ -1,6 +1,12 @@
 /**
  * Memory verify write endpoint (T990 Wave 1D).
  *
+ * @remarks T9616 follow-up: There is no public `verifyMemoryEntry` operation
+ * in the CORE public API (`packages/core/src/memory/public-api.ts`). The CLI
+ * `cleo memory verify` command reaches into `memory/brain-retrieval.ts`
+ * internally. Once a public `verifyMemoryEntry(id, projectRoot)` op is
+ * promoted, this handler should be migrated. See docs/plans/E-CORE-FIRST-ARCH.md Task 2.
+ *
  * POST /api/memory/verify
  *   body: { id: string, agent?: string }
  *   → LAFS envelope { success, data: { id, table, verified, promotedAt } }

@@ -1,6 +1,12 @@
 /**
  * Memory pattern-store write endpoint (T990 Wave 1D).
  *
+ * @remarks T9616 follow-up: `storePattern` from
+ * `packages/core/src/memory/patterns.ts` is not yet promoted to the CORE
+ * public API (`packages/core/src/memory/public-api.ts`). Once promoted, this
+ * handler should be migrated to call `storePattern` rather than issuing raw
+ * SQL. See docs/plans/E-CORE-FIRST-ARCH.md Task 2.
+ *
  * POST /api/memory/pattern-store
  *   body: {
  *     pattern: string,
