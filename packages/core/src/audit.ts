@@ -14,6 +14,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ContractViolationRecord } from '@cleocode/contracts';
 import { getLogger } from './logger.js';
+import { getProjectRoot } from './paths.js';
 
 const log = getLogger('audit');
 
@@ -113,7 +114,7 @@ export async function queryAudit(options?: {
     const { auditLog } = await import('./store/tasks-schema.js');
     const { and, eq, gte, or } = await import('drizzle-orm');
 
-    const db = await getDb(process.cwd());
+    const db = await getDb(getProjectRoot());
 
     const conditions = [];
     if (options?.sessionId) conditions.push(eq(auditLog.sessionId, options.sessionId));

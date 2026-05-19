@@ -22,6 +22,7 @@ import {
   getCleoHome,
   getCleoTemplatesDir,
   getCleoTemplatesTildePath,
+  getProjectRoot,
 } from './paths.js';
 import { ensureGlobalHome, getPackageRoot } from './scaffold.js';
 
@@ -589,7 +590,7 @@ async function installProviderAdapters(
         if (adapter.install) {
           if (!ctx.isDryRun) {
             const installResult = await adapter.install.install({
-              projectDir: process.cwd(),
+              projectDir: getProjectRoot(),
             });
             if (installResult.success) {
               ctx.created.push(`${adapterId} adapter (installed)`);
