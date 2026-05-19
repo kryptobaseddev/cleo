@@ -229,3 +229,14 @@ Append ONE line to `{{MANIFEST_PATH}}`:
 - [ ] Output file written with "Files NOT Created" section
 - [ ] Manifest entry appended
 - [ ] Task completed via `cleo complete`
+
+---
+
+## See references/
+
+Progressive disclosure — load on demand only:
+
+- `references/chain-orchestration.md` — when to invoke lookup/write/review, input shapes, review loop budget
+- `references/doc-types-and-templates.md` — Diátaxis grid plus CLEO-native (ADR, agent-output, skill) templates
+- `references/style-coordination.md` — tone pillars, forbidden phrases, link/code/table discipline
+- `references/anti-patterns.md` — twelve documentation coordination failure modes
