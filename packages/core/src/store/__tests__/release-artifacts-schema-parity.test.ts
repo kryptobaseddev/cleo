@@ -686,7 +686,7 @@ describe('T9509 fresh migration apply — both tables created', () => {
     nativeDb.close();
   });
 
-  it('legacy release_manifests table is untouched after T9509 migrations', async () => {
+  it('T9686-B2: legacy `release_manifests` is dropped + columns merged into `releases`', async () => {
     const { openNativeDatabase } = await import('../sqlite.js');
     const { drizzle } = await import('drizzle-orm/node-sqlite');
     const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
@@ -699,17 +699,17 @@ describe('T9509 fresh migration apply — both tables created', () => {
     reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
     migrateSanitized(db, { migrationsFolder });
 
-    // release_manifests must still exist
+    // Legacy `release_manifests` must NO LONGER exist after T9686-B2.
     const row = nativeDb
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='release_manifests'")
       .get() as { name: string } | undefined;
-    expect(row?.name).toBe('release_manifests');
+    expect(row, 'release_manifests must be dropped by T9686-B2').toBeUndefined();
 
-    const cols = nativeDb.prepare('PRAGMA table_info(release_manifests)').all() as Array<{
+    // The unified `releases` table now carries the legacy columns.
+    const cols = nativeDb.prepare('PRAGMA table_info(releases)').all() as Array<{
       name: string;
     }>;
     const colNames = cols.map((c) => c.name);
-    // Core legacy columns must remain intact (F12 — ADR-073)
     expect(colNames).toContain('id');
     expect(colNames).toContain('version');
     expect(colNames).toContain('tasks_json');
