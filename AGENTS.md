@@ -95,30 +95,22 @@ When a task introduces new modules, the orchestrator MUST include an acceptance 
 
 If existing files violate the boundary, flag as a separate cleanup task (e.g., T1015-style relocation epic). Do NOT continue appending to the wrong package.
 
-## Task Hierarchy Canon
+## Task Hierarchy
 
-CLEO uses a four-tier task hierarchy. Each tier has a canonical prefix; prefixes are permanent
-(no rename primitive exists). The prefix registry lives in ADR-073.
+**Canonical source:** `.cleo/adrs/ADR-073-above-epic-naming.md` §1 (Task Hierarchy Charter).
+This section is a human-facing pointer — DO NOT redefine tier semantics, sizing, or
+ownership here. All edits to the charter happen in ADR-073.
 
-| Tier     | Prefix | Description |
-|----------|--------|-------------|
-| Subtask  | (none) | Leaf-level work unit, child of a Task |
-| Task     | `T-`   | Atomic unit of work |
-| Epic     | `E-`   | Multi-task initiative, owns a lifecycle pipeline |
-| Saga     | `SG-`  | Multi-release theme grouping multiple Epics via `task_relations.type=groups` (ADR-073) |
+| Tier    | Prefix | Storage                                  | Scope-of-change                                    | Owner (ADR-070)       |
+|---------|--------|------------------------------------------|----------------------------------------------------|------------------------|
+| Saga    | `SG-`  | `type='epic'` + `label='saga'`           | Theme grouping ≥2 Epics across ≥2 releases         | Orchestrator (read)    |
+| Epic    | `E-`   | `type='epic'`                            | One releasable slice; ≥1 PR to `main`              | Orchestrator (HITL)    |
+| Task    | `T-`   | `type='task'`                            | One atomic PR-sized change; single wave            | Phase Lead             |
+| Subtask | (none) | `type='subtask'`                         | One commit; ≤2 files; contributes to Task's PR     | Worker (leaf)          |
 
-Saga (SG-) — multi-release theme grouping multiple Epics via task_relations.type=groups (ADR-073)
-
-- Saga is a **labeled role** on a top-level Epic (`label = 'saga'`), NOT a new `TaskType` value.
-- Link Epics to a Saga via `cleo update SG-X --relates E-Y:groups`.
-- Gating dep: T9514 (`cleo update --relates` writer fix) must merge before creating any Saga.
-
-**Prefix registry** (from ADR-073 — all above-task prefixes must be registered here):
-
-| Prefix | Reserved for |
-|--------|-------------|
-| `SG-`  | Saga (above-Epic grouping) |
-| `SD-`  | SignalDock (identity / messaging subsystem) |
+**Storage rule (I1):** All IDs stored as `T####`; `type` column discriminates tier; `label='saga'`
+elevates Epic to Saga. Prefixes are DISPLAY + import-mapping only (I2). See ADR-073 §1.2 for the
+8 invariants (I1–I8) and §1.3 for the lifecycle decision table.
 
 ## Sentient / Tier-2 Proposals
 
