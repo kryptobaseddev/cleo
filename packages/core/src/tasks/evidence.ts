@@ -433,6 +433,22 @@ export async function validateAtom(
  * tasks across the 2026-05-11 campaign exploited this. Audit:
  * `.cleo/rcasd/campaign-validation-2026-05-12/SYNTHESIS.md`.
  *
+ * ## Worktree-aware HEAD resolution (T-WT-1 / T-WT-3)
+ *
+ * The original `--is-ancestor <sha> HEAD` check used the literal `HEAD` in the
+ * context of `projectRoot`. When `projectRoot` resolves to the main repo root
+ * (e.g., because `CLEO_WORKTREE_ROOT` is absent from the subprocess env),
+ * `HEAD` points to the main branch tip. A commit on `task/<taskId>` — the
+ * standard IVTR deliverable — is NOT an ancestor of the main branch tip until
+ * the PR is merged, causing Bug A false failures (see ADR-051-worktree-extension
+ * §Bugs).
+ *
+ * Fix (T-WT-3): The ancestry check uses `getEffectiveHead(projectRoot, taskId)`
+ * which returns `"task/<taskId>"` when that branch exists as a git ref, and
+ * `"HEAD"` otherwise. This is env-var-independent: it does not rely on the
+ * AsyncLocalStorage worktree scope (ADR-041 §D3) being active. When `taskId` is
+ * absent, `getEffectiveHead` returns `"HEAD"` and behavior is unchanged.
+ *
  * Content-intersect skips when:
  *   - taskId is not provided (legacy call sites)
  *   - task cannot be loaded (best-effort tolerance — do not break verify)
@@ -441,9 +457,20 @@ export async function validateAtom(
  *     parseable path tokens in task.acceptance strings) — see
  *     {@link extractTaskAcFiles}
  *
+ * @param sha - Commit SHA to validate (7-40 hex chars).
+ * @param projectRoot - Absolute path used as cwd for git operations. May be
+ *   the main repo root or a git worktree path — git resolves commits from
+ *   either because they share the object store.
+ * @param taskId - Optional CLEO task ID. When provided, triggers branch-scope
+ *   check (T9178), content-intersect check (T9245), and worktree-aware HEAD
+ *   resolution via {@link getEffectiveHead} (T-WT-1).
+ *
  * @task T9178
  * @task T9245
+ * @task T-WT-1
+ * @task T-WT-3
  * @adr ADR-051
+ * @adr ADR-051-worktree-extension
  */
 async function validateCommit(
   sha: string,
@@ -621,8 +648,35 @@ function diffIntersectsAc(diffFiles: string[], acFiles: string[]): boolean {
  * when AC file extraction returns null — these are tolerated to avoid
  * breaking legacy / decision-only / research tasks.
  *
+ * ## Worktree-aware DB resolution (T-WT-2)
+ *
+ * The original implementation called `getTaskAccessor(projectRoot)` directly.
+ * When the AsyncLocalStorage worktree scope (ADR-041 §D3) is active,
+ * `getProjectRoot()` returns the worktree path, and `projectRoot` here is the
+ * worktree root. The worktree's `.cleo/tasks.db` is a point-in-time spawn
+ * snapshot — it receives no writes after creation.
+ *
+ * Bug C: If the orchestrator updates `task.files` or `task.acceptance` after
+ * spawn, the stale worktree DB produces a wrong `acFiles` list. The most
+ * common manifestation is a vacuous pass (`acFiles = null` because stale DB
+ * has `task.files = []`), which silently bypasses the T9245 content-intersect
+ * gate for correctly-spawned IVTR workers.
+ *
+ * Fix (T-WT-2): This function calls `resolveCanonicalProjectRoot(projectRoot)`
+ * to obtain the main repo root before opening `tasks.db`. The canonical main
+ * DB is authoritative for all task metadata reads during gate verification.
+ * Git operations (`gitShowFiles`) continue to use `projectRoot` as `cwd` —
+ * git resolves commits correctly from any directory sharing the object store.
+ *
+ * @param sha - Commit SHA whose diff is inspected.
+ * @param taskId - CLEO task ID used to load AC file declarations.
+ * @param projectRoot - Absolute path for git operations (may be worktree path).
+ *   DB reads use `resolveCanonicalProjectRoot(projectRoot)` internally.
+ *
  * @internal
  * @task T9245
+ * @task T-WT-2
+ * @adr ADR-051-worktree-extension
  */
 async function checkCommitContentIntersect(
   sha: string,
