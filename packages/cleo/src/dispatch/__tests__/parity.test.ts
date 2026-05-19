@@ -672,6 +672,67 @@ describe('Parity Group 4: Dispatch routing correctness', () => {
     expect(validateRequiredParams(def, { title: 'T', description: 'D' })).toEqual([]);
   });
 
+  it('validateRequiredParams honors allowEmpty on per-param ParamDef (C2)', () => {
+    // Regression: `cleo provenance backfill --since ""` must be accepted as
+    // "walk every reachable tag from the beginning of history", not rejected
+    // as E_MISSING_PARAMS.
+    const def: OperationDef = {
+      gateway: 'mutate',
+      domain: 'provenance',
+      operation: 'backfill',
+      description: 'Backfill provenance from historical tags',
+      tier: 1,
+      idempotent: true,
+      sessionRequired: false,
+      requiredParams: ['since'],
+      params: [
+        {
+          name: 'since',
+          type: 'string',
+          required: true,
+          allowEmpty: true,
+          description: 'Lower-bound version (exclusive). Empty string = all tags.',
+        },
+      ],
+    };
+
+    // Empty string with allowEmpty:true → NOT missing
+    expect(validateRequiredParams(def, { since: '' })).toEqual([]);
+    // null still missing — null is not "the empty string"
+    expect(validateRequiredParams(def, { since: null })).toEqual(['since']);
+    // undefined still missing
+    expect(validateRequiredParams(def, {})).toEqual(['since']);
+    // valued → not missing
+    expect(validateRequiredParams(def, { since: 'v1.0.0' })).toEqual([]);
+  });
+
+  it('validateRequiredParams DOES NOT allow empty strings by default (C2 inverse)', () => {
+    // Mirror check: when allowEmpty is absent/false, empty strings are still
+    // rejected. Belt-and-braces against accidental contract loosening.
+    const def: OperationDef = {
+      gateway: 'mutate',
+      domain: 'tasks',
+      operation: 'add',
+      description: 'Add task',
+      tier: 0,
+      idempotent: false,
+      sessionRequired: false,
+      requiredParams: ['title'],
+      params: [
+        {
+          name: 'title',
+          type: 'string',
+          required: true,
+          description: 'Task title',
+          // No allowEmpty — defaults to false.
+        },
+      ],
+    };
+
+    expect(validateRequiredParams(def, { title: '' })).toEqual(['title']);
+    expect(validateRequiredParams(def, { title: 'real title' })).toEqual([]);
+  });
+
   it('resolve returns consistent def reference (same object as OPERATIONS entry)', () => {
     const result = resolve('mutate', 'tasks', 'complete');
 

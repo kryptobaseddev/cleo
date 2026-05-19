@@ -804,6 +804,52 @@ class ProvenanceTableError extends Error {
   }
 }
 
+// ─── Helpers — FK-safe PR shape (C3) ────────────────────────────────────────
+
+/**
+ * Sanitised PR shape ready for insertion: any FK columns pointing at a
+ * commit that is NOT in the inserted-commits set are NULLed out (soft FKs)
+ * and the `commits[]` list is filtered to only include in-range SHAs (hard
+ * FK — NULLing is not an option, so the row is dropped instead).
+ */
+export interface SanitisedPR {
+  headSha: string | null;
+  mergeCommitSha: string | null;
+  commits: { sha: string }[];
+}
+
+/**
+ * Make a PR row FK-safe before inserting into `pull_requests` / `pr_commits`.
+ *
+ * Background (C3 bug — T9686): `pull_requests.headSha` and
+ * `mergeCommitSha` are soft FKs to `commits.sha` (ON DELETE SET NULL), but
+ * SQLite still enforces them at INSERT time. `pr_commits.commitSha` is a
+ * NOT NULL FK with ON DELETE CASCADE — for rows referring to out-of-range
+ * commits, the only safe action is to skip the row.
+ *
+ * A PR can reference commits OUTSIDE the current reconcile range because:
+ *   - `headSha` (PR-branch tip pre-merge) usually never lands on `main`;
+ *     the merge commit replaces it.
+ *   - `mergeCommitSha` may belong to an earlier release range.
+ *   - `commits[]` (from `gh api`) may include rebased / squash-removed SHAs.
+ *
+ * @param pr — the raw PR shape as returned from `fetchPR`.
+ * @param insertedShas — set of commit SHAs already inserted into `commits`.
+ * @returns FK-safe PR projection — NULL on dangling soft FK; filtered
+ *   `commits[]`.
+ */
+export function sanitisePrShasForFk(
+  pr: { headSha: string | null; mergeCommitSha: string | null; commits: { sha: string }[] },
+  insertedShas: ReadonlySet<string>,
+): SanitisedPR {
+  return {
+    headSha: pr.headSha && insertedShas.has(pr.headSha) ? pr.headSha : null,
+    mergeCommitSha:
+      pr.mergeCommitSha && insertedShas.has(pr.mergeCommitSha) ? pr.mergeCommitSha : null,
+    commits: pr.commits.filter((c) => insertedShas.has(c.sha)),
+  };
+}
+
 // ─── Main reconcile entrypoint ──────────────────────────────────────────────
 
 /**
@@ -1025,10 +1071,30 @@ export async function releaseReconcileV2(
       }
 
       // ── pull_requests + pr_commits + pr_tasks ──
+      //
+      // FK safety (C3): pull_requests.headSha and pull_requests.mergeCommitSha
+      // are soft FKs to commits.sha (ON DELETE SET NULL) — but SQLite still
+      // enforces them at INSERT time. Likewise pr_commits.commitSha is a
+      // NOT NULL FK to commits.sha (ON DELETE CASCADE).
+      //
+      // The `commits` set in this transaction is `prevTag..tag` only. A PR
+      // can reference commits OUTSIDE that range:
+      //   - `headSha` (tip of the PR branch before merge) is typically NOT
+      //     in main's history at all — the merge commit replaces it.
+      //   - `mergeCommitSha` may reference an older release range when the
+      //     PR was merged before the current `since` boundary.
+      //   - PR `commits[]` from `gh api` may include rebased/old commits.
+      //
+      // For each FK reference we check membership in the inserted-commits
+      // set; if absent we either set the FK column to NULL (pullRequests)
+      // or skip the row entirely (prCommits — NOT NULL FK can't be NULLed).
+      const insertedShas = new Set<string>(commits.map((c) => c.sha));
       try {
         for (const pr of fetchedPRs) {
           const prId = `${projectHash}:${pr.prNumber}`;
           const isBumpPr = !!plan.prUrl && plan.prUrl.endsWith(`/pull/${pr.prNumber}`);
+          // Sanitise FK references — see `sanitisePrShasForFk` for the why.
+          const safePr = sanitisePrShasForFk(pr, insertedShas);
           await db
             .insert(schema.pullRequests)
             .values({
@@ -1040,8 +1106,8 @@ export async function releaseReconcileV2(
               state: pr.state,
               baseRef: pr.baseRef,
               headRef: pr.headRef,
-              headSha: pr.headSha,
-              mergeCommitSha: pr.mergeCommitSha,
+              headSha: safePr.headSha,
+              mergeCommitSha: safePr.mergeCommitSha,
               authorLogin: pr.authorLogin,
               openedAt: pr.openedAt,
               mergedAt: pr.mergedAt,
@@ -1058,8 +1124,8 @@ export async function releaseReconcileV2(
                 state: pr.state,
                 title: pr.title,
                 body: pr.body,
-                headSha: pr.headSha,
-                mergeCommitSha: pr.mergeCommitSha,
+                headSha: safePr.headSha,
+                mergeCommitSha: safePr.mergeCommitSha,
                 mergedAt: pr.mergedAt,
                 closedAt: pr.closedAt,
                 isReleasePr: isBumpPr ? 1 : 0,
@@ -1071,9 +1137,12 @@ export async function releaseReconcileV2(
             .run();
           txSize++;
 
-          // pr_commits — ordered
-          for (let i = 0; i < pr.commits.length; i++) {
-            const cm = pr.commits[i];
+          // pr_commits — ordered. `sanitisePrShasForFk` already filtered
+          // out commits not in the inserted-commits set (NOT NULL FK has
+          // no NULL alternative). Preserve original ordinal positions.
+          for (let i = 0; i < safePr.commits.length; i++) {
+            const cm = safePr.commits[i];
+            if (!cm) continue;
             await db
               .insert(schema.prCommits)
               .values({ prId, commitSha: cm.sha, position: i })
@@ -1118,6 +1187,12 @@ export async function releaseReconcileV2(
           const m = plan.prUrl.match(/\/pull\/(\d+)/);
           return m ? `${projectHash}:${m[1]}` : null;
         })();
+        // FK safety (C3): releasesNew.mergeCommitSha is a soft FK to
+        // commits.sha (ON DELETE SET NULL). If the plan references a
+        // commit not present in this range's commits set, NULL the FK to
+        // avoid violating the constraint at INSERT time.
+        const safeReleaseMergeSha =
+          plan.mergeCommitSha && insertedShas.has(plan.mergeCommitSha) ? plan.mergeCommitSha : null;
         await db
           .insert(schema.releasesNew)
           .values({
@@ -1129,7 +1204,7 @@ export async function releaseReconcileV2(
             releaseKind: plan.releaseKind,
             status: 'reconciled',
             previousVersion: plan.previousVersion,
-            mergeCommitSha: plan.mergeCommitSha ?? null,
+            mergeCommitSha: safeReleaseMergeSha,
             prId: bumpPrId,
             workflowRunUrl: plan.workflowRunUrl,
             plannedAt: plan.createdAt,
@@ -1142,7 +1217,7 @@ export async function releaseReconcileV2(
             set: {
               status: 'reconciled',
               reconciledAt: nowIso,
-              mergeCommitSha: plan.mergeCommitSha ?? null,
+              mergeCommitSha: safeReleaseMergeSha,
               workflowRunUrl: plan.workflowRunUrl,
             },
           })

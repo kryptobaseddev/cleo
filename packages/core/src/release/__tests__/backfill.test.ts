@@ -187,9 +187,9 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 2. Tag enumeration — `enumerateHistoricalTags` returns committer-date order
+  // 2. Tag enumeration — `enumerateHistoricalTags` returns creator-date order
   // ─────────────────────────────────────────────────────────────────────────
-  it('enumerateHistoricalTags returns tags in committer-date order, oldest first', async () => {
+  it('enumerateHistoricalTags returns tags in creator-date order, oldest first', async () => {
     await seedThreeReleases(projectRoot, ['T1001', 'T1002', 'T1003']);
     const tags = enumerateHistoricalTags('', projectRoot);
     expect(tags).toEqual(['v1.0.0', 'v1.1.0', 'v1.2.0']);
@@ -202,6 +202,50 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     await seedThreeReleases(projectRoot, ['T1001', 'T1002', 'T1003']);
     const tags = enumerateHistoricalTags('v1.0.0', projectRoot);
     expect(tags).toEqual(['v1.1.0', 'v1.2.0']);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 3a. Regression (C1): annotated tags must NOT be silently dropped.
+  // `git tag --list --sort=committerdate` filters annotated tags out
+  // because they have no committerdate of their own — the fix is to
+  // sort by `creatordate` which works for both annotated and lightweight
+  // tags. seedThreeReleases creates annotated tags via `git tag -a`,
+  // so this test verifies all 3 are returned.
+  // ─────────────────────────────────────────────────────────────────────────
+  it('enumerateHistoricalTags returns annotated tags (C1 regression)', async () => {
+    await seedThreeReleases(projectRoot, ['T1001', 'T1002', 'T1003']);
+    // Sanity: confirm the seed actually produces annotated (objecttype=tag)
+    // tags so this test would have caught the original committerdate bug.
+    const tagTypes = execFileSync('git', ['for-each-ref', '--format=%(objecttype)', 'refs/tags/'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+    })
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    expect(tagTypes.every((t: string) => t === 'tag')).toBe(true);
+
+    const tags = enumerateHistoricalTags('', projectRoot);
+    expect(tags).toEqual(['v1.0.0', 'v1.1.0', 'v1.2.0']);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 3b. Regression (C1): mixed annotated + lightweight tags both appear.
+  // ─────────────────────────────────────────────────────────────────────────
+  it('enumerateHistoricalTags returns mixed annotated + lightweight tags (C1 regression)', async () => {
+    await insertTasks(projectRoot, ['T1001', 'T1002']);
+    gitCommit(projectRoot, 'a.txt', 'a', 'feat(T1001): first');
+    // Annotated tag.
+    execFileSync('git', ['tag', '-a', 'v1.0.0', '-m', 'Release v1.0.0'], { cwd: projectRoot });
+    gitCommit(projectRoot, 'b.txt', 'b', 'feat(T1002): second');
+    // Lightweight tag (no -a, no -m).
+    execFileSync('git', ['tag', 'v1.1.0'], { cwd: projectRoot });
+    gitCommit(projectRoot, 'c.txt', 'c', 'chore: bump');
+    // Another annotated tag.
+    execFileSync('git', ['tag', '-a', 'v1.2.0', '-m', 'Release v1.2.0'], { cwd: projectRoot });
+
+    const tags = enumerateHistoricalTags('', projectRoot);
+    expect(tags).toEqual(['v1.0.0', 'v1.1.0', 'v1.2.0']);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

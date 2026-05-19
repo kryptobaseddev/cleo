@@ -7185,6 +7185,7 @@ export const OPERATIONS: OperationDef[] = [
         name: 'since',
         type: 'string',
         required: true,
+        allowEmpty: true,
         description:
           'Lower-bound version (exclusive). Empty string = walk every reachable tag from the beginning of history.',
       },
@@ -7686,9 +7687,22 @@ export function validateRequiredParams(
 ): string[] {
   if (!def.requiredParams || def.requiredParams.length === 0) return [];
   const provided = params || {};
-  return def.requiredParams.filter(
-    (key) => provided[key] === undefined || provided[key] === null || provided[key] === '',
-  );
+  // Build a quick lookup so we can honor per-param `allowEmpty` declarations.
+  // When a ParamDef sets `allowEmpty: true`, the empty string `""` is a
+  // valid value rather than "missing" — e.g. `provenance.backfill --since ""`
+  // walks every reachable tag from the beginning of history.
+  const allowEmptyKeys = new Set<string>();
+  if (def.params) {
+    for (const p of def.params) {
+      if (p.allowEmpty === true) allowEmptyKeys.add(p.name);
+    }
+  }
+  return def.requiredParams.filter((key) => {
+    const v = provided[key];
+    if (v === undefined || v === null) return true;
+    if (v === '' && !allowEmptyKeys.has(key)) return true;
+    return false;
+  });
 }
 
 /** Get all operations for a specific canonical domain. */
