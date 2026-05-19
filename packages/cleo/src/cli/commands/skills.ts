@@ -409,19 +409,6 @@ const doctorBridgeCommand = defineCommand({
   },
 });
 
-/**
- * cleo skills doctor — diagnose and repair skill storage topology (parent group, T9655).
- */
-const doctorCommand = defineCommand({
-  meta: {
-    name: 'doctor',
-    description: 'Diagnose and repair the skill storage topology',
-  },
-  subCommands: {
-    bridge: doctorBridgeCommand,
-  },
-});
-
 /** cleo skills spawn-providers — list providers capable of spawning subagents */
 const spawnProvidersCommand = defineCommand({
   meta: { name: 'spawn-providers', description: 'List providers capable of spawning subagents' },
@@ -439,6 +426,59 @@ const spawnProvidersCommand = defineCommand({
       'skill.spawn.providers',
       { capability: args.capability },
       { command: 'skills', operation: 'tools.skill.spawn.providers' },
+    );
+  },
+});
+
+/**
+ * `cleo skills doctor diagnose` — read-only health report (T9652).
+ *
+ * Reports canonical SSoT path state, legacy fallback presence, bridge symlink
+ * status, `~/.claude/skills/agents-shared/` link integrity, skills.db drift,
+ * and orphan directories. Performs zero writes.
+ */
+const doctorDiagnoseCommand = defineCommand({
+  meta: {
+    name: 'diagnose',
+    description: 'Read-only health report on skill storage, db drift, orphans, and bridge symlinks',
+  },
+  args: {
+    verbose: {
+      type: 'boolean',
+      description: 'Include per-skill detail in the rendered summary',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'tools',
+      'skill.doctor.diagnose',
+      { verbose: !!args.verbose },
+      { command: 'skills', operation: 'tools.skill.doctor.diagnose' },
+    );
+  },
+});
+
+/** cleo skills doctor — skill-store health + bridge/migrate subcommands (T9652, T9655). */
+const doctorCommand = defineCommand({
+  meta: {
+    name: 'doctor',
+    description:
+      'Skill-store health checks (diagnose, migrate, bridge — read-only diagnose only in T9652)',
+  },
+  subCommands: {
+    diagnose: doctorDiagnoseCommand,
+    bridge: doctorBridgeCommand,
+  },
+  async run({ cmd, rawArgs }) {
+    // Default to diagnose when no subcommand is given.
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
+    await dispatchFromCli(
+      'query',
+      'tools',
+      'skill.doctor.diagnose',
+      { verbose: false },
+      { command: 'skills', operation: 'tools.skill.doctor.diagnose' },
     );
   },
 });
