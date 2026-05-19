@@ -103,6 +103,9 @@ export async function saveJson(
     // Dispatch Notification hook (best-effort, fire-and-forget)
     import('../hooks/registry.js')
       .then(({ hooks: h }) =>
+        // CWD-OK: hook dispatch passes cwd as a tagged label for the hook
+        // payload, NOT a path used to write files under .cleo. Hooks log the
+        // dispatch cwd verbatim for observability.
         h.dispatch('Notification', process.cwd(), {
           timestamp: new Date().toISOString(),
           filePath,
