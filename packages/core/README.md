@@ -4,6 +4,8 @@ CLEO core business logic kernel **and canonical SDK surface** — tasks, session
 
 > **`@cleocode/core` IS the CLEO SDK.** There is no separate `@cleocode/cleo-sdk` package. The `Cleo` facade, domain namespaces, and flat free functions are all exposed through per-subpath exports that follow a CalVer stability contract. See [STABILITY.md](./STABILITY.md) for the full contract and `.dts-snapshots/` for the enforced baseline.
 
+For LLM agents and SDK consumers calling CORE operations directly (the recommended approach — no CLI subprocess overhead), see the **[CORE API Agent Guide](../../docs/api/CORE-API-AGENT-GUIDE.md)**.
+
 ## Quickstart
 
 ```ts
