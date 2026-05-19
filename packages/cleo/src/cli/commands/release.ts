@@ -516,8 +516,26 @@ const reconcileCommand = defineCommand({
       fromWorkflow: args['from-workflow'] === true,
       rollback: args.rollback === true,
     });
-    cliOutput(result, { command: 'release', operation: 'release.reconcile' });
-    if (!result.success) process.exit(1);
+    // releaseReconcileV2 returns an EngineResult discriminated union
+    // ({success:true,data} | {success:false,error}). Passing the union
+    // directly to cliOutput would double-wrap into {success:true,
+    // data:{success:false,error}}. Unwrap to surface the inner result
+    // as the canonical CLI envelope (T9686-A bug A3).
+    if (result.success) {
+      cliOutput(result.data, { command: 'release', operation: 'release.reconcile' });
+      return;
+    }
+    cliError(
+      result.error.message,
+      result.error.code,
+      {
+        name: result.error.code,
+        ...(result.error.details ? { details: result.error.details } : {}),
+        ...(result.error.fix ? { fix: result.error.fix } : {}),
+      },
+      { operation: 'release.reconcile' },
+    );
+    process.exit(1);
   },
 });
 
