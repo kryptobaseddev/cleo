@@ -13,18 +13,10 @@
  */
 
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { applyPerfPragmas } from '@cleocode/core';
+import { openCleoDbSnapshot } from '@cleocode/core';
 import type { Cookies } from '@sveltejs/kit';
 import { getCleoHome, getCleoProjectDir } from './cleo-home.js';
-
-const _require = createRequire(import.meta.url);
-type _DatabaseSync = _DatabaseSyncType;
-const { DatabaseSync } = _require('node:sqlite') as {
-  DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => _DatabaseSync;
-};
 
 /** Cookie name used to persist the active project selection. */
 export const PROJECT_COOKIE = 'cleo_project_id';
@@ -89,10 +81,11 @@ export function resolveProjectContext(projectId: string): ProjectContext | null 
     const nexusPath = join(getCleoHome(), 'nexus.db');
     if (!existsSync(nexusPath)) return null;
 
-    const db = new DatabaseSync(nexusPath, { open: true });
-    applyPerfPragmas(db); // T9045
+    // Read-only snapshot via chokepoint API (T9685-B3, ADR-068): the registry
+    // is read-only from Studio context — writes happen via the CLI.
+    const snap = openCleoDbSnapshot(nexusPath);
     try {
-      const row = db
+      const row = snap.db
         .prepare(
           'SELECT project_id, name, project_path, brain_db_path, tasks_db_path FROM project_registry WHERE project_id = ?',
         )
@@ -121,7 +114,7 @@ export function resolveProjectContext(projectId: string): ProjectContext | null 
         tasksDbExists: existsSync(tasksDbPath),
       };
     } finally {
-      db.close();
+      snap.close();
     }
   } catch {
     return null;
@@ -170,10 +163,11 @@ export function listRegisteredProjects(): Array<{
     const nexusPath = join(getCleoHome(), 'nexus.db');
     if (!existsSync(nexusPath)) return [];
 
-    const db = new DatabaseSync(nexusPath, { open: true });
-    applyPerfPragmas(db); // T9045
+    // Read-only snapshot via chokepoint API (T9685-B3, ADR-068): the registry
+    // is read-only from Studio context — writes happen via the CLI.
+    const snap = openCleoDbSnapshot(nexusPath);
     try {
-      const rows = db
+      const rows = snap.db
         .prepare(
           `SELECT
             project_id,
@@ -245,7 +239,7 @@ export function listRegisteredProjects(): Array<{
           };
         });
     } finally {
-      db.close();
+      snap.close();
     }
   } catch {
     return [];

@@ -5,10 +5,12 @@
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openCleoDb } from '../open-cleo-db.js';
+import { openCleoDb, openCleoDbSnapshot } from '../open-cleo-db.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,5 +92,87 @@ describe('openCleoDb', () => {
     expect(busyTimeout.busy_timeout ?? busyTimeout.timeout).toBe(5000);
 
     handle.close();
+  });
+});
+
+describe('openCleoDbSnapshot', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = makeTempDir();
+  });
+
+  afterEach(() => {
+    cleanupTempDir(tempDir);
+  });
+
+  /** Seed a tiny DB with one table so the snapshot opener has something to read. */
+  function seedDb(path: string): void {
+    const _require = createRequire(import.meta.url);
+    const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
+      DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSync>) => DatabaseSync;
+    };
+    const writer = new DatabaseSyncCtor(path);
+    writer.exec(`
+      CREATE TABLE rows (id INTEGER PRIMARY KEY, label TEXT NOT NULL);
+      INSERT INTO rows (label) VALUES ('alpha'), ('beta');
+    `);
+    writer.close();
+  }
+
+  it('opens an existing DB read-only and lets the caller query it', () => {
+    const dbPath = join(tempDir, 'snap.db');
+    seedDb(dbPath);
+
+    const snap = openCleoDbSnapshot(dbPath);
+    try {
+      expect(snap.path).toBe(dbPath);
+      const rows = snap.db.prepare('SELECT label FROM rows ORDER BY id').all() as Array<{
+        label: string;
+      }>;
+      expect(rows.map((r) => r.label)).toEqual(['alpha', 'beta']);
+    } finally {
+      snap.close();
+    }
+  });
+
+  it('applies pragma SSoT (busy_timeout, cache_size) on snapshot handles', () => {
+    const dbPath = join(tempDir, 'snap-pragma.db');
+    seedDb(dbPath);
+
+    const snap = openCleoDbSnapshot(dbPath);
+    try {
+      const busy = snap.db.prepare('PRAGMA busy_timeout').get() as {
+        busy_timeout?: number;
+        timeout?: number;
+      };
+      expect(busy.busy_timeout ?? busy.timeout).toBe(5000);
+    } finally {
+      snap.close();
+    }
+  });
+
+  it('close() is idempotent', () => {
+    const dbPath = join(tempDir, 'snap-close.db');
+    seedDb(dbPath);
+
+    const snap = openCleoDbSnapshot(dbPath);
+    snap.close();
+    // Second close MUST NOT throw.
+    expect(() => snap.close()).not.toThrow();
+  });
+
+  it('rejects writes when opened in default (readOnly) mode', () => {
+    const dbPath = join(tempDir, 'snap-readonly.db');
+    seedDb(dbPath);
+
+    const snap = openCleoDbSnapshot(dbPath);
+    try {
+      expect(() => {
+        snap.db.exec("INSERT INTO rows (label) VALUES ('gamma')");
+      }).toThrow();
+    } finally {
+      snap.close();
+    }
   });
 });
