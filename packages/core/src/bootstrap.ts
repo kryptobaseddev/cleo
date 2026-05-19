@@ -15,6 +15,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readlink, rename, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, normalize } from 'node:path';
+import { resolveLegacyCleoDir } from '@cleocode/paths';
 import {
   getAgentsHome,
   getCanonicalTemplatesTildePath,
@@ -140,7 +141,7 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
 export async function ensureCleoSymlink(ctx: BootstrapContext): Promise<void> {
   if (ctx.isDryRun) return;
 
-  const legacyPath = join(homedir(), '.cleo');
+  const legacyPath = resolveLegacyCleoDir();
   const canonicalTarget = getCleoHome();
   const linkType: 'dir' | 'junction' = process.platform === 'win32' ? 'junction' : 'dir';
 
@@ -759,7 +760,7 @@ async function verifyBootstrapHealth(ctx: BootstrapContext): Promise<void> {
 
     // Check 2: ~/.cleo symlink integrity. On fresh installs Step 0.5 created
     // the link; here we verify it stayed intact (user didn't replace it).
-    const legacyPath = join(homedir(), '.cleo');
+    const legacyPath = resolveLegacyCleoDir();
     const canonicalTarget = getCleoHome();
     if (existsSync(legacyPath)) {
       const stat = lstatSync(legacyPath);

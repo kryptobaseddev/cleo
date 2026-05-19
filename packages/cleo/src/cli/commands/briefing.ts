@@ -16,8 +16,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { resolveLegacyCleoDir } from '@cleocode/paths';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
@@ -57,7 +57,7 @@ type AdapterFormat = (typeof ADAPTER_FORMATS)[number];
  * without XDG_CONFIG_HOME set.
  */
 function resolveInjectionTemplatePath(): string {
-  const xdgConfig = process.env['XDG_CONFIG_HOME'] ?? join(homedir(), '.cleo');
+  const xdgConfig = resolveLegacyCleoDir(process.env['XDG_CONFIG_HOME']);
   return join(xdgConfig, 'templates', 'CLEO-INJECTION.md');
 }
 
