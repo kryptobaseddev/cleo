@@ -33,12 +33,14 @@ import {
   injectAll,
   installSkill,
   removeSkill,
+  type SkillRowData,
 } from '@cleocode/caamp';
 import { AdapterManager } from '../adapters/index.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { type HookEvent, isProviderHookEvent } from '../hooks/types.js';
 import { collectDiagnostics } from '../issue/diagnostics.js';
 import { paginate } from '../pagination.js';
+import { upsertSkillRow } from '../store/skills-db.js';
 
 /** Shape for provider hook info returned by queryHookProviders. */
 interface ProviderHookInfo {
@@ -451,6 +453,51 @@ export async function toolsSkillPrecedenceResolve(
 // ---------------------------------------------------------------------------
 
 /**
+ * Record a successful canonical-skill install in `~/.cleo/skills.db`.
+ *
+ * @remarks
+ * Adapter that lifts the caamp-defined {@link SkillRowData} payload into
+ * core's `upsertSkillRow` insert shape. Per T9659 / architecture-v3 §1,
+ * caamp must NEVER import `@cleocode/core` — instead it emits this row
+ * shape and core (here, in the engine layer) plugs the DB write.
+ *
+ * Failures are logged to stderr and swallowed: the canonical install on
+ * disk is authoritative, so a missing `skills.db` row should NEVER block
+ * a user's install. The follow-up `cleo skills doctor` sweep will
+ * reconcile any drift.
+ *
+ * @param row - The provenance payload emitted by `installSkill`.
+ *
+ * @task T9659
+ */
+async function skillsDbRecorder(row: SkillRowData): Promise<void> {
+  try {
+    await upsertSkillRow({
+      name: row.name,
+      sourceType: row.sourceType,
+      sourceUrl: row.sourceUrl,
+      installPath: row.installPath,
+      // `canonical_path` mirrors `install_path` for the new SSoT — both
+      // point at `~/.cleo/skills/<name>/`. Sphere B rows that are NOT under
+      // the SSoT keep canonicalPath null per architecture-v3 §4.
+      canonicalPath: row.sourceType === 'canonical' ? row.installPath : null,
+      installedAt: new Date().toISOString(),
+      lastUpdatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    // Log + continue — DB write is best-effort. Surfaced via stderr (not
+    // the logger module) to avoid pulling pino into install hot-paths and
+    // to keep visibility in CLI output. The canonical install on disk is
+    // the authoritative artefact; `cleo skills doctor` reconciles drift.
+    process.stderr.write(
+      `[skills] failed to record skill row for ${row.name}: ${
+        error instanceof Error ? error.message : String(error)
+      }\n`,
+    );
+  }
+}
+
+/**
  * Install a skill to one or more providers.
  */
 export async function toolsSkillInstall(
@@ -486,10 +533,18 @@ export async function toolsSkillInstall(
     const results: Array<{ providerId: string; success: boolean; errors: string[] }> = [];
     const errors: string[] = [];
 
+    // Classify provenance ONCE: `library:<name>` is Sphere A canonical;
+    // anything else is heuristically inferred (community/user) in
+    // installSkill via the recordRow contract.
+    const isCanonical = resolvedSource.startsWith('library:');
     for (const target of targets) {
       const provider = providers.find((p: { id: string }) => p.id === target.providerId);
       if (!provider) continue;
-      const result = await installSkill(resolvedSource, name, [provider], globalFlag, projectRoot);
+      const result = await installSkill(resolvedSource, name, [provider], globalFlag, projectRoot, {
+        recordRow: skillsDbRecorder,
+        sourceUrl: resolvedSource,
+        sourceType: isCanonical ? 'canonical' : undefined,
+      });
       results.push({ providerId: target.providerId, ...result });
       if (!result.success) {
         errors.push(`${target.providerId}: ${result.errors.join('; ')}`);
@@ -584,6 +639,11 @@ export async function toolsSkillRefresh(projectRoot: string): Promise<
           providers,
           entry.isGlobal,
           entry.projectDir ?? projectRoot,
+          {
+            recordRow: skillsDbRecorder,
+            sourceUrl: src,
+            sourceType: entry.sourceType === 'library' ? 'canonical' : undefined,
+          },
         );
         if (result.success) {
           updated.push(name);
