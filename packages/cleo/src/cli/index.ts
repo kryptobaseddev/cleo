@@ -37,7 +37,12 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type CommandDef, defineCommand, runMain } from 'citty';
+import {
+  type CommandDef,
+  type showUsage as cittyShowUsage,
+  defineCommand,
+  runCommand,
+} from 'citty';
 
 // NOTE: `@cleocode/core/internal` is a 2018-line barrel re-exporting 406
 // symbols. A top-level eager import here transitively loads the entire CORE
@@ -227,7 +232,112 @@ async function startCli(): Promise<void> {
     }
   }
 
-  runMain(main, { showUsage: customShowUsage });
+  await runMainWithLafsEnvelope(main, argv, customShowUsage);
+}
+
+/** Structural shape of citty's `CLIError` class. */
+interface CittyCliError extends Error {
+  readonly name: 'CLIError';
+  readonly code: string;
+}
+
+/**
+ * Type-guard for citty's `CLIError`. Returns the value when it has both
+ * `name === 'CLIError'` AND a string `code` (e.g. `'EARG'`), else `null`.
+ *
+ * @internal
+ */
+function asCittyCliError(value: unknown): CittyCliError | null {
+  if (!(value instanceof Error)) return null;
+  if (value.name !== 'CLIError') return null;
+  if (!('code' in value)) return null;
+  const code = (value as Error & { code: unknown }).code;
+  if (typeof code !== 'string') return null;
+  return value as CittyCliError;
+}
+
+/**
+ * Drop-in replacement for citty's `runMain` that ALWAYS emits a LAFS envelope
+ * on error.
+ *
+ * Why this exists (T9633): citty's default `runMain` catches `CLIError` (e.g.
+ * "Missing required argument: --for"), prints `showUsage` plus the raw error
+ * message via `console.error`, then calls `process.exit(1)`. NO LAFS envelope
+ * is emitted on stdout — violating ADR-039, which requires every CLI
+ * invocation to produce a structured `{success, error, meta}` envelope so
+ * agents can react to failures programmatically. Before this fix, callers
+ * piping `cleo ... | jq` against an argument-validation error got zero JSON
+ * bytes on stdout and a non-zero exit with no machine-readable reason.
+ *
+ * Behaviour:
+ *   - `--help` / `-h`         → render `showUsage`, exit 0  (unchanged)
+ *   - `--version` / `-V`      → print `meta.version`, exit 0 (unchanged)
+ *   - successful command run  → command emits its own envelope, exit 0
+ *   - citty `CLIError`        → render usage to stderr THEN emit
+ *                               LAFS error envelope on stdout via
+ *                               `cliError`, exit 1
+ *   - any other thrown error  → emit LAFS error envelope on stdout,
+ *                               exit 1
+ *
+ * @internal
+ */
+async function runMainWithLafsEnvelope(
+  cmd: CommandDef,
+  rawArgs: string[],
+  showUsage: typeof cittyShowUsage,
+): Promise<void> {
+  const helpFlags = ['--help', '-h'];
+  const versionFlags = ['--version', '-V'];
+
+  // Help fast-path — preserve citty's behaviour by calling the caller-supplied
+  // showUsage (which routes through createCustomShowUsage for grouped output).
+  if (rawArgs.some((a) => helpFlags.includes(a))) {
+    await showUsage(cmd);
+    process.exit(0);
+  }
+
+  // Version fast-path — only when --version is the SOLE token.
+  if (rawArgs.length === 1 && versionFlags.includes(rawArgs[0]!)) {
+    const meta = typeof cmd.meta === 'function' ? await cmd.meta() : await cmd.meta;
+    const version = (meta as { version?: string } | undefined)?.version;
+    if (!version) {
+      // Should never happen — startCli sets meta.version unconditionally.
+      const { cliError } = await import('./renderers/index.js');
+      cliError('No version specified', 1, { name: 'E_NO_VERSION' });
+      process.exit(1);
+    }
+    // Match citty's plain-text version output for backward compat with scripts
+    // that grep for the version string. The `cleo --version` agent path was
+    // already handled earlier in startCli via cliOutput.
+    process.stdout.write(`${version}\n`);
+    process.exit(0);
+  }
+
+  try {
+    await runCommand(cmd, { rawArgs });
+  } catch (err) {
+    const { cliError } = await import('./renderers/index.js');
+    // Citty's CLIError extends Error with a string `code` (e.g. 'EARG') and
+    // sets `name === 'CLIError'`. Narrow without lying to the type system.
+    const cittyCliError = asCittyCliError(err);
+
+    if (cittyCliError) {
+      // Do NOT render citty's usage block here — `createCustomShowUsage` uses
+      // `console.log` (stdout), which would corrupt the JSON envelope below.
+      // The envelope's `fix` field tells humans how to recover; agents key
+      // off `codeName`. Help is one `cleo <cmd> --help` away.
+      cliError(cittyCliError.message, 1, {
+        name: cittyCliError.code === 'EARG' ? 'E_VALIDATION' : `E_${cittyCliError.code}`,
+        fix: `Run 'cleo <command> --help' to see required arguments.`,
+      });
+      process.exit(1);
+    }
+
+    // Non-citty error path — still must emit an envelope.
+    const message = err instanceof Error ? err.message : String(err);
+    cliError(message, 1, { name: 'E_CLI_UNCAUGHT' });
+    process.exit(1);
+  }
 }
 
 /**
