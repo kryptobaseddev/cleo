@@ -190,14 +190,6 @@ export {
   getAccessor,
   getTaskAccessor,
 } from './store/data-accessor.js';
-
-// Canonical pragma application — exposed for cross-package consumers (brain, studio, cleo)
-// that cannot access @cleocode/core/internal (T9045).
-export {
-  applyPerfPragmas,
-  type PerfPragmaOptions,
-} from './store/sqlite-pragmas.js';
-
 // Snapshot opener — readonly + no-migration DB opens that route through the
 // chokepoint API instead of bare DatabaseSync calls (T9685-B3, ADR-068).
 export {
@@ -205,6 +197,12 @@ export {
   type CleoDbSnapshotOptions,
   openCleoDbSnapshot,
 } from './store/open-cleo-db.js';
+// Canonical pragma application — exposed for cross-package consumers (brain, studio, cleo)
+// that cannot access @cleocode/core/internal (T9045).
+export {
+  applyPerfPragmas,
+  type PerfPragmaOptions,
+} from './store/sqlite-pragmas.js';
 
 // ---------------------------------------------------------------------------
 // Top-level utility exports (widely used, unique names)

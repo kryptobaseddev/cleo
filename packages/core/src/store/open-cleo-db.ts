@@ -250,9 +250,7 @@ export function openCleoDbSnapshot(
   // node:sqlite is a CJS-only built-in; createRequire keeps this ESM-safe.
   const _require = createRequire(import.meta.url);
   const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
-    DatabaseSync: new (
-      ...args: ConstructorParameters<typeof DatabaseSync>
-    ) => DatabaseSync;
+    DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSync>) => DatabaseSync;
   };
 
   const db = new DatabaseSyncCtor(path, { readOnly });

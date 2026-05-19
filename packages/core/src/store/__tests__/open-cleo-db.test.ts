@@ -110,9 +110,7 @@ describe('openCleoDbSnapshot', () => {
   function seedDb(path: string): void {
     const _require = createRequire(import.meta.url);
     const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
-      DatabaseSync: new (
-        ...args: ConstructorParameters<typeof DatabaseSync>
-      ) => DatabaseSync;
+      DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSync>) => DatabaseSync;
     };
     const writer = new DatabaseSyncCtor(path);
     writer.exec(`
