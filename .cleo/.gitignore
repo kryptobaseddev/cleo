@@ -58,6 +58,10 @@
 !verifiers/
 !verifiers/**
 
+# Step 9: Allow CORE-first architecture baseline (T9622 — tracks known violations for
+# incremental migration. Shrinks to zero as T9616-T9621 land.)
+!core-first-baseline.json
+
 # =============================================================================
 # EXPLICIT DENY — safety net that overrides allow rules above
 # =============================================================================
