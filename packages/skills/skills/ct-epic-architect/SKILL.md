@@ -6,6 +6,10 @@ tier: 1
 core: false
 category: recommended
 protocol: decomposition
+loomStage: decomposition
+adrRefs:
+  - ADR-066
+  - ADR-073
 dependencies: []
 sharedResources:
   - subagent-protocol-base
@@ -329,3 +333,14 @@ Recommendation: [Your recommendation]
 | 6 | Validation | Escape `$` as `\$`, check fields |
 
 **Shell Escaping**: Always `\$` in `--notes`/`--description`. See [shell-escaping.md](references/shell-escaping.md).
+
+---
+
+## See also / References
+
+This skill binds to the **decomposition** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-066 — task taxonomy consolidation](../../../../.cleo/adrs/ADR-066-task-taxonomy-consolidation.md) — defines the Type/Kind/Severity axes the decomposer must populate on every leaf task.
+- [ADR-073 — above-epic naming](../../../../.cleo/adrs/ADR-073-above-epic-naming.md) — defines the Saga/Epic/Task/Subtask hierarchy that decomposition produces.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
