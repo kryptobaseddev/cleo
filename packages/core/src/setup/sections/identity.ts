@@ -8,6 +8,12 @@
  *     scoped to the current project. Future Studio/CLI surfaces can
  *     read it via the standard config layer.
  *
+ * V2 additions (T9610):
+ *   - `isConfigured()` — returns `true` when `agent.name` is already set.
+ *   - Current-value display before prompting (GEN-7).
+ *   - SignalDock registration note (IDENT-5).
+ *   - Section description printed before prompts (GEN-6).
+ *
  * Non-interactive contract:
  *   - `options.nonInteractive === true` + `options.agentName` →
  *     writes the name and (optionally) SOUL.md content; no prompts.
@@ -15,12 +21,15 @@
  *     section short-circuits silently (`changed: false`).
  *
  * @task T9420
+ * @task T9610
  * @epic T9402
+ * @epic T9591
+ * @see docs/plans/E-CLEO-SETUP-V2.md §4.2
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { setConfigValue } from '../../config.js';
+import { getConfigValue, setConfigValue } from '../../config.js';
 import { getCleoDirAbsolute } from '../../paths.js';
 import type { WizardIO, WizardOptions, WizardSectionRunner } from '../wizard.js';
 
@@ -32,13 +41,41 @@ const SOUL_RELATIVE_PATH = 'SOUL.md';
  *
  * @returns A {@link WizardSectionRunner} for the identity section.
  * @task T9420
+ * @task T9610
  */
 export function createIdentitySection(): WizardSectionRunner {
   return {
     section: 'identity',
     title: 'Agent identity (name + optional SOUL.md persona)',
     optional: true,
+
+    /**
+     * Returns `true` when `agent.name` is set in global config (IDENT-6).
+     *
+     * @param options - Current invocation options (for `projectRoot`).
+     * @returns `true` when already configured.
+     */
+    async isConfigured(options: WizardOptions): Promise<boolean> {
+      const resolved = await getConfigValue<string>('agent.name', options.projectRoot);
+      return typeof resolved.value === 'string' && resolved.value.trim().length > 0;
+    },
+
     async run(io: WizardIO, options: WizardOptions) {
+      // GEN-6: Section description.
+      io.info(
+        'Configures the agent display name written to `agent.name` in the global config\n' +
+          'and an optional SOUL.md persona block scoped to this project (.cleo/SOUL.md).\n' +
+          'SignalDock identity registration is prompted at the end of this section.',
+      );
+
+      // GEN-7: Display current value.
+      const currentName = await getConfigValue<string>('agent.name', options.projectRoot);
+      if (typeof currentName.value === 'string' && currentName.value.trim().length > 0) {
+        io.info(`Current agent name: ${currentName.value} (source: ${currentName.source})`);
+      } else {
+        io.info('Current agent name: (not set)');
+      }
+
       if (options.nonInteractive === true) {
         if (!options.agentName) {
           return { changed: false, summary: 'skipped (non-interactive: --agent-name required)' };
@@ -48,6 +85,10 @@ export function createIdentitySection(): WizardSectionRunner {
           options.soulMdContent ?? null,
           options.projectRoot,
         );
+        // IDENT-5 non-interactive: if signaldockAutoConnect, emit the note.
+        if (options.signaldockAutoConnect === true) {
+          io.info('To register a SignalDock identity, run: cleo signaldock connect');
+        }
         return summariseWrites(writes);
       }
 
@@ -62,6 +103,15 @@ export function createIdentitySection(): WizardSectionRunner {
       if (wantsSoul) {
         const entered = (await io.prompt('Paste SOUL.md content (single line ok):')).trim();
         soulContent = entered === '' ? null : entered;
+      }
+
+      // IDENT-5: SignalDock registration prompt.
+      const wantsSignalDock = await io.confirm(
+        'Register a SignalDock identity for this agent?',
+        false,
+      );
+      if (wantsSignalDock) {
+        io.info('To register a SignalDock identity, run: cleo signaldock connect');
       }
 
       const writes = await applyIdentity(name, soulContent, options.projectRoot);

@@ -7,6 +7,12 @@
  *   3. Accept an API key via `--api-key` *or* via interactive prompt.
  *   4. Write the result to the credential pool — never to config.
  *
+ * V2 additions (T9610):
+ *   - `isConfigured()` — returns `true` when pool has at least one entry (LLM-7).
+ *   - Bracketed paste sanitization on API key input (LLM-4).
+ *   - Pool-seeding consent prompt after key entry (LLM-5).
+ *   - Section description printed before prompts (GEN-6).
+ *
  * Non-interactive contract:
  *   - `options.nonInteractive === true` + `options.provider` + `options.apiKey`
  *     → write key to pool; no prompts.
@@ -14,9 +20,13 @@
  *     section short-circuits silently (`changed: false`).
  *
  * @task T9420
+ * @task T9610
  * @epic T9402
+ * @epic T9591
+ * @see docs/plans/E-CLEO-SETUP-V2.md §4.3
  */
 
+import { setConfigValue } from '../../config.js';
 import { getCredentialPool } from '../../llm/credential-pool.js';
 import { addCredential } from '../../llm/credentials-store.js';
 import type { WizardIO, WizardOptions, WizardSectionRunner } from '../wizard.js';
@@ -40,6 +50,11 @@ const INTERACTIVE_PROVIDERS = [
 ] as const;
 
 /**
+ * Providers that support pool seeding consent prompt (LLM-5).
+ */
+const POOL_SEEDING_PROVIDERS = new Set<string>(['anthropic', 'openrouter']);
+
+/**
  * Resolved authentication mechanism for a freshly entered API key.
  *
  * `'api_key'` covers every provider we wire today; `'oauth_login'` is a
@@ -47,6 +62,22 @@ const INTERACTIVE_PROVIDERS = [
  * login <provider>` instead of writing a raw key".
  */
 type LlmAuthMode = 'api_key' | 'oauth_login';
+
+/**
+ * Strip bracketed paste mode escape sequences from user input (LLM-4).
+ *
+ * Terminal emulators wrap pasted content with `\x1b[200~` (start) and
+ * `\x1b[201~` (end) when bracketed paste mode is enabled. These must be
+ * removed before persisting an API key, otherwise the key will include
+ * the raw escape bytes and authentication will fail.
+ *
+ * @param input - Raw string as received from the readline prompt.
+ * @returns Cleaned string with bracketed paste sequences stripped.
+ * @internal
+ */
+function stripBracketedPaste(input: string): string {
+  return input.replace(/\x1b\[200~/g, '').replace(/\x1b\[201~/g, '');
+}
 
 /**
  * Build the `llm` section runner.
@@ -57,14 +88,38 @@ type LlmAuthMode = 'api_key' | 'oauth_login';
  *
  * @returns A {@link WizardSectionRunner} for the LLM section.
  * @task T9420
+ * @task T9610
  */
 export function createLlmSection(): WizardSectionRunner {
   return {
     section: 'llm',
     title: 'LLM provider + API key',
     optional: false,
+
+    /**
+     * Returns `true` when the credential pool has at least one entry (LLM-7).
+     *
+     * @returns `true` when already configured.
+     */
+    async isConfigured(_options: WizardOptions): Promise<boolean> {
+      try {
+        const pool = getCredentialPool();
+        const entries = await pool.list();
+        return entries.length > 0;
+      } catch {
+        return false;
+      }
+    },
+
     async run(io: WizardIO, options: WizardOptions) {
-      // 1. Show what's already configured.
+      // GEN-6: Section description.
+      io.info(
+        'Configures LLM provider credentials stored in the credential pool (brain.db).\n' +
+          'Credentials are never written to config files — they live in the encrypted pool.\n' +
+          'Supports: anthropic, openai, gemini, openrouter, moonshot, deepseek, xai, groq, ollama.',
+      );
+
+      // 1. Show what's already configured (GEN-7 / LLM-1).
       try {
         const pool = getCredentialPool();
         const entries = await pool.list();
@@ -96,7 +151,14 @@ export function createLlmSection(): WizardSectionRunner {
             summary: 'skipped (non-interactive: --provider and --api-key required)',
           };
         }
-        await persistApiKey(options.provider, options.apiKey, options.label ?? 'cli-input');
+        const cleanKey = stripBracketedPaste(options.apiKey);
+        await persistApiKey(options.provider, cleanKey, options.label ?? 'cli-input');
+        // LLM-6: optionally write pool seeding consent.
+        if (options.poolSeedingConsent !== undefined) {
+          await setConfigValue('auth.poolSeedingConsent', options.poolSeedingConsent, undefined, {
+            global: true,
+          });
+        }
         return {
           changed: true,
           summary: `added ${options.provider}:${options.label ?? 'cli-input'} to pool`,
@@ -127,13 +189,28 @@ export function createLlmSection(): WizardSectionRunner {
       // 4. Interactive API-key entry.
       const label =
         (await io.prompt('Label for this credential [default: cli-input]:')) || 'cli-input';
-      const apiKey = (await io.prompt('API key (input not echoed in production):')).trim();
+      const rawApiKey = (await io.prompt('API key (input not echoed in production):')).trim();
+      // LLM-4: strip bracketed paste sequences.
+      const apiKey = stripBracketedPaste(rawApiKey);
       if (apiKey === '') {
         io.warn('No API key supplied — leaving section unchanged.');
         return { changed: false, summary: 'skipped (empty api key)' };
       }
 
       await persistApiKey(provider, apiKey, label);
+
+      // LLM-5: Pool-seeding consent for supported providers.
+      if (POOL_SEEDING_PROVIDERS.has(provider)) {
+        const consent = await io.confirm(
+          "Consent to including this key in CLEO's credential pool for multi-agent distribution?",
+          false,
+        );
+        await setConfigValue('auth.poolSeedingConsent', consent, undefined, { global: true });
+        io.info(
+          `Pool-seeding consent: ${consent ? 'granted' : 'denied'} (saved to auth.poolSeedingConsent)`,
+        );
+      }
+
       return { changed: true, summary: `added ${provider}:${label} to pool` };
     },
   };

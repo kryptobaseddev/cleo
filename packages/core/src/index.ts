@@ -393,6 +393,8 @@ export {
   resolveGitDir,
   resolveHooksDir,
 } from './git/hooks-install.js';
+// T9621 — HookMatrixResult promoted to public API for doctor.ts CORE-first migration
+export type { HookMatrixResult } from './hooks/engine-ops.js';
 // Hooks
 export { HookRegistry, hooks } from './hooks/registry.js';
 // Lifecycle

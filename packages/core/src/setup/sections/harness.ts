@@ -9,6 +9,12 @@
  *   - `'claude-code'` — Claude Code CLI as the harness (auto-injects
  *                       `AGENTS.md`, triggers tier-1 dedup).
  *
+ * V2 additions (T9610):
+ *   - `isConfigured()` — returns `true` when `harness.active` is set (HARN-6).
+ *   - Pi URL prompt when `pi` is selected (HARN-3).
+ *   - Claude Code note when `claude-code` is selected (HARN-4).
+ *   - Section description printed before prompts (GEN-6).
+ *
  * The wizard surfaces the *currently active* harness from `CLEO_HARNESS`
  * (falling back to `'unknown'` — mirrors `packages/core/src/status/index.ts`)
  * and then asks the operator to pick the canonical value. The selection
@@ -21,15 +27,25 @@
  *   - `options.nonInteractive === true` + `options.harness` →
  *     persist that value to global config; no prompts.
  *   - Missing `--harness` under `--non-interactive` →
- *     section short-circuits silently (`changed: false`).
+ *     section short-circuits with error.
  *
  * @task T9425
+ * @task T9610
  * @epic T9402
+ * @epic T9591
+ * @see docs/plans/E-CLEO-SETUP-V2.md §4.5 (HARN-1 through HARN-6)
  * @see docs/plans/E-CONFIG-AUTH-UNIFY.md §5.3 T-E3-6
  */
 
-import { setConfigValue } from '../../config.js';
+import { getConfigValue, setConfigValue } from '../../config.js';
 import type { WizardIO, WizardOptions, WizardSectionRunner } from '../wizard.js';
+
+/**
+ * Default Pi process URL (HARN-3).
+ *
+ * Used as the default when prompting for the Pi URL.
+ */
+const DEFAULT_PI_URL = 'http://localhost:7800';
 
 /**
  * Allowed harness values the wizard offers + persists.
@@ -49,17 +65,56 @@ const HARNESS_CHOICES = ['pi', 'claude-code'] as const;
 export type WizardHarness = (typeof HARNESS_CHOICES)[number];
 
 /**
+ * Validate a URL string is a valid HTTP(S) URL.
+ *
+ * Used for Pi URL validation per HARN-3.
+ *
+ * @param raw - String to validate.
+ * @returns `true` when the string is a valid HTTP or HTTPS URL.
+ * @internal
+ */
+function isValidHttpUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Build the `harness` section runner.
  *
  * @returns A {@link WizardSectionRunner} for the harness section.
  * @task T9425
+ * @task T9610
  */
 export function createHarnessSection(): WizardSectionRunner {
   return {
     section: 'harness',
     title: 'Active harness (Pi vs Claude Code)',
     optional: true,
+
+    /**
+     * Returns `true` when `harness.active` is set in global config (HARN-6).
+     *
+     * @param options - Current invocation options (for `projectRoot`).
+     * @returns `true` when already configured.
+     */
+    async isConfigured(options: WizardOptions): Promise<boolean> {
+      const resolved = await getConfigValue<string>('harness.active', options.projectRoot);
+      return typeof resolved.value === 'string' && resolved.value.trim().length > 0;
+    },
+
     async run(io: WizardIO, options: WizardOptions) {
+      // GEN-6: Section description.
+      io.info(
+        'Configures the active harness written to `harness.active` in the global config.\n' +
+          'Pi harness is recommended for headless/Docker environments.\n' +
+          'Claude Code harness auto-injects AGENTS.md and triggers tier-1 dedup.',
+      );
+
+      // GEN-7 / HARN-1: Display current harness.
       const current = readActiveHarness();
       io.info(`Current harness: ${current}`);
 
@@ -81,9 +136,49 @@ export function createHarnessSection(): WizardSectionRunner {
 
       await setConfigValue('harness.active', choice, options.projectRoot, { global: true });
 
+      const fragments: string[] = [`set harness.active=${choice} (was ${current})`];
+
+      // HARN-3: Pi URL prompt when pi is selected.
+      if (choice === 'pi') {
+        if (options.nonInteractive === true) {
+          // Non-interactive: no URL prompt; use default.
+          io.info(
+            `Pi URL defaults to ${DEFAULT_PI_URL}. Set CLEO_PI_URL or run 'cleo setup --section harness' to change.`,
+          );
+        } else {
+          const currentPiUrl = await getConfigValue<string>('harness.piUrl', options.projectRoot);
+          const piUrlDefault =
+            typeof currentPiUrl.value === 'string' && currentPiUrl.value.trim().length > 0
+              ? currentPiUrl.value
+              : DEFAULT_PI_URL;
+          io.info(`Current Pi URL: ${piUrlDefault}`);
+
+          const rawPiUrl = (await io.prompt(`Pi process URL [default: ${piUrlDefault}]:`)).trim();
+          const piUrl = rawPiUrl === '' ? piUrlDefault : rawPiUrl;
+
+          if (!isValidHttpUrl(piUrl)) {
+            io.warn(
+              `Invalid Pi URL '${piUrl}' — must be a valid HTTP(S) URL. Using default: ${piUrlDefault}`,
+            );
+            await setConfigValue('harness.piUrl', piUrlDefault, options.projectRoot, {
+              global: true,
+            });
+            fragments.push(`set harness.piUrl=${piUrlDefault} (invalid input, used default)`);
+          } else {
+            await setConfigValue('harness.piUrl', piUrl, options.projectRoot, { global: true });
+            fragments.push(`set harness.piUrl=${piUrl}`);
+          }
+        }
+      }
+
+      // HARN-4: Claude Code note when claude-code is selected.
+      if (choice === 'claude-code') {
+        io.info('Ensure `claude` is on your PATH. Run `cleo harness doctor` to verify.');
+      }
+
       return {
         changed: true,
-        summary: `set harness.active=${choice} (was ${current})`,
+        summary: fragments.join(' + '),
       };
     },
   };
