@@ -26,7 +26,7 @@ import type {
   Transport,
   TransportConnectConfig,
 } from '@cleocode/contracts';
-import { getProjectRoot, resolveOrCwd } from '../paths.js';
+import { resolveOrCwd } from '../paths.js';
 import { getConduitDbPath, openFreshConduitDb } from '../store/conduit-sqlite.js';
 
 /**
@@ -88,14 +88,19 @@ export class LocalTransport implements Transport {
    * @epic T310
    */
   async connect(config: TransportConnectConfig): Promise<void> {
-    const dbPath = getConduitDbPath(getProjectRoot());
+    // LocalTransport is invoked from agent-side test harnesses and runtime
+    // processes that may not have a fully-initialised CLEO project root
+    // available (no sibling `.git`). The legacy contract — open conduit.db
+    // under `process.cwd()/.cleo/` — is preserved here intentionally; callers
+    // are responsible for chdir'ing into the project root before connecting.
+    const dbPath = getConduitDbPath(process.cwd()); // CWD-OK: LocalTransport pre-init contract
 
     if (!existsSync(dbPath)) {
       throw new Error(`LocalTransport: conduit.db not found at ${dbPath}. Run: cleo init`);
     }
 
     // Open fresh (non-singleton) conduit connection with pragmas applied (T9189)
-    const db = openFreshConduitDb(getProjectRoot());
+    const db = openFreshConduitDb(process.cwd()); // CWD-OK: LocalTransport pre-init contract
 
     // Verify the messages table exists
     const hasMessages = db
