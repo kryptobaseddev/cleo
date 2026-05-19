@@ -18,6 +18,16 @@
  *   strictness?: 'strict' | 'standard' | 'minimal',
  *   harness?: 'pi' | 'claude-code',
  *   brainBridgeMode?: 'digest' | 'file' | 'disabled',
+ *   brainRetentionDays?: number,
+ *   brainEmbeddingEnabled?: boolean,
+ *   signaldockEnabled?: boolean,
+ *   signaldockEndpoint?: string,
+ *   studioEnabled?: boolean,
+ *   conduitPath?: string,
+ *   poolSeedingConsent?: boolean,
+ *   acEnforcementMode?: 'block' | 'warn' | 'off',
+ *   sessionAutoStart?: boolean,
+ *   signaldockAutoConnect?: boolean,
  *   projectRoot?: string,
  * }
  * ```
@@ -92,6 +102,8 @@ const ALLOWED_SECTIONS: ReadonlySet<WizardSection> = new Set<WizardSection>([
   'sentient',
   'project-conventions',
   'brain',
+  'integrations',
+  'verification',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -205,6 +217,31 @@ function buildOptions(body: Record<string, unknown>): WizardOptions {
   }
 
   if (typeof body['projectRoot'] === 'string') options.projectRoot = body['projectRoot'];
+
+  // --- V2 fields (E-CLEO-SETUP-V2 §3.2 / T9614) ---
+
+  if (typeof body['brainRetentionDays'] === 'number')
+    options.brainRetentionDays = body['brainRetentionDays'];
+  if (typeof body['brainEmbeddingEnabled'] === 'boolean')
+    options.brainEmbeddingEnabled = body['brainEmbeddingEnabled'];
+  if (typeof body['signaldockEnabled'] === 'boolean')
+    options.signaldockEnabled = body['signaldockEnabled'];
+  if (typeof body['signaldockEndpoint'] === 'string')
+    options.signaldockEndpoint = body['signaldockEndpoint'];
+  if (typeof body['studioEnabled'] === 'boolean') options.studioEnabled = body['studioEnabled'];
+  if (typeof body['conduitPath'] === 'string') options.conduitPath = body['conduitPath'];
+  if (typeof body['poolSeedingConsent'] === 'boolean')
+    options.poolSeedingConsent = body['poolSeedingConsent'];
+  if (typeof body['signaldockAutoConnect'] === 'boolean')
+    options.signaldockAutoConnect = body['signaldockAutoConnect'];
+
+  const acMode = body['acEnforcementMode'];
+  if (acMode === 'block' || acMode === 'warn' || acMode === 'off') {
+    options.acEnforcementMode = acMode;
+  }
+
+  if (typeof body['sessionAutoStart'] === 'boolean')
+    options.sessionAutoStart = body['sessionAutoStart'];
 
   return options;
 }
