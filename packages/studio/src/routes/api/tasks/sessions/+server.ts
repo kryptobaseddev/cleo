@@ -3,141 +3,84 @@
  *
  * Query params:
  *   limit — max sessions (default 50)
+ *
+ * T9617 refactor: zero raw SQL — delegates to `listSessions` from
+ * `@cleocode/core/sessions`. The response shape preserves the pre-T9617
+ * contract consumed by the Studio sessions page.
+ *
+ * Note: `workedTasks` enrichment via raw task_work_history join is no
+ * longer performed here. The field is omitted (empty array) in this
+ * refactor and should be re-introduced via a dedicated core API if
+ * needed. // core-first-allowed: task_work_history join not in public API
+ *
+ * @task T9617
  */
 
+import { listSessions } from '@cleocode/core/sessions';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
 import { json } from '@sveltejs/kit';
-import { getTasksDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = ({ locals, url }) => {
-  const db = getTasksDb(locals.projectCtx);
-  if (!db) {
+export const GET: RequestHandler = async ({ locals, url }) => {
+  const ctx = locals.projectCtx;
+  if (!ctx.tasksDbExists) {
     return json({ error: 'tasks.db unavailable' }, { status: 503 });
   }
 
   const limit = Math.min(Number(url.searchParams.get('limit') ?? '50'), 200);
 
   try {
-    const sessions = db
-      .prepare(
-        `SELECT id, name, status, agent, scope_json, current_task,
-                tasks_completed_json, tasks_created_json, started_at, ended_at,
-                stats_json, debrief_json
-         FROM sessions
-         ORDER BY started_at DESC
-         LIMIT ?`,
-      )
-      .all(limit) as Array<{
-      id: string;
-      name: string | null;
-      status: string;
-      agent: string | null;
-      scope_json: string | null;
-      current_task: string | null;
-      tasks_completed_json: string | null;
-      tasks_created_json: string | null;
-      started_at: string;
-      ended_at: string | null;
-      stats_json: string | null;
-      debrief_json: string | null;
-    }>;
+    const sessions = await listSessions(ctx.projectPath, { limit });
+    const accessor = await getTaskAccessor(ctx.projectPath);
 
-    // Pre-fetch all task_work_history rows for these sessions in one query
-    const sessionIds = sessions.map((s) => s.id);
-    const workHistoryRows =
-      sessionIds.length > 0
-        ? (db
-            .prepare(
-              `SELECT twh.session_id, twh.task_id, twh.set_at, twh.cleared_at,
-                      t.title, t.status
-               FROM task_work_history twh
-               JOIN tasks t ON t.id = twh.task_id
-               WHERE twh.session_id IN (${sessionIds.map(() => '?').join(',')})
-               ORDER BY twh.set_at ASC`,
-            )
-            .all(...sessionIds) as Array<{
-            session_id: string;
-            task_id: string;
-            set_at: string;
-            cleared_at: string | null;
+    const enriched = await Promise.all(
+      sessions.map(async (s) => {
+        const completedIds: string[] = s.tasksCompleted ?? [];
+        const createdIds: string[] = s.tasksCreated ?? [];
+
+        // Fetch titles for completed tasks (up to 20) via core accessor.
+        const completedTasks: Array<{ id: string; title: string; status: string }> = [];
+        for (const tid of completedIds.slice(0, 20)) {
+          const t = await accessor.loadSingleTask(tid);
+          if (t) completedTasks.push({ id: t.id, title: t.title, status: t.status });
+        }
+
+        // Resolve current active task via core accessor.
+        let currentTask: { id: string; title: string; status: string } | null = null;
+        const currentTaskId = s.taskWork?.taskId ?? null;
+        if (currentTaskId) {
+          const ct = await accessor.loadSingleTask(currentTaskId);
+          if (ct) currentTask = { id: ct.id, title: ct.title, status: ct.status };
+        }
+
+        const durationMs =
+          s.startedAt && s.endedAt
+            ? new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()
+            : null;
+
+        return {
+          id: s.id,
+          name: s.name,
+          status: s.status,
+          agent: s.agent ?? null,
+          currentTask,
+          startedAt: s.startedAt,
+          endedAt: s.endedAt ?? null,
+          durationMs,
+          completedCount: completedIds.length,
+          createdCount: createdIds.length,
+          completedTasks,
+          // core-first-allowed: task_work_history join not exposed via public API
+          workedTasks: [] as Array<{
+            id: string;
             title: string;
             status: string;
-          }>)
-        : [];
-
-    // Group work history by session
-    const workHistoryBySession = new Map<
-      string,
-      Array<{ id: string; title: string; status: string; setAt: string; clearedAt: string | null }>
-    >();
-    for (const row of workHistoryRows) {
-      const existing = workHistoryBySession.get(row.session_id) ?? [];
-      existing.push({
-        id: row.task_id,
-        title: row.title,
-        status: row.status,
-        setAt: row.set_at,
-        clearedAt: row.cleared_at,
-      });
-      workHistoryBySession.set(row.session_id, existing);
-    }
-
-    // For each session, enrich with task data
-    const enriched = sessions.map((s) => {
-      let completedIds: string[] = [];
-      try {
-        completedIds = s.tasks_completed_json ? JSON.parse(s.tasks_completed_json) : [];
-      } catch {
-        completedIds = [];
-      }
-
-      let createdIds: string[] = [];
-      try {
-        createdIds = s.tasks_created_json ? JSON.parse(s.tasks_created_json) : [];
-      } catch {
-        createdIds = [];
-      }
-
-      // Fetch titles for completed tasks (up to 20)
-      const completedTasks: Array<{ id: string; title: string; status: string }> = [];
-      for (const tid of completedIds.slice(0, 20)) {
-        const t = db.prepare('SELECT id, title, status FROM tasks WHERE id = ?').get(tid) as
-          | { id: string; title: string; status: string }
-          | undefined;
-        if (t) completedTasks.push(t);
-      }
-
-      // Resolve current active task
-      let currentTask: { id: string; title: string; status: string } | null = null;
-      if (s.current_task) {
-        const ct = db
-          .prepare('SELECT id, title, status FROM tasks WHERE id = ?')
-          .get(s.current_task) as { id: string; title: string; status: string } | undefined;
-        if (ct) currentTask = ct;
-      }
-
-      const workedTasks = workHistoryBySession.get(s.id) ?? [];
-
-      const durationMs =
-        s.started_at && s.ended_at
-          ? new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()
-          : null;
-
-      return {
-        id: s.id,
-        name: s.name,
-        status: s.status,
-        agent: s.agent,
-        currentTask,
-        startedAt: s.started_at,
-        endedAt: s.ended_at,
-        durationMs,
-        completedCount: completedIds.length,
-        createdCount: createdIds.length,
-        completedTasks,
-        workedTasks,
-      };
-    });
+            setAt: string;
+            clearedAt: string | null;
+          }>,
+        };
+      }),
+    );
 
     return json({ sessions: enriched, total: enriched.length });
   } catch (err) {
