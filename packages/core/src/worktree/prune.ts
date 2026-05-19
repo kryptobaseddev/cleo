@@ -35,7 +35,7 @@ import {
 } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
-import { listWorktrees } from './list.js';
+import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
 
 const log = getLogger('worktree:prune');
 
@@ -101,8 +101,17 @@ export async function pruneOrphanedWorktreesByStatus(
   // Candidates: any worktree the T9546 classifier labelled `orphan` or `merged`.
   // We deliberately keep these two categories together — both mean "no longer
   // needed for active development" and both are safe to delete-on-confirm.
+  //
+  // Primary-worktree safety net (T9686-D): even when the classifier returns
+  // `merged` for the canonical project checkout (a regression we've seen
+  // because `main` is trivially an ancestor of itself), the primary worktree
+  // is NEVER a valid prune target. Filter it out unconditionally as
+  // defense-in-depth on top of the `classifyStatus` `isPrimary` guard.
+  const primaryWorktreePath = resolvePrimaryWorktreePath(opts.projectRoot);
   const allCandidates = listResult.data.worktrees.filter(
-    (w) => w.statusCategory === 'orphan' || w.statusCategory === 'merged',
+    (w) =>
+      (w.statusCategory === 'orphan' || w.statusCategory === 'merged') &&
+      !isPrimaryWorktree(w.path, primaryWorktreePath),
   );
 
   // Optional path-filter — used by the CLI to apply per-orphan Y/N answers.
