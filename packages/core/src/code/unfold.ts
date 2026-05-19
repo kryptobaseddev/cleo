@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import type { CodeSymbol } from '@cleocode/contracts';
 import { detectLanguage } from '../lib/tree-sitter-languages.js';
+import { resolveOrCwd } from '../paths.js';
 import { parseFile } from './parser.js';
 
 /** Result of unfolding a single symbol. */
@@ -115,7 +116,7 @@ export function smartUnfold(
   symbolName: string,
   projectRoot?: string,
 ): SmartUnfoldResult {
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
   const relPath = relative(root, filePath);
   const language = detectLanguage(filePath);
 

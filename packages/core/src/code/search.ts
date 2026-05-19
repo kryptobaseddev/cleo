@@ -11,6 +11,7 @@ import { readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import type { CodeSymbol } from '@cleocode/contracts';
 import { detectLanguage, type TreeSitterLanguage } from '../lib/tree-sitter-languages.js';
+import { resolveOrCwd } from '../paths.js';
 import { batchParse } from './parser.js';
 
 /** A search result with relevance score. */
@@ -148,7 +149,7 @@ function scoreSymbol(
  * @returns Ranked array of search results
  */
 export function smartSearch(query: string, options: SmartSearchOptions = {}): SmartSearchResult[] {
-  const rootDir = options.rootDir ?? process.cwd();
+  const rootDir = resolveOrCwd(options.rootDir);
   const maxResults = options.maxResults ?? 20;
 
   // Collect and parse source files

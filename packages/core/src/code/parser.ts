@@ -18,6 +18,7 @@ import type {
   ParseResult,
 } from '@cleocode/contracts';
 import { detectLanguage, type TreeSitterLanguage } from '../lib/tree-sitter-languages.js';
+import { resolveOrCwd } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Native module loading (CommonJS interop via createRequire)
@@ -423,7 +424,7 @@ function captureToSymbols(
  * @returns Parse result with symbols and any errors
  */
 export function parseFile(filePath: string, projectRoot?: string): ParseResult {
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
   const relPath = relative(root, filePath);
   const language = detectLanguage(filePath);
 
@@ -513,7 +514,7 @@ export function parseFile(filePath: string, projectRoot?: string): ParseResult {
  * @returns Aggregated results with per-file breakdowns
  */
 export function batchParse(filePaths: string[], projectRoot?: string): BatchParseResult {
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
   const results: ParseResult[] = [];
   const skipped: string[] = [];
 

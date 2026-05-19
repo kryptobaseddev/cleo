@@ -16,6 +16,7 @@
  */
 
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { resolveOrCwd } from '../paths.js';
 import {
   advancePhase as coreAdvancePhase,
   completePhase as coreCompletePhase,
@@ -41,7 +42,7 @@ import { getTaskAccessor } from '../store/data-accessor.js';
  */
 export async function phaseList(projectRoot?: string): Promise<EngineResult> {
   try {
-    const root = projectRoot ?? process.cwd();
+    const root = resolveOrCwd(projectRoot);
     const accessor = await getTaskAccessor(root);
     const data = await coreListPhases(root, accessor);
     return engineSuccess(data);
@@ -60,7 +61,7 @@ export async function phaseList(projectRoot?: string): Promise<EngineResult> {
  */
 export async function phaseShow(phaseId?: string, projectRoot?: string): Promise<EngineResult> {
   try {
-    const root = projectRoot ?? process.cwd();
+    const root = resolveOrCwd(projectRoot);
     const accessor = await getTaskAccessor(root);
     const data = await coreShowPhase(phaseId, root, accessor);
     return engineSuccess(data);

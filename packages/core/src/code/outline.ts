@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import type { CodeSymbol } from '@cleocode/contracts';
 import { detectLanguage } from '../lib/tree-sitter-languages.js';
+import { resolveOrCwd } from '../paths.js';
 import { parseFile } from './parser.js';
 
 /** A symbol node in the outline tree, with optional children. */
@@ -160,7 +161,7 @@ function estimateTokens(nodes: OutlineNode[]): number {
  * @returns Smart outline result with symbol tree and token estimate
  */
 export function smartOutline(filePath: string, projectRoot?: string): SmartOutlineResult {
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
   const relPath = relative(root, filePath);
   const language = detectLanguage(filePath);
 
