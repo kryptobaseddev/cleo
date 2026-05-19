@@ -37,8 +37,11 @@
  *     done (or skipped).
  *
  * @task T9420
+ * @task T9607
  * @epic T9402
+ * @epic T9591
  * @see docs/plans/E-CONFIG-AUTH-UNIFY.md §3.3.5, §5.3 T-E3-1
+ * @see docs/plans/E-CLEO-SETUP-V2.md §3.1, §3.2, §3.3
  */
 
 /**
@@ -79,7 +82,11 @@ export class WizardFatalError extends Error {
  * slots are reserved here so T-E3-6 can drop in additional runners
  * without re-typing the union downstream.
  *
+ * V2 additions (T9607): `integrations` and `verification` extend the union
+ * to support the two new sections added in E-CLEO-SETUP-V2 (T9591).
+ *
  * @task T9420
+ * @task T9607
  */
 export type WizardSection =
   | 'llm'
@@ -87,7 +94,9 @@ export type WizardSection =
   | 'harness'
   | 'sentient'
   | 'project-conventions'
-  | 'brain';
+  | 'brain'
+  | 'integrations'
+  | 'verification';
 
 /**
  * Outcome of running a single wizard section.
@@ -115,6 +124,7 @@ export interface WizardSectionResult {
  * cherry-pick.
  *
  * @task T9420
+ * @task T9607
  */
 export interface WizardOptions {
   /**
@@ -155,6 +165,100 @@ export interface WizardOptions {
   brainBridgeMode?: 'digest' | 'file' | 'disabled';
   /** Project root override; defaults to `process.cwd()`. */
   projectRoot?: string;
+
+  // --- V2 fields added in T9607 (E-CLEO-SETUP-V2 §3.2) ---
+
+  /**
+   * `identity` section: when `true`, emit a prompt directing the user to
+   * run `cleo signaldock connect` after writing the agent name.
+   * Does not block on network I/O — config only.
+   */
+  signaldockAutoConnect?: boolean;
+
+  /**
+   * `brain` section: how many days to retain memory entries.
+   * `0` means retain forever (the default).
+   * Persisted to `brain.retention.days` in the global config.
+   */
+  brainRetentionDays?: number;
+
+  /**
+   * `brain` section: enable or disable the BRAIN embedding index.
+   * Persisted to `brain.embedding.enabled` in the global config.
+   */
+  brainEmbeddingEnabled?: boolean;
+
+  /**
+   * `integrations` section: enable the SignalDock transport.
+   * Persisted to `signaldock.enabled` in the global config.
+   */
+  signaldockEnabled?: boolean;
+
+  /**
+   * `integrations` section: SignalDock endpoint URL.
+   * Persisted to `signaldock.endpoint` in the global config.
+   */
+  signaldockEndpoint?: string;
+
+  /**
+   * `integrations` section: enable the Studio web UI.
+   * Persisted to `studio.enabled` in the global config.
+   */
+  studioEnabled?: boolean;
+
+  /**
+   * `integrations` section: custom Conduit local DB path (absolute).
+   * Persisted to `conduit.dbPath` in the project config.
+   */
+  conduitPath?: string;
+
+  /**
+   * `llm` section: consent to including the API key in the CLEO
+   * credential pool for multi-agent distribution.
+   * Persisted to `auth.poolSeedingConsent` in the global config.
+   */
+  poolSeedingConsent?: boolean;
+
+  /**
+   * `project-conventions` section: enforcement mode for tasks that
+   * are missing Acceptance Criteria.
+   * Persisted to `enforcement.acceptance.mode` in the project config.
+   */
+  acEnforcementMode?: 'block' | 'warn' | 'off';
+
+  /**
+   * `project-conventions` section: whether to auto-start a session on
+   * `cleo` invocation when none is active.
+   * Persisted to `session.autoStart` in the project config.
+   */
+  sessionAutoStart?: boolean;
+
+  /**
+   * Top-level: structured per-section config bag parsed from `--config-json`.
+   *
+   * Keys are section IDs (`'llm'`, `'identity'`, …); values are objects
+   * whose keys mirror the corresponding `WizardOptions` field names.
+   * `buildWizardOptions()` merges these into the flat options bag before
+   * handing off to the runner.
+   *
+   * Example:
+   * ```json
+   * {
+   *   "identity": { "agentName": "Atlas" },
+   *   "llm": { "provider": "anthropic", "apiKey": "sk-ant-..." }
+   * }
+   * ```
+   */
+  configJson?: Record<string, Record<string, unknown>>;
+
+  /**
+   * Top-level: when `true`, the `isConfigured()` guard on every section
+   * is bypassed for this run, allowing re-configuration of already-set
+   * sections without touching the credential pool.
+   *
+   * Set by `cleo setup --reset`.
+   */
+  reset?: boolean;
 }
 
 /**
@@ -194,6 +298,7 @@ export interface WizardIO {
  * supply the same shape — the runner walks the array blindly.
  *
  * @task T9420
+ * @task T9607
  */
 export interface WizardSectionRunner {
   /** Identifier matched against `--section` flags. */
@@ -202,6 +307,25 @@ export interface WizardSectionRunner {
   title: string;
   /** `true` if skipping the section keeps CLEO functional. */
   optional: boolean;
+
+  /**
+   * Return `true` if the section has already been configured and should be
+   * skipped unless `options.reset === true`.
+   *
+   * Called by {@link WizardRunner} before `run()`. When undefined, the
+   * section always runs — preserving backward compatibility for custom
+   * sections that do not implement idempotency.
+   *
+   * Implementations MUST be read-only (no side-effects). They may read
+   * config or the filesystem, but MUST NOT write anything.
+   *
+   * @param options - The current invocation options bag (for `projectRoot`
+   *   resolution and other context the check may need).
+   * @returns `true` when the section is fully configured and safe to skip.
+   * @task T9607
+   */
+  isConfigured?(options: WizardOptions): Promise<boolean>;
+
   /**
    * Execute the section.
    *
@@ -226,6 +350,38 @@ export interface WizardRunResult {
   sectionsRun: WizardSection[];
   /** One human-readable summary line per section in declaration order. */
   summary: string[];
+}
+
+/**
+ * Thrown when the operator interrupts the wizard (Ctrl-C or EOF).
+ *
+ * The CLI command MUST catch this error, print
+ * `"Setup interrupted. Run 'cleo setup' to continue."`, and exit with
+ * code 130 (SIGINT convention).
+ *
+ * `WizardIO` implementations that wrap interactive streams (e.g.
+ * `ReadlineWizardIO`) MUST throw this when a SIGINT or close event is
+ * received during any `prompt()`, `confirm()`, or `select()` call.
+ * The `StubWizardIO` never throws this — test cases that want to
+ * exercise interrupt handling should throw it manually.
+ *
+ * @task T9607
+ * @epic T9591
+ */
+export class WizardInterruptError extends Error {
+  /** Discriminator — allows `instanceof` checks without relying on class identity across module boundaries. */
+  readonly isWizardInterruptError = true as const;
+
+  /**
+   * @param message - Human-readable description of what triggered the
+   *   interrupt (e.g. `'interrupted by user'`, `'stdin closed'`).
+   */
+  constructor(message: string = 'Setup wizard interrupted') {
+    super(message);
+    this.name = 'WizardInterruptError';
+    // Preserve correct prototype chain for `instanceof` in transpiled output.
+    Object.setPrototypeOf(this, WizardInterruptError.prototype);
+  }
 }
 
 /**
