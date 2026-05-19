@@ -144,6 +144,9 @@ export {
   resolveSharedPath,
   resolveSkillPath,
 } from './skill-paths.js';
+// Canonical SSoT path helpers (T9650 — architecture v3 §1, §6)
+export type { IsCanonicalOptions, SkillSourceType as SkillRootSourceType } from './skill-root.js';
+export { is_canonical, resolveSkillsRoot } from './skill-root.js';
 // Test utilities
 export {
   formatDateYMD,
