@@ -12,9 +12,15 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { createPage } from '../pagination.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
+import {
+  countReleasesView,
+  findReleaseViewByVersion,
+  queryReleasesView,
+  type ReleasesViewRow,
+} from '../store/releases-view.js';
 import * as schema from '../store/tasks-schema.js';
 import { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
 import type { ReleaseChannel } from './channel.js';
@@ -112,10 +118,38 @@ async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js
 
 // ── Types ────────────────────────────────────────────────────────────
 
+/**
+ * Status values exposed through the `releases_view` SSoT.
+ *
+ * Legacy pipeline (T5580 / `release_manifests`): `draft | prepared | committed
+ * | tagged | pushed | rolled_back`. New pipeline (T9508 / `releases`): `planned
+ * | pr-opened | pr-merged | published | reconciled | rolled_back | failed |
+ * cancelled`. Consumers MUST handle both — the field is widened intentionally
+ * so the show/list surface can render rows from either branch of the view.
+ *
+ * @task T9686
+ */
+export type ReleaseManifestStatus =
+  // legacy statuses
+  | 'draft'
+  | 'prepared'
+  | 'committed'
+  | 'tagged'
+  | 'pushed'
+  | 'rolled_back'
+  // new pipeline statuses
+  | 'planned'
+  | 'pr-opened'
+  | 'pr-merged'
+  | 'published'
+  | 'reconciled'
+  | 'failed'
+  | 'cancelled';
+
 /** Release manifest structure. */
 export interface ReleaseManifest {
   version: string;
-  status: 'draft' | 'prepared' | 'committed' | 'tagged' | 'pushed' | 'rolled_back';
+  status: ReleaseManifestStatus;
   createdAt: string;
   preparedAt?: string;
   committedAt?: string;
@@ -127,6 +161,18 @@ export interface ReleaseManifest {
   previousVersion?: string;
   commitSha?: string;
   gitTag?: string;
+  /**
+   * Provenance discriminator added by T9686.
+   *
+   * - `'new'` — row came from the `releases` table (new pipeline).
+   * - `'legacy'` — row came from the `release_manifests` table (pre-T9492).
+   *
+   * Callers that only care about the legacy shape can ignore this field; it is
+   * always populated by reads through `releases_view`.
+   *
+   * @task T9686
+   */
+  source?: 'new' | 'legacy';
 }
 
 export interface ReleaseListOptions {
@@ -219,22 +265,65 @@ function normalizeVersion(version: string): string {
   return version.startsWith('v') ? version : `v${version}`;
 }
 
-function rowToManifest(row: schema.ReleaseManifestRow): ReleaseManifest {
-  return {
+/**
+ * Project a {@link ReleasesViewRow} (unified SSoT row from `releases_view`)
+ * down to a {@link ReleaseManifest} shape. Used by `releaseShow` /
+ * `releaseList` so CLI consumers see a single shape regardless of whether
+ * the row originated from the new `releases` table or the legacy
+ * `release_manifests` table (T9686).
+ *
+ * Field-mapping notes:
+ * - `tasks` — parsed from `tasksJson` for legacy rows; for new-pipeline rows
+ *   the corresponding data lives in `release_changes` and is exposed via
+ *   `row.changes[*].task_id`. We project that to a deduplicated id list so
+ *   the `taskCount` reported by list endpoints stays meaningful.
+ * - `commitSha` — comes from `merge_commit_sha` in the view (new pipeline)
+ *   or from the legacy `commit_sha` column (legacy pipeline). The view
+ *   normalizes both into `mergeCommitSha`.
+ * - `pushedAt` — for legacy rows, projected from `pushed_at`; for new-pipeline
+ *   rows we fall back to `publishedAt` so list endpoints can still sort by
+ *   ship time.
+ *
+ * @task T9686
+ * @internal
+ */
+function viewRowToManifest(row: ReleasesViewRow): ReleaseManifest {
+  const isLegacy = row.source === 'legacy';
+  const tasks: string[] = (() => {
+    if (isLegacy && row.tasksJson) {
+      try {
+        const parsed = JSON.parse(row.tasksJson) as unknown;
+        return Array.isArray(parsed) ? (parsed as string[]) : [];
+      } catch {
+        return [];
+      }
+    }
+    const ids = row.changes
+      .map((c) => c.task_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    return [...new Set(ids)];
+  })();
+
+  const manifest: ReleaseManifest = {
     version: row.version,
-    status: row.status as ReleaseManifest['status'],
+    status: row.status as ReleaseManifestStatus,
     createdAt: row.createdAt,
-    preparedAt: row.preparedAt ?? undefined,
-    committedAt: row.committedAt ?? undefined,
-    taggedAt: row.taggedAt ?? undefined,
-    pushedAt: row.pushedAt ?? undefined,
-    tasks: JSON.parse(row.tasksJson) as string[],
-    notes: row.notes ?? undefined,
-    changelog: row.changelog ?? undefined,
-    previousVersion: row.previousVersion ?? undefined,
-    commitSha: row.commitSha ?? undefined,
-    gitTag: row.gitTag ?? undefined,
+    tasks,
+    source: row.source,
   };
+  if (row.preparedAt) manifest.preparedAt = row.preparedAt;
+  if (row.committedAt) manifest.committedAt = row.committedAt;
+  if (row.taggedAt) manifest.taggedAt = row.taggedAt;
+  // For new-pipeline rows, expose publishedAt as pushedAt so callers that
+  // sort by "ship time" don't have to special-case the row source.
+  const effectivePushedAt = row.pushedAt ?? row.publishedAt;
+  if (effectivePushedAt) manifest.pushedAt = effectivePushedAt;
+  if (row.notes) manifest.notes = row.notes;
+  if (row.changelog) manifest.changelog = row.changelog;
+  if (row.previousVersion) manifest.previousVersion = row.previousVersion;
+  if (row.mergeCommitSha) manifest.commitSha = row.mergeCommitSha;
+  if (row.gitTag) manifest.gitTag = row.gitTag;
+  return manifest;
 }
 
 interface LatestPushedVersion {
@@ -642,14 +731,28 @@ export async function generateReleaseChangelog(
 }
 
 /**
- * List all releases.
+ * List all releases via the SSoT `releases_view` (T9686).
+ *
+ * Reads from the unified view that UNIONs `releases` (new pipeline) and
+ * `release_manifests` (legacy), so a release planned via `cleo release plan`
+ * is immediately visible alongside historical pre-T9492 releases. The
+ * previous implementation read only `release_manifests` and silently dropped
+ * any release that had only been written through the new pipeline.
+ *
  * @task T4788
+ * @task T9686
  */
 export async function listManifestReleases(
   optionsOrCwd?: ReleaseListOptions | string,
   cwd?: string,
 ): Promise<{
-  releases: Array<{ version: string; status: string; createdAt: string; taskCount: number }>;
+  releases: Array<{
+    version: string;
+    status: string;
+    createdAt: string;
+    taskCount: number;
+    source?: 'new' | 'legacy';
+  }>;
   total: number;
   filtered: number;
   latest?: string;
@@ -663,43 +766,30 @@ export async function listManifestReleases(
   const pageLimit = effectivePageLimit(limit, offset);
 
   const db = await getDb(effectiveCwd);
-  const totalRow = await db.select({ count: count() }).from(schema.releaseManifests).get();
-  const total = totalRow?.count ?? 0;
 
-  const conditions = options.status ? [eq(schema.releaseManifests.status, options.status)] : [];
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const total = countReleasesView(db);
+  const filtered = countReleasesView(db, options.status ? { status: options.status } : {});
 
-  const filteredRow = await db
-    .select({ count: count() })
-    .from(schema.releaseManifests)
-    .where(whereClause)
-    .get();
-  const filtered = filteredRow?.count ?? 0;
+  const queryOptions: Parameters<typeof queryReleasesView>[1] = {};
+  if (options.status !== undefined) queryOptions.status = options.status;
+  if (pageLimit !== undefined) queryOptions.limit = pageLimit;
+  if (offset !== undefined) queryOptions.offset = offset;
 
-  let query = db
-    .select()
-    .from(schema.releaseManifests)
-    .where(whereClause)
-    .orderBy(desc(schema.releaseManifests.createdAt));
-
-  if (pageLimit !== undefined) {
-    query = query.limit(pageLimit) as typeof query;
-  }
-  if (offset !== undefined) {
-    query = query.offset(offset) as typeof query;
-  }
-
-  const rows = await query.all();
+  const viewRows = await queryReleasesView(db, queryOptions);
 
   const latest = await findLatestPushedVersion(effectiveCwd);
 
   return {
-    releases: rows.map((r) => ({
-      version: r.version,
-      status: r.status,
-      createdAt: r.createdAt,
-      taskCount: (JSON.parse(r.tasksJson) as string[]).length,
-    })),
+    releases: viewRows.map((row) => {
+      const manifest = viewRowToManifest(row);
+      return {
+        version: manifest.version,
+        status: manifest.status,
+        createdAt: manifest.createdAt,
+        taskCount: manifest.tasks.length,
+        source: row.source,
+      };
+    }),
     total,
     filtered,
     latest: latest?.version,
@@ -708,8 +798,15 @@ export async function listManifestReleases(
 }
 
 /**
- * Show release details.
+ * Show release details via the SSoT `releases_view` (T9686).
+ *
+ * Reads from the unified view so a release planned via `cleo release plan`
+ * is immediately visible (round-trip: `plan v<X> → show v<X>` succeeds).
+ * Falls through both pipeline branches; throws when the version is absent
+ * from BOTH `releases` and `release_manifests`.
+ *
  * @task T4788
+ * @task T9686
  */
 export async function showManifestRelease(version: string, cwd?: string): Promise<ReleaseManifest> {
   if (!version) {
@@ -718,18 +815,13 @@ export async function showManifestRelease(version: string, cwd?: string): Promis
 
   const normalizedVersion = normalizeVersion(version);
   const db = await getDb(cwd);
-  const rows = await db
-    .select()
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
-    .limit(1)
-    .all();
+  const row = await findReleaseViewByVersion(db, normalizedVersion);
 
-  if (rows.length === 0) {
+  if (row === null) {
     throw new Error(`Release ${normalizedVersion} not found`);
   }
 
-  return rowToManifest(rows[0]!);
+  return viewRowToManifest(row);
 }
 
 /**
