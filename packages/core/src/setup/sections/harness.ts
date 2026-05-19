@@ -67,10 +67,9 @@ export function createHarnessSection(): WizardSectionRunner {
 
       if (options.nonInteractive === true) {
         if (!options.harness) {
-          return {
-            changed: false,
-            summary: 'skipped (non-interactive: --harness required)',
-          };
+          throw new Error(
+            'E_SETUP_MISSING_FLAG: --section harness --non-interactive requires --harness <pi|claude-code>',
+          );
         }
         choice = options.harness;
       } else {

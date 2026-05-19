@@ -122,6 +122,39 @@ export function buildWizardOptions(args: Record<string, unknown>): WizardOptions
   if (typeof args['project-root'] === 'string' && args['project-root'] !== '') {
     out.projectRoot = args['project-root'] as string;
   }
+  // harness section flag
+  if (typeof args['harness'] === 'string' && args['harness'] !== '') {
+    const h = args['harness'] as string;
+    if (h === 'pi' || h === 'claude-code') {
+      out.harness = h;
+    }
+  }
+  // brain section flag
+  if (typeof args['brain-bridge-mode'] === 'string' && args['brain-bridge-mode'] !== '') {
+    const b = args['brain-bridge-mode'] as string;
+    if (b === 'digest' || b === 'file' || b === 'disabled') {
+      out.brainBridgeMode = b;
+    }
+  } else if (
+    typeof args['brainBridgeMode'] === 'string' &&
+    (args['brainBridgeMode'] as string) !== ''
+  ) {
+    const b = args['brainBridgeMode'] as string;
+    if (b === 'digest' || b === 'file' || b === 'disabled') {
+      out.brainBridgeMode = b;
+    }
+  }
+  // sentient section flags
+  if (typeof args['sentient'] === 'string' && args['sentient'] !== '') {
+    const s = args['sentient'] as string;
+    if (s === 'on') out.sentientEnabled = true;
+    else if (s === 'off') out.sentientEnabled = false;
+  }
+  if (typeof args['tier2'] === 'string' && args['tier2'] !== '') {
+    const t = args['tier2'] as string;
+    if (t === 'on') out.tier2Enabled = true;
+    else if (t === 'off') out.tier2Enabled = false;
+  }
   return out;
 }
 
@@ -200,18 +233,18 @@ export const setupCommand = defineCommand({
   meta: {
     name: 'setup',
     description:
-      'Interactive setup wizard — runs all sections (llm, identity, sentient, project-conventions) in canonical order. Use --section <name> for a single section or --non-interactive with --provider/--api-key to configure LLM without prompts.',
+      'Interactive setup wizard — runs all sections in canonical order (llm → identity → sentient → project-conventions → harness → brain). Use --section <name> for a single section or --non-interactive with section-specific flags to configure without prompts.',
   },
   args: {
     section: {
       type: 'string',
       description:
-        'Run only one named section. Valid: llm | identity | sentient | project-conventions',
+        'Run only one named section. Valid: llm | identity | sentient | project-conventions | harness | brain',
     },
     'non-interactive': {
       type: 'boolean',
       description:
-        'Skip prompts. Sections that need extra data short-circuit silently. Pair with --provider and --api-key to configure LLM.',
+        'Skip prompts. Requires section-specific flags (e.g. --provider/--api-key for llm, --harness for harness, --brain-bridge-mode for brain, --sentient/--tier2 for sentient). Missing required flags emit E_SETUP_MISSING_FLAG.',
     },
     provider: {
       type: 'string',
@@ -237,6 +270,26 @@ export const setupCommand = defineCommand({
     'project-root': {
       type: 'string',
       description: 'Override project root path (defaults to process.cwd()).',
+    },
+    harness: {
+      type: 'string',
+      description:
+        "Active harness for the harness section when --non-interactive: 'pi' | 'claude-code'.",
+    },
+    'brain-bridge-mode': {
+      type: 'string',
+      description:
+        "BRAIN memory bridge mode for the brain section when --non-interactive: 'digest' | 'file' | 'disabled'.",
+    },
+    sentient: {
+      type: 'string',
+      description:
+        "Enable or disable the sentient daemon for the sentient section when --non-interactive: 'on' | 'off'.",
+    },
+    tier2: {
+      type: 'string',
+      description:
+        "Enable or disable Tier-2 proposals for the sentient section when --non-interactive: 'on' | 'off'.",
     },
   },
   async run({ args }) {
