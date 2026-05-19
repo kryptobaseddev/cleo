@@ -5,7 +5,7 @@
  *   { nodes: NodeEntry[], edges: EdgeEntry[] }
  *
  * Nodes include status/priority so the client can color-code them.
- * Edges represent task_dependencies rows (task_id depends_on depends_on).
+ * Edges represent task dependency relationships (source depends_on → target).
  *
  * If `taskId` is provided as a query param, returns only the 1-hop
  * neighbourhood (the task itself + direct upstream + direct downstream).
@@ -13,10 +13,18 @@
  * Query params:
  *   epic=T###     — all deps within an epic subtree
  *   taskId=T###   — 1-hop neighbourhood for a single task
+ *
+ * T9617 refactor: zero raw SQL — delegates to core APIs:
+ *   - 1-hop mode uses `taskDeps` from `@cleocode/core/tasks`
+ *   - epic mode uses `taskTree` to collect all descendant IDs and their
+ *     `depends` edges, then filters edges to the epic subtree
+ *
+ * @task T9617
  */
 
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
+import { showTask, taskDeps, taskTree } from '@cleocode/core/tasks';
 import { json } from '@sveltejs/kit';
-import { getTasksDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
 interface GraphNode {
@@ -39,9 +47,36 @@ interface GraphResponse {
   edges: GraphEdge[];
 }
 
-export const GET: RequestHandler = ({ locals, url }) => {
-  const db = getTasksDb(locals.projectCtx);
-  if (!db) {
+/** Recursively collect all FlatTreeNodes into a flat array. */
+function collectFlatNodes(
+  nodes: Array<{
+    id: string;
+    title: string;
+    status: string;
+    type?: string;
+    priority: string;
+    depends: string[];
+    children: typeof nodes;
+  }>,
+): Array<{
+  id: string;
+  title: string;
+  status: string;
+  type?: string;
+  priority: string;
+  depends: string[];
+}> {
+  const result: typeof nodes = [];
+  for (const n of nodes) {
+    result.push(n);
+    result.push(...collectFlatNodes(n.children));
+  }
+  return result;
+}
+
+export const GET: RequestHandler = async ({ locals, url }) => {
+  const ctx = locals.projectCtx;
+  if (!ctx.tasksDbExists) {
     return json({ error: 'tasks.db unavailable' }, { status: 503 });
   }
 
@@ -53,61 +88,67 @@ export const GET: RequestHandler = ({ locals, url }) => {
   }
 
   try {
+    const accessor = await getTaskAccessor(ctx.projectPath);
+
     if (taskId) {
-      // 1-hop neighbourhood
-      const upstream = db
-        .prepare(
-          `SELECT t.id, t.title, t.status, t.priority, t.type
-           FROM tasks t
-           INNER JOIN task_dependencies td ON td.depends_on = t.id
-           WHERE td.task_id = ?`,
-        )
-        .all(taskId) as Array<{
-        id: string;
-        title: string;
-        status: string;
-        priority: string;
-        type: string;
-      }>;
+      // 1-hop neighbourhood via core taskDeps.
+      const depsResult = await taskDeps(ctx.projectPath, taskId);
+      if (!depsResult.success) {
+        if (depsResult.error?.code === 'E_NOT_FOUND') {
+          return json({ error: 'task not found' }, { status: 404 });
+        }
+        return json({ error: depsResult.error?.message ?? 'Failed to load deps' }, { status: 500 });
+      }
 
-      const downstream = db
-        .prepare(
-          `SELECT t.id, t.title, t.status, t.priority, t.type
-           FROM tasks t
-           INNER JOIN task_dependencies td ON td.task_id = t.id
-           WHERE td.depends_on = ?`,
-        )
-        .all(taskId) as Array<{
-        id: string;
-        title: string;
-        status: string;
-        priority: string;
-        type: string;
-      }>;
-
-      const focus = db
-        .prepare('SELECT id, title, status, priority, type FROM tasks WHERE id = ?')
-        .get(taskId) as
-        | { id: string; title: string; status: string; priority: string; type: string }
-        | undefined;
-
-      if (!focus) {
+      // Load the focal task itself for its full fields.
+      const focusTask = await accessor.loadSingleTask(taskId);
+      if (!focusTask) {
         return json({ error: 'task not found' }, { status: 404 });
       }
 
+      const { dependsOn, dependedOnBy } = depsResult.data;
+
       const nodeMap = new Map<string, GraphNode>();
-      nodeMap.set(focus.id, { ...focus, isFocus: true });
-      for (const t of upstream) {
-        if (!nodeMap.has(t.id)) nodeMap.set(t.id, { ...t, isFocus: false });
+
+      nodeMap.set(focusTask.id, {
+        id: focusTask.id,
+        title: focusTask.title,
+        status: focusTask.status,
+        priority: focusTask.priority,
+        type: focusTask.type ?? 'task',
+        isFocus: true,
+      });
+
+      for (const t of dependsOn) {
+        if (!nodeMap.has(t.id)) {
+          nodeMap.set(t.id, {
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            priority: 'medium', // core-first-allowed: priority not in taskDeps dep entries
+            type: 'task',
+            isFocus: false,
+          });
+        }
       }
-      for (const t of downstream) {
-        if (!nodeMap.has(t.id)) nodeMap.set(t.id, { ...t, isFocus: false });
+
+      for (const t of dependedOnBy) {
+        if (!nodeMap.has(t.id)) {
+          nodeMap.set(t.id, {
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            priority: 'medium', // core-first-allowed: priority not in taskDeps dep entries
+            type: 'task',
+            isFocus: false,
+          });
+        }
       }
 
       // Edges: upstream → focus, focus → downstream
       const edges: GraphEdge[] = [
-        ...upstream.map((t) => ({ source: t.id, target: taskId })),
-        ...downstream.map((t) => ({ source: taskId, target: t.id })),
+        ...dependsOn.map((t) => ({ source: t.id, target: taskId })),
+        ...dependedOnBy.map((t) => ({ source: taskId, target: t.id })),
       ];
 
       const response: GraphResponse = {
@@ -117,58 +158,66 @@ export const GET: RequestHandler = ({ locals, url }) => {
       return json(response);
     }
 
-    // Epic-wide graph: collect all descendant IDs then fetch their dep edges
+    // Epic-wide graph: collect all descendants then build dep edges.
     if (epicId) {
-      const allDescendants = db
-        .prepare(
-          `WITH RECURSIVE desc(id) AS (
-            SELECT id FROM tasks WHERE id = ? OR parent_id = ?
-            UNION ALL
-            SELECT t.id FROM tasks t INNER JOIN desc d ON t.parent_id = d.id
-            LIMIT 1000
-          )
-          SELECT id FROM desc`,
-        )
-        .all(epicId, epicId) as Array<{ id: string }>;
-
-      if (allDescendants.length === 0) {
+      // Verify the epic exists.
+      const epicDetail = await showTask(epicId, ctx.projectPath, accessor).catch((err) => {
+        const e = err as { code?: number };
+        if (e?.code === 4) return null;
+        throw err;
+      });
+      if (!epicDetail) {
         return json({ nodes: [], edges: [] });
       }
 
-      const ids = allDescendants.map((r) => r.id);
-      const placeholders = ids.map(() => '?').join(',');
+      // Use taskTree to get all descendants with their depends arrays.
+      const treeResult = await taskTree(ctx.projectPath, epicId);
+      if (!treeResult.success) {
+        return json({ nodes: [], edges: [] });
+      }
 
-      const nodes = db
-        .prepare(
-          `SELECT id, title, status, priority, type
-           FROM tasks WHERE id IN (${placeholders})`,
-        )
-        .all(...ids) as Array<{
-        id: string;
-        title: string;
-        status: string;
-        priority: string;
-        type: string;
-      }>;
+      const { tree } = treeResult.data;
+      const rootNode = tree[0];
+      if (!rootNode) {
+        return json({ nodes: [], edges: [] });
+      }
 
-      // Only include edges where BOTH endpoints are within the epic subtree
-      const idSet = new Set(ids);
-      const depsRaw = db
-        .prepare(
-          `SELECT task_id, depends_on
-           FROM task_dependencies
-           WHERE task_id IN (${placeholders})`,
-        )
-        .all(...ids) as Array<{ task_id: string; depends_on: string }>;
-
-      const edges: GraphEdge[] = depsRaw
-        .filter((r) => idSet.has(r.depends_on))
-        .map((r) => ({ source: r.depends_on, target: r.task_id }));
-
-      const response: GraphResponse = {
-        nodes: nodes.map((n) => ({ ...n, isFocus: false })),
-        edges,
+      // Collect all descendants (the epic root + all nested nodes).
+      const allDescendants = collectFlatNodes(rootNode.children);
+      const epicNode = {
+        id: rootNode.id,
+        title: rootNode.title,
+        status: rootNode.status,
+        type: rootNode.type ?? 'epic',
+        priority: rootNode.priority,
+        depends: rootNode.depends,
+        children: rootNode.children,
       };
+      const allNodes = [epicNode, ...allDescendants];
+      const idSet = new Set(allNodes.map((n) => n.id));
+
+      const nodes: GraphNode[] = allNodes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        status: n.status,
+        priority: n.priority,
+        type: n.type ?? 'task',
+        isFocus: false,
+      }));
+
+      // Build edges from the depends arrays — only include edges where both
+      // endpoints are within the epic subtree.
+      const edges: GraphEdge[] = [];
+      for (const n of allNodes) {
+        for (const depId of n.depends) {
+          if (idSet.has(depId)) {
+            // Edge direction: dependency → dependent (source depends_on → target)
+            edges.push({ source: depId, target: n.id });
+          }
+        }
+      }
+
+      const response: GraphResponse = { nodes, edges };
       return json(response);
     }
 
