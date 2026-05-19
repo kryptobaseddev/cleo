@@ -7,6 +7,9 @@ core: false
 category: recommended
 protocol: research
 loomStage: research
+adrRefs:
+  - ADR-023
+  - ADR-070
 dependencies: []
 sharedResources:
   - subagent-protocol-base
@@ -225,3 +228,14 @@ If research cannot proceed (access denied, topic too broad, etc.):
 - **Prioritized** - Most important first
 - **Justified** - Tied to specific findings
 - **Feasible** - Achievable within project constraints
+
+---
+
+## See also / References
+
+This skill binds to the **research** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines how research output is validated before downstream stages consume it.
+- [ADR-070 — three-tier orchestration](../../../../.cleo/adrs/ADR-070-three-tier-orchestration.md) — defines the Orchestrator → Phase Lead → Worker tiers; research runs as a leaf Worker.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

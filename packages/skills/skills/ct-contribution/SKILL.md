@@ -12,6 +12,9 @@ core: false
 category: meta
 protocol: contribution
 loomStage: contribution
+adrRefs:
+  - ADR-015
+  - ADR-053
 dependencies: []
 sharedResources:
   - subagent-protocol-base
@@ -520,3 +523,14 @@ jq -s '[.[] | select(.epicId == "T2204")] | .[0]' .cleo/contributions/CONTRIBUTI
 | [contribution.schema.json](../../schemas/contribution.schema.json) | **Authoritative** for JSON Schema |
 | [CONTRIBUTION-PROTOCOL-GUIDE.md](../../docs/guides/CONTRIBUTION-PROTOCOL-GUIDE.md) | Usage guide with examples |
 | [CONSENSUS-FRAMEWORK-SPEC.md](../../docs/specs/CONSENSUS-FRAMEWORK-SPEC.md) | Consensus voting thresholds |
+
+---
+
+## See also / References
+
+This skill binds to the **contribution** LOOM lifecycle stage (the final stage of the RCASD-IVTR+C pipeline). Governing ADRs:
+
+- [ADR-015 — multi-contributor architecture](../../../../.cleo/adrs/ADR-015-multi-contributor-architecture.md) — defines the multi-contributor consensus mechanics that this stage formalizes for an Epic's downstream return path.
+- [ADR-053 — playbook runtime](../../../../.cleo/adrs/ADR-053-playbook-runtime.md) — defines the lifecycle state machine; contribution is its terminal node.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

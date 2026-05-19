@@ -3,6 +3,9 @@ name: ct-consensus-voter
 description: "Runs structured multi-agent voting for decision tasks with confidence scores, conflict detection, and HITL escalation when the threshold is not met. Use when two or more agents must vote on options: architecture choices, tool selection, policy decisions, when a task carries agent_type:analysis, or on phrases like 'reach consensus', 'vote on options', 'resolve the debate', 'pick the best approach'. Produces a voting matrix JSON, enforces the 0.5 threshold, flags ties within 0.1 confidence as contested and escalates to human tiebreak."
 protocol: consensus
 loomStage: consensus
+adrRefs:
+  - ADR-015
+  - ADR-023
 ---
 
 # Consensus Voter
@@ -158,3 +161,12 @@ This skill typically hands off to ct-adr-recorder on a `PROVEN` verdict so the d
 6. Manifest entry MUST set `agent_type: "analysis"` and include the verdict.
 7. On PROVEN, hand off to ct-adr-recorder; on CONTESTED or INSUFFICIENT_EVIDENCE, hand off to HITL.
 8. Always validate via `cleo check protocol --protocolType consensus`.
+
+## See also / References
+
+This skill binds to the **consensus** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-015 — multi-contributor architecture](../../../../.cleo/adrs/ADR-015-multi-contributor-architecture.md) — defines the consensus framework that this skill implements.
+- [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines how consensus output is validated before downstream stages consume it.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

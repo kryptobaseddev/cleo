@@ -1,12 +1,13 @@
 {
   "$schema": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
   "_meta": {
-    "schemaVersion": "2.5.0",
+    "schemaVersion": "2.6.0",
     "lastUpdated": "2026-05-19",
     "totalSkills": 22,
-    "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance. T9664 (epic T9568) — adds loomStage field on every LOOM-stage skill entry (underscored canonical form matching `cleo lifecycle` stage names).",
+    "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance. T9664/T9665 (epic T9568) — adds loomStage + adrRefs fields on every LOOM-stage skill entry (underscored canonical form matching `cleo lifecycle` stage names; ADR refs point at .cleo/adrs/).",
     "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection. Pipeline stages and cross-cutting protocols each have a dedicated skill — no overloading.",
-    "loomStageContract": "Each of the 10 LOOM lifecycle stages (research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release, contribution) MUST have a bound skill whose manifest entry declares loomStage matching the lifecycle CLI stage name. The legacy `protocol` field is retained as an alias; dispatch_matrix.by_protocol is the authoritative routing table. See docs/skills/loom-coverage-matrix.md."
+    "loomStageContract": "Each of the 10 LOOM lifecycle stages (research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release, contribution) MUST have a bound skill whose manifest entry declares loomStage matching the lifecycle CLI stage name. The legacy `protocol` field is retained as an alias; dispatch_matrix.by_protocol is the authoritative routing table. See docs/skills/loom-coverage-matrix.md.",
+    "adrRefsContract": "Each LOOM-stage skill MUST declare an adrRefs[] array naming the ADR file(s) that govern the stage. Every referenced ADR-NNN MUST resolve to a file under .cleo/adrs/. The Vitest gate at packages/skills/skills/_shared/__tests__/loom-adr-links.test.ts enforces both conditions."
   },
   "dispatch_matrix": {
     "_comment": "Maps task types/keywords to skill NAMES. Provider adapter decides HOW to execute.",
@@ -123,6 +124,7 @@
       "token_budget": 8000,
       "protocol": "implementation",
       "loomStage": "implementation",
+      "adrRefs": ["ADR-070", "ADR-062"],
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "TASK_NAME", "TASK_INSTRUCTIONS", "DELIVERABLES_LIST", "ACCEPTANCE_CRITERIA"],
@@ -153,6 +155,7 @@
       "token_budget": 8000,
       "protocol": "decomposition",
       "loomStage": "decomposition",
+      "adrRefs": ["ADR-066", "ADR-073"],
       "references": ["skills/ct-epic-architect/references/bug-epic-example.md", "skills/ct-epic-architect/references/commands.md", "skills/ct-epic-architect/references/feature-epic-example.md"],
       "capabilities": {
         "inputs": ["TASK_ID", "FEATURE_NAME", "EPIC_ID", "SESSION_ID"],
@@ -183,6 +186,7 @@
       "token_budget": 8000,
       "protocol": "research",
       "loomStage": "research",
+      "adrRefs": ["ADR-023", "ADR-070"],
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "TOPIC", "RESEARCH_QUESTIONS"],
@@ -213,6 +217,7 @@
       "token_budget": 8000,
       "protocol": "specification",
       "loomStage": "specification",
+      "adrRefs": ["ADR-014", "ADR-023"],
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "SPEC_NAME", "spec_topic"],
@@ -243,6 +248,7 @@
       "token_budget": 6000,
       "protocol": "validation",
       "loomStage": "validation",
+      "adrRefs": ["ADR-051", "ADR-023"],
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "VALIDATION_TARGET", "VALIDATION_CRITERIA"],
@@ -412,6 +418,7 @@
       "tier": 2,
       "token_budget": 6000,
       "loomStage": "contribution",
+      "adrRefs": ["ADR-015", "ADR-053"],
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "contribution_type", "context"],
@@ -498,6 +505,7 @@
       "token_budget": 8000,
       "protocol": "architecture-decision",
       "loomStage": "architecture_decision",
+      "adrRefs": ["ADR-053", "ADR-070"],
       "references": [
         "skills/ct-adr-recorder/references/cascade.md",
         "skills/ct-adr-recorder/references/examples.md"
@@ -537,6 +545,7 @@
       "token_budget": 10000,
       "protocol": "testing",
       "loomStage": "testing",
+      "adrRefs": ["ADR-051", "ADR-061"],
       "references": [
         "skills/ct-ivt-looper/references/escalation.md",
         "skills/ct-ivt-looper/references/frameworks.md",
@@ -577,6 +586,7 @@
       "token_budget": 6000,
       "protocol": "consensus",
       "loomStage": "consensus",
+      "adrRefs": ["ADR-015", "ADR-023"],
       "references": ["skills/ct-consensus-voter/references/matrix-examples.md"],
       "capabilities": {
         "inputs": ["task-id", "question", "candidate-options"],
@@ -613,6 +623,7 @@
       "token_budget": 8000,
       "protocol": "release",
       "loomStage": "release",
+      "adrRefs": ["ADR-053", "ADR-063", "ADR-065"],
       "references": [
         "skills/ct-release-orchestrator/references/composition.md",
         "skills/ct-release-orchestrator/references/release-types.md"

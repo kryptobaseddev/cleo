@@ -3,6 +3,9 @@ name: ct-ivt-looper
 description: "Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. Detects the project's test framework (vitest, jest, mocha, pytest, unittest, go-test, cargo-test, rspec, phpunit, bats, or other) and iterates until the implementation satisfies its specification, recording convergence metrics to the manifest. Use when given an implementation task that must ship verified: the IVT loop is the autonomous compliance layer enforced before any release or PR. Triggers on phrases like 'implement and verify', 'run the IVT loop', 'ship this task', 'complete implementation with tests', 'verify against spec', or any implementation task with acceptance criteria. Works in any git worktree regardless of language or framework, never hardcoded to one project's tooling."
 protocol: testing
 loomStage: testing
+adrRefs:
+  - ADR-051
+  - ADR-061
 ---
 
 # IVT Looper
@@ -181,3 +184,12 @@ cleo check protocol \
 6. Record `framework`, `testsRun`, `testsPassed`, `testsFailed`, `ivtLoopConverged`, `ivtLoopIterations` in the manifest.
 7. On non-convergence, exit 65 and leave the worktree untouched.
 8. Validate every run via `cleo check protocol --protocolType testing`.
+
+## See also / References
+
+This skill binds to the **testing** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-051 — programmatic gate integrity](../../../../.cleo/adrs/ADR-051-programmatic-gate-integrity.md) — defines the evidence atoms (`tool:test`, `test-run:<json>`) that the IVT loop emits and that downstream `cleo verify --gate testsPassed` re-validates.
+- [ADR-061 — project-agnostic verify tools](../../../../.cleo/adrs/ADR-061-project-agnostic-verify-tools.md) — defines the canonical tool-resolution layer (`test`, `build`, `lint`, `typecheck`) that the loop walks for framework-agnostic execution.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
