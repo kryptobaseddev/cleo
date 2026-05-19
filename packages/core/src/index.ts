@@ -198,6 +198,14 @@ export {
   type PerfPragmaOptions,
 } from './store/sqlite-pragmas.js';
 
+// Snapshot opener — readonly + no-migration DB opens that route through the
+// chokepoint API instead of bare DatabaseSync calls (T9685-B3, ADR-068).
+export {
+  type CleoDbSnapshotHandle,
+  type CleoDbSnapshotOptions,
+  openCleoDbSnapshot,
+} from './store/open-cleo-db.js';
+
 // ---------------------------------------------------------------------------
 // Top-level utility exports (widely used, unique names)
 // ---------------------------------------------------------------------------
