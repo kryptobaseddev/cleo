@@ -22,7 +22,7 @@
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 
@@ -644,7 +644,15 @@ export function resolveCanonicalProjectRoot(projectRoot: string): string {
       // gitdirPath ends with /.git/worktrees/<name>; main repo is 3 levels up
       const worktreesDir = dirname(gitdirPath); // .../.git/worktrees
       const dotGit = dirname(worktreesDir); // .../.git
-      return dirname(dotGit); // main repo root
+      const mainRepo = dirname(dotGit); // main repo root
+      // Resolve symlinks (needed on macOS where /var → /private/var) so that
+      // the returned path compares equal to realpathSync(env.tempDir) in tests
+      // and matches what getTaskAccessor() uses for DB-path construction.
+      try {
+        return realpathSync(mainRepo);
+      } catch {
+        return mainRepo;
+      }
     }
   } catch {
     /* fall through — not a valid git repo or stat failed */
