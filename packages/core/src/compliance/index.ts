@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { getManifestPath as getManifestPathFromPaths } from '../paths.js';
+import { getManifestPath as getManifestPathFromPaths, getProjectRoot } from '../paths.js';
 import { atomicWriteJson } from '../store/atomic.js';
 import { getComplianceJsonlPath, readComplianceJsonl } from './store.js';
 // CleoError and ExitCode available if needed for future error cases
@@ -17,7 +17,7 @@ export async function getComplianceSummary(opts: {
   agent?: string;
   cwd?: string;
 }): Promise<Record<string, unknown>> {
-  let entries = readComplianceJsonl(opts.cwd ?? process.cwd());
+  let entries = readComplianceJsonl(getProjectRoot(opts.cwd));
 
   if (opts.since) {
     entries = entries.filter((e) => (e.timestamp as string) >= opts.since!);
@@ -58,7 +58,7 @@ export async function listComplianceViolations(opts: {
   agent?: string;
   cwd?: string;
 }): Promise<Record<string, unknown>> {
-  let entries = readComplianceJsonl(opts.cwd ?? process.cwd());
+  let entries = readComplianceJsonl(getProjectRoot(opts.cwd));
 
   entries = entries.filter((e) => {
     const c = (e.compliance ?? {}) as Record<string, unknown>;
@@ -99,7 +99,7 @@ export async function getComplianceTrend(
   days: number = 7,
   cwd?: string,
 ): Promise<Record<string, unknown>> {
-  const entries = readComplianceJsonl(cwd ?? process.cwd());
+  const entries = readComplianceJsonl(getProjectRoot(cwd));
   const cutoff = new Date(Date.now() - days * 86400000).toISOString();
 
   const filtered = entries.filter((e) => (e.timestamp as string) >= cutoff);
@@ -144,7 +144,7 @@ export async function auditEpicCompliance(
   epicId: string,
   opts: { since?: string; cwd?: string },
 ): Promise<Record<string, unknown>> {
-  const entries = readComplianceJsonl(opts.cwd ?? process.cwd());
+  const entries = readComplianceJsonl(getProjectRoot(opts.cwd));
 
   const epicEntries = entries.filter((e) => {
     const ctx = (e._context ?? {}) as Record<string, unknown>;
@@ -181,7 +181,7 @@ export async function syncComplianceMetrics(opts: {
   force?: boolean;
   cwd?: string;
 }): Promise<Record<string, unknown>> {
-  const cwd = opts.cwd ?? process.cwd();
+  const cwd = getProjectRoot(opts.cwd);
   const force = opts.force ?? false;
   const jsonlPath = getComplianceJsonlPath(cwd);
   const summaryPath = join(cwd, '.cleo', 'metrics', 'compliance-summary.json');
@@ -274,7 +274,7 @@ export async function getSkillReliability(opts: {
   global?: boolean;
   cwd?: string;
 }): Promise<Record<string, unknown>> {
-  const entries = readComplianceJsonl(opts.cwd ?? process.cwd());
+  const entries = readComplianceJsonl(getProjectRoot(opts.cwd));
 
   const byAgent: Record<string, { count: number; passRateSum: number; violations: number }> = {};
   for (const e of entries) {
@@ -319,7 +319,7 @@ export async function getValueMetrics(
   let violationsCaught = 0;
   let realValidations = 0;
 
-  const entries = readComplianceJsonl(cwd ?? process.cwd());
+  const entries = readComplianceJsonl(getProjectRoot(cwd));
   totalValidations = entries.length;
   violationsCaught = entries.filter((e) => {
     const c = (e.compliance ?? {}) as Record<string, unknown>;

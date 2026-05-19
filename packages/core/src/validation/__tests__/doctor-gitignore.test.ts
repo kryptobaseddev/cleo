@@ -22,6 +22,9 @@ function makeTempDir(): string {
     `cleo-doctor-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(dir, { recursive: true });
+  // T9581: getProjectRoot() validates project roots — legacy-fallback path
+  // requires a sibling `.git/` directory.
+  mkdirSync(join(dir, '.git'), { recursive: true });
   return dir;
 }
 
