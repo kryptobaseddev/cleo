@@ -6,6 +6,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveOrCwd } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -23,7 +24,7 @@ export async function getRoadmap(
   const { tasks } = await acc.queryTasks({});
 
   // Get current version
-  const versionPath = join(opts.cwd ?? process.cwd(), 'VERSION');
+  const versionPath = join(resolveOrCwd(opts.cwd), 'VERSION');
   const currentVersion = existsSync(versionPath)
     ? readFileSync(versionPath, 'utf-8').trim()
     : 'unknown';
@@ -39,7 +40,7 @@ export async function getRoadmap(
   // Parse CHANGELOG if requested
   const releaseHistory: Array<{ version: string; date: string }> = [];
   if (opts.includeHistory) {
-    const changelogPath = join(opts.cwd ?? process.cwd(), 'CHANGELOG.md');
+    const changelogPath = join(resolveOrCwd(opts.cwd), 'CHANGELOG.md');
     if (existsSync(changelogPath)) {
       const content = readFileSync(changelogPath, 'utf-8');
       const versionRegex = /^##\s+\[?v?(\d+\.\d+\.\d+[^\]]*)\]?\s*[-(]?\s*(\d{4}-\d{2}-\d{2})?/gm;

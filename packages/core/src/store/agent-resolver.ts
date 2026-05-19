@@ -49,6 +49,7 @@ import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import type { AgentTier, ResolvedAgent } from '@cleocode/contracts';
+import { resolveOrCwd } from '../paths.js';
 import { rowToResolvedAgent } from './agent-registry-accessor.js';
 
 // ---------------------------------------------------------------------------
@@ -290,7 +291,7 @@ export function resolveAgent(
       // available. Uses dynamic import to avoid hoisting side-effects on the
       // node:sqlite interop block above (keeps the resolver synchronous-safe in
       // Vitest). Errors are swallowed to preserve the synchronous return path.
-      const projectRoot = options.projectRoot ?? process.cwd();
+      const projectRoot = resolveOrCwd(options.projectRoot);
       const fallbackUsed = resolved.tier === AGENT_TIER_UNIVERSAL;
       import('../memory/dispatch-trace.js')
         .then(({ emitDispatchTrace }) =>

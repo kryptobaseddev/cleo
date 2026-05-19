@@ -24,6 +24,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveOrCwd } from '../paths.js';
 import { resolveMetaAgentsDir } from './resolveAgentTemplates.js';
 
 // ---------------------------------------------------------------------------
@@ -204,7 +205,8 @@ async function readUserProfile(nexusDb: any): Promise<string | null> {
  * @task T1273 — user_profile + project-context threading
  */
 export async function invokeMetaAgent(options: InvokeMetaAgentOptions): Promise<MetaAgentResult> {
-  const { agentName, projectRoot = process.cwd(), tokens = {}, nexusDb, dryRun = false } = options;
+  const { agentName, tokens = {}, nexusDb, dryRun = false } = options;
+  const projectRoot = resolveOrCwd(options.projectRoot);
 
   if (dryRun) {
     return { invoked: false, reason: 'dry-run requested' };

@@ -16,6 +16,7 @@ import type {
   SignaldockAccessor,
   TelemetryAccessor,
 } from '@cleocode/contracts';
+import { resolveOrCwd } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // ConduitAccessor
@@ -31,7 +32,7 @@ import type {
  * @task T9188
  */
 export function createConduitAccessor(projectRoot?: string): ConduitAccessor {
-  const cwd = projectRoot ?? process.cwd();
+  const cwd = resolveOrCwd(projectRoot);
 
   return {
     async publish(topic: string, payload: unknown): Promise<void> {

@@ -18,6 +18,7 @@
 
 import { execFileSync } from 'node:child_process';
 import type { CommitEntry, ReconstructResult, ReleaseTagEntry } from '@cleocode/contracts';
+import { resolveOrCwd } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -275,8 +276,9 @@ function latestDate(commits: CommitEntry[]): string | null {
  */
 export async function reconstructLineage(
   taskId: string,
-  repoRoot: string = process.cwd(),
+  repoRoot?: string,
 ): Promise<ReconstructResult> {
+  repoRoot = resolveOrCwd(repoRoot);
   // 1. Direct commits — messages that reference the exact task ID
   const directCommits = gitLogGrep(repoRoot, taskId);
 

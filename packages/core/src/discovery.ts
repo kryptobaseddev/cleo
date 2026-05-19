@@ -143,7 +143,11 @@ function countMeaningfulTopLevelFiles(directory: string): number {
  * ```
  */
 export function classifyProject(directory?: string): ProjectClassification {
-  const root = resolve(directory ?? process.cwd());
+  // classifyProject is the entry point for "discover what's at <path>" — cwd
+  // is the right default when the user invokes from a candidate project dir.
+  // Routing through getProjectRoot here would skip over the very greenfield
+  // directories this function exists to classify.
+  const root = resolve(directory ?? process.cwd()); // CWD-OK: see comment above
   const signals: ClassificationSignal[] = [];
 
   // Signal 1: .git directory

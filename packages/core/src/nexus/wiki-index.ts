@@ -32,6 +32,7 @@ import type {
   WikiSymbolRow,
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { resolveOrCwd } from '../paths.js';
 import { getNexusDbPath, getNexusNativeDb } from '../store/nexus-sqlite.js';
 
 const execFileAsync = promisify(execFileNode);
@@ -258,7 +259,7 @@ export async function generateNexusWikiIndex(
   projectRoot?: string,
   options?: GenerateNexusWikiOptions,
 ): Promise<NexusWikiResult> {
-  const resolvedProjectRoot = projectRoot ?? process.cwd();
+  const resolvedProjectRoot = resolveOrCwd(projectRoot);
   const communityFilter = options?.communityFilter ?? null;
   const isIncremental = options?.incremental ?? false;
   const loomProvider = options?.loomProvider ?? null;

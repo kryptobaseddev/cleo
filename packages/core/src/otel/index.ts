@@ -6,14 +6,23 @@
 
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getProjectRoot as canonicalGetProjectRoot } from '../paths.js';
 
+/**
+ * OTel-local project root resolver.
+ *
+ * Delegates to the canonical {@link canonicalGetProjectRoot} so OTel metrics
+ * land in the same `.cleo/metrics/` directory the rest of the runtime writes
+ * to. The catch-fallback returns `process.cwd()` directly when no `.cleo`
+ * ancestor exists (early-boot / first-run windows where no project has been
+ * initialised yet) — OTel events recorded then are effectively scratch.
+ */
 function getProjectRoot(): string {
-  let dir = process.cwd();
-  while (dir !== '/') {
-    if (existsSync(join(dir, '.cleo', 'config.json'))) return dir;
-    dir = join(dir, '..');
+  try {
+    return canonicalGetProjectRoot();
+  } catch {
+    return process.cwd(); // CWD-OK: pre-init OTel boot window (no .cleo ancestor yet)
   }
-  return process.cwd();
 }
 
 function getTokenFilePath(): string {

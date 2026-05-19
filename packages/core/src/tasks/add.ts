@@ -22,6 +22,7 @@ import type {
 import { ExitCode, TASK_STATUSES } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
+import { resolveOrCwd } from '../paths.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
@@ -1071,7 +1072,7 @@ export async function addTask(
           timestamp: new Date().toISOString(),
           agent: 'system',
         },
-        cwd ?? process.cwd(),
+        resolveOrCwd(cwd),
       );
     }
 
@@ -1296,7 +1297,7 @@ export async function addTask(
   // is swallowed inside ensureTaskNode so graph writes never fail task creation.
   import('../memory/graph-auto-populate.js')
     .then(({ ensureTaskNode }) =>
-      ensureTaskNode(cwd ?? process.cwd(), taskId, options.title, {
+      ensureTaskNode(resolveOrCwd(cwd), taskId, options.title, {
         status,
         priority,
         type: taskType,
@@ -1315,7 +1316,7 @@ export async function addTask(
   // initLoomForEpic so LOOM init never blocks or fails epic creation.
   if (taskType === 'epic') {
     import('../orchestrate/lifecycle-ops.js')
-      .then(({ initLoomForEpic }) => initLoomForEpic(taskId, cwd ?? process.cwd()))
+      .then(({ initLoomForEpic }) => initLoomForEpic(taskId, resolveOrCwd(cwd)))
       .catch(() => {
         /* LOOM init is best-effort — never fail addTask. */
       });

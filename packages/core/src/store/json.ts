@@ -100,10 +100,13 @@ export async function saveJson(
     // Atomic write
     await atomicWriteJson(filePath, data, { indent: options?.indent });
 
-    // Dispatch Notification hook (best-effort, fire-and-forget)
+    // Dispatch Notification hook (best-effort, fire-and-forget). The cwd
+    // arg is a tagged label for the hook payload, NOT a path used to write
+    // files under .cleo — hooks log the dispatch cwd verbatim for observability.
+    const dispatchCwd = process.cwd(); // CWD-OK: hook payload label, not a .cleo path
     import('../hooks/registry.js')
       .then(({ hooks: h }) =>
-        h.dispatch('Notification', process.cwd(), {
+        h.dispatch('Notification', dispatchCwd, {
           timestamp: new Date().toISOString(),
           filePath,
           changeType: 'write' as const,
