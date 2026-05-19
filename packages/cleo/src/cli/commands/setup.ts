@@ -45,7 +45,6 @@ import type {
   WizardSectionResult,
 } from '@cleocode/core/setup';
 import { createDefaultWizardRunner, WizardInterruptError } from '@cleocode/core/setup';
-import { WizardInterruptError, createDefaultWizardRunner } from '@cleocode/core/setup';
 import { defineCommand } from 'citty';
 import { ReadlineWizardIO, StdinClosedError } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput } from '../renderers/index.js';
