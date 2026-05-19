@@ -117,11 +117,13 @@ describe('WizardRunner — registration + dispatch', () => {
       'project-conventions',
       'harness',
       'brain',
+      'integrations',
       'verification',
     ]);
   });
 
   it('run() walks every section in declaration order', async () => {
+    makeTempRoot();
     const calls: string[] = [];
     const make = (id: 'llm' | 'identity'): WizardSectionRunner => ({
       section: id,
@@ -138,6 +140,9 @@ describe('WizardRunner — registration + dispatch', () => {
     expect(calls).toEqual(['llm', 'identity']);
     expect(result.sectionsRun).toEqual(['llm', 'identity']);
     expect(result.summary).toEqual(['llm: ran llm', 'identity: ran identity']);
+    // Progress headers use [N/total] format (T9613)
+    expect(io.infos[0]).toBe('\n[1/2] s-llm (llm)');
+    expect(io.infos[1]).toBe('\n[2/2] s-identity (identity)');
   });
 
   it('runSection(name) executes exactly one named section', async () => {
@@ -223,6 +228,173 @@ describe('WizardRunner — registration + dispatch', () => {
     const runner = new WizardRunner([fataler]);
     const io = new StubWizardIO();
     await expect(runner.runSection('identity', io)).rejects.toThrow(TestFatalError);
+  });
+
+  // -------------------------------------------------------------------------
+  // Skip logic (T9613 / E-CLEO-SETUP-V2 §3.4)
+  // -------------------------------------------------------------------------
+
+  it('run() skips section when isConfigured() returns true', async () => {
+    makeTempRoot();
+    const ran: string[] = [];
+    const configured: WizardSectionRunner = {
+      section: 'llm',
+      title: 'LLM',
+      optional: false,
+      async isConfigured() {
+        return true;
+      },
+      async run() {
+        ran.push('llm');
+        return { changed: false, summary: 'should not run' };
+      },
+    };
+    const runner = new WizardRunner([configured]);
+    const io = new StubWizardIO();
+    const result = await runner.run(io);
+    expect(ran).toHaveLength(0);
+    expect(result.summary[0]).toBe('llm: skipped (already configured)');
+    expect(io.infos.some((m) => m.includes('[skip] LLM — already configured'))).toBe(true);
+    expect(io.infos.some((m) => m.includes('--reset to reconfigure'))).toBe(true);
+  });
+
+  it('run() does NOT skip section when isConfigured() returns true but reset=true', async () => {
+    makeTempRoot();
+    const ran: string[] = [];
+    const configured: WizardSectionRunner = {
+      section: 'llm',
+      title: 'LLM',
+      optional: false,
+      async isConfigured() {
+        return true;
+      },
+      async run() {
+        ran.push('llm');
+        return { changed: true, summary: 'ran llm' };
+      },
+    };
+    const runner = new WizardRunner([configured]);
+    const io = new StubWizardIO();
+    const result = await runner.run(io, { reset: true });
+    expect(ran).toEqual(['llm']);
+    expect(result.summary[0]).toBe('llm: ran llm');
+  });
+
+  it('run() always runs sections without isConfigured()', async () => {
+    makeTempRoot();
+    const ran: string[] = [];
+    const noCheck: WizardSectionRunner = {
+      section: 'llm',
+      title: 'LLM',
+      optional: false,
+      // No isConfigured method
+      async run() {
+        ran.push('llm');
+        return { changed: true, summary: 'ran llm' };
+      },
+    };
+    const runner = new WizardRunner([noCheck]);
+    const io = new StubWizardIO();
+    await runner.run(io);
+    expect(ran).toEqual(['llm']);
+  });
+
+  // -------------------------------------------------------------------------
+  // First-run completion (T9613 / E-CLEO-SETUP-V2 §3.4)
+  // -------------------------------------------------------------------------
+
+  it('run() returns firstRunComplete=true when all sections succeed', async () => {
+    makeTempRoot();
+    const section: WizardSectionRunner = {
+      section: 'llm',
+      title: 'LLM',
+      optional: false,
+      async run() {
+        return { changed: true, summary: 'done' };
+      },
+    };
+    const runner = new WizardRunner([section]);
+    const io = new StubWizardIO();
+    const result = await runner.run(io);
+    expect(result.firstRunComplete).toBe(true);
+  });
+
+  it('run() returns firstRunComplete=false when any section fails', async () => {
+    makeTempRoot();
+    const exploding: WizardSectionRunner = {
+      section: 'llm',
+      title: 'explode',
+      optional: false,
+      async run() {
+        throw new Error('boom');
+      },
+    };
+    const runner = new WizardRunner([exploding]);
+    const io = new StubWizardIO();
+    const result = await runner.run(io);
+    expect(result.firstRunComplete).toBe(false);
+  });
+
+  it('run() returns firstRunComplete=false when a skipped section uses failed: in its own flow', async () => {
+    makeTempRoot();
+    const passing: WizardSectionRunner = {
+      section: 'llm',
+      title: 'LLM',
+      optional: false,
+      async run() {
+        return { changed: false, summary: 'ok' };
+      },
+    };
+    const failing: WizardSectionRunner = {
+      section: 'identity',
+      title: 'Identity',
+      optional: false,
+      async run() {
+        throw new Error('identity exploded');
+      },
+    };
+    const runner = new WizardRunner([passing, failing]);
+    const io = new StubWizardIO();
+    const result = await runner.run(io);
+    expect(result.firstRunComplete).toBe(false);
+  });
+
+  it('run() writes setup-completed.json on success', async () => {
+    const { root } = makeTempRoot();
+    const section: WizardSectionRunner = {
+      section: 'llm',
+      title: 'LLM',
+      optional: false,
+      async run() {
+        return { changed: true, summary: 'done' };
+      },
+    };
+    const runner = new WizardRunner([section]);
+    const io = new StubWizardIO();
+    await runner.run(io);
+    // setup-completed.json is written to getCleoPlatformPaths().data which
+    // resolves to CLEO_HOME (set to join(root, 'cleo-home') by makeTempRoot).
+    const markerPath = join(root, 'cleo-home', 'setup-completed.json');
+    expect(existsSync(markerPath)).toBe(true);
+    const marker = JSON.parse(readFileSync(markerPath, 'utf-8')) as { completedAt?: string };
+    expect(typeof marker.completedAt).toBe('string');
+  });
+
+  it('run() emits progress headers in [N/total] format', async () => {
+    makeTempRoot();
+    const make = (id: 'llm' | 'identity'): WizardSectionRunner => ({
+      section: id,
+      title: `Section ${id}`,
+      optional: false,
+      async run() {
+        return { changed: false, summary: 'done' };
+      },
+    });
+    const runner = new WizardRunner([make('llm'), make('identity')]);
+    const io = new StubWizardIO();
+    await runner.run(io);
+    expect(io.infos[0]).toBe('\n[1/2] Section llm (llm)');
+    expect(io.infos[1]).toBe('\n[2/2] Section identity (identity)');
   });
 });
 

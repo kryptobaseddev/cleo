@@ -38,11 +38,17 @@
  *
  * @task T9420
  * @task T9607
+ * @task T9613
  * @epic T9402
  * @epic T9591
  * @see docs/plans/E-CONFIG-AUTH-UNIFY.md §3.3.5, §5.3 T-E3-1
- * @see docs/plans/E-CLEO-SETUP-V2.md §3.1, §3.2, §3.3
+ * @see docs/plans/E-CLEO-SETUP-V2.md §3.1, §3.2, §3.3, §3.4
  */
+
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { getCleoPlatformPaths } from '@cleocode/paths';
+import { setConfigValue } from '../config.js';
 
 /**
  * Base class for errors that are fatal to the entire wizard run.
@@ -106,13 +112,24 @@ export type WizardSection =
  * single-line human-readable string suitable for inclusion in a
  * final `cleo setup` echo.
  *
+ * `skipped` is present when the section was bypassed by the skip-logic
+ * guard (i.e. `isConfigured()` returned `true` and `reset` was not set).
+ *
  * @task T9420
+ * @task T9613
  */
 export interface WizardSectionResult {
   /** Did this section mutate on-disk state? */
   changed: boolean;
   /** Single-line human description of what was done (or skipped). */
   summary: string;
+  /**
+   * Set to `'already-configured'` when the section was bypassed by the
+   * idempotency guard. Absent when the section ran normally.
+   *
+   * @task T9613
+   */
+  skipped?: 'already-configured';
 }
 
 /**
@@ -344,12 +361,23 @@ export interface WizardSectionRunner {
  * an error via {@link WizardIO.error}.
  *
  * @task T9420
+ * @task T9613
  */
 export interface WizardRunResult {
   /** Sections that actually executed (skipped sections appear here too). */
   sectionsRun: WizardSection[];
   /** One human-readable summary line per section in declaration order. */
   summary: string[];
+  /**
+   * `true` when the runner wrote `auth.firstRunComplete = true` to the
+   * global config at the end of this run (i.e. all sections completed
+   * without any `failed:` summary lines).
+   *
+   * `false` when any section failed, preventing the completion marker.
+   *
+   * @task T9613
+   */
+  firstRunComplete: boolean;
 }
 
 /**
@@ -439,6 +467,26 @@ export class WizardRunner {
    * failures are caught and reported via `io.error()`; the next section
    * still runs.
    *
+   * ### Skip logic (T9613 / E-CLEO-SETUP-V2 §3.4)
+   *
+   * Before invoking each section, `run()` calls `section.isConfigured?.(options)`.
+   * When that returns `true` and `options.reset` is not set, the section is
+   * bypassed with a `skipped (already configured)` summary line and an info
+   * message directing the user to `--reset` for a full reconfigure.
+   *
+   * ### Progress prefix (T9613 / E-CLEO-SETUP-V2 §3.4)
+   *
+   * Section headers are emitted as `[N/total] title (section-id)` so
+   * scripted consumers can parse progress reliably.
+   *
+   * ### First-run completion (T9613 / E-CLEO-SETUP-V2 §3.4)
+   *
+   * After all sections complete without any `failed:` summary line, this
+   * method writes `auth.firstRunComplete = true` to the global config and
+   * writes a `setup-completed.json` marker to the CLEO data directory.
+   * The returned {@link WizardRunResult.firstRunComplete} flag reflects
+   * whether the marker was written.
+   *
    * @param io - Prompting surface.
    * @param options - Pre-parsed flags / programmatic bag.
    * @returns Aggregate run result with per-section summary lines.
@@ -446,15 +494,51 @@ export class WizardRunner {
   async run(io: WizardIO, options: WizardOptions = {}): Promise<WizardRunResult> {
     const sectionsRun: WizardSection[] = [];
     const summary: string[] = [];
+    const total = this.sectionList.length;
+    let index = 0;
 
     for (const runner of this.sectionList) {
+      index++;
       sectionsRun.push(runner.section);
-      io.info(`\n── ${runner.title} (${runner.section}) ──`);
+
+      // Progress prefix: [N/total] title (section-id)
+      io.info(`\n[${index}/${total}] ${runner.title} (${runner.section})`);
+
+      // Skip logic: check isConfigured() unless reset is set
+      if (!options.reset && runner.isConfigured) {
+        const alreadyConfigured = await runner.isConfigured(options);
+        if (alreadyConfigured) {
+          io.info(`[skip] ${runner.title} — already configured. Use --reset to reconfigure.`);
+          summary.push(`${runner.section}: skipped (already configured)`);
+          continue;
+        }
+      }
+
       const result = await this.invokeSection(runner, io, options);
       summary.push(`${runner.section}: ${result.summary}`);
     }
 
-    return { sectionsRun, summary };
+    // First-run completion: if no section produced a 'failed:' line, mark
+    // auth.firstRunComplete in global config and write the data-dir marker.
+    const anyFailed = summary.some((line) => line.includes(': failed:'));
+    if (!anyFailed) {
+      try {
+        await setConfigValue('auth.firstRunComplete', true, undefined, { global: true });
+        const dataDir = getCleoPlatformPaths().data;
+        await mkdir(dataDir, { recursive: true });
+        await writeFile(
+          join(dataDir, 'setup-completed.json'),
+          JSON.stringify({ completedAt: new Date().toISOString() }),
+          'utf-8',
+        );
+      } catch {
+        // Non-fatal: failure to write the completion marker is surfaced
+        // only via the returned flag — it MUST NOT abort the wizard run.
+      }
+      return { sectionsRun, summary, firstRunComplete: true };
+    }
+
+    return { sectionsRun, summary, firstRunComplete: false };
   }
 
   /**
