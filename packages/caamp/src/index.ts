@@ -164,6 +164,7 @@ export {
 } from './core/mcp/index.js';
 // Canonical path utilities
 export {
+  _resetLegacySkillsWarning,
   getAgentsConfigPath,
   getAgentsHome,
   getAgentsInstructFile,
@@ -173,6 +174,7 @@ export {
   getAgentsSpecDir,
   getAgentsWikiDir,
   getCanonicalSkillsDir,
+  getCanonicalSkillsRoot,
   getLockFilePath,
   getPlatformLocations,
   getProjectAgentsDir,
@@ -232,9 +234,19 @@ export {
   registerSkillLibraryFromPath,
 } from './core/skills/catalog.js';
 export { discoverSkill, discoverSkills, parseSkillFile } from './core/skills/discovery.js';
-export type { SkillInstallResult } from './core/skills/installer.js';
+export type {
+  InstallSkillOptions,
+  SkillInstallResult,
+  SkillRowData,
+  SkillRowSourceType,
+} from './core/skills/installer.js';
 // Skills
-export { installSkill, listCanonicalSkills, removeSkill } from './core/skills/installer.js';
+export {
+  inferSkillSourceType,
+  installSkill,
+  listCanonicalSkills,
+  removeSkill,
+} from './core/skills/installer.js';
 // Skills integrity
 export type { SkillIntegrityResult, SkillIntegrityStatus } from './core/skills/integrity.js';
 export {
