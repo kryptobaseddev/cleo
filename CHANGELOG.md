@@ -1,5 +1,30 @@
 # Changelog
 
+## [2026.5.80] (2026-05-18) — T9580 CLI dispatch fixes
+
+Real-test audit of v2026.5.79 (T9580) caught 3 systemic dispatch bugs that left 5 of 6 new IVTR verbs returning `E_INVALID_OPERATION`. This patch wires them correctly so the IVTR pipeline becomes usable from the CLI as documented.
+
+### Fixed
+
+- `cleo release plan` / `cleo release open` — CLI now passes bare op name `'plan'` / `'open'` instead of double-prefixed `'release.plan'` / `'release.open'`; registry now declares both ops (only `release.reconcile` was registered before this patch).
+- `cleo provenance backfill` / `cleo provenance verify` — same double-prefix fix.
+- `cleo worktree list` / `cleo worktree prune` / `cleo worktree force-unlock` — `worktree` domain added to `CANONICAL_DOMAINS`; ops registered in the dispatch registry.
+
+### Verified locally
+
+```
+cleo release plan v2026.5.80 --epic T9580 --dry-run → E_EVIDENCE_INSUFFICIENT (real domain error)
+cleo release open v2026.5.80 → E_PLAN_NOT_FOUND (real domain error)
+cleo worktree list --json → Returns 60+ worktrees classified
+cleo provenance backfill --since v2026.5.78 --dry-run → enumerates 122 historical tags
+cleo provenance verify v2026.5.79 → E_PROVENANCE_INCOMPLETE (release not reconciled)
+cleo release reconcile v2026.5.79 → E_PLAN_NOT_FOUND (needs plan first)
+```
+
+### Known in-flight (T9580 audit)
+
+The deeper `process.cwd()` → `getProjectRoot()` normalization across `~120 vulnerable sites` (T9581-T9584) is partially in PRs (#273 T9581, #274 T9583) with test fixture regressions to repair. These PRs do not block v2026.5.80 — they are tracked separately and will land in a future release.
+
 ## [2026.5.79] (2026-05-18) — T9345 IVTR Release System overhaul + T9499 cleanup
 
 Major release: complete overhaul of the CLEO release pipeline per SPEC-T9345 / ADR-073. Replaces the 761-line releaseShip monolith with four operator verbs (`plan`, `open`, `reconcile`, `rollback`) backed by four GHA workflow templates. Eliminates 10 production failure modes catalogued in `failure-forensics-10-modes.md` (8 by structural prevention, 2 by race-window narrowing). IVTR is decoupled from the release blocking path — ADR-051 evidence atoms become the sole gate execution surface. Bundles the Phase 6 cleanup (T9499) that removes the now-superseded legacy code.
