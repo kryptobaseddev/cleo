@@ -45,6 +45,26 @@ Context injection for compliance validation tasks spawned via cleo-subagent. Pro
 
 ---
 
+## Out of Scope (T9675)
+
+`ct-validator` operates on the **`validation`** LOOM lifecycle stage (stage 7). It performs **static** schema, compliance, and audit checks against artifacts that already exist on disk (specs, ADRs, JSON files, RFC 2119 keyword usage, manifest schemas).
+
+This skill does NOT:
+
+- Run a test suite, framework detection, or iterative IVT loop. Those belong to **`ct-ivt-looper`** at the `testing` stage (stage 8). When dynamic verification is required — e.g. "does the implementation actually pass its tests?" — chain to `ct-ivt-looper` rather than expanding scope here.
+- Modify code or apply fixes. The validator reports; downstream skills remediate.
+
+### Chain handoffs
+
+| Direction | When | Handoff |
+|---|---|---|
+| `ct-validator` → `ct-ivt-looper` | Spec is valid but implementation needs dynamic verification | Emit a manifest entry, then dispatch the `testing` stage |
+| `ct-ivt-looper` → `ct-validator` | IVT loop converged; need to audit the resulting artifacts against schema/compliance | Dispatch the `validation` stage after the test convergence record |
+
+Governance: see **ADR-051** (programmatic gate integrity) which defines the evidence atoms each stage emits and that the other stage may re-validate, and **ADR-023** (protocol validation dispatch) which routes between them.
+
+---
+
 ## Validation Methodology
 
 ### Standard Workflow
