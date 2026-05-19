@@ -122,7 +122,9 @@ async function getPackageInfo(
   if (sourceDir && sourceDir !== 'unknown' && sourceDir !== 'npm') {
     candidates.push(join(sourceDir, 'package.json'));
   }
-  candidates.push(join(process.cwd(), 'package.json'));
+  // Discovering the running cleo binary's package.json — process.cwd() is
+  // the right fallback here. This is NOT a CLEO project root lookup.
+  candidates.push(join(process.cwd(), 'package.json')); // CWD-OK: running binary
 
   for (const candidate of candidates) {
     try {
