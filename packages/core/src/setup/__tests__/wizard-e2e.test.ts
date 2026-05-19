@@ -386,12 +386,26 @@ describe('harness section — integration', () => {
     expect(globalCfg.harness?.active).toBe('claude-code');
   });
 
-  it('interactive: select prompt drives harness pick', async () => {
+  it('interactive: select prompt drives harness pick (claude-code avoids Pi URL prompt)', async () => {
     const { projectRoot } = makeTempRoot();
     const runner = new WizardRunner([
       createBuiltinSections().find((s) => s.section === 'harness')!,
     ]);
-    const io = new StubWizardIO({ selects: ['pi'] });
+    // Use claude-code so no Pi URL prompt is issued.
+    const io = new StubWizardIO({ selects: ['claude-code'] });
+
+    const result = await runner.runSection('harness', io, { projectRoot });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('set harness.active=claude-code');
+  });
+
+  it('interactive: pi harness also prompts for Pi URL', async () => {
+    const { projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([
+      createBuiltinSections().find((s) => s.section === 'harness')!,
+    ]);
+    // pi selection triggers a Pi URL prompt — supply an empty string to accept the default.
+    const io = new StubWizardIO({ selects: ['pi'], prompts: [''] });
 
     const result = await runner.runSection('harness', io, { projectRoot });
     expect(result.changed).toBe(true);
