@@ -30,6 +30,7 @@ import type {
   TelemetryAccessor,
   TransactionAccessor,
 } from '@cleocode/contracts';
+import { resolveOrCwd } from '../paths.js';
 import { createBrainAccessor } from './brain-accessor-impl.js';
 import type { CleoDbRole } from './open-cleo-db.js';
 import { openCleoDb } from './open-cleo-db.js';
@@ -128,7 +129,7 @@ export class UmbrellaDataAccessor implements DataAccessor {
       case 'docs': {
         // DocsAccessor — documents + llmtxt (T9063)
         const { createDocsAccessor } = await import('./docs-accessor-impl.js');
-        accessor = createDocsAccessor(this.cwd ?? process.cwd());
+        accessor = createDocsAccessor(resolveOrCwd(this.cwd));
         break;
       }
       default: {

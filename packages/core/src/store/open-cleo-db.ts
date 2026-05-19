@@ -40,6 +40,7 @@
 
 import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
+import { resolveOrCwd } from '../paths.js';
 import { getConduitNativeDb } from './conduit-sqlite.js';
 import { getNexusDb } from './nexus-sqlite.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
@@ -86,7 +87,7 @@ async function openSignaldockDb(_cwd?: string): Promise<unknown> {
 /** Open the conduit.db for the given project (or current process). */
 async function openConduitDb(cwd?: string): Promise<unknown> {
   const { ensureConduitDb } = await import('./conduit-sqlite.js');
-  ensureConduitDb(cwd ?? process.cwd());
+  ensureConduitDb(resolveOrCwd(cwd));
   return getConduitNativeDb();
 }
 

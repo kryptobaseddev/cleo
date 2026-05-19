@@ -6,9 +6,10 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { resolveOrCwd } from '../paths.js';
 
 function getCleoDir(cwd?: string): string {
-  return join(cwd ?? process.cwd(), '.cleo');
+  return join(resolveOrCwd(cwd), '.cleo');
 }
 
 function getStateFile(session?: string, cwd?: string): string {

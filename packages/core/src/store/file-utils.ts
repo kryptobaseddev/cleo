@@ -20,6 +20,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import * as lockfile from 'proper-lockfile';
+import { getProjectRoot } from '../paths.js';
 
 /**
  * Maximum number of operational backups to keep.
@@ -210,10 +211,13 @@ export function getDataPath(projectRoot: string, filename: string): string {
 
 /**
  * Resolve the project root directory.
- * Checks CLEO_ROOT env, then falls back to cwd.
+ *
+ * Delegates to {@link getProjectRoot} which honours `CLEO_ROOT`,
+ * `CLEO_PROJECT_ROOT`, `CLEO_DIR`, AsyncLocalStorage worktree scope, and the
+ * `.cleo/` ancestor walk. This is the canonical SSoT for project-root lookup.
  */
 export function resolveProjectRoot(): string {
-  return process.env['CLEO_ROOT'] || process.cwd();
+  return getProjectRoot();
 }
 
 /**

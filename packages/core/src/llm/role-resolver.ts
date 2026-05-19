@@ -37,6 +37,7 @@ import type {
   RoleName,
 } from '@cleocode/contracts';
 import type { OpenAI } from 'openai';
+import { resolveOrCwd } from '../paths.js';
 import { type CredentialResult, resolveCredentials } from './credentials.js';
 import { getCredentialByLabel, pickCredentialForProvider } from './credentials-store.js';
 import { buildAnthropicClient } from './transports/anthropic-client-factory.js';
@@ -286,7 +287,7 @@ export async function resolveLLMForRole(
   role: RoleName,
   opts?: ResolveLLMForRoleOptions,
 ): Promise<ResolvedLLM> {
-  const projectRoot = opts?.projectRoot ?? process.cwd();
+  const projectRoot = resolveOrCwd(opts?.projectRoot);
 
   // Step 1 — load config. `loadConfig` deep-merges defaults + global +
   // project + env vars and returns the full `CleoConfig` shape. Unknown keys
