@@ -207,6 +207,10 @@ vi.mock('../../lib/engine.js', () => {
     releaseRollback: mockFn(),
     releaseCancel: mockFn(),
     releasePush: mockFn(),
+    // T9686-A bug A1 — pr-status engine function (was already in the engine
+    // barrel but missing from the parity-test mock — the missing registry
+    // entry hid this gap).
+    releasePrStatus: mockFn(),
     // releaseShip removed in T9540 (Phase 6 of T9499)
     // Template parser
     parseIssueTemplates: mockFn(),
@@ -632,6 +636,8 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     'release.show': { version: '1.0.0' },
     'release.rollback': { version: '1.0.0' },
     'release.cancel': { version: '1.0.0' },
+    // T9686-A — bug A1: queryOps + registry entry must both list this op.
+    'release.pr-status': { version: '1.0.0' },
     'manifest.show': { entryId: 'e1' },
     'manifest.find': { query: 'test' },
     'manifest.append': { entry: { id: 'e1', type: 'finding', content: 'x' } },
