@@ -423,7 +423,11 @@
       "status": "active",
       "tier": 2,
       "token_budget": 6000,
-      "references": [],
+      "references": [
+        "skills/ct-docs-review/references/style-violations.md",
+        "skills/ct-docs-review/references/pr-review-mode.md",
+        "skills/ct-docs-review/references/inline-comment-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["file_path", "pr_url", "diff_content"],
         "outputs": ["review-comments", "style-violations"],
