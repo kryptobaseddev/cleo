@@ -22,6 +22,7 @@
  * @epic T4545
  */
 
+import { AgentsSkillsRealDirError, runDoctorBridge } from '@cleocode/caamp';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
@@ -346,6 +347,81 @@ const depsCommand = defineCommand({
   },
 });
 
+/**
+ * cleo skills doctor bridge — single bridge symlink + per-skill symlink removal (T9655).
+ */
+const doctorBridgeCommand = defineCommand({
+  meta: {
+    name: 'bridge',
+    description:
+      'Create the single ~/.agents/skills bridge symlink + remove orphan per-skill symlinks',
+  },
+  args: {
+    force: {
+      type: 'boolean',
+      description: 'Back up and replace a real ~/.agents/skills directory if present',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Print planned actions without mutating disk state',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON (default)',
+    },
+    human: {
+      type: 'boolean',
+      description: 'Output in human-readable format',
+    },
+  },
+  async run({ args }) {
+    const { cliError, cliOutput } = await import('../renderers/index.js');
+    try {
+      const result = await runDoctorBridge({
+        force: args.force === true,
+        dryRun: args['dry-run'] === true,
+      });
+      cliOutput(
+        { success: true, data: result },
+        { command: 'skills doctor bridge', operation: 'skills.doctor.bridge' },
+      );
+    } catch (error) {
+      if (error instanceof AgentsSkillsRealDirError) {
+        cliError(
+          error.message,
+          error.code,
+          {
+            details: {
+              agentsSkillsPath: error.agentsSkillsPath,
+              entryCount: error.entryCount,
+            },
+          },
+          { operation: 'skills.doctor.bridge' },
+        );
+        process.exit(1);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      cliError(message, 'E_INTERNAL_ERROR', undefined, {
+        operation: 'skills.doctor.bridge',
+      });
+      process.exit(1);
+    }
+  },
+});
+
+/**
+ * cleo skills doctor — diagnose and repair skill storage topology (parent group, T9655).
+ */
+const doctorCommand = defineCommand({
+  meta: {
+    name: 'doctor',
+    description: 'Diagnose and repair the skill storage topology',
+  },
+  subCommands: {
+    bridge: doctorBridgeCommand,
+  },
+});
+
 /** cleo skills spawn-providers — list providers capable of spawning subagents */
 const spawnProvidersCommand = defineCommand({
   meta: { name: 'spawn-providers', description: 'List providers capable of spawning subagents' },
@@ -390,6 +466,7 @@ export const skillsCommand = defineCommand({
     precedence: precedenceCommand,
     deps: depsCommand,
     'spawn-providers': spawnProvidersCommand,
+    doctor: doctorCommand,
   },
   async run({ cmd, rawArgs }) {
     // Parent run() fires after subcommand per citty@0.2.x — skip default
