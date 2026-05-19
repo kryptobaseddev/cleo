@@ -3,7 +3,7 @@
   "_meta": {
     "schemaVersion": "2.4.0",
     "lastUpdated": "2026-04-07",
-    "totalSkills": 21,
+    "totalSkills": 22,
     "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance",
     "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection. Pipeline stages and cross-cutting protocols each have a dedicated skill — no overloading."
   },
@@ -697,6 +697,50 @@
       },
       "constraints": {
         "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    {
+      "name": "ct-council",
+      "version": "1.0.0",
+      "description": "Convene \"The Council\" — a 5-advisor, shuffled gate-based peer-review, chairman-synthesis workflow for reviewing a plan, decision, architecture, or piece of work inside the current project. Operates on the current codebase — each advisor grounds their analysis in actual files/commits before opining. Output is validated by scripts/validate.py.",
+      "path": "skills/ct-council",
+      "tags": ["council", "review", "peer-review", "multi-perspective", "stress-test"],
+      "status": "active",
+      "tier": 2,
+      "token_budget": 8000,
+      "references": [
+        "skills/ct-council/references/chairman.md",
+        "skills/ct-council/references/contrarian.md",
+        "skills/ct-council/references/evidence-pack.md",
+        "skills/ct-council/references/examples.md",
+        "skills/ct-council/references/executor.md",
+        "skills/ct-council/references/expansionist.md",
+        "skills/ct-council/references/first-principles.md",
+        "skills/ct-council/references/outsider.md",
+        "skills/ct-council/references/peer-review.md"
+      ],
+      "capabilities": {
+        "inputs": ["proposal", "plan", "architecture-decision", "task-id"],
+        "outputs": ["council-verdict", "advisor-reports", "convergence-report"],
+        "dependencies": [],
+        "dispatch_triggers": [
+          "convene the council",
+          "council review",
+          "run the five advisors",
+          "stress-test this",
+          "get multiple perspectives"
+        ],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["council", "advisors", "stress-test", "peer-review"],
+          "secondary": ["contrarian", "first-principles", "expansionist", "outsider", "executor", "chairman"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
         "requires_session": false,
         "requires_epic": false
       }
