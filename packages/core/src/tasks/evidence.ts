@@ -30,6 +30,7 @@ import type { EvidenceAtom, GateEvidence, VerificationGate } from '@cleocode/con
 import { ExitCode } from '@cleocode/contracts';
 
 import { CleoError } from '../errors.js';
+import { getEffectiveHead } from '../worktree/effective-head.js';
 import { runToolCached } from './tool-cache.js';
 import {
   CANONICAL_TOOLS,
@@ -492,15 +493,19 @@ async function validateCommit(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
+  // T-WT-3: resolve effective HEAD — uses task/<taskId> branch when it exists,
+  // falls back to "HEAD" when taskId is absent or the branch does not yet exist.
+  // This is env-var-independent: it does not rely on CLEO_WORKTREE_ROOT / ALS.
+  const effectiveHead = await getEffectiveHead(projectRoot, taskId);
   const reachable = await runCommand(
     'git',
-    ['merge-base', '--is-ancestor', sha, 'HEAD'],
+    ['merge-base', '--is-ancestor', sha, effectiveHead],
     projectRoot,
   );
   if (reachable.exitCode !== 0) {
     return {
       ok: false,
-      reason: `Commit ${sha} exists but is not reachable from HEAD`,
+      reason: `Commit ${sha} exists but is not reachable from ${effectiveHead}`,
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
