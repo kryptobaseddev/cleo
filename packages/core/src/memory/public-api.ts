@@ -1032,3 +1032,212 @@ export async function getPendingVerify(
 // the existing `export * from './quality-feedback.js'` in memory/index.ts.
 // It is NOT re-exported here to avoid duplicate-export conflicts.
 // Signature: getMemoryQualityReport(projectRoot: string): Promise<MemoryQualityReport>
+
+// ---------------------------------------------------------------------------
+// setEntryTier  (T9619 — tier promote/demote without raw SQL in CLI)
+// ---------------------------------------------------------------------------
+
+/** Direction for {@link setEntryTier}. */
+export type TierDirection = 'promote' | 'demote';
+
+/** Result of {@link setEntryTier}. */
+export interface SetEntryTierResult {
+  /** Entry identifier. */
+  id: string;
+  /** Brain table where the entry was found. */
+  table: string;
+  /** Previous memory tier. */
+  fromTier: string;
+  /** New memory tier. */
+  toTier: string;
+  /** ISO timestamp of the update. */
+  updatedAt: string;
+}
+
+const BRAIN_TABLES = [
+  'brain_observations',
+  'brain_learnings',
+  'brain_patterns',
+  'brain_decisions',
+] as const;
+
+const TIER_ORDER: Record<string, number> = { short: 0, medium: 1, long: 2 };
+
+/**
+ * Set the memory tier of a single brain entry across all four brain tables.
+ *
+ * Validates direction (promote requires higher tier, demote requires lower tier)
+ * and table membership before running the UPDATE. The long-tier demote guard
+ * (requires explicit `force: true`) is enforced internally.
+ *
+ * @param id - Brain entry ID
+ * @param targetTier - Target tier: 'short' | 'medium' | 'long'
+ * @param direction - 'promote' or 'demote' (used for error messages and ordering checks)
+ * @param opts - Additional options (force: allow demoting from long tier)
+ * @returns Entry location + tier change details
+ * @throws Error when entry not found, tier ordering is invalid, or long-tier guard fires
+ *
+ * @task T9619
+ */
+export async function setEntryTier(
+  id: string,
+  targetTier: string,
+  direction: TierDirection,
+  opts: { force?: boolean } = {},
+): Promise<SetEntryTierResult> {
+  const db = getBrainNativeDb();
+  if (!db) {
+    throw new Error('brain.db is unavailable');
+  }
+
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+  for (const tbl of BRAIN_TABLES) {
+    try {
+      const row = db
+        .prepare(`SELECT id, memory_tier FROM ${tbl} WHERE id = ? AND invalid_at IS NULL LIMIT 1`)
+        .get(id) as { id: string; memory_tier: string } | undefined;
+
+      if (!row) continue;
+
+      const fromTier = row.memory_tier ?? 'short';
+
+      // Long-tier permanence guard (demote only)
+      if (direction === 'demote' && fromTier === 'long' && !opts.force) {
+        throw new Error(
+          `Entry ${id} is in long tier. Long-tier entries are permanent. Use --force to override.`,
+        );
+      }
+
+      if (fromTier === targetTier) {
+        throw new Error(`Entry ${id} is already at tier '${targetTier}'`);
+      }
+
+      const fromOrd = TIER_ORDER[fromTier] ?? 0;
+      const toOrd = TIER_ORDER[targetTier] ?? 0;
+
+      if (direction === 'promote' && toOrd <= fromOrd) {
+        throw new Error(
+          `Cannot promote: '${targetTier}' is not higher than current tier '${fromTier}'. Use demote to lower tiers.`,
+        );
+      }
+      if (direction === 'demote' && toOrd >= fromOrd) {
+        throw new Error(
+          `Cannot demote: '${targetTier}' is not lower than current tier '${fromTier}'. Use promote to raise tiers.`,
+        );
+      }
+
+      db.prepare(`UPDATE ${tbl} SET memory_tier = ?, updated_at = ? WHERE id = ?`).run(
+        targetTier,
+        now,
+        id,
+      );
+
+      return { id, table: tbl, fromTier, toTier: targetTier, updatedAt: now };
+    } catch (err) {
+      // Re-throw validation errors; skip table-not-found errors
+      if (err instanceof Error && !err.message.includes('no such table')) {
+        throw err;
+      }
+    }
+  }
+
+  throw new Error(`Entry '${id}' not found in any brain table (or is invalidated)`);
+}
+
+// ---------------------------------------------------------------------------
+// scanDuplicateEntries  (T9619 — dedup-scan without raw SQL in CLI)
+// ---------------------------------------------------------------------------
+
+/** A group of duplicate brain entries sharing the same content hash. */
+export interface DuplicateGroup {
+  /** Brain table name. */
+  table: string;
+  /** Shared content hash. */
+  hash: string;
+  /** Number of entries sharing this hash. */
+  count: number;
+  /** Up to 3 sample entries (id + truncated label). */
+  samples: string[];
+}
+
+/** Result of {@link scanDuplicateEntries}. */
+export interface ScanDuplicatesResult {
+  /** Total surplus rows (sum of count-1 across all groups). */
+  totalDuplicateRows: number;
+  /** All duplicate groups found. */
+  groups: DuplicateGroup[];
+}
+
+const SCAN_TABLES = [
+  { name: 'brain_observations', hashCol: 'content_hash', labelCol: 'title' },
+  { name: 'brain_decisions', hashCol: 'content_hash', labelCol: 'decision' },
+  { name: 'brain_patterns', hashCol: 'content_hash', labelCol: 'pattern' },
+  { name: 'brain_learnings', hashCol: 'content_hash', labelCol: 'insight' },
+] as const;
+
+/**
+ * Scan all four brain tables for content-hash duplicates.
+ *
+ * Returns up to 20 duplicate groups per table with up to 3 sample entries each.
+ * Does NOT modify any data — call {@link runConsolidation} to merge.
+ *
+ * @returns Duplicate groups and total surplus row count
+ *
+ * @task T9619
+ */
+export async function scanDuplicateEntries(): Promise<ScanDuplicatesResult> {
+  const db = getBrainNativeDb();
+  const groups: DuplicateGroup[] = [];
+
+  if (!db) {
+    return { totalDuplicateRows: 0, groups };
+  }
+
+  for (const t of SCAN_TABLES) {
+    let dupRows: Array<{ hash: string; cnt: number }> = [];
+    try {
+      dupRows = db
+        .prepare(
+          `SELECT ${t.hashCol} AS hash, COUNT(*) AS cnt
+           FROM ${t.name}
+           WHERE ${t.hashCol} IS NOT NULL
+             AND invalid_at IS NULL
+           GROUP BY ${t.hashCol}
+           HAVING cnt > 1
+           ORDER BY cnt DESC
+           LIMIT 20`,
+        )
+        .all() as Array<{ hash: string; cnt: number }>;
+    } catch {
+      // Table unavailable — skip
+    }
+
+    for (const row of dupRows) {
+      let sampleRows: Array<{ id: string; label: string }> = [];
+      try {
+        sampleRows = db
+          .prepare(
+            `SELECT id, COALESCE(${t.labelCol}, id) AS label
+             FROM ${t.name}
+             WHERE ${t.hashCol} = ?
+               AND invalid_at IS NULL
+             LIMIT 3`,
+          )
+          .all(row.hash) as Array<{ id: string; label: string }>;
+      } catch {
+        // Skip
+      }
+
+      groups.push({
+        table: t.name,
+        hash: row.hash,
+        count: row.cnt,
+        samples: sampleRows.map((r) => `${r.id}: ${String(r.label).slice(0, 80)}`),
+      });
+    }
+  }
+
+  const totalDuplicateRows = groups.reduce((sum, g) => sum + (g.count - 1), 0);
+  return { totalDuplicateRows, groups };
+}

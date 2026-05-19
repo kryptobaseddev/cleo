@@ -44,14 +44,16 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getProjectRoot } from '@cleocode/core';
 import {
   getBrainDb,
-  getBrainNativeDb,
   getDreamStatus,
-  getProjectRoot,
+  getTierStats,
   runConsolidation,
+  scanDuplicateEntries,
+  setEntryTier,
   triggerManualDream,
-} from '@cleocode/core/internal';
+} from '@cleocode/core/memory';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON } from '../paths.js';
@@ -1180,7 +1182,7 @@ const reflectCommand = defineCommand({
     const root = getProjectRoot();
 
     try {
-      const { runObserver, runReflector } = await import('@cleocode/core/internal');
+      const { runObserver, runReflector } = await import('@cleocode/core/memory');
 
       const observerResult = await runObserver(root, args.session as string | undefined, {
         thresholdOverride: 1,
@@ -1230,87 +1232,16 @@ const dedupScanCommand = defineCommand({
     const root = getProjectRoot();
 
     try {
-      const { getBrainDb: getBrainDbInner, getBrainNativeDb: getBrainNativeDbInner } = await import(
-        '@cleocode/core/internal'
-      );
-      await getBrainDbInner(root);
-      const nativeDb = getBrainNativeDbInner();
-
-      if (!nativeDb) {
-        cliError('brain.db is unavailable', 'E_INTERNAL', { name: 'E_INTERNAL' });
-        process.exit(1);
-        return;
-      }
-
-      // Scan each table for content-hash duplicates
-      const tables = [
-        { name: 'brain_observations', hashCol: 'content_hash', labelCol: 'title' },
-        { name: 'brain_decisions', hashCol: 'content_hash', labelCol: 'decision' },
-        { name: 'brain_patterns', hashCol: 'content_hash', labelCol: 'pattern' },
-        { name: 'brain_learnings', hashCol: 'content_hash', labelCol: 'insight' },
-      ] as const;
-
-      interface DupGroup {
-        table: string;
-        hash: string;
-        count: number;
-        samples: string[];
-      }
-      const groups: DupGroup[] = [];
-
-      for (const t of tables) {
-        let dupRows: Array<{ hash: string; cnt: number }>;
-        try {
-          dupRows = nativeDb
-            .prepare(
-              `SELECT ${t.hashCol} AS hash, COUNT(*) AS cnt
-               FROM ${t.name}
-               WHERE ${t.hashCol} IS NOT NULL
-                 AND invalid_at IS NULL
-               GROUP BY ${t.hashCol}
-               HAVING cnt > 1
-               ORDER BY cnt DESC
-               LIMIT 20`,
-            )
-            .all() as Array<{ hash: string; cnt: number }>;
-        } catch {
-          dupRows = [];
-        }
-
-        for (const row of dupRows) {
-          let sampleRows: Array<{ id: string; label: string }>;
-          try {
-            sampleRows = nativeDb
-              .prepare(
-                `SELECT id, COALESCE(${t.labelCol}, id) AS label
-                 FROM ${t.name}
-                 WHERE ${t.hashCol} = ?
-                   AND invalid_at IS NULL
-                 LIMIT 3`,
-              )
-              .all(row.hash) as Array<{ id: string; label: string }>;
-          } catch {
-            sampleRows = [];
-          }
-
-          groups.push({
-            table: t.name,
-            hash: row.hash,
-            count: row.cnt,
-            samples: sampleRows.map((r) => `${r.id}: ${String(r.label).slice(0, 80)}`),
-          });
-        }
-      }
-
-      const totalDups = groups.reduce((sum, g) => sum + (g.count - 1), 0);
+      // Initialise brain.db connection before scanning
+      await getBrainDb(root);
+      const { totalDuplicateRows, groups } = await scanDuplicateEntries();
 
       // Optionally merge duplicates via the consolidation pipeline
       if (args.apply) {
-        const { runConsolidation: runConsolidationInner } = await import('@cleocode/core/internal');
-        const result = await runConsolidationInner(root);
+        const result = await runConsolidation(root);
         cliOutput(
           {
-            totalDuplicateRows: totalDups,
+            totalDuplicateRows,
             groups,
             applied: true,
             consolidation: { deduplicated: result.deduplicated },
@@ -1319,7 +1250,7 @@ const dedupScanCommand = defineCommand({
         );
       } else {
         cliOutput(
-          { totalDuplicateRows: totalDups, groups, applied: false },
+          { totalDuplicateRows, groups, applied: false },
           { command: 'memory-dedup-scan', operation: 'memory.dedup-scan' },
         );
       }
@@ -1639,94 +1570,18 @@ const tierStatsCommand = defineCommand({
     const root = getProjectRoot();
 
     try {
+      // Ensure brain.db is open before querying via the public API
       await getBrainDb(root);
-      const nativeDb = getBrainNativeDb();
-      if (!nativeDb) {
-        cliError('brain.db not available', 'E_INTERNAL', { name: 'E_INTERNAL' });
-        process.exit(1);
-        return;
-      }
+      const result = await getTierStats(root);
 
-      // Per-table tier distributions
-      const tables = ['brain_observations', 'brain_learnings', 'brain_patterns', 'brain_decisions'];
+      // Map public-api shape to the existing CLI output shape for compatibility
       const distribution: Record<string, Record<string, number>> = {};
-      for (const tbl of tables) {
-        try {
-          const rows = nativeDb
-            .prepare(
-              `SELECT COALESCE(memory_tier, 'short') as tier, COUNT(*) as cnt
-               FROM ${tbl}
-               WHERE invalid_at IS NULL
-               GROUP BY memory_tier`,
-            )
-            .all() as Array<{ tier: string; cnt: number }>;
-          distribution[tbl] = { short: 0, medium: 0, long: 0 };
-          for (const r of rows) {
-            distribution[tbl]![r.tier] = r.cnt;
-          }
-        } catch {
-          distribution[tbl] = { short: 0, medium: 0, long: 0 };
-        }
+      for (const t of result.tables) {
+        distribution[t.table] = { short: t.short, medium: t.medium, long: t.long };
       }
 
-      // Countdown: top-10 medium entries closest to 7-day long-tier gate
-      // (citation_count >= 5 OR verified=1) AND created_at > (now - 7d) — approaching gate
-      const age7dMs = 7 * 24 * 60 * 60 * 1000;
-      const now = Date.now();
-      interface CountdownRow {
-        id: string;
-        tbl: string;
-        created_at: string;
-        citation_count: number;
-        verified: number;
-        quality_score: number | null;
-      }
-      const countdown: Array<{
-        id: string;
-        table: string;
-        daysUntil: number;
-        track: string;
-      }> = [];
-
-      for (const tbl of tables) {
-        const dateCol = tbl === 'brain_patterns' ? 'extracted_at' : 'created_at';
-        try {
-          const rawRows = nativeDb
-            .prepare(
-              `SELECT id, ${dateCol} as created_at, citation_count, verified, quality_score
-               FROM ${tbl}
-               WHERE memory_tier = 'medium'
-                 AND invalid_at IS NULL
-                 AND (citation_count >= 5 OR verified = 1)
-               ORDER BY ${dateCol} ASC
-               LIMIT 20`,
-            )
-            .all();
-          const rows: CountdownRow[] = rawRows.map((raw) => {
-            const r = raw as Record<string, unknown>;
-            return {
-              id: String(r['id'] ?? ''),
-              tbl,
-              created_at: String(r['created_at'] ?? ''),
-              citation_count: Number(r['citation_count'] ?? 0),
-              verified: Number(r['verified'] ?? 0),
-              quality_score: r['quality_score'] == null ? null : Number(r['quality_score']),
-            };
-          });
-
-          for (const r of rows) {
-            const entryMs = new Date(r.created_at.replace(' ', 'T')).getTime();
-            const promotionMs = entryMs + age7dMs;
-            const daysUntil = Math.max(0, (promotionMs - now) / (24 * 60 * 60 * 1000));
-            const track = r.citation_count >= 5 ? `citation (${r.citation_count})` : 'verified';
-            countdown.push({ id: r.id, table: tbl, daysUntil, track });
-          }
-        } catch {
-          // Table may not have memory_tier column
-        }
-      }
-      countdown.sort((a, b) => a.daysUntil - b.daysUntil);
-      const top10 = countdown.slice(0, 10);
+      // getTierStats returns top-5; extend to top-10 if available (slice harmlessly)
+      const top10 = result.upcomingLongPromotions.slice(0, 10);
 
       cliOutput(
         { distribution, upcomingLongPromotions: top10 },
@@ -1781,78 +1636,29 @@ const tierPromoteCommand = defineCommand({
 
     try {
       await getBrainDb(root);
-      const nativeDb = getBrainNativeDb();
-      if (!nativeDb) {
-        cliError('brain.db not available', 'E_INTERNAL', { name: 'E_INTERNAL' });
-        process.exit(1);
-        return;
-      }
-
-      const tables = ['brain_observations', 'brain_learnings', 'brain_patterns', 'brain_decisions'];
-      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-      let found = false;
-      let fromTier = '';
-      let foundTable = '';
-
-      for (const tbl of tables) {
-        try {
-          const row = nativeDb
-            .prepare(
-              `SELECT id, memory_tier FROM ${tbl} WHERE id = ? AND invalid_at IS NULL LIMIT 1`,
-            )
-            .get(args.id) as { id: string; memory_tier: string } | undefined;
-
-          if (row) {
-            found = true;
-            fromTier = row.memory_tier ?? 'short';
-            foundTable = tbl;
-
-            if (fromTier === targetTier) {
-              cliError(`Entry ${args.id} is already at tier '${targetTier}'`, 'E_VALIDATION', {
-                name: 'E_VALIDATION',
-              });
-              process.exit(1);
-            }
-
-            const tierOrder: Record<string, number> = { short: 0, medium: 1, long: 2 };
-            const fromOrd = tierOrder[fromTier] ?? 0;
-            const toOrd = tierOrder[targetTier] ?? 0;
-            if (toOrd <= fromOrd) {
-              cliError(
-                `Cannot promote: '${targetTier}' is not higher than current tier '${fromTier}'. Use 'demote' to lower tiers.`,
-                'E_VALIDATION',
-                { name: 'E_VALIDATION' },
-              );
-              process.exit(1);
-            }
-
-            nativeDb
-              .prepare(`UPDATE ${tbl} SET memory_tier = ?, updated_at = ? WHERE id = ?`)
-              .run(targetTier, now, args.id);
-
-            break;
-          }
-        } catch {
-          // Try next table
-        }
-      }
-
-      if (!found) {
-        cliError(
-          `Entry '${args.id}' not found in any brain table (or is invalidated)`,
-          'E_NOT_FOUND',
-          { name: 'E_NOT_FOUND' },
-        );
-        process.exit(1);
-      }
-
+      const result = await setEntryTier(args.id, targetTier, 'promote');
       cliOutput(
-        { id: args.id, table: foundTable, fromTier, toTier: targetTier, reason, promotedAt: now },
+        {
+          id: result.id,
+          table: result.table,
+          fromTier: result.fromTier,
+          toTier: result.toTier,
+          reason,
+          promotedAt: result.updatedAt,
+        },
         { command: 'memory-tier-promote', operation: 'memory.tier.promote' },
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      cliError(`Tier promote failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
+      const isValidation =
+        message.includes('already at tier') ||
+        message.includes('Cannot promote') ||
+        message.includes('not found');
+      if (isValidation) {
+        cliError(message, 'E_VALIDATION', { name: 'E_VALIDATION' });
+      } else {
+        cliError(`Tier promote failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
+      }
       process.exit(1);
     }
   },
@@ -1903,87 +1709,32 @@ const tierDemoteCommand = defineCommand({
 
     try {
       await getBrainDb(root);
-      const nativeDb = getBrainNativeDb();
-      if (!nativeDb) {
-        cliError('brain.db not available', 'E_INTERNAL', { name: 'E_INTERNAL' });
-        process.exit(1);
-        return;
-      }
-
-      const tables = ['brain_observations', 'brain_learnings', 'brain_patterns', 'brain_decisions'];
-      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-      let found = false;
-      let fromTier = '';
-      let foundTable = '';
-
-      for (const tbl of tables) {
-        try {
-          const row = nativeDb
-            .prepare(
-              `SELECT id, memory_tier FROM ${tbl} WHERE id = ? AND invalid_at IS NULL LIMIT 1`,
-            )
-            .get(args.id) as { id: string; memory_tier: string } | undefined;
-
-          if (row) {
-            found = true;
-            fromTier = row.memory_tier ?? 'short';
-            foundTable = tbl;
-
-            if (fromTier === 'long' && !args.force) {
-              cliError(
-                `Entry ${args.id} is in long tier. Long-tier entries are permanent. Use --force to override.`,
-                'E_VALIDATION',
-                { name: 'E_VALIDATION' },
-              );
-              process.exit(1);
-            }
-
-            if (fromTier === targetTier) {
-              cliError(`Entry ${args.id} is already at tier '${targetTier}'`, 'E_VALIDATION', {
-                name: 'E_VALIDATION',
-              });
-              process.exit(1);
-            }
-
-            const tierOrder: Record<string, number> = { short: 0, medium: 1, long: 2 };
-            const fromOrd = tierOrder[fromTier] ?? 0;
-            const toOrd = tierOrder[targetTier] ?? 0;
-            if (toOrd >= fromOrd) {
-              cliError(
-                `Cannot demote: '${targetTier}' is not lower than current tier '${fromTier}'. Use 'promote' to raise tiers.`,
-                'E_VALIDATION',
-                { name: 'E_VALIDATION' },
-              );
-              process.exit(1);
-            }
-
-            nativeDb
-              .prepare(`UPDATE ${tbl} SET memory_tier = ?, updated_at = ? WHERE id = ?`)
-              .run(targetTier, now, args.id);
-
-            break;
-          }
-        } catch {
-          // Try next table
-        }
-      }
-
-      if (!found) {
-        cliError(
-          `Entry '${args.id}' not found in any brain table (or is invalidated)`,
-          'E_NOT_FOUND',
-          { name: 'E_NOT_FOUND' },
-        );
-        process.exit(1);
-      }
-
+      // The long-tier permanence guard is enforced by setEntryTier when force=false.
+      const result = await setEntryTier(args.id, targetTier, 'demote', { force: !!args.force });
       cliOutput(
-        { id: args.id, table: foundTable, fromTier, toTier: targetTier, reason, demotedAt: now },
+        {
+          id: result.id,
+          table: result.table,
+          fromTier: result.fromTier,
+          toTier: result.toTier,
+          reason,
+          demotedAt: result.updatedAt,
+        },
         { command: 'memory-tier-demote', operation: 'memory.tier.demote' },
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      cliError(`Tier demote failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
+      const isValidation =
+        message.includes('already at tier') ||
+        message.includes('Cannot demote') ||
+        message.includes('not found') ||
+        message.includes('long tier') ||
+        message.includes('Long-tier');
+      if (isValidation) {
+        cliError(message, 'E_VALIDATION', { name: 'E_VALIDATION' });
+      } else {
+        cliError(`Tier demote failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
+      }
       process.exit(1);
     }
   },
