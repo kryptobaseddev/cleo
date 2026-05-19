@@ -77,6 +77,7 @@ vi.mock('@cleocode/core/internal', () => ({
 }));
 
 import {
+  getProjectRoot,
   nexusBlockers,
   nexusCriticalPath,
   nexusDepsQuery,
@@ -757,7 +758,9 @@ describe('NexusHandler', () => {
   // -----------------------------------------------------------------------
 
   describe('mutate: reconcile', () => {
-    it('reconciles using process.cwd() when projectRoot is omitted', async () => {
+    it('reconciles using resolved project root when projectRoot is omitted', async () => {
+      // T9582: dispatch handler normalizes via getProjectRoot() (not raw
+      // process.cwd()) so subdir invocations resolve to the canonical root.
       vi.mocked(nexusReconcileProject).mockResolvedValue({
         success: true,
         data: { status: 'ok' },
@@ -766,7 +769,7 @@ describe('NexusHandler', () => {
       const result = await handler.mutate('reconcile', {});
 
       expect(result.success).toBe(true);
-      expect(nexusReconcileProject).toHaveBeenCalledWith(process.cwd());
+      expect(nexusReconcileProject).toHaveBeenCalledWith(getProjectRoot());
     });
 
     it('reconciles using explicit projectRoot when provided', async () => {
