@@ -173,6 +173,11 @@ export default defineConfig({
         '../../packages/core/src/llm/credentials-store.ts',
         import.meta.url,
       ).pathname,
+      // T9598: config subpath import used by `cleo auth consent`
+      '@cleocode/core/config.js': new URL(
+        '../../packages/core/src/config.ts',
+        import.meta.url,
+      ).pathname,
       // T9416: llm subpath imports used by `cleo auth list` / `cleo auth remove`
       '@cleocode/core/llm/credential-pool.js': new URL(
         '../../packages/core/src/llm/credential-pool.ts',
