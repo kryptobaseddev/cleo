@@ -19,7 +19,7 @@ import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { listDecisions, searchDecisions } from './decisions.js';
 import { graphStats } from './graph-queries.js';
 import { searchLearnings } from './learnings.js';
-import { searchPatterns } from './patterns.js';
+import { type PatternType, searchPatterns } from './patterns.js';
 
 // ---------------------------------------------------------------------------
 // findMemoryEntries
@@ -585,7 +585,7 @@ export async function getPatterns(
 
   const results = await searchPatterns(root, {
     query: query || undefined,
-    type: patternType as Parameters<typeof searchPatterns>[1]['type'],
+    type: patternType as PatternType | undefined,
     limit,
   });
 
@@ -778,7 +778,10 @@ export interface TierStatsResult {
  *
  * @task T9615
  */
-export async function getTierStats(projectPath?: string): Promise<TierStatsResult> {
+export async function getTierStats(
+  /** @reserved — will be threaded to getBrainNativeDb once multi-project support lands */
+  _projectPath?: string,
+): Promise<TierStatsResult> {
   const db = getBrainNativeDb();
 
   if (!db) {
@@ -970,7 +973,8 @@ const PENDING_VERIFY_TABLES = [
  * @task T9615
  */
 export async function getPendingVerify(
-  projectPath?: string,
+  /** @reserved — will be threaded to getBrainNativeDb once multi-project support lands */
+  _projectPath?: string,
   opts: GetPendingVerifyOptions = {},
 ): Promise<PendingVerifyResult> {
   const { minCitations = 5, limit = 50 } = opts;

@@ -15,6 +15,7 @@
  * @epic T9592
  */
 
+import { getProjectRoot } from '../paths.js';
 import { AgentRegistryAccessor } from '../store/agent-registry-accessor.js';
 import type { AgentInstanceRow } from './agent-schema.js';
 import {
@@ -154,6 +155,6 @@ export async function rotateAgentKey(
   agentId: string,
   projectPath?: string,
 ): Promise<RotateAgentKeyResult> {
-  const accessor = new AgentRegistryAccessor(projectPath);
+  const accessor = new AgentRegistryAccessor(projectPath ?? getProjectRoot());
   return accessor.rotateKey(agentId);
 }
