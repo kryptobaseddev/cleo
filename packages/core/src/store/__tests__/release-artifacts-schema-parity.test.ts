@@ -30,7 +30,7 @@ import {
   brainReleaseLinks,
   RELEASE_ARTIFACT_TYPES,
   releaseArtifacts,
-  releaseManifests,
+  releases,
 } from '../tasks-schema.js';
 
 vi.mock('../../logger.js', () => ({
@@ -308,17 +308,20 @@ describe('T9509 enum constant invariants', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 5: Legacy release_manifests table is untouched (F12 — ADR-073)
+// Section 5: T9686-B2 unification — legacy columns are now on `releases`
 // ---------------------------------------------------------------------------
 
-describe('T9509 legacy release_manifests invariant', () => {
-  it('releaseManifests is still exported from tasks-schema after T9509 additions', () => {
-    expect(releaseManifests).toBeDefined();
-    const cols = Object.keys(releaseManifests);
-    expect(cols).toContain('id');
-    expect(cols).toContain('version');
-    expect(cols).toContain('status');
+describe('T9686-B2 unification — legacy columns on canonical `releases` table', () => {
+  it('exports `releases` with legacy columns merged from `release_manifests`', () => {
+    expect(releases).toBeDefined();
+    const cols = Object.keys(releases);
+    // Legacy-pipeline columns that MUST be present on the unified table
     expect(cols).toContain('tasksJson');
+    expect(cols).toContain('preparedAt');
+    expect(cols).toContain('committedAt');
+    expect(cols).toContain('taggedAt');
+    expect(cols).toContain('pushedAt');
+    expect(cols).toContain('gitTag');
   });
 });
 

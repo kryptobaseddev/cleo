@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
-import { cancelRelease, prepareRelease, showManifestRelease } from '../release-manifest.js';
+import { cancelRelease, prepareRelease, showRelease } from '../release-manifest.js';
 
 let testDir: string;
 
@@ -52,7 +52,7 @@ describe('cancelRelease', () => {
 
     // Verify the row was actually deleted
     const db = await getDb(testDir);
-    const rows = await db.select().from(schema.releaseManifests).all();
+    const rows = await db.select().from(schema.releases).all();
     expect(rows).toHaveLength(0);
   });
 
@@ -77,7 +77,7 @@ describe('cancelRelease', () => {
     // Insert a committed release directly into the DB
     const db = await getDb(testDir);
     await db
-      .insert(schema.releaseManifests)
+      .insert(schema.releases)
       .values({
         id: 'rel-v3-0-0',
         version: 'v3.0.0',
@@ -104,7 +104,7 @@ describe('cancelRelease', () => {
   it('rejects a pushed release with a helpful message', async () => {
     const db = await getDb(testDir);
     await db
-      .insert(schema.releaseManifests)
+      .insert(schema.releases)
       .values({
         id: 'rel-v4-0-0',
         version: 'v4.0.0',
@@ -131,7 +131,7 @@ describe('cancelRelease', () => {
   it('rejects a tagged release with a helpful message', async () => {
     const db = await getDb(testDir);
     await db
-      .insert(schema.releaseManifests)
+      .insert(schema.releases)
       .values({
         id: 'rel-v5-0-0',
         version: 'v5.0.0',
@@ -168,13 +168,13 @@ describe('cancelRelease', () => {
     expect(result.success).toBe(true);
 
     // The other release should still exist
-    const remaining = await showManifestRelease('1.0.1', testDir);
+    const remaining = await showRelease('1.0.1', testDir);
     expect(remaining.version).toBe('v1.0.1');
     expect(remaining.status).toBe('prepared');
 
     // Confirm only one row remains
     const db = await getDb(testDir);
-    const rows = await db.select().from(schema.releaseManifests).all();
+    const rows = await db.select().from(schema.releases).all();
     expect(rows).toHaveLength(1);
   });
 });

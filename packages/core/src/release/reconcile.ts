@@ -879,8 +879,8 @@ export async function releaseReconcileV2(
   let reReconciled = false;
   {
     const rows = await db
-      .select({ status: schema.releasesNew.status })
-      .from(schema.releasesNew)
+      .select({ status: schema.releases.status })
+      .from(schema.releases)
       .where(eqVersion(version))
       .all();
     if (rows.length > 0 && rows[0]?.status === 'reconciled') {
@@ -1111,7 +1111,7 @@ export async function releaseReconcileV2(
         throw new ProvenanceTableError('pull_requests', err);
       }
 
-      // ── releases (UPSERT into releasesNew) ──
+      // ── releases (UPSERT into the unified `releases` table) ──
       try {
         const bumpPrId = (() => {
           if (!plan.prUrl) return null;
@@ -1119,7 +1119,7 @@ export async function releaseReconcileV2(
           return m ? `${projectHash}:${m[1]}` : null;
         })();
         await db
-          .insert(schema.releasesNew)
+          .insert(schema.releases)
           .values({
             id: releaseId,
             version,
@@ -1138,7 +1138,7 @@ export async function releaseReconcileV2(
             projectHash,
           })
           .onConflictDoUpdate({
-            target: schema.releasesNew.id,
+            target: schema.releases.id,
             set: {
               status: 'reconciled',
               reconciledAt: nowIso,
@@ -1360,9 +1360,9 @@ export async function releaseReconcileV2(
 
 // ─── Minor helpers ───────────────────────────────────────────────────────────
 
-/** WHERE clause helper — drizzle `eq` against `releasesNew.version`. */
+/** WHERE clause helper — drizzle `eq` against `releases.version`. */
 function eqVersion(version: string) {
-  return eq(schema.releasesNew.version, version);
+  return eq(schema.releases.version, version);
 }
 
 /**

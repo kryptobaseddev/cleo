@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { getDb, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
-import { releaseManifests } from '../../store/tasks-schema.js';
+import { releases } from '../../store/tasks-schema.js';
 import { prepareRelease } from '../release-manifest.js';
 
 let TEST_ROOT: string;
@@ -65,7 +65,7 @@ beforeEach(async () => {
   // pushedAt = 2026-02-01 means T100 (Jan) is OLD and T200 (Mar) is NEW.
   const db = await getDb(TEST_ROOT);
   await db
-    .insert(releaseManifests)
+    .insert(releases)
     .values({
       id: 'rel-v2026-1-0',
       version: 'v2026.1.0',

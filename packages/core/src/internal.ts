@@ -788,13 +788,13 @@ export {
   cancelRelease,
   commitRelease,
   generateReleaseChangelog,
-  listManifestReleases,
+  listReleases,
   markReleasePushed,
   prepareRelease,
   pushRelease,
   rollbackRelease,
   runReleaseGates,
-  showManifestRelease,
+  showRelease,
 } from './release/release-manifest.js';
 // T9529: provenance verify verb (Phase 2 of T9493) — READ-ONLY audit of the
 // 11 provenance tables for a release tag.
@@ -1065,7 +1065,7 @@ export { applyPerfPragmas } from './store/sqlite-pragmas.js';
 export {
   auditLog,
   externalTaskLinks,
-  releaseManifests,
+  releases,
   sessions,
   taskDependencies,
   tasks,

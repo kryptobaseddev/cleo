@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { releasePlan } from '../plan.js';
-import { listManifestReleases, showManifestRelease } from '../release-manifest.js';
+import { listReleases, showRelease } from '../release-manifest.js';
 
 let testDir: string;
 
@@ -134,7 +134,7 @@ describe('T9686 — release plan → show round-trip (SSoT regression lock)', ()
 
     // show MUST find the release the plan just wrote. Pre-T9686 this threw
     // 'Release v2026.7.0 not found' because show read the legacy table.
-    const manifest = await showManifestRelease('v2026.7.0', testDir);
+    const manifest = await showRelease('v2026.7.0', testDir);
     expect(manifest.version).toBe('v2026.7.0');
     expect(manifest.status).toBe('planned');
     expect(manifest.source).toBe('new');
@@ -157,7 +157,7 @@ describe('T9686 — release plan → show round-trip (SSoT regression lock)', ()
       createdBy: 'roundtrip-test',
     });
 
-    const list = await listManifestReleases(undefined, testDir);
+    const list = await listReleases(undefined, testDir);
     expect(list.total).toBe(1);
     expect(list.filtered).toBe(1);
     const found = list.releases.find((r) => r.version === 'v2026.7.1');
@@ -191,13 +191,13 @@ describe('T9686 — release plan → show round-trip (SSoT regression lock)', ()
     });
     expect(second.success).toBe(true);
 
-    const list = await listManifestReleases(undefined, testDir);
+    const list = await listReleases(undefined, testDir);
     const matches = list.releases.filter((r) => r.version === 'v2026.7.2');
     expect(matches).toHaveLength(1);
   });
 
   it('show throws when the version is absent from BOTH the new and legacy tables', async () => {
-    await expect(showManifestRelease('v9999.999.999', testDir)).rejects.toThrow(
+    await expect(showRelease('v9999.999.999', testDir)).rejects.toThrow(
       /v9999\.999\.999 not found/,
     );
   });
