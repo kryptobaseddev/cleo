@@ -300,13 +300,20 @@ describe('publishDocs', () => {
   it('reads the last blob and writes to toPath when no attachmentId given', async () => {
     const result = await publishDocs({
       ownerId: 'T123',
+      // Outside the mocked projectRoot — caller opts into the bypass explicitly.
       toPath: '/tmp/out/doc.md',
+      allowOutsideRoot: true,
     });
 
     expect(blobOps.blobRead).toHaveBeenCalledWith('T123', 'design.png', '/tmp/test-project');
     expect(result.publishedPath).toBe('/tmp/out/doc.md');
     expect(result.bytes).toBe(5);
     expect(result.sha256).toHaveLength(64);
+    // T9701 — richer envelope fields.
+    expect(result.blobName).toBe('design.png');
+    expect(result.blobSha256).toBe('ccdd');
+    expect(result.ownerId).toBe('T123');
+    expect(typeof result.relativePath).toBe('string');
   });
 
   it('selects blob by sha256 when attachmentId matches', async () => {
@@ -314,31 +321,60 @@ describe('publishDocs', () => {
       ownerId: 'T123',
       attachmentId: 'aabb',
       toPath: '/tmp/out/spec.md',
+      allowOutsideRoot: true,
     });
 
     expect(blobOps.blobRead).toHaveBeenCalledWith('T123', 'spec.md', '/tmp/test-project');
     expect(result.publishedPath).toBe('/tmp/out/spec.md');
+    expect(result.blobName).toBe('spec.md');
+    expect(result.blobSha256).toBe('aabb');
   });
 
   it('throws when no attachments found for owner', async () => {
     vi.mocked(blobOps.blobList).mockResolvedValue([]);
 
-    await expect(publishDocs({ ownerId: 'T999', toPath: '/tmp/out.md' })).rejects.toThrow(
-      'no attachments found',
-    );
+    await expect(
+      publishDocs({ ownerId: 'T999', toPath: '/tmp/out.md', allowOutsideRoot: true }),
+    ).rejects.toThrow('no attachments found');
   });
 
   it('throws when specified attachmentId not found', async () => {
     await expect(
-      publishDocs({ ownerId: 'T123', attachmentId: 'nonexistent', toPath: '/tmp/out.md' }),
+      publishDocs({
+        ownerId: 'T123',
+        attachmentId: 'nonexistent',
+        toPath: '/tmp/out.md',
+        allowOutsideRoot: true,
+      }),
     ).rejects.toThrow('not found');
   });
 
   it('throws when blobRead returns null', async () => {
     vi.mocked(blobOps.blobRead).mockResolvedValue(null);
 
-    await expect(publishDocs({ ownerId: 'T123', toPath: '/tmp/out.md' })).rejects.toThrow(
-      'could not read blob',
-    );
+    await expect(
+      publishDocs({ ownerId: 'T123', toPath: '/tmp/out.md', allowOutsideRoot: true }),
+    ).rejects.toThrow('could not read blob');
+  });
+
+  // T9701 — path-escape guard: writes outside projectRoot are rejected unless
+  // the caller passes allowOutsideRoot:true. CLI never sets that flag.
+  it('rejects absolute toPath that escapes projectRoot by default', async () => {
+    await expect(
+      publishDocs({
+        ownerId: 'T123',
+        toPath: '/etc/passwd',
+      }),
+    ).rejects.toThrow(/outside projectRoot/);
+  });
+
+  // T9701 — same protection for relative `..` traversal sequences.
+  it('rejects relative toPath that resolves outside projectRoot', async () => {
+    await expect(
+      publishDocs({
+        ownerId: 'T123',
+        toPath: '../../escape.md',
+      }),
+    ).rejects.toThrow(/outside projectRoot/);
   });
 });

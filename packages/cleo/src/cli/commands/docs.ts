@@ -30,7 +30,10 @@ import {
   publishDocs,
   rankDocs,
   readJson,
+  recordPublication,
   searchDocs,
+  statusDocs,
+  syncFromGit,
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
@@ -816,6 +819,22 @@ const publishCommand = defineCommand({
         projectRoot,
       });
 
+      // Persist the publication in the docs-publications ledger so the
+      // `cleo docs status` drift detector can subsequently check this path.
+      // Failure here MUST NOT mask publish success — the file is already on
+      // disk and reachable; ledger drift is recoverable on the next publish.
+      try {
+        await recordPublication({
+          ownerId: result.ownerId,
+          blobName: result.blobName,
+          publishedPath: result.relativePath,
+          lastBlobSha: result.blobSha256,
+          projectRoot,
+        });
+      } catch {
+        /* Ledger write is best-effort. */
+      }
+
       cliOutput(result, { command: 'docs publish', operation: 'docs.publish' });
     } catch (err) {
       // T9633: emit a flat LAFS error envelope (single layer, ADR-039).
@@ -832,22 +851,94 @@ const publishCommand = defineCommand({
   },
 });
 
-// ── Legacy: cleo docs sync ────────────────────────────────────────────────────
+// ── cleo docs sync ────────────────────────────────────────────────────────────
 
-/** cleo docs sync — drift detection between scripts and docs index */
+/**
+ * cleo docs sync — bidirectional surface.
+ *
+ * Two modes, selected by the presence of `--from`:
+ *
+ *   1. Reverse-ingest (`--from <git-path> --for <ownerId>` — T9702):
+ *      Read the git-tracked file, hash its bytes, and write a new blob
+ *      version to the docs SSoT. Idempotent: same content sha → noop.
+ *
+ *   2. Legacy drift check (no `--from`):
+ *      Compare `scripts/` against `COMMANDS-INDEX.json` — pre-existing
+ *      behaviour preserved verbatim for backward compatibility.
+ *
+ * @epic T9626 (W0)
+ * @task T9702 (ST-PUB-2b — reverse-ingest)
+ */
 const syncCommand = defineCommand({
-  meta: { name: 'sync', description: 'Run drift detection between scripts and docs index' },
+  meta: {
+    name: 'sync',
+    description:
+      'Bidirectional docs sync. Use --from <path> --for <ownerId> to ingest a git file as a new blob version. ' +
+      'Without --from, runs the legacy drift check between scripts/ and COMMANDS-INDEX.json.',
+  },
   args: {
+    from: {
+      type: 'string',
+      description:
+        'Git-tracked file path to ingest as a new blob version (triggers reverse-ingest mode)',
+    },
+    for: {
+      type: 'string',
+      description:
+        'Owner entity ID for reverse-ingest mode (T###, ses_*, O-*). Required when --from is set.',
+    },
+    name: {
+      type: 'string',
+      description: 'Override the blob name used in the manifest. Default: basename of --from.',
+    },
+    'content-type': {
+      type: 'string',
+      description:
+        'IANA MIME type recorded with the new blob version (default: application/octet-stream)',
+    },
     quick: {
       type: 'boolean',
-      description: 'Quick check (commands only)',
+      description: 'Legacy mode only: quick check (commands only)',
     },
     strict: {
       type: 'boolean',
-      description: 'Exit with error on any drift',
+      description: 'Legacy mode only: exit with error on any drift',
     },
   },
   async run({ args }) {
+    // Reverse-ingest mode (T9702).
+    if (args.from) {
+      const projectRoot = getProjectRoot();
+      const ownerId = args.for ?? undefined;
+      if (!ownerId) {
+        cliError(
+          '--for <ownerId> is required when --from <path> is set',
+          ExitCode.VALIDATION_ERROR,
+          { name: 'E_VALIDATION' },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+
+      try {
+        const result = await syncFromGit({
+          ownerId: String(ownerId),
+          fromPath: String(args.from),
+          blobName: args.name ?? undefined,
+          contentType: args['content-type'] ?? undefined,
+          projectRoot,
+        });
+        cliOutput(result, { command: 'docs sync', operation: 'docs.sync' });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        cliError(`docs sync failed: ${message}`, ExitCode.GENERAL_ERROR, {
+          name: 'E_DOCS_SYNC_FAILED',
+        });
+        process.exit(ExitCode.GENERAL_ERROR);
+      }
+      return;
+    }
+
+    // Legacy drift mode (T4551 — preserved unchanged).
     try {
       const projectRoot = process.cwd();
       const result = await detectDrift(projectRoot);
@@ -877,6 +968,49 @@ const syncCommand = defineCommand({
         process.exit(err.code);
       }
       throw err;
+    }
+  },
+});
+
+// ── cleo docs status ──────────────────────────────────────────────────────────
+
+/**
+ * cleo docs status — git⇄llmtxt drift detector.
+ *
+ * Walks the docs-publications ledger and classifies each entry as one of
+ * `in-sync`, `modified`, `deleted`, or `added`. Exits non-zero (code 2)
+ * when ANY entry has drift — convention from `git diff --exit-code`.
+ *
+ * @epic T9626 (W0)
+ * @task T9703 (ST-PUB-2c)
+ */
+const statusCommand = defineCommand({
+  meta: {
+    name: 'status',
+    description:
+      'Compare published files on disk against the docs SSoT and report drift. ' +
+      'Exits 0 when all entries are in-sync, 2 when any drift is present.',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Emit LAFS JSON envelope',
+    },
+  },
+  async run() {
+    const projectRoot = getProjectRoot();
+    try {
+      const result = await statusDocs({ projectRoot });
+      cliOutput(result, { command: 'docs status', operation: 'docs.status' });
+      if (!result.allInSync) {
+        process.exit(2);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`docs status failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_STATUS_FAILED',
+      });
+      process.exit(ExitCode.GENERAL_ERROR);
     }
   },
 });
@@ -927,11 +1061,12 @@ const gapCheckCommand = defineCommand({
 });
 
 /**
- * Root docs command group — attachment management, llmtxt primitives, and drift detection.
+ * Root docs command group — attachment management, llmtxt primitives, drift detection,
+ * and git⇄llmtxt round-trip (publish/sync/status) per Saga T9625 / Epic T9626.
  *
  * Subcommands: add, list, fetch, remove, generate, export,
  *              search, merge, graph, rank, versions, publish,
- *              sync, gap-check.
+ *              sync, status, gap-check.
  */
 export const docsCommand = defineCommand({
   meta: {
@@ -939,7 +1074,7 @@ export const docsCommand = defineCommand({
     description:
       'Documentation attachment management (add/list/fetch/remove), ' +
       'llmtxt primitives (search/merge/graph/rank/versions/publish), ' +
-      'and drift detection (sync/gap-check)',
+      'and drift detection (sync/status/gap-check)',
   },
   subCommands: {
     add: addCommand,
@@ -955,6 +1090,7 @@ export const docsCommand = defineCommand({
     versions: versionsCommand,
     publish: publishCommand,
     sync: syncCommand,
+    status: statusCommand,
     'gap-check': gapCheckCommand,
   },
   async run({ cmd, rawArgs }) {
