@@ -326,7 +326,12 @@
       "status": "active",
       "tier": 2,
       "token_budget": 8000,
-      "references": [],
+      "references": [
+        "skills/ct-documentor/references/chain-orchestration.md",
+        "skills/ct-documentor/references/doc-types-and-templates.md",
+        "skills/ct-documentor/references/style-coordination.md",
+        "skills/ct-documentor/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "documentation_topic"],
         "outputs": ["documentation-file", "manifest-entry", "review-report"],
