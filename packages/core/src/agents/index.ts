@@ -76,6 +76,10 @@ export {
   type MetaAgentResult,
   type MetaAgentTokens,
 } from './invoke-meta-agent.js';
+// === Public API (T9615 — CORE-first promotion) ===
+// Exposes registerAgent, listAgents, getAgent, removeAgent, rotateAgentKey
+// as stable @cleocode/core/agents surface, wrapping the registry primitives.
+export * from './public-api.js';
 // Registry (CRUD, heartbeat, health, errors)
 // Note: registry.checkAgentHealth (thresholdMs, cwd) -> AgentInstanceRow[] is exported
 // as findStaleAgentRows to avoid conflict with health-monitor.checkAgentHealth (T039).
