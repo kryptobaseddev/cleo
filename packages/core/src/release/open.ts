@@ -47,6 +47,7 @@ import {
 import { eq } from 'drizzle-orm';
 
 import { getLogger } from '../logger.js';
+import { getProjectRoot } from '../paths.js';
 import { getDb } from '../store/sqlite.js';
 import { releasesNew } from '../store/tasks-schema.js';
 import { runGitWithLockRetry } from './engine-ops.js';
@@ -90,7 +91,13 @@ export interface ReleaseOpenOptions {
    * NOT the default — the workflow can re-derive the plan from `releases` + tasks.db.
    */
   commitPlan?: boolean;
-  /** Project root override. Defaults to `process.cwd()`. */
+  /**
+   * Project root override. Defaults to the canonical project root resolved
+   * via {@link getProjectRoot} (walks up from `process.cwd()` for monorepo
+   * subdir invocations; honours `CLEO_ROOT` / `CLEO_PROJECT_ROOT`).
+   *
+   * @task T9583
+   */
   projectRoot?: string;
 }
 
@@ -420,7 +427,7 @@ export async function releaseOpen(
   opts: ReleaseOpenOptions,
   runnerOverride?: ReleaseOpenRunner,
 ): Promise<EngineResult<ReleaseOpenResult>> {
-  const projectRoot = opts.projectRoot ?? process.cwd();
+  const projectRoot = getProjectRoot(opts.projectRoot);
   const workflow = opts.workflow ?? DEFAULT_OPEN_WORKFLOW;
   const watch = opts.watch === true;
   const commitPlan = opts.commitPlan === true;

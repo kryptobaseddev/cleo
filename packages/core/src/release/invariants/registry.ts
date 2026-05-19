@@ -17,6 +17,8 @@
  * @adr ADR-056 D5
  */
 
+import { getProjectRoot } from '../../paths.js';
+
 /**
  * Severity classifications for invariants.
  *
@@ -162,7 +164,7 @@ export async function runInvariants(
   tag: string,
   options: { dryRun?: boolean; repoRoot?: string; cwd?: string } = {},
 ): Promise<InvariantReport> {
-  const repoRoot = options.repoRoot ?? options.cwd ?? process.cwd();
+  const repoRoot = options.repoRoot ?? getProjectRoot(options.cwd);
   const dryRun = options.dryRun ?? false;
 
   const runOpts: InvariantRunOptions = {

@@ -15,7 +15,7 @@
 import type { Session, TaskWorkState } from '@cleocode/contracts';
 import type { OrchestrateHandoffParams } from '@cleocode/contracts/operations/orchestrate';
 import { type EngineResult, engineError } from '../engine-result.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
+import { getProjectRoot } from '../paths.js';
 import { orchestrateSpawn, sendConduitEvent } from './spawn-ops.js';
 
 export type { EngineResult };
@@ -138,7 +138,7 @@ export async function orchestrateHandoff(
     return engineError('E_INVALID_INPUT', 'protocolType is required');
   }
 
-  const root = projectRoot || resolveProjectRoot();
+  const root = getProjectRoot(projectRoot);
 
   const steps: HandoffState = {
     contextInject: { status: 'pending', operation: 'session.context.inject' },

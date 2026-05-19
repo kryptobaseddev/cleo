@@ -45,7 +45,7 @@ import { dirname, join } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
+import { getProjectRoot } from '../paths.js';
 import { getDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
 import { releaseReconcileV2 } from './reconcile.js';
@@ -508,7 +508,7 @@ export async function provenanceBackfill(
   opts: BackfillOptions,
 ): Promise<EngineResult<BackfillResult>> {
   const startedAt = Date.now();
-  const projectRoot = opts.projectRoot ?? resolveProjectRoot();
+  const projectRoot = getProjectRoot(opts.projectRoot);
   const since = opts.since;
   const dryRun = opts.dryRun === true;
   const forceOverwrite = opts.forceOverwrite === true;

@@ -10,6 +10,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { getProjectRoot } from '../paths.js';
 import { loadReleaseConfig } from './release-config.js';
 
 /** Supported CI/CD platforms. */
@@ -32,7 +33,7 @@ export function getPlatformPath(platform: CIPlatform): string {
 
 /** Detect the CI platform from the project. */
 export function detectCIPlatform(projectDir?: string): CIPlatform | null {
-  const dir = projectDir ?? process.cwd();
+  const dir = getProjectRoot(projectDir);
 
   if (existsSync(join(dir, '.github'))) return 'github-actions';
   if (existsSync(join(dir, '.gitlab-ci.yml'))) return 'gitlab-ci';
@@ -157,7 +158,7 @@ export function writeCIConfig(
   platform: CIPlatform,
   options: { projectDir?: string; dryRun?: boolean } = {},
 ): { action: string; path: string; content: string } {
-  const projectDir = options.projectDir ?? process.cwd();
+  const projectDir = getProjectRoot(options.projectDir);
   const outputPath = join(projectDir, getPlatformPath(platform));
   const content = generateCIConfig(platform, projectDir);
 
@@ -176,7 +177,7 @@ export function validateCIConfig(
   platform: CIPlatform,
   projectDir?: string,
 ): { valid: boolean; exists: boolean; errors: string[] } {
-  const dir = projectDir ?? process.cwd();
+  const dir = getProjectRoot(projectDir);
   const configPath = join(dir, getPlatformPath(platform));
 
   if (!existsSync(configPath)) {
