@@ -23,7 +23,10 @@ function makeTempDir(): string {
   );
   mkdirSync(dir, { recursive: true });
   // T9581: getProjectRoot() validates project roots — legacy-fallback path
-  // requires a sibling `.git/` directory.
+  // requires BOTH `.cleo/` AND a sibling `.git/` directory. Without `.cleo/`,
+  // a real `.git/` walker hit throws "Run cleo init" instead of falling
+  // through to the test's intended behavior.
+  mkdirSync(join(dir, '.cleo'), { recursive: true });
   mkdirSync(join(dir, '.git'), { recursive: true });
   return dir;
 }

@@ -129,6 +129,10 @@ describe('orchestratePlan (T889 / W3-6)', () => {
     CLEO_HOME_DIR = join(base, 'cleo-home');
     mkdirSync(TEST_ROOT, { recursive: true });
     mkdirSync(CLEO_HOME_DIR, { recursive: true });
+    // T9581: validateProjectRoot legacy-fallback path requires `.cleo/` +
+    // `.git/` siblings. seedTasks() creates `.cleo/`; add the `.git/` dir
+    // so getProjectRoot() accepts TEST_ROOT as a project root.
+    mkdirSync(join(TEST_ROOT, '.git'), { recursive: true });
 
     // Isolate global signaldock.db: plan engine opens it via getCleoHome().
     PRIOR_CLEO_HOME = process.env['CLEO_HOME'];

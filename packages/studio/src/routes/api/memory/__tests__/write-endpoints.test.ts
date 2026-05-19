@@ -14,7 +14,7 @@
  * @wave 1D
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -135,8 +135,17 @@ const TASKS_DDL = `
  */
 function makeTmpCtx(): { ctx: ProjectContext; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'cleo-studio-wave1d-'));
-  const brainPath = join(dir, 'brain.db');
-  const tasksPath = join(dir, 'tasks.db');
+  // T9616: Studio /api/memory/* observe-style endpoints now delegate to
+  // @cleocode/core's observeBrain, which writes to `<projectRoot>/.cleo/brain.db`
+  // (resolved via getBrainDbPath). The verify endpoint, however, reads through
+  // the Studio's `getBrainDb(ctx)` helper which uses `ctx.brainDbPath`. For both
+  // ends of an observe → verify flow to point at the same file we align
+  // `ctx.brainDbPath` and `ctx.tasksDbPath` with the canonical `.cleo/` layout
+  // and create the `.cleo/` dir explicitly so core's open path succeeds.
+  const cleoDir = join(dir, '.cleo');
+  mkdirSync(cleoDir, { recursive: true });
+  const brainPath = join(cleoDir, 'brain.db');
+  const tasksPath = join(cleoDir, 'tasks.db');
 
   const b = new SqliteCtor(brainPath);
   b.exec(BRAIN_DDL);

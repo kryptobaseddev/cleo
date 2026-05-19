@@ -127,6 +127,10 @@ async function seedTasks(testRoot: string): Promise<void> {
 
 beforeEach(async () => {
   TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-ready-display-'));
+  // T9581: validateProjectRoot legacy-fallback path requires `.cleo/` +
+  // `.git/` siblings. seedTasks() creates `.cleo/`; add the `.git/` dir
+  // so getProjectRoot() accepts TEST_ROOT as a project root.
+  mkdirSync(join(TEST_ROOT, '.git'), { recursive: true });
   await seedTasks(TEST_ROOT);
 });
 
