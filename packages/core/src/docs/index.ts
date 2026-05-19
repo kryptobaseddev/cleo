@@ -22,6 +22,7 @@ export type {
   DocsGraphNode,
   DocsGraphResult,
   DocsMergeResult,
+  DocsPublishResult,
   DocsRankHit,
   DocsRankResult,
   DocsSearchHit,

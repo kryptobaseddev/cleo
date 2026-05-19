@@ -120,11 +120,13 @@ export {
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
 // Docs ops — llmtxt primitive wrappers (search, merge, graph, rank, versions, publish) (T1041)
+// + publishDocs hardening (T9701 — Saga T9625 / Epic T9626)
 export type {
   DocsGraphEdge,
   DocsGraphNode,
   DocsGraphResult,
   DocsMergeResult,
+  DocsPublishResult,
   DocsRankHit,
   DocsRankResult,
   DocsSearchHit,
