@@ -3,6 +3,9 @@ name: ct-adr-recorder
 description: "Records Architecture Decision Records from accepted consensus verdicts. Use when promoting a consensus outcome to a formal ADR: drafts the document in the proposed-then-accepted HITL lifecycle, links to the originating consensus manifest, persists the decision to the canonical SQLite decisions table, and triggers downstream invalidation when an accepted ADR is later superseded. Triggers on phrases like 'write ADR', 'record architecture decision', 'formalize this decision', 'lock in the choice', 'create ADR-XXX', or when a consensus task reaches completed status and needs formalization."
 protocol: architecture_decision
 loomStage: architecture_decision
+adrRefs:
+  - ADR-053
+  - ADR-070
 ---
 
 # ADR Recorder
@@ -175,3 +178,12 @@ Exit code 0 = valid. Exit code 65 = `HANDOFF_REQUIRED`. Exit code 18 = `CASCADE_
 6. Superseding an accepted ADR MUST trigger the downstream cascade over linked specs, decomps, and impls.
 7. Agents MUST NOT retry the HITL handoff on a loop; wait for the human reviewer.
 8. Always validate via `cleo check protocol --protocolType architecture-decision` before exiting.
+
+## See also / References
+
+This skill binds to the **architecture_decision** LOOM lifecycle stage (underscored canonical form — `cleo lifecycle` source of truth). Governing ADRs:
+
+- [ADR-053 — playbook runtime](../../../../.cleo/adrs/ADR-053-playbook-runtime.md) — defines the lifecycle state machine; the ADR stage is one of its 10 nodes.
+- [ADR-070 — three-tier orchestration](../../../../.cleo/adrs/ADR-070-three-tier-orchestration.md) — defines the Orchestrator HITL gate that owns the `proposed → accepted` ADR transition.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

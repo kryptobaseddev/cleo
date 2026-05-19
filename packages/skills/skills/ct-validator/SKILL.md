@@ -7,6 +7,9 @@ core: false
 category: recommended
 protocol: validation
 loomStage: validation
+adrRefs:
+  - ADR-051
+  - ADR-023
 dependencies: []
 sharedResources:
   - subagent-protocol-base
@@ -215,3 +218,14 @@ When invoked by orchestrator, expect these context tokens:
 | Vague findings | Unclear remediation | Specific issue + file/line + fix |
 | Missing severity | Can't prioritize | Always classify: critical/warning/suggestion |
 | No remediation | Findings not actionable | Always provide fix for FAIL/PARTIAL |
+
+---
+
+## See also / References
+
+This skill binds to the **validation** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-051 — programmatic gate integrity](../../../../.cleo/adrs/ADR-051-programmatic-gate-integrity.md) — defines the evidence-atom grammar that the validator emits and re-validates.
+- [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines the protocol-validation routing layer that dispatches to this skill.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

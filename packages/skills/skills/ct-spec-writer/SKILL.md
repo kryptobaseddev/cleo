@@ -7,6 +7,9 @@ core: false
 category: recommended
 protocol: specification
 loomStage: specification
+adrRefs:
+  - ADR-014
+  - ADR-023
 dependencies: []
 sharedResources:
   - subagent-protocol-base
@@ -188,3 +191,14 @@ Specifications go in: `docs/specs/{{SPEC_NAME}}.md`
 - [ ] Manifest entry appended
 - [ ] Task completed via `{{TASK_COMPLETE_CMD}}`
 - [ ] Return summary message only
+
+---
+
+## See also / References
+
+This skill binds to the **specification** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-014 — RCASD rename and protocol validation](../../../../.cleo/adrs/ADR-014-rcasd-rename-and-protocol-validation.md) — defines the specification stage's role inside the RCASD-IVTR+C lifecycle.
+- [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines how specifications are validated before decomposition.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

@@ -7,6 +7,9 @@ core: true
 category: core
 protocol: implementation
 loomStage: implementation
+adrRefs:
+  - ADR-070
+  - ADR-062
 dependencies: []
 sharedResources:
   - subagent-protocol-base
@@ -295,3 +298,14 @@ cleo session gc --include-active
 | Partial deliverables | Missing outputs | Complete all or report partial |
 | Undocumented changes | Lost context | Write detailed output file |
 | Silent failures | Orchestrator unaware | Report via manifest status |
+
+---
+
+## See also / References
+
+This skill binds to the **implementation** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-070 — three-tier orchestration](../../../../.cleo/adrs/ADR-070-three-tier-orchestration.md) — defines the Worker tier that ct-task-executor occupies.
+- [ADR-062 — worktree merge, not cherry-pick](../../../../.cleo/adrs/ADR-062-worktree-merge-not-cherry-pick.md) — defines the integration path that preserves the executor's commit SHAs end-to-end.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
