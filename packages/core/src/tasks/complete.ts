@@ -12,7 +12,7 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { CleoError } from '../errors.js';
 import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
-import { getProjectRoot } from '../paths.js';
+import { getProjectRoot, resolveOrCwd } from '../paths.js';
 import { wrapWithAgentSession } from '../sessions/agent-session-adapter.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -429,7 +429,7 @@ export async function completeTask(
           ? process.env.CLEO_SESSION_ID
           : undefined,
       agentId: process.env.CLEO_AGENT_ID ?? 'cleo',
-      projectRoot: cwd ?? process.cwd(),
+      projectRoot: resolveOrCwd(cwd),
       label: `complete:${options.taskId}`,
     },
     async () => {
@@ -699,7 +699,7 @@ export async function completeTask(
   import('../memory/graph-auto-populate.js')
     .then(({ upsertGraphNode, addGraphEdge }) =>
       (async () => {
-        const projectRoot = cwd ?? process.cwd();
+        const projectRoot = resolveOrCwd(cwd);
         await upsertGraphNode(
           projectRoot,
           `task:${task.id}`,
@@ -738,7 +738,7 @@ export async function completeTask(
   try {
     const { hooks } = await import('../hooks/registry.js');
     await hooks
-      .dispatch('PostToolUse', cwd ?? process.cwd(), {
+      .dispatch('PostToolUse', resolveOrCwd(cwd), {
         timestamp: new Date().toISOString(),
         taskId: options.taskId,
         taskTitle: task.title,

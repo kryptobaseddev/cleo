@@ -22,6 +22,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type AcceptanceItem, ExitCode, type Task } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { resolveOrCwd } from '../paths.js';
 
 /**
  * Pipeline stages at which acceptance criteria are considered locked.
@@ -195,7 +196,7 @@ export function enforceAcceptanceImmutability(options: EnforceAcceptanceImmutabi
 
   // Override path: append audit entry.
   appendAcceptanceChangeAudit({
-    projectRoot: projectRoot ?? process.cwd(),
+    projectRoot: resolveOrCwd(projectRoot),
     taskId: task.id,
     stage: task.pipelineStage ?? '',
     reason: trimmedReason,

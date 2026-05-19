@@ -11,6 +11,7 @@ import '../hooks/handlers/index.js';
 import type { TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { resolveOrCwd } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
@@ -152,7 +153,7 @@ export async function startTask(
   // Dispatch PreToolUse hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
   hooks
-    .dispatch('PreToolUse', cwd ?? process.cwd(), {
+    .dispatch('PreToolUse', resolveOrCwd(cwd), {
       timestamp: new Date().toISOString(),
       taskId,
       taskTitle: task.title,
@@ -199,7 +200,7 @@ export async function stopTask(
   if (taskId && task) {
     const { hooks } = await import('../hooks/registry.js');
     hooks
-      .dispatch('PostToolUse', cwd ?? process.cwd(), {
+      .dispatch('PostToolUse', resolveOrCwd(cwd), {
         timestamp: now,
         taskId,
         taskTitle: task.title,
