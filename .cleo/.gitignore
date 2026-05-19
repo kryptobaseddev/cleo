@@ -62,6 +62,12 @@
 # incremental migration. Shrinks to zero as T9616-T9621 land.)
 !core-first-baseline.json
 
+# Step 10: Allow project-root anti-pattern baseline (T9584 — tracks known
+# T9550 anti-pattern callsites for incremental migration. Shrinks to zero
+# as long-tail follow-up batches land, after which the CI guard flips to
+# --strict and this file is deleted.)
+!project-root-baseline.json
+
 # =============================================================================
 # EXPLICIT DENY — safety net that overrides allow rules above
 # =============================================================================

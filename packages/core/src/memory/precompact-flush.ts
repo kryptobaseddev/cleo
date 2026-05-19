@@ -19,6 +19,7 @@
  * @epic T1000
  */
 
+import { resolveOrCwd } from '../paths.js';
 import { getCurrentSessionId } from '../sessions/context-alert.js';
 
 // ---------------------------------------------------------------------------
@@ -121,7 +122,7 @@ export async function precompactFlush(projectRoot?: string): Promise<PrecompactF
     errors: [],
   };
 
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
 
   // Snapshot the queue and clear it immediately to prevent double-flush if
   // this function is called concurrently (belt-and-suspenders; the hook

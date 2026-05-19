@@ -704,6 +704,7 @@ export {
   getAgentsHome,
   getCleoGlobalCantAgentsDir,
   getProjectRoot,
+  resolveOrCwd,
   runWithWorktreeScopeFromEnv,
 } from './paths.js';
 // Phases — dependency graph (taskId-scoped critical path; distinct from tasks/graph-ops getCriticalPath)

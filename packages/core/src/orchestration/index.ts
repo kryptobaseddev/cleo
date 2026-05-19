@@ -7,6 +7,7 @@
 import type { Task, TaskRef } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { resolveOrCwd } from '../paths.js';
 import { getExecutionWaves } from '../phases/deps.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import {
@@ -324,7 +325,7 @@ export async function prepareSpawn(
 
   const protocol = autoDispatch(task);
   const tier: SpawnTier = options?.tier ?? DEFAULT_SPAWN_TIER;
-  const projectRoot = cwd ?? process.cwd();
+  const projectRoot = resolveOrCwd(cwd);
 
   const result = buildSpawnPrompt({
     task,

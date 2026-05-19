@@ -29,6 +29,7 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveOrCwd } from '../../paths.js';
 import { SENTIENT_STATE_FILE } from '../../sentient/daemon.js';
 import { patchSentientState, readSentientState } from '../../sentient/state.js';
 import type { WizardIO, WizardOptions, WizardSectionRunner } from '../wizard.js';
@@ -53,12 +54,12 @@ export function createSentientSection(): WizardSectionRunner {
      * @returns `true` when already configured.
      */
     async isConfigured(options: WizardOptions): Promise<boolean> {
-      const statePath = join(options.projectRoot ?? process.cwd(), SENTIENT_STATE_FILE);
+      const statePath = join(resolveOrCwd(options.projectRoot), SENTIENT_STATE_FILE);
       return existsSync(statePath);
     },
 
     async run(io: WizardIO, options: WizardOptions) {
-      const statePath = join(options.projectRoot ?? process.cwd(), SENTIENT_STATE_FILE);
+      const statePath = join(resolveOrCwd(options.projectRoot), SENTIENT_STATE_FILE);
 
       // GEN-6: Section description.
       io.info(

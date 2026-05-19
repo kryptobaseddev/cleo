@@ -1,0 +1,7 @@
+{
+  "$comment": "T9584 baseline — see docs/project-root-conventions.md §6. Long-tail batches must NOT increase this number; each fixed callsite decreases it by one. When the count reaches 0, the lint workflow flips to --strict and this file is deleted.",
+  "violationCount": 57,
+  "capturedAt": "2026-05-19T00:00:00Z",
+  "task": "T9584",
+  "epic": "E-PROJECT-ROOT-AUDIT"
+}

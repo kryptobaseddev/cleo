@@ -29,6 +29,7 @@ import {
   getCleoPiExtensionsDir,
   getCleoTemplatesDir,
   getConfigPath,
+  resolveOrCwd,
 } from './paths.js';
 import { saveJson } from './store/json.js';
 
@@ -1154,7 +1155,7 @@ export function checkGitignore(projectRoot: string): CheckResult {
  * ```
  */
 export function checkWorktreeInclude(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
   const cleoDir = getCleoDirAbsolute(root);
   const worktreeIncludePath = join(cleoDir, 'worktree-include');
 

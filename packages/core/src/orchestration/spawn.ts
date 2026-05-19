@@ -38,6 +38,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentSpawnCapability, AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
 import { ThinAgentViolationError } from '@cleocode/contracts';
+import { resolveOrCwd } from '../paths.js';
 import { resolveAgent } from '../store/agent-resolver.js';
 import { type AtomicityResult, checkAtomicity } from './atomicity.js';
 import {
@@ -425,7 +426,7 @@ export async function composeSpawnPayload(
   task: Task,
   options: ComposeSpawnPayloadOptions = {},
 ): Promise<SpawnPayload> {
-  const projectRoot = options.projectRoot ?? process.cwd();
+  const projectRoot = resolveOrCwd(options.projectRoot);
 
   // 1. Agent id resolution.
   //

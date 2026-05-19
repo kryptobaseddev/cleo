@@ -7,6 +7,7 @@
 import type { Task, TaskRecord } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { resolveOrCwd } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -27,7 +28,7 @@ async function queryAuditEntries(cwd?: string): Promise<AuditRow[]> {
   try {
     const { getDb } = await import('../store/sqlite.js');
     const { auditLog } = await import('../store/tasks-schema.js');
-    const db = await getDb(cwd ?? process.cwd());
+    const db = await getDb(resolveOrCwd(cwd));
     const rows = await db
       .select({
         action: auditLog.action,
