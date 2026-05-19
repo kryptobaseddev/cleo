@@ -1195,15 +1195,26 @@ export async function validateManifestEntries(
 // getBrainDb + getBrainNativeDb allow CLI commands that need the raw DB
 // handle (dedup-scan, tier ops) to avoid @cleocode/core/internal.
 export { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
+// === T9621 — CLI CORE-first promotion (brain.ts misc commands) ===
+// Exposes backfillBrainGraph, exportBrainAsGexf/Json, getPlasticityStats,
+// purgeBrainNoise, runBrainMaintenance, and computeBrainHealthDashboard as
+// stable @cleocode/core/memory surface so CLI commands no longer need
+// @cleocode/core/internal.
+export { backfillBrainGraph } from './brain-backfill.js';
 // === T549 Wave 3: Consolidator (contradiction detection) ===
 export * from './brain-consolidator.js';
+export { exportBrainAsGexf, exportBrainAsJson } from './brain-export.js';
+export { computeBrainHealthDashboard } from './brain-health-dashboard.js';
 // === BRAIN Lifecycle (temporal decay, consolidation, tier promotion) ===
 export * from './brain-lifecycle.js';
 export * from './brain-links.js';
+export { runBrainMaintenance } from './brain-maintenance.js';
 export * from './brain-migration.js';
+export { purgeBrainNoise } from './brain-purge.js';
 // === BRAIN Retrieval functions (3-layer pattern + budget-aware) ===
 export * from './brain-retrieval.js';
 export * from './brain-search.js';
+export { getPlasticityStats } from './brain-stdp.js';
 // === BRAIN Memory modules (brain.db backed) ===
 export * from './decisions.js';
 // === T1087 PSYCHE Wave 3: Dialectic Evaluator + Session Narrative ===

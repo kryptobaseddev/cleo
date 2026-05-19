@@ -17,16 +17,16 @@
  * @what Parent command group with subcommands and progress reporting
  */
 
+import { getProjectRoot } from '@cleocode/core';
 import {
   backfillBrainGraph,
   exportBrainAsGexf,
   exportBrainAsJson,
   getMemoryQualityReport,
   getPlasticityStats,
-  getProjectRoot,
   purgeBrainNoise,
   runBrainMaintenance,
-} from '@cleocode/core/internal';
+} from '@cleocode/core/memory';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput, humanInfo, humanProgress } from '../renderers/index.js';
 
