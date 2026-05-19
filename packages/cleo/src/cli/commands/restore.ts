@@ -17,8 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError, getTaskAccessor } from '@cleocode/core';
-import { getProjectRoot } from '@cleocode/core/internal';
+import { CleoError, getProjectRoot, getTaskAccessor } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
 import {
