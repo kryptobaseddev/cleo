@@ -190,7 +190,13 @@ export {
   getAccessor,
   getTaskAccessor,
 } from './store/data-accessor.js';
-
+// Snapshot opener — readonly + no-migration DB opens that route through the
+// chokepoint API instead of bare DatabaseSync calls (T9685-B3, ADR-068).
+export {
+  type CleoDbSnapshotHandle,
+  type CleoDbSnapshotOptions,
+  openCleoDbSnapshot,
+} from './store/open-cleo-db.js';
 // Canonical pragma application — exposed for cross-package consumers (brain, studio, cleo)
 // that cannot access @cleocode/core/internal (T9045).
 export {

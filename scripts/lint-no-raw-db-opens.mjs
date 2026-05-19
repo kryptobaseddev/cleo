@@ -24,9 +24,17 @@
  *   - `packages/core/src/upgrade.ts` — one-shot signaldock migration (T9023 sweep pending)
  *   - `packages/core/src/init.ts` — bootstrap open before chokepoint is available
  *   - `packages/core/src/agents/seed-install.ts` — one-shot global install (T9023 sweep pending)
+ *   - `packages/core/src/orchestration/classify.ts` — JSDoc @example blocks only (false positives)
+ *   - `packages/brain/src/db-connections.ts` — package-boundary constraint (no core dep allowed)
+ *   - `packages/studio/src/lib/server/db/connections.ts` — per-project ProjectContext-driven opens
  *   - Test files (all __tests__ dirs and .test.ts/.spec.ts files) — may open raw for seeding
  *
  * Opt-out for genuinely exceptional cases: append `// db-open-allowed` on the line.
+ *
+ * For read-only snapshot opens (backup verification, atomic validation, short-lived
+ * registry reads from non-CLEO processes like Studio), use `openCleoDbSnapshot()`
+ * from `@cleocode/core/store/open-cleo-db` — it routes through the chokepoint
+ * while bypassing migrations and singleton management. See T9685-B3.
  *
  * @task T9047
  * @adr ADR-068, ADR-069
@@ -80,14 +88,20 @@ const ALLOW_PATH_PREFIXES = [
   'packages/core/src/agents/seed-install.ts',
   // classify.ts — contains JSDoc @example blocks with DatabaseSync (not actual code)
   'packages/core/src/orchestration/classify.ts',
-  // T9045 sweep complete — brain/studio/cleo cross-package opens now apply applyPerfPragmas
-  // These packages have their own DatabaseSync calls but pragma compliance is enforced.
+  // T9685-B3 — `@cleocode/brain` MUST NOT depend on `@cleocode/core` (would
+  // invert the layering — core depends on brain via the substrate adapters).
+  // `db-connections.ts` is allowed to call `new DatabaseSync(...)` directly
+  // with an inline `applyBrainPragmas` mirror of the SSoT. The cross-package
+  // pragma drift is tracked as a follow-up to consolidate via a shared
+  // contracts module (no core dep needed).
   'packages/brain/src/db-connections.ts',
+  // Studio per-project getters (brain/tasks/conduit) take a ProjectContext —
+  // they cannot route through `openCleoDb(role, cwd)` because they open
+  // arbitrary registered project paths, not the active CWD's `.cleo/`. They
+  // do apply pragma SSoT via `applyPerfPragmas`. The nexus.db opens in this
+  // file are still here because they share the file with the per-project
+  // getters; converting them on their own would require splitting the module.
   'packages/studio/src/lib/server/db/connections.ts',
-  'packages/studio/src/lib/server/project-context.ts',
-  'packages/studio/src/routes/api/search/+server.ts',
-  'packages/cleo/src/cli/commands/agent.ts',
-  'packages/cleo/src/cli/commands/migrate-agents-v2.ts',
 ];
 
 /** Regex patterns (matched against relative path) that are always allowed. */

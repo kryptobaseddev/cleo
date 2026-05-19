@@ -26,10 +26,19 @@
  * await handle.close();
  * ```
  *
- * @task T9047
+ * ## Snapshot opener (read-only, no migrations)
+ *
+ * For short-lived read-only opens (backup verification, schema integrity
+ * checks, registry reads from non-CLEO processes like Studio), use
+ * {@link openCleoDbSnapshot}. It applies the same pragma SSoT but skips
+ * migrations and singleton management, so the caller owns the handle's
+ * lifecycle directly.
+ *
+ * @task T9047, T9685
  * @adr ADR-068, ADR-069
  */
 
+import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
 import { getConduitNativeDb } from './conduit-sqlite.js';
 import { getNexusDb } from './nexus-sqlite.js';
@@ -154,4 +163,115 @@ export async function openCleoDb(role: CleoDbRole, cwd?: string): Promise<CleoDb
  */
 export async function openTasksDb(cwd?: string): Promise<CleoDbHandle> {
   return openCleoDb('tasks', cwd);
+}
+
+// ============================================================================
+// Snapshot opener — readonly + no migrations (T9685-B3)
+// ============================================================================
+
+/** Options accepted by {@link openCleoDbSnapshot}. */
+export interface CleoDbSnapshotOptions {
+  /**
+   * Open the file with `readOnly: true`. Default `true` — the snapshot opener
+   * is meant for read-only inspection (backup verification, schema queries,
+   * registry reads from short-lived processes like a SvelteKit request).
+   */
+  readOnly?: boolean;
+  /**
+   * Apply the canonical pragma set (cache_size, mmap_size, busy_timeout,
+   * temp_store, wal_autocheckpoint). Default `true`. WAL/foreign_keys are
+   * suppressed automatically when `readOnly === true`.
+   */
+  applyPragmas?: boolean;
+}
+
+/**
+ * Handle returned by {@link openCleoDbSnapshot}. Caller-owned lifecycle —
+ * `close()` calls `DatabaseSync.close()` directly because snapshot opens are
+ * NOT managed by a singleton.
+ */
+export interface CleoDbSnapshotHandle {
+  /** The native node:sqlite handle. */
+  db: DatabaseSync;
+  /** Absolute path the handle was opened against. */
+  path: string;
+  /** Close the underlying handle. Safe to call multiple times. */
+  close(): void;
+}
+
+/**
+ * Open a SQLite database file as a read-only snapshot, applying the
+ * canonical pragma SSoT but skipping migrations and singleton management.
+ *
+ * ## When to use
+ *
+ * - Backup verification (e.g. `migration/checksum.ts`)
+ * - Atomic / read-side database validation (e.g. `store/atomic.ts`)
+ * - Short-lived registry reads from a non-CLEO process (e.g. Studio
+ *   SvelteKit endpoints that read nexus.db for project listings)
+ *
+ * Do NOT use for the long-lived role databases — those go through
+ * {@link openCleoDb} which manages singletons + migrations.
+ *
+ * ## Pragma application
+ *
+ * When `applyPragmas !== false` (default), the canonical performance pragmas
+ * are applied via `applyPerfPragmas`. For read-only handles, `enableWal` is
+ * forced `false` because WAL mode is unsettable on a read-only connection.
+ *
+ * ## Lifecycle
+ *
+ * The handle is caller-owned — call `handle.close()` when done. Unlike
+ * {@link openCleoDb}, the snapshot opener does NOT participate in any
+ * singleton cache, so leaking a snapshot handle leaks a file descriptor.
+ *
+ * @task T9685
+ * @adr ADR-068, ADR-069
+ *
+ * @example
+ * ```typescript
+ * import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db';
+ *
+ * const snap = openCleoDbSnapshot('/path/to/nexus.db');
+ * try {
+ *   const rows = snap.db.prepare('SELECT * FROM project_registry').all();
+ *   // ...
+ * } finally {
+ *   snap.close();
+ * }
+ * ```
+ */
+export function openCleoDbSnapshot(
+  path: string,
+  options: CleoDbSnapshotOptions = {},
+): CleoDbSnapshotHandle {
+  const { readOnly = true, applyPragmas = true } = options;
+
+  // node:sqlite is a CJS-only built-in; createRequire keeps this ESM-safe.
+  const _require = createRequire(import.meta.url);
+  const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
+    DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSync>) => DatabaseSync;
+  };
+
+  const db = new DatabaseSyncCtor(path, { readOnly });
+
+  if (applyPragmas) {
+    // Read-only handles cannot set journal_mode; suppress WAL when readOnly.
+    applyPerfPragmas(db, { enableWal: !readOnly });
+  }
+
+  let closed = false;
+  return {
+    db,
+    path,
+    close() {
+      if (closed) return;
+      closed = true;
+      try {
+        db.close();
+      } catch {
+        // Ignore close errors — the handle is already in a terminal state.
+      }
+    },
+  };
 }
