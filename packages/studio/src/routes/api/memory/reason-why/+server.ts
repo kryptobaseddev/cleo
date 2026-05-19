@@ -1,6 +1,13 @@
 /**
  * Memory causal-trace (reason.why) API endpoint (T990 Wave 1D).
  *
+ * @remarks T9616 follow-up: This endpoint joins tasks.db + brain.db in a
+ * BFS walk that has no equivalent in the CORE public API. A future task
+ * should expose a `reasonWhyBlocked(taskId, projectRoot)` op in
+ * `packages/core/src/memory/public-api.ts` using the existing
+ * `memory.reason.why` CLI logic, then migrate this handler.
+ * See docs/plans/E-CORE-FIRST-ARCH.md Task 2.
+ *
  * GET /api/memory/reason-why?taskId=<id>
  *
  * Returns an unresolved-blocker walk for the given task: starting from

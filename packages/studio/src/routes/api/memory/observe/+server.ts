@@ -1,31 +1,17 @@
 /**
- * Memory observe write endpoint (T990 Wave 1D).
+ * Memory observe write endpoint.
  *
  * POST /api/memory/observe
  *   body: { title: string, text: string, type?: string, project?: string }
  *   → LAFS envelope { success, data: { id, type, createdAt } }
  *
- * Inserts a new row into `brain_observations`. Studio owns its own
- * insertion path so the UI can write without spawning a CLI subprocess.
- * The insert schema mirrors the canonical `memory.observe` CLI op
- * payload so a future migration to the SDK-backed dispatch layer is a
- * drop-in swap.
- *
- * @task T990
- * @wave 1D
+ * Delegates to `@cleocode/core` `observeBrain` (T9615/T9616).
+ * Zero raw SQL in this handler.
  */
 
+import { observeBrain } from '@cleocode/core';
 import { json } from '@sveltejs/kit';
-import { getBrainDb } from '$lib/server/db/connections.js';
-import {
-  err,
-  isParseError,
-  ok,
-  optionalString,
-  parseJsonBody,
-  requireString,
-  shortId,
-} from '../_lafs.js';
+import { err, isParseError, ok, optionalString, parseJsonBody, requireString } from '../_lafs.js';
 import type { RequestHandler } from './$types';
 
 /** Data returned on success. */
@@ -56,28 +42,19 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const type = VALID_KINDS.has(typeIn) ? typeIn : 'discovery';
   const project = optionalString(body, 'project');
 
-  const db = getBrainDb(locals.projectCtx);
-  if (!db) {
-    return json(err('E_BRAIN_UNAVAILABLE', 'brain.db is unavailable for this project'), {
-      status: 503,
-    });
-  }
-
   try {
-    const id = `O-${shortId()}`;
-    const createdAt = new Date().toISOString();
+    const result = await observeBrain(locals.projectCtx.projectPath, {
+      title: titleR.value,
+      text: textR.value,
+      type: type as Parameters<typeof observeBrain>[1]['type'],
+      project,
+      sourceType: 'manual',
+      sourceConfidence: 'owner',
+    });
 
-    db.prepare(
-      `INSERT INTO brain_observations
-         (id, type, title, narrative, project, source_type, source_confidence,
-          memory_tier, memory_type, verified, citation_count,
-          prune_candidate, created_at)
-       VALUES (?, ?, ?, ?, ?, 'manual', 'owner',
-               'short', 'episodic', 0, 0,
-               0, ?)`,
-    ).run(id, type, titleR.value, textR.value, project ?? null, createdAt);
-
-    return json(ok<ObserveWriteData>({ id, type, createdAt }));
+    return json(
+      ok<ObserveWriteData>({ id: result.id, type: result.type, createdAt: result.createdAt }),
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Insert failed';
     return json(err('E_BRAIN_WRITE', msg), { status: 500 });
