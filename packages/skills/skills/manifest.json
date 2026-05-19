@@ -359,7 +359,11 @@
       "status": "active",
       "tier": 2,
       "token_budget": 6000,
-      "references": [],
+      "references": [
+        "skills/ct-docs-lookup/references/ctx7-workflow.md",
+        "skills/ct-docs-lookup/references/library-id-resolution.md",
+        "skills/ct-docs-lookup/references/version-specific-docs.md"
+      ],
       "capabilities": {
         "inputs": ["library_name", "query", "version"],
         "outputs": ["documentation-content", "code-examples"],
