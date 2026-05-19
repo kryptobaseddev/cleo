@@ -28,6 +28,10 @@ function makeTmpProject(): string {
   );
   mkdirSync(dir, { recursive: true });
   mkdirSync(join(dir, '.cleo'), { recursive: true });
+  // T9583: validateProjectRoot legacy-fallback requires `.cleo/` + `.git/`
+  // siblings. Without `.git/`, getProjectRoot() walks up and may reject the
+  // temp dir as a project root.
+  mkdirSync(join(dir, '.git'), { recursive: true });
   // Minimal package.json so isNodeProject check passes
   writeFileSync(
     join(dir, 'package.json'),

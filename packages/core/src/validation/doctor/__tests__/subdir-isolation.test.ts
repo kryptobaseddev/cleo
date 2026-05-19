@@ -22,7 +22,7 @@
  * @epic T9580
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -145,7 +145,10 @@ describe('T9581 — doctor/checks.ts: project-root resolution from subdir', () =
     process.chdir(fixture.subDir);
     const result = checkAgentsMdHub();
     const detailPath = String((result.details as Record<string, unknown>)['path'] ?? '');
-    expect(detailPath).toBe(join(fixture.rootDir, 'AGENTS.md'));
+    // T9601: macOS resolves /var/folders/... → /private/var/folders/... via
+    // realpath, while fixture.rootDir is the symlinked form. Normalize both
+    // sides to canonical paths for comparison.
+    expect(detailPath).toBe(join(realpathSync(fixture.rootDir), 'AGENTS.md'));
   });
 
   it('checkRootGitignore: reads <rootDir>/.gitignore, not <subdir>/.gitignore', () => {

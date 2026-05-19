@@ -115,6 +115,10 @@ const EPIC_NO_FILES: SeededTask = {
 describe('T932 — orchestrate-engine integration with composeSpawnPayload', () => {
   beforeEach(async () => {
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-t932-'));
+    // T9581: validateProjectRoot legacy-fallback path requires `.cleo/` +
+    // `.git/` siblings. seedTasks() creates `.cleo/`; add the `.git/` dir
+    // so getProjectRoot() accepts TEST_ROOT as a project root.
+    await mkdir(join(TEST_ROOT, '.git'), { recursive: true });
     await seedTasks(TEST_ROOT, [PARENT_EPIC, READY_WORKER, READY_WORKER_NO_SCOPE, EPIC_NO_FILES]);
   });
 
