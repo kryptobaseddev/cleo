@@ -202,3 +202,12 @@ This skill binds to the **specification** LOOM lifecycle stage. Governing ADRs:
 - [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines how specifications are validated before decomposition.
 
 LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+
+## See references/
+
+Progressive disclosure — load on demand only:
+
+- `references/rfc2119-language.md` — keyword semantics, positive/negative examples, decision rubric
+- `references/spec-templates.md` — protocol, API, architecture, requirements scaffolds + naming + versioning
+- `references/traceability-matrix.md` — three-way trace from source to REQ to test, drift detection
+- `references/anti-patterns.md` — ten failure modes seen in past spec drafts
