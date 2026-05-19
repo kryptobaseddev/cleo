@@ -265,7 +265,12 @@
       "protocol": "validation",
       "loomStage": "validation",
       "adrRefs": ["ADR-051", "ADR-023"],
-      "references": [],
+      "references": [
+        "skills/ct-validator/references/validation-modes.md",
+        "skills/ct-validator/references/schema-checking.md",
+        "skills/ct-validator/references/compliance-reports.md",
+        "skills/ct-validator/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "VALIDATION_TARGET", "VALIDATION_CRITERIA"],
         "outputs": ["validation-report", "manifest-entry"],
