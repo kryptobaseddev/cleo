@@ -6,9 +6,11 @@
  * and the Studio `/setup` route (T-E3-8) consume this surface.
  *
  * V2 additions (T9607): re-exports {@link WizardInterruptError}.
+ * V2 additions (T9608): re-exports {@link createIntegrationsSection}.
  *
  * @task T9420
  * @task T9607
+ * @task T9608
  * @epic T9402
  * @epic T9591
  */
@@ -16,6 +18,7 @@
 import { createBrainSection } from './sections/brain.js';
 import { createHarnessSection } from './sections/harness.js';
 import { createIdentitySection } from './sections/identity.js';
+import { createIntegrationsSection } from './sections/integrations.js';
 import { createLlmSection } from './sections/llm.js';
 import { createProjectConventionsSection } from './sections/project-conventions.js';
 import { createSentientSection } from './sections/sentient.js';
@@ -25,7 +28,7 @@ import { WizardRunner, type WizardSectionRunner } from './wizard.js';
 export { createBrainSection } from './sections/brain.js';
 export { createHarnessSection } from './sections/harness.js';
 export { createIdentitySection } from './sections/identity.js';
-
+export { createIntegrationsSection } from './sections/integrations.js';
 export { createLlmSection } from './sections/llm.js';
 export { createProjectConventionsSection } from './sections/project-conventions.js';
 export { createSentientSection } from './sections/sentient.js';
@@ -57,12 +60,14 @@ export {
  *   4. `project-conventions` — strictness preset before harness/brain layering
  *   5. `harness`             — operator selects Pi vs Claude Code (T9425)
  *   6. `brain`               — BRAIN memory bridge mode (T9425)
- *   7. `verification`        — read-only health checks (T9594)
+ *   7. `integrations`        — SignalDock + Studio + Conduit (T9608)
+ *   8. `verification`        — read-only health checks (T9594)
  *
  * @returns Fresh array of section runner instances.
  * @task T9420
  * @task T9425
  * @task T9594
+ * @task T9608
  */
 export function createBuiltinSections(): WizardSectionRunner[] {
   return [
@@ -72,6 +77,7 @@ export function createBuiltinSections(): WizardSectionRunner[] {
     createProjectConventionsSection(),
     createHarnessSection(),
     createBrainSection(),
+    createIntegrationsSection(),
     createVerificationSection(),
   ];
 }
