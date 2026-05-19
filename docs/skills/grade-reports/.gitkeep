@@ -1,0 +1,6 @@
+# Placeholder — `docs/skills/grade-reports/` is the output directory for
+# the weekly `skills-grade.yml` owner-CI cron (T9667). Per-skill grade
+# scorecards land here as `<canonicalSkillName>.md`.
+#
+# See: .github/workflows/skills-grade.yml
+# See: docs/owner-ci/skills-pipeline.md
