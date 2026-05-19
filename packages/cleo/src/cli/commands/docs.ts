@@ -818,11 +818,15 @@ const publishCommand = defineCommand({
 
       cliOutput(result, { command: 'docs publish', operation: 'docs.publish' });
     } catch (err) {
+      // T9633: emit a flat LAFS error envelope (single layer, ADR-039).
+      // The earlier `cliOutput(formatError(...))` form double-wrapped the
+      // envelope — `formatError` already serialises a `{success:false, error,
+      // meta}` envelope to JSON, and feeding that string to `cliOutput`
+      // produced `{success:true, data:"<json>"}` instead of a real error.
       const message = err instanceof Error ? err.message : String(err);
-      cliOutput(
-        formatError(new CleoError(ExitCode.GENERAL_ERROR, `docs publish failed: ${message}`)),
-        { command: 'docs publish', operation: 'docs.publish' },
-      );
+      cliError(`docs publish failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_PUBLISH_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
