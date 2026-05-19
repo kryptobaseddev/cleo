@@ -8,6 +8,7 @@
 import type { Command } from 'commander';
 import { registerSkillsAudit } from './audit.js';
 import { registerSkillsCheck } from './check.js';
+import { registerSkillsDoctor } from './doctor.js';
 import { registerSkillsDoctorMigrate } from './doctor-migrate.js';
 import { registerSkillsFind } from './find.js';
 import { registerSkillsInit } from './init.js';
@@ -48,4 +49,5 @@ export function registerSkillsCommands(program: Command): void {
   registerSkillsAudit(skills);
   registerSkillsValidate(skills);
   registerSkillsDoctorMigrate(skills);
+  registerSkillsDoctor(skills);
 }
