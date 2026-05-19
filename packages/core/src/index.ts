@@ -197,6 +197,14 @@ export {
   type CleoDbSnapshotOptions,
   openCleoDbSnapshot,
 } from './store/open-cleo-db.js';
+export {
+  getSkillRow,
+  listSkillsBySource,
+  openSkillsDb,
+  upsertSkillRow,
+} from './store/skills-db.js';
+// Skills DB chokepoint helpers — exposed for cleo dispatch (T9657 adopt-orphans wiring)
+export type { NewSkillRow, SkillRow, SkillSourceType } from './store/skills-schema.js';
 // Canonical pragma application — exposed for cross-package consumers (brain, studio, cleo)
 // that cannot access @cleocode/core/internal (T9045).
 export {
