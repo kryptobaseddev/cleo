@@ -5,8 +5,12 @@
  * factory that wires the canonical order. Both `cleo setup` (T9421)
  * and the Studio `/setup` route (T-E3-8) consume this surface.
  *
+ * V2 additions (T9607): re-exports {@link WizardInterruptError}.
+ *
  * @task T9420
+ * @task T9607
  * @epic T9402
+ * @epic T9591
  */
 
 import { createBrainSection } from './sections/brain.js';
@@ -27,6 +31,7 @@ export { createSentientSection } from './sections/sentient.js';
 export {
   StubWizardIO,
   WizardFatalError,
+  WizardInterruptError,
   type WizardIO,
   type WizardOptions,
   WizardRunner,
