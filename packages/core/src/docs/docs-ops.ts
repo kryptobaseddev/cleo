@@ -15,9 +15,9 @@
  * @see packages/cleo/src/cli/commands/docs.ts (CLI surface)
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path';
 import type { KnowledgeGraph, MessageInput } from 'llmtxt/graph';
 import type { ReconstructionResult, VersionDiffSummary, VersionEntry } from 'llmtxt/sdk';
 import type { SimilarityRankResult } from 'llmtxt/similarity';
@@ -510,17 +510,56 @@ export async function listDocVersions(opts: {
 }
 
 /**
+ * Result returned by {@link publishDocs}.
+ *
+ * @epic T9626 (W0)
+ * @task T9701 (ST-PUB-2a — atomic write-side + envelope SHA)
+ */
+export interface DocsPublishResult {
+  /** Absolute path the bytes were written to. */
+  readonly publishedPath: string;
+  /** Project-root-relative form of `publishedPath`. Stable across machines. */
+  readonly relativePath: string;
+  /** Lowercase hex SHA-256 of the written bytes. */
+  readonly sha256: string;
+  /** Byte count actually written to disk. */
+  readonly bytes: number;
+  /** Content-addressed blob id (sha256) selected from the manifest. */
+  readonly blobSha256: string;
+  /** User-visible attachment name (e.g. `"spec.md"`) selected from the manifest. */
+  readonly blobName: string;
+  /** Owner entity ID whose blob was published. */
+  readonly ownerId: string;
+}
+
+/**
  * Atomically publish an attachment from the docs SSoT to a git-tracked path.
  *
  * Reads the named blob from the store and writes it to `toPath` using a
- * tmp-then-rename atomic pattern. When `attachmentId` is omitted the last
- * blob in the manifest is used.
+ * tmp-then-rename atomic pattern with `fsync` before close. When `attachmentId`
+ * is omitted the last blob in the manifest is used.
  *
- * @param opts - Required `ownerId` and `toPath`, optional `attachmentId` and `projectRoot`.
- * @returns Published path, SHA-256 digest of written bytes, and byte count.
+ * Path-escape guard: when `toPath` is relative it is joined under
+ * `projectRoot`; absolute paths must still resolve within `projectRoot`
+ * unless the caller passes `allowOutsideRoot: true`. This prevents an
+ * attacker-controlled blob name from being published to an arbitrary path
+ * via traversal sequences.
+ *
+ * Idempotency: writing the same bytes twice produces the same file SHA and
+ * leaves the destination byte-identical (tmp-then-rename overwrites in-place).
+ *
+ * @param opts - Required `ownerId` and `toPath`, optional `attachmentId`,
+ *               `projectRoot`, and `allowOutsideRoot`.
+ * @returns Published path, SHA-256 digest of written bytes, byte count,
+ *          blob name + sha256, and the owner ID.
  *
  * @throws {Error} when no matching attachment is found for the owner.
  * @throws {Error} when the blob store cannot supply the bytes.
+ * @throws {Error} when the resolved publish path escapes `projectRoot`
+ *                 and `allowOutsideRoot` is not set.
+ *
+ * @epic T9626 (W0)
+ * @task T9701 (ST-PUB-2a)
  *
  * @example
  * ```ts
@@ -533,7 +572,9 @@ export async function publishDocs(opts: {
   attachmentId?: string;
   toPath: string;
   projectRoot?: string;
-}): Promise<{ publishedPath: string; sha256: string; bytes: number }> {
+  /** When true, allow writing to paths outside `projectRoot`. Default: `false`. */
+  allowOutsideRoot?: boolean;
+}): Promise<DocsPublishResult> {
   const root = opts.projectRoot ?? getProjectRoot();
   const blobs = await blobList(opts.ownerId, root).catch(() => []);
 
@@ -559,16 +600,496 @@ export async function publishDocs(opts: {
     );
   }
 
-  const publishedPath = isAbsolute(opts.toPath) ? opts.toPath : join(root, opts.toPath);
-  const tmpPath = `${publishedPath}.cleo-publish-tmp`;
+  // Resolve to absolute, then enforce project-root containment unless opted out.
+  const publishedPath = isAbsolute(opts.toPath)
+    ? resolvePath(opts.toPath)
+    : resolvePath(root, opts.toPath);
+
+  if (!opts.allowOutsideRoot) {
+    const rel = relative(root, publishedPath);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      throw new Error(
+        `publishDocs: refusing to write outside projectRoot "${root}" (resolved to "${publishedPath}"). Pass allowOutsideRoot:true to override.`,
+      );
+    }
+  }
+
+  // Tmp name carries pid + random suffix so concurrent publishes never collide.
+  const tmpPath = `${publishedPath}.cleo-publish-tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
 
   await mkdir(dirname(publishedPath), { recursive: true });
 
-  const { writeFile, rename } = await import('node:fs/promises');
-  await writeFile(tmpPath, bytes);
-  await rename(tmpPath, publishedPath);
+  const { open, rename, unlink } = await import('node:fs/promises');
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(tmpPath, 'w', 0o644);
+    await handle.writeFile(bytes);
+    // Flush page cache + metadata so a crash between rename and reboot does
+    // not surface a zero-byte file under the destination path.
+    await handle.sync();
+  } finally {
+    await handle?.close();
+  }
+
+  try {
+    await rename(tmpPath, publishedPath);
+  } catch (err) {
+    // Cross-device rename is the most common cause; surface a clear error
+    // rather than leaving a stray tmp file behind.
+    await unlink(tmpPath).catch(() => {
+      /* tmp already gone — nothing to clean. */
+    });
+    throw err;
+  }
 
   const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const relativePath = relative(root, publishedPath);
 
-  return { publishedPath, sha256, bytes: bytes.byteLength };
+  return {
+    publishedPath,
+    relativePath,
+    sha256,
+    bytes: bytes.byteLength,
+    blobSha256: target.sha256,
+    blobName: target.name,
+    ownerId: opts.ownerId,
+  };
+}
+
+// ─── docs-publications ledger (T9703 prep — used by status drift detector) ────
+
+/**
+ * On-disk record of one published doc. Persisted to
+ * `<projectRoot>/.cleo/docs-publications.json`.
+ *
+ * The ledger is intentionally a JSON sidecar rather than a SQLite table —
+ * it stores ≤ O(docs) entries, is rewritten atomically, and avoids a
+ * schema migration on the docs domain.
+ *
+ * @epic T9626 (W0)
+ * @task T9703 (ST-PUB-2c — drift detector)
+ */
+export interface DocsPublicationRecord {
+  /** Owner entity ID whose blob was published (e.g. `"T123"`). */
+  readonly ownerId: string;
+  /** Attachment name as stored in the blob manifest. */
+  readonly blobName: string;
+  /** Project-root-relative path the bytes were written to. */
+  readonly publishedPath: string;
+  /** SHA-256 of the blob bytes at the time of publish. */
+  readonly lastBlobSha: string;
+  /** ISO-8601 timestamp of the latest publish event for this record. */
+  readonly publishedAt: string;
+}
+
+/** Wire format of `.cleo/docs-publications.json` on disk. */
+interface DocsPublicationsLedger {
+  readonly version: 1;
+  readonly entries: readonly DocsPublicationRecord[];
+}
+
+/** Absolute path to the docs-publications ledger for a given project root. */
+function ledgerPath(projectRoot: string): string {
+  return join(projectRoot, '.cleo', 'docs-publications.json');
+}
+
+/**
+ * Load the docs-publications ledger from disk.
+ *
+ * Returns an empty list when the ledger file does not yet exist. Tolerates
+ * corrupt JSON by returning an empty list — callers should treat a missing
+ * ledger as "no publications recorded yet" rather than a hard error.
+ *
+ * @internal
+ */
+async function readPublicationsLedger(projectRoot: string): Promise<DocsPublicationRecord[]> {
+  const { readFile } = await import('node:fs/promises');
+  try {
+    const raw = await readFile(ledgerPath(projectRoot), 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<DocsPublicationsLedger>;
+    if (!parsed || !Array.isArray(parsed.entries)) return [];
+    return parsed.entries.filter(
+      (e): e is DocsPublicationRecord =>
+        !!e &&
+        typeof e.ownerId === 'string' &&
+        typeof e.blobName === 'string' &&
+        typeof e.publishedPath === 'string' &&
+        typeof e.lastBlobSha === 'string' &&
+        typeof e.publishedAt === 'string',
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persist the docs-publications ledger atomically (tmp-then-rename + fsync).
+ *
+ * @internal
+ */
+async function writePublicationsLedger(
+  projectRoot: string,
+  entries: readonly DocsPublicationRecord[],
+): Promise<void> {
+  const path = ledgerPath(projectRoot);
+  const tmp = `${path}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
+  const payload: DocsPublicationsLedger = { version: 1, entries };
+  const text = `${JSON.stringify(payload, null, 2)}\n`;
+
+  await mkdir(dirname(path), { recursive: true });
+
+  const { open, rename, unlink } = await import('node:fs/promises');
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(tmp, 'w', 0o644);
+    await handle.writeFile(text, 'utf-8');
+    await handle.sync();
+  } finally {
+    await handle?.close();
+  }
+
+  try {
+    await rename(tmp, path);
+  } catch (err) {
+    await unlink(tmp).catch(() => {
+      /* already gone */
+    });
+    throw err;
+  }
+}
+
+/**
+ * Record a publish event in the docs-publications ledger.
+ *
+ * Upserts on `(ownerId, blobName, publishedPath)`. Refreshes
+ * `lastBlobSha` and `publishedAt` when the row already exists so the
+ * ledger always reflects the latest known good publication.
+ *
+ * @param opts - Required record fields.
+ * @epic T9626 (W0)
+ * @task T9703 (ST-PUB-2c)
+ */
+export async function recordPublication(opts: {
+  ownerId: string;
+  blobName: string;
+  publishedPath: string;
+  lastBlobSha: string;
+  projectRoot?: string;
+}): Promise<void> {
+  const root = opts.projectRoot ?? getProjectRoot();
+  const existing = await readPublicationsLedger(root);
+  const next: DocsPublicationRecord[] = [];
+  let upserted = false;
+  for (const row of existing) {
+    if (
+      row.ownerId === opts.ownerId &&
+      row.blobName === opts.blobName &&
+      row.publishedPath === opts.publishedPath
+    ) {
+      next.push({
+        ownerId: opts.ownerId,
+        blobName: opts.blobName,
+        publishedPath: opts.publishedPath,
+        lastBlobSha: opts.lastBlobSha,
+        publishedAt: new Date().toISOString(),
+      });
+      upserted = true;
+    } else {
+      next.push(row);
+    }
+  }
+  if (!upserted) {
+    next.push({
+      ownerId: opts.ownerId,
+      blobName: opts.blobName,
+      publishedPath: opts.publishedPath,
+      lastBlobSha: opts.lastBlobSha,
+      publishedAt: new Date().toISOString(),
+    });
+  }
+  await writePublicationsLedger(root, next);
+}
+
+/**
+ * List all recorded publications in the ledger.
+ *
+ * Returns an empty array when the ledger does not exist or is unreadable.
+ *
+ * @epic T9626 (W0)
+ * @task T9703 (ST-PUB-2c)
+ */
+export async function listPublications(opts?: {
+  projectRoot?: string;
+}): Promise<DocsPublicationRecord[]> {
+  const root = opts?.projectRoot ?? getProjectRoot();
+  return readPublicationsLedger(root);
+}
+
+// ─── syncFromGit (T9702 — reverse-ingest) ─────────────────────────────────────
+
+/**
+ * Result returned by {@link syncFromGit}.
+ *
+ * @epic T9626 (W0)
+ * @task T9702 (ST-PUB-2b — reverse-ingest)
+ */
+export interface DocsSyncFromGitResult {
+  /** Owner entity ID the file was ingested under. */
+  readonly ownerId: string;
+  /** Attachment name as stored in the blob manifest. */
+  readonly blobName: string;
+  /** Project-root-relative source path. */
+  readonly sourcePath: string;
+  /** SHA-256 of the bytes that were ingested. */
+  readonly newSha: string;
+  /** SHA-256 of the previously-stored blob with the same name, when present. */
+  readonly oldSha?: string;
+  /** Byte count of the ingested file. */
+  readonly bytes: number;
+  /**
+   * What happened during ingest:
+   *   - `created` — first time this `(ownerId, name)` pair was seen.
+   *   - `updated` — content differs from the latest stored blob.
+   *   - `noop`    — content sha matches the latest stored blob; no new blob was written.
+   */
+  readonly action: 'created' | 'updated' | 'noop';
+}
+
+/**
+ * Ingest a git-tracked file as a new blob version on the docs SSoT.
+ *
+ * Reads `fromPath`, computes its SHA-256, and:
+ *   - Returns `{action: 'noop'}` when the latest stored blob for
+ *     `(ownerId, blobName)` already matches the content sha (idempotency).
+ *   - Otherwise attaches a new blob via `CleoBlobStore.attach` and returns
+ *     `{action: 'created' | 'updated', newSha, oldSha?}`.
+ *
+ * The `blobName` defaults to `path.basename(fromPath)` unless explicitly
+ * passed. Use `--name <slug>` from the CLI to override.
+ *
+ * @param opts - Required `ownerId` and `fromPath`, optional `blobName`,
+ *               `contentType`, and `projectRoot`.
+ * @returns Action taken + before/after SHAs.
+ *
+ * @throws {Error} when `fromPath` cannot be read.
+ *
+ * @epic T9626 (W0)
+ * @task T9702 (ST-PUB-2b)
+ *
+ * @example
+ * ```ts
+ * const out = await syncFromGit({ ownerId: 'T123', fromPath: 'docs/spec.md' });
+ * if (out.action === 'noop') console.log('already in sync');
+ * ```
+ */
+export async function syncFromGit(opts: {
+  ownerId: string;
+  fromPath: string;
+  blobName?: string;
+  contentType?: string;
+  projectRoot?: string;
+}): Promise<DocsSyncFromGitResult> {
+  const root = opts.projectRoot ?? getProjectRoot();
+
+  const sourceAbs = isAbsolute(opts.fromPath)
+    ? resolvePath(opts.fromPath)
+    : resolvePath(root, opts.fromPath);
+  const sourceRel = relative(root, sourceAbs);
+
+  const { readFile } = await import('node:fs/promises');
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(sourceAbs);
+  } catch (cause) {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    const err = new Error(`syncFromGit: cannot read "${sourceAbs}": ${msg}`);
+    err.cause = cause;
+    throw err;
+  }
+
+  const blobName = opts.blobName ?? sourceAbs.split(/[\\/]/).pop() ?? 'doc';
+  const newSha = createHash('sha256').update(bytes).digest('hex');
+
+  // Probe the existing manifest for a same-named blob.
+  const existing = await blobList(opts.ownerId, root).catch(() => []);
+  const latest = existing.find((b) => b.name === blobName);
+  const oldSha = latest?.sha256;
+
+  if (latest && latest.sha256 === newSha) {
+    return {
+      ownerId: opts.ownerId,
+      blobName,
+      sourcePath: sourceRel,
+      newSha,
+      oldSha,
+      bytes: bytes.byteLength,
+      action: 'noop',
+    };
+  }
+
+  // Open the blob store and attach the new version. Same content under the
+  // same name with a different sha overwrites the manifest row (LWW).
+  const { CleoBlobStore } = await import('../store/llmtxt-blob-adapter.js');
+  const store = new CleoBlobStore({ projectRoot: root });
+  await store.open();
+  try {
+    await store.attach(
+      opts.ownerId,
+      blobName,
+      new Uint8Array(bytes),
+      opts.contentType ?? 'application/octet-stream',
+    );
+  } finally {
+    await store.close();
+  }
+
+  return {
+    ownerId: opts.ownerId,
+    blobName,
+    sourcePath: sourceRel,
+    newSha,
+    oldSha,
+    bytes: bytes.byteLength,
+    action: latest ? 'updated' : 'created',
+  };
+}
+
+// ─── docs status (T9703 — drift detector) ─────────────────────────────────────
+
+/**
+ * Single drift item returned by {@link statusDocs}.
+ *
+ * @epic T9626 (W0)
+ * @task T9703 (ST-PUB-2c)
+ */
+export interface DocsDriftItem {
+  /** Owner entity ID the blob is attached to. */
+  readonly ownerId: string;
+  /** Attachment name in the blob manifest. */
+  readonly blobName: string;
+  /** Project-root-relative path the blob was published to. */
+  readonly publishedPath: string;
+  /** SHA-256 of the blob in the manifest (the docs SSoT). */
+  readonly blobSha: string;
+  /** SHA-256 of the file at `publishedPath`, or `null` when missing. */
+  readonly fileSha: string | null;
+  /**
+   * Drift classification:
+   *   - `in-sync`  — blobSha === fileSha
+   *   - `added`    — file exists on disk but no row in the manifest (rare; never set today)
+   *   - `modified` — blobSha !== fileSha and file is present
+   *   - `deleted`  — file is missing from disk
+   */
+  readonly drift: 'in-sync' | 'added' | 'modified' | 'deleted';
+}
+
+/**
+ * Result returned by {@link statusDocs}.
+ *
+ * @epic T9626 (W0)
+ * @task T9703 (ST-PUB-2c)
+ */
+export interface DocsStatusResult {
+  /** Each recorded publication, with drift classification. */
+  readonly items: readonly DocsDriftItem[];
+  /** True when every item is `in-sync`. */
+  readonly allInSync: boolean;
+}
+
+/**
+ * Read `.cleo/docs-publications.json` and classify drift for each entry.
+ *
+ * Drift cases covered:
+ *   - blob present + file present + matching sha → `in-sync`
+ *   - blob present + file present + sha mismatch → `modified`
+ *   - blob present + file missing                → `deleted`
+ *
+ * The `added` classification is reserved for files-on-disk-without-a-manifest-row
+ * and is not produced today — `status` operates strictly on the ledger.
+ *
+ * @param opts - Optional `projectRoot`.
+ * @returns Items list + `allInSync` boolean. Suitable for CI exit-code gating
+ *          (0 when `allInSync`, 2 otherwise).
+ *
+ * @epic T9626 (W0)
+ * @task T9703 (ST-PUB-2c)
+ *
+ * @example
+ * ```ts
+ * const status = await statusDocs();
+ * if (!status.allInSync) process.exit(2);
+ * ```
+ */
+export async function statusDocs(opts?: { projectRoot?: string }): Promise<DocsStatusResult> {
+  const root = opts?.projectRoot ?? getProjectRoot();
+  const ledger = await readPublicationsLedger(root);
+  if (ledger.length === 0) {
+    return { items: [], allInSync: true };
+  }
+
+  const { readFile, stat } = await import('node:fs/promises');
+
+  // Refresh blob shas from the manifest so the ledger drives WHICH paths to
+  // check but the latest manifest drives the authoritative SSoT sha.
+  const ownerCache = new Map<string, Map<string, string>>();
+  async function getBlobSha(ownerId: string, blobName: string, ledgerSha: string): Promise<string> {
+    let perOwner = ownerCache.get(ownerId);
+    if (!perOwner) {
+      perOwner = new Map();
+      const rows = await blobList(ownerId, root).catch(() => []);
+      for (const row of rows) perOwner.set(row.name, row.sha256);
+      ownerCache.set(ownerId, perOwner);
+    }
+    return perOwner.get(blobName) ?? ledgerSha;
+  }
+
+  const items: DocsDriftItem[] = [];
+  for (const row of ledger) {
+    const filePath = isAbsolute(row.publishedPath)
+      ? row.publishedPath
+      : resolvePath(root, row.publishedPath);
+
+    const blobSha = await getBlobSha(row.ownerId, row.blobName, row.lastBlobSha);
+
+    let fileSha: string | null = null;
+    let exists = false;
+    try {
+      await stat(filePath);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+
+    if (exists) {
+      try {
+        const data = await readFile(filePath);
+        fileSha = createHash('sha256').update(data).digest('hex');
+      } catch {
+        fileSha = null;
+      }
+    }
+
+    let drift: DocsDriftItem['drift'];
+    if (!exists || fileSha === null) {
+      drift = 'deleted';
+    } else if (fileSha === blobSha) {
+      drift = 'in-sync';
+    } else {
+      drift = 'modified';
+    }
+
+    items.push({
+      ownerId: row.ownerId,
+      blobName: row.blobName,
+      publishedPath: row.publishedPath,
+      blobSha,
+      fileSha,
+      drift,
+    });
+  }
+
+  return {
+    items,
+    allInSync: items.every((i) => i.drift === 'in-sync'),
+  };
 }

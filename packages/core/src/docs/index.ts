@@ -18,24 +18,33 @@
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs-generator.js';
 export { generateDocsLlmsTxt } from './docs-generator.js';
 export type {
+  DocsDriftItem,
   DocsGraphEdge,
   DocsGraphNode,
   DocsGraphResult,
   DocsMergeResult,
+  DocsPublicationRecord,
+  DocsPublishResult,
   DocsRankHit,
   DocsRankResult,
   DocsSearchHit,
   DocsSearchResult,
+  DocsStatusResult,
+  DocsSyncFromGitResult,
   DocsVersionEntry,
   DocsVersionsResult,
 } from './docs-ops.js';
 export {
   buildDocsGraph,
   listDocVersions,
+  listPublications,
   mergeDocs,
   publishDocs,
   rankDocs,
+  recordPublication,
   searchDocs,
+  statusDocs,
+  syncFromGit,
 } from './docs-ops.js';
 
 export type { ExportDocumentOptions, ExportDocumentResult } from './export-document.js';
