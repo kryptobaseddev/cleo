@@ -5,6 +5,7 @@ import {
   getProvider,
   resolveAlias,
 } from '@cleocode/caamp';
+import { resolveOrCwd } from '../paths.js';
 
 export interface RuntimeProviderContext {
   runtimeProviderId?: string;
@@ -131,7 +132,7 @@ export function detectRuntimeProviderContext(
   }
 
   try {
-    const detections = detectProjectProviders(snapshot.cwd ?? process.cwd());
+    const detections = detectProjectProviders(resolveOrCwd(snapshot.cwd));
     const context = selectRuntimeProviderContext(detections, snapshot);
     if (!snapshot.cwd && !snapshot.argv && !snapshot.env) {
       cachedRuntimeProvider = context;

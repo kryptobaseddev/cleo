@@ -12,6 +12,7 @@ import { getLifecycleStatus } from '../lifecycle/index.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskShowNext } from '../mvi-helpers.js';
+import { resolveOrCwd } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { computeTaskView } from './compute-task-view.js';
@@ -200,7 +201,7 @@ export async function taskShowWithHistory(
 
     let history: LifecycleStageEntry[] = [];
     try {
-      const status = await getLifecycleStatus(projectRoot ?? process.cwd(), { taskId });
+      const status = await getLifecycleStatus(resolveOrCwd(projectRoot), { taskId });
       history = status.stages.map(
         (s): LifecycleStageEntry => ({
           stage: s.stage,
