@@ -1,5 +1,76 @@
 # Changelog
 
+## [2026.5.84] (2026-05-19) — SG-CLEO-SKILLS Sphere A close (T9560)
+
+Sphere A close of the SG-CLEO-SKILLS saga (T9560). Bundles the canonical
+skills-storage foundations (resolveSkillsRoot + is_canonical, skills.db
+Drizzle schema), the first batch of `cleo skills doctor` health verbs
+(`migrate`, `bridge`), the saga-aware `cleo list --parent` router, the
+ct-skill registry curation (ct-council added, ct-grade-v2-1 removed),
+CAAMP installer canonical-path writes, and the T9568 LOOM coverage matrix.
+
+### Added (E-SKILLS-STORAGE-CLEANUP / T9571)
+
+- **PR #301 (T9650)** — `resolveSkillsRoot()` + `is_canonical()` SSoT path
+  helpers in `packages/core/src/skills/skill-root.ts`. Canonical path
+  resolution for `~/.cleo/skills/` (XDG-backed via
+  `~/.local/share/cleo/skills/`) with `is_canonical(path)` walking
+  symlinks AND checking manifest membership.
+- **PR #304 (T9651)** — `skills.db` Drizzle schema + per-user registry
+  init. New tables: `installed_skills`, `skill_profiles`,
+  `skill_audit_log`. Migration `20260519051821_t9651-initial`. New
+  `packages/core/src/store/skills-db.ts` accessor + 371-line test suite.
+  Routed through `openCleoDb()` chokepoint (ADR-068).
+- **PR #312 (T9653)** — `cleo skills doctor migrate` verb in
+  `packages/caamp/src/commands/skills/doctor-migrate.ts`. Legacy
+  `.claude/skills/` → canonical `~/.cleo/skills/` with reversible backup.
+  522-line migration engine in `packages/caamp/src/core/skills/migration.ts`.
+- **PR #314 (T9655)** — `cleo skills doctor bridge` verb in
+  `packages/caamp/src/commands/skills/doctor-bridge.ts`. Creates the
+  single bridge symlink `~/.agents/skills -> ~/.claude/skills/agents-shared`,
+  removes per-skill symlinks pointing elsewhere, validates Claude Code
+  skill discovery picks them up.
+- **PR #326 (T9659)** — CAAMP installer writes to canonical
+  `~/.cleo/skills/` and records install rows in `skills.db`. Refactored
+  `packages/caamp/src/core/skills/installer.ts` + canonical-path helpers
+  in `packages/caamp/src/core/paths/standard.ts`.
+
+### Added (T9568 LOOM coverage)
+
+- **PR #321 (T9568 batch)** — 6 tasks shipped: T9661 LOOM coverage matrix
+  doc (10 stages × skill × ADR), T9664 enforce `loomStage` frontmatter on
+  canonical LOOM skills, T9665 link ADR refs on LOOM-stage skill SKILL.md,
+  T9670 bind `ct-contribution` to contribution LOOM stage, T9672 reconcile
+  `architecture_decision` vs `architecture-decision` naming, T9675 clarify
+  `ct-validator` vs `ct-ivt-looper` boundary.
+
+### Changed
+
+- **PR #311 (T9658)** — saga-aware `cleo list --parent` routes `SG-X`
+  via `task_relations.groups`. Sagas with `label='saga'` resolve their
+  members through the relations table rather than the parent_id column,
+  preserving Epic→Task→Subtask depth-budget invariants (I8).
+- **PR #302 (T9654)** — add `ct-council` to recommended + full skill
+  profiles. The 5-advisor stress-test workflow is now part of the
+  default agent toolkit.
+- **PR #303 (T9656)** — remove deprecated `ct-grade-v2-1` skill.
+  Superseded by `ct-grade` (the canonical session-grading skill).
+
+### Fixed
+
+- **PR #318 (T9633)** — `cleo docs publish` silent failure. Citty
+  `runMain` was swallowing CLIError envelopes; the publish verb now
+  emits a proper LAFS error envelope on failure.
+
+### Saga progress (SG-CLEO-SKILLS / T9560)
+
+This release closes Sphere A of the SG-CLEO-SKILLS saga (storage
+foundations + first doctor verbs + curated skill registry + LOOM
+coverage). Remaining saga work (T9657 `cleo skills doctor
+adopt-orphans`, T9652 `cleo skills doctor diagnose`, and curator state
+machine T9677) is held over to a future sphere — T9657 is in PR #315
+pending CI fixes.
+
 ## [2026.5.83] (2026-05-19) — T9685 strict-mode flip — project-root baseline → zero
 
 Long-tail follow-up to the v2026.5.82 E-PROJECT-ROOT-AUDIT closure. The
