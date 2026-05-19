@@ -442,3 +442,106 @@ describe('T-WT-2 — resolveCanonicalProjectRoot', () => {
     resetDbState();
   });
 });
+
+// =============================================================================
+// T-WT-3 — getEffectiveHead wired into validateCommit
+// =============================================================================
+
+describe('T-WT-3 — validateCommit uses getEffectiveHead for ancestry check', () => {
+  let env: TestDbEnv;
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    // Initialize git repo in the test dir.
+    execFileSync('git', ['init', '-q'], { cwd: env.tempDir });
+    execFileSync('git', ['config', 'user.name', 'T-WT-3 Probe'], { cwd: env.tempDir });
+    execFileSync('git', ['config', 'user.email', 'probe@wt3.test'], { cwd: env.tempDir });
+    execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: env.tempDir });
+    // Initial commit to anchor HEAD on main.
+    writeFileSync(join(env.tempDir, 'README.md'), 'init\n');
+    execFileSync('git', ['add', 'README.md'], { cwd: env.tempDir });
+    execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: env.tempDir });
+  });
+
+  afterEach(async () => {
+    await env.cleanup();
+    resetDbState();
+  });
+
+  it('ACCEPTS commit on task branch using getEffectiveHead (T-WT-3 regression lock)', async () => {
+    // Seed a task declaring one AC file.
+    await seedTasks(env.accessor, [
+      {
+        id: 'T_WT3_OK',
+        title: 'wt3-ok',
+        description: 'worktree-aware HEAD resolution',
+        status: 'pending',
+        priority: 'medium',
+        files: ['src/wt3-file.ts'],
+        acceptance: ['src/wt3-file.ts implements feature'],
+      } as Partial<Task> & { id: string },
+    ]);
+
+    // Create the task branch.
+    execFileSync('git', ['checkout', '-b', 'task/T_WT3_OK'], { cwd: env.tempDir });
+
+    // Commit the AC file to the task branch — this commit is NOT on main.
+    mkdirSync(join(env.tempDir, 'src'), { recursive: true });
+    writeFileSync(join(env.tempDir, 'src', 'wt3-file.ts'), 'export const wt3 = 1;\n', 'utf8');
+    execFileSync('git', ['add', 'src/wt3-file.ts'], { cwd: env.tempDir });
+    execFileSync('git', ['commit', '-q', '-m', 'feat(T_WT3_OK): implement wt3-file'], {
+      cwd: env.tempDir,
+    });
+    const commitSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: env.tempDir })
+      .toString()
+      .trim();
+
+    // Confirm commit is NOT reachable from main branch HEAD.
+    execFileSync('git', ['checkout', '-q', 'main'], { cwd: env.tempDir });
+
+    // validateAtom with projectRoot = main repo, taskId = task that owns the branch.
+    // Before T-WT-3 fix, this would return ok:false ("not reachable from HEAD").
+    // After fix, getEffectiveHead resolves "task/T_WT3_OK" and the check passes.
+    const r = await validateAtom({ kind: 'commit', sha: commitSha }, env.tempDir, 'T_WT3_OK');
+    expect(r.ok).toBe(true);
+  });
+
+  it('REJECTS commit on task branch when no taskId provided (backward-compat)', async () => {
+    // Seed a task (not used for the commit check — just ensures the branch is real).
+    await seedTasks(env.accessor, [
+      {
+        id: 'T_WT3_BC',
+        title: 'wt3-backcompat',
+        description: 'backward-compat test',
+        status: 'pending',
+        priority: 'medium',
+        files: [],
+        acceptance: ['anything'],
+      } as Partial<Task> & { id: string },
+    ]);
+
+    // Create task branch and commit to it.
+    execFileSync('git', ['checkout', '-b', 'task/T_WT3_BC'], { cwd: env.tempDir });
+    writeFileSync(join(env.tempDir, 'some-file.ts'), 'x\n', 'utf8');
+    execFileSync('git', ['add', 'some-file.ts'], { cwd: env.tempDir });
+    execFileSync('git', ['commit', '-q', '-m', 'feat(T_WT3_BC): unmerged commit'], {
+      cwd: env.tempDir,
+    });
+    const commitSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: env.tempDir })
+      .toString()
+      .trim();
+
+    // Switch back to main so HEAD points to main tip (commit NOT reachable from HEAD).
+    execFileSync('git', ['checkout', '-q', 'main'], { cwd: env.tempDir });
+
+    // NO taskId provided → getEffectiveHead returns "HEAD" → commit not reachable → ok:false.
+    const r = await validateAtom({ kind: 'commit', sha: commitSha }, env.tempDir);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      // Error message should mention "HEAD" (not task branch name) to confirm
+      // backward-compatible code path is in effect.
+      expect(r.reason).toMatch(/HEAD/i);
+      expect(r.codeName).toBe('E_EVIDENCE_INVALID');
+    }
+  });
+});
