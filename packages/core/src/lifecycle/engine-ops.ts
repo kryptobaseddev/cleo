@@ -26,6 +26,7 @@ import type {
   LifecycleSkipParams,
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { getProjectRoot } from '../paths.js';
 import { getActiveSession } from '../store/session-store.js';
 import { getForceBypassPath } from '../tasks/gate-audit.js';
 import { getPipelineStageOrder, isPipelineTransitionForward } from '../tasks/pipeline-stage.js';
@@ -159,7 +160,7 @@ export async function enforceScopeForLifecycleMutation(
     const reason = (process.env['CLEO_OWNER_OVERRIDE_REASON'] ?? '').trim() || 'unspecified';
     const scopeStr = scope.epicId ? `epic:${scope.epicId}` : scope.type;
     try {
-      const root = projectRoot ?? process.cwd();
+      const root = getProjectRoot(projectRoot);
       await appendLifecycleScopeBypassLine(root, epicId, scopeStr, reason);
     } catch {
       // Audit write failure must not block the operation.
@@ -204,7 +205,7 @@ export async function enforceScopeForLifecycleMutation(
  * @param projectRoot - Absolute project root path.
  */
 export async function listRcsdEpics(projectRoot?: string): Promise<string[]> {
-  return listEpicsWithLifecycle(projectRoot ?? process.cwd());
+  return listEpicsWithLifecycle(getProjectRoot(projectRoot));
 }
 
 /**
@@ -220,7 +221,7 @@ export async function lifecycleStatus(epicId: string, projectRoot?: string): Pro
     return engineError('E_INVALID_INPUT', 'epicId is required');
   }
   try {
-    const data = await getLifecycleStatus(projectRoot ?? process.cwd(), { epicId });
+    const data = await getLifecycleStatus(getProjectRoot(projectRoot), { epicId });
     return engineSuccess(data);
   } catch (err) {
     if (err instanceof Error) {
@@ -243,7 +244,7 @@ export async function lifecycleHistory(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const data = await getLifecycleHistory(projectRoot ?? process.cwd(), { taskId });
+    const data = await getLifecycleHistory(getProjectRoot(projectRoot), { taskId });
     return engineSuccess(data);
   } catch (err) {
     if (err instanceof Error) {
@@ -263,7 +264,7 @@ export async function lifecycleHistory(
  */
 export async function lifecycleGates(taskId: string, projectRoot?: string): Promise<EngineResult> {
   try {
-    const data = await getLifecycleGates(projectRoot ?? process.cwd(), { taskId });
+    const data = await getLifecycleGates(getProjectRoot(projectRoot), { taskId });
     return engineSuccess(data);
   } catch (err) {
     if (err instanceof Error) {
@@ -317,7 +318,7 @@ export async function lifecycleCheck(
     return engineError('E_INVALID_INPUT', 'epicId and targetStage are required');
   }
   try {
-    const data = await checkStagePrerequisites(projectRoot ?? process.cwd(), {
+    const data = await checkStagePrerequisites(getProjectRoot(projectRoot), {
       epicId,
       targetStage: targetStage as LifecycleCheckParams['targetStage'],
     });
@@ -369,7 +370,7 @@ export async function lifecycleProgress(
   try {
     // Enforce forward-only stage progression
     if (status === 'in_progress' || status === 'completed') {
-      const current = await getLifecycleStatus(projectRoot ?? process.cwd(), { taskId });
+      const current = await getLifecycleStatus(getProjectRoot(projectRoot), { taskId });
       if (current.currentStage) {
         if (!isPipelineTransitionForward(current.currentStage, stage)) {
           const currentOrder = getPipelineStageOrder(current.currentStage);
@@ -388,7 +389,7 @@ export async function lifecycleProgress(
       }
     }
 
-    const data = await recordStageProgress(projectRoot ?? process.cwd(), {
+    const data = await recordStageProgress(getProjectRoot(projectRoot), {
       taskId,
       stage: stage as LifecycleProgressParams['stage'],
       status: status as LifecycleProgressParams['status'],
@@ -433,7 +434,7 @@ export async function lifecycleSkip(
   if (scopeDenied) return scopeDenied;
 
   try {
-    const data = await skipStageWithReason(projectRoot ?? process.cwd(), {
+    const data = await skipStageWithReason(getProjectRoot(projectRoot), {
       taskId,
       stage: stage as LifecycleSkipParams['stage'],
       reason,
@@ -477,7 +478,7 @@ export async function lifecycleReset(
   if (scopeDenied) return scopeDenied;
 
   try {
-    const data = await resetStage(projectRoot ?? process.cwd(), {
+    const data = await resetStage(getProjectRoot(projectRoot), {
       taskId,
       stage: stage as LifecycleResetParams['stage'],
       reason,
@@ -513,7 +514,7 @@ export async function lifecycleGatePass(
     return engineError('E_INVALID_INPUT', 'taskId and gateName are required');
   }
   try {
-    const data = await passGate(projectRoot ?? process.cwd(), {
+    const data = await passGate(getProjectRoot(projectRoot), {
       taskId,
       gateName,
       agent: agent ?? 'system',
@@ -548,7 +549,7 @@ export async function lifecycleGateFail(
     return engineError('E_INVALID_INPUT', 'taskId and gateName are required');
   }
   try {
-    const data = await failGate(projectRoot ?? process.cwd(), {
+    const data = await failGate(getProjectRoot(projectRoot), {
       taskId,
       gateName,
       reason: reason ?? '',

@@ -14,6 +14,10 @@ function makeTmpDir(): string {
     `cleo-compliance-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(join(dir, '.cleo', 'metrics'), { recursive: true });
+  // T9581: getProjectRoot() now validates project roots via validateProjectRoot().
+  // The legacy-fallback path requires a sibling `.git/` directory. Without this,
+  // getProjectRoot() walks up from `tmpDir` and throws E_INVALID_PROJECT_ROOT.
+  mkdirSync(join(dir, '.git'), { recursive: true });
   return dir;
 }
 
