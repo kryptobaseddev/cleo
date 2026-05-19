@@ -889,6 +889,7 @@ export class PipelineHandler implements DomainHandler {
       'release.show',
       'release.channel.show',
       'release.changelog.since',
+      'release.pr-status',
       'phase.show',
       'phase.list',
       'chain.show',
