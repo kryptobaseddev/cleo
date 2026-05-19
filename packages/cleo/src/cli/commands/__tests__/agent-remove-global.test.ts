@@ -18,7 +18,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { agentCommand } from '../agent.js';
 
 // ---------------------------------------------------------------------------
-// Mock @cleocode/core/internal
+// Mock @cleocode/core/agents (T9620: agent.ts now imports from public barrel)
+// and @cleocode/core/internal for infrastructure symbols (getDb)
 // ---------------------------------------------------------------------------
 
 const mockDetachAgentFromProject = vi.fn();
@@ -26,10 +27,10 @@ const mockGetProjectAgentRef = vi.fn();
 const mockRemoveGlobal = vi.fn().mockResolvedValue(undefined);
 const mockGetDb = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('@cleocode/core/internal', () => ({
+// T9620: agent.ts imports agent-specific symbols from @cleocode/core/agents
+vi.mock('@cleocode/core/agents', () => ({
   detachAgentFromProject: (...args: unknown[]) => mockDetachAgentFromProject(...args),
   getProjectAgentRef: (...args: unknown[]) => mockGetProjectAgentRef(...args),
-  getDb: (...args: unknown[]) => mockGetDb(...args),
   // AgentRegistryAccessor — provide an inline constructor to avoid hoisting issues
   // (arrow functions cannot be used as constructors).
   AgentRegistryAccessor: function AgentRegistryAccessor(this: {
@@ -45,13 +46,25 @@ vi.mock('@cleocode/core/internal', () => ({
   detectStaleAgents: vi.fn(),
   getHealthReport: vi.fn(),
   STALE_THRESHOLD_MS: 60_000,
+  createConduit: vi.fn(),
+  buildDoctorReport: vi.fn(),
+  reconcileDoctor: vi.fn(),
+  installAgentFromCant: vi.fn(),
+}));
+
+// @cleocode/core/internal is still used for getDb (core-first-allowed infrastructure)
+vi.mock('@cleocode/core/internal', () => ({
+  getDb: (...args: unknown[]) => mockGetDb(...args),
 }));
 
 // Mock cliOutput so tests can inspect calls without a full renderer stack.
 const mockCliOutput = vi.fn();
+const mockHumanWarn = vi.fn();
 vi.mock('../../renderers/index.js', () => ({
   cliOutput: (...args: unknown[]) => mockCliOutput(...args),
   cliError: vi.fn(),
+  humanWarn: (...args: unknown[]) => mockHumanWarn(...args),
+  humanLine: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
