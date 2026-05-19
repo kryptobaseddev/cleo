@@ -210,6 +210,11 @@ export default defineConfig({
         './packages/core/src/nexus/index.ts',
         import.meta.url,
       ).pathname,
+      // T9620: agents public API subpath — CLI agent commands use @cleocode/core/agents
+      '@cleocode/core/agents': new URL(
+        './packages/core/src/agents/index.ts',
+        import.meta.url,
+      ).pathname,
       // T9424: status subpath export used by `cleo status` CLI thin wrapper
       '@cleocode/core/status': new URL(
         './packages/core/src/status/index.ts',

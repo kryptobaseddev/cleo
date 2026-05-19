@@ -30,10 +30,10 @@ const { mockListAgentsForProject, mockLookupAgent, mockGetDb, mockCliOutput } = 
   mockCliOutput: vi.fn(),
 }));
 
-vi.mock('@cleocode/core/internal', () => ({
+// T9620: agent.ts imports agent-specific symbols from @cleocode/core/agents
+vi.mock('@cleocode/core/agents', () => ({
   listAgentsForProject: mockListAgentsForProject,
   lookupAgent: mockLookupAgent,
-  getDb: mockGetDb,
   AgentRegistryAccessor: vi.fn(),
   checkAgentHealth: vi.fn(),
   detectCrashedAgents: vi.fn(),
@@ -41,11 +41,24 @@ vi.mock('@cleocode/core/internal', () => ({
   getHealthReport: vi.fn(),
   STALE_THRESHOLD_MS: 180000,
   createConduit: vi.fn(),
+  attachAgentToProject: vi.fn(),
+  detachAgentFromProject: vi.fn(),
+  getProjectAgentRef: vi.fn(),
+  installAgentFromCant: vi.fn(),
+  buildDoctorReport: vi.fn(),
+  reconcileDoctor: vi.fn(),
+}));
+
+// @cleocode/core/internal is still used for getDb (core-first-allowed infrastructure)
+vi.mock('@cleocode/core/internal', () => ({
+  getDb: mockGetDb,
 }));
 
 vi.mock('../../renderers/index.js', () => ({
   cliOutput: (...args: unknown[]) => mockCliOutput(...args),
   cliError: vi.fn(),
+  humanWarn: vi.fn(),
+  humanLine: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
