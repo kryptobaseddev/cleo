@@ -7054,12 +7054,42 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['version', 'epicId'],
     params: [
-      { name: 'version', type: 'string', required: true, description: 'Candidate version (e.g. v2026.5.80)' },
-      { name: 'epicId', type: 'string', required: true, description: 'Epic task ID whose children scope the release (R-303)' },
-      { name: 'scheme', type: 'string', required: false, description: 'Versioning scheme: calver | semver | calver-suffix' },
-      { name: 'channel', type: 'string', required: false, description: 'Release channel: latest | beta | alpha | rc' },
-      { name: 'hotfix', type: 'boolean', required: false, description: 'Mark plan as release_kind=hotfix' },
-      { name: 'dryRun', type: 'boolean', required: false, description: 'Compute the plan without writing file or DB row' },
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Candidate version (e.g. v2026.5.80)',
+      },
+      {
+        name: 'epicId',
+        type: 'string',
+        required: true,
+        description: 'Epic task ID whose children scope the release (R-303)',
+      },
+      {
+        name: 'scheme',
+        type: 'string',
+        required: false,
+        description: 'Versioning scheme: calver | semver | calver-suffix',
+      },
+      {
+        name: 'channel',
+        type: 'string',
+        required: false,
+        description: 'Release channel: latest | beta | alpha | rc',
+      },
+      {
+        name: 'hotfix',
+        type: 'boolean',
+        required: false,
+        description: 'Mark plan as release_kind=hotfix',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Compute the plan without writing file or DB row',
+      },
     ] satisfies ParamDef[],
   },
 
@@ -7075,10 +7105,30 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['version'],
     params: [
-      { name: 'version', type: 'string', required: true, description: 'Release version whose plan file lives at .cleo/release/<version>.plan.json' },
-      { name: 'workflow', type: 'string', required: false, description: 'Workflow file name (default: release-prepare.yml)' },
-      { name: 'watch', type: 'boolean', required: false, description: 'Poll gh run watch until terminal state' },
-      { name: 'commitPlan', type: 'boolean', required: false, description: 'Commit plan file before dispatching' },
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Release version whose plan file lives at .cleo/release/<version>.plan.json',
+      },
+      {
+        name: 'workflow',
+        type: 'string',
+        required: false,
+        description: 'Workflow file name (default: release-prepare.yml)',
+      },
+      {
+        name: 'watch',
+        type: 'boolean',
+        required: false,
+        description: 'Poll gh run watch until terminal state',
+      },
+      {
+        name: 'commitPlan',
+        type: 'boolean',
+        required: false,
+        description: 'Commit plan file before dispatching',
+      },
     ] satisfies ParamDef[],
   },
 
@@ -7513,8 +7563,18 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'statusFilter', type: 'string', required: false, description: 'Filter to one or more status categories (comma-separated)' },
-      { name: 'staleDays', type: 'number', required: false, description: 'Days of inactivity before flagging stale (default 7)' },
+      {
+        name: 'statusFilter',
+        type: 'string',
+        required: false,
+        description: 'Filter to one or more status categories (comma-separated)',
+      },
+      {
+        name: 'staleDays',
+        type: 'number',
+        required: false,
+        description: 'Days of inactivity before flagging stale (default 7)',
+      },
     ] satisfies ParamDef[],
   },
   {
@@ -7528,8 +7588,18 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
     params: [
-      { name: 'paths', type: 'array', required: false, description: 'Pre-confirmed paths to remove' },
-      { name: 'dryRun', type: 'boolean', required: false, description: 'Enumerate orphans without acting' },
+      {
+        name: 'paths',
+        type: 'array',
+        required: false,
+        description: 'Pre-confirmed paths to remove',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Enumerate orphans without acting',
+      },
     ] satisfies ParamDef[],
   },
   {
@@ -7543,7 +7613,12 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['taskId'],
     params: [
-      { name: 'taskId', type: 'string', required: true, description: 'Task ID whose worktree (branch task/T<id>) to unlock' },
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task ID whose worktree (branch task/T<id>) to unlock',
+      },
     ] satisfies ParamDef[],
   },
 ];
