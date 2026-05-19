@@ -32,6 +32,7 @@
 import { watch } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { resolveOrCwd } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -181,7 +182,7 @@ export async function checkKillSwitch(step: StepLabel, stateFile?: string): Prom
     active = cachedKillSwitch;
   } else {
     // No watcher active — read directly from disk.
-    const resolvedFile = stateFile ?? join(process.cwd(), DEFAULT_STATE_FILE_REL);
+    const resolvedFile = stateFile ?? join(resolveOrCwd(), DEFAULT_STATE_FILE_REL);
     const slice = await readKillSwitchFromFile(resolvedFile);
     active = slice.killSwitch;
     // Seed the cache so subsequent checks within the same process are fast.
@@ -209,7 +210,7 @@ export async function checkKillSwitch(step: StepLabel, stateFile?: string): Prom
  *   cache. Call this during process shutdown or test teardown.
  */
 export function startKillSwitchWatcher(stateFile?: string): () => void {
-  const resolvedFile = stateFile ?? join(process.cwd(), DEFAULT_STATE_FILE_REL);
+  const resolvedFile = stateFile ?? join(resolveOrCwd(), DEFAULT_STATE_FILE_REL);
 
   // Clear existing debounce timer from a previous watcher.
   if (debounceTimer !== null) {

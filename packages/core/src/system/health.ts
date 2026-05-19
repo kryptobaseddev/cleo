@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
 import { checkInjection } from '../injection.js';
-import { getAgentsHome, isProjectInitialized } from '../paths.js';
+import { getAgentsHome, isProjectInitialized, resolveOrCwd } from '../paths.js';
 import { getSystemInfo, type SystemInfo } from '../platform.js';
 import {
   checkBrainDb,
@@ -1262,7 +1262,7 @@ export interface StartupHealthResult {
  * @param projectRoot - Absolute path to the project root (defaults to cwd)
  */
 export async function startupHealthCheck(projectRoot?: string): Promise<StartupHealthResult> {
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
   const system = getSystemInfo();
   const checks: StartupHealthCheck[] = [];
   const failures: StartupHealthCheck[] = [];

@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { resolveOrCwd } from '../paths.js';
 import { createDataAccessor, type DataAccessor } from '../store/data-accessor.js';
 import { setMetaValue } from '../store/sqlite-data-accessor.js';
 import { schemaMeta } from '../store/tasks-schema.js';
@@ -16,11 +17,11 @@ import { schemaMeta } from '../store/tasks-schema.js';
 const SEQUENCE_META_KEY = 'task_id_sequence';
 
 function getLegacySequenceJsonPath(cwd?: string): string {
-  return join(cwd ?? process.cwd(), '.cleo', '.sequence.json');
+  return join(resolveOrCwd(cwd), '.cleo', '.sequence.json');
 }
 
 function getLegacySequencePath(cwd?: string): string {
-  return join(cwd ?? process.cwd(), '.cleo', '.sequence');
+  return join(resolveOrCwd(cwd), '.cleo', '.sequence');
 }
 
 interface SequenceState {
