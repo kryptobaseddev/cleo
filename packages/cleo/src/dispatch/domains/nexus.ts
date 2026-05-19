@@ -527,7 +527,10 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   },
 
   reconcile: async (params) =>
-    wrapCoreResult(await nexusReconcileProject(params.projectRoot ?? process.cwd()), 'reconcile'),
+    wrapCoreResult(
+      await nexusReconcileProject(params.projectRoot ?? getProjectRoot()),
+      'reconcile',
+    ),
 
   'share.snapshot.export': async (params) => {
     const projectRoot = getProjectRoot();
@@ -1251,7 +1254,8 @@ async function handleImpact(
     5,
   );
   const projectIdParam = params?.projectId as string | undefined;
-  const projectId = projectIdParam ?? Buffer.from(process.cwd()).toString('base64url').slice(0, 32);
+  const projectId =
+    projectIdParam ?? Buffer.from(getProjectRoot()).toString('base64url').slice(0, 32);
 
   try {
     const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite' as string);
