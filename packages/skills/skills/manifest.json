@@ -256,7 +256,7 @@
         "dependencies": [],
         "dispatch_triggers": ["validate", "verify", "check compliance", "audit"],
         "compatible_subagent_types": ["general-purpose"],
-        "chains_to": [],
+        "chains_to": ["ct-ivt-looper"],
         "dispatch_keywords": {
           "primary": ["validate", "verify", "audit", "compliance"],
           "secondary": ["check", "conformance", "standards", "requirements"]
