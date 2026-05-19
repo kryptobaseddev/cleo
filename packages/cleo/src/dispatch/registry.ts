@@ -3641,6 +3641,26 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'release.pr-status',
+    description:
+      'Poll GitHub CI check statuses for the open release PR matching release/v<version> (T9095)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Release version (e.g. 2026.5.43 or v2026.5.43)',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
   // release.prepare/changelog/commit/tag/push/gates.run removed — merged into release.ship via step param (T5615)
   {
     gateway: 'mutate',

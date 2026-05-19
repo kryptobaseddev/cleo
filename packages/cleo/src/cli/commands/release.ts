@@ -28,7 +28,7 @@
 import { release } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Deprecation notice emitted to stderr by {@link shipCommand} per
@@ -192,18 +192,44 @@ const changelogCommand = defineCommand({
     description: 'Generate CHANGELOG from git log since a given tag, with task/epic grouping',
   },
   args: {
+    sinceTag: {
+      type: 'positional',
+      description: 'Git tag or ref to generate changelog from (e.g. v2026.4.75)',
+      required: false,
+    },
     since: {
       type: 'string',
-      description: 'Git tag or ref to generate changelog from (e.g. v2026.4.75)',
-      required: true,
+      description:
+        'Git tag or ref to generate changelog from (e.g. v2026.4.75). Alias for the positional argument.',
+      required: false,
     },
   },
   async run({ args }) {
+    // Accept either `cleo release changelog v2026.5.81` (positional, matches
+    // pr-status / show / cancel) or the legacy `--since v...` flag. Emit a
+    // LAFS envelope on missing input rather than letting citty dump help
+    // text to stderr (T9686-A bug A2).
+    const sinceTag =
+      typeof args['sinceTag'] === 'string' && args['sinceTag'].length > 0
+        ? args['sinceTag']
+        : typeof args['since'] === 'string' && args['since'].length > 0
+          ? args['since']
+          : undefined;
+    if (sinceTag === undefined) {
+      cliError(
+        'Missing required argument: <sinceTag> (or --since)',
+        2,
+        { name: 'E_MISSING_ARGUMENT', fix: 'Run: cleo release changelog <tag>' },
+        { operation: 'release.changelog.since' },
+      );
+      process.exit(2);
+      return;
+    }
     await dispatchFromCli(
       'query',
       'pipeline',
       'release.changelog.since',
-      { sinceTag: args.since },
+      { sinceTag },
       { command: 'release' },
     );
   },
@@ -490,8 +516,26 @@ const reconcileCommand = defineCommand({
       fromWorkflow: args['from-workflow'] === true,
       rollback: args.rollback === true,
     });
-    cliOutput(result, { command: 'release', operation: 'release.reconcile' });
-    if (!result.success) process.exit(1);
+    // releaseReconcileV2 returns an EngineResult discriminated union
+    // ({success:true,data} | {success:false,error}). Passing the union
+    // directly to cliOutput would double-wrap into {success:true,
+    // data:{success:false,error}}. Unwrap to surface the inner result
+    // as the canonical CLI envelope (T9686-A bug A3).
+    if (result.success) {
+      cliOutput(result.data, { command: 'release', operation: 'release.reconcile' });
+      return;
+    }
+    cliError(
+      result.error.message,
+      result.error.code,
+      {
+        name: result.error.code,
+        ...(result.error.details ? { details: result.error.details } : {}),
+        ...(result.error.fix ? { fix: result.error.fix } : {}),
+      },
+      { operation: 'release.reconcile' },
+    );
+    process.exit(1);
   },
 });
 

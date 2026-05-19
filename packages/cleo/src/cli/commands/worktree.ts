@@ -355,7 +355,13 @@ export const worktreeCommand = defineCommand({
     prune: pruneCommand,
     'force-unlock': forceUnlockCommand,
   },
-  async run() {
-    await showUsage(worktreeCommand as Parameters<typeof showUsage>[0]);
+  // Early-return when a subcommand was matched; citty still invokes the
+  // parent run() after the subcommand finishes which would otherwise
+  // append the help text to the subcommand's JSON envelope output
+  // (T9686-A bug A4).
+  async run({ cmd, rawArgs }) {
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
+    await showUsage(cmd as Parameters<typeof showUsage>[0]);
   },
 });
