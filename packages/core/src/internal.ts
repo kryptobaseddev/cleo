@@ -2079,6 +2079,8 @@ export {
   resolveWorktreeAuditActor,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from './worktree/audit.js';
+// Worktree effective HEAD — branch-aware ref resolution for evidence validation (T9600 / T-WT-1)
+export { getEffectiveHead } from './worktree/effective-head.js';
 export { forceUnlockWorktree } from './worktree/force-unlock.js';
 // Worktree listing — structured enumeration with status classification (T9546 / T9515)
 export { listWorktrees } from './worktree/list.js';
