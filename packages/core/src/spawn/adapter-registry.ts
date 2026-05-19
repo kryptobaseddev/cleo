@@ -25,6 +25,7 @@ import type {
   SpawnContext,
   SpawnResult,
 } from '@cleocode/contracts';
+import { getProjectRoot } from '../paths.js';
 
 /**
  * Spawn capability type - subset of provider capabilities related to spawning
@@ -285,6 +286,6 @@ export async function initializeSpawnAdapters(
  */
 export async function initializeDefaultAdapters(): Promise<void> {
   const { discoverAdapterManifests } = await import('../adapters/discovery.js');
-  const manifests = discoverAdapterManifests(process.cwd());
+  const manifests = discoverAdapterManifests(getProjectRoot());
   await initializeSpawnAdapters(manifests);
 }

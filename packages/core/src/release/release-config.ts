@@ -16,12 +16,14 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDir } from '../paths.js';
+import { getCleoDir, getProjectRoot } from '../paths.js';
 
 /** Synchronous config value reader (avoids async config pipeline). */
 function readConfigValueSync(path: string, defaultValue: unknown, cwd?: string): unknown {
   try {
-    const configPath = join(getCleoDir(cwd), 'config.json');
+    // T9583 — normalize cwd via getProjectRoot so monorepo subdir invocations
+    // still resolve `.cleo/config.json` at the canonical project root.
+    const configPath = join(getCleoDir(getProjectRoot(cwd)), 'config.json');
     if (!existsSync(configPath)) return defaultValue;
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     const keys = path.split('.');
@@ -47,7 +49,9 @@ function readConfigValueSync(path: string, defaultValue: unknown, cwd?: string):
  */
 function loadReleaseConfigJson(cwd?: string): Partial<ProjectReleaseConfig> {
   try {
-    const configPath = join(getCleoDir(cwd), 'release-config.json');
+    // T9583 — normalize cwd via getProjectRoot so subdir invocations resolve
+    // the project's `.cleo/release-config.json` (not a stray subdir file).
+    const configPath = join(getCleoDir(getProjectRoot(cwd)), 'release-config.json');
     if (!existsSync(configPath)) return {};
     const raw = readFileSync(configPath, 'utf-8');
     return JSON.parse(raw) as Partial<ProjectReleaseConfig>;

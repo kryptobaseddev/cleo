@@ -15,9 +15,9 @@ import type { AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
 import type { OrchestratePlanResult } from '@cleocode/contracts/operations/orchestrate';
 import { type EngineResult, engineError } from '../engine-result.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
+import { getProjectRoot } from '../paths.js';
 import { AgentNotFoundError, resolveAgent } from '../store/agent-resolver.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockDbPath } from '../store/signaldock-sqlite.js';
 import { loadTasks } from './query-ops.js';
 
@@ -296,7 +296,7 @@ export async function orchestratePlan(
     return engineError('E_INVALID_INPUT', 'epicId is required');
   }
 
-  const root = input.projectRoot || resolveProjectRoot();
+  const root = getProjectRoot(input.projectRoot);
 
   try {
     const tasks = await loadTasks(root);

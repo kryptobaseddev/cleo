@@ -21,8 +21,8 @@ import { analyzeEpic, getNextTask, getReadyTasks } from '../orchestration/index.
 import { computeEpicStatus, computeOverallStatus } from '../orchestration/status.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
+import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
 
@@ -100,7 +100,7 @@ export type { EngineResult };
  * @returns Array of all tasks, empty on error.
  */
 export async function loadTasks(projectRoot?: string): Promise<Task[]> {
-  const root = projectRoot || resolveProjectRoot();
+  const root = getProjectRoot(projectRoot);
   try {
     const accessor = await getTaskAccessor(root);
     const result = await accessor.queryTasks({
@@ -125,7 +125,7 @@ export async function orchestrateStatus(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const tasks = await loadTasks(root);
 
     if (epicId) {
@@ -174,7 +174,7 @@ export async function orchestrateAnalyze(
   }
 
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
     const result = await analyzeEpic(epicId, root, accessor);
 
@@ -249,7 +249,7 @@ export async function orchestrateReady(
   }
 
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     // T929: verify the epic exists before computing the ready-set so that a
     // nonexistent epicId returns E_NOT_FOUND (exit 4) instead of success:{total:0}.
     const tasks = await loadTasks(root);
@@ -374,7 +374,7 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
   }
 
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
     const nextTask = await getNextTask(epicId, root, accessor);
 
@@ -427,7 +427,7 @@ export async function orchestrateWaves(
   }
 
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
     const result = await getEnrichedWaves(epicId, root, accessor);
     return { success: true, data: result };
@@ -450,7 +450,7 @@ export async function orchestrateContext(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const tasks = await loadTasks(root);
 
     let taskCount = tasks.length;
@@ -482,7 +482,7 @@ export async function orchestrateValidate(
   }
 
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
     const result = await validateSpawnReadiness(taskId, root, accessor);
     return { success: true, data: result };

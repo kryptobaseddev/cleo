@@ -44,7 +44,7 @@ import { eq } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
 import { generateProjectHash } from '../nexus/hash.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
+import { getProjectRoot } from '../paths.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
 
@@ -823,7 +823,7 @@ export async function releaseReconcileV2(
   opts: ReleaseReconcileV2Options = {},
 ): Promise<EngineResult<ReleaseReconcileV2Result>> {
   const startedAt = Date.now();
-  const projectRoot = opts.projectRoot ?? resolveProjectRoot();
+  const projectRoot = getProjectRoot(opts.projectRoot);
 
   // ── 1. Pre-conditions (R-080 .. R-083) ──
   const planRes = loadPlan(version, projectRoot);
