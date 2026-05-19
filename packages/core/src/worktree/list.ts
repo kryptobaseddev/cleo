@@ -40,6 +40,7 @@ import {
   type WorktreeInfo,
   type WorktreeStatusCategory,
 } from '@cleocode/contracts';
+import { resolveOrCwd } from '../paths.js';
 import { openCleoDb } from '../store/open-cleo-db.js';
 
 /** Default staleness threshold — branches/worktrees idle longer than this are stale candidates. */
@@ -82,7 +83,7 @@ interface PorcelainEntry {
 export async function listWorktrees(
   opts: ListWorktreesOpts = {},
 ): Promise<EngineResult<ListWorktreesResult>> {
-  const projectRoot = opts.projectRoot ?? process.cwd();
+  const projectRoot = resolveOrCwd(opts.projectRoot);
   const staleDays = opts.staleDays ?? DEFAULT_STALE_DAYS;
   const staleThresholdMs = staleDays * 24 * 60 * 60 * 1000;
   const nowMs = Date.now();
