@@ -42,6 +42,36 @@
  */
 
 /**
+ * Base class for errors that are fatal to the entire wizard run.
+ *
+ * `WizardRunner.invokeSection` catches and swallows section-level errors so
+ * a single failing section does not abort the rest of the wizard. But some
+ * error conditions (e.g. stdin closed) make further prompting impossible and
+ * must propagate all the way out so the CLI can emit a proper LAFS error
+ * envelope instead of silently continuing with dead prompts.
+ *
+ * CLI-layer error classes (e.g. `StdinClosedError` in
+ * `packages/cleo/src/cli/lib/readline-wizard-io.ts`) extend this class so
+ * the runner recognises them without importing CLI types.
+ *
+ * @task T9599
+ */
+export class WizardFatalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WizardFatalError';
+  }
+
+  /**
+   * Type-guard so `invokeSection` can detect subclasses without `instanceof`
+   * across package boundaries.
+   */
+  static is(err: unknown): err is WizardFatalError {
+    return err instanceof WizardFatalError;
+  }
+}
+
+/**
  * Canonical identifier for every built-in wizard section.
  *
  * Surface order matters: `cleo setup` runs sections in declaration order
@@ -303,6 +333,11 @@ export class WizardRunner {
    * than uncaught throws so an `cleo setup` invocation always completes
    * with a non-fatal report instead of a stack trace.
    *
+   * **Exception**: {@link WizardFatalError} subclasses (e.g. `StdinClosedError`)
+   * are re-thrown immediately — they signal conditions (stdin EOF, broken pipe)
+   * where further prompting is impossible and the CLI must emit a LAFS error
+   * envelope rather than continuing with a dead I/O surface.
+   *
    * @internal
    */
   private async invokeSection(
@@ -313,6 +348,11 @@ export class WizardRunner {
     try {
       return await runner.run(io, options);
     } catch (err) {
+      // Re-throw fatal errors — they propagate to the CLI for LAFS envelope
+      // emission (T9599 bug #10: stdin EOF must not be silently swallowed).
+      if (WizardFatalError.is(err)) {
+        throw err;
+      }
       const message = err instanceof Error ? err.message : String(err);
       io.error(`section '${runner.section}' failed: ${message}`);
       return { changed: false, summary: `failed: ${message}` };

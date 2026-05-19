@@ -289,6 +289,14 @@ describe('T9599 — StdinClosedError propagates out of runSetup', () => {
       error: () => undefined,
     };
 
+    // Wire the llm section mock to actually call io.prompt() so StdinClosedError
+    // propagates — the FakeRunner calls section.run(io, options), and if the
+    // section calls io.prompt() it will throw.
+    sections.llm.run.mockImplementationOnce(async (io: WizardIO) => {
+      await io.prompt('This triggers StdinClosedError');
+      return { changed: false, summary: 'unreachable' };
+    });
+
     // runSetup should let StdinClosedError propagate (not swallow it).
     await expect(runSetup({}, eofIo)).rejects.toThrow(StdinClosedError);
   });
