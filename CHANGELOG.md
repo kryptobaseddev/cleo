@@ -1,5 +1,33 @@
 # Changelog
 
+## [2026.5.81] (2026-05-18) — T9580 closeout + post-ship cleanup
+
+Closure release wrapping the v2026.5.80 ship: gathers the test, doc, and dispatch refactors that landed after `v2026.5.80` was tagged. No new product features in this version — it stabilises the docs hierarchy, completes the CLI agent dispatch refactor, and ships the wizard section + worktree IVTR test additions queued behind the v2026.5.80 cutoff.
+
+### Fixed
+
+- **PR #292 / #293** — duplicate `WizardInterruptError` import in `packages/cleo/src/cli/commands/setup.ts` that caused `Lint & Format` to fail on main after v2026.5.80 was tagged. Two parallel fixes landed (T9613 + a follow-up hotfix); main lint is green again.
+- **PR #295 (T9610 follow-up)** — wizard section order test updated to include the new integrations section (8 sections total, was 7).
+
+### Added
+
+- **PR #289 (T9603) — worktree IVTR regression tests** (T-WT-4): regression test suite for worktree IVTR flow.
+- **PR #297 (T9604) — spawn-verify E2E test** (T-WT-5).
+- **PR #294 (T9620) — CLI agent.ts uses `@cleocode/core/agents` public API** (T-CLI-AGENT-DISPATCH): replaces all `/internal` imports in `packages/cleo/src/cli/commands/agent.ts` with the promoted public barrel (`AgentRegistryAccessor`, `listAgentsForProject`, `lookupAgent`, `attachAgentToProject`, `detachAgentFromProject`, `getProjectAgentRef`, `buildDoctorReport`, `reconcileDoctor`, `installAgentFromCant`, `createConduit`). 22 remaining `/internal` references are all `getDb` infrastructure (annotated `core-first-allowed` with TODO T9621). Closes E-CORE-FIRST-ARCH Task 6.
+
+### Documentation
+
+- **PR #291 (T9624) — ADR-073 Task Hierarchy Charter as canonical SSoT**: locks the Saga (`SG-`) / Epic (`E-`) / Task (`T-`) / Subtask (none) prefix registry as charter, plus auxiliary registered prefixes (`SD-`).
+- **PR #296 (T9606) — E-WORKTREE-IVTR closeout** (T-WT-7): docs + status rollup; quality gates green; all E1 PRs merged.
+
+### Closed without merging
+
+- **PR #290 (T9582)** — `fix: normalize project-root in agent/nexus/conduit dispatch`. Superseded by PR #294 (T9620), which refactored `agent.ts` to use the public `@cleocode/core/agents` barrel — making T9582's diff (adding `getProjectRoot` to an `/internal` import block) stale beyond clean rebase. Project-root normalization in agent / nexus / conduit dispatch can be reopened post-T9620 if still needed.
+
+### Known issues carried forward (T9580 audit)
+
+- **~75 unit-test regressions on main** caused by the `getProjectRoot(projectRoot)` re-resolution introduced by T9581 (#273) and T9583 (#274) in v2026.5.80. Production behaviour is correct (callers pass real absolute roots from `getProjectRoot()`), but tests passing mock path strings (`/mock/project`, etc.) now hit the walk-up + throw path. Affected suites: `orchestrate-engine`, `orchestrate-plan`, `orchestrate-ready-display`, `orchestrate-engine-composer`, `release-engine`, `project-agnostic-release`, `release-pr-flow`, `lifecycle-scope-guard`, `doctor-injection`, `doctor-gitignore`, `subdir-isolation`, `evidence-content-intersect`, `health`, `wizard`, `worktree-ivtr`, `write-endpoints`. Fix requires either: (a) revert the `getProjectRoot(projectRoot)` re-resolution and rely on caller-provided absolute root (~70 source sites), or (b) update all affected test fixtures with `.git/` + `.cleo/` siblings in temp dirs (~75 tests across 13+ files). Tracked as a follow-up task.
+
 ## [2026.5.80] (2026-05-18) — T9580 CLI dispatch fixes
 
 Real-test audit of v2026.5.79 (T9580) caught 3 systemic dispatch bugs that left 5 of 6 new IVTR verbs returning `E_INVALID_OPERATION`. This patch wires them correctly so the IVTR pipeline becomes usable from the CLI as documented.
