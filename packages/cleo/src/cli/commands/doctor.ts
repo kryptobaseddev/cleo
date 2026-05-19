@@ -16,8 +16,12 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { HookMatrixResult } from '@cleocode/core/internal';
-import { getProjectRoot, quarantineRogueCleoDir, scanRogueCleoDirs } from '@cleocode/core/internal';
+import type { HookMatrixResult } from '@cleocode/core';
+import { getProjectRoot } from '@cleocode/core';
+import {
+  quarantineRogueCleoDir,
+  scanRogueCleoDirs,
+} from '@cleocode/core/system/rogue-cleo-detector.js';
 import { defineCommand } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { createDoctorProgress } from '../progress.js';
@@ -55,7 +59,7 @@ const FIXTURE_TITLE_KEYWORDS = [
  */
 async function scanTestFixturesInProd(projectRoot: string): Promise<FixtureMatch[]> {
   type NativeDb = { prepare: (sql: string) => { all: (arg?: string) => unknown[] } };
-  const { getDb, getNativeDb } = await import('@cleocode/core/internal');
+  const { getDb, getNativeDb } = await import('@cleocode/core/store/sqlite.js');
   await getDb(projectRoot);
   const nativeDb = getNativeDb() as NativeDb | null;
   if (!nativeDb) return [];
@@ -120,7 +124,7 @@ async function quarantineTestFixtures(
   );
 
   type NativeDbRun = { prepare: (sql: string) => { run: (arg: string) => void } };
-  const { getNativeDb } = await import('@cleocode/core/internal');
+  const { getNativeDb } = await import('@cleocode/core/store/sqlite.js');
   const nativeDb = getNativeDb() as NativeDbRun | null;
   if (nativeDb) {
     for (const m of matches) {
@@ -312,7 +316,9 @@ export const doctorCommand = defineCommand({
     try {
       // T1908 / BBTT-W2-4: brain health dashboard
       if (args.brain) {
-        const { computeBrainHealthDashboard } = await import('@cleocode/core/internal');
+        const { computeBrainHealthDashboard } = await import(
+          '@cleocode/core/memory/brain-health-dashboard.js'
+        );
         const projectRoot = getProjectRoot();
         const dashboard = await computeBrainHealthDashboard(projectRoot);
 
@@ -488,9 +494,9 @@ export const doctorCommand = defineCommand({
       } else if (args['scan-stray-nexus-dbs']) {
         progress.step(0, 'Scanning for stray nexus.db files');
         const { detectAndRemoveLegacyGlobalFiles, detectAndRemoveStrayProjectNexus } = await import(
-          '@cleocode/core/internal'
+          '@cleocode/core/store/cleanup-legacy.js'
         );
-        const { getCleoHome } = await import('@cleocode/core/internal');
+        const { getCleoHome } = await import('@cleocode/core');
         const cleoHome = getCleoHome();
         const projectRoot = getProjectRoot();
 
@@ -519,7 +525,7 @@ export const doctorCommand = defineCommand({
         cliOutput(report, { command: 'doctor', operation: 'doctor.scan-stray-nexus-dbs' });
       } else if (args['audit-worktrees']) {
         progress.step(0, 'Auditing orphaned agent worktrees');
-        const { auditOrphanWorktrees } = await import('@cleocode/core/internal');
+        const { auditOrphanWorktrees } = await import('@cleocode/core/gc/index.js');
         const checkResult = auditOrphanWorktrees();
         progress.complete(`Worktree audit complete — ${checkResult.status}`);
 
@@ -533,7 +539,7 @@ export const doctorCommand = defineCommand({
         }
       } else if (args['audit-temp']) {
         progress.step(0, 'Auditing orphaned CLEO temp directories');
-        const { auditOrphanTempDirs } = await import('@cleocode/core/internal');
+        const { auditOrphanTempDirs } = await import('@cleocode/core/gc/index.js');
         const checkResult = await auditOrphanTempDirs();
         progress.complete(`Temp audit complete — ${checkResult.status}`);
 
