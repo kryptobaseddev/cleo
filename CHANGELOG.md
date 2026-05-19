@@ -1,5 +1,55 @@
 # Changelog
 
+## [2026.5.83] (2026-05-19) — T9685 strict-mode flip — project-root baseline → zero
+
+Long-tail follow-up to the v2026.5.82 E-PROJECT-ROOT-AUDIT closure. The
+T9584 baseline-mode CI guard (which tolerated 57 remaining violations during
+the migration) flips to strict mode: zero violations allowed. Four PRs
+(B1 + B2 + B3 + B4) drove the baseline 57 → 0 and locked the regression
+gate permanently.
+
+### Fixed
+
+- **PR #310 (T9685-B1)** — replace 52 `process.cwd()` sites in CORE with
+  `resolveOrCwd()` / `getProjectRoot()` across `pipeline/engine-ops`, code
+  helpers, store/skills/agents/sentient/release, roadmap/tasks/task-work,
+  and Pattern B/C/E/F sites. CWD-OK annotations added where binding to the
+  operator's invocation cwd is intentional (e.g. discovering the running
+  binary's package.json).
+- **PR #313 (T9685-B2)** — consolidate `homedir()` + `.cleo` resolution into
+  a single `resolveLegacyCleoDir()` helper in `@cleocode/paths`. Refactored
+  6 daemon/gc call sites plus `context-monitor.ts`, `briefing.ts`,
+  `bootstrap.ts`, and `gc/daemon-entry.ts`. `cursor/install.ts:94` annotated
+  with CWD-OK (legitimate installer-context cwd binding).
+- **PR #309 (T9685-B3)** — route all raw `new DatabaseSync()` opens through
+  the `openCleoDb()` chokepoint (ADR-068). Extended the chokepoint API with
+  `readOnly` and `role` support. Refactored Category III (brain
+  db-connections) and Category V (misc) call sites. Closes the bypass route
+  around the canonical pragma policy.
+
+### Changed
+
+- **PR #N (T9685-B4)** — `scripts/lint-project-root-anti-pattern.mjs`
+  becomes strict-by-default. CI workflow `.github/workflows/ci.yml` now
+  passes `--strict` explicitly. Baseline file `.cleo/project-root-baseline.json`
+  deleted (no longer needed; count is zero). NEW anti-pattern instances now
+  fail CI immediately on the offending PR. One documented escape hatch
+  annotated: `packages/core/src/skills/skill-root.ts:112` uses
+  `// path-drift-allowed` because the `~/.cleo` symlink is the canonical
+  bootstrap target (see TSDoc above the function).
+
+### Documentation
+
+- `docs/project-root-conventions.md` §6 updated to reflect strict mode and
+  retirement of the baseline file. New cross-references to T9685-B1/B2/B3/B4.
+
+### Regression gate
+
+The T9550 bug class (rogue `<subdir>/.cleo/` materialising under a monorepo
+subdirectory) is now regression-locked permanently. Any new `process.cwd()`,
+`homedir().cleo`, or raw `new DatabaseSync()` in disallowed locations fails
+the build on the offending PR.
+
 ## [2026.5.82] (2026-05-19) — E-PROJECT-ROOT-AUDIT closure (T9580 epic)
 
 The actual remediation release for the T9580 codebase-wide project-root audit. Closes Epic T9580 with all 4 child tasks (T9581/T9582/T9583/T9584) shipped: production code normalized, CI guard in baseline mode, canonical doc published, ~75 test regressions resolved.
