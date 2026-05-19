@@ -29,6 +29,7 @@ import {
   createProjectConventionsSection,
   createSentientSection,
   StubWizardIO,
+  WizardFatalError,
   WizardRunner,
   type WizardSectionRunner,
 } from '../index.js';
@@ -176,6 +177,51 @@ describe('WizardRunner — registration + dispatch', () => {
     const result = await runner.run(io);
     expect(result.summary[0]).toMatch(/^llm: failed: boom/);
     expect(io.errors[0]).toMatch(/section 'llm' failed: boom/);
+  });
+
+  it('run() re-throws WizardFatalError (T9599 — stdin EOF must not be swallowed)', async () => {
+    // WizardFatalError subclasses represent conditions (stdin closed, broken pipe)
+    // where continuing the wizard is impossible. invokeSection re-throws them.
+    class TestFatalError extends WizardFatalError {
+      constructor() {
+        super('fatal signal');
+        this.name = 'TestFatalError';
+      }
+    }
+    const fataler: WizardSectionRunner = {
+      section: 'llm',
+      title: 'fatal',
+      optional: false,
+      async run() {
+        throw new TestFatalError();
+      },
+    };
+    const runner = new WizardRunner([fataler]);
+    const io = new StubWizardIO();
+    await expect(runner.run(io)).rejects.toThrow(TestFatalError);
+    // io.errors must NOT have been called for this throw (it bypasses the
+    // normal "section failed" path).
+    expect(io.errors).toHaveLength(0);
+  });
+
+  it('runSection() re-throws WizardFatalError', async () => {
+    class TestFatalError extends WizardFatalError {
+      constructor() {
+        super('fatal');
+        this.name = 'TestFatalError';
+      }
+    }
+    const fataler: WizardSectionRunner = {
+      section: 'identity',
+      title: 'fatal',
+      optional: false,
+      async run() {
+        throw new TestFatalError();
+      },
+    };
+    const runner = new WizardRunner([fataler]);
+    const io = new StubWizardIO();
+    await expect(runner.runSection('identity', io)).rejects.toThrow(TestFatalError);
   });
 });
 
