@@ -26,6 +26,7 @@ export { createProjectConventionsSection } from './sections/project-conventions.
 export { createSentientSection } from './sections/sentient.js';
 export {
   StubWizardIO,
+  WizardFatalError,
   type WizardIO,
   type WizardOptions,
   WizardRunner,
