@@ -31,7 +31,6 @@
  */
 
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getGCDaemonStatus, spawnGCDaemon, stopGCDaemon } from '@cleocode/core/gc/daemon.js';
@@ -39,6 +38,7 @@ import {
   bootstrapDaemon as bootstrapSentientDaemon,
   getSentientDaemonStatus,
 } from '@cleocode/core/sentient';
+import { resolveLegacyCleoDir } from '@cleocode/paths';
 import { defineCommand } from 'citty';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -186,7 +186,7 @@ const startCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
+    const cleoDir = resolveLegacyCleoDir(args['cleo-dir'] as string | undefined);
     const foreground = (args.foreground as boolean | undefined) ?? false;
 
     // --foreground: run the sentient daemon bootstrap in-process so that
@@ -268,7 +268,7 @@ const stopCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
+    const cleoDir = resolveLegacyCleoDir(args['cleo-dir'] as string | undefined);
 
     try {
       const stopResult = await stopGCDaemon(cleoDir);
@@ -312,7 +312,7 @@ const statusCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
+    const cleoDir = resolveLegacyCleoDir(args['cleo-dir'] as string | undefined);
     await showDaemonStatus(cleoDir, process.cwd());
   },
 });
@@ -451,7 +451,7 @@ export const daemonCommand = defineCommand({
     // Parent run() fires after subcommand per citty@0.2.x — skip default
     // status print so `cleo daemon start` doesn't also run status. T1187-followup.
     if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
-    const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
+    const cleoDir = resolveLegacyCleoDir(args['cleo-dir'] as string | undefined);
     await showDaemonStatus(cleoDir, process.cwd());
   },
 });

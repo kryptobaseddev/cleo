@@ -27,6 +27,7 @@ export {
   getCleoPlatformPaths,
   getCleoSystemInfo,
   getCleoTemplatesTildePath,
+  resolveLegacyCleoDir,
 } from './cleo-paths.js';
 export {
   createPlatformPathsResolver,

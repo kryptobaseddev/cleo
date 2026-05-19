@@ -12,11 +12,10 @@
  * @epic T726
  */
 
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { resolveLegacyCleoDir } from '@cleocode/paths';
 import { bootstrapDaemon } from './daemon.js';
 
-const cleoDir = process.argv[2] ?? join(homedir(), '.cleo');
+const cleoDir = resolveLegacyCleoDir(process.argv[2]);
 
 bootstrapDaemon(cleoDir).catch((err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
