@@ -26,6 +26,7 @@ import type {
   Transport,
   TransportConnectConfig,
 } from '@cleocode/contracts';
+import { getProjectRoot } from '../paths.js';
 import { getConduitDbPath, openFreshConduitDb } from '../store/conduit-sqlite.js';
 
 /**
@@ -87,14 +88,15 @@ export class LocalTransport implements Transport {
    * @epic T310
    */
   async connect(config: TransportConnectConfig): Promise<void> {
-    const dbPath = getConduitDbPath(process.cwd());
+    const projectRoot = getProjectRoot();
+    const dbPath = getConduitDbPath(projectRoot);
 
     if (!existsSync(dbPath)) {
       throw new Error(`LocalTransport: conduit.db not found at ${dbPath}. Run: cleo init`);
     }
 
     // Open fresh (non-singleton) conduit connection with pragmas applied (T9189)
-    const db = openFreshConduitDb(process.cwd());
+    const db = openFreshConduitDb(projectRoot);
 
     // Verify the messages table exists
     const hasMessages = db
@@ -520,11 +522,11 @@ export class LocalTransport implements Transport {
    *
    * @task T356
    * @epic T310
-   * @param cwd - Optional working directory override (defaults to process.cwd()).
+   * @param cwd - Optional working directory override (defaults to canonical project root).
    * @returns `true` if conduit.db exists at the expected path.
    */
   static isAvailable(cwd?: string): boolean {
-    const dbPath = getConduitDbPath(cwd ?? process.cwd());
+    const dbPath = getConduitDbPath(getProjectRoot(cwd));
     return existsSync(dbPath);
   }
 

@@ -17,6 +17,7 @@ import type { Task } from '@cleocode/contracts';
 import { ExitCode, type NexusResolveParams } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusNativeDb } from '../store/nexus-sqlite.js';
@@ -96,7 +97,7 @@ export function getCurrentProject(): string {
 
   // Try to read from .cleo/project-info.json (matches bash behavior)
   try {
-    const infoPath = join(process.cwd(), '.cleo', 'project-info.json');
+    const infoPath = join(getProjectRoot(), '.cleo', 'project-info.json');
     if (existsSync(infoPath)) {
       const data = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
       if (typeof data.name === 'string' && data.name.length > 0) {
@@ -107,8 +108,8 @@ export function getCurrentProject(): string {
     // Fall through to directory name
   }
 
-  // Fallback to cwd directory name
-  return basename(process.cwd());
+  // Fallback to project-root directory name
+  return basename(getProjectRoot());
 }
 
 /**
@@ -122,9 +123,10 @@ export async function resolveProjectPath(projectName: string): Promise<string> {
 
   if (projectName === '.') {
     try {
-      const accessor = await getTaskAccessor(process.cwd());
+      const projectRoot = getProjectRoot();
+      const accessor = await getTaskAccessor(projectRoot);
       const count = await accessor.countTasks();
-      if (count >= 0) return process.cwd();
+      if (count >= 0) return projectRoot;
       throw new Error('No task data');
     } catch {
       throw new CleoError(
