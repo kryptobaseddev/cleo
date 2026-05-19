@@ -50,7 +50,9 @@ function git(dir: string, args: string[]): string {
 }
 
 function initGitRepo(dir: string): void {
-  git(dir, ['init', '-q']);
+  // --initial-branch=main: CI runners may have git's default branch set to
+  // `master`; tests later run `git checkout main` which fails on master.
+  git(dir, ['init', '-q', '--initial-branch=main']);
   git(dir, ['config', 'user.name', 'T9245 Probe']);
   git(dir, ['config', 'user.email', 'probe@example.com']);
   git(dir, ['config', 'commit.gpgsign', 'false']);
@@ -386,8 +388,9 @@ describe('T-WT-2 — resolveCanonicalProjectRoot', () => {
     // ensuring getTaskAccessor reads from the main DB — not a stale worktree copy.
     const env: TestDbEnv = await createTestDb();
 
-    // Init the main repo.
-    execFileSync('git', ['init', '-q'], { cwd: env.tempDir });
+    // Init the main repo. --initial-branch=main: CI runners may default to
+    // `master`; subsequent `git checkout main` calls would fail.
+    execFileSync('git', ['init', '-q', '--initial-branch=main'], { cwd: env.tempDir });
     execFileSync('git', ['config', 'user.name', 'T-WT-2 Probe'], { cwd: env.tempDir });
     execFileSync('git', ['config', 'user.email', 'probe@wt2.test'], { cwd: env.tempDir });
     execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: env.tempDir });
@@ -452,8 +455,9 @@ describe('T-WT-3 — validateCommit uses getEffectiveHead for ancestry check', (
 
   beforeEach(async () => {
     env = await createTestDb();
-    // Initialize git repo in the test dir.
-    execFileSync('git', ['init', '-q'], { cwd: env.tempDir });
+    // Initialize git repo in the test dir. --initial-branch=main: CI
+    // runners may default to `master`; later `git checkout main` would fail.
+    execFileSync('git', ['init', '-q', '--initial-branch=main'], { cwd: env.tempDir });
     execFileSync('git', ['config', 'user.name', 'T-WT-3 Probe'], { cwd: env.tempDir });
     execFileSync('git', ['config', 'user.email', 'probe@wt3.test'], { cwd: env.tempDir });
     execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: env.tempDir });

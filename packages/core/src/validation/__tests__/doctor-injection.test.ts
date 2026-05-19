@@ -26,12 +26,16 @@ function makeTempDir(): string {
     `cleo-injection-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(dir, { recursive: true });
-  // T9581: getProjectRoot() validates project roots — legacy-fallback path
-  // requires BOTH `.cleo/` AND a sibling `.git/` directory. Without `.cleo/`,
-  // a real `.git/` walker hit throws "Run cleo init" instead of falling
-  // through to the test's intended behavior.
+  // T9581: getProjectRoot() validates project roots. Use the PRIMARY
+  // acceptance path (`.cleo/project-info.json` with valid projectId)
+  // rather than the legacy-fallback path (`.cleo/` + `.git/`). The
+  // primary path satisfies validateProjectRoot without conflating the
+  // test fixture with a real git repo.
   mkdirSync(join(dir, '.cleo'), { recursive: true });
-  mkdirSync(join(dir, '.git'), { recursive: true });
+  writeFileSync(
+    join(dir, '.cleo', 'project-info.json'),
+    JSON.stringify({ projectId: 'injection-test-fixture' }),
+  );
   return dir;
 }
 

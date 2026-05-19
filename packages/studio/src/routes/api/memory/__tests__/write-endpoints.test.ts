@@ -142,8 +142,19 @@ function makeTmpCtx(): { ctx: ProjectContext; dir: string } {
   // ends of an observe → verify flow to point at the same file we align
   // `ctx.brainDbPath` and `ctx.tasksDbPath` with the canonical `.cleo/` layout
   // and create the `.cleo/` dir explicitly so core's open path succeeds.
+  //
+  // T9581: observeBrain() resolves its project root via getProjectRoot(),
+  // which requires either `.cleo/project-info.json` (primary acceptance)
+  // OR a `.cleo/` + `.git/` sibling (legacy fallback). Use the primary
+  // path so the temp dir is recognized as a project root.
   const cleoDir = join(dir, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
+  // Stable project ID so validateProjectRoot() takes the primary path.
+  const { writeFileSync } = require('node:fs') as typeof import('node:fs');
+  writeFileSync(
+    join(cleoDir, 'project-info.json'),
+    JSON.stringify({ projectId: 'studio-wave1d-test' }),
+  );
   const brainPath = join(cleoDir, 'brain.db');
   const tasksPath = join(cleoDir, 'tasks.db');
 
