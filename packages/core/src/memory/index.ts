@@ -1215,6 +1215,11 @@ export * from './manifest-builder.js';
 export * from './manifest-ingestion.js';
 // === JSONL Memory modules (legacy, still active) ===
 export * from './patterns.js';
+// === Public API (T9615 — CORE-first promotion) ===
+// Exposes findMemoryEntries, getObservations, getDecisions, getPatterns,
+// getLearnings, getMemoryGraph, getTierStats, getPendingVerify,
+// and getMemoryQualityReport as stable @cleocode/core/memory surface.
+export * from './public-api.js';
 // === BRAIN Quality Feedback Loop (T555) ===
 export * from './quality-feedback.js';
 export * from './session-narrative.js';
