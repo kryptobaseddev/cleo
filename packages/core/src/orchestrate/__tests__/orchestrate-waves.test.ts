@@ -39,6 +39,10 @@ let TEST_ROOT: string;
 async function seedTasks(testRoot: string): Promise<void> {
   const cleoDir = join(testRoot, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
+  // T9583 fix: getProjectRoot() in the release/orchestrate engines validates
+  // the project root via validateProjectRoot, which requires `.cleo/` + `.git/`
+  // siblings. Without `.git/` the walk-up rejects the temp dir.
+  mkdirSync(join(testRoot, '.git'), { recursive: true });
   const { getDb } = await import('@cleocode/core/internal');
   const { createTask } = await import('@cleocode/core/internal');
   await getDb(testRoot);

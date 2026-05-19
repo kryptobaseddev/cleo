@@ -15,7 +15,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -160,7 +160,10 @@ describe('release pipeline — sub-directory isolation (T9583)', () => {
     if (!result.success) throw new Error(`releasePlan failed: ${result.error.message}`);
 
     // The plan path MUST root at testDir, NOT subdir.
-    const expectedRootPlanPath = join(testDir, '.cleo', 'release', 'v2026.6.0.plan.json');
+    // T9601: macOS resolves /var/folders/... → /private/var/folders/... via
+    // realpath. Normalize testDir to its canonical path for comparison.
+    const canonicalTestDir = realpathSync(testDir);
+    const expectedRootPlanPath = join(canonicalTestDir, '.cleo', 'release', 'v2026.6.0.plan.json');
     const wrongSubdirPlanPath = join(subdir, '.cleo', 'release', 'v2026.6.0.plan.json');
 
     expect(result.data.planPath).toBe(expectedRootPlanPath);

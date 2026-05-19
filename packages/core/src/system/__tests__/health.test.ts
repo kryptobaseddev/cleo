@@ -14,6 +14,14 @@ describe('system health audit_log checks', () => {
 
   beforeEach(async () => {
     projectRoot = await mkdtemp(join(tmpdir(), 'cleo-health-'));
+    // T9581 fix: coreDoctorReport calls checkCleoGitignore which now uses
+    // getProjectRoot(projectRoot). That call validates the project root
+    // via validateProjectRoot, which requires `.cleo/` + `.git/` siblings.
+    // Without the `.git/` dir the walk-up rejects the temp dir and throws
+    // E_INVALID_PROJECT_ROOT. Create both sentinels so the legacy fallback
+    // accepts the test fixture.
+    await mkdir(join(projectRoot, '.cleo'), { recursive: true });
+    await mkdir(join(projectRoot, '.git'), { recursive: true });
   });
 
   afterEach(async () => {
@@ -72,6 +80,11 @@ describe('T929 regression: getSystemHealth DB integrity checks', () => {
 
   beforeEach(async () => {
     projectRoot = await mkdtemp(join(tmpdir(), 'cleo-health-t929-'));
+    // T9581 fix: getSystemHealth → underlying validator chain requires the
+    // canonical `.cleo/` + `.git/` sibling pair. Without `.git/` the
+    // walk-up rejects the temp dir as a project root.
+    await mkdir(join(projectRoot, '.cleo'), { recursive: true });
+    await mkdir(join(projectRoot, '.git'), { recursive: true });
   });
 
   afterEach(async () => {

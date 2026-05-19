@@ -812,12 +812,26 @@ describe('harness section', () => {
 
   it('interactive: missing CLEO_HARNESS env reports "unknown" as current', async () => {
     const { projectRoot } = makeTempRoot();
+    // T9595 extended the harness resolution chain to also consider CLAUDECODE=1
+    // and CLEO_PI=1 env vars. The test must clear ALL three for "unknown" to
+    // surface — CI environments (and dev shells running under Claude Code)
+    // typically set CLAUDECODE=1, which made this test fail with
+    // "Current harness: claude-code" instead of "unknown".
+    const savedClaudecode = process.env['CLAUDECODE'];
+    const savedCleoPi = process.env['CLEO_PI'];
     delete process.env['CLEO_HARNESS'];
-    const runner = new WizardRunner([createHarnessSection()]);
-    // Selecting 'pi' now also prompts for Pi URL (HARN-3); provide empty to accept default.
-    const io = new StubWizardIO({ selects: ['pi'], prompts: [''] });
-    await runner.runSection('harness', io, { projectRoot });
-    expect(io.infos.some((m) => m.includes('Current harness: unknown'))).toBe(true);
+    delete process.env['CLAUDECODE'];
+    delete process.env['CLEO_PI'];
+    try {
+      const runner = new WizardRunner([createHarnessSection()]);
+      // Selecting 'pi' now also prompts for Pi URL (HARN-3); provide empty to accept default.
+      const io = new StubWizardIO({ selects: ['pi'], prompts: [''] });
+      await runner.runSection('harness', io, { projectRoot });
+      expect(io.infos.some((m) => m.includes('Current harness: unknown'))).toBe(true);
+    } finally {
+      if (savedClaudecode !== undefined) process.env['CLAUDECODE'] = savedClaudecode;
+      if (savedCleoPi !== undefined) process.env['CLEO_PI'] = savedCleoPi;
+    }
   });
 
   it('interactive: Pi URL prompt is persisted to global config when pi is selected (HARN-3)', async () => {
