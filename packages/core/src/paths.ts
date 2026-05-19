@@ -262,16 +262,31 @@ export function getCleoDir(cwd?: string): string {
 /**
  * Get the absolute path to the project CLEO directory.
  *
- * @param cwd - Optional working directory to resolve against; defaults to process.cwd()
- * @returns Absolute path to the project's .cleo directory
+ * @param cwd - Optional anchor for project-root resolution; if omitted, uses
+ *   the canonical {@link getProjectRoot} chain (worktreeScope > CLEO_ROOT >
+ *   CLEO_DIR absolute > gitlink walk > ancestor walk).
+ * @returns Absolute path to the project's `.cleo` directory
  *
  * @remarks
- * If CLEO_DIR is already absolute, returns it directly. Otherwise resolves
- * it relative to the provided cwd or process.cwd().
+ * **SSoT for every `.cleo/` path in CLEO** (T9685). All path-derived helpers
+ * (`getTaskPath`, `getConfigPath`, `getSessionsPath`, `getLogPath`,
+ * `getBackupDir`, `getAgentOutputsAbsolute`, `getManifestPath`, etc.) flow
+ * through this function — fixing project-root resolution here cascades to
+ * every consumer.
+ *
+ * **Resolution order** (matches the wider {@link getProjectRoot} chain):
+ * 1. `CLEO_DIR` env var with an absolute value — returned verbatim.
+ * 2. Provided `cwd` is normalized via {@link getProjectRoot}, so the resolved
+ *    `.cleo` always anchors at the canonical project root even when callers
+ *    pass a monorepo subdirectory or worktree path. This eliminates the
+ *    T9550/T9580 orphan-`.cleo/` bug class.
+ * 3. If `cwd` is omitted, resolution runs against `getProjectRoot()` directly.
  *
  * @example
  * ```typescript
- * const dir = getCleoDirAbsolute('/my/project'); // "/my/project/.cleo"
+ * // Project root → /repo
+ * getCleoDirAbsolute();                  // "/repo/.cleo"
+ * getCleoDirAbsolute('/repo/packages/x'); // "/repo/.cleo"  (was "/repo/packages/x/.cleo" before T9685)
  * ```
  */
 export function getCleoDirAbsolute(cwd?: string): string {
@@ -279,7 +294,16 @@ export function getCleoDirAbsolute(cwd?: string): string {
   if (isAbsolutePath(cleoDir)) {
     return cleoDir;
   }
-  return resolve(cwd ?? process.cwd(), cleoDir);
+  // SSoT (T9685): route through getProjectRoot so callers anywhere in a
+  // worktree or monorepo subdir resolve to the canonical project root, not
+  // their cwd. Fall back to literal cwd-relative resolution only when no
+  // project root exists yet (the `cleo init` bootstrap case, which CREATES
+  // the project root and explicitly cannot rely on ancestor walk).
+  try {
+    return resolve(getProjectRoot(cwd), cleoDir);
+  } catch {
+    return resolve(cwd ?? process.cwd(), cleoDir);
+  }
 }
 
 /**
