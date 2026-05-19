@@ -36,6 +36,11 @@
       "import": "./dist/tasks/index.js",
       "require": "./dist/tasks/index.js"
     },
+    "./agents": {
+      "types": "./dist/agents/index.d.ts",
+      "import": "./dist/agents/index.js",
+      "require": "./dist/agents/index.js"
+    },
     "./memory": {
       "types": "./dist/memory/index.d.ts",
       "import": "./dist/memory/index.js",

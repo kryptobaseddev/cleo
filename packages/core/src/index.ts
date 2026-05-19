@@ -346,6 +346,21 @@ export {
 
 // Adapter manager
 export { AdapterManager } from './adapters/index.js';
+// Agents public API (T9615 — CORE-first promotion): flat direct exports
+// registerAgent is already flat-exported via the existing direct exports below;
+// the new exports here add the higher-level wrappers: listAgents, getAgent,
+// removeAgent, rotateAgentKey.
+export type {
+  ListAgentsOptions,
+  ListAgentsResult,
+  RotateAgentKeyResult,
+} from './agents/public-api.js';
+export {
+  getAgent,
+  listAgents,
+  removeAgent,
+  rotateAgentKey,
+} from './agents/public-api.js';
 export type { BootstrapContext, BootstrapOptions } from './bootstrap.js';
 // Bootstrap — used by postinstall and self-update
 export { bootstrapGlobalCleo } from './bootstrap.js';
@@ -401,6 +416,41 @@ export {
   timelineBrain,
 } from './memory/brain-retrieval.js';
 export { searchBrain } from './memory/brain-search.js';
+// Memory public API (T9615 — CORE-first promotion): flat direct exports
+// Note: MemoryQualityReport and getMemoryQualityReport are already exported
+// from the main barrel via the existing memory domain namespace.
+export type {
+  BrainObservation,
+  DecisionRecord,
+  FindMemoryEntriesOptions,
+  FindMemoryEntriesResult,
+  GetDecisionsOptions,
+  GetLearningsOptions,
+  GetMemoryGraphOptions,
+  GetObservationsOptions,
+  GetObservationsResult,
+  GetPatternsOptions,
+  GetPendingVerifyOptions,
+  LearningRecord,
+  MemoryGraphStats,
+  MemorySearchHit,
+  PatternRecord,
+  PendingVerifyEntry,
+  PendingVerifyResult,
+  TableTierCounts,
+  TierStatsResult,
+  UpcomingPromotion,
+} from './memory/public-api.js';
+export {
+  findMemoryEntries,
+  getDecisions,
+  getLearnings,
+  getMemoryGraph,
+  getObservations,
+  getPatterns,
+  getPendingVerify,
+  getTierStats,
+} from './memory/public-api.js';
 export type {
   DecisionQualityInput,
   LearningQualityInput,
