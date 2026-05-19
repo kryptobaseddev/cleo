@@ -43,7 +43,9 @@ function git(dir: string, args: string[]): string {
 
 /** Initialize a minimal git repo suitable for evidence validation tests. */
 function initGitRepo(dir: string, label: string): void {
-  git(dir, ['init', '-q']);
+  // --initial-branch=main: CI runners may have git's default branch set
+  // to `master`; tests later run `git checkout main` which would fail.
+  git(dir, ['init', '-q', '--initial-branch=main']);
   git(dir, ['config', 'user.name', `T9603 ${label}`]);
   git(dir, ['config', 'user.email', `${label.toLowerCase().replace(/\s+/g, '-')}@t9603.test`]);
   git(dir, ['config', 'commit.gpgsign', 'false']);

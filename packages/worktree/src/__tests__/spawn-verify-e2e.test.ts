@@ -66,7 +66,13 @@ describe('spawn-verify E2E (T-WT-5)', () => {
     rmSync(mainRepo, { recursive: true, force: true });
   });
 
-  it('creates worktree, validates commit atom, then destroys worktree', async () => {
+  // 120s timeout — createWorktree + git ops + validateAtom can take
+  // 30-90s on cold runners (transformer warmup + copy-on-write bootstrap
+  // + worktree provisioning + tasks.db open). Vitest default 5s is too
+  // tight. T9604 follow-up.
+  it('creates worktree, validates commit atom, then destroys worktree', {
+    timeout: 120_000,
+  }, async () => {
     const TASK_ID = 'T-WT-5-test';
 
     // -----------------------------------------------------------------

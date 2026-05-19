@@ -286,6 +286,9 @@ describe('Orchestrate Engine', () => {
 
       // Seed into an isolated test root so existing fixture tasks don't interfere.
       const isolatedRoot = await mkdtemp(join(tmpdir(), 'cleo-t929-'));
+      // T9581: validateProjectRoot requires `.cleo/` + `.git/` siblings
+      // (or project-info.json). seedTasks() creates `.cleo/`; add `.git/`.
+      mkdirSync(join(isolatedRoot, '.git'), { recursive: true });
       try {
         await seedTasks(isolatedRoot, epicTasks);
 
@@ -359,6 +362,8 @@ describe('Orchestrate Engine', () => {
       ];
 
       const isolatedRoot2 = await mkdtemp(join(tmpdir(), 'cleo-t929b-'));
+      // T9581: validateProjectRoot requires `.cleo/` + `.git/` siblings.
+      mkdirSync(join(isolatedRoot2, '.git'), { recursive: true });
       try {
         await seedTasks(isolatedRoot2, blockedTasks);
 

@@ -39,6 +39,7 @@
     "@cleocode/paths": "workspace:*"
   },
   "devDependencies": {
+    "@cleocode/core": "workspace:*",
     "@types/node": "^24.3.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.4"

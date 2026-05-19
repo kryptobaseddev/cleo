@@ -25,8 +25,8 @@
  * @adr ADR-054 (scope-guard addendum)
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -134,7 +134,12 @@ import { lifecycleProgress, lifecycleReset, lifecycleSkip } from '../engine-ops.
 
 const EPIC_ID = 'T1150';
 const CHILD_TASK_ID = 'T1159';
-const PROJECT_ROOT = '/mock/project';
+// T9581 fix: getProjectRoot() validates project roots — needs a real path
+// with `.cleo/` + `.git/` siblings. The earlier `/mock/project` placeholder
+// caused getProjectRoot() to throw E_INVALID_PROJECT_ROOT inside
+// lifecycleProgress, short-circuiting the call before recordStageProgress
+// was reached and breaking the toHaveBeenCalled() assertions.
+let PROJECT_ROOT = '';
 
 /** Build a minimal Session with the given scope. */
 function makeSession(scope: Session['scope']): Session {
@@ -185,21 +190,33 @@ function stubDownstreamHappy(): void {
 
 let tmpDir = '';
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   stubDownstreamHappy();
   // Clear override env vars between tests
   delete process.env['CLEO_OWNER_OVERRIDE'];
   delete process.env['CLEO_OWNER_OVERRIDE_REASON'];
   delete process.env['CLEO_AGENT_ROLE'];
-  // Create a temp dir for audit file tests
-  tmpDir = join(tmpdir(), `scope-guard-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  // T9581 fix: PROJECT_ROOT must be a real path with `.cleo/` + `.git/`
+  // siblings so getProjectRoot() validates it instead of throwing
+  // E_INVALID_PROJECT_ROOT.
+  PROJECT_ROOT = await mkdtemp(join(tmpdir(), 'scope-guard-root-'));
+  mkdirSync(join(PROJECT_ROOT, '.cleo'), { recursive: true });
+  mkdirSync(join(PROJECT_ROOT, '.git'), { recursive: true });
+  // Create a temp dir for audit file tests (test 7 — also needs .cleo/+.git/
+  // sibling for the audit-write path inside enforceScopeForLifecycleMutation).
+  tmpDir = await mkdtemp(join(tmpdir(), 'scope-guard-audit-'));
+  mkdirSync(join(tmpDir, '.cleo'), { recursive: true });
+  mkdirSync(join(tmpDir, '.git'), { recursive: true });
 });
 
 afterEach(async () => {
   delete process.env['CLEO_OWNER_OVERRIDE'];
   delete process.env['CLEO_OWNER_OVERRIDE_REASON'];
   delete process.env['CLEO_AGENT_ROLE'];
+  if (PROJECT_ROOT && existsSync(PROJECT_ROOT)) {
+    await rm(PROJECT_ROOT, { recursive: true, force: true }).catch(() => {});
+  }
   if (tmpDir && existsSync(tmpDir)) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
