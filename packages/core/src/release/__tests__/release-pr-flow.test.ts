@@ -45,6 +45,12 @@ describe('T9095 — branch model config', () => {
     TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-t9095-config-'));
     CLEO_DIR = join(TEST_ROOT, '.cleo');
     mkdirSync(CLEO_DIR, { recursive: true });
+    // T9583 fix: loadReleaseConfig now normalizes cwd via getProjectRoot(),
+    // which validates the project root and requires a `.git/` sibling next
+    // to `.cleo/`. Without `.git/` the readConfigValueSync helpers swallow
+    // E_INVALID_PROJECT_ROOT and return defaults, so the config overrides
+    // written in these tests would never be loaded.
+    mkdirSync(join(TEST_ROOT, '.git'), { recursive: true });
   });
 
   afterEach(() => {
@@ -95,6 +101,11 @@ describe('T9095 — releasePrStatus', () => {
     TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-t9095-prstatus-'));
     CLEO_DIR = join(TEST_ROOT, '.cleo');
     mkdirSync(CLEO_DIR, { recursive: true });
+    // T9583 fix: releasePrStatus walks the project root via getProjectRoot()
+    // and now requires `.cleo/` + `.git/` siblings. Without `.git/` the
+    // validator rejects the temp dir and getProjectRoot throws
+    // E_INVALID_PROJECT_ROOT before the gh-CLI check is reached.
+    mkdirSync(join(TEST_ROOT, '.git'), { recursive: true });
   });
 
   afterEach(() => {
