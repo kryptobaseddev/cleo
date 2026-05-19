@@ -22,6 +22,7 @@ import { createIntegrationsSection } from './sections/integrations.js';
 import { createLlmSection } from './sections/llm.js';
 import { createProjectConventionsSection } from './sections/project-conventions.js';
 import { createSentientSection } from './sections/sentient.js';
+import { createTelemetrySection } from './sections/telemetry.js';
 import { createVerificationSection } from './sections/verification.js';
 import { WizardRunner, type WizardSectionRunner } from './wizard.js';
 
@@ -32,6 +33,7 @@ export { createIntegrationsSection } from './sections/integrations.js';
 export { createLlmSection } from './sections/llm.js';
 export { createProjectConventionsSection } from './sections/project-conventions.js';
 export { createSentientSection } from './sections/sentient.js';
+export { createTelemetrySection } from './sections/telemetry.js';
 export {
   createVerificationSection,
   type VerificationCheck,
@@ -61,13 +63,15 @@ export {
  *   5. `harness`             — operator selects Pi vs Claude Code (T9425)
  *   6. `brain`               — BRAIN memory bridge mode (T9425)
  *   7. `integrations`        — SignalDock + Studio + Conduit (T9608)
- *   8. `verification`        — read-only health checks (T9594)
+ *   8. `telemetry`           — anonymous skills-usage telemetry (T9673)
+ *   9. `verification`        — read-only health checks (T9594)
  *
  * @returns Fresh array of section runner instances.
  * @task T9420
  * @task T9425
  * @task T9594
  * @task T9608
+ * @task T9673
  */
 export function createBuiltinSections(): WizardSectionRunner[] {
   return [
@@ -78,6 +82,7 @@ export function createBuiltinSections(): WizardSectionRunner[] {
     createHarnessSection(),
     createBrainSection(),
     createIntegrationsSection(),
+    createTelemetrySection(),
     createVerificationSection(),
   ];
 }
