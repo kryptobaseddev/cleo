@@ -91,11 +91,16 @@ export class CursorInstallProvider implements AdapterInstallProvider {
    * Checks for .cursor/rules/cleo.mdc or .cursorrules with CLEO references.
    */
   async isInstalled(): Promise<boolean> {
+    // CWD-OK: `.cursor/` is a Cursor-IDE convention rooted at the project the
+    // user is *invoking* CLEO from, not a CLEO project root — Cursor itself
+    // walks from cwd for its rules discovery, so we mirror that semantic.
     const mdcPath = join(process.cwd(), '.cursor', 'rules', 'cleo.mdc');
     if (existsSync(mdcPath)) {
       return true;
     }
 
+    // CWD-OK: `.cursorrules` is the legacy Cursor-IDE rules file, same
+    // cwd-rooted semantic as `.cursor/rules/` above.
     const rulesPath = join(process.cwd(), '.cursorrules');
     if (existsSync(rulesPath)) {
       try {

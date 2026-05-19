@@ -12,6 +12,7 @@ import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { AdapterContextMonitorProvider } from '@cleocode/contracts';
+import { resolveLegacyCleoDir } from '@cleocode/paths';
 import { ClaudeCodePathProvider } from './paths.js';
 
 /** Context window input from Claude Code. */
@@ -165,7 +166,7 @@ export class ClaudeCodeContextMonitorProvider implements AdapterContextMonitorPr
     return {
       statusLine: {
         type: 'command',
-        command: join(homedir(), '.cleo', 'lib', 'session', 'context-monitor.sh'),
+        command: join(resolveLegacyCleoDir(), 'lib', 'session', 'context-monitor.sh'),
       },
     };
   }

@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { pruneOrphanTempDirs, pruneOrphanWorktrees } from '@cleocode/core/gc/cleanup.js';
 import { runGC } from '@cleocode/core/gc/runner.js';
 import { readGCState } from '@cleocode/core/gc/state.js';
+import { resolveLegacyCleoDir } from '@cleocode/paths';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -66,7 +67,7 @@ const runCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
+    const cleoDir = resolveLegacyCleoDir(args['cleo-dir'] as string | undefined);
     const dryRun = args['dry-run'];
 
     try {
@@ -117,7 +118,7 @@ const statusCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const cleoDir = (args['cleo-dir'] as string | undefined) ?? join(homedir(), '.cleo');
+    const cleoDir = resolveLegacyCleoDir(args['cleo-dir'] as string | undefined);
     const statePath = join(cleoDir, 'gc-state.json');
 
     try {

@@ -128,6 +128,38 @@ export function getCanonicalTemplatesTildePath(): string {
 }
 
 /**
+ * Resolve the legacy `~/.cleo` directory, with optional explicit override.
+ *
+ * On a fully-bootstrapped install `~/.cleo` is a symlink to {@link getCleoHome}
+ * (see `ensureCleoSymlink` in `@cleocode/core/bootstrap`), so writes through
+ * this path land in the canonical OS-appropriate location. The override
+ * argument takes precedence and is the standard wiring for CLI commands that
+ * accept a `--cleo-dir` flag (`cleo daemon`, `cleo gc`, …).
+ *
+ * This helper centralizes the `args['--cleo-dir'] ?? join(homedir(), '.cleo')`
+ * pattern that was previously duplicated across the CLI surface. Prefer
+ * {@link getCleoHome} when you need the canonical (post-XDG) data directory
+ * and there is no legacy-path or `--cleo-dir` override semantic.
+ *
+ * @param override - Explicit override (typically the `--cleo-dir` CLI arg)
+ * @returns Absolute path to the resolved `.cleo` directory
+ *
+ * @example
+ * ```typescript
+ * // CLI handler
+ * const cleoDir = resolveLegacyCleoDir(args['cleo-dir'] as string | undefined);
+ * // Bootstrap migration probe
+ * const legacyPath = resolveLegacyCleoDir();
+ * ```
+ *
+ * @public
+ */
+export function resolveLegacyCleoDir(override?: string): string {
+  if (override) return override;
+  return join(homedir(), '.cleo');
+}
+
+/**
  * Invalidate the cached CLEO system info snapshot. Use in tests after
  * mutating `CLEO_HOME` or related env vars.
  *
