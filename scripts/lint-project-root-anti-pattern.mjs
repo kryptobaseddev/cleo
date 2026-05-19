@@ -34,7 +34,14 @@
  * offending line. Use sparingly. Long-lived exceptions should be added to
  * the FILE_ALLOWLIST below with a one-line rationale.
  *
- * @task T9584
+ * Strict-by-default
+ * -----------------
+ * As of T9685-B4 the linter is strict-by-default: zero violations allowed.
+ * The T9584 baseline file was deleted after T9685-B1/B2/B3 drove the count
+ * to zero. The CI workflow passes `--strict` explicitly for intent; the
+ * flag is accepted as a no-op for workflow stability.
+ *
+ * @task T9584 / T9685-B4
  * @epic E-PROJECT-ROOT-AUDIT
  * @see docs/project-root-conventions.md
  */
@@ -256,21 +263,16 @@ function scanFile(filePath) {
 }
 
 // ============================================================================
-// Baseline mode (T9584)
+// Strict mode (T9685-B4)
 // ============================================================================
 //
-// The migration is incremental — long-tail files will land in follow-up PRs.
-// To avoid blocking the helper + doc + guard merge on every last callsite,
-// the linter runs in `--baseline` mode: it accepts the current violation
-// count as the upper bound and only fails when a NEW violation is added
-// beyond what `.cleo/project-root-baseline.json` records.
-//
-// Pass `--strict` to enforce zero violations. Once the long-tail batches
-// land the workflow flips to --strict and the baseline file is deleted.
-
-const args = process.argv.slice(2);
-const STRICT_MODE = args.includes('--strict');
-const BASELINE_FILE = '.cleo/project-root-baseline.json';
+// As of T9685-B4 the linter is strict-by-default: zero violations allowed.
+// The T9584 baseline file (`.cleo/project-root-baseline.json`) was deleted
+// after the long-tail batches T9685-B1 (CORE process.cwd), T9685-B2
+// (homedir-.cleo), and T9685-B3 (raw DatabaseSync chokepoint) shipped and
+// the violation count dropped to zero. The CI workflow still passes
+// `--strict` explicitly for documentation/intent; the flag is accepted as
+// a no-op for backwards compatibility with the workflow.
 
 // ============================================================================
 // Run
@@ -280,30 +282,9 @@ for (const dir of SCAN_DIRS) {
   walk(dir);
 }
 
-let baselineCount = 0;
-try {
-  const raw = readFileSync(BASELINE_FILE, 'utf8');
-  const parsed = JSON.parse(raw);
-  baselineCount = typeof parsed.violationCount === 'number' ? parsed.violationCount : 0;
-} catch {
-  // No baseline file — treat as 0.
-}
-
-if (STRICT_MODE) {
-  if (violations.length === 0) {
-    console.info('lint-project-root-anti-pattern: STRICT OK (zero violations)');
-    process.exit(0);
-  }
-} else {
-  if (violations.length <= baselineCount) {
-    console.info(
-      `lint-project-root-anti-pattern: OK — ${violations.length} violation(s) (baseline ${baselineCount}). Strict mode pending T9584 long-tail follow-up.`,
-    );
-    process.exit(0);
-  }
-  console.error(
-    `lint-project-root-anti-pattern: REGRESSION — ${violations.length} violations exceed baseline ${baselineCount}. New anti-pattern instances must be fixed before merge.`,
-  );
+if (violations.length === 0) {
+  console.info('lint-project-root-anti-pattern: STRICT OK (zero violations)');
+  process.exit(0);
 }
 
 console.error(

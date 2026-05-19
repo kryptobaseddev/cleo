@@ -157,16 +157,18 @@ jobs:
         run: node scripts/lint-path-drift.mjs
 
   project-root-anti-pattern-lint:
-    # T9584 / E-PROJECT-ROOT-AUDIT close-out: reject the T9550 anti-pattern
-    # that materialised rogue `<subdir>/.cleo/` dirs when CLI commands ran
-    # from a monorepo subdirectory. Three rules:
+    # T9584 / E-PROJECT-ROOT-AUDIT close-out + T9685-B4 strict-mode flip:
+    # reject the T9550 anti-pattern that materialised rogue `<subdir>/.cleo/`
+    # dirs when CLI commands ran from a monorepo subdirectory. Three rules:
     #   1. Bare `process.cwd()` in `packages/core/src/...` (suppress with
     #      `// CWD-OK: <reason>` for legitimate non-project-root uses).
     #   2. `join(..., process.cwd(), ..., '.cleo', ...)` anywhere in packages/.
-    #   3. `homedir()` constructing `.cleo` paths outside canonical resolvers.
-    # Baseline mode: rejects only NEW violations beyond the count recorded in
-    # `.cleo/project-root-baseline.json`. When the long-tail follow-up batches
-    # land, the baseline reaches 0 and this workflow flips to --strict.
+    #   3. `homedir()` constructing `.cleo` paths outside canonical resolvers
+    #      (suppress with `// path-drift-allowed: <reason>` for documented
+    #      escape hatches like the `~/.cleo` symlink bootstrap anchor).
+    # Strict mode (--strict): zero violations allowed. The T9584 baseline file
+    # was deleted after the long-tail batches (T9685-B1, B2, B3) shipped and
+    # the count dropped to zero. NEW violations now fail CI immediately.
     # Pure static analysis of checked-in source — no untrusted input.
     name: Project Root Anti-Pattern Lint (T9584)
     runs-on: ubuntu-latest
@@ -177,7 +179,7 @@ jobs:
         with:
           node-version: '24'
       - name: Lint project-root anti-pattern in packages/
-        run: node scripts/lint-project-root-anti-pattern.mjs
+        run: node scripts/lint-project-root-anti-pattern.mjs --strict
 
   contracts-dep-lint:
     name: Contracts Dep Lint

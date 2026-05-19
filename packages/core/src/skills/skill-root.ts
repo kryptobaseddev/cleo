@@ -109,7 +109,7 @@ function legacySkillsPath(): string {
  * @returns The absolute new skills path (does not check existence).
  */
 function newSkillsPath(): string {
-  return join(homedir(), '.cleo', 'skills');
+  return join(homedir(), '.cleo', 'skills'); // path-drift-allowed: ~/.cleo symlink is the canonical bootstrap target — see TSDoc above
 }
 
 /**
