@@ -1,6 +1,8 @@
 ---
 name: ct-consensus-voter
 description: "Runs structured multi-agent voting for decision tasks with confidence scores, conflict detection, and HITL escalation when the threshold is not met. Use when two or more agents must vote on options: architecture choices, tool selection, policy decisions, when a task carries agent_type:analysis, or on phrases like 'reach consensus', 'vote on options', 'resolve the debate', 'pick the best approach'. Produces a voting matrix JSON, enforces the 0.5 threshold, flags ties within 0.1 confidence as contested and escalates to human tiebreak."
+protocol: consensus
+loomStage: consensus
 ---
 
 # Consensus Voter

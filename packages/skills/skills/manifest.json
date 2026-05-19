@@ -1,11 +1,12 @@
 {
   "$schema": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
   "_meta": {
-    "schemaVersion": "2.4.0",
-    "lastUpdated": "2026-04-07",
+    "schemaVersion": "2.5.0",
+    "lastUpdated": "2026-05-19",
     "totalSkills": 22,
-    "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance",
-    "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection. Pipeline stages and cross-cutting protocols each have a dedicated skill — no overloading."
+    "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance. T9664 (epic T9568) — adds loomStage field on every LOOM-stage skill entry (underscored canonical form matching `cleo lifecycle` stage names).",
+    "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection. Pipeline stages and cross-cutting protocols each have a dedicated skill — no overloading.",
+    "loomStageContract": "Each of the 10 LOOM lifecycle stages (research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release, contribution) MUST have a bound skill whose manifest entry declares loomStage matching the lifecycle CLI stage name. The legacy `protocol` field is retained as an alias; dispatch_matrix.by_protocol is the authoritative routing table. See docs/skills/loom-coverage-matrix.md."
   },
   "dispatch_matrix": {
     "_comment": "Maps task types/keywords to skill NAMES. Provider adapter decides HOW to execute.",
@@ -120,6 +121,8 @@
       "status": "active",
       "tier": 0,
       "token_budget": 8000,
+      "protocol": "implementation",
+      "loomStage": "implementation",
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "TASK_NAME", "TASK_INSTRUCTIONS", "DELIVERABLES_LIST", "ACCEPTANCE_CRITERIA"],
@@ -148,6 +151,8 @@
       "status": "active",
       "tier": 1,
       "token_budget": 8000,
+      "protocol": "decomposition",
+      "loomStage": "decomposition",
       "references": ["skills/ct-epic-architect/references/bug-epic-example.md", "skills/ct-epic-architect/references/commands.md", "skills/ct-epic-architect/references/feature-epic-example.md"],
       "capabilities": {
         "inputs": ["TASK_ID", "FEATURE_NAME", "EPIC_ID", "SESSION_ID"],
@@ -176,6 +181,8 @@
       "status": "active",
       "tier": 1,
       "token_budget": 8000,
+      "protocol": "research",
+      "loomStage": "research",
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "TOPIC", "RESEARCH_QUESTIONS"],
@@ -204,6 +211,8 @@
       "status": "active",
       "tier": 1,
       "token_budget": 8000,
+      "protocol": "specification",
+      "loomStage": "specification",
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "SPEC_NAME", "spec_topic"],
@@ -232,6 +241,8 @@
       "status": "active",
       "tier": 1,
       "token_budget": 6000,
+      "protocol": "validation",
+      "loomStage": "validation",
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "VALIDATION_TARGET", "VALIDATION_CRITERIA"],
@@ -400,6 +411,7 @@
       "status": "active",
       "tier": 2,
       "token_budget": 6000,
+      "loomStage": "contribution",
       "references": [],
       "capabilities": {
         "inputs": ["TASK_ID", "contribution_type", "context"],
@@ -485,6 +497,7 @@
       "tier": 2,
       "token_budget": 8000,
       "protocol": "architecture-decision",
+      "loomStage": "architecture_decision",
       "references": [
         "skills/ct-adr-recorder/references/cascade.md",
         "skills/ct-adr-recorder/references/examples.md"
@@ -523,6 +536,7 @@
       "tier": 2,
       "token_budget": 10000,
       "protocol": "testing",
+      "loomStage": "testing",
       "references": [
         "skills/ct-ivt-looper/references/escalation.md",
         "skills/ct-ivt-looper/references/frameworks.md",
@@ -562,6 +576,7 @@
       "tier": 2,
       "token_budget": 6000,
       "protocol": "consensus",
+      "loomStage": "consensus",
       "references": ["skills/ct-consensus-voter/references/matrix-examples.md"],
       "capabilities": {
         "inputs": ["task-id", "question", "candidate-options"],
@@ -597,6 +612,7 @@
       "tier": 2,
       "token_budget": 8000,
       "protocol": "release",
+      "loomStage": "release",
       "references": [
         "skills/ct-release-orchestrator/references/composition.md",
         "skills/ct-release-orchestrator/references/release-types.md"

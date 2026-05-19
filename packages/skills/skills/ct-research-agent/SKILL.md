@@ -6,6 +6,7 @@ tier: 2
 core: false
 category: recommended
 protocol: research
+loomStage: research
 dependencies: []
 sharedResources:
   - subagent-protocol-base

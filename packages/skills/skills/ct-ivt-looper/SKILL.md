@@ -1,6 +1,8 @@
 ---
 name: ct-ivt-looper
 description: "Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. Detects the project's test framework (vitest, jest, mocha, pytest, unittest, go-test, cargo-test, rspec, phpunit, bats, or other) and iterates until the implementation satisfies its specification, recording convergence metrics to the manifest. Use when given an implementation task that must ship verified: the IVT loop is the autonomous compliance layer enforced before any release or PR. Triggers on phrases like 'implement and verify', 'run the IVT loop', 'ship this task', 'complete implementation with tests', 'verify against spec', or any implementation task with acceptance criteria. Works in any git worktree regardless of language or framework, never hardcoded to one project's tooling."
+protocol: testing
+loomStage: testing
 ---
 
 # IVT Looper

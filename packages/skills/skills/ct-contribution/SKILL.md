@@ -11,6 +11,7 @@ tier: 3
 core: false
 category: meta
 protocol: contribution
+loomStage: contribution
 dependencies: []
 sharedResources:
   - subagent-protocol-base

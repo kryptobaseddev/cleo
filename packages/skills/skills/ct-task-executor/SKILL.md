@@ -6,6 +6,7 @@ tier: 2
 core: true
 category: core
 protocol: implementation
+loomStage: implementation
 dependencies: []
 sharedResources:
   - subagent-protocol-base

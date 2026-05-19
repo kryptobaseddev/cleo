@@ -6,6 +6,7 @@ tier: 1
 core: false
 category: recommended
 protocol: decomposition
+loomStage: decomposition
 dependencies: []
 sharedResources:
   - subagent-protocol-base
