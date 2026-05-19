@@ -82,18 +82,29 @@ Epic (type: epic, size: large)
 └── Task 5 (depends: T4)       [Wave 3]
 ```
 
-### Size Guidelines (NOT Time)
+### Tier Sizing & Scope (canonical source: ADR-073 §1.1)
 
-| Type | Size | Scope |
-|------|------|-------|
-| Epic | large | 8+ files, multiple features |
-| Task | medium | 3-7 files, single feature |
-| Subtask | small | 1-2 files, single function |
+**DO NOT redefine here.** The strict definitions live in `.cleo/adrs/ADR-073-above-epic-naming.md`
+§1.1 (tier table) + §1.2 (8 invariants I1–I8) + §1.3 (lifecycle decision table).
+
+Quick reference for decomposition:
+
+| Tier    | Scope-of-change                                    | Sizing                                            |
+|---------|----------------------------------------------------|----------------------------------------------------|
+| Saga    | Theme grouping ≥2 Epics across ≥2 releases         | ≥2 child Epics                                    |
+| Epic    | One releasable slice; ≥1 PR to `main`              | 4–10 child Tasks                                  |
+| Task    | One atomic PR-sized change; single wave            | 1–7 child Subtasks (or leaf); single PR           |
+| Subtask | One commit; ≤2 files OR one module boundary        | 1 commit; contributes to parent Task's single PR  |
+
+**I8 (load-bearing):** A Task ships as exactly ONE PR. Multiple Subtasks contribute commits to
+that single PR. Subtasks never own a PR — if a unit warrants its own PR, it MUST be a Task.
+When decomposing, ask: "does this unit need its own PR?" → Task. "Is this a commit inside a
+larger PR?" → Subtask.
 
 ### Above-Epic: Sagas (ADR-073, v2026.5.77+)
 
 A **Saga** groups multiple Epics into a multi-release theme. Use a Saga when the work spans
-more than one shippable Epic and you want a stable handle for rollup/reporting. A Saga is a
+more than one releasable Epic and you want a stable handle for rollup/reporting. A Saga is a
 labeled top-level Epic (`label='saga'`) — NOT a new TaskType — so the parent ladder (maxDepth=3)
 under each member Epic is unaffected.
 

@@ -30,13 +30,24 @@ Supported sections: `session-start` · `work-loop` · `triggers` · `task-creati
 
 ## Skill-Specific Extensions
 
-### Saga tier (since v2026.5.77 · ADR-073)
+### Task Hierarchy (canonical source: ADR-073 §1)
 
-A **Saga** (`SG-` conceptual prefix; stored as a labeled top-level Epic) groups multiple Epics
-into a multi-release theme. Members link via `task_relations.relation_type='groups'`, not parent
-edges. `cleo list --parent <sagaId>` will NOT surface members — use `cleo saga members <id>`.
+CLEO has 4 tiers. Each defined by scope-of-change + agent ownership. All IDs stored as `T####`;
+`type` column discriminates; prefixes (`SG-`, `E-`, `T-`) are display + import-mapping only.
 
-Full command surface lives in CLEO-INJECTION.md `task-creation` section. Emit with
-`cleo briefing inject --section task-creation`.
+| Tier    | Prefix | Scope-of-change                                | Owner (ADR-070)     |
+|---------|--------|-------------------------------------------------|----------------------|
+| Saga    | `SG-`  | ≥2 Epics across ≥2 releases (themed grouping)   | Orchestrator (read)  |
+| Epic    | `E-`   | One releasable slice; ≥1 PR to `main`           | Orchestrator (HITL)  |
+| Task    | `T-`   | One atomic PR-sized change; single wave         | Phase Lead           |
+| Subtask | (none) | One commit; ≤2 files; rolls up to Task's PR     | Worker (leaf)        |
+
+**I8 — Subtask-to-PR aggregation:** A Task ships as exactly ONE PR. Subtasks contribute commits
+to that single PR; Subtasks never own a PR. Promote a Subtask to a sibling Task if it warrants
+its own PR.
+
+Full charter (8 invariants + lifecycle decision table + prefix registry) lives in
+`.cleo/adrs/ADR-073-above-epic-naming.md` §1–§2. CLI commands for Sagas: see
+CLEO-INJECTION.md `task-creation` section (`cleo briefing inject --section task-creation`).
 
 For full decision trees and operation reference tables, emit sections above.
