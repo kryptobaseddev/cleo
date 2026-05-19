@@ -417,6 +417,7 @@
       "status": "active",
       "tier": 2,
       "token_budget": 6000,
+      "protocol": "contribution",
       "loomStage": "contribution",
       "adrRefs": ["ADR-015", "ADR-053"],
       "references": [],
