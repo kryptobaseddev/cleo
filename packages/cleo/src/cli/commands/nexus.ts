@@ -17,6 +17,7 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { getProjectRoot } from '@cleocode/core/internal';
 import { generateGexf, getSymbolImpact } from '@cleocode/core/nexus';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
@@ -153,7 +154,7 @@ const statusCommand = defineCommand({
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const projectIdOverride = args['project-id'] as string | undefined;
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const startTime = Date.now();
 
     try {
@@ -742,7 +743,7 @@ const clustersCommand = defineCommand({
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const response = await dispatchRaw('query', 'nexus', 'clusters', { projectId, repoPath });
     const durationMs = Date.now() - startTime;
@@ -788,7 +789,7 @@ const flowsCommand = defineCommand({
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const response = await dispatchRaw('query', 'nexus', 'flows', { projectId, repoPath });
     const durationMs = Date.now() - startTime;
@@ -835,7 +836,7 @@ const contextCommand = defineCommand({
     void appendDeprecationTelemetry('nexus.context', 'cleo graph context');
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const repoPath = process.cwd();
+    const repoPath = getProjectRoot();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const limit = parseInt(args.limit as string, 10);
     const symbolName = args.symbol as string;
@@ -901,7 +902,7 @@ const impactCommand = defineCommand({
     const startTime = Date.now();
     const whyFlag = !!args.why;
     const projectIdOverride = args['project-id'] as string | undefined;
-    const repoPath = process.cwd();
+    const repoPath = getProjectRoot();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const maxDepth = Math.min(parseInt(args.depth as string, 10), 5);
     const symbolName = args.symbol as string;
@@ -981,7 +982,7 @@ const analyzeCommand = defineCommand({
     const ctx = getFormatContext();
 
     // Resolve target path
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
 
     humanInfo(`[nexus] Analyzing: ${repoPath}${isIncremental ? ' (incremental)' : ''}`);
 
@@ -1183,7 +1184,7 @@ const projectsRegisterCommand = defineCommand({
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const name = args.name as string | undefined;
 
     const response = await dispatchRaw('mutate', 'nexus', 'projects.register', {
@@ -1573,7 +1574,7 @@ const refreshBridgeCommand = defineCommand({
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
 
     const response = await dispatchRaw('mutate', 'nexus', 'refresh-bridge', {
@@ -1762,7 +1763,7 @@ const diffCommand = defineCommand({
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const projectIdOverride = args['project-id'] as string | undefined;
     const beforeRef = (args.before as string | undefined) ?? 'HEAD~1';
     const afterRef = (args.after as string | undefined) ?? 'HEAD';
@@ -1907,7 +1908,7 @@ const routeMapCommand = defineCommand({
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const response = await dispatchRaw('query', 'nexus', 'route-map', { projectId });
     const durationMs = Date.now() - startTime;
@@ -1967,7 +1968,7 @@ const shapeCheckCommand = defineCommand({
     const startTime = Date.now();
     const routeSymbol = args.routeSymbol as string;
     const projectIdOverride = args['project-id'] as string | undefined;
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const response = await dispatchRaw('query', 'nexus', 'shape-check', { routeSymbol, projectId });
     const durationMs = Date.now() - startTime;
@@ -2441,7 +2442,7 @@ const contractsSyncCommand = defineCommand({
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const projectIdOverride = args['project-id'] as string | undefined;
     const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const response = await dispatchRaw('mutate', 'nexus', 'contracts-sync', {
@@ -2549,7 +2550,7 @@ const contractsLinkTasksCommand = defineCommand({
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
-    const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
+    const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const projectId = Buffer.from(repoPath).toString('base64url').slice(0, 32);
     const response = await dispatchRaw('mutate', 'nexus', 'contracts-link-tasks', {
       projectId,
@@ -2633,7 +2634,7 @@ const wikiCommand = defineCommand({
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
     const outputDir =
-      (args.output as string | undefined) ?? path.join(process.cwd(), '.cleo', 'wiki');
+      (args.output as string | undefined) ?? path.join(getProjectRoot(), '.cleo', 'wiki');
     const communityFilter = (args.community as string | undefined) ?? undefined;
     const isIncremental = !!(args.incremental as boolean | undefined);
 
@@ -2680,11 +2681,11 @@ const wikiCommand = defineCommand({
       const { generateNexusWikiIndex } = await import(
         '@cleocode/core/nexus/wiki-index.js' as string
       );
-      const result = await generateNexusWikiIndex(outputDir, process.cwd(), {
+      const result = await generateNexusWikiIndex(outputDir, getProjectRoot(), {
         communityFilter,
         incremental: isIncremental,
         loomProvider,
-        projectRoot: process.cwd(),
+        projectRoot: getProjectRoot(),
       });
       const durationMs = Date.now() - startTime;
 

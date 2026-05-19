@@ -25,6 +25,7 @@
  */
 
 import type { conduit } from '@cleocode/core';
+import { getProjectRoot } from '@cleocode/core/internal';
 import {
   defineTypedHandler,
   type OpsFromCore,
@@ -219,7 +220,7 @@ export class ConduitHandler implements DomainHandler {
 async function _resolveCredential(agentId?: string) {
   const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
   await getDb(); // Ensure DB initialized before registry access
-  const registry = new AgentRegistryAccessor(process.cwd());
+  const registry = new AgentRegistryAccessor(getProjectRoot());
   const credential = agentId ? await registry.get(agentId) : await registry.getActive();
   if (!credential) {
     throw new Error(
@@ -236,7 +237,7 @@ async function getStatusImpl(agentId?: string) {
 
   // Check local conduit.db unread count when available
   const { LocalTransport } = await import('@cleocode/core/conduit');
-  if (LocalTransport.isAvailable(process.cwd())) {
+  if (LocalTransport.isAvailable(getProjectRoot())) {
     const transport = new LocalTransport();
     await transport.connect({
       agentId: credential.agentId,
@@ -305,7 +306,7 @@ async function peekImpl(agentId?: string, limit?: number) {
 
   // Prefer LocalTransport when conduit.db is present — no network round-trip needed.
   const { LocalTransport } = await import('@cleocode/core/conduit');
-  if (LocalTransport.isAvailable(process.cwd())) {
+  if (LocalTransport.isAvailable(getProjectRoot())) {
     const transport = new LocalTransport();
     await transport.connect({
       agentId: credential.agentId,
@@ -404,7 +405,7 @@ async function startPollingImpl(
   let transport: import('@cleocode/contracts').Transport | undefined;
   let transportName = 'http';
 
-  if (LocalTransport.isAvailable(process.cwd())) {
+  if (LocalTransport.isAvailable(getProjectRoot())) {
     const local = new LocalTransport();
     await local.connect({
       agentId: credential.agentId,
@@ -487,7 +488,7 @@ async function subscribeTopicImpl(
   }
   const credential = await _resolveCredential(agentId);
   const { LocalTransport } = await import('@cleocode/core/conduit');
-  if (!LocalTransport.isAvailable(process.cwd())) {
+  if (!LocalTransport.isAvailable(getProjectRoot())) {
     return {
       success: false,
       error: { code: 'E_CONDUIT', message: 'conduit.db not found — run: cleo init' },
@@ -547,7 +548,7 @@ async function publishToTopicImpl(
   }
   const credential = await _resolveCredential(agentId);
   const { LocalTransport } = await import('@cleocode/core/conduit');
-  if (!LocalTransport.isAvailable(process.cwd())) {
+  if (!LocalTransport.isAvailable(getProjectRoot())) {
     return {
       success: false,
       error: { code: 'E_CONDUIT', message: 'conduit.db not found — run: cleo init' },
@@ -603,7 +604,7 @@ async function listenTopicImpl(
   const startMs = Date.now();
   const credential = await _resolveCredential(agentId);
   const { LocalTransport } = await import('@cleocode/core/conduit');
-  if (!LocalTransport.isAvailable(process.cwd())) {
+  if (!LocalTransport.isAvailable(getProjectRoot())) {
     return {
       success: false,
       error: { code: 'E_CONDUIT', message: 'conduit.db not found — run: cleo init' },
@@ -660,7 +661,7 @@ async function sendMessageImpl(
   // Prefer LocalTransport when conduit.db is present — message written directly
   // to the SQLite store without network, available for immediate local polling.
   const { LocalTransport } = await import('@cleocode/core/conduit');
-  if (LocalTransport.isAvailable(process.cwd())) {
+  if (LocalTransport.isAvailable(getProjectRoot())) {
     const transport = new LocalTransport();
     await transport.connect({
       agentId: credential.agentId,

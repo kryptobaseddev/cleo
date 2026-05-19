@@ -40,6 +40,7 @@ import {
   detectCrashedAgents,
   detectStaleAgents,
   getHealthReport,
+  getProjectRoot,
   STALE_THRESHOLD_MS,
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
@@ -88,7 +89,7 @@ const registerCommand = defineCommand({
     try {
       const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const agentId = args.id;
       const displayName = args.name;
@@ -213,7 +214,7 @@ const signinCommand = defineCommand({
     try {
       const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       // Look up the credential
       const credential = await registry.get(args.agentId);
@@ -332,7 +333,7 @@ const startCommand = defineCommand({
       const { join } = await import('node:path');
 
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       // 1. Look up credential
       const credential = await registry.get(args.agentId);
@@ -485,7 +486,7 @@ const stopCommand = defineCommand({
     try {
       const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const credential = await registry.get(args.agentId);
       if (!credential) {
@@ -550,7 +551,7 @@ const statusCommand = defineCommand({
     try {
       const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       if (args.agentId) {
         const credential = await registry.get(args.agentId);
@@ -630,7 +631,7 @@ const assignCommand = defineCommand({
         '@cleocode/core/internal'
       );
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const active = await registry.getActive();
       if (!active) {
@@ -691,7 +692,7 @@ const wakeCommand = defineCommand({
         '@cleocode/core/internal'
       );
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const active = await registry.getActive();
       if (!active) {
@@ -759,7 +760,7 @@ const spawnCommand = defineCommand({
     try {
       const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const role = args.role;
       const taskId = args.task as string | undefined;
@@ -831,7 +832,7 @@ const reassignCommand = defineCommand({
         '@cleocode/core/internal'
       );
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
       const active = await registry.getActive();
       if (!active) {
         cliOutput(
@@ -874,7 +875,7 @@ const stopAllCommand = defineCommand({
     try {
       const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
       const agents = await registry.list({ active: true });
       let stopped = 0;
       for (const a of agents) {
@@ -956,7 +957,7 @@ const workCommand = defineCommand({
       const { promisify } = await import('node:util');
       const execFileAsync = promisify(execFile);
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
       const credential = await registry.get(args.agentId);
       if (!credential) {
         cliOutput(
@@ -1151,7 +1152,7 @@ const listCommand = defineCommand({
       const includeGlobal = args.global === true;
       const includeDisabled = args['include-disabled'] === true;
 
-      const agents = listAgentsForProject(process.cwd(), {
+      const agents = listAgentsForProject(getProjectRoot(), {
         includeGlobal,
         includeDisabled,
       });
@@ -1219,7 +1220,7 @@ const getCommand = defineCommand({
       await getDb();
 
       const includeGlobal = args.global === true;
-      const agent = lookupAgent(process.cwd(), args.agentId, { includeGlobal });
+      const agent = lookupAgent(getProjectRoot(), args.agentId, { includeGlobal });
 
       if (!agent) {
         cliOutput(
@@ -1301,7 +1302,7 @@ const attachCommand = defineCommand({
         '@cleocode/core/internal'
       );
       await getDb();
-      const projectRoot = process.cwd();
+      const projectRoot = getProjectRoot();
 
       // Ensure both DBs initialised before any cross-DB operation
       const _registry = new AgentRegistryAccessor(projectRoot);
@@ -1372,7 +1373,7 @@ const detachCommand = defineCommand({
       const { AgentRegistryAccessor, detachAgentFromProject, getProjectAgentRef, getDb } =
         await import('@cleocode/core/internal');
       await getDb();
-      const projectRoot = process.cwd();
+      const projectRoot = getProjectRoot();
 
       // Ensure both DBs initialised
       const _registry = new AgentRegistryAccessor(projectRoot);
@@ -1449,7 +1450,7 @@ const removeCommand = defineCommand({
       const { AgentRegistryAccessor, detachAgentFromProject, getProjectAgentRef, getDb } =
         await import('@cleocode/core/internal');
       await getDb();
-      const projectRoot = process.cwd();
+      const projectRoot = getProjectRoot();
 
       if (!args.global) {
         // Project-scoped detach (default post-T310) — mirrors `cleo agent detach`
@@ -1552,7 +1553,7 @@ const rotateKeyCommand = defineCommand({
     try {
       const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const result = await registry.rotateKey(args.agentId);
       cliOutput(
@@ -1593,7 +1594,7 @@ const claimCodeCommand = defineCommand({
     try {
       const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const credential = await registry.get(args.agentId);
       if (!credential) {
@@ -1676,7 +1677,7 @@ const watchCommand = defineCommand({
       const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
       const { createRuntime } = await import('@cleocode/runtime');
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const groupIds = args.group ? args.group.split(',').map((s) => s.trim()) : undefined;
 
@@ -1769,7 +1770,7 @@ const pollCommand = defineCommand({
         '@cleocode/core/internal'
       );
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const agentId = args.agent as string | undefined;
       const conduit = await createConduit(registry, agentId);
@@ -1827,7 +1828,7 @@ const sendCommand = defineCommand({
         '@cleocode/core/internal'
       );
       await getDb();
-      const registry = new AgentRegistryAccessor(process.cwd());
+      const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const agentId = args.agent as string | undefined;
       const to = args.to as string | undefined;
@@ -2168,7 +2169,7 @@ const installCommand = defineCommand({
 
       const isGlobal = args.global === true;
       const targetTier: 'global' | 'project' = isGlobal ? 'global' : 'project';
-      const projectRoot = process.cwd();
+      const projectRoot = getProjectRoot();
 
       try {
         // `--resync`: drop+reinstall the registry row but preserve the
@@ -2527,7 +2528,7 @@ const createCommand = defineCommand({
         const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
         targetRoot = join(xdgData, 'cleo', 'cant', 'agents');
       } else {
-        targetRoot = join(process.cwd(), CLEO_DIR_NAME, CANT_AGENTS_SUBDIR);
+        targetRoot = join(getProjectRoot(), CLEO_DIR_NAME, CANT_AGENTS_SUBDIR);
       }
 
       const agentDir = join(targetRoot, name);
@@ -2619,7 +2620,7 @@ const createCommand = defineCommand({
       try {
         const { AgentRegistryAccessor, getDb } = await import('@cleocode/core/internal');
         await getDb();
-        const registry = new AgentRegistryAccessor(process.cwd());
+        const registry = new AgentRegistryAccessor(getProjectRoot());
         const existing = await registry.get(name);
 
         if (!existing) {
@@ -2733,7 +2734,7 @@ const mintCommand = defineCommand({
       }
 
       const specContent = readFileSync(specPath, 'utf-8');
-      const projectRoot = process.cwd();
+      const projectRoot = getProjectRoot();
       const outputDir = args['output-dir']
         ? resolve(args['output-dir'])
         : join(projectRoot, '.cleo', 'cant', 'agents');
@@ -2881,7 +2882,7 @@ const doctorCommand = defineCommand({
       const db = _sdDb3 as import('node:sqlite').DatabaseSync;
 
       try {
-        const report = await buildDoctorReport(db, { projectRoot: process.cwd() });
+        const report = await buildDoctorReport(db, { projectRoot: getProjectRoot() });
         const repairFlag = args.repair === true;
 
         let reconciled: Awaited<ReturnType<typeof reconcileDoctor>> | undefined;
