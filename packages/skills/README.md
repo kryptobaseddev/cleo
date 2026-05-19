@@ -72,7 +72,6 @@ yarn add @cleocode/skills
 | Skill | Purpose | Description |
 |-------|---------|-------------|
 | **ct-grade** | Grading | Session quality evaluation |
-| **ct-grade-v2-1** | Grading V2 | Enhanced grading with scenarios |
 | **ct-stickynote** | Notes | Quick ephemeral sticky notes |
 
 ### Integration Skills
