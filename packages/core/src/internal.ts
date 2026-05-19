@@ -120,17 +120,20 @@ export {
 export type { GenerateDocsOptions, GenerateDocsResult } from './docs/docs-generator.js';
 export { generateDocsLlmsTxt } from './docs/docs-generator.js';
 // Docs ops — llmtxt primitive wrappers (search, merge, graph, rank, versions, publish) (T1041)
-// + publishDocs hardening (T9701) + sync reverse-ingest (T9702) — Saga T9625 / Epic T9626
+// + git⇄llmtxt round-trip (publish/sync/status) (T9634 — Saga T9625 / Epic T9626)
 export type {
+  DocsDriftItem,
   DocsGraphEdge,
   DocsGraphNode,
   DocsGraphResult,
   DocsMergeResult,
+  DocsPublicationRecord,
   DocsPublishResult,
   DocsRankHit,
   DocsRankResult,
   DocsSearchHit,
   DocsSearchResult,
+  DocsStatusResult,
   DocsSyncFromGitResult,
   DocsVersionEntry,
   DocsVersionsResult,
@@ -138,10 +141,13 @@ export type {
 export {
   buildDocsGraph,
   listDocVersions,
+  listPublications,
   mergeDocs,
   publishDocs,
   rankDocs,
+  recordPublication,
   searchDocs,
+  statusDocs,
   syncFromGit,
 } from './docs/docs-ops.js';
 // Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
@@ -1007,6 +1013,9 @@ export { createBackup, listBackups, restoreFromBackup } from './store/backup.js'
 // Backup portability — bundle packer (T311 / T347)
 export type { PackBundleInput, PackBundleResult } from './store/backup-pack.js';
 export { packBundle } from './store/backup-pack.js';
+// Read-only blob ops façade — content-address read API (T947 step 1)
+export type { BlobListEntry } from './store/blob-ops.js';
+export { blobList, blobRead } from './store/blob-ops.js';
 export type { LegacyCleanupResult, StrayNexusCleanupResult } from './store/cleanup-legacy.js';
 export {
   detectAndRemoveLegacyGlobalFiles,
@@ -1024,6 +1033,13 @@ export {
   isCleoGitInitialized,
 } from './store/git-checkpoint.js';
 export { computeChecksum, readJson } from './store/json.js';
+// CleoBlobStore — content-addressed blob store (T9634 idempotency tests + future
+// callers that need to seed blobs without going through the full v2 wrapper).
+export type {
+  CleoBlobAttachResult,
+  CleoBlobStoreOptions,
+} from './store/llmtxt-blob-adapter.js';
+export { CleoBlobStore } from './store/llmtxt-blob-adapter.js';
 export type { BrainDataAccessor } from './store/memory-accessor.js';
 // Brain accessor — for intelligence domain handler construction
 export { getBrainAccessor } from './store/memory-accessor.js';

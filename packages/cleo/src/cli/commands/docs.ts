@@ -30,7 +30,9 @@ import {
   publishDocs,
   rankDocs,
   readJson,
+  recordPublication,
   searchDocs,
+  statusDocs,
   syncFromGit,
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
@@ -817,6 +819,22 @@ const publishCommand = defineCommand({
         projectRoot,
       });
 
+      // Persist the publication in the docs-publications ledger so the
+      // `cleo docs status` drift detector can subsequently check this path.
+      // Failure here MUST NOT mask publish success — the file is already on
+      // disk and reachable; ledger drift is recoverable on the next publish.
+      try {
+        await recordPublication({
+          ownerId: result.ownerId,
+          blobName: result.blobName,
+          publishedPath: result.relativePath,
+          lastBlobSha: result.blobSha256,
+          projectRoot,
+        });
+      } catch {
+        /* Ledger write is best-effort. */
+      }
+
       cliOutput(result, { command: 'docs publish', operation: 'docs.publish' });
     } catch (err) {
       // T9633: emit a flat LAFS error envelope (single layer, ADR-039).
@@ -954,6 +972,49 @@ const syncCommand = defineCommand({
   },
 });
 
+// ── cleo docs status ──────────────────────────────────────────────────────────
+
+/**
+ * cleo docs status — git⇄llmtxt drift detector.
+ *
+ * Walks the docs-publications ledger and classifies each entry as one of
+ * `in-sync`, `modified`, `deleted`, or `added`. Exits non-zero (code 2)
+ * when ANY entry has drift — convention from `git diff --exit-code`.
+ *
+ * @epic T9626 (W0)
+ * @task T9703 (ST-PUB-2c)
+ */
+const statusCommand = defineCommand({
+  meta: {
+    name: 'status',
+    description:
+      'Compare published files on disk against the docs SSoT and report drift. ' +
+      'Exits 0 when all entries are in-sync, 2 when any drift is present.',
+  },
+  args: {
+    json: {
+      type: 'boolean',
+      description: 'Emit LAFS JSON envelope',
+    },
+  },
+  async run() {
+    const projectRoot = getProjectRoot();
+    try {
+      const result = await statusDocs({ projectRoot });
+      cliOutput(result, { command: 'docs status', operation: 'docs.status' });
+      if (!result.allInSync) {
+        process.exit(2);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`docs status failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_STATUS_FAILED',
+      });
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+  },
+});
+
 // ── Legacy: cleo docs gap-check ───────────────────────────────────────────────
 
 /** cleo docs gap-check — validate knowledge transfer from review docs */
@@ -1001,11 +1062,11 @@ const gapCheckCommand = defineCommand({
 
 /**
  * Root docs command group — attachment management, llmtxt primitives, drift detection,
- * and git⇄llmtxt round-trip publish + sync per Saga T9625 / Epic T9626.
+ * and git⇄llmtxt round-trip (publish/sync/status) per Saga T9625 / Epic T9626.
  *
  * Subcommands: add, list, fetch, remove, generate, export,
  *              search, merge, graph, rank, versions, publish,
- *              sync, gap-check.
+ *              sync, status, gap-check.
  */
 export const docsCommand = defineCommand({
   meta: {
@@ -1013,7 +1074,7 @@ export const docsCommand = defineCommand({
     description:
       'Documentation attachment management (add/list/fetch/remove), ' +
       'llmtxt primitives (search/merge/graph/rank/versions/publish), ' +
-      'and drift detection (sync/gap-check)',
+      'and drift detection (sync/status/gap-check)',
   },
   subCommands: {
     add: addCommand,
@@ -1029,6 +1090,7 @@ export const docsCommand = defineCommand({
     versions: versionsCommand,
     publish: publishCommand,
     sync: syncCommand,
+    status: statusCommand,
     'gap-check': gapCheckCommand,
   },
   async run({ cmd, rawArgs }) {
