@@ -7,6 +7,18 @@
  */
 
 export type {
+  BridgeSymlinkRecord,
+  DoctorBridgeOptions,
+  DoctorBridgeResult,
+  PerSkillSymlinkRemoval,
+} from './commands/skills/doctor-bridge.js';
+// Skills doctor — bridge subcommand (T9655)
+export {
+  AgentsSkillsRealDirError,
+  buildBackupTimestamp,
+  runDoctorBridge,
+} from './commands/skills/doctor-bridge.js';
+export type {
   BatchInstallOptions,
   BatchInstallResult,
   InstructionUpdateSummary,
