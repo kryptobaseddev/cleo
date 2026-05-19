@@ -36,6 +36,7 @@
 import { stdin as input, stdout as output } from 'node:process';
 import * as readline from 'node:readline/promises';
 import type { WizardIO } from '@cleocode/core/setup';
+import { WizardFatalError } from '@cleocode/core/setup';
 
 // ---------------------------------------------------------------------------
 // EOF sentinel
@@ -54,12 +55,14 @@ export const SETUP_STDIN_CLOSED_CODE = 'E_SETUP_STDIN_CLOSED' as const;
 /**
  * Thrown by {@link ReadlineWizardIO} when stdin closes mid-prompt.
  *
- * `setup.ts` catches this and converts it to a LAFS error envelope with
+ * Extends {@link WizardFatalError} so `WizardRunner.invokeSection` re-throws
+ * it instead of swallowing it into a failed summary — the CLI `setup.ts`
+ * then catches this and converts it to a LAFS error envelope with
  * `codeName: "E_SETUP_STDIN_CLOSED"` before calling `process.exit(1)`.
  *
  * @task T9599
  */
-export class StdinClosedError extends Error {
+export class StdinClosedError extends WizardFatalError {
   readonly codeName = SETUP_STDIN_CLOSED_CODE;
 
   constructor() {
