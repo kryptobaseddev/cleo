@@ -45,6 +45,7 @@ import type {
   WizardSectionResult,
 } from '@cleocode/core/setup';
 import { createDefaultWizardRunner, WizardInterruptError } from '@cleocode/core/setup';
+import { WizardInterruptError, createDefaultWizardRunner } from '@cleocode/core/setup';
 import { defineCommand } from 'citty';
 import { ReadlineWizardIO, StdinClosedError } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -577,6 +578,12 @@ export const setupCommand = defineCommand({
         process.exit(130);
       }
 
+      // T9612: Ctrl-C / SIGINT — print a friendly message and exit 130
+      // (SIGINT convention) so shells can distinguish interrupted from failed.
+      if (err instanceof WizardInterruptError) {
+        process.stderr.write("Setup interrupted. Run 'cleo setup' to continue.\n");
+        process.exit(130);
+      }
       // Bug #10 (T9599): stdin closed before the wizard finished — emit a
       // LAFS error envelope and exit 1 instead of silently exiting 0 with
       // no JSON output.
