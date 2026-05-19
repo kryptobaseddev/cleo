@@ -22,9 +22,9 @@
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { isAbsolute, resolve as resolvePath } from 'node:path';
+import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 
 import type { EvidenceAtom, GateEvidence, VerificationGate } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
@@ -639,6 +639,47 @@ function diffIntersectsAc(diffFiles: string[], acFiles: string[]): boolean {
 }
 
 /**
+ * Resolve a worktree path to the canonical main repo path by parsing
+ * the .git gitlink file. Returns projectRoot as-is for non-worktree dirs.
+ *
+ * When a git worktree is active, `.git` is a plain FILE containing a line of
+ * the form `gitdir: /abs/path/to/main/.git/worktrees/<name>`. Stripping the
+ * last 3 path components from that gitdir path yields the main repo root.
+ *
+ * Used by {@link checkCommitContentIntersect} to ensure task metadata is always
+ * read from the canonical `tasks.db` in the main repository rather than from
+ * the stale point-in-time copy that was bootstrapped into the worktree at spawn
+ * time (Bug C from the E-WORKTREE-IVTR spec).
+ *
+ * @param projectRoot - Absolute path that may be a git worktree or the main repo.
+ * @returns Absolute path to the canonical main repository root.
+ *
+ * @task T-WT-2
+ * @epic T9586
+ */
+export function resolveCanonicalProjectRoot(projectRoot: string): string {
+  try {
+    const gitPath = join(projectRoot, '.git');
+    const st = statSync(gitPath);
+    if (st.isDirectory()) return projectRoot; // normal repo — already canonical
+    if (st.isFile()) {
+      const content = readFileSync(gitPath, 'utf8').trim();
+      // gitlink format: "gitdir: /abs/path/to/main/.git/worktrees/<name>"
+      const match = content.match(/^gitdir:\s*(.+)$/);
+      if (!match) return projectRoot;
+      const gitdirPath = resolvePath(projectRoot, match[1].trim());
+      // gitdirPath ends with /.git/worktrees/<name>; main repo is 3 levels up
+      const worktreesDir = dirname(gitdirPath); // .../.git/worktrees
+      const dotGit = dirname(worktreesDir); // .../.git
+      return dirname(dotGit); // main repo root
+    }
+  } catch {
+    /* fall through — not a valid git repo or stat failed */
+  }
+  return projectRoot;
+}
+
+/**
  * Content-intersect check for {@link validateCommit}.
  *
  * Loads the task by ID, derives the AC file list, runs
@@ -683,6 +724,14 @@ async function checkCommitContentIntersect(
   taskId: string,
   projectRoot: string,
 ): Promise<AtomValidation> {
+  // BUG-C FIX (T-WT-2 / E-WORKTREE-IVTR): always read task metadata from the
+  // canonical (main) repository DB. When projectRoot is a worktree path the
+  // worktree's tasks.db is a stale spawn-time snapshot; the main DB is the
+  // authoritative source for task.files and task.acceptance. git operations
+  // below (gitShowFiles) still use the original projectRoot — git shares its
+  // object store across worktrees, so any dir in the shared tree works.
+  const canonicalRoot = resolveCanonicalProjectRoot(projectRoot);
+
   // Best-effort load — DB unavailability MUST NOT block verify.
   let task: {
     files?: string[] | null;
@@ -691,7 +740,7 @@ async function checkCommitContentIntersect(
   } | null = null;
   try {
     const { getTaskAccessor } = await import('../store/data-accessor.js');
-    const accessor = await getTaskAccessor(projectRoot);
+    const accessor = await getTaskAccessor(canonicalRoot);
     task = await accessor.loadSingleTask(taskId);
   } catch {
     // Tolerate: legacy callers, init-time use, test stubs.
