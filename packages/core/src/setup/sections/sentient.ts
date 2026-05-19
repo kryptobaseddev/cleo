@@ -45,10 +45,9 @@ export function createSentientSection(): WizardSectionRunner {
         daemonEnabled = options.sentientEnabled;
         tier2Enabled = options.tier2Enabled;
         if (daemonEnabled === undefined && tier2Enabled === undefined) {
-          return {
-            changed: false,
-            summary: 'skipped (non-interactive: no --sentient/--tier2 flag)',
-          };
+          throw new Error(
+            'E_SETUP_MISSING_FLAG: --section sentient --non-interactive requires --sentient <on|off> or --tier2 <on|off>',
+          );
         }
       } else {
         daemonEnabled = await io.confirm(

@@ -302,16 +302,18 @@ describe('sentient section', () => {
     expect(state.tier2Enabled).toBe(true);
   });
 
-  it('non-interactive without flags: skipped silently', async () => {
+  it('non-interactive without flags: emits E_SETUP_MISSING_FLAG error (T9597)', async () => {
     const { projectRoot } = makeTempRoot();
     const runner = new WizardRunner([createSentientSection()]);
     const io = new StubWizardIO();
+    // invokeSection catches the thrown error and surfaces it as failed: summary.
     const result = await runner.runSection('sentient', io, {
       nonInteractive: true,
       projectRoot,
     });
     expect(result.changed).toBe(false);
-    expect(result.summary).toMatch(/^skipped/);
+    expect(result.summary).toMatch(/E_SETUP_MISSING_FLAG/);
+    expect(result.summary).toMatch(/--sentient/);
   });
 
   it('interactive: confirm prompts drive both toggles', async () => {
@@ -386,16 +388,18 @@ describe('harness section', () => {
     expect(cfg.harness?.active).toBe('claude-code');
   });
 
-  it('non-interactive without --harness: skipped silently', async () => {
+  it('non-interactive without --harness: emits E_SETUP_MISSING_FLAG error (T9597)', async () => {
     const { projectRoot } = makeTempRoot();
     const runner = new WizardRunner([createHarnessSection()]);
     const io = new StubWizardIO();
+    // invokeSection catches throws and surfaces them as failed: summary lines.
     const result = await runner.runSection('harness', io, {
       nonInteractive: true,
       projectRoot,
     });
     expect(result.changed).toBe(false);
-    expect(result.summary).toMatch(/^skipped/);
+    expect(result.summary).toMatch(/E_SETUP_MISSING_FLAG/);
+    expect(result.summary).toMatch(/--harness/);
   });
 
   it('interactive: select prompt drives the harness pick + display reads CLEO_HARNESS', async () => {
@@ -481,16 +485,18 @@ describe('brain section', () => {
     expect(cfg.brain?.memoryBridge?.mode).toBe('disabled');
   });
 
-  it('non-interactive without --brain-bridge-mode: skipped silently', async () => {
+  it('non-interactive without --brain-bridge-mode: emits E_SETUP_MISSING_FLAG error (T9597)', async () => {
     const { projectRoot } = makeTempRoot();
     const runner = new WizardRunner([createBrainSection()]);
     const io = new StubWizardIO();
+    // invokeSection catches the thrown error and surfaces it as failed: summary.
     const result = await runner.runSection('brain', io, {
       nonInteractive: true,
       projectRoot,
     });
     expect(result.changed).toBe(false);
-    expect(result.summary).toMatch(/^skipped/);
+    expect(result.summary).toMatch(/E_SETUP_MISSING_FLAG/);
+    expect(result.summary).toMatch(/--brain-bridge-mode/);
   });
 
   it('interactive: select prompt drives the mode pick + reports current mode', async () => {
