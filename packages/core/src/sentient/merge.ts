@@ -30,6 +30,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { resolveOrCwd } from '../paths.js';
 import { checkKillSwitch } from './kill-switch.js';
 
 // ---------------------------------------------------------------------------
@@ -210,7 +211,8 @@ async function readHeadSha(gitBin: string, cwd: string): Promise<string> {
  * @returns {@link MergeResult} describing the outcome.
  */
 export async function gitFfMerge(options: GitFfMergeOptions): Promise<MergeResult> {
-  const { experimentWorktree, cwd = process.cwd(), gitBin = 'git' } = options;
+  const { experimentWorktree, gitBin = 'git' } = options;
+  const cwd = resolveOrCwd(options.cwd);
 
   // -- Step 1: kill-switch check before any git operation -------------------
   try {

@@ -206,6 +206,9 @@ function resolveProjectRootLoose(cwd?: string): string {
   try {
     return getProjectRoot(cwd);
   } catch {
+    // CWD-OK: getProjectRoot threw (no .cleo ancestor) — fall back to the
+    // caller-supplied dir, then cwd. This path runs against arbitrary
+    // monorepos in tests, fresh clones, and downstream tooling.
     return cwd ?? process.cwd();
   }
 }

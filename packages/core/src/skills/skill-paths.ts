@@ -16,6 +16,7 @@
 import { existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { getCanonicalSkillsDir } from '@cleocode/caamp';
+import { resolveOrCwd } from '../paths.js';
 
 /** Source type classification for a skill directory. */
 export type SkillSourceType = 'embedded' | 'caamp' | 'project-link' | 'global-link';
@@ -43,7 +44,7 @@ function getCaampCanonical(): string {
  * @task T4552
  */
 function getProjectEmbedded(projectRoot?: string): string {
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
   return join(root, 'skills');
 }
 
@@ -52,7 +53,7 @@ function getProjectEmbedded(projectRoot?: string): string {
  * @task T4552
  */
 function getProjectRoot(cwd?: string): string {
-  return cwd ?? process.cwd();
+  return resolveOrCwd(cwd);
 }
 
 /**
