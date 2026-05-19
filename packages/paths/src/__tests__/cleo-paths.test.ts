@@ -9,6 +9,7 @@ import {
   getCleoPlatformPaths,
   getCleoSystemInfo,
   getCleoTemplatesTildePath,
+  resolveLegacyCleoDir,
 } from '../cleo-paths.js';
 
 describe('cleo-paths', () => {
@@ -103,6 +104,36 @@ describe('cleo-paths', () => {
     it('produces the correct @-reference for CLEO-INJECTION.md', () => {
       const ref = `@${getCanonicalTemplatesTildePath()}/CLEO-INJECTION.md`;
       expect(ref).toBe('@~/.cleo/templates/CLEO-INJECTION.md');
+    });
+  });
+
+  // ── resolveLegacyCleoDir (T9685-B2) ───────────────────────────────────────
+
+  describe('resolveLegacyCleoDir()', () => {
+    it('returns the override when provided', () => {
+      expect(resolveLegacyCleoDir('/custom/cleo-dir')).toBe('/custom/cleo-dir');
+    });
+
+    it('returns ~/.cleo when no override is provided', () => {
+      expect(resolveLegacyCleoDir()).toBe(join(homedir(), '.cleo'));
+    });
+
+    it('returns ~/.cleo when override is undefined', () => {
+      expect(resolveLegacyCleoDir(undefined)).toBe(join(homedir(), '.cleo'));
+    });
+
+    it('treats empty string override as falsy and falls back to ~/.cleo', () => {
+      // Empty string is falsy — falls through to default. Documented behaviour:
+      // CLI handlers that pass `args['cleo-dir'] as string | undefined` will never
+      // pass '', but we guard against it explicitly so the contract is clear.
+      expect(resolveLegacyCleoDir('')).toBe(join(homedir(), '.cleo'));
+    });
+
+    it('is immune to CLEO_HOME — always resolves the legacy ~/.cleo path', () => {
+      process.env['CLEO_HOME'] = '/opt/custom-cleo';
+      _resetCleoPlatformPathsCache();
+      // Even with CLEO_HOME set, the legacy resolver returns ~/.cleo
+      expect(resolveLegacyCleoDir()).toBe(join(homedir(), '.cleo'));
     });
   });
 });
