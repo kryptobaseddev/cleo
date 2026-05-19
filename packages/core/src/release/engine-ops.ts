@@ -22,8 +22,8 @@ import { dirname, join } from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
+import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
 import { isGhCliAvailable } from './github-pr.js';
 import { getReleaseBranchConfig, loadReleaseConfig } from './release-config.js';
 import {
@@ -271,7 +271,7 @@ async function hasManifestEntry(version: string, projectRoot?: string): Promise<
  * Load tasks via DataAccessor (SQLite).
  */
 async function loadTasks(projectRoot?: string): Promise<ReleaseTaskRecord[]> {
-  const root = projectRoot ?? resolveProjectRoot();
+  const root = getProjectRoot(projectRoot);
   try {
     const accessor = await getTaskAccessor(root);
     const result = await accessor.queryTasks({});
@@ -478,7 +478,7 @@ export async function releaseGateCheck(
     return engineError('E_INVALID_INPUT', 'epicId is required');
   }
 
-  const cwd = projectRoot ?? resolveProjectRoot();
+  const cwd = getProjectRoot(projectRoot);
 
   // Bypass: loud warning, return pass with forcedBypass flag.
   if (force) {
@@ -596,7 +596,7 @@ export async function releaseIvtrAutoSuggest(
     return engineError('E_INVALID_INPUT', 'taskId is required');
   }
 
-  const cwd = projectRoot ?? resolveProjectRoot();
+  const cwd = getProjectRoot(projectRoot);
 
   try {
     // Find the parent epic for this task.
@@ -868,7 +868,7 @@ export async function releaseRollbackFull(
     return engineError('E_INVALID_INPUT', 'version is required');
   }
 
-  const cwd = projectRoot ?? resolveProjectRoot();
+  const cwd = getProjectRoot(projectRoot);
   const gitTag = `v${version.replace(/^v/, '')}`;
   const reason = options.reason ?? 'Rollback via cleo release rollback';
   const gitCwd = {
@@ -999,7 +999,7 @@ export async function releaseChangelogSince(
     return engineError('E_INVALID_INPUT', 'sinceTag is required');
   }
 
-  const cwd = projectRoot ?? resolveProjectRoot();
+  const cwd = getProjectRoot(projectRoot);
 
   try {
     // Walk git log since the given tag using a parseable format
@@ -1157,7 +1157,7 @@ export async function releasePush(
     let commitSha: string | undefined;
     try {
       commitSha = execFileSync('git', ['rev-parse', 'HEAD'], {
-        cwd: projectRoot ?? process.cwd(),
+        cwd: getProjectRoot(projectRoot),
         encoding: 'utf-8',
         stdio: 'pipe',
         timeout: 60_000,
@@ -1238,7 +1238,7 @@ export async function releasePrStatus(
     return engineError('E_INVALID_INPUT', 'version is required');
   }
 
-  const cwd = projectRoot ?? resolveProjectRoot();
+  const cwd = getProjectRoot(projectRoot);
 
   if (!isGhCliAvailable()) {
     return engineError(

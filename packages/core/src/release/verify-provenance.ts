@@ -33,7 +33,7 @@ import { join, resolve } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
+import { getProjectRoot } from '../paths.js';
 import { getDb } from '../store/sqlite.js';
 
 const log = getLogger('release:verify-provenance');
@@ -493,7 +493,7 @@ export async function verifyProvenance(
   opts: VerifyProvenanceOptions,
 ): Promise<EngineResult<VerifyProvenanceResult>> {
   const startedAt = Date.now();
-  const projectRoot = opts.projectRoot ?? resolveProjectRoot();
+  const projectRoot = getProjectRoot(opts.projectRoot);
 
   // Sanity-check input — without `version` we require `all: true`.
   if (!opts.version && opts.all !== true) {

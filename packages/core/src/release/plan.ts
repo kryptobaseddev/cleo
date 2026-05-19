@@ -47,7 +47,7 @@ import {
 import { and, desc, eq } from 'drizzle-orm';
 
 import { getLogger } from '../logger.js';
-import { getCleoDirAbsolute } from '../paths.js';
+import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDb } from '../store/sqlite.js';
@@ -80,7 +80,13 @@ export interface ReleasePlanOptions {
   hotfix?: boolean;
   /** Dry-run flag — equivalent to `CLEO_DRY_RUN=1`. Reads only; no writes. */
   dryRun?: boolean;
-  /** Project root override. Defaults to `process.cwd()`. */
+  /**
+   * Project root override. Defaults to the canonical project root resolved
+   * via {@link getProjectRoot} (walks up from `process.cwd()` for monorepo
+   * subdir invocations; honours `CLEO_ROOT` / `CLEO_PROJECT_ROOT`).
+   *
+   * @task T9583
+   */
   projectRoot?: string;
   /** Creator identity for `plan.createdBy`. Defaults to `process.env.USER` or `cleo-agent`. */
   createdBy?: string;
@@ -691,7 +697,7 @@ function assemblePreflightSummary(unresolvedTools: string[]): ReleasePreflightSu
 export async function releasePlan(
   opts: ReleasePlanOptions,
 ): Promise<EngineResult<ReleasePlanResult>> {
-  const projectRoot = opts.projectRoot ?? process.cwd();
+  const projectRoot = getProjectRoot(opts.projectRoot);
   const scheme: ReleaseScheme = opts.scheme ?? 'calver';
   const channel: ReleasePlanChannel = opts.channel ?? 'latest';
   const releaseKind: ReleaseKind = opts.hotfix ? 'hotfix' : 'regular';

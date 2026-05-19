@@ -25,9 +25,9 @@ import type { TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { memoryObserve } from '../memory/engine-compat.js';
+import { getProjectRoot } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
 import { startTask, stopTask } from '../task-work/index.js';
 import { logOperation } from '../tasks/add.js';
 import { updateTask } from '../tasks/update.js';
@@ -48,7 +48,7 @@ export interface PivotOptions {
    * complete independently.
    */
   blocksFrom?: boolean;
-  /** Optional override for project root — defaults to {@link resolveProjectRoot}. */
+  /** Optional override for project root — defaults to {@link getProjectRoot}. */
   projectRoot?: string;
   /** Optional override for the data accessor (used by tests). */
   accessor?: DataAccessor;
@@ -206,7 +206,7 @@ export async function pivotTask(
     );
   }
 
-  const root = opts.projectRoot ?? resolveProjectRoot();
+  const root = getProjectRoot(opts.projectRoot);
   const acc = opts.accessor ?? (await getTaskAccessor(root));
 
   // ---------------------------------------------------------------------------

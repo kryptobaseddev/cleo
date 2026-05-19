@@ -67,10 +67,10 @@ import { composeSpawnPayload } from '../orchestration/spawn.js';
 import type { ConduitSubscriptionConfig } from '../orchestration/spawn-prompt.js';
 import { resolveEffectiveTier } from '../orchestration/tier-selector.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
+import { getProjectRoot } from '../paths.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
 import { getActiveSession } from '../store/session-store.js';
 import { provisionIsolatedShell } from '../tools/sdk/isolation.js';
 import { openSignaldockDbForComposer } from './plan.js';
@@ -481,7 +481,7 @@ export async function orchestrateSpawnExecute(
   tier?: 0 | 1 | 2,
   opts: OrchestrateSpawnExecuteOpts = {},
 ): Promise<EngineResult> {
-  const cwd = projectRoot ?? process.cwd();
+  const cwd = getProjectRoot(projectRoot);
   const autoComplete = opts.autoComplete ?? true;
 
   try {
@@ -906,7 +906,7 @@ export async function orchestrateSpawn(
   };
 
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     spawnLogger.info(
       { taskId, tier, noWorktree, budgetMs: SPAWN_BUDGET_MS },
       'T9545 spawn pipeline started',

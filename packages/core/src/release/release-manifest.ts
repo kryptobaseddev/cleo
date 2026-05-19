@@ -608,7 +608,7 @@ export async function generateReleaseChangelog(
     .run();
 
   // Write or update CHANGELOG.md with section-aware merge
-  const changelogPath = join(cwd ?? process.cwd(), 'CHANGELOG.md');
+  const changelogPath = join(cwd ?? getProjectRoot(), 'CHANGELOG.md');
   let existingChangelogContent = '';
   try {
     existingChangelogContent = await readFile(changelogPath, 'utf8');

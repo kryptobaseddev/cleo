@@ -25,8 +25,8 @@ import {
 import { getSkillContent } from '../orchestration/skill-ops.js';
 import { computeProgress, computeStartupSummary } from '../orchestration/status.js';
 import { getUnblockOpportunities } from '../orchestration/unblock.js';
+import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveProjectRoot } from '../store/file-utils.js';
 import { loadTasks } from './query-ops.js';
 
 export type { EngineResult };
@@ -101,7 +101,7 @@ export async function orchestrateStartup(
   }
 
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
 
     const tasks = await loadTasks(root);
@@ -142,7 +142,7 @@ export async function orchestrateBootstrap(
   params?: { speed?: 'fast' | 'full' | 'complete' },
 ): Promise<EngineResult<BrainState>> {
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
     const brain = await buildBrainState(root, params, accessor);
     return { success: true, data: brain };
@@ -160,7 +160,7 @@ export async function orchestrateBootstrap(
  */
 export async function orchestrateCriticalPath(projectRoot?: string): Promise<EngineResult> {
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
     const result = await getCriticalPath(root, accessor);
     return { success: true, data: result };
@@ -178,7 +178,7 @@ export async function orchestrateCriticalPath(projectRoot?: string): Promise<Eng
  */
 export async function orchestrateUnblockOpportunities(projectRoot?: string): Promise<EngineResult> {
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
     const result = await getUnblockOpportunities(root, accessor);
     return { success: true, data: result };
@@ -242,7 +242,7 @@ export async function orchestrateParallelStart(
   }
 
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
     const result = await startParallelExecution(epicId, wave, root, accessor);
     return { success: true, data: result };
@@ -271,7 +271,7 @@ export async function orchestrateParallelEnd(
   }
 
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const result = await endParallelExecution(epicId, wave, root);
 
     if (result.alreadyEnded) {
@@ -302,7 +302,7 @@ export async function orchestrateParallelEnd(
  */
 export async function orchestrateCheck(projectRoot?: string): Promise<EngineResult> {
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const parallelState = await getParallelStatus(root);
     const tasks = await loadTasks(root);
 
@@ -338,7 +338,7 @@ export async function orchestrateCheck(projectRoot?: string): Promise<EngineResu
  */
 export function orchestrateSkillInject(skillName: string, projectRoot?: string): EngineResult {
   try {
-    const root = projectRoot || resolveProjectRoot();
+    const root = getProjectRoot(projectRoot);
     const result = getSkillContent(skillName, root);
     return { success: true, data: result };
   } catch (err: unknown) {
