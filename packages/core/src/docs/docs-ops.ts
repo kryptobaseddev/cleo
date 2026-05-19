@@ -15,9 +15,9 @@
  * @see packages/cleo/src/cli/commands/docs.ts (CLI surface)
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, relative, resolve as resolvePath } from 'node:path';
 import type { KnowledgeGraph, MessageInput } from 'llmtxt/graph';
 import type { ReconstructionResult, VersionDiffSummary, VersionEntry } from 'llmtxt/sdk';
 import type { SimilarityRankResult } from 'llmtxt/similarity';
@@ -510,17 +510,56 @@ export async function listDocVersions(opts: {
 }
 
 /**
+ * Result returned by {@link publishDocs}.
+ *
+ * @epic T9626 (W0)
+ * @task T9701 (ST-PUB-2a — atomic write-side + envelope SHA)
+ */
+export interface DocsPublishResult {
+  /** Absolute path the bytes were written to. */
+  readonly publishedPath: string;
+  /** Project-root-relative form of `publishedPath`. Stable across machines. */
+  readonly relativePath: string;
+  /** Lowercase hex SHA-256 of the written bytes. */
+  readonly sha256: string;
+  /** Byte count actually written to disk. */
+  readonly bytes: number;
+  /** Content-addressed blob id (sha256) selected from the manifest. */
+  readonly blobSha256: string;
+  /** User-visible attachment name (e.g. `"spec.md"`) selected from the manifest. */
+  readonly blobName: string;
+  /** Owner entity ID whose blob was published. */
+  readonly ownerId: string;
+}
+
+/**
  * Atomically publish an attachment from the docs SSoT to a git-tracked path.
  *
  * Reads the named blob from the store and writes it to `toPath` using a
- * tmp-then-rename atomic pattern. When `attachmentId` is omitted the last
- * blob in the manifest is used.
+ * tmp-then-rename atomic pattern with `fsync` before close. When `attachmentId`
+ * is omitted the last blob in the manifest is used.
  *
- * @param opts - Required `ownerId` and `toPath`, optional `attachmentId` and `projectRoot`.
- * @returns Published path, SHA-256 digest of written bytes, and byte count.
+ * Path-escape guard: when `toPath` is relative it is joined under
+ * `projectRoot`; absolute paths must still resolve within `projectRoot`
+ * unless the caller passes `allowOutsideRoot: true`. This prevents an
+ * attacker-controlled blob name from being published to an arbitrary path
+ * via traversal sequences.
+ *
+ * Idempotency: writing the same bytes twice produces the same file SHA and
+ * leaves the destination byte-identical (tmp-then-rename overwrites in-place).
+ *
+ * @param opts - Required `ownerId` and `toPath`, optional `attachmentId`,
+ *               `projectRoot`, and `allowOutsideRoot`.
+ * @returns Published path, SHA-256 digest of written bytes, byte count,
+ *          blob name + sha256, and the owner ID.
  *
  * @throws {Error} when no matching attachment is found for the owner.
  * @throws {Error} when the blob store cannot supply the bytes.
+ * @throws {Error} when the resolved publish path escapes `projectRoot`
+ *                 and `allowOutsideRoot` is not set.
+ *
+ * @epic T9626 (W0)
+ * @task T9701 (ST-PUB-2a)
  *
  * @example
  * ```ts
@@ -533,7 +572,9 @@ export async function publishDocs(opts: {
   attachmentId?: string;
   toPath: string;
   projectRoot?: string;
-}): Promise<{ publishedPath: string; sha256: string; bytes: number }> {
+  /** When true, allow writing to paths outside `projectRoot`. Default: `false`. */
+  allowOutsideRoot?: boolean;
+}): Promise<DocsPublishResult> {
   const root = opts.projectRoot ?? getProjectRoot();
   const blobs = await blobList(opts.ownerId, root).catch(() => []);
 
@@ -559,16 +600,58 @@ export async function publishDocs(opts: {
     );
   }
 
-  const publishedPath = isAbsolute(opts.toPath) ? opts.toPath : join(root, opts.toPath);
-  const tmpPath = `${publishedPath}.cleo-publish-tmp`;
+  // Resolve to absolute, then enforce project-root containment unless opted out.
+  const publishedPath = isAbsolute(opts.toPath)
+    ? resolvePath(opts.toPath)
+    : resolvePath(root, opts.toPath);
+
+  if (!opts.allowOutsideRoot) {
+    const rel = relative(root, publishedPath);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      throw new Error(
+        `publishDocs: refusing to write outside projectRoot "${root}" (resolved to "${publishedPath}"). Pass allowOutsideRoot:true to override.`,
+      );
+    }
+  }
+
+  // Tmp name carries pid + random suffix so concurrent publishes never collide.
+  const tmpPath = `${publishedPath}.cleo-publish-tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
 
   await mkdir(dirname(publishedPath), { recursive: true });
 
-  const { writeFile, rename } = await import('node:fs/promises');
-  await writeFile(tmpPath, bytes);
-  await rename(tmpPath, publishedPath);
+  const { open, rename, unlink } = await import('node:fs/promises');
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(tmpPath, 'w', 0o644);
+    await handle.writeFile(bytes);
+    // Flush page cache + metadata so a crash between rename and reboot does
+    // not surface a zero-byte file under the destination path.
+    await handle.sync();
+  } finally {
+    await handle?.close();
+  }
+
+  try {
+    await rename(tmpPath, publishedPath);
+  } catch (err) {
+    // Cross-device rename is the most common cause; surface a clear error
+    // rather than leaving a stray tmp file behind.
+    await unlink(tmpPath).catch(() => {
+      /* tmp already gone — nothing to clean. */
+    });
+    throw err;
+  }
 
   const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const relativePath = relative(root, publishedPath);
 
-  return { publishedPath, sha256, bytes: bytes.byteLength };
+  return {
+    publishedPath,
+    relativePath,
+    sha256,
+    bytes: bytes.byteLength,
+    blobSha256: target.sha256,
+    blobName: target.name,
+    ownerId: opts.ownerId,
+  };
 }
