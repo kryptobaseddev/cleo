@@ -391,7 +391,11 @@
       "status": "active",
       "tier": 2,
       "token_budget": 6000,
-      "references": [],
+      "references": [
+        "skills/ct-docs-write/references/cleo-style-guide.md",
+        "skills/ct-docs-write/references/markdown-patterns.md",
+        "skills/ct-docs-write/references/audience-targeting.md"
+      ],
       "capabilities": {
         "inputs": ["file_path", "content_topic", "audience"],
         "outputs": ["documentation-file", "markdown-content"],
