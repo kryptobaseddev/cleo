@@ -16,6 +16,7 @@
  */
 
 import { getLogger } from '../logger.js';
+import { resolveOrCwd } from '../paths.js';
 
 const log = getLogger('workflow-telemetry');
 
@@ -249,7 +250,7 @@ export async function getWorkflowComplianceReport(opts: {
   since?: string;
   cwd?: string;
 }): Promise<WorkflowComplianceReport> {
-  const cwd = opts.cwd ?? process.cwd();
+  const cwd = resolveOrCwd(opts.cwd);
   const since = opts.since ?? null;
   const generatedAt = new Date().toISOString();
 

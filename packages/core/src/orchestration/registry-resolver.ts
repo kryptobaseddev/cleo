@@ -44,7 +44,7 @@ import { accessSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { getCleoGlobalCantAgentsDir } from '../paths.js';
+import { getCleoGlobalCantAgentsDir, resolveOrCwd } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -303,7 +303,7 @@ export async function resolvePersonaFromRegistry(
     packagedSeedDir?: string;
   } = {},
 ): Promise<PersonaResolution | null> {
-  const projectRoot = options.projectRoot ?? process.cwd();
+  const projectRoot = resolveOrCwd(options.projectRoot);
   const db = options.db ?? null;
   const keywords = extractTaskKeywords(task);
 
@@ -347,7 +347,7 @@ export function listTierDirectories(
   projectRoot?: string,
   packagedSeedDir?: string,
 ): Array<{ tier: PersonaTier; dir: string }> {
-  const root = projectRoot ?? process.cwd();
+  const root = resolveOrCwd(projectRoot);
   const entries: Array<{ tier: PersonaTier; dir: string }> = [
     { tier: 'project', dir: join(root, '.cleo', 'cant', 'agents') },
     { tier: 'global', dir: getCleoGlobalCantAgentsDir() },

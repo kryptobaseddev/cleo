@@ -311,6 +311,7 @@ export {
   getGlobalConfigPath,
   getProjectRoot,
   isProjectInitialized,
+  resolveOrCwd,
   resolveProjectPath,
   runWithWorktreeScopeFromEnv,
   validateProjectRoot,

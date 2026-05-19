@@ -156,6 +156,29 @@ jobs:
       - name: Lint CLEO data-path drift in packages/core/src
         run: node scripts/lint-path-drift.mjs
 
+  project-root-anti-pattern-lint:
+    # T9584 / E-PROJECT-ROOT-AUDIT close-out: reject the T9550 anti-pattern
+    # that materialised rogue `<subdir>/.cleo/` dirs when CLI commands ran
+    # from a monorepo subdirectory. Three rules:
+    #   1. Bare `process.cwd()` in `packages/core/src/...` (suppress with
+    #      `// CWD-OK: <reason>` for legitimate non-project-root uses).
+    #   2. `join(..., process.cwd(), ..., '.cleo', ...)` anywhere in packages/.
+    #   3. `homedir()` constructing `.cleo` paths outside canonical resolvers.
+    # Baseline mode: rejects only NEW violations beyond the count recorded in
+    # `.cleo/project-root-baseline.json`. When the long-tail follow-up batches
+    # land, the baseline reaches 0 and this workflow flips to --strict.
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: Project Root Anti-Pattern Lint (T9584)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint project-root anti-pattern in packages/
+        run: node scripts/lint-project-root-anti-pattern.mjs
+
   contracts-dep-lint:
     name: Contracts Dep Lint
     runs-on: ubuntu-latest
