@@ -1,5 +1,36 @@
 # Changelog
 
+## [2026.5.82] (2026-05-19) — E-PROJECT-ROOT-AUDIT closure (T9580 epic)
+
+The actual remediation release for the T9580 codebase-wide project-root audit. Closes Epic T9580 with all 4 child tasks (T9581/T9582/T9583/T9584) shipped: production code normalized, CI guard in baseline mode, canonical doc published, ~75 test regressions resolved.
+
+### Fixed
+
+- **PR #300 (T9581-remainder, T9583, T9595, T9604, T9616)** — repair all 14 test files for `getProjectRoot()` resolution + spawn-verify import. Closes the test regression class introduced by PR #273 / #274 when `process.cwd()` was swapped for `getProjectRoot(projectRoot)`: test fixtures now create real `.git/` siblings alongside `.cleo/`, mock spy `getProjectRoot()` for legacy-fallback tests, switch test git init to `--initial-branch=main` for worktree-IVTR tests, and align studio `brain.db` path with canonical `.cleo/brain.db`. 3 observe-flow studio tests marked `it.todo` deferred to T9616 (drizzle schema migration). spawn-verify-e2e: adds `@cleocode/core` workspace devDependency on `packages/worktree`, raises timeout to 120s.
+
+- **PR #305 (T9582)** — normalize project-root in agent/nexus/conduit dispatch. `packages/cleo/src/cli/commands/agent.ts` 26 `process.cwd()` sites swapped for `getProjectRoot()`. `packages/cleo/src/cli/commands/nexus.ts` 16 sites. `packages/cleo/src/dispatch/domains/conduit.ts` 8 sites. `packages/cleo/src/dispatch/domains/nexus.ts` 2 remaining sites cleaned up.
+
+### Added
+
+- **PR #306 (T9584)** — `resolveOrCwd()` DRY helper + CI guard + canonical doc + 22-file migration.
+  - `packages/core/src/paths.ts:676` — `resolveOrCwd(maybeRoot?: string | null): string` helper with TSDoc + 7-test suite at `packages/core/src/__tests__/resolve-or-cwd.test.ts`. Eliminates the `opts.root ?? process.cwd()` anti-pattern.
+  - `docs/project-root-conventions.md` — 203-line canonical doc covering the T9550/T9580 anti-pattern, fix patterns (`getProjectRoot()`, `resolveOrCwd()`, `pathForCleo*` helpers), test guidance, CWD-OK opt-out, and ADR-067 cross-references.
+  - `scripts/lint-project-root-anti-pattern.mjs` — new CI guard with baseline mode tracking 57 remaining violations (down from 79). New CI job: "Project Root Anti-Pattern Lint (T9584)". Poison-tested: rejects 5 injected violations with exit 1 + REGRESSION message; passes at baseline.
+  - 22 file migrations: scaffold, sequence, sentient/kill-switch, setup/sections/sentient, system/health, project-info, lifecycle/index, memory/precompact-flush, stats/*, orchestration/{index,registry-resolver,spawn}, sessions/{agent-session-adapter,context-monitor}.
+
+### Epic closure
+
+Epic T9580 "codebase-wide audit + remediation of project-root resolution (ADR-067 compliance sweep)" is fully closed. 4/4 child tasks completed with verified evidence:
+- T9581 (Critical) — doctor/lifecycle/compliance: 0 `process.cwd()` remaining
+- T9582 (High) — agent.ts (0/26), nexus.ts (0/16), conduit (0/8), nexus dispatch (0/26)
+- T9583 (High) — release engine, orchestrate (all clean)
+- T9584 (Cleanup) — `resolveOrCwd` helper + canonical doc + CI guard live; baseline 57 long-tail tracked
+
+### Known issues
+
+- 57 long-tail callsites remain across ~25 files (tracked by `.cleo/project-root-baseline.json`). Baseline-mode CI guard ensures no regression while the tail clears. Filed as follow-up.
+- Some local-env test failures observed (concurrent-worktree pollution, sentient daemon interference) — CI is canonical and green on origin/main.
+
 ## [2026.5.81] (2026-05-18) — T9580 closeout + post-ship cleanup
 
 Closure release wrapping the v2026.5.80 ship: gathers the test, doc, and dispatch refactors that landed after `v2026.5.80` was tagged. No new product features in this version — it stabilises the docs hierarchy, completes the CLI agent dispatch refactor, and ships the wizard section + worktree IVTR test additions queued behind the v2026.5.80 cutoff.
