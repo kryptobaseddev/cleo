@@ -55,7 +55,9 @@ import {
   branchIsMergedToMain,
   classifyStatus,
   enumerateWorktrees,
+  isPrimaryWorktree,
   listWorktrees,
+  resolvePrimaryWorktreePath,
   taskIdFromBranch,
 } from '../list.js';
 
@@ -92,6 +94,12 @@ function installGitMock(opts: {
   mergedBranches?: Set<string>;
   /** Whether `refs/heads/main` resolves locally. */
   mainExists?: boolean;
+  /**
+   * Optional absolute path to the primary worktree's `.git` directory, returned by
+   * `git rev-parse --path-format=absolute --git-common-dir` (T9686-D primary
+   * guard). When omitted, the call throws so the guard falls back gracefully.
+   */
+  gitCommonDir?: string;
 }): void {
   const merged = opts.mergedBranches ?? new Set<string>();
   const timestamps = opts.branchTimestamps ?? {};
@@ -116,6 +124,10 @@ function installGitMock(opts: {
     if (argv[0] === 'rev-parse' && argv[1] === '--verify') {
       if (mainExists) return '' as never;
       throw new Error('no main');
+    }
+    if (argv[0] === 'rev-parse' && argv.includes('--git-common-dir')) {
+      if (opts.gitCommonDir !== undefined) return `${opts.gitCommonDir}\n` as never;
+      throw new Error('git-common-dir unavailable');
     }
     throw new Error(`unexpected git call: ${argv.join(' ')}`);
   });
@@ -177,6 +189,82 @@ describe('classifyStatus precedence', () => {
     expect(
       classifyStatus({ isLocked: false, isOrphan: false, isMerged: false, isStale: false }),
     ).toBe('active');
+  });
+
+  it('primary-worktree guard: isPrimary forces active even when merged (T9686-D)', () => {
+    expect(
+      classifyStatus({
+        isPrimary: true,
+        isLocked: false,
+        isOrphan: false,
+        isMerged: true,
+        isStale: false,
+      }),
+    ).toBe('active');
+  });
+
+  it('primary-worktree guard: isPrimary forces active even when orphan+merged+stale', () => {
+    expect(
+      classifyStatus({
+        isPrimary: true,
+        isLocked: false,
+        isOrphan: true,
+        isMerged: true,
+        isStale: true,
+      }),
+    ).toBe('active');
+  });
+
+  it('primary-worktree guard: omitting isPrimary preserves legacy behavior', () => {
+    expect(
+      classifyStatus({ isLocked: false, isOrphan: false, isMerged: true, isStale: false }),
+    ).toBe('merged');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Primary-worktree detection (T9686-D)
+// ---------------------------------------------------------------------------
+
+describe('resolvePrimaryWorktreePath', () => {
+  it('strips trailing .git from the git-common-dir output', () => {
+    mockExec.mockReturnValueOnce('/repo/.git\n' as never);
+    expect(resolvePrimaryWorktreePath('/repo')).toBe('/repo');
+  });
+
+  it('strips trailing .git/ with slash', () => {
+    mockExec.mockReturnValueOnce('/repo/.git/\n' as never);
+    expect(resolvePrimaryWorktreePath('/repo')).toBe('/repo');
+  });
+
+  it('returns null when git fails', () => {
+    mockExec.mockImplementationOnce(() => {
+      throw new Error('not a git repo');
+    });
+    expect(resolvePrimaryWorktreePath('/elsewhere')).toBeNull();
+  });
+
+  it('returns null when stdout is empty', () => {
+    mockExec.mockReturnValueOnce('\n' as never);
+    expect(resolvePrimaryWorktreePath('/repo')).toBeNull();
+  });
+});
+
+describe('isPrimaryWorktree', () => {
+  it('returns true when worktree path equals primary path', () => {
+    expect(isPrimaryWorktree('/repo', '/repo')).toBe(true);
+  });
+
+  it('returns true after path normalization', () => {
+    expect(isPrimaryWorktree('/repo/./foo/..', '/repo')).toBe(true);
+  });
+
+  it('returns false for a different path', () => {
+    expect(isPrimaryWorktree('/repo/wt/T1', '/repo')).toBe(false);
+  });
+
+  it('returns false when primaryPath is null', () => {
+    expect(isPrimaryWorktree('/repo', null)).toBe(false);
   });
 });
 
@@ -329,6 +417,49 @@ describe('listWorktrees — status classification', () => {
     if (!result.success) throw new Error('expected success');
     expect(result.data.worktrees[0]?.statusCategory).toBe('orphan');
     expect(result.data.worktrees[0]?.owningTaskStatus).toBeNull();
+  });
+
+  it('primary worktree on main is classified active, NOT merged (T9686-D)', async () => {
+    // Simulates the production bug: the canonical project checkout sits on
+    // `main` which is trivially its own ancestor, so without the
+    // primary-worktree guard the classifier would label it `merged` and
+    // `cleo worktree prune --orphaned` would offer to delete the project root.
+    installGitMock({
+      porcelainOutput: porcelain([{ path: '/repo', branch: 'main' }]),
+      branchTimestamps: { main: nowIso(0) },
+      mergedBranches: new Set(['main']),
+      gitCommonDir: '/repo/.git',
+    });
+
+    const result = await listWorktrees({ projectRoot: '/repo' });
+    if (!result.success) throw new Error('expected success');
+    const wt = result.data.worktrees[0];
+    expect(wt?.path).toBe('/repo');
+    expect(wt?.statusCategory).toBe('active');
+    // isMerged still reflects reality (main IS an ancestor of main) — only the
+    // category is overridden so downstream code (prune) can't act on it.
+    expect(wt?.isMerged).toBe(true);
+  });
+
+  it('primary-guard does not affect secondary worktrees (T9686-D)', async () => {
+    MOCK_TASK_ROWS.set('T9001', 'active');
+    installGitMock({
+      porcelainOutput: porcelain([
+        { path: '/repo', branch: 'main' },
+        { path: '/repo/.cleo/worktrees/T9001', branch: 'task/T9001' },
+      ]),
+      branchTimestamps: { main: nowIso(0), 'task/T9001': nowIso(0) },
+      mergedBranches: new Set(['main', 'task/T9001']),
+      gitCommonDir: '/repo/.git',
+    });
+
+    const result = await listWorktrees({ projectRoot: '/repo' });
+    if (!result.success) throw new Error('expected success');
+    const byPath = new Map(result.data.worktrees.map((w) => [w.path, w]));
+    expect(byPath.get('/repo')?.statusCategory).toBe('active');
+    // Secondary worktree: still classified as `merged` (it really is — the guard
+    // only protects the primary), so prune candidacy is unchanged for it.
+    expect(byPath.get('/repo/.cleo/worktrees/T9001')?.statusCategory).toBe('merged');
   });
 });
 

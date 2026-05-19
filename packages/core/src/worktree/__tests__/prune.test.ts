@@ -18,7 +18,7 @@
 
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve as resolvePath } from 'node:path';
 import type { WorktreeInfo } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -32,6 +32,13 @@ const MOCK_LIST: { value: WorktreeInfo[]; success: boolean; errorMsg: string } =
   errorMsg: '',
 };
 
+/**
+ * Optional primary-worktree path consulted by the mocked
+ * `resolvePrimaryWorktreePath`. Tests that exercise the T9686-D safety net
+ * set this; legacy tests leave it null so `isPrimaryWorktree` is a no-op.
+ */
+let MOCK_PRIMARY_PATH: string | null = null;
+
 vi.mock('../list.js', () => ({
   listWorktrees: vi.fn(async () => {
     if (!MOCK_LIST.success) {
@@ -44,6 +51,14 @@ vi.mock('../list.js', () => ({
       success: true,
       data: { worktrees: MOCK_LIST.value },
     };
+  }),
+  // Mirror the real exports prune.ts depends on. We intentionally implement
+  // them here instead of `vi.importActual` so prune-test mocks don't bleed
+  // into the list.test.ts surface area.
+  resolvePrimaryWorktreePath: vi.fn(() => MOCK_PRIMARY_PATH),
+  isPrimaryWorktree: vi.fn((worktreePath: string, primary: string | null) => {
+    if (primary === null) return false;
+    return resolvePath(worktreePath) === resolvePath(primary);
   }),
 }));
 
@@ -108,6 +123,7 @@ beforeEach(() => {
   MOCK_LIST.value = [];
   MOCK_LIST.success = true;
   MOCK_LIST.errorMsg = '';
+  MOCK_PRIMARY_PATH = null;
   execCalls.length = 0;
   execShouldThrow.clear();
   vi.clearAllMocks();
@@ -284,6 +300,80 @@ describe('pruneOrphanedWorktreesByStatus — happy path', () => {
 // ---------------------------------------------------------------------------
 // Edge cases
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Primary-worktree safety net (T9686-D)
+// ---------------------------------------------------------------------------
+
+describe('pruneOrphanedWorktreesByStatus — primary worktree safety net (T9686-D)', () => {
+  it('NEVER prunes the canonical project root, even when classified merged', async () => {
+    // The mocked `resolvePrimaryWorktreePath` reads MOCK_PRIMARY_PATH — set it
+    // to the tmp projectRoot so the safety net knows which path to protect.
+    MOCK_PRIMARY_PATH = projectRoot;
+
+    MOCK_LIST.value = [
+      // Primary worktree — incorrectly classified as `merged` (simulates the
+      // pre-fix classifier slipping through, e.g. due to a future regression).
+      makeWorktreeInfo({
+        path: projectRoot,
+        branch: 'main',
+        taskId: null,
+        statusCategory: 'merged',
+        isMerged: true,
+      }),
+      // A real orphan candidate — should still be pruned normally.
+      makeWorktreeInfo({
+        path: '/wt/T100',
+        branch: 'task/T100',
+        taskId: 'T100',
+        statusCategory: 'orphan',
+        owningTaskStatus: 'cancelled',
+      }),
+    ];
+
+    const result = await pruneOrphanedWorktreesByStatus({
+      projectRoot,
+      auditLogPath,
+      actor: 'unit-test',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('expected success');
+    // Primary worktree must be excluded entirely — it should never appear in
+    // outcomes (not even as `pruned: false`), because the filter runs BEFORE
+    // candidate enumeration.
+    const paths = result.data.outcomes.map((o) => o.path);
+    expect(paths).not.toContain(projectRoot);
+    expect(paths).toContain('/wt/T100');
+    expect(result.data.prunedCount).toBe(1);
+  });
+
+  it('dry-run also excludes the primary worktree from candidate list', async () => {
+    MOCK_PRIMARY_PATH = projectRoot;
+
+    MOCK_LIST.value = [
+      makeWorktreeInfo({
+        path: projectRoot,
+        branch: 'main',
+        taskId: null,
+        statusCategory: 'merged',
+        isMerged: true,
+      }),
+    ];
+
+    const result = await pruneOrphanedWorktreesByStatus({
+      projectRoot,
+      auditLogPath,
+      dryRun: true,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('expected success');
+    expect(result.data.outcomes).toHaveLength(0);
+    expect(result.data.prunedCount).toBe(0);
+    expect(result.data.skippedCount).toBe(0);
+  });
+});
 
 describe('pruneOrphanedWorktreesByStatus — edge cases', () => {
   it('returns prunedCount=0 when no orphans exist', async () => {
