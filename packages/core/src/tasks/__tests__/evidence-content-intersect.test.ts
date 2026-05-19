@@ -36,6 +36,7 @@ import { resetDbState } from '../../store/sqlite.js';
 import {
   CRITICAL_GATES_NO_OVERRIDE,
   extractTaskAcFiles,
+  resolveCanonicalProjectRoot,
   revalidateEvidence,
   validateAtom,
 } from '../evidence.js';
@@ -333,5 +334,110 @@ describe('T9245 — revalidateEvidence rejects override-only on critical gates',
       '/tmp',
     );
     expect(r.stillValid).toBe(true);
+  });
+});
+
+// =============================================================================
+// T-WT-2 — resolveCanonicalProjectRoot
+// =============================================================================
+
+describe('T-WT-2 — resolveCanonicalProjectRoot', () => {
+  it('returns projectRoot unchanged when .git is a directory (normal repo)', () => {
+    // Use the actual monorepo root which has a real .git directory.
+    const root = '/mnt/projects/cleocode';
+    const result = resolveCanonicalProjectRoot(root);
+    expect(result).toBe(root);
+  });
+
+  it('returns projectRoot unchanged when .git does not exist (non-git dir)', () => {
+    const result = resolveCanonicalProjectRoot('/tmp');
+    expect(result).toBe('/tmp');
+  });
+
+  it('parses a gitlink file and returns the main repo root', () => {
+    // Construct a synthetic gitlink in a temp dir.
+    const tmp = '/tmp/cleo-wt2-gitlink-test';
+    mkdirSync(tmp, { recursive: true });
+    // Write a fake gitlink pointing to a synthetic worktrees entry.
+    // The main repo root would be: /mnt/projects/cleocode
+    // gitdir format: /mnt/projects/cleocode/.git/worktrees/T9601
+    writeFileSync(
+      join(tmp, '.git'),
+      'gitdir: /mnt/projects/cleocode/.git/worktrees/T9601\n',
+      'utf8',
+    );
+    const result = resolveCanonicalProjectRoot(tmp);
+    expect(result).toBe('/mnt/projects/cleocode');
+  });
+
+  it('returns projectRoot as-is when gitlink content is malformed', () => {
+    const tmp = '/tmp/cleo-wt2-malformed-test';
+    mkdirSync(tmp, { recursive: true });
+    writeFileSync(join(tmp, '.git'), 'not a valid gitdir line\n', 'utf8');
+    const result = resolveCanonicalProjectRoot(tmp);
+    expect(result).toBe(tmp);
+  });
+
+  it('DB read uses canonical root when projectRoot is a git worktree', async () => {
+    // Set up: main repo at env.tempDir with a real git worktree at a subdirectory.
+    // Tasks are seeded in the MAIN DB (env.tempDir/.cleo/tasks.db).
+    // The worktree path has a gitlink file pointing back to the main repo.
+    // resolveCanonicalProjectRoot must map the worktree path back to env.tempDir,
+    // ensuring getTaskAccessor reads from the main DB — not a stale worktree copy.
+    const env: TestDbEnv = await createTestDb();
+
+    // Init the main repo.
+    execFileSync('git', ['init', '-q'], { cwd: env.tempDir });
+    execFileSync('git', ['config', 'user.name', 'T-WT-2 Probe'], { cwd: env.tempDir });
+    execFileSync('git', ['config', 'user.email', 'probe@wt2.test'], { cwd: env.tempDir });
+    execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: env.tempDir });
+    writeFileSync(join(env.tempDir, 'README.md'), 'init\n');
+    execFileSync('git', ['add', 'README.md'], { cwd: env.tempDir });
+    execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: env.tempDir });
+
+    // Seed task with declared AC file in the MAIN DB.
+    await seedTasks(env.accessor, [
+      {
+        id: 'T_WT2_DB',
+        title: 'wt2-db-test',
+        description: 'verify DB reads from canonical root',
+        status: 'pending',
+        priority: 'medium',
+        files: ['src/wt2-file.ts'],
+        acceptance: ['src/wt2-file.ts implements feature'],
+      } as Partial<Task> & { id: string },
+    ]);
+
+    // Commit the AC file in the main repo.
+    mkdirSync(join(env.tempDir, 'src'), { recursive: true });
+    writeFileSync(join(env.tempDir, 'src', 'wt2-file.ts'), 'export const x = 1;\n', 'utf8');
+    execFileSync('git', ['add', 'src/wt2-file.ts'], { cwd: env.tempDir });
+    execFileSync('git', ['commit', '-q', '-m', 'feat(T_WT2_DB): implement'], {
+      cwd: env.tempDir,
+    });
+    const commitSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: env.tempDir })
+      .toString()
+      .trim();
+
+    // Create a real git worktree via `git worktree add` so the gitlink file is
+    // properly written and git operations on the worktree path work correctly.
+    const worktreeDir = join(env.tempDir, 'wt-branch');
+    execFileSync('git', ['worktree', 'add', '--detach', worktreeDir, 'HEAD'], {
+      cwd: env.tempDir,
+    });
+
+    // Verify resolveCanonicalProjectRoot maps the real worktree back to the main repo.
+    const resolved = resolveCanonicalProjectRoot(worktreeDir);
+    expect(resolved).toBe(env.tempDir);
+
+    // validateAtom with projectRoot = MAIN repo (simulating step 2.5 resolution)
+    // should accept the commit since its diff intersects the declared AC file.
+    // This is the primary regression scenario: Bug C (stale DB) is fixed if
+    // the canonical root is used for the DB read even when ALS returns worktree path.
+    const r = await validateAtom({ kind: 'commit', sha: commitSha }, env.tempDir, 'T_WT2_DB');
+    expect(r.ok).toBe(true);
+
+    await env.cleanup();
+    resetDbState();
   });
 });
