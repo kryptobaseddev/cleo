@@ -1192,6 +1192,9 @@ export async function validateManifestEntries(
   };
 }
 
+// getBrainDb + getBrainNativeDb allow CLI commands that need the raw DB
+// handle (dedup-scan, tier ops) to avoid @cleocode/core/internal.
+export { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 // === T549 Wave 3: Consolidator (contradiction detection) ===
 export * from './brain-consolidator.js';
 // === BRAIN Lifecycle (temporal decay, consolidation, tier promotion) ===
@@ -1205,6 +1208,10 @@ export * from './brain-search.js';
 export * from './decisions.js';
 // === T1087 PSYCHE Wave 3: Dialectic Evaluator + Session Narrative ===
 export * from './dialectic-evaluator.js';
+// === T9619 — CLI memory.ts CORE-first promotion ===
+// getDreamStatus + triggerManualDream allow CLI commands to query/trigger the
+// dream cycle without importing from @cleocode/core/internal.
+export { getDreamStatus, triggerManualDream } from './dream-cycle.js';
 // === T626-M1: Canonical edge-type constants ===
 export * from './edge-types.js';
 // === T549 Wave 2: Extraction Gate ===
@@ -1213,11 +1220,15 @@ export * from './learnings.js';
 // === Manifest Ingestion (T1099) — RCASD + loose files into pipeline_manifest ===
 export * from './manifest-builder.js';
 export * from './manifest-ingestion.js';
+// runObserver + runReflector allow the CLI reflect command to call the LLM
+// pipeline without importing from @cleocode/core/internal.
+export { runObserver, runReflector } from './observer-reflector.js';
 // === JSONL Memory modules (legacy, still active) ===
 export * from './patterns.js';
-// === Public API (T9615 — CORE-first promotion) ===
+// === Public API (T9615/T9619 — CORE-first promotion) ===
 // Exposes findMemoryEntries, getObservations, getDecisions, getPatterns,
 // getLearnings, getMemoryGraph, getTierStats, getPendingVerify,
+// setEntryTier, scanDuplicateEntries
 // and getMemoryQualityReport as stable @cleocode/core/memory surface.
 export * from './public-api.js';
 // === BRAIN Quality Feedback Loop (T555) ===
