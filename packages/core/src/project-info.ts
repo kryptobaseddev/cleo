@@ -11,7 +11,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getCleoDirAbsolute } from './paths.js';
+import { getCleoDirAbsolute, resolveOrCwd } from './paths.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ export interface ProjectInfo {
  * @throws {Error} If .cleo/project-info.json does not exist or is invalid JSON.
  */
 export async function getProjectInfo(cwd?: string): Promise<ProjectInfo> {
-  const projectRoot = cwd ?? process.cwd();
+  const projectRoot = resolveOrCwd(cwd);
   const cleoDir = getCleoDirAbsolute(projectRoot);
   const infoPath = join(cleoDir, 'project-info.json');
 
@@ -65,7 +65,7 @@ export async function getProjectInfo(cwd?: string): Promise<ProjectInfo> {
  * Returns null if the file is missing or unparseable.
  */
 export function getProjectInfoSync(cwd?: string): ProjectInfo | null {
-  const projectRoot = cwd ?? process.cwd();
+  const projectRoot = resolveOrCwd(cwd);
   const cleoDir = getCleoDirAbsolute(projectRoot);
   const infoPath = join(cleoDir, 'project-info.json');
 
