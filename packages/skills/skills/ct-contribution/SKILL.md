@@ -11,6 +11,10 @@ tier: 3
 core: false
 category: meta
 protocol: contribution
+loomStage: contribution
+adrRefs:
+  - ADR-015
+  - ADR-053
 dependencies: []
 sharedResources:
   - subagent-protocol-base
@@ -519,3 +523,79 @@ jq -s '[.[] | select(.epicId == "T2204")] | .[0]' .cleo/contributions/CONTRIBUTI
 | [contribution.schema.json](../../schemas/contribution.schema.json) | **Authoritative** for JSON Schema |
 | [CONTRIBUTION-PROTOCOL-GUIDE.md](../../docs/guides/CONTRIBUTION-PROTOCOL-GUIDE.md) | Usage guide with examples |
 | [CONSENSUS-FRAMEWORK-SPEC.md](../../docs/specs/CONSENSUS-FRAMEWORK-SPEC.md) | Consensus voting thresholds |
+
+---
+
+## LOOM Stage Binding (T9670)
+
+`ct-contribution` is bound to LOOM lifecycle stage **`contribution`** — the terminal node of the RCASD-IVTR+C pipeline. Use this skill to formalize an Epic's contribution back to canon after its work has converged.
+
+### Stage-Transition Contract
+
+The contribution stage is entered from one of two upstream stages depending on the Epic's `kind`:
+
+| Upstream stage | Epic kind | Entry condition |
+|---|---|---|
+| **`release`** | most epics (work, bug, experiment) | Release tag pushed; release manifest recorded |
+| **`testing`** | epics whose `kind` is `release` or that gate on IVTR | IVT loop converged; `ivtLoopConverged: true` recorded |
+| **`specification`** | spec-only epics (no code) | Specification accepted; HITL signoff recorded |
+
+```
+research → consensus → architecture_decision → specification → decomposition
+                                                                   ↓
+                                                            implementation
+                                                                   ↓
+                                                              validation
+                                                                   ↓
+                                                                testing  ← (some epics return here)
+                                                                   ↓
+                                                                release
+                                                                   ↓
+                                                            contribution  ← (this skill)
+```
+
+The transition is enforced by the playbook runtime defined in **ADR-053**. The runtime is a deterministic state machine; `contribution` is its terminal accepting state. Once entered, the Epic is closed in canon.
+
+### Acceptance-Gate Evidence
+
+The contribution stage's completion gate is satisfied by emitting **at least one** of the following ADR-051 evidence atoms, recorded via `cleo verify <epicId> --gate contribution --evidence "<atoms>"`:
+
+| Atom kind | Format | Meaning |
+|---|---|---|
+| `decision:` | `decision:D-<slug>` | A BRAIN decision id that records the contribution outcome. |
+| `files:` | `files:path/a.md,path/b.md` | A list of contribution-format JSON / markdown deliverables produced by `/contribution submit`. |
+| `note:` | `note:<freeform>` | Owner-attested closure rationale; preferred when the contribution is non-textual (e.g. a tag push referenced by SHA in the note). |
+
+Example:
+
+```bash
+cleo verify T9568 --gate contribution \
+  --evidence "decision:D-loom-coverage-001;files:.cleo/contributions/T9568-final.json"
+cleo complete T9568
+```
+
+The gate validator (ADR-051 §2.4) rejects an empty evidence string with `E_EVIDENCE_MISSING`. Stale evidence (modified files after `verify` but before `complete`) fails with `E_EVIDENCE_STALE`.
+
+### Open Follow-Up
+
+A future ADR dedicated to the contribution stage's lifecycle gates (covering automated rollup signals from `cleo saga rollup`, multi-Epic contribution aggregation, and the contribution → "saga close" promotion path) is on the roadmap. File via:
+
+```bash
+cleo add --kind work --type task --severity P2 \
+  --title "T-LOOM-GAP-ADR-CONTRIBUTION: dedicated ADR for contribution stage gates" \
+  --relates T9670 \
+  --acceptance "ADR drafted under .cleo/adrs/|Cross-referenced from ct-contribution SKILL.md|Validator gate updated"
+```
+
+Until that ADR lands, contribution gates derive from ADR-015 (multi-contributor architecture) and ADR-053 (playbook runtime) — both already referenced in this skill's `adrRefs`.
+
+---
+
+## See also / References
+
+This skill binds to the **contribution** LOOM lifecycle stage (the final stage of the RCASD-IVTR+C pipeline). Governing ADRs:
+
+- [ADR-015 — multi-contributor architecture](../../../../.cleo/adrs/ADR-015-multi-contributor-architecture.md) — defines the multi-contributor consensus mechanics that this stage formalizes for an Epic's downstream return path.
+- [ADR-053 — playbook runtime](../../../../.cleo/adrs/ADR-053-playbook-runtime.md) — defines the lifecycle state machine; contribution is its terminal node.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

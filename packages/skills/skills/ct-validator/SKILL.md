@@ -6,6 +6,10 @@ tier: 2
 core: false
 category: recommended
 protocol: validation
+loomStage: validation
+adrRefs:
+  - ADR-051
+  - ADR-023
 dependencies: []
 sharedResources:
   - subagent-protocol-base
@@ -38,6 +42,26 @@ Context injection for compliance validation tasks spawned via cleo-subagent. Pro
 2. **Code Compliance** - Check code against style guides and standards
 3. **Document Validation** - Verify documents meet structural requirements
 4. **Protocol Compliance** - Check implementations against specifications
+
+---
+
+## Out of Scope (T9675)
+
+`ct-validator` operates on the **`validation`** LOOM lifecycle stage (stage 7). It performs **static** schema, compliance, and audit checks against artifacts that already exist on disk (specs, ADRs, JSON files, RFC 2119 keyword usage, manifest schemas).
+
+This skill does NOT:
+
+- Run a test suite, framework detection, or iterative IVT loop. Those belong to **`ct-ivt-looper`** at the `testing` stage (stage 8). When dynamic verification is required — e.g. "does the implementation actually pass its tests?" — chain to `ct-ivt-looper` rather than expanding scope here.
+- Modify code or apply fixes. The validator reports; downstream skills remediate.
+
+### Chain handoffs
+
+| Direction | When | Handoff |
+|---|---|---|
+| `ct-validator` → `ct-ivt-looper` | Spec is valid but implementation needs dynamic verification | Emit a manifest entry, then dispatch the `testing` stage |
+| `ct-ivt-looper` → `ct-validator` | IVT loop converged; need to audit the resulting artifacts against schema/compliance | Dispatch the `validation` stage after the test convergence record |
+
+Governance: see **ADR-051** (programmatic gate integrity) which defines the evidence atoms each stage emits and that the other stage may re-validate, and **ADR-023** (protocol validation dispatch) which routes between them.
 
 ---
 
@@ -214,3 +238,14 @@ When invoked by orchestrator, expect these context tokens:
 | Vague findings | Unclear remediation | Specific issue + file/line + fix |
 | Missing severity | Can't prioritize | Always classify: critical/warning/suggestion |
 | No remediation | Findings not actionable | Always provide fix for FAIL/PARTIAL |
+
+---
+
+## See also / References
+
+This skill binds to the **validation** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-051 — programmatic gate integrity](../../../../.cleo/adrs/ADR-051-programmatic-gate-integrity.md) — defines the evidence-atom grammar that the validator emits and re-validates.
+- [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines the protocol-validation routing layer that dispatches to this skill.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

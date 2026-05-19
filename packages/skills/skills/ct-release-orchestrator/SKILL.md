@@ -1,6 +1,12 @@
 ---
 name: ct-release-orchestrator
 description: "Orchestrates the full release pipeline: version bump, then changelog, then commit, then tag, then conditionally forks to artifact-publish and provenance based on release config. Parent protocol that composes ct-artifact-publisher and ct-provenance-keeper as sub-protocols: not every release publishes artifacts (source-only releases skip it), and artifact publishers delegate signing and attestation to provenance. Use when shipping a new version, running cleo release ship, or promoting a completed epic to released status."
+protocol: release
+loomStage: release
+adrRefs:
+  - ADR-053
+  - ADR-063
+  - ADR-065
 ---
 
 # Release Orchestrator
@@ -132,3 +138,13 @@ For source-only releases, pass `--no-artifacts` to skip the artifact-publish han
 6. `released` entries are immutable; hotfixes go into new entries.
 7. Manifest entry MUST set `agent_type: "documentation"` and record the full chain via `record_release()`.
 8. Always validate via `cleo check protocol --protocolType release` before declaring the release done.
+
+## See also / References
+
+This skill binds to the **release** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-053 — project-agnostic release pipeline](../../../../.cleo/adrs/ADR-053-project-agnostic-release-pipeline.md) — defines the language-agnostic version bump → changelog → tag flow.
+- [ADR-063 — release pipeline](../../../../.cleo/adrs/ADR-063-release-pipeline.md) — defines the 12-step `cleo release ship` integration with CI.
+- [ADR-065 — PR-required release flow](../../../../.cleo/adrs/ADR-065-pr-required-release-flow.md) — defines the PR-gated path; direct pushes to `main` are prohibited.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).

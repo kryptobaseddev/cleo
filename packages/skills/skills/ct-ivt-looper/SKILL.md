@@ -1,6 +1,11 @@
 ---
 name: ct-ivt-looper
 description: "Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. Detects the project's test framework (vitest, jest, mocha, pytest, unittest, go-test, cargo-test, rspec, phpunit, bats, or other) and iterates until the implementation satisfies its specification, recording convergence metrics to the manifest. Use when given an implementation task that must ship verified: the IVT loop is the autonomous compliance layer enforced before any release or PR. Triggers on phrases like 'implement and verify', 'run the IVT loop', 'ship this task', 'complete implementation with tests', 'verify against spec', or any implementation task with acceptance criteria. Works in any git worktree regardless of language or framework, never hardcoded to one project's tooling."
+protocol: testing
+loomStage: testing
+adrRefs:
+  - ADR-051
+  - ADR-061
 ---
 
 # IVT Looper
@@ -75,6 +80,24 @@ escalate_to_hitl()                         # IVT-007: exit code 65
 ```
 
 The loop is a *single* stage from the lifecycle's point of view. Implement, Validate, and Test are not three separate tasks — they are three phases of one autonomous run that either converges or escalates.
+
+## Out of Scope (T9675)
+
+`ct-ivt-looper` operates on the **`testing`** LOOM lifecycle stage (stage 8). It performs the **dynamic** Implement-then-Validate-then-Test loop with framework detection and iterate-until-green convergence semantics.
+
+This skill does NOT:
+
+- Audit static artifacts for schema/compliance/RFC-2119 keyword usage, ADR-document structure, or JSON Schema conformance. Those belong to **`ct-validator`** at the `validation` stage (stage 7). When the question is "is this document/manifest well-formed?" rather than "does this code converge on its spec?", chain to `ct-validator` rather than expanding scope here.
+- Promote a green loop to release. Release sequencing belongs to **`ct-release-orchestrator`** at stage 9.
+
+### Chain handoffs
+
+| Direction | When | Handoff |
+|---|---|---|
+| `ct-ivt-looper` → `ct-validator` | Loop converged; need to audit the resulting artifacts (e.g. final manifest, spec back-references) against schema/compliance | Emit the convergence manifest entry, then dispatch the `validation` stage |
+| `ct-validator` → `ct-ivt-looper` | Spec is valid but implementation needs dynamic verification | Receive a dispatch from the `validation` stage; iterate the IVT loop on the worktree |
+
+Governance: see **ADR-051** (programmatic gate integrity) which defines the evidence atoms (`tool:test`, `test-run:<json>`) the loop emits and that downstream `cleo verify --gate testsPassed` re-validates, and **ADR-061** (project-agnostic verify tools) which defines the canonical tool-resolution layer.
 
 ## Framework Detection
 
@@ -179,3 +202,12 @@ cleo check protocol \
 6. Record `framework`, `testsRun`, `testsPassed`, `testsFailed`, `ivtLoopConverged`, `ivtLoopIterations` in the manifest.
 7. On non-convergence, exit 65 and leave the worktree untouched.
 8. Validate every run via `cleo check protocol --protocolType testing`.
+
+## See also / References
+
+This skill binds to the **testing** LOOM lifecycle stage. Governing ADRs:
+
+- [ADR-051 — programmatic gate integrity](../../../../.cleo/adrs/ADR-051-programmatic-gate-integrity.md) — defines the evidence atoms (`tool:test`, `test-run:<json>`) that the IVT loop emits and that downstream `cleo verify --gate testsPassed` re-validates.
+- [ADR-061 — project-agnostic verify tools](../../../../.cleo/adrs/ADR-061-project-agnostic-verify-tools.md) — defines the canonical tool-resolution layer (`test`, `build`, `lint`, `typecheck`) that the loop walks for framework-agnostic execution.
+
+LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
