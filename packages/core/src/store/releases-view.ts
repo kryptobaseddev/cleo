@@ -125,11 +125,23 @@ interface ReleasesViewRawRow {
   failure_reason: string | null;
   rolled_back_by: string | null;
   project_hash: string | null;
+  /** Provenance discriminator — 'new' (from `releases`) or 'legacy' (from `release_manifests`). */
+  source: 'new' | 'legacy';
   pr_metadata: string | null;
   commits_json: string | null;
   changes_json: string | null;
   artifacts_json: string | null;
   brain_links_json: string | null;
+  // Legacy-only columns surfaced by the T9686-B view union. NULL on `new` rows.
+  tasks_json: string | null;
+  notes: string | null;
+  changelog: string | null;
+  git_tag: string | null;
+  npm_dist_tag: string | null;
+  prepared_at: string | null;
+  committed_at: string | null;
+  tagged_at: string | null;
+  pushed_at: string | null;
 }
 
 // ── Public output type ─────────────────────────────────────────────────────────
@@ -189,6 +201,20 @@ export interface ReleasesViewRow {
   rolledBackBy: string | null;
   /** Project hash for multi-repo installs. */
   projectHash: string | null;
+  /**
+   * Provenance discriminator for the row.
+   *
+   * - `'new'` — row originates from the `releases` table (T9508 provenance graph).
+   * - `'legacy'` — row originates from the `release_manifests` table (T5580 / pre-T9492).
+   *
+   * Callers that need full provenance arrays (`commits`, `changes`, `artifacts`,
+   * `brainLinks`) should check `source === 'new'`; legacy rows return empty
+   * arrays for those columns because the relational tables don't exist for
+   * pre-T9492 releases.
+   *
+   * @task T9686
+   */
+  source: 'new' | 'legacy';
   /** PR metadata. Null when no PR is associated. */
   pr: ReleasesViewPr | null;
   /** Commits included in this release range. Empty array when none are linked. */
@@ -199,6 +225,30 @@ export interface ReleasesViewRow {
   artifacts: ReleasesViewArtifact[];
   /** BRAIN knowledge links. Empty array when none are recorded. */
   brainLinks: ReleasesViewBrainLink[];
+  /**
+   * Legacy task ID list from `release_manifests.tasks_json`. Null on `new` rows.
+   * Parsed lazily by consumers — kept as JSON string here so callers that don't
+   * need it pay no parsing cost.
+   *
+   * @task T9686
+   */
+  tasksJson: string | null;
+  /** Free-form notes (legacy `release_manifests.notes`). Null on `new` rows. */
+  notes: string | null;
+  /** CHANGELOG body (legacy `release_manifests.changelog`). Null on `new` rows. */
+  changelog: string | null;
+  /** Git tag string (legacy `release_manifests.git_tag`). Null on `new` rows. */
+  gitTag: string | null;
+  /** npm dist-tag (legacy `release_manifests.npm_dist_tag`). Null on `new` rows. */
+  npmDistTag: string | null;
+  /** Legacy `prepared_at` timestamp (status='prepared'). Null on `new` rows. */
+  preparedAt: string | null;
+  /** Legacy `committed_at` timestamp (status='committed'). Null on `new` rows. */
+  committedAt: string | null;
+  /** Legacy `tagged_at` timestamp (status='tagged'). Null on `new` rows. */
+  taggedAt: string | null;
+  /** Legacy `pushed_at` timestamp (status='pushed'). Null on `new` rows. */
+  pushedAt: string | null;
 }
 
 // ── JSON parse helpers ─────────────────────────────────────────────────────────
@@ -256,11 +306,21 @@ function mapRawRow(raw: ReleasesViewRawRow): ReleasesViewRow {
     failureReason: raw.failure_reason,
     rolledBackBy: raw.rolled_back_by,
     projectHash: raw.project_hash,
+    source: raw.source,
     pr: parsePrMetadata(raw.pr_metadata),
     commits: parseJsonArray<ReleasesViewCommit>(raw.commits_json),
     changes: parseJsonArray<ReleasesViewChange>(raw.changes_json),
     artifacts: parseJsonArray<ReleasesViewArtifact>(raw.artifacts_json),
     brainLinks: parseJsonArray<ReleasesViewBrainLink>(raw.brain_links_json),
+    tasksJson: raw.tasks_json,
+    notes: raw.notes,
+    changelog: raw.changelog,
+    gitTag: raw.git_tag,
+    npmDistTag: raw.npm_dist_tag,
+    preparedAt: raw.prepared_at,
+    committedAt: raw.committed_at,
+    taggedAt: raw.tagged_at,
+    pushedAt: raw.pushed_at,
   };
 }
 
@@ -315,7 +375,7 @@ export interface ReleasesViewOptions {
  * @task T9510
  */
 export async function queryReleasesView(
-  db: NodeSQLiteDatabase,
+  db: NodeSQLiteDatabase<Record<string, unknown>>,
   options: ReleasesViewOptions = {},
 ): Promise<ReleasesViewRow[]> {
   const { status, channel, limit, offset } = options;
@@ -339,4 +399,60 @@ export async function queryReleasesView(
 
   const rawRows = db.all(sql.raw(query)) as ReleasesViewRawRow[];
   return rawRows.map(mapRawRow);
+}
+
+/**
+ * Look up a single release row by version string. Returns `null` when the
+ * version is not present in either branch of `releases_view`.
+ *
+ * Used by `cleo release show <version>` as the SSoT lookup that bridges
+ * both the new `releases` table (T9508) and the legacy `release_manifests`
+ * table (T5580). Eliminates the dual-table split that caused E_NOT_FOUND
+ * after `cleo release plan` (T9686).
+ *
+ * @example
+ * ```ts
+ * const row = await findReleaseViewByVersion(db, 'v2026.5.99');
+ * if (row === null) {
+ *   throw new Error('release not found');
+ * }
+ * ```
+ *
+ * @task T9686
+ */
+export async function findReleaseViewByVersion(
+  db: NodeSQLiteDatabase<Record<string, unknown>>,
+  version: string,
+): Promise<ReleasesViewRow | null> {
+  const escaped = version.replace(/'/g, "''");
+  const query = `SELECT * FROM releases_view WHERE version = '${escaped}' LIMIT 1`;
+  const rawRows = db.all(sql.raw(query)) as ReleasesViewRawRow[];
+  const first = rawRows[0];
+  if (first === undefined) return null;
+  return mapRawRow(first);
+}
+
+/**
+ * Count rows in `releases_view`, optionally filtered by status / channel.
+ * Mirrors the predicate shape of {@link queryReleasesView} so list endpoints
+ * can render an accurate `total` alongside a paginated slice.
+ *
+ * @task T9686
+ */
+export function countReleasesView(
+  db: NodeSQLiteDatabase<Record<string, unknown>>,
+  filter: { status?: string; channel?: string } = {},
+): number {
+  const conditions: string[] = [];
+  if (filter.status !== undefined) {
+    conditions.push(`status = '${filter.status.replace(/'/g, "''")}'`);
+  }
+  if (filter.channel !== undefined) {
+    conditions.push(`channel = '${filter.channel.replace(/'/g, "''")}'`);
+  }
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const row = db.get(sql.raw(`SELECT COUNT(*) AS n FROM releases_view ${whereClause}`)) as
+    | { n: number }
+    | undefined;
+  return row?.n ?? 0;
 }
