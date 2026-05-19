@@ -14,7 +14,12 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
-import { getCleoHome, getCleoTemplatesDir, getCleoTemplatesTildePath } from '../../paths.js';
+import {
+  getCleoHome,
+  getCleoTemplatesDir,
+  getCleoTemplatesTildePath,
+  getProjectRoot,
+} from '../../paths.js';
 import {
   getNodeUpgradeInstructions,
   getNodeVersionInfo,
@@ -201,7 +206,7 @@ export function checkAtReferenceResolution(): CheckResult {
  * indicating it serves as the injection hub for CLEO protocol content.
  */
 export function checkAgentsMdHub(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const agentsMdPath = join(root, 'AGENTS.md');
 
   if (!existsSync(agentsMdPath)) {
@@ -261,7 +266,7 @@ export function checkAgentsMdHub(projectRoot?: string): CheckResult {
  * @epic T4637
  */
 export function checkRootGitignore(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const gitignorePath = join(root, '.gitignore');
 
   if (!existsSync(gitignorePath)) {
@@ -326,7 +331,7 @@ export function checkRootGitignore(projectRoot?: string): CheckResult {
  * @task T4700
  */
 export function checkCleoGitignore(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const gitignorePath = join(root, '.cleo', '.gitignore');
 
   if (!existsSync(gitignorePath)) {
@@ -444,7 +449,7 @@ function detectStorageEngine(projectRoot: string): string {
  * @task T4700
  */
 export function checkVitalFilesTracked(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const gitDir = join(root, '.git');
 
   if (!existsSync(gitDir)) {
@@ -510,7 +515,7 @@ export function checkVitalFilesTracked(projectRoot?: string): CheckResult {
  * Returns critical status if any protected file is gitignored.
  */
 export function checkCoreFilesNotIgnored(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const gitDir = join(root, '.git');
 
   if (!existsSync(gitDir)) {
@@ -577,7 +582,7 @@ export function checkCoreFilesNotIgnored(projectRoot?: string): CheckResult {
  * @task T5160
  */
 export function checkSqliteNotTracked(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const gitDir = join(root, '.git');
 
   if (!existsSync(gitDir)) {
@@ -642,7 +647,7 @@ export function checkSqliteNotTracked(projectRoot?: string): CheckResult {
  * @task T4700
  */
 export function checkLegacyAgentOutputs(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const cleoDir = join(root, '.cleo');
   const detection = detectLegacyAgentOutputs(root, cleoDir);
 
@@ -678,7 +683,7 @@ export function checkLegacyAgentOutputs(projectRoot?: string): CheckResult {
  * @task T708 (scaffolding path drift validator)
  */
 export function checkCanonicalRcasdPaths(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const cleoDir = join(root, '.cleo');
   const failures: string[] = [];
 
@@ -781,7 +786,7 @@ export function checkCanonicalRcasdPaths(projectRoot?: string): CheckResult {
  * @task T5153
  */
 export function checkCaampMarkerIntegrity(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const files = ['CLAUDE.md', 'AGENTS.md'];
   const issues: string[] = [];
 
@@ -837,7 +842,7 @@ export function checkCaampMarkerIntegrity(projectRoot?: string): CheckResult {
  * @task T5153
  */
 export function checkAtReferenceTargetExists(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const agentsPath = join(root, 'AGENTS.md');
 
   if (!existsSync(agentsPath)) {
@@ -925,7 +930,7 @@ export function checkAtReferenceTargetExists(projectRoot?: string): CheckResult 
  * @task T5153
  */
 export function checkTemplateFreshness(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const sourcePath = join(root, 'templates', 'CLEO-INJECTION.md');
   const deployedPath = join(getCleoTemplatesDir(), 'CLEO-INJECTION.md');
   const deployedTildePath = `${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`;
@@ -1150,7 +1155,7 @@ export function checkGlobalSchemaHealth(_projectRoot?: string): CheckResult {
  * Schemas should live in ~/.cleo/schemas/ (global), not in project directories.
  */
 export function checkNoLocalSchemas(projectRoot?: string): CheckResult {
-  const root = projectRoot ?? process.cwd();
+  const root = getProjectRoot(projectRoot);
   const localSchemasDir = join(root, '.cleo', 'schemas');
 
   if (!existsSync(localSchemasDir)) {
