@@ -99,7 +99,7 @@ const shipCommand = defineCommand({
     await dispatchFromCli(
       'mutate',
       'release',
-      'release.plan',
+      'plan',
       {
         version: args.version,
         epicId: args.epic,
@@ -116,7 +116,7 @@ const shipCommand = defineCommand({
     await dispatchFromCli(
       'mutate',
       'release',
-      'release.open',
+      'open',
       {
         version: args.version,
       },
@@ -387,7 +387,7 @@ const planCommand = defineCommand({
     await dispatchFromCli(
       'mutate',
       'release',
-      'release.plan',
+      'plan',
       {
         version: args.version,
         epicId: args.epic,
@@ -440,7 +440,7 @@ const openCommand = defineCommand({
     await dispatchFromCli(
       'mutate',
       'release',
-      'release.open',
+      'open',
       {
         version: args.version,
         workflow: args.workflow as string | undefined,
