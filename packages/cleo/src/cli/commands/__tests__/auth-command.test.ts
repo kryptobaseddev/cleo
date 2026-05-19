@@ -129,10 +129,15 @@ describe('cleo auth — CLI wiring', () => {
     process.env['CLEO_FORMAT'] = 'json';
   });
 
-  it('exposes list + remove + migrate-project-secrets subcommands', async () => {
-    // T9417 added migrate-project-secrets to the auth command group.
+  it('exposes consent + list + remove + migrate-project-secrets subcommands', async () => {
+    // T9417 added migrate-project-secrets; T9598 added consent.
     const subs = await getAuthSubs();
-    expect(Object.keys(subs).sort()).toEqual(['list', 'migrate-project-secrets', 'remove']);
+    expect(Object.keys(subs).sort()).toEqual([
+      'consent',
+      'list',
+      'migrate-project-secrets',
+      'remove',
+    ]);
   });
 
   it('list — seeds, lists, filters by --provider, emits LAFS envelope', async () => {

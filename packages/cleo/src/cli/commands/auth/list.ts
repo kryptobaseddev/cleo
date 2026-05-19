@@ -16,6 +16,9 @@
  * @epic E-CONFIG-AUTH-UNIFY (E2b)
  */
 
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { defineCommand } from 'citty';
 import { cliOutput } from '../../renderers/index.js';
 
@@ -151,8 +154,17 @@ export const authListCommand = defineCommand({
         return p !== 0 ? p : a.label.localeCompare(b.label);
       });
 
+    // T9598: emit a hint when ~/.claude/.credentials.json exists but the
+    // claudeCodeConsentGiven flag is false — so operators know they can opt in.
+    const claudeCredsPath = join(homedir(), '.claude', '.credentials.json');
+    const hint =
+      existsSync(claudeCredsPath) && entries.every((e) => e.source !== 'claude-code')
+        ? 'Hint: Claude Code OAuth detected at ~/.claude/.credentials.json but consent is off. ' +
+          'Run `cleo auth consent --enable-claude-code` to seed it into the pool.'
+        : null;
+
     cliOutput(
-      { entries },
+      { entries, ...(hint !== null ? { hint } : {}) },
       {
         command: 'auth-list',
         operation: 'auth.list',
