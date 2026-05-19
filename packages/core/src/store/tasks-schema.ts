@@ -709,36 +709,17 @@ export const pipelineManifest = sqliteTable(
   ],
 );
 
-// === RELEASE MANIFESTS (T5580) ===
-
-export const releaseManifests = sqliteTable(
-  'release_manifests',
-  {
-    id: text('id').primaryKey(),
-    version: text('version').notNull().unique(),
-    status: text('status').notNull().default('draft'),
-    pipelineId: text('pipeline_id').references(() => lifecyclePipelines.id, {
-      onDelete: 'set null',
-    }),
-    epicId: text('epic_id').references(() => tasks.id, { onDelete: 'set null' }),
-    tasksJson: text('tasks_json').notNull().default('[]'),
-    changelog: text('changelog'),
-    notes: text('notes'),
-    previousVersion: text('previous_version'),
-    commitSha: text('commit_sha'),
-    gitTag: text('git_tag'),
-    npmDistTag: text('npm_dist_tag'),
-    createdAt: text('created_at').notNull(),
-    preparedAt: text('prepared_at'),
-    committedAt: text('committed_at'),
-    taggedAt: text('tagged_at'),
-    pushedAt: text('pushed_at'),
-  },
-  (table) => [
-    index('idx_release_manifests_status').on(table.status),
-    index('idx_release_manifests_version').on(table.version),
-  ],
-);
+// === RELEASE MANIFESTS — REMOVED (T9686-B2) ===
+//
+// The legacy `release_manifests` table (T5580) was merged into the unified
+// `releases` table by migration `20260519010000_t9686b2-unify-releases-tables`.
+// Legacy rows live in `releases` with PK `legacy:<version>` and the legacy
+// status values (`prepared`, `committed`, `tagged`, `pushed`, `rolled_back`)
+// admitted by the widened {@link RELEASE_STATUSES} enum.
+//
+// All readers/writers now target the unified `releases` table directly.
+// The `releaseManifests` Drizzle binding has been removed — code that
+// previously imported it must use {@link releases} instead.
 
 // === SCHEMA METADATA ===
 
@@ -1697,7 +1678,7 @@ export const prTasks = sqliteTable(
 // === PROVENANCE GRAPH TABLES — RELEASES (T9508 — ADR-073 / SPEC-T9345) ===
 
 /**
- * Versioning scheme enum for {@link releasesNew.scheme}.
+ * Versioning scheme enum for {@link releases.scheme}.
  *
  * - `calver`        — YYYY.MM.patch (e.g. 2026.5.74) — CLEO default
  * - `semver`        — MAJOR.MINOR.PATCH (e.g. 1.2.3)
@@ -1711,7 +1692,7 @@ export const RELEASE_SCHEMES = ['calver', 'semver', 'calver-suffix'] as const;
 export type ReleaseScheme = (typeof RELEASE_SCHEMES)[number];
 
 /**
- * Release channel enum for {@link releasesNew.channel}.
+ * Release channel enum for {@link releases.channel}.
  *
  * Controls which npm dist-tag (or equivalent for non-npm archetypes) the
  * artifact is published under. Resolved from git branch via
@@ -1725,7 +1706,7 @@ export const RELEASE_CHANNELS = ['latest', 'beta', 'dev', 'hotfix'] as const;
 export type ReleaseChannel = (typeof RELEASE_CHANNELS)[number];
 
 /**
- * Release kind enum for {@link releasesNew.releaseKind}.
+ * Release kind enum for {@link releases.releaseKind}.
  *
  * Describes the whole release packaging, orthogonal to individual
  * {@link RELEASE_CHANGE_TYPES} within the release.
@@ -1741,24 +1722,41 @@ export const RELEASE_KINDS = ['regular', 'hotfix', 'prerelease'] as const;
 export type ReleaseKind = (typeof RELEASE_KINDS)[number];
 
 /**
- * Release status FSM enum for {@link releasesNew.status}.
+ * Release status FSM enum for {@link releases.status}.
  *
- * Defines the 8-state FSM from SPEC-T9345 §10.1:
- *   planned → pr-opened → pr-merged → published → reconciled
- *   with rolled_back | failed | cancelled as terminal off-ramps.
+ * The unified `releases` table (T9686-B2) admits values from both the
+ * new T9492 pipeline and the legacy T5580 pipeline. The status value itself
+ * discriminates which pipeline owns the row — no separate `pipeline` column
+ * is needed.
  *
- * State transitions per R-302 MUST be monotonic; illegal transitions return
- * `E_INVALID_STATE` and MUST NOT mutate any row.
+ * **New T9492 pipeline** — SPEC-T9345 §10.1 FSM:
+ *   `planned → pr-opened → pr-merged → published → reconciled`
+ *   with `rolled_back | failed | cancelled` as terminal off-ramps.
+ *
+ * **Legacy T5580 pipeline** — pre-T9492 12-step flow:
+ *   `prepared → committed → tagged → pushed`
+ *   with `rolled_back` as terminal off-ramp. (No `draft` — never used in live data.)
+ *
+ * State transitions per R-302 MUST be monotonic within each lifecycle;
+ * illegal transitions return `E_INVALID_STATE` and MUST NOT mutate any row.
  *
  * @task T9508
+ * @task T9686 (lifecycle union)
  * @see SPEC-T9345 §10.1
  */
 export const RELEASE_STATUSES = [
+  // New T9492 pipeline statuses
   'planned',
   'pr-opened',
   'pr-merged',
   'published',
   'reconciled',
+  // Legacy T5580 pipeline statuses (merged in by T9686-B2)
+  'prepared',
+  'committed',
+  'tagged',
+  'pushed',
+  // Shared terminal states
   'rolled_back',
   'failed',
   'cancelled',
@@ -1829,41 +1827,49 @@ export const RELEASE_CLASSIFIED_BY = ['auto', 'manual', 'approved'] as const;
 export type ReleaseClassifiedBy = (typeof RELEASE_CLASSIFIED_BY)[number];
 
 /**
- * `releases` — Normalized release record (ADR-073 / SPEC-T9345 §3.6).
+ * `releases` — Canonical release record (ADR-073 / SPEC-T9345 §3.6).
  *
- * Separate from the legacy {@link releaseManifests} table, which is preserved as-is
- * per F12 force in ADR-073. This table is the canonical normalized fact for a
- * shipped release; the legacy manifest row stays as the in-flight scratchpad during
- * the 12-step pipeline.
+ * As of T9686-B2, this is the SINGLE source of truth for release state. The
+ * legacy `release_manifests` table (T5580) was merged into this table and
+ * dropped — legacy rows now live here with PK `legacy:<version>` and legacy
+ * status values (`prepared`/`committed`/`tagged`/`pushed`/`rolled_back`)
+ * admitted by the widened {@link RELEASE_STATUSES} enum.
  *
- * ID format: `<projectHash>:<version>` (e.g., `abc123:v2026.6.0`).
+ * ID format:
+ * - New T9492 pipeline rows: `<projectHash>:<version>` (e.g. `abc123:v2026.6.0`)
+ * - Legacy migrated rows:    `legacy:<version>`        (e.g. `legacy:v2026.5.73`)
  *
- * status FSM: planned → pr-opened → pr-merged → published → reconciled, with
- * `rolled_back`, `failed`, and `cancelled` as terminal off-ramps from any non-terminal
- * state. See {@link RELEASE_STATUSES} and SPEC-T9345 §10.1.
+ * Status FSM (lifecycle is discriminated by status value, not a separate column):
+ * - New T9492: `planned → pr-opened → pr-merged → published → reconciled`
+ * - Legacy T5580: `prepared → committed → tagged → pushed`
+ * - Shared terminals: `rolled_back | failed | cancelled`
  *
- * Named `releasesNew` in Drizzle to avoid TypeScript identifier collision with the
- * word "releases" that could conflict with other exports. The actual SQL table name
- * is `releases`.
+ * See {@link RELEASE_STATUSES} and SPEC-T9345 §10.1.
  *
  * @task T9508
+ * @task T9686 (unification — legacy columns + widened status enum)
  * @epic T9491
  * @see SPEC-T9345 §3.6
  */
-export const releasesNew = sqliteTable(
+export const releases = sqliteTable(
   'releases',
   {
-    /** Canonical PK: `<projectHash>:<version>` (e.g., `abc123:v2026.6.0`). */
+    /**
+     * Canonical PK.
+     * - New-pipeline rows: `<projectHash>:<version>` (e.g. `abc123:v2026.6.0`).
+     * - Legacy-migrated rows: `legacy:<version>` (e.g. `legacy:v2026.5.73`).
+     */
     id: text('id').primaryKey(),
     /** Release version string, e.g. `v2026.6.0`. UNIQUE — one row per version. */
     version: text('version').notNull().unique(),
     /**
      * Versioning scheme used for this release. See {@link RELEASE_SCHEMES}.
+     * Defaulted to `calver` on legacy migrated rows.
      */
     scheme: text('scheme', { enum: RELEASE_SCHEMES }).notNull().default('calver'),
     /**
      * Publication channel governing the npm dist-tag (or equivalent).
-     * See {@link RELEASE_CHANNELS}.
+     * See {@link RELEASE_CHANNELS}. Defaulted to `latest` on legacy migrated rows.
      */
     channel: text('channel', { enum: RELEASE_CHANNELS }).notNull().default('latest'),
     /**
@@ -1873,42 +1879,46 @@ export const releasesNew = sqliteTable(
     epicId: text('epic_id').references(() => tasks.id, { onDelete: 'set null' }),
     /**
      * Release packaging kind — describes the whole release, not individual changes.
-     * See {@link RELEASE_KINDS}.
+     * See {@link RELEASE_KINDS}. Defaulted to `regular` on legacy migrated rows.
      */
     releaseKind: text('release_kind', { enum: RELEASE_KINDS }).notNull().default('regular'),
     /**
-     * Current FSM status. Transitions MUST follow SPEC-T9345 §10.1.
-     * See {@link RELEASE_STATUSES}.
+     * Current FSM status. Admits both new-pipeline and legacy-pipeline values
+     * post-T9686-B2 — see {@link RELEASE_STATUSES}.
      */
     status: text('status', { enum: RELEASE_STATUSES }).notNull().default('planned'),
     /** Previous release version string (denormalized for fast prior-release walks). */
     previousVersion: text('previous_version'),
     /**
-     * FK → commits.sha (ON DELETE SET NULL). The git merge commit that landed
-     * the release branch into main (populated by release-prepare.yml at pr-merged time).
+     * Git merge commit SHA. For new-pipeline rows this is the commit that
+     * landed the release branch into main (populated by release-prepare.yml
+     * at pr-merged time). For legacy-migrated rows this is the ship commit
+     * from the legacy `release_manifests.commit_sha` column.
+     *
+     * SOFT FK only (T9686-B2): the prior hard FK to `commits(sha)` was dropped
+     * because legacy ship SHAs are not present in the `commits` table. A
+     * follow-up task may backfill `commits` rows for legacy ship SHAs and
+     * re-add the FK.
      */
-    mergeCommitSha: text('merge_commit_sha').references(() => commits.sha, {
-      onDelete: 'set null',
-    }),
+    mergeCommitSha: text('merge_commit_sha'),
     /**
      * FK → pull_requests.id (ON DELETE SET NULL). The bump-PR opened by `cleo release open`.
-     * pull_requests table is added by migration 20260516000003-000005 (T9507).
-     * Soft FK at application layer until T9507 is merged.
+     * Always NULL on legacy migrated rows (legacy pipeline pre-dated `pull_requests`).
      */
     prId: text('pr_id'),
     /** URL of the GitHub Actions workflow run that built and published this release. */
     workflowRunUrl: text('workflow_run_url'),
     /** ISO-8601 timestamp when this row was inserted. */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    /** ISO-8601 timestamp when `cleo release plan` created the plan. */
+    /** ISO-8601 timestamp when `cleo release plan` created the plan (new pipeline). */
     plannedAt: text('planned_at'),
-    /** ISO-8601 timestamp when the bump-PR was opened. */
+    /** ISO-8601 timestamp when the bump-PR was opened (new pipeline). */
     prOpenedAt: text('pr_opened_at'),
-    /** ISO-8601 timestamp when the bump-PR was merged. */
+    /** ISO-8601 timestamp when the bump-PR was merged (new pipeline). */
     prMergedAt: text('pr_merged_at'),
-    /** ISO-8601 timestamp when npm/cargo/etc. publish completed. */
+    /** ISO-8601 timestamp when npm/cargo/etc. publish completed (new pipeline). */
     publishedAt: text('published_at'),
-    /** ISO-8601 timestamp when `cleo release reconcile` completed. */
+    /** ISO-8601 timestamp when `cleo release reconcile` completed (new pipeline). */
     reconciledAt: text('reconciled_at'),
     /** ISO-8601 timestamp when `cleo release rollback` completed (terminal). */
     rolledBackAt: text('rolled_back_at'),
@@ -1922,6 +1932,31 @@ export const releasesNew = sqliteTable(
     rolledBackBy: text('rolled_back_by'),
     /** Project hash for multi-repo CLEO installs (matches audit_log.project_hash). */
     projectHash: text('project_hash'),
+    // ── Legacy-only columns (merged in by T9686-B2 from `release_manifests`) ──
+    /**
+     * Legacy: JSON array of task IDs included in this release. Populated for
+     * legacy-migrated rows only; NULL on new-pipeline rows (new pipeline
+     * tracks per-task changes in {@link releaseChanges} instead).
+     */
+    tasksJson: text('tasks_json'),
+    /**
+     * Legacy: free-form CHANGELOG body text. Populated for legacy-migrated
+     * rows only; NULL on new-pipeline rows (new pipeline derives the
+     * CHANGELOG from `release_changes` + `release_commits`).
+     */
+    changelog: text('changelog'),
+    /** Legacy: free-form release notes. Populated for legacy-migrated rows only. */
+    notes: text('notes'),
+    /** Legacy: git tag string. Populated for legacy-migrated rows only. */
+    gitTag: text('git_tag'),
+    /** Legacy: ISO-8601 timestamp when the release was marked `prepared`. */
+    preparedAt: text('prepared_at'),
+    /** Legacy: ISO-8601 timestamp when the release was marked `committed`. */
+    committedAt: text('committed_at'),
+    /** Legacy: ISO-8601 timestamp when the release was marked `tagged`. */
+    taggedAt: text('tagged_at'),
+    /** Legacy: ISO-8601 timestamp when the release was marked `pushed` (published). */
+    pushedAt: text('pushed_at'),
   },
   (table) => [
     index('idx_releases_version').on(table.version),
@@ -1931,6 +1966,7 @@ export const releasesNew = sqliteTable(
     index('idx_releases_merge_commit_sha').on(table.mergeCommitSha),
     index('idx_releases_project_hash').on(table.projectHash),
     index('idx_releases_published_at').on(table.publishedAt),
+    index('idx_releases_pushed_at').on(table.pushedAt),
   ],
 );
 
@@ -1963,7 +1999,7 @@ export const releaseCommits = sqliteTable(
     /** FK → releases.id. ON DELETE CASCADE — purging a release removes its junction rows. */
     releaseId: text('release_id')
       .notNull()
-      .references(() => releasesNew.id, { onDelete: 'cascade' }),
+      .references(() => releases.id, { onDelete: 'cascade' }),
     /** FK → commits.sha. ON DELETE CASCADE — purging a commit removes its junction rows. */
     commitSha: text('commit_sha')
       .notNull()
@@ -2033,7 +2069,7 @@ export const releaseChanges = sqliteTable(
     /** FK → releases.id. ON DELETE CASCADE. */
     releaseId: text('release_id')
       .notNull()
-      .references(() => releasesNew.id, { onDelete: 'cascade' }),
+      .references(() => releases.id, { onDelete: 'cascade' }),
     /**
      * FK → tasks.id (ON DELETE SET NULL). Nullable — some changes are
      * not task-linked (e.g., automated dependency bumps).
@@ -2161,7 +2197,7 @@ export const releaseArtifacts = sqliteTable(
     /** FK → releases.id. ON DELETE CASCADE — purging a release removes its artifact rows. */
     releaseId: text('release_id')
       .notNull()
-      .references(() => releasesNew.id, { onDelete: 'cascade' }),
+      .references(() => releases.id, { onDelete: 'cascade' }),
     /**
      * Artifact archetype. See {@link RELEASE_ARTIFACT_TYPES}.
      * Stored as plain text for forward-compat: adding a new type is a code-only change.
@@ -2235,7 +2271,7 @@ export const brainReleaseLinks = sqliteTable(
     /** FK → releases.id. ON DELETE CASCADE. */
     releaseId: text('release_id')
       .notNull()
-      .references(() => releasesNew.id, { onDelete: 'cascade' }),
+      .references(() => releases.id, { onDelete: 'cascade' }),
     /**
      * Semantic relationship type. See {@link BRAIN_RELEASE_LINK_TYPES}.
      * - `approved-by`   — BRAIN decision approved this release's change.
@@ -2294,8 +2330,11 @@ export type ManifestEntryRow = typeof manifestEntries.$inferSelect;
 export type NewManifestEntryRow = typeof manifestEntries.$inferInsert;
 export type PipelineManifestRow = typeof pipelineManifest.$inferSelect;
 export type NewPipelineManifestRow = typeof pipelineManifest.$inferInsert;
-export type ReleaseManifestRow = typeof releaseManifests.$inferSelect;
-export type NewReleaseManifestRow = typeof releaseManifests.$inferInsert;
+// `ReleaseManifestRow` / `NewReleaseManifestRow` removed by T9686-B2.
+// Use `ReleaseRow` / `NewReleaseRow` (now backed by the unified `releases`
+// table) instead. Legacy-only columns (`tasksJson`, `changelog`, `notes`,
+// `gitTag`, `preparedAt`, `committedAt`, `taggedAt`, `pushedAt`) are
+// nullable fields on the unified row type.
 export type ExternalTaskLinkRow = typeof externalTaskLinks.$inferSelect;
 export type NewExternalTaskLinkRow = typeof externalTaskLinks.$inferInsert;
 // T944 experiments side-table row types
@@ -2315,9 +2354,9 @@ export type PrCommitRow = typeof prCommits.$inferSelect;
 export type NewPrCommitRow = typeof prCommits.$inferInsert;
 export type PrTaskRow = typeof prTasks.$inferSelect;
 export type NewPrTaskRow = typeof prTasks.$inferInsert;
-// T9508 provenance graph row types (releases + release_commits + release_changes)
-export type ReleaseRow = typeof releasesNew.$inferSelect;
-export type NewReleaseRow = typeof releasesNew.$inferInsert;
+// T9508 / T9686-B2: unified releases table row types
+export type ReleaseRow = typeof releases.$inferSelect;
+export type NewReleaseRow = typeof releases.$inferInsert;
 export type ReleaseCommitRow = typeof releaseCommits.$inferSelect;
 export type NewReleaseCommitRow = typeof releaseCommits.$inferInsert;
 export type ReleaseChangeRow = typeof releaseChanges.$inferSelect;

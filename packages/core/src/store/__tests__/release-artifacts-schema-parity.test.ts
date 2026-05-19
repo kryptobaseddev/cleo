@@ -30,7 +30,7 @@ import {
   brainReleaseLinks,
   RELEASE_ARTIFACT_TYPES,
   releaseArtifacts,
-  releaseManifests,
+  releases,
 } from '../tasks-schema.js';
 
 vi.mock('../../logger.js', () => ({
@@ -308,17 +308,20 @@ describe('T9509 enum constant invariants', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 5: Legacy release_manifests table is untouched (F12 — ADR-073)
+// Section 5: T9686-B2 unification — legacy columns are now on `releases`
 // ---------------------------------------------------------------------------
 
-describe('T9509 legacy release_manifests invariant', () => {
-  it('releaseManifests is still exported from tasks-schema after T9509 additions', () => {
-    expect(releaseManifests).toBeDefined();
-    const cols = Object.keys(releaseManifests);
-    expect(cols).toContain('id');
-    expect(cols).toContain('version');
-    expect(cols).toContain('status');
+describe('T9686-B2 unification — legacy columns on canonical `releases` table', () => {
+  it('exports `releases` with legacy columns merged from `release_manifests`', () => {
+    expect(releases).toBeDefined();
+    const cols = Object.keys(releases);
+    // Legacy-pipeline columns that MUST be present on the unified table
     expect(cols).toContain('tasksJson');
+    expect(cols).toContain('preparedAt');
+    expect(cols).toContain('committedAt');
+    expect(cols).toContain('taggedAt');
+    expect(cols).toContain('pushedAt');
+    expect(cols).toContain('gitTag');
   });
 });
 
@@ -683,7 +686,7 @@ describe('T9509 fresh migration apply — both tables created', () => {
     nativeDb.close();
   });
 
-  it('legacy release_manifests table is untouched after T9509 migrations', async () => {
+  it('T9686-B2: legacy `release_manifests` is dropped + columns merged into `releases`', async () => {
     const { openNativeDatabase } = await import('../sqlite.js');
     const { drizzle } = await import('drizzle-orm/node-sqlite');
     const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
@@ -696,17 +699,17 @@ describe('T9509 fresh migration apply — both tables created', () => {
     reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
     migrateSanitized(db, { migrationsFolder });
 
-    // release_manifests must still exist
+    // Legacy `release_manifests` must NO LONGER exist after T9686-B2.
     const row = nativeDb
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='release_manifests'")
       .get() as { name: string } | undefined;
-    expect(row?.name).toBe('release_manifests');
+    expect(row, 'release_manifests must be dropped by T9686-B2').toBeUndefined();
 
-    const cols = nativeDb.prepare('PRAGMA table_info(release_manifests)').all() as Array<{
+    // The unified `releases` table now carries the legacy columns.
+    const cols = nativeDb.prepare('PRAGMA table_info(releases)').all() as Array<{
       name: string;
     }>;
     const colNames = cols.map((c) => c.name);
-    // Core legacy columns must remain intact (F12 — ADR-073)
     expect(colNames).toContain('id');
     expect(colNames).toContain('version');
     expect(colNames).toContain('tasks_json');

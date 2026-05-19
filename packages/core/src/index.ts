@@ -145,7 +145,7 @@ export {
   insertAgentInstanceSchema,
   insertExternalTaskLinkSchema,
   insertPipelineManifestSchema,
-  insertReleaseManifestSchema,
+  insertReleaseSchema,
   insertSessionSchema,
   // Insert/select schemas
   insertTaskSchema,
@@ -161,7 +161,7 @@ export {
   selectAgentInstanceSchema,
   selectExternalTaskLinkSchema,
   selectPipelineManifestSchema,
-  selectReleaseManifestSchema,
+  selectReleaseSchema,
   selectSessionSchema,
   selectTaskSchema,
   // Session enums

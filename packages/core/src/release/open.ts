@@ -49,7 +49,7 @@ import { eq } from 'drizzle-orm';
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
 import { getDb } from '../store/sqlite.js';
-import { releasesNew } from '../store/tasks-schema.js';
+import { releases } from '../store/tasks-schema.js';
 import { runGitWithLockRetry } from './engine-ops.js';
 
 const log = getLogger('release:open');
@@ -338,13 +338,13 @@ async function updateReleaseRow(
 ): Promise<void> {
   const db = await getDb(projectRoot);
   await db
-    .update(releasesNew)
+    .update(releases)
     .set({
       status: 'pr-opened',
       workflowRunUrl,
       prOpenedAt: new Date().toISOString(),
     })
-    .where(eq(releasesNew.version, version))
+    .where(eq(releases.version, version))
     .run();
 }
 
@@ -359,9 +359,9 @@ async function readReleaseStatus(
 ): Promise<{ status: string; workflowRunUrl: string | null } | null> {
   const db = await getDb(projectRoot);
   const rows = await db
-    .select({ status: releasesNew.status, workflowRunUrl: releasesNew.workflowRunUrl })
-    .from(releasesNew)
-    .where(eq(releasesNew.version, version))
+    .select({ status: releases.status, workflowRunUrl: releases.workflowRunUrl })
+    .from(releases)
+    .where(eq(releases.version, version))
     .all();
   const row = rows[0];
   if (!row) return null;

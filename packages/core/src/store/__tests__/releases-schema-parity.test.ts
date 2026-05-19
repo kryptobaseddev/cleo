@@ -31,8 +31,7 @@ import {
   RELEASE_STATUSES,
   releaseChanges,
   releaseCommits,
-  releaseManifests,
-  releasesNew,
+  releases,
 } from '../tasks-schema.js';
 
 vi.mock('../../logger.js', () => ({
@@ -271,9 +270,10 @@ describe('T9508 release_changes migration SQL', () => {
 // Section 4: Drizzle schema column-name parity checks
 // ---------------------------------------------------------------------------
 
-describe('T9508 Drizzle schema parity — releasesNew', () => {
-  it('exports the releasesNew table with the correct column set', () => {
-    const cols = Object.keys(releasesNew);
+describe('T9508 / T9686-B2 Drizzle schema parity — unified `releases` table', () => {
+  it('exports the unified `releases` table with the correct column set', () => {
+    const cols = Object.keys(releases);
+    // New T9492 pipeline columns (T9508)
     expect(cols).toContain('id');
     expect(cols).toContain('version');
     expect(cols).toContain('scheme');
@@ -297,6 +297,15 @@ describe('T9508 Drizzle schema parity — releasesNew', () => {
     expect(cols).toContain('failureReason');
     expect(cols).toContain('rolledBackBy');
     expect(cols).toContain('projectHash');
+    // Legacy T5580 pipeline columns merged in by T9686-B2
+    expect(cols).toContain('tasksJson');
+    expect(cols).toContain('changelog');
+    expect(cols).toContain('notes');
+    expect(cols).toContain('gitTag');
+    expect(cols).toContain('preparedAt');
+    expect(cols).toContain('committedAt');
+    expect(cols).toContain('taggedAt');
+    expect(cols).toContain('pushedAt');
   });
 });
 
@@ -354,31 +363,35 @@ describe('T9508 enum constant invariants', () => {
     expect(RELEASE_KINDS).toContain('prerelease');
   });
 
-  it('RELEASE_STATUSES has exactly 8 values matching SPEC-T9345 §10.1 FSM', () => {
-    expect(RELEASE_STATUSES).toHaveLength(8);
-    // Non-terminal states (linear path)
+  it('RELEASE_STATUSES has exactly 12 values — union of new T9492 + legacy T5580 pipelines (T9686-B2)', () => {
+    expect(RELEASE_STATUSES).toHaveLength(12);
+    // New T9492 pipeline (SPEC-T9345 §10.1) non-terminal states
     expect(RELEASE_STATUSES).toContain('planned');
     expect(RELEASE_STATUSES).toContain('pr-opened');
     expect(RELEASE_STATUSES).toContain('pr-merged');
     expect(RELEASE_STATUSES).toContain('published');
     expect(RELEASE_STATUSES).toContain('reconciled');
-    // Terminal off-ramps
+    // Legacy T5580 pipeline states (merged in by T9686-B2)
+    expect(RELEASE_STATUSES).toContain('prepared');
+    expect(RELEASE_STATUSES).toContain('committed');
+    expect(RELEASE_STATUSES).toContain('tagged');
+    expect(RELEASE_STATUSES).toContain('pushed');
+    // Shared terminal off-ramps
     expect(RELEASE_STATUSES).toContain('rolled_back');
     expect(RELEASE_STATUSES).toContain('failed');
     expect(RELEASE_STATUSES).toContain('cancelled');
   });
 
-  it('RELEASE_STATUSES FSM — steady state (reconciled) comes before terminal states', () => {
-    // The order in the enum matters: non-terminal states first, then off-ramps.
+  it('RELEASE_STATUSES FSM — new-pipeline ordering preserved (planned → reconciled)', () => {
+    // Order within the new-pipeline subset still matters: linear path first.
     const idx = (s: string) => (RELEASE_STATUSES as readonly string[]).indexOf(s);
     expect(idx('planned')).toBeLessThan(idx('pr-opened'));
     expect(idx('pr-opened')).toBeLessThan(idx('pr-merged'));
     expect(idx('pr-merged')).toBeLessThan(idx('published'));
     expect(idx('published')).toBeLessThan(idx('reconciled'));
-    // Terminal states all follow reconciled
-    expect(idx('reconciled')).toBeLessThan(idx('rolled_back'));
-    expect(idx('reconciled')).toBeLessThan(idx('failed'));
-    expect(idx('reconciled')).toBeLessThan(idx('cancelled'));
+    // Legacy block follows the new block; terminals follow legacy.
+    expect(idx('reconciled')).toBeLessThan(idx('prepared'));
+    expect(idx('pushed')).toBeLessThan(idx('rolled_back'));
   });
 
   it('RELEASE_CHANGE_TYPES has exactly 12 values per provenance-graph-design.md §2.2', () => {
@@ -419,35 +432,24 @@ describe('T9508 enum constant invariants', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 6: Legacy release_manifests table is untouched (F12 — ADR-073)
+// Section 6: T9686-B2 unification — legacy table dropped, unified table is SSoT
 // ---------------------------------------------------------------------------
 
-describe('T9508 legacy release_manifests invariant', () => {
-  it('releaseManifests is still exported from tasks-schema', () => {
-    expect(releaseManifests).toBeDefined();
-    const cols = Object.keys(releaseManifests);
-    // Legacy columns that MUST remain
-    expect(cols).toContain('id');
-    expect(cols).toContain('version');
-    expect(cols).toContain('status');
-    expect(cols).toContain('tasksJson');
+describe('T9686-B2 unification invariants', () => {
+  it('`releases` is the canonical Drizzle binding (no `releasesNew` alias)', () => {
+    expect(releases).toBeDefined();
+    const cols = Object.keys(releases);
+    // Carries both new-pipeline AND legacy-pipeline columns post-T9686-B2
+    expect(cols).toContain('plannedAt'); // new pipeline
+    expect(cols).toContain('preparedAt'); // legacy pipeline
+    expect(cols).toContain('tasksJson'); // legacy pipeline
   });
 
-  it('releasesNew uses the SQL table name "releases", distinct from release_manifests', () => {
-    // Verify the two Drizzle tables target different SQL tables
-    // The Drizzle table config embeds the SQL table name as the first arg to sqliteTable()
-    // Access via the internal symbol-keyed property
-    const newTableName =
+  it('`releases` Drizzle table targets SQL table name "releases"', () => {
+    const tableName =
       // @ts-expect-error — accessing internal Drizzle table name for test validation
-      releasesNew[Symbol.for('drizzle:Name')] ?? (releasesNew as { _: { name: string } })._.name;
-    const legacyTableName =
-      // @ts-expect-error
-      releaseManifests[Symbol.for('drizzle:Name')] ??
-      (releaseManifests as { _: { name: string } })._.name;
-
-    expect(newTableName).toBe('releases');
-    expect(legacyTableName).toBe('release_manifests');
-    expect(newTableName).not.toBe(legacyTableName);
+      releases[Symbol.for('drizzle:Name')] ?? (releases as { _: { name: string } })._.name;
+    expect(tableName).toBe('releases');
   });
 });
 
@@ -507,6 +509,7 @@ describe('T9508 fresh migration apply — all 3 tables created', () => {
     const colNames = cols.map((c) => c.name);
 
     const expectedCols = [
+      // New T9492 pipeline columns
       'id',
       'version',
       'scheme',
@@ -530,6 +533,15 @@ describe('T9508 fresh migration apply — all 3 tables created', () => {
       'failure_reason',
       'rolled_back_by',
       'project_hash',
+      // Legacy T5580 pipeline columns merged in by T9686-B2
+      'tasks_json',
+      'changelog',
+      'notes',
+      'git_tag',
+      'prepared_at',
+      'committed_at',
+      'tagged_at',
+      'pushed_at',
     ];
 
     for (const col of expectedCols) {
@@ -660,12 +672,12 @@ describe('T9508 fresh migration apply — all 3 tables created', () => {
     nativeDb.close();
   });
 
-  it('legacy release_manifests table is untouched after T9508 migrations', async () => {
+  it('T9686-B2: legacy `release_manifests` table is dropped + columns merged into `releases`', async () => {
     const { openNativeDatabase } = await import('../sqlite.js');
     const { drizzle } = await import('drizzle-orm/node-sqlite');
     const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
 
-    const dbPath = join(tempDir, 'tasks-legacy-check.db');
+    const dbPath = join(tempDir, 'tasks-unify-check.db');
     const nativeDb = openNativeDatabase(dbPath);
     const db = drizzle({ client: nativeDb });
     const migrationsFolder = migrationsDir();
@@ -673,28 +685,38 @@ describe('T9508 fresh migration apply — all 3 tables created', () => {
     reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
     migrateSanitized(db, { migrationsFolder });
 
-    // release_manifests must still exist and contain its key columns
-    const row = nativeDb
+    // Legacy table must NO LONGER exist post-T9686-B2 unification migration.
+    const legacyRow = nativeDb
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='release_manifests'")
       .get() as { name: string } | undefined;
-    expect(row?.name).toBe('release_manifests');
+    expect(legacyRow, 'release_manifests must be dropped by T9686-B2').toBeUndefined();
 
-    const cols = nativeDb.prepare('PRAGMA table_info(release_manifests)').all() as Array<{
+    // The legacy `releases_view` is also dropped (no longer needed once
+    // readers go directly to the unified `releases` table).
+    const viewRow = nativeDb
+      .prepare("SELECT name FROM sqlite_master WHERE type='view' AND name='releases_view'")
+      .get() as { name: string } | undefined;
+    expect(viewRow, 'releases_view must be dropped by T9686-B2').toBeUndefined();
+
+    // The unified `releases` table must carry every legacy column.
+    const cols = nativeDb.prepare('PRAGMA table_info(releases)').all() as Array<{
       name: string;
     }>;
     const colNames = cols.map((c) => c.name);
-    // Core legacy columns that MUST remain intact (F12 — ADR-073)
-    expect(colNames).toContain('id');
-    expect(colNames).toContain('version');
-    expect(colNames).toContain('tasks_json');
-    expect(colNames).toContain('status');
-    expect(colNames).toContain('changelog');
-
-    // The new releases table must NOT have the same name
-    const releasesRow = nativeDb
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='releases'")
-      .get() as { name: string } | undefined;
-    expect(releasesRow?.name).toBe('releases');
+    for (const legacyCol of [
+      'tasks_json',
+      'changelog',
+      'notes',
+      'git_tag',
+      'prepared_at',
+      'committed_at',
+      'tagged_at',
+      'pushed_at',
+    ]) {
+      expect(colNames, `legacy column '${legacyCol}' missing from unified releases`).toContain(
+        legacyCol,
+      );
+    }
 
     nativeDb.close();
   });
