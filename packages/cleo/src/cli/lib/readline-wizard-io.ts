@@ -28,15 +28,65 @@
  * {@link StdinClosedError} that `setup.ts` converts to a LAFS error
  * envelope with `codeName: "E_SETUP_STDIN_CLOSED"`.
  *
+ * ## Bracketed-paste sanitization (T9612)
+ *
+ * Terminals in bracketed-paste mode wrap pasted text with `\x1b[200~` and
+ * `\x1b[201~` escape sequences.  When an operator pastes an API key, these
+ * sequences appear verbatim in the answer string returned by
+ * `rl.question()`.  {@link stripBracketedPaste} strips them from every
+ * prompt response before it is returned so callers never see raw escape
+ * bytes in credential values.
+ *
+ * ## SIGINT / Ctrl-C handling (T9612)
+ *
+ * `node:readline/promises` emits a `'SIGINT'` event on `rl` when the
+ * operator presses Ctrl-C.  The default node behaviour is to echo `^C` and
+ * call `rl.close()`, which then fires the `'close'` event.  To give callers
+ * a typed error, {@link ReadlineWizardIO} attaches a `'SIGINT'` listener
+ * that throws {@link WizardInterruptError} (exported from
+ * `@cleocode/core/setup`).  The matching `setup.ts` catch block prints
+ * `"Setup interrupted. Run 'cleo setup' to continue."` and exits 130.
+ *
  * @task T9421
  * @task T9599
+ * @task T9612
  * @epic E-CONFIG-AUTH-UNIFY (E3 §5.3 T-E3-2)
+ * @epic E-CLEO-SETUP-V2 (§3.5 T-SETUP-V2-6)
  */
 
 import { stdin as input, stdout as output } from 'node:process';
 import * as readline from 'node:readline/promises';
 import type { WizardIO } from '@cleocode/core/setup';
-import { WizardFatalError } from '@cleocode/core/setup';
+import { WizardFatalError, WizardInterruptError } from '@cleocode/core/setup';
+
+// ---------------------------------------------------------------------------
+// Bracketed-paste sanitization (T9612)
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip bracketed-paste escape sequences from a terminal input string.
+ *
+ * Terminals in bracketed-paste mode wrap pasted text with the sequences
+ * `\x1b[200~` (open) and `\x1b[201~` (close).  When an operator pastes an
+ * API key at a readline prompt these markers appear verbatim inside the
+ * answer string.  This helper removes them so callers never receive raw
+ * escape bytes inside credential values.
+ *
+ * The function is deliberately simple — it strips ALL occurrences of either
+ * sequence and then trims surrounding whitespace (pasted lines often carry
+ * a trailing space from the terminal).
+ *
+ * @param raw - The raw string returned by `rl.question()`.
+ * @returns The sanitized string with bracketed-paste markers removed.
+ * @task T9612
+ */
+export function stripBracketedPaste(raw: string): string {
+  // \x1b[200~ opens bracketed-paste mode; \x1b[201~ closes it.
+  return raw
+    .replace(/\x1b\[200~/g, '')
+    .replace(/\x1b\[201~/g, '')
+    .trim();
+}
 
 // ---------------------------------------------------------------------------
 // EOF sentinel
@@ -97,13 +147,36 @@ export class StdinClosedError extends WizardFatalError {
  * The ONLY bytes that reach stdout are the final LAFS JSON envelope emitted by
  * the CLI command after the wizard completes.
  *
+ * Pasted API keys are automatically sanitized via {@link stripBracketedPaste}
+ * before being returned from `prompt()` and the `select()` input path —
+ * callers always receive clean strings.
+ *
+ * Ctrl-C (SIGINT) throws {@link WizardInterruptError} instead of silently
+ * closing readline — `setup.ts` catches this to print a friendly message and
+ * exit 130.
+ *
  * @task T9421
  * @task T9599
+ * @task T9612
  */
 export class ReadlineWizardIO implements WizardIO {
-  private readonly rl: readline.Interface;
+  /**
+   * Underlying readline interface.
+   *
+   * Exposed as `protected` (not `private`) so tests can emit `'SIGINT'` on it
+   * to simulate Ctrl-C without requiring a real TTY. Production code MUST NOT
+   * access this field directly.
+   *
+   * @internal
+   */
+  protected readonly rl: readline.Interface;
   /** AbortController aborted when stdin closes — surfaced as {@link StdinClosedError}. */
   private readonly eofController: AbortController;
+  /**
+   * Whether a SIGINT was received. Set before throwing so `rethrowEof` does
+   * not mistakenly wrap the AbortError as a `StdinClosedError`.
+   */
+  private sigintReceived = false;
 
   /**
    * Construct a readline interface bound to the supplied streams.
@@ -125,6 +198,15 @@ export class ReadlineWizardIO implements WizardIO {
         this.eofController.abort(new StdinClosedError());
       }
     });
+    // When Ctrl-C is pressed, readline emits 'SIGINT'. Abort the controller
+    // with a WizardInterruptError so in-flight question() calls surface the
+    // interrupt to callers instead of hanging.
+    this.rl.on('SIGINT', () => {
+      this.sigintReceived = true;
+      if (!this.eofController.signal.aborted) {
+        this.eofController.abort(new WizardInterruptError('interrupted by user'));
+      }
+    });
   }
 
   /**
@@ -138,11 +220,12 @@ export class ReadlineWizardIO implements WizardIO {
   }
 
   /**
-   * Wrap an AbortError thrown by `rl.question()` into a {@link StdinClosedError}.
+   * Wrap an AbortError thrown by `rl.question()` into the appropriate
+   * typed error.
    *
-   * `rl.question({ signal })` throws an `AbortError` when the signal fires.
-   * Re-throw it as a typed `StdinClosedError` so setup.ts can detect EOF
-   * without pattern-matching on error names.
+   * - SIGINT received → throw {@link WizardInterruptError}
+   * - Stdin EOF → throw {@link StdinClosedError}
+   * - Any other error → re-throw as-is.
    *
    * @internal
    */
@@ -153,6 +236,10 @@ export class ReadlineWizardIO implements WizardIO {
       (err.name === 'AbortError' || err.name === 'AbortSignal') &&
       this.eofController.signal.aborted
     ) {
+      // Distinguish SIGINT (interrupt) from ordinary EOF (stdin closed).
+      if (this.sigintReceived) {
+        throw new WizardInterruptError('interrupted by user');
+      }
       throw new StdinClosedError();
     }
     throw err;
@@ -160,10 +247,10 @@ export class ReadlineWizardIO implements WizardIO {
 
   async prompt(question: string): Promise<string> {
     try {
-      const answer = await this.rl.question(`${question} `, {
+      const raw = await this.rl.question(`${question} `, {
         signal: this.eofController.signal,
       });
-      return answer.trim();
+      return stripBracketedPaste(raw);
     } catch (err) {
       this.rethrowEof(err);
     }
@@ -173,9 +260,9 @@ export class ReadlineWizardIO implements WizardIO {
     const hint = defaultValue === undefined ? '[y/n]' : defaultValue ? '[Y/n]' : '[y/N]';
     let raw: string;
     try {
-      raw = (await this.rl.question(`${question} ${hint} `, { signal: this.eofController.signal }))
-        .trim()
-        .toLowerCase();
+      raw = stripBracketedPaste(
+        await this.rl.question(`${question} ${hint} `, { signal: this.eofController.signal }),
+      ).toLowerCase();
     } catch (err) {
       this.rethrowEof(err);
     }
@@ -207,11 +294,11 @@ export class ReadlineWizardIO implements WizardIO {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       let raw: string;
       try {
-        raw = (
+        raw = stripBracketedPaste(
           await this.rl.question(`Choose [1-${options.length}]: `, {
             signal: this.eofController.signal,
-          })
-        ).trim();
+          }),
+        );
       } catch (err) {
         this.rethrowEof(err);
       }
