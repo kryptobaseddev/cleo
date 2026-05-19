@@ -22,7 +22,8 @@
  * @epic T4545
  */
 
-import { AgentsSkillsRealDirError, runDoctorBridge } from '@cleocode/caamp';
+import type { AdoptedSkillRowData, DoctorAdoptCliAdapters } from '@cleocode/caamp';
+import { AgentsSkillsRealDirError, runDoctorAdopt, runDoctorBridge } from '@cleocode/caamp';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
@@ -410,6 +411,102 @@ const doctorBridgeCommand = defineCommand({
 });
 
 /**
+ * Build the cleo-side `DoctorAdoptCliAdapters` that route every skills.db
+ * access through the canonical `openCleoDb('skills')` chokepoint (ADR-068).
+ *
+ * @remarks
+ * caamp cannot import `@cleocode/core` (dep direction is core → caamp), so
+ * caamp emits pure-data callbacks and the cleo dispatch layer wires the
+ * concrete sqlite helpers. Construction is lazy to keep `@cleocode/core`
+ * out of the cold-start path for `cleo skills` invocations that never
+ * touch the registry.
+ *
+ * @returns Adapters that delegate read+write to core's `skills-db` module.
+ *
+ * @task T9657
+ */
+function buildSkillsDoctorAdoptAdapters(): DoctorAdoptCliAdapters {
+  return {
+    loadRegisteredNames: async (): Promise<ReadonlySet<string>> => {
+      const { listSkillsBySource } = await import('@cleocode/core');
+      const rows = await Promise.all([
+        listSkillsBySource('canonical'),
+        listSkillsBySource('user'),
+        listSkillsBySource('community'),
+        listSkillsBySource('agent-created'),
+      ]);
+      return new Set(rows.flat().map((r) => r.name));
+    },
+    recordRow: async (data: AdoptedSkillRowData): Promise<void> => {
+      const { upsertSkillRow } = await import('@cleocode/core');
+      await upsertSkillRow({
+        name: data.name,
+        sourceType: data.sourceType,
+        installPath: data.installPath,
+        installedAt: data.installedAt,
+        lifecycleState: data.lifecycleState,
+        pinned: 0,
+        isAgentCreated: 0,
+      });
+    },
+  };
+}
+
+/**
+ * cleo skills doctor adopt-orphans — interactive orphan audit + adoption (T9657).
+ *
+ * Routes skills.db reads + writes through `openCleoDb('skills')` from
+ * `@cleocode/core/store/skills-db` to satisfy the ADR-068 chokepoint guard.
+ */
+const doctorAdoptOrphansCommand = defineCommand({
+  meta: {
+    name: 'adopt-orphans',
+    description:
+      'Interactive audit of on-disk skill dirs not tracked in skills.db (canonical/user/delete/skip)',
+  },
+  args: {
+    'non-interactive': {
+      type: 'boolean',
+      description: 'List orphans + exit without action',
+    },
+    'auto-user-adopt': {
+      type: 'boolean',
+      description: 'Bulk-mark all orphans as source_type=user without prompting',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Output as JSON (default)',
+    },
+    human: {
+      type: 'boolean',
+      description: 'Output in human-readable format',
+    },
+  },
+  async run({ args }) {
+    const { cliError, cliOutput } = await import('../renderers/index.js');
+    try {
+      const adapters = buildSkillsDoctorAdoptAdapters();
+      const result = await runDoctorAdopt({
+        nonInteractive: args['non-interactive'] === true,
+        autoUserAdopt: args['auto-user-adopt'] === true,
+        loadRegisteredNames: adapters.loadRegisteredNames,
+        recordRow: adapters.recordRow,
+      });
+      cliOutput(
+        { success: true, data: result },
+        { command: 'skills doctor adopt-orphans', operation: 'skills.doctor.adopt-orphans' },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      cliError(message, 'E_INTERNAL_ERROR', undefined, {
+        operation: 'skills.doctor.adopt-orphans',
+      });
+      process.exit(1);
+    }
+  },
+});
+
+/**
  * cleo skills doctor — diagnose and repair skill storage topology (parent group, T9655).
  */
 const doctorCommand = defineCommand({
@@ -419,6 +516,7 @@ const doctorCommand = defineCommand({
   },
   subCommands: {
     bridge: doctorBridgeCommand,
+    'adopt-orphans': doctorAdoptOrphansCommand,
   },
 });
 

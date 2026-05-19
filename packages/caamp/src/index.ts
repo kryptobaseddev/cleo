@@ -6,6 +6,27 @@
  * format-agnostic config read/write operations.
  */
 
+// Skills doctor — adopt-orphans subcommand (T9657)
+export type {
+  AdoptedSkillRowData,
+  DoctorAdoptCliAdapters,
+  DoctorAdoptOptions,
+  DoctorAdoptResult,
+  OrphanActionResult,
+  OrphanDecision,
+  OrphanRecord,
+  OrphanRefusal,
+  RecordRowFn,
+  RegisteredNamesLoader,
+} from './commands/skills/doctor-adopt.js';
+export {
+  applyDecision,
+  caampStandaloneAdapters,
+  discoverOrphans,
+  registerSkillsDoctorAdopt,
+  runDoctorAdopt,
+  writeAuditLog,
+} from './commands/skills/doctor-adopt.js';
 export type {
   BridgeSymlinkRecord,
   DoctorBridgeOptions,
