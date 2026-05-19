@@ -41,7 +41,7 @@
  * @see docs/plans/E-CORE-FIRST-ARCH.md Task 8
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, relative, sep } from 'node:path';
 
 // ============================================================================
@@ -147,15 +147,6 @@ const violations = [];
 function isAllowedPath(relPath) {
   const normalized = relPath.split(sep).join('/');
   return ALLOW_PATH_REGEXES.some((rx) => rx.test(normalized));
-}
-
-function isTestFile(relPath) {
-  const normalized = relPath.split(sep).join('/');
-  return (
-    /__tests__\//.test(normalized) ||
-    /\.test\.(ts|js|mts|mjs)$/.test(normalized) ||
-    /\.spec\.(ts|js|mts|mjs)$/.test(normalized)
-  );
 }
 
 function scanFile(absPath, rules) {
@@ -308,7 +299,9 @@ if (MODE_CHECK) {
   try {
     baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf-8'));
   } catch (err) {
-    process.stderr.write(`[core-first-lint] ERROR: could not parse baseline file: ${err.message}\n`);
+    process.stderr.write(
+      `[core-first-lint] ERROR: could not parse baseline file: ${err.message}\n`,
+    );
     process.exit(1);
   }
 
@@ -322,7 +315,12 @@ if (MODE_CHECK) {
   for (const [key, count] of Object.entries(current)) {
     const baselineCount = baselineCounts[key] ?? 0;
     if (count > baselineCount) {
-      regressions.push({ key, baseline: baselineCount, current: count, delta: count - baselineCount });
+      regressions.push({
+        key,
+        baseline: baselineCount,
+        current: count,
+        delta: count - baselineCount,
+      });
     }
   }
 
