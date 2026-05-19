@@ -641,6 +641,46 @@ export function getProjectRoot(cwd?: string): string {
 }
 
 /**
+ * Resolve an optional caller-provided root, falling back to canonical project root.
+ *
+ * Use this in CORE-layer functions that accept an optional `opts.root` (or
+ * `projectRoot`) parameter where the pre-T9580 pattern was
+ * `opts.root ?? process.cwd()`. Centralizing the fallback through this helper
+ * ensures the canonical 5-tier {@link getProjectRoot} chain
+ * (worktreeScope > CLEO_ROOT > CLEO_DIR > gitlink walk-up > ancestor walk)
+ * runs whenever the caller does not pin an explicit root — so an invocation
+ * from a monorepo sub-directory never silently materializes a rogue
+ * `<subdir>/.cleo/` tree.
+ *
+ * The caller-provided path is trusted as-is (no validation, no normalisation):
+ * orchestrate spawn already hands callers an absolute, canonical root, and
+ * forcing a re-walk would change semantics for explicit overrides.
+ *
+ * @param maybeRoot - Optional absolute path provided by the caller. When it
+ *   is a non-empty string it is returned verbatim. When `undefined`, `null`,
+ *   or the empty string the helper falls through to {@link getProjectRoot}.
+ * @returns The resolved project root.
+ *
+ * @example
+ * ```ts
+ * // Before (T9580 anti-pattern):
+ * const root = opts.root ?? process.cwd();
+ *
+ * // After:
+ * const root = resolveOrCwd(opts.root);
+ * ```
+ *
+ * @task T9584
+ * @related T9580 audit, T9581, T9582, T9583
+ */
+export function resolveOrCwd(maybeRoot?: string | null): string {
+  if (typeof maybeRoot === 'string' && maybeRoot.length > 0) {
+    return maybeRoot;
+  }
+  return getProjectRoot();
+}
+
+/**
  * Resolve a project-relative path to an absolute path.
  *
  * @param relativePath - Path to resolve (relative, absolute, or tilde-prefixed)
