@@ -31,6 +31,7 @@ import {
   rankDocs,
   readJson,
   searchDocs,
+  syncFromGit,
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
@@ -832,22 +833,94 @@ const publishCommand = defineCommand({
   },
 });
 
-// ── Legacy: cleo docs sync ────────────────────────────────────────────────────
+// ── cleo docs sync ────────────────────────────────────────────────────────────
 
-/** cleo docs sync — drift detection between scripts and docs index */
+/**
+ * cleo docs sync — bidirectional surface.
+ *
+ * Two modes, selected by the presence of `--from`:
+ *
+ *   1. Reverse-ingest (`--from <git-path> --for <ownerId>` — T9702):
+ *      Read the git-tracked file, hash its bytes, and write a new blob
+ *      version to the docs SSoT. Idempotent: same content sha → noop.
+ *
+ *   2. Legacy drift check (no `--from`):
+ *      Compare `scripts/` against `COMMANDS-INDEX.json` — pre-existing
+ *      behaviour preserved verbatim for backward compatibility.
+ *
+ * @epic T9626 (W0)
+ * @task T9702 (ST-PUB-2b — reverse-ingest)
+ */
 const syncCommand = defineCommand({
-  meta: { name: 'sync', description: 'Run drift detection between scripts and docs index' },
+  meta: {
+    name: 'sync',
+    description:
+      'Bidirectional docs sync. Use --from <path> --for <ownerId> to ingest a git file as a new blob version. ' +
+      'Without --from, runs the legacy drift check between scripts/ and COMMANDS-INDEX.json.',
+  },
   args: {
+    from: {
+      type: 'string',
+      description:
+        'Git-tracked file path to ingest as a new blob version (triggers reverse-ingest mode)',
+    },
+    for: {
+      type: 'string',
+      description:
+        'Owner entity ID for reverse-ingest mode (T###, ses_*, O-*). Required when --from is set.',
+    },
+    name: {
+      type: 'string',
+      description: 'Override the blob name used in the manifest. Default: basename of --from.',
+    },
+    'content-type': {
+      type: 'string',
+      description:
+        'IANA MIME type recorded with the new blob version (default: application/octet-stream)',
+    },
     quick: {
       type: 'boolean',
-      description: 'Quick check (commands only)',
+      description: 'Legacy mode only: quick check (commands only)',
     },
     strict: {
       type: 'boolean',
-      description: 'Exit with error on any drift',
+      description: 'Legacy mode only: exit with error on any drift',
     },
   },
   async run({ args }) {
+    // Reverse-ingest mode (T9702).
+    if (args.from) {
+      const projectRoot = getProjectRoot();
+      const ownerId = args.for ?? undefined;
+      if (!ownerId) {
+        cliError(
+          '--for <ownerId> is required when --from <path> is set',
+          ExitCode.VALIDATION_ERROR,
+          { name: 'E_VALIDATION' },
+        );
+        process.exit(ExitCode.VALIDATION_ERROR);
+      }
+
+      try {
+        const result = await syncFromGit({
+          ownerId: String(ownerId),
+          fromPath: String(args.from),
+          blobName: args.name ?? undefined,
+          contentType: args['content-type'] ?? undefined,
+          projectRoot,
+        });
+        cliOutput(result, { command: 'docs sync', operation: 'docs.sync' });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        cliError(`docs sync failed: ${message}`, ExitCode.GENERAL_ERROR, {
+          name: 'E_DOCS_SYNC_FAILED',
+        });
+        process.exit(ExitCode.GENERAL_ERROR);
+      }
+      return;
+    }
+
+    // Legacy drift mode (T4551 — preserved unchanged).
     try {
       const projectRoot = process.cwd();
       const result = await detectDrift(projectRoot);
@@ -927,7 +1000,8 @@ const gapCheckCommand = defineCommand({
 });
 
 /**
- * Root docs command group — attachment management, llmtxt primitives, and drift detection.
+ * Root docs command group — attachment management, llmtxt primitives, drift detection,
+ * and git⇄llmtxt round-trip publish + sync per Saga T9625 / Epic T9626.
  *
  * Subcommands: add, list, fetch, remove, generate, export,
  *              search, merge, graph, rank, versions, publish,
