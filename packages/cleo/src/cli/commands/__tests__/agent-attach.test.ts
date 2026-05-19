@@ -12,7 +12,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { agentCommand } from '../agent.js';
 
 // ---------------------------------------------------------------------------
-// Mock @cleocode/core/internal (dynamic import inside run handlers)
+// Mock @cleocode/core/agents (T9620: agent.ts now imports from public barrel)
+// and @cleocode/core/internal for infrastructure symbols (getDb)
 // ---------------------------------------------------------------------------
 
 const mockAttachAgentToProject = vi.fn();
@@ -21,18 +22,27 @@ const mockGetProjectAgentRef = vi.fn();
 const mockLookupAgent = vi.fn();
 const mockGetDb = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('@cleocode/core/internal', () => ({
+// T9620: agent.ts imports agent-specific symbols from @cleocode/core/agents
+vi.mock('@cleocode/core/agents', () => ({
   attachAgentToProject: (...args: unknown[]) => mockAttachAgentToProject(...args),
   detachAgentFromProject: (...args: unknown[]) => mockDetachAgentFromProject(...args),
   getProjectAgentRef: (...args: unknown[]) => mockGetProjectAgentRef(...args),
   lookupAgent: (...args: unknown[]) => mockLookupAgent(...args),
-  getDb: (...args: unknown[]) => mockGetDb(...args),
   AgentRegistryAccessor: function AgentRegistryAccessor() {},
   checkAgentHealth: vi.fn(),
   detectCrashedAgents: vi.fn(),
   detectStaleAgents: vi.fn(),
   getHealthReport: vi.fn(),
   STALE_THRESHOLD_MS: 60_000,
+  createConduit: vi.fn(),
+  buildDoctorReport: vi.fn(),
+  reconcileDoctor: vi.fn(),
+  installAgentFromCant: vi.fn(),
+}));
+
+// @cleocode/core/internal is still used for getDb (core-first-allowed infrastructure)
+vi.mock('@cleocode/core/internal', () => ({
+  getDb: (...args: unknown[]) => mockGetDb(...args),
 }));
 
 // Mock cliOutput so tests can inspect calls without a full renderer stack.
@@ -40,6 +50,8 @@ const mockCliOutput = vi.fn();
 vi.mock('../../renderers/index.js', () => ({
   cliOutput: (...args: unknown[]) => mockCliOutput(...args),
   cliError: vi.fn(),
+  humanWarn: vi.fn(),
+  humanLine: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------

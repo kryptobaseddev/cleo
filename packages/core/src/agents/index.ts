@@ -11,6 +11,33 @@
  * @module agents
  */
 
+// Conduit factory — creates a messaging Conduit from an agent registry.
+export { createConduit } from '../conduit/factory.js';
+// Agent doctor — orphan-row detection and reconciliation.
+export {
+  type BuildDoctorReportOptions,
+  buildDoctorReport,
+  type ReconcileDoctorOptions,
+  type ReconcileDoctorResult,
+  reconcileDoctor,
+} from '../store/agent-doctor.js';
+// Agent installer — .cant/.cantz archive → registry row pipeline.
+export {
+  type InstallAgentFromCantInput,
+  type InstallAgentFromCantResult,
+  installAgentFromCant,
+} from '../store/agent-install.js';
+// === Agent store layer (T9620 — CORE-first promotion from @cleocode/core/internal) ===
+// Agent registry accessor — cross-DB CRUD (global signaldock.db + project conduit.db).
+// CLI agent commands (`packages/cleo`) consume these via @cleocode/core/agents.
+export {
+  AgentRegistryAccessor,
+  attachAgentToProject,
+  detachAgentFromProject,
+  getProjectAgentRef,
+  listAgentsForProject,
+  lookupAgent,
+} from '../store/agent-registry-accessor.js';
 // Load-balancing registry: task-count capacity, specializations, performance recording
 export {
   type AgentCapacity,
