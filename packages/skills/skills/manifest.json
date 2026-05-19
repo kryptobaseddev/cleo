@@ -223,7 +223,12 @@
       "protocol": "specification",
       "loomStage": "specification",
       "adrRefs": ["ADR-014", "ADR-023"],
-      "references": [],
+      "references": [
+        "skills/ct-spec-writer/references/rfc2119-language.md",
+        "skills/ct-spec-writer/references/spec-templates.md",
+        "skills/ct-spec-writer/references/traceability-matrix.md",
+        "skills/ct-spec-writer/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "SPEC_NAME", "spec_topic"],
         "outputs": ["specification-file", "manifest-entry"],
