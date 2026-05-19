@@ -1,15 +1,20 @@
 /**
  * Memory observations API endpoint.
- * GET /api/memory/observations?tier=short&type=episodic&min_quality=0.5 → { observations: BrainObservation[] }
+ * GET /api/memory/observations?tier=short&type=episodic&min_quality=0.5
  *
- * Supports optional query filters: tier, type, min_quality.
+ * Delegates to `@cleocode/core` public memory API (T9615/T9616).
+ * Zero raw SQL in this handler.
+ *
+ * @remarks
+ * The CORE `getObservations` result fields use camelCase; this route
+ * maps them back to snake_case for backward compatibility with Studio UI.
  */
 
+import { getObservations } from '@cleocode/core';
 import { json } from '@sveltejs/kit';
-import { getBrainDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
-/** A single observation record. */
+/** A single observation record (snake_case for back-compat with Studio UI). */
 export interface BrainObservation {
   id: string;
   type: string;
@@ -29,65 +34,58 @@ export interface BrainObservation {
   created_at: string;
 }
 
+/** Response envelope for GET /api/memory/observations. */
 export interface BrainObservationsResponse {
   observations: BrainObservation[];
   total: number;
   filtered: number;
 }
 
-export const GET: RequestHandler = ({ locals, url }) => {
-  const db = getBrainDb(locals.projectCtx);
-  if (!db) {
-    return json({ observations: [], total: 0, filtered: 0 } satisfies BrainObservationsResponse);
-  }
+export const GET: RequestHandler = async ({ locals, url }) => {
+  const tier = url.searchParams.get('tier') ?? undefined;
+  const type = url.searchParams.get('type') ?? undefined;
+  const minQualityRaw = url.searchParams.get('min_quality');
+  const minQuality =
+    minQualityRaw !== null
+      ? (() => {
+          const q = parseFloat(minQualityRaw);
+          return Number.isNaN(q) ? undefined : q;
+        })()
+      : undefined;
 
   try {
-    const tier = url.searchParams.get('tier');
-    const type = url.searchParams.get('type');
-    const minQuality = url.searchParams.get('min_quality');
+    const result = await getObservations({
+      tier,
+      type,
+      minQuality,
+      limit: 200,
+      projectPath: locals.projectCtx.projectPath,
+    });
 
-    const totalRow = db.prepare('SELECT COUNT(*) as cnt FROM brain_observations').get() as {
-      cnt: number;
-    };
-
-    const conditions: string[] = [];
-    const params: (string | number)[] = [];
-
-    if (tier) {
-      conditions.push('memory_tier = ?');
-      params.push(tier);
-    }
-    if (type) {
-      conditions.push('memory_type = ?');
-      params.push(type);
-    }
-    if (minQuality !== null) {
-      const q = parseFloat(minQuality);
-      if (!Number.isNaN(q)) {
-        conditions.push('(quality_score IS NULL OR quality_score >= ?)');
-        params.push(q);
-      }
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const observations = db
-      .prepare(
-        `SELECT id, type, title, subtitle, narrative, project,
-                quality_score, memory_tier, memory_type, verified,
-                valid_at, invalid_at, source_confidence, citation_count,
-                prune_candidate, created_at
-         FROM brain_observations
-         ${whereClause}
-         ORDER BY created_at DESC
-         LIMIT 200`,
-      )
-      .all(...params) as BrainObservation[];
+    // Map camelCase CORE result to snake_case for UI back-compat.
+    const observations: BrainObservation[] = result.observations.map((o) => ({
+      id: o.id,
+      type: o.type,
+      title: o.title,
+      subtitle: o.subtitle,
+      narrative: o.narrative,
+      project: o.project,
+      quality_score: o.qualityScore,
+      memory_tier: o.memoryTier,
+      memory_type: o.memoryType,
+      verified: o.verified,
+      valid_at: o.validAt,
+      invalid_at: o.invalidAt,
+      source_confidence: o.sourceConfidence,
+      citation_count: o.citationCount,
+      prune_candidate: o.pruneCandidate,
+      created_at: o.createdAt,
+    }));
 
     return json({
       observations,
-      total: totalRow.cnt,
-      filtered: observations.length,
+      total: result.total,
+      filtered: result.filtered,
     } satisfies BrainObservationsResponse);
   } catch {
     return json({ observations: [], total: 0, filtered: 0 } satisfies BrainObservationsResponse);

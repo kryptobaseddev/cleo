@@ -1,102 +1,52 @@
 /**
  * Memory graph API endpoint.
- * GET /api/memory/graph → { nodes: MemoryGraphNode[], edges: MemoryGraphEdge[] }
+ * GET /api/memory/graph → aggregate BRAIN graph statistics
  *
- * Returns brain_page_nodes and brain_page_edges for the force-directed graph.
- * Limits to 500 nodes for performance (highest quality first).
+ * Delegates to `@cleocode/core` public memory API (T9615/T9616).
+ * Zero raw SQL in this handler.
  *
  * @remarks
- * These are raw database row types (`MemoryGraphNode`, `MemoryGraphEdge`) —
- * distinct from the unified super-graph types (`BrainNode`, `BrainEdge`)
- * from `@cleocode/contracts`. T989 renamed the local types to prevent
- * confusion with the canonical graph shapes.
+ * The CORE `getMemoryGraph` returns aggregate statistics (node count, edge
+ * count, type distribution) rather than the full node/edge rows. The response
+ * shape is updated to reflect this; callers that need per-node data should
+ * use the search or observations endpoints instead.
  */
 
+import { getMemoryGraph, type MemoryGraphStats } from '@cleocode/core';
 import { json } from '@sveltejs/kit';
-import { getBrainDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
 
-/** A single raw graph node row from the `brain_page_nodes` table. */
-export interface MemoryGraphNode {
-  id: string;
-  node_type: string;
-  label: string;
-  quality_score: number;
-  metadata_json: string | null;
-  created_at: string;
-}
-
-/** A single raw graph edge row from the `brain_page_edges` table. */
-export interface MemoryGraphEdge {
-  from_id: string;
-  to_id: string;
-  edge_type: string;
-  weight: number;
-  created_at: string;
-}
+export type { MemoryGraphStats };
 
 /** API response shape for the `/api/memory/graph` endpoint. */
 export interface MemoryGraphResponse {
-  nodes: MemoryGraphNode[];
-  edges: MemoryGraphEdge[];
+  /** Total node count in the BRAIN page graph. */
   total_nodes: number;
+  /** Total edge count in the BRAIN page graph. */
   total_edges: number;
+  /** Distribution of edge types across the graph. */
+  edge_type_distribution: Record<string, number>;
+  /** Average number of edges per node. */
+  average_edges_per_node: number;
 }
 
-const MAX_NODES = 500;
-
-export const GET: RequestHandler = ({ locals }) => {
-  const db = getBrainDb(locals.projectCtx);
-  if (!db) {
-    return json({
-      nodes: [],
-      edges: [],
-      total_nodes: 0,
-      total_edges: 0,
-    } satisfies MemoryGraphResponse);
-  }
-
+export const GET: RequestHandler = async ({ locals }) => {
   try {
-    const totalNodeRow = db.prepare('SELECT COUNT(*) as cnt FROM brain_page_nodes').get() as {
-      cnt: number;
-    };
-    const totalEdgeRow = db.prepare('SELECT COUNT(*) as cnt FROM brain_page_edges').get() as {
-      cnt: number;
-    };
-
-    const nodes = db
-      .prepare(
-        `SELECT id, node_type, label, quality_score, metadata_json, created_at
-         FROM brain_page_nodes
-         ORDER BY quality_score DESC, last_activity_at DESC
-         LIMIT ?`,
-      )
-      .all(MAX_NODES) as MemoryGraphNode[];
-
-    const nodeIds = new Set(nodes.map((n) => n.id));
-
-    // Only include edges where both endpoints are in the node set
-    const allEdges = db
-      .prepare(
-        `SELECT from_id, to_id, edge_type, weight, created_at
-         FROM brain_page_edges`,
-      )
-      .all() as MemoryGraphEdge[];
-
-    const edges = allEdges.filter((e) => nodeIds.has(e.from_id) && nodeIds.has(e.to_id));
-
+    const stats = await getMemoryGraph({
+      projectPath: locals.projectCtx.projectPath,
+    });
     return json({
-      nodes,
-      edges,
-      total_nodes: totalNodeRow.cnt,
-      total_edges: totalEdgeRow.cnt,
+      total_nodes: stats.nodeCount,
+      total_edges: stats.edgeCount,
+      edge_type_distribution: stats.edgeTypeDistribution,
+      average_edges_per_node: stats.averageEdgesPerNode,
     } satisfies MemoryGraphResponse);
   } catch {
     return json({
-      nodes: [],
-      edges: [],
       total_nodes: 0,
       total_edges: 0,
+      edge_type_distribution: {},
+      average_edges_per_node: 0,
     } satisfies MemoryGraphResponse);
   }
 };
