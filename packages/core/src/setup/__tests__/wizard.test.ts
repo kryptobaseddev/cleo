@@ -231,6 +231,20 @@ describe('WizardRunner — registration + dispatch', () => {
 // ---------------------------------------------------------------------------
 
 describe('llm section', () => {
+  it('isConfigured(): returns false before any credential, true after write (LLM-7)', async () => {
+    makeTempRoot();
+    const section = createLlmSection();
+    const before = await section.isConfigured!({});
+    expect(before).toBe(false);
+    const io = new StubWizardIO({
+      selects: ['openai', 'api_key'],
+      prompts: ['my-label', 'sk-openai-XYZ'],
+    });
+    await section.run(io, {});
+    const after = await section.isConfigured!({});
+    expect(after).toBe(true);
+  });
+
   it('non-interactive: writes API key to credential pool', async () => {
     makeTempRoot();
     const runner = new WizardRunner([createLlmSection()]);
@@ -273,9 +287,73 @@ describe('llm section', () => {
     expect(result.changed).toBe(true);
     expect(result.summary).toContain('added openai:my-openai-key');
   });
+
+  it('interactive: pool-seeding consent prompt fires for anthropic (LLM-5)', async () => {
+    const { root } = makeTempRoot();
+    const runner = new WizardRunner([createLlmSection()]);
+    const io = new StubWizardIO({
+      selects: ['anthropic', 'api_key'],
+      prompts: ['my-ant-key', 'sk-ant-XXXX'],
+      confirms: [true], // consent
+    });
+    const result = await runner.runSection('llm', io);
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('added anthropic:my-ant-key');
+    // Consent must be persisted to auth.poolSeedingConsent in global config.
+    const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+      auth?: { poolSeedingConsent?: boolean };
+    };
+    expect(cfg.auth?.poolSeedingConsent).toBe(true);
+  });
+
+  it('interactive: bracketed paste sequences stripped from API key (LLM-4)', async () => {
+    makeTempRoot();
+    const runner = new WizardRunner([createLlmSection()]);
+    // Simulate pasted key with bracketed paste escape sequences.
+    const io = new StubWizardIO({
+      selects: ['openai', 'api_key'],
+      prompts: ['paste-test', '\x1b[200~sk-openai-PASTED\x1b[201~'],
+    });
+    await runner.runSection('llm', io);
+    const { getCredentialPool } = await import('../../llm/credential-pool.js');
+    const entries = await getCredentialPool().list();
+    const match = entries.find((e) => e.label === 'paste-test');
+    expect(match?.accessToken).toBe('sk-openai-PASTED');
+  });
+
+  it('non-interactive: poolSeedingConsent written when provided (LLM-6)', async () => {
+    const { root } = makeTempRoot();
+    const runner = new WizardRunner([createLlmSection()]);
+    const io = new StubWizardIO();
+    await runner.runSection('llm', io, {
+      nonInteractive: true,
+      provider: 'anthropic',
+      apiKey: 'sk-ant-test-consent',
+      label: 'consent-test',
+      poolSeedingConsent: false,
+    });
+    const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+      auth?: { poolSeedingConsent?: boolean };
+    };
+    expect(cfg.auth?.poolSeedingConsent).toBe(false);
+  });
 });
 
 describe('identity section', () => {
+  it('isConfigured(): returns false before agent name is set, true after write (IDENT-6)', async () => {
+    const { projectRoot } = makeTempRoot();
+    const section = createIdentitySection();
+    const before = await section.isConfigured!({ projectRoot });
+    expect(before).toBe(false);
+    const io = new StubWizardIO({
+      prompts: ['Atlas'],
+      confirms: [false, false], // no SOUL.md, no SignalDock
+    });
+    await section.run(io, { projectRoot });
+    const after = await section.isConfigured!({ projectRoot });
+    expect(after).toBe(true);
+  });
+
   it('non-interactive: writes agent.name to global config and skips SOUL.md when blank', async () => {
     const { root, projectRoot } = makeTempRoot();
     const runner = new WizardRunner([createIdentitySection()]);
@@ -322,9 +400,44 @@ describe('identity section', () => {
     expect(result.changed).toBe(false);
     expect(result.summary).toMatch(/^skipped/);
   });
+
+  it('interactive: SignalDock registration confirm emits note (IDENT-5)', async () => {
+    const { projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createIdentitySection()]);
+    const io = new StubWizardIO({
+      prompts: ['Hermes'],
+      confirms: [false, true], // no SOUL.md, yes SignalDock
+    });
+    await runner.runSection('identity', io, { projectRoot });
+    expect(io.infos.some((m) => m.includes('cleo signaldock connect'))).toBe(true);
+  });
+
+  it('non-interactive: signaldockAutoConnect=true emits note (IDENT-5)', async () => {
+    const { projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createIdentitySection()]);
+    const io = new StubWizardIO();
+    await runner.runSection('identity', io, {
+      nonInteractive: true,
+      agentName: 'Zeus',
+      signaldockAutoConnect: true,
+      projectRoot,
+    });
+    expect(io.infos.some((m) => m.includes('cleo signaldock connect'))).toBe(true);
+  });
 });
 
 describe('sentient section', () => {
+  it('isConfigured(): returns false before state file exists, true after write (SENT-5)', async () => {
+    const { projectRoot } = makeTempRoot();
+    const section = createSentientSection();
+    const before = await section.isConfigured!({ projectRoot });
+    expect(before).toBe(false);
+    const io = new StubWizardIO({ confirms: [false, false] });
+    await section.run(io, { projectRoot });
+    const after = await section.isConfigured!({ projectRoot });
+    expect(after).toBe(true);
+  });
+
   it('non-interactive: writes killSwitch + tier2 to sentient-state.json', async () => {
     const { projectRoot } = makeTempRoot();
     const runner = new WizardRunner([createSentientSection()]);
@@ -408,6 +521,49 @@ describe('project-conventions section', () => {
     expect(result.changed).toBe(false);
     expect(result.summary).toMatch(/^skipped/);
   });
+
+  it('isConfigured(): returns false before preset applied, true after write (PROJ-5)', async () => {
+    const { projectRoot } = makeTempRoot();
+    const section = createProjectConventionsSection();
+    const before = await section.isConfigured!({ projectRoot });
+    expect(before).toBe(false);
+    // Interactive: select preset + keep both overrides as preset-default.
+    const io = new StubWizardIO({
+      selects: ['standard', 'keep-preset-default', 'keep-preset-default'],
+    });
+    await section.run(io, { projectRoot });
+    const after = await section.isConfigured!({ projectRoot });
+    expect(after).toBe(true);
+  });
+
+  it('non-interactive: acEnforcementMode and sessionAutoStart overrides applied (PROJ-4)', async () => {
+    const { projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createProjectConventionsSection()]);
+    const io = new StubWizardIO();
+    const result = await runner.runSection('project-conventions', io, {
+      nonInteractive: true,
+      strictness: 'standard',
+      acEnforcementMode: 'block',
+      sessionAutoStart: true,
+      projectRoot,
+    });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('set enforcement.acceptance.mode=block');
+    expect(result.summary).toContain('set session.autoStart=true');
+  });
+
+  it('interactive: AC and session overrides applied when user provides them (PROJ-3)', async () => {
+    const { projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createProjectConventionsSection()]);
+    const io = new StubWizardIO({
+      selects: ['minimal', 'warn', 'no'],
+    });
+    const result = await runner.runSection('project-conventions', io, { projectRoot });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain("applied 'minimal' preset");
+    expect(result.summary).toContain('set enforcement.acceptance.mode=warn');
+    expect(result.summary).toContain('set session.autoStart=false');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -415,6 +571,19 @@ describe('project-conventions section', () => {
 // ---------------------------------------------------------------------------
 
 describe('harness section', () => {
+  it('isConfigured(): returns false before harness is set, true after write (HARN-6)', async () => {
+    const { projectRoot } = makeTempRoot();
+    delete process.env['CLEO_HARNESS'];
+    const section = createHarnessSection();
+    const before = await section.isConfigured!({ projectRoot });
+    expect(before).toBe(false);
+    // claude-code selection doesn't prompt for URL
+    const io = new StubWizardIO({ selects: ['claude-code'] });
+    await section.run(io, { projectRoot });
+    const after = await section.isConfigured!({ projectRoot });
+    expect(after).toBe(true);
+  });
+
   it('non-interactive: writes harness.active to global config', async () => {
     const { root, projectRoot } = makeTempRoot();
     const runner = new WizardRunner([createHarnessSection()]);
@@ -473,9 +642,48 @@ describe('harness section', () => {
     const { projectRoot } = makeTempRoot();
     delete process.env['CLEO_HARNESS'];
     const runner = new WizardRunner([createHarnessSection()]);
-    const io = new StubWizardIO({ selects: ['pi'] });
+    // Selecting 'pi' now also prompts for Pi URL (HARN-3); provide empty to accept default.
+    const io = new StubWizardIO({ selects: ['pi'], prompts: [''] });
     await runner.runSection('harness', io, { projectRoot });
     expect(io.infos.some((m) => m.includes('Current harness: unknown'))).toBe(true);
+  });
+
+  it('interactive: Pi URL prompt is persisted to global config when pi is selected (HARN-3)', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    delete process.env['CLEO_HARNESS'];
+    const runner = new WizardRunner([createHarnessSection()]);
+    const io = new StubWizardIO({ selects: ['pi'], prompts: ['http://localhost:9999'] });
+    const result = await runner.runSection('harness', io, { projectRoot });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('set harness.piUrl=http://localhost:9999');
+    const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+      harness?: { piUrl?: string };
+    };
+    expect(cfg.harness?.piUrl).toBe('http://localhost:9999');
+  });
+
+  it('interactive: invalid Pi URL falls back to default (HARN-3)', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    delete process.env['CLEO_HARNESS'];
+    const runner = new WizardRunner([createHarnessSection()]);
+    const io = new StubWizardIO({ selects: ['pi'], prompts: ['not-a-url'] });
+    const result = await runner.runSection('harness', io, { projectRoot });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('used default');
+    expect(io.warns.some((m) => m.includes('Invalid Pi URL'))).toBe(true);
+    const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+      harness?: { piUrl?: string };
+    };
+    expect(cfg.harness?.piUrl).toBe('http://localhost:7800');
+  });
+
+  it('interactive: claude-code selection emits harness doctor note (HARN-4)', async () => {
+    const { projectRoot } = makeTempRoot();
+    delete process.env['CLEO_HARNESS'];
+    const runner = new WizardRunner([createHarnessSection()]);
+    const io = new StubWizardIO({ selects: ['claude-code'] });
+    await runner.runSection('harness', io, { projectRoot });
+    expect(io.infos.some((m) => m.includes('cleo harness doctor'))).toBe(true);
   });
 });
 
@@ -549,11 +757,91 @@ describe('brain section', () => {
   it('interactive: select prompt drives the mode pick + reports current mode', async () => {
     const { projectRoot } = makeTempRoot();
     const runner = new WizardRunner([createBrainSection()]);
-    const io = new StubWizardIO({ selects: ['file'] });
+    // Brain section now also prompts for retention days (prompt) and embedding toggle (confirm).
+    const io = new StubWizardIO({
+      selects: ['file'],
+      prompts: ['0'],
+      confirms: [true],
+    });
     const result = await runner.runSection('brain', io, { projectRoot });
     expect(result.changed).toBe(true);
     expect(result.summary).toContain('set brain.memoryBridge.mode=file');
     // Default mode is 'cli' which surfaces as 'digest' to the operator.
     expect(io.infos.some((m) => m.includes('Current BRAIN bridge mode: digest'))).toBe(true);
+  });
+
+  it('interactive: retention days are persisted to global config (BRAIN-3)', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createBrainSection()]);
+    const io = new StubWizardIO({
+      selects: ['digest'],
+      prompts: ['30'],
+      confirms: [false],
+    });
+    const result = await runner.runSection('brain', io, { projectRoot });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('set brain.retention.days=30');
+
+    const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+      brain?: { retention?: { days?: number } };
+    };
+    expect(cfg.brain?.retention?.days).toBe(30);
+  });
+
+  it('interactive: embedding toggle is persisted to global config (BRAIN-4)', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createBrainSection()]);
+    const io = new StubWizardIO({
+      selects: ['digest'],
+      prompts: ['0'],
+      confirms: [true],
+    });
+    const result = await runner.runSection('brain', io, { projectRoot });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('set brain.embedding.enabled=true');
+
+    const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+      brain?: { embedding?: { enabled?: boolean } };
+    };
+    expect(cfg.brain?.embedding?.enabled).toBe(true);
+  });
+
+  it('non-interactive: brainRetentionDays and brainEmbeddingEnabled from options (BRAIN-5)', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createBrainSection()]);
+    const io = new StubWizardIO();
+    const result = await runner.runSection('brain', io, {
+      nonInteractive: true,
+      brainBridgeMode: 'digest',
+      brainRetentionDays: 7,
+      brainEmbeddingEnabled: false,
+      projectRoot,
+    });
+    expect(result.changed).toBe(true);
+    expect(result.summary).toContain('set brain.retention.days=7');
+    expect(result.summary).toContain('set brain.embedding.enabled=false');
+
+    const cfg = JSON.parse(readFileSync(join(root, 'cleo-home', 'config.json'), 'utf-8')) as {
+      brain?: { retention?: { days?: number }; embedding?: { enabled?: boolean } };
+    };
+    expect(cfg.brain?.retention?.days).toBe(7);
+    expect(cfg.brain?.embedding?.enabled).toBe(false);
+  });
+
+  it('isConfigured(): returns false before any write, true after write (BRAIN-6)', async () => {
+    const { projectRoot } = makeTempRoot();
+    const section = createBrainSection();
+    // Before write: returns false (no global config exists yet).
+    const before = await section.isConfigured!({ projectRoot });
+    expect(before).toBe(false);
+    // After write: returns true.
+    const io = new StubWizardIO({
+      selects: ['digest'],
+      prompts: ['0'],
+      confirms: [false],
+    });
+    await section.run(io, { projectRoot });
+    const after = await section.isConfigured!({ projectRoot });
+    expect(after).toBe(true);
   });
 });
