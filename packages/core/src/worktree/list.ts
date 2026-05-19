@@ -28,8 +28,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   type EngineResult,
@@ -113,11 +113,20 @@ export async function listWorktrees(
   // `branchIsMergedToMain` would otherwise spuriously throw for every entry.
   const mainBranch = resolveMainBranch(projectRoot);
 
+  // Pre-resolve the primary worktree path. The primary worktree is the
+  // canonical project checkout (NOT a `git worktree add` derivative) — it
+  // must never be classified as `merged`/`orphan`/`stale`, even though its
+  // branch (typically `main`) is trivially an ancestor of itself. Without
+  // this guard, `cleo worktree prune --orphaned` would offer to delete the
+  // project root.
+  const primaryWorktreePath = resolvePrimaryWorktreePath(projectRoot);
+
   const worktrees: WorktreeInfo[] = porcelainEntries.map((entry) => {
     const taskId = branchToTaskId.get(entry.branch) ?? null;
     const lastActivityMs =
       getLastCommitTimestampMs(entry.branch, projectRoot) ?? mtimeMs(entry.path);
     const lastActivity = new Date(lastActivityMs).toISOString();
+    const isPrimary = isPrimaryWorktree(entry.path, primaryWorktreePath);
     const isMerged = mainBranch
       ? branchIsMergedToMain(entry.branch, projectRoot, mainBranch)
       : false;
@@ -133,6 +142,7 @@ export async function listWorktrees(
     const isStale = idleOlderThanThreshold && (ownerTerminal || isMerged);
 
     const statusCategory = classifyStatus({
+      isPrimary,
       isLocked: entry.locked,
       isOrphan,
       isMerged,
@@ -306,16 +316,23 @@ export function branchIsMergedToMain(
  * mutually-exclusive `statusCategory` field. See the {@link WorktreeStatusCategory}
  * docstring for the resolution order.
  *
+ * Primary-worktree guard: the canonical project checkout is always classified
+ * as `active`, regardless of merge state. The primary worktree's branch is
+ * trivially an ancestor of itself (`main` is reachable from `main`), so the
+ * naive ancestry check would label it `merged` and make it a prune candidate.
+ *
  * @param flags - The set of pre-computed boolean classifiers.
  * @returns The resolved status category.
  * @internal Exported for tests only.
  */
 export function classifyStatus(flags: {
+  isPrimary?: boolean;
   isLocked: boolean;
   isOrphan: boolean;
   isMerged: boolean;
   isStale: boolean;
 }): WorktreeStatusCategory {
+  if (flags.isPrimary === true) return 'active';
   if (flags.isLocked) return 'locked';
   if (flags.isOrphan) return 'orphan';
   if (flags.isMerged) return 'merged';
@@ -420,5 +437,65 @@ function resolveMainBranch(projectRoot: string): string | null {
     return DEFAULT_MAIN_BRANCH;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Resolve the canonical primary worktree path — i.e. the directory containing
+ * the repository's `.git` directory (not a `.git` file pointing into
+ * `.git/worktrees/<name>`).
+ *
+ * Implementation: `git rev-parse --path-format=absolute --git-common-dir`
+ * returns the absolute path to `.git` regardless of which worktree the
+ * command is invoked from. The primary worktree is the parent of that path.
+ *
+ * Falls back to null on failure — callers treat missing detection as "do
+ * nothing special" (no primary guard applied). This is safe: every worktree
+ * still gets classified, just the same way the old code did.
+ *
+ * @param projectRoot - Project root for the git invocation.
+ * @returns Absolute path to the primary worktree, or null on failure.
+ * @internal Exported for tests only.
+ */
+export function resolvePrimaryWorktreePath(projectRoot: string): string | null {
+  try {
+    const commonDir = execFileSync(
+      'git',
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        timeout: GIT_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    ).trim();
+    if (!commonDir) return null;
+    // The primary worktree is the parent of `.git` (or `.git/`). Strip the
+    // trailing `/.git` segment to recover the worktree path itself.
+    const normalized = commonDir.replace(/\/?\.git\/?$/, '');
+    return normalized || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Test whether the given worktree path is the canonical primary worktree.
+ *
+ * Compares both raw and `realpath`-resolved variants to handle the common
+ * case where the project root is symlinked or contains symlinked ancestors.
+ *
+ * @param worktreePath - Path from `git worktree list --porcelain`.
+ * @param primaryPath - Output of {@link resolvePrimaryWorktreePath}, or null.
+ * @returns true iff the two paths resolve to the same canonical location.
+ * @internal Exported for tests only.
+ */
+export function isPrimaryWorktree(worktreePath: string, primaryPath: string | null): boolean {
+  if (primaryPath === null) return false;
+  if (resolvePath(worktreePath) === resolvePath(primaryPath)) return true;
+  try {
+    return realpathSync(worktreePath) === realpathSync(primaryPath);
+  } catch {
+    return false;
   }
 }

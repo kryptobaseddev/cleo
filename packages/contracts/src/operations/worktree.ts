@@ -359,11 +359,17 @@ export interface PruneWorktreesResult {
  * heuristics in {@link WorktreeInfo}.
  *
  * Resolution precedence (first match wins):
- *  1. `locked` — git porcelain reports the worktree is locked.
- *  2. `orphan` — owning task is cancelled OR the branch has been deleted.
- *  3. `merged` — the branch is reachable from `main` (already integrated).
- *  4. `stale`  — no commits in N days AND (task=done OR no live owner).
- *  5. `active` — everything else (default).
+ *  1. `active` — primary worktree guard: the canonical project checkout
+ *     (the directory containing `.git/`, not a `git worktree add` derivative)
+ *     is ALWAYS active, regardless of merge state. Without this guard the
+ *     `main` branch would classify as `merged` (it is trivially its own
+ *     ancestor) and `cleo worktree prune --orphaned` would offer to delete
+ *     the project root. (T9686-D)
+ *  2. `locked` — git porcelain reports the worktree is locked.
+ *  3. `orphan` — owning task is cancelled OR the branch has been deleted.
+ *  4. `merged` — the branch is reachable from `main` (already integrated).
+ *  5. `stale`  — no commits in N days AND (task=done OR no live owner).
+ *  6. `active` — everything else (default).
  *
  * @task T9546
  */

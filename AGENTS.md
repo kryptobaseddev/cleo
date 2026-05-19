@@ -126,45 +126,65 @@ The `cleo sentient` subsystem manages autonomous task proposals.
 Tier-2 proposals are **disabled by default**. Enable them with `cleo sentient propose enable`.
 The kill-switch (`cleo sentient kill`) is always respected regardless of Tier-2 state.
 
-## Release & Branching (ADR-065)
+## Release & Branching (ADR-065, SPEC-T9345)
 
-All releases flow through a PR-gated pipeline. Direct pushes to `main` are prohibited.
+All releases flow through a PR-gated pipeline. Direct pushes to `main` are
+prohibited. The current pipeline uses the 4-verb model — `plan` → `open` →
+`reconcile` (or `rollback`) — introduced by SPEC-T9345 and finalized when
+T9540 removed the legacy `start` / `verify` / `publish` verbs.
 
 ### Branch Conventions
 
-- **Feature work**: `feat/T####-<slug>` branches
-- **Release branches**: automatically cut by `cleo release ship` as `release/v<version>`
+- **Feature work**: `feat/T####-<slug>` or `task/T####-<slug>` branches
+- **Release branches**: cut by the `release-prepare` GitHub Actions workflow
+  (dispatched by `cleo release open`) as `release/v<version>`
 - **Main branch**: receives merges only from reviewed, CI-green PRs
 
 ### Shipping a Release
 
 ```bash
-# 1. Prepare the release handle
-cleo release start v2026.MM.N
+# 1. Plan — build the canonical Release Plan envelope.
+#    Writes `.cleo/release/v<version>.plan.json` and persists one row in
+#    `releases` with status='planned'. Read-mostly: no git mutations,
+#    no `gh` calls, no network.
+cleo release plan v2026.MM.N --epic TXXXX
 
-# 2. Run gates + epic completeness check
-cleo release verify
+# 2. Open — dispatch the release-prepare GHA workflow. The workflow cuts
+#    `release/v<version>`, commits changelog + version bump, pushes the
+#    branch, and opens the PR. `releases.status` advances to 'pr-opened'.
+#    Use `--commit-plan` to commit the plan file in the same step.
+cleo release open v2026.MM.N
 
-# 3. Ship — cuts release/vX.Y.Z, opens PR, waits for CI, merges + tags
-cleo release ship 2026.MM.N --epic TXXXX
+# 3. (Optional) Poll PR + CI status while the workflow runs.
+cleo release pr-status v2026.MM.N
 
-# 4. Poll CI status while waiting
-cleo release pr-status 2026.MM.N
+# 4. Reconcile — after the PR merges and the release-publish workflow
+#    pushes the tag, reconcile backfills the 11 provenance tables.
+#    Typically invoked by the publish workflow itself; can be run
+#    manually with --from-workflow=false.
+cleo release reconcile v2026.MM.N
 ```
 
-`cleo release ship` performs these 12 steps automatically:
-1. Prepare (validate version, changelog)
-2. Run quality gates (lint, typecheck, tests)
-3. IVTR loop check
-4. Epic completeness check
-5. Double-listing guard
-6. CHANGELOG generation (tasks filtered by `completedAt > previousVersion.pushedAt`)
-7. Biome lint pass
-8. Cut `release/v<version>` branch
-9. Commit changelog + version bump
-10. Push branch + open PR via `gh`
-11. Wait for CI green (15-minute timeout)
-12. Merge (--merge) + tag from main + cleanup
+### Per-task evidence gating
+
+Per-task quality gates are no longer batched at release time. The legacy
+`cleo release verify` verb was removed in T9540; each task's gates must be
+recorded individually via the ADR-051 evidence-based ritual BEFORE
+completion:
+
+```bash
+# Per-task — runs once per gate, with programmatic evidence.
+cleo verify T#### --gate implemented --evidence "commit:<sha>;files:..."
+cleo verify T#### --gate testsPassed --evidence "tool:test"
+cleo verify T#### --gate qaPassed --evidence "tool:lint;tool:typecheck"
+cleo verify T#### --gate documented --evidence "files:..."
+
+# Then mark the task done. CLEO re-validates every hard atom on complete.
+cleo complete T####
+```
+
+See "Pre-Complete Gate Ritual (ADR-051)" in the protocol injection for the
+full atom grammar and tool-resolution rules.
 
 ### Rules
 
@@ -172,6 +192,9 @@ cleo release pr-status 2026.MM.N
 - `gh` CLI must be authenticated (`gh auth status`)
 - Branch model is configurable: `cleo config set release.branchModel feat-to-main`
 - To check in-flight PR CI status: `cleo release pr-status <version>`
+- `cleo release ship` is **[DEPRECATED]** — it forwards to `plan` + `open`
+  but emits a deprecation warning and will be removed no earlier than the
+  third release cycle after T9498. Prefer the explicit two-verb invocation.
 
 ### Branch Protection
 
