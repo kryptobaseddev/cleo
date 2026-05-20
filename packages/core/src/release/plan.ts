@@ -51,7 +51,7 @@ import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDb } from '../store/sqlite.js';
-import { type NewReleaseRow, type ReleaseRow, releasesNew } from '../store/tasks-schema.js';
+import { type NewReleaseRow, type ReleaseRow, releases } from '../store/tasks-schema.js';
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { runGitWithLockRetry } from './engine-ops.js';
 import { loadReleaseConfig } from './release-config.js';
@@ -554,9 +554,9 @@ async function resolvePreviousVersion(
   const db = await getDb(projectRoot);
   const rows: ReleaseRow[] = await db
     .select()
-    .from(releasesNew)
-    .where(and(eq(releasesNew.channel, channel), eq(releasesNew.status, 'reconciled')))
-    .orderBy(desc(releasesNew.publishedAt))
+    .from(releases)
+    .where(and(eq(releases.channel, channel), eq(releases.status, 'reconciled')))
+    .orderBy(desc(releases.publishedAt))
     .limit(1)
     .all();
   const prior = rows[0];
@@ -628,10 +628,10 @@ async function upsertReleasesRow(
     projectHash,
   };
   await db
-    .insert(releasesNew)
+    .insert(releases)
     .values(row)
     .onConflictDoUpdate({
-      target: releasesNew.version,
+      target: releases.version,
       set: {
         scheme: row.scheme,
         channel: row.channel,

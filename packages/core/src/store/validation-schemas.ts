@@ -73,7 +73,7 @@ import {
   lifecycleTransitions,
   manifestEntries,
   pipelineManifest,
-  releaseManifests,
+  releases,
   SYNC_DIRECTIONS,
   schemaMeta,
   sessions,
@@ -393,20 +393,22 @@ export const selectPipelineManifestSchema = createSelectSchema(
 
 // === RELEASE MANIFESTS ===
 
-/** Release manifest refinements — semver format for version. */
-const releaseManifestRefinements = {
+/**
+ * Release row refinements — accepts both calver (`v2026.5.99` / `2026.5.99`)
+ * and semver (`v1.2.3` / `1.2.3`) version strings; the optional leading `v`
+ * is permitted to match the storage format used by both the new pipeline
+ * and the legacy-migrated rows.
+ *
+ * @task T9686 (unified after `release_manifests` was merged into `releases`)
+ */
+const releaseRefinements = {
   id: (s: z.ZodString) => s.min(1),
-  version: (s: z.ZodString) => s.regex(/^\d{4}\.\d+\.\d+$|^\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$/),
+  version: (s: z.ZodString) =>
+    s.regex(/^v?\d{4}\.\d+\.\d+$|^v?\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$/),
 };
 
-export const insertReleaseManifestSchema = createInsertSchema(
-  releaseManifests,
-  releaseManifestRefinements,
-);
-export const selectReleaseManifestSchema = createSelectSchema(
-  releaseManifests,
-  releaseManifestRefinements,
-);
+export const insertReleaseSchema = createInsertSchema(releases, releaseRefinements);
+export const selectReleaseSchema = createSelectSchema(releases, releaseRefinements);
 
 // === EXTERNAL TASK LINKS ===
 
@@ -513,8 +515,8 @@ export type SelectManifestEntry = z.infer<typeof selectManifestEntrySchema>;
 export type InsertPipelineManifest = z.infer<typeof insertPipelineManifestSchema>;
 export type SelectPipelineManifest = z.infer<typeof selectPipelineManifestSchema>;
 
-export type InsertReleaseManifest = z.infer<typeof insertReleaseManifestSchema>;
-export type SelectReleaseManifest = z.infer<typeof selectReleaseManifestSchema>;
+export type InsertRelease = z.infer<typeof insertReleaseSchema>;
+export type SelectRelease = z.infer<typeof selectReleaseSchema>;
 
 export type InsertExternalTaskLink = z.infer<typeof insertExternalTaskLinkSchema>;
 export type SelectExternalTaskLink = z.infer<typeof selectExternalTaskLinkSchema>;

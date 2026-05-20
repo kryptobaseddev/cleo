@@ -493,7 +493,7 @@ describe('T9507 fresh migration apply — all 3 PR tables created', () => {
     nativeDb.close();
   });
 
-  it('legacy release_manifests and commits tables are untouched after PR provenance migrations', async () => {
+  it('T9686-B2: `release_manifests` is dropped, `commits` is untouched after PR provenance migrations', async () => {
     const { openNativeDatabase } = await import('../sqlite.js');
     const { drizzle } = await import('drizzle-orm/node-sqlite');
     const { reconcileJournal, migrateSanitized } = await import('../migration-manager.js');
@@ -506,21 +506,22 @@ describe('T9507 fresh migration apply — all 3 PR tables created', () => {
     reconcileJournal(nativeDb, migrationsFolder, 'tasks', 'tasks');
     migrateSanitized(db, { migrationsFolder });
 
-    // release_manifests must still exist and contain its key columns
+    // Legacy `release_manifests` must NO LONGER exist after T9686-B2.
     const rmRow = nativeDb
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='release_manifests'")
       .get() as { name: string } | undefined;
-    expect(rmRow?.name).toBe('release_manifests');
+    expect(rmRow, 'release_manifests must be dropped by T9686-B2').toBeUndefined();
 
-    const rmCols = nativeDb.prepare('PRAGMA table_info(release_manifests)').all() as Array<{
+    // The canonical `releases` table carries the legacy columns now.
+    const releasesCols = nativeDb.prepare('PRAGMA table_info(releases)').all() as Array<{
       name: string;
     }>;
-    const rmColNames = rmCols.map((c) => c.name);
-    expect(rmColNames).toContain('id');
-    expect(rmColNames).toContain('version');
-    expect(rmColNames).toContain('tasks_json');
+    const releasesColNames = releasesCols.map((c) => c.name);
+    expect(releasesColNames).toContain('id');
+    expect(releasesColNames).toContain('version');
+    expect(releasesColNames).toContain('tasks_json');
 
-    // T9506 commits table must also still exist
+    // T9506 commits table must still exist (untouched by T9686-B2).
     const commitsRow = nativeDb
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='commits'")
       .get() as { name: string } | undefined;

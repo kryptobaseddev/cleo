@@ -1,5 +1,43 @@
 # Changelog
 
+## [unreleased] — T9686-B2 releases-table unification
+
+Drop the legacy `release_manifests` table and the `releases_view` bridge.
+Merge all legacy columns and rows into the canonical `releases` table so
+there is one source of truth for release state. The status enum is
+widened to admit both the new T9492 pipeline FSM (planned / pr-opened /
+pr-merged / published / reconciled) AND the legacy T5580 FSM (prepared /
+committed / tagged / pushed / rolled_back) — no information loss.
+
+### Breaking (internal)
+
+- **`release_manifests` table dropped.** Rows migrated to `releases` with
+  PK `legacy:<version>`. Migration `20260519010000_t9686b2-unify-releases-tables`
+  runs automatically on next CLI invocation.
+- **`releases_view` SQL view dropped.** No longer needed — readers query
+  `releases` directly.
+- **Drizzle binding rename.** `schema.releasesNew` → `schema.releases`.
+  Any code importing `releaseManifests` from `@cleocode/core/internal`
+  must switch to `releases`.
+- **Function rename.** `showManifestRelease` → `showRelease`,
+  `listManifestReleases` → `listReleases`.
+- **Validation schema rename.** `insertReleaseManifestSchema` →
+  `insertReleaseSchema`, `selectReleaseManifestSchema` →
+  `selectReleaseSchema`. Types `InsertReleaseManifest` /
+  `SelectReleaseManifest` → `InsertRelease` / `SelectRelease`.
+- **FK relaxation.** `merge_commit_sha` drops its FK to `commits(sha)`
+  because legacy ship SHAs are not tracked in the `commits` table.
+  Treated as a soft text reference now; a follow-up task may backfill
+  `commits` rows for legacy SHAs and re-add the constraint.
+
+### Downgrade notes
+
+This migration is destructive on downgrade. The `revert.sql` recreates
+an empty `release_manifests` shell and the prior `releases_view` shape,
+but cannot split `legacy:*` rows out of `releases` back into the legacy
+table without manual SQL. Operators who need pre-T9686-B2 history after
+a downgrade must restore from a pre-migration `tasks.db` backup.
+
 ## [2026.5.87] (2026-05-20) — SG-CLEO-DOCS-CANON saga close (T9625)
 
 Closes Saga **T9625 — SG-CLEO-DOCS-CANON** (`docs/saga-t9625-handoff.md`). All 7
