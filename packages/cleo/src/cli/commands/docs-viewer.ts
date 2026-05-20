@@ -17,7 +17,7 @@ import { open as fsOpen } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ExitCode } from '@cleocode/contracts';
-import { getCleoHome, getProjectRoot } from '@cleocode/core/internal';
+import { getCleoHome, getProjectRoot } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import {
   isProcessAlive,
