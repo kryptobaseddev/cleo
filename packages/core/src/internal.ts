@@ -197,21 +197,29 @@ export type {
   MigrationManifestEntry,
 } from './docs/migrate-agent-outputs.js';
 export { migrateAgentOutputs } from './docs/migrate-agent-outputs.js';
-// Docs publish-pr foundation (T9716 — T9644 / Epic T9630 / Saga T9625)
+// Docs publish-pr foundation + new-doc flow (T9716 + T9718 — T9644 / Epic T9630 / Saga T9625)
 export type {
   ProvisionResult,
   PublishPrError,
+  PublishPrOptions,
+  PublishPrResult,
   PublishPrRunners,
+  PublishPrSuccess,
 } from './docs/publish-pr.js';
 export {
   branchForSlug,
+  buildPublishFrontmatter,
+  defaultPublishPrBody,
   defaultRun,
   execMsg,
   KNOWN_DOC_TYPES,
+  parseGhPrUrl,
   pickRunner,
   provisionPublishPrWorktree,
   publishDirForType,
+  publishDocsAsPr,
   publishPrError,
+  stripExistingFrontmatter,
   teardownPublishPrWorktree,
   tempWorktreeDirForSlug,
   validatePublishSlug,
