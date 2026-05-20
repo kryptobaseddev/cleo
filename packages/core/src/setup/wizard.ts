@@ -102,6 +102,7 @@ export type WizardSection =
   | 'project-conventions'
   | 'brain'
   | 'integrations'
+  | 'telemetry'
   | 'verification';
 
 /**
@@ -249,6 +250,14 @@ export interface WizardOptions {
    * Persisted to `session.autoStart` in the project config.
    */
   sessionAutoStart?: boolean;
+
+  /**
+   * `telemetry` section (T9673): consent to anonymous skills-usage telemetry.
+   * `true` is the default-on contract for new installs; `false` is the
+   * single opt-out flag. Persisted to `telemetry.enabled` in the global
+   * config.
+   */
+  telemetryEnabled?: boolean;
 
   /**
    * Top-level: structured per-section config bag parsed from `--config-json`.
