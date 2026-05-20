@@ -2184,6 +2184,7 @@ export {
   toolsSkillImportHermes,
   toolsSkillInstall,
   toolsSkillList,
+  toolsSkillMigrate,
   toolsSkillPrecedenceResolve,
   toolsSkillPrecedenceShow,
   toolsSkillPruneTelemetry,

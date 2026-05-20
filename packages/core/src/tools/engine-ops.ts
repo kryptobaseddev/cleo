@@ -38,6 +38,8 @@ import {
 import type {
   SkillImportHermesRequest,
   SkillImportHermesResponse,
+  SkillMigrateRequest,
+  SkillMigrateResponse,
   SkillPruneTelemetryRequest,
   SkillPruneTelemetryResponse,
   SkillStatsRequest,
@@ -53,6 +55,7 @@ import {
   diagnoseSkillStore,
   renderDoctorDiagnoseReport,
 } from '../skills/doctor.js';
+import type { MigrationOptions } from '../skills/migration.js';
 import { upsertSkillRow } from '../store/skills-db.js';
 
 /** Shape for provider hook info returned by queryHookProviders. */
@@ -538,6 +541,88 @@ export async function toolsSkillPruneTelemetry(
       dbSizeAfter: safeSize(dbPath),
       oldestRemaining: result.oldestRemaining,
       newestRemaining: result.newestRemaining,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Drive the legacy XDG store → `~/.cleo/skills/` migration.
+ *
+ * @remarks
+ * Thin wrapper around the pure helpers in `../skills/migration.js` (moved
+ * from caamp under T9741). Selects the action based on the request flags:
+ *
+ * - both `dryRun` and `rollback` are true  → `E_INVALID_INPUT`
+ * - `rollback=true`                        → {@link runRollback}
+ * - `dryRun=true`                          → {@link planMigration}
+ * - default                                → {@link runMigration} (with
+ *   `recordRow` wired to `upsertSkillRow` so the skills.db registry is
+ *   kept in lock-step with the on-disk copy)
+ *
+ * The handler resolves the bundled canonical-skill names via
+ * {@link listCanonicalSkillNames} so {@link MigratedSkillRecord.sourceType}
+ * is classified correctly (`'canonical'` vs `'user'`). Errors are surfaced
+ * as `engineError('E_INTERNAL', …)`; the dispatch boundary converts that
+ * into a LAFS envelope.
+ *
+ * @param request - Migrate flags (see {@link SkillMigrateRequest}).
+ * @returns Engine result with the migration outcome.
+ *
+ * @task T9742
+ */
+export async function toolsSkillMigrate(
+  request: SkillMigrateRequest = {},
+): Promise<EngineResult<SkillMigrateResponse>> {
+  if (request.dryRun === true && request.rollback === true) {
+    return engineError('E_INVALID_INPUT', 'Cannot combine dryRun with rollback');
+  }
+  try {
+    const { defaultMigrationOptions, planMigration, runMigration, runRollback } = await import(
+      '../skills/migration.js'
+    );
+    const { listCanonicalSkillNames } = await import('../skills/discovery.js');
+    const { upsertSkillRow } = await import('../store/skills-db.js');
+
+    const manifestNames = listCanonicalSkillNames();
+    const baseOptions = defaultMigrationOptions(manifestNames);
+    const options: MigrationOptions = {
+      ...baseOptions,
+      recordRow: async (row) => {
+        await upsertSkillRow({
+          name: row.name,
+          sourceType: row.sourceType,
+          installPath: row.installPath,
+          canonicalPath: row.sourceType === 'canonical' ? row.installPath : null,
+          installedAt: new Date().toISOString(),
+        });
+      },
+    };
+
+    const outcome = request.rollback
+      ? await runRollback(options)
+      : request.dryRun
+        ? planMigration(options)
+        : await runMigration(options);
+
+    return engineSuccess({
+      action: outcome.action,
+      migrated: outcome.migrated.map((m) => ({
+        name: m.name,
+        installPath: m.installPath,
+        legacyPath: m.legacyPath,
+        sourceType: m.sourceType,
+      })),
+      skipped: outcome.skipped.map((s) => ({
+        name: s.name,
+        reason: s.reason,
+        legacyPath: s.legacyPath,
+      })),
+      backupPath: outcome.backupPath,
+      legacyRoot: outcome.legacyRoot,
+      canonicalRoot: outcome.canonicalRoot,
+      durationMs: outcome.durationMs,
     });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
