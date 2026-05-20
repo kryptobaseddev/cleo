@@ -1,21 +1,56 @@
 # Changelog
 
-## [unreleased] — T9686-B2 releases-table unification
+## [2026.5.88] (2026-05-20) — T9738 IVTR functional bug remediation close
 
-Drop the legacy `release_manifests` table and the `releases_view` bridge.
-Merge all legacy columns and rows into the canonical `releases` table so
-there is one source of truth for release state. The status enum is
-widened to admit both the new T9492 pipeline FSM (planned / pr-opened /
-pr-merged / published / reconciled) AND the legacy T5580 FSM (prepared /
-committed / tagged / pushed / rolled_back) — no information loss.
+Closes Epic **T9738** (IVTR functional bug remediation, post-v5.83 real-world
+testing). Bundles the B2 releases-table unification, the CLEO-native task-
+anchored changesets foundation, and the pre-existing main-CI repair that
+unblocked them.
+
+### Added
+
+- **PR #349 (T9738 changesets foundation)** — CLEO-native task-anchored
+  changesets DSL replaces the dormant `@changesets/cli` install: zod
+  schema in `@cleocode/contracts`, parser in `@cleocode/core`, CI lint
+  script, and seed entries for the T9686-A/B/B2/C/D/E shipped work.
+  `@changesets/cli` remains a dormant devDep (separate follow-up PR).
+  The consumer side (`cleo release plan` aggregator) is a follow-up task.
+
+### Refactored
+
+- **PR #328 (T9686-B2 releases-table unification)** — drop the legacy
+  `release_manifests` table and the `releases_view` SQL bridge; merge
+  every legacy column and row into the canonical `releases` table so
+  there is one source of truth for release state. The status enum is
+  widened to admit BOTH the new T9492 pipeline FSM (`planned` /
+  `pr-opened` / `pr-merged` / `published` / `reconciled`) AND the legacy
+  T5580 FSM (`prepared` / `committed` / `tagged` / `pushed` /
+  `rolled_back`) — no information loss.
+
+### Fixed
+
+- **PR #350 (T9738 CI repair)** — three pre-existing main-CI breakages
+  that were blocking every PR including the T9738 release-track:
+  - `packages/core/src/skills/skills-guard-audit.ts:48` — switch
+    `process.cwd()` → `getProjectRoot()` so the audit log lands in
+    the canonical project root (lint-project-root-anti-pattern strict
+    regression from T9730).
+  - `packages/cleo/src/cli/commands/docs-viewer.ts:20` — switch the
+    `@cleocode/core/internal` import to the public `@cleocode/core`
+    barrel (CORE-First lint regression from T9721).
+  - `packages/core/src/sentient/__tests__/curator.test.ts:124` —
+    wrap the canonical-row seed in `withProvenance("pr-generator", ...)`
+    so the test fixture clears the T9708 canonical-write guard before
+    seeding. Behaviour under test is unchanged.
 
 ### Breaking (internal)
 
-- **`release_manifests` table dropped.** Rows migrated to `releases` with
-  PK `legacy:<version>`. Migration `20260519010000_t9686b2-unify-releases-tables`
-  runs automatically on next CLI invocation.
-- **`releases_view` SQL view dropped.** No longer needed — readers query
-  `releases` directly.
+- **`release_manifests` table dropped.** Rows migrated to `releases`
+  with PK `legacy:<version>`. Migration
+  `20260519010000_t9686b2-unify-releases-tables` runs automatically on
+  next CLI invocation.
+- **`releases_view` SQL view dropped.** No longer needed — readers
+  query `releases` directly.
 - **Drizzle binding rename.** `schema.releasesNew` → `schema.releases`.
   Any code importing `releaseManifests` from `@cleocode/core/internal`
   must switch to `releases`.
@@ -32,11 +67,29 @@ committed / tagged / pushed / rolled_back) — no information loss.
 
 ### Downgrade notes
 
-This migration is destructive on downgrade. The `revert.sql` recreates
+The B2 migration is destructive on downgrade. The `revert.sql` recreates
 an empty `release_manifests` shell and the prior `releases_view` shape,
 but cannot split `legacy:*` rows out of `releases` back into the legacy
 table without manual SQL. Operators who need pre-T9686-B2 history after
 a downgrade must restore from a pre-migration `tasks.db` backup.
+
+### Deferred follow-ups (not blocking T9738 close)
+
+- **T9738-changesets-aggregator** — `cleo release plan` reads
+  `.changeset/*.md`, aggregates into `release_changesets` table, writes
+  CHANGELOG section.
+- **T9738-changesets-cleanup-cli** — remove `@changesets/cli` from
+  `package.json` devDependencies (now dormant after Path A foundation).
+- **T9738-C-followup** — backfill `commits` table for ~12-15 legacy
+  ship SHAs, re-enable `merge_commit_sha` FK.
+- **A4 cosmetic cleanup** — amend B2 migration to use
+  `<projectHash>:<version>` instead of `legacy:<version>` for migrated
+  rows. NEW migration file.
+- **Stale `releases` rows audit** — 30 v5.x rows in `prepared` status
+  that never pushed; archive or delete after B2 unifies the table.
+- **T9736** — `primary-guard.test.ts:100` macOS shard 1 flake (per
+  v5.87 CHANGELOG); pre-existing, merged through as not-a-required-
+  check.
 
 ## [2026.5.87] (2026-05-20) — SG-CLEO-DOCS-CANON saga close (T9625)
 
