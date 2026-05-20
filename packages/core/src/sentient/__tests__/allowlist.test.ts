@@ -22,7 +22,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   addOwnerPubkey,
   getOwnerPubkeys,
@@ -285,14 +285,17 @@ describe('isOwnerSigner', () => {
 
   it('returns true (bootstrapping) and warns when allowlist is empty and strict=off', async () => {
     delete process.env['CLEO_STRICT_ALLOWLIST'];
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    // T9776: source emits W_ALLOWLIST_SIGNER via pushWarning (T9763), not
+    // process.stderr.write. Drain the warning queue to assert the contract.
+    const { drainWarnings } = await import('../../output.js');
+    drainWarnings();
 
     const key = fakePubkey(0x70);
     const result = await isOwnerSigner(tmpDir, key);
 
     expect(result).toBe(true);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('ownerPubkeys is empty'));
-    stderrSpy.mockRestore();
+    const warnings = drainWarnings() ?? [];
+    expect(warnings.some((w) => w.message.includes('ownerPubkeys is empty'))).toBe(true);
   });
 
   it('returns false when allowlist is empty and CLEO_STRICT_ALLOWLIST=1', async () => {
