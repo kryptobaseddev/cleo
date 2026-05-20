@@ -36,7 +36,26 @@ python ${CLAUDE_SKILL_DIR}/scripts/audit_body.py <skill-dir>
 
 # Manifest alignment check:
 python ${CLAUDE_SKILL_DIR}/scripts/check_manifest.py <skill-dir> <manifest.json>
+
+# Progressive-disclosure depth check (T9684 — CI gate):
+python ${CLAUDE_SKILL_DIR}/scripts/check_depth.py <skill-dir>
+
+# Repo-wide depth sweep:
+python ${CLAUDE_SKILL_DIR}/scripts/check_depth.py <repo-root> --all
 ```
+
+**Depth rule (T9684):** A skill PASSES when ANY of:
+
+- SKILL.md body has ≥ 100 content lines, OR
+- `references/` subdir has ≥ 3 markdown files, OR
+- `manifest.json` `references[]` array enumerates ≥ 3 files (all on disk)
+
+Pre-existing stubs are allowlisted with follow-up task IDs in
+`scripts/check_depth.py::ALLOWLIST`. Gold-standard skills:
+`ct-orchestrator` (9 refs) and `ct-skill-creator` (7 refs).
+
+The depth check runs on every PR touching `packages/skills/skills/**`
+via `.github/workflows/skills-depth-check.yml`.
 
 **Iteration rule**: If errors > 0, fix them in the skill's SKILL.md, re-run `validate.py`.
 Repeat until errors = 0. Do not proceed to Phase 2 while errors remain.

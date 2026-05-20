@@ -125,7 +125,13 @@
       "protocol": "implementation",
       "loomStage": "implementation",
       "adrRefs": ["ADR-070", "ADR-062"],
-      "references": [],
+      "references": [
+        "skills/ct-task-executor/references/implementation-patterns.md",
+        "skills/ct-task-executor/references/acceptance-criteria-mapping.md",
+        "skills/ct-task-executor/references/evidence-and-gates.md",
+        "skills/ct-task-executor/references/common-failures.md",
+        "skills/ct-task-executor/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "TASK_NAME", "TASK_INSTRUCTIONS", "DELIVERABLES_LIST", "ACCEPTANCE_CRITERIA"],
         "outputs": ["deliverables", "manifest-entry"],
@@ -187,7 +193,12 @@
       "protocol": "research",
       "loomStage": "research",
       "adrRefs": ["ADR-023", "ADR-070"],
-      "references": [],
+      "references": [
+        "skills/ct-research-agent/references/triggers-and-routing.md",
+        "skills/ct-research-agent/references/source-strategy.md",
+        "skills/ct-research-agent/references/citation-and-evidence.md",
+        "skills/ct-research-agent/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "TOPIC", "RESEARCH_QUESTIONS"],
         "outputs": ["research-file", "manifest-entry"],
@@ -218,7 +229,12 @@
       "protocol": "specification",
       "loomStage": "specification",
       "adrRefs": ["ADR-014", "ADR-023"],
-      "references": [],
+      "references": [
+        "skills/ct-spec-writer/references/rfc2119-language.md",
+        "skills/ct-spec-writer/references/spec-templates.md",
+        "skills/ct-spec-writer/references/traceability-matrix.md",
+        "skills/ct-spec-writer/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "SPEC_NAME", "spec_topic"],
         "outputs": ["specification-file", "manifest-entry"],
@@ -249,7 +265,12 @@
       "protocol": "validation",
       "loomStage": "validation",
       "adrRefs": ["ADR-051", "ADR-023"],
-      "references": [],
+      "references": [
+        "skills/ct-validator/references/validation-modes.md",
+        "skills/ct-validator/references/schema-checking.md",
+        "skills/ct-validator/references/compliance-reports.md",
+        "skills/ct-validator/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "VALIDATION_TARGET", "VALIDATION_CRITERIA"],
         "outputs": ["validation-report", "manifest-entry"],
@@ -305,7 +326,12 @@
       "status": "active",
       "tier": 2,
       "token_budget": 8000,
-      "references": [],
+      "references": [
+        "skills/ct-documentor/references/chain-orchestration.md",
+        "skills/ct-documentor/references/doc-types-and-templates.md",
+        "skills/ct-documentor/references/style-coordination.md",
+        "skills/ct-documentor/references/anti-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["TASK_ID", "documentation_topic"],
         "outputs": ["documentation-file", "manifest-entry", "review-report"],
@@ -333,7 +359,11 @@
       "status": "active",
       "tier": 2,
       "token_budget": 6000,
-      "references": [],
+      "references": [
+        "skills/ct-docs-lookup/references/ctx7-workflow.md",
+        "skills/ct-docs-lookup/references/library-id-resolution.md",
+        "skills/ct-docs-lookup/references/version-specific-docs.md"
+      ],
       "capabilities": {
         "inputs": ["library_name", "query", "version"],
         "outputs": ["documentation-content", "code-examples"],
@@ -361,7 +391,11 @@
       "status": "active",
       "tier": 2,
       "token_budget": 6000,
-      "references": [],
+      "references": [
+        "skills/ct-docs-write/references/cleo-style-guide.md",
+        "skills/ct-docs-write/references/markdown-patterns.md",
+        "skills/ct-docs-write/references/audience-targeting.md"
+      ],
       "capabilities": {
         "inputs": ["file_path", "content_topic", "audience"],
         "outputs": ["documentation-file", "markdown-content"],
@@ -389,7 +423,11 @@
       "status": "active",
       "tier": 2,
       "token_budget": 6000,
-      "references": [],
+      "references": [
+        "skills/ct-docs-review/references/style-violations.md",
+        "skills/ct-docs-review/references/pr-review-mode.md",
+        "skills/ct-docs-review/references/inline-comment-patterns.md"
+      ],
       "capabilities": {
         "inputs": ["file_path", "pr_url", "diff_content"],
         "outputs": ["review-comments", "style-violations"],
