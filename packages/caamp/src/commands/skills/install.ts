@@ -3,6 +3,8 @@
  */
 
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { pushWarning } from '@cleocode/lafs';
 import type { Command } from 'commander';
 import pc from 'picocolors';
 import {
@@ -130,23 +132,63 @@ interface CoreSkillsGuardShape {
 let cachedCore: CoreSkillsGuardShape | null | undefined;
 
 /**
+ * Pluggable resolver for `@cleocode/core`. Production code uses the default
+ * which combines `createRequire(import.meta.url).resolve()` (existence check)
+ * with `import('@cleocode/core' as string)` (dynamic load). Tests override
+ * via {@link __testing.setCoreResolver} to simulate resolution failure
+ * without touching the real module graph.
+ *
+ * @internal
+ */
+type CoreResolver = () => Promise<CoreSkillsGuardShape>;
+
+const defaultCoreResolver: CoreResolver = async () => {
+  const require = createRequire(import.meta.url);
+  require.resolve('@cleocode/core');
+  // The `as string` cast keeps the dependency out of the static module graph;
+  // tsc treats this as a fully opaque dynamic import.
+  return (await import('@cleocode/core' as string)) as CoreSkillsGuardShape;
+};
+
+let coreResolver: CoreResolver = defaultCoreResolver;
+
+/**
  * Lazily resolve `@cleocode/core`. Returns `null` when caamp runs outside
  * the cleo monorepo and core is unavailable — callers MUST degrade to
  * `allow` rather than fail-closed (refusing legitimate standalone caamp
  * installs purely because core is missing would break the package).
+ *
+ * @remarks
+ * Resolution strategy (T9770):
+ * 1. `createRequire(import.meta.url).resolve('@cleocode/core')` to check
+ *    whether the module is reachable from caamp's runtime location. This
+ *    uses Node's standard resolution rules so symlinked workspaces, pnpm
+ *    global installs, and direct installs all resolve correctly when core
+ *    IS listed as a `dependency` / `peerDependency`.
+ * 2. If `resolve()` succeeds, dynamically `import()` the module. The string
+ *    is still cast to `string` so tsc doesn't lift `@cleocode/core` into the
+ *    static module graph (avoids the core ↔ caamp circular dep at build
+ *    time — core depends on caamp, not the other way around).
+ * 3. On any failure the function returns `null` and routes a structured
+ *    warning into the active LAFS {@link WarningCollector} via
+ *    {@link pushWarning}. NO stderr writes — JSON-emitting commands stay
+ *    parser-clean.
  */
 async function resolveCore(): Promise<CoreSkillsGuardShape | null> {
   if (cachedCore !== undefined) return cachedCore;
   try {
-    // The string is intentionally not statically analysable so module-graph
-    // tools (and tsc itself) don't treat this as a static dependency.
-    const mod = (await import('@cleocode/core' as string)) as CoreSkillsGuardShape;
-    cachedCore = mod;
-  } catch {
+    cachedCore = await coreResolver();
+  } catch (err) {
     cachedCore = null;
-    process.stderr.write(
-      '[caamp] WARNING: @cleocode/core unavailable — skipping trust gate (skill installs not security-checked)\n',
-    );
+    pushWarning({
+      code: 'W_CORE_UNAVAILABLE',
+      severity: 'warn',
+      message:
+        'caamp running without @cleocode/core — trust gate skipped (skill installs not security-checked)',
+      context: {
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
   }
   return cachedCore;
 }
@@ -217,8 +259,10 @@ async function evaluateFederationGate(
 
 /**
  * Append a bypass entry to `.cleo/audit/skill-trust-bypass.jsonl`. No-op
- * when core is unavailable. Failures during writing are swallowed and
- * logged to stderr so an audit-log failure never breaks a real install.
+ * when core is unavailable. Failures during writing are routed to the
+ * active LAFS {@link WarningCollector} as `W_AUDIT_LOG_FAILED` so an
+ * audit-log failure never breaks a real install AND never pollutes stderr
+ * with `[caamp] WARNING:` lines that mangle JSON parsers (T9770).
  */
 async function recordSkillTrustBypass(
   scan: AdapterScanResult,
@@ -229,11 +273,42 @@ async function recordSkillTrustBypass(
   try {
     core.recordTrustBypass(scan, reason);
   } catch (err) {
-    process.stderr.write(
-      `[caamp] WARNING: failed to record trust-bypass audit row: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
+    const msg = err instanceof Error ? err.message : String(err);
+    pushWarning({
+      code: 'W_AUDIT_LOG_FAILED',
+      severity: 'warn',
+      message: 'trust-bypass audit record failed',
+      context: { error: msg },
+    });
   }
 }
+
+/**
+ * Test-only exports — exposes the warning-emitting internals so tests can
+ * verify they route into the active LAFS {@link WarningCollector} without
+ * polluting stderr.
+ *
+ * @internal
+ */
+export const __testing = {
+  /** Resets the module-scoped core cache so each test gets a clean slate. */
+  resetCoreCache(): void {
+    cachedCore = undefined;
+  },
+  /** Overrides the core cache with a test fixture (or `null` to simulate "unavailable"). */
+  setCoreCache(value: CoreSkillsGuardShape | null): void {
+    cachedCore = value;
+  },
+  /**
+   * Replaces the resolver. Pass `null` to restore the production resolver.
+   * Tests use this to simulate `@cleocode/core` being absent at runtime.
+   */
+  setCoreResolver(resolver: CoreResolver | null): void {
+    coreResolver = resolver ?? defaultCoreResolver;
+  },
+  resolveCore,
+  recordSkillTrustBypass,
+};
 
 /**
  * Registers the `skills install` subcommand for installing skills from various sources.
