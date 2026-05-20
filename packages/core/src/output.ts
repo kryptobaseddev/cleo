@@ -68,11 +68,17 @@ export function pushWarning(warning: Warning): void {
  * this function is the single source of truth for what lands in
  * `meta.warnings[]`.
  *
+ * Exported (T9772) so renderers in `@cleocode/cleo` that build their own
+ * envelopes via `cliOutput` / `cliError` (instead of going through
+ * `formatSuccess` / `formatError`) can attach queued warnings to `meta.warnings[]`
+ * without duplicating the pending-queue state.
+ *
  * @task T4669
  * @task T9769
+ * @task T9772
  * @epic T9763
  */
-function drainWarnings(): Warning[] | undefined {
+export function drainWarnings(): Warning[] | undefined {
   const legacy = pendingWarnings.length > 0 ? pendingWarnings.splice(0) : [];
   const collector = getCurrentWarningCollector();
   const als = collector?.drain() ?? [];

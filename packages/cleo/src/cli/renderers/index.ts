@@ -26,13 +26,9 @@ function generateRequestId(): string {
  * @epic T4663
  */
 
-import { type FormatOptions, formatSuccess } from '@cleocode/core';
-import type { CliEnvelope, CliMeta } from '@cleocode/lafs';
-import {
-  applyFieldFilter,
-  extractFieldFromResult,
-  getCurrentWarningCollector,
-} from '@cleocode/lafs';
+import { drainWarnings, type FormatOptions, formatSuccess } from '@cleocode/core';
+import type { CliEnvelope, CliMeta, Warning } from '@cleocode/lafs';
+import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
 import type { DispatchResponseMeta } from '../../dispatch/types.js';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
@@ -605,15 +601,17 @@ export function cliError(
     ...meta,
   };
 
-  // T9769 — drain any non-fatal warnings pushed via `pushWarning` (lafs ALS
-  // carrier) into `meta.warnings[]`. `formatError` in core already does this
-  // for the formatError path, but `cliError` builds the envelope inline so
-  // we mirror the drain here. Outside an active `withWarningCollector`
-  // scope `drained` is `undefined` and the field is omitted entirely.
-  const drained = getCurrentWarningCollector()?.drain();
+  // T9769 + T9772 — drain non-fatal warnings pushed via `pushWarning` (both
+  // the legacy core `pendingWarnings` queue used by deprecation paths AND the
+  // ALS-bound `WarningCollector` carrier from T9769) into `meta.warnings[]`.
+  // `formatError` in core already does this on its path, but `cliError` builds
+  // the envelope inline so we mirror the unified drain here. Outside an active
+  // `withWarningCollector` scope and with an empty legacy queue, the result is
+  // `undefined` and the field is omitted entirely.
+  const drained: Warning[] | undefined = drainWarnings();
   if (drained && drained.length > 0) {
-    // Preserve any explicitly-set caller warnings — drained collector entries
-    // append after them, matching the JSON-emitter intent: explicit > implicit.
+    // Preserve any explicitly-set caller warnings — drained entries append
+    // after them, matching the JSON-emitter intent: explicit > implicit.
     const existing = (errorMeta as { warnings?: unknown }).warnings;
     errorMeta.warnings = Array.isArray(existing) ? [...existing, ...drained] : drained;
   }
