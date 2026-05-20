@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026.5.86] (2026-05-20) — hotfix: biome lint on generated command manifest
+
+Hotfix for the v2026.5.85 Release Pipeline Matrix failure. The release
+workflow's `pnpm dlx @biomejs/biome ci .` gate rejected
+`packages/cleo/src/cli/generated/command-manifest.ts` for formatting
+drift (trailing blank line at L31 plus several long-line wraps that the
+generator emitted but the formatter wanted re-wrapped). The fix had
+already landed on `main` via subsequent commits, but the v2026.5.85 tag
+predates them, so the Release job that runs on the tag push failed and
+no GitHub Release or npm publish occurred for v2026.5.85.
+
+This release simply re-cuts the same `main` content under a new CalVer
+patch so the Release workflow can succeed against a clean, formatted
+tree. No source changes beyond the version bumps and this CHANGELOG
+entry.
+
 ## [2026.5.85] (2026-05-20) — SG-CLEO-SKILLS Sphere B close (T9560)
 
 Sphere B close of the SG-CLEO-SKILLS saga (T9560). Bundles the Sphere B
