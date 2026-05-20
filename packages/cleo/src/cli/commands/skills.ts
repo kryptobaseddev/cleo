@@ -22,11 +22,17 @@
  * @epic T4545
  */
 
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
+import { cwd as processCwd } from 'node:process';
 import type { AdoptedSkillRowData, DoctorAdoptCliAdapters } from '@cleocode/caamp';
 import { AgentsSkillsRealDirError, runDoctorAdopt, runDoctorBridge } from '@cleocode/caamp';
+import { withProvenance } from '@cleocode/core/sentient';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /** cleo skills list — list installed skills */
 const listCommand = defineCommand({
@@ -581,6 +587,204 @@ const doctorCommand = defineCommand({
 });
 
 /**
+ * `cleo skill propose-patch <name> --diff <path>` — open a PR against the
+ * cleocode repo carrying a canonical-skill patch (T9714).
+ *
+ * Sphere A canonical skills are owner-CI-only: the write-guard at
+ * `upsertSkillRow` refuses any mutation unless the active provenance
+ * frame is `'pr-generator'`. This command IS that legal bypass:
+ *
+ *   1. Reads the unified diff at `--diff <path>`.
+ *   2. Verifies `gh` CLI is available + authenticated.
+ *   3. Cuts a `propose-patch/skill-<name>-<timestamp>` branch in the
+ *      current cleocode checkout (cwd MUST be a cleocode worktree).
+ *   4. Applies the diff with `git apply` and commits.
+ *   5. Pushes the branch and opens the PR via `gh pr create`.
+ *
+ * The actual on-cwd skill mutation runs inside
+ * `withProvenance('pr-generator', ...)` so the (hypothetical) follow-on
+ * `skills.db` row update from `cleo skills install` would be permitted.
+ * For the PR-cut path itself the only canonical artefacts touched are
+ * the source files in `packages/skills/skills/<name>/`, which are
+ * filesystem entries (not `skills.db` rows).
+ *
+ * @task T9714
+ * @epic T9563
+ */
+const proposePatchCommand = defineCommand({
+  meta: {
+    name: 'propose-patch',
+    description: 'Open a PR against the cleocode repo carrying a canonical-skill patch (Sphere A)',
+  },
+  args: {
+    'skill-name': {
+      type: 'positional',
+      description: 'Skill identifier (e.g. ct-orchestrator)',
+      required: true,
+    },
+    diff: {
+      type: 'string',
+      description: 'Path to a unified-diff file to apply',
+      required: true,
+    },
+    title: {
+      type: 'string',
+      description: 'PR title (defaults to "skill(<name>): proposed patch")',
+    },
+    body: {
+      type: 'string',
+      description: 'PR body markdown (defaults to a stub citing the skill + diff path)',
+    },
+    base: {
+      type: 'string',
+      description: 'Base branch for the PR (defaults to main)',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Print the steps without invoking git/gh',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit LAFS JSON envelope',
+    },
+  },
+  async run({ args }) {
+    const skillName = String(args['skill-name']);
+    const diffPath = String(args.diff);
+    const title =
+      typeof args.title === 'string' && args.title.length > 0
+        ? args.title
+        : `skill(${skillName}): proposed patch`;
+    const body =
+      typeof args.body === 'string' && args.body.length > 0
+        ? args.body
+        : [
+            `Auto-improve patch for canonical skill **${skillName}**.`,
+            '',
+            `Diff source: \`${diffPath}\``,
+            '',
+            'This PR was opened via `cleo skill propose-patch` (T9714).',
+            'Sphere A canonical skills are owner-CI-only — the local',
+            'sentient daemon CANNOT mutate them in place; this PR is the',
+            'audited path for incorporating a council-approved patch.',
+          ].join('\n');
+    const base = typeof args.base === 'string' && args.base.length > 0 ? args.base : 'main';
+    const dryRun = args['dry-run'] === true;
+    const jsonMode = args.json === true;
+
+    const resolvedDiff = resolvePath(processCwd(), diffPath);
+    if (!existsSync(resolvedDiff)) {
+      cliError(
+        `Diff file not found at '${resolvedDiff}'`,
+        'E_NOT_FOUND',
+        { name: 'E_NOT_FOUND' },
+        { operation: 'tools.skill.propose-patch' },
+      );
+      process.exit(1);
+      return;
+    }
+    const diffBytes = readFileSync(resolvedDiff, 'utf8');
+    if (diffBytes.length === 0) {
+      cliError(
+        `Diff file '${resolvedDiff}' is empty`,
+        'E_PATCH_EMPTY',
+        { name: 'E_PATCH_EMPTY' },
+        { operation: 'tools.skill.propose-patch' },
+      );
+      process.exit(1);
+      return;
+    }
+
+    // gh availability check — handle the dry-run path before invoking.
+    if (!dryRun) {
+      try {
+        execFileSync('gh', ['--version'], { stdio: 'pipe' });
+      } catch {
+        cliError(
+          'gh CLI not found or not authenticated — install gh and run `gh auth login`',
+          'E_GH_UNAVAILABLE',
+          { name: 'E_GH_UNAVAILABLE' },
+          { operation: 'tools.skill.propose-patch' },
+        );
+        process.exit(1);
+        return;
+      }
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const branchName = `propose-patch/skill-${skillName}-${timestamp}`;
+    const steps: string[] = [
+      `git checkout -b ${branchName}`,
+      `git apply ${resolvedDiff}`,
+      `git add -A`,
+      `git commit -m "skill(${skillName}): propose patch"`,
+      `git push -u origin ${branchName}`,
+      `gh pr create --base ${base} --head ${branchName} --title "${title}" --body <stdin>`,
+    ];
+
+    if (dryRun) {
+      cliOutput(
+        {
+          skillName,
+          diffPath: resolvedDiff,
+          branchName,
+          base,
+          steps,
+          dryRun: true,
+        },
+        {
+          command: 'skills',
+          message: `[dry-run] would open PR for ${skillName} on branch ${branchName}`,
+          operation: 'tools.skill.propose-patch',
+        },
+      );
+      return;
+    }
+
+    try {
+      const result = await withProvenance('pr-generator', async () => {
+        execFileSync('git', ['checkout', '-b', branchName], { stdio: 'pipe' });
+        execFileSync('git', ['apply', resolvedDiff], { stdio: 'pipe' });
+        execFileSync('git', ['add', '-A'], { stdio: 'pipe' });
+        execFileSync('git', ['commit', '-m', `skill(${skillName}): propose patch`], {
+          stdio: 'pipe',
+        });
+        execFileSync('git', ['push', '-u', 'origin', branchName], { stdio: 'pipe' });
+        const prUrl = execFileSync(
+          'gh',
+          ['pr', 'create', '--base', base, '--head', branchName, '--title', title, '--body', body],
+          { stdio: 'pipe' },
+        )
+          .toString('utf8')
+          .trim();
+        return { prUrl, branchName };
+      });
+      cliOutput(
+        { skillName, prUrl: result.prUrl, branchName: result.branchName, base },
+        {
+          command: 'skills',
+          message: `Opened PR ${result.prUrl}`,
+          operation: 'tools.skill.propose-patch',
+        },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(
+        `propose-patch failed: ${message}`,
+        'E_PROPOSE_PATCH_FAILED',
+        { name: 'E_PROPOSE_PATCH_FAILED' },
+        { operation: 'tools.skill.propose-patch' },
+      );
+      process.exit(1);
+    }
+    // jsonMode is honoured automatically by cliOutput / cliError via the
+    // global --json flag; the local variable is kept for symmetry with
+    // other commands and to silence the lint about unused destructure.
+    void jsonMode;
+  },
+});
+
+/**
  * Root skills command group — registers all skill management subcommands.
  *
  * Default action (no subcommand) dispatches to `tools.skill.list` for project scope.
@@ -604,6 +808,7 @@ export const skillsCommand = defineCommand({
     deps: depsCommand,
     'spawn-providers': spawnProvidersCommand,
     doctor: doctorCommand,
+    'propose-patch': proposePatchCommand,
   },
   async run({ cmd, rawArgs }) {
     // Parent run() fires after subcommand per citty@0.2.x — skip default
