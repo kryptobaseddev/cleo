@@ -31,6 +31,7 @@ import {
   createAttachmentStore,
   getProjectRoot,
   type LocalFileAttachment,
+  searchAllProjectDocs,
 } from '@cleocode/core/internal';
 import { type BoundServer, tryListen } from './port-allocator.js';
 
@@ -213,6 +214,45 @@ export function buildViewerHandler(
           createdAt: r.metadata.createdAt,
         }));
         send(res, 200, 'application/json', lafsSuccessJson({ docs }));
+        return;
+      }
+
+      // GET /api/search?q=<query>&limit=<n>&type=<t> — ranked project-wide
+      // search via llmtxt rankBySimilarity (T9647).
+      if (pathname === '/api/search') {
+        const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+        const q = (url.searchParams.get('q') ?? '').trim();
+        const limitRaw = url.searchParams.get('limit');
+        const type = url.searchParams.get('type') ?? undefined;
+        if (q.length === 0) {
+          send(
+            res,
+            400,
+            'application/json',
+            lafsErrorJson(
+              'E_VALIDATION',
+              'query parameter `q` is required',
+              "append ?q=<query> to /api/search, e.g. '/api/search?q=release'",
+            ),
+          );
+          return;
+        }
+        const limit = limitRaw ? Math.max(1, Math.min(50, Number.parseInt(limitRaw, 10))) : 10;
+        try {
+          const result = await searchAllProjectDocs(q, {
+            projectRoot,
+            limit: Number.isFinite(limit) ? limit : 10,
+            type: type && type.length > 0 ? type : undefined,
+          });
+          send(res, 200, 'application/json', lafsSuccessJson(result));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const code =
+            err instanceof Error && (err as Error & { code?: string }).code
+              ? (err as Error & { code: string }).code
+              : 'E_SEARCH_FAILED';
+          send(res, 500, 'application/json', lafsErrorJson(code, msg));
+        }
         return;
       }
 
