@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { releaseReconcileV2 } from '../reconcile.js';
+import { releaseReconcileV2, sanitisePrShasForFk } from '../reconcile.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as {
@@ -195,6 +195,66 @@ afterEach(async () => {
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────────
+
+// C3 regression: FK-safe PR sanitisation. Verifies pull_requests INSERT no
+// longer crashes when a PR refers to commits outside the reconcile range.
+describe('sanitisePrShasForFk — C3 FK safety (T9686)', () => {
+  it('nulls headSha when not in inserted-commits set', () => {
+    const inserted = new Set(['aaa111', 'bbb222']);
+    const out = sanitisePrShasForFk(
+      { headSha: 'deadbeef', mergeCommitSha: 'aaa111', commits: [] },
+      inserted,
+    );
+    expect(out.headSha).toBeNull();
+    expect(out.mergeCommitSha).toBe('aaa111');
+  });
+
+  it('nulls mergeCommitSha when not in inserted-commits set', () => {
+    const inserted = new Set(['aaa111']);
+    const out = sanitisePrShasForFk(
+      { headSha: 'aaa111', mergeCommitSha: 'unknown-sha', commits: [] },
+      inserted,
+    );
+    expect(out.headSha).toBe('aaa111');
+    expect(out.mergeCommitSha).toBeNull();
+  });
+
+  it('filters pr_commits down to only in-range SHAs (NOT NULL FK can not be NULLed)', () => {
+    const inserted = new Set(['aaa', 'bbb']);
+    const out = sanitisePrShasForFk(
+      {
+        headSha: null,
+        mergeCommitSha: null,
+        commits: [{ sha: 'aaa' }, { sha: 'xxx' }, { sha: 'bbb' }, { sha: 'yyy' }],
+      },
+      inserted,
+    );
+    expect(out.commits).toEqual([{ sha: 'aaa' }, { sha: 'bbb' }]);
+  });
+
+  it('passes through null FKs unchanged', () => {
+    const out = sanitisePrShasForFk(
+      { headSha: null, mergeCommitSha: null, commits: [] },
+      new Set(),
+    );
+    expect(out).toEqual({ headSha: null, mergeCommitSha: null, commits: [] });
+  });
+
+  it('returns valid FKs unchanged when all commits are in the set', () => {
+    const inserted = new Set(['aaa', 'bbb', 'ccc']);
+    const out = sanitisePrShasForFk(
+      {
+        headSha: 'aaa',
+        mergeCommitSha: 'bbb',
+        commits: [{ sha: 'aaa' }, { sha: 'ccc' }],
+      },
+      inserted,
+    );
+    expect(out.headSha).toBe('aaa');
+    expect(out.mergeCommitSha).toBe('bbb');
+    expect(out.commits).toEqual([{ sha: 'aaa' }, { sha: 'ccc' }]);
+  });
+});
 
 describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
   let projectRoot: string;
