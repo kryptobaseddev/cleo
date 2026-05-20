@@ -139,7 +139,27 @@ function defaultLocalSkillsRoot(): string {
   return join(home, '.cleo', 'skills');
 }
 
-function legacyAgentsSkillsRoot(): string {
+/**
+ * Compute the user-level `~/.agents/skills/` path for the current process'
+ * `$HOME` (or `$USERPROFILE` on Windows).
+ *
+ * @remarks
+ * Despite the historical naming, this helper resolves the bridge mount
+ * (`~/.agents/skills/`), NOT the XDG legacy root
+ * (`~/.local/share/agents/skills/`). Kept as a helper rather than inlining
+ * the SSoT export {@link AGENTS_SKILLS_BRIDGE_PATH} because the test suite
+ * monkey-patches `process.env.HOME` between runs — using the SSoT const
+ * (which is bound at module-load time) would break those tests. T9745
+ * removes only the duplicated path resolvers that DO recompute on each
+ * call; this helper was renamed away from its previous misleading name
+ * (which suggested the XDG legacy location) to reflect that it actually
+ * computes the bridge mount.
+ *
+ * @returns Absolute path to `<HOME>/.agents/skills/`.
+ *
+ * @internal
+ */
+function bridgeAgentsSkillsRoot(): string {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
   return join(home, '.agents', 'skills');
 }
@@ -252,7 +272,7 @@ export async function federatedSearch(
   all.push(...searchLocalRoot(localRoot, query, 'local'));
   // Legacy ~/.agents/skills only when no explicit root override.
   if (!opts.localSkillsRoot) {
-    all.push(...searchLocalRoot(legacyAgentsSkillsRoot(), query, 'local'));
+    all.push(...searchLocalRoot(bridgeAgentsSkillsRoot(), query, 'local'));
   }
 
   // 3. Canonical marketplace.
