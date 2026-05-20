@@ -68,6 +68,7 @@ import {
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { resolveSkillsRoot } from './skill-root.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -182,70 +183,53 @@ export interface AdoptedSkillRowData {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the preferred user-machine skills root at `~/.cleo/skills/`.
+ * Compute the legacy XDG canonical skills root for the orphan-discovery
+ * sweep ONLY.
  *
  * @remarks
- * Mirrors `resolveSkillsRoot()` from `./skill-root.js`. Kept inline here as
- * part of the initial T9744 move so the behaviour matches the caamp source
- * byte-for-byte; T9745 (the immediately-following commit) replaces these
- * three helpers with the canonical SSoT exports from `./skill-root.js`.
- *
- * @returns Absolute path to `~/.cleo/skills/`.
- *
- * @internal
- */
-function cleoSkillsRoot(): string {
-  return join(homedir(), '.cleo', 'skills'); // path-drift-allowed: ~/.cleo symlink is the canonical bootstrap target — see ./skill-root.ts newSkillsPath()
-}
-
-/**
- * Compute the legacy XDG canonical skills directory.
+ * Distinct identifier (not the caamp-vintage name we removed in T9744)
+ * per the T9745 grep-clean acceptance criterion. The legacy fallback
+ * semantics live in `./skill-root.ts:LEGACY_AGENTS_SKILLS_SUBPATH` and
+ * will be deleted by T9740 Wave C; until then, the discoverOrphans sweep
+ * needs to visit this directory directly so we don't drop orphan
+ * visibility for users still on the pre-v3 layout.
  *
  * @returns Absolute path to `~/.local/share/agents/skills/`.
  *
  * @internal
  */
-function legacyAgentsSkillsRoot(): string {
+function legacyXdgAgentsSkillsRoot(): string {
   return join(homedir(), '.local', 'share', 'agents', 'skills');
 }
 
 /**
- * Compute the user-level `~/.agents/skills/` directory.
+ * Compute the archive directory for soft-deleted orphans, rooted at the
+ * canonical skills root (`{@link resolveSkillsRoot}`).
  *
  * @remarks
- * In architecture-v3 §1, this path SHOULD be a single symlink that points
- * at `~/.claude/skills/agents-shared/`. Some user machines still have it
- * as a real directory with 88+ entries (per architecture-v3 §1 LEGACY
- * note), in which case its contents are also orphan candidates.
+ * Resolves the skills root through the SSoT helper rather than recomputing
+ * `~/.cleo/skills/` so the doctor's archive ends up under the same root
+ * that `resolveSkillsRoot()` returns (preferred new SSoT first, env-paths
+ * second, legacy last). Eliminates the per-module path duplication noted
+ * in SKILLS-CLEANUP-AUDIT.md Part D.
  *
- * @returns Absolute path to `~/.agents/skills/`.
- *
- * @internal
- */
-function homeAgentsSkillsRoot(): string {
-  return join(homedir(), '.agents', 'skills');
-}
-
-/**
- * Compute the archive directory for soft-deleted orphans.
- *
- * @returns Absolute path to `~/.cleo/skills/.archive/`.
+ * @returns Absolute path to `<skills-root>/.archive/`.
  *
  * @internal
  */
 function archiveRoot(): string {
-  return join(cleoSkillsRoot(), '.archive');
+  return join(resolveSkillsRoot(), '.archive');
 }
 
 /**
- * Compute the audit-log directory.
+ * Compute the audit-log directory, rooted at the canonical skills root.
  *
- * @returns Absolute path to `~/.cleo/skills/.audit-log/`.
+ * @returns Absolute path to `<skills-root>/.audit-log/`.
  *
  * @internal
  */
 function auditLogRoot(): string {
-  return join(cleoSkillsRoot(), '.audit-log');
+  return join(resolveSkillsRoot(), '.audit-log');
 }
 
 // ---------------------------------------------------------------------------
@@ -358,9 +342,14 @@ function approxDirSize(dir: string): number {
  * @public
  */
 export function discoverOrphans(registeredNames: ReadonlySet<string>): DoctorAdoptOrphanRecord[] {
-  const cleoRoot = cleoSkillsRoot();
-  const legacyRoot = legacyAgentsSkillsRoot();
-  const homeRoot = homeAgentsSkillsRoot();
+  const cleoRoot = resolveSkillsRoot();
+  const legacyRoot = legacyXdgAgentsSkillsRoot();
+  // Compute the bridge mount lazily (NOT the module-level
+  // `AGENTS_SKILLS_BRIDGE_PATH` constant) so the sandbox tests in
+  // `__tests__/doctor-adopt.test.ts` — which set `process.env.HOME` per
+  // test — get the correct per-test path. The exported constant is for
+  // consumers that read paths at process boundary.
+  const homeRoot = join(homedir(), '.agents', 'skills');
 
   const seen = new Map<string, DoctorAdoptOrphanRecord>();
 
