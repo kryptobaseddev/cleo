@@ -96,13 +96,14 @@ async function insertManifest(
 ): Promise<void> {
   const { getDb } = await import('../../store/sqlite.js');
   const { resetDbState } = await import('../../store/sqlite.js');
+  const { generateProjectHash } = await import('../../nexus/hash.js');
   resetDbState();
 
   const db = await getDb(projectRoot);
-  // T9686-B2: `release_manifests` was unified into `releases`. Use the
-  // canonical `legacy:` PK prefix matching what migration produces for
-  // pre-T9492 historical rows.
-  const id = `legacy:${version}`;
+  // T9756: every release row now uses the uniform `<projectHash>:<version>`
+  // PK shape. The `tasks_json` column (non-null) signals legacy-origin
+  // provenance for `releasesRowToManifest`.
+  const id = `${generateProjectHash(projectRoot)}:${version}`;
   const { sql } = await import('drizzle-orm');
   await db.run(
     sql`INSERT INTO releases (id, version, status, tasks_json, created_at)
