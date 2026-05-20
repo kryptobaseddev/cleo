@@ -123,8 +123,10 @@ export const GATE_EVIDENCE_MINIMUMS: Record<VerificationGate, EvidenceAtom['kind
     // satisfies the implemented gate.
     ['decision', 'note'],
   ],
-  testsPassed: [['test-run'], ['tool']],
-  qaPassed: [['tool']],
+  // pr atom (T9764) — a merged PR with all required-workflow checks green
+  // satisfies BOTH testsPassed and qaPassed simultaneously.
+  testsPassed: [['test-run'], ['tool'], ['pr']],
+  qaPassed: [['tool'], ['pr']],
   documented: [['files'], ['url']],
   securityPassed: [['tool'], ['note']],
   cleanupDone: [['note']],
@@ -193,6 +195,19 @@ export type ParsedAtom =
       kind: 'decision';
       /** Decision ID from `brain_decisions.id` (e.g. `"D-arch-001"`). */
       decisionId: string;
+    }
+  | {
+      /**
+       * Pull-request atom — references a GitHub PR by number. Validation
+       * resolves the PR via `gh pr view` and checks state=MERGED plus
+       * all required-workflow checks green. Satisfies BOTH `testsPassed`
+       * and `qaPassed` simultaneously.
+       *
+       * @task T9764
+       */
+      kind: 'pr';
+      /** PR number (positive integer). */
+      prNumber: number;
     };
 
 /**
@@ -353,12 +368,27 @@ export function parseEvidence(raw: string): ParsedEvidence {
         atoms.push({ kind: 'decision', decisionId: payload });
         break;
       }
+      case 'pr': {
+        // Format: pr:<positive integer>  (T9764)
+        const prNumber = Number(payload);
+        if (!Number.isInteger(prNumber) || prNumber <= 0) {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `pr atom requires a positive integer PR number, got "${payload}" in "${chunk}"`,
+            {
+              fix: 'Use format: pr:<number> e.g. pr:357',
+            },
+          );
+        }
+        atoms.push({ kind: 'pr', prNumber });
+        break;
+      }
       default:
         throw new CleoError(
           ExitCode.VALIDATION_ERROR,
           `Unknown evidence kind: "${kind}" in atom "${chunk}"`,
           {
-            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage, decision',
+            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage, decision, pr',
           },
         );
     }
@@ -417,6 +447,8 @@ export async function validateAtom(
       return validateCallsiteCoverage(parsed.symbolName, parsed.relativeSourcePath, projectRoot);
     case 'decision':
       return validateDecision(parsed.decisionId, projectRoot);
+    case 'pr':
+      return validatePrAtom(parsed.prNumber, projectRoot);
     default: {
       // Exhaustiveness check — never reachable if ParsedAtom is complete.
       return { ok: false, reason: `Unknown parsed atom`, codeName: 'E_EVIDENCE_INVALID' };
@@ -1308,6 +1340,44 @@ async function validateDecision(decisionId: string, projectRoot: string): Promis
   }
 }
 
+// ---------------------------------------------------------------------------
+// PR atom (T9764)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate a `pr:<number>` atom by resolving the PR via the `gh` CLI.
+ *
+ * Delegates to {@link resolvePrEvidenceAtom} so the network round-trip,
+ * cache, and required-workflow evaluation live in one place
+ * (`packages/core/src/release/pr-evidence.ts`).
+ *
+ * @param prNumber - PR number (positive integer).
+ * @param projectRoot - Absolute path to the project root.
+ * @returns Validated atom on success, error on failure.
+ *
+ * @task T9764
+ */
+async function validatePrAtom(prNumber: number, projectRoot: string): Promise<AtomValidation> {
+  // Dynamic import keeps the verification module free of a static dependency
+  // on the release subtree, mirroring the pattern used by validateDecision.
+  const { resolvePrEvidenceAtom } = await import('../release/pr-evidence.js');
+  const result = await resolvePrEvidenceAtom(prNumber, projectRoot);
+  if (!result.ok) {
+    return { ok: false, reason: result.reason, codeName: result.codeName };
+  }
+  return {
+    ok: true,
+    atom: {
+      kind: 'pr',
+      prNumber: result.prNumber,
+      mergeCommitSha: result.mergeCommitSha,
+      mergedAt: result.mergedAt,
+      successCount: result.successCount,
+      totalChecks: result.totalChecks,
+    },
+  };
+}
+
 /**
  * Check that the provided evidence atoms satisfy the callsite-coverage
  * requirement for tasks carrying the `callsite-coverage` label.
@@ -1546,6 +1616,12 @@ export async function revalidateEvidence(
         // Decision atoms reference brain_decisions rows which are immutable
         // once accepted/proposed. Re-validation is not performed at complete
         // time — the DB row is trusted as captured at verify time.
+        break;
+      case 'pr':
+        // PR atoms capture (prNumber, mergedAt, mergeCommitSha) at verify
+        // time. A merged PR's mergedAt is immutable, so the atom is trusted
+        // as captured. Re-validation would require another `gh` round trip
+        // and add network dependency to every `cleo complete` invocation.
         break;
       default:
         // Exhaustiveness — unreachable if EvidenceAtom is complete.

@@ -1247,6 +1247,14 @@ export type {
 export type { AdapterPathProvider } from './provider-paths.js';
 // === Release Channel ===
 export type { ChannelValidationResult, ReleaseChannel } from './release/channel.js';
+// === Release Evidence Atoms (T9764) ===
+export type { GhPrViewPayload, ParsedPrEvidenceAtom } from './release/evidence-atoms.js';
+export {
+  ghPrViewSchema,
+  PR_REQUIRED_WORKFLOWS,
+  PR_REQUIRED_WORKFLOWS_ENV_VAR,
+  parsedPrEvidenceAtomSchema,
+} from './release/evidence-atoms.js';
 // === Release GitHub PR ===
 export type {
   BranchProtectionResult,
