@@ -43,13 +43,16 @@ import {
   toolsSkillDoctorDiagnose,
   toolsSkillFederatedFind,
   toolsSkillFind,
+  toolsSkillImportHermes,
   toolsSkillInstall,
   toolsSkillList,
   toolsSkillPrecedenceResolve,
   toolsSkillPrecedenceShow,
+  toolsSkillPruneTelemetry,
   toolsSkillRefresh,
   toolsSkillShow,
   toolsSkillSpawnProviders,
+  toolsSkillStats,
   toolsSkillUninstall,
   toolsSkillVerify,
 } from '@cleocode/core/internal';
@@ -159,6 +162,7 @@ export class ToolsHandler implements DomainHandler {
         'skill.catalog',
         'skill.precedence',
         'skill.doctor.diagnose',
+        'skill.stats',
         // provider
         'provider.list',
         'provider.detect',
@@ -176,6 +180,8 @@ export class ToolsHandler implements DomainHandler {
         'skill.install',
         'skill.uninstall',
         'skill.refresh',
+        'skill.import.hermes',
+        'skill.prune.telemetry',
         // provider
         'provider.inject',
         // adapter
@@ -423,6 +429,21 @@ export class ToolsHandler implements DomainHandler {
         return wrapResult(result, 'query', 'tools', 'skill.doctor.diagnose', startTime);
       }
 
+      // T9690 — skill.stats: Sphere B telemetry rollup
+      case 'stats': {
+        const top = typeof params?.top === 'number' ? (params.top as number) : undefined;
+        const sinceDays =
+          typeof params?.sinceDays === 'number' ? (params.sinceDays as number) : undefined;
+        const result = await toolsSkillStats({
+          top,
+          sinceDays,
+          bySource: params?.bySource === true,
+          byLifecycle: params?.byLifecycle === true,
+          agentCreated: params?.agentCreated === true,
+        });
+        return wrapResult(result, 'query', 'tools', 'skill.stats', startTime);
+      }
+
       default:
         return unsupportedOp('query', 'tools', `skill.${sub}`, startTime);
     }
@@ -474,6 +495,26 @@ export class ToolsHandler implements DomainHandler {
       case 'refresh': {
         const result = await toolsSkillRefresh(this.projectRoot);
         return wrapResult(result, 'mutate', 'tools', 'skill.refresh', startTime);
+      }
+
+      // T9691 — skill.import.hermes: migrate Hermes .usage.json into skills.db
+      case 'import.hermes': {
+        const hermesHome = params?.hermesHome as string | undefined;
+        const dryRun = params?.dryRun === true;
+        const result = await toolsSkillImportHermes({ hermesHome, dryRun });
+        return wrapResult(result, 'mutate', 'tools', 'skill.import.hermes', startTime);
+      }
+
+      // T9693 — skill.prune.telemetry: retention sweep on skill_usage
+      case 'prune.telemetry': {
+        const olderThanDays =
+          typeof params?.olderThanDays === 'number' ? (params.olderThanDays as number) : undefined;
+        const result = await toolsSkillPruneTelemetry({
+          olderThanDays,
+          dryRun: params?.dryRun === true,
+          vacuum: params?.vacuum === true,
+        });
+        return wrapResult(result, 'mutate', 'tools', 'skill.prune.telemetry', startTime);
       }
 
       default:

@@ -1377,6 +1377,28 @@ export {
   sessionJournalDoctorSummarySchema,
   sessionJournalEntrySchema,
 } from './session-journal.js';
+// === Skills Hermes Import (T9691 — SG-CLEO-SKILLS Sphere B) ===
+export type {
+  SkillImportHermesRequest,
+  SkillImportHermesResponse,
+  SkillImportHermesRow,
+} from './skills/import-hermes.js';
+// === Skills Prune Telemetry (T9693 — SG-CLEO-SKILLS Sphere B retention) ===
+export type {
+  SkillPruneTelemetryRequest,
+  SkillPruneTelemetryResponse,
+} from './skills/prune.js';
+// === Skills Stats (T9690 — SG-CLEO-SKILLS Sphere B) ===
+export type {
+  SkillStatsAgentCreatedRow,
+  SkillStatsByLifecycleRow,
+  SkillStatsBySourceRow,
+  SkillStatsRequest,
+  SkillStatsResponse,
+  SkillStatsTopRow,
+  StatsSkillLifecycleState,
+  StatsSkillSourceType,
+} from './skills/stats.js';
 export type { AdapterSpawnProvider, SpawnContext, SpawnResult } from './spawn.js';
 // === CLEO Spawn Types (distinct from adapter spawn) ===
 export type {

@@ -35,6 +35,14 @@ import {
   removeSkill,
   type SkillRowData,
 } from '@cleocode/caamp';
+import type {
+  SkillImportHermesRequest,
+  SkillImportHermesResponse,
+  SkillPruneTelemetryRequest,
+  SkillPruneTelemetryResponse,
+  SkillStatsRequest,
+  SkillStatsResponse,
+} from '@cleocode/contracts';
 import { AdapterManager } from '../adapters/index.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { type HookEvent, isProviderHookEvent } from '../hooks/types.js';
@@ -342,6 +350,195 @@ export async function toolsSkillDoctorDiagnose(options?: { verbose?: boolean }):
     const report = await diagnoseSkillStore();
     const rendered = renderDoctorDiagnoseReport(report, options?.verbose ?? false);
     return engineSuccess({ report, rendered, healthy: report.healthy });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Run the Sphere B telemetry rollup powering `cleo skills stats`.
+ *
+ * Always returns the top-N rollup (`top`). The `bySource`, `byLifecycle`,
+ * and `agentCreated` facets are populated only when the corresponding flag
+ * is `true` — `null` otherwise so callers can distinguish "not requested"
+ * from "zero rows".
+ *
+ * @param request - Faceting flags from {@link SkillStatsRequest}.
+ *
+ * @task T9690
+ */
+export async function toolsSkillStats(
+  request?: SkillStatsRequest,
+): Promise<EngineResult<SkillStatsResponse>> {
+  try {
+    const { countByLifecycle, countBySourceType, getTopUsed, listAgentCreated } = await import(
+      '../store/skills-store.js'
+    );
+
+    const topLimit = request?.top ?? 10;
+    const top = await getTopUsed(topLimit);
+
+    const bySource = request?.bySource
+      ? (await countBySourceType()).map((r) => ({
+          sourceType: r.sourceType,
+          count: r.count,
+        }))
+      : null;
+
+    const byLifecycle = request?.byLifecycle
+      ? (await countByLifecycle()).map((r) => ({ state: r.state, count: r.count }))
+      : null;
+
+    const agentCreated = request?.agentCreated
+      ? (await listAgentCreated()).map((r) => ({
+          name: r.name,
+          version: r.version,
+          installedAt: r.installedAt,
+          lifecycleState: r.lifecycleState,
+        }))
+      : null;
+
+    return engineSuccess({
+      top: top.map((r) => ({ skillName: r.skillName, count: r.count })),
+      bySource,
+      byLifecycle,
+      agentCreated,
+      sinceDays: request?.sinceDays ?? null,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Migrate Hermes `~/.hermes/skills/.usage.json` sidecars into CLEO `skills.db`.
+ *
+ * @remarks
+ * Thin wrapper over {@link importFromHermes} so the dispatch layer can route
+ * `tools.skill.import-hermes` without importing the skills domain module
+ * directly. The full provenance + counter-synthesis logic lives in
+ * `packages/core/src/skills/hermes-importer.ts`.
+ *
+ * @param request - Import flags (Hermes home override, dry-run mode).
+ * @returns Engine result carrying per-skill outcomes + summary counters.
+ *
+ * @task T9691
+ */
+export async function toolsSkillImportHermes(
+  request: SkillImportHermesRequest = {},
+): Promise<EngineResult<SkillImportHermesResponse>> {
+  try {
+    const { importFromHermes } = await import('../skills/hermes-importer.js');
+    const response = await importFromHermes(request);
+    return engineSuccess(response);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Prune `skill_usage` rows older than the configured window.
+ *
+ * @remarks
+ * Uses {@link pruneUsageOlderThan} from `@cleocode/core/store/skills-store`.
+ * The window defaults to **180 days** (mirrors Hermes `archive_after_days`)
+ * when the request omits `olderThanDays`. Dry-run mode computes the cutoff
+ * and the projected `deletedRows` without mutating the database.
+ *
+ * @param request - Prune flags (window, dry-run, vacuum).
+ * @returns Engine result with before/after counters and file-size deltas.
+ *
+ * @task T9693
+ */
+export async function toolsSkillPruneTelemetry(
+  request: SkillPruneTelemetryRequest = {},
+): Promise<EngineResult<SkillPruneTelemetryResponse>> {
+  try {
+    const { statSync } = await import('node:fs');
+    const { getOpenSkillsDbPath, getSkillsNativeDb, openSkillsDb } = await import(
+      '../store/skills-db.js'
+    );
+    const { pruneUsageOlderThan } = await import('../store/skills-store.js');
+    const { skillUsage } = await import('../store/skills-schema.js');
+    const { lt, sql } = await import('drizzle-orm');
+
+    const olderThanDays = request.olderThanDays ?? 180;
+    if (!Number.isFinite(olderThanDays) || olderThanDays < 0) {
+      return engineError('E_INVALID_INPUT', `olderThanDays must be a non-negative number`);
+    }
+    const cutoff = new Date(Date.now() - olderThanDays * 86_400_000);
+    const cutoffIso = cutoff.toISOString();
+    const dryRun = request.dryRun === true;
+    const wantVacuum = request.vacuum === true;
+
+    // Ensure DB is open + resolve the path the singleton actually points at.
+    await openSkillsDb();
+    const dbPath = getOpenSkillsDbPath() ?? '';
+    const safeSize = (path: string): number => {
+      try {
+        return statSync(path).size;
+      } catch {
+        return 0;
+      }
+    };
+    const dbSizeBefore = safeSize(dbPath);
+
+    if (dryRun) {
+      // Count rows that would be deleted without touching them.
+      const dbHandle = await openSkillsDb();
+      const rows = dbHandle
+        .select({ c: sql<number>`COUNT(*)`.as('c') })
+        .from(skillUsage)
+        .where(lt(skillUsage.observedAt, cutoffIso))
+        .all();
+      const projected = Number(rows[0]?.c ?? 0);
+      const bounds = dbHandle
+        .select({
+          oldest: sql<string | null>`MIN(${skillUsage.observedAt})`.as('oldest'),
+          newest: sql<string | null>`MAX(${skillUsage.observedAt})`.as('newest'),
+        })
+        .from(skillUsage)
+        .all();
+      return engineSuccess({
+        deletedRows: projected,
+        olderThanDays,
+        cutoffIso,
+        dryRun: true,
+        vacuumed: false,
+        dbSizeBefore,
+        dbSizeAfter: dbSizeBefore,
+        oldestRemaining: bounds[0]?.oldest ?? null,
+        newestRemaining: bounds[0]?.newest ?? null,
+      });
+    }
+
+    const result = await pruneUsageOlderThan(cutoffIso);
+
+    let vacuumed = false;
+    if (wantVacuum) {
+      const nativeDb = getSkillsNativeDb();
+      if (nativeDb?.isOpen) {
+        try {
+          nativeDb.exec('VACUUM;');
+          vacuumed = true;
+        } catch {
+          // VACUUM may fail inside an open WAL transaction — surface but don't fail.
+          vacuumed = false;
+        }
+      }
+    }
+
+    return engineSuccess({
+      deletedRows: result.deletedRows,
+      olderThanDays,
+      cutoffIso,
+      dryRun: false,
+      vacuumed,
+      dbSizeBefore,
+      dbSizeAfter: safeSize(dbPath),
+      oldestRemaining: result.oldestRemaining,
+      newestRemaining: result.newestRemaining,
+    });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
