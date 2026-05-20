@@ -939,6 +939,23 @@ export {
 export { generateSessionId } from './sessions/session-id.js';
 export type { DecisionRecord } from './sessions/types.js';
 export { readRegistry } from './skills/agents/registry.js';
+// Skills — federation (T9729 / SG-CLEO-SKILLS Sphere B W0)
+export type {
+  AddFederationResult,
+  FederationEntry,
+  FederationIndex,
+  FederationTrustLevel,
+} from './skills/federation-store.js';
+export {
+  addFederationPeer,
+  assertTrustLevel,
+  getFederationIndexPath,
+  listFederationPeers,
+  normaliseFederationUrl,
+  readFederationIndex,
+  removeFederationPeer,
+  writeFederationIndex,
+} from './skills/federation-store.js';
 export { validateContributionTask } from './skills/manifests/contribution.js';
 export { filterEntries } from './skills/manifests/research.js';
 // Skills
