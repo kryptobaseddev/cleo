@@ -1758,6 +1758,26 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T9652 — skill.doctor.diagnose: read-only health report
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'skill.doctor.diagnose',
+    description:
+      'tools.skill.doctor.diagnose (query) — read-only health report on skill storage layout, db drift, orphans, and bridge symlinks',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'verbose',
+        type: 'boolean',
+        required: false,
+        description: 'Include per-skill detail in the rendered human-readable summary',
+      },
+    ],
+  },
   {
     gateway: 'query',
     domain: 'tools',

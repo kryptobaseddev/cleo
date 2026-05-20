@@ -40,6 +40,11 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { type HookEvent, isProviderHookEvent } from '../hooks/types.js';
 import { collectDiagnostics } from '../issue/diagnostics.js';
 import { paginate } from '../pagination.js';
+import {
+  type DoctorDiagnoseReport,
+  diagnoseSkillStore,
+  renderDoctorDiagnoseReport,
+} from '../skills/doctor.js';
 import { upsertSkillRow } from '../store/skills-db.js';
 
 /** Shape for provider hook info returned by queryHookProviders. */
@@ -257,6 +262,39 @@ export async function toolsSkillSpawnProviders(
     const cap = capability ?? 'supportsSubagents';
     const providers = getProvidersBySpawnCapability(cap);
     return engineSuccess({ providers, capability: cap, count: providers.length });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Run the read-only skill-store doctor diagnose pass.
+ *
+ * @remarks
+ * Thin wrapper over {@link diagnoseSkillStore} from `@cleocode/core/skills/doctor`
+ * — exists so the dispatch layer can route `tools.skill.doctor.diagnose` without
+ * importing the diagnose module directly. The handler is read-only and never
+ * mutates filesystem or db state.
+ *
+ * @param options.verbose - When true, the human renderer included on the
+ *   envelope `data.report.rendered` field contains per-skill detail.
+ *
+ * @returns Engine result carrying the {@link DoctorDiagnoseReport} plus the
+ *   rendered human-readable summary.
+ *
+ * @task T9652
+ */
+export async function toolsSkillDoctorDiagnose(options?: { verbose?: boolean }): Promise<
+  EngineResult<{
+    report: DoctorDiagnoseReport;
+    rendered: string;
+    healthy: boolean;
+  }>
+> {
+  try {
+    const report = await diagnoseSkillStore();
+    const rendered = renderDoctorDiagnoseReport(report, options?.verbose ?? false);
+    return engineSuccess({ report, rendered, healthy: report.healthy });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }

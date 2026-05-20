@@ -40,6 +40,7 @@ import {
   toolsSkillCatalogResources,
   toolsSkillDependencies,
   toolsSkillDispatch,
+  toolsSkillDoctorDiagnose,
   toolsSkillFind,
   toolsSkillInstall,
   toolsSkillList,
@@ -155,6 +156,7 @@ export class ToolsHandler implements DomainHandler {
         'skill.spawn.providers',
         'skill.catalog',
         'skill.precedence',
+        'skill.doctor.diagnose',
         // provider
         'provider.list',
         'provider.detect',
@@ -401,6 +403,13 @@ export class ToolsHandler implements DomainHandler {
           return wrapResult(result, 'query', 'tools', 'skill.precedence', startTime);
         }
         return unsupportedOp('query', 'tools', `skill.precedence`, startTime);
+      }
+
+      // T9652 — skill.doctor.diagnose: read-only health report
+      case 'doctor.diagnose': {
+        const verbose = params?.verbose === true;
+        const result = await toolsSkillDoctorDiagnose({ verbose });
+        return wrapResult(result, 'query', 'tools', 'skill.doctor.diagnose', startTime);
       }
 
       default:
