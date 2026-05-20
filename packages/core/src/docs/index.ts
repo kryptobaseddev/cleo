@@ -49,3 +49,45 @@ export {
 
 export type { ExportDocumentOptions, ExportDocumentResult } from './export-document.js';
 export { exportDocument } from './export-document.js';
+
+// ── T9639 — cleo docs import (legacy .md migration) ─────────────────────────
+
+export type {
+  ImportAction,
+  ImportCounters,
+  ImportManifest,
+  ImportManifestEntry,
+  WriteManifestOptions,
+} from './import/audit.js';
+export {
+  createCounters,
+  defaultManifestPath,
+  writeAuditManifest,
+} from './import/audit.js';
+export type { DedupDecision, DedupOptions } from './import/dedup.js';
+export { decideDedupAction } from './import/dedup.js';
+export type { RunDocsImportOptions, RunDocsImportResult } from './import/import-orchestrator.js';
+export {
+  CounterMismatchError,
+  importTypeToDocKind,
+  runDocsImport,
+} from './import/import-orchestrator.js';
+export type {
+  DocImportType,
+  ScannedFile,
+  ScanOptions,
+} from './import/scanner.js';
+export {
+  classifyByRelPath,
+  DEFAULT_EXCLUDE_DIRS,
+  scanDirectory,
+} from './import/scanner.js';
+export type { GenerateSlugOptions, SlugResult } from './import/slug.js';
+export {
+  generateSlug,
+  RESERVED_SLUGS,
+  SlugCollisionLimitError,
+  SlugReservedError,
+  slugify,
+  stripMdExtension,
+} from './import/slug.js';

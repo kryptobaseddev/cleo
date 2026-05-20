@@ -153,6 +153,41 @@ export {
 // Docs export — rich Markdown export of a task with frontmatter + attachments (T947)
 export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';
 export { exportDocument } from './docs/export-document.js';
+// Docs import (T9639) — `cleo docs import <dir>` recursive .md migration
+export type {
+  DedupDecision,
+  DedupOptions,
+  DocImportType,
+  GenerateSlugOptions,
+  ImportAction,
+  ImportCounters,
+  ImportManifest,
+  ImportManifestEntry,
+  RunDocsImportOptions,
+  RunDocsImportResult,
+  ScannedFile,
+  ScanOptions,
+  SlugResult,
+  WriteManifestOptions,
+} from './docs/index.js';
+export {
+  CounterMismatchError,
+  classifyByRelPath,
+  createCounters,
+  DEFAULT_EXCLUDE_DIRS,
+  decideDedupAction,
+  defaultManifestPath,
+  generateSlug,
+  importTypeToDocKind,
+  RESERVED_SLUGS,
+  runDocsImport,
+  SlugCollisionLimitError,
+  SlugReservedError,
+  scanDirectory,
+  slugify,
+  stripMdExtension,
+  writeAuditManifest,
+} from './docs/index.js';
 // Agent-outputs migration (T9064) — ingest .cleo/agent-outputs/*.md into DocsAccessor
 export type {
   AgentOutputMigrationResult,
