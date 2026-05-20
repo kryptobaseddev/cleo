@@ -123,6 +123,16 @@ export interface DocsAttachmentRow {
    * @task T9637 (T-DOCS-SLUG-2)
    */
   type?: DocsType;
+  /**
+   * When the attachment is project-scoped (no specific entity owner), this
+   * row's owner ID / type still reflect how the attachment was registered.
+   * The `--project` list view simply unions all owner-types.
+   *
+   * @task T9638 (T-DOCS-SLUG-3)
+   */
+  ownerId?: string;
+  /** Owner type (only populated by `docs list --project`). */
+  ownerType?: AttachmentOwnerType;
 }
 
 /**
@@ -162,10 +172,13 @@ export interface AttachmentRecord {
 /**
  * Parameters for `docs.list`.
  *
- * Exactly one of `task`, `session`, or `observation` must be provided.
- * `type` is an optional filter that matches the {@link DocsType} taxonomy.
+ * Exactly one of `task`, `session`, `observation`, or `project` must be
+ * provided. `project=true` lists ALL attachments in the project DB
+ * regardless of owner. `type` is an optional filter applicable to every
+ * mode and matches the {@link DocsType} taxonomy exactly.
  *
  * @task T9637 (T-DOCS-SLUG-2 — `type` filter)
+ * @task T9638 (T-DOCS-SLUG-3 — `project` scope)
  */
 export interface DocsListParams {
   /** Task identifier to list attachments for. */
@@ -174,6 +187,12 @@ export interface DocsListParams {
   session?: string;
   /** Observation identifier to list attachments for. */
   observation?: string;
+  /**
+   * When true, list ALL attachments in the project (across every owner).
+   *
+   * @task T9638
+   */
+  project?: boolean;
   /**
    * Filter results to attachments whose `type` column equals this value.
    *
@@ -184,12 +203,19 @@ export interface DocsListParams {
 
 /**
  * Result of `docs.list`.
+ *
+ * When the caller passed `project: true`, `ownerId` is the empty string and
+ * `ownerType` is `"task"` (a stable placeholder so consumers don't have to
+ * widen their types); per-row owner information is carried on the
+ * {@link DocsAttachmentRow.ownerId} / `ownerType` fields instead.
  */
 export interface DocsListResult {
-  /** Owner entity ID. */
+  /** Owner entity ID (empty when `project: true`). */
   ownerId: string;
-  /** Inferred owner type. */
+  /** Inferred owner type (placeholder when `project: true`). */
   ownerType: AttachmentOwnerType;
+  /** True when the result represents the whole-project scope (T9638). */
+  project?: boolean;
   /** Type taxonomy filter, echoed back from the request when provided. */
   type?: DocsType;
   /** Count of attachments for this owner. */
