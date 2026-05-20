@@ -33,6 +33,7 @@ import type {
   SkillSummary,
 } from './types.js';
 import { SKILL_NAME_MAP } from './types.js';
+import { recordSkillUsage } from './usage-recorder.js';
 
 // ============================================================================
 // CAAMP Search Path Resolution
@@ -228,7 +229,7 @@ export function discoverSkill(skillDir: string): Skill | null {
   const frontmatter = parseFrontmatter(content);
 
   const dirName = basename(skillDir);
-  return {
+  const skill: Skill = {
     name: frontmatter.name || dirName,
     dirName,
     path: skillDir,
@@ -236,6 +237,11 @@ export function discoverSkill(skillDir: string): Skill | null {
     frontmatter,
     content,
   };
+
+  // T9689 — record load telemetry (best-effort, never blocks discovery).
+  recordSkillUsage(skill.name, 'load');
+
+  return skill;
 }
 
 /**
