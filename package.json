@@ -52,7 +52,8 @@
     "hooks:install": "simple-git-hooks"
   },
   "simple-git-hooks": {
-    "commit-msg": "node scripts/hooks/commit-msg-release-lint.mjs \"$1\""
+    "commit-msg": "node scripts/hooks/commit-msg-release-lint.mjs \"$1\"",
+    "pre-commit": "node scripts/hooks/pre-commit-docs-drift.mjs"
   },
   "pnpm": {
     "supportedArchitectures": {

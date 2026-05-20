@@ -293,6 +293,70 @@ jobs:
       - name: Run canon drift gate
         run: node packages/cleo/dist/cli/index.js check canon
 
+  docs-drift:
+    # T9645: gate published docs SSoT vs the on-disk git files.
+    # `cleo docs status` exits 2 when any publication has drifted, 0 when
+    # all are in-sync, and is a no-op when no `.cleo/docs-publications.json`
+    # exists yet. This job IS the release-verify drift gate.
+    name: Docs SSoT Drift Gate (T9645)
+    needs: [biome]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - name: Skip when no docs ledger exists
+        id: ledger-check
+        run: |
+          if [[ -f .cleo/docs-publications.json ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No docs-publications.json — gate is a no-op."
+          fi
+      - run: pnpm install --frozen-lockfile
+        if: steps.ledger-check.outputs.exists == 'true'
+      - name: Build monorepo (cleo + workspace deps)
+        if: steps.ledger-check.outputs.exists == 'true'
+        run: pnpm run build
+      - name: Run docs drift gate
+        if: steps.ledger-check.outputs.exists == 'true'
+        run: |
+          # `cleo docs status` exits:
+          #   0 — every publication in-sync
+          #   2 — at least one publication drifted (modified/deleted)
+          # Any other non-zero exit is a tool failure and must fail the gate.
+          set +e
+          node packages/cleo/dist/cli/index.js docs status
+          rc=$?
+          set -e
+          if [ $rc -eq 0 ]; then
+            echo "docs-drift: clean."
+            exit 0
+          fi
+          if [ $rc -eq 2 ]; then
+            echo "::error::docs SSoT drift detected — published files have diverged from the blob store."
+            echo "::error::Run \`cleo docs sync --from <path> --for <ownerId> --name <blobName>\` for each drifted entry, or wait for the docs-reingest workflow after merge."
+            exit 2
+          fi
+          echo "::error::cleo docs status failed with exit $rc"
+          exit $rc
+
   migration-integrity:
     # Guards against the gitignore-silent-block bug that caused the CI
     # regression fixed in c6ae85a3. Before that, a too-broad "migrations/"
