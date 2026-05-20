@@ -83,6 +83,41 @@ export interface IsCanonicalOptions {
 const LEGACY_AGENTS_SKILLS_SUBPATH = join('.local', 'share', 'agents', 'skills');
 
 /**
+ * Absolute path of the SINGLE bridge symlink at `~/.agents/skills/`.
+ *
+ * @remarks
+ * Per architecture-v3 §1, every non-Claude harness (Cursor, Aider, Codeium,
+ * etc.) discovers skills through this one symlink, which points at
+ * `~/.claude/skills/agents-shared/` (which in turn fans out into
+ * `~/.cleo/skills/`). Centralised here as the SSoT so doctor helpers,
+ * adopt-orphans, and any future bridge consumer all agree on the same
+ * literal — eliminates the four-site duplication noted in
+ * SKILLS-CLEANUP-AUDIT.md Part D.
+ *
+ * @public
+ */
+export const AGENTS_SKILLS_BRIDGE_PATH: string = join(homedir(), '.agents', 'skills');
+
+/**
+ * Absolute path of Claude Code's hardcoded shared-skills mount at
+ * `~/.claude/skills/agents-shared/`.
+ *
+ * @remarks
+ * Per architecture-v3 §1, Claude Code reads skills from this directory
+ * verbatim (it is the hardcoded discovery mount). Every other harness
+ * traverses {@link AGENTS_SKILLS_BRIDGE_PATH} which is a symlink to this
+ * directory. Centralised so doctor helpers do not recompute the literal.
+ *
+ * @public
+ */
+export const CLAUDE_SKILLS_AGENTS_SHARED_PATH: string = join(
+  homedir(),
+  '.claude',
+  'skills',
+  'agents-shared',
+);
+
+/**
  * Compute the legacy XDG skills path for the current user's home directory.
  *
  * @remarks
