@@ -27,6 +27,10 @@ import { getProvider } from '../../core/registry/providers.js';
 import * as catalog from '../../core/skills/catalog.js';
 import { discoverSkill } from '../../core/skills/discovery.js';
 import { recordSkillInstall } from '../../core/skills/lock.js';
+import {
+  evaluateSkillTrustGate,
+  recordSkillTrustBypass,
+} from '../../core/skills/trust-gate-adapter.js';
 import { cloneRepo } from '../../core/sources/github.js';
 import { cloneGitLabRepo } from '../../core/sources/gitlab.js';
 import { isMarketplaceScoped, parseSource } from '../../core/sources/parser.js';
@@ -90,6 +94,14 @@ export function registerSkillsInstall(parent: Command): void {
       '--profile <name>',
       'Install a skill library profile (minimal, core, recommended, full)',
     )
+    .option(
+      '--force',
+      'Override trust-gate block decisions (audited to .cleo/audit/skill-trust-bypass.jsonl)',
+    )
+    .option(
+      '--allow-new-source',
+      'Bypass first-install confirmation prompt for unknown federation sources (non-TTY safe)',
+    )
     .option('--json', 'Output as JSON (default)')
     .option('--human', 'Output in human-readable format')
     .action(
@@ -101,6 +113,8 @@ export function registerSkillsInstall(parent: Command): void {
           yes?: boolean;
           all?: boolean;
           profile?: string;
+          force?: boolean;
+          allowNewSource?: boolean;
           json?: boolean;
           human?: boolean;
         },
@@ -352,6 +366,66 @@ export function registerSkillsInstall(parent: Command): void {
             }
             console.error(pc.red(message));
             process.exit(1);
+          }
+
+          // T9730 — skills-guard trust gate.
+          // MUST run BEFORE any fs.copy so a blocked install has zero
+          // side-effects on the canonical skill store. Library/package
+          // sources are trusted-by-construction (they ship with CLEO) so
+          // they skip the gate — same posture as Hermes builtin tier.
+          if (sourceType !== 'library' && sourceType !== 'package') {
+            const gate = await evaluateSkillTrustGate(localPath, sourceValue, opts.force ?? false);
+            if (gate.decision === 'block') {
+              const message = `Trust gate blocked install: ${gate.reason}`;
+              if (format === 'json') {
+                const envelope = buildEnvelope(
+                  operation,
+                  mvi,
+                  { scan: gate.scan },
+                  {
+                    code: ErrorCodes.SKILL_TRUST_GATE_BLOCKED,
+                    message,
+                    category: ErrorCategories.VALIDATION,
+                    retryable: false,
+                    retryAfterMs: null,
+                    details: {
+                      verdict: gate.scan.verdict,
+                      trustLevel: gate.scan.trustLevel,
+                      findingsCount: gate.scan.findings.length,
+                    },
+                  },
+                );
+                console.error(JSON.stringify(envelope, null, 2));
+              } else {
+                console.error(pc.red(`\n${message}`));
+                for (const f of gate.scan.findings.slice(0, 5)) {
+                  console.error(
+                    pc.dim(
+                      `  [${f.severity}] ${f.category} ${f.file}:${f.line} — ${f.description}`,
+                    ),
+                  );
+                }
+                console.error(pc.yellow('  Use --force to override (audited).'));
+              }
+              process.exit(1);
+            }
+            if (gate.decision === 'ask') {
+              const message = `Trust gate requires confirmation: ${gate.reason}`;
+              if (format === 'json') {
+                emitJsonError(
+                  operation,
+                  mvi,
+                  ErrorCodes.SKILL_TRUST_GATE_BLOCKED,
+                  message,
+                  ErrorCategories.VALIDATION,
+                );
+              }
+              console.error(pc.red(message));
+              process.exit(1);
+            }
+            if (opts.force === true && gate.scan.verdict !== 'safe') {
+              await recordSkillTrustBypass(gate.scan, 'operator --force on caamp skills install');
+            }
           }
 
           const result = await dispatchInstallSkillAcrossProviders(
