@@ -73,3 +73,15 @@ export {
 } from './import/slug.js';
 export type { DedupDecision, DedupOptions } from './import/dedup.js';
 export { decideDedupAction } from './import/dedup.js';
+export type {
+  ImportAction,
+  ImportCounters,
+  ImportManifest,
+  ImportManifestEntry,
+  WriteManifestOptions,
+} from './import/audit.js';
+export {
+  createCounters,
+  defaultManifestPath,
+  writeAuditManifest,
+} from './import/audit.js';
