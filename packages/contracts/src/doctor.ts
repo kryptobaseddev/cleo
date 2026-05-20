@@ -1,0 +1,130 @@
+/**
+ * Doctor domain contracts — types for `cleo doctor` worktree-orphan audit/prune.
+ *
+ * These types describe orphan `.cleo/` directories left behind under
+ * `<projectRoot>/.claude/worktrees/` by the T9550/T9580 SSoT bug (fixed in
+ * v2026.5.83) and the schema for the audit JSONL line written per prune.
+ *
+ * Consumed by:
+ *   - `packages/core/src/doctor/worktree-orphans.ts` (scan + prune primitives)
+ *   - `packages/cleo/src/cli/commands/doctor.ts` (CLI flags)
+ *
+ * @task T9790
+ * @epic T9790
+ */
+
+/**
+ * One orphan `.cleo/` directory discovered under
+ * `<projectRoot>/.claude/worktrees/`.
+ *
+ * Worktrees are nested 1-3 levels deep — examples:
+ *   - `<projectRoot>/.claude/worktrees/agent-X/.cleo/`            (depth 1)
+ *   - `<projectRoot>/.claude/worktrees/agent-X/T9220/.cleo/`     (depth 2)
+ *
+ * Each entry carries full provenance so the operator can decide whether
+ * the orphan represents lost work before pruning.
+ */
+export interface OrphanEntry {
+  /**
+   * The worktree root that contains the orphan — the first directory under
+   * `.claude/worktrees/` (e.g. `<projectRoot>/.claude/worktrees/agent-X`).
+   * Used as the boundary that `pruneWorktreeOrphans` validates against.
+   */
+  worktreePath: string;
+
+  /**
+   * Absolute path to the orphan `.cleo/` directory itself. Always lives
+   * under `worktreePath` (the security check rejects anything that doesn't).
+   */
+  orphanPath: string;
+
+  /**
+   * List of `tasks.db`, `brain.db`, `nexus.db`, or `config.json` paths
+   * found inside the orphan. Empty array means the orphan exists but is
+   * structurally empty (still pruned — it shouldn't be there at all).
+   */
+  dbFiles: string[];
+
+  /** Total byte size of the orphan tree (sum of regular file sizes). */
+  sizeBytes: number;
+
+  /** ISO-8601 timestamp of the most recent file modification under the orphan. */
+  lastModifiedAt: string;
+
+  /**
+   * Seconds since `lastModifiedAt` (relative to scan time). Surfaces "stale
+   * vs recent" without forcing the caller to compute date math.
+   */
+  ageSeconds: number;
+
+  /**
+   * `true` when the orphan contains more than just stray DB files — e.g. a
+   * full duplicate of `adrs/`, `agent-outputs/`, `rcasd/`, etc. These need
+   * heightened operator review before pruning.
+   */
+  isFullDuplicate: boolean;
+}
+
+/**
+ * Result of one prune operation. Reports the archive location, the per-entry
+ * outcome, and any entries rejected by the security gate.
+ */
+export interface PruneResult {
+  /**
+   * Absolute path to the `.tar.gz` archive written before any deletion.
+   * `null` only when `dryRun: true` AND no archive was produced.
+   */
+  archivePath: string | null;
+
+  /** Whether this was a dry run (no archive, no rm, no audit-log line). */
+  dryRun: boolean;
+
+  /** Entries that were successfully pruned (or would be in dry-run mode). */
+  pruned: OrphanEntry[];
+
+  /**
+   * Entries that failed validation and were skipped. The `reason` is a
+   * stable machine-readable code (e.g. `path-outside-worktrees-root`,
+   * `path-not-found`, `rm-failed`).
+   */
+  rejected: Array<{ entry: OrphanEntry; reason: string }>;
+
+  /** Total bytes archived (sum of `pruned[].sizeBytes`). */
+  totalSizeBytes: number;
+
+  /** ISO-8601 timestamp the prune completed. */
+  prunedAt: string;
+}
+
+/**
+ * One line appended to `.cleo/audit/worktree-prune.jsonl` per prune
+ * operation. Extends the existing audit-log schema (timestamp +
+ * worktreePath + action + agent) with the orphan-specific fields needed
+ * to reconstruct what was removed.
+ *
+ * Existing fields preserved for schema continuity:
+ *   - `timestamp`, `worktreePath`, `action`, `agent`
+ *
+ * New fields for orphan prune:
+ *   - `orphanPath`, `sizeBytes`, `dbFileCount`, `archivePath`, `dryRun`
+ */
+export interface PruneAuditEntry {
+  /** ISO-8601 timestamp. */
+  timestamp: string;
+  /** Worktree root that contained the orphan. */
+  worktreePath: string;
+  /** Absolute path to the orphan `.cleo/` directory removed. */
+  orphanPath: string;
+  /** Action code — fixed to `'prune-worktree-orphan'` for this flow. */
+  action: 'prune-worktree-orphan';
+  /** Always `'cleo'` — written by `cleo doctor`. */
+  agent: 'cleo';
+  /** Byte size of the pruned tree. */
+  sizeBytes: number;
+  /** Number of DB files found in the orphan (informational). */
+  dbFileCount: number;
+  /** Absolute path to the archive. `null` only on dry-run lines. */
+  archivePath: string | null;
+  /** Whether this entry represents a dry-run plan (no actual removal). */
+  dryRun: boolean;
+}
