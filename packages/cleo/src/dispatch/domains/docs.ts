@@ -41,7 +41,9 @@ import type {
   DocsListResult,
   DocsRemoveParams,
   DocsRemoveResult,
+  DocsType,
 } from '@cleocode/contracts/operations/docs';
+import { DOCS_TYPE_VALUES } from '@cleocode/contracts/operations/docs';
 import type {
   AttachmentRef,
   LlmsTxtAttachment,
@@ -184,6 +186,15 @@ function validateSlug(raw: unknown): { valid: false; reason: string } | { valid:
   return { valid: true };
 }
 
+/**
+ * Validate a type value against the closed {@link DOCS_TYPE_VALUES} set.
+ *
+ * @task T9637
+ */
+function validateDocsType(raw: unknown): raw is DocsType {
+  return typeof raw === 'string' && (DOCS_TYPE_VALUES as readonly string[]).includes(raw as string);
+}
+
 // ─── Typed inner handler ──────────────────────────────────────────────────────
 
 /**
@@ -212,21 +223,50 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
 
+    // Validate `--type` filter if provided (T9637).
+    let typeFilter: DocsType | undefined;
+    if (params.type !== undefined) {
+      if (!validateDocsType(params.type)) {
+        return lafsError(
+          'E_INVALID_TYPE',
+          `type must be one of: ${DOCS_TYPE_VALUES.join('|')} — got '${String(params.type)}'`,
+          'list',
+        );
+      }
+      typeFilter = params.type;
+    }
+
     const ownerType = inferOwnerType(ownerId);
     // Legacy store still drives the envelope because it tracks URL and
     // llms-txt kinds the v2 interface does not expose. `backend` metadata
     // reports the path that FUTURE writes would take, so operators can
     // observe llmtxt adoption without changing the data contract.
     const store = createAttachmentStore();
-    const attachments = await store.listByOwner(ownerType, ownerId);
+    const ownerAttachments = await store.listByOwner(ownerType, ownerId);
     const backend: AttachmentBackend = await resolveAttachmentBackend();
+
+    // T9637 — apply the type filter post-list. listByOwner returns
+    // AttachmentMetadata (no slug/type), so we re-hydrate via getExtras().
+    const enriched: Array<{
+      meta: (typeof ownerAttachments)[number];
+      slug: string | null;
+      type: string | null;
+    }> = [];
+    for (const m of ownerAttachments) {
+      const extras = await store.getExtras(m.id);
+      const slug = extras?.slug ?? null;
+      const type = extras?.type ?? null;
+      if (typeFilter !== undefined && type !== typeFilter) continue;
+      enriched.push({ meta: m, slug, type });
+    }
 
     return lafsSuccess<DocsListResult>(
       {
         ownerId,
         ownerType,
-        count: attachments.length,
-        attachments: attachments.map((m) => ({
+        ...(typeFilter !== undefined ? { type: typeFilter } : {}),
+        count: enriched.length,
+        attachments: enriched.map(({ meta: m, slug, type }) => ({
           id: m.id,
           sha256: `${m.sha256.slice(0, 8)}…`,
           kind: m.attachment.kind,
@@ -242,6 +282,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           labels: m.attachment.labels,
           createdAt: m.createdAt,
           refCount: m.refCount,
+          ...(slug ? { slug } : {}),
+          ...(type ? { type: type as DocsType } : {}),
         })),
         // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (drift T1529)
         attachmentBackend: backend as DocsListResult['attachmentBackend'],
@@ -449,6 +491,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           createdAt: metadata.createdAt,
           refCount: metadata.refCount,
           ...(extras?.slug ? { slug: extras.slug } : {}),
+          ...(extras?.type ? { type: extras.type as DocsType } : {}),
         },
         path: storagePath,
         sizeBytes: fetchResult.bytes.length,
@@ -472,6 +515,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       labels: rawLabels,
       attachedBy: rawAttachedBy,
       slug: rawSlug,
+      type: rawType,
     } = params;
     if (!ownerId) {
       return lafsError('E_INVALID_INPUT', 'ownerId is required', 'add');
@@ -495,8 +539,22 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       slug = rawSlug as string;
     }
 
+    // T9637 — validate type against the closed taxonomy set.
+    let type: DocsType | undefined;
+    if (rawType !== undefined) {
+      if (!validateDocsType(rawType)) {
+        return lafsError(
+          'E_INVALID_TYPE',
+          `type must be one of: ${DOCS_TYPE_VALUES.join('|')} — got '${String(rawType)}'`,
+          'add',
+        );
+      }
+      type = rawType;
+    }
+
     const extras: { slug?: string; type?: string } = {};
     if (slug !== undefined) extras.slug = slug;
+    if (type !== undefined) extras.type = type;
 
     const labels = parseLabels(rawLabels);
     const attachedBy = rawAttachedBy ?? 'human';
@@ -596,6 +654,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
           attachmentBackend: backend as DocsAddResult['attachmentBackend'],
           ...(slug !== undefined ? { slug } : {}),
+          ...(type !== undefined ? { type } : {}),
         },
         'add',
       );
@@ -662,6 +721,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
           attachmentBackend: backend as DocsAddResult['attachmentBackend'],
           ...(slug !== undefined ? { slug } : {}),
+          ...(type !== undefined ? { type } : {}),
         },
         'add',
       );
