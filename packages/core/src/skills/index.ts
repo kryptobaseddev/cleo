@@ -61,6 +61,23 @@ export type {
   SkillSymlinkRecord,
 } from './doctor.js';
 export { diagnoseSkillStore, renderDoctorDiagnoseReport } from './doctor.js';
+// Federation (T9729 — SG-CLEO-SKILLS Sphere B W0)
+export type {
+  AddFederationResult,
+  FederationEntry,
+  FederationIndex,
+  FederationTrustLevel,
+} from './federation-store.js';
+export {
+  addFederationPeer,
+  assertTrustLevel,
+  getFederationIndexPath,
+  listFederationPeers,
+  normaliseFederationUrl,
+  readFederationIndex,
+  removeFederationPeer,
+  writeFederationIndex,
+} from './federation-store.js';
 export {
   buildTaskContext,
   injectProtocol,
