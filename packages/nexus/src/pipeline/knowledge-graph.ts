@@ -21,6 +21,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { GraphNode, GraphRelation } from '@cleocode/contracts';
+import type { Column } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
 // Database interface (injected — avoids circular import from core)
@@ -43,14 +44,27 @@ export interface NexusDbInsert {
 }
 
 /**
+ * Structural typing for an injected Drizzle table — the runtime object is
+ * a Drizzle SQLiteTable whose columns appear as enumerable properties whose
+ * values are {@link Column} instances. We accept any string-keyed columns
+ * here so we can `nexusNodes['projectId']` for `eq()` without going through
+ * `as unknown as Column` per call site (T9767).
+ *
+ * Operations that need the raw table identity (e.g. `db.select().from(...)`)
+ * pass the value through to drizzle which treats it as opaque — the index
+ * signature does not interfere because drizzle's runtime ignores it.
+ */
+export type DrizzleTableRef = { [columnName: string]: Column };
+
+/**
  * Drizzle table references passed to the flush function.
  * Allows the pipeline to remain decoupled from `@cleocode/core` internals.
  */
 export interface NexusTables {
   /** The `nexus_nodes` Drizzle table object. */
-  nexusNodes: unknown;
+  nexusNodes: DrizzleTableRef;
   /** The `nexus_relations` Drizzle table object. */
-  nexusRelations: unknown;
+  nexusRelations: DrizzleTableRef;
 }
 
 // ---------------------------------------------------------------------------

@@ -274,7 +274,7 @@ export async function dispatchFromCli(
     // `deprecated`) so JSON consumers see what the dispatcher decorators
     // attached. Callers can still pass `responseMeta` explicitly to override.
     if (opts.responseMeta === undefined) {
-      opts.responseMeta = response.meta as unknown as Record<string, unknown>;
+      opts.responseMeta = response.meta;
     }
     cliOutput(response.data, opts);
   } else {

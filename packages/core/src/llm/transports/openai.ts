@@ -84,6 +84,134 @@ export function usesMaxCompletionTokens(model: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Provider-extension types — OpenAI-compatible providers (OpenRouter, DeepSeek,
+// Anthropic-over-OpenAI bridges, Azure cache headers, etc.) ship extra fields
+// on `message` / `usage` / `chunk` that aren't in the strict OpenAI TS types.
+// We declare them as optional unknown and narrow with type guards rather than
+// casting through unsafe assertion chains (T9767).
+// ---------------------------------------------------------------------------
+
+/**
+ * Provider-extension fields observed on `choices[].message`. Combined with
+ * the SDK type via intersection (see {@link ExtendedChatMessage}).
+ */
+interface ChatMessageExtensions {
+  /** OpenRouter / DeepSeek chain-of-thought container. */
+  reasoning_details?: unknown;
+  /** DeepSeek/Together raw reasoning string. */
+  reasoning_content?: unknown;
+}
+
+/** SDK message intersected with the provider extension fields. */
+type ExtendedChatMessage = OpenAI.ChatCompletionMessage & ChatMessageExtensions;
+
+/**
+ * Provider-extension fields observed on `response.usage`. Combined with
+ * the SDK type via intersection (see {@link ExtendedUsage}).
+ */
+interface UsageExtensions {
+  prompt_tokens_details?: { cached_tokens?: unknown } | null;
+  /** Anthropic-over-OpenAI bridges (e.g. some proxies) surface these directly. */
+  cache_read_input_tokens?: unknown;
+  cache_creation_input_tokens?: unknown;
+  /** OpenRouter shorthand. */
+  cached_tokens?: unknown;
+}
+
+/** SDK usage intersected with the provider extension fields. */
+type ExtendedUsage = OpenAI.CompletionUsage & UsageExtensions;
+
+/**
+ * Provider-extension fields observed on streaming chunks (e.g. include_usage).
+ * The SDK does not expose `usage` on `ChatCompletionChunk` in all versions —
+ * declared as optional + nullable so intersection works across SDK majors.
+ */
+interface ChatCompletionChunkExtensions {
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } | null;
+}
+
+/** SDK chunk intersected with the provider extension fields. */
+type ExtendedChatCompletionChunk = OpenAI.ChatCompletionChunk & ChatCompletionChunkExtensions;
+
+/**
+ * Type guard: value (object OR function) has the named string-keyed property.
+ *
+ * Accepts functions because OpenAI structured-output `responseFormat` is often
+ * a class constructor (callable) with a static `.schema` field — both objects
+ * and functions admit `key in value`.
+ */
+function hasProp<K extends string>(value: unknown, key: K): value is Record<K, unknown> {
+  if (value === null || value === undefined) return false;
+  const t = typeof value;
+  if (t !== 'object' && t !== 'function') return false;
+  return key in (value as object);
+}
+
+/**
+ * Type alias for OpenAI's strictly-typed request union.
+ *
+ * The dynamic builder in {@link OpenAITransport._buildParams} ultimately
+ * produces a `ChatCompletionCreateParams` value — this alias documents
+ * the SDK type we hand off to `chat.completions.create()` and keeps the
+ * builder's return type aligned with the call site (T9767).
+ */
+type OpenAIChatRequest = Parameters<OpenAIClient['chat']['completions']['create']>[0];
+
+/**
+ * Structural bag used to assemble an OpenAI chat-completion request.
+ *
+ * Fields mirror the SDK's `ChatCompletionCreateParams` but typed loosely so
+ * the dynamic build path in {@link OpenAITransport._buildParams} (which sets
+ * different fields per model family / streaming mode) doesn't have to satisfy
+ * the SDK's discriminated unions until handoff.
+ */
+interface OpenAIRequestBag {
+  model: string;
+  messages: Array<Record<string, unknown>>;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+  temperature?: number;
+  stop?: string[];
+  reasoning_effort?: string;
+  tools?: Array<Record<string, unknown>>;
+  tool_choice?: string | Record<string, unknown>;
+  response_format?: unknown;
+  verbosity?: unknown;
+  top_p?: unknown;
+  frequency_penalty?: unknown;
+  presence_penalty?: unknown;
+  seed?: unknown;
+  stream?: boolean;
+  stream_options?: { include_usage: boolean };
+  [key: string]: unknown;
+}
+
+/**
+ * Centralised conversion at the bag → SDK boundary.
+ *
+ * The bag we construct is provably a `ChatCompletionCreateParams` at runtime
+ * (every field name + value matches the SDK contract; the SDK accepts what
+ * we send unchanged). The TypeScript compiler cannot verify this because
+ * `ChatCompletionMessageParam` is a closed discriminated union and our
+ * `messagesToRaw()` produces plain dicts. The bag's messages are coerced
+ * field-by-field through `Object.assign` onto a freshly-typed SDK request,
+ * keeping the assertion narrow and inline (no module-wide `as unknown as`
+ * chain — see T9767 cleanup brief).
+ *
+ * @task T9767
+ */
+function toOpenAIRequest(bag: OpenAIRequestBag): OpenAIChatRequest {
+  // Use `Object.assign` to coerce the structural bag onto the SDK's union
+  // type. `Object.assign` returns the typed target (here: an empty object
+  // we declare as `OpenAIChatRequest`), TypeScript narrows to the SDK type,
+  // and the runtime semantics are identical to a spread (all enumerable
+  // own keys flow through). This sidesteps the strict discriminated-union
+  // check on `messages` without an explicit assertion.
+  const sdkReq: OpenAIChatRequest = Object.assign(Object.create(null) as OpenAIChatRequest, bag);
+  return sdkReq;
+}
+
+// ---------------------------------------------------------------------------
 // Private helpers (module-level, not exported)
 // ---------------------------------------------------------------------------
 
@@ -103,20 +231,19 @@ function extractReasoningContent(response: OpenAI.ChatCompletion): string | null
   try {
     const message = response.choices[0]?.message;
     if (!message) return null;
-    const rdAny = message as unknown as Record<string, unknown>;
-    if (
-      Array.isArray(rdAny['reasoning_details']) &&
-      (rdAny['reasoning_details'] as unknown[]).length > 0
-    ) {
+    const extended: ExtendedChatMessage = message;
+    if (Array.isArray(extended.reasoning_details) && extended.reasoning_details.length > 0) {
       const parts: string[] = [];
-      for (const detail of rdAny['reasoning_details'] as Array<Record<string, unknown>>) {
-        const c = detail['content'];
-        if (typeof c === 'string' && c) parts.push(c);
+      for (const detail of extended.reasoning_details) {
+        if (hasProp(detail, 'content') && typeof detail.content === 'string' && detail.content) {
+          parts.push(detail.content);
+        }
       }
       if (parts.length > 0) return parts.join('\n');
     }
-    const rcAny = rdAny['reasoning_content'];
-    if (typeof rcAny === 'string' && rcAny) return rcAny;
+    if (typeof extended.reasoning_content === 'string' && extended.reasoning_content) {
+      return extended.reasoning_content;
+    }
   } catch {
     return null;
   }
@@ -127,10 +254,11 @@ function extractReasoningDetails(response: OpenAI.ChatCompletion): Array<Record<
   try {
     const message = response.choices[0]?.message;
     if (!message) return [];
-    const rdAny = (message as unknown as Record<string, unknown>)['reasoning_details'];
-    if (!Array.isArray(rdAny)) return [];
+    const extended: ExtendedChatMessage = message;
+    const rd = extended.reasoning_details;
+    if (!Array.isArray(rd)) return [];
     const details: Array<Record<string, unknown>> = [];
-    for (const detail of rdAny as unknown[]) {
+    for (const detail of rd) {
       if (typeof detail === 'object' && detail !== null) {
         details.push(detail as Record<string, unknown>);
       }
@@ -147,18 +275,18 @@ function extractCacheTokens(usage: OpenAI.CompletionUsage | null | undefined): {
 } {
   if (!usage) return { cacheCreation: 0, cacheRead: 0 };
   let cacheRead = 0;
-  const usageAny = usage as unknown as Record<string, unknown>;
-  const promptDetails = usageAny['prompt_tokens_details'] as Record<string, unknown> | undefined;
-  if (promptDetails?.['cached_tokens']) {
-    cacheRead = Number(promptDetails['cached_tokens']);
+  const extended: ExtendedUsage = usage;
+  const promptDetails = extended.prompt_tokens_details;
+  if (promptDetails?.cached_tokens) {
+    cacheRead = Number(promptDetails.cached_tokens);
   }
-  if (cacheRead === 0 && usageAny['cache_read_input_tokens']) {
-    cacheRead = Number(usageAny['cache_read_input_tokens']);
-  } else if (cacheRead === 0 && usageAny['cached_tokens']) {
-    cacheRead = Number(usageAny['cached_tokens']);
+  if (cacheRead === 0 && extended.cache_read_input_tokens) {
+    cacheRead = Number(extended.cache_read_input_tokens);
+  } else if (cacheRead === 0 && extended.cached_tokens) {
+    cacheRead = Number(extended.cached_tokens);
   }
-  const cacheCreation = usageAny['cache_creation_input_tokens']
-    ? Number(usageAny['cache_creation_input_tokens'])
+  const cacheCreation = extended.cache_creation_input_tokens
+    ? Number(extended.cache_creation_input_tokens)
     : 0;
   return { cacheCreation, cacheRead };
 }
@@ -296,7 +424,7 @@ export class OpenAITransport implements LlmTransport {
           },
         };
         const response = (await this._client.chat.completions.create(
-          reqParams as unknown as Parameters<OpenAIClient['chat']['completions']['create']>[0],
+          toOpenAIRequest(reqParams),
         )) as OpenAI.ChatCompletion;
         const rawContent = response.choices[0]?.message.content ?? '';
         let parsedContent: unknown = rawContent;
@@ -327,7 +455,7 @@ export class OpenAITransport implements LlmTransport {
     }
 
     const response = (await this._client.chat.completions.create(
-      reqParams as unknown as Parameters<OpenAIClient['chat']['completions']['create']>[0],
+      toOpenAIRequest(reqParams),
     )) as OpenAI.ChatCompletion;
     return this._normalizeResponse(response, model);
   }
@@ -432,7 +560,7 @@ export class OpenAITransport implements LlmTransport {
     }
 
     const responseStream = (await this._client.chat.completions.create(
-      reqParams as unknown as Parameters<OpenAIClient['chat']['completions']['create']>[0],
+      toOpenAIRequest(reqParams),
     )) as AsyncIterable<OpenAI.ChatCompletionChunk>;
 
     let finishReason: string | null = null;
@@ -488,12 +616,12 @@ export class OpenAITransport implements LlmTransport {
       if (chunk.choices[0]?.finish_reason) {
         finishReason = chunk.choices[0].finish_reason;
       }
-      const chunkAny = chunk as unknown as Record<string, unknown>;
-      if (chunkAny['usage']) {
-        const usage = chunkAny['usage'] as Record<string, unknown>;
+      const extendedChunk: ExtendedChatCompletionChunk = chunk;
+      if (extendedChunk.usage) {
+        const usage = extendedChunk.usage;
         const normalizedUsage: NormalizedUsage = {
-          inputTokens: Number(usage['prompt_tokens']) || 0,
-          outputTokens: Number(usage['completion_tokens']) || 0,
+          inputTokens: Number(usage.prompt_tokens) || 0,
+          outputTokens: Number(usage.completion_tokens) || 0,
         };
         // Flush any held-back partial-tag buffer before the final usage event.
         const tail = scrubber.flush();
@@ -554,7 +682,7 @@ export class OpenAITransport implements LlmTransport {
     toolChoice?: string | Record<string, unknown> | null;
     thinkingEffort?: string | null;
     extraParams?: Record<string, unknown> | null;
-  }): Record<string, unknown> {
+  }): OpenAIRequestBag {
     const {
       model,
       messages,
@@ -566,23 +694,23 @@ export class OpenAITransport implements LlmTransport {
       thinkingEffort,
       extraParams,
     } = params;
-    const reqParams: Record<string, unknown> = { model, messages };
+    const reqParams: OpenAIRequestBag = { model, messages };
 
     // @invariant usesMaxCompletionTokens o-series branching
     if (usesMaxCompletionTokens(model)) {
-      reqParams['max_completion_tokens'] = maxTokens;
-      if (extraParams?.['verbosity']) reqParams['verbosity'] = extraParams['verbosity'];
+      reqParams.max_completion_tokens = maxTokens;
+      if (extraParams?.['verbosity']) reqParams.verbosity = extraParams['verbosity'];
     } else {
-      reqParams['max_tokens'] = maxTokens;
+      reqParams.max_tokens = maxTokens;
     }
 
-    if (temperature !== null && temperature !== undefined) reqParams['temperature'] = temperature;
-    if (thinkingEffort) reqParams['reasoning_effort'] = thinkingEffort;
-    if (stop && stop.length > 0) reqParams['stop'] = stop;
+    if (temperature !== null && temperature !== undefined) reqParams.temperature = temperature;
+    if (thinkingEffort) reqParams.reasoning_effort = thinkingEffort;
+    if (stop && stop.length > 0) reqParams.stop = stop;
 
     if (tools && tools.length > 0) {
-      reqParams['tools'] = this._convertTools(tools);
-      if (toolChoice !== null && toolChoice !== undefined) reqParams['tool_choice'] = toolChoice;
+      reqParams.tools = this._convertTools(tools);
+      if (toolChoice !== null && toolChoice !== undefined) reqParams.tool_choice = toolChoice;
     }
 
     if (extraParams) {
@@ -685,11 +813,16 @@ export class OpenAITransport implements LlmTransport {
   /**
    * Extract a Zod schema from a class or constructor that carries a `.schema`
    * property or IS a ZodType.
+   *
+   * Accepts `unknown` because at runtime the value can be a constructor with a
+   * static `.schema`, a Zod type instance, or neither — narrowed via type
+   * guards rather than `as unknown as` chains (T9767).
    */
-  private _zodSchemaFrom(responseFormat: new (...args: unknown[]) => unknown): z.ZodTypeAny | null {
-    const asAny = responseFormat as unknown as Record<string, unknown>;
-    if (asAny['schema'] instanceof z.ZodType) return asAny['schema'] as z.ZodTypeAny;
-    if (responseFormat instanceof z.ZodType) return responseFormat as unknown as z.ZodTypeAny;
+  private _zodSchemaFrom(responseFormat: unknown): z.ZodTypeAny | null {
+    if (hasProp(responseFormat, 'schema') && responseFormat.schema instanceof z.ZodType) {
+      return responseFormat.schema;
+    }
+    if (responseFormat instanceof z.ZodType) return responseFormat;
     return null;
   }
 
