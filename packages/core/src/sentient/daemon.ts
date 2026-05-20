@@ -385,6 +385,139 @@ async function readSuperviseStudioConfig(globalConfigPath: string): Promise<bool
 }
 
 // ---------------------------------------------------------------------------
+// Curator config (T9682 / T9683) — opt-in skill curator integration
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolved curator configuration as read from `~/.cleo/config.json`.
+ *
+ * @public
+ */
+export interface CuratorConfig {
+  /**
+   * Master enable flag. When `false` (the default), the curator cron is
+   * NEVER scheduled — `cleo sentient kill` cannot affect what isn't running.
+   *
+   * @defaultValue `false`
+   */
+  enabled: boolean;
+  /**
+   * Interval (hours) between curator ticks. Default: 168 (every 7 days).
+   *
+   * The cron expression is rounded to the nearest whole-hour cadence so
+   * fractional intervals (e.g. `0.5`) are clamped UP to `1`.
+   *
+   * @defaultValue 168
+   */
+  runEveryHours: number;
+  /**
+   * Days of no activity after which an `active` row flips to `stale`.
+   *
+   * @defaultValue 30
+   */
+  staleAfterDays: number;
+  /**
+   * Days of no activity after which a row is archived to disk.
+   *
+   * @defaultValue 90
+   */
+  archiveAfterDays: number;
+}
+
+/** Default curator configuration when none is present in the config file. */
+export const DEFAULT_CURATOR_CONFIG: CuratorConfig = {
+  enabled: false,
+  runEveryHours: 168,
+  staleAfterDays: 30,
+  archiveAfterDays: 90,
+};
+
+/**
+ * Read `daemon.curator.*` from `~/.cleo/config.json` (T9683).
+ *
+ * @remarks
+ * Schema (all keys optional, defaults applied per-field):
+ *
+ * ```json
+ * {
+ *   "daemon": {
+ *     "curator": {
+ *       "enabled": false,
+ *       "runEveryHours": 168,
+ *       "staleAfterDays": 30,
+ *       "archiveAfterDays": 90
+ *     }
+ *   }
+ * }
+ * ```
+ *
+ * Any field that is missing, malformed, or out-of-range falls back to the
+ * default in {@link DEFAULT_CURATOR_CONFIG}. The config file as a whole may
+ * be absent — that case also yields the defaults (enabled=false).
+ *
+ * @param globalConfigPath - Absolute path to `~/.cleo/config.json`.
+ * @returns The resolved curator config (always populated).
+ */
+export async function readCuratorConfig(globalConfigPath: string): Promise<CuratorConfig> {
+  const resolved: CuratorConfig = { ...DEFAULT_CURATOR_CONFIG };
+  try {
+    const raw = await readFile(globalConfigPath, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const daemonCfg = parsed['daemon'];
+    if (typeof daemonCfg !== 'object' || daemonCfg === null) return resolved;
+    const curatorCfg = (daemonCfg as Record<string, unknown>)['curator'];
+    if (typeof curatorCfg !== 'object' || curatorCfg === null) return resolved;
+
+    const fields = curatorCfg as Record<string, unknown>;
+    if (typeof fields['enabled'] === 'boolean') resolved.enabled = fields['enabled'];
+    if (typeof fields['runEveryHours'] === 'number' && fields['runEveryHours'] > 0) {
+      resolved.runEveryHours = fields['runEveryHours'];
+    }
+    if (typeof fields['staleAfterDays'] === 'number' && fields['staleAfterDays'] > 0) {
+      resolved.staleAfterDays = fields['staleAfterDays'];
+    }
+    if (typeof fields['archiveAfterDays'] === 'number' && fields['archiveAfterDays'] > 0) {
+      resolved.archiveAfterDays = fields['archiveAfterDays'];
+    }
+  } catch {
+    // Config absent or parse error — return defaults.
+  }
+  return resolved;
+}
+
+/**
+ * Convert an hourly interval into a node-cron expression.
+ *
+ * @remarks
+ * - For intervals < 24 hours, emits `0 *\/<n> * * *` (every N hours on the hour).
+ * - For intervals that are an exact multiple of 24, emits `0 0 *\/<days> * *`
+ *   (every N days at midnight UTC).
+ * - For intervals that don't divide cleanly, falls back to `0 *\/<n> * * *`
+ *   capped at 23 hours — node-cron does not natively support multi-day
+ *   periodicity except via day-of-month, which has the usual 28-31 footgun.
+ *
+ * @param runEveryHours - Interval as configured (must be >= 1).
+ * @returns A valid 5-field cron expression.
+ */
+export function curatorCronExpression(runEveryHours: number): string {
+  const hours = Math.max(1, Math.round(runEveryHours));
+  if (hours < 24) {
+    return `0 */${hours} * * *`;
+  }
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    if (days <= 28) {
+      return `0 0 */${days} * *`;
+    }
+  }
+  // Long intervals that don't divide into days — emit a once-per-day cron so
+  // the daemon still fires AT LEAST once in the configured window; the tick
+  // itself will read the last-run timestamp and no-op if it isn't time yet
+  // (mirroring Hermes' `should_run_now` gate).
+  return '0 0 * * *';
+}
+
+// ---------------------------------------------------------------------------
 // Advisory lock
 // ---------------------------------------------------------------------------
 
@@ -707,6 +840,57 @@ export async function bootstrapDaemon(
       name: 'cleo-sentient-propose',
     },
   );
+
+  // Skill curator tick (T9682) — opt-in, default off.
+  // Reads `daemon.curator.enabled` + `daemon.curator.runEveryHours` from
+  // ~/.cleo/config.json. When disabled, no cron is scheduled.
+  {
+    const { getCleoHome } = await import('../paths.js');
+    const curatorConfigPath = opts.globalConfigPath ?? join(getCleoHome(), 'config.json');
+    const curatorCfg = await readCuratorConfig(curatorConfigPath);
+
+    if (curatorCfg.enabled) {
+      const expr = curatorCronExpression(curatorCfg.runEveryHours);
+      process.stdout.write(
+        `[CLEO SENTIENT CURATOR] enabled (interval=${curatorCfg.runEveryHours}h, cron='${expr}', staleAfterDays=${curatorCfg.staleAfterDays}, archiveAfterDays=${curatorCfg.archiveAfterDays})\n`,
+      );
+      cron.schedule(
+        expr,
+        async () => {
+          try {
+            // Honour kill-switch before doing any work.
+            const curatorState = await readSentientState(statePath);
+            if (curatorState.killSwitch) return;
+
+            // Lazy-import so the curator module is not loaded unless enabled.
+            const { runCuratorTick } = await import('./curator.js');
+            const result = await runCuratorTick({
+              staleAfterDays: curatorCfg.staleAfterDays,
+              archiveAfterDays: curatorCfg.archiveAfterDays,
+            });
+            process.stdout.write(
+              `${new Date().toISOString()} [CLEO SENTIENT CURATOR] tick complete: ` +
+                `checked=${result.summary.checked} stale=${result.summary.markedStale} ` +
+                `archived=${result.summary.archived} reactivated=${result.summary.reactivated}\n`,
+            );
+          } catch (err) {
+            process.stderr.write(
+              `${new Date().toISOString()} [CLEO SENTIENT CURATOR] tick error (caught at cron boundary): ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+            );
+          }
+        },
+        {
+          timezone: 'UTC',
+          noOverlap: true,
+          name: 'cleo-sentient-curator',
+        },
+      );
+    } else {
+      process.stdout.write(
+        '[CLEO SENTIENT CURATOR] disabled (daemon.curator.enabled=false). Skipping schedule.\n',
+      );
+    }
+  }
 
   // Nightly cross-project hygiene loop (T1637).
   // Runs at 02:00 local time (or CLEO_HYGIENE_CRON override).
