@@ -248,6 +248,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/contribution.js')).contributionCommand as CommandDef,
   },
   {
+    exportName: 'curatorCommand',
+    name: 'curator',
+    description: 'Skill curator: lifecycle transitions for agent-created skills',
+    load: async () => (await import('../commands/curator.js')).curatorCommand as CommandDef,
+  },
+  {
     exportName: 'currentCommand',
     name: 'current',
     description: '',
@@ -756,6 +762,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     description:
       'Show full task details by ID (returns complete task record with metadata, verification, lifecycle)',
     load: async () => (await import('../commands/show.js')).showCommand as CommandDef,
+  },
+  {
+    exportName: 'skillCommand',
+    name: 'skill',
+    description: 'Single-skill operations (restore, …)',
+    load: async () => (await import('../commands/skill.js')).skillCommand as CommandDef,
   },
   {
     exportName: 'skillsCommand',

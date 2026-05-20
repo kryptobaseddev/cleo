@@ -118,6 +118,7 @@ describe('WizardRunner — registration + dispatch', () => {
       'harness',
       'brain',
       'integrations',
+      'telemetry',
       'verification',
     ]);
   });
