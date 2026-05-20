@@ -71,3 +71,5 @@ export {
   slugify,
   stripMdExtension,
 } from './import/slug.js';
+export type { DedupDecision, DedupOptions } from './import/dedup.js';
+export { decideDedupAction } from './import/dedup.js';
