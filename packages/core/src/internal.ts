@@ -155,6 +155,8 @@ export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-
 export { exportDocument } from './docs/export-document.js';
 // Docs import (T9639) — `cleo docs import <dir>` recursive .md migration
 export type {
+  DedupDecision,
+  DedupOptions,
   DocImportType,
   GenerateSlugOptions,
   ScannedFile,
@@ -163,6 +165,7 @@ export type {
 } from './docs/index.js';
 export {
   classifyByRelPath,
+  decideDedupAction,
   DEFAULT_EXCLUDE_DIRS,
   generateSlug,
   RESERVED_SLUGS,
