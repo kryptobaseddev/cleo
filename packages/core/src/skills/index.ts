@@ -170,6 +170,26 @@ export {
   loadConfig as loadMpConfig,
   searchSkills,
 } from './marketplace.js';
+// Migration — legacy XDG store → ~/.cleo/skills/ (T9741 — moved from caamp)
+export type {
+  MigratedSkillRecord,
+  MigrationOptions,
+  MigrationOutcome,
+  SkippedSkillRecord,
+  TarExec,
+} from './migration.js';
+export {
+  defaultMigrationOptions,
+  formatBackupTimestamp,
+  isAlreadyMigrated,
+  LEGACY_MIGRATED_MARKER,
+  listBackups,
+  listSkillDirs,
+  planMigration,
+  runMigration,
+  runRollback,
+  systemTarExec,
+} from './migration.js';
 export type { BatchSpawnEntry, BatchSpawnResult } from './orchestrator/spawn.js';
 export { buildPrompt, canParallelize, spawn, spawnBatch } from './orchestrator/spawn.js';
 export type { PauseStatus, SessionInitResult } from './orchestrator/startup.js';
