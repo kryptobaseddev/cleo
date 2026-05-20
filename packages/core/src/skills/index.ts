@@ -61,6 +61,24 @@ export type {
   SkillSymlinkRecord,
 } from './doctor.js';
 export { diagnoseSkillStore, renderDoctorDiagnoseReport } from './doctor.js';
+// Federated search — T9731 multi-source query orchestrator
+export type {
+  FederatedSearchOptions,
+  FederatedSearchResponse,
+  FederatedSearchResult,
+} from './federated-search.js';
+export { computeScore, federatedSearch } from './federated-search.js';
+// Federation install gate — T9732 first-install prompt + sha256 checksum
+export type {
+  FederationInstallDecision,
+  FederationInstallGateOptions,
+  FederationInstallGateResult,
+} from './federation-install-gate.js';
+export {
+  computeArtefactChecksum,
+  evaluateFederationInstallGate,
+  requiresInteractiveConfirmation,
+} from './federation-install-gate.js';
 // Federation (T9729 — SG-CLEO-SKILLS Sphere B W0)
 export type {
   AddFederationResult,
@@ -78,6 +96,18 @@ export {
   removeFederationPeer,
   writeFederationIndex,
 } from './federation-store.js';
+// Hermes import classifier — T9733 trust-aware federation classification
+export type {
+  ClassifyOptions,
+  HermesClassification,
+  HermesRecordInput,
+  ImportedSkillSourceType,
+} from './hermes-import-classifier.js';
+export {
+  classifyHermesBatch,
+  classifyHermesRecord,
+  TRUSTED_REPOS_FOR_IMPORT,
+} from './hermes-import-classifier.js';
 export {
   buildTaskContext,
   injectProtocol,
@@ -176,6 +206,34 @@ export {
 // Canonical SSoT path helpers (T9650 — architecture v3 §1, §6)
 export type { IsCanonicalOptions, SkillSourceType as SkillRootSourceType } from './skill-root.js';
 export { is_canonical, resolveSkillsRoot } from './skill-root.js';
+// Skills-guard — T9730 trust-aware static security scanner
+export type {
+  Finding,
+  InstallDecision,
+  InstallGateDecision,
+  ScanResult,
+  ScanVerdict,
+  SkillTrustLevel,
+} from './skills-guard.js';
+export {
+  contentHash,
+  formatScanReport,
+  resolveTrustLevel,
+  scanFile,
+  scanSkill,
+  shouldAllowInstall,
+  TRUSTED_REPOS,
+} from './skills-guard.js';
+export type { SkillTrustBypassEntry } from './skills-guard-audit.js';
+export { getTrustBypassLogPath, recordTrustBypass } from './skills-guard-audit.js';
+export type { FindingCategory, FindingSeverity, ThreatPattern } from './skills-guard-patterns.js';
+export {
+  INVISIBLE_CHARS,
+  SCANNABLE_EXTENSIONS,
+  STRUCTURAL_LIMITS,
+  SUSPICIOUS_BINARY_EXTENSIONS,
+  THREAT_PATTERNS,
+} from './skills-guard-patterns.js';
 // Test utilities
 export {
   formatDateYMD,
