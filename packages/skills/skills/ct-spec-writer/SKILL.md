@@ -140,9 +140,70 @@ Non-compliant implementations SHOULD {remediation}.
 
 ---
 
+## Through SDK (preferred)
+
+Specifications are first-class docs SSoT records — created via
+`cleo docs add --type spec`, auto-attached to the parent task, and
+addressable by a stable slug. This is the canonical write path; the
+legacy "write to `docs/specs/<NAME>.md` and commit" pattern is
+deprecated below.
+
+### Write the spec attached to its parent task
+
+```bash
+cleo docs add T1234 docs/specs/auth-protocol.md \
+  --type spec \
+  --slug auth-protocol-v2 \
+  --desc "Auth protocol v2 — RFC 2119 requirements"
+```
+
+- `--type spec` is the canonical taxonomy value for a specification.
+  Other allowed values: `adr | research | handoff | note | llm-readme`.
+- `--slug` is the kebab-case retrieval handle. Use the spec topic +
+  version (e.g. `auth-protocol-v2`, `release-pipeline-v3`). The CLI
+  returns `E_SLUG_TAKEN` with 3 alternatives on collision — pick one
+  rather than silently overwriting.
+- The owner ID (`T1234`) auto-attaches the spec to its parent task so
+  downstream stages (`ct-validator`, decomposition, implementation)
+  can discover the spec via `cleo docs list --task T1234 --type spec`.
+
+### Publish the spec to a git-tracked path (when the spec must ship on disk)
+
+```bash
+cleo docs publish --for T1234 --to docs/specs/auth-protocol.md
+```
+
+Atomic tmp-then-rename. The published file lands in the next commit;
+the SSoT blob remains canonical and continues to track future versions.
+
+### Fetch the spec back by slug
+
+```bash
+cleo docs fetch auth-protocol-v2          # latest version
+cleo docs versions --for T1234            # every SHA version
+```
+
+### Discover sibling specs in this project
+
+```bash
+cleo docs list --type spec --project      # every spec in the project
+cleo docs list --task T1234 --type spec   # specs attached to T1234
+```
+
+## Deprecated: Direct filesystem write
+
+The legacy "write to `docs/specs/{{SPEC_NAME}}.md` and commit" pattern
+is deprecated. The on-disk file drifts from the SSoT, the spec has no
+slug for downstream skills to retrieve it by, and the task↔spec
+linkage exists only as a path convention. Migrate to
+`cleo docs add --type spec --slug <name>` for every new spec — and use
+`cleo docs sync --from docs/specs/<name>.md --for <taskId>` to
+back-fill existing on-disk specs into the SSoT.
+
 ## Output Location
 
-Specifications go in: `docs/specs/{{SPEC_NAME}}.md`
+Spec blobs live in the docs SSoT; published copies on disk go in
+`docs/specs/{{SPEC_NAME}}.md`.
 
 ---
 
