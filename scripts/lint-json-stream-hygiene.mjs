@@ -52,7 +52,7 @@
  * @see scripts/json-stream-hygiene-allowlist.txt
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, posix, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -343,7 +343,9 @@ lines.push(
 
 if (decreased.length > 0) {
   lines.push('');
-  lines.push(`  ${decreased.length} file(s) IMPROVED below allowlist baseline — please tighten the allowlist:`);
+  lines.push(
+    `  ${decreased.length} file(s) IMPROVED below allowlist baseline — please tighten the allowlist:`,
+  );
   for (const d of decreased) {
     lines.push(`    ${d.path}: ${d.count} actual < ${d.allowed} allowed`);
   }
@@ -351,7 +353,9 @@ if (decreased.length > 0) {
 
 if (eliminated.length > 0) {
   lines.push('');
-  lines.push(`  ${eliminated.length} file(s) ELIMINATED all violations — please remove from the allowlist:`);
+  lines.push(
+    `  ${eliminated.length} file(s) ELIMINATED all violations — please remove from the allowlist:`,
+  );
   for (const e of eliminated) {
     lines.push(`    ${e.path} (was ${e.allowed})`);
   }
@@ -382,7 +386,7 @@ for (const v of newOrIncreased) {
 console.error('');
 console.error('Fix:');
 console.error('  • Replace the stderr/console call with `pushWarning({ ... })` from');
-console.error("    `@cleocode/core` (re-exported as `pushWarning` from the package root).");
+console.error('    `@cleocode/core` (re-exported as `pushWarning` from the package root).');
 console.error('    Example:');
 console.error('      import { pushWarning } from "@cleocode/core";');
 console.error('      pushWarning({');

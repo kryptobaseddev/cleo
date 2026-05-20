@@ -1,5 +1,22 @@
 # Changelog
 
+## [2026.5.92] (2026-05-20) — hotfix: biome formatting on T9775 CI lint script + import-sort fix (v2026.5.91 release workflow rescue)
+
+Hotfix release rescuing the v2026.5.91 ship cycle. The v2026.5.91 tag was
+pushed, but the Release Pipeline workflow failed at the `pnpm biome ci .`
+gate before npm publish could run, so no npm artifact was produced for
+2026.5.91. Two files tripped the gate:
+
+- `scripts/lint-json-stream-hygiene.mjs` — formatting drift in the new
+  T9775 CI lint script (the SG-JSON-STREAM-HYGIENE regression guard).
+  Auto-fixed via `pnpm biome check --write .`.
+- `packages/core/src/skills/hermes-import-classifier.ts` — imports not
+  sorted per the repo's organize-imports rule. Auto-fixed in the same
+  pass.
+
+No functional changes — version bump + formatting only. Consumers should
+install `@cleocode/cleo@2026.5.92` (2026.5.91 was never published to npm).
+
 ## [2026.5.91] (2026-05-20) — SG-JSON-STREAM-HYGIENE close (T9763)
 
 Closes Saga **SG-JSON-STREAM-HYGIENE** (Epic **T9763**) — the
