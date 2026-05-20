@@ -45,6 +45,14 @@ const { DatabaseSync } = _require('node:sqlite') as {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+/**
+ * Number of legacy v5.x ship/merge commits backfilled by the T9755 migration
+ * (`20260520163324_t9755-backfill-legacy-ship-commits`). Every fresh tasks.db
+ * starts with these rows already in the `commits` table, so tests that assert
+ * absolute counts must shift by this baseline.
+ */
+const LEGACY_BACKFILL_COMMIT_COUNT = 18;
+
 /** Resolve path to the drizzle-tasks migrations folder. */
 function migrationsDir(): string {
   return join(__dirname, '..', '..', '..', 'migrations', 'drizzle-tasks');
@@ -315,8 +323,13 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     expect(result.data.artifactCount).toBe(1);
     expect(result.data.orphanCommits).toHaveLength(0);
 
-    // Verify table populations
-    expect(await countRows(projectRoot, 'commits')).toBe(2);
+    // Verify table populations. The T9755 migration backfills
+    // LEGACY_BACKFILL_COMMIT_COUNT legacy ship commits into the `commits`
+    // table on init; the 2 commits written by this reconcile sit on top of
+    // that baseline. `task_commits` is NOT touched by the backfill — none
+    // of the legacy SHAs carry T#### tokens that would seed task_commits —
+    // so its count remains a clean 2.
+    expect(await countRows(projectRoot, 'commits')).toBe(LEGACY_BACKFILL_COMMIT_COUNT + 2);
     expect(await countRows(projectRoot, 'commit_files')).toBeGreaterThanOrEqual(2);
     expect(await countRows(projectRoot, 'task_commits')).toBe(2);
     expect(await countRows(projectRoot, 'releases')).toBe(1);
