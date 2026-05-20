@@ -28,6 +28,7 @@ import * as catalog from '../../core/skills/catalog.js';
 import { discoverSkill } from '../../core/skills/discovery.js';
 import { recordSkillInstall } from '../../core/skills/lock.js';
 import {
+  evaluateFederationGate,
   evaluateSkillTrustGate,
   recordSkillTrustBypass,
 } from '../../core/skills/trust-gate-adapter.js';
@@ -366,6 +367,53 @@ export function registerSkillsInstall(parent: Command): void {
             }
             console.error(pc.red(message));
             process.exit(1);
+          }
+
+          // T9732 — federation install gate.
+          // Runs BEFORE the trust gate so a checksum mismatch or unknown
+          // federation source never reaches the skills-guard pass — saving
+          // wasted scans on bytes the operator hasn't authorised yet.
+          if (sourceType !== 'library' && sourceType !== 'package') {
+            const fedGate = await evaluateFederationGate(sourceValue, {
+              artefactPath: localPath,
+              approveNewSource: opts.allowNewSource === true,
+            });
+            if (fedGate.decision === 'block-checksum') {
+              const message = `Federation install blocked: ${fedGate.reason}`;
+              if (format === 'json') {
+                emitJsonError(
+                  operation,
+                  mvi,
+                  ErrorCodes.FEDERATION_CHECKSUM_MISMATCH,
+                  message,
+                  ErrorCategories.VALIDATION,
+                  {
+                    expectedChecksum: fedGate.expectedChecksum,
+                    computedChecksum: fedGate.computedChecksum,
+                  },
+                );
+              }
+              console.error(pc.red(message));
+              process.exit(1);
+            }
+            if (fedGate.decision === 'prompt-first-install') {
+              // Non-TTY contexts (CI, agents) MUST supply --allow-new-source.
+              // We do NOT prompt interactively here because the JSON-first
+              // CLI mode would mangle the prompt rendering.
+              const message = `${fedGate.reason} Use --allow-new-source to approve in non-interactive contexts.`;
+              if (format === 'json') {
+                emitJsonError(
+                  operation,
+                  mvi,
+                  ErrorCodes.FEDERATION_UNKNOWN_SOURCE_INTERACTIVE_REQUIRED,
+                  message,
+                  ErrorCategories.VALIDATION,
+                  { peer: fedGate.peer?.url ?? null },
+                );
+              }
+              console.error(pc.yellow(message));
+              process.exit(1);
+            }
           }
 
           // T9730 — skills-guard trust gate.
