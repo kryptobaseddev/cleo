@@ -616,6 +616,44 @@ const statsCommand = defineCommand({
   },
 });
 
+/**
+ * `cleo skills import-hermes` — Hermes sidecar migration (T9691).
+ *
+ * Reads `~/.hermes/skills/.usage.json` + `.bundled_manifest` and inserts
+ * equivalent rows into the CLEO `skills.db`. Idempotent — re-running the
+ * verb upserts by `name` and re-synthesizes the counter rows. Use
+ * `--dry-run` to preview without mutating disk state.
+ */
+const importHermesCommand = defineCommand({
+  meta: {
+    name: 'import-hermes',
+    description:
+      'Migrate Hermes ~/.hermes/skills/.usage.json sidecars into the CLEO skills.db registry',
+  },
+  args: {
+    'hermes-home': {
+      type: 'string',
+      description: 'Override Hermes home directory (default: $HERMES_HOME or ~/.hermes)',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Print planned writes without mutating skills.db',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tools',
+      'skill.import.hermes',
+      {
+        hermesHome: args['hermes-home'] as string | undefined,
+        dryRun: args['dry-run'] === true,
+      },
+      { command: 'skills', operation: 'tools.skill.import.hermes' },
+    );
+  },
+});
+
 /** cleo skills spawn-providers — list providers capable of spawning subagents */
 const spawnProvidersCommand = defineCommand({
   meta: { name: 'spawn-providers', description: 'List providers capable of spawning subagents' },
@@ -915,6 +953,7 @@ export const skillsCommand = defineCommand({
     doctor: doctorCommand,
     'propose-patch': proposePatchCommand,
     stats: statsCommand,
+    'import-hermes': importHermesCommand,
   },
   async run({ cmd, rawArgs }) {
     // Parent run() fires after subcommand per citty@0.2.x — skip default

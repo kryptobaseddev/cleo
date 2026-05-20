@@ -1789,6 +1789,32 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T9691 — skill.import.hermes: Hermes sidecar migration
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'skill.import.hermes',
+    description:
+      'tools.skill.import.hermes (mutate) — migrate ~/.hermes/skills/.usage.json sidecars into CLEO skills.db',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'hermesHome',
+        type: 'string',
+        required: false,
+        description: 'Override Hermes home directory (default: $HERMES_HOME or ~/.hermes)',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Print planned writes without mutating skills.db',
+      },
+    ],
+  },
   // T9690 — skill.stats: Sphere B telemetry rollup
   {
     gateway: 'query',

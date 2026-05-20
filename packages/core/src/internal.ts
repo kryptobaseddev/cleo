@@ -2151,6 +2151,7 @@ export {
   toolsSkillDoctorDiagnose,
   toolsSkillFederatedFind,
   toolsSkillFind,
+  toolsSkillImportHermes,
   toolsSkillInstall,
   toolsSkillList,
   toolsSkillPrecedenceResolve,

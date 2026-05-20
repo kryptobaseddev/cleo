@@ -1377,6 +1377,12 @@ export {
   sessionJournalDoctorSummarySchema,
   sessionJournalEntrySchema,
 } from './session-journal.js';
+// === Skills Hermes Import (T9691 — SG-CLEO-SKILLS Sphere B) ===
+export type {
+  SkillImportHermesRequest,
+  SkillImportHermesResponse,
+  SkillImportHermesRow,
+} from './skills/import-hermes.js';
 // === Skills Stats (T9690 — SG-CLEO-SKILLS Sphere B) ===
 export type {
   SkillStatsAgentCreatedRow,
