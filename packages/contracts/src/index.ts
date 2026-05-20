@@ -277,6 +277,8 @@ export type {
   StoreDocParams,
   StoreDocResult,
 } from './docs-accessor.js';
+// === Doctor: Worktree-Orphan Audit + Prune Types (T9790) ===
+export type { OrphanEntry, PruneAuditEntry, PruneResult } from './doctor.js';
 export type {
   EngineErrorPayload,
   EngineFailure,

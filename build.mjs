@@ -49,6 +49,7 @@ import { spawn } from 'node:child_process';
 const SUBPATH_DIRS = [
   'sentient',
   'gc',
+  'doctor',
   'memory',
   'tasks',
   'sessions',
