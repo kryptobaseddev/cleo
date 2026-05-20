@@ -185,6 +185,22 @@ export {
 // Store layer (bundled inside core)
 // ---------------------------------------------------------------------------
 
+// Doctor — adopt-orphans helper (T9744 — flat re-exports for cleo CLI dispatch)
+export type {
+  AdoptedSkillRowData,
+  DoctorAdoptCliAdapters,
+  DoctorAdoptOptions,
+  DoctorAdoptOrphanRecord,
+  DoctorAdoptResult,
+} from './skills/doctor-adopt.js';
+export { runDoctorAdopt } from './skills/doctor-adopt.js';
+// Doctor — bridge helper (T9744 — flat re-exports for cleo CLI dispatch)
+export {
+  AgentsSkillsRealDirError,
+  type DoctorBridgeOptions,
+  type DoctorBridgeResult,
+  runDoctorBridge,
+} from './skills/doctor-bridge.js';
 export {
   createDataAccessor,
   // @deprecated — use getTaskAccessor (T9054). Retained for one minor version.
