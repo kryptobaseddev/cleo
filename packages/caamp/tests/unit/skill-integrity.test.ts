@@ -10,14 +10,18 @@ vi.mock("../../src/core/lock-utils.js", () => ({
   updateLockFile: vi.fn(),
 }));
 
+vi.mock("@cleocode/core/skills/skill-root.js", () => ({
+  resolveSkillsRoot: vi.fn(),
+}));
+
 vi.mock("../../src/core/paths/standard.js", () => ({
-  getCanonicalSkillsDir: vi.fn(),
   resolveProviderSkillsDirs: vi.fn(),
 }));
 
 // Import after mocking
 const { readLockFile } = await import("../../src/core/lock-utils.js");
-const { getCanonicalSkillsDir, resolveProviderSkillsDirs } = await import("../../src/core/paths/standard.js");
+const { resolveSkillsRoot } = await import("@cleocode/core/skills/skill-root.js");
+const { resolveProviderSkillsDirs } = await import("../../src/core/paths/standard.js");
 
 // Import the functions under test
 const { 
@@ -106,7 +110,7 @@ describe("checkSkillIntegrity()", () => {
       skills: {},
       mcpServers: {},
     });
-    vi.mocked(getCanonicalSkillsDir).mockReturnValue(join(testDir, "canonical"));
+    vi.mocked(resolveSkillsRoot).mockReturnValue(join(testDir, "canonical"));
 
     const result = await checkSkillIntegrity("unknown-skill", []);
     expect(result.status).toBe("not-tracked");
@@ -119,7 +123,7 @@ describe("checkSkillIntegrity()", () => {
       skills: {},
       mcpServers: {},
     });
-    vi.mocked(getCanonicalSkillsDir).mockReturnValue(join(testDir, "canonical"));
+    vi.mocked(resolveSkillsRoot).mockReturnValue(join(testDir, "canonical"));
 
     const result = await checkSkillIntegrity("ct-orchestrator", []);
     expect(result.isCaampOwned).toBe(true);

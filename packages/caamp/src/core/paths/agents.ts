@@ -3,7 +3,6 @@ import {
   getAgentsHome,
   getAgentsMcpDir,
   getAgentsMcpServersPath,
-  getCanonicalSkillsDir,
   getLockFilePath,
 } from './standard.js';
 
@@ -18,12 +17,6 @@ export const AGENTS_HOME = getAgentsHome();
  * @public
  */
 export const LOCK_FILE_PATH = getLockFilePath();
-
-/**
- * Canonical skills directory (`~/.agents/skills/`).
- * @public
- */
-export const CANONICAL_SKILLS_DIR = getCanonicalSkillsDir();
 
 /**
  * Global MCP directory (`~/.agents/mcp/`).

@@ -4,7 +4,7 @@
  * Keeps CLEO-specific discovery logic (local project skill scanning, name mapping).
  *
  * CAAMP integration notes (T4679):
- * - Path resolution: uses CAAMP's getCanonicalSkillsDir() for standard locations
+ * - Path resolution: uses CAAMP's resolveSkillsRoot() for standard locations
  * - Basic metadata: CAAMP's parseSkillFile() returns SkillMetadata (name, desc, version)
  * - Extended metadata: CLEO's parseFrontmatter() adds tags, triggers, protocol, etc.
  * - discoverSkill() uses parseFrontmatter() because CLEO needs the extended fields
@@ -21,10 +21,10 @@ import {
   discoverSkill as caampDiscoverSkill,
   discoverSkills as caampDiscoverSkills,
   parseSkillFile as caampParseSkillFile,
-  getCanonicalSkillsDir,
   getProjectAgentsDir,
 } from '@cleocode/caamp';
 import { getCleoHome, getProjectRoot } from '../paths.js';
+import { resolveSkillsRoot } from './skill-root.js';
 import type {
   Skill,
   SkillFrontmatter,
@@ -50,7 +50,7 @@ export function getSkillSearchPaths(cwd?: string): SkillSearchPath[] {
   const projectAgentsSkills = join(getProjectAgentsDir(projectRoot), 'skills');
 
   const paths: SkillSearchPath[] = [
-    { scope: 'agent-skills', path: getCanonicalSkillsDir(), priority: 1 },
+    { scope: 'agent-skills', path: resolveSkillsRoot(), priority: 1 },
     { scope: 'project-custom', path: projectAgentsSkills, priority: 2 },
   ];
 
@@ -69,7 +69,7 @@ export function getSkillSearchPaths(cwd?: string): SkillSearchPath[] {
  */
 export function getSkillsDir(cwd?: string): string {
   void cwd;
-  return getCanonicalSkillsDir();
+  return resolveSkillsRoot();
 }
 
 /**
