@@ -251,6 +251,50 @@ export type EvidenceAtom =
        * (e.g. `"D-arch-001"`, `"AGT-abc123"`).
        */
       decisionId: string;
+    }
+  | {
+      /**
+       * Pull-request atom — proves that a referenced GitHub PR shipped to
+       * the project's primary branch with CI green.
+       *
+       * Closes the release-verb dogfood gap (T9764): tasks that ship via the
+       * standard PR + admin-merge flow lacked a zero-friction way to record
+       * `testsPassed` / `qaPassed` evidence after the fact. Re-running
+       * `tool:test` against the entire monorepo is overkill for one-line
+       * tasks, and `note:` is rejected for hard gates on critical
+       * verifications.
+       *
+       * A `pr:<number>` atom satisfies BOTH `testsPassed` and `qaPassed`
+       * simultaneously when:
+       *   1. `state === 'MERGED'` (PR was actually shipped to main)
+       *   2. `mergedAt` is non-null (defends against API races)
+       *   3. The status-check rollup contains ≥1 SUCCESS check and zero
+       *      FAILURE checks in the required workflows
+       *      (`CI`, `Lockfile Check`, `Contracts Dep Lint`)
+       *
+       * Format: `pr:<positive integer>` (e.g. `pr:357`)
+       *
+       * Validation: CLEO calls `gh pr view <num> --json
+       * statusCheckRollup,mergeable,state,mergedAt,headRefOid` and parses
+       * the rollup. Results are cached under
+       * `.cleo/cache/evidence/pr-<num>.json` keyed on `(prNumber, mergedAt)`
+       * so re-verifies skip the network round trip.
+       *
+       * @task T9764
+       * @epic T9762
+       * @saga T9758
+       */
+      kind: 'pr';
+      /** PR number (positive integer). */
+      prNumber: number;
+      /** Merge commit SHA (full 40-char hex) — captured at validate time. */
+      mergeCommitSha: string;
+      /** ISO 8601 timestamp when the PR was merged. */
+      mergedAt: string;
+      /** Number of `SUCCESS` checks across all required workflows. */
+      successCount: number;
+      /** Total number of checks evaluated in the rollup. */
+      totalChecks: number;
     };
 
 /**

@@ -247,11 +247,15 @@ cleo verify T### --gate testsPassed --evidence "tool:test"
 cleo verify T### --gate testsPassed --evidence "tool:pnpm-test"
 #   OR (anchored test-run JSON — preferred for sharing across sibling tasks)
 cleo verify T### --gate testsPassed --evidence "test-run:/tmp/vitest-out.json"
+#   OR (retroactive — references a merged PR; satisfies BOTH testsPassed AND qaPassed) (T9764)
+cleo verify T### --gate testsPassed --evidence "pr:357"
 
 # qaPassed — lint + typecheck exit 0 (project-resolved: biome/eslint/clippy/ruff, tsc/mypy/...)
 cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"
 #   OR via legacy aliases — both still work
 cleo verify T### --gate qaPassed --evidence "tool:biome;tool:tsc"
+#   OR retroactive PR atom — same atom can verify testsPassed + qaPassed (T9764)
+cleo verify T### --gate qaPassed --evidence "pr:357"
 
 # documented — docs files or URL
 cleo verify T### --gate documented --evidence "files:docs/spec.md"
@@ -294,6 +298,10 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 `tool:<name>` evidence is project-agnostic. Canonical names: `test`, `build`, `lint`, `typecheck`, `audit`, `security-scan`. They resolve via `.cleo/project-context.json` (`testing.command`, `build.command`) with per-`primaryType` fallbacks (cargo, pytest, go, bun, …). Legacy aliases (`pnpm-test`, `tsc`, `biome`, `cargo-test`, `pytest`, …) still work.
 
 Results are cached under `.cleo/cache/evidence/<key>.json`, keyed on `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies against identical state coalesce to one execution via a per-key lock; cross-worktree parallelism is bounded by a machine-wide per-tool semaphore at `~/.local/share/cleo/locks/tool-<canonical>/`. Tune with `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>` (`0` disables).
+
+### `pr:<number>` retroactive atom (T9764)
+
+For tasks that already shipped via the standard PR + admin-merge flow, `pr:<number>` resolves through `gh pr view <num>` and accepts the atom IFF the PR is `state=MERGED` AND every required-workflow check (defaults: `CI`, `Lockfile Check`, `Contracts Dep Lint`) is `SUCCESS` or `SKIPPED`. The single atom satisfies BOTH `testsPassed` and `qaPassed` simultaneously — no need to re-run the monorepo suite or lint pipeline. Results cache under `.cleo/cache/evidence/pr-<num>.json`, keyed on `(prNumber, mergedAt)` so re-verifies skip the network round trip. Override required workflows via `CLEO_PR_REQUIRED_WORKFLOWS="<csv>"`.
 
 ### Anti-patterns to avoid
 
