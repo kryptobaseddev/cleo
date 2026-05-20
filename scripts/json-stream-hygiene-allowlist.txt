@@ -1,0 +1,72 @@
+# JSON-stream hygiene allowlist (T9775)
+#
+# Format: `<posix-relative-path> <count|*>` — one entry per line.
+#   • `<count>`  = pinned baseline; any NEW forbidden write fails CI.
+#                  Reductions are surfaced; the entry should then be
+#                  trimmed down OR deleted entirely.
+#   • `*`        = whole-file exempt (interactive UX, fatal renderer,
+#                  background daemon — NOT a JSON-emitting code path).
+#
+# `#` lines and blank lines are ignored. Comments above an entry document
+# WHY the file appears here. Every counted entry is a debt the T9763 saga
+# has not yet retired; every `*` entry MUST justify itself.
+#
+# Linter:   scripts/lint-json-stream-hygiene.mjs
+# Patterns: process.stderr.write(...) | console.warn(...) | console.error(...)
+# Fix:      pushWarning({ code, message, severity, meta }) from @cleocode/core
+#           (drains into envelope.meta.warnings via T9768/T9769 ALS carrier)
+
+# ─────────────────────────────────────────────────────────────────────────
+# Whole-file exemptions — inherently NOT JSON-emitting paths
+# ─────────────────────────────────────────────────────────────────────────
+
+# Interactive OAuth login flow (device-code + PKCE). Prints the user-facing
+# authorization URL, polls progress, and reports success/failure to a human
+# operator — never invoked from a JSON envelope context.
+packages/cleo/src/cli/commands/llm-login.ts *
+
+# ─────────────────────────────────────────────────────────────────────────
+# Counted baselines — T9763 saga long-tail (to be retired post-T9775)
+# ─────────────────────────────────────────────────────────────────────────
+# CLI commands
+packages/cleo/src/cli/commands/auth/migrate-project-secrets.ts 1
+packages/cleo/src/cli/commands/auth/remove.ts 2
+packages/cleo/src/cli/commands/backup.ts 8
+packages/cleo/src/cli/commands/briefing.ts 3
+packages/cleo/src/cli/commands/check.ts 1
+packages/cleo/src/cli/commands/llm-stream.ts 3
+packages/cleo/src/cli/commands/llm.ts 6
+packages/cleo/src/cli/commands/nexus.ts 1
+packages/cleo/src/cli/commands/release.ts 1
+packages/cleo/src/cli/commands/session.ts 3
+packages/cleo/src/cli/commands/setup.ts 2
+packages/cleo/src/cli/commands/web.ts 5
+
+# core/memory — brain lifecycle + auxiliary logging
+packages/core/src/memory/brain-lifecycle.ts 20
+packages/core/src/memory/brain-maintenance.ts 4
+packages/core/src/memory/brain-page-nodes.ts 6
+packages/core/src/memory/brain-purge.ts 1
+packages/core/src/memory/brain-reasoning.ts 1
+packages/core/src/memory/brain-reconciler.ts 1
+packages/core/src/memory/brain-retrieval.ts 1
+packages/core/src/memory/brain-stdp.ts 2
+packages/core/src/memory/brain-sweep-executor.ts 3
+packages/core/src/memory/dream-cycle.ts 1
+packages/core/src/memory/extraction-gate.ts 1
+packages/core/src/memory/graph-auto-populate.ts 6
+packages/core/src/memory/graph-memory-bridge.ts 16
+packages/core/src/memory/manifest-ingestion.ts 2
+packages/core/src/memory/observer-reflector.ts 3
+packages/core/src/memory/sleep-consolidation.ts 6
+packages/core/src/memory/specialists.ts 1
+packages/core/src/memory/surprisal-tree.ts 2
+packages/core/src/memory/surprisal.ts 3
+packages/core/src/memory/temporal-supersession.ts 1
+
+# core/nexus
+packages/core/src/nexus/living-brain.ts 14
+packages/core/src/nexus/wiki-index.ts 2
+
+# core/skills
+packages/core/src/skills/doctor-adopt.ts 2
