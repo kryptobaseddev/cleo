@@ -173,3 +173,66 @@ This could be more conversational. Consider: "You can't..." instead of "You cann
 2. **Verify all issues are numbered sequentially** starting from Issue 1 with no gaps in numbering.
 3. Confirm the format exactly matches: `**Issue N: [Brief title]**` where N is the issue number.
 4. **In PR mode**: Verify each issue was posted as a separate GitHub comment (not output to conversation).
+
+## Issue length guidelines
+
+| Doc size | Typical issue count | Red flag |
+|----------|---------------------|----------|
+| Small (< 100 lines) | 0-3 issues | 10+ issues |
+| Medium (100-300 lines) | 0-8 issues | 20+ issues |
+| Large (300+ lines) | 0-15 issues | 30+ issues |
+
+A flood of low-value flags trains the author to ignore reviews. Apply
+the materiality filter aggressively — be selective up front; flag only
+what matters.
+
+## Workflow discipline
+
+| Step | Anti-pattern | Correct |
+|------|--------------|---------|
+| Start | Post comments immediately | Start pending review first |
+| Identify | Post issues one-by-one | Collect ALL, then post in parallel |
+| Format | Plain text bodies | `**Issue N: [Title]**` prefix |
+| Submit | `event: REQUEST_CHANGES` blocks PR | `event: COMMENT` is non-blocking |
+| Body | Long summary body on submit | Empty body — let inline comments speak |
+
+## When review should block
+
+The default event is `COMMENT` (non-blocking). Use `REQUEST_CHANGES`
+only when the PR contains issues that, if shipped, would actively harm
+readers:
+
+- Broken code examples that would fail when copy-pasted
+- Outdated security guidance
+- Links to deprecated APIs in setup instructions
+- Patronizing language to vulnerable audiences
+
+For everything else, use COMMENT. Trust the author to take feedback
+seriously without being forced.
+
+## Re-review after fix
+
+When the author addresses feedback and pushes new commits, run the
+review again on the updated diff. Don't re-flag issues already fixed;
+do flag new issues introduced in the fix.
+
+For re-reviews, start the comment with a status line:
+
+```text
+**Issue 2 (UPDATED): Vague heading**
+
+The previous fix changed "Setup" to "Setup Steps" — still vague.
+Try "Install dependencies, then run init".
+```
+
+The "(UPDATED)" tag signals iteration, not a brand-new flag.
+
+---
+
+## See references/
+
+Progressive disclosure — load on demand only:
+
+- `references/style-violations.md` — taxonomy of violations with detection patterns, issue titles, and remediation messages
+- `references/pr-review-mode.md` — pending-review workflow, comment format, gh CLI fallback, materiality filter
+- `references/inline-comment-patterns.md` — comment anatomy, single-line/multi-line/pattern fixes, anti-patterns

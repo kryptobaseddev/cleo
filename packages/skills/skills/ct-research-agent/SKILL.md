@@ -239,3 +239,12 @@ This skill binds to the **research** LOOM lifecycle stage. Governing ADRs:
 - [ADR-070 — three-tier orchestration](../../../../.cleo/adrs/ADR-070-three-tier-orchestration.md) — defines the Orchestrator → Phase Lead → Worker tiers; research runs as a leaf Worker.
 
 LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+
+## See references/
+
+Progressive disclosure — load on demand only:
+
+- `references/triggers-and-routing.md` — when to use ct-research-agent and what downstream skill consumes the output
+- `references/source-strategy.md` — codebase + Context7 + web hierarchy, query patterns, time-boxing
+- `references/citation-and-evidence.md` — evidence ladder, citation format, confidence labels
+- `references/anti-patterns.md` — ten failure modes observed in past CLEO sessions and how to avoid them

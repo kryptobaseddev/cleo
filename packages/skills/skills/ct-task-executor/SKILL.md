@@ -309,3 +309,13 @@ This skill binds to the **implementation** LOOM lifecycle stage. Governing ADRs:
 - [ADR-062 — worktree merge, not cherry-pick](../../../../.cleo/adrs/ADR-062-worktree-merge-not-cherry-pick.md) — defines the integration path that preserves the executor's commit SHAs end-to-end.
 
 LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+
+## See references/
+
+Progressive disclosure — load on demand only:
+
+- `references/implementation-patterns.md` — read-before-write, file-placement, ESM imports, quality-gate sequence
+- `references/acceptance-criteria-mapping.md` — mapping table, AC categories, verification commands
+- `references/evidence-and-gates.md` — ADR-051 atom shape, gate ritual, tool resolution + cache
+- `references/common-failures.md` — twelve observed worker failure modes with corrected approach
+- `references/anti-patterns.md` — instant-rejection patterns from AGENTS.md

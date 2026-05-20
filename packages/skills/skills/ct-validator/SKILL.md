@@ -249,3 +249,12 @@ This skill binds to the **validation** LOOM lifecycle stage. Governing ADRs:
 - [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines the protocol-validation routing layer that dispatches to this skill.
 
 LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+
+## See references/
+
+Progressive disclosure — load on demand only:
+
+- `references/validation-modes.md` — schema/code/document/protocol modes, selection rubric, composition
+- `references/schema-checking.md` — engine selection, draft selection, pitfalls, bulk validation
+- `references/compliance-reports.md` — canonical scaffold, status calculus, severity, ct-ivt-looper integration
+- `references/anti-patterns.md` — twelve validation failure modes with detection and remediation

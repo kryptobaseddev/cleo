@@ -20,6 +20,7 @@ export default defineConfig({
     include: [
       'skills/**/__tests__/*.test.ts',
       'skills/**/*.test.ts',
+      '__tests__/*.test.ts',
     ],
     exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
   },
