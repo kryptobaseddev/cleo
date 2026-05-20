@@ -57,9 +57,9 @@ describe('T9708 — canonical write-guard', () => {
       installedAt: new Date().toISOString(),
     };
 
-    await expect(
-      withProvenance('foreground', () => upsertSkillRow(row)),
-    ).rejects.toMatchObject({ code: E_CANONICAL_READ_ONLY });
+    await expect(withProvenance('foreground', () => upsertSkillRow(row))).rejects.toMatchObject({
+      code: E_CANONICAL_READ_ONLY,
+    });
   });
 
   it('refuses canonical writes from background-review origin', async () => {
@@ -137,7 +137,9 @@ describe('T9708 — canonical write-guard', () => {
     };
     // background-review frame
     await withProvenance('background-review', async () => {
-      await expect(upsertSkillRow(agentRow)).resolves.toMatchObject({ sourceType: 'agent-created' });
+      await expect(upsertSkillRow(agentRow)).resolves.toMatchObject({
+        sourceType: 'agent-created',
+      });
     });
   });
 });

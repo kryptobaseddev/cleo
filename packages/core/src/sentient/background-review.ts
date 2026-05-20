@@ -50,11 +50,8 @@
  */
 
 import { Worker } from 'node:worker_threads';
-import {
-  type BuildSkillReviewPromptArgs,
-  buildSkillReviewPrompt,
-} from './skill-review-prompt.js';
 import { type SkillWriteOrigin, withProvenance } from './skill-provenance.js';
+import { type BuildSkillReviewPromptArgs, buildSkillReviewPrompt } from './skill-review-prompt.js';
 
 // ---------------------------------------------------------------------------
 // Verdict + argument types
@@ -249,9 +246,7 @@ export interface SpawnReviewWorkerResult {
  *
  * @task T9707
  */
-export function spawnReviewWorker(
-  args: SpawnReviewWorkerArgs,
-): Promise<SpawnReviewWorkerResult> {
+export function spawnReviewWorker(args: SpawnReviewWorkerArgs): Promise<SpawnReviewWorkerResult> {
   return new Promise<SpawnReviewWorkerResult>((resolve, reject) => {
     const workerData: BuildSkillReviewPromptArgs = {
       skillName: args.skillName,
@@ -296,5 +291,5 @@ export function spawnReviewWorker(
 // Re-exports
 // ---------------------------------------------------------------------------
 
-export { buildSkillReviewPrompt } from './skill-review-prompt.js';
 export type { BuildSkillReviewPromptArgs } from './skill-review-prompt.js';
+export { buildSkillReviewPrompt } from './skill-review-prompt.js';
