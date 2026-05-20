@@ -1279,6 +1279,13 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   },
   {
     domain: 'tools',
+    operation: 'skill.doctor.diagnose',
+    gateway: 'query',
+    mode: 'native',
+    preferredChannel: 'either',
+  },
+  {
+    domain: 'tools',
     operation: 'skill.install',
     gateway: 'mutate',
     mode: 'native',

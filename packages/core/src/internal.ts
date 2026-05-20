@@ -939,6 +939,17 @@ export {
 export { generateSessionId } from './sessions/session-id.js';
 export type { DecisionRecord } from './sessions/types.js';
 export { readRegistry } from './skills/agents/registry.js';
+// Skill-store doctor (T9652 — read-only health report)
+export type {
+  BridgeStatus,
+  BrokenSymlinkRecord,
+  DoctorDiagnoseOptions,
+  DoctorDiagnoseReport,
+  DriftRecord,
+  OrphanRecord,
+  SkillSymlinkRecord,
+} from './skills/doctor.js';
+export { diagnoseSkillStore, renderDoctorDiagnoseReport } from './skills/doctor.js';
 export { validateContributionTask } from './skills/manifests/contribution.js';
 export { filterEntries } from './skills/manifests/research.js';
 // Skills
@@ -2081,6 +2092,7 @@ export {
   toolsSkillCatalogResources,
   toolsSkillDependencies,
   toolsSkillDispatch,
+  toolsSkillDoctorDiagnose,
   toolsSkillFind,
   toolsSkillInstall,
   toolsSkillList,
