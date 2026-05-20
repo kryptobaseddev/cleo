@@ -1,5 +1,42 @@
 # Changelog
 
+## [2026.5.91] (2026-05-20) — T9758 release-as-product Wave 1 + T9752 carryforward closure
+
+### BREAKING CHANGES
+
+- Unify releases tables — drop release_manifests + releases_view, hard-rename to canonical "releases". (T9686-B2) (#328)
+
+  Migration:
+
+  `release_manifests` is dropped and `releases_view` is removed. Readers that
+  previously queried either name must switch to the canonical `releases`
+  table. The migration handles the data move in-place; consumers that touch
+  the SQLite schema directly (e.g. raw queries outside the DataAccessor) need
+  to update their statements.
+
+### Features
+
+- Agent unification + Conduit architecture — unified cleo agent CLI, AgentRegistry with encrypted credentials, Conduit transport layer. (T170)
+- WASM bindings for the CANT ecosystem — cant-core, lafs-core, conduit-core, signaldock-core compile to WASM with TypeScript SDK integration. (T9738)
+- New `pr:<num>` evidence atom — retroactively verify shipped tasks against their PR's CI rollup. (T9764) (#365)
+
+### Fixes
+
+- Four dispatch/envelope bugs in the release pipeline — worktree help text, pr-status routing, reconcile double-wrap, changelog envelope. (T9686-A) (#324)
+- releaseShow + releaseList read from releases_view SSoT — eliminates dual-table split between releases and release_manifests. (T9686-B) (#323)
+- Provenance backfill — tag enumeration, --since empty handling, foreign-key insertion order. (T9686-C) (#325)
+- `cleo release <verb> --help` now shows verb-specific help instead of the top-level command listing. (T9765) (#371)
+
+### Refactors
+
+- Centralize logger + memory studio-API types in @cleocode/contracts (Wave 1 of inline-types-in-core cleanup). (T9766) (#364)
+- Remove all 56 `as unknown as` cast chains in the 4 worst-offender files (Wave 1 zero-tolerance type cleanup). (T9767) (#367)
+
+### Documentation
+
+- Worktree prune main-dir protection + AGENTS.md release docs aligned to SPEC-T9345 4-verb pipeline. (T9686-D) (T9686-E) (#320)
+
+
 ## [2026.5.90] (2026-05-20) — SG-SKILLS-CLEANUP close (T9740)
 
 Closes Saga **SG-SKILLS-CLEANUP** (Epic **T9740**) — the four-sphere
