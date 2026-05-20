@@ -1,5 +1,92 @@
 # Changelog
 
+## [2026.5.85] (2026-05-20) — SG-CLEO-SKILLS Sphere B close (T9560)
+
+Sphere B close of the SG-CLEO-SKILLS saga (T9560). Bundles the Sphere B
+foundations (typed skills.db adapter, curator config schema, write-origin
+AsyncLocalStorage, skill-review prompt builder, federation index storage),
+the four impl epics (E-SKILLS-TELEMETRY, E-SKILLS-CURATOR,
+E-SKILLS-AUTO-IMPROVE, E-SKILLS-FEDERATION-SECURITY), plus Sphere A
+follow-ups (T9652 diagnose, T9567 depth backfill, T9572 owner-CI, T9657
+adopt-orphans) and unrelated infra (T9686-C provenance backfill, T9627
+docs slugs/types, T9639 docs import, T9633 docs publish, T9634 docs
+git round-trip).
+
+### Added (T9560 Sphere B W0 foundations)
+
+- **PR #332 (T9683, T9688, T9705, T9706, T9729)** — 5 Sphere B
+  foundations: typed Drizzle adapter for `skills.db`, curator daemon
+  config schema with cross-field validation, `AsyncLocalStorage`
+  write-origin tracker for skills, skill-review prompt builder (Hermes
+  `run_agent.py:3981` port), federation index storage + `cleo
+  federation` CLI.
+
+### Added (T9561 telemetry — PR #337)
+
+- **T9689** — skill-load telemetry hook via fire-and-forget recorder.
+- **T9690** — `cleo skills stats` CLI + telemetry rollup engine op.
+- **T9691** — `cleo skills import-hermes` — Hermes sidecar migration.
+- **T9693** — `cleo skills prune-telemetry` — `skill_usage` retention sweep.
+- **T9694** — in-memory batching queue for skill-usage telemetry writes.
+
+### Added (T9562 curator — PR #334)
+
+- **T9677** — curator state machine — triple guard, archive-only
+  transitions.
+- **T9682, T9683** — wire curator tick into sentient daemon + config
+  defaults.
+- **T9685, T9686** — `cleo curator run` / `status` CLI.
+- **T9687** — `cleo skill restore <name>` CLI.
+
+### Added (T9563 auto-improve — PR #335)
+
+- **T9707** — background-review fork wired to skill-provenance frame.
+- **T9708** — canonical-row write-guard via skill-provenance ALS.
+- **T9714** — `cleo skills propose-patch` PR-cut for canonical skills.
+- **T9715** — local patch applier for Sphere B skills.
+- **T9727** — `cleo sentient review-status` group — auto-improve
+  dispatch.
+
+### Added (T9564 federation — PR #338)
+
+- **T9730** — skills-guard 120-pattern TS port + trust gate.
+- **T9731** — `cleo skills find --federated` multi-source query.
+- **T9732** — federation install gate — first-install prompt + sha256
+  checksum.
+- **T9733** — `hermes-import` classifier + ADR-075 trust-ladder.
+- **T9734** — `hermes-to-cleo` migration + skills federation guides.
+
+### Added (Sphere A follow-ups)
+
+- **PR #319 (T9652)** — `cleo skills doctor diagnose` read-only health
+  report.
+- **PR #322 (T9567)** — E-SKILLS-DEPTH-BACKFILL (9 tasks): 8
+  `references/` skills backfills for `ct-research-agent`,
+  `ct-spec-writer`, `ct-task-executor`, `ct-validator`, `ct-documentor`,
+  `ct-docs-lookup`, `ct-docs-write`, `ct-docs-review`, plus the
+  progressive-disclosure-depth CI gate (T9684).
+- **PR #331 (T9572)** — E-SKILLS-OWNER-CI (7 tasks) — operator privacy
+  doc + owner-CI pipeline for skills.
+- **PR #315 (T9657)** — `cleo skills doctor adopt-orphans` —
+  interactive orphan audit.
+
+### Added (docs infrastructure)
+
+- **PR #336 (T9627)** — docs slugs + types + project listing: T9636
+  `--slug` flag + collision detection + `E_SLUG_TAKEN` suggestions,
+  T9637 `--type` taxonomy + `docs list --type` filter, T9638 `docs
+  list --project` for project-scoped listing.
+- **PR #333 (T9639)** — `cleo docs import` — 5 subtasks for legacy
+  `.md` migration: T9710 recursive `.md` scanner with type classifier,
+  T9712 slug generator with collision suffix, T9711 SHA-based dedup
+  gate, T9713 `--dry-run` mode + audit manifest writer, T9709 counter
+  integrity check + `cleo docs import` wiring.
+
+### Fixed
+
+- **PR #325 (T9686-C)** — provenance backfill: tag enumeration,
+  `--since` empty handling, FK order.
+
 ## [2026.5.84] (2026-05-19) — SG-CLEO-SKILLS Sphere A close (T9560)
 
 Sphere A close of the SG-CLEO-SKILLS saga (T9560). Bundles the canonical
