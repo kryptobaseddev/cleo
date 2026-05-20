@@ -23,7 +23,8 @@
  * Design principles:
  * - NO LLM calls. All data comes from structured SQL queries.
  * - Title is template-generated: `[T2-NEXUS] ...`. Prompt-injection defence.
- * - Failures are swallowed: returns empty array + logs warning.
+ * - Failures are swallowed: returns empty array + pushes a non-fatal warning
+ *   (`W_SENTIENT_INGESTER_DEGRADED`) into the active LAFS envelope (T9773).
  *   Nexus.db absence must never crash the propose tick.
  * - Community snapshots stored in nexus_schema_meta (k/v) with key
  *   `community_snapshot_json`. First analyze run has no baseline.
@@ -35,6 +36,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { ProposalCandidate } from '@cleocode/contracts';
+import { pushWarning } from '@cleocode/lafs';
 
 // ---------------------------------------------------------------------------
 // Raw row types
@@ -147,8 +149,15 @@ function logAuditEvent(
       details_json: JSON.stringify(detailsJson),
     });
   } catch (err) {
+    // Best-effort: surface degraded-ingester signal in the envelope but never
+    // throw from the audit logger. Migrated from process.stderr.write per T9773.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[sentient/nexus-ingester] WARNING audit log: ${message}\n`);
+    pushWarning({
+      code: 'W_SENTIENT_INGESTER_DEGRADED',
+      severity: 'warn',
+      message: `[sentient/nexus-ingester] audit log: ${message}`,
+      context: { ingester: 'nexus', phase: 'audit-log', action, error: message },
+    });
   }
 }
 
@@ -194,8 +203,15 @@ function saveCommunitySnapshot(nativeDb: DatabaseSync, snapshot: Record<string, 
       value: JSON.stringify(snapshot),
     });
   } catch (err) {
+    // Best-effort: surface degraded-ingester signal in the envelope but never
+    // throw from snapshot persistence. Migrated from process.stderr.write per T9773.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[sentient/nexus-ingester] WARNING snapshot save: ${message}\n`);
+    pushWarning({
+      code: 'W_SENTIENT_INGESTER_DEGRADED',
+      severity: 'warn',
+      message: `[sentient/nexus-ingester] snapshot save: ${message}`,
+      context: { ingester: 'nexus', phase: 'snapshot-save', error: message },
+    });
   }
 }
 
@@ -263,8 +279,15 @@ export function runNexusIngester(nativeDb: DatabaseSync | null): ProposalCandida
       });
     }
   } catch (err) {
+    // Best-effort: surface degraded-ingester signal in the envelope but never
+    // throw from a query branch. Migrated from process.stderr.write per T9773.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[sentient/nexus-ingester] WARNING query A: ${message}\n`);
+    pushWarning({
+      code: 'W_SENTIENT_INGESTER_DEGRADED',
+      severity: 'warn',
+      message: `[sentient/nexus-ingester] query A: ${message}`,
+      context: { ingester: 'nexus', query: 'A', error: message },
+    });
   }
 
   try {
@@ -297,8 +320,15 @@ export function runNexusIngester(nativeDb: DatabaseSync | null): ProposalCandida
       });
     }
   } catch (err) {
+    // Best-effort: surface degraded-ingester signal in the envelope but never
+    // throw from a query branch. Migrated from process.stderr.write per T9773.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[sentient/nexus-ingester] WARNING query B: ${message}\n`);
+    pushWarning({
+      code: 'W_SENTIENT_INGESTER_DEGRADED',
+      severity: 'warn',
+      message: `[sentient/nexus-ingester] query B: ${message}`,
+      context: { ingester: 'nexus', query: 'B', error: message },
+    });
   }
 
   try {
@@ -351,8 +381,15 @@ export function runNexusIngester(nativeDb: DatabaseSync | null): ProposalCandida
     // Save new snapshot for next run.
     saveCommunitySnapshot(nativeDb, newSnapshot);
   } catch (err) {
+    // Best-effort: surface degraded-ingester signal in the envelope but never
+    // throw from a query branch. Migrated from process.stderr.write per T9773.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[sentient/nexus-ingester] WARNING query C: ${message}\n`);
+    pushWarning({
+      code: 'W_SENTIENT_INGESTER_DEGRADED',
+      severity: 'warn',
+      message: `[sentient/nexus-ingester] query C: ${message}`,
+      context: { ingester: 'nexus', query: 'C', error: message },
+    });
   }
 
   try {
@@ -396,8 +433,15 @@ export function runNexusIngester(nativeDb: DatabaseSync | null): ProposalCandida
       });
     }
   } catch (err) {
+    // Best-effort: surface degraded-ingester signal in the envelope but never
+    // throw from a query branch. Migrated from process.stderr.write per T9773.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[sentient/nexus-ingester] WARNING query D: ${message}\n`);
+    pushWarning({
+      code: 'W_SENTIENT_INGESTER_DEGRADED',
+      severity: 'warn',
+      message: `[sentient/nexus-ingester] query D: ${message}`,
+      context: { ingester: 'nexus', query: 'D', error: message },
+    });
   }
 
   try {
@@ -483,8 +527,15 @@ export function runNexusIngester(nativeDb: DatabaseSync | null): ProposalCandida
       }
     }
   } catch (err) {
+    // Best-effort: surface degraded-ingester signal in the envelope but never
+    // throw from a query branch. Migrated from process.stderr.write per T9773.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[sentient/nexus-ingester] WARNING query E: ${message}\n`);
+    pushWarning({
+      code: 'W_SENTIENT_INGESTER_DEGRADED',
+      severity: 'warn',
+      message: `[sentient/nexus-ingester] query E: ${message}`,
+      context: { ingester: 'nexus', query: 'E', error: message },
+    });
   }
 
   return candidates;
