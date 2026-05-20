@@ -27,11 +27,6 @@ import { getProvider } from '../../core/registry/providers.js';
 import * as catalog from '../../core/skills/catalog.js';
 import { discoverSkill } from '../../core/skills/discovery.js';
 import { recordSkillInstall } from '../../core/skills/lock.js';
-import {
-  evaluateFederationGate,
-  evaluateSkillTrustGate,
-  recordSkillTrustBypass,
-} from '../../core/skills/trust-gate-adapter.js';
 import { cloneRepo } from '../../core/sources/github.js';
 import { cloneGitLabRepo } from '../../core/sources/gitlab.js';
 import { isMarketplaceScoped, parseSource } from '../../core/sources/parser.js';
@@ -57,6 +52,187 @@ interface InstallSummary {
     failed: number;
     total: number;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Inline trust-gate bridge (T9751 — replaces trust-gate-adapter.ts)
+//
+// `@cleocode/core` is NOT a static dependency of caamp (caamp's package.json
+// intentionally omits it to keep the static module graph acyclic — core
+// depends on caamp, not the other way around). The old adapter at
+// `core/skills/trust-gate-adapter.ts` existed solely to wrap a dynamic
+// `import('@cleocode/core')` so callers got typed surfaces. Wave D collapses
+// that 229-LOC indirection: the same dynamic-import pattern lives inline
+// here, and the install command calls CORE's canonical helpers directly.
+// ---------------------------------------------------------------------------
+
+/**
+ * Local mirror of `@cleocode/core`'s `ScanResult` field-set. Declared inline
+ * (not via `typeof import('@cleocode/core')`) because we MUST NOT statically
+ * depend on core. Field set + semantics match exactly; if core's shape ever
+ * drifts the dynamic-import resolution would surface the breakage.
+ */
+interface AdapterScanResult {
+  readonly skillName: string;
+  readonly source: string;
+  readonly trustLevel: 'builtin' | 'trusted' | 'community' | 'agent-created';
+  readonly verdict: 'safe' | 'caution' | 'dangerous';
+  readonly findings: ReadonlyArray<{
+    readonly patternId: string;
+    readonly severity: string;
+    readonly category: string;
+    readonly file: string;
+    readonly line: number;
+    readonly match: string;
+    readonly description: string;
+  }>;
+  readonly scannedAt: string;
+  readonly summary: string;
+}
+
+/** Local mirror of `@cleocode/core`'s `FederationInstallGateResult`. */
+interface FederationGateResult {
+  readonly decision: 'allow' | 'block-checksum' | 'prompt-first-install';
+  readonly reason: string;
+  readonly peer: { readonly url: string; readonly trust: string } | null;
+  readonly isFederationSource: boolean;
+  readonly computedChecksum: string | null;
+  readonly expectedChecksum: string | null;
+}
+
+/** Composite decision returned by {@link evaluateSkillTrustGate}. */
+interface TrustGateOutcome {
+  readonly decision: 'allow' | 'block' | 'ask';
+  readonly reason: string;
+  readonly scan: AdapterScanResult;
+}
+
+/**
+ * Minimal structural typing of the core surface we call through the
+ * dynamic import. Kept narrow to limit blast radius if core's API drifts.
+ */
+interface CoreSkillsGuardShape {
+  readonly scanSkill: (path: string, source: string) => AdapterScanResult;
+  readonly shouldAllowInstall: (
+    scan: AdapterScanResult,
+    force: boolean,
+  ) => { readonly decision: 'allow' | 'block' | 'ask'; readonly reason: string };
+  readonly recordTrustBypass: (scan: AdapterScanResult, reason: string | null) => unknown;
+  readonly evaluateFederationInstallGate: (opts: {
+    source: string;
+    artefactPath?: string;
+    expectedChecksum?: string | null;
+    approveNewSource?: boolean;
+  }) => FederationGateResult;
+}
+
+/** Module-scoped cache so repeated installs pay the resolve cost once. */
+let cachedCore: CoreSkillsGuardShape | null | undefined;
+
+/**
+ * Lazily resolve `@cleocode/core`. Returns `null` when caamp runs outside
+ * the cleo monorepo and core is unavailable — callers MUST degrade to
+ * `allow` rather than fail-closed (refusing legitimate standalone caamp
+ * installs purely because core is missing would break the package).
+ */
+async function resolveCore(): Promise<CoreSkillsGuardShape | null> {
+  if (cachedCore !== undefined) return cachedCore;
+  try {
+    // The string is intentionally not statically analysable so module-graph
+    // tools (and tsc itself) don't treat this as a static dependency.
+    const mod = (await import('@cleocode/core' as string)) as CoreSkillsGuardShape;
+    cachedCore = mod;
+  } catch {
+    cachedCore = null;
+    process.stderr.write(
+      '[caamp] WARNING: @cleocode/core unavailable — skipping trust gate (skill installs not security-checked)\n',
+    );
+  }
+  return cachedCore;
+}
+
+/**
+ * Run the skills-guard scan + INSTALL_POLICY gate against a local skill path.
+ *
+ * @param localPath - Absolute path to the skill root.
+ * @param source    - Source identifier (drives trust-level resolution).
+ * @param force     - Operator `--force` override (flips `block` → `allow`).
+ */
+async function evaluateSkillTrustGate(
+  localPath: string,
+  source: string,
+  force: boolean = false,
+): Promise<TrustGateOutcome> {
+  const core = await resolveCore();
+  if (!core) {
+    return {
+      decision: 'allow',
+      reason: 'Trust gate skipped — @cleocode/core not available',
+      scan: {
+        skillName: localPath.split('/').filter(Boolean).pop() ?? localPath,
+        source,
+        trustLevel: 'community',
+        verdict: 'safe',
+        findings: [],
+        scannedAt: new Date().toISOString(),
+        summary: 'core-unavailable',
+      },
+    };
+  }
+  const scan = core.scanSkill(localPath, source);
+  const gate = core.shouldAllowInstall(scan, force);
+  return { decision: gate.decision, reason: gate.reason, scan };
+}
+
+/**
+ * Run the federation install gate (T9732) — first-install prompt detection +
+ * sha256 checksum validation. Falls through to `allow` when core is missing.
+ */
+async function evaluateFederationGate(
+  source: string,
+  opts: {
+    readonly artefactPath?: string;
+    readonly expectedChecksum?: string | null;
+    readonly approveNewSource?: boolean;
+  } = {},
+): Promise<FederationGateResult> {
+  const core = await resolveCore();
+  if (!core) {
+    return {
+      decision: 'allow',
+      reason: 'Federation gate skipped — @cleocode/core not available',
+      peer: null,
+      isFederationSource: false,
+      computedChecksum: null,
+      expectedChecksum: null,
+    };
+  }
+  return core.evaluateFederationInstallGate({
+    source,
+    artefactPath: opts.artefactPath,
+    expectedChecksum: opts.expectedChecksum,
+    approveNewSource: opts.approveNewSource,
+  });
+}
+
+/**
+ * Append a bypass entry to `.cleo/audit/skill-trust-bypass.jsonl`. No-op
+ * when core is unavailable. Failures during writing are swallowed and
+ * logged to stderr so an audit-log failure never breaks a real install.
+ */
+async function recordSkillTrustBypass(
+  scan: AdapterScanResult,
+  reason: string | null = null,
+): Promise<void> {
+  const core = await resolveCore();
+  if (!core) return;
+  try {
+    core.recordTrustBypass(scan, reason);
+  } catch (err) {
+    process.stderr.write(
+      `[caamp] WARNING: failed to record trust-bypass audit row: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
 }
 
 /**
