@@ -91,3 +91,24 @@ export {
   slugify,
   stripMdExtension,
 } from './import/slug.js';
+
+// ── T9716 — cleo docs publish-pr (foundation: branch naming + worktree) ─────
+
+export type {
+  ProvisionResult,
+  PublishPrError,
+  PublishPrRunners,
+} from './publish-pr.js';
+export {
+  branchForSlug,
+  defaultRun,
+  execMsg,
+  KNOWN_DOC_TYPES,
+  pickRunner,
+  provisionPublishPrWorktree,
+  publishDirForType,
+  publishPrError,
+  teardownPublishPrWorktree,
+  tempWorktreeDirForSlug,
+  validatePublishSlug,
+} from './publish-pr.js';

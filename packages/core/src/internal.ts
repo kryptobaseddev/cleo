@@ -197,6 +197,25 @@ export type {
   MigrationManifestEntry,
 } from './docs/migrate-agent-outputs.js';
 export { migrateAgentOutputs } from './docs/migrate-agent-outputs.js';
+// Docs publish-pr foundation (T9716 — T9644 / Epic T9630 / Saga T9625)
+export type {
+  ProvisionResult,
+  PublishPrError,
+  PublishPrRunners,
+} from './docs/publish-pr.js';
+export {
+  branchForSlug,
+  defaultRun,
+  execMsg,
+  KNOWN_DOC_TYPES,
+  pickRunner,
+  provisionPublishPrWorktree,
+  publishDirForType,
+  publishPrError,
+  teardownPublishPrWorktree,
+  tempWorktreeDirForSlug,
+  validatePublishSlug,
+} from './docs/publish-pr.js';
 // Git hooks (T1588) — project-agnostic POSIX commit-msg + pre-push T-ID enforcement
 export type {
   CleoHookName,
