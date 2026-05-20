@@ -215,10 +215,12 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     // SSoT-EXEMPT:dispatch-normalize — docs.list accepts three aliased owner params;
     // normalization to ownerId is a docs-domain concern, not a Core concern.
     const ownerId = params.task ?? params.session ?? params.observation;
-    if (!ownerId) {
+    const isProjectScope = params.project === true;
+
+    if (!ownerId && !isProjectScope) {
       return lafsError(
         'E_INVALID_INPUT',
-        'Provide one of --task, --session, or --observation to scope the list.',
+        'Provide one of --task, --session, --observation, or --project to scope the list.',
         'list',
       );
     }
@@ -236,14 +238,61 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       typeFilter = params.type;
     }
 
-    const ownerType = inferOwnerType(ownerId);
+    const store = createAttachmentStore();
+    const backend: AttachmentBackend = await resolveAttachmentBackend();
+
+    if (isProjectScope) {
+      // T9638 — project-scoped listing: union all attachment_refs into a flat
+      // row list. The shape stays compatible with DocsAttachmentRow by
+      // populating `ownerId` / `ownerType` per row instead of at the envelope.
+      const rows = await store.listAllInProject(
+        undefined,
+        typeFilter !== undefined ? { type: typeFilter } : undefined,
+      );
+
+      return lafsSuccess<DocsListResult>(
+        {
+          ownerId: '',
+          ownerType: 'task',
+          project: true,
+          ...(typeFilter !== undefined ? { type: typeFilter } : {}),
+          count: rows.length,
+          attachments: rows.map(({ metadata: m, slug, type, ownerId: oid, ownerType: ot }) => ({
+            id: m.id,
+            sha256: `${m.sha256.slice(0, 8)}…`,
+            kind: m.attachment.kind,
+            mime:
+              m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
+                ? m.attachment.mime
+                : ((m.attachment as UrlAttachment).mime ?? '—'),
+            size:
+              m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
+                ? m.attachment.size
+                : undefined,
+            description: m.attachment.description,
+            labels: m.attachment.labels,
+            createdAt: m.createdAt,
+            refCount: m.refCount,
+            ...(slug ? { slug } : {}),
+            ...(type ? { type: type as DocsType } : {}),
+            ownerId: oid,
+            ownerType: ot,
+          })),
+          attachmentBackend: backend as DocsListResult['attachmentBackend'],
+        },
+        'list',
+      );
+    }
+
+    // Owner-scoped listing (existing behaviour) — narrow to non-null after
+    // the project-scope branch.
+    const scopedOwner = ownerId as string;
+    const ownerType = inferOwnerType(scopedOwner);
     // Legacy store still drives the envelope because it tracks URL and
     // llms-txt kinds the v2 interface does not expose. `backend` metadata
     // reports the path that FUTURE writes would take, so operators can
     // observe llmtxt adoption without changing the data contract.
-    const store = createAttachmentStore();
-    const ownerAttachments = await store.listByOwner(ownerType, ownerId);
-    const backend: AttachmentBackend = await resolveAttachmentBackend();
+    const ownerAttachments = await store.listByOwner(ownerType, scopedOwner);
 
     // T9637 — apply the type filter post-list. listByOwner returns
     // AttachmentMetadata (no slug/type), so we re-hydrate via getExtras().
@@ -262,7 +311,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     return lafsSuccess<DocsListResult>(
       {
-        ownerId,
+        ownerId: scopedOwner,
         ownerType,
         ...(typeFilter !== undefined ? { type: typeFilter } : {}),
         count: enriched.length,
