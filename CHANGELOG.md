@@ -1,5 +1,69 @@
 # Changelog
 
+## [2026.5.91] (2026-05-20) — SG-JSON-STREAM-HYGIENE close (T9763)
+
+Closes Saga **SG-JSON-STREAM-HYGIENE** (Epic **T9763**) — the
+five-wave migration of legacy `console.warn` / direct `stderr.write`
+call sites onto the LAFS envelope's structured `meta.warnings[]`
+channel. Driven by a user-reported bug where `cleo skills install`
+emitted a raw `[caamp] WARNING:` line that polluted stdout-parsed
+JSON streams in agent harnesses. Net: **43 sites migrated**, one new
+CI lint gate locking the clean state in place.
+
+### Fixed (USER-REPORTED)
+
+- **PR #369 (T9770)** — `cleo skills install` no longer emits
+  `[caamp] WARNING:` to stderr. Two long-standing raw writes in
+  `packages/caamp/src/install.ts` (CORE_UNAVAILABLE and
+  AUDIT_LOG_FAILED) now push into the LAFS warning collector and
+  surface inside the response envelope's `meta.warnings[]` array.
+  This was breaking JSON parsers in agent harnesses that wrap CLEO
+  CLI calls.
+
+### Added (T9763 Wave 0 — WarningCollector foundation)
+
+- **PR #366 (T9768+T9769)** — introduces a process-wide
+  `WarningCollector` in `@cleocode/lafs` backed by an
+  `AsyncLocalStorage` carrier so warnings raised anywhere inside a
+  CLI invocation are gathered into the active request scope and
+  drained into the response envelope's `meta.warnings[]` by the LAFS
+  CLI renderer. Includes a typed warning code registry so every
+  warning carries a stable `W_*` identifier.
+
+### Changed (T9763 Wave 1 — 43 sites migrated)
+
+- **PR #370 (T9771)** — 9 bridge sites across `memory`, `nexus`,
+  `tasks`, and `sentient-tick` migrated from `console.warn` to
+  `pushWarning(W_BRIDGE_*)`. Removes raw stderr noise from the
+  memory/nexus/tasks read-paths and the sentient daemon's tick
+  loop.
+- **PR #368 (T9773)** — 14 `sentient propose-tick` and ingester
+  sites migrated to `pushWarning(W_SENTIENT_*)`. Sentient proposals
+  no longer emit progress chatter to stderr.
+- **PR #372 (T9772)** — pre-envelope validation errors in `llm`,
+  `llm-stream`, and `briefing` now return proper
+  `envelope { success:false, error }` instead of writing raw lines
+  to stderr before the CLI dispatcher's catch frame. `cleo release
+  ship`'s deprecation notice now surfaces in `meta.warnings[]`
+  (`W_DEPRECATED_COMMAND`) instead of stderr. `cliError` drains the
+  active warning collector so it is preserved even when a command
+  exits via the error path.
+- **PR #373 (T9774)** — 13 long-tail sites across `scaffold`,
+  `init`, `security`, `allowlist`, `agents`, `sentient`, and `tsa`
+  migrated to `pushWarning` with codes such as
+  `W_TEMPLATE_INJECT_FAILED`, `W_SCAFFOLD_PARTIAL`, and
+  `W_ALLOWLIST_SIGNER`. Two especially noisy debug-only sites moved
+  behind a `CLEO_DEBUG` gate.
+
+### Internal (T9763 Wave 2 — CI lint gate)
+
+- **PR #374 (T9775)** — adds
+  `scripts/lint-json-stream-hygiene.mjs` plus a baseline file
+  capturing the residual allow-listed sites. New PRs that add raw
+  `process.stderr.write` or `console.warn` calls to JSON-stream
+  command paths fail CI. The baseline currently contains **0 new
+  violations** on top of pre-existing intentional escape hatches.
+
 ## [2026.5.90] (2026-05-20) — SG-SKILLS-CLEANUP close (T9740)
 
 Closes Saga **SG-SKILLS-CLEANUP** (Epic **T9740**) — the four-sphere
