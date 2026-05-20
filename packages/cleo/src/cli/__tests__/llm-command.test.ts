@@ -22,10 +22,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 const mockDispatchFromCli = vi.fn().mockResolvedValue(undefined);
+const mockPushWarning = vi.fn();
 
 vi.mock('../../dispatch/adapters/cli.js', () => ({
   dispatchFromCli: (...args: unknown[]) => mockDispatchFromCli(...args),
 }));
+
+vi.mock('@cleocode/core', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@cleocode/core')>();
+  return {
+    ...original,
+    pushWarning: (...args: unknown[]) => mockPushWarning(...args),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
@@ -64,6 +73,7 @@ async function runSub(
 describe('cleo llm — CLI wiring', () => {
   beforeEach(() => {
     mockDispatchFromCli.mockClear();
+    mockPushWarning.mockClear();
   });
 
   it('exposes every documented subcommand', async () => {
@@ -89,11 +99,11 @@ describe('cleo llm — CLI wiring', () => {
   // S-11 — secret-on-argv mitigation
   // ---------------------------------------------------------------------
 
-  it('add (S-11) — --api-key=<value> emits the verbatim deprecation warning on stderr', async () => {
+  it('add (S-11) — --api-key=<value> queues the verbatim deprecation warning via pushWarning (T9772)', async () => {
     const subs = await getLlmSubs();
-    // Capture by replacing process.stderr.write directly; vi.spyOn doesn't
-    // intercept the `write` symbol once the citty `run` closure has bound
-    // it earlier in the module-load chain.
+    // T9772: the deprecation now surfaces through pushWarning() so it appears
+    // in `meta.warnings[]` on the LAFS envelope instead of polluting stderr.
+    // Capture stderr too — it MUST stay empty for this path.
     const origWrite = process.stderr.write.bind(process.stderr);
     const captured: string[] = [];
     process.stderr.write = ((s: unknown) => {
@@ -109,12 +119,21 @@ describe('cleo llm — CLI wiring', () => {
     } finally {
       process.stderr.write = origWrite;
     }
-    const warned = captured.find((s) =>
-      s.includes(
-        "[warning] --api-key exposes the secret to 'ps' listings and shell history. Prefer --api-key-stdin or --api-key-env=NAME for production use.",
-      ),
+    expect(captured.join(''), 'no raw stderr writes on --api-key deprecation path').toBe('');
+    expect(mockPushWarning).toHaveBeenCalledTimes(1);
+    const warn = mockPushWarning.mock.calls[0]?.[0] as {
+      code: string;
+      message: string;
+      deprecated?: string;
+      replacement?: string;
+    };
+    expect(warn.code).toBe('W_DEPRECATED_FLAG');
+    expect(warn.message).toContain(
+      "--api-key exposes the secret to 'ps' listings and shell history.",
     );
-    expect(warned, 'verbatim S-11 deprecation warning must be emitted').toBeDefined();
+    expect(warn.deprecated).toBe('--api-key=<value>');
+    expect(warn.replacement).toContain('--api-key-stdin');
+    expect(warn.replacement).toContain('--api-key-env=NAME');
     expect(mockDispatchFromCli).toHaveBeenCalledTimes(1);
     const call = mockDispatchFromCli.mock.calls[0]!;
     expect(call[3]).toMatchObject({
