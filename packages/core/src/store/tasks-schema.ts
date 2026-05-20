@@ -1924,12 +1924,17 @@ export const releases = sqliteTable(
      * at pr-merged time). For legacy-migrated rows this is the ship commit
      * from the legacy `release_manifests.commit_sha` column.
      *
-     * SOFT FK only (T9686-B2): the prior hard FK to `commits(sha)` was dropped
-     * because legacy ship SHAs are not present in the `commits` table. A
-     * follow-up task may backfill `commits` rows for legacy ship SHAs and
-     * re-add the FK.
+     * HARD FK to `commits(sha)` ON DELETE SET NULL (T9755): T9686-B2 had
+     * dropped this FK because legacy ship SHAs were not present in the
+     * `commits` table; T9755 backfilled rows for every v5.80–v5.88 ship
+     * and PR-merge commit referenced by `releases`, then rebuilt this
+     * table with the FK restored. New ship rows continue to satisfy the
+     * FK because release-publish writes `commits` rows during the
+     * provenance reconcile step before inserting the `releases` row.
      */
-    mergeCommitSha: text('merge_commit_sha'),
+    mergeCommitSha: text('merge_commit_sha').references(() => commits.sha, {
+      onDelete: 'set null',
+    }),
     /**
      * FK → pull_requests.id (ON DELETE SET NULL). The bump-PR opened by `cleo release open`.
      * Always NULL on legacy migrated rows (legacy pipeline pre-dated `pull_requests`).
