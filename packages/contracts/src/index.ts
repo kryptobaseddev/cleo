@@ -1383,6 +1383,11 @@ export type {
   SkillImportHermesResponse,
   SkillImportHermesRow,
 } from './skills/import-hermes.js';
+// === Skills Prune Telemetry (T9693 — SG-CLEO-SKILLS Sphere B retention) ===
+export type {
+  SkillPruneTelemetryRequest,
+  SkillPruneTelemetryResponse,
+} from './skills/prune.js';
 // === Skills Stats (T9690 — SG-CLEO-SKILLS Sphere B) ===
 export type {
   SkillStatsAgentCreatedRow,

@@ -38,6 +38,8 @@ import {
 import type {
   SkillImportHermesRequest,
   SkillImportHermesResponse,
+  SkillPruneTelemetryRequest,
+  SkillPruneTelemetryResponse,
   SkillStatsRequest,
   SkillStatsResponse,
 } from '@cleocode/contracts';
@@ -429,6 +431,114 @@ export async function toolsSkillImportHermes(
     const { importFromHermes } = await import('../skills/hermes-importer.js');
     const response = await importFromHermes(request);
     return engineSuccess(response);
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Prune `skill_usage` rows older than the configured window.
+ *
+ * @remarks
+ * Uses {@link pruneUsageOlderThan} from `@cleocode/core/store/skills-store`.
+ * The window defaults to **180 days** (mirrors Hermes `archive_after_days`)
+ * when the request omits `olderThanDays`. Dry-run mode computes the cutoff
+ * and the projected `deletedRows` without mutating the database.
+ *
+ * @param request - Prune flags (window, dry-run, vacuum).
+ * @returns Engine result with before/after counters and file-size deltas.
+ *
+ * @task T9693
+ */
+export async function toolsSkillPruneTelemetry(
+  request: SkillPruneTelemetryRequest = {},
+): Promise<EngineResult<SkillPruneTelemetryResponse>> {
+  try {
+    const { statSync } = await import('node:fs');
+    const { getOpenSkillsDbPath, getSkillsNativeDb, openSkillsDb } = await import(
+      '../store/skills-db.js'
+    );
+    const { pruneUsageOlderThan } = await import('../store/skills-store.js');
+    const { skillUsage } = await import('../store/skills-schema.js');
+    const { lt, sql } = await import('drizzle-orm');
+
+    const olderThanDays = request.olderThanDays ?? 180;
+    if (!Number.isFinite(olderThanDays) || olderThanDays < 0) {
+      return engineError('E_INVALID_INPUT', `olderThanDays must be a non-negative number`);
+    }
+    const cutoff = new Date(Date.now() - olderThanDays * 86_400_000);
+    const cutoffIso = cutoff.toISOString();
+    const dryRun = request.dryRun === true;
+    const wantVacuum = request.vacuum === true;
+
+    // Ensure DB is open + resolve the path the singleton actually points at.
+    await openSkillsDb();
+    const dbPath = getOpenSkillsDbPath() ?? '';
+    const safeSize = (path: string): number => {
+      try {
+        return statSync(path).size;
+      } catch {
+        return 0;
+      }
+    };
+    const dbSizeBefore = safeSize(dbPath);
+
+    if (dryRun) {
+      // Count rows that would be deleted without touching them.
+      const dbHandle = await openSkillsDb();
+      const rows = dbHandle
+        .select({ c: sql<number>`COUNT(*)`.as('c') })
+        .from(skillUsage)
+        .where(lt(skillUsage.observedAt, cutoffIso))
+        .all();
+      const projected = Number(rows[0]?.c ?? 0);
+      const bounds = dbHandle
+        .select({
+          oldest: sql<string | null>`MIN(${skillUsage.observedAt})`.as('oldest'),
+          newest: sql<string | null>`MAX(${skillUsage.observedAt})`.as('newest'),
+        })
+        .from(skillUsage)
+        .all();
+      return engineSuccess({
+        deletedRows: projected,
+        olderThanDays,
+        cutoffIso,
+        dryRun: true,
+        vacuumed: false,
+        dbSizeBefore,
+        dbSizeAfter: dbSizeBefore,
+        oldestRemaining: bounds[0]?.oldest ?? null,
+        newestRemaining: bounds[0]?.newest ?? null,
+      });
+    }
+
+    const result = await pruneUsageOlderThan(cutoffIso);
+
+    let vacuumed = false;
+    if (wantVacuum) {
+      const nativeDb = getSkillsNativeDb();
+      if (nativeDb?.isOpen) {
+        try {
+          nativeDb.exec('VACUUM;');
+          vacuumed = true;
+        } catch {
+          // VACUUM may fail inside an open WAL transaction — surface but don't fail.
+          vacuumed = false;
+        }
+      }
+    }
+
+    return engineSuccess({
+      deletedRows: result.deletedRows,
+      olderThanDays,
+      cutoffIso,
+      dryRun: false,
+      vacuumed,
+      dbSizeBefore,
+      dbSizeAfter: safeSize(dbPath),
+      oldestRemaining: result.oldestRemaining,
+      newestRemaining: result.newestRemaining,
+    });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
