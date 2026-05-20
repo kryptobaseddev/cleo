@@ -28,7 +28,11 @@ function generateRequestId(): string {
 
 import { type FormatOptions, formatSuccess } from '@cleocode/core';
 import type { CliEnvelope, CliMeta } from '@cleocode/lafs';
-import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
+import {
+  applyFieldFilter,
+  extractFieldFromResult,
+  getCurrentWarningCollector,
+} from '@cleocode/lafs';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
 import { metaFooter, pagerFooter } from './format-helpers.js';
@@ -599,6 +603,19 @@ export function cliError(
     timestamp: meta?.timestamp ?? new Date().toISOString(),
     ...meta,
   };
+
+  // T9769 — drain any non-fatal warnings pushed via `pushWarning` (lafs ALS
+  // carrier) into `meta.warnings[]`. `formatError` in core already does this
+  // for the formatError path, but `cliError` builds the envelope inline so
+  // we mirror the drain here. Outside an active `withWarningCollector`
+  // scope `drained` is `undefined` and the field is omitted entirely.
+  const drained = getCurrentWarningCollector()?.drain();
+  if (drained && drained.length > 0) {
+    // Preserve any explicitly-set caller warnings — drained collector entries
+    // append after them, matching the JSON-emitter intent: explicit > implicit.
+    const existing = (errorMeta as { warnings?: unknown }).warnings;
+    errorMeta.warnings = Array.isArray(existing) ? [...existing, ...drained] : drained;
+  }
 
   const envelope: CliEnvelope<never> = {
     success: false,
