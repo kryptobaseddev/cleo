@@ -1,5 +1,65 @@
 # Changelog
 
+## [2026.5.89] (2026-05-20) — T9738 carryforward closure (Epic T9752)
+
+Closes Epic **T9752** — the 5 deferred T9738 carryforwards from the
+v2026.5.88 IVTR remediation. Lands all 5 in a single release alongside
+SOLID/DRY refactor groundwork (pure aggregator + DB chokepoint
+discipline + realpath-aware test helpers).
+
+### Added (T9753 — changesets aggregator)
+
+- **PR #357 (T9753)** — `cleo release plan` now reads `.changeset/*.md`,
+  aggregates entries via a pure `aggregateChangesetsForRelease(...)`
+  helper, persists rows into the new `release_changesets` table, and
+  embeds the rendered CHANGELOG section into `plan.meta.releaseNotes`.
+  Re-run is idempotent (delete-then-insert keyed on `release_id`). All
+  writes route through the existing `getDb()` chokepoint — no raw SQL
+  outside the store layer. 13 new tests (8 aggregator + 5 wiring); 225
+  release tests pass with no regressions.
+
+### Refactored (T9756 — A4 uniform PK shape)
+
+- **PR #359 (T9756)** — new migration
+  `20260520163500_t9756-uniform-releases-pk` rewrites legacy
+  `releases.id` from `legacy:<version>` → `<projectHash>:<version>` so
+  every row uses the canonical PK shape. FK references in 4 dependent
+  tables (`release_commits`, `release_changes`, `release_artifacts`,
+  `brain_release_links`) update in lockstep under `PRAGMA
+  foreign_keys=OFF`. Idempotent re-apply; full revert restores
+  `legacy:` form. The discriminator in `releasesRowToManifest` switched
+  from a PK-prefix check to `tasks_json IS NULL/NOT NULL`, which is the
+  correct semantic boundary anyway.
+
+### Fixed (T9755 — commits backfill + FK)
+
+- **PR #358 (T9755)** — backfills 18 legacy v5.80 → v5.88 ship and
+  PR-merge SHAs into the `commits` table (9 ship + 8 PR-merge + 1
+  squash-merge), then re-adds the `releases.merge_commit_sha` →
+  `commits.sha` FK that PR #328 (B2) relaxed for expediency. Migration
+  is idempotent (`ON CONFLICT (sha) DO NOTHING`), wrapped in `PRAGMA
+  foreign_keys=OFF` for the table rebuild, and ships a
+  `LEGACY_BACKFILL_COMMIT_COUNT = 18` constant in affected fixtures so
+  count-based test assertions stay readable.
+
+- **PR #354 (T9757)** — `primary-guard.test.ts` is now realpath-aware.
+  Root cause: macOS `mkdtempSync` returns `/var/folders/...` (a symlink
+  to `/private/var/folders/...`) while `git worktree list --porcelain`
+  reports the realpath form, so the raw `w.path === repoRoot` predicate
+  silently failed on macOS only. Confirmed via Linux symlink repro (same
+  failure mode); 3 path-comparison sites in the test file are now
+  routed through the existing `isPrimaryWorktree(...)` helper. This
+  closes T9736 — the documented "merged-through-as-not-required" flake.
+
+### Removed (T9754 — cleanup)
+
+- **PR #353 (T9754)** — drops `@changesets/cli@^2.30.0` from root
+  devDependencies. PR #349 replaced upstream changesets with the
+  CLEO-native task-anchored DSL on 2026-05-20; the upstream package
+  has been dead weight since. 482 lockfile lines pruned. The stale
+  "Replaces the upstream `@changesets/cli` format" comment in
+  `packages/contracts/src/changesets.ts` is also corrected.
+
 ## [2026.5.88] (2026-05-20) — T9738 IVTR functional bug remediation close
 
 Closes Epic **T9738** (IVTR functional bug remediation, post-v5.83 real-world
