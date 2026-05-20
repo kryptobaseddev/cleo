@@ -1,5 +1,6 @@
 import { join } from 'node:path';
-import type { LoggerConfig } from '@cleocode/core';
+// T9766 — `LoggerConfig` is now centralized in `@cleocode/contracts`.
+import type { LoggerConfig } from '@cleocode/contracts';
 import { getProjectInfoSync, initLogger } from '@cleocode/core';
 
 /**

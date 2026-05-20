@@ -499,6 +499,8 @@ export type {
 } from './llm/provider-profile.js';
 // === Phase 4 Unified Architecture (T9281 / ADR-072) — Resolved credential ===
 export type { ResolvedCredential } from './llm/resolved-credential.js';
+// === Logger contract (T9766 — centralized from @cleocode/core) ===
+export type { LoggerConfig } from './logger.js';
 // === ContextEngine contract (canonical home — T9304) ===
 export type { CompressedContext, ContextEngine } from './memory/context-engine.js';
 export type {
@@ -507,8 +509,14 @@ export type {
   BridgeObservation,
   BridgePattern,
   DispatchTrace,
+  // T9766 — BRAIN public-API records (centralized from @cleocode/core)
+  LearningRecord,
   MemoryBridgeConfig,
   MemoryBridgeContent,
+  MemoryDecisionRecord,
+  MemoryGraphStats,
+  MemorySearchHit,
+  PatternRecord,
   SessionSummary,
 } from './memory.js';
 export type {

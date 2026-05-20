@@ -10,7 +10,11 @@
  * search page can group by table without knowing the underlying schema.
  */
 
-import { findMemoryEntries, type MemorySearchHit } from '@cleocode/core';
+// T9766 — `MemorySearchHit` is now centralized in `@cleocode/contracts`.
+// Studio depends on the type contract directly; `findMemoryEntries` remains
+// the runtime entry point from `@cleocode/core`.
+import type { MemorySearchHit } from '@cleocode/contracts';
+import { findMemoryEntries } from '@cleocode/core';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 

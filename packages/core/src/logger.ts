@@ -11,7 +11,14 @@
 
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { LoggerConfig } from '@cleocode/contracts';
 import pino from 'pino';
+
+// T9766 — `LoggerConfig` lives in `@cleocode/contracts`. Re-export here so
+// existing `import { LoggerConfig } from '@cleocode/core'` continues to work
+// without churn. New consumers should import from `@cleocode/contracts`
+// directly.
+export type { LoggerConfig };
 
 /**
  * Minimal shape of the pino-roll transport return value. `pino.transport()`
@@ -27,13 +34,6 @@ interface TransportStream {
 let rootLogger: pino.Logger | null = null;
 let currentLogDir: string | null = null;
 let currentTransport: TransportStream | null = null;
-
-export interface LoggerConfig {
-  level: string;
-  filePath: string;
-  maxFileSize: number;
-  maxFiles: number;
-}
 
 /**
  * Convert bytes to a human-readable size string for pino-roll.

@@ -12,7 +12,9 @@
  * use the search or observations endpoints instead.
  */
 
-import { getMemoryGraph, type MemoryGraphStats } from '@cleocode/core';
+// T9766 — `MemoryGraphStats` is now centralized in `@cleocode/contracts`.
+import type { MemoryGraphStats } from '@cleocode/contracts';
+import { getMemoryGraph } from '@cleocode/core';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 

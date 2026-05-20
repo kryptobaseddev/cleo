@@ -16,7 +16,9 @@
  * be applied until CORE exposes these options.
  */
 
-import { getLearnings, type LearningRecord } from '@cleocode/core';
+// T9766 — `LearningRecord` is now centralized in `@cleocode/contracts`.
+import type { LearningRecord } from '@cleocode/contracts';
+import { getLearnings } from '@cleocode/core';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
