@@ -70,7 +70,8 @@
     "completions",
     "bin",
     "scripts",
-    "templates"
+    "templates",
+    "assets"
   ],
   "devDependencies": {
     "@types/node-cron": "^3.0.11",
