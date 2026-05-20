@@ -849,8 +849,8 @@ export const caampStandaloneAdapters: DoctorAdoptCliAdapters = {
  *
  * @remarks
  * The handler creates the `doctor` subgroup if it doesn't already exist on
- * the parent, so registration order is tolerant of co-registration with
- * `registerSkillsDoctor` (T9655 bridge). Adapters default to
+ * the parent, so registration order is tolerant of any future co-registration
+ * with sibling `doctor` subcommands. Adapters default to
  * {@link caampStandaloneAdapters} which surface a clear error — pass the
  * cleo-chokepoint adapters when wiring under `packages/cleo/`.
  *
@@ -875,10 +875,10 @@ export function registerSkillsDoctorAdopt(
   parent: Command,
   adapters: DoctorAdoptCliAdapters = caampStandaloneAdapters,
 ): void {
-  // Reuse an existing `doctor` subgroup if one is already attached (e.g. by
-  // `registerSkillsDoctor` for the `bridge` subcommand); otherwise create
-  // one. Commander tolerates `.command()` being called twice with the same
-  // name but only one will surface in `--help`, so we prefer reuse.
+  // Reuse an existing `doctor` subgroup if one is already attached on the
+  // parent; otherwise create one. Commander tolerates `.command()` being
+  // called twice with the same name but only one will surface in `--help`,
+  // so we prefer reuse.
   const existing = parent.commands.find((c) => c.name() === 'doctor');
   const doctor =
     existing ?? parent.command('doctor').description('Diagnostics + repair for the skill system');

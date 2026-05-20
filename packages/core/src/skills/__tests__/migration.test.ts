@@ -21,8 +21,8 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -41,7 +41,7 @@ import {
   runMigration,
   runRollback,
   type TarExec,
-} from '../../src/core/skills/migration.js';
+} from '../migration.js';
 
 // ---------------------------------------------------------------------------
 // Test scaffolding — tmpdir + fake tar
@@ -242,9 +242,7 @@ describe('runMigration', () => {
     expect(existsSync(join(fx.canonicalRoot, 'user-skill', 'SKILL.md'))).toBe(true);
 
     // Sentinel written.
-    const sentinel = JSON.parse(
-      readFileSync(join(fx.legacyRoot, LEGACY_MIGRATED_MARKER), 'utf-8'),
-    );
+    const sentinel = JSON.parse(readFileSync(join(fx.legacyRoot, LEGACY_MIGRATED_MARKER), 'utf-8'));
     expect(sentinel.entries).toBe(2);
     expect(sentinel.canonicalRoot).toBe(fx.canonicalRoot);
 
