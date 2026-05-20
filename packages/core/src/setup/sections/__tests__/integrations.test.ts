@@ -384,9 +384,9 @@ describe('createBuiltinSections() — integrations at position 7', () => {
     expect(sections[6]?.section).toBe('integrations');
   });
 
-  it('has 8 built-in sections after T9608 (integrations + verification)', () => {
+  it('has 9 built-in sections after T9572 (telemetry added between integrations and verification)', () => {
     const sections = createBuiltinSections();
-    expect(sections).toHaveLength(8);
+    expect(sections).toHaveLength(9);
   });
 
   it('section ids are in the expected canonical order', () => {
@@ -399,6 +399,7 @@ describe('createBuiltinSections() — integrations at position 7', () => {
       'harness',
       'brain',
       'integrations',
+      'telemetry',
       'verification',
     ]);
   });
