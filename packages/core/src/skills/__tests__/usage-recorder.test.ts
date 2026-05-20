@@ -46,6 +46,7 @@ describe('usage-recorder (T9689)', () => {
 
   async function seedSkill(name: string): Promise<void> {
     const { openSkillsDb, upsertSkillRow } = await import('../../store/skills-db.js');
+    const { withProvenance } = await import('../../sentient/skill-provenance.js');
     await openSkillsDb({ path: dbPath });
     const row: NewSkillRow = {
       name,
@@ -55,25 +56,25 @@ describe('usage-recorder (T9689)', () => {
       installedAt: new Date().toISOString(),
       lifecycleState: 'active',
     };
-    await upsertSkillRow(row);
+    await withProvenance('pr-generator', () => upsertSkillRow(row));
   }
 
   /**
-   * Wait until at least one row appears in skill_usage for the given skill,
-   * or the timeout elapses. Necessary because the recorder fires-and-forgets.
+   * Flush the batching queue and return the row-count for the given skill.
+   *
+   * The recorder enqueues into the T9694 batched queue, so a synchronous
+   * SELECT immediately after the enqueue would see zero rows. Tests flush
+   * explicitly to drain the queue into the tmp skills.db.
    */
-  async function awaitUsageRow(skillName: string, timeoutMs = 1000): Promise<number> {
+  async function awaitUsageRow(skillName: string): Promise<number> {
+    const { flushSkillsUsage } = await import('../../store/skills-usage-queue.js');
+    await flushSkillsUsage();
     const { openSkillsDb } = await import('../../store/skills-db.js');
     const { skillUsage } = await import('../../store/skills-schema.js');
     const { eq } = await import('drizzle-orm');
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const db = await openSkillsDb({ path: dbPath });
-      const rows = db.select().from(skillUsage).where(eq(skillUsage.skillName, skillName)).all();
-      if (rows.length > 0) return rows.length;
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    return 0;
+    const db = await openSkillsDb({ path: dbPath });
+    const rows = db.select().from(skillUsage).where(eq(skillUsage.skillName, skillName)).all();
+    return rows.length;
   }
 
   it('records a usage row for action=load', async () => {
