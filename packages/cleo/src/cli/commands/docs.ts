@@ -202,6 +202,10 @@ const addCommand = defineCommand({
         'Human-friendly kebab-case alias for the attachment, unique per project (T9636). ' +
         'Collision returns E_SLUG_TAKEN with 3 alternative suggestions.',
     },
+    type: {
+      type: 'string',
+      description: 'Taxonomy classification: spec|adr|research|handoff|note|llm-readme (T9637)',
+    },
   },
   async run({ args }) {
     const ownerId = args['owner-id'];
@@ -228,6 +232,7 @@ const addCommand = defineCommand({
         ...(args.labels ? { labels: args.labels } : {}),
         ...(args['attached-by'] ? { attachedBy: args['attached-by'] } : {}),
         ...(args.slug ? { slug: args.slug } : {}),
+        ...(args.type ? { type: args.type } : {}),
       },
       { command: 'docs add' },
     );
@@ -236,12 +241,13 @@ const addCommand = defineCommand({
 
 // ── cleo docs list ───────────────────────────────────────────────────────────
 
-/** cleo docs list [--task T###] [--session ses_*] [--observation O###] — list attachments. */
+/** cleo docs list [--task T###] [--session ses_*] [--observation O###] [--type TYPE] — list attachments. */
 const listCommand = defineCommand({
   meta: {
     name: 'list',
     description:
-      'List attachments for a CLEO entity. Provide exactly one of --task, --session, or --observation.',
+      'List attachments for a CLEO entity. Provide exactly one of --task, --session, or --observation. ' +
+      '--type filters across any scope (T9637).',
   },
   args: {
     task: {
@@ -256,11 +262,16 @@ const listCommand = defineCommand({
       type: 'string',
       description: 'Filter by observation ID (e.g. O-abc123)',
     },
+    type: {
+      type: 'string',
+      description: 'Filter by classification: spec|adr|research|handoff|note|llm-readme (T9637)',
+    },
   },
   async run({ args }) {
     const task = args.task ?? undefined;
     const session = args.session ?? undefined;
     const observation = args.observation ?? undefined;
+    const type = args.type ?? undefined;
 
     if (!task && !session && !observation) {
       cliError('provide one of --task <id>, --session <id>, or --observation <id>', 6, {
@@ -277,6 +288,7 @@ const listCommand = defineCommand({
         ...(task ? { task } : {}),
         ...(session ? { session } : {}),
         ...(observation ? { observation } : {}),
+        ...(type ? { type } : {}),
       },
       { command: 'docs list' },
     );
