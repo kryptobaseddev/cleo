@@ -42,6 +42,7 @@ import {
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
+import { docsViewerSubcommands } from './docs-viewer.js';
 
 /** Drift detection result. */
 interface DriftResult {
@@ -1327,7 +1328,8 @@ export const docsCommand = defineCommand({
       'Documentation attachment management (add/list/fetch/remove), ' +
       'llmtxt primitives (search/merge/graph/rank/versions/publish), ' +
       'PR publishing (publish-pr), drift detection (sync/status/gap-check), ' +
-      'and legacy .md migration (import)',
+      'legacy .md migration (import), ' +
+      'and a local web viewer (serve/open/stop/viewer-status)',
   },
   subCommands: {
     add: addCommand,
@@ -1347,6 +1349,7 @@ export const docsCommand = defineCommand({
     status: statusCommand,
     'gap-check': gapCheckCommand,
     import: importCommand,
+    ...docsViewerSubcommands,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
