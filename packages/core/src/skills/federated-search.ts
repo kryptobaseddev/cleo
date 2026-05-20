@@ -295,8 +295,7 @@ export async function federatedSearch(
         if (!opts.fetchPeer) return [] as FederatedSearchResult[];
         try {
           const rows = await opts.fetchPeer(peer, query);
-          const trustLevel: SkillTrustLevel =
-            peer.trust === 'verified' ? 'trusted' : 'community';
+          const trustLevel: SkillTrustLevel = peer.trust === 'verified' ? 'trusted' : 'community';
           const matched: FederatedSearchResult[] = [];
           for (const r of rows) {
             const score = textMatch(query, r.name, r.description);
