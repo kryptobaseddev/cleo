@@ -1671,6 +1671,17 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
+    operation: 'skill.federated.find',
+    description: 'tools.skill.federated.find (T9731 federation-aware multi-source query)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tools',
     operation: 'skill.dispatch',
     description: 'tools.skill.dispatch (query)',
     tier: 1,

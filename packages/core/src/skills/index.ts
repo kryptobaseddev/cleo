@@ -61,6 +61,13 @@ export type {
   SkillSymlinkRecord,
 } from './doctor.js';
 export { diagnoseSkillStore, renderDoctorDiagnoseReport } from './doctor.js';
+// Federated search — T9731 multi-source query orchestrator
+export type {
+  FederatedSearchOptions,
+  FederatedSearchResponse,
+  FederatedSearchResult,
+} from './federated-search.js';
+export { computeScore, federatedSearch } from './federated-search.js';
 // Federation (T9729 — SG-CLEO-SKILLS Sphere B W0)
 export type {
   AddFederationResult,

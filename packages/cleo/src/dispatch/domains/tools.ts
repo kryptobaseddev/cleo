@@ -41,6 +41,7 @@ import {
   toolsSkillDependencies,
   toolsSkillDispatch,
   toolsSkillDoctorDiagnose,
+  toolsSkillFederatedFind,
   toolsSkillFind,
   toolsSkillInstall,
   toolsSkillList,
@@ -150,6 +151,7 @@ export class ToolsHandler implements DomainHandler {
         'skill.list',
         'skill.show',
         'skill.find',
+        'skill.federated.find',
         'skill.dispatch',
         'skill.verify',
         'skill.dependencies',
@@ -262,6 +264,15 @@ export class ToolsHandler implements DomainHandler {
         const query = params?.query as string | undefined;
         const result = await toolsSkillFind(query);
         return wrapResult(result, 'query', 'tools', 'skill.find', startTime);
+      }
+      case 'federated.find':
+      case 'federated-find': {
+        const query = params?.query as string | undefined;
+        const federated = params?.federated === true;
+        const rawLimit = params?.limit;
+        const limit = typeof rawLimit === 'number' && rawLimit > 0 ? rawLimit : 25;
+        const result = await toolsSkillFederatedFind(query, federated, limit);
+        return wrapResult(result, 'query', 'tools', 'skill.federated.find', startTime);
       }
       case 'dispatch': {
         const name = params?.name as string | undefined;
