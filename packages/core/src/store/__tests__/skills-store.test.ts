@@ -39,6 +39,7 @@ describe('skills-store (T9688)', () => {
 
   async function seedBaselineSkill(name = 'ct-orchestrator'): Promise<void> {
     const { openSkillsDb, upsertSkillRow } = await import('../skills-db.js');
+    const { withProvenance } = await import('../../sentient/skill-provenance.js');
     await openSkillsDb({ path: dbPath });
     const row: NewSkillRow = {
       name,
@@ -48,7 +49,8 @@ describe('skills-store (T9688)', () => {
       installedAt: new Date().toISOString(),
       lifecycleState: 'active',
     };
-    await upsertSkillRow(row);
+    // T9708 — canonical writes require the pr-generator provenance frame.
+    await withProvenance('pr-generator', () => upsertSkillRow(row));
   }
 
   // -------------------------------------------------------------------------
@@ -92,6 +94,7 @@ describe('skills-store (T9688)', () => {
 
   it('listByLifecycle filters rows by lifecycle state', async () => {
     const { openSkillsDb, upsertSkillRow } = await import('../skills-db.js');
+    const { withProvenance } = await import('../../sentient/skill-provenance.js');
     await openSkillsDb({ path: dbPath });
     const baseRow = (name: string, state: 'active' | 'stale'): NewSkillRow => ({
       name,
@@ -100,9 +103,12 @@ describe('skills-store (T9688)', () => {
       installedAt: new Date().toISOString(),
       lifecycleState: state,
     });
-    await upsertSkillRow(baseRow('a-active', 'active'));
-    await upsertSkillRow(baseRow('b-stale', 'stale'));
-    await upsertSkillRow(baseRow('c-active', 'active'));
+    // T9708 — canonical writes require the pr-generator provenance frame.
+    await withProvenance('pr-generator', async () => {
+      await upsertSkillRow(baseRow('a-active', 'active'));
+      await upsertSkillRow(baseRow('b-stale', 'stale'));
+      await upsertSkillRow(baseRow('c-active', 'active'));
+    });
 
     const { listByLifecycle } = await import('../skills-store.js');
     const active = await listByLifecycle('active');

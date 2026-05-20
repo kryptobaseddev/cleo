@@ -40,6 +40,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
+import { getCurrentWriteOrigin } from '../sentient/skill-provenance.js';
 import { migrateWithRetry, reconcileJournal, tableExists } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as skillsSchema from './skills-schema.js';
@@ -329,6 +330,64 @@ export async function getSkillRow(name: string): Promise<SkillRow | null> {
 }
 
 /**
+ * Error code raised by {@link assertCanonicalWriteAllowed} when a write
+ * targets a canonical (Sphere A) row from anything other than the
+ * `pr-generator` provenance frame.
+ *
+ * @task T9708
+ */
+export const E_CANONICAL_READ_ONLY = 'E_CANONICAL_READ_ONLY';
+
+/**
+ * Enforce the canonical-row write-guard on a single {@link NewSkillRow}.
+ *
+ * Per SG-CLEO-SKILLS architecture-v3 §4-§6, canonical (Sphere A) rows are
+ * synthesised exclusively by the owner-CI workflow that opens PRs against
+ * the cleocode repo. Any other origin attempting to mutate a canonical
+ * row — foreground CLI, background-review fork, an absent provenance
+ * frame — MUST be refused.
+ *
+ * The guard inspects the AsyncLocalStorage frame established by
+ * {@link withProvenance}/{@link setCurrentWriteOrigin} (T9705). When the
+ * incoming row's `sourceType` is `'canonical'` AND the current origin is
+ * anything other than `'pr-generator'`, the function throws with
+ * {@link E_CANONICAL_READ_ONLY}. Non-canonical writes are always allowed.
+ *
+ * This is a defensive layer — the on-disk artefact (`canonical_path` and
+ * the bridge symlink to `~/.claude/skills/agents-shared/<name>`) is also
+ * mode-protected, but defense-in-depth at the DB write site closes the
+ * gap when a future migration legitimately needs to mutate a canonical
+ * row (the migration runs inside `withProvenance('pr-generator', ...)`).
+ *
+ * @param row - The candidate insert/update payload.
+ * @throws Error with `code === 'E_CANONICAL_READ_ONLY'` when the guard
+ *   refuses the write. The message names the skill and the offending
+ *   origin for diagnostics.
+ *
+ * @task T9708
+ * @epic T9563
+ * @saga T9560
+ */
+export function assertCanonicalWriteAllowed(row: NewSkillRow): void {
+  if (row.sourceType !== 'canonical') {
+    return;
+  }
+  const origin = getCurrentWriteOrigin();
+  if (origin === 'pr-generator') {
+    return;
+  }
+  const observed = origin ?? 'unset';
+  const err: Error & { code?: string } = new Error(
+    `${E_CANONICAL_READ_ONLY}: refusing canonical write for skill='${row.name}' ` +
+      `(observed write-origin='${observed}', required='pr-generator'). ` +
+      'Canonical rows are owner-CI-only — run inside withProvenance("pr-generator", ...) ' +
+      'or mark the skill as user/community/agent-created.',
+  );
+  err.code = E_CANONICAL_READ_ONLY;
+  throw err;
+}
+
+/**
  * Insert-or-update a row keyed by `name`.
  *
  * Implements an upsert via `ON CONFLICT(name) DO UPDATE` so callers don't
@@ -337,14 +396,21 @@ export async function getSkillRow(name: string): Promise<SkillRow | null> {
  * `id` is ignored on insert (autoincrement) and never mutated on update —
  * the surrogate key is process-stable but not part of the upsert contract.
  *
+ * As of T9708 this function also enforces the canonical-row write-guard:
+ * any attempt to upsert a row with `sourceType='canonical'` outside of a
+ * `withProvenance('pr-generator', ...)` frame is refused with
+ * {@link E_CANONICAL_READ_ONLY}. See {@link assertCanonicalWriteAllowed}.
+ *
  * @param row - The row payload. `name` is required and `source_type` MUST
  *   be one of the {@link SkillSourceType} enum members; otherwise the
  *   underlying CHECK constraint fires.
  * @returns The row as it now exists on disk (post-upsert).
  *
  * @task T9651
+ * @task T9708
  */
 export async function upsertSkillRow(row: NewSkillRow): Promise<SkillRow> {
+  assertCanonicalWriteAllowed(row);
   const db = await openSkillsDb();
 
   // Drizzle ORM v1 `.onConflictDoUpdate({ target, set })` updates everything
