@@ -130,3 +130,67 @@ html, body {
 
 .hint { color: var(--text-muted); }
 .error { color: #ff7f7f; }
+
+/* T9647 — search results UI */
+#search {
+  flex: 1;
+  max-width: 360px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  font: inherit;
+}
+#search:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+
+#search-results {
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+}
+#search-results .result {
+  display: block;
+  padding: 0.55rem 1rem;
+  color: var(--text);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+#search-results .result:hover {
+  background: var(--surface-2);
+  border-left-color: var(--accent);
+}
+#search-results .result-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+#search-results .result-name {
+  font-weight: 600;
+  color: var(--accent);
+  flex: 1;
+  word-break: break-word;
+}
+#search-results .result-type {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+#search-results .result-score {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+#search-results .result-snippet {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  margin-top: 0.2rem;
+}
+#search-results mark {
+  background: rgba(106, 167, 255, 0.25);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+}

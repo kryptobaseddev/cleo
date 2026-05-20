@@ -6,10 +6,13 @@
 const $list = document.getElementById('doc-list');
 const $render = document.getElementById('doc-render');
 const $filter = document.getElementById('filter');
+const $search = document.getElementById('search');
+const $searchResults = document.getElementById('search-results');
 
 const state = {
   docs: [],
   activeSlug: null,
+  searchSeq: 0,
 };
 
 function escapeHtml(str) {
@@ -286,6 +289,100 @@ function slugFromPath(pathname) {
 }
 
 $filter.addEventListener('input', (e) => applyFilter(e.target.value));
+
+// ── Search (T9647) — debounced /api/search with ranked results ──────────────
+
+function debounce(fn, ms) {
+  let timer = null;
+  return function debounced(...args) {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn.apply(this, args);
+    }, ms);
+  };
+}
+
+function highlightMatches(snippet, query) {
+  if (!query) return escapeHtml(snippet);
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+  if (terms.length === 0) return escapeHtml(snippet);
+  // Build a regex that matches any term, case-insensitive. Escape regex metachars.
+  const pattern = terms
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  const re = new RegExp(`(${pattern})`, 'gi');
+  const escaped = escapeHtml(snippet);
+  return escaped.replace(re, '<mark>$1</mark>');
+}
+
+function renderSearchResults(query, payload) {
+  if (!payload || !payload.hits || payload.hits.length === 0) {
+    $searchResults.innerHTML =
+      `<p class="hint">No results for <code>${escapeHtml(query)}</code>.</p>`;
+    $searchResults.hidden = false;
+    $list.hidden = true;
+    return;
+  }
+  const html = payload.hits
+    .map((h) => {
+      const slug = escapeHtml(h.slug || h.id);
+      const name = escapeHtml(h.name || h.slug || h.id);
+      const type = h.type ? `<span class="result-type">${escapeHtml(h.type)}</span>` : '';
+      const score = typeof h.score === 'number' ? h.score.toFixed(3) : '—';
+      const snippet = highlightMatches(h.snippet || '', query);
+      return [
+        `<a href="/docs/${slug}" data-slug="${slug}" class="result">`,
+        `<div class="result-head"><span class="result-name">${name}</span>${type}<span class="result-score">${score}</span></div>`,
+        `<div class="result-snippet">${snippet}</div>`,
+        `</a>`,
+      ].join('');
+    })
+    .join('');
+  $searchResults.innerHTML = html;
+  $searchResults.hidden = false;
+  $list.hidden = true;
+  $searchResults.querySelectorAll('a.result').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const slug = a.getAttribute('data-slug');
+      navigate(slug);
+    });
+  });
+}
+
+function clearSearchResults() {
+  $searchResults.hidden = true;
+  $searchResults.innerHTML = '';
+  $list.hidden = false;
+}
+
+async function runSearch(query) {
+  const q = query.trim();
+  if (q.length === 0) {
+    clearSearchResults();
+    return;
+  }
+  const seq = ++state.searchSeq;
+  try {
+    const url = `/api/search?q=${encodeURIComponent(q)}&limit=20`;
+    const data = await fetchJson(url);
+    // Drop stale responses if a newer query has fired.
+    if (seq !== state.searchSeq) return;
+    renderSearchResults(q, data);
+  } catch (err) {
+    if (seq !== state.searchSeq) return;
+    $searchResults.innerHTML = `<p class="error">${escapeHtml(String(err.message || err))}</p>`;
+    $searchResults.hidden = false;
+    $list.hidden = true;
+  }
+}
+
+const debouncedSearch = debounce(runSearch, 300);
+$search.addEventListener('input', (e) => debouncedSearch(e.target.value));
 
 (async function init() {
   try {

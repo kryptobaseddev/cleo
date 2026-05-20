@@ -10,9 +10,11 @@
   <header class="topbar">
     <h1>CLEO Docs</h1>
     <input id="filter" type="search" placeholder="Filter by slug, title, type..." autocomplete="off" />
+    <input id="search" type="search" placeholder="Search content (ranked)..." autocomplete="off" aria-label="Search docs by content" />
   </header>
   <main class="layout">
     <aside id="sidebar">
+      <div id="search-results" aria-live="polite" hidden></div>
       <div id="doc-list" aria-live="polite">Loading docs...</div>
     </aside>
     <section id="content">
