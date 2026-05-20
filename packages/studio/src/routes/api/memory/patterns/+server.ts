@@ -17,7 +17,9 @@
  * exposes these options.
  */
 
-import { getPatterns, type PatternRecord } from '@cleocode/core';
+// T9766 — `PatternRecord` is now centralized in `@cleocode/contracts`.
+import type { PatternRecord } from '@cleocode/contracts';
+import { getPatterns } from '@cleocode/core';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 

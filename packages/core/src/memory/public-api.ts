@@ -14,6 +14,16 @@
  * @epic T9592
  */
 
+import type {
+  // T9766 — `MemoryDecisionRecord` is the canonical name in @cleocode/contracts;
+  // we import it under the legacy alias `DecisionRecord` so existing call sites
+  // (Studio + dispatch engine) keep working without churn.
+  MemoryDecisionRecord as DecisionRecord,
+  LearningRecord,
+  MemoryGraphStats,
+  MemorySearchHit,
+  PatternRecord,
+} from '@cleocode/contracts';
 import { getProjectRoot } from '../paths.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
 import { listDecisions, searchDecisions } from './decisions.js';
@@ -22,30 +32,28 @@ import { searchLearnings } from './learnings.js';
 import { type PatternType, searchPatterns } from './patterns.js';
 
 // ---------------------------------------------------------------------------
-// findMemoryEntries
+// Type re-exports (T9766 — centralized in @cleocode/contracts)
 // ---------------------------------------------------------------------------
+//
+// `MemorySearchHit`, `MemoryGraphStats`, `MemoryDecisionRecord`, `PatternRecord`,
+// and `LearningRecord` all live in `@cleocode/contracts/memory` so cross-package
+// consumers (Studio, CLI, etc.) can depend on them without reaching into Core.
+//
+// The legacy name `DecisionRecord` is re-aliased to `MemoryDecisionRecord` for
+// back-compat — Studio's `+server.ts` files and `@cleocode/cleo`'s dispatch
+// engine already import `DecisionRecord` from `@cleocode/core`.
 
-/** A single cross-table memory search hit. */
-export interface MemorySearchHit {
-  /** Entry identifier. */
-  id: string;
-  /** Source brain table. */
-  table: 'observations' | 'decisions' | 'patterns' | 'learnings';
-  /** Display title. */
-  title: string;
-  /** Short preview string (first ~160 chars of narrative/rationale/context). */
-  preview: string;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-  /** Quality score in [0..1] or null if not computed. */
-  quality: number | null;
-  /** Memory tier ('short' | 'medium' | 'long'). */
-  tier: string | null;
-  /** Whether the entry has been owner-verified (1 = true, 0 = false). */
-  verified: number;
-  /** Number of times this entry has been retrieved. */
-  citations: number;
-}
+export type {
+  // Back-compat alias: legacy `DecisionRecord` continues to mean the memory v2
+  // shape from `@cleocode/contracts` (canonical name: `MemoryDecisionRecord`).
+  // The session-ops `DecisionRecord` is a distinct type living in
+  // `@cleocode/contracts/operations/session`.
+  DecisionRecord,
+  LearningRecord,
+  MemoryGraphStats,
+  MemorySearchHit,
+  PatternRecord,
+};
 
 /** Options for {@link findMemoryEntries}. */
 export interface FindMemoryEntriesOptions {
@@ -462,24 +470,6 @@ export interface GetDecisionsOptions {
   limit?: number;
 }
 
-/** A single decision record returned by {@link getDecisions}. */
-export interface DecisionRecord {
-  /** Decision identifier (e.g. D-arch-001). */
-  id: string;
-  /** Decision statement. */
-  decision: string;
-  /** Justification / rationale. */
-  rationale: string | null;
-  /** Outcome: proposed | accepted | rejected | superseded. */
-  outcome: string | null;
-  /** ISO creation timestamp. */
-  createdAt: string;
-  /** Memory tier. */
-  memoryTier: string | null;
-  /** Owner-verified flag. */
-  verified: number;
-}
-
 /**
  * Retrieve decision records from brain.db, optionally filtered by text query.
  *
@@ -544,26 +534,6 @@ export interface GetPatternsOptions {
   limit?: number;
 }
 
-/** A single pattern record returned by {@link getPatterns}. */
-export interface PatternRecord {
-  /** Pattern identifier. */
-  id: string;
-  /** Pattern description. */
-  pattern: string;
-  /** Contextual description where the pattern applies. */
-  context: string | null;
-  /** Pattern type tag. */
-  patternType: string | null;
-  /** Impact level ('low' | 'medium' | 'high'). */
-  impact: string | null;
-  /** Extraction timestamp. */
-  extractedAt: string;
-  /** Memory tier. */
-  memoryTier: string | null;
-  /** Retrieval count. */
-  citationCount: number;
-}
-
 /**
  * Retrieve pattern records from brain.db, optionally filtered by text query.
  *
@@ -620,24 +590,6 @@ export interface GetLearningsOptions {
   limit?: number;
 }
 
-/** A single learning record returned by {@link getLearnings}. */
-export interface LearningRecord {
-  /** Learning identifier. */
-  id: string;
-  /** Core insight. */
-  insight: string;
-  /** Source context where the learning was extracted from. */
-  source: string | null;
-  /** Learning type tag. */
-  learningType: string | null;
-  /** Creation timestamp. */
-  createdAt: string;
-  /** Memory tier. */
-  memoryTier: string | null;
-  /** Retrieval count. */
-  citationCount: number;
-}
-
 /**
  * Retrieve learning records from brain.db, optionally filtered by text query.
  *
@@ -683,18 +635,6 @@ export async function getLearnings(
 export interface GetMemoryGraphOptions {
   /** Project root path; defaults to resolved root. */
   projectPath?: string;
-}
-
-/** Aggregate graph statistics returned by {@link getMemoryGraph}. */
-export interface MemoryGraphStats {
-  /** Total node count. */
-  nodeCount: number;
-  /** Total edge count. */
-  edgeCount: number;
-  /** Edge type distribution. */
-  edgeTypeDistribution: Record<string, number>;
-  /** Average edges per node. */
-  averageEdgesPerNode: number;
 }
 
 /**

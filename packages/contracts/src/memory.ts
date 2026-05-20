@@ -1,8 +1,28 @@
 /**
- * Memory bridge types for CLEO provider adapters.
- * Defines the shape of .cleo/memory-bridge.md content for cross-provider memory sharing.
+ * Memory bridge types for CLEO provider adapters and BRAIN public-API records.
+ *
+ * Two sets of types live in this file:
+ *
+ * 1. **Memory bridge types** (`MemoryBridgeContent`, `BridgeLearning`, …) — define
+ *    the shape of `.cleo/memory-bridge.md` content for cross-provider memory
+ *    sharing. Original home; added under T5240.
+ * 2. **BRAIN public-API records** (`MemorySearchHit`, `MemoryGraphStats`,
+ *    `MemoryDecisionRecord`, `PatternRecord`, `LearningRecord`) — typed result
+ *    shapes returned by `@cleocode/core`'s memory public API
+ *    (`findMemoryEntries`, `getDecisions`, `getPatterns`, `getLearnings`,
+ *    `getMemoryGraph`). Centralized here under T9766 so Studio + CLI consumers
+ *    can depend on them without reaching into `@cleocode/core`.
+ *
+ * @remarks
+ * `MemoryDecisionRecord` deliberately differs in name from the session-ops
+ * `DecisionRecord` exported by `./operations/session.ts` to avoid a barrel-level
+ * name collision. The two shapes are NOT interchangeable: session-ops captures
+ * an audit-log entry (`sessionId`, `taskId`, `alternatives`, `timestamp`),
+ * whereas `MemoryDecisionRecord` captures a BRAIN graph node
+ * (`outcome`, `memoryTier`, `verified`, `createdAt`).
  *
  * @task T5240
+ * @task T9766
  */
 
 // ============================================================================
@@ -179,4 +199,136 @@ export interface BridgeObservation {
   date: string;
   /** Truncated summary of the observation content. */
   summary: string;
+}
+
+// ============================================================================
+// BRAIN public-API records (T9766 — centralized from @cleocode/core)
+// ============================================================================
+
+/**
+ * A single cross-table memory search hit returned by `findMemoryEntries`.
+ *
+ * @remarks
+ * Spans all four BRAIN tables (observations, decisions, patterns, learnings) and
+ * is what the `memory.find` dispatch operation surfaces to the CLI and Studio.
+ *
+ * @task T9766
+ */
+export interface MemorySearchHit {
+  /** Entry identifier. */
+  id: string;
+  /** Source brain table. */
+  table: 'observations' | 'decisions' | 'patterns' | 'learnings';
+  /** Display title. */
+  title: string;
+  /** Short preview string (first ~160 chars of narrative/rationale/context). */
+  preview: string;
+  /** ISO 8601 creation timestamp. */
+  createdAt: string;
+  /** Quality score in [0..1] or null if not computed. */
+  quality: number | null;
+  /** Memory tier (`'short'` | `'medium'` | `'long'`). */
+  tier: string | null;
+  /** Whether the entry has been owner-verified (1 = true, 0 = false). */
+  verified: number;
+  /** Number of times this entry has been retrieved. */
+  citations: number;
+}
+
+/**
+ * Aggregate statistics for the BRAIN memory graph returned by `getMemoryGraph`.
+ *
+ * @remarks
+ * Used by the `memory.graph` dispatch op and Studio's `/api/memory/graph` route.
+ *
+ * @task T9766
+ */
+export interface MemoryGraphStats {
+  /** Total node count. */
+  nodeCount: number;
+  /** Total edge count. */
+  edgeCount: number;
+  /** Edge type distribution. */
+  edgeTypeDistribution: Record<string, number>;
+  /** Average edges per node. */
+  averageEdgesPerNode: number;
+}
+
+/**
+ * A single decision record returned by `getDecisions`.
+ *
+ * @remarks
+ * **Intentionally named `MemoryDecisionRecord`** to avoid a barrel-level
+ * collision with the session-ops `DecisionRecord` exported by
+ * `./operations/session.ts`. The session-ops shape is an audit-log entry
+ * (`sessionId`, `taskId`, `alternatives`, `timestamp`); this shape is a BRAIN
+ * graph node (`outcome`, `memoryTier`, `verified`, `createdAt`).
+ *
+ * `@cleocode/core` continues to re-export this type under the legacy name
+ * `DecisionRecord` from its main barrel for back-compat — see
+ * `packages/core/src/memory/public-api.ts`.
+ *
+ * @task T9766
+ */
+export interface MemoryDecisionRecord {
+  /** Decision identifier (e.g. `D-arch-001`). */
+  id: string;
+  /** Decision statement. */
+  decision: string;
+  /** Justification / rationale. */
+  rationale: string | null;
+  /** Outcome: `proposed` | `accepted` | `rejected` | `superseded`. */
+  outcome: string | null;
+  /** ISO creation timestamp. */
+  createdAt: string;
+  /** Memory tier. */
+  memoryTier: string | null;
+  /** Owner-verified flag. */
+  verified: number;
+}
+
+/**
+ * A single pattern record returned by `getPatterns`.
+ *
+ * @task T9766
+ */
+export interface PatternRecord {
+  /** Pattern identifier. */
+  id: string;
+  /** Pattern description. */
+  pattern: string;
+  /** Contextual description where the pattern applies. */
+  context: string | null;
+  /** Pattern type tag. */
+  patternType: string | null;
+  /** Impact level (`'low'` | `'medium'` | `'high'`). */
+  impact: string | null;
+  /** Extraction timestamp. */
+  extractedAt: string;
+  /** Memory tier. */
+  memoryTier: string | null;
+  /** Retrieval count. */
+  citationCount: number;
+}
+
+/**
+ * A single learning record returned by `getLearnings`.
+ *
+ * @task T9766
+ */
+export interface LearningRecord {
+  /** Learning identifier. */
+  id: string;
+  /** Core insight. */
+  insight: string;
+  /** Source context where the learning was extracted from. */
+  source: string | null;
+  /** Learning type tag. */
+  learningType: string | null;
+  /** Creation timestamp. */
+  createdAt: string;
+  /** Memory tier. */
+  memoryTier: string | null;
+  /** Retrieval count. */
+  citationCount: number;
 }

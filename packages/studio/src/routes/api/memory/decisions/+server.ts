@@ -6,7 +6,13 @@
  * Zero raw SQL in this handler.
  */
 
-import { type DecisionRecord, getDecisions } from '@cleocode/core';
+// T9766 — `MemoryDecisionRecord` is the canonical name in `@cleocode/contracts`
+// (the contracts barrel also re-exports a session-ops `DecisionRecord` of a
+// DIFFERENT shape — we deliberately import the memory variant by its full
+// name and re-export it under the legacy `DecisionRecord` name so the API
+// response shape stays stable for existing callers).
+import type { MemoryDecisionRecord as DecisionRecord } from '@cleocode/contracts';
+import { getDecisions } from '@cleocode/core';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
