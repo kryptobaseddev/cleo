@@ -1,5 +1,70 @@
 # Changelog
 
+## [2026.5.87] (2026-05-20) — SG-CLEO-DOCS-CANON saga close (T9625)
+
+Closes Saga **T9625 — SG-CLEO-DOCS-CANON** (`docs/saga-t9625-handoff.md`). All 7
+epics shipped across 12 PRs in two days. `cleo docs` is now SSoT v1 for
+project documentation, replacing direct-filesystem patterns. Every command
+emits LAFS envelopes; data is content-addressed via the `llmtxt` blob
+store; slugs are the human-facing key.
+
+### Added (saga deliverables)
+
+- **CLI surface** — `cleo docs {add, fetch, list, publish, publish-pr, sync,
+  status, import, serve, open, stop, viewer-status, search}` shipped end-
+  to-end with LAFS envelopes (PR #318/#327/#330/#333/#336/#341/#342/#343/
+  #345/#346).
+- **Schema** — `slug` + `type` columns on docs blobs, partial UNIQUE INDEX
+  for per-project slug uniqueness, `E_SLUG_TAKEN` envelope with 3 ranked
+  suggestions; fetch resolution order = slug → att\_id → sha-prefix
+  (PR #336).
+- **Bulk migration** — `cleo docs import <dir>` recursive scanner, type
+  classifier, slug generator with collision suffix, SHA-dedup, `--dry-run`
+  mode, audit manifest writer, counter-integrity assertion; validated on
+  full cleocode corpus (1272 / 1272 .md files round-trip, PRs #333, #341).
+- **GitHub Actions integration** — `.github/workflows/docs-reingest.yml`
+  auto-versions blobs on PR merge; `docs-drift` job in CI gates releases
+  on `cleo docs status --exit-on-drift`; pre-commit hook for staged
+  markdown SSoT drift (PR #345).
+- **Local viewer** — zero-dep `node:http` server (port 7777→7800 auto-
+  increment), minimal embedded SPA bundle (~12KB, inline markdown
+  renderer), `cleo docs open <slug>` browser launcher, pidfile-based
+  lifecycle, project-wide content search via `llmtxt/similarity`
+  rankBySimilarity engine surfaced under `/api/search` and SPA UI
+  (PRs #343, #346).
+- **Skills SDK migration** — `ct-docs-write`, `ct-docs-review`,
+  `ct-spec-writer`, `ct-adr-recorder` teach SDK-first patterns; old
+  direct-filesystem paths marked deprecated with migration notes; 30
+  new regression-test assertions (PR #340).
+- **Upstream feedback** — 9 issues filed against `llmtxt` repo
+  (`kryptobaseddev/llmtxt#6` through `#14`) covering CLI envelope on
+  argument errors (P0), slug primary-key + type taxonomy + listDocs by
+  project + fetchBySlug (P1 × 4), embedded viewer SPA + similarity
+  filters + SDK markdown renderer + file watcher (P2 × 4) (PR #344).
+- **Hand-off** — `docs/saga-t9625-handoff.md` saga completion narrative
+  + cross-link tracker (PR #347).
+
+### Fixed (saga foundation)
+
+- **PR #318 (T9633)** — `cleo docs publish` no longer silently fails on
+  missing `--for` argument. Root cause: citty `runMain` swallowed
+  `CLIError` envelopes before they reached stdout. Replaced with
+  `runMainWithLafsEnvelope` wrapper that maps CLIError → LAFS error
+  envelope. Also caught and fixed a double-wrap on the publish handler's
+  catch (formatError + cliOutput re-serialized). Reproduce-case test
+  added; flagged 6 sibling commands with the same pattern (filed as
+  follow-up T9735).
+
+### Deferred follow-ups (not blocking saga close)
+
+- **T9735** — 6 sibling docs.ts commands (export/search/merge/graph/rank/
+  versions) have the same `cliOutput(formatError(...))` double-wrap as the
+  T9633 publish path. One-line pattern fix per command.
+- **T9736** — `primary-guard.test.ts` (added by T9686-D) fails on macOS
+  shard 1 because the test never ran on macOS in main CI before the saga
+  exposed it via per-PR merge candidates. Pre-existing main-side
+  brittleness; merged through repeatedly as not-a-required-check.
+
 ## [2026.5.86] (2026-05-20) — hotfix: biome lint on generated command manifest
 
 Hotfix for the v2026.5.85 Release Pipeline Matrix failure. The release
