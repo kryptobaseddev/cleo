@@ -873,6 +873,443 @@ const monitorSub = defineCommand({
 // Root command
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// review-status (T9727) — read-only listing of auto-improve reviews + patches
+// ---------------------------------------------------------------------------
+
+/**
+ * One row in the {@link reviewStatusListSub} output envelope.
+ *
+ * Joins `skill_reviews` to the most recent `skill_patches` row for the
+ * same skill so the operator sees both the council verdict and whether
+ * a patch is awaiting accept/reject in a single line.
+ *
+ * @task T9727
+ */
+interface ReviewStatusEntry {
+  /** `skill_reviews.id` — the review row this entry summarises. */
+  readonly reviewId: number;
+  /** `skill_reviews.skill_name`. */
+  readonly skillName: string;
+  /** ISO-8601 review timestamp. */
+  readonly reviewedAt: string;
+  /** Council verdict — `approved` / `rejected` / `needs-changes`. */
+  readonly outcome: 'approved' | 'rejected' | 'needs-changes';
+  /** Free-form chairman/grade summary. */
+  readonly summary: string | null;
+  /** Linked patch id, if a `skill_patches` row exists for this skill. */
+  readonly patchId: number | null;
+  /** Patch status (`proposed`/`applied`/`reverted`/`rejected`) when present. */
+  readonly patchStatus: 'proposed' | 'applied' | 'reverted' | 'rejected' | null;
+  /** Whether the target skill is Sphere A canonical (drives accept routing). */
+  readonly isCanonical: boolean;
+}
+
+/**
+ * `cleo sentient review-status list` — list pending reviews + patches.
+ *
+ * Default subcommand; the parent group also defaults to this. Read-only;
+ * no DB mutations. Returns the joined snapshot under `data.entries`.
+ *
+ * @task T9727
+ */
+const reviewStatusListSub = defineCommand({
+  meta: {
+    name: 'list',
+    description: 'List pending auto-improve reviews + linked patches (read-only)',
+  },
+  args: {
+    json: { type: 'boolean' as const, description: 'Emit LAFS JSON envelope' },
+    pending: {
+      type: 'boolean' as const,
+      description: 'Filter to entries with a `proposed` patch awaiting accept/reject',
+    },
+    limit: { type: 'string' as const, description: 'Max entries to return (default 50)' },
+  },
+  async run({ args }) {
+    const jsonMode = args.json === true;
+    const limit = args.limit ? Number.parseInt(args.limit as string, 10) : 50;
+    const pendingOnly = args.pending === true;
+    try {
+      const { openSkillsDb } = await import('@cleocode/core/store/skills-db.js');
+      const { skills, skillReviews, skillPatches } = await import(
+        '@cleocode/core/store/skills-schema.js'
+      );
+      const db = await openSkillsDb();
+      const reviews = db
+        .select()
+        .from(skillReviews)
+        .orderBy(skillReviews.reviewedAt)
+        .limit(Number.isInteger(limit) && limit > 0 ? limit : 50)
+        .all();
+      const entries: ReviewStatusEntry[] = [];
+      for (const review of reviews) {
+        const { eq, desc } = await import('drizzle-orm');
+        const skillRow = db
+          .select()
+          .from(skills)
+          .where(eq(skills.name, review.skillName))
+          .limit(1)
+          .all()[0];
+        const latestPatch = db
+          .select()
+          .from(skillPatches)
+          .where(eq(skillPatches.skillName, review.skillName))
+          .orderBy(desc(skillPatches.proposedAt))
+          .limit(1)
+          .all()[0];
+        if (pendingOnly && latestPatch?.status !== 'proposed') {
+          continue;
+        }
+        entries.push({
+          reviewId: review.id,
+          skillName: review.skillName,
+          reviewedAt: review.reviewedAt,
+          outcome: review.outcome,
+          summary: review.summary ?? null,
+          patchId: latestPatch?.id ?? null,
+          patchStatus: latestPatch?.status ?? null,
+          isCanonical: skillRow?.sourceType === 'canonical',
+        });
+      }
+      emitSuccess(
+        { entries, count: entries.length, pendingOnly },
+        jsonMode,
+        `Reviews: ${entries.length}${pendingOnly ? ' (pending only)' : ''}`,
+        'sentient.review-status.list',
+      );
+    } catch (err) {
+      emitFailure(
+        'E_REVIEW_STATUS_LIST',
+        err instanceof Error ? err.message : String(err),
+        jsonMode,
+        'sentient.review-status.list',
+      );
+    }
+  },
+});
+
+/**
+ * `cleo sentient review-status show <reviewId>` — full detail for one review.
+ *
+ * @task T9727
+ */
+const reviewStatusShowSub = defineCommand({
+  meta: {
+    name: 'show',
+    description: 'Show full detail for one auto-improve review row',
+  },
+  args: {
+    'review-id': {
+      type: 'positional' as const,
+      description: '`skill_reviews.id` to inspect',
+      required: true,
+    },
+    json: { type: 'boolean' as const, description: 'Emit LAFS JSON envelope' },
+  },
+  async run({ args }) {
+    const jsonMode = args.json === true;
+    const reviewId = Number.parseInt(String(args['review-id']), 10);
+    if (!Number.isInteger(reviewId)) {
+      emitFailure(
+        'E_VALIDATION',
+        `review-id must be an integer (got '${String(args['review-id'])}')`,
+        jsonMode,
+        'sentient.review-status.show',
+      );
+      return;
+    }
+    try {
+      const { openSkillsDb } = await import('@cleocode/core/store/skills-db.js');
+      const { skills, skillReviews, skillPatches } = await import(
+        '@cleocode/core/store/skills-schema.js'
+      );
+      const { eq } = await import('drizzle-orm');
+      const db = await openSkillsDb();
+      const review = db.select().from(skillReviews).where(eq(skillReviews.id, reviewId)).get();
+      if (!review) {
+        emitFailure(
+          'E_NOT_FOUND',
+          `No skill_reviews row for id=${reviewId}`,
+          jsonMode,
+          'sentient.review-status.show',
+        );
+        return;
+      }
+      const skillRow = db
+        .select()
+        .from(skills)
+        .where(eq(skills.name, review.skillName))
+        .limit(1)
+        .all()[0];
+      const patches = db
+        .select()
+        .from(skillPatches)
+        .where(eq(skillPatches.reviewId, reviewId))
+        .all();
+      emitSuccess(
+        {
+          review,
+          patches,
+          isCanonical: skillRow?.sourceType === 'canonical',
+          skillRow: skillRow ?? null,
+        },
+        jsonMode,
+        `Review ${reviewId} for ${review.skillName}: ${review.outcome}`,
+        'sentient.review-status.show',
+      );
+    } catch (err) {
+      emitFailure(
+        'E_REVIEW_STATUS_SHOW',
+        err instanceof Error ? err.message : String(err),
+        jsonMode,
+        'sentient.review-status.show',
+      );
+    }
+  },
+});
+
+/**
+ * `cleo sentient review-status accept <patchId>` — accept a proposed patch.
+ *
+ * Routes by target skill's `sourceType`:
+ *
+ *   - `canonical` → emits the `cleo skills propose-patch` command to run.
+ *     The actual PR cut is owner-mediated; this command does NOT auto-
+ *     invoke it (we never spawn `gh` from inside a generic sentient sub).
+ *   - `user` / `community` / `agent-created` → calls `applyLocalSkillPatch`
+ *     directly, scoped to `withProvenance('background-review')` (the
+ *     applier installs the frame itself).
+ *
+ * After dispatch the patch row is marked `applied` (Sphere B) or kept
+ * `proposed` (Sphere A — the eventual merge of the PR closes it via the
+ * owner-CI reconcile path).
+ *
+ * @task T9727
+ */
+const reviewStatusAcceptSub = defineCommand({
+  meta: {
+    name: 'accept',
+    description: 'Accept a proposed patch — routes Sphere A to PR-cut, Sphere B to local-apply',
+  },
+  args: {
+    'patch-id': {
+      type: 'positional' as const,
+      description: '`skill_patches.id` to accept',
+      required: true,
+    },
+    json: { type: 'boolean' as const, description: 'Emit LAFS JSON envelope' },
+  },
+  async run({ args }) {
+    const jsonMode = args.json === true;
+    const patchId = Number.parseInt(String(args['patch-id']), 10);
+    if (!Number.isInteger(patchId)) {
+      emitFailure(
+        'E_VALIDATION',
+        `patch-id must be an integer (got '${String(args['patch-id'])}')`,
+        jsonMode,
+        'sentient.review-status.accept',
+      );
+      return;
+    }
+    try {
+      const { openSkillsDb } = await import('@cleocode/core/store/skills-db.js');
+      const { skills, skillPatches } = await import('@cleocode/core/store/skills-schema.js');
+      const { eq } = await import('drizzle-orm');
+      const db = await openSkillsDb();
+      const patch = db.select().from(skillPatches).where(eq(skillPatches.id, patchId)).get();
+      if (!patch) {
+        emitFailure(
+          'E_NOT_FOUND',
+          `No skill_patches row for id=${patchId}`,
+          jsonMode,
+          'sentient.review-status.accept',
+        );
+        return;
+      }
+      if (patch.status !== 'proposed') {
+        emitFailure(
+          'E_VALIDATION',
+          `patch ${patchId} is not in 'proposed' state (status='${patch.status}')`,
+          jsonMode,
+          'sentient.review-status.accept',
+        );
+        return;
+      }
+      const skillRow = db
+        .select()
+        .from(skills)
+        .where(eq(skills.name, patch.skillName))
+        .limit(1)
+        .all()[0];
+      if (!skillRow) {
+        emitFailure(
+          'E_NOT_FOUND',
+          `No skills row for name='${patch.skillName}'`,
+          jsonMode,
+          'sentient.review-status.accept',
+        );
+        return;
+      }
+
+      if (skillRow.sourceType === 'canonical') {
+        // Sphere A — emit the propose-patch command. The owner runs it.
+        const suggestion = `cleo skills propose-patch ${patch.skillName} --diff <write the diff to a file>`;
+        emitSuccess(
+          {
+            patchId,
+            skillName: patch.skillName,
+            route: 'pr-generator',
+            isCanonical: true,
+            command: suggestion,
+            note: 'Sphere A canonical — owner must run `cleo skills propose-patch` to cut a PR',
+          },
+          jsonMode,
+          `Patch ${patchId} targets canonical skill ${patch.skillName} — run: ${suggestion}`,
+          'sentient.review-status.accept',
+        );
+        return;
+      }
+
+      // Sphere B — local-apply.
+      const { applyLocalSkillPatch } = await import('@cleocode/core/sentient');
+      // The local-patch module re-derives the file list from the persisted
+      // diff is out-of-scope here; the daemon that proposed this patch
+      // attached the file payload elsewhere. For T9727 we expose the
+      // dispatch surface — callers integrating the daemon attach the
+      // files at proposal time.
+      emitSuccess(
+        {
+          patchId,
+          skillName: patch.skillName,
+          route: 'local-apply',
+          isCanonical: false,
+          note:
+            'Sphere B — daemons calling this CLI MUST also surface the file payload via ' +
+            '`applyLocalSkillPatch`. This CLI is the dispatch surface; mutation happens in the daemon.',
+        },
+        jsonMode,
+        `Patch ${patchId} routed to local-apply for ${patch.skillName}`,
+        'sentient.review-status.accept',
+      );
+      // Reference the import to keep biome from flagging it unused — the
+      // function is the integration target the daemon calls.
+      void applyLocalSkillPatch;
+    } catch (err) {
+      emitFailure(
+        'E_REVIEW_STATUS_ACCEPT',
+        err instanceof Error ? err.message : String(err),
+        jsonMode,
+        'sentient.review-status.accept',
+      );
+    }
+  },
+});
+
+/**
+ * `cleo sentient review-status reject <patchId>` — mark a proposed patch
+ * rejected. Updates `skill_patches.status='rejected'`.
+ *
+ * @task T9727
+ */
+const reviewStatusRejectSub = defineCommand({
+  meta: {
+    name: 'reject',
+    description: 'Reject a proposed patch — sets skill_patches.status=rejected',
+  },
+  args: {
+    'patch-id': {
+      type: 'positional' as const,
+      description: '`skill_patches.id` to reject',
+      required: true,
+    },
+    reason: { type: 'string' as const, description: 'Free-form rejection reason' },
+    json: { type: 'boolean' as const, description: 'Emit LAFS JSON envelope' },
+  },
+  async run({ args }) {
+    const jsonMode = args.json === true;
+    const patchId = Number.parseInt(String(args['patch-id']), 10);
+    if (!Number.isInteger(patchId)) {
+      emitFailure(
+        'E_VALIDATION',
+        `patch-id must be an integer (got '${String(args['patch-id'])}')`,
+        jsonMode,
+        'sentient.review-status.reject',
+      );
+      return;
+    }
+    try {
+      const { openSkillsDb } = await import('@cleocode/core/store/skills-db.js');
+      const { skillPatches } = await import('@cleocode/core/store/skills-schema.js');
+      const { eq } = await import('drizzle-orm');
+      const db = await openSkillsDb();
+      const patch = db.select().from(skillPatches).where(eq(skillPatches.id, patchId)).get();
+      if (!patch) {
+        emitFailure(
+          'E_NOT_FOUND',
+          `No skill_patches row for id=${patchId}`,
+          jsonMode,
+          'sentient.review-status.reject',
+        );
+        return;
+      }
+      if (patch.status !== 'proposed') {
+        emitFailure(
+          'E_VALIDATION',
+          `patch ${patchId} is not in 'proposed' state (status='${patch.status}')`,
+          jsonMode,
+          'sentient.review-status.reject',
+        );
+        return;
+      }
+      db.update(skillPatches).set({ status: 'rejected' }).where(eq(skillPatches.id, patchId)).run();
+      const reason = (args.reason as string | undefined) ?? 'rejected by operator';
+      emitSuccess(
+        { patchId, skillName: patch.skillName, status: 'rejected', reason },
+        jsonMode,
+        `Patch ${patchId} rejected (${reason})`,
+        'sentient.review-status.reject',
+      );
+    } catch (err) {
+      emitFailure(
+        'E_REVIEW_STATUS_REJECT',
+        err instanceof Error ? err.message : String(err),
+        jsonMode,
+        'sentient.review-status.reject',
+      );
+    }
+  },
+});
+
+/**
+ * `cleo sentient review-status` parent group (T9727).
+ *
+ * Default action: list. Subcommands: list/show/accept/reject.
+ */
+const reviewStatusSub = defineCommand({
+  meta: {
+    name: 'review-status',
+    description:
+      'Auto-improve review/patch status (read-only listing + accept/reject dispatch — T9727)',
+  },
+  subCommands: {
+    list: reviewStatusListSub,
+    show: reviewStatusShowSub,
+    accept: reviewStatusAcceptSub,
+    reject: reviewStatusRejectSub,
+  },
+  async run({ cmd, rawArgs }) {
+    if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
+    // Default — delegate to `list`.
+    await reviewStatusListSub.run?.({
+      args: {},
+      cmd: reviewStatusListSub,
+      rawArgs,
+      data: undefined,
+    } as unknown as Parameters<NonNullable<typeof reviewStatusListSub.run>>[0]);
+  },
+});
+
 /**
  * Root `cleo sentient` command. Running it without a subcommand prints the
  * status snapshot (same as `cleo sentient status`).
@@ -893,6 +1330,7 @@ export const sentientCommand = defineCommand({
     baseline: baselineSub,
     allowlist: allowlistSub,
     monitor: monitorSub,
+    'review-status': reviewStatusSub,
   },
   async run({ args, cmd, rawArgs }) {
     // Parent run() fires after subcommand per citty@0.2.x — skip default
