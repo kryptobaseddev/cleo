@@ -15,12 +15,14 @@
  * @epic T4545 (legacy), T760 (attachments)
  */
 
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import {
   buildDocsGraph,
   CleoError,
+  CounterMismatchError,
+  createDocsAccessor,
   exportDocument,
   formatError,
   getAgentOutputsAbsolute,
@@ -31,6 +33,7 @@ import {
   rankDocs,
   readJson,
   recordPublication,
+  runDocsImport,
   searchDocs,
   statusDocs,
   syncFromGit,
@@ -1060,13 +1063,136 @@ const gapCheckCommand = defineCommand({
   },
 });
 
+// ── cleo docs import ──────────────────────────────────────────────────────────
+
+/**
+ * cleo docs import <dir> — recursive legacy `.md` migration (T9639 / Saga T9625).
+ *
+ * Walks `dir` for every markdown file, classifies each by source-dir
+ * (`.cleo/adrs/* → adr`, `.cleo/research/* → research`,
+ * `.cleo/agent-outputs/* → note`, `docs/* → spec`), assigns a unique slug
+ * (with collision suffixes), and writes new blobs through `DocsAccessor`.
+ * Bytes that already match a stored SHA are skipped (idempotent).
+ *
+ * Counter integrity (T9709): scanCount MUST equal
+ * importCount + noopCount + errorCount or the command exits non-zero with
+ * `E_COUNTER_MISMATCH`.
+ *
+ * @epic T9628 (Saga T9625)
+ * @task T9639 / T9709 / T9710 / T9711 / T9712 / T9713
+ */
+const importCommand = defineCommand({
+  meta: {
+    name: 'import',
+    description:
+      'Recursively import .md files from <dir> into the docs SSoT. ' +
+      'Auto-classifies type by source-dir (.cleo/adrs/→adr, .cleo/research/→research, ' +
+      '.cleo/agent-outputs/→note, docs/→spec). Idempotent via SHA-dedup. ' +
+      'Use --dry-run to preview without writing.',
+  },
+  args: {
+    dir: {
+      type: 'positional',
+      description: 'Absolute or project-relative directory to scan recursively',
+      required: true,
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Print what would be imported without writing to the docs SSoT',
+    },
+    force: {
+      type: 'boolean',
+      description:
+        'Bypass SHA-dedup and re-import existing content. Bypass is logged to ' +
+        '.cleo/audit/import-force-bypass.jsonl for traceability.',
+    },
+    'audit-manifest': {
+      type: 'string',
+      description:
+        'Override the audit manifest output path. Default: <project-root>/docs-import-<ts>.json',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit LAFS JSON envelope (default for agent callers)',
+    },
+  },
+  async run({ args }) {
+    const projectRoot = getProjectRoot();
+    const dirArg = String(args.dir);
+    const scanRoot = isAbsolute(dirArg) ? dirArg : resolve(projectRoot, dirArg);
+    const dryRun = args['dry-run'] === true;
+    const force = args.force === true;
+    const manifestPath = args['audit-manifest']
+      ? isAbsolute(String(args['audit-manifest']))
+        ? String(args['audit-manifest'])
+        : resolve(projectRoot, String(args['audit-manifest']))
+      : undefined;
+
+    if (force) {
+      const auditLine = `${JSON.stringify({
+        ts: new Date().toISOString(),
+        scanRoot,
+        reason: 'force-flag-bypass',
+      })}\n`;
+      try {
+        await mkdir(join(projectRoot, '.cleo', 'audit'), { recursive: true });
+        await appendFile(
+          join(projectRoot, '.cleo', 'audit', 'import-force-bypass.jsonl'),
+          auditLine,
+          'utf-8',
+        );
+      } catch {
+        // Audit log is best-effort — never block the user-requested action.
+      }
+    }
+
+    const accessor = createDocsAccessor(projectRoot);
+    try {
+      const result = await runDocsImport({
+        root: scanRoot,
+        accessor,
+        dryRun,
+        force,
+        manifestPath,
+        auditDir: projectRoot,
+      });
+
+      cliOutput(
+        {
+          dryRun: result.dryRun,
+          counters: result.counters,
+          entries: result.entries,
+          manifestPath: result.manifestPath ?? null,
+        },
+        { command: 'docs import', operation: 'docs.import' },
+      );
+    } catch (err) {
+      if (err instanceof CounterMismatchError) {
+        cliError(err.message, ExitCode.GENERAL_ERROR, {
+          name: 'E_COUNTER_MISMATCH',
+        });
+        process.exit(ExitCode.GENERAL_ERROR);
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`docs import failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_IMPORT_FAILED',
+      });
+      process.exit(ExitCode.GENERAL_ERROR);
+    } finally {
+      await accessor.close().catch(() => {
+        /* never fail on close */
+      });
+    }
+  },
+});
+
 /**
  * Root docs command group — attachment management, llmtxt primitives, drift detection,
  * and git⇄llmtxt round-trip (publish/sync/status) per Saga T9625 / Epic T9626.
  *
  * Subcommands: add, list, fetch, remove, generate, export,
  *              search, merge, graph, rank, versions, publish,
- *              sync, status, gap-check.
+ *              sync, status, gap-check, import.
  */
 export const docsCommand = defineCommand({
   meta: {
@@ -1074,7 +1200,7 @@ export const docsCommand = defineCommand({
     description:
       'Documentation attachment management (add/list/fetch/remove), ' +
       'llmtxt primitives (search/merge/graph/rank/versions/publish), ' +
-      'and drift detection (sync/status/gap-check)',
+      'drift detection (sync/status/gap-check), and legacy .md migration (import)',
   },
   subCommands: {
     add: addCommand,
@@ -1092,6 +1218,7 @@ export const docsCommand = defineCommand({
     sync: syncCommand,
     status: statusCommand,
     'gap-check': gapCheckCommand,
+    import: importCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
