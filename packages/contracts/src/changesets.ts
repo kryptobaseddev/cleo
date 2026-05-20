@@ -1,8 +1,8 @@
 /**
  * CLEO-native task-anchored changeset entry contract.
  *
- * Replaces the upstream `@changesets/cli` format with a CLEO-native DSL that
- * pins every change to one or more CLEO task IDs (`T####` or `E-####`). The
+ * CLEO-native task-anchored changesets DSL that pins every change to one or
+ * more CLEO task IDs (`T####` or `E-####`). The
  * resulting `.md` files in `.changeset/` form a write-only audit trail of
  * shipped work that the future `cleo release plan` aggregator can roll up
  * into release manifests.
