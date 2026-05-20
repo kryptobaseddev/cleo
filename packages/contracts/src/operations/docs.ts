@@ -85,6 +85,12 @@ export interface DocsAttachmentRow {
   createdAt: string;
   /** Current reference count across all owners. */
   refCount: number;
+  /**
+   * Optional human-friendly slug for the attachment, unique per project.
+   *
+   * @task T9636 (T-DOCS-SLUG-1)
+   */
+  slug?: string;
 }
 
 /**
@@ -241,6 +247,14 @@ export interface DocsAddParams {
   labels?: string;
   /** Agent or service that attached this file (default: 'human'). */
   attachedBy?: string;
+  /**
+   * Optional human-friendly slug, unique per project. Pattern: kebab-case,
+   * `[a-z0-9][a-z0-9-]*[a-z0-9]?` (≥1 char, ≤80 chars). Collision returns
+   * `E_SLUG_TAKEN` with 3 alternative suggestions.
+   *
+   * @task T9636 (T-DOCS-SLUG-1)
+   */
+  slug?: string;
 }
 
 /**
@@ -263,6 +277,8 @@ export interface DocsAddResult {
   url?: string;
   /** Current attachment backend in use. */
   attachmentBackend?: AttachmentBackend;
+  /** Slug recorded for this attachment, when provided (T9636). */
+  slug?: string;
 }
 
 // --------------------------------------------------------------------------

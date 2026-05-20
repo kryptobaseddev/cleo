@@ -166,7 +166,8 @@ const addCommand = defineCommand({
     name: 'add',
     description:
       'Attach a local file or remote URL to a CLEO entity (task, session, observation). ' +
-      'Owner type is inferred from the ID prefix: T### → task, ses_* → session, O-* → observation.',
+      'Owner type is inferred from the ID prefix: T### → task, ses_* → session, O-* → observation. ' +
+      'Use --slug to set a human-friendly alias (unique per project) (T9636).',
   },
   args: {
     'owner-id': {
@@ -195,6 +196,12 @@ const addCommand = defineCommand({
       type: 'string',
       description: 'Agent identity that created the attachment (default: "human")',
     },
+    slug: {
+      type: 'string',
+      description:
+        'Human-friendly kebab-case alias for the attachment, unique per project (T9636). ' +
+        'Collision returns E_SLUG_TAKEN with 3 alternative suggestions.',
+    },
   },
   async run({ args }) {
     const ownerId = args['owner-id'];
@@ -220,6 +227,7 @@ const addCommand = defineCommand({
         ...(args.desc ? { desc: args.desc } : {}),
         ...(args.labels ? { labels: args.labels } : {}),
         ...(args['attached-by'] ? { attachedBy: args['attached-by'] } : {}),
+        ...(args.slug ? { slug: args.slug } : {}),
       },
       { command: 'docs add' },
     );
