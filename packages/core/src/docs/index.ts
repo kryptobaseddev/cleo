@@ -49,3 +49,16 @@ export {
 
 export type { ExportDocumentOptions, ExportDocumentResult } from './export-document.js';
 export { exportDocument } from './export-document.js';
+
+// ── T9639 — cleo docs import (legacy .md migration) ─────────────────────────
+
+export type {
+  DocImportType,
+  ScannedFile,
+  ScanOptions,
+} from './import/scanner.js';
+export {
+  classifyByRelPath,
+  DEFAULT_EXCLUDE_DIRS,
+  scanDirectory,
+} from './import/scanner.js';
