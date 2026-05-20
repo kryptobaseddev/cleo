@@ -17,10 +17,12 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pushWarning } from '@cleocode/core';
 import { resolveLegacyCleoDir } from '@cleocode/paths';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
+import { cliError } from '../renderers/index.js';
 
 /** Canonical section names supported by `cleo briefing inject`. */
 const INJECTION_SECTION_NAMES = [
@@ -120,7 +122,21 @@ function renderForAdapter(sectionName: string, content: string, format: AdapterF
 async function runBriefingInject(sectionName: string, formatStr: string): Promise<void> {
   const templatePath = resolveInjectionTemplatePath();
   if (!existsSync(templatePath)) {
-    process.stderr.write(`[briefing inject] CLEO-INJECTION.md not found at ${templatePath}\n`);
+    // T9772: template-not-found is a non-fatal inject failure — surface as
+    // a `W_TEMPLATE_INJECT_FAILED` warning attached to the LAFS error envelope.
+    pushWarning({
+      code: 'W_TEMPLATE_INJECT_FAILED',
+      message: `CLEO-INJECTION.md not found at ${templatePath}`,
+    });
+    cliError(
+      `CLEO-INJECTION.md not found at ${templatePath}`,
+      1,
+      {
+        name: 'E_TEMPLATE_NOT_FOUND',
+        fix: 'Re-run `cleo init` or restore the templates directory.',
+      },
+      { operation: 'briefing.inject' },
+    );
     process.exitCode = 1;
     return;
   }
@@ -130,9 +146,19 @@ async function runBriefingInject(sectionName: string, formatStr: string): Promis
 
   if (section === null) {
     const available = INJECTION_SECTION_NAMES.join(', ');
-    process.stderr.write(
-      `[briefing inject] Section "${sectionName}" not found in CLEO-INJECTION.md.\n` +
-        `Available sections: ${available}\n`,
+    // T9772: unknown section is a validation failure — emit envelope with warning.
+    pushWarning({
+      code: 'W_TEMPLATE_INJECT_FAILED',
+      message: `Section "${sectionName}" not found in CLEO-INJECTION.md.`,
+    });
+    cliError(
+      `Section "${sectionName}" not found in CLEO-INJECTION.md. Available sections: ${available}`,
+      1,
+      {
+        name: 'E_VALIDATION',
+        fix: `Pass one of: ${available}`,
+      },
+      { operation: 'briefing.inject' },
     );
     process.exitCode = 1;
     return;
@@ -142,9 +168,20 @@ async function runBriefingInject(sectionName: string, formatStr: string): Promis
   if (formatStr.startsWith('adapter:')) {
     const adapterName = formatStr.slice('adapter:'.length) as AdapterFormat;
     if (!(ADAPTER_FORMATS as readonly string[]).includes(adapterName)) {
-      process.stderr.write(
-        `[briefing inject] Unknown adapter format "${adapterName}". ` +
-          `Supported: ${ADAPTER_FORMATS.join(', ')}\n`,
+      // T9772: unknown adapter is a validation failure — emit envelope with warning.
+      const supported = ADAPTER_FORMATS.join(', ');
+      pushWarning({
+        code: 'W_TEMPLATE_INJECT_FAILED',
+        message: `Unknown adapter format "${adapterName}".`,
+      });
+      cliError(
+        `Unknown adapter format "${adapterName}". Supported: ${supported}`,
+        1,
+        {
+          name: 'E_VALIDATION',
+          fix: `Pass one of: ${supported}`,
+        },
+        { operation: 'briefing.inject' },
       );
       process.exitCode = 1;
       return;

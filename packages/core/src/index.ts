@@ -318,7 +318,7 @@ export type { LoggerConfig } from './logger.js';
 export { closeLogger, getLogDir, getLogger, initLogger } from './logger.js';
 export type { FormatOptions } from './output.js';
 // Output formatting (LAFS envelope)
-export { formatError, formatOutput, formatSuccess, pushWarning } from './output.js';
+export { drainWarnings, formatError, formatOutput, formatSuccess, pushWarning } from './output.js';
 // Pagination
 export { createPage, paginate } from './pagination.js';
 // Paths

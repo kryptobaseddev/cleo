@@ -37,9 +37,10 @@
  * @epic T-LLM-CRED-CENTRALIZATION
  */
 
+import { pushWarning } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 import { costCommand } from './llm-cost.js';
 import { runLlmLogin } from './llm-login.js';
 import { runLlmRefreshCatalog } from './llm-refresh-catalog.js';
@@ -240,8 +241,12 @@ const addCommand = defineCommand({
       apiKey = await readApiKeyFromStdin();
       source = 'stdin';
       if (!apiKey) {
-        process.stderr.write(
-          '[error] --api-key-stdin set but stdin is empty or a TTY. Pipe the secret in, e.g. `echo "$KEY" | cleo llm add ...`.\n',
+        // T9772: validation error → LAFS envelope (no raw stderr).
+        cliError(
+          '--api-key-stdin set but stdin is empty or a TTY. Pipe the secret in, e.g. `echo "$KEY" | cleo llm add ...`.',
+          2,
+          { name: 'E_VALIDATION', fix: 'Pipe the secret to stdin or use --api-key-env=NAME.' },
+          { operation: 'llm.add' },
         );
         process.exit(2);
       }
@@ -249,19 +254,41 @@ const addCommand = defineCommand({
       const envName = a['api-key-env'] as string;
       const envValue = process.env[envName];
       if (!envValue) {
-        process.stderr.write(`[error] --api-key-env=${envName} is not set in the environment.\n`);
+        // T9772: validation error → LAFS envelope (no raw stderr).
+        cliError(
+          `--api-key-env=${envName} is not set in the environment.`,
+          2,
+          {
+            name: 'E_VALIDATION',
+            fix: `Export ${envName} before running, or use --api-key-stdin.`,
+          },
+          { operation: 'llm.add' },
+        );
         process.exit(2);
       }
       apiKey = envValue;
       source = 'env';
     } else if (typeof a['api-key'] === 'string' && a['api-key']) {
-      // Deprecated path — accept but warn on stderr (CI-compat).
-      process.stderr.write(`${API_KEY_FLAG_DEPRECATION}\n`);
+      // Deprecated path — accept but surface deprecation warning through the
+      // LAFS envelope (`meta.warnings[]`) instead of polluting stderr. T9772.
+      pushWarning({
+        code: 'W_DEPRECATED_FLAG',
+        message: API_KEY_FLAG_DEPRECATION,
+        deprecated: '--api-key=<value>',
+        replacement: '--api-key-stdin or --api-key-env=NAME',
+      });
       apiKey = a['api-key'] as string;
       source = 'flag';
     } else {
-      process.stderr.write(
-        '[error] cleo llm add requires one of --api-key-stdin (recommended), --api-key-env=NAME, or --api-key=<value> (deprecated).\n',
+      // T9772: validation error → LAFS envelope (no raw stderr).
+      cliError(
+        'cleo llm add requires one of --api-key-stdin (recommended), --api-key-env=NAME, or --api-key=<value> (deprecated).',
+        2,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Provide the credential via --api-key-stdin, --api-key-env=NAME, or --api-key=<value>.',
+        },
+        { operation: 'llm.add' },
       );
       process.exit(2);
     }
@@ -633,7 +660,13 @@ const loginCommand = defineCommand({
           '\n',
       );
     } else if (result.error) {
-      process.stderr.write(`[error] ${result.error.message}\n`);
+      // T9772: surface login failure through LAFS envelope (no raw stderr).
+      cliError(
+        result.error.message,
+        result.error.code || 1,
+        { name: result.error.codeName },
+        { operation: 'llm.login' },
+      );
       process.exit(1);
     }
   },
@@ -681,7 +714,13 @@ const refreshCatalogCommand = defineCommand({
         `Catalog refreshed: ${d.providers} providers, ${d.models} models written to ${d.filePath}\n`,
       );
     } else if (!result.success) {
-      process.stderr.write(`[error] ${result.error?.message ?? 'refresh failed'}\n`);
+      // T9772: surface refresh failure through LAFS envelope (no raw stderr).
+      cliError(
+        result.error?.message ?? 'refresh failed',
+        result.error?.code ?? 1,
+        { name: 'E_REFRESH_FAILED' },
+        { operation: 'llm.refreshCatalog' },
+      );
       process.exit(1);
     }
   },
