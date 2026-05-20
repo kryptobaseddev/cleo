@@ -4,8 +4,9 @@ This directory holds CLEO-native task-anchored changeset entries. Each `*.md`
 file is a markdown file with YAML frontmatter that pins a change to one or
 more CLEO task IDs.
 
-> Replaces the upstream `@changesets/cli` format. `@changesets/cli` itself
-> remains a dormant devDep — its removal is tracked as a separate follow-up.
+> CLEO-native format — the upstream `@changesets/cli` devDep was removed
+> in T9754 (carryforward closure of T9738-B). PR #349 shipped the parser
+> and DSL; this directory is the resulting write-only audit trail.
 
 ## File format
 
