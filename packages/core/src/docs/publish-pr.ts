@@ -24,6 +24,7 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { BUILTIN_DOC_KIND_VALUES, DocKindRegistry } from '@cleocode/contracts';
 
 const execFileAsync = promisify(execFile);
 
@@ -36,18 +37,51 @@ const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const SLUG_MAX_LEN = 80;
 
 /**
- * Closed taxonomy of doc types — mirrors `DOCS_TYPE_VALUES` in
- * `packages/cleo/src/dispatch/domains/docs.ts`. Used to pick the publish
- * subdir under `docs/<type>/`.
+ * Snapshot of every built-in doc-kind name from the canonical
+ * {@link DocKindRegistry} (T9788).
+ *
+ * Built-in-only — project-level extensions registered through
+ * `.cleo/docs-config.json` are NOT included here. Use
+ * {@link knownDocTypesForProject} when extensions matter (e.g. inside
+ * the publish-pr flow where the project root is known).
+ *
+ * Kept as a {@link Set} for O(1) `has()` checks.
  */
-export const KNOWN_DOC_TYPES = new Set<string>([
-  'spec',
-  'adr',
-  'research',
-  'handoff',
-  'note',
-  'llm-readme',
-]);
+export const KNOWN_DOC_TYPES: ReadonlySet<string> = new Set<string>(BUILTIN_DOC_KIND_VALUES);
+
+/**
+ * Project-aware variant of {@link KNOWN_DOC_TYPES}.
+ *
+ * Loads the per-project registry (built-ins + `.cleo/docs-config.json`
+ * extensions) and returns the union as a {@link Set}. Used by the
+ * publish-pr flow so project-defined kinds (e.g. `incident`) land in the
+ * correct `publishDir` rather than the `docs/note` fallback.
+ *
+ * Safe against malformed configs — falls back to built-ins on load failure.
+ *
+ * @param projectRoot - Absolute repo-root path.
+ * @task T9788
+ */
+export function knownDocTypesForProject(projectRoot: string): ReadonlySet<string> {
+  const registry = loadRegistrySafely(projectRoot);
+  return new Set(registry.list().map((d) => d.kind));
+}
+
+/**
+ * Load the canonical registry, swallowing config errors and falling back
+ * to built-ins so a single malformed `.cleo/docs-config.json` cannot
+ * derail the publish-pr flow.
+ *
+ * @internal
+ * @task T9788
+ */
+function loadRegistrySafely(projectRoot: string): DocKindRegistry {
+  try {
+    return DocKindRegistry.load(projectRoot);
+  } catch {
+    return DocKindRegistry.builtinOnly();
+  }
+}
 
 /**
  * Validate a slug string against {@link SLUG_PATTERN}.
@@ -75,10 +109,27 @@ export function validatePublishSlug(
   return { ok: true, slug: raw };
 }
 
-/** Map a doc type to its publish subdir (defaults to `note` when unknown). */
-export function publishDirForType(type: string | null | undefined): string {
-  if (typeof type === 'string' && KNOWN_DOC_TYPES.has(type)) return `docs/${type}`;
-  return 'docs/note';
+/**
+ * Map a doc type to its publish subdir.
+ *
+ * As of T9788 the lookup is delegated to {@link DocKindRegistry} so the
+ * subdir follows whatever each kind declares (e.g. `changeset → .changeset`,
+ * `release-note → docs/release`, `llm-readme → .`). Unknown types fall back
+ * to `docs/note`, preserving prior behavior.
+ *
+ * When `projectRoot` is provided the lookup includes project-level
+ * extensions registered through `.cleo/docs-config.json`; otherwise it
+ * uses the built-in-only registry.
+ *
+ * @param type - Doc kind id (`adr`, `spec`, `changeset`, …).
+ * @param projectRoot - Optional repo-root path for project-level extensions.
+ * @task T9788
+ */
+export function publishDirForType(type: string | null | undefined, projectRoot?: string): string {
+  if (typeof type !== 'string' || type.length === 0) return 'docs/note';
+  const registry = projectRoot ? loadRegistrySafely(projectRoot) : DocKindRegistry.builtinOnly();
+  const meta = registry.get(type);
+  return meta?.publishDir ?? 'docs/note';
 }
 
 /** Compute the canonical branch name for a slug. */
@@ -598,13 +649,17 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
   const slug = slugCheck.slug;
 
   // 3. Resolve the publish type/dir.
+  // T9788 — use the project-aware known-types set so project extensions
+  // declared in `.cleo/docs-config.json` (e.g. `incident`) participate in
+  // type resolution rather than falling through to `note`.
+  const projectKnownTypes = knownDocTypesForProject(projectRoot);
   const type =
-    opts.type && KNOWN_DOC_TYPES.has(opts.type)
+    opts.type && projectKnownTypes.has(opts.type)
       ? opts.type
-      : resolved.type && KNOWN_DOC_TYPES.has(resolved.type)
+      : resolved.type && projectKnownTypes.has(resolved.type)
         ? resolved.type
         : 'note';
-  const publishDir = publishDirForType(type);
+  const publishDir = publishDirForType(type, projectRoot);
   const branch = branchForSlug(slug);
 
   // 4. Pre-flight gh auth so we fail early before any side effects.

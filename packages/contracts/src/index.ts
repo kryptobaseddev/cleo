@@ -277,6 +277,20 @@ export type {
   StoreDocParams,
   StoreDocResult,
 } from './docs-accessor.js';
+// === Canonical Doc-Kind Taxonomy Registry (T9788) ===
+export type {
+  BuiltinDocKind,
+  DocKindConfigFile,
+  DocKindExtensionConfig,
+  DocKindMetadata,
+  SlugValidationResult,
+} from './docs-taxonomy.js';
+export {
+  BUILTIN_DOC_KIND_VALUES,
+  BUILTIN_DOC_KINDS,
+  DocKindConfigError,
+  DocKindRegistry,
+} from './docs-taxonomy.js';
 export type {
   EngineErrorPayload,
   EngineFailure,
