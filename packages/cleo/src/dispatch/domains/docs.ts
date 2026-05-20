@@ -43,7 +43,6 @@ import type {
   DocsRemoveResult,
   DocsType,
 } from '@cleocode/contracts/operations/docs';
-import { DOCS_TYPE_VALUES } from '@cleocode/contracts/operations/docs';
 import type {
   AttachmentRef,
   LlmsTxtAttachment,
@@ -65,6 +64,26 @@ import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../ad
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
+
+/**
+ * Local copy of the closed taxonomy values for runtime validation.
+ *
+ * Kept in lock-step with `DOCS_TYPE_VALUES` exported from
+ * `@cleocode/contracts/operations/docs` — the contracts module is the
+ * authoritative SSoT; this constant exists only because the test runner's
+ * alias map doesn't resolve subpath runtime imports for `@cleocode/contracts`,
+ * forcing the dispatch layer to keep a local mirror.
+ *
+ * @task T9637
+ */
+const DOCS_TYPE_VALUES = [
+  'spec',
+  'adr',
+  'research',
+  'handoff',
+  'note',
+  'llm-readme',
+] as const satisfies readonly DocsType[];
 
 // ─── DocsTypedOps ─────────────────────────────────────────────────────────────
 
@@ -869,7 +888,7 @@ function docsEnvelopeToResponse(
   envelope: {
     success: boolean;
     data?: unknown;
-    error?: { code: string | number; message: string };
+    error?: { code: string | number; message: string; details?: Record<string, unknown> };
   },
   gateway: string,
   operation: string,
@@ -882,6 +901,9 @@ function docsEnvelopeToResponse(
       error: {
         code: String(envelope.error?.code ?? 'E_INTERNAL'),
         message: envelope.error?.message ?? 'Unknown error',
+        // T9636 — preserve structured details (e.g. slug suggestions) so the
+        // CLI can render alternative slugs without a separate API call.
+        ...(envelope.error?.details !== undefined ? { details: envelope.error.details } : {}),
       },
     };
   }
