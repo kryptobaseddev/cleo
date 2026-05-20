@@ -214,6 +214,25 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-dep.mjs
 
+  format-error-misuse-lint:
+    # T9789 / E-DOCS-FORMATERR-FIX — guard against
+    # `cliOutput(formatError(...))` and `cliError(formatError(...))`
+    # double-wrap patterns. `formatError` already produces a serialised
+    # LAFS envelope; nesting it inside `cliOutput`/`cliError` either
+    # fakes success (cliOutput) or replaces the human-readable message
+    # with a JSON blob (cliError). Pure static analysis of checked-in
+    # source — no untrusted input.
+    name: Format-Error Misuse Lint (T9789)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Reject cliOutput(formatError) / cliError(formatError) double-wraps
+        run: node scripts/lint-format-error-misuse.mjs
+
   pragma-drift:
     name: SQLite Pragma Drift Guard (T9025 / T9190)
     runs-on: ubuntu-latest
