@@ -1,49 +1,41 @@
 ---
-"@cleocode/contracts": minor
-"@cleocode/cant": minor
+id: four-tools-think
+tasks: [T9738]
+kind: feat
+summary: WASM bindings for the CANT ecosystem — cant-core, lafs-core, conduit-core, signaldock-core compile to WASM with TypeScript SDK integration.
 ---
 
-## WASM Integration Complete - All Rust Crates
+Migrated from the upstream `@changesets/cli` format on 2026-05-20 (T9738) under
+the umbrella T9738 task since no single CLEO task ID anchored this entry. The
+original entry bumped `@cleocode/contracts` and `@cleocode/cant`.
 
-### 🚀 Major Features
+### Rust crates
 
-Complete WASM bindings for the CANT ecosystem with TypeScript SDK integration:
+- `cant-core`: CANT parser with `cant_parse()` and `cant_classify_directive()`.
+- `lafs-core`: LAFS transport with `WasmLafsTransport`, `WasmLafsMeta`,
+  `WasmLafsEnvelope`.
+- `conduit-core`: Conduit messaging with `WasmConduitMessage`,
+  `WasmConduitState`, `WasmCantMetadata`.
+- `signaldock-core`: Agent types with `WasmAgentClass`, `WasmPrivacyTier`,
+  `WasmAgentStatus`.
 
-**Rust Crates:**
-- `cant-core`: CANT parser with `cant_parse()` and `cant_classify_directive()` functions
-- `lafs-core`: LAFS transport with `WasmLafsTransport`, `WasmLafsMeta`, `WasmLafsEnvelope`
-- `conduit-core`: Conduit messaging with `WasmConduitMessage`, `WasmConduitState`, `WasmCantMetadata`
-- `signaldock-core`: Agent types with `WasmAgentClass`, `WasmPrivacyTier`, `WasmAgentStatus`
+### TypeScript SDK (`packages/contracts/src/wasm/`)
 
-**TypeScript SDK (`packages/contracts/src/wasm/`):**
-- Central SDK entry point with unified loader
-- Full type definitions for all WASM exports
-- Async initialization with proper error handling
-- Zero-dependency WASM loading
+- Central SDK entry point with a unified loader.
+- Full type definitions for every WASM export.
+- Async initialization with proper error handling.
+- Zero-dependency WASM loading.
 
-### 📦 Build System
+### Build system
 
-- Feature propagation: `wasm` feature chains through all crates
-- `wasm-pack` builds for all targets (web, bundler, nodejs)
-- Centralized SDK exports all WASM modules
-- Build script: `build-wasm.sh`
+- Feature propagation: `wasm` feature chains through every crate.
+- `wasm-pack` builds for all targets (web, bundler, nodejs).
+- Centralized SDK exports every WASM module.
+- Build script: `build-wasm.sh`.
 
-### 📝 Documentation
+### Stats
 
-- `RUST-WASM-BUILD.md`: Build instructions
-- `CANT-TYPESCRIPT-INTEGRATION.md`: Usage guide
-- `WASM-HANDOFF-REPORT.md`: Complete audit report
-
-### 🔧 Technical Details
-
-- All crates compile to WASM with `wasm-bindgen`
-- Full type safety with generated TypeScript definitions
-- Proper memory management for WASM/JS boundary
-- Production-ready for npm publishing
-
-### 📊 Stats
-
-- 4 Rust crates with complete WASM bindings
-- 68 files changed
-- ~450KB total WASM output
-- Zero breaking changes to existing APIs
+- 4 Rust crates with complete WASM bindings.
+- 68 files changed.
+- ~450KB total WASM output.
+- Zero breaking changes to existing APIs.

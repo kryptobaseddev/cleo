@@ -177,6 +177,9 @@ export {
   validateAbsolutePath,
 } from './branch-lock.js';
 export type { AdapterCapabilities } from './capabilities.js';
+// === Changesets (CLEO-native task-anchored DSL — T9738) ===
+export type { ChangesetEntry, ChangesetKind } from './changesets.js';
+export { CHANGESET_KINDS, ChangesetEntrySchema } from './changesets.js';
 // === Code Symbol Types (tree-sitter AST) ===
 export type {
   BatchParseResult,

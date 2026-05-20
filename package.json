@@ -21,6 +21,7 @@
     "test:changed": "pnpm --filter \"...[HEAD~1]\" run test",
     "lint": "biome check . && node scripts/lint-no-raw-cr-writes.mjs",
     "lint:fix": "biome check --write . && node scripts/lint-no-raw-cr-writes.mjs",
+    "lint:changesets": "node scripts/lint-changesets.mjs",
     "lint:cleo-errors": "node scripts/lint-cleo-errors.mjs",
     "lint:contracts-dep": "node scripts/lint-contracts-dep.mjs",
     "lint:raw-cr": "node scripts/lint-no-raw-cr-writes.mjs",
