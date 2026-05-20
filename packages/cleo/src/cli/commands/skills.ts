@@ -654,6 +654,49 @@ const importHermesCommand = defineCommand({
   },
 });
 
+/**
+ * `cleo skills prune-telemetry` — Sphere B retention sweep (T9693).
+ *
+ * Deletes `skill_usage` rows older than `--older-than DAYS` (default 180,
+ * mirrors Hermes `archive_after_days`). Optional `--vacuum` reclaims disk
+ * space after the delete. Use `--dry-run` to preview without writes.
+ */
+const pruneTelemetryCommand = defineCommand({
+  meta: {
+    name: 'prune-telemetry',
+    description:
+      'Delete skill_usage rows older than --older-than DAYS (default 180); optional --vacuum reclaims disk space',
+  },
+  args: {
+    'older-than': {
+      type: 'string',
+      description: 'Age threshold in days (default 180)',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Print planned deletes without touching the DB',
+    },
+    vacuum: {
+      type: 'boolean',
+      description: 'Run VACUUM after the delete to reclaim disk space',
+    },
+  },
+  async run({ args }) {
+    const olderThanDays = args['older-than'] ? Number(args['older-than']) : undefined;
+    await dispatchFromCli(
+      'mutate',
+      'tools',
+      'skill.prune.telemetry',
+      {
+        olderThanDays,
+        dryRun: args['dry-run'] === true,
+        vacuum: args.vacuum === true,
+      },
+      { command: 'skills', operation: 'tools.skill.prune.telemetry' },
+    );
+  },
+});
+
 /** cleo skills spawn-providers — list providers capable of spawning subagents */
 const spawnProvidersCommand = defineCommand({
   meta: { name: 'spawn-providers', description: 'List providers capable of spawning subagents' },
@@ -954,6 +997,7 @@ export const skillsCommand = defineCommand({
     'propose-patch': proposePatchCommand,
     stats: statsCommand,
     'import-hermes': importHermesCommand,
+    'prune-telemetry': pruneTelemetryCommand,
   },
   async run({ cmd, rawArgs }) {
     // Parent run() fires after subcommand per citty@0.2.x — skip default

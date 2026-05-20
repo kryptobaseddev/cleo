@@ -2156,6 +2156,7 @@ export {
   toolsSkillList,
   toolsSkillPrecedenceResolve,
   toolsSkillPrecedenceShow,
+  toolsSkillPruneTelemetry,
   toolsSkillRefresh,
   toolsSkillShow,
   toolsSkillSpawnProviders,

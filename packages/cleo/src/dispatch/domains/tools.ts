@@ -48,6 +48,7 @@ import {
   toolsSkillList,
   toolsSkillPrecedenceResolve,
   toolsSkillPrecedenceShow,
+  toolsSkillPruneTelemetry,
   toolsSkillRefresh,
   toolsSkillShow,
   toolsSkillSpawnProviders,
@@ -502,6 +503,18 @@ export class ToolsHandler implements DomainHandler {
         const dryRun = params?.dryRun === true;
         const result = await toolsSkillImportHermes({ hermesHome, dryRun });
         return wrapResult(result, 'mutate', 'tools', 'skill.import.hermes', startTime);
+      }
+
+      // T9693 — skill.prune.telemetry: retention sweep on skill_usage
+      case 'prune.telemetry': {
+        const olderThanDays =
+          typeof params?.olderThanDays === 'number' ? (params.olderThanDays as number) : undefined;
+        const result = await toolsSkillPruneTelemetry({
+          olderThanDays,
+          dryRun: params?.dryRun === true,
+          vacuum: params?.vacuum === true,
+        });
+        return wrapResult(result, 'mutate', 'tools', 'skill.prune.telemetry', startTime);
       }
 
       default:

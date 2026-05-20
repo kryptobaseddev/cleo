@@ -1789,6 +1789,38 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T9693 — skill.prune.telemetry: skill_usage retention sweep
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'skill.prune.telemetry',
+    description:
+      'tools.skill.prune.telemetry (mutate) — delete skill_usage rows older than --older-than DAYS (default 180)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'olderThanDays',
+        type: 'number',
+        required: false,
+        description: 'Age threshold in days (default 180)',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Return the plan without touching the DB',
+      },
+      {
+        name: 'vacuum',
+        type: 'boolean',
+        required: false,
+        description: 'Run VACUUM after the delete to reclaim disk space',
+      },
+    ],
+  },
   // T9691 — skill.import.hermes: Hermes sidecar migration
   {
     gateway: 'mutate',
