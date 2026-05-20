@@ -82,6 +82,51 @@ const searchCommand = defineCommand({
   },
 });
 
+/**
+ * cleo skills find — federated multi-source query (T9731).
+ *
+ * Differs from `search` by going through the federation orchestrator:
+ *   - default: local skills + canonical marketplace
+ *   - `--federated`: ALSO fans out to every peer in ~/.cleo/federation.json
+ *
+ * Results are ranked by `trustLevel × textMatch × usage` per ADR-075 so
+ * builtin/trusted sources surface above community ones.
+ */
+const findCommand = defineCommand({
+  meta: {
+    name: 'find',
+    description: 'Federated skill search across local, canonical, and federation peers',
+  },
+  args: {
+    query: {
+      type: 'positional',
+      description: 'Search query',
+      required: true,
+    },
+    federated: {
+      type: 'boolean',
+      description: 'Include federation peers (OPT-IN — no network calls without this flag)',
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum results to return',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'tools',
+      'skill.federated.find',
+      {
+        query: args.query,
+        federated: !!args.federated,
+        limit: args.limit ? Number(args.limit) : undefined,
+      },
+      { command: 'skills', operation: 'tools.skill.federated.find' },
+    );
+  },
+});
+
 /** cleo skills validate — validate skill against protocol */
 const validateCommand = defineCommand({
   meta: { name: 'validate', description: 'Validate skill against protocol' },
@@ -591,6 +636,7 @@ export const skillsCommand = defineCommand({
   subCommands: {
     list: listCommand,
     search: searchCommand,
+    find: findCommand,
     validate: validateCommand,
     info: infoCommand,
     install: installCommand,

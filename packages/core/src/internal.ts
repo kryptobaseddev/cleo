@@ -2145,6 +2145,7 @@ export {
   toolsSkillDependencies,
   toolsSkillDispatch,
   toolsSkillDoctorDiagnose,
+  toolsSkillFederatedFind,
   toolsSkillFind,
   toolsSkillInstall,
   toolsSkillList,

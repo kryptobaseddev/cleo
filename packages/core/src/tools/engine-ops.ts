@@ -167,6 +167,53 @@ export async function toolsSkillFind(
 }
 
 /**
+ * Federated find — multi-source skill query (T9731).
+ *
+ * Always queries local skills + canonical marketplace. When `federated`
+ * is `true`, also fans out to every peer in `~/.cleo/federation.json`.
+ *
+ * Returns ranked results plus per-source warnings so callers can surface
+ * network-failure context in the CLI.
+ *
+ * @param query - Search query (case-insensitive).
+ * @param federated - OPT-IN flag for federation fan-out (default `false`).
+ * @param limit - Maximum number of results returned (default `25`).
+ */
+export async function toolsSkillFederatedFind(
+  query?: string,
+  federated: boolean = false,
+  limit: number = 25,
+): Promise<
+  EngineResult<{
+    results: import('../skills/federated-search.js').FederatedSearchResult[];
+    warnings: string[];
+    count: number;
+    query: string;
+    federated: boolean;
+  }>
+> {
+  try {
+    const { federatedSearch } = await import('../skills/federated-search.js');
+    const q = (query ?? '').trim();
+    const response = await federatedSearch({
+      query: q,
+      includeFederated: federated,
+      perSourceLimit: limit,
+    });
+    const limited = [...response.results].slice(0, limit);
+    return engineSuccess({
+      results: limited,
+      warnings: [...response.warnings],
+      count: limited.length,
+      query: q,
+      federated,
+    });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
  * Get dispatch matrix entries for a skill.
  */
 export function toolsSkillDispatch(name: string): EngineResult<{
