@@ -2,9 +2,11 @@
  * Skills migration helpers — legacy XDG store → `~/.cleo/skills/` (SSoT).
  *
  * @remarks
- * Implements the filesystem half of `cleo skills doctor migrate` (T9653).
- * Pure functions only — every side effect is parameterised so the CLI handler
- * and tests can drive identical code paths against tmpdirs.
+ * Implements the filesystem half of `cleo skills migrate` (T9653; relocated
+ * from caamp to CORE under T9741 so the citty CLI + dispatch chain can call
+ * it directly without a cross-package adapter). Pure functions only — every
+ * side effect is parameterised so the CLI handler and tests can drive
+ * identical code paths against tmpdirs.
  *
  * Migration shape (per architecture-v3.md §1):
  *
@@ -65,9 +67,10 @@ export const LEGACY_MIGRATED_MARKER = '.MIGRATED-TO-CLEO';
  *
  * @remarks
  * The CLI handler funnels these into a callback (`recordRow`) so that the
- * skills.db upsert lives in the dispatch layer (`packages/cleo/`), keeping
- * caamp free of a circular `@cleocode/core` import. See architecture-v3.md
- * §4 for the matching `skills` table schema.
+ * skills.db upsert site stays opt-in — colocated callers can wire
+ * `upsertSkillRow` from `../store/skills-db.js` directly, while tests can
+ * substitute a fake sink. See architecture-v3.md §4 for the matching
+ * `skills` table schema.
  *
  * @public
  */
@@ -157,9 +160,10 @@ export interface MigrationOptions {
    */
   tarExec?: TarExec;
   /**
-   * Per-row sink invoked after each successful copy. The CLI handler in
-   * `packages/cleo/` plugs `upsertSkillRow` here without caamp needing a
-   * `@cleocode/core` dep. Defaults to a no-op.
+   * Per-row sink invoked after each successful copy. The CORE handler for
+   * `tools.skill.migrate` (T9742) plugs `upsertSkillRow` here so the
+   * skills.db registry is kept in lock-step with the on-disk copy.
+   * Defaults to a no-op.
    */
   recordRow?: (row: MigratedSkillRecord) => Promise<void> | void;
 }

@@ -46,6 +46,7 @@ import {
   toolsSkillImportHermes,
   toolsSkillInstall,
   toolsSkillList,
+  toolsSkillMigrate,
   toolsSkillPrecedenceResolve,
   toolsSkillPrecedenceShow,
   toolsSkillPruneTelemetry,
@@ -181,6 +182,7 @@ export class ToolsHandler implements DomainHandler {
         'skill.uninstall',
         'skill.refresh',
         'skill.import.hermes',
+        'skill.migrate',
         'skill.prune.telemetry',
         // provider
         'provider.inject',
@@ -503,6 +505,15 @@ export class ToolsHandler implements DomainHandler {
         const dryRun = params?.dryRun === true;
         const result = await toolsSkillImportHermes({ hermesHome, dryRun });
         return wrapResult(result, 'mutate', 'tools', 'skill.import.hermes', startTime);
+      }
+
+      // T9742 — skill.migrate: legacy XDG store → ~/.cleo/skills/ (SSoT)
+      case 'migrate': {
+        const result = await toolsSkillMigrate({
+          dryRun: params?.dryRun === true,
+          rollback: params?.rollback === true,
+        });
+        return wrapResult(result, 'mutate', 'tools', 'skill.migrate', startTime);
       }
 
       // T9693 — skill.prune.telemetry: retention sweep on skill_usage

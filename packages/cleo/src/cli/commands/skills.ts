@@ -655,6 +655,60 @@ const importHermesCommand = defineCommand({
 });
 
 /**
+ * `cleo skills migrate` — legacy XDG store → `~/.cleo/skills/` SSoT (T9742).
+ *
+ * Replaces the dead caamp Commander `doctor migrate` wrapper (deleted in
+ * T9743). Routes through the standard `tools.skill.migrate` dispatch
+ * operation; the underlying pure helpers live in
+ * `@cleocode/core/skills/migration.js` (moved out of caamp under T9741).
+ *
+ * Flags:
+ *   --dry-run   Preview the plan without writing anything.
+ *   --rollback  Restore the legacy tree from the most recent backup.
+ *   --json      Emit LAFS JSON envelope (default).
+ *   --human     Emit a coloured summary instead of JSON.
+ *
+ * `--dry-run` and `--rollback` are mutually exclusive — passing both
+ * surfaces `E_INVALID_INPUT` from the engine-op handler.
+ */
+const migrateCommand = defineCommand({
+  meta: {
+    name: 'migrate',
+    description: 'Migrate legacy skills (~/.local/share/agents/skills) into ~/.cleo/skills (SSoT)',
+  },
+  args: {
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview the plan without writing anything',
+    },
+    rollback: {
+      type: 'boolean',
+      description: 'Restore from the most recent backup tarball',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit LAFS JSON envelope (default)',
+    },
+    human: {
+      type: 'boolean',
+      description: 'Emit a coloured human-readable summary instead of JSON',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tools',
+      'skill.migrate',
+      {
+        dryRun: args['dry-run'] === true,
+        rollback: args.rollback === true,
+      },
+      { command: 'skills', operation: 'tools.skill.migrate' },
+    );
+  },
+});
+
+/**
  * `cleo skills prune-telemetry` — Sphere B retention sweep (T9693).
  *
  * Deletes `skill_usage` rows older than `--older-than DAYS` (default 180,
@@ -997,6 +1051,7 @@ export const skillsCommand = defineCommand({
     'propose-patch': proposePatchCommand,
     stats: statsCommand,
     'import-hermes': importHermesCommand,
+    migrate: migrateCommand,
     'prune-telemetry': pruneTelemetryCommand,
   },
   async run({ cmd, rawArgs }) {

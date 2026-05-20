@@ -1847,6 +1847,32 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T9742 — skill.migrate: legacy XDG store → ~/.cleo/skills/
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'skill.migrate',
+    description:
+      'tools.skill.migrate (mutate) — migrate ~/.local/share/agents/skills into ~/.cleo/skills (SSoT); supports --dry-run preview + --rollback restore',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Preview the plan without writing anything',
+      },
+      {
+        name: 'rollback',
+        type: 'boolean',
+        required: false,
+        description: 'Restore the legacy tree from the most recent backup tarball',
+      },
+    ],
+  },
   // T9690 — skill.stats: Sphere B telemetry rollup
   {
     gateway: 'query',

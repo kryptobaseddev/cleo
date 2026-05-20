@@ -1386,6 +1386,16 @@ export type {
   SkillImportHermesResponse,
   SkillImportHermesRow,
 } from './skills/import-hermes.js';
+// === Skills Migrate (T9742 — single cleo skills migrate verb) ===
+export type {
+  SkillMigrateAction,
+  SkillMigrateMigratedRow,
+  SkillMigrateRequest,
+  SkillMigrateResponse,
+  SkillMigrateSkippedRow,
+  SkillMigrateSkipReason,
+  SkillMigrateSourceType,
+} from './skills/migrate.js';
 // === Skills Prune Telemetry (T9693 — SG-CLEO-SKILLS Sphere B retention) ===
 export type {
   SkillPruneTelemetryRequest,
