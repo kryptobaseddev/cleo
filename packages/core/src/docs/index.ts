@@ -109,6 +109,7 @@ export {
   defaultRun,
   execMsg,
   KNOWN_DOC_TYPES,
+  knownDocTypesForProject,
   parseGhPrUrl,
   pickRunner,
   provisionPublishPrWorktree,

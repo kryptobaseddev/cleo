@@ -17,7 +17,12 @@
 
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import {
+  DocKindConfigError,
+  type DocKindMetadata,
+  DocKindRegistry,
+  ExitCode,
+} from '@cleocode/contracts';
 import {
   buildDocsGraph,
   CleoError,
@@ -207,7 +212,8 @@ const addCommand = defineCommand({
     },
     type: {
       type: 'string',
-      description: 'Taxonomy classification: spec|adr|research|handoff|note|llm-readme (T9637)',
+      description:
+        'Taxonomy classification — run `cleo docs list-types` to enumerate registered kinds (T9637 / T9788)',
     },
   },
   async run({ args }) {
@@ -1327,13 +1333,211 @@ const importCommand = defineCommand({
   },
 });
 
+// ── cleo docs schema ─────────────────────────────────────────────────────────
+
+/**
+ * Serializable wire shape for the doc-kind registry envelope.
+ *
+ * Regex patterns are serialized to their `.source` string so JSON
+ * consumers (and downstream agents) can re-compile them deterministically.
+ *
+ * @task T9788
+ */
+interface DocKindMetadataWire {
+  readonly kind: string;
+  readonly label: string;
+  readonly description: string;
+  readonly defaultOwnerKind: 'task' | 'session' | 'observation' | 'project';
+  readonly publishDir: string;
+  readonly requiresEntityId: boolean;
+  readonly entityIdPattern?: string;
+  readonly isExtension: boolean;
+}
+
+/**
+ * Convert a {@link DocKindMetadata} entry to its wire-format twin.
+ *
+ * @internal
+ * @task T9788
+ */
+function toWireKind(meta: DocKindMetadata): DocKindMetadataWire {
+  return {
+    kind: meta.kind,
+    label: meta.label,
+    description: meta.description,
+    defaultOwnerKind: meta.defaultOwnerKind,
+    publishDir: meta.publishDir,
+    requiresEntityId: meta.requiresEntityId,
+    ...(meta.entityIdPattern ? { entityIdPattern: meta.entityIdPattern.source } : {}),
+    isExtension: meta.isExtension === true,
+  };
+}
+
+/**
+ * Load the canonical registry, mapping config errors into a CLI-friendly
+ * envelope. Returns the built-in-only fallback on failure so commands stay
+ * usable even when `.cleo/docs-config.json` is broken.
+ *
+ * @internal
+ * @task T9788
+ */
+function loadCliRegistry(projectRoot: string): {
+  registry: DocKindRegistry;
+  configError?: { source: string; message: string };
+} {
+  try {
+    return { registry: DocKindRegistry.load(projectRoot) };
+  } catch (err) {
+    if (err instanceof DocKindConfigError) {
+      return {
+        registry: DocKindRegistry.builtinOnly(),
+        configError: { source: err.source, message: err.message },
+      };
+    }
+    throw err;
+  }
+}
+
+/**
+ * `cleo docs schema` — emit the full doc-kind registry as a LAFS envelope.
+ *
+ * Built-in kinds appear first (declaration order), then any extensions
+ * loaded from `.cleo/docs-config.json`. The envelope includes
+ * `extensionsCount` so consumers can quickly tell whether project-level
+ * extensions are in play.
+ *
+ * @task T9788
+ */
+const schemaCommand = defineCommand({
+  meta: {
+    name: 'schema',
+    description:
+      'Emit the canonical doc-kind taxonomy registry (built-ins + project extensions) ' +
+      'as a LAFS envelope. The schema is the single source of truth for the ' +
+      '--type values accepted by `cleo docs add` and the publish-dir layout used by ' +
+      '`cleo docs publish-pr`. See `cleo docs list-types` for the human-readable form (T9788).',
+  },
+  args: {
+    'include-counts': {
+      type: 'boolean',
+      description: 'Include per-kind attachment counts from the project SSoT',
+    },
+  },
+  async run({ args }) {
+    const projectRoot = getProjectRoot();
+    const { registry, configError } = loadCliRegistry(projectRoot);
+    const kinds = registry.list().map(toWireKind);
+    const extensionsCount = kinds.filter((k) => k.isExtension).length;
+
+    let counts: Record<string, number> | undefined;
+    if (args['include-counts']) {
+      counts = {};
+      const { createAttachmentStore } = await import('@cleocode/core/internal');
+      const store = createAttachmentStore();
+      for (const k of kinds) counts[k.kind] = 0;
+      try {
+        const rows = await store.listAllInProject(projectRoot);
+        for (const row of rows) {
+          const key = row.type;
+          if (key && key in counts) counts[key] = (counts[key] ?? 0) + 1;
+        }
+      } catch {
+        // SSoT not initialised — leave the zero-filled counts in place.
+      }
+    }
+
+    cliOutput(
+      {
+        version: 1,
+        builtinsCount: kinds.length - extensionsCount,
+        extensionsCount,
+        kinds,
+        ...(counts ? { counts } : {}),
+        ...(configError ? { configError } : {}),
+      },
+      { command: 'docs schema', operation: 'docs.schema' },
+    );
+  },
+});
+
+// ── cleo docs list-types ─────────────────────────────────────────────────────
+
+/**
+ * `cleo docs list-types` — human-readable table of every registered kind.
+ *
+ * Columns: kind, label, count (when `--counts`), requiresEntityId, publishDir.
+ * In JSON mode emits a LAFS envelope mirroring the table's rows.
+ *
+ * @task T9788
+ */
+const listTypesCommand = defineCommand({
+  meta: {
+    name: 'list-types',
+    description:
+      'List every registered doc kind with its label, publish directory, and ' +
+      'slug-pattern requirement. Use --counts to include per-kind attachment counts ' +
+      'from the project SSoT (T9788).',
+  },
+  args: {
+    counts: {
+      type: 'boolean',
+      description: 'Include per-kind attachment counts from the project SSoT',
+    },
+  },
+  async run({ args }) {
+    const projectRoot = getProjectRoot();
+    const { registry, configError } = loadCliRegistry(projectRoot);
+    const kinds = registry.list().map(toWireKind);
+
+    let counts: Record<string, number> | undefined;
+    if (args.counts) {
+      counts = {};
+      const { createAttachmentStore } = await import('@cleocode/core/internal');
+      const store = createAttachmentStore();
+      for (const k of kinds) counts[k.kind] = 0;
+      try {
+        const rows = await store.listAllInProject(projectRoot);
+        for (const row of rows) {
+          const key = row.type;
+          if (key && key in counts) counts[key] = (counts[key] ?? 0) + 1;
+        }
+      } catch {
+        // SSoT not initialised — leave the zero-filled counts in place.
+      }
+    }
+
+    const rows = kinds.map((k) => ({
+      kind: k.kind,
+      label: k.label,
+      ...(counts ? { count: counts[k.kind] ?? 0 } : {}),
+      requiresEntityId: k.requiresEntityId,
+      publishDir: k.publishDir,
+      isExtension: k.isExtension,
+    }));
+
+    cliOutput(
+      {
+        version: 1,
+        total: rows.length,
+        rows,
+        ...(configError ? { configError } : {}),
+      },
+      {
+        command: 'docs list-types',
+        operation: 'docs.list-types',
+        message: configError ? `loaded built-ins only — ${configError.message}` : undefined,
+      },
+    );
+  },
+});
+
 /**
  * Root docs command group — attachment management, llmtxt primitives, drift detection,
  * and git⇄llmtxt round-trip (publish/sync/status) per Saga T9625 / Epic T9626.
  *
  * Subcommands: add, list, fetch, remove, generate, export,
  *              search, merge, graph, rank, versions, publish,
- *              sync, status, gap-check, import.
+ *              sync, status, gap-check, import, schema, list-types.
  */
 export const docsCommand = defineCommand({
   meta: {
@@ -1363,6 +1567,9 @@ export const docsCommand = defineCommand({
     status: statusCommand,
     'gap-check': gapCheckCommand,
     import: importCommand,
+    // T9788 — canonical doc-kind taxonomy discovery surface.
+    schema: schemaCommand,
+    'list-types': listTypesCommand,
     ...docsViewerSubcommands,
   },
   async run({ cmd, rawArgs }) {

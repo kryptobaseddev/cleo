@@ -29,6 +29,7 @@
  */
 
 import type { AttachmentKind } from '../attachment.js';
+import { BUILTIN_DOC_KIND_VALUES, type BuiltinDocKind } from '../docs-taxonomy.js';
 
 // ============================================================================
 // Shared Attachment Types (API wire format)
@@ -54,28 +55,32 @@ export type { AttachmentKind } from '../attachment.js';
 /**
  * Allowed values for the `--type` taxonomy on `cleo docs add`.
  *
- * The set is closed at the CLI surface; new values require a coordinated
- * update to (1) {@link DOCS_TYPE_VALUES}, (2) the dispatch-layer guard, and
- * (3) the citty CLI flag description. The DB column itself is open (no CHECK)
- * so older clients reading a forward-compatible value gracefully degrade.
+ * As of T9788 this is derived from the canonical {@link BUILTIN_DOC_KIND_VALUES}
+ * in `docs-taxonomy.ts` — adding a kind there automatically widens this set
+ * without a duplicate edit here.
+ *
+ * Project-level extensions registered through `.cleo/docs-config.json` are
+ * NOT included in this constant (they are runtime-only, since the
+ * compile-time union must stay closed). Use {@link DocKindRegistry.list}
+ * to enumerate built-ins plus extensions at runtime.
  *
  * @task T9637 (T-DOCS-SLUG-2)
+ * @task T9788 (E-DOCS-TAXONOMY-V2 — registry consolidation)
  */
-export const DOCS_TYPE_VALUES = [
-  'spec',
-  'adr',
-  'research',
-  'handoff',
-  'note',
-  'llm-readme',
-] as const;
+export const DOCS_TYPE_VALUES: ReadonlyArray<BuiltinDocKind> =
+  BUILTIN_DOC_KIND_VALUES as ReadonlyArray<BuiltinDocKind>;
 
 /**
  * Closed-set type alias for {@link DOCS_TYPE_VALUES}.
  *
+ * As of T9788 this aliases {@link BuiltinDocKind} from the canonical
+ * registry — the union widens automatically when a new built-in kind
+ * is added to {@link BUILTIN_DOC_KINDS}.
+ *
  * @task T9637
+ * @task T9788
  */
-export type DocsType = (typeof DOCS_TYPE_VALUES)[number];
+export type DocsType = BuiltinDocKind;
 
 /**
  * Flattened wire-format attachment row returned by docs query operations.
