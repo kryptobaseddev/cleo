@@ -47,9 +47,15 @@ import {
   type NewSkillRow,
   type NewSkillUsageRow,
   type SkillLifecycleState,
+  type SkillPatchRow,
+  type SkillPatchStatus,
+  type SkillReviewOutcome,
+  type SkillReviewRow,
   type SkillRow,
   type SkillSourceType,
   type SkillUsageRow,
+  skillPatches as skillPatchesTable,
+  skillReviews as skillReviewsTable,
   skills as skillsTable,
   skillUsage as skillUsageTable,
 } from './skills-schema.js';
@@ -431,6 +437,257 @@ export async function bulkImportFromHermes(
 }
 
 // ---------------------------------------------------------------------------
+// Review + patch adapters (T9750 — extracted from `cleo sentient` CLI)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row in {@link listSkillReviews} output joining `skill_reviews` to the
+ * most recent `skill_patches` row for the same skill plus the parent
+ * `skills` row.
+ *
+ * The CLI uses this exact shape; persisting it in CORE keeps the adapter
+ * and CLI handler in lock-step without a duplicate type.
+ *
+ * @task T9750
+ */
+export interface SkillReviewListEntry {
+  /** `skill_reviews.id`. */
+  readonly reviewId: number;
+  /** `skill_reviews.skill_name`. */
+  readonly skillName: string;
+  /** ISO-8601 review timestamp. */
+  readonly reviewedAt: string;
+  /** Council verdict. */
+  readonly outcome: SkillReviewOutcome;
+  /** Free-form chairman / grade summary. */
+  readonly summary: string | null;
+  /** Linked patch id (latest by `proposedAt`), or `null` if none. */
+  readonly patchId: number | null;
+  /** Patch status when present. */
+  readonly patchStatus: SkillPatchStatus | null;
+  /** True when the parent `skills.source_type` is `'canonical'`. */
+  readonly isCanonical: boolean;
+}
+
+/**
+ * Filter options for {@link listSkillReviews}.
+ *
+ * @task T9750
+ */
+export interface ListSkillReviewsFilters {
+  /**
+   * When `true`, drop entries whose latest patch is NOT in the `'proposed'`
+   * state. Used by the CLI to surface only actionable rows.
+   */
+  readonly pendingOnly?: boolean;
+  /**
+   * Max number of rows to return. Non-finite or non-positive values are
+   * normalised to `50`.
+   */
+  readonly limit?: number;
+}
+
+/**
+ * List review rows (newest-first) with the most-recent linked patch +
+ * `isCanonical` flag joined in. Replaces the inline `openSkillsDb` blocks
+ * in `cleo sentient review-status list` (T9727 → T9750).
+ *
+ * @param filters - See {@link ListSkillReviewsFilters}.
+ * @returns Joined snapshot, already filtered by `pendingOnly` and capped at
+ *   `limit`. Empty array when no reviews exist.
+ *
+ * @task T9750
+ */
+export async function listSkillReviews(
+  filters: ListSkillReviewsFilters = {},
+): Promise<SkillReviewListEntry[]> {
+  const rawLimit = filters.limit;
+  const limit =
+    Number.isInteger(rawLimit) && rawLimit !== undefined && rawLimit > 0 ? rawLimit : 50;
+  const pendingOnly = filters.pendingOnly === true;
+  const db = await openSkillsDb();
+
+  const reviews = db
+    .select()
+    .from(skillReviewsTable)
+    .orderBy(skillReviewsTable.reviewedAt)
+    .limit(limit)
+    .all();
+
+  const entries: SkillReviewListEntry[] = [];
+  for (const review of reviews) {
+    const skillRow = db
+      .select()
+      .from(skillsTable)
+      .where(eq(skillsTable.name, review.skillName))
+      .limit(1)
+      .all()[0];
+    const latestPatch = db
+      .select()
+      .from(skillPatchesTable)
+      .where(eq(skillPatchesTable.skillName, review.skillName))
+      .orderBy(desc(skillPatchesTable.proposedAt))
+      .limit(1)
+      .all()[0];
+    if (pendingOnly && latestPatch?.status !== 'proposed') {
+      continue;
+    }
+    entries.push({
+      reviewId: review.id,
+      skillName: review.skillName,
+      reviewedAt: review.reviewedAt,
+      outcome: review.outcome,
+      summary: review.summary ?? null,
+      patchId: latestPatch?.id ?? null,
+      patchStatus: latestPatch?.status ?? null,
+      isCanonical: skillRow?.sourceType === 'canonical',
+    });
+  }
+  return entries;
+}
+
+/**
+ * Detailed envelope returned by {@link getSkillReview}. Bundles the review
+ * row, all associated patches, the parent skill row, and the canonical flag.
+ *
+ * @task T9750
+ */
+export interface SkillReviewDetail {
+  /** The `skill_reviews` row, or `null` if no row matches `reviewId`. */
+  readonly review: SkillReviewRow | null;
+  /** All `skill_patches` rows whose `review_id` equals `reviewId`. */
+  readonly patches: readonly SkillPatchRow[];
+  /** Parent `skills` row, or `null` if the join misses (orphan review). */
+  readonly skillRow: SkillRow | null;
+  /** True when `skillRow?.sourceType === 'canonical'`. */
+  readonly isCanonical: boolean;
+}
+
+/**
+ * Fetch a single review by id with all linked patches + parent skill row.
+ *
+ * Returns `{ review: null, ... }` when `reviewId` is absent so callers can
+ * differentiate "not found" from server error without try/catch.
+ *
+ * @param reviewId - `skill_reviews.id` — MUST be a positive integer; the
+ *   caller is responsible for validating the input before passing it in.
+ *
+ * @task T9750
+ */
+export async function getSkillReview(reviewId: number): Promise<SkillReviewDetail> {
+  const db = await openSkillsDb();
+  const review = db
+    .select()
+    .from(skillReviewsTable)
+    .where(eq(skillReviewsTable.id, reviewId))
+    .get();
+  if (!review) {
+    return { review: null, patches: [], skillRow: null, isCanonical: false };
+  }
+  const skillRow =
+    db.select().from(skillsTable).where(eq(skillsTable.name, review.skillName)).limit(1).all()[0] ??
+    null;
+  const patches = db
+    .select()
+    .from(skillPatchesTable)
+    .where(eq(skillPatchesTable.reviewId, reviewId))
+    .all();
+  return {
+    review,
+    patches,
+    skillRow,
+    isCanonical: skillRow?.sourceType === 'canonical',
+  };
+}
+
+/**
+ * Detailed envelope returned by {@link getSkillPatch}. Bundles the patch
+ * row plus the parent skill row + canonical flag — the exact shape the
+ * `cleo sentient review-status accept` handler needs to route between
+ * Sphere A PR-cut and Sphere B local-apply.
+ *
+ * @task T9750
+ */
+export interface SkillPatchDetail {
+  /** The `skill_patches` row, or `null` if `patchId` does not exist. */
+  readonly patch: SkillPatchRow | null;
+  /** Parent `skills` row, or `null` (orphan patch). */
+  readonly skillRow: SkillRow | null;
+  /** True when `skillRow?.sourceType === 'canonical'`. */
+  readonly isCanonical: boolean;
+}
+
+/**
+ * Fetch a single patch by id plus its parent skill row.
+ *
+ * @param patchId - `skill_patches.id` — MUST be a positive integer.
+ *
+ * @task T9750
+ */
+export async function getSkillPatch(patchId: number): Promise<SkillPatchDetail> {
+  const db = await openSkillsDb();
+  const patch = db.select().from(skillPatchesTable).where(eq(skillPatchesTable.id, patchId)).get();
+  if (!patch) {
+    return { patch: null, skillRow: null, isCanonical: false };
+  }
+  const skillRow =
+    db.select().from(skillsTable).where(eq(skillsTable.name, patch.skillName)).limit(1).all()[0] ??
+    null;
+  return {
+    patch,
+    skillRow,
+    isCanonical: skillRow?.sourceType === 'canonical',
+  };
+}
+
+/**
+ * Result of {@link markSkillPatchRejected}.
+ *
+ * @task T9750
+ */
+export interface MarkSkillPatchRejectedResult {
+  /** True when an UPDATE actually ran (status flipped to `'rejected'`). */
+  readonly updated: boolean;
+  /** Snapshot row immediately after the UPDATE (or pre-call if no-op). */
+  readonly patch: SkillPatchRow | null;
+}
+
+/**
+ * Mark a `skill_patches` row as `'rejected'`.
+ *
+ * Idempotent — calling again on an already-rejected row returns
+ * `updated:false` with the same snapshot. Safe to call on missing ids
+ * (returns `{ updated: false, patch: null }`).
+ *
+ * @param patchId - `skill_patches.id` to reject.
+ *
+ * @task T9750
+ */
+export async function markSkillPatchRejected(
+  patchId: number,
+): Promise<MarkSkillPatchRejectedResult> {
+  const db = await openSkillsDb();
+  const existing = db
+    .select()
+    .from(skillPatchesTable)
+    .where(eq(skillPatchesTable.id, patchId))
+    .get();
+  if (!existing) {
+    return { updated: false, patch: null };
+  }
+  if (existing.status === 'rejected') {
+    return { updated: false, patch: existing };
+  }
+  db.update(skillPatchesTable)
+    .set({ status: 'rejected' })
+    .where(eq(skillPatchesTable.id, patchId))
+    .run();
+  const after =
+    db.select().from(skillPatchesTable).where(eq(skillPatchesTable.id, patchId)).get() ?? null;
+  return { updated: true, patch: after };
+}
+
+// ---------------------------------------------------------------------------
 // Re-exports — keep this module the single import site for Sphere B callers.
 // ---------------------------------------------------------------------------
 
@@ -438,6 +695,10 @@ export type {
   NewSkillRow,
   NewSkillUsageRow,
   SkillLifecycleState,
+  SkillPatchRow,
+  SkillPatchStatus,
+  SkillReviewOutcome,
+  SkillReviewRow,
   SkillRow,
   SkillSourceType,
   SkillUsageRow,
