@@ -4,12 +4,21 @@ import { mkdir, mkdtemp, readlink, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
+
+// T9747: resolveSkillsRoot is the SSoT skills-root resolver. Mock it to a
+// per-test tmpdir so installer fixtures stay hermetic (replaces the legacy
+// AGENTS_HOME env-var seam removed in T9747).
+vi.mock("@cleocode/core/skills/skill-root.js", () => ({
+  resolveSkillsRoot: vi.fn(),
+}));
+
+const { resolveSkillsRoot } = await import("@cleocode/core/skills/skill-root.js");
+const {
   installSkill,
   installToCanonical,
   listCanonicalSkills,
   removeSkill,
-} from "../../src/core/skills/installer.js";
+} = await import("../../src/core/skills/installer.js");
 import type { Provider, ProviderCapabilities } from "../../src/types.js";
 
 let testDir: string;
@@ -22,8 +31,8 @@ beforeEach(async () => {
   originalCwd = process.cwd();
   process.chdir(testDir);
 
-  // Mock AGENTS_HOME environment variable
-  vi.stubEnv("AGENTS_HOME", mockAgentsHome);
+  // Skills root → ~/.agents/skills under test tmpdir.
+  vi.mocked(resolveSkillsRoot).mockReturnValue(join(mockAgentsHome, "skills"));
 });
 
 afterEach(async () => {

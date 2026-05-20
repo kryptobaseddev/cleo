@@ -72,10 +72,10 @@ export async function parseSkillFile(filePath: string): Promise<SkillMetadata | 
  *
  * @example
  * ```typescript
- * import { getCanonicalSkillsDir } from "../paths/standard.js";
+ * import { resolveSkillsRoot } from "@cleocode/core/skills/skill-root.js";
  * import { join } from "node:path";
  *
- * const skill = await discoverSkill(join(getCanonicalSkillsDir(), "my-skill"));
+ * const skill = await discoverSkill(join(resolveSkillsRoot(), "my-skill"));
  * if (skill) {
  *   console.log(`Found: ${skill.name}`);
  * }
@@ -110,9 +110,9 @@ export async function discoverSkill(skillDir: string): Promise<SkillEntry | null
  *
  * @example
  * ```typescript
- * import { getCanonicalSkillsDir } from "../paths/standard.js";
+ * import { resolveSkillsRoot } from "@cleocode/core/skills/skill-root.js";
  *
- * const skills = await discoverSkills(getCanonicalSkillsDir());
+ * const skills = await discoverSkills(resolveSkillsRoot());
  * console.log(`Found ${skills.length} skills`);
  * ```
  *

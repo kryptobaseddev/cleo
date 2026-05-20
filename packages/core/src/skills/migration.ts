@@ -63,6 +63,20 @@ const execFileAsync = promisify(execFile);
 export const LEGACY_MIGRATED_MARKER = '.MIGRATED-TO-CLEO';
 
 /**
+ * Absolute path of the legacy XDG canonical skills directory.
+ *
+ * @remarks
+ * Pre-v3 installs stored canonical and user skills at
+ * `~/.local/share/agents/skills/`. Post-T9746 this constant is the ONE place
+ * in the entire codebase that knows about that legacy location — only the
+ * migrator (`cleo skills migrate`) reads from it. Production resolvers
+ * (`resolveSkillsRoot()`, `is_canonical()`) NEVER consult this path.
+ *
+ * @public
+ */
+export const LEGACY_AGENTS_SKILLS_DIR = join(homedir(), '.local', 'share', 'agents', 'skills');
+
+/**
  * Provenance row that the migrator emits per migrated skill directory.
  *
  * @remarks

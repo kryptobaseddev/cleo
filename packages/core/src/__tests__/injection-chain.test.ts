@@ -82,7 +82,6 @@ vi.mock('@cleocode/caamp', () => {
     ),
     installMcpServerToAll: vi.fn(async () => []),
     installSkill: vi.fn(async () => ({ success: true })),
-    getCanonicalSkillsDir: vi.fn(() => '/mock/.agents/skills'),
     parseSkillFile: vi.fn(async () => null),
     discoverSkill: vi.fn(async () => null),
     discoverSkills: vi.fn(async () => []),

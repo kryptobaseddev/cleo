@@ -7,9 +7,10 @@
 
 import { existsSync, lstatSync, readlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { resolveSkillsRoot } from '@cleocode/core/skills/skill-root.js';
 import type { LockEntry, Provider } from '../../types.js';
 import { readLockFile } from '../lock-utils.js';
-import { getCanonicalSkillsDir, resolveProviderSkillsDirs } from '../paths/standard.js';
+import { resolveProviderSkillsDirs } from '../paths/standard.js';
 
 /** CAAMP-reserved skill prefix. Skills with this prefix are owned by CAAMP. */
 const CAAMP_SKILL_PREFIX = 'ct-';
@@ -113,7 +114,7 @@ export async function checkSkillIntegrity(
 
   // Not tracked in lock file
   if (!entry) {
-    const canonicalPath = join(getCanonicalSkillsDir(), skillName);
+    const canonicalPath = join(resolveSkillsRoot(), skillName);
     return {
       name: skillName,
       status: 'not-tracked',

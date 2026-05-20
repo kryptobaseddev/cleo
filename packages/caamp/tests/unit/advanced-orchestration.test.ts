@@ -18,12 +18,12 @@ const mockedSkills = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../src/core/paths/agents.js", async (importOriginal) => {
+// T9747: resolveSkillsRoot is the SSoT skills-root resolver. Mock it to the
+// per-test tmpdir so orchestration fixtures stay hermetic.
+vi.mock("@cleocode/core/skills/skill-root.js", () => {
   const path = require("node:path");
-  const original = await importOriginal<typeof import("../../src/core/paths/agents.js")>();
   return {
-    ...original,
-    CANONICAL_SKILLS_DIR: path.join(mockedSkills.canonicalRoot, "skills"),
+    resolveSkillsRoot: vi.fn(() => path.join(mockedSkills.canonicalRoot, "skills")),
   };
 });
 

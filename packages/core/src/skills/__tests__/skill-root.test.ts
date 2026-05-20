@@ -1,8 +1,13 @@
 /**
  * Tests for canonical skills root resolver + is_canonical predicate.
  *
- * @task T9650
- * @epic T9571
+ * Post-T9746: legacy fallback (`~/.local/share/agents/skills/`) and env-paths
+ * fallback have been purged. `resolveSkillsRoot()` always returns
+ * `~/.cleo/skills/` and `is_canonical()` no longer consults legacy path
+ * prefixes — only db row + manifest membership.
+ *
+ * @task T9746
+ * @epic T9740
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,12 +17,11 @@ vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   return {
     ...actual,
-    existsSync: vi.fn().mockReturnValue(false),
     realpathSync: vi.fn((p: string) => p),
   };
 });
 
-// Stable homedir + getCleoHome for deterministic path resolution.
+// Stable homedir for deterministic path resolution.
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os');
   return {
@@ -26,19 +30,14 @@ vi.mock('node:os', async () => {
   };
 });
 
-vi.mock('@cleocode/paths', () => ({
-  getCleoHome: vi.fn(() => '/home/test/.local/share/cleo'),
-}));
-
-import { existsSync, realpathSync } from 'node:fs';
-import { _resetLegacyWarningCache, is_canonical, resolveSkillsRoot } from '../skill-root.js';
+import { realpathSync } from 'node:fs';
+import { is_canonical, resolveSkillsRoot } from '../skill-root.js';
 
 describe('resolveSkillsRoot — canonical SSoT path helper', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    _resetLegacyWarningCache();
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     vi.mocked(realpathSync).mockImplementation((p: string) => p);
   });
@@ -47,50 +46,21 @@ describe('resolveSkillsRoot — canonical SSoT path helper', () => {
     stderrSpy.mockRestore();
   });
 
-  it('returns ~/.cleo/skills when no candidate path exists (fresh install)', () => {
-    vi.mocked(existsSync).mockReturnValue(false);
+  it('always returns ~/.cleo/skills (no fallback resolution)', () => {
     const root = resolveSkillsRoot();
     expect(root).toBe('/home/test/.cleo/skills');
-    expect(stderrSpy).not.toHaveBeenCalled();
   });
 
-  it('returns ~/.cleo/skills when present (preferred SSoT wins)', () => {
-    vi.mocked(existsSync).mockImplementation((p) => p === '/home/test/.cleo/skills');
-    const root = resolveSkillsRoot();
-    expect(root).toBe('/home/test/.cleo/skills');
-    expect(stderrSpy).not.toHaveBeenCalled();
-  });
-
-  it('falls back to env-paths XDG when ~/.cleo/skills is absent', () => {
-    vi.mocked(existsSync).mockImplementation((p) => p === '/home/test/.local/share/cleo/skills');
-    const root = resolveSkillsRoot();
-    expect(root).toBe('/home/test/.local/share/cleo/skills');
-    expect(stderrSpy).not.toHaveBeenCalled();
-  });
-
-  it('falls back to legacy ~/.local/share/agents/skills with deprecation warning', () => {
-    vi.mocked(existsSync).mockImplementation((p) => p === '/home/test/.local/share/agents/skills');
-    const root = resolveSkillsRoot();
-    expect(root).toBe('/home/test/.local/share/agents/skills');
-    expect(stderrSpy).toHaveBeenCalledOnce();
-    const msg = stderrSpy.mock.calls[0]?.[0];
-    expect(String(msg)).toContain('legacy path');
-    expect(String(msg)).toContain('cleo skills doctor');
-  });
-
-  it('emits deprecation warning only once per process (cached)', () => {
-    vi.mocked(existsSync).mockImplementation((p) => p === '/home/test/.local/share/agents/skills');
+  it('never emits a deprecation warning to stderr', () => {
     resolveSkillsRoot();
     resolveSkillsRoot();
     resolveSkillsRoot();
-    expect(stderrSpy).toHaveBeenCalledOnce();
+    expect(stderrSpy).not.toHaveBeenCalled();
   });
 
-  it('prefers ~/.cleo/skills over BOTH legacy and env-paths when all exist', () => {
-    vi.mocked(existsSync).mockReturnValue(true);
+  it('returns an absolute path', () => {
     const root = resolveSkillsRoot();
-    expect(root).toBe('/home/test/.cleo/skills');
-    expect(stderrSpy).not.toHaveBeenCalled();
+    expect(root.startsWith('/')).toBe(true);
   });
 });
 
@@ -132,28 +102,34 @@ describe('is_canonical — Sphere A write-guard predicate', () => {
     ).toBe(false);
   });
 
-  it('returns true for legacy ~/.local/share/agents/skills/* paths', () => {
-    expect(is_canonical('/home/test/.local/share/agents/skills/ct-foo')).toBe(true);
+  it('returns false for legacy ~/.local/share/agents/skills/* paths (no path fallback)', () => {
+    // Legacy path-prefix fallback was removed in T9746 — db row + manifest are
+    // now the only signals. A bare legacy path with no DI options is NOT canonical.
+    expect(is_canonical('/home/test/.local/share/agents/skills/ct-foo')).toBe(false);
   });
 
-  it('returns true for the legacy root itself (boundary)', () => {
-    expect(is_canonical('/home/test/.local/share/agents/skills')).toBe(true);
+  it('returns false for the legacy root itself with no options', () => {
+    expect(is_canonical('/home/test/.local/share/agents/skills')).toBe(false);
   });
 
   it('returns false for non-canonical paths with no DI options', () => {
     expect(is_canonical('/home/test/.cleo/skills/random-user-skill')).toBe(false);
   });
 
-  it('resolves symlinks via realpathSync before comparison', () => {
-    // Simulate ~/.claude/skills/agents-shared/ct-foo → ~/.local/share/agents/skills/ct-foo
+  it('resolves symlinks via realpathSync before basename comparison', () => {
+    // Simulate ~/.claude/skills/agents-shared/ct-foo → ~/.cleo/skills/ct-foo
     vi.mocked(realpathSync).mockImplementation((p) => {
       if (p === '/home/test/.claude/skills/agents-shared/ct-foo') {
-        return '/home/test/.local/share/agents/skills/ct-foo';
+        return '/home/test/.cleo/skills/ct-foo';
       }
       return String(p);
     });
 
-    expect(is_canonical('/home/test/.claude/skills/agents-shared/ct-foo')).toBe(true);
+    expect(
+      is_canonical('/home/test/.claude/skills/agents-shared/ct-foo', {
+        manifestNames: ['ct-foo'],
+      }),
+    ).toBe(true);
     expect(realpathSync).toHaveBeenCalledWith('/home/test/.claude/skills/agents-shared/ct-foo');
   });
 

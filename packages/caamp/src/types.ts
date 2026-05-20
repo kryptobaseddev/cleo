@@ -629,13 +629,13 @@ export interface SkillMetadata {
  *
  * @example
  * ```typescript
- * import { getCanonicalSkillsDir } from "./core/paths/standard.js";
+ * import { resolveSkillsRoot } from "@cleocode/core/skills/skill-root.js";
  * import { join } from "node:path";
  *
  * const entry: SkillEntry = {
  *   name: "my-skill",
  *   scopedName: "my-skill",
- *   path: join(getCanonicalSkillsDir(), "my-skill"),
+ *   path: join(resolveSkillsRoot(), "my-skill"),
  *   metadata: { name: "my-skill", description: "A skill" },
  * };
  * ```
@@ -671,7 +671,7 @@ export interface SkillEntry {
  *
  * @example
  * ```typescript
- * import { getCanonicalSkillsDir } from "./core/paths/standard.js";
+ * import { resolveSkillsRoot } from "@cleocode/core/skills/skill-root.js";
  * import { join } from "node:path";
  *
  * const entry: LockEntry = {
@@ -681,7 +681,7 @@ export interface SkillEntry {
  *   sourceType: "github",
  *   installedAt: "2025-01-15T10:30:00.000Z",
  *   agents: ["claude-code", "cursor"],
- *   canonicalPath: join(getCanonicalSkillsDir(), "my-skill"),
+ *   canonicalPath: join(resolveSkillsRoot(), "my-skill"),
  *   isGlobal: true,
  * };
  * ```

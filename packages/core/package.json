@@ -121,6 +121,16 @@
       "import": "./dist/store/*.js",
       "require": "./dist/store/*.js"
     },
+    "./skills/*": {
+      "types": "./dist/skills/*.d.ts",
+      "import": "./dist/skills/*.js",
+      "require": "./dist/skills/*.js"
+    },
+    "./skills/*.js": {
+      "types": "./dist/skills/*.d.ts",
+      "import": "./dist/skills/*.js",
+      "require": "./dist/skills/*.js"
+    },
     "./conduit/*": {
       "types": "./dist/conduit/*.d.ts",
       "import": "./dist/conduit/*.js",
