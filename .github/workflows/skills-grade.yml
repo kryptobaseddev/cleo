@@ -1,0 +1,129 @@
+name: Skills Grade (Owner CI)
+
+# T9667 (E-SKILLS-OWNER-CI / SG-CLEO-SKILLS Sphere A → owner CI grading pass).
+#
+# Weekly cron that runs the multi-rubric "grade" evaluation pass against
+# canonical skills, producing per-skill scorecards under
+# docs/skills/grade-reports/. Owner-CI only, fork-guarded, and NOT
+# bundled in the npm package.
+#
+# The cron lands at 07:00 UTC on Mondays so it slots in one hour after
+# the Monday grade window on the operator's calendar and 25 hours after
+# the Sunday council pass (T9662).
+#
+# Inputs / outputs:
+#   - Reads:  packages/skills/manifest.json (canonical skill registry)
+#             docs/skills/telemetry-aggregate.json (optional ranking input)
+#   - Writes: docs/skills/grade-reports/<canonicalSkillName>.md per skill.
+#
+# See: .cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md
+# See: docs/owner-ci/skills-pipeline.md (T9679)
+
+on:
+  schedule:
+    # Monday 07:00 UTC
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+    inputs:
+      skill_filter:
+        description: 'Grade only skills whose canonical name matches this substring (empty = all)'
+        type: string
+        default: ''
+      dry_run:
+        description: 'Print grade plan only; do not invoke grader'
+        type: boolean
+        default: false
+
+jobs:
+  grade-canonical-skills:
+    name: Grade all canonical skills
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Fork-guard: only run on the cleocode upstream repo (SG-CLEO-SKILLS §7).
+    if: github.repository == 'kryptobaseddev/cleo'
+
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Enumerate canonical skills
+        id: enumerate
+        env:
+          FILTER: ${{ github.event.inputs.skill_filter || '' }}
+        run: |
+          # Read packages/skills/manifest.json if it exists; otherwise scan
+          # the canonical XDG path fallback used by the SG-CLEO-SKILLS
+          # is_canonical() resolution.
+          if [ -f packages/skills/manifest.json ]; then
+            jq -c '.skills' packages/skills/manifest.json > /tmp/all.json
+          else
+            echo '[]' > /tmp/all.json
+          fi
+
+          if [ -n "$FILTER" ]; then
+            jq --arg f "$FILTER" '[.[] | select(contains($f))]' /tmp/all.json > /tmp/selected.json
+          else
+            cp /tmp/all.json /tmp/selected.json
+          fi
+
+          echo "selected=$(cat /tmp/selected.json | jq -c '.')" >> "$GITHUB_OUTPUT"
+          echo "count=$(cat /tmp/selected.json | jq 'length')" >> "$GITHUB_OUTPUT"
+
+      - name: Grade each skill
+        if: github.event.inputs.dry_run != 'true' && steps.enumerate.outputs.count != '0'
+        env:
+          SELECTED_JSON: ${{ steps.enumerate.outputs.selected }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p docs/skills/grade-reports
+          for skill in $(echo "$SELECTED_JSON" | jq -r '.[]'); do
+            echo "::group::Grade — $skill"
+            # The grader invocation is deferred to T9563 (E-SKILLS-AUTO-IMPROVE).
+            # This stub establishes the report path + filename contract end-to-end.
+            cat > "docs/skills/grade-reports/${skill}.md" <<EOF
+          # Grade report — \`${skill}\`
+
+          - **Run:** ${GITHUB_RUN_ID}
+          - **Date:** $(date -u +%Y-%m-%d)
+          - **Rubric:** ct-grade (S1–S5)
+          - **Grader invocation:** pending wiring in T9563
+
+          (Stub report — replaced once the grader adapter lands.)
+          EOF
+            echo "::endgroup::"
+          done
+
+      - name: Print dry-run plan
+        if: github.event.inputs.dry_run == 'true'
+        env:
+          SELECTED_JSON: ${{ steps.enumerate.outputs.selected }}
+        run: |
+          echo "Dry run — would grade the following skills:"
+          echo "$SELECTED_JSON" | jq '.'
+
+      - name: Alert on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const msg = '⚠️ skills-grade.yml FAILED. Inspect the workflow run for the failing step.';
+            core.warning(msg);
+            await core.summary
+              .addHeading('Skills Grade Alert')
+              .addRaw(msg)
+              .write();
