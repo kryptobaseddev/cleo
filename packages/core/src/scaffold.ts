@@ -20,6 +20,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { generateProjectHash } from './nexus/hash.js';
+import { pushWarning } from './output.js';
 import {
   getCleoCantWorkflowsDir,
   getCleoDirAbsolute,
@@ -793,8 +794,10 @@ export async function ensureProjectContext(
       addFormats(ajv);
       const valid = ajv.validate(schema, context);
       if (!valid) {
-        // eslint-disable-next-line no-console
-        console.warn('[CLEO] project-context.json schema validation warnings:', ajv.errors);
+        pushWarning({
+          code: 'W_SCAFFOLD_PARTIAL',
+          message: `project-context.json schema validation warnings: ${JSON.stringify(ajv.errors)}`,
+        });
       }
     }
   } catch {
@@ -1795,13 +1798,15 @@ export async function ensureGlobalHome(): Promise<ScaffoldResult> {
       if (existsSync(stalePath)) {
         try {
           await rm(stalePath, { recursive: true, force: true });
-          // eslint-disable-next-line no-console
-          console.warn(`[CLEO] Removed stale global entry: ${stalePath}`);
+          pushWarning({
+            code: 'W_SCAFFOLD_PARTIAL',
+            message: `Removed stale global entry: ${stalePath}`,
+          });
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[CLEO] Could not remove stale global entry ${stalePath}: ${err instanceof Error ? err.message : String(err)}`,
-          );
+          pushWarning({
+            code: 'W_SCAFFOLD_PARTIAL',
+            message: `Could not remove stale global entry ${stalePath}: ${err instanceof Error ? err.message : String(err)}`,
+          });
         }
       }
     }
@@ -1957,10 +1962,10 @@ async function copyTemplateTree(
   try {
     entries = await readdir(srcDir, { withFileTypes: true });
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[CLEO] Could not read template dir ${srcDir}: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    pushWarning({
+      code: 'W_SCAFFOLD_PARTIAL',
+      message: `Could not read template dir ${srcDir}: ${err instanceof Error ? err.message : String(err)}`,
+    });
     return { copied: 0, kept: 0 };
   }
 
@@ -1989,10 +1994,10 @@ async function copyTemplateTree(
       await copyFile(srcPath, dstPath);
       copied += 1;
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[CLEO] Could not copy template file ${srcPath} -> ${dstPath}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      pushWarning({
+        code: 'W_SCAFFOLD_PARTIAL',
+        message: `Could not copy template file ${srcPath} -> ${dstPath}: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
   }
 

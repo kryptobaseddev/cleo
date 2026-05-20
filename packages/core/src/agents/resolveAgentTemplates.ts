@@ -33,6 +33,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pushWarning } from '../output.js';
 
 // ---------------------------------------------------------------------------
 // Meta-agents directory helper
@@ -155,10 +156,15 @@ export function resolveAgentTemplates(): string | null {
 export function resolveStarterBundle(): string | null {
   if (!_starterBundleWarnFired) {
     _starterBundleWarnFired = true;
-    console.warn(
-      '[cleo][deprecated] resolveStarterBundle() is deprecated and will be removed in v2027.x. ' +
+    pushWarning({
+      code: 'W_DEPRECATED_AGENT_PATH',
+      message:
+        'resolveStarterBundle() is deprecated and will be removed in v2027.x. ' +
         'Use resolveAgentTemplates() instead (ADR-068 / T1929).',
-    );
+      deprecated: 'resolveStarterBundle',
+      replacement: 'resolveAgentTemplates',
+      removeBy: 'v2027.x',
+    });
   }
   return resolveAgentTemplates();
 }
