@@ -210,6 +210,17 @@ export {
   validateSubagentOutput,
   verifyCompliance,
 } from './orchestrator/validator.js';
+// Canonical-skill PR generator (T9749 — extracted from `cleo skills propose-patch`)
+export type {
+  CommandRunner,
+  ProposeCanonicalPatchArgs,
+  ProposeCanonicalPatchDryRun,
+  ProposeCanonicalPatchErrorCode,
+  ProposeCanonicalPatchFailure,
+  ProposeCanonicalPatchOk,
+  ProposeCanonicalPatchResult,
+} from './propose-patch.js';
+export { proposeCanonicalPatch } from './propose-patch.js';
 export type {
   SkillSearchPath as MultiSourceSkillSearchPath,
   SkillSourceMode,

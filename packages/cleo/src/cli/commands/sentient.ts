@@ -43,6 +43,12 @@ import {
 import { safeRunProposeTick } from '@cleocode/core/sentient/propose-tick.js';
 import { patchSentientState, readSentientState } from '@cleocode/core/sentient/state.js';
 import { safeRunTick } from '@cleocode/core/sentient/tick.js';
+import {
+  getSkillPatch,
+  getSkillReview,
+  listSkillReviews,
+  markSkillPatchRejected,
+} from '@cleocode/core/store/skills-store.js';
 import { defineCommand } from 'citty';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -931,47 +937,7 @@ const reviewStatusListSub = defineCommand({
     const limit = args.limit ? Number.parseInt(args.limit as string, 10) : 50;
     const pendingOnly = args.pending === true;
     try {
-      const { openSkillsDb } = await import('@cleocode/core/store/skills-db.js');
-      const { skills, skillReviews, skillPatches } = await import(
-        '@cleocode/core/store/skills-schema.js'
-      );
-      const db = await openSkillsDb();
-      const reviews = db
-        .select()
-        .from(skillReviews)
-        .orderBy(skillReviews.reviewedAt)
-        .limit(Number.isInteger(limit) && limit > 0 ? limit : 50)
-        .all();
-      const entries: ReviewStatusEntry[] = [];
-      for (const review of reviews) {
-        const { eq, desc } = await import('drizzle-orm');
-        const skillRow = db
-          .select()
-          .from(skills)
-          .where(eq(skills.name, review.skillName))
-          .limit(1)
-          .all()[0];
-        const latestPatch = db
-          .select()
-          .from(skillPatches)
-          .where(eq(skillPatches.skillName, review.skillName))
-          .orderBy(desc(skillPatches.proposedAt))
-          .limit(1)
-          .all()[0];
-        if (pendingOnly && latestPatch?.status !== 'proposed') {
-          continue;
-        }
-        entries.push({
-          reviewId: review.id,
-          skillName: review.skillName,
-          reviewedAt: review.reviewedAt,
-          outcome: review.outcome,
-          summary: review.summary ?? null,
-          patchId: latestPatch?.id ?? null,
-          patchStatus: latestPatch?.status ?? null,
-          isCanonical: skillRow?.sourceType === 'canonical',
-        });
-      }
+      const entries = (await listSkillReviews({ pendingOnly, limit })) as ReviewStatusEntry[];
       emitSuccess(
         { entries, count: entries.length, pendingOnly },
         jsonMode,
@@ -1020,14 +986,8 @@ const reviewStatusShowSub = defineCommand({
       return;
     }
     try {
-      const { openSkillsDb } = await import('@cleocode/core/store/skills-db.js');
-      const { skills, skillReviews, skillPatches } = await import(
-        '@cleocode/core/store/skills-schema.js'
-      );
-      const { eq } = await import('drizzle-orm');
-      const db = await openSkillsDb();
-      const review = db.select().from(skillReviews).where(eq(skillReviews.id, reviewId)).get();
-      if (!review) {
+      const detail = await getSkillReview(reviewId);
+      if (!detail.review) {
         emitFailure(
           'E_NOT_FOUND',
           `No skill_reviews row for id=${reviewId}`,
@@ -1036,26 +996,15 @@ const reviewStatusShowSub = defineCommand({
         );
         return;
       }
-      const skillRow = db
-        .select()
-        .from(skills)
-        .where(eq(skills.name, review.skillName))
-        .limit(1)
-        .all()[0];
-      const patches = db
-        .select()
-        .from(skillPatches)
-        .where(eq(skillPatches.reviewId, reviewId))
-        .all();
       emitSuccess(
         {
-          review,
-          patches,
-          isCanonical: skillRow?.sourceType === 'canonical',
-          skillRow: skillRow ?? null,
+          review: detail.review,
+          patches: detail.patches,
+          isCanonical: detail.isCanonical,
+          skillRow: detail.skillRow,
         },
         jsonMode,
-        `Review ${reviewId} for ${review.skillName}: ${review.outcome}`,
+        `Review ${reviewId} for ${detail.review.skillName}: ${detail.review.outcome}`,
         'sentient.review-status.show',
       );
     } catch (err) {
@@ -1113,11 +1062,8 @@ const reviewStatusAcceptSub = defineCommand({
       return;
     }
     try {
-      const { openSkillsDb } = await import('@cleocode/core/store/skills-db.js');
-      const { skills, skillPatches } = await import('@cleocode/core/store/skills-schema.js');
-      const { eq } = await import('drizzle-orm');
-      const db = await openSkillsDb();
-      const patch = db.select().from(skillPatches).where(eq(skillPatches.id, patchId)).get();
+      const detail = await getSkillPatch(patchId);
+      const patch = detail.patch;
       if (!patch) {
         emitFailure(
           'E_NOT_FOUND',
@@ -1136,12 +1082,7 @@ const reviewStatusAcceptSub = defineCommand({
         );
         return;
       }
-      const skillRow = db
-        .select()
-        .from(skills)
-        .where(eq(skills.name, patch.skillName))
-        .limit(1)
-        .all()[0];
+      const skillRow = detail.skillRow;
       if (!skillRow) {
         emitFailure(
           'E_NOT_FOUND',
@@ -1239,12 +1180,8 @@ const reviewStatusRejectSub = defineCommand({
       return;
     }
     try {
-      const { openSkillsDb } = await import('@cleocode/core/store/skills-db.js');
-      const { skillPatches } = await import('@cleocode/core/store/skills-schema.js');
-      const { eq } = await import('drizzle-orm');
-      const db = await openSkillsDb();
-      const patch = db.select().from(skillPatches).where(eq(skillPatches.id, patchId)).get();
-      if (!patch) {
+      const detail = await getSkillPatch(patchId);
+      if (!detail.patch) {
         emitFailure(
           'E_NOT_FOUND',
           `No skill_patches row for id=${patchId}`,
@@ -1253,19 +1190,19 @@ const reviewStatusRejectSub = defineCommand({
         );
         return;
       }
-      if (patch.status !== 'proposed') {
+      if (detail.patch.status !== 'proposed') {
         emitFailure(
           'E_VALIDATION',
-          `patch ${patchId} is not in 'proposed' state (status='${patch.status}')`,
+          `patch ${patchId} is not in 'proposed' state (status='${detail.patch.status}')`,
           jsonMode,
           'sentient.review-status.reject',
         );
         return;
       }
-      db.update(skillPatches).set({ status: 'rejected' }).where(eq(skillPatches.id, patchId)).run();
+      await markSkillPatchRejected(patchId);
       const reason = (args.reason as string | undefined) ?? 'rejected by operator';
       emitSuccess(
-        { patchId, skillName: patch.skillName, status: 'rejected', reason },
+        { patchId, skillName: detail.patch.skillName, status: 'rejected', reason },
         jsonMode,
         `Patch ${patchId} rejected (${reason})`,
         'sentient.review-status.reject',
