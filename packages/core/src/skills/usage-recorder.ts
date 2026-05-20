@@ -19,7 +19,7 @@
  */
 
 import type { NewSkillUsageRow } from '../store/skills-store.js';
-import { insertUsage } from '../store/skills-store.js';
+import { enqueueSkillUsage } from '../store/skills-usage-queue.js';
 
 /**
  * Discriminated-union of actions the recorder accepts.
@@ -120,10 +120,12 @@ export function recordSkillUsage(
     metadata: JSON.stringify(metadataObj),
   };
 
-  // Fire-and-forget. Detach via void + catch so unhandled-rejection traps
-  // never see this write. `insertUsage` opens the DB lazily, so the cost
-  // on the hot path is just a microtask schedule + the JSON.stringify above.
-  void insertUsage(row).catch(() => {
+  // Enqueue into the batched-write queue (T9694). The queue keeps the
+  // hot path sync — no DB open, no INSERT — and coalesces bursts of skill
+  // loads into a single batched INSERT on idle / capacity / beforeExit.
+  try {
+    enqueueSkillUsage(row);
+  } catch {
     /* swallowed — telemetry MUST NOT block skill loading (architecture v3 §5) */
-  });
+  }
 }
