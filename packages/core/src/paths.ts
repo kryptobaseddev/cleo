@@ -410,10 +410,15 @@ export function validateProjectRoot(candidate: string): boolean {
     }
     if (!_legacyFallbackWarned) {
       _legacyFallbackWarned = true;
-      process.stderr.write(
-        `[cleo] WARNING: ${candidate}/.cleo/ lacks project-info.json. ` +
-          `Run \`cleo init\` to upgrade project metadata (T1864 legacy-fallback).\n`,
-      );
+      // T9774: debug-only — surfaced via CLEO_DEBUG to keep stderr clean by default.
+      // Cannot use pushWarning here because paths.ts is in the import chain of
+      // output.ts (output → sessions/context-alert → paths) — circular dep.
+      if (process.env['CLEO_DEBUG']) {
+        process.stderr.write(
+          `[cleo][debug] W_PATH_RESOLUTION: ${candidate}/.cleo/ lacks project-info.json. ` +
+            `Run \`cleo init\` to upgrade project metadata (T1864 legacy-fallback).\n`,
+        );
+      }
     }
     return true;
   }

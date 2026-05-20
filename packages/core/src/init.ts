@@ -42,6 +42,7 @@ import { ensureGitHooks } from './hooks.js';
 import { ensureInjection } from './injection.js';
 import { writeMemoryBridge } from './memory/memory-bridge.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
+import { pushWarning } from './output.js';
 import { getAgentsHome, getCleoDirAbsolute, getProjectRoot } from './paths.js';
 // Shared utility imports
 import {
@@ -1141,11 +1142,14 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // All 5 worker templates are auto-registered above on every plain `cleo init`.
   // The flag is preserved for one minor release to avoid breaking existing scripts.
   if (opts.installSeedAgents) {
-    console.warn(
-      '[cleo][deprecated] --install-seed-agents is no longer required. ' +
+    pushWarning({
+      code: 'W_DEPRECATED_AGENT_PATH',
+      message:
+        '--install-seed-agents is no longer required. ' +
         'All worker templates are now auto-registered on plain `cleo init` (T1934 / ADR-068). ' +
         'This flag will be removed in a future release.',
-    );
+      deprecated: '--install-seed-agents',
+    });
   }
 
   // ────────────────────────────────────────────────────────────────────

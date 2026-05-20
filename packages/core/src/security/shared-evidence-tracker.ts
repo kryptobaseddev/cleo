@@ -24,6 +24,7 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
+import { pushWarning } from '../output.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -336,10 +337,12 @@ export function enforceSharedEvidence(
   }
 
   // Non-strict: warn and allow.
-  process.stderr.write(
-    `[CLEO WARN] Shared evidence atom(s) [${atomList}] applied to >3 tasks in this session. ` +
-      `Pass --shared-evidence to suppress this warning. In CI (CLEO_STRICT_EVIDENCE=1) this will become a hard reject.\n`,
-  );
+  pushWarning({
+    code: 'W_EVIDENCE_AUDIT_MISS',
+    message:
+      `Shared evidence atom(s) [${atomList}] applied to >3 tasks in this session. ` +
+      `Pass --shared-evidence to suppress this warning. In CI (CLEO_STRICT_EVIDENCE=1) this will become a hard reject.`,
+  });
 
   return { allowed: true, warned: true };
 }

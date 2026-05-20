@@ -24,6 +24,7 @@
 import crypto from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { pushWarning } from '../output.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -105,9 +106,10 @@ export async function getOwnerPubkeys(
     config = JSON.parse(raw) as OwnerAllowlistConfig;
   } catch {
     // Malformed config → empty allowlist (fail open, log warning).
-    process.stderr.write(
-      `[allowlist] Warning: failed to parse ${configPath} — treating ownerPubkeys as empty\n`,
-    );
+    pushWarning({
+      code: 'W_ALLOWLIST_SIGNER',
+      message: `failed to parse ${configPath} — treating ownerPubkeys as empty`,
+    });
     cache = { pubkeys: [], expiresAt: now + CACHE_TTL_MS };
     return [];
   }
@@ -159,10 +161,12 @@ export async function isOwnerSigner(projectRoot: string, pubkey: Uint8Array): Pr
       return false;
     }
     // Bootstrapping mode: emit a warning but allow.
-    process.stderr.write(
-      '[allowlist] Warning: ownerPubkeys is empty — accepting all signers. ' +
-        'Run `cleo sentient allowlist add <base64>` to populate the allowlist.\n',
-    );
+    pushWarning({
+      code: 'W_ALLOWLIST_SIGNER',
+      message:
+        'ownerPubkeys is empty — accepting all signers. ' +
+        'Run `cleo sentient allowlist add <base64>` to populate the allowlist.',
+    });
     return true;
   }
 
