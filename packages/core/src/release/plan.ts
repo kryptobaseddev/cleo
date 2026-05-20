@@ -15,9 +15,9 @@
  * @spec .cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md §4.2
  */
 
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { EvidenceAtom, Task } from '@cleocode/contracts';
+import type { ChangesetEntry, EvidenceAtom, Task } from '@cleocode/contracts';
 import {
   E_CHANNEL_MISMATCH,
   E_DIRTY_TREE,
@@ -46,13 +46,21 @@ import {
 } from '@cleocode/contracts';
 import { and, desc, eq } from 'drizzle-orm';
 
+import { parseChangesetDir } from '../changesets/index.js';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDb } from '../store/sqlite.js';
-import { type NewReleaseRow, type ReleaseRow, releases } from '../store/tasks-schema.js';
+import {
+  type NewReleaseChangesetRow,
+  type NewReleaseRow,
+  type ReleaseRow,
+  releaseChangesets,
+  releases,
+} from '../store/tasks-schema.js';
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
+import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { runGitWithLockRetry } from './engine-ops.js';
 import { loadReleaseConfig } from './release-config.js';
 
@@ -118,6 +126,13 @@ export interface ReleasePlanResult {
   preflightWarnings: string[];
   /** Per-gate verification status summary. */
   gateSummary: Record<ReleaseGateName, ReleaseGateExecutionStatus>;
+  /**
+   * Number of CLEO-native changeset entries (`.changeset/*.md`) rolled into
+   * this release. Zero when `.changeset/` is absent or empty.
+   *
+   * @task T9753
+   */
+  changesetEntryCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -647,6 +662,69 @@ async function upsertReleasesRow(
 }
 
 // ---------------------------------------------------------------------------
+// Helpers — CLEO-native changesets (T9753)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read parsed changeset entries from `<projectRoot>/.changeset/`.
+ *
+ * Returns an empty array when the directory is missing, when the directory has
+ * no `.md` files apart from `README.md`, or when parsing fails — failures are
+ * logged at warn level but never propagated, because changeset entries are
+ * advisory metadata, not a blocking precondition for the plan verb.
+ *
+ * @internal
+ * @task T9753
+ */
+function readChangesetEntries(projectRoot: string): ChangesetEntry[] {
+  const changesetDir = join(projectRoot, '.changeset');
+  if (!existsSync(changesetDir)) {
+    return [];
+  }
+  try {
+    return parseChangesetDir(changesetDir);
+  } catch (err: unknown) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err), dir: changesetDir },
+      'parseChangesetDir failed during release plan — treating as zero entries',
+    );
+    return [];
+  }
+}
+
+/**
+ * Persist each parsed changeset entry into the `release_changesets` table.
+ *
+ * Idempotent re-runs of `cleo release plan` clear any prior rows for the same
+ * `release_id` before re-inserting so the row set is always in sync with the
+ * `.changeset/` directory state at plan time.
+ *
+ * @internal
+ * @task T9753
+ */
+async function persistReleaseChangesets(
+  releaseId: string,
+  entries: readonly ChangesetEntry[],
+  projectRoot: string,
+): Promise<void> {
+  const db = await getDb(projectRoot);
+  // Clear prior rows so a re-run is a clean overwrite, not an append.
+  await db.delete(releaseChangesets).where(eq(releaseChangesets.releaseId, releaseId)).run();
+  if (entries.length === 0) return;
+  const rows: NewReleaseChangesetRow[] = entries.map((entry) => ({
+    releaseId,
+    changesetId: entry.id,
+    taskIds: JSON.stringify(entry.tasks),
+    kind: entry.kind,
+    summary: entry.summary,
+    prs: entry.prs && entry.prs.length > 0 ? JSON.stringify(entry.prs) : null,
+    notes: entry.notes ?? null,
+    breaking: entry.breaking ?? null,
+  }));
+  await db.insert(releaseChangesets).values(rows).run();
+}
+
+// ---------------------------------------------------------------------------
 // Helpers — preflight summary
 // ---------------------------------------------------------------------------
 
@@ -785,6 +863,17 @@ export async function releasePlan(
   // ── R-305 / R-370: platform matrix ────────────────────────────────────
   const platformMatrix = enumeratePlatformMatrix(projectRoot);
 
+  // ── T9753: CLEO-native changesets — read + aggregate ────────────────
+  // Reads `.changeset/*.md` and aggregates into a CHANGELOG markdown section
+  // embedded under `meta.releaseNotes`. Failure is non-blocking (warn-and-skip)
+  // because changesets are advisory; the plan itself is built from task data.
+  const changesetEntries = readChangesetEntries(projectRoot);
+  const aggregated = aggregateChangesetsForRelease({
+    entries: changesetEntries,
+    version: normalizedVersion,
+    date: createdAt.slice(0, 10),
+  });
+
   // ── Assemble + validate the plan envelope ─────────────────────────────
   const changelog = buildChangelog(planTasks);
   const preflightSummary = assemblePreflightSummary(unresolved);
@@ -815,6 +904,11 @@ export async function releasePlan(
       firstEverRelease: prior.firstEverRelease,
       ...(unresolved.length > 0 ? { unresolvedTools: unresolved } : {}),
       archetype: 'node',
+      // T9753: aggregated CHANGELOG markdown from `.changeset/*.md` entries.
+      // Empty string when no entries — caller (changelog writer) can branch on
+      // length to decide whether to append a section.
+      releaseNotes: aggregated.markdown,
+      changesetEntryCount: aggregated.entryCount,
     },
   };
 
@@ -846,6 +940,20 @@ export async function releasePlan(
   } else {
     planPath = writePlanFile(plan, projectRoot);
     await upsertReleasesRow(plan, dbChannel, projectRoot);
+    // T9753: persist parsed changeset entries linked to the release row.
+    // Runs AFTER the releases UPSERT so the FK is satisfied. Errors here are
+    // logged but non-fatal — the plan file itself is the canonical source of
+    // truth; release_changesets is the structured side-table.
+    const projectInfo = getProjectInfoSync(projectRoot);
+    const releaseId = `${projectInfo?.projectHash ?? 'unknown'}:${plan.resolvedVersion}`;
+    try {
+      await persistReleaseChangesets(releaseId, changesetEntries, projectRoot);
+    } catch (err: unknown) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), releaseId },
+        'persistReleaseChangesets failed — plan envelope still written',
+      );
+    }
   }
 
   // ── Build the data envelope ───────────────────────────────────────────
@@ -872,6 +980,7 @@ export async function releasePlan(
     evidenceComplete,
     preflightWarnings: preflightSummary.preflightWarnings ?? [],
     gateSummary,
+    changesetEntryCount: aggregated.entryCount,
   };
 
   return engineSuccess(result);

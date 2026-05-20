@@ -2139,6 +2139,67 @@ export const releaseChanges = sqliteTable(
 );
 
 /**
+ * `release_changesets` — Persistence layer for CLEO-native task-anchored
+ * changesets (T9738 carryforward → T9753).
+ *
+ * Each row records one `.changeset/*.md` entry that was rolled into the
+ * corresponding release plan by `cleo release plan`. The plan verb parses
+ * `.changeset/*.md` via {@link parseChangesetDir} (in
+ * `@cleocode/core/changesets`), persists one row per entry here, and then
+ * aggregates them into the CHANGELOG markdown section embedded into the
+ * release plan envelope.
+ *
+ * Differs from {@link releaseChanges} (T9508): `releaseChanges` is the
+ * editorial CHANGELOG bucket derived from commit-level analysis — one row per
+ * rendered bullet. `releaseChangesets` is the upstream-entry source — one row
+ * per `.changeset/*.md` file, carrying the structured frontmatter as-is so
+ * downstream renderers can re-aggregate without re-reading the markdown.
+ *
+ * `taskIds` / `prs` are JSON-encoded arrays. `notes` and `breaking` are
+ * nullable longer-form bodies preserved verbatim from the source entry.
+ *
+ * FK: `release_id → releases(id) ON DELETE CASCADE` — purging a release
+ * removes its changeset rows.
+ *
+ * @task T9753
+ * @epic T9752
+ */
+export const releaseChangesets = sqliteTable(
+  'release_changesets',
+  {
+    /** UUID primary key generated at insert time. */
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    /** FK → releases.id. ON DELETE CASCADE — purging a release removes its changeset rows. */
+    releaseId: text('release_id')
+      .notNull()
+      .references(() => releases.id, { onDelete: 'cascade' }),
+    /** Filename slug of the `.changeset/<slug>.md` file (matches `ChangesetEntry.id`). */
+    changesetId: text('changeset_id').notNull(),
+    /** JSON array of CLEO task IDs anchored by this changeset entry. */
+    taskIds: text('task_ids').notNull(),
+    /** Kind discriminator — mirrors {@link CHANGESET_KINDS} from `@cleocode/contracts`. */
+    kind: text('kind').notNull(),
+    /** User-facing one-liner summary lifted verbatim from the entry's `summary` field. */
+    summary: text('summary').notNull(),
+    /** JSON array of integer PR numbers, nullable. */
+    prs: text('prs'),
+    /** Markdown body — longer-form explanation from the source entry, nullable. */
+    notes: text('notes'),
+    /** Migration note when `kind = 'breaking'`, nullable. */
+    breaking: text('breaking'),
+    /** ISO-8601 timestamp when this row was inserted. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index('release_changesets_release_id_idx').on(table.releaseId),
+    index('release_changesets_changeset_id_idx').on(table.changesetId),
+    index('release_changesets_kind_idx').on(table.kind),
+  ],
+);
+
+/**
  * Artifact type enum for {@link releaseArtifacts.artifactType}.
  *
  * Polymorphic: a single table covers all publishing archetypes. Adding a new
@@ -2390,6 +2451,9 @@ export type ReleaseCommitRow = typeof releaseCommits.$inferSelect;
 export type NewReleaseCommitRow = typeof releaseCommits.$inferInsert;
 export type ReleaseChangeRow = typeof releaseChanges.$inferSelect;
 export type NewReleaseChangeRow = typeof releaseChanges.$inferInsert;
+// T9753 release changesets (CLEO-native changesets aggregator)
+export type ReleaseChangesetRow = typeof releaseChangesets.$inferSelect;
+export type NewReleaseChangesetRow = typeof releaseChangesets.$inferInsert;
 // T9509 provenance graph row types (release_artifacts + brain_release_links)
 export type ReleaseArtifactRow = typeof releaseArtifacts.$inferSelect;
 export type NewReleaseArtifactRow = typeof releaseArtifacts.$inferInsert;
