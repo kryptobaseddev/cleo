@@ -268,9 +268,13 @@ export async function scanWorktreeOrphans(
  * boundary (or does not exist).
  *
  * Uses `realpathSync` on `boundary` so a configured root with symlinks
- * still compares correctly. For `target`, we resolve via `realpathSync`
- * when it exists; otherwise we fall back to `resolve()` (the caller will
- * fail on the subsequent `rm`).
+ * still compares correctly. For `target`, we walk UP the path until we
+ * find an existing ancestor (e.g. when `target` itself was already pruned
+ * but its parent worktree dir still exists) and canonicalize THAT,
+ * re-attaching the remaining segments. This keeps the symlink-aware
+ * comparison stable across both "target exists" and "target was removed"
+ * states — critical on macOS where `/var → /private/var` would otherwise
+ * produce mismatched prefixes between the two states.
  */
 function resolveWithinBoundary(target: string, boundary: string): string | null {
   let canonicalBoundary: string;
@@ -283,11 +287,31 @@ function resolveWithinBoundary(target: string, boundary: string): string | null 
     ? canonicalBoundary
     : canonicalBoundary + sep;
 
+  // Resolve `target` to an absolute path first, then walk UP until we
+  // hit an existing ancestor (or the filesystem root). Canonicalize the
+  // ancestor, then re-attach the residual segments. This handles three
+  // cases uniformly:
+  //   (a) target exists                — realpath the full thing
+  //   (b) target was just deleted      — realpath the existing parent
+  //   (c) target never existed         — realpath bottoms out at root
+  const absolute = resolve(target);
+  let existing = absolute;
+  const trailing: string[] = [];
+  // Bound the climb at the filesystem root by stopping when `dirname`
+  // becomes a fixed point (`dirname('/') === '/'`).
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    trailing.unshift(existing.slice(parent.length + 1));
+    existing = parent;
+  }
   let canonicalTarget: string;
   try {
-    canonicalTarget = realpathSync(target);
+    const canonicalExisting = realpathSync(existing);
+    canonicalTarget =
+      trailing.length === 0 ? canonicalExisting : join(canonicalExisting, ...trailing);
   } catch {
-    canonicalTarget = resolve(target);
+    canonicalTarget = absolute;
   }
 
   if (
