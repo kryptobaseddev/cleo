@@ -248,6 +248,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/contribution.js')).contributionCommand as CommandDef,
   },
   {
+    exportName: 'curatorCommand',
+    name: 'curator',
+    description: 'Skill curator: lifecycle transitions for agent-created skills',
+    load: async () => (await import('../commands/curator.js')).curatorCommand as CommandDef,
+  },
+  {
     exportName: 'currentCommand',
     name: 'current',
     description: '',
