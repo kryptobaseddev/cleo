@@ -282,6 +282,9 @@ export type {
   TokenValidationResult,
 } from './types.js';
 export { SKILL_NAME_MAP } from './types.js';
+// Usage recorder (T9689 — SG-CLEO-SKILLS Sphere B telemetry)
+export type { SkillUsageAction, SkillUsageContext } from './usage-recorder.js';
+export { recordSkillUsage } from './usage-recorder.js';
 export type { IssueSeverity, SkillValidationResult, ValidationIssue } from './validation.js';
 // Validation
 export {
