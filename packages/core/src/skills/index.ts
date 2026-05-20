@@ -49,6 +49,18 @@ export {
   prepareSpawnContext,
   prepareSpawnMulti,
 } from './dispatch.js';
+// Skill-store doctor (T9652 — read-only health report for `cleo skills doctor diagnose`)
+export type {
+  BridgeStatus,
+  BrokenSymlinkRecord,
+  DoctorDiagnoseOptions,
+  DoctorDiagnoseReport,
+  DriftRecord,
+  EntryKind,
+  OrphanRecord,
+  SkillSymlinkRecord,
+} from './doctor.js';
+export { diagnoseSkillStore, renderDoctorDiagnoseReport } from './doctor.js';
 export {
   buildTaskContext,
   injectProtocol,
