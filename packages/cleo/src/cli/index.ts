@@ -313,31 +313,46 @@ async function runMainWithLafsEnvelope(
     process.exit(0);
   }
 
-  try {
-    await runCommand(cmd, { rawArgs });
-  } catch (err) {
-    const { cliError } = await import('./renderers/index.js');
-    // Citty's CLIError extends Error with a string `code` (e.g. 'EARG') and
-    // sets `name === 'CLIError'`. Narrow without lying to the type system.
-    const cittyCliError = asCittyCliError(err);
+  // T9769 — bind a fresh WarningCollector for this request via AsyncLocalStorage.
+  // Producers anywhere in the call chain (CORE bridges, dispatch middleware,
+  // CAAMP commands) can call `pushWarning(...)` from `@cleocode/lafs` and the
+  // CLI renderer (formatSuccess / formatError → createCliMeta) automatically
+  // drains the collector into `meta.warnings[]`. Outside this scope, the same
+  // `pushWarning` call is a silent no-op — keeping the API safe for SDK
+  // consumers that have not yet adopted the carrier.
+  //
+  // The dynamic import keeps the lafs symbol off the help / version fast-path
+  // (already short-circuited above).
+  const { WarningCollector, withWarningCollector } = await import('@cleocode/lafs');
+  const collector = new WarningCollector();
 
-    if (cittyCliError) {
-      // Do NOT render citty's usage block here — `createCustomShowUsage` uses
-      // `console.log` (stdout), which would corrupt the JSON envelope below.
-      // The envelope's `fix` field tells humans how to recover; agents key
-      // off `codeName`. Help is one `cleo <cmd> --help` away.
-      cliError(cittyCliError.message, 1, {
-        name: cittyCliError.code === 'EARG' ? 'E_VALIDATION' : `E_${cittyCliError.code}`,
-        fix: `Run 'cleo <command> --help' to see required arguments.`,
-      });
+  await withWarningCollector(collector, async () => {
+    try {
+      await runCommand(cmd, { rawArgs });
+    } catch (err) {
+      const { cliError } = await import('./renderers/index.js');
+      // Citty's CLIError extends Error with a string `code` (e.g. 'EARG') and
+      // sets `name === 'CLIError'`. Narrow without lying to the type system.
+      const cittyCliError = asCittyCliError(err);
+
+      if (cittyCliError) {
+        // Do NOT render citty's usage block here — `createCustomShowUsage` uses
+        // `console.log` (stdout), which would corrupt the JSON envelope below.
+        // The envelope's `fix` field tells humans how to recover; agents key
+        // off `codeName`. Help is one `cleo <cmd> --help` away.
+        cliError(cittyCliError.message, 1, {
+          name: cittyCliError.code === 'EARG' ? 'E_VALIDATION' : `E_${cittyCliError.code}`,
+          fix: `Run 'cleo <command> --help' to see required arguments.`,
+        });
+        process.exit(1);
+      }
+
+      // Non-citty error path — still must emit an envelope.
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(message, 1, { name: 'E_CLI_UNCAUGHT' });
       process.exit(1);
     }
-
-    // Non-citty error path — still must emit an envelope.
-    const message = err instanceof Error ? err.message : String(err);
-    cliError(message, 1, { name: 'E_CLI_UNCAUGHT' });
-    process.exit(1);
-  }
+  });
 }
 
 /**

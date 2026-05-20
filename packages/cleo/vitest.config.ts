@@ -158,6 +158,18 @@ export default defineConfig({
         '../../packages/core/src/agents/index.ts',
         import.meta.url,
       ).pathname,
+      // T9769 (T9763 W0): caamp/src/core/advanced/orchestration.ts imports the
+      // subpath at runtime — vitest's alias rewrites for `@cleocode/core` only
+      // cover the root entry point, leaving this subpath to fall through to
+      // node resolution, which fails because root node_modules does not
+      // symlink `@cleocode/core`. Map directly to source so transitive caamp
+      // imports load under vitest. Resolves the import error that surfaced
+      // after T9747's skill-root refactor for every renderer test that pulls
+      // in `@cleocode/core` through `formatSuccess`.
+      '@cleocode/core/skills/skill-root.js': new URL(
+        '../../packages/core/src/skills/skill-root.ts',
+        import.meta.url,
+      ).pathname,
       // T9424: status subpath export used by `cleo status` CLI thin wrapper
       '@cleocode/core/status': new URL(
         '../../packages/core/src/status/index.ts',
