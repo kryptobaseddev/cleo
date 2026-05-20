@@ -27,6 +27,7 @@
  */
 
 import type { ProposalCandidate } from '@cleocode/contracts';
+import { pushWarning } from '@cleocode/lafs';
 import { runBrainIngester } from './ingesters/brain-ingester.js';
 import { runNexusIngester } from './ingesters/nexus-ingester.js';
 import { runTestIngester } from './ingesters/test-ingester.js';
@@ -284,9 +285,18 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
   for (const candidate of [...brainCandidates, ...nexusCandidates, ...testCandidates]) {
     // Validate title format — reject candidates with non-template titles
     if (!PROPOSAL_TITLE_PATTERN.test(candidate.title)) {
-      process.stderr.write(
-        `[sentient/propose-tick] Rejected candidate with invalid title format: "${candidate.title}"\n`,
-      );
+      // Surface via envelope warnings instead of stderr (T9773).
+      pushWarning({
+        code: 'W_PROPOSE_AUDIT_FAILED',
+        severity: 'warn',
+        message: `[sentient/propose-tick] Rejected candidate with invalid title format: "${candidate.title}"`,
+        context: {
+          phase: 'title-validation',
+          source: candidate.source,
+          sourceId: candidate.sourceId,
+          title: candidate.title,
+        },
+      });
       continue;
     }
 
@@ -335,7 +345,13 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
 
   for (const candidate of toWrite) {
     if (!tasksNativeDb) {
-      process.stderr.write('[sentient/propose-tick] tasks DB not available; skipping write\n');
+      // Surface via envelope warnings instead of stderr (T9773).
+      pushWarning({
+        code: 'W_PROPOSE_AUDIT_FAILED',
+        severity: 'warn',
+        message: '[sentient/propose-tick] tasks DB not available; skipping write',
+        context: { phase: 'pre-write', reason: 'tasks-db-unavailable' },
+      });
       break;
     }
 
@@ -365,8 +381,19 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
           existingTaskId: dedupCheck.existingTaskId,
         });
       } catch (auditErr) {
+        // Surface via envelope warnings instead of stderr (T9773).
         const message = auditErr instanceof Error ? auditErr.message : String(auditErr);
-        process.stderr.write(`[sentient/propose-tick] audit append failed: ${message}\n`);
+        pushWarning({
+          code: 'W_PROPOSE_AUDIT_FAILED',
+          severity: 'warn',
+          message: `[sentient/propose-tick] audit append failed: ${message}`,
+          context: {
+            phase: 'dedup-audit-append',
+            source: candidate.source,
+            sourceId: candidate.sourceId,
+            error: message,
+          },
+        });
       }
       continue;
     }
@@ -446,8 +473,14 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
       }
       // If 'busy', skip this one and continue.
     } catch (err) {
+      // Surface via envelope warnings instead of stderr (T9773).
       const message = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[sentient/propose-tick] INSERT failed for ${taskId}: ${message}\n`);
+      pushWarning({
+        code: 'W_PROPOSE_AUDIT_FAILED',
+        severity: 'warn',
+        message: `[sentient/propose-tick] INSERT failed for ${taskId}: ${message}`,
+        context: { phase: 'transactional-insert', taskId, error: message },
+      });
     }
   }
 
