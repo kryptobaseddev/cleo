@@ -20,6 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { WarningCollector, withWarningCollector } from '@cleocode/lafs';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EDGE_TYPES } from '../../memory/edge-types.js';
 import { closeBrainDb, getBrainDb, getBrainNativeDb } from '../../store/memory-sqlite.js';
@@ -254,7 +255,7 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     expect(edgeCount).toBe(result1.linked);
   }, 30_000);
 
-  it('handles a non-git directory gracefully — no error thrown, warn logged', async () => {
+  it('handles a non-git directory gracefully — no error thrown, warning routed to envelope', async () => {
     // Arrange: plain directory, not a git repo
     const plainDir = join(tmpDir, 'plain-dir');
     mkdirSync(plainDir);
@@ -263,11 +264,13 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     await getBrainDb(plainDir);
     await getNexusDb();
 
-    // Spy on console.warn to verify the warning is emitted
+    // T9771: warnings now flow through LAFS `WarningCollector` rather than
+    // console.warn. Capture them via an explicit collector bound through
+    // `withWarningCollector` and verify the envelope-shaped Warning.
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const collector = new WarningCollector();
 
-    // Act: sweeper should NOT throw
-    const result = await runGitLogTaskLinker(plainDir);
+    const result = await withWarningCollector(collector, async () => runGitLogTaskLinker(plainDir));
 
     // Assert: graceful empty result
     expect(result.linked).toBe(0);
@@ -275,8 +278,16 @@ describe('task-sweeper post-analyze wiring', { sequential: true }, () => {
     expect(result.tasksFound).toBe(0);
     expect(result.lastCommitHash).toBeNull();
 
-    // Assert: warning was logged
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('runGitLogTaskLinker'));
+    // Assert: warning routed to envelope, not stderr
+    const drained = collector.drain();
+    expect(drained).toBeDefined();
+    const w = drained!.find((entry) => entry.code === 'W_TASKS_BRIDGE_FAILED');
+    expect(w).toBeDefined();
+    expect(w!.message).toContain('runGitLogTaskLinker');
+    expect(w!.context?.['operation']).toBe('runGitLogTaskLinker');
+
+    // Assert: NO console.warn fallback (post-T9771 hygiene)
+    expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
   }, 10_000);
