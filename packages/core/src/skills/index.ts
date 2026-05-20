@@ -68,6 +68,17 @@ export type {
   FederatedSearchResult,
 } from './federated-search.js';
 export { computeScore, federatedSearch } from './federated-search.js';
+// Federation install gate — T9732 first-install prompt + sha256 checksum
+export type {
+  FederationInstallDecision,
+  FederationInstallGateOptions,
+  FederationInstallGateResult,
+} from './federation-install-gate.js';
+export {
+  computeArtefactChecksum,
+  evaluateFederationInstallGate,
+  requiresInteractiveConfirmation,
+} from './federation-install-gate.js';
 // Federation (T9729 — SG-CLEO-SKILLS Sphere B W0)
 export type {
   AddFederationResult,

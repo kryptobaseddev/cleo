@@ -68,6 +68,25 @@ interface CoreSkillsGuardShape {
     force: boolean,
   ) => { readonly decision: 'allow' | 'block' | 'ask'; readonly reason: string };
   readonly recordTrustBypass: (scan: AdapterScanResult, reason: string | null) => unknown;
+  readonly evaluateFederationInstallGate: (opts: {
+    source: string;
+    artefactPath?: string;
+    expectedChecksum?: string | null;
+    approveNewSource?: boolean;
+  }) => FederationGateResult;
+}
+
+/**
+ * Local mirror of {@link FederationInstallGateResult} from core — kept
+ * here to avoid a static import on `@cleocode/core`.
+ */
+export interface FederationGateResult {
+  readonly decision: 'allow' | 'block-checksum' | 'prompt-first-install';
+  readonly reason: string;
+  readonly peer: { readonly url: string; readonly trust: string } | null;
+  readonly isFederationSource: boolean;
+  readonly computedChecksum: string | null;
+  readonly expectedChecksum: string | null;
 }
 
 /**
@@ -138,6 +157,49 @@ export async function evaluateSkillTrustGate(
  * decoupled from core's exact type names.
  */
 export type SkillScanResult = AdapterScanResult;
+
+/**
+ * Run the federation install gate (T9732) — first-install prompt
+ * detection + sha256 checksum validation.
+ *
+ * Returns a fall-through `allow` result when `@cleocode/core` is missing,
+ * mirroring {@link evaluateSkillTrustGate}'s graceful-degradation posture.
+ *
+ * @param source - Caller-supplied source identifier (federation URL,
+ *                 owner/repo, etc.).
+ * @param opts - Options:
+ *   - `artefactPath` — absolute path to the downloaded tarball.
+ *   - `expectedChecksum` — sha256 from the manifest (hex, optional `sha256:` prefix).
+ *   - `approveNewSource` — bypass the first-install prompt.
+ *
+ * @task T9732
+ */
+export async function evaluateFederationGate(
+  source: string,
+  opts: {
+    readonly artefactPath?: string;
+    readonly expectedChecksum?: string | null;
+    readonly approveNewSource?: boolean;
+  } = {},
+): Promise<FederationGateResult> {
+  const core = await resolveCore();
+  if (!core) {
+    return {
+      decision: 'allow',
+      reason: 'Federation gate skipped — @cleocode/core not available',
+      peer: null,
+      isFederationSource: false,
+      computedChecksum: null,
+      expectedChecksum: null,
+    };
+  }
+  return core.evaluateFederationInstallGate({
+    source,
+    artefactPath: opts.artefactPath,
+    expectedChecksum: opts.expectedChecksum,
+    approveNewSource: opts.approveNewSource,
+  });
+}
 
 /**
  * Append a bypass entry to `.cleo/audit/skill-trust-bypass.jsonl`.
