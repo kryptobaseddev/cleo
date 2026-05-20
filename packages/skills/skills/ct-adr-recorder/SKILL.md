@@ -93,6 +93,80 @@ Flags specs T4776, T4781; decomposition epic T4772; live impl T4790.
 
 A longer, realistic example with all six sections filled out lives in [references/examples.md](references/examples.md).
 
+## Through SDK (preferred)
+
+ADRs are first-class docs SSoT records — drafted via
+`cleo docs add --type adr`, attached to the originating consensus task,
+and numbered through the slug. This is the canonical write path; the
+legacy "write to `docs/adr/ADR-NNNN.md` and commit" pattern is
+deprecated below.
+
+### Draft the ADR attached to its consensus task
+
+```bash
+cleo docs add T4798 docs/adr/ADR-0042.md \
+  --type adr \
+  --slug adr-0042-drizzle-v1-beta \
+  --desc "ADR-0042: Adopt Drizzle ORM v1 beta for all SQLite access (status: proposed)" \
+  --labels "adr,proposed"
+```
+
+- `--type adr` is the canonical taxonomy value. The closed set is
+  `spec | adr | research | handoff | note | llm-readme`.
+- `--slug` MUST follow `adr-<NNNN>-<short-topic>`. The numeric segment
+  is the canonical ADR id; the topic segment makes the slug human
+  readable. Collisions return `E_SLUG_TAKEN` with 3 alternatives.
+- The owner ID is the consensus task whose verdict drives the ADR
+  (`T4798` above). This is how downstream supersession cascades find
+  the chain — never attach an ADR to an arbitrary task.
+
+### Persist the decision row alongside the doc blob
+
+`cleo docs add --type adr` writes the document and the docs-side
+manifest entry, but per Immutable Constraint ADR-006 the canonical
+`decisions` table MUST also be populated via Drizzle. The two writes
+are paired: doc blob first (SSoT-of-the-prose), then the relational
+row (SSoT-of-the-decision). Skipping either is a validation failure.
+
+### Publish the ADR to a git-tracked path
+
+```bash
+cleo docs publish --for T4798 --to docs/adr/ADR-0042.md
+```
+
+Atomic tmp-then-rename. The published file lands in the next commit;
+the SSoT blob remains the canonical version-history root.
+
+### Fetch the ADR back by slug (for HITL review + downstream supersession)
+
+```bash
+cleo docs fetch adr-0042-drizzle-v1-beta     # latest version
+cleo docs versions --for T4798               # every SHA version
+```
+
+The HITL reviewer reads the proposed ADR via `cleo docs fetch` rather
+than the on-disk file so the review anchors on the canonical SSoT
+blob — drift between the published file and the blob is its own
+review finding.
+
+### List ADRs by type or status
+
+```bash
+cleo docs list --type adr --project          # every ADR in the project
+cleo docs list --task T4798 --type adr       # ADRs attached to T4798
+```
+
+## Deprecated: Direct filesystem write
+
+The legacy "write to `docs/adr/ADR-NNNN.md` and commit" pattern is
+deprecated. The on-disk file drifts from the SSoT, the ADR has no
+slug for the supersession cascade to retrieve it by, and the
+consensus-task↔ADR linkage exists only as a frontmatter field
+(`consensus_manifest_id`) rather than a relational owner edge.
+Migrate to `cleo docs add --type adr --slug adr-<NNNN>-<topic>` for
+every new ADR — and use `cleo docs sync --from docs/adr/ADR-NNNN.md
+--for <taskId>` to back-fill existing on-disk ADRs into the SSoT.
+
 ## HITL Approval Gate
 
 When a draft reaches `proposed`, the skill MUST:
