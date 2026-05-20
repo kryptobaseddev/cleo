@@ -166,7 +166,8 @@ const addCommand = defineCommand({
     name: 'add',
     description:
       'Attach a local file or remote URL to a CLEO entity (task, session, observation). ' +
-      'Owner type is inferred from the ID prefix: T### → task, ses_* → session, O-* → observation.',
+      'Owner type is inferred from the ID prefix: T### → task, ses_* → session, O-* → observation. ' +
+      'Use --slug to set a human-friendly alias (unique per project) (T9636).',
   },
   args: {
     'owner-id': {
@@ -195,6 +196,16 @@ const addCommand = defineCommand({
       type: 'string',
       description: 'Agent identity that created the attachment (default: "human")',
     },
+    slug: {
+      type: 'string',
+      description:
+        'Human-friendly kebab-case alias for the attachment, unique per project (T9636). ' +
+        'Collision returns E_SLUG_TAKEN with 3 alternative suggestions.',
+    },
+    type: {
+      type: 'string',
+      description: 'Taxonomy classification: spec|adr|research|handoff|note|llm-readme (T9637)',
+    },
   },
   async run({ args }) {
     const ownerId = args['owner-id'];
@@ -220,6 +231,8 @@ const addCommand = defineCommand({
         ...(args.desc ? { desc: args.desc } : {}),
         ...(args.labels ? { labels: args.labels } : {}),
         ...(args['attached-by'] ? { attachedBy: args['attached-by'] } : {}),
+        ...(args.slug ? { slug: args.slug } : {}),
+        ...(args.type ? { type: args.type } : {}),
       },
       { command: 'docs add' },
     );
@@ -228,12 +241,13 @@ const addCommand = defineCommand({
 
 // ── cleo docs list ───────────────────────────────────────────────────────────
 
-/** cleo docs list [--task T###] [--session ses_*] [--observation O###] — list attachments. */
+/** cleo docs list [--task T###] [--session ses_*] [--observation O###] [--project] [--type TYPE] — list attachments. */
 const listCommand = defineCommand({
   meta: {
     name: 'list',
     description:
-      'List attachments for a CLEO entity. Provide exactly one of --task, --session, or --observation.',
+      'List attachments. Provide exactly one of --task, --session, --observation, or --project. ' +
+      '--type filters across any scope (T9637/T9638).',
   },
   args: {
     task: {
@@ -248,14 +262,32 @@ const listCommand = defineCommand({
       type: 'string',
       description: 'Filter by observation ID (e.g. O-abc123)',
     },
+    project: {
+      type: 'boolean',
+      description:
+        'List ALL attachments in the project (T9638). Mutually exclusive with --task/--session/--observation.',
+    },
+    type: {
+      type: 'string',
+      description: 'Filter by classification: spec|adr|research|handoff|note|llm-readme (T9637)',
+    },
   },
   async run({ args }) {
     const task = args.task ?? undefined;
     const session = args.session ?? undefined;
     const observation = args.observation ?? undefined;
+    const project = args.project === true;
+    const type = args.type ?? undefined;
 
-    if (!task && !session && !observation) {
-      cliError('provide one of --task <id>, --session <id>, or --observation <id>', 6, {
+    const scopeCount = [task, session, observation].filter(Boolean).length + (project ? 1 : 0);
+    if (scopeCount === 0) {
+      cliError('provide one of --task <id>, --session <id>, --observation <id>, or --project', 6, {
+        name: 'E_VALIDATION',
+      });
+      process.exit(6);
+    }
+    if (scopeCount > 1) {
+      cliError('--task, --session, --observation, and --project are mutually exclusive', 6, {
         name: 'E_VALIDATION',
       });
       process.exit(6);
@@ -269,6 +301,8 @@ const listCommand = defineCommand({
         ...(task ? { task } : {}),
         ...(session ? { session } : {}),
         ...(observation ? { observation } : {}),
+        ...(project ? { project: true } : {}),
+        ...(type ? { type } : {}),
       },
       { command: 'docs list' },
     );

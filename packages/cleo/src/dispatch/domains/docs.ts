@@ -41,6 +41,7 @@ import type {
   DocsListResult,
   DocsRemoveParams,
   DocsRemoveResult,
+  DocsType,
 } from '@cleocode/contracts/operations/docs';
 import type {
   AttachmentRef,
@@ -57,11 +58,32 @@ import {
   getCleoDirAbsolute,
   getProjectRoot,
   resolveAttachmentBackend,
+  SlugCollisionError,
 } from '@cleocode/core/internal';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
+
+/**
+ * Local copy of the closed taxonomy values for runtime validation.
+ *
+ * Kept in lock-step with `DOCS_TYPE_VALUES` exported from
+ * `@cleocode/contracts/operations/docs` — the contracts module is the
+ * authoritative SSoT; this constant exists only because the test runner's
+ * alias map doesn't resolve subpath runtime imports for `@cleocode/contracts`,
+ * forcing the dispatch layer to keep a local mirror.
+ *
+ * @task T9637
+ */
+const DOCS_TYPE_VALUES = [
+  'spec',
+  'adr',
+  'research',
+  'handoff',
+  'note',
+  'llm-readme',
+] as const satisfies readonly DocsType[];
 
 // ─── DocsTypedOps ─────────────────────────────────────────────────────────────
 
@@ -148,6 +170,50 @@ function mimeFromPath(filePath: string): string {
   return 'application/octet-stream';
 }
 
+// ─── Slug helpers (T9636) ────────────────────────────────────────────────────
+
+/**
+ * Slug validation: lowercase, kebab-case, 1–80 chars, no leading/trailing dash.
+ *
+ * @task T9636
+ */
+const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const SLUG_MAX_LEN = 80;
+
+/**
+ * Validate a slug string against {@link SLUG_PATTERN}.
+ *
+ * @returns `{ valid: true }` when the slug matches; `{ valid: false, reason }`
+ *   carrying a human-readable error otherwise.
+ */
+function validateSlug(raw: unknown): { valid: false; reason: string } | { valid: true } {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    return { valid: false, reason: 'slug must be a non-empty string' };
+  }
+  if (raw.length > SLUG_MAX_LEN) {
+    return { valid: false, reason: `slug exceeds ${SLUG_MAX_LEN} characters` };
+  }
+  if (!SLUG_PATTERN.test(raw)) {
+    return {
+      valid: false,
+      reason:
+        "slug must be lowercase kebab-case (matches /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/) — got '" +
+        raw +
+        "'",
+    };
+  }
+  return { valid: true };
+}
+
+/**
+ * Validate a type value against the closed {@link DOCS_TYPE_VALUES} set.
+ *
+ * @task T9637
+ */
+function validateDocsType(raw: unknown): raw is DocsType {
+  return typeof raw === 'string' && (DOCS_TYPE_VALUES as readonly string[]).includes(raw as string);
+}
+
 // ─── Typed inner handler ──────────────────────────────────────────────────────
 
 /**
@@ -168,29 +234,107 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     // SSoT-EXEMPT:dispatch-normalize — docs.list accepts three aliased owner params;
     // normalization to ownerId is a docs-domain concern, not a Core concern.
     const ownerId = params.task ?? params.session ?? params.observation;
-    if (!ownerId) {
+    const isProjectScope = params.project === true;
+
+    if (!ownerId && !isProjectScope) {
       return lafsError(
         'E_INVALID_INPUT',
-        'Provide one of --task, --session, or --observation to scope the list.',
+        'Provide one of --task, --session, --observation, or --project to scope the list.',
         'list',
       );
     }
 
-    const ownerType = inferOwnerType(ownerId);
+    // Validate `--type` filter if provided (T9637).
+    let typeFilter: DocsType | undefined;
+    if (params.type !== undefined) {
+      if (!validateDocsType(params.type)) {
+        return lafsError(
+          'E_INVALID_TYPE',
+          `type must be one of: ${DOCS_TYPE_VALUES.join('|')} — got '${String(params.type)}'`,
+          'list',
+        );
+      }
+      typeFilter = params.type;
+    }
+
+    const store = createAttachmentStore();
+    const backend: AttachmentBackend = await resolveAttachmentBackend();
+
+    if (isProjectScope) {
+      // T9638 — project-scoped listing: union all attachment_refs into a flat
+      // row list. The shape stays compatible with DocsAttachmentRow by
+      // populating `ownerId` / `ownerType` per row instead of at the envelope.
+      const rows = await store.listAllInProject(
+        undefined,
+        typeFilter !== undefined ? { type: typeFilter } : undefined,
+      );
+
+      return lafsSuccess<DocsListResult>(
+        {
+          ownerId: '',
+          ownerType: 'task',
+          project: true,
+          ...(typeFilter !== undefined ? { type: typeFilter } : {}),
+          count: rows.length,
+          attachments: rows.map(({ metadata: m, slug, type, ownerId: oid, ownerType: ot }) => ({
+            id: m.id,
+            sha256: `${m.sha256.slice(0, 8)}…`,
+            kind: m.attachment.kind,
+            mime:
+              m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
+                ? m.attachment.mime
+                : ((m.attachment as UrlAttachment).mime ?? '—'),
+            size:
+              m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
+                ? m.attachment.size
+                : undefined,
+            description: m.attachment.description,
+            labels: m.attachment.labels,
+            createdAt: m.createdAt,
+            refCount: m.refCount,
+            ...(slug ? { slug } : {}),
+            ...(type ? { type: type as DocsType } : {}),
+            ownerId: oid,
+            ownerType: ot,
+          })),
+          attachmentBackend: backend as DocsListResult['attachmentBackend'],
+        },
+        'list',
+      );
+    }
+
+    // Owner-scoped listing (existing behaviour) — narrow to non-null after
+    // the project-scope branch.
+    const scopedOwner = ownerId as string;
+    const ownerType = inferOwnerType(scopedOwner);
     // Legacy store still drives the envelope because it tracks URL and
     // llms-txt kinds the v2 interface does not expose. `backend` metadata
     // reports the path that FUTURE writes would take, so operators can
     // observe llmtxt adoption without changing the data contract.
-    const store = createAttachmentStore();
-    const attachments = await store.listByOwner(ownerType, ownerId);
-    const backend: AttachmentBackend = await resolveAttachmentBackend();
+    const ownerAttachments = await store.listByOwner(ownerType, scopedOwner);
+
+    // T9637 — apply the type filter post-list. listByOwner returns
+    // AttachmentMetadata (no slug/type), so we re-hydrate via getExtras().
+    const enriched: Array<{
+      meta: (typeof ownerAttachments)[number];
+      slug: string | null;
+      type: string | null;
+    }> = [];
+    for (const m of ownerAttachments) {
+      const extras = await store.getExtras(m.id);
+      const slug = extras?.slug ?? null;
+      const type = extras?.type ?? null;
+      if (typeFilter !== undefined && type !== typeFilter) continue;
+      enriched.push({ meta: m, slug, type });
+    }
 
     return lafsSuccess<DocsListResult>(
       {
-        ownerId,
+        ownerId: scopedOwner,
         ownerType,
-        count: attachments.length,
-        attachments: attachments.map((m) => ({
+        ...(typeFilter !== undefined ? { type: typeFilter } : {}),
+        count: enriched.length,
+        attachments: enriched.map(({ meta: m, slug, type }) => ({
           id: m.id,
           sha256: `${m.sha256.slice(0, 8)}…`,
           kind: m.attachment.kind,
@@ -206,6 +350,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           labels: m.attachment.labels,
           createdAt: m.createdAt,
           refCount: m.refCount,
+          ...(slug ? { slug } : {}),
+          ...(type ? { type: type as DocsType } : {}),
         })),
         // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (drift T1529)
         attachmentBackend: backend as DocsListResult['attachmentBackend'],
@@ -284,10 +430,23 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     const store = createAttachmentStore();
 
-    // Try by attachment ID first, then by SHA-256.
+    // Resolution order (T9636 acceptance #5/#7):
+    //   1. Full SHA-256 hex (64 chars, case-insensitive)
+    //   2. Attachment ID (att_* / UUID)
+    //   3. Slug (kebab-case match)
+    //   4. SHA-256 prefix (>= 6 hex chars, unique match)
+    //
+    // The order keeps backward-compat: pre-T9636 callers pass att_id or full
+    // sha256; new callers can pass slug. The slug check comes BEFORE prefix
+    // resolution because slugs have a stricter pattern (lowercase letters
+    // mixed with hyphens) than a hex prefix, so the discriminator is exact.
     const isSha256 = /^[0-9a-f]{64}$/i.test(ref);
+    const looksLikeAttId = /^(att_|[0-9a-f]{8}-)/i.test(ref);
+    const looksLikeSlug = SLUG_PATTERN.test(ref) && !/^[0-9a-f]+$/i.test(ref);
+    const isHexPrefix = /^[0-9a-f]{6,63}$/i.test(ref);
+
     let fetchResult: Awaited<ReturnType<typeof store.get>> | null = null;
-    let metadata = await store.getMetadata(ref);
+    let metadata = isSha256 ? null : looksLikeAttId ? await store.getMetadata(ref) : null;
 
     if (metadata) {
       // Resolved by ID — get bytes via sha256
@@ -296,6 +455,50 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       fetchResult = await store.get(ref);
       if (fetchResult) {
         metadata = fetchResult.metadata;
+      }
+    }
+
+    // Slug fallback
+    if (!metadata && looksLikeSlug) {
+      const bySlug = await store.findBySlug(ref);
+      if (bySlug) {
+        metadata = bySlug.metadata;
+        fetchResult = await store.get(metadata.sha256);
+      }
+    }
+
+    // SHA-256 prefix fallback (>=6 chars). We scan attachment_refs distinct
+    // ids and find the unique row whose sha256 startsWith ref. Ambiguous
+    // prefixes return E_AMBIGUOUS to avoid silently picking the wrong blob.
+    if (!metadata && isHexPrefix) {
+      const projectList = await store.listAllInProject();
+      const seen = new Map<string, (typeof projectList)[number]>();
+      for (const row of projectList) {
+        if (row.metadata.sha256.toLowerCase().startsWith(ref.toLowerCase())) {
+          seen.set(row.metadata.id, row);
+        }
+      }
+      if (seen.size > 1) {
+        return lafsError(
+          'E_AMBIGUOUS',
+          `sha256 prefix '${ref}' matches ${seen.size} attachments — provide more hex digits`,
+          'fetch',
+        );
+      }
+      const hit = seen.values().next().value;
+      if (hit) {
+        metadata = hit.metadata;
+        fetchResult = await store.get(metadata.sha256);
+      }
+    }
+
+    // Fallback: try plain getMetadata even if it didn't look like an att-id —
+    // some pre-T9636 callers used arbitrary IDs.
+    if (!metadata && !looksLikeAttId) {
+      const direct = await store.getMetadata(ref);
+      if (direct) {
+        metadata = direct;
+        fetchResult = await store.get(direct.sha256);
       }
     }
 
@@ -332,6 +535,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     const backend: AttachmentBackend = await resolveAttachmentBackend();
 
+    // Re-read slug so the wire envelope mirrors what's in the DB (T9636).
+    const extras = await store.getExtras(metadata.id);
+
     return lafsSuccess<DocsFetchResult>(
       {
         // Project the domain AttachmentMetadata (nested `attachment` object) into the
@@ -352,6 +558,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           labels: metadata.attachment.labels,
           createdAt: metadata.createdAt,
           refCount: metadata.refCount,
+          ...(extras?.slug ? { slug: extras.slug } : {}),
+          ...(extras?.type ? { type: extras.type as DocsType } : {}),
         },
         path: storagePath,
         sizeBytes: fetchResult.bytes.length,
@@ -374,6 +582,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       desc: description,
       labels: rawLabels,
       attachedBy: rawAttachedBy,
+      slug: rawSlug,
+      type: rawType,
     } = params;
     if (!ownerId) {
       return lafsError('E_INVALID_INPUT', 'ownerId is required', 'add');
@@ -386,6 +596,33 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         'add',
       );
     }
+
+    // T9636 — validate slug (shape only; uniqueness is checked by the store).
+    let slug: string | undefined;
+    if (rawSlug !== undefined) {
+      const check = validateSlug(rawSlug);
+      if (!check.valid) {
+        return lafsError('E_INVALID_SLUG', check.reason, 'add');
+      }
+      slug = rawSlug as string;
+    }
+
+    // T9637 — validate type against the closed taxonomy set.
+    let type: DocsType | undefined;
+    if (rawType !== undefined) {
+      if (!validateDocsType(rawType)) {
+        return lafsError(
+          'E_INVALID_TYPE',
+          `type must be one of: ${DOCS_TYPE_VALUES.join('|')} — got '${String(rawType)}'`,
+          'add',
+        );
+      }
+      type = rawType;
+    }
+
+    const extras: { slug?: string; type?: string } = {};
+    if (slug !== undefined) extras.slug = slug;
+    if (type !== undefined) extras.type = type;
 
     const labels = parseLabels(rawLabels);
     const attachedBy = rawAttachedBy ?? 'human';
@@ -412,7 +649,33 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ...(labels ? { labels } : {}),
       };
 
-      const meta = await store.put(bytes, attachment, ownerType, ownerId, attachedBy);
+      let meta: Awaited<ReturnType<typeof store.put>>;
+      try {
+        meta = await store.put(
+          bytes,
+          attachment,
+          ownerType,
+          ownerId,
+          attachedBy,
+          undefined,
+          extras,
+        );
+      } catch (err) {
+        if (err instanceof SlugCollisionError) {
+          // Construct the envelope directly so we can attach `suggestions` to
+          // the error.details payload — `lafsError()` does not accept extra
+          // fields beyond `code/message/fix`.
+          return {
+            success: false,
+            error: {
+              code: 'E_SLUG_TAKEN',
+              message: `slug '${err.slug}' is already in use in this project`,
+              details: { suggestions: err.suggestions },
+            },
+          };
+        }
+        throw err;
+      }
 
       // T947 Wave B — also mirror the write through the unified v2 store
       // so llmtxt-backed manifests learn about the attachment. The v2
@@ -458,6 +721,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           ownerType,
           // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
           attachmentBackend: backend as DocsAddResult['attachmentBackend'],
+          ...(slug !== undefined ? { slug } : {}),
+          ...(type !== undefined ? { type } : {}),
         },
         'add',
       );
@@ -474,7 +739,30 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
       // For URL-only attachments, use the URL as content so we have a sha256
       const urlBytes = Buffer.from(url, 'utf-8');
-      const meta = await store.put(urlBytes, attachment, ownerType, ownerId, attachedBy);
+      let meta: Awaited<ReturnType<typeof store.put>>;
+      try {
+        meta = await store.put(
+          urlBytes,
+          attachment,
+          ownerType,
+          ownerId,
+          attachedBy,
+          undefined,
+          extras,
+        );
+      } catch (err) {
+        if (err instanceof SlugCollisionError) {
+          return {
+            success: false,
+            error: {
+              code: 'E_SLUG_TAKEN',
+              message: `slug '${err.slug}' is already in use in this project`,
+              details: { suggestions: err.suggestions },
+            },
+          };
+        }
+        throw err;
+      }
 
       // T945 Stage A — mint `llmtxt:<sha256>` node + `embeds` edge for the
       // URL attachment (the URL itself is the content-addressable identity).
@@ -500,6 +788,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           ownerType,
           // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (T1529)
           attachmentBackend: backend as DocsAddResult['attachmentBackend'],
+          ...(slug !== undefined ? { slug } : {}),
+          ...(type !== undefined ? { type } : {}),
         },
         'add',
       );
@@ -598,7 +888,7 @@ function docsEnvelopeToResponse(
   envelope: {
     success: boolean;
     data?: unknown;
-    error?: { code: string | number; message: string };
+    error?: { code: string | number; message: string; details?: Record<string, unknown> };
   },
   gateway: string,
   operation: string,
@@ -611,6 +901,9 @@ function docsEnvelopeToResponse(
       error: {
         code: String(envelope.error?.code ?? 'E_INTERNAL'),
         message: envelope.error?.message ?? 'Unknown error',
+        // T9636 — preserve structured details (e.g. slug suggestions) so the
+        // CLI can render alternative slugs without a separate API call.
+        ...(envelope.error?.details !== undefined ? { details: envelope.error.details } : {}),
       },
     };
   }

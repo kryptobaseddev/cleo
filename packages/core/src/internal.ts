@@ -1054,9 +1054,13 @@ export type {
   StickyConvertTaskParams,
 } from './sticky/ops.js';
 export type { CreateStickyParams, ListStickiesParams, StickyNote } from './sticky/types.js';
-export type { DerefResult } from './store/attachment-store.js';
+export type { DerefResult, PutAttachmentExtras } from './store/attachment-store.js';
 // Attachment store (T760 docs domain)
-export { AttachmentIntegrityError, createAttachmentStore } from './store/attachment-store.js';
+export {
+  AttachmentIntegrityError,
+  createAttachmentStore,
+  SlugCollisionError,
+} from './store/attachment-store.js';
 // Attachment store v2 — unified llmtxt/legacy wrapper (T947 Wave B)
 export type {
   AttachmentBackend,
