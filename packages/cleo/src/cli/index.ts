@@ -57,6 +57,7 @@ import { lazyCommand } from './lazy-command.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { resolveFormat } from './middleware/output-format.js';
+import { resolveSubCommandForHelp } from './resolve-subcommand.js';
 
 function getPackageVersion(): string {
   const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
@@ -289,10 +290,18 @@ async function runMainWithLafsEnvelope(
   const helpFlags = ['--help', '-h'];
   const versionFlags = ['--version', '-V'];
 
-  // Help fast-path — preserve citty's behaviour by calling the caller-supplied
-  // showUsage (which routes through createCustomShowUsage for grouped output).
+  // Help fast-path — walk DOWN the subcommand tree before rendering usage so
+  // `cleo release plan --help` shows plan-specific help, not the root listing.
+  //
+  // BUG FIX (T9765): the previous implementation passed the ROOT `cmd` directly
+  // to `showUsage`, so every `cleo <group> <verb> --help` invocation dumped the
+  // top-level command list. Citty's own `runMain` resolves the leaf subcommand
+  // via an unexported `resolveSubCommand` helper before calling showUsage; we
+  // mirror that here with `resolveSubCommandForHelp` because citty 0.2.1 does
+  // not re-export the resolver.
   if (rawArgs.some((a) => helpFlags.includes(a))) {
-    await showUsage(cmd);
+    const [leafCmd, parentCmd] = await resolveSubCommandForHelp(cmd, rawArgs);
+    await showUsage(leafCmd, parentCmd);
     process.exit(0);
   }
 
