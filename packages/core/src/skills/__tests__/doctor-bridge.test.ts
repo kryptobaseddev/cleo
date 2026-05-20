@@ -1,8 +1,12 @@
 /**
  * Tests for `cleo skills doctor bridge` — single bridge symlink topology.
  *
- * @task T9655
- * @epic T9571
+ * @remarks
+ * Moved from `packages/caamp/tests/unit/doctor-bridge.test.ts` to CORE by
+ * T9744 (T9740 Wave B).
+ *
+ * @task T9744
+ * @epic T9740
  */
 
 import { existsSync, lstatSync, readdirSync, readlinkSync } from 'node:fs';
@@ -14,7 +18,7 @@ import {
   AgentsSkillsRealDirError,
   buildBackupTimestamp,
   runDoctorBridge,
-} from '../../src/commands/skills/doctor-bridge.js';
+} from '../doctor-bridge.js';
 
 let homeDir: string;
 
@@ -242,8 +246,8 @@ describe('runDoctorBridge — sanity on existing agents-shared/', () => {
     await mkdir(join(homeDir, '.cleo', 'skills', '.hidden'), { recursive: true });
     const result = await runDoctorBridge({ homeDir });
     expect(result.perSkillSymlinksCreated.map((r) => r.name)).toEqual(['ct-foo']);
-    expect(
-      readdirSync(join(homeDir, '.claude', 'skills', 'agents-shared')).sort(),
-    ).toEqual(['ct-foo']);
+    expect(readdirSync(join(homeDir, '.claude', 'skills', 'agents-shared')).sort()).toEqual([
+      'ct-foo',
+    ]);
   });
 });

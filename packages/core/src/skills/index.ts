@@ -61,6 +61,38 @@ export type {
   SkillSymlinkRecord,
 } from './doctor.js';
 export { diagnoseSkillStore, renderDoctorDiagnoseReport } from './doctor.js';
+// Doctor — adopt-orphans helper (T9744 — moved from caamp)
+export type {
+  AdoptedSkillRowData,
+  DoctorAdoptCliAdapters,
+  DoctorAdoptOptions,
+  DoctorAdoptOrphanRecord,
+  DoctorAdoptResult,
+  OrphanActionResult,
+  OrphanDecision,
+  OrphanRefusal,
+  RecordRowFn,
+  RegisteredNamesLoader,
+} from './doctor-adopt.js';
+export {
+  applyDecision,
+  caampStandaloneAdapters,
+  discoverOrphans,
+  runDoctorAdopt,
+  writeAuditLog,
+} from './doctor-adopt.js';
+// Doctor — bridge helper (T9744 — moved from caamp)
+export type {
+  BridgeSymlinkRecord,
+  DoctorBridgeOptions,
+  DoctorBridgeResult,
+  PerSkillSymlinkRemoval,
+} from './doctor-bridge.js';
+export {
+  AgentsSkillsRealDirError,
+  buildBackupTimestamp,
+  runDoctorBridge,
+} from './doctor-bridge.js';
 // Federated search — T9731 multi-source query orchestrator
 export type {
   FederatedSearchOptions,

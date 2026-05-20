@@ -1,5 +1,5 @@
 /**
- * `skills doctor adopt-orphans` — interactive orphan audit + adoption.
+ * Doctor — `cleo skills doctor adopt-orphans` business logic.
  *
  * @remarks
  * An "orphan" is a skill directory that exists under any tracked path
@@ -28,9 +28,8 @@
  * This module emits PURE DATA. The skills.db reads and writes are deferred
  * to caller-supplied callbacks (`loadRegisteredNames`, `recordRow`). The
  * `cleo` dispatch layer in `packages/cleo/src/cli/commands/skills.ts` plugs
- * the canonical `openCleoDb('skills')`/`upsertSkillRow` helpers from
- * `@cleocode/core/store/skills-db`. caamp cannot depend on `@cleocode/core`
- * directly (would invert the dep direction: core dynamically imports caamp).
+ * the canonical `openSkillsDb`/`upsertSkillRow` helpers from
+ * `@cleocode/core/store/skills-db`.
  *
  * Three execution modes:
  *
@@ -40,8 +39,15 @@
  *   - `--auto-user-adopt` — bulk user-adopt all orphans without prompting
  *     (safe default for `cleo-init`-style scripts).
  *
- * @task T9657
- * @epic T9571
+ * ## Locality (T9740 Wave B — T9744)
+ *
+ * Moved from `packages/caamp/src/commands/skills/doctor-adopt.ts` to CORE
+ * so the cleo CLI can import this without crossing the `core → caamp` dep
+ * boundary. The legacy Commander registrar in caamp was deleted at the
+ * same time — cleo dispatches via citty and never wired the registrar in.
+ *
+ * @task T9744
+ * @epic T9740
  * @saga T9560
  * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §1, §6
  */
@@ -62,17 +68,6 @@ import {
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import type { Command } from 'commander';
-import pc from 'picocolors';
-
-import {
-  ErrorCategories,
-  ErrorCodes,
-  emitJsonError,
-  handleFormatError,
-  outputSuccess,
-  resolveFormat,
-} from '../../core/lafs.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,9 +97,15 @@ export interface OrphanRefusal {
 /**
  * A single orphan skill directory discovered on disk.
  *
+ * @remarks
+ * Named `DoctorAdoptOrphanRecord` (not `OrphanRecord`) to avoid colliding
+ * with the existing `OrphanRecord` export in `./doctor.ts`. The two record
+ * types describe distinct concerns (adopt-orphans flow vs. diagnostic
+ * report) and intentionally diverge.
+ *
  * @public
  */
-export interface OrphanRecord {
+export interface DoctorAdoptOrphanRecord {
   /** Skill name (basename of the orphan directory). */
   name: string;
   /** Absolute path to the orphan directory on disk. */
@@ -124,7 +125,7 @@ export interface OrphanRecord {
  */
 export interface OrphanActionResult {
   /** The orphan that was acted upon. */
-  orphan: OrphanRecord;
+  orphan: DoctorAdoptOrphanRecord;
   /** Decision the user (or flag) made. */
   decision: OrphanDecision;
   /** Whether the action completed successfully. */
@@ -158,8 +159,8 @@ export interface DoctorAdoptResult {
  *
  * @remarks
  * The dispatch layer translates this into an `upsertSkillRow` call via the
- * `openCleoDb('skills')` chokepoint. Keeping it as pure data means caamp
- * never has to touch sqlite directly.
+ * `openSkillsDb` chokepoint. Keeping it as pure data means the helper never
+ * has to touch sqlite directly.
  *
  * @public
  */
@@ -184,17 +185,17 @@ export interface AdoptedSkillRowData {
  * Compute the preferred user-machine skills root at `~/.cleo/skills/`.
  *
  * @remarks
- * Mirrors `resolveSkillsRoot()` from `@cleocode/core/skills/skill-root` but
- * stays self-contained inside CAAMP so doctor-adopt does not introduce a
- * static dependency on `@cleocode/core` (which would create a cycle since
- * core dynamically imports caamp).
+ * Mirrors `resolveSkillsRoot()` from `./skill-root.js`. Kept inline here as
+ * part of the initial T9744 move so the behaviour matches the caamp source
+ * byte-for-byte; T9745 (the immediately-following commit) replaces these
+ * three helpers with the canonical SSoT exports from `./skill-root.js`.
  *
  * @returns Absolute path to `~/.cleo/skills/`.
  *
  * @internal
  */
 function cleoSkillsRoot(): string {
-  return join(homedir(), '.cleo', 'skills'); // path-drift-allowed: ~/.cleo symlink is the canonical bootstrap target — mirrors core/src/skills/skill-root.ts newSkillsPath()
+  return join(homedir(), '.cleo', 'skills'); // path-drift-allowed: ~/.cleo symlink is the canonical bootstrap target — see ./skill-root.ts newSkillsPath()
 }
 
 /**
@@ -350,22 +351,22 @@ function approxDirSize(dir: string): number {
  * directly — see ADR-068 chokepoint compliance in the file header.
  *
  * @param registeredNames - Pre-computed set of skill names known to the
- *   registry. Callers in production wire this through `openCleoDb('skills')`;
+ *   registry. Callers in production wire this through `openSkillsDb()`;
  *   tests wire it through a sandboxed `DatabaseSync` open.
- * @returns Sorted-by-name list of `OrphanRecord`s.
+ * @returns Sorted-by-name list of `DoctorAdoptOrphanRecord`s.
  *
  * @public
  */
-export function discoverOrphans(registeredNames: ReadonlySet<string>): OrphanRecord[] {
+export function discoverOrphans(registeredNames: ReadonlySet<string>): DoctorAdoptOrphanRecord[] {
   const cleoRoot = cleoSkillsRoot();
   const legacyRoot = legacyAgentsSkillsRoot();
   const homeRoot = homeAgentsSkillsRoot();
 
-  const seen = new Map<string, OrphanRecord>();
+  const seen = new Map<string, DoctorAdoptOrphanRecord>();
 
   const visit = (
     root: string,
-    via: OrphanRecord['discoveredVia'],
+    via: DoctorAdoptOrphanRecord['discoveredVia'],
     filter?: (path: string) => boolean,
   ): void => {
     for (const candidate of listCandidates(root)) {
@@ -437,7 +438,7 @@ function canonicalAdoptRefusal(): OrphanRefusal {
  *
  * @internal
  */
-function buildAdoptedRow(orphan: OrphanRecord, now: string): AdoptedSkillRowData {
+function buildAdoptedRow(orphan: DoctorAdoptOrphanRecord, now: string): AdoptedSkillRowData {
   return {
     name: orphan.name,
     installPath: orphan.path,
@@ -463,7 +464,7 @@ function buildAdoptedRow(orphan: OrphanRecord, now: string): AdoptedSkillRowData
  *
  * @internal
  */
-function archiveAndDelete(orphan: OrphanRecord, now: string): string {
+function archiveAndDelete(orphan: DoctorAdoptOrphanRecord, now: string): string {
   const tsToken = now.replace(/[:.]/g, '-');
   const archiveDir = join(archiveRoot(), `${orphan.name}-${tsToken}`);
   mkdirSync(archiveRoot(), { recursive: true });
@@ -480,7 +481,7 @@ function archiveAndDelete(orphan: OrphanRecord, now: string): string {
  * @remarks
  * Production wiring lives in `packages/cleo/src/cli/commands/skills.ts` and
  * funnels into `upsertSkillRow` from `@cleocode/core/store/skills-db`,
- * which routes through the canonical `openCleoDb('skills')` chokepoint.
+ * which routes through the canonical `openSkillsDb()` chokepoint.
  * Test code passes a sandboxed sqlite write. May be synchronous or async.
  *
  * @public
@@ -509,7 +510,7 @@ export type RecordRowFn = (data: AdoptedSkillRowData) => void | Promise<void>;
  * @public
  */
 export async function applyDecision(
-  orphan: OrphanRecord,
+  orphan: DoctorAdoptOrphanRecord,
   decision: OrphanDecision,
   now: string,
   recordRow: RecordRowFn,
@@ -636,11 +637,11 @@ type ReadlineInterface = ReturnType<typeof createInterface>;
  */
 async function promptDecision(
   rl: ReadlineInterface,
-  orphan: OrphanRecord,
+  orphan: DoctorAdoptOrphanRecord,
 ): Promise<OrphanDecision> {
   const kb = Math.round(orphan.sizeBytes / 1024);
   process.stderr.write(
-    `\n${pc.bold(orphan.name)}\n` +
+    `\n${orphan.name}\n` +
       `  path: ${orphan.path}\n` +
       `  via:  ${orphan.discoveredVia}\n` +
       `  size: ~${kb} KiB\n` +
@@ -658,13 +659,13 @@ async function promptDecision(
     }
     if (answer === 'd' || answer === 'delete') return 'delete';
     if (answer === 's' || answer === 'skip' || answer === '') return 'skip';
-    process.stderr.write(`  ${pc.yellow('unrecognised input — try one of c/u/d/s')}\n`);
+    process.stderr.write('  unrecognised input — try one of c/u/d/s\n');
   }
   return 'skip';
 }
 
 // ---------------------------------------------------------------------------
-// Top-level orchestrator (callable directly for tests)
+// Top-level orchestrator (callable directly for tests + dispatch)
 // ---------------------------------------------------------------------------
 
 /**
@@ -680,8 +681,8 @@ export interface DoctorAdoptOptions {
   /**
    * Loads the set of skill names already known to the registry.
    *
-   * Production wiring opens `skills.db` via `openCleoDb('skills')`; tests
-   * inject a sandbox-scoped reader.
+   * Production wiring opens `skills.db` via `openSkillsDb()`; tests inject
+   * a sandbox-scoped reader.
    */
   loadRegisteredNames: () => ReadonlySet<string> | Promise<ReadonlySet<string>>;
   /**
@@ -692,23 +693,22 @@ export interface DoctorAdoptOptions {
    */
   recordRow: RecordRowFn;
   /** Test-only injection of a readline-compatible prompt. */
-  prompt?: (orphan: OrphanRecord) => Promise<OrphanDecision>;
+  prompt?: (orphan: DoctorAdoptOrphanRecord) => Promise<OrphanDecision>;
   /** Test-only opt-out of writing the audit log to disk. */
   skipAuditLog?: boolean;
   /** Test-only override for the discovery step. */
-  discoverFn?: (registeredNames: ReadonlySet<string>) => OrphanRecord[];
+  discoverFn?: (registeredNames: ReadonlySet<string>) => DoctorAdoptOrphanRecord[];
 }
 
 /**
  * Execute the doctor-adopt workflow and return a structured result.
  *
  * @remarks
- * Designed for both CLI invocation (from {@link registerSkillsDoctorAdopt})
- * and direct testing — every side effect is overridable via
- * {@link DoctorAdoptOptions}. The function never throws on per-orphan
- * failures; instead each failure produces an `applied=false` entry with a
- * refusal payload, so the caller gets a complete report even on partial
- * failure.
+ * Designed for both CLI invocation and direct testing — every side effect
+ * is overridable via {@link DoctorAdoptOptions}. The function never throws
+ * on per-orphan failures; instead each failure produces an `applied=false`
+ * entry with a refusal payload, so the caller gets a complete report even
+ * on partial failure.
  *
  * @param options - Mode flags + dependency-injected callbacks. The
  *   `loadRegisteredNames` and `recordRow` callbacks are MANDATORY so the
@@ -765,7 +765,7 @@ export async function runDoctorAdopt(options: DoctorAdoptOptions): Promise<Docto
     // interactive
     const promptFn =
       options.prompt ??
-      (async (orphan: OrphanRecord): Promise<OrphanDecision> => {
+      (async (orphan: DoctorAdoptOrphanRecord): Promise<OrphanDecision> => {
         const rl = createInterface({ input: process.stdin, output: process.stderr });
         try {
           return await promptDecision(rl, orphan);
@@ -792,7 +792,7 @@ export async function runDoctorAdopt(options: DoctorAdoptOptions): Promise<Docto
 }
 
 // ---------------------------------------------------------------------------
-// CLI registration
+// CLI adapters
 // ---------------------------------------------------------------------------
 
 /**
@@ -811,9 +811,10 @@ export type RegisteredNamesLoader = () => ReadonlySet<string> | Promise<Readonly
  * {@link DoctorAdoptOptions}'s mandatory deps.
  *
  * @remarks
- * The caamp CLI (`caamp skills doctor adopt-orphans`) supplies a no-op pair
- * — caamp is the registry-author-tool and never touches a live skills.db.
- * The cleo CLI overrides both with chokepoint-routed implementations.
+ * The cleo CLI overrides both with chokepoint-routed implementations that
+ * funnel through `openSkillsDb()` + `upsertSkillRow`. A no-op default
+ * (`caampStandaloneAdapters`) is exported for environments (e.g. legacy
+ * caamp standalone CLI) that do not have a live `skills.db`.
  *
  * @public
  */
@@ -823,14 +824,11 @@ export interface DoctorAdoptCliAdapters {
 }
 
 /**
- * Standalone-`caamp` defaults — no DB access, every directory is an orphan.
+ * Standalone-CLI defaults — no DB access, every directory is an orphan.
  *
  * @remarks
- * In the standalone caamp CLI, there's no skills.db (caamp is the
- * registry-author tool, not the user-runtime). We treat every directory as
- * an orphan and refuse all user-adopt writes by surfacing an explanatory
- * error through `recordRow`. The cleo CLI overrides this with the real
- * chokepoint-routed adapters.
+ * Surfaces a clear error rather than silently no-op'ing. The cleo CLI
+ * overrides this with the real chokepoint-routed adapters.
  *
  * @public
  */
@@ -838,140 +836,7 @@ export const caampStandaloneAdapters: DoctorAdoptCliAdapters = {
   loadRegisteredNames: () => new Set<string>(),
   recordRow: () => {
     throw new Error(
-      'caamp standalone CLI cannot write to skills.db. Use `cleo skills doctor adopt-orphans` instead.',
+      'Standalone caller cannot write to skills.db. Use `cleo skills doctor adopt-orphans` instead.',
     );
   },
 };
-
-/**
- * Register the `skills doctor adopt-orphans` subcommand on the parent
- * `skills` Commander group.
- *
- * @remarks
- * The handler creates the `doctor` subgroup if it doesn't already exist on
- * the parent, so registration order is tolerant of any future co-registration
- * with sibling `doctor` subcommands. Adapters default to
- * {@link caampStandaloneAdapters} which surface a clear error — pass the
- * cleo-chokepoint adapters when wiring under `packages/cleo/`.
- *
- * Default output is LAFS JSON. Pass `--human` for the colorised summary.
- *
- * @param parent - The parent `skills` Command from
- *   {@link registerSkillsCommands}.
- * @param adapters - DB read/write hooks. Defaults to
- *   {@link caampStandaloneAdapters} so the standalone caamp CLI surfaces a
- *   helpful error rather than silently no-op'ing.
- *
- * @example
- * ```bash
- * cleo skills doctor adopt-orphans                 # interactive
- * cleo skills doctor adopt-orphans --non-interactive
- * cleo skills doctor adopt-orphans --auto-user-adopt --json
- * ```
- *
- * @public
- */
-export function registerSkillsDoctorAdopt(
-  parent: Command,
-  adapters: DoctorAdoptCliAdapters = caampStandaloneAdapters,
-): void {
-  // Reuse an existing `doctor` subgroup if one is already attached on the
-  // parent; otherwise create one. Commander tolerates `.command()` being
-  // called twice with the same name but only one will surface in `--help`,
-  // so we prefer reuse.
-  const existing = parent.commands.find((c) => c.name() === 'doctor');
-  const doctor =
-    existing ?? parent.command('doctor').description('Diagnostics + repair for the skill system');
-
-  doctor
-    .command('adopt-orphans')
-    .description(
-      'Interactive audit of on-disk skill dirs not tracked in skills.db (canonical/user/delete/skip)',
-    )
-    .option('--json', 'Output as LAFS JSON envelope (default)')
-    .option('--human', 'Output a colorised human-readable summary')
-    .option('--non-interactive', 'List orphans + exit without action')
-    .option('--auto-user-adopt', 'Bulk-mark all orphans as source_type=user without prompting')
-    .action(
-      async (opts: {
-        json?: boolean;
-        human?: boolean;
-        nonInteractive?: boolean;
-        autoUserAdopt?: boolean;
-      }) => {
-        const operation = 'skills.doctor.adopt-orphans';
-        const mvi: import('../../core/lafs.js').MVILevel = 'standard';
-
-        let format: 'json' | 'human';
-        try {
-          format = resolveFormat({
-            jsonFlag: opts.json ?? false,
-            humanFlag: opts.human ?? false,
-            projectDefault: 'json',
-          });
-        } catch (error) {
-          handleFormatError(error, operation, mvi, opts.json);
-        }
-
-        try {
-          const result = await runDoctorAdopt({
-            nonInteractive: opts.nonInteractive ?? false,
-            autoUserAdopt: opts.autoUserAdopt ?? false,
-            loadRegisteredNames: adapters.loadRegisteredNames,
-            recordRow: adapters.recordRow,
-          });
-
-          if (format === 'json') {
-            outputSuccess(operation, mvi, result);
-            return;
-          }
-
-          // Human-readable
-          const ok = result.results.filter((r) => r.applied);
-          const blocked = result.results.filter((r) => !r.applied);
-
-          console.log(pc.bold(`\nskills doctor adopt-orphans (${result.mode})\n`));
-          console.log(
-            `  ${pc.bold('Discovered')}: ${result.totalOrphans} orphan${
-              result.totalOrphans === 1 ? '' : 's'
-            }`,
-          );
-          for (const r of result.results) {
-            const icon =
-              r.decision === 'skip' ? pc.dim('·') : r.applied ? pc.green('✓') : pc.red('✗');
-            const verb = r.applied ? r.decision : `${r.decision} (refused)`;
-            console.log(`  ${icon} ${r.orphan.name.padEnd(32)} ${pc.dim(verb)}`);
-            if (r.refusal) {
-              console.log(`      ${pc.yellow(r.refusal.message)}`);
-              console.log(`      ${pc.dim(r.refusal.remediation)}`);
-            }
-            if (r.archivedTo) {
-              console.log(`      ${pc.dim(`archived → ${r.archivedTo}`)}`);
-            }
-          }
-          console.log(
-            `\n  ${pc.bold('Summary')}: ${pc.green(`${ok.length} applied`)}, ` +
-              `${pc.red(`${blocked.length} blocked`)}`,
-          );
-          if (result.auditLogPath) {
-            console.log(`  ${pc.dim(`audit log → ${result.auditLogPath}`)}`);
-          }
-          console.log();
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (format === 'json') {
-            emitJsonError(
-              operation,
-              mvi,
-              ErrorCodes.INTERNAL_ERROR,
-              message,
-              ErrorCategories.INTERNAL,
-            );
-          } else {
-            console.error(pc.red(`Error: ${message}`));
-          }
-          process.exit(1);
-        }
-      },
-    );
-}
