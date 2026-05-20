@@ -10,6 +10,7 @@
  */
 
 export * from './allowlist.js';
+export * from './background-review.js';
 export * from './baseline.js';
 export * from './cross-project-hygiene.js';
 export * from './daemon.js';
@@ -20,10 +21,13 @@ export * from './ingesters/brain-ingester.js';
 export * from './ingesters/nexus-ingester.js';
 export * from './ingesters/test-ingester.js';
 export * from './kms.js';
+export * from './local-patch.js';
 export * from './ops.js';
 export * from './proposal-dedup.js';
 export * from './proposal-rate-limiter.js';
 export * from './propose-tick.js';
+export * from './skill-provenance.js';
+export * from './skill-review-prompt.js';
 export * from './stage-drift-tick.js';
 export * from './state.js';
 export * from './tick.js';
