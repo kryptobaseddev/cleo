@@ -176,6 +176,34 @@ export {
 // Canonical SSoT path helpers (T9650 — architecture v3 §1, §6)
 export type { IsCanonicalOptions, SkillSourceType as SkillRootSourceType } from './skill-root.js';
 export { is_canonical, resolveSkillsRoot } from './skill-root.js';
+// Skills-guard — T9730 trust-aware static security scanner
+export type {
+  Finding,
+  InstallDecision,
+  InstallGateDecision,
+  ScanResult,
+  ScanVerdict,
+  SkillTrustLevel,
+} from './skills-guard.js';
+export {
+  contentHash,
+  formatScanReport,
+  resolveTrustLevel,
+  scanFile,
+  scanSkill,
+  shouldAllowInstall,
+  TRUSTED_REPOS,
+} from './skills-guard.js';
+export type { SkillTrustBypassEntry } from './skills-guard-audit.js';
+export { getTrustBypassLogPath, recordTrustBypass } from './skills-guard-audit.js';
+export type { FindingCategory, FindingSeverity, ThreatPattern } from './skills-guard-patterns.js';
+export {
+  INVISIBLE_CHARS,
+  SCANNABLE_EXTENSIONS,
+  STRUCTURAL_LIMITS,
+  SUSPICIOUS_BINARY_EXTENSIONS,
+  THREAT_PATTERNS,
+} from './skills-guard-patterns.js';
 // Test utilities
 export {
   formatDateYMD,
