@@ -52,6 +52,32 @@ export type AttachmentOwnerType =
 export type { AttachmentKind } from '../attachment.js';
 
 /**
+ * Allowed values for the `--type` taxonomy on `cleo docs add`.
+ *
+ * The set is closed at the CLI surface; new values require a coordinated
+ * update to (1) {@link DOCS_TYPE_VALUES}, (2) the dispatch-layer guard, and
+ * (3) the citty CLI flag description. The DB column itself is open (no CHECK)
+ * so older clients reading a forward-compatible value gracefully degrade.
+ *
+ * @task T9637 (T-DOCS-SLUG-2)
+ */
+export const DOCS_TYPE_VALUES = [
+  'spec',
+  'adr',
+  'research',
+  'handoff',
+  'note',
+  'llm-readme',
+] as const;
+
+/**
+ * Closed-set type alias for {@link DOCS_TYPE_VALUES}.
+ *
+ * @task T9637
+ */
+export type DocsType = (typeof DOCS_TYPE_VALUES)[number];
+
+/**
  * Flattened wire-format attachment row returned by docs query operations.
  *
  * This is the **API response shape** — a denormalised projection of the domain
@@ -85,6 +111,28 @@ export interface DocsAttachmentRow {
   createdAt: string;
   /** Current reference count across all owners. */
   refCount: number;
+  /**
+   * Optional human-friendly slug for the attachment, unique per project.
+   *
+   * @task T9636 (T-DOCS-SLUG-1)
+   */
+  slug?: string;
+  /**
+   * Optional taxonomy classification.
+   *
+   * @task T9637 (T-DOCS-SLUG-2)
+   */
+  type?: DocsType;
+  /**
+   * When the attachment is project-scoped (no specific entity owner), this
+   * row's owner ID / type still reflect how the attachment was registered.
+   * The `--project` list view simply unions all owner-types.
+   *
+   * @task T9638 (T-DOCS-SLUG-3)
+   */
+  ownerId?: string;
+  /** Owner type (only populated by `docs list --project`). */
+  ownerType?: AttachmentOwnerType;
 }
 
 /**
@@ -124,7 +172,13 @@ export interface AttachmentRecord {
 /**
  * Parameters for `docs.list`.
  *
- * Exactly one of `task`, `session`, or `observation` must be provided.
+ * Exactly one of `task`, `session`, `observation`, or `project` must be
+ * provided. `project=true` lists ALL attachments in the project DB
+ * regardless of owner. `type` is an optional filter applicable to every
+ * mode and matches the {@link DocsType} taxonomy exactly.
+ *
+ * @task T9637 (T-DOCS-SLUG-2 — `type` filter)
+ * @task T9638 (T-DOCS-SLUG-3 — `project` scope)
  */
 export interface DocsListParams {
   /** Task identifier to list attachments for. */
@@ -133,16 +187,37 @@ export interface DocsListParams {
   session?: string;
   /** Observation identifier to list attachments for. */
   observation?: string;
+  /**
+   * When true, list ALL attachments in the project (across every owner).
+   *
+   * @task T9638
+   */
+  project?: boolean;
+  /**
+   * Filter results to attachments whose `type` column equals this value.
+   *
+   * @task T9637
+   */
+  type?: DocsType;
 }
 
 /**
  * Result of `docs.list`.
+ *
+ * When the caller passed `project: true`, `ownerId` is the empty string and
+ * `ownerType` is `"task"` (a stable placeholder so consumers don't have to
+ * widen their types); per-row owner information is carried on the
+ * {@link DocsAttachmentRow.ownerId} / `ownerType` fields instead.
  */
 export interface DocsListResult {
-  /** Owner entity ID. */
+  /** Owner entity ID (empty when `project: true`). */
   ownerId: string;
-  /** Inferred owner type. */
+  /** Inferred owner type (placeholder when `project: true`). */
   ownerType: AttachmentOwnerType;
+  /** True when the result represents the whole-project scope (T9638). */
+  project?: boolean;
+  /** Type taxonomy filter, echoed back from the request when provided. */
+  type?: DocsType;
   /** Count of attachments for this owner. */
   count: number;
   /** Attachment metadata array. */
@@ -241,6 +316,21 @@ export interface DocsAddParams {
   labels?: string;
   /** Agent or service that attached this file (default: 'human'). */
   attachedBy?: string;
+  /**
+   * Optional human-friendly slug, unique per project. Pattern: kebab-case,
+   * `[a-z0-9][a-z0-9-]*[a-z0-9]?` (≥1 char, ≤80 chars). Collision returns
+   * `E_SLUG_TAKEN` with 3 alternative suggestions.
+   *
+   * @task T9636 (T-DOCS-SLUG-1)
+   */
+  slug?: string;
+  /**
+   * Optional taxonomy classification. Must match one of
+   * {@link DOCS_TYPE_VALUES}; an invalid value returns `E_INVALID_TYPE`.
+   *
+   * @task T9637 (T-DOCS-SLUG-2)
+   */
+  type?: DocsType;
 }
 
 /**
@@ -263,6 +353,10 @@ export interface DocsAddResult {
   url?: string;
   /** Current attachment backend in use. */
   attachmentBackend?: AttachmentBackend;
+  /** Slug recorded for this attachment, when provided (T9636). */
+  slug?: string;
+  /** Type classification recorded for this attachment, when provided (T9637). */
+  type?: DocsType;
 }
 
 // --------------------------------------------------------------------------

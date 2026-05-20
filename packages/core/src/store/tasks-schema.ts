@@ -1112,6 +1112,35 @@ export const attachments = sqliteTable(
      * Blobs are NEVER auto-deleted — use `cleo docs attachments gc`.
      */
     refCount: integer('ref_count').notNull().default(0),
+    /**
+     * Optional human-friendly slug for the attachment, unique per project
+     * (the DB is per-project, so uniqueness is enforced via a partial UNIQUE
+     * INDEX `WHERE slug IS NOT NULL`).
+     *
+     * `cleo docs fetch <slug>` resolves an attachment by slug as a friendlier
+     * alternative to `att_<base62>` IDs or SHA-256 prefixes.
+     *
+     * @task T9636 (Epic T9627 / Saga T9625)
+     */
+    slug: text('slug'),
+    /**
+     * Optional taxonomy classification for the attachment.
+     *
+     * Allowed values:
+     *   - `spec`        — formal specification documents
+     *   - `adr`         — architecture decision records
+     *   - `research`    — research notes and exploration artefacts
+     *   - `handoff`     — session/agent handoff notes
+     *   - `note`        — general notes
+     *   - `llm-readme`  — llms.txt / READMEs intended for LLM consumption
+     *
+     * Enforced at the dispatch layer (not as a DB CHECK constraint) so that
+     * forward-compatible additions don't require a schema migration. The
+     * absence of a value means "unclassified" for backward compatibility.
+     *
+     * @task T9637 (Epic T9627 / Saga T9625)
+     */
+    type: text('type'),
   },
   (table) => [index('idx_attachments_sha256').on(table.sha256)],
 );

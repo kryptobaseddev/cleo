@@ -60,6 +60,39 @@ export type DerefResult =
   | { status: 'derefd'; refCountAfter: number }
   | { status: 'removed' };
 
+/**
+ * Error thrown by {@link AttachmentStore.put} when an attempt is made to
+ * assign a slug that is already in use elsewhere in the project DB.
+ *
+ * Carries `suggestions` so callers (CLI dispatch) can surface alternative
+ * slugs without re-deriving them. The list is always exactly 3 candidates.
+ *
+ * @task T9636
+ */
+export class SlugCollisionError extends Error {
+  constructor(
+    public readonly slug: string,
+    public readonly suggestions: readonly string[],
+  ) {
+    super(`Slug '${slug}' is already in use in this project`);
+    this.name = 'SlugCollisionError';
+  }
+}
+
+/**
+ * Side-table extension for {@link AttachmentStore.put} carrying optional
+ * project-scoped metadata (slug, type) that lives directly on the
+ * `attachments` row rather than inside the discriminated-union JSON blob.
+ *
+ * @task T9636 (slug) / T9637 (type)
+ */
+export interface PutAttachmentExtras {
+  /** Optional kebab-case slug; uniqueness is enforced at the DB layer. */
+  slug?: string;
+  /** Optional taxonomy classification; validated upstream. */
+  type?: string;
+}
+
 // ─── MIME → extension map ──────────────────────────────────────────────────────
 
 /**
@@ -183,12 +216,18 @@ export interface AttachmentStore {
    * `attachment_refs` row is created for each call so that the caller's owning
    * entity receives its own ref even when the blob is shared.
    *
+   * When `extras.slug` is provided it is assigned to the underlying row;
+   * collision with another row's slug throws {@link SlugCollisionError} after
+   * rolling back. When the same SHA-256 is re-put with a slug, the slug is
+   * applied to the existing row (no-op if equal, collision-checked otherwise).
+   *
    * @param bytes      - Content to store (Buffer or UTF-8 string)
    * @param attachment - Attachment descriptor **without** `sha256` pre-filled
    * @param ownerType  - Entity type for the initial ref (e.g., `"task"`)
    * @param ownerId    - Entity ID for the initial ref (e.g., `"T766"`)
    * @param attachedBy - Optional agent identity that created the ref
    * @param cwd        - Optional working directory for path resolution
+   * @param extras     - Optional per-row metadata (slug, type) — T9636/T9637
    * @returns Resolved {@link AttachmentMetadata} (with `sha256` and `id` set)
    */
   put(
@@ -198,6 +237,7 @@ export interface AttachmentStore {
     ownerId: string,
     attachedBy?: string,
     cwd?: string,
+    extras?: PutAttachmentExtras,
   ): Promise<AttachmentMetadata>;
 
   /**
@@ -220,6 +260,52 @@ export interface AttachmentStore {
    * @returns {@link AttachmentMetadata} or `null` if not found
    */
   getMetadata(attachmentId: string, cwd?: string): Promise<AttachmentMetadata | null>;
+
+  /**
+   * Retrieve attachment metadata + slug + type by slug.
+   *
+   * Returns `null` if no attachment in this project carries the slug.
+   *
+   * @task T9636
+   */
+  findBySlug(
+    slug: string,
+    cwd?: string,
+  ): Promise<{ metadata: AttachmentMetadata; slug: string; type: string | null } | null>;
+
+  /**
+   * List ALL attachments in the project DB, optionally filtered by `type`.
+   *
+   * Returns one row per `attachment_refs` entry so callers see how the
+   * attachment was bound to its owner. Use this for `cleo docs list --project`.
+   *
+   * @task T9638
+   */
+  listAllInProject(
+    cwd?: string,
+    filter?: { type?: string },
+  ): Promise<
+    Array<{
+      metadata: AttachmentMetadata;
+      slug: string | null;
+      type: string | null;
+      ownerType: AttachmentRef['ownerType'];
+      ownerId: string;
+    }>
+  >;
+
+  /**
+   * Read the slug + type columns for an attachment ID.
+   *
+   * Returns `null` when the row doesn't exist; otherwise returns the raw
+   * column values (each independently nullable).
+   *
+   * @task T9636 / T9637
+   */
+  getExtras(
+    attachmentId: string,
+    cwd?: string,
+  ): Promise<{ slug: string | null; type: string | null } | null>;
 
   /**
    * List all attachments associated with a given owner entity.
@@ -327,6 +413,67 @@ function rowToMetadata(row: {
 }
 
 /**
+ * Drizzle DB type used internally — matches the singleton returned by getDb().
+ * Declared loosely (`Awaited<ReturnType<typeof getDb>>`) so the helper stays
+ * forward-compatible if the schema-strictness option changes upstream.
+ */
+type DrizzleDb = Awaited<ReturnType<typeof getDb>>;
+
+/**
+ * Derive 3 alternative slug candidates that are NOT currently in use.
+ *
+ * Strategy (per Epic T9627 design guidance):
+ *   1. `<slug>-N` where N is the count-of-existing-rows + 1
+ *   2. `<slug>-v2`
+ *   3. `<slug>-new` (or `-alt` if `-new` is also taken)
+ *
+ * If a primary candidate is also taken, walk forward until a free one is
+ * found. The lookup is bounded by a maximum of 32 probes per candidate so
+ * a pathological dataset can never block the request.
+ *
+ * @task T9636
+ */
+async function deriveSlugSuggestions(db: DrizzleDb, base: string): Promise<string[]> {
+  const taken = new Set<string>();
+  const probes: string[] = [];
+  const startCount = await db.$count(attachments);
+  probes.push(`${base}-${startCount + 1}`);
+  probes.push(`${base}-v2`);
+  probes.push(`${base}-new`);
+
+  const out: string[] = [];
+  for (let idx = 0; idx < probes.length; idx++) {
+    let candidate = probes[idx] as string;
+    let walk = 0;
+    while (walk < 32) {
+      if (taken.has(candidate)) {
+        walk++;
+        candidate = `${candidate}-x`;
+        continue;
+      }
+      const conflict = await db
+        .select()
+        .from(attachments)
+        .where(eq(attachments.slug, candidate))
+        .get();
+      if (!conflict) {
+        out.push(candidate);
+        taken.add(candidate);
+        break;
+      }
+      taken.add(candidate);
+      walk++;
+      candidate = idx === 2 ? `${base}-alt-${walk}` : `${candidate}-x`;
+    }
+    if (out.length === idx + 1) continue;
+    // Failed to derive — keep a fallback so caller always sees 3 entries.
+    out.push(`${base}-${startCount + idx + 100}`);
+  }
+
+  return out.slice(0, 3);
+}
+
+/**
  * Validate and coerce ownerType to the allowed enum.
  *
  * Throws if the value is not one of the six supported entity types.
@@ -366,17 +513,35 @@ function assertOwnerType(ownerType: string): AttachmentRef['ownerType'] {
  */
 export function createAttachmentStore(): AttachmentStore {
   return {
-    async put(bytes, attachment, ownerType, ownerId, attachedBy, cwd) {
+    async put(bytes, attachment, ownerType, ownerId, attachedBy, cwd, extras) {
       const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes, 'utf-8');
       const hash = sha256Of(buf);
       const mime = mimeFromAttachment({ sha256: hash, ...attachment } as Attachment);
       const filePath = blobPath(hash, mime, cwd);
       const fullAttachment: Attachment = { sha256: hash, ...attachment } as Attachment;
+      const slug = extras?.slug;
+      const type = extras?.type;
 
       return withWriteLock(async () => {
         const db = await getDb(cwd);
         const nativeDb = getNativeTasksDb();
         if (!nativeDb) throw new Error('Database not initialized');
+
+        // Pre-check slug collision OUTSIDE the BEGIN IMMEDIATE window so the
+        // caller receives SlugCollisionError without leaving a half-written
+        // transaction. The partial UNIQUE INDEX on the slug column is the
+        // hard backstop; this check provides a friendly error + suggestions.
+        if (slug !== undefined) {
+          const conflict = await db
+            .select()
+            .from(attachments)
+            .where(eq(attachments.slug, slug))
+            .get();
+          if (conflict && conflict.sha256 !== hash) {
+            const suggestions = await deriveSlugSuggestions(db, slug);
+            throw new SlugCollisionError(slug, suggestions);
+          }
+        }
 
         // Transaction: check for existing blob, insert if needed, create ref, increment refCount.
         let wasNew = false;
@@ -410,8 +575,22 @@ export function createAttachmentStore(): AttachmentStore {
                 attachmentJson: JSON.stringify(fullAttachment),
                 createdAt,
                 refCount: 0,
+                ...(slug !== undefined ? { slug } : {}),
+                ...(type !== undefined ? { type } : {}),
               })
               .run();
+          }
+
+          // For an already-existing row, apply slug/type if requested. The
+          // pre-check above guarantees no cross-row collision; same-row
+          // re-assignment of the same slug is a no-op via the partial UNIQUE
+          // INDEX semantics. Use raw SQL via drizzle update to avoid clobbering
+          // existing values when extras is undefined.
+          if (existing && (slug !== undefined || type !== undefined)) {
+            const updates: Record<string, string> = {};
+            if (slug !== undefined) updates.slug = slug;
+            if (type !== undefined) updates.type = type;
+            await db.update(attachments).set(updates).where(eq(attachments.id, attachmentId)).run();
           }
 
           // Insert ref.
@@ -491,6 +670,66 @@ export function createAttachmentStore(): AttachmentStore {
       const db = await getDb(cwd);
       const row = await db.select().from(attachments).where(eq(attachments.id, attachmentId)).get();
       return row ? rowToMetadata(row) : null;
+    },
+
+    async findBySlug(slug, cwd) {
+      const db = await getDb(cwd);
+      const row = await db.select().from(attachments).where(eq(attachments.slug, slug)).get();
+      if (!row) return null;
+      return {
+        metadata: rowToMetadata(row),
+        slug: row.slug ?? slug,
+        type: row.type ?? null,
+      };
+    },
+
+    async getExtras(attachmentId, cwd) {
+      const db = await getDb(cwd);
+      const row = await db.select().from(attachments).where(eq(attachments.id, attachmentId)).get();
+      if (!row) return null;
+      return { slug: row.slug ?? null, type: row.type ?? null };
+    },
+
+    async listAllInProject(cwd, filter) {
+      const db = await getDb(cwd);
+      // One row per attachment_refs binding, joined to attachments. We
+      // intentionally surface duplicates when one blob is referenced by
+      // multiple owners — callers wanting deduplication can collapse by id.
+      const rows = await db
+        .select({
+          attachmentId: attachmentRefs.attachmentId,
+          ownerType: attachmentRefs.ownerType,
+          ownerId: attachmentRefs.ownerId,
+        })
+        .from(attachmentRefs)
+        .all();
+
+      if (rows.length === 0) return [];
+
+      const out: Array<{
+        metadata: AttachmentMetadata;
+        slug: string | null;
+        type: string | null;
+        ownerType: AttachmentRef['ownerType'];
+        ownerId: string;
+      }> = [];
+      for (const refRow of rows) {
+        const row = await db
+          .select()
+          .from(attachments)
+          .where(eq(attachments.id, refRow.attachmentId))
+          .get();
+        if (!row) continue;
+        if (filter?.type !== undefined && row.type !== filter.type) continue;
+        out.push({
+          metadata: rowToMetadata(row),
+          slug: row.slug ?? null,
+          type: row.type ?? null,
+          ownerType: refRow.ownerType,
+          ownerId: refRow.ownerId,
+        });
+      }
+      return out;
     },
 
     async listByOwner(ownerType, ownerId, cwd) {
