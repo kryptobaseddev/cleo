@@ -254,6 +254,24 @@ export const doctorCommand = defineCommand({
       description:
         'Audit orphaned agent worktree directories and report what cleo gc --worktrees would remove (T9043)',
     },
+    /**
+     * T9790: list orphan `.cleo/` directories under
+     * `<projectRoot>/.claude/worktrees/` with full provenance. Read-only.
+     */
+    'audit-worktree-orphans': {
+      type: 'boolean',
+      description:
+        'List orphan .cleo/ directories under .claude/worktrees/ (T9790, fallout from T9550/T9580)',
+    },
+    /**
+     * T9790: archive then remove every orphan reported by
+     * `--audit-worktree-orphans`. Combine with `--dry-run` to preview
+     * without touching the filesystem.
+     */
+    'prune-worktree-orphans': {
+      type: 'boolean',
+      description: 'Archive then remove orphan .cleo/ directories under .claude/worktrees/ (T9790)',
+    },
     'audit-temp': {
       type: 'boolean',
       description:
@@ -536,6 +554,75 @@ export const doctorCommand = defineCommand({
           (process.exitCode === undefined || process.exitCode === 0)
         ) {
           process.exitCode = 2;
+        }
+      } else if (args['audit-worktree-orphans']) {
+        // T9790: read-only — list orphan .cleo/ directories under
+        // <projectRoot>/.claude/worktrees/ with provenance.
+        progress.step(0, 'Scanning for worktree-orphan .cleo/ directories');
+        const { scanWorktreeOrphans } = await import('@cleocode/core/doctor/worktree-orphans.js');
+        const projectRoot = getProjectRoot();
+        const orphans = await scanWorktreeOrphans(projectRoot);
+        progress.complete(`Found ${orphans.length} orphan${orphans.length === 1 ? '' : 's'}`);
+
+        cliOutput(
+          { projectRoot, orphans, count: orphans.length },
+          { command: 'doctor', operation: 'doctor.audit-worktree-orphans' },
+        );
+        if (orphans.length > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
+          process.exitCode = 2;
+        }
+      } else if (args['prune-worktree-orphans']) {
+        // T9790: archive + remove orphan .cleo/ directories. Always writes
+        // a tarball + audit-log line BEFORE removing anything.
+        const isDryRun = args['dry-run'] === true;
+        progress.step(
+          0,
+          `${isDryRun ? '[DRY RUN] ' : ''}Scanning + pruning worktree-orphan .cleo/ directories`,
+        );
+        const { pruneWorktreeOrphans, scanWorktreeOrphans } = await import(
+          '@cleocode/core/doctor/worktree-orphans.js'
+        );
+        const projectRoot = getProjectRoot();
+        const orphans = await scanWorktreeOrphans(projectRoot);
+
+        if (orphans.length === 0) {
+          progress.complete('No worktree orphans found — nothing to prune');
+          cliOutput(
+            {
+              projectRoot,
+              dryRun: isDryRun,
+              archivePath: null,
+              pruned: [],
+              rejected: [],
+              totalSizeBytes: 0,
+            },
+            { command: 'doctor', operation: 'doctor.prune-worktree-orphans' },
+          );
+          return;
+        }
+
+        const archiveDir = join(projectRoot, '.cleo', 'backups');
+        const auditLogPath = join(projectRoot, '.cleo', 'audit', 'worktree-prune.jsonl');
+
+        const result = await pruneWorktreeOrphans(orphans, {
+          archiveDir,
+          auditLogPath,
+          dryRun: isDryRun,
+          projectRoot,
+        });
+
+        const verb = isDryRun ? 'Would prune' : 'Pruned';
+        progress.complete(
+          `${verb} ${result.pruned.length} orphan${result.pruned.length === 1 ? '' : 's'}` +
+            `${result.rejected.length > 0 ? `, ${result.rejected.length} rejected` : ''}`,
+        );
+
+        cliOutput(
+          { projectRoot, ...result },
+          { command: 'doctor', operation: 'doctor.prune-worktree-orphans' },
+        );
+        if (result.rejected.length > 0) {
+          process.exitCode = 1;
         }
       } else if (args['audit-temp']) {
         progress.step(0, 'Auditing orphaned CLEO temp directories');
