@@ -1,5 +1,72 @@
 # Changelog
 
+## [2026.5.90] (2026-05-20) — SG-SKILLS-CLEANUP close (T9740)
+
+Closes Saga **SG-SKILLS-CLEANUP** (Epic **T9740**) — the four-sphere
+cleanup pass on the skills/CAAMP subsystem that converged on a single
+canonical `cleo skills migrate` command, collapsed three duplicated
+path resolvers into one SSoT line in `resolveSkillsRoot()`, and
+flipped the inverted caamp→core dependency direction so CORE no
+longer reaches into a leaf package for path helpers. Net: **-489
+LOC** across the four waves.
+
+### Changed (T9740 Wave A — single `cleo skills migrate`)
+
+- **PR #355 (T9741+T9742+T9743)** — collapses the historical
+  `cleo skills migrate` (Commander) and `cleo doctor migrate` (citty,
+  partial) into a single canonical citty surface. Migration helpers
+  move from `@cleocode/caamp` to
+  `@cleocode/core/skills/migration`; the dead Commander registrar
+  and `doctor migrate` alias are deleted. Resolves long-standing
+  "which migrate do I run?" confusion documented in the T9740
+  research note.
+
+### Changed (T9740 Wave B — doctor helpers to CORE)
+
+- **PR #360 (T9744+T9745)** — `runDoctorBridge` and `runDoctorAdopt`
+  move from the CLI handler into `@cleocode/core`, eliminating
+  business logic in the dispatch layer. Three duplicated path
+  resolvers (caamp + cleo-os + cleo) consolidate behind new SSoT
+  constants `AGENTS_SKILLS_BRIDGE_PATH` and friends. No behavioral
+  change — only the import paths shift.
+
+### Changed (T9740 Wave C — ZERO legacy paths)
+
+- **PR #361 (T9746+T9747+T9748)** — `resolveSkillsRoot()` is now a
+  single line: `return join(homedir(), '.cleo', 'skills')`. The
+  legacy `$AGENTS_HOME/skills` fallback, the
+  `[caamp] WARNING: skills root resolved from legacy path`
+  deprecation log, and the `getCanonicalSkillsRoot/Dir` helpers in
+  `@cleocode/caamp` are all deleted. The caamp→core dependency
+  direction is flipped — CORE no longer imports from caamp for
+  skills-path resolution, restoring the canonical layering. ~300
+  LOC net removal.
+
+### Changed (T9740 Wave D — CLI polish)
+
+- **PR #356 (T9749+T9750+T9751)** — `proposeCanonicalPatch()` moves
+  from the CLI into `@cleocode/core`; four inline `openSkillsDb`
+  queries in `sentient.ts` move into CORE adapters; the orphan
+  `trust-gate-adapter.ts` shim is deleted (-189 LOC). Pure refactor
+  with no surface change.
+
+### Removed
+
+- `[caamp] WARNING: skills root resolved from legacy path`
+  deprecation warning (verified silent on `cleo --version` once
+  Wave C lands).
+- `getCanonicalSkillsRoot` and `getCanonicalSkillsDir` from
+  `@cleocode/caamp` — replaced by the SSoT helper in
+  `@cleocode/core`.
+- `trust-gate-adapter.ts` (Wave D) — superseded by inline CORE
+  resolver in `install.ts`.
+
+### Internal
+
+- Net **-489 LOC** across Spheres A/B/C/D combined.
+- Three duplicated path resolvers collapsed to one SSoT.
+- caamp no longer a transitive dep of CORE for skills paths.
+
 ## [2026.5.89] (2026-05-20) — T9738 carryforward closure (Epic T9752)
 
 Closes Epic **T9752** — the 5 deferred T9738 carryforwards from the
