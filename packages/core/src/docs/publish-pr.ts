@@ -636,6 +636,32 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
     return { success: false, error: prov.error };
   }
 
+  // T9717 — detect an existing open PR for the same head branch so we can
+  // atomically update its body instead of opening a duplicate. We probe
+  // ONLY when origin already had the branch — a fresh branch can't have
+  // a PR yet. Failure here is non-fatal: we fall back to the new-PR path.
+  let priorPrUrl: string | undefined;
+  let priorSha: string | undefined;
+  if (prov.remoteHasBranch) {
+    try {
+      const list = await runGh(
+        ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,url,headRefOid'],
+        projectRoot,
+      );
+      const rows = JSON.parse(list.stdout || '[]') as Array<{
+        number: number;
+        url: string;
+        headRefOid: string;
+      }>;
+      if (Array.isArray(rows) && rows.length > 0) {
+        priorPrUrl = rows[0].url;
+        priorSha = rows[0].headRefOid;
+      }
+    } catch {
+      // Non-fatal — fall back to opening a new PR.
+    }
+  }
+
   try {
     // 5. Compute frontmatter + content + write the file.
     const blobSha = createHash('sha256').update(resolved.bytes).digest('hex');
@@ -679,9 +705,18 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
 
     const commitSha = (await runGit(['rev-parse', 'HEAD'], worktreeDir)).stdout.trim();
 
-    // 7. Push (plain push — update flow with `--force-with-lease` is T9717).
+    // 7. Push. When a prior PR head exists we use --force-with-lease so we
+    //    NEVER clobber unrelated remote commits — the lease anchors the
+    //    push to the sha we observed at the start of the call (T9717).
     try {
-      await runGit(['push', '-u', 'origin', branch], worktreeDir);
+      if (priorSha) {
+        await runGit(
+          ['push', '--force-with-lease=' + branch + ':' + priorSha, '-u', 'origin', branch],
+          worktreeDir,
+        );
+      } else {
+        await runGit(['push', '-u', 'origin', branch], worktreeDir);
+      }
     } catch (e) {
       return {
         success: false,
@@ -693,46 +728,72 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
       };
     }
 
-    // 8. Open the PR.
+    // 8. Open OR update the PR.
     const finalBody = opts.body ?? defaultPublishPrBody({ slug, type, blobSha });
     const finalTitle = opts.title ?? `docs(${type}): publish ${slug}`;
 
     let prUrl: string;
-    try {
-      const created = await runGh(
-        [
-          'pr',
-          'create',
-          '--base',
-          base,
-          '--head',
-          branch,
-          '--title',
-          finalTitle,
-          '--body',
-          finalBody,
-        ],
-        worktreeDir,
-      );
-      prUrl = parseGhPrUrl(created.stdout);
-    } catch (e) {
-      return {
-        success: false,
-        error: publishPrError(
-          'E_PR_CREATE_FAILED',
-          `gh pr create failed: ${execMsg(e)}`,
-          'Re-run with `gh pr create` manually for a more detailed error message.',
-        ),
-      };
+    let action: 'new' | 'updated';
+    if (priorPrUrl) {
+      // T9717 — atomic body refresh for the existing PR. The force-push
+      // above already advanced the head sha, so `gh pr edit` only needs
+      // to update title + body.
+      try {
+        await runGh(
+          ['pr', 'edit', priorPrUrl, '--title', finalTitle, '--body', finalBody],
+          worktreeDir,
+        );
+      } catch (e) {
+        return {
+          success: false,
+          error: publishPrError(
+            'E_PR_UPDATE_FAILED',
+            `gh pr edit failed: ${execMsg(e)}`,
+            'Verify the PR is still open and you have write access.',
+          ),
+        };
+      }
+      prUrl = priorPrUrl;
+      action = 'updated';
+    } else {
+      try {
+        const created = await runGh(
+          [
+            'pr',
+            'create',
+            '--base',
+            base,
+            '--head',
+            branch,
+            '--title',
+            finalTitle,
+            '--body',
+            finalBody,
+          ],
+          worktreeDir,
+        );
+        prUrl = parseGhPrUrl(created.stdout);
+        action = 'new';
+      } catch (e) {
+        return {
+          success: false,
+          error: publishPrError(
+            'E_PR_CREATE_FAILED',
+            `gh pr create failed: ${execMsg(e)}`,
+            'Re-run with `gh pr create` manually for a more detailed error message.',
+          ),
+        };
+      }
     }
 
     return {
       success: true,
       data: {
-        action: 'new',
+        action,
         prUrl,
         branch,
         commitSha,
+        ...(priorSha ? { priorSha } : {}),
         filePath: relPath,
         slug,
         type,
