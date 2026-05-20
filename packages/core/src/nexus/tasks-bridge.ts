@@ -22,6 +22,7 @@ import type {
   SymbolReference,
   TaskReference,
 } from '@cleocode/contracts';
+import { pushWarning } from '@cleocode/lafs';
 import { EDGE_TYPES } from '../memory/edge-types.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
@@ -163,10 +164,18 @@ export async function linkTaskToSymbols(
       symbolsFound,
     };
   } catch (err) {
-    console.error(
-      `[CLEO] linkTaskToSymbols failed for ${taskId}:`,
-      err instanceof Error ? err.message : String(err),
-    );
+    // T9771: route task-symbol-link failure to LAFS meta.warnings.
+    pushWarning({
+      code: 'W_TASKS_BRIDGE_FAILED',
+      message: `linkTaskToSymbols failed for ${taskId}`,
+      severity: 'warn',
+      context: {
+        bridge: 'tasks',
+        operation: 'linkTaskToSymbols',
+        taskId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
     return {
       linked: 0,
       taskId,
@@ -217,10 +226,18 @@ export async function getTasksForSymbol(
       matchStrategy: 'git-log-file-match',
     }));
   } catch (err) {
-    console.error(
-      `[CLEO] getTasksForSymbol failed for ${symbolId}:`,
-      err instanceof Error ? err.message : String(err),
-    );
+    // T9771: route task-symbol-lookup failure to LAFS meta.warnings.
+    pushWarning({
+      code: 'W_TASKS_BRIDGE_FAILED',
+      message: `getTasksForSymbol failed for ${symbolId}`,
+      severity: 'warn',
+      context: {
+        bridge: 'tasks',
+        operation: 'getTasksForSymbol',
+        symbolId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
     return [];
   }
 }
@@ -286,10 +303,18 @@ export async function getSymbolsForTask(
 
     return results;
   } catch (err) {
-    console.error(
-      `[CLEO] getSymbolsForTask failed for ${taskId}:`,
-      err instanceof Error ? err.message : String(err),
-    );
+    // T9771: route task-symbol-lookup failure to LAFS meta.warnings.
+    pushWarning({
+      code: 'W_TASKS_BRIDGE_FAILED',
+      message: `getSymbolsForTask failed for ${taskId}`,
+      severity: 'warn',
+      context: {
+        bridge: 'tasks',
+        operation: 'getSymbolsForTask',
+        taskId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
     return [];
   }
 }
@@ -360,12 +385,27 @@ export async function runGitLogTaskLinker(
       gitLogOutput = execFileSync('git', args, {
         cwd: projectRoot,
         encoding: 'utf-8',
+        // T9771: capture stderr (pipe) so git's own diagnostics do NOT leak
+        // to the parent's stderr when running under JSON-emitting handlers.
+        // Without this, "fatal: not a git repository" from git would land in
+        // the user's terminal even though we route the failure through
+        // pushWarning() for envelope-only delivery.
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch {
-      // git command failed — likely not a git repo; warn and return empty result
-      console.warn(
-        `[CLEO] runGitLogTaskLinker: git log failed in "${projectRoot}" — directory may not be a git repository. Skipping task-symbol linking.`,
-      );
+      // T9771: git command failed — likely not a git repo; surface as
+      // envelope warning instead of stderr so JSON consumers stay clean.
+      pushWarning({
+        code: 'W_TASKS_BRIDGE_FAILED',
+        message:
+          'runGitLogTaskLinker: git log failed — directory may not be a git repository. Skipping task-symbol linking.',
+        severity: 'warn',
+        context: {
+          bridge: 'tasks',
+          operation: 'runGitLogTaskLinker',
+          projectRoot,
+        },
+      });
       return {
         linked: 0,
         commitsProcessed: 0,
@@ -445,10 +485,17 @@ export async function runGitLogTaskLinker(
       lastCommitHash: lastCommit,
     };
   } catch (err) {
-    console.error(
-      '[CLEO] runGitLogTaskLinker failed:',
-      err instanceof Error ? err.message : String(err),
-    );
+    // T9771: route git-log linker failure to LAFS meta.warnings.
+    pushWarning({
+      code: 'W_TASKS_BRIDGE_FAILED',
+      message: 'runGitLogTaskLinker failed',
+      severity: 'warn',
+      context: {
+        bridge: 'tasks',
+        operation: 'runGitLogTaskLinker',
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
     return {
       linked: 0,
       commitsProcessed: 0,
