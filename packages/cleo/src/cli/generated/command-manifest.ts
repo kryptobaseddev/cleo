@@ -355,6 +355,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/export.js')).exportCommand as CommandDef,
   },
   {
+    exportName: 'federationCommand',
+    name: 'federation',
+    description: 'Federation peer management: add, remove, list trusted peers',
+    load: async () =>
+      (await import('../commands/federation.js')).federationCommand as CommandDef,
+  },
+  {
     exportName: 'findCommand',
     name: 'find',
     description: 'Fuzzy search tasks by title/description',
