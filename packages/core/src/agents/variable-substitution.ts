@@ -38,6 +38,7 @@ import type {
   SubstitutionSource,
   VariableResolver,
 } from '@cleocode/contracts';
+import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute } from '../paths.js';
 
 /**
@@ -195,8 +196,10 @@ export class DefaultVariableResolver implements VariableResolver {
         perVariable.set(varName, null);
         if (!missing.includes(varName)) missing.push(varName);
         if (warnMissing) {
-          // eslint-disable-next-line no-console
-          console.warn(`[variable-substitution] "${varName}" not in allowedVars whitelist`);
+          pushWarning({
+            code: 'W_VAR_SUB_UNRESOLVED',
+            message: `"${varName}" not in allowedVars whitelist`,
+          });
         }
         continue;
       }
@@ -223,8 +226,10 @@ export class DefaultVariableResolver implements VariableResolver {
       perVariable.set(varName, null);
       if (!missing.includes(varName)) missing.push(varName);
       if (warnMissing) {
-        // eslint-disable-next-line no-console
-        console.warn(`[variable-substitution] "${varName}" unresolved`);
+        pushWarning({
+          code: 'W_VAR_SUB_UNRESOLVED',
+          message: `"${varName}" unresolved`,
+        });
       }
     }
 
