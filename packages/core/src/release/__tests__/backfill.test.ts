@@ -41,6 +41,14 @@ const { DatabaseSync } = _require('node:sqlite') as {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+/**
+ * Number of legacy v5.x ship/merge commits backfilled by the T9755 migration
+ * (`20260520163324_t9755-backfill-legacy-ship-commits`). Every fresh tasks.db
+ * starts with these rows already in the `commits` table, so tests that assert
+ * absolute counts must shift by this baseline.
+ */
+const LEGACY_BACKFILL_COMMIT_COUNT = 18;
+
 /** Resolve path to the drizzle-tasks migrations folder. */
 function migrationsDir(): string {
   return join(__dirname, '..', '..', '..', 'migrations', 'drizzle-tasks');
@@ -370,7 +378,10 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
 
     // Zero releases written.
     expect(await countRows(projectRoot, 'releases')).toBe(0);
-    expect(await countRows(projectRoot, 'commits')).toBe(0);
+    // The T9755 migration backfills LEGACY_BACKFILL_COMMIT_COUNT legacy ship
+    // commits on every fresh DB; the dry-run walks tags but writes no new
+    // commits, so the count stays at exactly the baked-in baseline.
+    expect(await countRows(projectRoot, 'commits')).toBe(LEGACY_BACKFILL_COMMIT_COUNT);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
