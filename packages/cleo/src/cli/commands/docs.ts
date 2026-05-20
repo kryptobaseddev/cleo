@@ -30,6 +30,7 @@ import {
   listDocVersions,
   mergeDocs,
   publishDocs,
+  publishDocsAsPr,
   rankDocs,
   readJson,
   recordPublication,
@@ -888,6 +889,97 @@ const publishCommand = defineCommand({
   },
 });
 
+// ── cleo docs publish-pr ──────────────────────────────────────────────────────
+
+/**
+ * cleo docs publish-pr <slug-or-id> — open or update a PR with the doc.
+ *
+ * Default behaviour:
+ *   1. Resolves `<slug-or-id>` to attachment bytes via the docs store.
+ *   2. Provisions a temp git worktree on `docs/<slug>`.
+ *   3. Writes `docs/<type>/<slug>.md` with YAML frontmatter.
+ *   4. Commits, pushes, and either opens a new PR or refreshes the
+ *      existing open PR's body atomically (force-with-lease + edit).
+ *
+ * Errors are emitted as LAFS envelopes with `codeName` + `fix` +
+ * `alternatives` — see {@link publishDocsAsPr} for the full taxonomy.
+ *
+ * @task T9716 / T9717 / T9718 / T9719 (T9644 / Epic T9630 / Saga T9625)
+ */
+const publishPrCommand = defineCommand({
+  meta: {
+    name: 'publish-pr',
+    description:
+      'Publish an attachment to a GitHub PR. ' +
+      'Opens a new PR on branch `docs/<slug>` with frontmatter, or ' +
+      'atomically updates the existing open PR for the same slug.',
+  },
+  args: {
+    'slug-or-id': {
+      type: 'positional',
+      description: 'Slug, attachment id, or full sha256 hex of the doc to publish',
+      required: true,
+    },
+    slug: {
+      type: 'string',
+      description:
+        'Override the slug used for the branch + filename. Required when ' +
+        '<slug-or-id> is an attachment id or sha256 with no stored slug.',
+    },
+    type: {
+      type: 'string',
+      description: 'Override the publish dir taxonomy (spec|adr|research|handoff|note|llm-readme).',
+    },
+    title: {
+      type: 'string',
+      description: 'Override the PR title. Default: `docs(<type>): publish <slug>`.',
+    },
+    body: {
+      type: 'string',
+      description: 'Override the PR body. Default: an auto-generated summary.',
+    },
+    base: {
+      type: 'string',
+      description: 'Base branch for the PR. Default: main.',
+    },
+  },
+  async run({ args }) {
+    const slugOrId = String(args['slug-or-id']);
+
+    const result = await publishDocsAsPr({
+      slugOrId,
+      ...(typeof args.slug === 'string' ? { slug: args.slug } : {}),
+      ...(typeof args.type === 'string' ? { type: args.type } : {}),
+      ...(typeof args.title === 'string' ? { title: args.title } : {}),
+      ...(typeof args.body === 'string' ? { body: args.body } : {}),
+      ...(typeof args.base === 'string' ? { base: args.base } : {}),
+    });
+
+    if (result.success) {
+      cliOutput(result.data, { command: 'docs publish-pr', operation: 'docs.publish-pr' });
+      return;
+    }
+
+    const e = result.error;
+    cliError(
+      e.message,
+      ExitCode.GENERAL_ERROR,
+      {
+        name: e.codeName,
+        ...(e.fix ? { fix: e.fix } : {}),
+        ...(e.alternatives
+          ? {
+              alternatives: e.alternatives.map((alt) => ({ action: alt, command: alt })),
+            }
+          : {}),
+        ...(e.details ? { details: e.details } : {}),
+      },
+      { operation: 'docs.publish-pr' },
+    );
+    process.exit(ExitCode.GENERAL_ERROR);
+  },
+});
+
 // ── cleo docs sync ────────────────────────────────────────────────────────────
 
 /**
@@ -1234,7 +1326,8 @@ export const docsCommand = defineCommand({
     description:
       'Documentation attachment management (add/list/fetch/remove), ' +
       'llmtxt primitives (search/merge/graph/rank/versions/publish), ' +
-      'drift detection (sync/status/gap-check), and legacy .md migration (import)',
+      'PR publishing (publish-pr), drift detection (sync/status/gap-check), ' +
+      'and legacy .md migration (import)',
   },
   subCommands: {
     add: addCommand,
@@ -1249,6 +1342,7 @@ export const docsCommand = defineCommand({
     rank: rankCommand,
     versions: versionsCommand,
     publish: publishCommand,
+    'publish-pr': publishPrCommand,
     sync: syncCommand,
     status: statusCommand,
     'gap-check': gapCheckCommand,
