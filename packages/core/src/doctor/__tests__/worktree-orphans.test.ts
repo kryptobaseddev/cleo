@@ -20,7 +20,15 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -220,6 +228,64 @@ describe('pruneWorktreeOrphans — apply', () => {
     for (const r of second.rejected) {
       expect(r.reason).toBe('path-not-found');
     }
+  });
+});
+
+describe('pruneWorktreeOrphans — symlinked parent (macOS /var → /private/var regression)', () => {
+  /**
+   * Reproduces the macOS shard 2 failure where the OS-provided tmpdir
+   * (`/var/folders/...`) silently canonicalises to `/private/var/...`.
+   * On Linux we cannot rely on the OS for that; instead we materialise
+   * an explicit symlink chain so the test fails deterministically on
+   * any platform when the validator order is wrong.
+   *
+   * Layout:
+   *   <tmp>/private/cleo-shadow/        — REAL directory
+   *   <tmp>/var-link  ->  private/cleo-shadow   — symlink (relative)
+   *
+   * We then drive the validator with `<tmp>/var-link/...` paths.
+   * The second prune call (after the orphans are gone) was the failure
+   * site — the validator must still report `path-not-found`, NOT
+   * `path-outside-worktrees-root`.
+   */
+  it('reports path-not-found (not path-outside-worktrees-root) on second prune through a symlinked parent', async () => {
+    const shadow = join(tmpRoot, 'private', 'cleo-shadow');
+    mkdirSync(shadow, { recursive: true });
+    symlinkSync(join('private', 'cleo-shadow'), join(tmpRoot, 'var-link'));
+
+    // Drive the whole flow through the symlinked alias.
+    const aliasedProjectRoot = join(tmpRoot, 'var-link', 'fake-project');
+    const aliasedWorktreesRoot = join(aliasedProjectRoot, '.claude', 'worktrees');
+    mkdirSync(aliasedWorktreesRoot, { recursive: true });
+    const orphan = join(aliasedWorktreesRoot, 'agent-A', '.cleo');
+    mkdirSync(orphan, { recursive: true });
+    writeFileSync(join(orphan, 'tasks.db'), 'fake-db');
+
+    const aliasedArchiveDir = join(aliasedProjectRoot, '.cleo', 'backups');
+    const aliasedAuditLogPath = join(aliasedProjectRoot, '.cleo', 'audit', 'worktree-prune.jsonl');
+
+    const entries = await scanWorktreeOrphans(aliasedProjectRoot);
+    expect(entries.length).toBe(1);
+    // The scan returns the aliased path — this is the path that the
+    // second prune will be asked to resolve AFTER its target is gone.
+    expect(entries[0]?.orphanPath.startsWith(aliasedWorktreesRoot + sep)).toBe(true);
+
+    const first = await pruneWorktreeOrphans(entries, {
+      archiveDir: aliasedArchiveDir,
+      auditLogPath: aliasedAuditLogPath,
+      projectRoot: aliasedProjectRoot,
+    });
+    expect(first.pruned.length).toBe(1);
+
+    // Idempotency through the symlink — must NOT misclassify as escape.
+    const second = await pruneWorktreeOrphans(entries, {
+      archiveDir: aliasedArchiveDir,
+      auditLogPath: aliasedAuditLogPath,
+      projectRoot: aliasedProjectRoot,
+    });
+    expect(second.pruned).toEqual([]);
+    expect(second.rejected.length).toBe(1);
+    expect(second.rejected[0]?.reason).toBe('path-not-found');
   });
 });
 
