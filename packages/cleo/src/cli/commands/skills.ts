@@ -22,13 +22,9 @@
  * @epic T4545
  */
 
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
-import { cwd as processCwd } from 'node:process';
 import type { AdoptedSkillRowData, DoctorAdoptCliAdapters } from '@cleocode/caamp';
 import { AgentsSkillsRealDirError, runDoctorAdopt, runDoctorBridge } from '@cleocode/caamp';
-import { withProvenance } from '@cleocode/core/sentient';
+import { skills as coreSkills } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
@@ -890,136 +886,67 @@ const proposePatchCommand = defineCommand({
   async run({ args }) {
     const skillName = String(args['skill-name']);
     const diffPath = String(args.diff);
-    const title =
-      typeof args.title === 'string' && args.title.length > 0
-        ? args.title
-        : `skill(${skillName}): proposed patch`;
-    const body =
-      typeof args.body === 'string' && args.body.length > 0
-        ? args.body
-        : [
-            `Auto-improve patch for canonical skill **${skillName}**.`,
-            '',
-            `Diff source: \`${diffPath}\``,
-            '',
-            'This PR was opened via `cleo skill propose-patch` (T9714).',
-            'Sphere A canonical skills are owner-CI-only — the local',
-            'sentient daemon CANNOT mutate them in place; this PR is the',
-            'audited path for incorporating a council-approved patch.',
-          ].join('\n');
-    const base = typeof args.base === 'string' && args.base.length > 0 ? args.base : 'main';
+    const title = typeof args.title === 'string' ? args.title : undefined;
+    const body = typeof args.body === 'string' ? args.body : undefined;
+    const base = typeof args.base === 'string' ? args.base : undefined;
     const dryRun = args['dry-run'] === true;
-    const jsonMode = args.json === true;
+    // jsonMode is honoured automatically by cliOutput / cliError via the
+    // global --json flag; the local variable is kept for symmetry with
+    // other commands.
+    void (args.json === true);
 
-    const resolvedDiff = resolvePath(processCwd(), diffPath);
-    if (!existsSync(resolvedDiff)) {
+    const result = await coreSkills.proposeCanonicalPatch({
+      skillName,
+      diffPath,
+      title,
+      body,
+      base,
+      dryRun,
+    });
+
+    if (result.kind === 'error') {
       cliError(
-        `Diff file not found at '${resolvedDiff}'`,
-        'E_NOT_FOUND',
-        { name: 'E_NOT_FOUND' },
+        result.message,
+        result.code,
+        { name: result.code },
         { operation: 'tools.skill.propose-patch' },
       );
       process.exit(1);
       return;
     }
-    const diffBytes = readFileSync(resolvedDiff, 'utf8');
-    if (diffBytes.length === 0) {
-      cliError(
-        `Diff file '${resolvedDiff}' is empty`,
-        'E_PATCH_EMPTY',
-        { name: 'E_PATCH_EMPTY' },
-        { operation: 'tools.skill.propose-patch' },
-      );
-      process.exit(1);
-      return;
-    }
 
-    // gh availability check — handle the dry-run path before invoking.
-    if (!dryRun) {
-      try {
-        execFileSync('gh', ['--version'], { stdio: 'pipe' });
-      } catch {
-        cliError(
-          'gh CLI not found or not authenticated — install gh and run `gh auth login`',
-          'E_GH_UNAVAILABLE',
-          { name: 'E_GH_UNAVAILABLE' },
-          { operation: 'tools.skill.propose-patch' },
-        );
-        process.exit(1);
-        return;
-      }
-    }
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const branchName = `propose-patch/skill-${skillName}-${timestamp}`;
-    const steps: string[] = [
-      `git checkout -b ${branchName}`,
-      `git apply ${resolvedDiff}`,
-      `git add -A`,
-      `git commit -m "skill(${skillName}): propose patch"`,
-      `git push -u origin ${branchName}`,
-      `gh pr create --base ${base} --head ${branchName} --title "${title}" --body <stdin>`,
-    ];
-
-    if (dryRun) {
+    if (result.kind === 'dry-run') {
       cliOutput(
         {
-          skillName,
-          diffPath: resolvedDiff,
-          branchName,
-          base,
-          steps,
+          skillName: result.skillName,
+          diffPath: result.diffPath,
+          branchName: result.branchName,
+          base: result.base,
+          steps: result.steps,
           dryRun: true,
         },
         {
           command: 'skills',
-          message: `[dry-run] would open PR for ${skillName} on branch ${branchName}`,
+          message: `[dry-run] would open PR for ${result.skillName} on branch ${result.branchName}`,
           operation: 'tools.skill.propose-patch',
         },
       );
       return;
     }
 
-    try {
-      const result = await withProvenance('pr-generator', async () => {
-        execFileSync('git', ['checkout', '-b', branchName], { stdio: 'pipe' });
-        execFileSync('git', ['apply', resolvedDiff], { stdio: 'pipe' });
-        execFileSync('git', ['add', '-A'], { stdio: 'pipe' });
-        execFileSync('git', ['commit', '-m', `skill(${skillName}): propose patch`], {
-          stdio: 'pipe',
-        });
-        execFileSync('git', ['push', '-u', 'origin', branchName], { stdio: 'pipe' });
-        const prUrl = execFileSync(
-          'gh',
-          ['pr', 'create', '--base', base, '--head', branchName, '--title', title, '--body', body],
-          { stdio: 'pipe' },
-        )
-          .toString('utf8')
-          .trim();
-        return { prUrl, branchName };
-      });
-      cliOutput(
-        { skillName, prUrl: result.prUrl, branchName: result.branchName, base },
-        {
-          command: 'skills',
-          message: `Opened PR ${result.prUrl}`,
-          operation: 'tools.skill.propose-patch',
-        },
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      cliError(
-        `propose-patch failed: ${message}`,
-        'E_PROPOSE_PATCH_FAILED',
-        { name: 'E_PROPOSE_PATCH_FAILED' },
-        { operation: 'tools.skill.propose-patch' },
-      );
-      process.exit(1);
-    }
-    // jsonMode is honoured automatically by cliOutput / cliError via the
-    // global --json flag; the local variable is kept for symmetry with
-    // other commands and to silence the lint about unused destructure.
-    void jsonMode;
+    cliOutput(
+      {
+        skillName: result.skillName,
+        prUrl: result.prUrl,
+        branchName: result.branchName,
+        base: result.base,
+      },
+      {
+        command: 'skills',
+        message: `Opened PR ${result.prUrl}`,
+        operation: 'tools.skill.propose-patch',
+      },
+    );
   },
 });
 
