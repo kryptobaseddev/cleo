@@ -96,6 +96,18 @@ export {
   removeFederationPeer,
   writeFederationIndex,
 } from './federation-store.js';
+// Hermes import classifier — T9733 trust-aware federation classification
+export type {
+  ClassifyOptions,
+  HermesClassification,
+  HermesRecordInput,
+  ImportedSkillSourceType,
+} from './hermes-import-classifier.js';
+export {
+  classifyHermesBatch,
+  classifyHermesRecord,
+  TRUSTED_REPOS_FOR_IMPORT,
+} from './hermes-import-classifier.js';
 export {
   buildTaskContext,
   injectProtocol,
