@@ -27,9 +27,15 @@ vi.mock('../../format-context.js', () => ({
 // chain from trying to load @a2a-js/sdk (not installed in this worktree).
 // These modules are not exercised by cliError tests — cliError only calls
 // getFormatContext() and console.log/error.
+//
+// T9769: cliError now drains `getCurrentWarningCollector()` into
+// `meta.warnings[]`; mock it as a no-op (returns undefined, matching the
+// "no active scope" path) so these signature tests continue to exercise
+// only the call-pattern surface they care about.
 vi.mock('@cleocode/lafs', () => ({
   applyFieldFilter: vi.fn(),
   extractFieldFromResult: vi.fn(),
+  getCurrentWarningCollector: vi.fn(() => undefined),
 }));
 vi.mock('@cleocode/core', () => ({
   formatSuccess: vi.fn(() => '{}'),

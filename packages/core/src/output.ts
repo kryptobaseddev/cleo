@@ -22,6 +22,7 @@
 import { randomUUID } from 'node:crypto';
 import type { LafsEnvelope, LafsError, LafsSuccess } from '@cleocode/contracts';
 import type { CliEnvelope, CliEnvelopeError, CliMeta, LAFSPage, Warning } from '@cleocode/lafs';
+import { getCurrentWarningCollector } from '@cleocode/lafs';
 import { CleoError } from './errors.js';
 import { getCurrentSessionId } from './sessions/context-alert.js';
 
@@ -48,16 +49,36 @@ export function pushWarning(warning: Warning): void {
 }
 
 /**
- * Drain all pending warnings (returns and clears the queue).
+ * Drain all pending warnings — both the legacy module-global queue (CORE
+ * pushWarning) and any active ALS-bound WarningCollector (LAFS pushWarning).
+ *
+ * @returns Combined warning list, or `undefined` when neither source produced
+ *   any entries.
+ *
+ * @remarks
+ * Two carriers must be merged transitionally because:
+ * - The legacy `pendingWarnings` array is module-global and race-prone, but
+ *   is still used by several deprecation paths (T4669 et al.).
+ * - The new {@link import('@cleocode/lafs').WarningCollector} is bound per
+ *   request via {@link import('@cleocode/lafs').withWarningCollector} from
+ *   the CLI entrypoint (T9769), so it correctly isolates concurrent commands.
+ *
+ * Subsequent waves of T9763 migrate every legacy producer to the ALS carrier;
+ * the legacy queue can be removed once that sweep is complete. Until then,
+ * this function is the single source of truth for what lands in
+ * `meta.warnings[]`.
  *
  * @task T4669
- * @epic T4663
+ * @task T9769
+ * @epic T9763
  */
 function drainWarnings(): Warning[] | undefined {
-  if (pendingWarnings.length === 0) return undefined;
-  const drained = [...pendingWarnings];
-  pendingWarnings.length = 0;
-  return drained;
+  const legacy = pendingWarnings.length > 0 ? pendingWarnings.splice(0) : [];
+  const collector = getCurrentWarningCollector();
+  const als = collector?.drain() ?? [];
+
+  if (legacy.length === 0 && als.length === 0) return undefined;
+  return [...legacy, ...als];
 }
 
 /**
