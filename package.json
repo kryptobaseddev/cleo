@@ -24,6 +24,7 @@
     "lint:changesets": "node scripts/lint-changesets.mjs",
     "lint:cleo-errors": "node scripts/lint-cleo-errors.mjs",
     "lint:contracts-dep": "node scripts/lint-contracts-dep.mjs",
+    "lint:format-error": "node scripts/lint-format-error-misuse.mjs",
     "lint:json-stream": "node scripts/lint-json-stream-hygiene.mjs",
     "lint:raw-cr": "node scripts/lint-no-raw-cr-writes.mjs",
     "bench:nexus": "BENCH_FIXTURE_PATH=packages/nexus/src/__tests__/fixtures node scripts/bench/nexus-vs-gitnexus.mjs",
