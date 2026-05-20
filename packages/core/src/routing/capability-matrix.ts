@@ -1292,6 +1292,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
+  // T9691 — skill.import.hermes: Hermes sidecar migration
+  {
+    domain: 'tools',
+    operation: 'skill.import.hermes',
+    gateway: 'mutate',
+    mode: 'native',
+    preferredChannel: 'either',
+  },
   {
     domain: 'tools',
     operation: 'skill.install',

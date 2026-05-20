@@ -35,7 +35,12 @@ import {
   removeSkill,
   type SkillRowData,
 } from '@cleocode/caamp';
-import type { SkillStatsRequest, SkillStatsResponse } from '@cleocode/contracts';
+import type {
+  SkillImportHermesRequest,
+  SkillImportHermesResponse,
+  SkillStatsRequest,
+  SkillStatsResponse,
+} from '@cleocode/contracts';
 import { AdapterManager } from '../adapters/index.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { type HookEvent, isProviderHookEvent } from '../hooks/types.js';
@@ -398,6 +403,32 @@ export async function toolsSkillStats(
       agentCreated,
       sinceDays: request?.sinceDays ?? null,
     });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Migrate Hermes `~/.hermes/skills/.usage.json` sidecars into CLEO `skills.db`.
+ *
+ * @remarks
+ * Thin wrapper over {@link importFromHermes} so the dispatch layer can route
+ * `tools.skill.import-hermes` without importing the skills domain module
+ * directly. The full provenance + counter-synthesis logic lives in
+ * `packages/core/src/skills/hermes-importer.ts`.
+ *
+ * @param request - Import flags (Hermes home override, dry-run mode).
+ * @returns Engine result carrying per-skill outcomes + summary counters.
+ *
+ * @task T9691
+ */
+export async function toolsSkillImportHermes(
+  request: SkillImportHermesRequest = {},
+): Promise<EngineResult<SkillImportHermesResponse>> {
+  try {
+    const { importFromHermes } = await import('../skills/hermes-importer.js');
+    const response = await importFromHermes(request);
+    return engineSuccess(response);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
