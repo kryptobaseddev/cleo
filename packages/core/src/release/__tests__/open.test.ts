@@ -124,7 +124,7 @@ function writeWorkflowFile(name: string = DEFAULT_OPEN_WORKFLOW): string {
 async function seedReleaseRow(version: string, status: schema.ReleaseStatus): Promise<void> {
   const db = await getDb(testDir);
   await db
-    .insert(schema.releasesNew)
+    .insert(schema.releases)
     .values({
       id: `testhash:${version}`,
       version,
@@ -254,8 +254,8 @@ describe('releaseOpen — happy path', () => {
     const db = await getDb(testDir);
     const rows = await db
       .select()
-      .from(schema.releasesNew)
-      .where(eq(schema.releasesNew.version, version))
+      .from(schema.releases)
+      .where(eq(schema.releases.version, version))
       .all();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe('pr-opened');

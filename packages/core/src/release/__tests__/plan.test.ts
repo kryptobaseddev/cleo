@@ -190,7 +190,7 @@ describe('releasePlan — happy path', () => {
 
     // Releases row in DB
     const db = await getDb(testDir);
-    const rows = await db.select().from(schema.releasesNew).all();
+    const rows = await db.select().from(schema.releases).all();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.version).toBe('v2026.6.0');
     expect(rows[0]?.status).toBe('planned');
@@ -356,7 +356,7 @@ describe('releasePlan — idempotency', () => {
     expect(second.success).toBe(true);
 
     const db = await getDb(testDir);
-    const rows = await db.select().from(schema.releasesNew).all();
+    const rows = await db.select().from(schema.releases).all();
     // UPSERT semantics — exactly one row regardless of re-runs.
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe('planned');
@@ -417,7 +417,7 @@ describe('releasePlan — dry-run', () => {
     expect(existsSync(result.data.planPath)).toBe(false);
     // No releases row inserted
     const db = await getDb(testDir);
-    const rows = await db.select().from(schema.releasesNew).all();
+    const rows = await db.select().from(schema.releases).all();
     expect(rows).toHaveLength(0);
   });
 });

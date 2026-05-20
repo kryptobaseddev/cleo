@@ -30,7 +30,7 @@ import {
   cancelRelease,
   commitRelease,
   generateReleaseChangelog,
-  listManifestReleases,
+  listReleases,
   markReleasePushed,
   prepareRelease,
   pushRelease,
@@ -38,7 +38,7 @@ import {
   type ReleaseTaskRecord,
   rollbackRelease,
   runReleaseGates,
-  showManifestRelease,
+  showRelease,
   tagRelease,
 } from './release-manifest.js';
 
@@ -260,7 +260,7 @@ function isAgentContext(): boolean {
  */
 async function hasManifestEntry(version: string, projectRoot?: string): Promise<boolean> {
   try {
-    await showManifestRelease(version, projectRoot);
+    await showRelease(version, projectRoot);
     return true;
   } catch {
     return false;
@@ -741,7 +741,7 @@ export async function releaseList(
         : optionsOrProjectRoot;
     const effectiveProjectRoot =
       typeof optionsOrProjectRoot === 'string' ? optionsOrProjectRoot : projectRoot;
-    const data = await listManifestReleases(options, effectiveProjectRoot);
+    const data = await listReleases(options, effectiveProjectRoot);
     return {
       success: true,
       data: {
@@ -764,7 +764,7 @@ export async function releaseList(
  */
 export async function releaseShow(version: string, projectRoot?: string): Promise<EngineResult> {
   try {
-    const data = await showManifestRelease(version, projectRoot);
+    const data = await showRelease(version, projectRoot);
     return { success: true, data };
   } catch (err: unknown) {
     const message = (err as Error).message;

@@ -1,26 +1,30 @@
 /**
- * Release manifest operations backed by the release_manifests SQLite table.
+ * Release operations backed by the canonical `releases` SQLite table.
  *
- * Migrated from .cleo/releases.json to SQLite per T5580.
- * All reads/writes now go through Drizzle ORM via tasks.db.
+ * Originally migrated from `.cleo/releases.json` into `release_manifests`
+ * by T5580. T9686-B2 unified `release_manifests` into the new `releases`
+ * table (T9508) and dropped the legacy table — every read/write here now
+ * targets the single canonical `releases` table via Drizzle ORM. Legacy
+ * rows live under PK `legacy:<version>`; new-pipeline rows under
+ * `<projectHash>:<version>`.
+ *
+ * The status enum on the unified table is the union of both lifecycles:
+ *   New T9492: planned / pr-opened / pr-merged / published / reconciled
+ *   Legacy T5580: prepared / committed / tagged / pushed
+ *   Shared terminals: rolled_back / failed / cancelled
  *
  * @task T5580
  * @task T4788
+ * @task T9686 (unification)
  */
 
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { createPage } from '../pagination.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
-import {
-  countReleasesView,
-  findReleaseViewByVersion,
-  queryReleasesView,
-  type ReleasesViewRow,
-} from '../store/releases-view.js';
 import * as schema from '../store/tasks-schema.js';
 import { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
 import type { ReleaseChannel } from './channel.js';
@@ -119,25 +123,35 @@ async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js
 // ── Types ────────────────────────────────────────────────────────────
 
 /**
- * Status values exposed through the `releases_view` SSoT.
+ * Status values admitted by the unified `releases` table (T9686-B2).
  *
- * Legacy pipeline (T5580 / `release_manifests`): `draft | prepared | committed
- * | tagged | pushed | rolled_back`. New pipeline (T9508 / `releases`): `planned
- * | pr-opened | pr-merged | published | reconciled | rolled_back | failed |
- * cancelled`. Consumers MUST handle both — the field is widened intentionally
- * so the show/list surface can render rows from either branch of the view.
+ * The status value itself discriminates the source pipeline — no separate
+ * `pipeline` column is needed.
+ *
+ * - **New T9492 pipeline**: `planned | pr-opened | pr-merged | published |
+ *   reconciled` — set by `cleo release plan` / `open` / `reconcile`.
+ * - **Legacy T5580 pipeline**: `prepared | committed | tagged | pushed` —
+ *   set by `cleo release prepare` / `commit` / `tag` / `push`. (The historic
+ *   `draft` value is retained for backward compatibility with any callers
+ *   that branch on it, but no live row in the production DB has ever held
+ *   `draft`.)
+ * - **Shared terminals**: `rolled_back | failed | cancelled`.
+ *
+ * Consumers MUST handle both lifecycles. Code that needs to know which
+ * pipeline owns a row can branch on `manifest.source` ('new' | 'legacy'),
+ * derived from the row PK at read time.
  *
  * @task T9686
  */
 export type ReleaseManifestStatus =
-  // legacy statuses
+  // legacy statuses (T5580 pipeline)
   | 'draft'
   | 'prepared'
   | 'committed'
   | 'tagged'
   | 'pushed'
   | 'rolled_back'
-  // new pipeline statuses
+  // new pipeline statuses (T9492 pipeline)
   | 'planned'
   | 'pr-opened'
   | 'pr-merged'
@@ -266,50 +280,44 @@ function normalizeVersion(version: string): string {
 }
 
 /**
- * Project a {@link ReleasesViewRow} (unified SSoT row from `releases_view`)
- * down to a {@link ReleaseManifest} shape. Used by `releaseShow` /
- * `releaseList` so CLI consumers see a single shape regardless of whether
- * the row originated from the new `releases` table or the legacy
- * `release_manifests` table (T9686).
+ * Project a unified `releases` row down to the {@link ReleaseManifest}
+ * shape consumed by CLI surfaces. After T9686-B2 the `releases` table
+ * carries both new-pipeline and legacy-pipeline columns; the row's
+ * `id` prefix (`legacy:` vs `<projectHash>:`) discriminates provenance.
  *
  * Field-mapping notes:
- * - `tasks` — parsed from `tasksJson` for legacy rows; for new-pipeline rows
- *   the corresponding data lives in `release_changes` and is exposed via
- *   `row.changes[*].task_id`. We project that to a deduplicated id list so
- *   the `taskCount` reported by list endpoints stays meaningful.
- * - `commitSha` — comes from `merge_commit_sha` in the view (new pipeline)
- *   or from the legacy `commit_sha` column (legacy pipeline). The view
- *   normalizes both into `mergeCommitSha`.
- * - `pushedAt` — for legacy rows, projected from `pushed_at`; for new-pipeline
- *   rows we fall back to `publishedAt` so list endpoints can still sort by
- *   ship time.
+ * - `tasks` — parsed from `tasksJson` for legacy-migrated rows. New-pipeline
+ *   rows leave `tasksJson` NULL because the per-task list lives in
+ *   {@link schema.releaseChanges}; callers that need it should query that
+ *   table separately. List endpoints report 0 for new-pipeline rows until
+ *   `release_changes` is populated by reconcile.
+ * - `commitSha` — sourced from the unified `merge_commit_sha` column for
+ *   both pipelines.
+ * - `pushedAt` — for legacy rows, sourced from `pushed_at`; for new-pipeline
+ *   rows we fall back to `publishedAt` so callers that sort by "ship time"
+ *   don't have to special-case the row source.
  *
  * @task T9686
  * @internal
  */
-function viewRowToManifest(row: ReleasesViewRow): ReleaseManifest {
-  const isLegacy = row.source === 'legacy';
-  const tasks: string[] = (() => {
-    if (isLegacy && row.tasksJson) {
-      try {
-        const parsed = JSON.parse(row.tasksJson) as unknown;
-        return Array.isArray(parsed) ? (parsed as string[]) : [];
-      } catch {
-        return [];
-      }
+function releasesRowToManifest(row: schema.ReleaseRow): ReleaseManifest {
+  const source: 'new' | 'legacy' = row.id.startsWith('legacy:') ? 'legacy' : 'new';
+  let tasks: string[] = [];
+  if (row.tasksJson) {
+    try {
+      const parsed = JSON.parse(row.tasksJson) as unknown;
+      if (Array.isArray(parsed)) tasks = parsed as string[];
+    } catch {
+      // malformed JSON — leave tasks empty, don't fail the read
     }
-    const ids = row.changes
-      .map((c) => c.task_id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    return [...new Set(ids)];
-  })();
+  }
 
   const manifest: ReleaseManifest = {
     version: row.version,
     status: row.status as ReleaseManifestStatus,
     createdAt: row.createdAt,
     tasks,
-    source: row.source,
+    source,
   };
   if (row.preparedAt) manifest.preparedAt = row.preparedAt;
   if (row.committedAt) manifest.committedAt = row.committedAt;
@@ -335,12 +343,12 @@ async function findLatestPushedVersion(cwd?: string): Promise<LatestPushedVersio
   const db = await getDb(cwd);
   const rows = await db
     .select({
-      version: schema.releaseManifests.version,
-      pushedAt: schema.releaseManifests.pushedAt,
+      version: schema.releases.version,
+      pushedAt: schema.releases.pushedAt,
     })
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.status, 'pushed'))
-    .orderBy(desc(schema.releaseManifests.pushedAt))
+    .from(schema.releases)
+    .where(eq(schema.releases.status, 'pushed'))
+    .orderBy(desc(schema.releases.pushedAt))
     .limit(1)
     .all();
   return rows[0];
@@ -376,8 +384,8 @@ export async function prepareRelease(
 
   const existing = await db
     .select()
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .from(schema.releases)
+    .where(eq(schema.releases.version, normalizedVersion))
     .limit(1)
     .all();
 
@@ -405,10 +413,13 @@ export async function prepareRelease(
   );
   releaseTasks = releaseTasks.filter((id) => !epicIds.has(id));
   const now = new Date().toISOString();
-  const id = `rel-${normalizedVersion.replace(/[^a-z0-9]/gi, '-')}`;
+  // T9686-B2: write into the unified `releases` table with the `legacy:`
+  // PK prefix so prepareRelease rows match the format used by the migration
+  // for pre-T9492 historical rows.
+  const id = `legacy:${normalizedVersion}`;
 
   await db
-    .insert(schema.releaseManifests)
+    .insert(schema.releases)
     .values({
       id,
       version: normalizedVersion,
@@ -451,8 +462,8 @@ export async function generateReleaseChangelog(
   const db = await getDb(cwd);
   const rows = await db
     .select()
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .from(schema.releases)
+    .where(eq(schema.releases.version, normalizedVersion))
     .limit(1)
     .all();
 
@@ -461,7 +472,10 @@ export async function generateReleaseChangelog(
   }
 
   const row = rows[0]!;
-  const releaseTasks: string[] = JSON.parse(row.tasksJson);
+  // T9686-B2: `tasksJson` is now nullable on the unified `releases` table
+  // (new-pipeline rows leave it NULL). Fall back to an empty list so this
+  // legacy-only call path still works on rows it inserted via prepareRelease.
+  const releaseTasks: string[] = JSON.parse(row.tasksJson ?? '[]');
 
   const allTasks = await loadTasksFn();
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
@@ -691,9 +705,9 @@ export async function generateReleaseChangelog(
   const changelog = sections.join('\n');
 
   await db
-    .update(schema.releaseManifests)
+    .update(schema.releases)
     .set({ changelog })
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .where(eq(schema.releases.version, normalizedVersion))
     .run();
 
   // Write or update CHANGELOG.md with section-aware merge
@@ -731,18 +745,17 @@ export async function generateReleaseChangelog(
 }
 
 /**
- * List all releases via the SSoT `releases_view` (T9686).
+ * List all releases from the canonical `releases` table (T9686-B2 unified).
  *
- * Reads from the unified view that UNIONs `releases` (new pipeline) and
- * `release_manifests` (legacy), so a release planned via `cleo release plan`
- * is immediately visible alongside historical pre-T9492 releases. The
- * previous implementation read only `release_manifests` and silently dropped
- * any release that had only been written through the new pipeline.
+ * Reads directly from the unified `releases` table — no view, no UNION,
+ * single source of truth. New-pipeline rows and legacy-migrated rows are
+ * returned in the same shape; the `source` discriminator is derived from
+ * the row's `id` prefix (`legacy:` vs `<projectHash>:`).
  *
  * @task T4788
  * @task T9686
  */
-export async function listManifestReleases(
+export async function listReleases(
   optionsOrCwd?: ReleaseListOptions | string,
   cwd?: string,
 ): Promise<{
@@ -767,27 +780,51 @@ export async function listManifestReleases(
 
   const db = await getDb(effectiveCwd);
 
-  const total = countReleasesView(db);
-  const filtered = countReleasesView(db, options.status ? { status: options.status } : {});
+  const totalRow = await db.select({ n: count() }).from(schema.releases).get();
+  const total = totalRow?.n ?? 0;
 
-  const queryOptions: Parameters<typeof queryReleasesView>[1] = {};
-  if (options.status !== undefined) queryOptions.status = options.status;
-  if (pageLimit !== undefined) queryOptions.limit = pageLimit;
-  if (offset !== undefined) queryOptions.offset = offset;
+  const conditions = options.status
+    ? [
+        eq(
+          schema.releases.status,
+          options.status as ReleaseManifestStatus & schema.ReleaseRow['status'],
+        ),
+      ]
+    : [];
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const viewRows = await queryReleasesView(db, queryOptions);
+  const filteredRow = await db
+    .select({ n: count() })
+    .from(schema.releases)
+    .where(whereClause)
+    .get();
+  const filtered = filteredRow?.n ?? 0;
 
+  let query = db
+    .select()
+    .from(schema.releases)
+    .where(whereClause)
+    .orderBy(desc(schema.releases.createdAt));
+
+  if (pageLimit !== undefined) {
+    query = query.limit(pageLimit) as typeof query;
+  }
+  if (offset !== undefined) {
+    query = query.offset(offset) as typeof query;
+  }
+
+  const rows = await query.all();
   const latest = await findLatestPushedVersion(effectiveCwd);
 
   return {
-    releases: viewRows.map((row) => {
-      const manifest = viewRowToManifest(row);
+    releases: rows.map((row) => {
+      const manifest = releasesRowToManifest(row);
       return {
         version: manifest.version,
         status: manifest.status,
         createdAt: manifest.createdAt,
         taskCount: manifest.tasks.length,
-        source: row.source,
+        ...(manifest.source ? { source: manifest.source } : {}),
       };
     }),
     total,
@@ -798,30 +835,35 @@ export async function listManifestReleases(
 }
 
 /**
- * Show release details via the SSoT `releases_view` (T9686).
+ * Show release details from the canonical `releases` table (T9686-B2 unified).
  *
- * Reads from the unified view so a release planned via `cleo release plan`
- * is immediately visible (round-trip: `plan v<X> → show v<X>` succeeds).
- * Falls through both pipeline branches; throws when the version is absent
- * from BOTH `releases` and `release_manifests`.
+ * Single-table read, no view. Surfaces both new-pipeline rows (`status` in
+ * planned/pr-opened/pr-merged/published/reconciled) and legacy-migrated
+ * rows (`status` in prepared/committed/tagged/pushed/rolled_back). Throws
+ * when the version is not present in the unified table.
  *
  * @task T4788
  * @task T9686
  */
-export async function showManifestRelease(version: string, cwd?: string): Promise<ReleaseManifest> {
+export async function showRelease(version: string, cwd?: string): Promise<ReleaseManifest> {
   if (!version) {
     throw new Error('version is required');
   }
 
   const normalizedVersion = normalizeVersion(version);
   const db = await getDb(cwd);
-  const row = await findReleaseViewByVersion(db, normalizedVersion);
+  const rows = await db
+    .select()
+    .from(schema.releases)
+    .where(eq(schema.releases.version, normalizedVersion))
+    .limit(1)
+    .all();
 
-  if (row === null) {
+  const row = rows[0];
+  if (!row) {
     throw new Error(`Release ${normalizedVersion} not found`);
   }
-
-  return viewRowToManifest(row);
+  return releasesRowToManifest(row);
 }
 
 /**
@@ -840,8 +882,8 @@ export async function commitRelease(
   const db = await getDb(cwd);
   const rows = await db
     .select()
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .from(schema.releases)
+    .where(eq(schema.releases.version, normalizedVersion))
     .limit(1)
     .all();
 
@@ -857,9 +899,9 @@ export async function commitRelease(
 
   const committedAt = new Date().toISOString();
   await db
-    .update(schema.releaseManifests)
+    .update(schema.releases)
     .set({ status: 'committed', committedAt })
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .where(eq(schema.releases.version, normalizedVersion))
     .run();
 
   return { version: normalizedVersion, status: 'committed', committedAt };
@@ -881,8 +923,8 @@ export async function tagRelease(
   const db = await getDb(cwd);
   const rows = await db
     .select()
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .from(schema.releases)
+    .where(eq(schema.releases.version, normalizedVersion))
     .limit(1)
     .all();
 
@@ -892,9 +934,9 @@ export async function tagRelease(
 
   const taggedAt = new Date().toISOString();
   await db
-    .update(schema.releaseManifests)
+    .update(schema.releases)
     .set({ status: 'tagged', taggedAt })
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .where(eq(schema.releases.version, normalizedVersion))
     .run();
 
   return { version: normalizedVersion, status: 'tagged', taggedAt };
@@ -926,8 +968,8 @@ export async function runReleaseGates(
   const db = await getDb(cwd);
   const rows = await db
     .select()
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .from(schema.releases)
+    .where(eq(schema.releases.version, normalizedVersion))
     .limit(1)
     .all();
 
@@ -936,7 +978,7 @@ export async function runReleaseGates(
   }
 
   const row = rows[0]!;
-  const releaseTasks: string[] = JSON.parse(row.tasksJson);
+  const releaseTasks: string[] = JSON.parse(row.tasksJson ?? '[]');
 
   const gates: Array<{ name: string; status: 'passed' | 'failed'; message: string }> = [];
 
@@ -1177,8 +1219,8 @@ export async function cancelRelease(
   const db = await getDb(projectRoot);
   const rows = await db
     .select()
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .from(schema.releases)
+    .where(eq(schema.releases.version, normalizedVersion))
     .limit(1)
     .all();
 
@@ -1201,10 +1243,7 @@ export async function cancelRelease(
     };
   }
 
-  await db
-    .delete(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
-    .run();
+  await db.delete(schema.releases).where(eq(schema.releases.version, normalizedVersion)).run();
 
   return {
     success: true,
@@ -1235,8 +1274,8 @@ export async function rollbackRelease(
   const db = await getDb(cwd);
   const rows = await db
     .select()
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .from(schema.releases)
+    .where(eq(schema.releases.version, normalizedVersion))
     .limit(1)
     .all();
 
@@ -1246,9 +1285,9 @@ export async function rollbackRelease(
 
   const previousStatus = rows[0]!.status;
   await db
-    .update(schema.releaseManifests)
+    .update(schema.releases)
     .set({ status: 'rolled_back' })
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .where(eq(schema.releases.version, normalizedVersion))
     .run();
 
   return {
@@ -1449,14 +1488,14 @@ export async function markReleasePushed(
   const normalizedVersion = normalizeVersion(version);
   const db = await getDb(cwd);
   await db
-    .update(schema.releaseManifests)
+    .update(schema.releases)
     .set({
       status: 'pushed',
       pushedAt,
       ...(provenance?.commitSha != null ? { commitSha: provenance.commitSha } : {}),
       ...(provenance?.gitTag != null ? { gitTag: provenance.gitTag } : {}),
     })
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .where(eq(schema.releases.version, normalizedVersion))
     .run();
 }
 
@@ -1509,9 +1548,9 @@ export async function markReleaseShipped(
 
   // Read the manifest row to get the task list.
   const rows = await db
-    .select({ tasksJson: schema.releaseManifests.tasksJson })
-    .from(schema.releaseManifests)
-    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .select({ tasksJson: schema.releases.tasksJson })
+    .from(schema.releases)
+    .where(eq(schema.releases.version, normalizedVersion))
     .limit(1)
     .all();
 
@@ -1519,7 +1558,7 @@ export async function markReleaseShipped(
     return { taskCommitsInserted: 0 };
   }
 
-  const taskIds = JSON.parse(rows[0]!.tasksJson) as string[];
+  const taskIds = JSON.parse(rows[0]!.tasksJson ?? '[]') as string[];
   if (taskIds.length === 0) {
     return { taskCommitsInserted: 0 };
   }
@@ -1596,21 +1635,26 @@ export async function migrateReleasesJsonToSqlite(
   for (const r of raw.releases) {
     // Skip if already exists by version
     const existing = await db
-      .select({ id: schema.releaseManifests.id })
-      .from(schema.releaseManifests)
-      .where(eq(schema.releaseManifests.version, r.version))
+      .select({ id: schema.releases.id })
+      .from(schema.releases)
+      .where(eq(schema.releases.version, r.version))
       .limit(1)
       .all();
 
     if (existing.length > 0) continue;
 
-    const id = `rel-${r.version.replace(/[^a-z0-9]/gi, '-')}`;
+    // T9686-B2: migrated rows from `releases.json` are pre-T9492 legacy
+    // releases, so use the `legacy:<version>` PK prefix to match the
+    // canonical format produced by the unification migration.
+    const id = `legacy:${r.version}`;
     await db
-      .insert(schema.releaseManifests)
+      .insert(schema.releases)
       .values({
         id,
         version: r.version,
-        status: r.status,
+        // Trust the legacy file's status string — the widened enum
+        // (T9686-B2) admits all legacy values.
+        status: r.status as schema.ReleaseRow['status'],
         tasksJson: JSON.stringify(r.tasks ?? []),
         notes: r.notes ?? null,
         changelog: r.changelog ?? null,

@@ -99,10 +99,13 @@ async function insertManifest(
   resetDbState();
 
   const db = await getDb(projectRoot);
-  const id = `rel-${version.replace(/[^a-z0-9]/gi, '-')}`;
+  // T9686-B2: `release_manifests` was unified into `releases`. Use the
+  // canonical `legacy:` PK prefix matching what migration produces for
+  // pre-T9492 historical rows.
+  const id = `legacy:${version}`;
   const { sql } = await import('drizzle-orm');
   await db.run(
-    sql`INSERT INTO release_manifests (id, version, status, tasks_json, created_at)
+    sql`INSERT INTO releases (id, version, status, tasks_json, created_at)
         VALUES (${id}, ${version}, 'prepared', ${JSON.stringify(taskIds)}, datetime('now'))`,
   );
 }
@@ -121,14 +124,15 @@ async function countTaskCommits(projectRoot: string, commitSha: string): Promise
 }
 
 /**
- * Read tasksJson from release_manifests for validation.
+ * Read tasksJson from the unified `releases` table for validation
+ * (post-T9686-B2 — legacy `release_manifests` was merged in).
  */
 async function readTasksJson(projectRoot: string, version: string): Promise<string> {
   const { getDb } = await import('../../store/sqlite.js');
   const { sql } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   const rows = await db.all<{ tasks_json: string }>(
-    sql`SELECT tasks_json FROM release_manifests WHERE version = ${version}`,
+    sql`SELECT tasks_json FROM releases WHERE version = ${version}`,
   );
   return rows[0]?.tasks_json ?? '[]';
 }
