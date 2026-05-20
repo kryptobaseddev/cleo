@@ -15,7 +15,8 @@
  * Design principles:
  * - NO LLM calls. All data comes from structured file reads.
  * - Title is template-generated. Prompt-injection defence (T1008 §3.6).
- * - Failures are swallowed: returns empty array + logs warning.
+ * - Failures are swallowed: returns empty array + pushes a non-fatal warning
+ *   (`W_SENTIENT_INGESTER_DEGRADED`) into the active LAFS envelope (T9773).
  *
  * @task T1008
  * @see ADR-054 — Sentient Loop Tier-2
@@ -24,6 +25,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ProposalCandidate } from '@cleocode/contracts';
+import { pushWarning } from '@cleocode/lafs';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -198,8 +200,15 @@ export function runTestIngester(projectRoot: string): ProposalCandidate[] {
 
     return merged;
   } catch (err) {
+    // Best-effort: surface degraded-ingester signal in the envelope but never
+    // throw from an ingester. Migrated from process.stderr.write per T9773.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[sentient/test-ingester] WARNING: ${message}\n`);
+    pushWarning({
+      code: 'W_SENTIENT_INGESTER_DEGRADED',
+      severity: 'warn',
+      message: `[sentient/test-ingester] ${message}`,
+      context: { ingester: 'test', error: message },
+    });
     return [];
   }
 }

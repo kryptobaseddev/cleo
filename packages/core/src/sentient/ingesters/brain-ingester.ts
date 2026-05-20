@@ -8,7 +8,8 @@
  * - NO LLM calls. All data comes from structured SQL queries.
  * - Title is template-generated: `[T2-BRAIN] Recurring issue: {title}`.
  *   This is the prompt-injection defence from T1008 §3.6.
- * - Failures are swallowed: returns empty array + logs warning.
+ * - Failures are swallowed: returns empty array + pushes a non-fatal warning
+ *   (`W_SENTIENT_INGESTER_DEGRADED`) into the active LAFS envelope (T9773).
  *   Brain.db absence must never crash the propose tick.
  *
  * @task T1008
@@ -17,6 +18,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { ProposalCandidate } from '@cleocode/contracts';
+import { pushWarning } from '@cleocode/lafs';
 
 // ---------------------------------------------------------------------------
 // Brain observation row (raw SQL result)
@@ -114,9 +116,15 @@ export function runBrainIngester(nativeDb: DatabaseSync | null): ProposalCandida
 
     return candidates;
   } catch (err) {
-    // Best-effort: log warning but never throw from an ingester.
+    // Best-effort: surface degraded-ingester signal in the envelope but never
+    // throw from an ingester. Migrated from process.stderr.write per T9773.
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[sentient/brain-ingester] WARNING: ${message}\n`);
+    pushWarning({
+      code: 'W_SENTIENT_INGESTER_DEGRADED',
+      severity: 'warn',
+      message: `[sentient/brain-ingester] ${message}`,
+      context: { ingester: 'brain', error: message },
+    });
     return [];
   }
 }

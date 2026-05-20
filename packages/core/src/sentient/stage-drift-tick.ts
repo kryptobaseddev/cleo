@@ -31,6 +31,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
+import { pushWarning } from '@cleocode/lafs';
 import {
   computeEffectiveStage,
   EFFECTIVE_STAGE_INDEX,
@@ -445,10 +446,21 @@ export async function runStageDriftScan(options: StageDriftOptions): Promise<Sta
         break;
       }
     } catch (err) {
+      // Surface via envelope warnings instead of stderr (T9773).
       const message = err instanceof Error ? err.message : String(err);
-      process.stderr.write(
-        `[sentient/stage-drift] INSERT failed for ${taskId} (${drift.epicId}): ${message}\n`,
-      );
+      pushWarning({
+        code: 'W_STAGE_DRIFT_FAILED',
+        severity: 'warn',
+        message: `[sentient/stage-drift] INSERT failed for ${taskId} (${drift.epicId}): ${message}`,
+        context: {
+          phase: 'transactional-insert',
+          taskId,
+          epicId: drift.epicId,
+          storedStage: drift.storedStage,
+          effectiveStage: drift.effectiveStage,
+          error: message,
+        },
+      });
     }
   }
 
