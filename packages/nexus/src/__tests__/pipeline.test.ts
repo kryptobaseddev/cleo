@@ -18,9 +18,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScannedFile } from '../pipeline/filesystem-walker.js';
 import { walkRepositoryPaths } from '../pipeline/filesystem-walker.js';
 import { runPipeline } from '../pipeline/index.js';
+import type { DrizzleTableRef } from '../pipeline/knowledge-graph.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { detectLanguageFromPath, isIndexableFile } from '../pipeline/language-detection.js';
 import { processStructure } from '../pipeline/structure-processor.js';
+
+/**
+ * Build a minimal stub `DrizzleTableRef` for flush-only tests.
+ *
+ * Tests that call `KnowledgeGraph.flush` with a mocked `insert()` never reach
+ * the column-access (`tables.nexusNodes['projectId']`) path — they only need
+ * the table identity to pass through to the mock. We construct an empty
+ * Proxy that satisfies the `Record<string, Column>` shape without forcing
+ * each test to import drizzle internals or build a fake column.
+ */
+function stubTable(): DrizzleTableRef {
+  // Use a string-tagged empty object whose property accesses return undefined.
+  // Type-cast-free path: `DrizzleTableRef = { [k: string]: Column }`, and an
+  // empty object literal is assignable when no keys are exercised.
+  return Object.create(null) as DrizzleTableRef;
+}
 
 // ---------------------------------------------------------------------------
 // Test utilities
@@ -411,9 +428,13 @@ describe('createKnowledgeGraph', () => {
       }),
     };
 
+    // Tests pass a stub table reference — the mockDb.insert() handler ignores
+    // the table identity and only inspects the rows. The flush path never
+    // accesses columns on the stub, so an empty Record<string, Column> shape
+    // suffices and avoids the `as unknown as` cast chain.
     await graph.flush('project-abc', mockDb, {
-      nexusNodes: 'nodes-table',
-      nexusRelations: 'relations-table',
+      nexusNodes: stubTable(),
+      nexusRelations: stubTable(),
     });
 
     // Both nodes and relations should have been inserted

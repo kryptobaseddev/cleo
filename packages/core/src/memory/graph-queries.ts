@@ -14,6 +14,7 @@
 
 import type { BrainEdgeType, BrainPageEdgeRow, BrainPageNodeRow } from '../store/memory-schema.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
+import { typedAll, typedGet } from '../store/typed-query.js';
 
 // ---------------------------------------------------------------------------
 // Return types
@@ -160,15 +161,16 @@ export async function traceBrainGraph(
   if (!nativeDb) return [];
 
   // Check whether the seed node exists
-  const seedCheck = nativeDb
-    .prepare('SELECT 1 FROM brain_page_nodes WHERE id = ?')
-    .get(nodeId) as unknown as { 1: number } | undefined;
+  const seedCheck = typedGet<{ 1: number }>(
+    nativeDb.prepare('SELECT 1 FROM brain_page_nodes WHERE id = ?'),
+    nodeId,
+  );
   if (!seedCheck) return [];
 
   // Recursive CTE — bidirectional BFS with cycle detection via path string.
   // The path is '|'-delimited node IDs. We check membership with a LIKE guard.
-  const rows = nativeDb
-    .prepare(
+  const rows = typedAll<RawNode & { depth: number }>(
+    nativeDb.prepare(
       `
     WITH RECURSIVE connected(id, depth, path) AS (
       SELECT id, 0, id
@@ -197,8 +199,10 @@ export async function traceBrainGraph(
     GROUP BY n.id
     ORDER BY depth ASC, n.quality_score DESC
     `,
-    )
-    .all(nodeId, maxDepth) as unknown as Array<RawNode & { depth: number }>;
+    ),
+    nodeId,
+    maxDepth,
+  );
 
   return rows.map((r) => ({ ...mapNode(r), depth: r.depth }));
 }
@@ -240,8 +244,8 @@ export async function relatedBrainNodes(
   const queryParams: string[] = edgeType ? [nodeId, edgeType, nodeId, edgeType] : [nodeId, nodeId];
 
   // Two unions: outgoing (this node is from_id) and incoming (this node is to_id)
-  const rows = nativeDb
-    .prepare(
+  const rows = typedAll<RawNode & { edge_type: string; weight: number; direction: string }>(
+    nativeDb.prepare(
       `
     SELECT n.id, n.node_type, n.label, n.quality_score,
            n.content_hash, n.last_activity_at, n.metadata_json,
@@ -263,10 +267,9 @@ export async function relatedBrainNodes(
 
     ORDER BY weight DESC, quality_score DESC
     `,
-    )
-    .all(...queryParams) as unknown as Array<
-    RawNode & { edge_type: string; weight: number; direction: string }
-  >;
+    ),
+    ...queryParams,
+  );
 
   return rows.map((r) => ({
     node: mapNode(r),
@@ -307,31 +310,34 @@ export async function contextBrainNode(
 
   if (!nativeDb) return null;
 
-  const rawNode = nativeDb
-    .prepare(
+  const rawNode = typedGet<RawNode>(
+    nativeDb.prepare(
       `SELECT id, node_type, label, quality_score, content_hash,
               last_activity_at, metadata_json, created_at, updated_at
        FROM brain_page_nodes WHERE id = ?`,
-    )
-    .get(nodeId) as unknown as RawNode | undefined;
+    ),
+    nodeId,
+  );
 
   if (!rawNode) return null;
 
   const node = mapNode(rawNode);
 
-  const rawOutEdges = nativeDb
-    .prepare(
+  const rawOutEdges = typedAll<RawEdge>(
+    nativeDb.prepare(
       `SELECT from_id, to_id, edge_type, weight, provenance, created_at
        FROM brain_page_edges WHERE from_id = ? ORDER BY weight DESC`,
-    )
-    .all(nodeId) as unknown as RawEdge[];
+    ),
+    nodeId,
+  );
 
-  const rawInEdges = nativeDb
-    .prepare(
+  const rawInEdges = typedAll<RawEdge>(
+    nativeDb.prepare(
       `SELECT from_id, to_id, edge_type, weight, provenance, created_at
        FROM brain_page_edges WHERE to_id = ? ORDER BY weight DESC`,
-    )
-    .all(nodeId) as unknown as RawEdge[];
+    ),
+    nodeId,
+  );
 
   const outEdges = rawOutEdges.map(mapEdge);
   const inEdges = rawInEdges.map(mapEdge);
@@ -343,13 +349,14 @@ export async function contextBrainNode(
   for (const e of rawOutEdges) {
     if (!seenIds.has(e.to_id)) {
       seenIds.add(e.to_id);
-      const rawNeighbour = nativeDb
-        .prepare(
+      const rawNeighbour = typedGet<RawNode>(
+        nativeDb.prepare(
           `SELECT id, node_type, label, quality_score, content_hash,
                   last_activity_at, metadata_json, created_at, updated_at
            FROM brain_page_nodes WHERE id = ?`,
-        )
-        .get(e.to_id) as unknown as RawNode | undefined;
+        ),
+        e.to_id,
+      );
       if (rawNeighbour) {
         neighbors.push({
           node: mapNode(rawNeighbour),
@@ -364,13 +371,14 @@ export async function contextBrainNode(
   for (const e of rawInEdges) {
     if (!seenIds.has(e.from_id)) {
       seenIds.add(e.from_id);
-      const rawNeighbour = nativeDb
-        .prepare(
+      const rawNeighbour = typedGet<RawNode>(
+        nativeDb.prepare(
           `SELECT id, node_type, label, quality_score, content_hash,
                   last_activity_at, metadata_json, created_at, updated_at
            FROM brain_page_nodes WHERE id = ?`,
-        )
-        .get(e.from_id) as unknown as RawNode | undefined;
+        ),
+        e.from_id,
+      );
       if (rawNeighbour) {
         neighbors.push({
           node: mapNode(rawNeighbour),
@@ -412,19 +420,19 @@ export async function graphStats(projectRoot: string): Promise<GraphStats> {
     return { nodesByType: [], edgesByType: [], totalNodes: 0, totalEdges: 0 };
   }
 
-  const nodeRows = nativeDb
-    .prepare(
+  const nodeRows = typedAll<{ node_type: string; count: number }>(
+    nativeDb.prepare(
       `SELECT node_type, COUNT(*) AS count
        FROM brain_page_nodes GROUP BY node_type ORDER BY count DESC`,
-    )
-    .all() as unknown as Array<{ node_type: string; count: number }>;
+    ),
+  );
 
-  const edgeRows = nativeDb
-    .prepare(
+  const edgeRows = typedAll<{ edge_type: string; count: number }>(
+    nativeDb.prepare(
       `SELECT edge_type, COUNT(*) AS count
        FROM brain_page_edges GROUP BY edge_type ORDER BY count DESC`,
-    )
-    .all() as unknown as Array<{ edge_type: string; count: number }>;
+    ),
+  );
 
   const totalNodes = nodeRows.reduce((s, r) => s + r.count, 0);
   const totalEdges = edgeRows.reduce((s, r) => s + r.count, 0);

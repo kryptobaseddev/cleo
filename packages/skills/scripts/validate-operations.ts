@@ -28,9 +28,9 @@ const __scriptDir: string = (() => {
   } catch {
     // import.meta not available in CJS
   }
-  // CJS fallback — __dirname is a global in that context
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore
+  // CJS fallback — __dirname is a global in that context, not declared in ESM lib types.
+  // @ts-expect-error T9767-followup: __dirname is only available when this script is
+  // executed under CJS module resolution; the ESM lib targeting we use otherwise hides it.
   return typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 })();
 
