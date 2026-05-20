@@ -345,3 +345,401 @@ export async function teardownPublishPrWorktree(opts: {
     /* never fail teardown */
   }
 }
+
+// ─── T9718 — new-doc publish flow with frontmatter ───────────────────────────
+
+/**
+ * Input options for {@link publishDocsAsPr}.
+ *
+ * @task T9718 / T9644
+ */
+export interface PublishPrOptions {
+  /**
+   * The slug-or-id of the doc to publish. Resolution mirrors `cleo docs
+   * fetch`: slug → attachment id → sha256.
+   */
+  readonly slugOrId: string;
+  /** Optional PR title override. Default: `"docs(<type>): publish <slug>"`. */
+  readonly title?: string;
+  /** Optional PR body override. Default: a short auto-generated body. */
+  readonly body?: string;
+  /** Base branch for the PR. Default: `"main"`. */
+  readonly base?: string;
+  /** Project root override (mostly for tests). Defaults to `getProjectRoot()`. */
+  readonly projectRoot?: string;
+  /**
+   * Optional slug override when `slugOrId` is itself a non-slug identifier
+   * (e.g. attachment id or sha256). Validated against {@link validatePublishSlug}.
+   */
+  readonly slug?: string;
+  /**
+   * Optional type override. When the stored attachment carries no `type`
+   * column the caller can pin one — bypassing the `docs/note/` default.
+   */
+  readonly type?: string;
+  /** Test-only runner overrides for `git` and `gh`. */
+  readonly runners?: PublishPrRunners;
+}
+
+/**
+ * Success payload returned by {@link publishDocsAsPr}.
+ *
+ * @task T9718 / T9717
+ */
+export interface PublishPrSuccess {
+  readonly action: 'new' | 'updated';
+  readonly prUrl: string;
+  readonly branch: string;
+  readonly commitSha: string;
+  /** The PR head sha BEFORE the update (only set when `action === 'updated'`). */
+  readonly priorSha?: string;
+  /** The published file path inside the worktree, project-root-relative. */
+  readonly filePath: string;
+  /** The slug under which the doc was published. */
+  readonly slug: string;
+  /** The doc type recorded in frontmatter (e.g. `spec`, `adr`, `note`). */
+  readonly type: string;
+  /** Lowercase hex sha256 of the stored blob bytes (pre-frontmatter). */
+  readonly blobSha: string;
+}
+
+/** Result envelope returned by {@link publishDocsAsPr}. */
+export type PublishPrResult =
+  | { readonly success: true; readonly data: PublishPrSuccess }
+  | { readonly success: false; readonly error: PublishPrError };
+
+/**
+ * Strip an existing leading `---\n…\n---\n` block from `text` so we never
+ * double-stack frontmatter when the stored doc already carries one.
+ * Idempotent on docs without frontmatter.
+ *
+ * @internal
+ */
+export function stripExistingFrontmatter(text: string): string {
+  if (!text.startsWith('---\n') && !text.startsWith('---\r\n')) return text;
+  const closer = text.indexOf('\n---', 3);
+  if (closer < 0) return text;
+  const after = text.indexOf('\n', closer + 4);
+  if (after < 0) return text;
+  return text.slice(after + 1);
+}
+
+/** Build the YAML frontmatter block prepended to published markdown. */
+export function buildPublishFrontmatter(opts: {
+  slug: string;
+  type: string;
+  blobSha: string;
+  createdAt: string;
+}): string {
+  return [
+    '---',
+    `slug: ${opts.slug}`,
+    `type: ${opts.type}`,
+    `blobSha: ${opts.blobSha}`,
+    `createdAt: ${opts.createdAt}`,
+    '---',
+    '',
+  ].join('\n');
+}
+
+/** Default PR body emitted when the caller doesn't supply one. */
+export function defaultPublishPrBody(opts: {
+  slug: string;
+  type: string;
+  blobSha: string;
+}): string {
+  return [
+    'Auto-published by `cleo docs publish-pr`.',
+    '',
+    `- **slug**: \`${opts.slug}\``,
+    `- **type**: \`${opts.type}\``,
+    `- **blobSha**: \`${opts.blobSha}\``,
+    '',
+    `Re-run \`cleo docs publish-pr ${opts.slug}\` to push the latest blob to this PR.`,
+  ].join('\n');
+}
+
+/**
+ * Parse the PR URL out of `gh pr create`'s stdout.
+ *
+ * `gh` prints the URL on its own line; we pick the first line that looks
+ * like a github.com pull URL.
+ *
+ * @internal
+ */
+export function parseGhPrUrl(stdout: string): string {
+  const lines = stdout.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^https?:\/\/github\.com\/.+\/pull\/\d+/.test(trimmed)) return trimmed;
+  }
+  const trimmed = stdout.trim();
+  if (/^https?:\/\/github\.com\/.+\/pull\/\d+/.test(trimmed)) return trimmed;
+  throw new Error(`could not parse PR url from gh output: ${stdout}`);
+}
+
+/**
+ * Resolve `slugOrId` to attachment bytes + metadata.
+ *
+ * Resolution order mirrors `docs.fetch`:
+ *   1. Slug (kebab-case, not pure hex) → `findBySlug`
+ *   2. Attachment id (`att_*` / UUID) → `getMetadata` + bytes
+ *   3. Full sha256 (64 hex) → `get(sha)`
+ *
+ * @internal
+ */
+async function resolveDocBytes(
+  slugOrId: string,
+  projectRoot: string,
+): Promise<{
+  bytes: Buffer;
+  slug: string | null;
+  type: string | null;
+} | null> {
+  // Lazy import to keep the foundation tree-shake friendly.
+  const { createAttachmentStore } = await import('../store/attachment-store.js');
+  const store = createAttachmentStore();
+
+  if (SLUG_PATTERN.test(slugOrId) && !/^[0-9a-f]+$/i.test(slugOrId)) {
+    const bySlug = await store.findBySlug(slugOrId, projectRoot).catch(() => null);
+    if (bySlug) {
+      const fetched = await store.get(bySlug.metadata.sha256, projectRoot);
+      if (fetched) {
+        return { bytes: fetched.bytes, slug: bySlug.slug, type: bySlug.type };
+      }
+    }
+  }
+
+  if (/^(att_|[0-9a-f]{8}-)/i.test(slugOrId)) {
+    const meta = await store.getMetadata(slugOrId, projectRoot).catch(() => null);
+    if (meta) {
+      const fetched = await store.get(meta.sha256, projectRoot);
+      if (fetched) {
+        const extras = await store.getExtras(meta.id, projectRoot).catch(() => null);
+        return {
+          bytes: fetched.bytes,
+          slug: extras?.slug ?? null,
+          type: extras?.type ?? null,
+        };
+      }
+    }
+  }
+
+  if (/^[0-9a-f]{64}$/i.test(slugOrId)) {
+    const fetched = await store.get(slugOrId, projectRoot);
+    if (fetched) {
+      const extras = await store.getExtras(fetched.metadata.id, projectRoot).catch(() => null);
+      return {
+        bytes: fetched.bytes,
+        slug: extras?.slug ?? null,
+        type: extras?.type ?? null,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Publish the doc identified by `slugOrId` to a new PR.
+ *
+ * Flow (T9718):
+ *   1. Resolve the doc → bytes + (optional) stored slug/type.
+ *   2. Validate the resolved slug; pick the publish dir from the doc type.
+ *   3. Pre-flight `gh auth status` so authentication failures surface
+ *      before any side effects.
+ *   4. Provision a temp worktree on `docs/<slug>`.
+ *   5. Write `docs/<type>/<slug>.md` with YAML frontmatter, commit, push.
+ *   6. Open the PR via `gh pr create`.
+ *   7. Tear the worktree down in `finally`.
+ *
+ * This implementation only handles the "open new PR" path. Update-PR
+ * detection (force-push existing branch + `gh pr edit`) lands in T9717.
+ *
+ * @task T9718 / T9644
+ */
+export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPrResult> {
+  const { getProjectRoot } = await import('../paths.js');
+  const { createHash } = await import('node:crypto');
+  const { mkdir: mkdirAsync, writeFile: writeFileAsync } = await import('node:fs/promises');
+  const { dirname: dirnameSync, resolve: resolveAbs } = await import('node:path');
+
+  const projectRoot = opts.projectRoot ?? getProjectRoot();
+  const base = opts.base ?? 'main';
+  const runGit = pickRunner('git', opts.runners);
+  const runGh = pickRunner('gh', opts.runners);
+
+  // 1. Resolve doc bytes + stored slug/type hints.
+  const resolved = await resolveDocBytes(opts.slugOrId, projectRoot);
+  if (!resolved) {
+    return {
+      success: false,
+      error: publishPrError(
+        'E_DOC_NOT_FOUND',
+        `no attachment found for '${opts.slugOrId}'`,
+        'Run `cleo docs list --project` to find a valid slug or attachment id.',
+      ),
+    };
+  }
+
+  // 2. Resolve the publish slug.
+  const slugSource = opts.slug ?? resolved.slug ?? opts.slugOrId;
+  const slugCheck = validatePublishSlug(slugSource);
+  if (!slugCheck.ok) {
+    return {
+      success: false,
+      error: publishPrError(
+        'E_INVALID_SLUG',
+        slugCheck.reason,
+        'Pass --slug <kebab-case> when the attachment was not stored with a slug.',
+      ),
+    };
+  }
+  const slug = slugCheck.slug;
+
+  // 3. Resolve the publish type/dir.
+  const type =
+    opts.type && KNOWN_DOC_TYPES.has(opts.type)
+      ? opts.type
+      : resolved.type && KNOWN_DOC_TYPES.has(resolved.type)
+        ? resolved.type
+        : 'note';
+  const publishDir = publishDirForType(type);
+  const branch = branchForSlug(slug);
+
+  // 4. Pre-flight gh auth so we fail early before any side effects.
+  try {
+    await runGh(['auth', 'status'], projectRoot);
+  } catch (e) {
+    return {
+      success: false,
+      error: publishPrError(
+        'E_NO_GH_AUTH',
+        `gh CLI not authenticated: ${execMsg(e)}`,
+        'Run `gh auth login` and retry.',
+      ),
+    };
+  }
+
+  const worktreeDir = tempWorktreeDirForSlug(slug);
+  const relPath = `${publishDir}/${slug}.md`;
+
+  const prov = await provisionPublishPrWorktree({
+    projectRoot,
+    worktreeDir,
+    branch,
+    base,
+    runGit,
+  });
+  if (!prov.ok) {
+    await teardownPublishPrWorktree({ projectRoot, worktreeDir, runGit }).catch(() => undefined);
+    return { success: false, error: prov.error };
+  }
+
+  try {
+    // 5. Compute frontmatter + content + write the file.
+    const blobSha = createHash('sha256').update(resolved.bytes).digest('hex');
+    const frontmatter = buildPublishFrontmatter({
+      slug,
+      type,
+      blobSha,
+      createdAt: new Date().toISOString(),
+    });
+    const rawContent = resolved.bytes.toString('utf-8');
+    const body = stripExistingFrontmatter(rawContent);
+    const fileContent = `${frontmatter}${body}`;
+
+    const fileAbs = resolveAbs(worktreeDir, relPath);
+    await mkdirAsync(dirnameSync(fileAbs), { recursive: true });
+    await writeFileAsync(fileAbs, fileContent, 'utf-8');
+
+    // 6. Stage + commit. Allow-empty so a re-publish of identical bytes
+    //    still advances the PR head sha (idempotent publish, fresh commit).
+    await runGit(['add', '--', relPath], worktreeDir);
+
+    let treeDirty = true;
+    try {
+      await runGit(['diff', '--cached', '--quiet'], worktreeDir);
+      // exit 0 means no diff
+      treeDirty = false;
+    } catch {
+      treeDirty = true;
+    }
+
+    const commitMessage =
+      `docs(${type}): publish ${slug}\n\n` +
+      `slug: ${slug}\n` +
+      `type: ${type}\n` +
+      `blobSha: ${blobSha}`;
+    if (treeDirty) {
+      await runGit(['commit', '-m', commitMessage], worktreeDir);
+    } else {
+      await runGit(['commit', '--allow-empty', '-m', commitMessage], worktreeDir);
+    }
+
+    const commitSha = (await runGit(['rev-parse', 'HEAD'], worktreeDir)).stdout.trim();
+
+    // 7. Push (plain push — update flow with `--force-with-lease` is T9717).
+    try {
+      await runGit(['push', '-u', 'origin', branch], worktreeDir);
+    } catch (e) {
+      return {
+        success: false,
+        error: publishPrError(
+          'E_NETWORK',
+          `git push origin ${branch} failed: ${execMsg(e)}`,
+          'Check network connectivity and remote permissions, then retry.',
+        ),
+      };
+    }
+
+    // 8. Open the PR.
+    const finalBody = opts.body ?? defaultPublishPrBody({ slug, type, blobSha });
+    const finalTitle = opts.title ?? `docs(${type}): publish ${slug}`;
+
+    let prUrl: string;
+    try {
+      const created = await runGh(
+        [
+          'pr',
+          'create',
+          '--base',
+          base,
+          '--head',
+          branch,
+          '--title',
+          finalTitle,
+          '--body',
+          finalBody,
+        ],
+        worktreeDir,
+      );
+      prUrl = parseGhPrUrl(created.stdout);
+    } catch (e) {
+      return {
+        success: false,
+        error: publishPrError(
+          'E_PR_CREATE_FAILED',
+          `gh pr create failed: ${execMsg(e)}`,
+          'Re-run with `gh pr create` manually for a more detailed error message.',
+        ),
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        action: 'new',
+        prUrl,
+        branch,
+        commitSha,
+        filePath: relPath,
+        slug,
+        type,
+        blobSha,
+      },
+    };
+  } finally {
+    await teardownPublishPrWorktree({ projectRoot, worktreeDir, runGit }).catch(() => undefined);
+  }
+}
