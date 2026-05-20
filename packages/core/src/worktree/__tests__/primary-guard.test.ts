@@ -12,7 +12,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -27,10 +27,15 @@ function run(cwd: string, args: string[]): string {
   }).trim();
 }
 
+// `repoRoot` is realpath-resolved at fixture setup so path comparisons against
+// `git worktree list --porcelain` output match on macOS. On macOS, `tmpdir()`
+// returns `/var/folders/...` which is a symlink to `/private/var/folders/...`,
+// and git reports the realpath-resolved form — a raw string compare would fail
+// only on macOS (T9757 / T9736 / T9738-E carryforward).
 let repoRoot: string;
 
 beforeEach(() => {
-  repoRoot = mkdtempSync(join(tmpdir(), 'cleo-t9686d-primary-'));
+  repoRoot = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t9686d-primary-')));
   // Initialize a minimal repo with one commit on `main` so `merge-base
   // --is-ancestor main main` succeeds — that's the exact condition that
   // caused the regression.
