@@ -159,14 +159,21 @@ export type {
   DedupOptions,
   DocImportType,
   GenerateSlugOptions,
+  ImportAction,
+  ImportCounters,
+  ImportManifest,
+  ImportManifestEntry,
   ScannedFile,
   ScanOptions,
   SlugResult,
+  WriteManifestOptions,
 } from './docs/index.js';
 export {
   classifyByRelPath,
+  createCounters,
   decideDedupAction,
   DEFAULT_EXCLUDE_DIRS,
+  defaultManifestPath,
   generateSlug,
   RESERVED_SLUGS,
   scanDirectory,
@@ -174,6 +181,7 @@ export {
   SlugReservedError,
   slugify,
   stripMdExtension,
+  writeAuditManifest,
 } from './docs/index.js';
 // Agent-outputs migration (T9064) — ingest .cleo/agent-outputs/*.md into DocsAccessor
 export type {
