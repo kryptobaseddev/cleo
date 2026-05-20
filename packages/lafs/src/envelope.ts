@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   getAgentAction,
   getDocUrl,
@@ -12,6 +13,7 @@ import type {
   LAFSMeta,
   LAFSTransport,
   MVILevel,
+  Warning,
 } from './types.js';
 import { assertEnvelope } from './validateEnvelope.js';
 
@@ -499,6 +501,214 @@ export function parseLafsResponse<T = unknown>(
   }
 
   throw new LafsError(error);
+}
+
+// ---------------------------------------------------------------------------
+// WarningCollector — async-local carrier for non-fatal warnings (T9768)
+//
+// Producer code anywhere in the call chain (CORE bridges, CAAMP commands,
+// dispatch middleware) calls `pushWarning(w)` to attach a non-fatal notice
+// to the current operation. The CLI renderer (or any other adapter that
+// runs handlers inside `withWarningCollector`) drains the collector at
+// envelope-construction time and merges the result into `meta.warnings[]`.
+//
+// When `pushWarning` is called OUTSIDE an active `withWarningCollector`
+// scope, it silently no-ops — preserving the current behaviour for any
+// caller that has not yet adopted the new carrier.
+// ---------------------------------------------------------------------------
+
+/**
+ * Async-local collector for non-fatal {@link Warning} entries.
+ *
+ * @remarks
+ * Producers anywhere in the synchronous OR asynchronous call chain can
+ * push warnings into the active collector via {@link pushWarning} without
+ * knowing which adapter (CLI, HTTP, etc.) is going to drain them. The
+ * collector is intentionally lightweight: it owns a plain array and a
+ * `Set` of seen codes for `pushIfMissing` deduplication. Instances are
+ * cheap to construct — adapters typically allocate one per request.
+ *
+ * @example
+ * ```ts
+ * import { WarningCollector, withWarningCollector, pushWarning } from '@cleocode/lafs';
+ *
+ * const collector = new WarningCollector();
+ * await withWarningCollector(collector, async () => {
+ *   pushWarning({ code: 'W_BRIDGE_WRITE_FAILED', message: 'memory bridge unavailable' });
+ * });
+ * const warnings = collector.drain(); // → [Warning] or undefined
+ * ```
+ *
+ * @public
+ */
+export class WarningCollector {
+  /** Backing store of pushed warnings, in insertion order. */
+  private readonly warnings: Warning[] = [];
+  /** Set of codes seen via {@link pushIfMissing}, for dedup tracking. */
+  private readonly seenCodes: Set<string> = new Set();
+
+  /**
+   * Append a warning to the collector.
+   *
+   * @param warning - The {@link Warning} to attach. The collector does not
+   *   normalise or copy the input — callers retain ownership of mutable
+   *   `context` objects.
+   *
+   * @remarks
+   * No deduplication is performed. Pass the same code twice and you get two
+   * entries. For dedup-by-code semantics use {@link pushIfMissing} instead.
+   */
+  push(warning: Warning): void {
+    this.warnings.push(warning);
+  }
+
+  /**
+   * Append a warning only when no entry for {@link code} has been added via
+   * `pushIfMissing` yet on this collector.
+   *
+   * @param code - Warning code to dedupe on.
+   * @param factory - Lazy constructor invoked only when the code is unseen.
+   * @returns `true` when the warning was added, `false` when skipped.
+   *
+   * @remarks
+   * Dedup state is tracked separately from {@link push} so a `push` call with
+   * the same code does NOT prevent a later `pushIfMissing` from firing —
+   * the two paths intentionally have independent dedup semantics. Use
+   * `pushIfMissing` for warnings that are likely to be emitted from a hot
+   * loop (e.g. per-iteration bridge failure during a sweep).
+   */
+  pushIfMissing(code: string, factory: () => Warning): boolean {
+    if (this.seenCodes.has(code)) return false;
+    this.seenCodes.add(code);
+    this.warnings.push(factory());
+    return true;
+  }
+
+  /**
+   * Return a copy of every warning pushed so far, or `undefined` when empty.
+   *
+   * @returns A fresh array of warnings, or `undefined` if none were pushed.
+   *
+   * @remarks
+   * The collector is NOT cleared by `drain()` — calling drain twice returns
+   * the same set of warnings. This matches the renderer's "snapshot then
+   * emit" pattern: a single envelope construction reads the collector once.
+   * The `undefined` return (rather than an empty array) lets callers cheaply
+   * omit the field via `...(drained ? { warnings: drained } : {})`.
+   */
+  drain(): Warning[] | undefined {
+    return this.warnings.length > 0 ? [...this.warnings] : undefined;
+  }
+
+  /**
+   * Read-only count of warnings currently held by the collector.
+   *
+   * @returns The number of warnings pushed since construction.
+   *
+   * @remarks
+   * Useful for fast "did anything happen?" checks without allocating the
+   * `drain()` snapshot array.
+   */
+  size(): number {
+    return this.warnings.length;
+  }
+}
+
+/**
+ * AsyncLocalStorage carrier holding the active {@link WarningCollector}, if any.
+ *
+ * @remarks
+ * Exported so adapters that need to inspect (or temporarily replace) the
+ * active collector can do so without instantiating their own ALS. Most
+ * producers should use {@link pushWarning} and most adapters should use
+ * {@link withWarningCollector} instead of touching this directly.
+ *
+ * @public
+ */
+export const currentWarningCollector = new AsyncLocalStorage<WarningCollector>();
+
+/**
+ * Run {@link fn} with {@link collector} bound as the active warning collector.
+ *
+ * @typeParam T - Return type of the wrapped function.
+ * @param collector - The collector that should receive `pushWarning` calls
+ *   originating from within `fn` (synchronous or asynchronous descendants).
+ * @param fn - Function to execute inside the bound scope.
+ * @returns Whatever `fn` returns. If `fn` returns a Promise, the binding is
+ *   preserved for the entire async chain via AsyncLocalStorage semantics.
+ *
+ * @remarks
+ * Adapters (CLI, HTTP middleware, etc.) call this once per request, drain
+ * the collector when constructing the response envelope, and discard it.
+ * Nested calls are supported — the innermost collector wins for any
+ * `pushWarning` originating inside the nested scope.
+ *
+ * @example
+ * ```ts
+ * import { WarningCollector, withWarningCollector } from '@cleocode/lafs';
+ *
+ * const collector = new WarningCollector();
+ * const result = await withWarningCollector(collector, () => runHandler(req));
+ * const warnings = collector.drain();
+ * ```
+ *
+ * @public
+ */
+export function withWarningCollector<T>(collector: WarningCollector, fn: () => T): T {
+  return currentWarningCollector.run(collector, fn);
+}
+
+/**
+ * Return the currently-active {@link WarningCollector}, or `undefined` when
+ * no `withWarningCollector` scope is bound.
+ *
+ * @returns The active collector, or `undefined`.
+ *
+ * @remarks
+ * Use this from adapter code that needs to read state but not push (e.g.
+ * a logger that wants to mirror warnings to a structured sink). Producers
+ * should prefer {@link pushWarning}, which handles the missing-scope case
+ * silently.
+ *
+ * @public
+ */
+export function getCurrentWarningCollector(): WarningCollector | undefined {
+  return currentWarningCollector.getStore();
+}
+
+/**
+ * Attach a non-fatal warning to the active operation's envelope.
+ *
+ * @param warning - The {@link Warning} to attach.
+ *
+ * @remarks
+ * No-op when there is no active {@link WarningCollector} bound via
+ * {@link withWarningCollector}. This means CORE / library code can call
+ * `pushWarning` unconditionally without checking whether it is running
+ * under a CLI adapter, a test harness, or an SDK consumer that has not yet
+ * adopted the carrier.
+ *
+ * @example
+ * ```ts
+ * import { pushWarning } from '@cleocode/lafs';
+ *
+ * try {
+ *   await writeBridge(...);
+ * } catch (err) {
+ *   pushWarning({
+ *     code: 'W_BRIDGE_WRITE_FAILED',
+ *     message: 'memory bridge write failed',
+ *     severity: 'warn',
+ *     context: { error: err instanceof Error ? err.message : String(err) },
+ *   });
+ * }
+ * ```
+ *
+ * @public
+ */
+export function pushWarning(warning: Warning): void {
+  const collector = currentWarningCollector.getStore();
+  if (collector) collector.push(warning);
 }
 
 // ---------------------------------------------------------------------------

@@ -29,18 +29,55 @@ export type LAFSErrorCategory =
   | 'MIGRATION';
 
 /**
+ * Severity classification for a non-fatal {@link Warning}.
+ *
+ * @remarks
+ * Severity is purely informational — it never converts a warning into an error.
+ * Agents and CLIs MAY use this to colourise output or filter low-priority
+ * notices, but the operation itself still succeeds when warnings are present.
+ *
+ * - `info` - Purely informational notice (e.g. cache miss, fallback path).
+ * - `warn` - Default. Operation succeeded but consumer should inspect.
+ * - `error` - Soft policy violation; future versions may upgrade to a hard error.
+ *
+ * @public
+ */
+export type WarningSeverity = 'info' | 'warn' | 'error';
+
+/**
  * A non-fatal warning attached to a LAFS envelope's `_meta.warnings` array.
  *
  * @remarks
  * Warnings inform the consuming agent about deprecations, upcoming removals,
- * or soft policy violations without failing the request. Agents SHOULD log
- * warnings and surface them during development but MUST NOT treat them as errors.
+ * soft policy violations, or degraded side-effects (e.g. bridge write
+ * failures) without failing the request. Agents SHOULD log warnings and
+ * surface them during development but MUST NOT treat them as errors.
+ *
+ * The shape is intentionally extensible: `severity` and `context` were added
+ * post-1.0 so commands can attach structured data (e.g. file path, retry
+ * count) without inventing one-off vendor fields. All new fields are
+ * optional — pre-existing producers that only set `code` + `message` remain
+ * fully forward-compatible.
  */
 export interface Warning {
   /** Machine-readable warning code (e.g. `"W_DEPRECATED_FIELD"`). */
   code: string;
   /** Human-readable description of the warning. */
   message: string;
+  /**
+   * Severity classification. Defaults to `"warn"` when omitted by the producer.
+   *
+   * @defaultValue "warn"
+   */
+  severity?: WarningSeverity;
+  /**
+   * Structured context the producer wants to surface alongside the message
+   * (e.g. `{ file: "skills.json", retry: 2 }`). Keys are arbitrary; values
+   * MUST be JSON-serialisable.
+   *
+   * @defaultValue undefined
+   */
+  context?: Record<string, unknown>;
   /**
    * Name of the deprecated field, parameter, or feature.
    *
