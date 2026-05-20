@@ -12,10 +12,12 @@
  */
 
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { type AddressInfo, createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAttachmentStore } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { tryListen } from '../../viewer/port-allocator.js';
 import { startViewer } from '../../viewer/server.js';
 
 let tmpProjectRoot: string;
@@ -227,6 +229,77 @@ describe('T9720 + T9723 — round-trip: published doc is reachable by slug', () 
       expect(oneRes.body?.data?.mime).toBe('text/markdown');
     } finally {
       handle.server.close();
+    }
+  });
+});
+
+describe('T9722 — graceful port allocation', () => {
+  let blockingServer: Server;
+  let blockedPort: number;
+
+  beforeEach(async () => {
+    blockingServer = createServer();
+    await new Promise<void>((res) => blockingServer.listen(0, '127.0.0.1', res));
+    blockedPort = (blockingServer.address() as AddressInfo).port;
+  });
+
+  afterEach(() => {
+    blockingServer.close();
+  });
+
+  it('auto-increments past a busy port', async () => {
+    const handle = await tryListen(() => {}, {
+      startPort: blockedPort,
+      endPort: blockedPort + 20,
+      host: '127.0.0.1',
+      autoIncrement: true,
+    });
+    try {
+      expect(handle.port).toBeGreaterThan(blockedPort);
+      expect(handle.port).toBeLessThanOrEqual(blockedPort + 20);
+    } finally {
+      handle.server.close();
+    }
+  });
+
+  it('throws EADDRINUSE when --no-auto-port is set and start port is busy', async () => {
+    await expect(
+      tryListen(() => {}, {
+        startPort: blockedPort,
+        endPort: blockedPort,
+        host: '127.0.0.1',
+        autoIncrement: false,
+      }),
+    ).rejects.toMatchObject({ code: 'EADDRINUSE' });
+  });
+
+  it('throws E_NO_PORT when the whole range is busy', async () => {
+    // Block a contiguous range of N ports, then attempt to bind across that
+    // same range — every attempt should EADDRINUSE → E_NO_PORT.
+    const blockers: Server[] = [];
+    const ports: number[] = [];
+    try {
+      for (let i = 0; i < 4; i++) {
+        const s = createServer();
+        await new Promise<void>((res) => s.listen(0, '127.0.0.1', res));
+        blockers.push(s);
+        ports.push((s.address() as AddressInfo).port);
+      }
+      const min = Math.min(...ports);
+      const max = Math.max(...ports);
+      const contiguous = max - min + 1 === ports.length;
+      const startPort = min;
+      const endPort = contiguous ? max : min;
+      await expect(
+        tryListen(() => {}, {
+          startPort,
+          endPort,
+          host: '127.0.0.1',
+          autoIncrement: true,
+        }),
+      ).rejects.toMatchObject({ code: 'E_NO_PORT' });
+    } finally {
+      for (const s of blockers) s.close();
     }
   });
 });

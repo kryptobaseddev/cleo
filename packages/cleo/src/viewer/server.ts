@@ -24,7 +24,7 @@
 
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -32,77 +32,13 @@ import {
   getProjectRoot,
   type LocalFileAttachment,
 } from '@cleocode/core/internal';
+import { type BoundServer, tryListen } from './port-allocator.js';
 
-const DEFAULT_START_PORT = 7777;
-const DEFAULT_END_PORT = 7800;
+// Re-export for callers that consumed these from the server module directly.
+export { tryListen } from './port-allocator.js';
 
 /** Result of a successful viewer-server bind. */
-export interface ViewerServerHandle {
-  /** Bound TCP port. */
-  port: number;
-  /** Bind host. */
-  host: string;
-  /** Underlying `http.Server` instance. */
-  server: Server;
-}
-
-/**
- * Try to bind a fresh `http.Server` to the first available port in
- * `[startPort, endPort]`. Throws `E_NO_PORT` when every port returned
- * `EADDRINUSE`, or `EADDRINUSE` when `autoIncrement` is `false`.
- *
- * Extracted into its own helper so callers + tests can exercise the bind
- * loop without spinning up the full request handler.
- *
- * @task T9722
- */
-export async function tryListen(
-  requestHandler: (req: IncomingMessage, res: ServerResponse) => void,
-  opts: { startPort?: number; endPort?: number; host?: string; autoIncrement?: boolean } = {},
-): Promise<ViewerServerHandle> {
-  const startPort = opts.startPort ?? DEFAULT_START_PORT;
-  const endPort = opts.endPort ?? DEFAULT_END_PORT;
-  const host = opts.host ?? '127.0.0.1';
-  const autoIncrement = opts.autoIncrement ?? true;
-  const last = autoIncrement ? endPort : startPort;
-
-  for (let port = startPort; port <= last; port++) {
-    const server = createServer(requestHandler);
-    try {
-      await new Promise<void>((res, rej) => {
-        const onError = (err: NodeJS.ErrnoException) => {
-          server.removeListener('listening', onListen);
-          rej(err);
-        };
-        const onListen = () => {
-          server.removeListener('error', onError);
-          res();
-        };
-        server.once('error', onError);
-        server.once('listening', onListen);
-        server.listen(port, host);
-      });
-      const addr = server.address();
-      const boundPort =
-        addr && typeof addr === 'object' && typeof addr.port === 'number' ? addr.port : port;
-      return { server, port: boundPort, host };
-    } catch (err) {
-      const e = err as NodeJS.ErrnoException;
-      server.close();
-      if (e.code !== 'EADDRINUSE') throw e;
-      if (!autoIncrement) {
-        throw Object.assign(new Error(`port ${startPort} in use`), { code: 'EADDRINUSE' });
-      }
-    }
-  }
-
-  throw Object.assign(
-    new Error(
-      `no free port in range ${startPort}–${endPort} for viewer (tried ${last - startPort + 1} ports)`,
-    ),
-    { code: 'E_NO_PORT' },
-  );
-}
+export type ViewerServerHandle = BoundServer;
 
 /** Options controlling viewer-server startup. */
 export interface StartViewerOptions {
