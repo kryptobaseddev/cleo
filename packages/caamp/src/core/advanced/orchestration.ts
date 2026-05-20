@@ -9,10 +9,10 @@ import { existsSync, lstatSync } from 'node:fs';
 import { cp, mkdir, readlink, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { resolveSkillsRoot } from '@cleocode/core/skills/skill-root.js';
 import type { ConfigFormat, Provider, ProviderPriority } from '../../types.js';
 import { injectAll } from '../instructions/injector.js';
 import { groupByInstructFile } from '../instructions/templates.js';
-import { CANONICAL_SKILLS_DIR } from '../paths/agents.js';
 import { getInstalledProviders } from '../registry/detection.js';
 import { installSkill, removeSkill } from '../skills/installer.js';
 
@@ -159,7 +159,7 @@ async function snapshotSkillState(
 ): Promise<SkillSnapshot> {
   const skillName = operation.skillName;
   const isGlobal = operation.isGlobal ?? true;
-  const canonicalPath = join(CANONICAL_SKILLS_DIR, skillName);
+  const canonicalPath = join(resolveSkillsRoot(), skillName);
   const canonicalExisted = existsSync(canonicalPath);
   const canonicalBackupPath = join(backupRoot, 'canonical', skillName);
 

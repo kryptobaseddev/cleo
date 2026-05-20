@@ -27,7 +27,6 @@ import {
   discoverSkill,
   discoverSkills,
   getAllProviders,
-  getCanonicalSkillsDir,
   getInstalledProviders,
   getTrackedSkills,
   injectAll,
@@ -56,6 +55,7 @@ import {
   renderDoctorDiagnoseReport,
 } from '../skills/doctor.js';
 import type { MigrationOptions } from '../skills/migration.js';
+import { resolveSkillsRoot } from '../skills/skill-root.js';
 import { upsertSkillRow } from '../store/skills-db.js';
 
 /** Shape for provider hook info returned by queryHookProviders. */
@@ -119,7 +119,7 @@ export async function toolsSkillList(
   }>
 > {
   try {
-    const skills = await discoverSkills(getCanonicalSkillsDir());
+    const skills = await discoverSkills(resolveSkillsRoot());
     const page = paginate(skills, limit, offset);
     return {
       success: true,
@@ -144,7 +144,7 @@ export async function toolsSkillShow(
   name: string,
 ): Promise<EngineResult<{ skill: Awaited<ReturnType<typeof discoverSkill>> }>> {
   try {
-    const skill = await discoverSkill(`${getCanonicalSkillsDir()}/${name}`);
+    const skill = await discoverSkill(`${resolveSkillsRoot()}/${name}`);
     if (!skill) {
       return engineError('E_NOT_FOUND', `Skill not found: ${name}`);
     }
@@ -164,7 +164,7 @@ export async function toolsSkillFind(
 > {
   try {
     const q = (query ?? '').toLowerCase();
-    const skills = await discoverSkills(getCanonicalSkillsDir());
+    const skills = await discoverSkills(resolveSkillsRoot());
     const filtered = q
       ? skills.filter(
           (s: { name: string; metadata: { description: string } }) =>
@@ -272,13 +272,13 @@ export async function toolsSkillVerify(name: string): Promise<
     if (!catalog.isCatalogAvailable()) {
       return engineError('E_CONFIG_ERROR', CATALOG_UNAVAILABLE_MSG, CATALOG_UNAVAILABLE_OPTS);
     }
-    const installed = await discoverSkill(`${getCanonicalSkillsDir()}/${name}`);
+    const installed = await discoverSkill(`${resolveSkillsRoot()}/${name}`);
     const catalogEntry = catalog.getSkill(name);
     return engineSuccess({
       skill: name,
       installed: !!installed,
       inCatalog: !!catalogEntry,
-      installPath: installed ? `${getCanonicalSkillsDir()}/${name}` : null,
+      installPath: installed ? `${resolveSkillsRoot()}/${name}` : null,
     });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));

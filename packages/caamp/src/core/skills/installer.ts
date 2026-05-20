@@ -14,8 +14,9 @@
 import { existsSync, lstatSync } from 'node:fs';
 import { cp, mkdir, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { resolveSkillsRoot } from '@cleocode/core/skills/skill-root.js';
 import type { Provider } from '../../types.js';
-import { getCanonicalSkillsDir, resolveProviderSkillsDirs } from '../paths/standard.js';
+import { resolveProviderSkillsDirs } from '../paths/standard.js';
 
 /**
  * Source-type discriminator emitted with {@link SkillRowData}.
@@ -138,7 +139,7 @@ export interface SkillInstallResult {
 
 /** Ensure canonical skills directory exists */
 async function ensureCanonicalDir(): Promise<void> {
-  await mkdir(getCanonicalSkillsDir(), { recursive: true });
+  await mkdir(resolveSkillsRoot(), { recursive: true });
 }
 
 /**
@@ -164,7 +165,7 @@ async function ensureCanonicalDir(): Promise<void> {
 export async function installToCanonical(sourcePath: string, skillName: string): Promise<string> {
   await ensureCanonicalDir();
 
-  const targetDir = join(getCanonicalSkillsDir(), skillName);
+  const targetDir = join(resolveSkillsRoot(), skillName);
 
   // Remove existing (force: true ignores ENOENT if it doesn't exist)
   await rm(targetDir, { recursive: true, force: true });
@@ -427,7 +428,7 @@ export async function removeSkill(
   }
 
   // Remove canonical copy
-  const canonicalPath = join(getCanonicalSkillsDir(), skillName);
+  const canonicalPath = join(resolveSkillsRoot(), skillName);
   if (existsSync(canonicalPath)) {
     try {
       await rm(canonicalPath, { recursive: true });
@@ -457,9 +458,9 @@ export async function removeSkill(
  * @public
  */
 export async function listCanonicalSkills(): Promise<string[]> {
-  if (!existsSync(getCanonicalSkillsDir())) return [];
+  if (!existsSync(resolveSkillsRoot())) return [];
 
   const { readdir } = await import('node:fs/promises');
-  const entries = await readdir(getCanonicalSkillsDir(), { withFileTypes: true });
+  const entries = await readdir(resolveSkillsRoot(), { withFileTypes: true });
   return entries.filter((e) => e.isDirectory() || e.isSymbolicLink()).map((e) => e.name);
 }

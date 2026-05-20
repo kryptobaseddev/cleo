@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   },
   discoverSkill: vi.fn(async () => null),
   discoverSkills: vi.fn(async () => []),
-  getCanonicalSkillsDir: vi.fn(() => '/tmp/skills'),
+  resolveSkillsRoot: vi.fn(() => '/tmp/skills'),
   installSkill: vi.fn(async () => ({
     name: 'ct-test',
     canonicalPath: '/tmp/skills/ct-test',
@@ -44,11 +44,14 @@ const mocks = vi.hoisted(() => ({
   buildInjectionContent: vi.fn(() => '@AGENTS.md'),
 }));
 
+vi.mock('@cleocode/core/skills/skill-root.js', () => ({
+  resolveSkillsRoot: mocks.resolveSkillsRoot,
+}));
+
 vi.mock('@cleocode/caamp', () => ({
   catalog: mocks.catalog,
   discoverSkill: mocks.discoverSkill,
   discoverSkills: mocks.discoverSkills,
-  getCanonicalSkillsDir: mocks.getCanonicalSkillsDir,
   installSkill: mocks.installSkill,
   removeSkill: mocks.removeSkill,
   getInstalledProviders: mocks.getInstalledProviders,

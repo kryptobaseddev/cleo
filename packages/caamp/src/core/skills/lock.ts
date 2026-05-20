@@ -32,12 +32,12 @@ const execFileAsync = promisify(execFile);
  *
  * @example
  * ```typescript
- * import { getCanonicalSkillsDir } from "../paths/standard.js";
+ * import { resolveSkillsRoot } from "@cleocode/core/skills/skill-root.js";
  * import { join } from "node:path";
  *
  * await recordSkillInstall(
  *   "my-skill", "my-skill", "owner/repo", "github",
- *   ["claude-code"], join(getCanonicalSkillsDir(), "my-skill"), true,
+ *   ["claude-code"], join(resolveSkillsRoot(), "my-skill"), true,
  * );
  * ```
  *

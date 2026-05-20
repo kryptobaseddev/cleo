@@ -359,7 +359,6 @@ vi.mock('@cleocode/caamp', () => ({
   },
   discoverSkill: vi.fn().mockResolvedValue(null),
   discoverSkills: vi.fn().mockResolvedValue([]),
-  getCanonicalSkillsDir: vi.fn(() => '/mock/skills'),
   installSkill: vi.fn().mockResolvedValue({ success: true, errors: [] }),
   removeSkill: vi.fn().mockResolvedValue({ removed: [], errors: [] }),
   getInstalledProviders: vi.fn(() => []),

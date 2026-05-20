@@ -55,6 +55,14 @@ export default defineConfig({
       '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
         .pathname,
       '@cleocode/core/internal': new URL('./src/internal.ts', import.meta.url).pathname,
+      // T9747: caamp source files import `@cleocode/core/skills/skill-root.js`.
+      // When those files are loaded by vitest during core's own test suite,
+      // Node's package-self-reference resolution fails because we're already
+      // inside @cleocode/core. Alias the subpath to the TS source directly.
+      '@cleocode/core/skills/skill-root.js': new URL(
+        './src/skills/skill-root.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/core': new URL('./src/index.ts', import.meta.url).pathname,
       '@cleocode/adapters': new URL('../../packages/adapters/src/index.ts', import.meta.url)
         .pathname,

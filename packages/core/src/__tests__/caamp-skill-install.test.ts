@@ -72,9 +72,11 @@ describe('CAAMP skill install + integrity (T4718)', () => {
       expect(typeof discoverSkills).toBe('function');
     });
 
-    it('getCanonicalSkillsDir returns a path', async () => {
-      const { getCanonicalSkillsDir } = await import('@cleocode/caamp');
-      const dir = getCanonicalSkillsDir();
+    it('resolveSkillsRoot returns a path', async () => {
+      // T9747: getCanonicalSkillsDir was removed from @cleocode/caamp. The SSoT
+      // skills-root resolver now lives in core/src/skills/skill-root.
+      const { resolveSkillsRoot } = await import('../skills/skill-root.js');
+      const dir = resolveSkillsRoot();
       expect(typeof dir).toBe('string');
       expect(dir.length).toBeGreaterThan(0);
     });

@@ -12,7 +12,6 @@ import {
   getAgentsMcpServersPath,
   getAgentsSpecDir,
   getAgentsWikiDir,
-  getCanonicalSkillsDir,
   getLockFilePath,
   normalizeSkillSubPath,
   resolveProviderConfigPath,
@@ -33,11 +32,12 @@ describe("paths standard", () => {
     }
   });
 
-  it("respects AGENTS_HOME override for canonical paths", () => {
+  it("respects AGENTS_HOME override for non-skills agents paths", () => {
+    // T9747: AGENTS_HOME no longer overrides skills (the SSoT is ~/.cleo/skills).
+    // It still controls the lock file and .agents/* helpers.
     process.env["AGENTS_HOME"] = "~/custom-agents";
 
     expect(getAgentsHome()).toContain("custom-agents");
-    expect(getCanonicalSkillsDir()).toContain("custom-agents");
     expect(getLockFilePath()).toContain("custom-agents");
   });
 
