@@ -557,6 +557,65 @@ const doctorAdoptOrphansCommand = defineCommand({
   },
 });
 
+/**
+ * `cleo skills stats` — Sphere B telemetry rollup (T9690).
+ *
+ * Surfaces the typed `SkillsStore` adapter behind a single command. Flags:
+ *
+ *   --top N            Top-N usage rollup (default 10)
+ *   --since DAYS       Restrict the rollup to the last N days
+ *   --by-source        Include source-type breakdown facet
+ *   --by-lifecycle     Include lifecycle-state breakdown facet
+ *   --agent-created    Include agent-created skill list facet
+ *   --json             LAFS envelope (default) vs human renderer
+ */
+const statsCommand = defineCommand({
+  meta: {
+    name: 'stats',
+    description:
+      'Show skill telemetry stats: top-N usage, lifecycle / source-type breakdowns, agent-created skills',
+  },
+  args: {
+    top: {
+      type: 'string',
+      description: 'Top-N usage rollup limit (default 10)',
+    },
+    since: {
+      type: 'string',
+      description: 'Restrict the top-N rollup to the last N days (default: all-time)',
+    },
+    'by-source': {
+      type: 'boolean',
+      description: 'Include source-type breakdown facet',
+    },
+    'by-lifecycle': {
+      type: 'boolean',
+      description: 'Include lifecycle-state breakdown facet',
+    },
+    'agent-created': {
+      type: 'boolean',
+      description: 'Include agent-created skill list facet',
+    },
+  },
+  async run({ args }) {
+    const top = args.top ? Number(args.top) : undefined;
+    const sinceDays = args.since ? Number(args.since) : undefined;
+    await dispatchFromCli(
+      'query',
+      'tools',
+      'skill.stats',
+      {
+        top,
+        sinceDays,
+        bySource: args['by-source'] === true,
+        byLifecycle: args['by-lifecycle'] === true,
+        agentCreated: args['agent-created'] === true,
+      },
+      { command: 'skills', operation: 'tools.skill.stats' },
+    );
+  },
+});
+
 /** cleo skills spawn-providers — list providers capable of spawning subagents */
 const spawnProvidersCommand = defineCommand({
   meta: { name: 'spawn-providers', description: 'List providers capable of spawning subagents' },
@@ -855,6 +914,7 @@ export const skillsCommand = defineCommand({
     'spawn-providers': spawnProvidersCommand,
     doctor: doctorCommand,
     'propose-patch': proposePatchCommand,
+    stats: statsCommand,
   },
   async run({ cmd, rawArgs }) {
     // Parent run() fires after subcommand per citty@0.2.x — skip default

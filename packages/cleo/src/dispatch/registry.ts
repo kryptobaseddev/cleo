@@ -1789,6 +1789,50 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T9690 — skill.stats: Sphere B telemetry rollup
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'skill.stats',
+    description:
+      'tools.skill.stats (query) — Sphere B telemetry rollup; top-N usage, lifecycle / source-type breakdowns, agent-created list',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'top',
+        type: 'number',
+        required: false,
+        description: 'Top-N usage rollup limit (default 10)',
+      },
+      {
+        name: 'sinceDays',
+        type: 'number',
+        required: false,
+        description: 'Restrict top-N rollup to the last N days (default: all-time)',
+      },
+      {
+        name: 'bySource',
+        type: 'boolean',
+        required: false,
+        description: 'Include source-type breakdown facet',
+      },
+      {
+        name: 'byLifecycle',
+        type: 'boolean',
+        required: false,
+        description: 'Include lifecycle-state breakdown facet',
+      },
+      {
+        name: 'agentCreated',
+        type: 'boolean',
+        required: false,
+        description: 'Include agent-created skill list facet',
+      },
+    ],
+  },
   {
     gateway: 'query',
     domain: 'tools',

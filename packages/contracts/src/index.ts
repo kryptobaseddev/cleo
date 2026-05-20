@@ -1377,6 +1377,17 @@ export {
   sessionJournalDoctorSummarySchema,
   sessionJournalEntrySchema,
 } from './session-journal.js';
+// === Skills Stats (T9690 — SG-CLEO-SKILLS Sphere B) ===
+export type {
+  SkillStatsAgentCreatedRow,
+  SkillStatsByLifecycleRow,
+  SkillStatsBySourceRow,
+  SkillStatsRequest,
+  SkillStatsResponse,
+  SkillStatsTopRow,
+  StatsSkillLifecycleState,
+  StatsSkillSourceType,
+} from './skills/stats.js';
 export type { AdapterSpawnProvider, SpawnContext, SpawnResult } from './spawn.js';
 // === CLEO Spawn Types (distinct from adapter spawn) ===
 export type {

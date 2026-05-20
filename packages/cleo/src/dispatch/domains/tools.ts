@@ -50,6 +50,7 @@ import {
   toolsSkillRefresh,
   toolsSkillShow,
   toolsSkillSpawnProviders,
+  toolsSkillStats,
   toolsSkillUninstall,
   toolsSkillVerify,
 } from '@cleocode/core/internal';
@@ -159,6 +160,7 @@ export class ToolsHandler implements DomainHandler {
         'skill.catalog',
         'skill.precedence',
         'skill.doctor.diagnose',
+        'skill.stats',
         // provider
         'provider.list',
         'provider.detect',
@@ -421,6 +423,21 @@ export class ToolsHandler implements DomainHandler {
         const verbose = params?.verbose === true;
         const result = await toolsSkillDoctorDiagnose({ verbose });
         return wrapResult(result, 'query', 'tools', 'skill.doctor.diagnose', startTime);
+      }
+
+      // T9690 — skill.stats: Sphere B telemetry rollup
+      case 'stats': {
+        const top = typeof params?.top === 'number' ? (params.top as number) : undefined;
+        const sinceDays =
+          typeof params?.sinceDays === 'number' ? (params.sinceDays as number) : undefined;
+        const result = await toolsSkillStats({
+          top,
+          sinceDays,
+          bySource: params?.bySource === true,
+          byLifecycle: params?.byLifecycle === true,
+          agentCreated: params?.agentCreated === true,
+        });
+        return wrapResult(result, 'query', 'tools', 'skill.stats', startTime);
       }
 
       default:

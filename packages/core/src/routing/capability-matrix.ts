@@ -1284,6 +1284,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
+  // T9690 — skill.stats: Sphere B telemetry rollup
+  {
+    domain: 'tools',
+    operation: 'skill.stats',
+    gateway: 'query',
+    mode: 'native',
+    preferredChannel: 'either',
+  },
   {
     domain: 'tools',
     operation: 'skill.install',

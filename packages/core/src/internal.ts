@@ -2158,6 +2158,7 @@ export {
   toolsSkillRefresh,
   toolsSkillShow,
   toolsSkillSpawnProviders,
+  toolsSkillStats,
   toolsSkillUninstall,
   toolsSkillVerify,
 } from './tools/engine-ops.js';
