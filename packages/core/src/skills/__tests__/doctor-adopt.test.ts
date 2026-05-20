@@ -1,5 +1,5 @@
 /**
- * Unit tests for `cleo skills doctor adopt-orphans` (T9657).
+ * Unit tests for `cleo skills doctor adopt-orphans`.
  *
  * Covers:
  *  - orphan discovery (on-disk dirs not in skills.db)
@@ -11,10 +11,13 @@
  *  - audit-log JSON envelope
  *
  * @remarks
- * Post-ADR-068 refactor (T9657 follow-up): the caamp module no longer opens
- * `skills.db` itself; the test harness owns the chokepoint-compliant sqlite
- * open via `node:sqlite` (test files are allowlisted by
- * `scripts/lint-no-raw-db-opens.mjs`).
+ * Moved from `packages/caamp/tests/unit/skills-doctor-adopt.test.ts` to CORE
+ * by T9744 (T9740 Wave B). Test files in `__tests__/` are allowlisted by
+ * `scripts/lint-no-raw-db-opens.mjs` so direct `DatabaseSync` opens for
+ * seeding the fixture database are permitted.
+ *
+ * @task T9744
+ * @epic T9740
  */
 
 import { execSync } from 'node:child_process';
@@ -22,8 +25,8 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -35,12 +38,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type AdoptedSkillRowData,
   applyDecision,
+  type DoctorAdoptOrphanRecord,
   discoverOrphans,
-  type OrphanRecord,
   type RecordRowFn,
   runDoctorAdopt,
   writeAuditLog,
-} from '../../src/commands/skills/doctor-adopt.js';
+} from '../doctor-adopt.js';
 
 // ---------------------------------------------------------------------------
 // Test scaffolding
@@ -174,8 +177,7 @@ function readSkillsRows(dbPath: string): Array<{
 /**
  * Build a sandboxed `loadRegisteredNames` callback that reads from the given
  * sqlite file. Mirrors the production wiring (which would route through
- * `openCleoDb('skills')`) without taking a `@cleocode/core` dep from the
- * caamp test suite.
+ * `openSkillsDb()`).
  */
 function makeLoadRegisteredNames(dbPath: string): () => ReadonlySet<string> {
   return (): ReadonlySet<string> => {
@@ -261,7 +263,6 @@ describe('skills doctor adopt-orphans', () => {
       // Create a real cleo skill, then a symlink from ~/.agents/skills/ to it.
       createSkillDir(s.cleoSkills, 'shared-skill');
       const bridge = join(s.homeAgentsSkills, 'shared-skill');
-      // Use cpSync? No — symlink.
       execSync(`ln -s ${join(s.cleoSkills, 'shared-skill')} ${bridge}`);
       registerSkill(s.dbPath, 'shared-skill', join(s.cleoSkills, 'shared-skill'));
 
@@ -294,7 +295,7 @@ describe('skills doctor adopt-orphans', () => {
   });
 
   describe('applyDecision', () => {
-    function makeOrphan(name: string, parent: string = s.cleoSkills): OrphanRecord {
+    function makeOrphan(name: string, parent: string = s.cleoSkills): DoctorAdoptOrphanRecord {
       const path = createSkillDir(parent, name);
       return {
         name,
@@ -504,7 +505,7 @@ describe('skills doctor adopt-orphans', () => {
 
   describe('writeAuditLog', () => {
     it('writes structured JSON with runId + writtenAt', () => {
-      const orphans: OrphanRecord[] = [
+      const orphans: DoctorAdoptOrphanRecord[] = [
         {
           name: 'standalone',
           path: '/tmp/standalone',

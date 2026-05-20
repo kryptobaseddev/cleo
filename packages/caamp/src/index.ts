@@ -6,39 +6,16 @@
  * format-agnostic config read/write operations.
  */
 
-// Skills doctor — adopt-orphans subcommand (T9657)
-export type {
-  AdoptedSkillRowData,
-  DoctorAdoptCliAdapters,
-  DoctorAdoptOptions,
-  DoctorAdoptResult,
-  OrphanActionResult,
-  OrphanDecision,
-  OrphanRecord,
-  OrphanRefusal,
-  RecordRowFn,
-  RegisteredNamesLoader,
-} from './commands/skills/doctor-adopt.js';
-export {
-  applyDecision,
-  caampStandaloneAdapters,
-  discoverOrphans,
-  registerSkillsDoctorAdopt,
-  runDoctorAdopt,
-  writeAuditLog,
-} from './commands/skills/doctor-adopt.js';
-export type {
-  BridgeSymlinkRecord,
-  DoctorBridgeOptions,
-  DoctorBridgeResult,
-  PerSkillSymlinkRemoval,
-} from './commands/skills/doctor-bridge.js';
-// Skills doctor — bridge subcommand (T9655)
-export {
-  AgentsSkillsRealDirError,
-  buildBackupTimestamp,
-  runDoctorBridge,
-} from './commands/skills/doctor-bridge.js';
+// Skills doctor helpers moved to `@cleocode/core` by T9744 (Wave B of T9740).
+// Import from `@cleocode/core` directly:
+//   - runDoctorBridge, AgentsSkillsRealDirError, buildBackupTimestamp,
+//     DoctorBridgeOptions, DoctorBridgeResult, BridgeSymlinkRecord,
+//     PerSkillSymlinkRemoval
+//   - runDoctorAdopt, applyDecision, discoverOrphans, writeAuditLog,
+//     caampStandaloneAdapters, AdoptedSkillRowData, DoctorAdoptCliAdapters,
+//     DoctorAdoptOptions, DoctorAdoptResult, DoctorAdoptOrphanRecord,
+//     OrphanActionResult, OrphanDecision, OrphanRefusal, RecordRowFn,
+//     RegisteredNamesLoader
 export type {
   BatchInstallOptions,
   BatchInstallResult,

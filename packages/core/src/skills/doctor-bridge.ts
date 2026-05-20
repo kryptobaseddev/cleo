@@ -1,5 +1,5 @@
 /**
- * `cleo skills doctor bridge` — single bridge symlink + per-skill symlink removal.
+ * Doctor — `cleo skills doctor bridge` business logic.
  *
  * @remarks
  * Implements the canonical discovery topology described in
@@ -18,35 +18,33 @@
  *    `~/.cleo/skills/` whose target is missing or wrong.
  * 3. Atomically replaces `~/.agents/skills` with a symlink to
  *    `~/.claude/skills/agents-shared`. If the existing `~/.agents/skills` is a
- *    REAL directory with contents, the command refuses without `--force` and
+ *    REAL directory with contents, the function refuses without `--force` and
  *    backs up to `~/.cleo/backups/agents-skills-pre-bridge-YYYYMMDD-HHmmss/`
  *    when `--force` is supplied.
  * 4. Rips per-skill symlinks under `~/.claude/skills/*` that point OUTSIDE
  *    `agents-shared/` (orphans from the old per-skill fan-out model).
  *
- * The handler is pure-functional with a dependency-injected `homeDir` so it
+ * The function is pure-functional with a dependency-injected `homeDir` so it
  * can be exercised against tmpfs fixtures in unit tests without touching the
  * real user environment.
  *
+ * ## Locality (T9740 Wave B — T9744)
+ *
+ * Moved from `packages/caamp/src/commands/skills/doctor-bridge.ts` to CORE so
+ * the cleo CLI (and any other CORE consumer) can import it without crossing
+ * the `core → caamp` dep boundary. The legacy Commander registrar in caamp
+ * was deleted at the same time — cleo dispatches via citty and never wired
+ * the registrar in.
+ *
  * @see {@link docs/architecture/SG-CLEO-SKILLS-architecture-v3.md} §1
- * @task T9655
- * @epic T9571
- * @public
+ * @task T9744
+ * @epic T9740
  */
 
 import { existsSync, lstatSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
 import { cp, mkdir, readdir, rm, symlink, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
-import type { Command } from 'commander';
-import pc from 'picocolors';
-import {
-  ErrorCategories,
-  ErrorCodes,
-  emitJsonError,
-  outputSuccess,
-  resolveFormat,
-} from '../../core/lafs.js';
 
 /**
  * One symlink that was created (or would be created in `--dry-run`).
@@ -125,11 +123,11 @@ export interface DoctorBridgeOptions {
    */
   homeDir?: string;
   /**
-   * Allow the command to clobber an existing real `~/.agents/skills` directory.
+   * Allow the function to clobber an existing real `~/.agents/skills` directory.
    *
    * @remarks
    * When `false` (the default) and `~/.agents/skills` is a non-empty real
-   * directory, the command refuses with `E_AGENTS_SKILLS_REAL_DIR` to preserve
+   * directory, the function refuses with `E_AGENTS_SKILLS_REAL_DIR` to preserve
    * user data. When `true`, the directory is moved to
    * `~/.cleo/backups/agents-skills-pre-bridge-<ts>/` before the bridge symlink
    * is created.
@@ -185,6 +183,8 @@ export class AgentsSkillsRealDirError extends Error {
  * UTC so backups taken on different machines round-trip identically.
  *
  * @returns Timestamp suffix string for backup directory naming.
+ *
+ * @public
  */
 export function buildBackupTimestamp(): string {
   const d = new Date();
@@ -325,7 +325,7 @@ async function countEntries(dir: string): Promise<number> {
  *
  * @example
  * ```typescript
- * import { runDoctorBridge } from '@cleocode/caamp';
+ * import { runDoctorBridge } from '@cleocode/core';
  *
  * const result = await runDoctorBridge({ homeDir: '/tmp/test-home' });
  * console.log(result.perSkillSymlinksCreated.length); // # of new bridge symlinks
@@ -381,7 +381,7 @@ export async function runDoctorBridge(
       }
       // Keep symlinks that already point inside agents-shared/.
       if (resolvedTarget !== null) {
-        const realResolved = (() => {
+        const realResolved = ((): string => {
           try {
             return realpathSync(resolvedTarget);
           } catch {
@@ -453,121 +453,4 @@ export async function runDoctorBridge(
     bridgeTarget,
     bridgePath,
   };
-}
-
-/**
- * Print a human-friendly summary of the bridge run to stdout.
- *
- * @param result - Result of {@link runDoctorBridge}.
- */
-function printHumanSummary(result: DoctorBridgeResult): void {
-  if (result.dryRun) {
-    console.log(pc.dim('(dry-run — no disk state mutated)'));
-  }
-  if (!result.bridgeCreated && result.perSkillSymlinksCreated.length === 0) {
-    console.log(pc.green('Bridge already correct — nothing to do.'));
-  } else {
-    console.log(pc.green('Bridge configured.'));
-  }
-  console.log(`  ${pc.dim('bridge:')} ${result.bridgePath} -> ${result.bridgeTarget}`);
-  console.log(
-    `  ${pc.dim('per-skill symlinks created:')} ${result.perSkillSymlinksCreated.length}`,
-  );
-  console.log(
-    `  ${pc.dim('per-skill symlinks removed:')} ${result.perSkillSymlinksRemoved.length}`,
-  );
-  if (result.backupPath) {
-    console.log(`  ${pc.yellow('backup:')} ${result.backupPath}`);
-  }
-}
-
-/**
- * Register the `skills doctor bridge` subcommand on a parent `doctor` group.
- *
- * @remarks
- * Wires the LAFS-compliant CLI surface around {@link runDoctorBridge}. The
- * handler is split out so the implementation can be reused by the citty-based
- * `cleo skills doctor bridge` wrapper in `packages/cleo`.
- *
- * @param parent - Parent Commander command (the `doctor` subgroup).
- *
- * @example
- * ```bash
- * caamp skills doctor bridge            # refuses if ~/.agents/skills is a real dir
- * caamp skills doctor bridge --force    # backs up + bridges
- * caamp skills doctor bridge --dry-run  # plan-only
- * ```
- *
- * @public
- */
-export function registerDoctorBridge(parent: Command): void {
-  parent
-    .command('bridge')
-    .description('Create the single ~/.agents/skills bridge symlink and rip per-skill symlinks')
-    .option('--force', 'Back up and replace a real ~/.agents/skills directory if present')
-    .option('--dry-run', 'Print planned actions without mutating disk state')
-    .option('--json', 'Output as JSON (default)')
-    .option('--human', 'Output in human-readable format')
-    .action(
-      async (opts: { force?: boolean; dryRun?: boolean; json?: boolean; human?: boolean }) => {
-        const operation = 'skills.doctor.bridge';
-        const mvi: import('../../core/lafs.js').MVILevel = 'standard';
-
-        let format: 'json' | 'human';
-        try {
-          format = resolveFormat({
-            jsonFlag: opts.json ?? false,
-            humanFlag: opts.human ?? false,
-            projectDefault: 'json',
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          emitJsonError(
-            operation,
-            mvi,
-            ErrorCodes.FORMAT_CONFLICT,
-            message,
-            ErrorCategories.VALIDATION,
-          );
-          process.exit(1);
-        }
-
-        try {
-          const result = await runDoctorBridge({
-            force: opts.force ?? false,
-            dryRun: opts.dryRun ?? false,
-          });
-          if (format === 'json') {
-            outputSuccess(operation, mvi, result);
-          } else {
-            printHumanSummary(result);
-          }
-        } catch (error) {
-          if (error instanceof AgentsSkillsRealDirError) {
-            if (format === 'json') {
-              emitJsonError(operation, mvi, error.code, error.message, ErrorCategories.CONFLICT, {
-                agentsSkillsPath: error.agentsSkillsPath,
-                entryCount: error.entryCount,
-              });
-            } else {
-              console.error(pc.red(error.message));
-            }
-            process.exit(1);
-          }
-          const message = error instanceof Error ? error.message : String(error);
-          if (format === 'json') {
-            emitJsonError(
-              operation,
-              mvi,
-              ErrorCodes.INTERNAL_ERROR,
-              message,
-              ErrorCategories.INTERNAL,
-            );
-          } else {
-            console.error(pc.red(message));
-          }
-          process.exit(1);
-        }
-      },
-    );
 }

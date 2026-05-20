@@ -22,9 +22,13 @@
  * @epic T4545
  */
 
-import type { AdoptedSkillRowData, DoctorAdoptCliAdapters } from '@cleocode/caamp';
-import { AgentsSkillsRealDirError, runDoctorAdopt, runDoctorBridge } from '@cleocode/caamp';
-import { skills as coreSkills } from '@cleocode/core';
+import type { AdoptedSkillRowData, DoctorAdoptCliAdapters } from '@cleocode/core';
+import {
+  AgentsSkillsRealDirError,
+  skills as coreSkills,
+  runDoctorAdopt,
+  runDoctorBridge,
+} from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
