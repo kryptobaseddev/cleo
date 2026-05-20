@@ -35,6 +35,7 @@ import {
   removeSkill,
   type SkillRowData,
 } from '@cleocode/caamp';
+import type { SkillStatsRequest, SkillStatsResponse } from '@cleocode/contracts';
 import { AdapterManager } from '../adapters/index.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { type HookEvent, isProviderHookEvent } from '../hooks/types.js';
@@ -342,6 +343,61 @@ export async function toolsSkillDoctorDiagnose(options?: { verbose?: boolean }):
     const report = await diagnoseSkillStore();
     const rendered = renderDoctorDiagnoseReport(report, options?.verbose ?? false);
     return engineSuccess({ report, rendered, healthy: report.healthy });
+  } catch (error) {
+    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Run the Sphere B telemetry rollup powering `cleo skills stats`.
+ *
+ * Always returns the top-N rollup (`top`). The `bySource`, `byLifecycle`,
+ * and `agentCreated` facets are populated only when the corresponding flag
+ * is `true` — `null` otherwise so callers can distinguish "not requested"
+ * from "zero rows".
+ *
+ * @param request - Faceting flags from {@link SkillStatsRequest}.
+ *
+ * @task T9690
+ */
+export async function toolsSkillStats(
+  request?: SkillStatsRequest,
+): Promise<EngineResult<SkillStatsResponse>> {
+  try {
+    const { countByLifecycle, countBySourceType, getTopUsed, listAgentCreated } = await import(
+      '../store/skills-store.js'
+    );
+
+    const topLimit = request?.top ?? 10;
+    const top = await getTopUsed(topLimit);
+
+    const bySource = request?.bySource
+      ? (await countBySourceType()).map((r) => ({
+          sourceType: r.sourceType,
+          count: r.count,
+        }))
+      : null;
+
+    const byLifecycle = request?.byLifecycle
+      ? (await countByLifecycle()).map((r) => ({ state: r.state, count: r.count }))
+      : null;
+
+    const agentCreated = request?.agentCreated
+      ? (await listAgentCreated()).map((r) => ({
+          name: r.name,
+          version: r.version,
+          installedAt: r.installedAt,
+          lifecycleState: r.lifecycleState,
+        }))
+      : null;
+
+    return engineSuccess({
+      top: top.map((r) => ({ skillName: r.skillName, count: r.count })),
+      bySource,
+      byLifecycle,
+      agentCreated,
+      sinceDays: request?.sinceDays ?? null,
+    });
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
