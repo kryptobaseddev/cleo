@@ -18,10 +18,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path';
+import type { LocalFileAttachment } from '@cleocode/contracts';
 import type { KnowledgeGraph, MessageInput } from 'llmtxt/graph';
 import type { ReconstructionResult, VersionDiffSummary, VersionEntry } from 'llmtxt/sdk';
 import type { SimilarityRankResult } from 'llmtxt/similarity';
 import { getProjectRoot } from '../paths.js';
+import { createAttachmentStore } from '../store/attachment-store.js';
 import { blobList, blobRead } from '../store/blob-ops.js';
 
 // ─── Error helpers ────────────────────────────────────────────────────────────
@@ -236,6 +238,215 @@ export async function searchDocs(
   });
 
   return { query, hits };
+}
+
+// ─── Project-wide doc search (T9647) ──────────────────────────────────────────
+
+/**
+ * A single ranked hit returned by {@link searchAllProjectDocs}.
+ *
+ * @task T9647
+ */
+export interface DocsProjectSearchHit {
+  /** Attachment SHA-256 content address. */
+  readonly id: string;
+  /** Slug under which the doc is published, when present. */
+  readonly slug: string | null;
+  /** Taxonomy type (spec|adr|research|handoff|note|llm-readme), when present. */
+  readonly type: string | null;
+  /** Owner entity type that originally bound the attachment (e.g. `"task"`). */
+  readonly ownerType: string;
+  /** Owner entity ID that originally bound the attachment. */
+  readonly ownerId: string;
+  /** Filename / display name. */
+  readonly name: string;
+  /** Normalised similarity score in [0, 1]. */
+  readonly score: number;
+  /** Best-effort plaintext snippet centred on the first query-term match. */
+  readonly snippet: string;
+}
+
+/**
+ * Result returned by {@link searchAllProjectDocs}.
+ *
+ * @task T9647
+ */
+export interface DocsProjectSearchResult {
+  /** The original query string. */
+  readonly query: string;
+  /** Total number of docs considered before ranking. */
+  readonly totalDocs: number;
+  /** Ranked hits, highest score first. */
+  readonly hits: DocsProjectSearchHit[];
+}
+
+/** Maximum bytes to read per attachment when building the search corpus. */
+const SEARCH_MAX_BYTES_PER_DOC = 64 * 1024;
+
+/** Maximum characters in a snippet returned with a search hit. */
+const SEARCH_SNIPPET_CHARS = 200;
+
+/**
+ * Internal: decide whether an attachment's content should be treated as text.
+ * The viewer search only meaningfully ranks text-shaped attachments.
+ *
+ * @internal
+ */
+function isTextMime(mime: string | undefined | null): boolean {
+  if (!mime) return false;
+  return (
+    mime.startsWith('text/') ||
+    mime === 'application/json' ||
+    mime === 'application/xml' ||
+    mime === 'application/yaml' ||
+    mime === 'application/x-yaml'
+  );
+}
+
+/**
+ * Internal: extract a snippet from `content` centred on the first occurrence
+ * of any whitespace-separated query term. Falls back to the leading window of
+ * the document when no term matches.
+ *
+ * @internal
+ */
+function buildSnippet(content: string, query: string, maxChars = SEARCH_SNIPPET_CHARS): string {
+  const flat = content.replace(/\s+/g, ' ').trim();
+  if (flat.length <= maxChars) return flat;
+
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+  const lower = flat.toLowerCase();
+
+  let firstHit = -1;
+  for (const t of terms) {
+    const idx = lower.indexOf(t);
+    if (idx >= 0 && (firstHit < 0 || idx < firstHit)) firstHit = idx;
+  }
+
+  if (firstHit < 0) return `${flat.slice(0, maxChars)}…`;
+
+  const half = Math.floor(maxChars / 2);
+  const start = Math.max(0, firstHit - half);
+  const end = Math.min(flat.length, start + maxChars);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < flat.length ? '…' : '';
+  return `${prefix}${flat.slice(start, end)}${suffix}`;
+}
+
+/**
+ * Rank every published doc in the project against `query` using
+ * `llmtxt/similarity.rankBySimilarity` over their text content.
+ *
+ * Unlike {@link searchDocs}, which is scoped to a single owner and ranks by
+ * blob name only, this function builds the full set of project docs (via
+ * {@link AttachmentStore.listAllInProject}), reads the bytes for each text
+ * attachment, ranks against the actual content, and returns hits with slug,
+ * type, snippet and score.
+ *
+ * Non-text attachments (binary blobs, images) are skipped so their bytes do
+ * not pollute the n-gram fingerprint.
+ *
+ * @param query - Free-text search query.
+ * @param opts  - Optional `type` filter, `limit`, and `projectRoot` override.
+ * @returns Ranked hits with snippet, highest score first.
+ *
+ * @throws `LLMTXT_PRIMITIVE_UNAVAILABLE` when `llmtxt/similarity` is not installed.
+ *
+ * @task T9647 — viewer + CLI project-wide search
+ * @epic T9631
+ *
+ * @example
+ * ```ts
+ * const result = await searchAllProjectDocs('release pipeline', { limit: 5 });
+ * // result.hits[0]: { slug, type, score, snippet, ... }
+ * ```
+ */
+export async function searchAllProjectDocs(
+  query: string,
+  opts?: { type?: string; limit?: number; projectRoot?: string },
+): Promise<DocsProjectSearchResult> {
+  let rankBySimilarity: (
+    q: string,
+    candidates: string[],
+    options?: { method?: 'ngram' | 'shingle'; threshold?: number },
+  ) => SimilarityRankResult[];
+
+  try {
+    const mod = await import('llmtxt/similarity');
+    rankBySimilarity = mod.rankBySimilarity;
+  } catch (cause) {
+    throwUnavailable('llmtxt/similarity', cause);
+  }
+
+  const root = opts?.projectRoot ?? getProjectRoot();
+  const limit = opts?.limit ?? 10;
+  const store = createAttachmentStore();
+
+  const rows = await store.listAllInProject(root, opts?.type ? { type: opts.type } : undefined);
+
+  // Dedupe by attachment id so a doc referenced by N owners is ranked once.
+  const seen = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    if (!seen.has(r.metadata.id)) seen.set(r.metadata.id, r);
+  }
+  const deduped = Array.from(seen.values());
+
+  if (deduped.length === 0 || query.trim().length === 0) {
+    return { query, totalDocs: deduped.length, hits: [] };
+  }
+
+  // Build the corpus: read text bytes for each attachment, cap at
+  // SEARCH_MAX_BYTES_PER_DOC to keep ranking deterministic on huge docs.
+  type Candidate = {
+    row: (typeof deduped)[number];
+    content: string;
+  };
+  const candidates: Candidate[] = [];
+  for (const row of deduped) {
+    const mime =
+      row.metadata.attachment.kind === 'blob'
+        ? row.metadata.attachment.mime
+        : row.metadata.attachment.kind === 'local-file'
+          ? ((row.metadata.attachment as LocalFileAttachment).mime ?? 'text/plain')
+          : null;
+    if (!isTextMime(mime)) continue;
+    try {
+      const fetched = await store.get(row.metadata.sha256, root);
+      if (!fetched) continue;
+      const text = fetched.bytes.toString('utf8').slice(0, SEARCH_MAX_BYTES_PER_DOC);
+      candidates.push({ row, content: text });
+    } catch {
+      // Skip unreadable blobs — they should not crash the whole search.
+    }
+  }
+
+  if (candidates.length === 0) {
+    return { query, totalDocs: deduped.length, hits: [] };
+  }
+
+  const ranked = rankBySimilarity(
+    query,
+    candidates.map((c) => c.content),
+  );
+
+  const hits: DocsProjectSearchHit[] = ranked.slice(0, limit).map((r) => {
+    const c = candidates[r.index];
+    return {
+      id: c.row.metadata.id,
+      slug: c.row.slug,
+      type: c.row.type,
+      ownerType: c.row.ownerType,
+      ownerId: c.row.ownerId,
+      name: c.row.slug ?? c.row.metadata.id,
+      score: r.score,
+      snippet: buildSnippet(c.content, query),
+    };
+  });
+
+  return { query, totalDocs: deduped.length, hits };
 }
 
 /**

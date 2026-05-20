@@ -35,6 +35,7 @@ import {
   readJson,
   recordPublication,
   runDocsImport,
+  searchAllProjectDocs,
   searchDocs,
   statusDocs,
   syncFromGit,
@@ -520,7 +521,8 @@ const searchCommand = defineCommand({
     name: 'search',
     description:
       'Search attachments by semantic similarity using llmtxt/similarity.rankBySimilarity. ' +
-      'Pass --owner to scope the search to a specific entity (T###, ses_*, O-*).',
+      'Without --owner, ranks every published doc in the project by content (T9647). ' +
+      'Pass --owner to scope to a specific entity (T###, ses_*, O-*) and rank by blob name.',
   },
   args: {
     query: {
@@ -530,7 +532,12 @@ const searchCommand = defineCommand({
     },
     owner: {
       type: 'string',
-      description: 'Scope search to a specific owner entity ID',
+      description: 'Scope search to a specific owner entity ID (legacy name-only ranking)',
+    },
+    type: {
+      type: 'string',
+      description:
+        'Filter project-wide search by taxonomy type: spec|adr|research|handoff|note|llm-readme',
     },
     limit: {
       type: 'string',
@@ -543,12 +550,19 @@ const searchCommand = defineCommand({
   },
   async run({ args }) {
     const projectRoot = getProjectRoot();
+    const limit = args.limit ? Number.parseInt(String(args.limit), 10) : 10;
     try {
-      const result = await searchDocs(String(args.query), {
-        ownerId: args.owner ?? undefined,
-        limit: args.limit ? Number.parseInt(String(args.limit), 10) : 10,
-        projectRoot,
-      });
+      const result = args.owner
+        ? await searchDocs(String(args.query), {
+            ownerId: String(args.owner),
+            limit,
+            projectRoot,
+          })
+        : await searchAllProjectDocs(String(args.query), {
+            limit,
+            type: args.type ? String(args.type) : undefined,
+            projectRoot,
+          });
 
       cliOutput(result, { command: 'docs search', operation: 'docs.search' });
     } catch (err) {
