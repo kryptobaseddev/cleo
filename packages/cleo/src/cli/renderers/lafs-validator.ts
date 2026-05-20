@@ -212,6 +212,11 @@ export function emitLafsViolation(err: LafsViolationError): void {
       timestamp: new Date().toISOString(),
     },
   };
-  process.stderr.write(`${JSON.stringify(envelope)}\n`);
+  // T9774: gate stderr emission under CLEO_DEBUG. The LAFS-violation exit code is
+  // still set so callers can detect the failure programmatically; we just don't
+  // pollute stderr with a JSON dump unless an operator opted in.
+  if (process.env['CLEO_DEBUG']) {
+    process.stderr.write(`${JSON.stringify(envelope)}\n`);
+  }
   process.exitCode = ExitCode.LAFS_VIOLATION;
 }

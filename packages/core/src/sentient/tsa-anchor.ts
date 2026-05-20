@@ -54,6 +54,7 @@ import { readFile } from 'node:fs/promises';
 import * as http from 'node:http';
 import * as https from 'node:https';
 import { join } from 'node:path';
+import { pushWarning } from '../output.js';
 import type { TsaAnchorEvent } from './events.js';
 import { appendSentientEvent, querySentientEvents, SENTIENT_EVENTS_FILE } from './events.js';
 import { loadSigningIdentity } from './kms.js';
@@ -182,7 +183,10 @@ export async function anchorChainDaily(
     tsTokenBase64 = responseBytes.toString('base64');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[tsa-anchor] TSA request to ${tsaUrl} failed: ${message}. Skipping anchor.`);
+    pushWarning({
+      code: 'W_TSA_ANCHOR_FAILED',
+      message: `TSA request to ${tsaUrl} failed: ${message}. Skipping anchor.`,
+    });
     return null;
   }
 
