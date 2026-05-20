@@ -33,6 +33,7 @@ import {
   extractFieldFromResult,
   getCurrentWarningCollector,
 } from '@cleocode/lafs';
+import type { DispatchResponseMeta } from '../../dispatch/types.js';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
 import { metaFooter, pagerFooter } from './format-helpers.js';
@@ -227,7 +228,7 @@ const renderers: Record<string, HumanRenderer> = {
  * @task T9393
  */
 function pickDecoratorMetaExtensionsLocal(
-  responseMeta: Record<string, unknown> | undefined,
+  responseMeta: DispatchResponseMeta | undefined,
 ): Record<string, unknown> {
   if (!responseMeta) return {};
   const out: Record<string, unknown> = {};
@@ -262,7 +263,7 @@ export interface CliOutputOptions {
    *
    * @task T9393
    */
-  responseMeta?: Record<string, unknown>;
+  responseMeta?: DispatchResponseMeta;
 }
 
 // ---------------------------------------------------------------------------

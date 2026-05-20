@@ -151,6 +151,36 @@ export interface DispatchError {
 }
 
 /**
+ * Always-present metadata block on every {@link DispatchResponse}.
+ *
+ * Extracted as a named interface so consumers (CLI renderers, decorators,
+ * envelope-extension pickers) can declare a structurally-typed parameter
+ * without resorting to `as unknown as Record<string, unknown>` casts.
+ *
+ * The `[key: string]: unknown` index signature makes this type assignable
+ * to `Record<string, unknown>` in covariant positions, eliminating the
+ * T9767 cast-chain anti-pattern at every responseMeta call site.
+ *
+ * @task T9767
+ */
+export interface DispatchResponseMeta {
+  gateway: Gateway;
+  domain: string;
+  operation: string;
+  timestamp: string;
+  duration_ms: number;
+  source: Source;
+  requestId: string;
+  rateLimit?: RateLimitMeta;
+  /** Session ID that processed this request (T4959). */
+  sessionId?: string;
+  /** Preserves protocol-level version for backward compat. */
+  version?: string;
+  /** Extensible metadata (verification gate info, etc.). */
+  [key: string]: unknown;
+}
+
+/**
  * Canonical response shape returned by the dispatcher.
  *
  * The CLI adapter translates this into cliOutput() / cliError() + process.exit().
@@ -160,22 +190,7 @@ export interface DispatchError {
  */
 export interface DispatchResponse {
   /** Always-present metadata for every dispatch response. */
-  meta: {
-    gateway: Gateway;
-    domain: string;
-    operation: string;
-    timestamp: string;
-    duration_ms: number;
-    source: Source;
-    requestId: string;
-    rateLimit?: RateLimitMeta;
-    /** Session ID that processed this request (T4959). */
-    sessionId?: string;
-    /** Preserves protocol-level version for backward compat. */
-    version?: string;
-    /** Extensible metadata (verification gate info, etc.). */
-    [key: string]: unknown;
-  };
+  meta: DispatchResponseMeta;
   success: boolean;
   data?: unknown;
   page?: import('@cleocode/lafs').LAFSPage;

@@ -27,7 +27,7 @@ import type {
   SuggestedNextOp,
 } from '@cleocode/contracts';
 import { getNexusDescriptor, NEXUS_SCOPE_MAP } from '@cleocode/contracts';
-import type { DispatchResponse } from './types.js';
+import type { DispatchResponse, DispatchResponseMeta } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Binding-source resolution
@@ -231,7 +231,7 @@ export function stampNexusMeta(
  * @task T9393
  */
 export function pickDecoratorMetaExtensions(
-  responseMeta: Record<string, unknown> | undefined,
+  responseMeta: DispatchResponseMeta | undefined,
 ): Record<string, unknown> {
   if (!responseMeta) return {};
   const out: Record<string, unknown> = {};
@@ -270,5 +270,5 @@ export function buildNexusMetaExtensions(
     },
   } as DispatchResponse;
   const stamped = stampNexusMeta(synthetic, operation, params);
-  return pickDecoratorMetaExtensions(stamped.meta as Record<string, unknown>);
+  return pickDecoratorMetaExtensions(stamped.meta);
 }
