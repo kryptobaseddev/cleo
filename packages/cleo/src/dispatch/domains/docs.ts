@@ -30,6 +30,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { DocKindRegistry } from '@cleocode/contracts';
 import type {
   DocsAddParams,
   DocsAddResult,
@@ -66,24 +67,48 @@ import { handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 
 /**
- * Local copy of the closed taxonomy values for runtime validation.
+ * Canonical doc-kind registry — single source of truth for the user-facing
+ * taxonomy (built-ins + `.cleo/docs-config.json` extensions).
  *
- * Kept in lock-step with `DOCS_TYPE_VALUES` exported from
- * `@cleocode/contracts/operations/docs` — the contracts module is the
- * authoritative SSoT; this constant exists only because the test runner's
- * alias map doesn't resolve subpath runtime imports for `@cleocode/contracts`,
- * forcing the dispatch layer to keep a local mirror.
+ * Loaded lazily so we pick up extensions on every CLI invocation without
+ * paying the cost up-front during module init. Resolution caches the
+ * registry per `projectRoot` so repeated calls within one CLI run are free.
  *
- * @task T9637
+ * @task T9788 (E-DOCS-TAXONOMY-V2)
  */
-const DOCS_TYPE_VALUES = [
-  'spec',
-  'adr',
-  'research',
-  'handoff',
-  'note',
-  'llm-readme',
-] as const satisfies readonly DocsType[];
+const _registryCache = new Map<string, DocKindRegistry>();
+
+function getDocKindRegistry(): DocKindRegistry {
+  const root = getProjectRoot();
+  const cached = _registryCache.get(root);
+  if (cached) return cached;
+  try {
+    const registry = DocKindRegistry.load(root);
+    _registryCache.set(root, registry);
+    return registry;
+  } catch {
+    // Malformed config falls back to built-ins so a single bad file
+    // never breaks `cleo docs *` entirely. The schema CLI surfaces
+    // the parse error separately so operators can fix it.
+    const fallback = DocKindRegistry.builtinOnly();
+    _registryCache.set(root, fallback);
+    return fallback;
+  }
+}
+
+/**
+ * Snapshot of registered kind names for runtime validation.
+ *
+ * Includes both built-ins and project-level extensions. Recomputed once
+ * per registry load (cache invalidates with the registry itself).
+ *
+ * @task T9788
+ */
+function registeredKindValues(): readonly string[] {
+  return getDocKindRegistry()
+    .list()
+    .map((d) => d.kind);
+}
 
 // ─── DocsTypedOps ─────────────────────────────────────────────────────────────
 
@@ -206,12 +231,32 @@ function validateSlug(raw: unknown): { valid: false; reason: string } | { valid:
 }
 
 /**
- * Validate a type value against the closed {@link DOCS_TYPE_VALUES} set.
+ * Validate a type value against the canonical {@link DocKindRegistry}.
+ *
+ * As of T9788 accepts every registered kind — built-in OR project-level
+ * extension — so a custom kind declared in `.cleo/docs-config.json`
+ * (e.g. `incident`) works seamlessly with `cleo docs add --type incident`.
+ *
+ * The type guard still narrows to {@link DocsType} (the built-in union)
+ * because extensions cannot widen a compile-time union; runtime callers
+ * that hit an extension kind get the runtime acceptance plus a stored
+ * string field that downstream consumers read as a plain string.
  *
  * @task T9637
+ * @task T9788
  */
 function validateDocsType(raw: unknown): raw is DocsType {
-  return typeof raw === 'string' && (DOCS_TYPE_VALUES as readonly string[]).includes(raw as string);
+  if (typeof raw !== 'string') return false;
+  return getDocKindRegistry().has(raw);
+}
+
+/**
+ * Build the human-readable list of registered kinds for error messages.
+ *
+ * @task T9788
+ */
+function registeredKindList(): string {
+  return registeredKindValues().join('|');
 }
 
 // ─── Typed inner handler ──────────────────────────────────────────────────────
@@ -250,7 +295,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       if (!validateDocsType(params.type)) {
         return lafsError(
           'E_INVALID_TYPE',
-          `type must be one of: ${DOCS_TYPE_VALUES.join('|')} — got '${String(params.type)}'`,
+          `type must be one of: ${registeredKindList()} — got '${String(params.type)}'`,
           'list',
         );
       }
@@ -613,11 +658,24 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       if (!validateDocsType(rawType)) {
         return lafsError(
           'E_INVALID_TYPE',
-          `type must be one of: ${DOCS_TYPE_VALUES.join('|')} — got '${String(rawType)}'`,
+          `type must be one of: ${registeredKindList()} — got '${String(rawType)}'`,
           'add',
         );
       }
       type = rawType;
+    }
+
+    // T9788 — when the registered kind requires an entityId, enforce the
+    // kind's slug pattern on top of the shape check above. We accept a
+    // missing slug (the store will assign one) but reject mismatches
+    // with `E_SLUG_PATTERN_MISMATCH` + an example so the operator can fix
+    // the input on retry.
+    if (type !== undefined && slug !== undefined) {
+      const patternCheck = getDocKindRegistry().validateSlug(type, slug);
+      if (!patternCheck.ok) {
+        const exampleHint = patternCheck.example ? ` (example: ${patternCheck.example})` : '';
+        return lafsError('E_SLUG_PATTERN_MISMATCH', `${patternCheck.error}${exampleHint}`, 'add');
+      }
     }
 
     const extras: { slug?: string; type?: string } = {};

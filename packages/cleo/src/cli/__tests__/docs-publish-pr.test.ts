@@ -209,10 +209,18 @@ describe('T9716 — branch naming docs/<slug> + temp worktree handling', () => {
     expect(branchForSlug('a')).toBe('docs/a');
   });
 
-  it('publishDirForType maps known types to docs/<type> and falls back to note', () => {
+  it('publishDirForType maps known types via the canonical registry and falls back to note', () => {
+    // T9788 — publishDirs now flow from `BUILTIN_DOC_KINDS` in
+    // @cleocode/contracts so the legacy fixed `docs/<type>` convention holds
+    // for kinds whose metadata declares it (spec, adr), but kinds with
+    // bespoke directories (llm-readme → '.', changeset → '.changeset')
+    // return what the registry says rather than the legacy synthesised path.
     expect(publishDirForType('spec')).toBe('docs/spec');
     expect(publishDirForType('adr')).toBe('docs/adr');
-    expect(publishDirForType('llm-readme')).toBe('docs/llm-readme');
+    expect(publishDirForType('llm-readme')).toBe('.');
+    expect(publishDirForType('changeset')).toBe('.changeset');
+    expect(publishDirForType('release-note')).toBe('docs/release');
+    expect(publishDirForType('rcasd')).toBe('.cleo/rcasd');
     expect(publishDirForType(undefined)).toBe('docs/note');
     expect(publishDirForType('weird-unknown')).toBe('docs/note');
     expect(publishDirForType(null)).toBe('docs/note');
