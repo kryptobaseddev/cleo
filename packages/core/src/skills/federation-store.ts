@@ -88,7 +88,7 @@ export interface FederationIndex {
  * @task T9729
  */
 export function getFederationIndexPath(): string {
-  return join(homedir(), '.cleo', 'federation.json');
+  return join(homedir(), '.cleo', 'federation.json'); // path-drift-allowed: operator-managed file deliberately at ~/.cleo, NOT XDG getCleoHome() (T9729)
 }
 
 // ---------------------------------------------------------------------------
@@ -130,11 +130,7 @@ export function normaliseFederationUrl(raw: string): string {
   return parsed.toString();
 }
 
-const VALID_TRUST_LEVELS: readonly FederationTrustLevel[] = [
-  'verified',
-  'unverified',
-  'blocked',
-];
+const VALID_TRUST_LEVELS: readonly FederationTrustLevel[] = ['verified', 'unverified', 'blocked'];
 
 /**
  * Validate that `value` is one of the {@link FederationTrustLevel} literals.
@@ -143,10 +139,7 @@ const VALID_TRUST_LEVELS: readonly FederationTrustLevel[] = [
  * @throws {Error} If `value` is not a recognised trust level.
  */
 export function assertTrustLevel(value: unknown): asserts value is FederationTrustLevel {
-  if (
-    typeof value !== 'string' ||
-    !(VALID_TRUST_LEVELS as readonly string[]).includes(value)
-  ) {
+  if (typeof value !== 'string' || !(VALID_TRUST_LEVELS as readonly string[]).includes(value)) {
     throw new Error(
       `Trust level must be one of: ${VALID_TRUST_LEVELS.join(', ')} — got ${JSON.stringify(value)}`,
     );

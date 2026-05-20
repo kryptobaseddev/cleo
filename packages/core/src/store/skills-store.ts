@@ -49,8 +49,8 @@ import {
   type SkillRow,
   type SkillSourceType,
   type SkillUsageRow,
-  skillUsage as skillUsageTable,
   skills as skillsTable,
+  skillUsage as skillUsageTable,
 } from './skills-schema.js';
 
 // ---------------------------------------------------------------------------
