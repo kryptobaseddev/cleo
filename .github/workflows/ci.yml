@@ -181,6 +181,26 @@ jobs:
       - name: Lint project-root anti-pattern in packages/
         run: node scripts/lint-project-root-anti-pattern.mjs --strict
 
+  json-stream-hygiene-lint:
+    # T9775 / T-JH-8 — last task of T9763 (JSON stream hygiene saga).
+    # Rejects NEW `process.stderr.write` / `console.warn` / `console.error`
+    # calls in JSON-emitting command paths (cli/commands + core call paths
+    # they invoke: memory/, nexus/, sentient/ingesters/, skills/). The 154
+    # existing long-tail sites are pinned in scripts/json-stream-hygiene-
+    # allowlist.txt with rationales; any addition (or count increase) fails
+    # CI with a `pushWarning(...)` fix snippet pointing at @cleocode/core.
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: JSON Stream Hygiene Lint (T9775)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint JSON stream hygiene in cli/commands + core JSON paths
+        run: node scripts/lint-json-stream-hygiene.mjs
+
   contracts-dep-lint:
     name: Contracts Dep Lint
     runs-on: ubuntu-latest
