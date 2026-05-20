@@ -8,7 +8,9 @@
  *
  * Design:
  *
- *   - Enumerates tags via `git tag --list --sort=committerdate '<since>..'`.
+ *   - Enumerates tags via `git tag --list --sort=creatordate` (handles both
+ *     annotated and lightweight tags — `committerdate` silently drops
+ *     annotated tags because they have no committerdate of their own).
  *   - For each tag, synthesises a minimal release plan (T#### tokens extracted
  *     from `git log`, tasks resolved against `tasks.db`) when no plan file
  *     already exists, then invokes {@link releaseReconcileV2} with the
@@ -161,18 +163,22 @@ function runGit(args: readonly string[], cwd: string): string {
 // ─── Internal — tag enumeration ──────────────────────────────────────────────
 
 /**
- * Enumerate all git tags newer than `since` in committer-date order
+ * Enumerate all git tags newer than `since` in creator-date order
  * (oldest-first). When `since` is the empty string the full tag list is
  * returned.
  *
- * Implementation: prefer `git tag --list --sort=committerdate` over `git log
- * --tags` so we get tag names directly (no extra parsing). Filter by
- * comparing tag committer-date timestamps against the `since` tag's
- * committer-date.
+ * Implementation: `git tag --list --sort=creatordate` — `creatordate`
+ * returns the tagger date for annotated tags and the committer date for
+ * lightweight tags, so the same sort order applies uniformly. Using
+ * `committerdate` silently drops every annotated tag from the result
+ * because annotated tags have no committerdate of their own (the empty
+ * string sorts ahead of every real timestamp).
  */
 export function enumerateHistoricalTags(since: string, projectRoot: string): string[] {
-  // List ALL tags ordered by committerdate ascending.
-  const raw = runGit(['tag', '--list', '--sort=committerdate'], projectRoot);
+  // List ALL tags ordered by creatordate ascending. `creatordate` handles
+  // BOTH annotated and lightweight tags — see the C1 bug fix in the
+  // file's task header.
+  const raw = runGit(['tag', '--list', '--sort=creatordate'], projectRoot);
   const tags = raw
     .split('\n')
     .map((t: string) => t.trim())

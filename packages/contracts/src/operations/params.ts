@@ -102,6 +102,20 @@ export interface ParamDef {
    * @default false
    */
   hidden?: boolean;
+
+  /**
+   * When `true`, an empty string is treated as a valid value rather than
+   * "missing" by the dispatch-layer required-param validator. Use for
+   * required string params whose empty-string value carries domain
+   * meaning (e.g. `provenance.backfill --since ""` walks every reachable
+   * tag from the beginning of history).
+   *
+   * Default behavior (`false`) rejects `''` to match common CLI ergonomics
+   * where an unset flag and `--flag ""` should both fail validation.
+   *
+   * @default false
+   */
+  allowEmpty?: boolean;
 }
 
 /**
