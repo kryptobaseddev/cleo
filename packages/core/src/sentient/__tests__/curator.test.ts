@@ -116,19 +116,24 @@ describe('sentient curator', () => {
 
   it('refuses to archive a canonical row (db source_type = canonical)', async () => {
     const { upsertSkillRow } = await import('../../store/skills-db.js');
+    const { withProvenance } = await import('../skill-provenance.js');
     const installPath = plantSkillDir(skillsRoot, 'ct-orchestrator');
     // listSkillsBySource filters by sourceType, and 'canonical' is NOT in
     // CURATABLE_SOURCE_TYPES — so the curator should never see this row at
     // all. We still seed it to prove that even if a future caller widens
-    // CURATABLE_SOURCE_TYPES, the triple guard would catch it.
-    await upsertSkillRow(
-      buildRow({
-        name: 'ct-orchestrator',
-        installPath,
-        sourceType: 'canonical',
-        installedAt: isoDaysAgo(365),
-        lastUpdatedAt: isoDaysAgo(365),
-      }),
+    // CURATABLE_SOURCE_TYPES, the triple guard would catch it. Seeding a
+    // canonical row goes through the pr-generator provenance frame because
+    // assertCanonicalWriteAllowed (T9708) rejects bare upserts.
+    await withProvenance('pr-generator', () =>
+      upsertSkillRow(
+        buildRow({
+          name: 'ct-orchestrator',
+          installPath,
+          sourceType: 'canonical',
+          installedAt: isoDaysAgo(365),
+          lastUpdatedAt: isoDaysAgo(365),
+        }),
+      ),
     );
 
     const result = await runCuratorTick({ now: NOW, skillsRoot });

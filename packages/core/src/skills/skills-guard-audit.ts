@@ -15,6 +15,7 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { getProjectRoot } from '../paths.js';
 import type { ScanResult } from './skills-guard.js';
 
 /**
@@ -41,11 +42,11 @@ export interface SkillTrustBypassEntry {
 /**
  * Resolve the canonical audit-log path.
  *
- * Defaults to `<cwd>/.cleo/audit/skill-trust-bypass.jsonl`. Tests inject an
- * explicit `cleoRoot` so they never touch the user's audit log.
+ * Defaults to `<projectRoot>/.cleo/audit/skill-trust-bypass.jsonl`. Tests
+ * inject an explicit `cleoRoot` so they never touch the user's audit log.
  */
 function resolveAuditPath(cleoRoot?: string): string {
-  const root = cleoRoot ?? join(process.cwd(), '.cleo');
+  const root = cleoRoot ?? join(getProjectRoot(), '.cleo');
   return join(root, 'audit', 'skill-trust-bypass.jsonl');
 }
 
