@@ -88,9 +88,9 @@ export async function scanFile(filePath: string, rules?: AuditRule[]): Promise<A
  *
  * @example
  * ```typescript
- * import { getCanonicalSkillsDir } from "../../paths/standard.js";
+ * import { resolveSkillsRoot } from "@cleocode/core/skills/skill-root.js";
  *
- * const results = await scanDirectory(getCanonicalSkillsDir());
+ * const results = await scanDirectory(resolveSkillsRoot());
  * const failing = results.filter(r => !r.passed);
  * ```
  *

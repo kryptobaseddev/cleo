@@ -162,7 +162,6 @@ export {
 } from './core/mcp/index.js';
 // Canonical path utilities
 export {
-  _resetLegacySkillsWarning,
   getAgentsConfigPath,
   getAgentsHome,
   getAgentsInstructFile,
@@ -171,8 +170,6 @@ export {
   getAgentsMcpServersPath,
   getAgentsSpecDir,
   getAgentsWikiDir,
-  getCanonicalSkillsDir,
-  getCanonicalSkillsRoot,
   getLockFilePath,
   getPlatformLocations,
   getProjectAgentsDir,

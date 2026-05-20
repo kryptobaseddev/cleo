@@ -5,9 +5,9 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCanonicalSkillsDir } from '@cleocode/caamp';
 import { ExitCode } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
+import { resolveSkillsRoot } from '../skills/skill-root.js';
 
 export interface SkillEntry {
   name: string;
@@ -70,7 +70,7 @@ export function listSkills(projectRoot: string): { skills: SkillEntry[]; total: 
   scanSkillsDir(join(projectRoot, '.cleo', 'skills'));
 
   // 2. Scan canonical (global) skills
-  scanSkillsDir(getCanonicalSkillsDir());
+  scanSkillsDir(resolveSkillsRoot());
 
   return { skills: allSkills, total: allSkills.length };
 }
@@ -83,7 +83,7 @@ export function getSkillContent(skillName: string, projectRoot: string): SkillCo
 
   // Check project-local skills first, then canonical
   const projectSkillDir = join(projectRoot, '.cleo', 'skills', skillName);
-  const canonicalSkillDir = join(getCanonicalSkillsDir(), skillName);
+  const canonicalSkillDir = join(resolveSkillsRoot(), skillName);
   const skillDir = existsSync(projectSkillDir) ? projectSkillDir : canonicalSkillDir;
 
   if (!existsSync(skillDir)) {

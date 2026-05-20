@@ -61,6 +61,7 @@
   "dependencies": {
     "@cleocode/cant": "workspace:*",
     "@cleocode/contracts": "workspace:*",
+    "@cleocode/core": "workspace:*",
     "@cleocode/lafs": "workspace:*",
     "@cleocode/paths": "workspace:*",
     "@iarna/toml": "^2.2.5",

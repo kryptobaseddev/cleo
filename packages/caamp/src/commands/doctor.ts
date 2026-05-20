@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { resolveSkillsRoot } from '@cleocode/core/skills/skill-root.js';
 import type { Command } from 'commander';
 import pc from 'picocolors';
 import { readConfig } from '../core/formats/index.js';
@@ -19,7 +20,6 @@ import {
   resolveFormat,
 } from '../core/lafs.js';
 import { readLockFile } from '../core/lock-utils.js';
-import { CANONICAL_SKILLS_DIR } from '../core/paths/agents.js';
 import { detectAllProviders } from '../core/registry/detection.js';
 import { getAllProviders, getProviderCount } from '../core/registry/providers.js';
 import { getCaampVersion } from '../core/version.js';
@@ -163,7 +163,7 @@ function checkInstalledProviders(): SectionResult {
 function checkSkillSymlinks(): SectionResult {
   const checks: CheckResult[] = [];
 
-  const canonicalDir = CANONICAL_SKILLS_DIR;
+  const canonicalDir = resolveSkillsRoot();
 
   if (!existsSync(canonicalDir)) {
     checks.push({ label: '0 canonical skills', status: 'pass' });
@@ -293,7 +293,7 @@ async function checkLockFile(): Promise<SectionResult> {
     }
 
     // Check for untracked skills (on disk but not in lock)
-    const canonicalDir = CANONICAL_SKILLS_DIR;
+    const canonicalDir = resolveSkillsRoot();
     if (existsSync(canonicalDir)) {
       const onDisk = readdirSync(canonicalDir).filter((name) => {
         try {
@@ -581,7 +581,7 @@ export function registerDoctorCommand(program: Command): void {
 }
 
 function countSkillIssues(): { canonicalCount: number; brokenCount: number; staleCount: number } {
-  const canonicalDir = CANONICAL_SKILLS_DIR;
+  const canonicalDir = resolveSkillsRoot();
   let canonicalCount = 0;
 
   if (existsSync(canonicalDir)) {

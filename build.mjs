@@ -23,7 +23,7 @@
  */
 
 import * as esbuild from 'esbuild';
-import { chmod, cp, rm, readFile, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +67,9 @@ const SUBPATH_DIRS = [
   'formatters',
   'events',
   'llm',
+  // T9740 Wave C: caamp imports `@cleocode/core/skills/skill-root.js` so the
+  // `./skills/*` subpath export must emit physical .js files (not just .d.ts).
+  'skills',
 ];
 
 
@@ -645,9 +648,37 @@ async function build() {
   ]);
 
   // ---------------------------------------------------------------------------
-  // Wave 4: caamp (deps cant from wave 3)
+  // Wave 4: caamp (deps cant from wave 3 + pre-emitted core/skills/skill-root.d.ts)
+  //
+  // T9740 Wave C flipped the dep direction so caamp now depends on
+  // `@cleocode/core/skills/skill-root.js` (a node-builtin-only file with zero
+  // @cleocode/* imports). To break the build cycle without re-shuffling waves,
+  // we pre-emit just that single file's .d.ts before caamp's tsup DTS step
+  // runs — full core/dist still emits in wave 5.
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 4: caamp');
+  console.log('  Pre-emitting core/dist/skills/skill-root.d.ts (T9740 Wave C cycle break)...');
+  // skill-root.ts has zero @cleocode/* deps — we hand-write the matching
+  // .d.ts so caamp's tsup DTS step (which runs BEFORE core's full tsc emit
+  // in wave 5) can resolve `@cleocode/core/skills/skill-root.js`. The wave-5
+  // core tsc pass overwrites this stub with the real declaration emit.
+  const skillRootDts = `export type SkillSourceType = 'canonical' | 'user' | 'community' | 'agent-created';
+export interface IsCanonicalOptions {
+  dbSourceType?: SkillSourceType | string;
+  manifestNames?: string[];
+}
+export declare const AGENTS_SKILLS_BRIDGE_PATH: string;
+export declare const CLAUDE_SKILLS_AGENTS_SHARED_PATH: string;
+export declare function resolveSkillsRoot(): string;
+export declare function is_canonical(skillPath: string, options?: IsCanonicalOptions): boolean;
+`;
+  await mkdir(resolve(__dirname, 'packages/core/dist/skills'), { recursive: true });
+  await writeFile(
+    resolve(__dirname, 'packages/core/dist/skills/skill-root.d.ts'),
+    skillRootDts,
+    'utf8',
+  );
+  console.log('  -> packages/core/dist/skills/skill-root.d.ts (stub)');
   await buildPkg('@cleocode/caamp', 'packages/caamp/dist/');
   await chmod('packages/caamp/dist/cli.js', 0o755).catch(() => {});
 

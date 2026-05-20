@@ -1,6 +1,10 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+// T9747: caamp no longer owns a canonical-skills helper. Consumers must import
+// `resolveSkillsRoot` from `@cleocode/core/skills/skill-root.js` directly. This
+// module retains `getAgentsHome()` and the `.agents/*` helpers — only the
+// skills override has been severed (the SSoT now lives in core).
 import { getCleoHome } from '@cleocode/paths';
 import type { Provider } from '../../types.js';
 import { getPlatformPaths } from '../platform-paths.js';
@@ -164,137 +168,6 @@ export function getProjectAgentsDir(projectRoot = process.cwd()): string {
  */
 export function resolveProjectPath(relativePath: string, projectDir = process.cwd()): string {
   return join(projectDir, relativePath);
-}
-
-/**
- * Subpath for the new SSoT skills directory under the user's home.
- *
- * @remarks
- * Architecture-v3 §1 locks the user-machine install root for ALL skills
- * (Sphere A canonical AND Sphere B user/community/agent-created) to
- * `~/.cleo/skills/`. This constant centralises that subpath so the
- * fallback-resolver and the migration helpers share one source of truth.
- *
- * @internal
- */
-const NEW_SSOT_SKILLS_SUBPATH = join('.cleo', 'skills');
-
-/**
- * One-shot deprecation-warning flag for the legacy XDG skills path.
- *
- * @remarks
- * When the new SSoT path under `~/.cleo/skills/` is missing but the legacy
- * `~/.local/share/agents/skills/` directory exists, the resolver returns the
- * legacy path AND emits a one-shot stderr warning so the user knows to run
- * `cleo skills doctor migrate`. The flag is reset by
- * {@link _resetLegacySkillsWarning} so tests can assert emission.
- */
-let legacySkillsWarningEmitted = false;
-
-/**
- * Reset the cached deprecation-warning flag.
- *
- * @remarks
- * Test-only seam. Production code should never call this.
- *
- * @internal
- */
-export function _resetLegacySkillsWarning(): void {
-  legacySkillsWarningEmitted = false;
-}
-
-/**
- * Returns the canonical user-machine skills install root.
- *
- * @remarks
- * Per architecture-v3 §1 the new SSoT for ALL installed skills is
- * `~/.cleo/skills/` (replacing the legacy XDG path
- * `~/.local/share/agents/skills/`). This resolver implements the migration
- * contract: it ALWAYS returns the new SSoT when it exists, falls through to
- * the legacy path as a read-only fallback for one release cycle, and
- * defaults to the new SSoT on a fresh install so first-write lands in the
- * correct location.
- *
- * Resolution order:
- *
- * 1. `~/.cleo/skills/` (new SSoT — preferred). Returned when it exists.
- * 2. `getAgentsHome()/skills` (legacy XDG via `AGENTS_HOME` /
- *    `~/.local/share/agents/skills/`). Returned when the new SSoT is missing
- *    but the legacy directory exists. Emits a one-shot stderr deprecation
- *    warning so the user is prompted to migrate.
- * 3. `~/.cleo/skills/` (new SSoT) on a fresh install when neither exists,
- *    so first-write creates the correct directory.
- *
- * **Test override:** when the `AGENTS_HOME` env var is set explicitly (the
- * primary test seam used by `skills-installer.test.ts`), the resolver SKIPS
- * step 1 and returns `getAgentsHome()/skills` directly. This preserves the
- * existing test surface (tmpdirs via `AGENTS_HOME`) while production paths
- * resolve through the new SSoT chain.
- *
- * @returns Absolute path to the resolved canonical skills directory
- *
- * @example
- * ```typescript
- * const dir = getCanonicalSkillsRoot();
- * // Fresh install:                  "/home/user/.cleo/skills"
- * // Legacy install + warning:       "/home/user/.local/share/agents/skills"
- * // Test (AGENTS_HOME=/tmp/foo):    "/tmp/foo/skills"
- * ```
- *
- * @task T9659
- * @public
- */
-export function getCanonicalSkillsRoot(): string {
-  // Test override: explicit AGENTS_HOME wins outright so unit tests with
-  // tmpdir-backed canonical roots keep working without further wiring.
-  if (process.env['AGENTS_HOME']) {
-    return join(getAgentsHome(), 'skills');
-  }
-
-  const home = homedir();
-  const newPath = join(home, NEW_SSOT_SKILLS_SUBPATH);
-  if (existsSync(newPath)) {
-    return newPath;
-  }
-
-  const legacyPath = join(getAgentsHome(), 'skills');
-  if (existsSync(legacyPath)) {
-    if (!legacySkillsWarningEmitted) {
-      legacySkillsWarningEmitted = true;
-      process.stderr.write(
-        `[caamp] WARNING: skills root resolved from legacy path ${legacyPath}. ` +
-          'Run `cleo skills doctor migrate` to move to ~/.cleo/skills/.\n',
-      );
-    }
-    return legacyPath;
-  }
-
-  // Fresh install — write to the new SSoT so first install lands canonically.
-  return newPath;
-}
-
-/**
- * Returns the canonical skills storage directory path.
- *
- * @remarks
- * Skills are stored once in this canonical directory and symlinked into
- * provider-specific locations. This is the single source of truth for
- * installed skill files. **T9659 — this now delegates to
- * {@link getCanonicalSkillsRoot} so the SSoT is `~/.cleo/skills/` with the
- * legacy XDG path as a read-only fallback per architecture-v3 §1.**
- *
- * @returns The absolute path to the canonical skills directory
- *
- * @example
- * ```typescript
- * const dir = getCanonicalSkillsDir();
- * // e.g., "/home/user/.cleo/skills" (new SSoT)
- * ```
- *
- * @public
- */
-export function getCanonicalSkillsDir(): string {
-  return getCanonicalSkillsRoot();
 }
 
 /**
