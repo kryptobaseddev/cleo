@@ -148,10 +148,70 @@ Match complexity to audience. Mismatch is the biggest style failure.
 Declare the audience in frontmatter — `audience: end-user | agent | maintainer`
 — so reviewers can apply the right rubric.
 
+## Through SDK (preferred)
+
+CLEO docs are first-class records in the docs SSoT — not loose markdown files.
+Always write through `cleo docs add` so the doc gets a slug, a type, an owner,
+and a content-addressed blob that downstream consumers can fetch by slug.
+
+### Write a draft attached to a task
+
+```bash
+cleo docs add T1234 docs/drafts/saml-setup.md \
+  --type note \
+  --slug saml-setup-draft \
+  --desc "Conversational SAML setup walkthrough — pre-review"
+```
+
+- `--type` MUST be one of `spec | adr | research | handoff | note | llm-readme`.
+  For user-facing prose use `note`; for end-user docs use `note` or `spec`
+  depending on whether the doc carries REQ-XXX requirements.
+- `--slug` is the human-friendly handle for retrieval. Use kebab-case. If the
+  slug is already taken the CLI returns `E_SLUG_TAKEN` with 3 alternatives —
+  pick one rather than overwriting silently.
+- The owner ID (`T1234` above) auto-classifies the attachment by prefix:
+  `T###` → task, `ses_*` → session, `O-*` → observation.
+
+### Publish to a git-tracked path (when the doc must live on disk)
+
+```bash
+cleo docs publish --for T1234 --to docs/saml-setup.md
+```
+
+Atomic tmp-then-rename. The published file ships in the next commit; the
+SSoT blob remains canonical and continues to track future versions.
+
+### Fetch the doc back by slug
+
+```bash
+cleo docs fetch saml-setup-draft       # latest version
+cleo docs versions --for T1234         # list every SHA version
+```
+
+Slug-based fetch is the contract used by reviewers, downstream skills, and
+the docs graph — never grep the filesystem for the file you just wrote.
+
+### List docs by type
+
+```bash
+cleo docs list --type note --project   # every note in this project
+cleo docs list --task T1234            # everything attached to a task
+```
+
+## Deprecated: Direct filesystem
+
+The legacy "write straight to `docs/` and commit" pattern is deprecated.
+The drift between the working file and the docs SSoT is real: published
+files go stale, types are inferred ad-hoc from path, and slug-based
+retrieval becomes impossible. Migrate to `cleo docs add --type X --slug Y`
+for every new doc — and use `cleo docs sync --from <path> --for <ownerId>`
+to back-fill existing on-disk files into the SSoT.
+
 ## Output Location
 
-Documentation goes in `docs/` for end-user and maintainer content. Agent-
-facing protocol docs (skill references, agent-outputs) go in
+Documentation blobs live in the docs SSoT; published copies on disk go in
+`docs/` for end-user and maintainer content. Agent-facing protocol docs
+(skill references, agent-outputs) go in
 `packages/skills/skills/<name>/references/` or `.cleo/agent-outputs/`.
 Never mix audiences in one location.
 
