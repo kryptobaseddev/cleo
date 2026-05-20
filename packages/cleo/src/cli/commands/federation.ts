@@ -16,14 +16,12 @@
  */
 
 import { ExitCode } from '@cleocode/contracts';
-import {
-  type FederationTrustLevel,
-  addFederationPeer,
-  listFederationPeers,
-  removeFederationPeer,
-} from '@cleocode/core/internal';
+import { skills } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
+
+const { addFederationPeer, listFederationPeers, removeFederationPeer } = skills;
+type FederationTrustLevel = skills.FederationTrustLevel;
 
 // ---------------------------------------------------------------------------
 // cleo federation add
