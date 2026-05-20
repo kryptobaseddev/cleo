@@ -713,9 +713,13 @@ export const pipelineManifest = sqliteTable(
 //
 // The legacy `release_manifests` table (T5580) was merged into the unified
 // `releases` table by migration `20260519010000_t9686b2-unify-releases-tables`.
-// Legacy rows live in `releases` with PK `legacy:<version>` and the legacy
-// status values (`prepared`, `committed`, `tagged`, `pushed`, `rolled_back`)
-// admitted by the widened {@link RELEASE_STATUSES} enum.
+// Legacy-migrated rows initially used PK `legacy:<version>`; T9756
+// (migration `20260520163500_t9756-uniform-releases-pk`) rewrote them to
+// the uniform `<projectHash>:<version>` shape used by the new pipeline.
+// Provenance is now discriminated by `tasksJson IS NOT NULL` (legacy) rather
+// than by PK prefix. Legacy status values (`prepared`, `committed`, `tagged`,
+// `pushed`, `rolled_back`) remain admitted by the widened
+// {@link RELEASE_STATUSES} enum.
 //
 // All readers/writers now target the unified `releases` table directly.
 // The `releaseManifests` Drizzle binding has been removed — code that
@@ -1860,13 +1864,19 @@ export type ReleaseClassifiedBy = (typeof RELEASE_CLASSIFIED_BY)[number];
  *
  * As of T9686-B2, this is the SINGLE source of truth for release state. The
  * legacy `release_manifests` table (T5580) was merged into this table and
- * dropped — legacy rows now live here with PK `legacy:<version>` and legacy
- * status values (`prepared`/`committed`/`tagged`/`pushed`/`rolled_back`)
- * admitted by the widened {@link RELEASE_STATUSES} enum.
+ * dropped. Legacy-migrated rows initially used PK `legacy:<version>`;
+ * T9756 (migration `20260520163500_t9756-uniform-releases-pk`) rewrote
+ * them to the uniform `<projectHash>:<version>` shape. All status values
+ * (`prepared`/`committed`/`tagged`/`pushed`/`rolled_back` for legacy,
+ * `planned`/`pr-opened`/`pr-merged`/`published`/`reconciled` for new)
+ * are admitted by the widened {@link RELEASE_STATUSES} enum.
  *
- * ID format:
- * - New T9492 pipeline rows: `<projectHash>:<version>` (e.g. `abc123:v2026.6.0`)
- * - Legacy migrated rows:    `legacy:<version>`        (e.g. `legacy:v2026.5.73`)
+ * ID format (uniform post-T9756):
+ *   `<projectHash>:<version>` (e.g. `abc123:v2026.6.0`)
+ *
+ * Provenance discriminator: `tasksJson IS NOT NULL` indicates a
+ * legacy-origin row; new-pipeline rows leave `tasksJson` NULL and store
+ * per-task changes in {@link releaseChanges}.
  *
  * Status FSM (lifecycle is discriminated by status value, not a separate column):
  * - New T9492: `planned → pr-opened → pr-merged → published → reconciled`
@@ -1877,6 +1887,7 @@ export type ReleaseClassifiedBy = (typeof RELEASE_CLASSIFIED_BY)[number];
  *
  * @task T9508
  * @task T9686 (unification — legacy columns + widened status enum)
+ * @task T9756 (uniform PK shape)
  * @epic T9491
  * @see SPEC-T9345 §3.6
  */
@@ -1884,9 +1895,13 @@ export const releases = sqliteTable(
   'releases',
   {
     /**
-     * Canonical PK.
-     * - New-pipeline rows: `<projectHash>:<version>` (e.g. `abc123:v2026.6.0`).
-     * - Legacy-migrated rows: `legacy:<version>` (e.g. `legacy:v2026.5.73`).
+     * Canonical PK — uniform `<projectHash>:<version>` shape (post-T9756).
+     * Example: `1e3146b7352b:v2026.6.0`.
+     *
+     * Historically (T9686-B2 era) legacy-migrated rows used `legacy:<version>`;
+     * the T9756 migration rewrites those to the uniform shape. Provenance is
+     * now signalled by `tasksJson` (non-null = legacy origin), not by PK
+     * prefix.
      */
     id: text('id').primaryKey(),
     /** Release version string, e.g. `v2026.6.0`. UNIQUE — one row per version. */

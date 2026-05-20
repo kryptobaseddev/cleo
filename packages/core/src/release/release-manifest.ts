@@ -4,9 +4,20 @@
  * Originally migrated from `.cleo/releases.json` into `release_manifests`
  * by T5580. T9686-B2 unified `release_manifests` into the new `releases`
  * table (T9508) and dropped the legacy table — every read/write here now
- * targets the single canonical `releases` table via Drizzle ORM. Legacy
- * rows live under PK `legacy:<version>`; new-pipeline rows under
- * `<projectHash>:<version>`.
+ * targets the single canonical `releases` table via Drizzle ORM.
+ *
+ * T9756 (T9738-D / A4) eliminated the dual PK shape introduced by T9686-B2.
+ * Every row — legacy-migrated AND new-pipeline — now uses the uniform
+ * `<projectHash>:<version>` PK shape. The migration at
+ * `20260520163500_t9756-uniform-releases-pk/` rewrites historical
+ * `legacy:<version>` rows in place. New writes (via {@link prepareRelease}
+ * and {@link migrateReleasesFromJson}) derive `<projectHash>` from
+ * {@link generateProjectHash} so all rows share one shape.
+ *
+ * Provenance discrimination is no longer carried by the PK prefix. The
+ * `tasksJson` column (NOT NULL on legacy rows, NULL on new-pipeline rows)
+ * serves as the column-level discriminator consumed by
+ * {@link releasesRowToManifest}.
  *
  * The status enum on the unified table is the union of both lifecycles:
  *   New T9492: planned / pr-opened / pr-merged / published / reconciled
@@ -16,6 +27,7 @@
  * @task T5580
  * @task T4788
  * @task T9686 (unification)
+ * @task T9756 (uniform PK shape)
  */
 
 import { execFileSync } from 'node:child_process';
@@ -23,6 +35,7 @@ import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { generateProjectHash } from '../nexus/hash.js';
 import { createPage } from '../pagination.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import * as schema from '../store/tasks-schema.js';
@@ -210,6 +223,28 @@ function effectivePageLimit(
   return limit ?? (offset !== undefined ? 50 : undefined);
 }
 
+/**
+ * Project-root resolution for {@link generateProjectHash} that mirrors the
+ * tolerant fallback used by {@link getCleoDirAbsolute}: try the strict
+ * `getProjectRoot` walk-up first, fall back to the literal `cwd` (or
+ * `process.cwd()`) when the strict check fails.
+ *
+ * Without this fallback, callers operating in tmp directories that do not
+ * yet satisfy the strict `.cleo + .git` predicate (e.g. unit-test sandboxes,
+ * the `cleo init` bootstrap path) would crash before they could compute a
+ * stable hash for the release PK.
+ *
+ * @task T9756
+ * @internal
+ */
+function resolveProjectRootForHash(cwd?: string): string {
+  try {
+    return getProjectRoot(cwd);
+  } catch {
+    return cwd ?? process.cwd(); // CWD-OK: hash-input fallback when getProjectRoot rejects (tests / cleo init bootstrap)
+  }
+}
+
 /** Task record shape needed for release operations. */
 export interface ReleaseTaskRecord {
   id: string;
@@ -282,8 +317,14 @@ function normalizeVersion(version: string): string {
 /**
  * Project a unified `releases` row down to the {@link ReleaseManifest}
  * shape consumed by CLI surfaces. After T9686-B2 the `releases` table
- * carries both new-pipeline and legacy-pipeline columns; the row's
- * `id` prefix (`legacy:` vs `<projectHash>:`) discriminates provenance.
+ * carries both new-pipeline and legacy-pipeline columns.
+ *
+ * Provenance discriminator (T9756): every row now uses the uniform
+ * `<projectHash>:<version>` PK shape, so the previous `legacy:`-prefix
+ * heuristic has been replaced by a column-level check — legacy-migrated
+ * rows have a populated `tasksJson` column (the legacy schema declared it
+ * `NOT NULL DEFAULT '[]'`), while new-pipeline rows leave it NULL because
+ * per-task changes live in {@link schema.releaseChanges}.
  *
  * Field-mapping notes:
  * - `tasks` — parsed from `tasksJson` for legacy-migrated rows. New-pipeline
@@ -298,10 +339,15 @@ function normalizeVersion(version: string): string {
  *   don't have to special-case the row source.
  *
  * @task T9686
+ * @task T9756 (uniform PK shape)
  * @internal
  */
 function releasesRowToManifest(row: schema.ReleaseRow): ReleaseManifest {
-  const source: 'new' | 'legacy' = row.id.startsWith('legacy:') ? 'legacy' : 'new';
+  // T9756: `tasksJson` is the post-uniform-PK provenance discriminator. The
+  // legacy `release_manifests` schema declared `tasks_json NOT NULL DEFAULT
+  // '[]'`, so every legacy-migrated row has a non-null value here; new-
+  // pipeline rows always leave it NULL.
+  const source: 'new' | 'legacy' = row.tasksJson === null ? 'new' : 'legacy';
   let tasks: string[] = [];
   if (row.tasksJson) {
     try {
@@ -413,10 +459,15 @@ export async function prepareRelease(
   );
   releaseTasks = releaseTasks.filter((id) => !epicIds.has(id));
   const now = new Date().toISOString();
-  // T9686-B2: write into the unified `releases` table with the `legacy:`
-  // PK prefix so prepareRelease rows match the format used by the migration
-  // for pre-T9492 historical rows.
-  const id = `legacy:${normalizedVersion}`;
+  // T9756: write the uniform `<projectHash>:<version>` PK shape. `tasksJson`
+  // is the non-PK provenance discriminator (see `releasesRowToManifest`) —
+  // legacy-prepare rows are still distinguishable from new-pipeline rows
+  // because they populate `tasksJson` and `preparedAt`. Mirrors the
+  // tolerant resolution `getCleoDirAbsolute` uses so tests/init paths that
+  // don't yet satisfy `getProjectRoot`'s strict `.cleo + .git` predicate
+  // can still derive a stable hash from cwd.
+  const projectHash = generateProjectHash(resolveProjectRootForHash(cwd));
+  const id = `${projectHash}:${normalizedVersion}`;
 
   await db
     .insert(schema.releases)
@@ -429,6 +480,7 @@ export async function prepareRelease(
       previousVersion: previousVersion?.version ?? null,
       createdAt: now,
       preparedAt: now,
+      projectHash,
     })
     .run();
 
@@ -1643,10 +1695,11 @@ export async function migrateReleasesJsonToSqlite(
 
     if (existing.length > 0) continue;
 
-    // T9686-B2: migrated rows from `releases.json` are pre-T9492 legacy
-    // releases, so use the `legacy:<version>` PK prefix to match the
-    // canonical format produced by the unification migration.
-    const id = `legacy:${r.version}`;
+    // T9756: emit the uniform `<projectHash>:<version>` PK shape. The
+    // populated `tasksJson` column still discriminates these rows as
+    // legacy-origin for `releasesRowToManifest`.
+    const projectHash = generateProjectHash(resolveProjectRootForHash(projectRoot));
+    const id = `${projectHash}:${r.version}`;
     await db
       .insert(schema.releases)
       .values({
@@ -1664,6 +1717,7 @@ export async function migrateReleasesJsonToSqlite(
         committedAt: r.committedAt ?? null,
         taggedAt: r.taggedAt ?? null,
         pushedAt: r.pushedAt ?? null,
+        projectHash,
       })
       .run();
 
