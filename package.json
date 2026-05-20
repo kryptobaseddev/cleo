@@ -14,6 +14,7 @@
     "build:contracts": "pnpm -r --filter @cleocode/contracts run build",
     "build:core": "pnpm -r --filter @cleocode/core run build",
     "build:cleo": "pnpm -r --filter @cleocode/cleo run build",
+    "pretypecheck": "node scripts/preemit-skill-root-dts.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",

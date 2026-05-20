@@ -96,6 +96,21 @@
       "import": "./dist/gc/index.js",
       "require": "./dist/gc/index.js"
     },
+    "./doctor": {
+      "types": "./dist/doctor/index.d.ts",
+      "import": "./dist/doctor/index.js",
+      "require": "./dist/doctor/index.js"
+    },
+    "./doctor/*": {
+      "types": "./dist/doctor/*.d.ts",
+      "import": "./dist/doctor/*.js",
+      "require": "./dist/doctor/*.js"
+    },
+    "./doctor/*.js": {
+      "types": "./dist/doctor/*.d.ts",
+      "import": "./dist/doctor/*.js",
+      "require": "./dist/doctor/*.js"
+    },
     "./harness": {
       "types": "./dist/harness/index.d.ts",
       "import": "./dist/harness/index.js",
