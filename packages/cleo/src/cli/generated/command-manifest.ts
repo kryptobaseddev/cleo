@@ -764,6 +764,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/show.js')).showCommand as CommandDef,
   },
   {
+    exportName: 'skillCommand',
+    name: 'skill',
+    description: 'Single-skill operations (restore, …)',
+    load: async () => (await import('../commands/skill.js')).skillCommand as CommandDef,
+  },
+  {
     exportName: 'skillsCommand',
     name: 'skills',
     description: 'Skill management: list, search, validate, info, install',
