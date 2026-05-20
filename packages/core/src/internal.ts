@@ -154,11 +154,23 @@ export {
 export type { ExportDocumentOptions, ExportDocumentResult } from './docs/export-document.js';
 export { exportDocument } from './docs/export-document.js';
 // Docs import (T9639) — `cleo docs import <dir>` recursive .md migration
-export type { DocImportType, ScannedFile, ScanOptions } from './docs/index.js';
+export type {
+  DocImportType,
+  GenerateSlugOptions,
+  ScannedFile,
+  ScanOptions,
+  SlugResult,
+} from './docs/index.js';
 export {
   classifyByRelPath,
   DEFAULT_EXCLUDE_DIRS,
+  generateSlug,
+  RESERVED_SLUGS,
   scanDirectory,
+  SlugCollisionLimitError,
+  SlugReservedError,
+  slugify,
+  stripMdExtension,
 } from './docs/index.js';
 // Agent-outputs migration (T9064) — ingest .cleo/agent-outputs/*.md into DocsAccessor
 export type {

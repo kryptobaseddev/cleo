@@ -62,3 +62,12 @@ export {
   DEFAULT_EXCLUDE_DIRS,
   scanDirectory,
 } from './import/scanner.js';
+export type { GenerateSlugOptions, SlugResult } from './import/slug.js';
+export {
+  generateSlug,
+  RESERVED_SLUGS,
+  SlugCollisionLimitError,
+  SlugReservedError,
+  slugify,
+  stripMdExtension,
+} from './import/slug.js';
