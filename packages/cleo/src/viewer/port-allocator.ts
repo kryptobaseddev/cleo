@@ -11,7 +11,7 @@
  * @task T9722 — graceful port allocation 7777 → 7800
  */
 
-import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 /** First port the allocator will attempt. */
 export const DEFAULT_START_PORT = 7777;

@@ -11,12 +11,18 @@
  * @epic T9631
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { type AddressInfo, createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAttachmentStore } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  isProcessAlive,
+  readViewerPidFile,
+  removeViewerPidFile,
+  writeViewerPidFile,
+} from '../../viewer/pidfile.js';
 import { tryListen } from '../../viewer/port-allocator.js';
 import { startViewer } from '../../viewer/server.js';
 
@@ -319,5 +325,46 @@ describe('T9723 — viewer SPA assets are bundled', () => {
     } finally {
       handle.server.close();
     }
+  });
+});
+
+describe('T9721 — pidfile lifecycle', () => {
+  it('writeViewerPidFile + readViewerPidFile roundtrip', async () => {
+    await removeViewerPidFile();
+    const record = {
+      pid: 99999, // implausibly large pid that won't collide with real procs
+      port: 7777,
+      host: '127.0.0.1',
+      projectRoot: tmpProjectRoot,
+      startedAt: Date.now(),
+    };
+    const path = await writeViewerPidFile(record);
+    expect(path).toContain('viewer.pid');
+    const read = await readViewerPidFile();
+    expect(read).toEqual(record);
+    await removeViewerPidFile();
+    expect(await readViewerPidFile()).toBeNull();
+  });
+
+  it('readViewerPidFile returns null on malformed JSON', async () => {
+    await removeViewerPidFile();
+    const path = `${process.env.CLEO_HOME}/viewer.pid`;
+    const cleoHome = process.env.CLEO_HOME;
+    if (!cleoHome) throw new Error('CLEO_HOME unset in test setup');
+    await mkdir(cleoHome, { recursive: true });
+    await writeFile(path, 'not json', 'utf8');
+    const read = await readViewerPidFile();
+    expect(read).toBeNull();
+    await removeViewerPidFile();
+  });
+
+  it('isProcessAlive(process.pid) is true; isProcessAlive(impossible pid) is false', () => {
+    expect(isProcessAlive(process.pid)).toBe(true);
+    // Pids are 16-bit on POSIX by default, 22-bit on Linux. A pid like
+    // 9_999_999 essentially never exists.
+    expect(isProcessAlive(9_999_999)).toBe(false);
+    expect(isProcessAlive(0)).toBe(false);
+    expect(isProcessAlive(-1)).toBe(false);
+    expect(isProcessAlive(Number.NaN)).toBe(false);
   });
 });
