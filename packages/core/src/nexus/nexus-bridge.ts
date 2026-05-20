@@ -24,6 +24,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { pushWarning } from '@cleocode/lafs';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { resolveBridgeMode } from '../system/bridge-mode.js';
 
@@ -406,10 +407,17 @@ export async function writeNexusBridge(
     writeFileSync(bridgePath, content, 'utf-8');
     return { path: bridgePath, written: true };
   } catch (err) {
-    console.error(
-      '[CLEO] Failed to write nexus bridge:',
-      err instanceof Error ? err.message : String(err),
-    );
+    // T9771: route nexus-bridge write failure to LAFS meta.warnings.
+    pushWarning({
+      code: 'W_NEXUS_BRIDGE_FAILED',
+      message: 'Failed to write nexus bridge',
+      severity: 'warn',
+      context: {
+        bridge: 'nexus',
+        path: bridgePath,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
     return { path: bridgePath, written: false };
   }
 }
@@ -425,10 +433,16 @@ export async function refreshNexusBridge(projectRoot: string, projectId?: string
   try {
     await writeNexusBridge(projectRoot, projectId);
   } catch (err) {
-    console.error(
-      '[CLEO] Nexus bridge refresh failed:',
-      err instanceof Error ? err.message : String(err),
-    );
+    // T9771: route nexus bridge-refresh failure to LAFS meta.warnings.
+    pushWarning({
+      code: 'W_NEXUS_BRIDGE_FAILED',
+      message: 'Nexus bridge refresh failed',
+      severity: 'warn',
+      context: {
+        bridge: 'nexus',
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
   }
 }
 

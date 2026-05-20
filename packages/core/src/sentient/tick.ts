@@ -24,6 +24,7 @@
 
 import { spawn } from 'node:child_process';
 import type { Task } from '@cleocode/contracts';
+import { pushWarning } from '@cleocode/lafs';
 import {
   type ReVerifyOptions,
   reVerifyWorkerReport,
@@ -516,10 +517,30 @@ async function maybeTriggerDream(
       volumeThreshold: volumeThreshold > 0 ? volumeThreshold : undefined,
       inline: false,
     }).catch((err: unknown) => {
-      console.warn('[sentient/tick] dream trigger error:', err);
+      // T9771: route dream-trigger failure to LAFS meta.warnings.
+      pushWarning({
+        code: 'W_DREAM_TRIGGER_FAILED',
+        message: 'sentient/tick: dream trigger error',
+        severity: 'warn',
+        context: {
+          source: 'sentient/tick',
+          phase: 'dreamer.catch',
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
     });
   } catch (err) {
-    console.warn('[sentient/tick] dream trigger threw:', err);
+    // T9771: route dream-trigger throw to LAFS meta.warnings.
+    pushWarning({
+      code: 'W_DREAM_TRIGGER_FAILED',
+      message: 'sentient/tick: dream trigger threw',
+      severity: 'warn',
+      context: {
+        source: 'sentient/tick',
+        phase: 'dreamer.throw',
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
   }
 }
 

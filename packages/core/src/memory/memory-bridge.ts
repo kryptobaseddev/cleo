@@ -25,6 +25,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { pushWarning } from '@cleocode/lafs';
 import { getLastHandoff } from '../sessions/handoff.js';
 import { resolveBridgeMode } from '../system/bridge-mode.js';
 
@@ -261,10 +262,18 @@ export async function writeMemoryBridge(
     writeFileSync(bridgePath, content, 'utf-8');
     return { path: bridgePath, written: true };
   } catch (err) {
-    console.error(
-      '[CLEO] Failed to write memory bridge:',
-      err instanceof Error ? err.message : String(err),
-    );
+    // T9771: route bridge-write failure to LAFS meta.warnings — stderr noise
+    // was breaking JSON-only consumers of `cleo memory observe` and friends.
+    pushWarning({
+      code: 'W_BRIDGE_WRITE_FAILED',
+      message: 'Failed to write memory bridge',
+      severity: 'warn',
+      context: {
+        bridge: 'memory',
+        path: bridgePath,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
     return { path: bridgePath, written: false };
   }
 }
@@ -292,10 +301,16 @@ export async function refreshMemoryBridge(
       await writeMemoryBridge(projectRoot);
     }
   } catch (err) {
-    console.error(
-      '[CLEO] Memory bridge refresh failed:',
-      err instanceof Error ? err.message : String(err),
-    );
+    // T9771: route bridge-refresh failure to LAFS meta.warnings.
+    pushWarning({
+      code: 'W_BRIDGE_REFRESH_FAILED',
+      message: 'Memory bridge refresh failed',
+      severity: 'warn',
+      context: {
+        bridge: 'memory',
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
   }
 }
 
