@@ -23,6 +23,7 @@ import type { NormalizedDelta, SendOptions } from '@cleocode/contracts/llm/inter
 import type { TransportMessage } from '@cleocode/contracts/llm/normalized-response.js';
 import type { ModelTransport } from '@cleocode/contracts/operations/llm.js';
 import { defineCommand } from 'citty';
+import { cliError } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Lazy imports — keeps startup fast and avoids circular-dep issues at module
@@ -279,11 +280,23 @@ export const streamCommand = defineCommand({
     const prompt = String(a['prompt'] ?? '').trim();
 
     if (!provider) {
-      process.stderr.write('[error] cleo llm stream: <provider> is required.\n');
+      // T9772: validation error → LAFS envelope (no raw stderr).
+      cliError(
+        'cleo llm stream: <provider> is required.',
+        2,
+        { name: 'E_VALIDATION', fix: 'Pass a provider as the first positional argument.' },
+        { operation: 'llm.stream' },
+      );
       process.exit(2);
     }
     if (!prompt) {
-      process.stderr.write('[error] cleo llm stream: <prompt> is required.\n');
+      // T9772: validation error → LAFS envelope (no raw stderr).
+      cliError(
+        'cleo llm stream: <prompt> is required.',
+        2,
+        { name: 'E_VALIDATION', fix: 'Pass a prompt as the second positional argument.' },
+        { operation: 'llm.stream' },
+      );
       process.exit(2);
     }
 
@@ -308,7 +321,13 @@ export const streamCommand = defineCommand({
       await runLlmStream({ provider, prompt, model, maxTokens, temperature, showThink, system });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[error] cleo llm stream: ${msg}\n`);
+      // T9772: stream failure → LAFS envelope (no raw stderr).
+      cliError(
+        `cleo llm stream: ${msg}`,
+        1,
+        { name: 'E_LLM_STREAM_FAILED' },
+        { operation: 'llm.stream' },
+      );
       process.exit(1);
     }
   },

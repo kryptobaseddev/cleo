@@ -25,7 +25,7 @@
  * @epic T9499 — Phase 6 cleanup epic
  */
 
-import { release } from '@cleocode/core';
+import { pushWarning, release } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -88,9 +88,15 @@ const shipCommand = defineCommand({
     },
   },
   async run({ args }) {
-    // R-420: deprecation warning MUST go to stderr so JSON envelope on stdout
-    // stays parseable for piped tooling.
-    process.stderr.write(`${SHIP_DEPRECATION_NOTICE}\n`);
+    // R-420 (T9772): deprecation now surfaces through `meta.warnings[]` in the
+    // LAFS envelope instead of polluting stderr — keeps stdout parseable AND
+    // makes the deprecation discoverable to JSON-only consumers.
+    pushWarning({
+      code: 'W_DEPRECATED_COMMAND',
+      message: SHIP_DEPRECATION_NOTICE,
+      deprecated: 'cleo release ship',
+      replacement: 'cleo release plan <version> --epic <id> && cleo release open <version>',
+    });
 
     // T9540: --workflow=false escape hatch and the legacy releaseShip
     // monolith were removed. Ship ALWAYS forwards to the new 4-verb
