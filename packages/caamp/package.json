@@ -72,6 +72,14 @@
     "picocolors": "^1.1.1",
     "simple-git": "3.33.0"
   },
+  "peerDependencies": {
+    "@cleocode/core": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@cleocode/core": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@biomejs/biome": "2.4.11",
     "@forge-ts/cli": "0.23.0",
