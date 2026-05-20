@@ -355,6 +355,8 @@ function serializeAtom(atom: EvidenceAtom): string | null {
       return `loc-drop:${atom.fromLines}:${atom.toLines}`;
     case 'callsite-coverage':
       return `callsite-coverage:${atom.symbolName}:${atom.relativeSourcePath}`;
+    case 'pr':
+      return `pr:${atom.prNumber}`;
     default:
       return null;
   }
