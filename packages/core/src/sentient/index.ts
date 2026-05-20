@@ -12,6 +12,7 @@
 export * from './allowlist.js';
 export * from './baseline.js';
 export * from './cross-project-hygiene.js';
+export * from './curator.js';
 export * from './daemon.js';
 export * from './daemon-api.js';
 export * from './events.js';
