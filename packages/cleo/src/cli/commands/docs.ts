@@ -24,7 +24,6 @@ import {
   CounterMismatchError,
   createDocsAccessor,
   exportDocument,
-  formatError,
   getAgentOutputsAbsolute,
   getProjectRoot,
   listDocVersions,
@@ -501,11 +500,14 @@ const exportCommand = defineCommand({
         }
       }
     } catch (err) {
+      // T9789: emit a flat LAFS error envelope (single layer, ADR-039).
+      // `cliOutput(formatError(...))` double-wraps — `formatError` already
+      // serialises a `{success:false, error, meta}` envelope to JSON, and
+      // feeding that string to `cliOutput` produces `{success:true, data:"<json>"}`.
       const message = err instanceof Error ? err.message : String(err);
-      cliOutput(
-        formatError(new CleoError(ExitCode.GENERAL_ERROR, `docs export failed: ${message}`)),
-        { command: 'docs export', operation: 'docs.export' },
-      );
+      cliError(`docs export failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_EXPORT_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -566,11 +568,11 @@ const searchCommand = defineCommand({
 
       cliOutput(result, { command: 'docs search', operation: 'docs.search' });
     } catch (err) {
+      // T9789: flat LAFS error envelope (ADR-039) — no double-wrap.
       const message = err instanceof Error ? err.message : String(err);
-      cliOutput(
-        formatError(new CleoError(ExitCode.GENERAL_ERROR, `docs search failed: ${message}`)),
-        { command: 'docs search', operation: 'docs.search' },
-      );
+      cliError(`docs search failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_SEARCH_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -637,11 +639,11 @@ const mergeCommand = defineCommand({
 
       cliOutput(result, { command: 'docs merge', operation: 'docs.merge' });
     } catch (err) {
+      // T9789: flat LAFS error envelope (ADR-039) — no double-wrap.
       const message = err instanceof Error ? err.message : String(err);
-      cliOutput(
-        formatError(new CleoError(ExitCode.GENERAL_ERROR, `docs merge failed: ${message}`)),
-        { command: 'docs merge', operation: 'docs.merge' },
-      );
+      cliError(`docs merge failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_MERGE_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -724,11 +726,11 @@ const graphCommand = defineCommand({
         { command: 'docs graph', operation: 'docs.graph' },
       );
     } catch (err) {
+      // T9789: flat LAFS error envelope (ADR-039) — no double-wrap.
       const message = err instanceof Error ? err.message : String(err);
-      cliOutput(
-        formatError(new CleoError(ExitCode.GENERAL_ERROR, `docs graph failed: ${message}`)),
-        { command: 'docs graph', operation: 'docs.graph' },
-      );
+      cliError(`docs graph failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_GRAPH_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -772,11 +774,11 @@ const rankCommand = defineCommand({
 
       cliOutput(result, { command: 'docs rank', operation: 'docs.rank' });
     } catch (err) {
+      // T9789: flat LAFS error envelope (ADR-039) — no double-wrap.
       const message = err instanceof Error ? err.message : String(err);
-      cliOutput(
-        formatError(new CleoError(ExitCode.GENERAL_ERROR, `docs rank failed: ${message}`)),
-        { command: 'docs rank', operation: 'docs.rank' },
-      );
+      cliError(`docs rank failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_RANK_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -820,11 +822,11 @@ const versionsCommand = defineCommand({
 
       cliOutput(result, { command: 'docs versions', operation: 'docs.versions' });
     } catch (err) {
+      // T9789: flat LAFS error envelope (ADR-039) — no double-wrap.
       const message = err instanceof Error ? err.message : String(err);
-      cliOutput(
-        formatError(new CleoError(ExitCode.GENERAL_ERROR, `docs versions failed: ${message}`)),
-        { command: 'docs versions', operation: 'docs.versions' },
-      );
+      cliError(`docs versions failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_DOCS_VERSIONS_FAILED',
+      });
       process.exit(ExitCode.GENERAL_ERROR);
     }
   },
@@ -1108,7 +1110,10 @@ const syncCommand = defineCommand({
       }
     } catch (err) {
       if (err instanceof CleoError) {
-        cliError(formatError(err), err.code, { name: 'E_DOCS_FAILED' });
+        // T9789: flat LAFS error envelope (ADR-039). Passing `formatError(err)`
+        // (a JSON envelope string) as the message overrode the human-readable
+        // text with a stringified blob — use the raw `err.message` instead.
+        cliError(err.message, err.code, { name: 'E_DOCS_SYNC_FAILED' });
         process.exit(err.code);
       }
       throw err;
@@ -1196,7 +1201,8 @@ const gapCheckCommand = defineCommand({
       }
     } catch (err) {
       if (err instanceof CleoError) {
-        cliError(formatError(err), err.code, { name: 'E_DOCS_FAILED' });
+        // T9789: flat LAFS error envelope (ADR-039) — same fix class as syncCommand.
+        cliError(err.message, err.code, { name: 'E_DOCS_GAP_CHECK_FAILED' });
         process.exit(err.code);
       }
       throw err;
