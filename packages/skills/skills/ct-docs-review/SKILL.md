@@ -20,6 +20,75 @@ license: MIT
 
 @skills/_shared/cleo-style-guide.md
 
+## Through SDK (preferred)
+
+Read the doc through the docs SSoT — not the filesystem. Reviews that grep
+loose files miss every doc that lives only as a blob, and miss the version
+history that makes "what changed?" reviews possible.
+
+### Fetch the doc to review
+
+```bash
+# By slug (preferred — stable handle survives renames):
+cleo docs fetch saml-setup-draft
+
+# By attachment ID (when the slug is unknown):
+cleo docs fetch att_01HXYZ...
+
+# By SHA-256 (when reviewing a specific version):
+cleo docs fetch 7a3f9b...
+```
+
+`cleo docs fetch` returns the full attachment envelope: metadata, slug,
+type, owner, refCount, and the bytes (base64-inline for files ≤ 1 MB,
+storage path for larger blobs).
+
+### Diff two versions of the same doc
+
+CLEO doesn't ship a dedicated `cleo docs diff` verb. Use version listing
+plus two fetches to compose the diff:
+
+```bash
+cleo docs versions --for T1234 --name saml-setup-draft
+# Returns every SHA-256 version with timestamps.
+
+cleo docs fetch <sha-v1> > /tmp/v1.md
+cleo docs fetch <sha-v2> > /tmp/v2.md
+diff -u /tmp/v1.md /tmp/v2.md
+```
+
+Reviewers SHOULD anchor every issue to a specific SHA so the author can
+reproduce the exact state being flagged.
+
+### List candidate docs by type
+
+```bash
+cleo docs list --type spec --project          # all specs in this project
+cleo docs list --task T1234 --type research   # research notes attached to T1234
+```
+
+### PR review mode — still SDK-grounded
+
+When reviewing a GitHub PR that touches a published doc, fetch the SSoT
+copy alongside the diff so you can compare the on-disk file in the PR
+against the canonical blob. Drift between the two is its own review
+finding — flag it as Issue N: docs SSoT drift.
+
+```bash
+gh pr diff <pr-number> -- docs/saml-setup.md
+cleo docs fetch saml-setup-draft     # SSoT canonical
+cleo docs status                     # full drift report
+```
+
+## Deprecated: Direct filesystem reads
+
+The legacy "open the .md file in the working tree and review it"
+pattern is deprecated. The on-disk file may lag the SSoT, the slug-
+based linkage to the originating task is invisible, and the version
+history needed for "what changed?" reviews is missing. Migrate to
+`cleo docs fetch <slug>` for every review — and run `cleo docs status`
+to surface drift before commenting.
+
 ## Review mode detection
 
 **IMPORTANT: Before starting the review, determine which mode to use:**
