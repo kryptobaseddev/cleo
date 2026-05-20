@@ -1284,6 +1284,30 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
     mode: 'native',
     preferredChannel: 'either',
   },
+  // T9690 — skill.stats: Sphere B telemetry rollup
+  {
+    domain: 'tools',
+    operation: 'skill.stats',
+    gateway: 'query',
+    mode: 'native',
+    preferredChannel: 'either',
+  },
+  // T9691 — skill.import.hermes: Hermes sidecar migration
+  {
+    domain: 'tools',
+    operation: 'skill.import.hermes',
+    gateway: 'mutate',
+    mode: 'native',
+    preferredChannel: 'either',
+  },
+  // T9693 — skill.prune.telemetry: skill_usage retention sweep
+  {
+    domain: 'tools',
+    operation: 'skill.prune.telemetry',
+    gateway: 'mutate',
+    mode: 'native',
+    preferredChannel: 'either',
+  },
   {
     domain: 'tools',
     operation: 'skill.install',

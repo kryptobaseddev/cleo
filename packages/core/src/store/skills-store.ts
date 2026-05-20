@@ -35,7 +35,7 @@
  * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §4-§5
  */
 
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, lt, sql } from 'drizzle-orm';
 import { withProvenance } from '../sentient/skill-provenance.js';
 import {
   getSkillRow as _getSkillRow,
@@ -184,6 +184,146 @@ export async function listSkillsBySource(
   options?: { lifecycleState?: SkillLifecycleState },
 ): Promise<SkillRow[]> {
   return _listSkillsBySource(sourceType, options);
+}
+
+// ---------------------------------------------------------------------------
+// Stats facets (T9690 — `cleo skills stats` engine support)
+// ---------------------------------------------------------------------------
+
+/**
+ * One bucket from {@link countByLifecycle}.
+ */
+export interface SkillLifecycleCount {
+  /** Lifecycle bucket. */
+  readonly state: SkillLifecycleState;
+  /** Count of skills in this bucket. */
+  readonly count: number;
+}
+
+/**
+ * Group `skills` by `lifecycle_state` and return the per-bucket count.
+ *
+ * @returns One row per lifecycle bucket present in the table; absent buckets
+ *   are omitted (callers fill in zeros if they want a fixed-shape report).
+ *
+ * @task T9690
+ */
+export async function countByLifecycle(): Promise<SkillLifecycleCount[]> {
+  const db = await openSkillsDb();
+  const rows = db
+    .select({
+      state: skillsTable.lifecycleState,
+      count: sql<number>`COUNT(*)`.as('count'),
+    })
+    .from(skillsTable)
+    .groupBy(skillsTable.lifecycleState)
+    .orderBy(skillsTable.lifecycleState)
+    .all();
+  return rows.map((r) => ({ state: r.state as SkillLifecycleState, count: Number(r.count) }));
+}
+
+/**
+ * One bucket from {@link countBySourceType}.
+ */
+export interface SkillSourceTypeCount {
+  /** Source-type bucket. */
+  readonly sourceType: SkillSourceType;
+  /** Count of skills in this bucket. */
+  readonly count: number;
+}
+
+/**
+ * Group `skills` by `source_type` and return the per-bucket count.
+ *
+ * @task T9690
+ */
+export async function countBySourceType(): Promise<SkillSourceTypeCount[]> {
+  const db = await openSkillsDb();
+  const rows = db
+    .select({
+      sourceType: skillsTable.sourceType,
+      count: sql<number>`COUNT(*)`.as('count'),
+    })
+    .from(skillsTable)
+    .groupBy(skillsTable.sourceType)
+    .orderBy(skillsTable.sourceType)
+    .all();
+  return rows.map((r) => ({
+    sourceType: r.sourceType as SkillSourceType,
+    count: Number(r.count),
+  }));
+}
+
+/**
+ * List all skill rows where `is_agent_created` is true, ordered by
+ * `installed_at` descending.
+ *
+ * @task T9690
+ */
+export async function listAgentCreated(): Promise<SkillRow[]> {
+  const db = await openSkillsDb();
+  return db
+    .select()
+    .from(skillsTable)
+    .where(eq(skillsTable.isAgentCreated, true))
+    .orderBy(desc(skillsTable.installedAt))
+    .all();
+}
+
+// ---------------------------------------------------------------------------
+// Retention (T9693 — `cleo skills prune-telemetry`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Result envelope from {@link pruneUsageOlderThan}.
+ */
+export interface PruneUsageResult {
+  /** Rows deleted by this call. */
+  readonly deletedRows: number;
+  /** Oldest `observed_at` still in the table after the prune (`null` if empty). */
+  readonly oldestRemaining: string | null;
+  /** Newest `observed_at` still in the table after the prune (`null` if empty). */
+  readonly newestRemaining: string | null;
+}
+
+/**
+ * Delete `skill_usage` rows whose `observed_at` is strictly before the
+ * given ISO-8601 cutoff.
+ *
+ * The post-delete `oldestRemaining` / `newestRemaining` fields are returned
+ * so the CLI can show a before/after snapshot without re-querying.
+ *
+ * @param cutoffIso - ISO-8601 timestamp. Rows with `observed_at < cutoffIso`
+ *   are deleted; rows with `observed_at = cutoffIso` are retained.
+ *
+ * @task T9693
+ */
+export async function pruneUsageOlderThan(cutoffIso: string): Promise<PruneUsageResult> {
+  const db = await openSkillsDb();
+  const beforeCount = db
+    .select({ c: sql<number>`COUNT(*)`.as('c') })
+    .from(skillUsageTable)
+    .where(lt(skillUsageTable.observedAt, cutoffIso))
+    .all();
+  const toDelete = Number(beforeCount[0]?.c ?? 0);
+
+  if (toDelete > 0) {
+    db.delete(skillUsageTable).where(lt(skillUsageTable.observedAt, cutoffIso)).run();
+  }
+
+  const bounds = db
+    .select({
+      oldest: sql<string | null>`MIN(${skillUsageTable.observedAt})`.as('oldest'),
+      newest: sql<string | null>`MAX(${skillUsageTable.observedAt})`.as('newest'),
+    })
+    .from(skillUsageTable)
+    .all();
+
+  return {
+    deletedRows: toDelete,
+    oldestRemaining: bounds[0]?.oldest ?? null,
+    newestRemaining: bounds[0]?.newest ?? null,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -1789,6 +1789,108 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T9693 — skill.prune.telemetry: skill_usage retention sweep
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'skill.prune.telemetry',
+    description:
+      'tools.skill.prune.telemetry (mutate) — delete skill_usage rows older than --older-than DAYS (default 180)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'olderThanDays',
+        type: 'number',
+        required: false,
+        description: 'Age threshold in days (default 180)',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Return the plan without touching the DB',
+      },
+      {
+        name: 'vacuum',
+        type: 'boolean',
+        required: false,
+        description: 'Run VACUUM after the delete to reclaim disk space',
+      },
+    ],
+  },
+  // T9691 — skill.import.hermes: Hermes sidecar migration
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'skill.import.hermes',
+    description:
+      'tools.skill.import.hermes (mutate) — migrate ~/.hermes/skills/.usage.json sidecars into CLEO skills.db',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'hermesHome',
+        type: 'string',
+        required: false,
+        description: 'Override Hermes home directory (default: $HERMES_HOME or ~/.hermes)',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Print planned writes without mutating skills.db',
+      },
+    ],
+  },
+  // T9690 — skill.stats: Sphere B telemetry rollup
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'skill.stats',
+    description:
+      'tools.skill.stats (query) — Sphere B telemetry rollup; top-N usage, lifecycle / source-type breakdowns, agent-created list',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'top',
+        type: 'number',
+        required: false,
+        description: 'Top-N usage rollup limit (default 10)',
+      },
+      {
+        name: 'sinceDays',
+        type: 'number',
+        required: false,
+        description: 'Restrict top-N rollup to the last N days (default: all-time)',
+      },
+      {
+        name: 'bySource',
+        type: 'boolean',
+        required: false,
+        description: 'Include source-type breakdown facet',
+      },
+      {
+        name: 'byLifecycle',
+        type: 'boolean',
+        required: false,
+        description: 'Include lifecycle-state breakdown facet',
+      },
+      {
+        name: 'agentCreated',
+        type: 'boolean',
+        required: false,
+        description: 'Include agent-created skill list facet',
+      },
+    ],
+  },
   {
     gateway: 'query',
     domain: 'tools',

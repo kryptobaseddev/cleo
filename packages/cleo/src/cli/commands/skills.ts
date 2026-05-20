@@ -557,6 +557,146 @@ const doctorAdoptOrphansCommand = defineCommand({
   },
 });
 
+/**
+ * `cleo skills stats` — Sphere B telemetry rollup (T9690).
+ *
+ * Surfaces the typed `SkillsStore` adapter behind a single command. Flags:
+ *
+ *   --top N            Top-N usage rollup (default 10)
+ *   --since DAYS       Restrict the rollup to the last N days
+ *   --by-source        Include source-type breakdown facet
+ *   --by-lifecycle     Include lifecycle-state breakdown facet
+ *   --agent-created    Include agent-created skill list facet
+ *   --json             LAFS envelope (default) vs human renderer
+ */
+const statsCommand = defineCommand({
+  meta: {
+    name: 'stats',
+    description:
+      'Show skill telemetry stats: top-N usage, lifecycle / source-type breakdowns, agent-created skills',
+  },
+  args: {
+    top: {
+      type: 'string',
+      description: 'Top-N usage rollup limit (default 10)',
+    },
+    since: {
+      type: 'string',
+      description: 'Restrict the top-N rollup to the last N days (default: all-time)',
+    },
+    'by-source': {
+      type: 'boolean',
+      description: 'Include source-type breakdown facet',
+    },
+    'by-lifecycle': {
+      type: 'boolean',
+      description: 'Include lifecycle-state breakdown facet',
+    },
+    'agent-created': {
+      type: 'boolean',
+      description: 'Include agent-created skill list facet',
+    },
+  },
+  async run({ args }) {
+    const top = args.top ? Number(args.top) : undefined;
+    const sinceDays = args.since ? Number(args.since) : undefined;
+    await dispatchFromCli(
+      'query',
+      'tools',
+      'skill.stats',
+      {
+        top,
+        sinceDays,
+        bySource: args['by-source'] === true,
+        byLifecycle: args['by-lifecycle'] === true,
+        agentCreated: args['agent-created'] === true,
+      },
+      { command: 'skills', operation: 'tools.skill.stats' },
+    );
+  },
+});
+
+/**
+ * `cleo skills import-hermes` — Hermes sidecar migration (T9691).
+ *
+ * Reads `~/.hermes/skills/.usage.json` + `.bundled_manifest` and inserts
+ * equivalent rows into the CLEO `skills.db`. Idempotent — re-running the
+ * verb upserts by `name` and re-synthesizes the counter rows. Use
+ * `--dry-run` to preview without mutating disk state.
+ */
+const importHermesCommand = defineCommand({
+  meta: {
+    name: 'import-hermes',
+    description:
+      'Migrate Hermes ~/.hermes/skills/.usage.json sidecars into the CLEO skills.db registry',
+  },
+  args: {
+    'hermes-home': {
+      type: 'string',
+      description: 'Override Hermes home directory (default: $HERMES_HOME or ~/.hermes)',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Print planned writes without mutating skills.db',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tools',
+      'skill.import.hermes',
+      {
+        hermesHome: args['hermes-home'] as string | undefined,
+        dryRun: args['dry-run'] === true,
+      },
+      { command: 'skills', operation: 'tools.skill.import.hermes' },
+    );
+  },
+});
+
+/**
+ * `cleo skills prune-telemetry` — Sphere B retention sweep (T9693).
+ *
+ * Deletes `skill_usage` rows older than `--older-than DAYS` (default 180,
+ * mirrors Hermes `archive_after_days`). Optional `--vacuum` reclaims disk
+ * space after the delete. Use `--dry-run` to preview without writes.
+ */
+const pruneTelemetryCommand = defineCommand({
+  meta: {
+    name: 'prune-telemetry',
+    description:
+      'Delete skill_usage rows older than --older-than DAYS (default 180); optional --vacuum reclaims disk space',
+  },
+  args: {
+    'older-than': {
+      type: 'string',
+      description: 'Age threshold in days (default 180)',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Print planned deletes without touching the DB',
+    },
+    vacuum: {
+      type: 'boolean',
+      description: 'Run VACUUM after the delete to reclaim disk space',
+    },
+  },
+  async run({ args }) {
+    const olderThanDays = args['older-than'] ? Number(args['older-than']) : undefined;
+    await dispatchFromCli(
+      'mutate',
+      'tools',
+      'skill.prune.telemetry',
+      {
+        olderThanDays,
+        dryRun: args['dry-run'] === true,
+        vacuum: args.vacuum === true,
+      },
+      { command: 'skills', operation: 'tools.skill.prune.telemetry' },
+    );
+  },
+});
+
 /** cleo skills spawn-providers — list providers capable of spawning subagents */
 const spawnProvidersCommand = defineCommand({
   meta: { name: 'spawn-providers', description: 'List providers capable of spawning subagents' },
@@ -855,6 +995,9 @@ export const skillsCommand = defineCommand({
     'spawn-providers': spawnProvidersCommand,
     doctor: doctorCommand,
     'propose-patch': proposePatchCommand,
+    stats: statsCommand,
+    'import-hermes': importHermesCommand,
+    'prune-telemetry': pruneTelemetryCommand,
   },
   async run({ cmd, rawArgs }) {
     // Parent run() fires after subcommand per citty@0.2.x — skip default

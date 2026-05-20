@@ -311,6 +311,20 @@ export function getSkillsNativeDb(): DatabaseSync | null {
   return _skillsNativeDb;
 }
 
+/**
+ * Return the absolute path of the currently open skills.db handle, or
+ * `null` if no handle is open. Honors test-supplied overrides — the
+ * default-resolver path is NOT returned unless a real open happened.
+ *
+ * Used by the T9693 prune CLI to report `dbSizeBefore` / `dbSizeAfter`
+ * against the actually-open file (which may be a tmpdir in tests).
+ *
+ * @task T9693
+ */
+export function getOpenSkillsDbPath(): string | null {
+  return _skillsDbPath;
+}
+
 // ---------------------------------------------------------------------------
 // Read / write helpers (acceptance criterion 4)
 // ---------------------------------------------------------------------------
