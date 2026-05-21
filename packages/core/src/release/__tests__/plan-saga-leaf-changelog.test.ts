@@ -614,7 +614,7 @@ describe('releasePlan writes CHANGELOG.md (T9838 Fix 3)', () => {
     const preExisting = [
       '# Changelog',
       '',
-      ## [2025.1.0] (2025-01-15)',
+      '## [2025.1.0] (2025-01-15)',
       '',
       '- Older release notes left intact.',
       '',
