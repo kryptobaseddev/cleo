@@ -919,66 +919,36 @@ describe("skills commands - additional coverage", () => {
   // FIND COMMAND - uncovered lines 154, 323-337
   // ==========================================
   describe("skills find - additional coverage", () => {
+    const docsProSkill = {
+      name: "docs-pro",
+      scopedName: "@demo/docs-pro",
+      description: "Modern docs",
+      author: "demo",
+      stars: 420,
+      githubUrl: "https://github.com/demo/docs-pro",
+      repoFullName: "demo/docs-pro",
+      path: "skills/docs-pro/SKILL.md",
+      source: "skillsmp",
+    };
+    const docsProRanking = (reasons: Array<{ code: string; detail: string }>) => ({
+      criteria: { query: "docs", queryTokens: ["docs"], mustHave: [], prefer: [], exclude: [] },
+      ranking: [{ skill: docsProSkill, score: 42.25, reasons, excluded: false }],
+    });
+
     it("format conflict exits when both --json and --human passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "find", "test", "--json", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await expectFormatConflict(registerSkillsFind, ["find", "test"]);
     });
 
     it("marketplace search outputs human format with results", async () => {
       mocks.search.mockResolvedValue([
-        {
-          name: "skill1",
-          scopedName: "@author/skill1",
-          description: "A test skill",
-          author: "author",
-          stars: 1500,
-          githubUrl: "https://github.com/author/skill1",
-          repoFullName: "author/skill1",
-          path: "skills/skill1/SKILL.md",
-          source: "skillsmp",
-        },
-        {
-          name: "skill2",
-          scopedName: "@author/skill2",
-          description: "Another skill",
-          author: "author",
-          stars: 42,
-          githubUrl: "https://github.com/author/skill2",
-          repoFullName: "author/skill2",
-          path: "skills/skill2/SKILL.md",
-          source: "skillsmp",
-        },
-        {
-          name: "skill3",
-          scopedName: "@author/skill3",
-          description: "No stars skill",
-          author: "author",
-          stars: 0,
-          githubUrl: "https://github.com/author/skill3",
-          repoFullName: "author/skill3",
-          path: "skills/skill3/SKILL.md",
-          source: "skillsmp",
-        },
+        fixtures.marketplaceHit("skill1", { description: "A test skill", author: "author", stars: 1500 }),
+        fixtures.marketplaceHit("skill2", { description: "Another skill", author: "author", stars: 42 }),
+        fixtures.marketplaceHit("skill3", { description: "No stars skill", author: "author", stars: 0 }),
       ]);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsFind(program);
+      const inv = await runCli(registerSkillsFind, ["find", "test", "--human"]);
 
-      await program.parseAsync(["node", "test", "find", "test", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("3 result(s)");
       expect(output).toContain("Install with:");
     });
@@ -986,35 +956,22 @@ describe("skills commands - additional coverage", () => {
     it("marketplace search outputs empty results in human format", async () => {
       mocks.search.mockResolvedValue([]);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsFind(program);
+      const inv = await runCli(registerSkillsFind, ["find", "nonexistent", "--human"]);
 
-      await program.parseAsync(["node", "test", "find", "nonexistent", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
-      expect(output).toContain("No results found");
+      expect(inv.humanStdout()).toContain("No results found");
     });
 
     it("marketplace search outputs JSON envelope", async () => {
       mocks.search.mockResolvedValue([
-        {
-          name: "skill1",
-          scopedName: "@author/skill1",
-          description: "A test skill",
-          author: "author",
-          stars: 100,
-          source: "skillsmp",
-        },
+        fixtures.marketplaceHit("skill1", { description: "A test skill", author: "author", stars: 100 }),
       ]);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsFind(program);
+      const inv = await runCli(registerSkillsFind, ["find", "test", "--json"]);
 
-      await program.parseAsync(["node", "test", "find", "test", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as {
+        $schema: string;
+        result: { query: string; count: number };
+      };
       expect(output.$schema).toBe("https://lafs.dev/schemas/v1/envelope.schema.json");
       expect(output.result.query).toBe("test");
       expect(output.result.count).toBe(1);
@@ -1023,74 +980,46 @@ describe("skills commands - additional coverage", () => {
     it("marketplace search failure in human mode", async () => {
       mocks.search.mockRejectedValue(new Error("network error"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "test", "--human"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "find", "test", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = errorSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
-      expect(output).toContain("Marketplace search failed");
+      expect(inv.humanStderr()).toContain("Marketplace search failed");
     });
 
     it("marketplace search failure in JSON mode", async () => {
       mocks.search.mockRejectedValue(new Error("network error"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "test", "--json"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "find", "test", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = JSON.parse(String(errorSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStderr() as { error: { code: string } };
       expect(output.error.code).toBe("E_SEARCH_FAILED");
     });
 
     it("shows usage when no query provided", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsFind(program);
+      const inv = await runCli(registerSkillsFind, ["find"]);
 
-      await program.parseAsync(["node", "test", "find"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
-      expect(output).toContain("Usage:");
+      expect(inv.humanStdout()).toContain("Usage:");
     });
 
     it("recommendation with --select in human mode shows selected", async () => {
-      const ranked = {
-        criteria: { query: "docs", queryTokens: ["docs"], mustHave: [], prefer: [], exclude: [] },
-        ranking: [
-          {
-            skill: { name: "docs-pro", scopedName: "@demo/docs-pro", description: "Modern docs", author: "demo", stars: 420, githubUrl: "https://github.com/demo/docs-pro", repoFullName: "demo/docs-pro", path: "skills/docs-pro/SKILL.md", source: "skillsmp" },
-            score: 42.25,
-            reasons: [{ code: "MUST_HAVE_MATCH", detail: "1" }],
-            excluded: false,
-          },
-        ],
-      };
-      mocks.recommendSkillsByQuery.mockResolvedValue(ranked);
+      mocks.recommendSkillsByQuery.mockResolvedValue(
+        docsProRanking([{ code: "MUST_HAVE_MATCH", detail: "1" }]),
+      );
       mocks.formatSkillRecommendations.mockReturnValue("Recommended:\n1) @demo/docs-pro");
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsFind(program);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "docs", "--recommend", "--human", "--top", "1", "--select", "1"],
+      );
 
-      await program.parseAsync(["node", "test", "find", "docs", "--recommend", "--human", "--top", "1", "--select", "1"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Selected:");
       expect(output).toContain("@demo/docs-pro");
     });
@@ -1098,89 +1027,48 @@ describe("skills commands - additional coverage", () => {
     it("recommendation error in human mode shows message", async () => {
       mocks.recommendSkillsByQuery.mockRejectedValue(new Error("engine failure"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "docs", "--recommend", "--human", "--top", "1"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "find", "docs", "--recommend", "--human", "--top", "1"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = errorSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
-      expect(output).toContain("Recommendation failed");
+      expect(inv.humanStderr()).toContain("Recommendation failed");
     });
 
     it("prefer-exclude conflict in human mode", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "docs", "--recommend", "--human", "--prefer", "docs", "--exclude", "docs"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "find", "docs", "--recommend", "--human", "--prefer", "docs", "--exclude", "docs"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = errorSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
-      expect(output).toContain("Recommendation failed");
+      expect(inv.humanStderr()).toContain("Recommendation failed");
     });
 
     it("validateSelectedRanks throws when rank is out of range", async () => {
-      const ranked = {
-        criteria: { query: "docs", queryTokens: ["docs"], mustHave: [], prefer: [], exclude: [] },
-        ranking: [
-          {
-            skill: { name: "docs-pro", scopedName: "@demo/docs-pro", description: "Modern docs", author: "demo", stars: 420, githubUrl: "", repoFullName: "demo/docs-pro", path: "", source: "skillsmp" },
-            score: 42.25,
-            reasons: [],
-            excluded: false,
-          },
-        ],
-      };
-      mocks.recommendSkillsByQuery.mockResolvedValue(ranked);
+      mocks.recommendSkillsByQuery.mockResolvedValue(docsProRanking([]));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "docs", "--recommend", "--json", "--top", "1", "--select", "5"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "find", "docs", "--recommend", "--json", "--top", "1", "--select", "5"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = JSON.parse(String(errorSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStderr() as { error: { code: string } };
       expect(output.error.code).toBe("E_SKILLS_QUERY_INVALID");
     });
 
     it("buildSeedQuery uses criteria flags when no query provided", async () => {
-      const ranked = {
-        criteria: { query: "docs", queryTokens: ["docs"], mustHave: ["docs"], prefer: [], exclude: [] },
-        ranking: [
-          {
-            skill: { name: "docs-pro", scopedName: "@demo/docs-pro", description: "Modern docs", author: "demo", stars: 420, githubUrl: "", repoFullName: "demo/docs-pro", path: "", source: "skillsmp" },
-            score: 42.25,
-            reasons: [{ code: "MUST_HAVE_MATCH", detail: "1" }],
-            excluded: false,
-          },
-        ],
-      };
+      const ranked = docsProRanking([{ code: "MUST_HAVE_MATCH", detail: "1" }]);
+      ranked.criteria.mustHave = ["docs"];
       mocks.recommendSkillsByQuery.mockResolvedValue(ranked);
       mocks.formatSkillRecommendations.mockReturnValue({ query: "docs", options: [], recommended: null });
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await program.parseAsync(["node", "test", "find", "--recommend", "--json", "--must-have", "docs"]);
+      await runCli(
+        registerSkillsFind,
+        ["find", "--recommend", "--json", "--must-have", "docs"],
+      );
 
       expect(mocks.recommendSkillsByQuery).toHaveBeenCalledWith(
         "docs",
@@ -1190,102 +1078,63 @@ describe("skills commands - additional coverage", () => {
     });
 
     it("buildSeedQuery throws when no query and no criteria flags", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "--recommend", "--json"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "find", "--recommend", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = JSON.parse(String(errorSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStderr() as { error: { code: string } };
       expect(output.error.code).toBe("E_SKILLS_QUERY_INVALID");
     });
 
     it("recommendation error with NO_MATCHES code maps to NOT_FOUND category", async () => {
-      const err = new Error("no results");
-      (err as any).code = "E_SKILLS_NO_MATCHES";
+      const err = new Error("no results") as Error & { code?: string };
+      err.code = "E_SKILLS_NO_MATCHES";
       mocks.recommendSkillsByQuery.mockRejectedValue(err);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "docs", "--recommend", "--json"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "find", "docs", "--recommend", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = JSON.parse(String(errorSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStderr() as { error: { category: string } };
       expect(output.error.category).toBe("NOT_FOUND");
     });
 
     it("recommendation error with generic code maps to INTERNAL category", async () => {
-      const err = new Error("unknown failure");
-      (err as any).code = "E_SOMETHING_ELSE";
+      const err = new Error("unknown failure") as Error & { code?: string };
+      err.code = "E_SOMETHING_ELSE";
       mocks.recommendSkillsByQuery.mockRejectedValue(err);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "docs", "--recommend", "--json"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "find", "docs", "--recommend", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = JSON.parse(String(errorSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStderr() as { error: { category: string } };
       expect(output.error.category).toBe("INTERNAL");
     });
 
     it("normalizeRecommendationOptions uses score-based match when no reasons", async () => {
-      const ranked = {
-        criteria: { query: "docs", queryTokens: ["docs"], mustHave: [], prefer: [], exclude: [] },
-        ranking: [
-          {
-            skill: { name: "docs-pro", scopedName: "@demo/docs-pro", description: "Modern docs", author: "demo", stars: 420, githubUrl: "", repoFullName: "demo/docs-pro", path: "", source: "skillsmp" },
-            score: 42.25,
-            reasons: [],
-            excluded: false,
-          },
-        ],
-      };
-      mocks.recommendSkillsByQuery.mockResolvedValue(ranked);
+      mocks.recommendSkillsByQuery.mockResolvedValue(docsProRanking([]));
       mocks.formatSkillRecommendations.mockReturnValue("No reasons available");
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsFind(program);
-
-      await program.parseAsync(["node", "test", "find", "docs", "--recommend", "--human"]);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "docs", "--recommend", "--human"],
+      );
 
       // The test passes if no error occurred (the internal normalizeRecommendationOptions handled empty reasons)
-      expect(logSpy).toHaveBeenCalled();
+      expect(inv.stdout.length).toBeGreaterThan(0);
     });
 
     it("recommendation JSON output handles non-array options from formatSkillRecommendations", async () => {
-      const ranked = {
-        criteria: { query: "docs", queryTokens: ["docs"], mustHave: [], prefer: [], exclude: [] },
-        ranking: [
-          {
-            skill: { name: "docs-pro", scopedName: "@demo/docs-pro", description: "Modern docs", author: "demo", stars: 420, githubUrl: "", repoFullName: "demo/docs-pro", path: "", source: "skillsmp" },
-            score: 42.25,
-            reasons: [{ code: "MUST_HAVE_MATCH", detail: "1" }],
-            excluded: false,
-          },
-        ],
-      };
-      mocks.recommendSkillsByQuery.mockResolvedValue(ranked);
+      mocks.recommendSkillsByQuery.mockResolvedValue(
+        docsProRanking([{ code: "MUST_HAVE_MATCH", detail: "1" }]),
+      );
       // Return an object without options as array (options is undefined/missing)
       mocks.formatSkillRecommendations.mockReturnValue({
         query: "docs",
@@ -1293,13 +1142,15 @@ describe("skills commands - additional coverage", () => {
         // no options field = not an array
       });
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsFind(program);
+      const inv = await runCli(
+        registerSkillsFind,
+        ["find", "docs", "--recommend", "--json", "--top", "1"],
+      );
 
-      await program.parseAsync(["node", "test", "find", "docs", "--recommend", "--json", "--top", "1"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as {
+        success: boolean;
+        result: { selected: unknown[] };
+      };
       expect(output.success).toBe(true);
       expect(output.result.selected).toEqual([]);
     });
@@ -1310,13 +1161,9 @@ describe("skills commands - additional coverage", () => {
       // by checking that the --json flag works correctly when provided
       mocks.search.mockResolvedValue([]);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsFind(program);
+      const inv = await runCli(registerSkillsFind, ["find", "test", "--json"]);
 
-      await program.parseAsync(["node", "test", "find", "test", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as { _meta: { operation: string } };
       expect(output._meta.operation).toBe("skills.find.search");
     });
   });
@@ -1446,127 +1293,74 @@ describe("skills commands - additional coverage", () => {
   // ==========================================
   describe("skills update - additional coverage", () => {
     it("format conflict exits when both --json and --human passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsUpdate(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "update", "--json", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await expectFormatConflict(registerSkillsUpdate, ["update"]);
     });
 
     it("outputs JSON when no tracked skills", async () => {
       mocks.getTrackedSkills.mockResolvedValue({});
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsUpdate(program);
+      const inv = await runCli(registerSkillsUpdate, ["update", "--json"]);
 
-      await program.parseAsync(["node", "test", "update", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as { result: { count: { updated: number } } };
       expect(output.result.count.updated).toBe(0);
     });
 
     it("outputs JSON when no updates available", async () => {
       mocks.getTrackedSkills.mockResolvedValue({
-        current: {
-          name: "current",
-          scopedName: "current",
-          source: "owner/repo",
-          sourceType: "github",
-          agents: ["claude-code"],
-          canonicalPath: "/path",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
+        current: fixtures.trackedSkill("current"),
       });
-      mocks.checkSkillUpdate.mockResolvedValue({ hasUpdate: false, status: "up-to-date" });
+      mocks.checkSkillUpdate.mockResolvedValue(fixtures.upToDate());
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsUpdate(program);
+      const inv = await runCli(registerSkillsUpdate, ["update", "--json"]);
 
-      await program.parseAsync(["node", "test", "update", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as { result: { count: { updated: number } } };
       expect(output.result.count.updated).toBe(0);
     });
 
     it("outputs JSON with successful updates", async () => {
       mocks.getTrackedSkills.mockResolvedValue({
-        outdated: {
-          name: "outdated",
-          scopedName: "outdated",
-          source: "owner/repo",
-          sourceType: "github",
-          agents: ["claude-code"],
-          canonicalPath: "/path",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
+        outdated: fixtures.trackedSkill("outdated"),
       });
-      mocks.checkSkillUpdate.mockResolvedValue({ hasUpdate: true, currentVersion: "abc", latestVersion: "def", status: "update-available" });
+      mocks.checkSkillUpdate.mockResolvedValue(fixtures.updateAvailable({ currentVersion: "abc", latestVersion: "def" }));
       mocks.parseSource.mockReturnValue({ type: "github", owner: "owner", repo: "repo", ref: undefined });
-      mocks.cloneRepo.mockResolvedValue({ localPath: "/tmp/repo", cleanup: async () => {} });
+      mocks.cloneRepo.mockResolvedValue(fixtures.clonedRepo({ localPath: "/tmp/repo" }));
       mocks.getProvider.mockReturnValue(mockProvider);
-      mocks.installSkill.mockResolvedValue({ success: true, linkedAgents: ["claude-code"], errors: [], canonicalPath: "/new/path" });
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess({ name: "outdated", canonicalPath: "/new/path" }));
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsUpdate(program);
+      const inv = await runCli(registerSkillsUpdate, ["update", "--yes", "--json"]);
 
-      await program.parseAsync(["node", "test", "update", "--yes", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as {
+        result: { count: { updated: number }; updated: string[] };
+      };
       expect(output.result.count.updated).toBe(1);
       expect(output.result.updated).toEqual(["outdated"]);
     });
 
     it("outputs JSON with skipped and failed updates", async () => {
       mocks.getTrackedSkills.mockResolvedValue({
-        localSkill: {
-          name: "localSkill",
-          scopedName: "localSkill",
+        localSkill: fixtures.trackedSkill("localSkill", {
           source: "/local/path",
           sourceType: "local",
-          agents: ["claude-code"],
           canonicalPath: "/path1",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
-        failingSkill: {
-          name: "failingSkill",
-          scopedName: "failingSkill",
+        }),
+        failingSkill: fixtures.trackedSkill("failingSkill", {
           source: "owner/fail",
-          sourceType: "github",
-          agents: ["claude-code"],
           canonicalPath: "/path2",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
+        }),
       });
-      mocks.checkSkillUpdate.mockResolvedValue({ hasUpdate: true, currentVersion: "abc", latestVersion: "def", status: "update-available" });
+      mocks.checkSkillUpdate.mockResolvedValue(fixtures.updateAvailable({ currentVersion: "abc", latestVersion: "def" }));
       mocks.parseSource
         .mockReturnValueOnce({ type: "local", path: "/local/path" })
         .mockReturnValueOnce({ type: "github", owner: "owner", repo: "fail", ref: "main" });
       mocks.cloneRepo.mockRejectedValue(new Error("Network error"));
       mocks.getProvider.mockReturnValue(mockProvider);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsUpdate(program);
+      const inv = await runCli(registerSkillsUpdate, ["update", "--yes", "--json"]);
 
-      await program.parseAsync(["node", "test", "update", "--yes", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as {
+        result: { skipped: string[]; failed: Array<{ name: string }> };
+      };
       expect(output.result.skipped).toContain("localSkill");
       expect(output.result.failed).toHaveLength(1);
       expect(output.result.failed[0].name).toBe("failingSkill");
@@ -1574,133 +1368,74 @@ describe("skills commands - additional coverage", () => {
 
     it("skips update when no valid providers found for a skill", async () => {
       mocks.getTrackedSkills.mockResolvedValue({
-        orphan: {
-          name: "orphan",
-          scopedName: "orphan",
-          source: "owner/repo",
-          sourceType: "github",
-          agents: ["nonexistent-agent"],
-          canonicalPath: "/path",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
+        orphan: fixtures.trackedSkill("orphan", { agents: ["nonexistent-agent"] }),
       });
-      mocks.checkSkillUpdate.mockResolvedValue({ hasUpdate: true, currentVersion: "abc", latestVersion: "def", status: "update-available" });
+      mocks.checkSkillUpdate.mockResolvedValue(fixtures.updateAvailable({ currentVersion: "abc", latestVersion: "def" }));
       mocks.parseSource.mockReturnValue({ type: "github", owner: "owner", repo: "repo", ref: "main" });
-      mocks.cloneRepo.mockResolvedValue({ localPath: "/tmp/repo", cleanup: async () => {} });
+      mocks.cloneRepo.mockResolvedValue(fixtures.clonedRepo({ localPath: "/tmp/repo" }));
       mocks.getProvider.mockReturnValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsUpdate(program);
+      const inv = await runCli(registerSkillsUpdate, ["update", "--yes", "--human"]);
 
-      await program.parseAsync(["node", "test", "update", "--yes", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Skipped");
       expect(output).toContain("no valid providers");
     });
 
     it("handles install failure (success=false) in human mode", async () => {
       mocks.getTrackedSkills.mockResolvedValue({
-        failing: {
-          name: "failing",
-          scopedName: "failing",
-          source: "owner/repo",
-          sourceType: "github",
-          agents: ["claude-code"],
-          canonicalPath: "/path",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
+        failing: fixtures.trackedSkill("failing"),
       });
-      mocks.checkSkillUpdate.mockResolvedValue({ hasUpdate: true, currentVersion: "abc", latestVersion: "def", status: "update-available" });
+      mocks.checkSkillUpdate.mockResolvedValue(fixtures.updateAvailable({ currentVersion: "abc", latestVersion: "def" }));
       mocks.parseSource.mockReturnValue({ type: "github", owner: "owner", repo: "repo", ref: "main" });
-      mocks.cloneRepo.mockResolvedValue({ localPath: "/tmp/repo", cleanup: async () => {} });
+      mocks.cloneRepo.mockResolvedValue(fixtures.clonedRepo({ localPath: "/tmp/repo" }));
       mocks.getProvider.mockReturnValue(mockProvider);
-      mocks.installSkill.mockResolvedValue({ success: false, linkedAgents: [], errors: ["no agents linked"], canonicalPath: "" });
+      mocks.installSkill.mockResolvedValue(fixtures.installFailure(["no agents linked"], { name: "failing" }));
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsUpdate(program);
+      const inv = await runCli(registerSkillsUpdate, ["update", "--yes", "--human"]);
 
-      await program.parseAsync(["node", "test", "update", "--yes", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Failed to update");
       expect(output).toContain("no agents linked");
     });
 
     it("handles install with errors in human mode", async () => {
       mocks.getTrackedSkills.mockResolvedValue({
-        warned: {
-          name: "warned",
-          scopedName: "warned",
-          source: "owner/repo",
-          sourceType: "github",
-          agents: ["claude-code"],
-          canonicalPath: "/path",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
+        warned: fixtures.trackedSkill("warned"),
       });
-      mocks.checkSkillUpdate.mockResolvedValue({ hasUpdate: true, currentVersion: "abc", latestVersion: "def", status: "update-available" });
+      mocks.checkSkillUpdate.mockResolvedValue(fixtures.updateAvailable({ currentVersion: "abc", latestVersion: "def" }));
       mocks.parseSource.mockReturnValue({ type: "github", owner: "owner", repo: "repo", ref: "main" });
-      mocks.cloneRepo.mockResolvedValue({ localPath: "/tmp/repo", cleanup: async () => {} });
+      mocks.cloneRepo.mockResolvedValue(fixtures.clonedRepo({ localPath: "/tmp/repo" }));
       mocks.getProvider.mockReturnValue(mockProvider);
-      mocks.installSkill.mockResolvedValue({ success: true, linkedAgents: ["claude-code"], errors: ["partial link failure"], canonicalPath: "/new/path" });
+      mocks.installSkill.mockResolvedValue(
+        fixtures.installSuccess({ name: "warned", errors: ["partial link failure"], canonicalPath: "/new/path" }),
+      );
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsUpdate(program);
+      const inv = await runCli(registerSkillsUpdate, ["update", "--yes", "--human"]);
 
-      await program.parseAsync(["node", "test", "update", "--yes", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Updated");
       expect(output).toContain("partial link failure");
     });
 
     it("shows summary with both updated and failed in human mode", async () => {
       mocks.getTrackedSkills.mockResolvedValue({
-        good: {
-          name: "good",
-          scopedName: "good",
-          source: "owner/good",
-          sourceType: "github",
-          agents: ["claude-code"],
-          canonicalPath: "/path1",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
-        bad: {
-          name: "bad",
-          scopedName: "bad",
-          source: "owner/bad",
-          sourceType: "github",
-          agents: ["claude-code"],
-          canonicalPath: "/path2",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
+        good: fixtures.trackedSkill("good", { source: "owner/good", canonicalPath: "/path1" }),
+        bad: fixtures.trackedSkill("bad", { source: "owner/bad", canonicalPath: "/path2" }),
       });
-      mocks.checkSkillUpdate.mockResolvedValue({ hasUpdate: true, currentVersion: "abc", latestVersion: "def", status: "update-available" });
+      mocks.checkSkillUpdate.mockResolvedValue(fixtures.updateAvailable({ currentVersion: "abc", latestVersion: "def" }));
       mocks.parseSource.mockReturnValue({ type: "github", owner: "owner", repo: "repo", ref: "main" });
       mocks.cloneRepo
-        .mockResolvedValueOnce({ localPath: "/tmp/repo", cleanup: async () => {} })
+        .mockResolvedValueOnce(fixtures.clonedRepo({ localPath: "/tmp/repo" }))
         .mockRejectedValueOnce(new Error("Network error"));
       mocks.getProvider.mockReturnValue(mockProvider);
-      mocks.installSkill.mockResolvedValue({ success: true, linkedAgents: ["claude-code"], errors: [], canonicalPath: "/new/path" });
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess({ name: "good", canonicalPath: "/new/path" }));
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsUpdate(program);
+      const inv = await runCli(registerSkillsUpdate, ["update", "--yes", "--human"]);
 
-      await program.parseAsync(["node", "test", "update", "--yes", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Updated 1 skill(s)");
       expect(output).toContain("Failed to update 1 skill(s)");
     });
@@ -1708,28 +1443,16 @@ describe("skills commands - additional coverage", () => {
     it("cleanup is called after update", async () => {
       const cleanupFn = vi.fn();
       mocks.getTrackedSkills.mockResolvedValue({
-        skill: {
-          name: "skill",
-          scopedName: "skill",
-          source: "owner/repo",
-          sourceType: "github",
-          agents: ["claude-code"],
-          canonicalPath: "/path",
-          isGlobal: true,
-          installedAt: "2026-01-01T00:00:00Z",
-        },
+        skill: fixtures.trackedSkill("skill"),
       });
-      mocks.checkSkillUpdate.mockResolvedValue({ hasUpdate: true, currentVersion: "abc", latestVersion: "def", status: "update-available" });
+      mocks.checkSkillUpdate.mockResolvedValue(fixtures.updateAvailable({ currentVersion: "abc", latestVersion: "def" }));
       mocks.parseSource.mockReturnValue({ type: "github", owner: "owner", repo: "repo", ref: "main" });
-      mocks.cloneRepo.mockResolvedValue({ localPath: "/tmp/repo", cleanup: cleanupFn });
+      mocks.cloneRepo.mockResolvedValue(fixtures.clonedRepo({ localPath: "/tmp/repo", cleanup: cleanupFn }));
       mocks.getProvider.mockReturnValue(mockProvider);
-      mocks.installSkill.mockResolvedValue({ success: true, linkedAgents: ["claude-code"], errors: [], canonicalPath: "/new/path" });
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess({ name: "skill", canonicalPath: "/new/path" }));
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const program = new Command();
-      registerSkillsUpdate(program);
-
-      await program.parseAsync(["node", "test", "update", "--yes"]);
+      await runCli(registerSkillsUpdate, ["update", "--yes"]);
 
       expect(cleanupFn).toHaveBeenCalled();
     });
