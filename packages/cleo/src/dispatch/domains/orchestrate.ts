@@ -82,6 +82,12 @@ interface OrchestrateReadyParams {
   epicId: string;
   /** CLI-only bypass flag. When true, skips dep-graph validation and audit-logs the bypass. */
   ignoreDepsValidate?: boolean;
+  /**
+   * Traversal mode (gh-390 / ADR-073). `'parent'` walks `parentId` only,
+   * `'saga'` walks `task_relations.type='groups'` only, `'both'` (default)
+   * auto-detects saga-labeled epics.
+   */
+  via?: 'parent' | 'saga' | 'both';
 }
 
 interface OrchestrateAnalyzeParams {
@@ -105,6 +111,10 @@ interface OrchestrateContextParams {
 
 interface OrchestrateWavesParams {
   epicId: string;
+  /**
+   * Traversal mode (gh-390 / ADR-073). See {@link OrchestrateReadyParams.via}.
+   */
+  via?: 'parent' | 'saga' | 'both';
 }
 
 interface OrchestratePlanParams {
@@ -290,6 +300,7 @@ async function orchestrateNextOp(params: OrchestrateNextParams) {
 async function orchestrateReadyOp(params: OrchestrateReadyParams) {
   return orchestrateReady(params.epicId, getProjectRoot(), {
     ignoreDepsValidate: params.ignoreDepsValidate,
+    via: params.via,
   });
 }
 
@@ -340,7 +351,7 @@ async function orchestrateContextOp(params: OrchestrateContextParams) {
 }
 
 async function orchestrateWavesOp(params: OrchestrateWavesParams) {
-  return orchestrateWaves(params.epicId, getProjectRoot());
+  return orchestrateWaves(params.epicId, getProjectRoot(), { via: params.via });
 }
 
 async function orchestratePlanOp(params: OrchestratePlanParams) {
@@ -562,9 +573,13 @@ export class OrchestrateHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
+          const viaRaw = params.via;
+          const via: OrchestrateReadyParams['via'] =
+            viaRaw === 'parent' || viaRaw === 'saga' || viaRaw === 'both' ? viaRaw : undefined;
           const p: OrchestrateReadyParams = {
             epicId: params.epicId as string,
             ignoreDepsValidate: params.ignoreDepsValidate as boolean | undefined,
+            ...(via !== undefined && { via }),
           };
           return wrapResult(await coreOps.ready(p), 'query', 'orchestrate', operation, startTime);
         }
@@ -643,7 +658,15 @@ export class OrchestrateHandler implements DomainHandler {
               'epicId is required',
               startTime,
             );
-          const p: OrchestrateWavesParams = { epicId: params.epicId as string };
+          const wavesViaRaw = params.via;
+          const wavesVia: OrchestrateWavesParams['via'] =
+            wavesViaRaw === 'parent' || wavesViaRaw === 'saga' || wavesViaRaw === 'both'
+              ? wavesViaRaw
+              : undefined;
+          const p: OrchestrateWavesParams = {
+            epicId: params.epicId as string,
+            ...(wavesVia !== undefined && { via: wavesVia }),
+          };
           return wrapResult(await coreOps.waves(p), 'query', 'orchestrate', operation, startTime);
         }
 
