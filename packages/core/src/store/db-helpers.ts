@@ -70,12 +70,29 @@ export async function upsertTask(
   }
 
   const values = archiveFields ? { ...row, ...archiveFields, status: 'archived' as const } : row;
+  // GH #401 / T9839: the `set` clause defines which columns are updated on
+  // ON CONFLICT (id) DO UPDATE. Any column omitted from this object is
+  // SILENTLY DROPPED on update — INSERT carries the field, but UPDATE does
+  // not. This caused a critical data-integrity bug where `severity`, `kind`,
+  // and `scope` (added by T944/T9072/T9073 but never appended to the SET
+  // clause) appeared to update in the response envelope while the underlying
+  // DB row was unchanged. Treat this list as load-bearing: any new column on
+  // the `tasks` table MUST be mirrored here.
   const set: Record<string, unknown> = {
     title: row.title,
     description: row.description,
     status: archiveFields ? 'archived' : row.status,
     priority: row.priority,
     type: row.type,
+    // T944 / GH #401: kind axis (DB col 'role') — must be in set clause
+    // so update persists changes. Undefined skips the column (preserves DB
+    // value); a concrete value overwrites it.
+    kind: row.kind,
+    // T944 / GH #401: scope axis — same persistence requirement.
+    scope: row.scope,
+    // T9073 / GH #401: severity — owner-write-only axis (nullable).
+    // Same undefined-skips-update semantics as the other axes.
+    severity: row.severity,
     parentId: row.parentId,
     phase: row.phase,
     size: row.size,
