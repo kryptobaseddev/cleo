@@ -1811,7 +1811,7 @@ export async function coreTaskDepends(
   const allDepsReady = unresolvedChain === 0;
   const hint =
     unresolvedChain > 0
-      ? `Run 'ct deps show ${taskId} --tree' for full dependency graph`
+      ? `Run 'cleo deps show ${taskId} --tree' for full dependency graph (gh-399)`
       : undefined;
 
   // Optional upstream tree

@@ -95,7 +95,8 @@ export const addCommand = defineCommand({
     labels: {
       type: 'string',
       alias: 'l',
-      description: 'Comma-separated labels',
+      description:
+        'Comma-separated labels (lowercase alphanumeric + hyphens + periods only, e.g. "track-b,wave.1") (gh-392)',
     },
     files: {
       type: 'string',
