@@ -41,6 +41,7 @@ interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
 }
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
+import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
 import {
   computeProjectHash,
@@ -48,6 +49,42 @@ import {
   resolveWorktreeRootForHash,
 } from './paths.js';
 import { addWorktreeToSentinelIndex, appendWorktreeAuditLog } from './worktree-audit.js';
+
+/**
+ * Assert that `targetPath` sits inside the canonical XDG worktrees root
+ * (`<cleoHome>/worktrees/`). Throws `E_WT_LOCATION_FORBIDDEN` if not.
+ *
+ * Per AC4 / council verdict D009: there is NO escape hatch — not even a
+ * `CLEO_FORCE_LOCATION` env var. Worktrees outside the canonical location
+ * are unconditionally rejected.
+ *
+ * @param targetPath - Absolute path that will be passed to `git worktree add`.
+ * @throws Error with code `E_WT_LOCATION_FORBIDDEN` when outside canonical root.
+ *
+ * @task T9809
+ */
+function assertCanonicalWorktreeLocation(targetPath: string): void {
+  const canonicalRoot = getCleoWorktreesRoot();
+  // Normalise both paths to use forward slashes and ensure the root ends with
+  // a separator so we don't accidentally match a sibling path that shares a
+  // prefix (e.g. `/cleo-home/worktrees-other/` vs `/cleo-home/worktrees/`).
+  const normalRoot = canonicalRoot.endsWith('/') ? canonicalRoot : `${canonicalRoot}/`;
+  const normalTarget = targetPath.replaceAll('\\', '/');
+  const normalRootFwd = normalRoot.replaceAll('\\', '/');
+
+  if (!normalTarget.startsWith(normalRootFwd)) {
+    throw Object.assign(
+      new Error(
+        `E_WT_LOCATION_FORBIDDEN: worktree path "${targetPath}" is outside the ` +
+          `canonical XDG location "${canonicalRoot}". ` +
+          `All worktrees MUST live under <cleoHome>/worktrees/<projectHash>/<taskId>/. ` +
+          `There is no override — see Saga T9800 SG-WORKTREE-CANON and ADR decision D009.`,
+      ),
+      { code: 'E_WT_LOCATION_FORBIDDEN', targetPath, canonicalRoot },
+    );
+  }
+}
+
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
 
@@ -142,6 +179,11 @@ export async function createWorktree(
   const branch = options.branchName ?? `task/${taskId}`;
   const baseRef = options.baseRef ?? resolveHeadRef(gitRoot);
   const worktreePath = resolveTaskWorktreePath(projectHash, taskId);
+
+  // AC1 / T9809: reject any path outside the canonical XDG worktrees root.
+  // This check runs BEFORE any filesystem mutation so the error is always clean.
+  // There is NO escape hatch — per council verdict D009 the ban is absolute.
+  assertCanonicalWorktreeLocation(worktreePath);
 
   // Remove stale worktree at this path if it exists (left from a prior run).
   // Dirty worktrees are preserved to avoid losing uncommitted agent work.
