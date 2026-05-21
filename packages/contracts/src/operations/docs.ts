@@ -175,15 +175,37 @@ export interface AttachmentRecord {
 // --------------------------------------------------------------------------
 
 /**
+ * Sort key for `docs.list` results.
+ *
+ * - `newest` — descending by `createdAt` (default — most recent first).
+ * - `sha`    — ascending by `sha256` (stable lexicographic).
+ * - `slug`   — ascending by `slug`; entries without a slug sort last.
+ *
+ * @task T9792
+ */
+export type DocsListOrderBy = 'newest' | 'sha' | 'slug';
+
+/**
+ * Default maximum number of rows returned by `docs.list` when the caller
+ * does not pass an explicit `limit`. Mirrored on the CLI flag default so the
+ * dispatch and CLI surfaces agree on the browsing window.
+ *
+ * @task T9792
+ */
+export const DOCS_LIST_DEFAULT_LIMIT = 50;
+
+/**
  * Parameters for `docs.list`.
  *
- * Exactly one of `task`, `session`, `observation`, or `project` must be
- * provided. `project=true` lists ALL attachments in the project DB
- * regardless of owner. `type` is an optional filter applicable to every
- * mode and matches the {@link DocsType} taxonomy exactly.
+ * Scope is auto-promoted to whole-project when no owner-scope flag is set
+ * (T9792). Pre-T9792 callers MUST still pass `project: true` explicitly to
+ * stay forward-compatible — the auto-promote happens at the CLI layer.
+ * `type` is an optional filter applicable to every mode and matches the
+ * {@link DocsType} taxonomy exactly.
  *
  * @task T9637 (T-DOCS-SLUG-2 — `type` filter)
  * @task T9638 (T-DOCS-SLUG-3 — `project` scope)
+ * @task T9792 (E-DOCS-LIST-UX-FIX — auto-promote project scope + limit + orderBy)
  */
 export interface DocsListParams {
   /** Task identifier to list attachments for. */
@@ -204,6 +226,20 @@ export interface DocsListParams {
    * @task T9637
    */
   type?: DocsType;
+  /**
+   * Maximum number of rows to return. Defaults to
+   * {@link DOCS_LIST_DEFAULT_LIMIT} when omitted. Values `<= 0` are treated
+   * as "no limit" so agents can opt-in to the full result set explicitly.
+   *
+   * @task T9792
+   */
+  limit?: number;
+  /**
+   * Sort key for the returned rows. Defaults to `newest` when omitted.
+   *
+   * @task T9792
+   */
+  orderBy?: DocsListOrderBy;
 }
 
 /**
@@ -223,8 +259,41 @@ export interface DocsListResult {
   project?: boolean;
   /** Type taxonomy filter, echoed back from the request when provided. */
   type?: DocsType;
-  /** Count of attachments for this owner. */
+  /** Count of attachments for this owner (after limit + filters). */
   count: number;
+  /**
+   * Total number of attachments matching the scope + filters BEFORE the
+   * `limit` window was applied. Only emitted when `limit` truncated the
+   * result set so consumers can distinguish "fewer than limit" from
+   * "limit truncated".
+   *
+   * @task T9792
+   */
+  totalCount?: number;
+  /**
+   * Effective limit applied to this response. Mirrored from the request
+   * (or {@link DOCS_LIST_DEFAULT_LIMIT} when the request did not set one)
+   * so consumers can paginate without re-deriving the default.
+   *
+   * @task T9792
+   */
+  limit?: number;
+  /**
+   * Effective sort key applied to this response. Mirrored from the request
+   * (or `"newest"` when the request did not set one).
+   *
+   * @task T9792
+   */
+  orderBy?: DocsListOrderBy;
+  /**
+   * Optional human-readable hint surfaced when a default behaviour kicked
+   * in (e.g. project scope auto-promoted because no scope was passed). The
+   * CLI surfaces this through `meta.hint` so JSON consumers can detect that
+   * a narrower invocation may have been intended.
+   *
+   * @task T9792
+   */
+  hint?: string;
   /** Attachment metadata array. */
   attachments: DocsAttachmentRow[];
   /** Current attachment backend in use. */
