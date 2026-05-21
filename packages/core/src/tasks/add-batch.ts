@@ -1,20 +1,16 @@
 /**
- * Batch task creation with atomic all-or-nothing semantics.
+ * Batch task creation with TRUE single-transaction atomicity.
  *
- * Each `addTask` call uses its own `dataAccessor.transaction()` internally
- * (required because `allocateNextTaskId` also uses a raw SQLite BEGIN IMMEDIATE
- * and cannot be nested). To provide atomic rollback semantics, this module:
+ * All N `addTask` inserts are wrapped in a SINGLE `dataAccessor.transaction()`
+ * call. This works because both `DataAccessor.transaction()` and
+ * `allocateNextTaskId()` now use SQLite SAVEPOINTs instead of `BEGIN IMMEDIATE`
+ * (T9814 — sqlite-data-accessor.ts + sequence/index.ts). SAVEPOINTs nest
+ * correctly: a top-level SAVEPOINT starts a deferred transaction; a nested
+ * SAVEPOINT creates a logical checkpoint inside the outer one.
  *
- *   1. Attempts each `addTask` in sequence, collecting created IDs.
- *   2. On any failure, deletes all previously created tasks in a single
- *      compensating `dataAccessor.transaction()` call.
- *   3. Re-throws the original error so callers see a clean failure.
- *
- * From the caller's perspective the behaviour is atomic: either all N tasks
- * are present, or none are (modulo a vanishingly small window between step 2
- * completion and step 3). True single-statement SQL atomicity is architecturally
- * blocked by `allocateNextTaskId`'s raw BEGIN IMMEDIATE that cannot be nested
- * inside a DataAccessor transaction.
+ * If ANY `addTask` call throws inside the batch transaction, the outer
+ * SAVEPOINT is rolled back — reverting ALL inserts atomically. No intermediate
+ * state is ever visible to concurrent readers.
  *
  * Closes the CORE gap exposed by T9813: the CLI `add-batch` command was a
  * for-loop calling `tasks.add` N times with NO rollback on failure.
@@ -23,7 +19,8 @@
  * @epic T9813
  */
 
-import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import type { DataAccessor } from '../store/data-accessor.js';
 import { type AddTaskOptions, type AddTaskResult, addTask } from './add.js';
 
 // ---------------------------------------------------------------------------
@@ -50,7 +47,7 @@ export interface AddBatchOptions {
  * Result of `addBatchTasks`.
  */
 export interface AddBatchResult {
-  /** Number of tasks that were created (0 on rollback or dry-run). */
+  /** Number of tasks that were created (0 on dry-run). */
   created: number;
   /** Individual results for each input task spec (in order). */
   tasks: AddTaskResult[];
@@ -63,12 +60,12 @@ export interface AddBatchResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Add multiple tasks with all-or-nothing semantics.
+ * Add multiple tasks in a single atomic transaction.
  *
- * Each insert is attempted in sequence. If ANY insert fails, all previously
- * created tasks are deleted in a single compensating transaction, then the
- * error is re-thrown. The net observable effect is atomic: either every task
- * exists or none do.
+ * All inserts execute inside ONE `dataAccessor.transaction()` call. Any
+ * failure inside the transaction causes the entire SAVEPOINT to be rolled
+ * back — no partial writes are ever visible. The batch is atomic in the
+ * strict SQL sense.
  *
  * @param opts - Batch options (task specs + optional defaultParent + dryRun).
  * @param dataAccessor - Pre-opened DataAccessor (caller manages lifecycle).
@@ -77,7 +74,7 @@ export interface AddBatchResult {
  *
  * @throws Error when any task spec fails validation. The error message
  *   identifies the failing task index and title. All prior inserts are
- *   rolled back (deleted) before the error surfaces.
+ *   rolled back before the error surfaces.
  *
  * @example
  * ```ts
@@ -125,72 +122,46 @@ export async function addBatchTasks(
     return { created: 0, tasks: results, dryRun: true };
   }
 
-  // Live path: attempt each insert in sequence with compensating-rollback on failure.
+  // Live path: all inserts inside ONE transaction (SAVEPOINT-based).
+  //
+  // Both DataAccessor.transaction() and allocateNextTaskId() use SQLite
+  // SAVEPOINTs (T9814), so this outer transaction correctly wraps every
+  // counter increment and row upsert from every addTask call inside it.
+  // Any throw causes the outer SAVEPOINT to roll back ALL writes.
   const results: AddTaskResult[] = [];
-  const createdIds: string[] = [];
 
-  for (let i = 0; i < taskSpecs.length; i++) {
-    const spec = taskSpecs[i]!;
-    const merged: AddTaskOptions = {
-      ...spec,
-      parentId: spec.parentId ?? defaultParent,
-    };
-
-    try {
-      const result = await addTask(merged, cwd, dataAccessor);
-      results.push(result);
-      // Track IDs of tasks that were genuinely created (not dry-run, not duplicate-returned)
-      if (!result.duplicate && result.task.id !== 'T???') {
-        createdIds.push(result.task.id);
+  await dataAccessor.transaction(async () => {
+    for (let i = 0; i < taskSpecs.length; i++) {
+      const spec = taskSpecs[i]!;
+      const merged: AddTaskOptions = {
+        ...spec,
+        parentId: spec.parentId ?? defaultParent,
+      };
+      try {
+        const result = await addTask(merged, cwd, dataAccessor);
+        results.push(result);
+      } catch (err) {
+        // Re-throw with index context so callers can identify the failing task.
+        // The outer transaction catch will rollback all prior inserts.
+        const message =
+          err instanceof Error ? err.message : `Unknown error in task spec at index ${i}`;
+        const contextErr = new Error(
+          `tasks.add-batch: failed at index ${i} (title: "${spec.title ?? '?'}"): ${message}`,
+        );
+        // Preserve exit code if available (CleoError shape)
+        const cleo = err as { exitCode?: number; fix?: string };
+        if (cleo.exitCode !== undefined) {
+          (contextErr as { exitCode?: number }).exitCode = cleo.exitCode;
+        }
+        if (cleo.fix) {
+          (contextErr as { fix?: string }).fix = cleo.fix;
+        }
+        throw contextErr;
       }
-    } catch (err) {
-      // Compensating rollback: delete all tasks created so far.
-      if (createdIds.length > 0) {
-        await compensatingDelete(createdIds, dataAccessor);
-      }
-
-      // Re-throw with index context so callers can identify the failing task.
-      const message =
-        err instanceof Error ? err.message : `Unknown error in task spec at index ${i}`;
-      const contextErr = new Error(
-        `tasks.add-batch: failed at index ${i} (title: "${spec.title ?? '?'}"): ${message}`,
-      );
-      // Preserve exit code if available (CleoError shape)
-      const cleo = err as { exitCode?: number; fix?: string };
-      if (cleo.exitCode !== undefined) {
-        (contextErr as { exitCode?: number }).exitCode = cleo.exitCode;
-      }
-      if (cleo.fix) {
-        (contextErr as { fix?: string }).fix = cleo.fix;
-      }
-      throw contextErr;
-    }
-  }
-
-  return { created: results.length, tasks: results };
-}
-
-// ---------------------------------------------------------------------------
-// Compensating rollback helper
-// ---------------------------------------------------------------------------
-
-/**
- * Delete a set of task IDs in a single transaction (compensating rollback).
- *
- * Called when a batch insert partially fails. Removes all tasks that were
- * already created so the net result is zero new tasks.
- *
- * @param taskIds - IDs of tasks to delete.
- * @param dataAccessor - DataAccessor to use for the delete transaction.
- *
- * @internal
- */
-async function compensatingDelete(taskIds: string[], dataAccessor: DataAccessor): Promise<void> {
-  await dataAccessor.transaction(async (tx: TransactionAccessor) => {
-    for (const taskId of taskIds) {
-      await tx.removeSingleTask(taskId);
     }
   });
+
+  return { created: results.length, tasks: results };
 }
 
 // ---------------------------------------------------------------------------
@@ -222,18 +193,22 @@ export interface AddBatchTaskSpec {
 }
 
 // ---------------------------------------------------------------------------
-// Op wrapper (ADR-057 D1 shape — consumed by ops.ts)
+// Op wrapper (ADR-057 D1 shape — returns EngineResult for wrapCoreResult)
 // ---------------------------------------------------------------------------
 
 /**
  * Normalized wrapper for {@link addBatchTasks}.
  * ADR-057 D1 shape: (projectRoot: string, params: TasksAddBatchParams)
  *
+ * Returns `EngineResult<AddBatchResult>` so the dispatch layer can call
+ * `wrapCoreResult(await tasksAddBatchOp(...), 'add-batch')` — the same
+ * pattern used by every other Core op in tasks.ts.
+ *
  * Maps wire-format `parent` → internal `parentId` before calling Core.
  *
  * @param projectRoot - Absolute path to the project root.
  * @param params - Batch operation parameters (wire format).
- * @returns AddBatchResult with per-task results and aggregate count.
+ * @returns EngineResult wrapping AddBatchResult on success, error on failure.
  *
  * @task T9814
  */
@@ -244,7 +219,7 @@ export async function tasksAddBatchOp(
     defaultParent?: string;
     dryRun?: boolean;
   },
-): Promise<AddBatchResult> {
+): Promise<EngineResult<AddBatchResult>> {
   // Map wire-format specs (parent) → AddTaskOptions (parentId)
   const taskOpts: AddTaskOptions[] = params.tasks.map((spec) => ({
     title: spec.title,
@@ -269,7 +244,7 @@ export async function tasksAddBatchOp(
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   const accessor = await getTaskAccessor(projectRoot);
   try {
-    return await addBatchTasks(
+    const result = await addBatchTasks(
       {
         tasks: taskOpts,
         defaultParent: params.defaultParent,
@@ -278,6 +253,14 @@ export async function tasksAddBatchOp(
       accessor,
       projectRoot,
     );
+    return engineSuccess(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown batch error';
+    const cleo = err as { exitCode?: number; fix?: string };
+    return engineError<AddBatchResult>('E_BATCH_FAILED', message, {
+      exitCode: cleo.exitCode,
+      fix: typeof cleo.fix === 'string' ? cleo.fix : undefined,
+    });
   } finally {
     await accessor.close();
   }

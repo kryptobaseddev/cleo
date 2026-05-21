@@ -37,6 +37,12 @@ import { TERMINAL_TASK_STATUSES } from './status-registry.js';
 import * as schema from './tasks-schema.js';
 
 /**
+ * Per-process monotonic counter for unique SAVEPOINT names.
+ * Prevents name collisions when transactions are nested (T9814).
+ */
+let _txSavepointCounter = 0;
+
+/**
  * Generate a unique audit log entry ID.
  * @task T4837
  */
@@ -844,7 +850,13 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         throw new Error('Native database not initialized');
       }
 
-      nativeDb.prepare('BEGIN IMMEDIATE').run();
+      // Use SAVEPOINTs instead of BEGIN IMMEDIATE so this method can be
+      // called from within an existing transaction (T9814 — batch insert).
+      // SQLite SAVEPOINTs nest correctly: a top-level SAVEPOINT implicitly
+      // starts a deferred transaction; nested SAVEPOINTs create logical
+      // checkpoints inside the outer transaction.
+      const spName = `_cleo_tx_${(_txSavepointCounter++).toString(36)}`;
+      nativeDb.prepare(`SAVEPOINT ${spName}`).run();
       try {
         const tx: TransactionAccessor = {
           async upsertSingleTask(task: Task): Promise<void> {
@@ -911,10 +923,15 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         };
 
         const result = await fn(tx);
-        nativeDb.prepare('COMMIT').run();
+        nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
         return result;
       } catch (err) {
-        nativeDb.prepare('ROLLBACK').run();
+        try {
+          nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
+          nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+        } catch {
+          /* ignore secondary rollback errors */
+        }
         throw err;
       }
     },
