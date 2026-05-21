@@ -376,6 +376,21 @@ export interface PruneWorktreesResult {
 export type WorktreeStatusCategory = 'active' | 'stale' | 'merged' | 'orphan' | 'locked';
 
 /**
+ * Source classifier for a worktree entry.
+ *
+ * - `cleo-spawn`   — Created by `cleo orchestrate spawn` via the canonical XDG path.
+ * - `claude-agent` — Created by Claude Code Agent `isolation:worktree` dispatch (T9804).
+ * - `manual`       — Created directly via `git worktree add` without CLEO CLI involvement.
+ * - `adopted`      — Registered via `cleo worktree adopt` from an unknown origin.
+ *
+ * The `source` field enables downstream consumers (prune, dashboard, sentient daemon)
+ * to apply different policies per origin without re-querying git.
+ *
+ * @task T9804
+ */
+export type WorktreeSource = 'cleo-spawn' | 'claude-agent' | 'manual' | 'adopted';
+
+/**
  * A single structured worktree entry with full status classification.
  *
  * Returned by `cleo worktree list` and the `worktree.list` dispatch operation.
@@ -384,6 +399,7 @@ export type WorktreeStatusCategory = 'active' | 'stale' | 'merged' | 'orphan' | 
  * sentient daemon) can act on without re-querying git.
  *
  * @task T9546
+ * @task T9804 — added `source` field for multi-source listing
  */
 export interface WorktreeInfo {
   /** Absolute path to the worktree directory. */
@@ -406,6 +422,22 @@ export interface WorktreeInfo {
   owningTaskStatus: string | null;
   /** Mutually-exclusive status category — see {@link WorktreeStatusCategory}. */
   statusCategory: WorktreeStatusCategory;
+  /**
+   * Origin of this worktree entry.
+   *
+   * - `cleo-spawn`   — Canonical XDG worktree created by `cleo orchestrate spawn`.
+   * - `claude-agent` — Created by Claude Code Agent `isolation:worktree` (T9804).
+   * - `manual`       — Created via direct `git worktree add`.
+   * - `adopted`      — Registered via `cleo worktree adopt`.
+   *
+   * For backward-compatibility this field defaults to `cleo-spawn` for entries
+   * that originated from `git worktree list --porcelain` and are NOT present in
+   * the sentinel index.
+   *
+   * @task T9804
+   * @default 'cleo-spawn'
+   */
+  source: WorktreeSource;
 }
 
 /**
@@ -460,9 +492,12 @@ export interface ListWorktreesResult {
  *                       `--resolve manual`; no automatic merge attempted (T9548).
  * - `complete-conflict` — auto-merge attempted but failed (e.g. rebase/merge conflict);
  *                          worktree was preserved for manual resolution (T9548).
+ * - `adopt` — externally-created worktree (e.g. Claude Code Agent `isolation:worktree`)
+ *             registered in the CLEO SSoT via `cleo worktree adopt` (T9804).
  *
  * @task T9547
  * @task T9548
+ * @task T9804
  */
 export type WorktreeLifecycleAction =
   | 'prune'
@@ -471,7 +506,8 @@ export type WorktreeLifecycleAction =
   | 'complete'
   | 'complete-skip'
   | 'complete-manual'
-  | 'complete-conflict';
+  | 'complete-conflict'
+  | 'adopt';
 
 /**
  * One append-only entry written to `.cleo/audit/worktree-lifecycle.jsonl` by
@@ -628,4 +664,72 @@ export interface ForceUnlockWorktreeResult {
   success: boolean;
   /** Error message when no worktree could be located or all actions failed. */
   error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Adopt operation (T9804 — Claude Code Agent isolation:worktree bridge)
+// ---------------------------------------------------------------------------
+
+/**
+ * Options for {@link adoptWorktree} — the SDK primitive behind
+ * `cleo worktree adopt <path>`.
+ *
+ * @task T9804
+ */
+export interface AdoptWorktreeOpts {
+  /**
+   * Absolute path to the worktree directory to adopt.
+   *
+   * Typically a path under `.claude/worktrees/<sessionId>/` for Claude Code
+   * Agent `isolation:worktree` spawns, but any valid worktree path is accepted.
+   */
+  worktreePath: string;
+  /**
+   * Absolute path to the project root. Used to resolve the sentinel index
+   * and the audit-log file.
+   *
+   * @default process.cwd()
+   */
+  projectRoot?: string;
+  /**
+   * Source classification for this worktree.
+   *
+   * @default 'claude-agent'
+   */
+  source?: WorktreeSource;
+  /**
+   * Task ID to associate with this worktree. When not supplied the function
+   * attempts to extract it from the branch name following the `task/T####`
+   * convention, then falls back to null.
+   */
+  taskId?: string | null;
+  /** Override actor name written to the audit log and sentinel index. */
+  actor?: string;
+  /** Optional override for the audit-log file path (testing). */
+  auditLogPath?: string;
+  /** Optional override for the sentinel index path (testing). */
+  sentinelIndexPath?: string;
+}
+
+/**
+ * Result of a successful `cleo worktree adopt` operation.
+ *
+ * @task T9804
+ */
+export interface AdoptWorktreeResult {
+  /** Absolute path of the adopted worktree. */
+  path: string;
+  /** Branch name extracted from the worktree `.git` gitlink. */
+  branch: string;
+  /** Task ID associated with the worktree (null if not determinable). */
+  taskId: string | null;
+  /** Source classification applied to this entry. */
+  source: WorktreeSource;
+  /**
+   * Whether this was a new adoption (`true`) or an idempotent re-adopt
+   * of an already-registered worktree (`false`).
+   */
+  isNew: boolean;
+  /** ISO-8601 timestamp when the sentinel entry was written. */
+  adoptedAt: string;
 }

@@ -1192,6 +1192,8 @@ export type {
 // Re-exported at top level so @cleocode/worktree and callers can
 // import without the `ops.` namespace hop.
 export type {
+  AdoptWorktreeOpts,
+  AdoptWorktreeResult,
   CreateWorktreeOptions,
   CreateWorktreeResult,
   DestroyWorktreeOptions,
@@ -1213,6 +1215,7 @@ export type {
   WorktreeLifecycleAction,
   WorktreeLifecycleAuditEntry,
   WorktreeListEntry,
+  WorktreeSource,
   WorktreeStatusCategory,
 } from './operations/worktree.js';
 // === Orchestration Roll-up Types (T9082, ADR-070) ===
