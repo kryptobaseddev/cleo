@@ -17,7 +17,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { classifyByRelPath, scanDirectory } from '../../import/scanner.js';
+import {
+  classifyByRelPath,
+  makeClassifierForScanRoot,
+  SOURCE_DIR_TO_TYPE,
+  scanDirectory,
+} from '../../import/scanner.js';
 
 let root: string;
 
@@ -125,5 +130,54 @@ describe('scanDirectory', () => {
     await write('README.md', '# hi');
     const result = await scanDirectory({ root, classify: () => 'spec' });
     expect(result[0]?.suggestedType).toBe('spec');
+  });
+});
+
+describe('T9791 — source-dir classification', () => {
+  it('classifyByRelPath maps .cleo/rcasd/* to research', () => {
+    expect(classifyByRelPath('.cleo/rcasd/T9782/foo.md')).toBe('research');
+  });
+
+  it('SOURCE_DIR_TO_TYPE has the canonical 6 source dirs', () => {
+    expect(SOURCE_DIR_TO_TYPE.get('.cleo/adrs')).toBe('adr');
+    expect(SOURCE_DIR_TO_TYPE.get('.cleo/research')).toBe('research');
+    expect(SOURCE_DIR_TO_TYPE.get('.cleo/rcasd')).toBe('research');
+    expect(SOURCE_DIR_TO_TYPE.get('.cleo/agent-outputs')).toBe('note');
+    expect(SOURCE_DIR_TO_TYPE.get('docs/specs')).toBe('spec');
+    expect(SOURCE_DIR_TO_TYPE.get('docs')).toBe('spec');
+  });
+
+  it('makeClassifierForScanRoot resolves absolute path -> .cleo/adrs as adr', () => {
+    const projectRoot = '/abs/project';
+    const scanRoot = '/abs/project/.cleo/adrs';
+    const classify = makeClassifierForScanRoot(scanRoot, projectRoot);
+    // The closure returns the source-dir type regardless of relPath.
+    expect(classify('ADR-001-foo.md')).toBe('adr');
+    expect(classify('nested/ADR-002.md')).toBe('adr');
+  });
+
+  it('makeClassifierForScanRoot resolves project-relative .cleo/rcasd as research', () => {
+    const classify = makeClassifierForScanRoot('.cleo/rcasd', '/abs/project');
+    expect(classify('T9782/foo.md')).toBe('research');
+  });
+
+  it('makeClassifierForScanRoot falls back to classifyByRelPath for unknown scan root', () => {
+    const classify = makeClassifierForScanRoot('/abs/project/some-random-dir', '/abs/project');
+    expect(classify('.cleo/adrs/ADR-001.md')).toBe('adr');
+    expect(classify('README.md')).toBe('note');
+  });
+
+  it('scanDirectory + makeClassifierForScanRoot covers the .cleo/adrs prefix-stripping case', async () => {
+    // Place files inside a directory shaped like .cleo/adrs/ — the scanner
+    // root is the adrs dir itself so relPath is just the filename.
+    const adrsDir = join(root, '.cleo', 'adrs');
+    await mkdir(adrsDir, { recursive: true });
+    await writeFile(join(adrsDir, 'ADR-073-above-epic-naming.md'), '# adr\n', 'utf-8');
+
+    const classify = makeClassifierForScanRoot(adrsDir, root);
+    const result = await scanDirectory({ root: adrsDir, classify });
+    expect(result).toHaveLength(1);
+    expect(result[0]?.suggestedType).toBe('adr');
+    expect(result[0]?.relPath).toBe('ADR-073-above-epic-naming.md');
   });
 });

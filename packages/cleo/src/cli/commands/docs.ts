@@ -27,11 +27,12 @@ import {
   buildDocsGraph,
   CleoError,
   CounterMismatchError,
-  createDocsAccessor,
+  createAttachmentStoreDocsAccessor,
   exportDocument,
   getAgentOutputsAbsolute,
   getProjectRoot,
   listDocVersions,
+  makeClassifierForScanRoot,
   mergeDocs,
   publishDocs,
   publishDocsAsPr,
@@ -1299,7 +1300,16 @@ const importCommand = defineCommand({
       }
     }
 
-    const accessor = createDocsAccessor(projectRoot);
+    // T9791 — use the AttachmentStore-backed accessor for production runs so
+    // imported docs land in tasks.db with queryable slug + type columns
+    // (default DocsAccessorImpl writes to manifest.db with in-memory state,
+    // which breaks idempotency across processes + slug→sha lookups).
+    const accessor = createAttachmentStoreDocsAccessor(projectRoot);
+
+    // Resolve a source-dir-aware classifier so files scanned from inside
+    // .cleo/adrs/ (etc.) still receive their correct DocImportType.
+    const classify = makeClassifierForScanRoot(scanRoot, projectRoot);
+
     try {
       const result = await runDocsImport({
         root: scanRoot,
@@ -1308,6 +1318,7 @@ const importCommand = defineCommand({
         force,
         manifestPath,
         auditDir: projectRoot,
+        classify,
       });
 
       cliOutput(
