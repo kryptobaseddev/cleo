@@ -865,6 +865,7 @@ export async function orchestrateSpawn(
   projectRoot?: string,
   tier?: 0 | 1 | 2,
   noWorktree?: boolean,
+  spawnScope?: string,
 ): Promise<EngineResult> {
   if (!taskId) {
     return engineError('E_INVALID_INPUT', 'taskId is required');
@@ -1030,6 +1031,7 @@ export async function orchestrateSpawn(
           spawnWorktree(root, {
             taskId,
             spawnCloneExclude: SPAWN_CLONE_EXCLUDE_PATTERNS,
+            ...(spawnScope ? { spawnScope } : {}),
           }),
           budgetCtrl.signal,
           'provision-worktree',
