@@ -9,22 +9,22 @@
  */
 
 // ---------------------------------------------------------------------------
-// Gateway & Source
+// Gateway, Tier, CanonicalDomain, CANONICAL_DOMAINS
 // ---------------------------------------------------------------------------
+// These primitives live in @cleocode/contracts (SSoT — promoted in T9954 /
+// Phase 0b of SG-ARCH-SOLID Saga T9831 · E-CONTRACTS-FOUNDATION T9832).
+// Imported below for internal use (DispatchRequest/DispatchResponseMeta
+// reference `Gateway`) AND re-exported so that packages/cleo internal code
+// can continue to import from './types.js' without changing every import
+// site.
 
-/** CQRS gateway: read-only queries vs state-modifying mutations. */
-export type Gateway = 'query' | 'mutate';
+import type { CanonicalDomain, Gateway, Tier } from '@cleocode/contracts';
+
+export { CANONICAL_DOMAINS } from '@cleocode/contracts';
+export type { CanonicalDomain, Gateway, Tier };
 
 /** Where the request originated. */
 export type Source = 'cli';
-
-/**
- * Progressive disclosure tier.
- * 0 = tasks + session (80% of agents)
- * 1 = + memory + check (15% of agents)
- * 2 = + pipeline + orchestrate + tools + admin + nexus (5%)
- */
-export type Tier = 0 | 1 | 2;
 
 // ---------------------------------------------------------------------------
 // ParamDef — per-operation parameter descriptor
@@ -39,51 +39,6 @@ export type {
   ParamDef,
   ParamType,
 } from '@cleocode/contracts';
-
-/**
- * The 17 canonical domain names.
- *
- * T964: `conduit` promoted to first-class domain (supersedes ADR-042 Decision 1).
- * CONDUIT is agent-to-agent messaging and is semantically disjoint from
- * ORCHESTRATE (wave planning + spawn-prompt generation). The original
- * "exactly 10 canonical domains" invariant that justified folding CONDUIT
- * under ORCHESTRATE has been broken multiple times (intelligence, diagnostics,
- * docs, playbook); promoting CONDUIT aligns registry with wire-format, CLI,
- * and core module structure at zero behavior cost.
- *
- * T1726: `sentient` and `release` promoted to first-class domains. Both were
- * reachable via the CLI and had registered DomainHandlers but were absent from
- * CANONICAL_DOMAINS, making them invisible to SDK consumers via OPERATIONS.
- */
-export const CANONICAL_DOMAINS = [
-  'tasks',
-  'session',
-  'memory',
-  'check',
-  'pipeline',
-  'orchestrate',
-  'tools',
-  'admin',
-  'nexus',
-  'sticky',
-  'intelligence',
-  'diagnostics',
-  'docs',
-  'playbook',
-  'conduit',
-  'sentient',
-  'release',
-  'llm',
-  // T9528: provenance-graph maintenance verbs (backfill, verify, repair).
-  'provenance',
-  // T9536: `cleo upgrade workflows` — re-render release-pipeline workflow
-  // templates + 3-way merge with `.workflow-overrides.yml`.
-  'upgrade',
-  // T9546/T9547: 'cleo worktree list/prune/force-unlock' — worktree lifecycle.
-  'worktree',
-] as const;
-
-export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];
 
 // ---------------------------------------------------------------------------
 // DispatchRequest

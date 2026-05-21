@@ -8,46 +8,15 @@
  * @task T4814, T5241, T5615
  */
 
+// OperationDef + Resolution live in @cleocode/contracts (SSoT — promoted in
+// T9954 / Phase 0b of SG-ARCH-SOLID Saga T9831 · E-CONTRACTS-FOUNDATION
+// T9832). Imported below for internal use AND re-exported so that every
+// downstream consumer that already imports from './registry.js' continues
+// to compile unchanged.
+import type { OperationDef, Resolution } from '@cleocode/contracts';
 import type { CanonicalDomain, Gateway, ParamDef, Tier } from './types.js';
 
-/** Definition of a single dispatchable operation. */
-export interface OperationDef {
-  /** The CQRS gateway ('query' or 'mutate'). */
-  gateway: Gateway;
-  /** The canonical domain this operation belongs to. */
-  domain: CanonicalDomain;
-  /** The specific operation name (e.g. 'show', 'skill.list'). */
-  operation: string;
-  /** Brief description of what the operation does. */
-  description: string;
-  /** Agent progressive-disclosure tier (0=basic, 1=memory/check, 2=full). */
-  tier: Tier;
-  /** Whether the operation is safe to retry. */
-  idempotent: boolean;
-  /** Whether this operation requires an active session. */
-  sessionRequired: boolean;
-  /** List of parameter keys that MUST be present in the request. */
-  requiredParams: string[];
-  /**
-   * Fully-described parameter list. Replaces `requiredParams` when populated.
-   * Empty array = "no declared params" (not "no params accepted").
-   * Optional during T4897 migration — defaults to [] when absent.
-   * @see T4897 for progressive migration
-   */
-  params?: ParamDef[];
-}
-
-/**
- * Resolution output for a dispatch request.
- */
-export interface Resolution {
-  /** The canonical domain. */
-  domain: CanonicalDomain;
-  /** The operation name. */
-  operation: string;
-  /** The definition of the matched operation. */
-  def: OperationDef;
-}
+export type { OperationDef, Resolution };
 
 /**
  * The single source of truth for all operations in CLEO.
