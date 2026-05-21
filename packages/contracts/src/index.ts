@@ -1399,6 +1399,13 @@ export type {
   TaskRefPriority,
   TaskSummary,
 } from './results.js';
+// === Scaffold + Diagnostic Result Types (SG-ARCH-SOLID T9831 / E-CONTRACTS-FOUNDATION T9832) ===
+export type {
+  CheckResult,
+  CheckStatus,
+  HookCheckResult,
+  ScaffoldResult,
+} from './scaffold-diagnostics.js';
 // === SDK Tool Contract (Category B harness-agnostic SDK utilities — T1768 / ADR-064) ===
 export type { SdkTool, SdkToolIdentity } from './sdk-tool.js';
 // === Sentient Tier-2 Types (T1008) ===
