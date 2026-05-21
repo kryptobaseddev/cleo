@@ -318,100 +318,97 @@ pass(7, 'documented as a downstream-of-publish-pr operation; no live merge in th
 // ---------------------------------------------------------------------------
 
 md('## Step 8 — Negative: raw-md write blocked by canon gate');
-{
-  if (!canonYmlPresent) {
-    md('> Skipped: canon.yml absent in repo under test.');
-    md('');
-    md('> Re-run after T9796 merges to main to exercise the negative path.');
-    md('');
-    pass(
-      8,
-      'documented as canon.yml-dependent; gate behavior verified by check-canon-docs.test.ts (T9796)',
+if (!canonYmlPresent) {
+  md('> Skipped: canon.yml absent in repo under test.');
+  md('');
+  md('> Re-run after T9796 merges to main to exercise the negative path.');
+  md('');
+  pass(
+    8,
+    'documented as canon.yml-dependent; gate behavior verified by check-canon-docs.test.ts (T9796)',
+  );
+} else {
+  md('```bash');
+  md('# Spin up an isolated temp git repo with a copy of canon.yml and an');
+  md('# adversarial commit adding .cleo/adrs/ADR-999-raw-test.md, then run');
+  md('# the gate against it. This avoids ANY mutation of the live worktree.');
+  md('cleo check canon docs --base main  # against the isolated repo');
+  md('```');
+  const tempDir = execSync('mktemp -d -t T9797-canon-gate-XXXXXX', {
+    encoding: 'utf8',
+  }).trim();
+  try {
+    // Bootstrap an isolated git repo with canon.yml + a baseline commit.
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(tempDir, '.cleo/canon.yml'),
+      execSync(`cat "${REPO_ROOT}/.cleo/canon.yml"`, { encoding: 'utf8' }),
     );
-  } else {
-    md('```bash');
-    md('# Spin up an isolated temp git repo with a copy of canon.yml and an');
-    md('# adversarial commit adding .cleo/adrs/ADR-999-raw-test.md, then run');
-    md('# the gate against it. This avoids ANY mutation of the live worktree.');
-    md('cleo check canon docs --base main  # against the isolated repo');
-    md('```');
-    const tempDir = execSync('mktemp -d -t T9797-canon-gate-XXXXXX', {
-      encoding: 'utf8',
-    }).trim();
-    try {
-      // Bootstrap an isolated git repo with canon.yml + a baseline commit.
-      mkdirSync(join(tempDir, '.cleo'), { recursive: true });
-      writeFileSync(
-        join(tempDir, '.cleo/canon.yml'),
-        execSync(`cat "${REPO_ROOT}/.cleo/canon.yml"`, { encoding: 'utf8' }),
-      );
-      execSync(`git -C "${tempDir}" init -q -b main`, { stdio: 'pipe' });
-      execSync(
-        `git -C "${tempDir}" -c user.email=t9797@e2e -c user.name=T9797 -c commit.gpgsign=false add .cleo/canon.yml && git -C "${tempDir}" -c user.email=t9797@e2e -c user.name=T9797 -c commit.gpgsign=false commit -q -m "baseline: canon.yml"`,
-        { stdio: 'pipe', shell: '/bin/bash' },
-      );
-      // Branch off so the bypass commit is on a feature branch — main stays
-      // at the baseline, so `git diff main...HEAD` correctly surfaces the
-      // adversarial addition.
-      execSync(`git -C "${tempDir}" checkout -q -b bypass-feature`, { stdio: 'pipe' });
-      // Now add the adversarial raw .md on a new commit.
-      mkdirSync(join(tempDir, '.cleo/adrs'), { recursive: true });
-      writeFileSync(
-        join(tempDir, '.cleo/adrs/ADR-999-raw-test.md'),
-        '# Raw test ADR — bypass attempt\n',
-      );
-      execSync(
-        `git -C "${tempDir}" -c user.email=t9797@e2e -c user.name=T9797 -c commit.gpgsign=false add .cleo/adrs/ADR-999-raw-test.md && git -C "${tempDir}" -c user.email=t9797@e2e -c user.name=T9797 -c commit.gpgsign=false commit -q -m "bypass: ADR-999"`,
-        { stdio: 'pipe', shell: '/bin/bash' },
-      );
-      // Run the gate against the temp repo. Override CLEO_PROJECT_ROOT so
-      // the loader picks up the temp canon.yml.
-      const r = (() => {
-        const env = { ...process.env, CLEO_PROJECT_ROOT: tempDir };
-        try {
-          const stdout = execFileSync(
-            'node',
-            [CLEO_BIN, 'check', 'canon', 'docs', '--base', 'main'],
-            { env, cwd: tempDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-          );
-          return { ok: true, stdout, json: JSON.parse(stdout) };
-        } catch (e) {
-          const stdout = e.stdout?.toString() ?? '';
-          let json = null;
-          try {
-            json = JSON.parse(stdout);
-          } catch {
-            // ignore
-          }
-          return { ok: false, exitCode: e.status, stdout, json };
-        }
-      })();
-      // When the gate finds violations it returns success=false with
-      // codeName=E_CANON_VIOLATION; violations live under
-      // error.details.result.violations. Success=true means scanned cleanly.
-      const errCode = r.json?.error?.codeName;
-      const violations =
-        r.json?.error?.details?.result?.violations ?? r.json?.data?.violations ?? [];
-      const adrFlagged = violations.some((v) => v.file?.includes('ADR-999-raw-test'));
-      if (errCode === 'E_CANON_VIOLATION' && adrFlagged) {
-        pass(
-          8,
-          `isolated-repo gate flagged ADR-999 with E_CANON_VIOLATION — exitCode=${r.exitCode ?? 0}, kind=adr (live worktree untouched)`,
-        );
-      } else {
-        fail(
-          8,
-          `isolated-repo gate did NOT flag ADR-999: errCode=${errCode}, violations=${violations.length}, success=${r.json?.success}, raw=${(r.stdout || '').slice(0, 200)}`,
-        );
-      }
-    } catch (err) {
-      fail(8, `isolated-repo setup failed: ${err.message}`);
-    } finally {
+    execSync(`git -C "${tempDir}" init -q -b main`, { stdio: 'pipe' });
+    execSync(
+      `git -C "${tempDir}" -c user.email=t9797@e2e -c user.name=T9797 -c commit.gpgsign=false add .cleo/canon.yml && git -C "${tempDir}" -c user.email=t9797@e2e -c user.name=T9797 -c commit.gpgsign=false commit -q -m "baseline: canon.yml"`,
+      { stdio: 'pipe', shell: '/bin/bash' },
+    );
+    // Branch off so the bypass commit is on a feature branch — main stays
+    // at the baseline, so `git diff main...HEAD` correctly surfaces the
+    // adversarial addition.
+    execSync(`git -C "${tempDir}" checkout -q -b bypass-feature`, { stdio: 'pipe' });
+    // Now add the adversarial raw .md on a new commit.
+    mkdirSync(join(tempDir, '.cleo/adrs'), { recursive: true });
+    writeFileSync(
+      join(tempDir, '.cleo/adrs/ADR-999-raw-test.md'),
+      '# Raw test ADR — bypass attempt\n',
+    );
+    execSync(
+      `git -C "${tempDir}" -c user.email=t9797@e2e -c user.name=T9797 -c commit.gpgsign=false add .cleo/adrs/ADR-999-raw-test.md && git -C "${tempDir}" -c user.email=t9797@e2e -c user.name=T9797 -c commit.gpgsign=false commit -q -m "bypass: ADR-999"`,
+      { stdio: 'pipe', shell: '/bin/bash' },
+    );
+    // Run the gate against the temp repo. Override CLEO_PROJECT_ROOT so
+    // the loader picks up the temp canon.yml.
+    const r = (() => {
+      const env = { ...process.env, CLEO_PROJECT_ROOT: tempDir };
       try {
-        execSync(`rm -rf "${tempDir}"`, { stdio: 'pipe' });
-      } catch {
-        // ignore
+        const stdout = execFileSync(
+          'node',
+          [CLEO_BIN, 'check', 'canon', 'docs', '--base', 'main'],
+          { env, cwd: tempDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+        );
+        return { ok: true, stdout, json: JSON.parse(stdout) };
+      } catch (e) {
+        const stdout = e.stdout?.toString() ?? '';
+        let json = null;
+        try {
+          json = JSON.parse(stdout);
+        } catch {
+          // ignore
+        }
+        return { ok: false, exitCode: e.status, stdout, json };
       }
+    })();
+    // When the gate finds violations it returns success=false with
+    // codeName=E_CANON_VIOLATION; violations live under
+    // error.details.result.violations. Success=true means scanned cleanly.
+    const errCode = r.json?.error?.codeName;
+    const violations = r.json?.error?.details?.result?.violations ?? r.json?.data?.violations ?? [];
+    const adrFlagged = violations.some((v) => v.file?.includes('ADR-999-raw-test'));
+    if (errCode === 'E_CANON_VIOLATION' && adrFlagged) {
+      pass(
+        8,
+        `isolated-repo gate flagged ADR-999 with E_CANON_VIOLATION — exitCode=${r.exitCode ?? 0}, kind=adr (live worktree untouched)`,
+      );
+    } else {
+      fail(
+        8,
+        `isolated-repo gate did NOT flag ADR-999: errCode=${errCode}, violations=${violations.length}, success=${r.json?.success}, raw=${(r.stdout || '').slice(0, 200)}`,
+      );
+    }
+  } catch (err) {
+    fail(8, `isolated-repo setup failed: ${err.message}`);
+  } finally {
+    try {
+      execSync(`rm -rf "${tempDir}"`, { stdio: 'pipe' });
+    } catch {
+      // ignore
     }
   }
 }
