@@ -321,15 +321,47 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
   try {
     return resolve(getProjectRoot(cwd), cleoDir);
   } catch (err) {
-    // T9803 · council verdict D009: in bootstrap mode (`cleo init`), the
-    // project root does not exist yet and getProjectRoot legitimately throws —
-    // fall back to cwd-relative so init can CREATE the root. In every other
-    // mode, re-throw to prevent silent orphan-`.cleo/` synthesis inside
-    // worktrees (root cause of the T9550/T9580/T9801 orphan bug class).
+    // T9803 · council verdict D009: SURGICAL fallback policy —
+    //   1. Explicit `{ bootstrap: true }` always allows the fallback (cleo init).
+    //   2. When the cwd (or any ancestor) contains `.git` as a FILE — a worktree
+    //      gitlink marker — REFUSE the fallback. Creating a `.cleo/` inside a
+    //      worktree is the exact bug class T9550/T9580/T9801 catalogued.
+    //   3. When no `.git` exists anywhere in ancestors — a clean-slate dir
+    //      (typical test fixture or pre-init scaffold) — allow the fallback.
+    //      No worktree contamination is possible in that geometry.
     if (opts?.bootstrap) {
       return resolve(cwd ?? process.cwd(), cleoDir);
     }
-    throw err;
+    if (_cwdHasWorktreeGitlinkAncestor(cwd)) {
+      throw err;
+    }
+    return resolve(cwd ?? process.cwd(), cleoDir);
+  }
+}
+
+/**
+ * Walk the ancestor chain looking for `.git` as a FILE (gitlink) — a marker
+ * that the cwd is inside a `git worktree add`-created worktree. A FILE `.git`
+ * is the worktree-orphan-prone geometry; a DIRECTORY `.git` is a canonical
+ * project root (safe).
+ *
+ * @internal
+ */
+function _cwdHasWorktreeGitlinkAncestor(cwd?: string): boolean {
+  const start = resolve(cwd ?? process.cwd());
+  let current = start;
+  while (true) {
+    const gitMarker = join(current, '.git');
+    try {
+      if (existsSync(gitMarker)) {
+        return statSync(gitMarker).isFile();
+      }
+    } catch {
+      /* unreadable — treat as not present */
+    }
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
   }
 }
 

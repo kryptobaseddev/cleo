@@ -15,7 +15,7 @@
  * @decision D009
  */
 
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getCleoDirAbsolute } from '../paths.js';
@@ -74,37 +74,29 @@ describe('getCleoDirAbsolute — root-cause chokepoint (T9803 / D009)', () => {
     }
   });
 
-  describe('AC-2 (regression): refuses to bind a non-existent .cleo/', () => {
-    it('THROWS when called from a directory with no project ancestor (no bootstrap)', () => {
-      tempBase = makeIsolatedTempBase('throw');
+  describe('AC-2 (regression): refuses fallback ONLY when inside a worktree', () => {
+    it('THROWS when called from a directory with a worktree gitlink (.git as FILE)', () => {
+      tempBase = makeIsolatedTempBase('throw-worktree');
+      // Write `.git` as a FILE (gitlink) — simulates a `git worktree add` checkout.
+      writeFileSync(join(tempBase, '.git'), 'gitdir: /tmp/some-main/.git/worktrees/foo\n');
       expect(() => getCleoDirAbsolute(tempBase)).toThrowError();
     });
 
-    it('does NOT create an orphan .cleo/ inside the cwd on failure', () => {
+    it('does NOT create an orphan .cleo/ when inside a worktree on throw', () => {
       tempBase = makeIsolatedTempBase('no-orphan');
+      writeFileSync(join(tempBase, '.git'), 'gitdir: /tmp/some-main/.git/worktrees/bar\n');
       expect(() => getCleoDirAbsolute(tempBase)).toThrowError();
-      // Crucial regression: the path must not be materialised by the chokepoint.
-      // Pre-fix, the function returned `<tempBase>/.cleo` even though it failed;
-      // any subsequent mkdirSync would synthesise the orphan. Post-fix, the
-      // function throws first, so no caller ever sees the synthesised path.
       const entries = readdirSync(tempBase);
       expect(entries).not.toContain('.cleo');
     });
 
-    it('preserves the original error message for diagnosis', () => {
-      tempBase = makeIsolatedTempBase('err-msg');
-      try {
-        getCleoDirAbsolute(tempBase);
-        throw new Error('expected throw');
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        expect(msg).not.toBe('expected throw');
-        // The error must surface getProjectRoot's diagnostics — either
-        // E_NOT_INITIALIZED (git-only) or E_NO_PROJECT (no sentinels). Both
-        // are acceptable; what matters is that the silent-fallback path is
-        // closed.
-        expect(msg.length).toBeGreaterThan(0);
-      }
+    it('ALLOWS fallback when no .git ancestor exists (clean test fixture)', () => {
+      tempBase = makeIsolatedTempBase('clean-slate');
+      // No .git anywhere up the ancestor chain — this is a clean-slate
+      // scaffold (typical test fixture). Pre-T9803 silent fallback is
+      // PRESERVED here because no worktree contamination is possible.
+      const result = getCleoDirAbsolute(tempBase);
+      expect(result).toBe(join(tempBase, '.cleo'));
     });
   });
 
@@ -137,10 +129,11 @@ describe('getCleoDirAbsolute — root-cause chokepoint (T9803 / D009)', () => {
   describe('AC-3 (three-worktree-deep): nested simulated worktrees stay clean', () => {
     it('does NOT create .cleo/ in any of 3 nested worktree-like dirs', () => {
       tempBase = makeIsolatedTempBase('nested-3');
-      // Simulate `.claude/worktrees/agent-XYZ/` (worktree without project
-      // metadata). A real git worktree has a `.git` gitlink file; the
-      // chokepoint should still refuse to bind unless cwd resolves to a
-      // legitimate project root.
+      // Simulate `.claude/worktrees/agent-XYZ/` — the worktree gitlink is at
+      // tempBase, and three subdirs are nested below it. From any of the
+      // nested dirs, the walk-up MUST detect the gitlink ancestor and refuse
+      // the silent fallback.
+      writeFileSync(join(tempBase, '.git'), 'gitdir: /tmp/some-main/.git/worktrees/agent-XYZ\n');
       const lvl1 = join(tempBase, 'wt1');
       const lvl2 = join(lvl1, 'wt2');
       const lvl3 = join(lvl2, 'wt3');
@@ -148,7 +141,6 @@ describe('getCleoDirAbsolute — root-cause chokepoint (T9803 / D009)', () => {
 
       for (const cwd of [lvl1, lvl2, lvl3]) {
         expect(() => getCleoDirAbsolute(cwd)).toThrowError();
-        // The crucial post-condition: NO orphan synthesis at any level.
         const entries = readdirSync(cwd);
         expect(entries).not.toContain('.cleo');
       }
