@@ -31,7 +31,7 @@ describe('pipeline dispatch OpsFromCore inference', () => {
     expect(source).toContain('export type PipelineOps');
   });
 
-  it('covers all pipeline operations in coreOps (release.ship removed in T9540)', async () => {
+  it('covers all pipeline operations in coreOps (release.ship removed in T9540, release.changelog.* removed in T9784)', async () => {
     const source = await readFile(sourcePath, 'utf-8');
 
     // Stage ops
@@ -49,9 +49,12 @@ describe('pipeline dispatch OpsFromCore inference', () => {
     expect(source).toContain("'release.list'");
     expect(source).toContain("'release.show'");
     expect(source).toContain("'release.channel.show'");
-    expect(source).toContain("'release.changelog.since'");
     // T9540: release.ship deleted alongside the legacy releaseShip monolith.
     expect(source).not.toContain("'release.ship'");
+    // T9784: release.changelog.* deleted alongside engine ops + CLI verb
+    // (Saga T9782 — rip-out per user directive, no deprecation window).
+    expect(source).not.toContain("'release.changelog.since'");
+    expect(source).not.toContain("'release.changelog'");
     expect(source).toContain("'release.cancel'");
     expect(source).toContain("'release.rollback'");
     expect(source).toContain("'release.rollback.full'");

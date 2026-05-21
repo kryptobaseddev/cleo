@@ -198,7 +198,6 @@ vi.mock('../../lib/engine.js', () => {
     phaseDelete: mockFn(),
     // Release engine
     releasePrepare: mockFn(),
-    releaseChangelog: mockFn(),
     releaseList: mockFn(),
     releaseShow: mockFn(),
     releaseCommit: mockFn(),

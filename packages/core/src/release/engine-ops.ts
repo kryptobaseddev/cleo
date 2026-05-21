@@ -29,7 +29,6 @@ import { getReleaseBranchConfig, loadReleaseConfig } from './release-config.js';
 import {
   cancelRelease,
   commitRelease,
-  generateReleaseChangelog,
   listReleases,
   markReleasePushed,
   prepareRelease,
@@ -405,48 +404,6 @@ async function buildTaskStatusList(
 }
 
 // ---------------------------------------------------------------------------
-// Changelog-since helpers
-// ---------------------------------------------------------------------------
-
-interface ParsedCommit {
-  sha: string;
-  message: string;
-  taskIds: string[];
-  epicIds: string[];
-  timestamp: string;
-}
-
-/**
- * Parse commit messages from `git log` output, extracting task/epic IDs.
- *
- * Returns a structured list of commits grouped by referenced task IDs.
- *
- * @task T820 RELEASE-02
- */
-function parseGitLogCommits(raw: string): ParsedCommit[] {
-  const commits: ParsedCommit[] = [];
-  // Format: <sha>\x1f<timestamp>\x1f<message>
-  const entries = raw.split('\x1e').filter(Boolean);
-  const taskPattern = /\bT\d+\b/g;
-  const epicPattern = /\bEpic\s+(T\d+)\b/gi;
-
-  for (const entry of entries) {
-    const parts = entry.trim().split('\x1f');
-    if (parts.length < 3) continue;
-    const [sha, timestamp, ...msgParts] = parts;
-    if (!sha || !timestamp) continue;
-    const message = msgParts.join('\x1f').trim();
-    const taskIds = [...new Set([...(message.match(taskPattern) ?? [])])];
-    const epicMatches = [...message.matchAll(epicPattern)];
-    const epicIds = [...new Set(epicMatches.map((m) => m[1] ?? '').filter(Boolean))];
-
-    commits.push({ sha: sha.trim(), message, taskIds, epicIds, timestamp: timestamp.trim() });
-  }
-
-  return commits;
-}
-
-// ---------------------------------------------------------------------------
 // Exported engine operations
 // ---------------------------------------------------------------------------
 
@@ -700,27 +657,6 @@ export async function releasePrepare(
     if (message.includes('required')) code = 'E_INVALID_INPUT';
     else if (message.includes('Invalid version')) code = 'E_INVALID_VERSION';
     else if (message.includes('already exists')) code = 'E_VERSION_EXISTS';
-    return engineError(code, message);
-  }
-}
-
-/**
- * release.changelog — Generate changelog.
- *
- * @task T4788
- */
-export async function releaseChangelog(
-  version: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
-  try {
-    const data = await generateReleaseChangelog(version, () => loadTasks(projectRoot), projectRoot);
-    return { success: true, data };
-  } catch (err: unknown) {
-    const message = (err as Error).message;
-    let code = 'E_CHANGELOG_FAILED';
-    if (message.includes('required')) code = 'E_INVALID_INPUT';
-    else if (message.includes('not found')) code = 'E_NOT_FOUND';
     return engineError(code, message);
   }
 }
@@ -980,107 +916,6 @@ export async function releaseRollbackFull(
     const message = (err as Error).message;
     const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_ROLLBACK_FAILED';
     return engineError(code, message);
-  }
-}
-
-/**
- * release.changelog.since — Auto-CHANGELOG from git log since last tag.
- *
- * Walks git log since `sinceTag`, parses epic/task IDs from each commit
- * message, groups commits by epic, and renders a structured changelog body.
- *
- * @task T820 RELEASE-02
- */
-export async function releaseChangelogSince(
-  sinceTag: string,
-  projectRoot?: string,
-): Promise<EngineResult> {
-  if (!sinceTag) {
-    return engineError('E_INVALID_INPUT', 'sinceTag is required');
-  }
-
-  const cwd = getProjectRoot(projectRoot);
-
-  try {
-    // Walk git log since the given tag using a parseable format
-    let rawLog: string;
-    const logArgs = ['log', `${sinceTag}..HEAD`, '--pretty=format:%H\x1f%cI\x1f%s %b\x1e'];
-
-    try {
-      rawLog = execFileSync('git', logArgs, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-        timeout: 60_000,
-      });
-    } catch (err: unknown) {
-      const msg =
-        (err as { stderr?: string; message?: string }).stderr ??
-        (err as { message?: string }).message ??
-        '';
-      // If the tag doesn't exist, git will error — surface clearly
-      return engineError(
-        'E_NOT_FOUND',
-        `Cannot walk git log since '${sinceTag}': ${msg.slice(0, 400)}`,
-      );
-    }
-
-    const commits = parseGitLogCommits(rawLog);
-
-    // Group commits by epic IDs (or 'uncategorized' if none found)
-    const byEpic = new Map<string, ParsedCommit[]>();
-    for (const commit of commits) {
-      if (commit.epicIds.length > 0) {
-        for (const epicId of commit.epicIds) {
-          if (!byEpic.has(epicId)) byEpic.set(epicId, []);
-          byEpic.get(epicId)!.push(commit);
-        }
-      } else {
-        const key = commit.taskIds.length > 0 ? `tasks:${commit.taskIds[0]}` : 'uncategorized';
-        if (!byEpic.has(key)) byEpic.set(key, []);
-        byEpic.get(key)!.push(commit);
-      }
-    }
-
-    // Render markdown changelog
-    const lines: string[] = [
-      `## Changelog since ${sinceTag}`,
-      '',
-      `> Auto-generated from \`git log ${sinceTag}..HEAD\``,
-      `> ${commits.length} commit(s) found`,
-      '',
-    ];
-
-    for (const [groupKey, groupCommits] of byEpic.entries()) {
-      const isEpic = /^T\d+$/.test(groupKey);
-      const header = isEpic ? `### Epic ${groupKey}` : `### ${groupKey}`;
-      lines.push(header);
-      for (const commit of groupCommits) {
-        const taskRef = commit.taskIds.length > 0 ? ` (${commit.taskIds.join(', ')})` : '';
-        lines.push(`- ${commit.message}${taskRef} [\`${commit.sha.slice(0, 8)}\`]`);
-      }
-      lines.push('');
-    }
-
-    const changelog = lines.join('\n');
-
-    return {
-      success: true,
-      data: {
-        sinceTag,
-        commitCount: commits.length,
-        epicCount: byEpic.size,
-        changelog,
-        commits: commits.map((c) => ({
-          sha: c.sha.slice(0, 8),
-          message: c.message,
-          taskIds: c.taskIds,
-          epicIds: c.epicIds,
-        })),
-      },
-    };
-  } catch (err: unknown) {
-    return engineError('E_GENERAL', (err as Error).message ?? String(err));
   }
 }
 

@@ -16,14 +16,6 @@ export interface ReleaseGate {
   reason?: string;
 }
 
-export interface ChangelogSection {
-  type: 'feat' | 'fix' | 'docs' | 'test' | 'refactor' | 'chore';
-  entries: Array<{
-    taskId: string;
-    message: string;
-  }>;
-}
-
 /**
  * Mutate Operations
  */
@@ -63,26 +55,6 @@ export interface ReleasePrepareResult {
   tasks: string[];
   /** Count of tasks in the release. @task T963 */
   taskCount: number;
-}
-
-// release.changelog
-/** Parameters for `release.changelog`. @task T963 */
-export interface ReleaseChangelogParams {
-  /** Version to build the changelog for (must match an existing manifest). @task T963 */
-  version: string;
-  /** Filter emitted sections. @task T963 */
-  sections?: Array<'feat' | 'fix' | 'docs' | 'test' | 'refactor' | 'chore'>;
-}
-/** Result of `release.changelog`. @task T963 */
-export interface ReleaseChangelogResult {
-  /** Version. @task T963 */
-  version: string;
-  /** Rendered changelog content (Markdown). @task T963 */
-  content: string;
-  /** Grouped changelog sections. @task T963 */
-  sections: ChangelogSection[];
-  /** Count of commits aggregated. @task T963 */
-  commitCount: number;
 }
 
 // release.commit

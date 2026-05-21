@@ -33,16 +33,6 @@ deprecations:
       Label-grouped task→changelog renderer. Superseded by the LLM-driven
       release-notes composer (T9759) consuming the Release Plan envelope.
 
-  - id: cleo-release-changelog-verb-git-log
-    path: packages/cleo/src/cli/commands/release.ts
-    since: v2026.5.93
-    remove: v2026.6.0
-    replacement: cleo release plan
-    note: >-
-      `cleo release changelog <tag>` git-log scraping path. Superseded by
-      the changeset-driven `cleo release plan` flow (T9525) — the plan
-      envelope enumerates included tasks via the releases graph.
-
   - id: generate-changelog-renderer
     path: packages/cleo/src/cli/commands/generate-changelog.ts
     since: v2026.5.93
