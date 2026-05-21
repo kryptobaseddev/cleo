@@ -334,7 +334,8 @@ export async function addRelation(
     | 'absorbs'
     | 'fixes'
     | 'extends'
-    | 'supersedes' = 'related',
+    | 'supersedes'
+    | 'groups' = 'related',
   cwd?: string,
   reason?: string,
 ): Promise<void> {

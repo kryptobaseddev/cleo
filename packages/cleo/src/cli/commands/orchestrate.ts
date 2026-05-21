@@ -209,7 +209,11 @@ const analyzeCommand = defineCommand({
  * @task T1858
  */
 const readyCommand = defineCommand({
-  meta: { name: 'ready', description: 'Get parallel-safe ready tasks' },
+  meta: {
+    name: 'ready',
+    description:
+      "Get parallel-safe ready tasks. When the epic is a Saga (label='saga', ADR-073), traverses task_relations.type='groups' instead of parentId.",
+  },
   args: {
     epicId: {
       type: 'positional',
@@ -221,6 +225,11 @@ const readyCommand = defineCommand({
       description:
         'Skip dep-graph validation and proceed even if issues exist (audit-logged bypass). CLI-only — sentient mode does not support this flag.',
     },
+    via: {
+      type: 'string',
+      description:
+        "Traversal mode (gh-390/ADR-073): 'parent' walks parentId only, 'saga' walks task_relations.type='groups' only, 'both' (default) auto-detects saga-labeled epics.",
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -230,6 +239,7 @@ const readyCommand = defineCommand({
       {
         epicId: args.epicId,
         ignoreDepsValidate: args['ignore-deps-validate'] === true,
+        ...(args.via !== undefined && { via: args.via }),
       },
       { command: 'orchestrate' },
     );
@@ -259,12 +269,21 @@ const nextCommand = defineCommand({
 
 /** cleo orchestrate waves — compute dependency waves for an epic */
 const wavesCommand = defineCommand({
-  meta: { name: 'waves', description: 'Compute dependency waves for an epic' },
+  meta: {
+    name: 'waves',
+    description:
+      "Compute dependency waves for an epic. When the epic is a Saga (label='saga', ADR-073), per-member wave plans are merged by index (wave N across all members → one unified wave N).",
+  },
   args: {
     epicId: {
       type: 'positional',
       description: 'Epic ID to compute waves for',
       required: true,
+    },
+    via: {
+      type: 'string',
+      description:
+        "Traversal mode (gh-390/ADR-073): 'parent' walks parentId only, 'saga' walks task_relations.type='groups' only, 'both' (default) auto-detects saga-labeled epics.",
     },
   },
   async run({ args }) {
@@ -272,7 +291,10 @@ const wavesCommand = defineCommand({
       'query',
       'orchestrate',
       'waves',
-      { epicId: args.epicId },
+      {
+        epicId: args.epicId,
+        ...(args.via !== undefined && { via: args.via }),
+      },
       { command: 'orchestrate' },
     );
   },
