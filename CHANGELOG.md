@@ -1,5 +1,49 @@
 # Changelog
 
+## [2026.5.95] (2026-05-21)
+
+### BREAKING CHANGES
+
+- Unify releases tables — drop release_manifests + releases_view, hard-rename to canonical "releases". (T9686-B2) (#328)
+
+  Migration:
+
+  `release_manifests` is dropped and `releases_view` is removed. Readers that
+  previously queried either name must switch to the canonical `releases`
+  table. The migration handles the data move in-place; consumers that touch
+  the SQLite schema directly (e.g. raw queries outside the DataAccessor) need
+  to update their statements.
+
+### Features
+
+- Agent unification + Conduit architecture — unified cleo agent CLI, AgentRegistry with encrypted credentials, Conduit transport layer. (T170)
+- WASM bindings for the CANT ecosystem — cant-core, lafs-core, conduit-core, signaldock-core compile to WASM with TypeScript SDK integration. (T9738)
+- cleo doctor gains --audit-worktree-orphans and --prune-worktree-orphans for the T9550/T9580 SSoT-bug fallout. (T9790)
+- Execute cleo docs import across all 5 legacy doc sources (2388 files) — closes T9625 validation gate. (T9791)
+- cleo docs list defaults to project scope, supports --limit + --orderBy, and surfaces a narrowing hint. (T9792)
+- Saga T9787 closing Epic — 9-step E2E real-world validation + agent-accountability harness (canon-lint). (T9797)
+
+### Fixes
+
+- Four dispatch/envelope bugs in the release pipeline — worktree help text, pr-status routing, reconcile double-wrap, changelog envelope. (T9686-A) (#324)
+- releaseShow + releaseList read from releases_view SSoT — eliminates dual-table split between releases and release_manifests. (T9686-B) (#323)
+- Provenance backfill — tag enumeration, --since empty handling, foreign-key insertion order. (T9686-C) (#325)
+- orchestrate ready/waves traverse saga 'groups' relation (+ --via flag) (T9852) (T9839) (#422)
+- SQLITE_BUSY retry on parallel task writes (CORE SDK with-retry primitive) (T9852) (T9839) (#413)
+- RCA + persist severity/kind/scope on task UPDATE (T9852) (T9839) (#425)
+- cleo issue diagnostics reads CLEO version from package.json SSoT (T9852) (T9839) (#411)
+- Bracket+quote-aware acceptance tokenizer + DRY collapse of 3 duplicate split impls (T9852) (T9839) (#412)
+
+### Documentation
+
+- Worktree prune main-dir protection + AGENTS.md release docs aligned to SPEC-T9345 4-verb pipeline. (T9686-D) (T9686-E) (#320)
+- CLI help-text hardening bundle (gh-392 (T9852) (T9839) (#426)
+
+### Chores
+
+- cleo changeset list verb + README pointing at canonical writer (T9785)
+- biome lint hotfixes — unblock CI after T9797 saga-T9787 file landed (T9852) (T9839) (#427)
+
 ## [2026.5.94] (2026-05-21)
 
 ### BREAKING CHANGES
@@ -28,14 +72,21 @@
 - Four dispatch/envelope bugs in the release pipeline — worktree help text, pr-status routing, reconcile double-wrap, changelog envelope. (T9686-A) (#324)
 - releaseShow + releaseList read from releases_view SSoT — eliminates dual-table split between releases and release_manifests. (T9686-B) (#323)
 - Provenance backfill — tag enumeration, --since empty handling, foreign-key insertion order. (T9686-C) (#325)
+- orchestrate ready/waves traverse saga 'groups' relation (+ --via flag) (T9852) (T9839) (#422)
+- SQLITE_BUSY retry on parallel task writes (CORE SDK with-retry primitive) (T9852) (T9839) (#413)
+- RCA + persist severity/kind/scope on task UPDATE (T9852) (T9839) (#425)
+- cleo issue diagnostics reads CLEO version from package.json SSoT (T9852) (T9839) (#411)
+- Bracket+quote-aware acceptance tokenizer + DRY collapse of 3 duplicate split impls (T9852) (T9839) (#412)
 
 ### Documentation
 
 - Worktree prune main-dir protection + AGENTS.md release docs aligned to SPEC-T9345 4-verb pipeline. (T9686-D) (T9686-E) (#320)
+- CLI help-text hardening bundle (gh-392 (T9852) (T9839) (#426)
 
 ### Chores
 
 - cleo changeset list verb + README pointing at canonical writer (T9785)
+- biome lint hotfixes — unblock CI after T9797 saga-T9787 file landed (T9852) (T9839) (#427)
 
 ## [2026.5.93] (2026-05-21) — SG-CLEO-DOCS-CANON-CLOSURE (T9787): canonical docs SSoT shipped end-to-end
 
