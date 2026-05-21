@@ -81,6 +81,34 @@ describe('applyIncludePatterns', () => {
     rmSync(worktreePath, { recursive: true });
   });
 
+  it('creates parent directory when the pattern is a nested path (T9807 bug fix)', () => {
+    // Regression: .vscode/settings.json in .cleo/worktree-include failed with
+    // ENOENT because .vscode/ was never created in the worktree. The fix
+    // ensures mkdirSync is called on the parent before symlinkSync.
+    const projectRoot = makeTmpDir('project-nested');
+    const worktreePath = makeTmpDir('worktree-nested');
+
+    // Create .vscode/settings.json in the project root
+    mkdirSync(join(projectRoot, '.vscode'), { recursive: true });
+    writeFileSync(join(projectRoot, '.vscode', 'settings.json'), '{"editor.tabSize":2}');
+
+    // The worktree does NOT have a .vscode/ dir yet — mimics a fresh git worktree
+    expect(existsSync(join(worktreePath, '.vscode'))).toBe(false);
+
+    const patterns = [{ pattern: '.vscode/settings.json', negated: false }];
+    const applied = applyIncludePatterns(patterns, projectRoot, worktreePath);
+
+    // The symlink should succeed — parent dir was created automatically
+    expect(applied).toHaveLength(1);
+    expect(applied[0].pattern).toBe('.vscode/settings.json');
+    expect(existsSync(join(worktreePath, '.vscode', 'settings.json'))).toBe(true);
+    // The parent dir was created
+    expect(existsSync(join(worktreePath, '.vscode'))).toBe(true);
+
+    rmSync(projectRoot, { recursive: true });
+    rmSync(worktreePath, { recursive: true });
+  });
+
   it('skips negated patterns (no symlink created)', () => {
     const projectRoot = makeTmpDir('project');
     const worktreePath = makeTmpDir('worktree');

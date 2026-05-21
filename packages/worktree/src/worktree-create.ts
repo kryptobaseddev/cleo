@@ -38,6 +38,11 @@ interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
   };
   /** Glob patterns actually excluded via sparse-checkout (T9226). */
   appliedExcludePatterns: string[];
+  /**
+   * The sparse-checkout scope applied to the worktree (T9807), or `null` when
+   * no scope was requested or the operation failed.
+   */
+  appliedScope: string | null;
 }
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
@@ -108,6 +113,34 @@ function applySpawnCloneExcludeFilter(
     return [...excludePatterns];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Apply T9807 cone-mode sparse-checkout to limit the worktree to a scope
+ * directory prefix (e.g. `packages/cleo`).
+ *
+ * Uses `git sparse-checkout init --cone` followed by
+ * `git sparse-checkout set <scope>` — cone mode gives the fastest checkout
+ * performance by working at directory granularity instead of arbitrary globs.
+ *
+ * Failures are silently swallowed — the worktree stays in full-checkout mode
+ * when the operation is not supported by the installed git version.
+ *
+ * @param worktreePath - Absolute path to the newly created worktree.
+ * @param scope - Directory prefix to check out (e.g. `packages/cleo`).
+ * @returns The applied scope string, or `null` when the operation failed.
+ *
+ * @task T9807
+ */
+function applySpawnScope(worktreePath: string, scope: string): string | null {
+  if (!scope.trim()) return null;
+  try {
+    gitSilent(['sparse-checkout', 'init', '--cone'], worktreePath);
+    gitSilent(['sparse-checkout', 'set', scope.trim()], worktreePath);
+    return scope.trim();
+  } catch {
+    return null;
   }
 }
 
@@ -279,6 +312,17 @@ export async function createWorktree(
   const appliedExcludePatterns =
     excludePatterns.length > 0 ? applySpawnCloneExcludeFilter(worktreePath, excludePatterns) : [];
 
+  // T9807 — spawn scope: limit the worktree to a directory prefix via cone-mode
+  // sparse-checkout (e.g. `packages/cleo` for a CLI-only task). Best-effort;
+  // falls back to full checkout when the operation fails or is not supported.
+  // Only applied when no exclude-patterns sparse-checkout is already active to
+  // avoid conflicting sparse-checkout modes.
+  const spawnScope = options.spawnScope ?? null;
+  const appliedScope =
+    spawnScope && appliedExcludePatterns.length === 0
+      ? applySpawnScope(worktreePath, spawnScope)
+      : null;
+
   // Run post-create hooks before returning the handle.
   const postCreateHookResults = await runWorktreeHooks(hooks, 'post-create', worktreePath);
 
@@ -382,6 +426,7 @@ export async function createWorktree(
     hookResults: postCreateHookResults,
     appliedPatterns,
     appliedExcludePatterns,
+    appliedScope,
     bootstrap: {
       copiedPaths,
       failedPaths,

@@ -353,6 +353,13 @@ const spawnCommand = defineCommand({
       description:
         'Skip worktree provisioning for this spawn. The opt-out is logged to the audit log (T1140).',
     },
+    scope: {
+      type: 'string',
+      description:
+        'T9807 sparse-checkout scope: directory prefix to check out in the worktree (cone mode). ' +
+        'Example: --scope packages/cleo creates a worktree with only that subtree checked out. ' +
+        'Reduces disk usage and checkout time for tasks scoped to a single package.',
+    },
   },
   async run({ args }) {
     // T892: --tier accepts auto|0|1|2. 'auto' (and undefined) are forwarded
@@ -374,6 +381,7 @@ const spawnCommand = defineCommand({
         protocolType: args.protocol,
         tier,
         noWorktree: args['no-worktree'] === true,
+        ...(args.scope ? { spawnScope: args.scope } : {}),
       },
       { command: 'orchestrate' },
     );
