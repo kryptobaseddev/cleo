@@ -291,6 +291,25 @@ export const E_GH_NOT_AUTHENTICATED = 'E_GH_NOT_AUTHENTICATED' as const;
  */
 export const E_WORKFLOW_NOT_FOUND = 'E_WORKFLOW_NOT_FOUND' as const;
 
+/**
+ * E_WRITE_CONTENTION — Persistent SQLITE_BUSY after exhausting application-level
+ * retry. Emitted by {@link withWriteRetry} (in `@cleocode/core`'s
+ * `store/with-retry.ts`) when a SQLite write transaction fails 4 consecutive
+ * attempts with `SQLITE_BUSY: database is locked` despite the engine-level
+ * `busy_timeout=5000ms` pragma.
+ *
+ * **Recovery**: retry the operation after a brief delay (the contended writer
+ * usually commits within 1-2 seconds). If the error reoccurs reliably, suspect
+ * a long-running writer holding a RESERVED lock — inspect with
+ * `sqlite3 .cleo/tasks.db "PRAGMA wal_checkpoint(FULL); SELECT * FROM sqlite_lock;"`.
+ *
+ * Maps to {@link ExitCode.LOCK_TIMEOUT} (7) at the CLI boundary.
+ *
+ * @bug gh-391 — parallel `cleo update --add-labels` losing ~50% of writes.
+ * @task T9839
+ */
+export const E_WRITE_CONTENTION = 'E_WRITE_CONTENTION' as const;
+
 /** Check if an exit code represents an error (1-99). */
 export function isErrorCode(code: ExitCode): boolean {
   return code >= 1 && code < 100;

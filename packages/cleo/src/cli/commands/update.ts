@@ -28,7 +28,11 @@ import { cliError } from '../renderers/index.js';
  * Update a task by ID, applying only the fields that are explicitly provided.
  */
 export const updateCommand = defineCommand({
-  meta: { name: 'update', description: 'Update a task' },
+  meta: {
+    name: 'update',
+    description:
+      'Update a task. Safe under concurrent invocation — retries on SQLITE_BUSY up to 4 attempts (gh#391).',
+  },
   args: {
     taskId: {
       type: 'positional',
