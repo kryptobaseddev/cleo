@@ -244,6 +244,17 @@ export const E_DIRTY_TREE = 'E_DIRTY_TREE' as const;
 export const E_EPIC_EMPTY = 'E_EPIC_EMPTY' as const;
 /** Epic referenced by `--epic` does not exist (R-021). Exit code 10. */
 export const E_EPIC_NOT_FOUND = 'E_EPIC_NOT_FOUND' as const;
+/**
+ * Leaf-Epic-as-Task ship (`--epic <id>` where the Epic has zero non-cancelled
+ * child tasks) was attempted but the Epic itself carries zero ADR-051 evidence
+ * atoms. Per ADR-073 the leaf-Epic-as-PR pattern is canonical for atomic ships,
+ * but the Epic still needs evidence (commit:sha, files, pr:<num>, etc.) to
+ * be promoted into a release. Exit code 83. `error.details.epicId` reports
+ * the offending Epic. `error.details.fix` points at `cleo verify`.
+ *
+ * @task T9838
+ */
+export const E_EPIC_EMPTY_LEAF_NO_EVIDENCE = 'E_EPIC_EMPTY_LEAF_NO_EVIDENCE' as const;
 /** Channel + version scheme are incompatible (R-022). Exit code 6. */
 export const E_CHANNEL_MISMATCH = 'E_CHANNEL_MISMATCH' as const;
 /**

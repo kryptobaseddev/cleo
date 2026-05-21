@@ -342,8 +342,14 @@ const planCommand = defineCommand({
     },
     epic: {
       type: 'string',
-      description: 'Epic task ID whose children are candidates for inclusion',
-      required: true,
+      description: 'Epic task ID — children (or leaf Epic itself per ADR-073) are candidates',
+      required: false,
+    },
+    saga: {
+      type: 'string',
+      description:
+        'Saga task ID — walks task_relations type=groups to aggregate member Epics (ADR-073). Mutually exclusive with --epic. (T9838)',
+      required: false,
     },
     scheme: {
       type: 'string',
@@ -361,6 +367,11 @@ const planCommand = defineCommand({
       type: 'boolean',
       description: 'Compute plan + envelope without writing the plan file or DB row',
     },
+    'no-changelog': {
+      type: 'boolean',
+      description:
+        'Skip CHANGELOG.md auto-write (default: write/replace the ## [<version>] section). (T9838)',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -370,10 +381,12 @@ const planCommand = defineCommand({
       {
         version: args.version,
         epicId: args.epic,
+        sagaId: args.saga,
         scheme: args.scheme as string | undefined,
         channel: args.channel as string | undefined,
         hotfix: args.hotfix === true,
         dryRun: args['dry-run'] === true,
+        writeChangelog: args['no-changelog'] !== true,
       },
       { command: 'release' },
     );
