@@ -12,7 +12,7 @@
  *   {@link getCleoSystemInfo}, {@link getCleoTemplatesTildePath}
  * - Worktree primitives: {@link computeProjectHash},
  *   {@link resolveWorktreeRootForHash}, {@link resolveTaskWorktreePath},
- *   {@link getCleoWorktreesRoot}
+ *   {@link getCleoWorktreesRoot}, {@link resolveWorktreeIndexPath}
  * - {@link isAbsolutePath} — cross-platform abs-path check
  *
  * @packageDocumentation
@@ -39,5 +39,6 @@ export {
   computeProjectHash,
   getCleoWorktreesRoot,
   resolveTaskWorktreePath,
+  resolveWorktreeIndexPath,
   resolveWorktreeRootForHash,
 } from './worktree-paths.js';
