@@ -587,6 +587,76 @@ export interface SessionRecordAssumptionResult {
   timestamp: string;
 }
 
+// session.lint — agent-accountability harness (T9797)
+
+/**
+ * Parameters for `session.lint`.
+ *
+ * Scans a Claude Code-style session transcript (`*.jsonl`) for raw
+ * markdown writes that bypass the docs SSoT. Flags any tool call whose
+ * `file_path` lands under a `rawMdPaths` entry whose owning DocKind has
+ * `rawMdAllowed: false` in `.cleo/canon.yml`.
+ *
+ * @task T9797
+ */
+export interface SessionLintParams {
+  /**
+   * Absolute path to the `.jsonl` transcript to scan. Required.
+   */
+  transcript: string;
+}
+
+/**
+ * One violation surfaced by `session.lint`.
+ *
+ * Mirrors `CanonLintViolation` from
+ * `packages/core/src/session/canon-lint.ts` (the SDK-level engine).
+ *
+ * @task T9797
+ */
+export interface SessionLintViolation {
+  /** Session id derived from the transcript filename. */
+  sessionId: string;
+  /** Anthropic `tool_use.id` (e.g. `toolu_01ABC...`). May be empty. */
+  toolUseId: string;
+  /** Tool name — `Write`, `Edit`, or `MultiEdit`. */
+  tool: string;
+  /** Repo-relative path the agent attempted to write. */
+  path: string;
+  /** Owning DocKind id (e.g. `adr`, `note`). */
+  docKind: string;
+  /** Matching `rawMdPaths` entry (e.g. `.cleo/adrs/`). */
+  matchedPath: string;
+  /** Categorical reason — always `'raw-md-canonical'` today. */
+  kind: 'raw-md-canonical';
+  /** First 200 chars of the violating content. */
+  evidence: string;
+  /** Suggested fix command. */
+  fix: string;
+}
+
+/**
+ * Result of `session.lint`.
+ *
+ * @task T9797
+ */
+export interface SessionLintResult {
+  /** Absolute transcript path that was scanned. */
+  transcriptPath: string;
+  /** Session id derived from the transcript filename. */
+  sessionId: string;
+  /** True when no violations were flagged. */
+  passed: boolean;
+  /** Number of `Write`/`Edit`/`MultiEdit` tool calls inspected. */
+  scanned: number;
+  /** Violations in transcript order. Empty when `passed === true`. */
+  violations: SessionLintViolation[];
+  /** Non-fatal warnings (e.g. JSON parse failures on isolated lines). */
+  warnings: string[];
+  /** `'enforced'` when canon.yml present, `'no-canon'` when missing. */
+  mode: 'enforced' | 'no-canon';
+}
+
 // ---------------------------------------------------------------------------
 // Typed operation record (Wave D adapter — T975)
 // ---------------------------------------------------------------------------
@@ -619,4 +689,5 @@ export type SessionOps = {
     SessionRecordAssumptionParams,
     SessionRecordAssumptionResult,
   ];
+  readonly lint: readonly [SessionLintParams, SessionLintResult];
 };

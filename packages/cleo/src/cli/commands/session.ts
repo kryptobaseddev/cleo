@@ -687,6 +687,45 @@ const decisionLogCommand = defineCommand({
 });
 
 /**
+ * cleo session lint — agent-accountability harness (T9797).
+ *
+ * Scans a Claude Code-style session transcript (`*.jsonl`) for `Write` /
+ * `Edit` / `MultiEdit` tool calls whose `file_path` lands under a
+ * `rawMdPaths` entry whose owning DocKind has `rawMdAllowed: false` in
+ * `.cleo/canon.yml`. Returns a LAFS envelope whose `data` is a
+ * `SessionLintResult` enumerating every violation.
+ *
+ * Use this AFTER the fact (the PR-time CI gate is `cleo check canon
+ * docs`) to audit which agents bypassed SSoT on historical transcripts.
+ *
+ * @task T9797 (E-DOCS-REAL-WORLD-VALIDATION)
+ * @see ADR-076 — Canonical Docs SSoT
+ */
+const lintCommand = defineCommand({
+  meta: {
+    name: 'lint',
+    description:
+      'Flag raw-md writes to canonical doc paths in a session transcript (T9797 · agent-accountability)',
+  },
+  args: {
+    transcript: {
+      type: 'string',
+      description: 'Absolute path to the *.jsonl transcript to scan',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'session',
+      'lint',
+      { transcript: args.transcript as string },
+      { command: 'session', operation: 'session.lint' },
+    );
+  },
+});
+
+/**
  * Root session command group — registers all session management subcommands.
  *
  * `stop` is an alias for `end` — both keys point to the same CommandDef.
@@ -712,6 +751,7 @@ export const sessionCommand = defineCommand({
     'record-assumption': recordAssumptionCommand,
     'record-decision': recordDecisionCommand,
     'decision-log': decisionLogCommand,
+    lint: lintCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
