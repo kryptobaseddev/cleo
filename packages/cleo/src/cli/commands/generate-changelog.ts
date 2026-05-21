@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError, formatError, getConfigPath, getProjectRoot } from '@cleocode/core';
+import { CleoError, getConfigPath, getProjectRoot, pushWarning } from '@cleocode/core';
 import { defineCommand } from 'citty';
 // CLI-only: implements local file generation from CHANGELOG.md, not a dispatch operation
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -216,6 +216,13 @@ function generateDocusaurus(source: string, limit: number): string {
  *
  * @task T4555
  * @epic T487
+ *
+ * @deprecated Since v2026.5.93 (T9795 / Saga T9787). Will be removed no
+ *   earlier than v2026.6.0. The CHANGELOG.md → platform renderer chain is
+ *   superseded by the task-anchored changesets DSL aggregator (T9793) —
+ *   `.changeset/*.md` entries feed the aggregator, and downstream
+ *   platform renderers consume the aggregator's output. See
+ *   `.cleo/deprecations.yml` id:`generate-changelog-renderer`.
  */
 export const generateChangelogCommand = defineCommand({
   meta: {
@@ -239,6 +246,23 @@ export const generateChangelogCommand = defineCommand({
   },
   async run({ args }) {
     try {
+      // T9795: deprecation warning surfaces via meta.warnings[]; the
+      // renderer drops it to stderr only when output mode is human.
+      pushWarning({
+        code: 'W_DEPRECATED_COMMAND',
+        message:
+          '`cleo generate-changelog` is deprecated. Use `cleo changeset add` (T9793) + the aggregator (T9759 composer) instead.',
+        severity: 'warn',
+        deprecated: 'cleo generate-changelog',
+        replacement: 'cleo changeset add',
+        removeBy: 'v2026.6.0',
+        context: {
+          registryId: 'generate-changelog-renderer',
+          task: 'T9795',
+          saga: 'T9787',
+        },
+      });
+
       const limit = Number(args.limit ?? 15);
       const targetPlatform = args.platform as string | undefined;
       const dryRun = args['dry-run'] === true;
@@ -305,11 +329,21 @@ export const generateChangelogCommand = defineCommand({
         { command: 'generate-changelog' },
       );
     } catch (err) {
+      // T9789: cliError takes a plain string — passing formatError(err)
+      // here double-wraps a serialised LAFS envelope inside cliError's
+      // own envelope. Pass the message directly and let cliError build
+      // the canonical envelope itself.
       if (err instanceof CleoError) {
-        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
+        cliError(`generate-changelog failed: ${err.message}`, err.code, {
+          name: 'E_GENERATE_CHANGELOG_FAILED',
+        });
         process.exit(err.code);
       }
-      throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`generate-changelog failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_GENERATE_CHANGELOG_FAILED',
+      });
+      process.exit(ExitCode.GENERAL_ERROR);
     }
   },
 });
