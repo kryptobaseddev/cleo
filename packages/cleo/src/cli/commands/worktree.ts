@@ -139,6 +139,8 @@ function renderOrphanPreamble(wt: WorktreeInfo): string {
  * Behaviour:
  *  - `--orphaned` (required today, future-proofs the surface for stale-only
  *    pruning) filters to the orphan + merged categories.
+ *  - `--idle-days <N>` (T9805 AC2) additionally prunes worktrees whose last
+ *    commit is older than N days and have no open PR associated.
  *  - When stdin is a TTY and `--yes` is NOT set, the command prints a
  *    preamble per orphan and reads a Y/N answer from the user. Only the
  *    confirmed subset is sent to dispatch.
@@ -156,6 +158,7 @@ function renderOrphanPreamble(wt: WorktreeInfo): string {
  * cleo worktree prune --orphaned --dry-run
  * cleo worktree prune --orphaned --yes
  * cleo worktree prune --orphaned
+ * cleo worktree prune --orphaned --idle-days 7 --yes
  * ```
  */
 const pruneCommand = defineCommand({
@@ -183,6 +186,12 @@ const pruneCommand = defineCommand({
       type: 'string',
       description: 'Override staleness threshold passed through to the listing (default: 7).',
     },
+    'idle-days': {
+      type: 'string',
+      description:
+        'Abandonment-timeout threshold in days (T9805 AC2). Worktrees whose last commit ' +
+        'is older than this value AND have no open PR are also pruned.',
+    },
   },
   async run({ args }) {
     if (args['orphaned'] !== true) {
@@ -198,6 +207,8 @@ const pruneCommand = defineCommand({
     const yes = args['yes'] === true;
     const staleDaysRaw = typeof args['days'] === 'string' ? args['days'] : undefined;
     const staleDays = staleDaysRaw !== undefined ? Number.parseInt(staleDaysRaw, 10) : undefined;
+    const idleDaysRaw = typeof args['idle-days'] === 'string' ? args['idle-days'] : undefined;
+    const idleDays = idleDaysRaw !== undefined ? Number.parseInt(idleDaysRaw, 10) : undefined;
 
     // Enumerate candidates locally so we can render the per-orphan prompt.
     // Dispatch is invoked AFTER confirmation with the user-confirmed subset.
@@ -284,8 +295,83 @@ const pruneCommand = defineCommand({
         dryRun,
         paths: confirmedPaths,
         ...(staleDays !== undefined && !Number.isNaN(staleDays) ? { staleDays } : {}),
+        ...(idleDays !== undefined && !Number.isNaN(idleDays) ? { idleDays } : {}),
       },
       { command: 'worktree-prune', operation: 'worktree.prune' },
+    );
+  },
+});
+
+/**
+ * `cleo worktree destroy <taskId>` — explicitly destroy a single agent worktree.
+ *
+ * Tears down the XDG worktree for `task/<taskId>`, writes an audit-log entry,
+ * and removes the entry from the sentinel index at `.cleo/worktrees.json`.
+ *
+ * Designed for use by the worktree-cleanup GitHub Actions workflow (T9805 AC1):
+ *   cleo worktree destroy T9805 --reason pr-merged --json
+ *
+ * Also available for manual cleanup after task completion.
+ *
+ * @example
+ * ```sh
+ * cleo worktree destroy T9805
+ * cleo worktree destroy T9805 --reason pr-merged --json
+ * cleo worktree destroy T9805 --force
+ * ```
+ *
+ * @task T9805
+ */
+const destroyCommand = defineCommand({
+  meta: {
+    name: 'destroy',
+    description:
+      'Destroy the XDG worktree for a task, update audit log and sentinel index (T9805).',
+  },
+  args: {
+    taskId: {
+      type: 'positional',
+      description: 'The task ID whose worktree to destroy (e.g. T9805).',
+      required: true,
+    },
+    force: {
+      type: 'boolean',
+      description: 'Force removal even when the worktree has uncommitted changes.',
+      default: false,
+    },
+    reason: {
+      type: 'string',
+      description:
+        'Reason string recorded in the audit log (e.g. pr-merged, manual, idle-timeout).',
+    },
+    'keep-branch': {
+      type: 'boolean',
+      description: 'Do not delete the task branch after removing the worktree.',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const rawTaskId = typeof args['taskId'] === 'string' ? args['taskId'] : '';
+    if (rawTaskId.length === 0) {
+      cliError('Missing required positional: <taskId>.', 2);
+      process.exit(2);
+      return;
+    }
+
+    const reason =
+      typeof args['reason'] === 'string' && args['reason'].length > 0 ? args['reason'] : 'manual';
+
+    await dispatchFromCli(
+      'mutate',
+      'worktree',
+      'destroy',
+      {
+        taskId: rawTaskId,
+        force: args['force'] === true,
+        deleteBranch: args['keep-branch'] !== true,
+        reason,
+      },
+      { command: 'worktree-destroy', operation: 'worktree.destroy' },
     );
   },
 });
@@ -353,6 +439,7 @@ export const worktreeCommand = defineCommand({
   subCommands: {
     list: listCommand,
     prune: pruneCommand,
+    destroy: destroyCommand,
     'force-unlock': forceUnlockCommand,
   },
   // Early-return when a subcommand was matched; citty still invokes the
