@@ -17,6 +17,7 @@
  * @epic T9518
  */
 
+import { parseAcceptanceCriteria } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
@@ -52,7 +53,9 @@ const createCommand = defineCommand({
       {
         title: args.title,
         description: args.description,
-        acceptance: args.acceptance ? args.acceptance.split('|') : undefined,
+        // T9839/gh-409: route through bracket+quote-aware parser so criteria
+        // containing `ENUM (a|b|c)` or quoted unions aren't shredded.
+        acceptance: args.acceptance ? parseAcceptanceCriteria(args.acceptance) : undefined,
       },
       { command: 'saga', operation: 'tasks.saga.create' },
     );
