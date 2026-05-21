@@ -269,6 +269,11 @@ export type {
   DependencySpec,
 } from './dependency.js';
 export type { AdapterManifest, DetectionPattern } from './discovery.js';
+// === Dispatch Identity Contracts (T9954 — Phase 0b of SG-ARCH-SOLID / E-CONTRACTS-FOUNDATION) ===
+export type { CanonicalDomain, Gateway, Tier } from './dispatch/identity.js';
+export { CANONICAL_DOMAINS } from './dispatch/identity.js';
+// === Dispatch OperationDef + Resolution (T9954 — Phase 0b of SG-ARCH-SOLID / E-CONTRACTS-FOUNDATION) ===
+export type { OperationDef, Resolution } from './dispatch/operation-def.js';
 // === DocsAccessor Contracts (T9063) ===
 export type {
   DocExportFormat,
