@@ -11,6 +11,33 @@
  */
 
 import type { ArchiveReasonValue, TaskKind, TaskScope, TaskSeverity } from '@cleocode/contracts';
+import {
+  ARCHIVE_REASONS,
+  TASK_KINDS,
+  TASK_RELATION_TYPES,
+  TASK_SCOPES,
+  TASK_SEVERITIES,
+  TASK_SIZES,
+} from '@cleocode/contracts/enums';
+import type { BackgroundJobStatus } from '@cleocode/contracts/jobs';
+import type {
+  BrainReleaseLinkType,
+  CommitConventionalType,
+  CommitFileChangeType,
+  CommitLinkKind,
+  CommitLinkSource,
+  PrLinkKind,
+  PrLinkSource,
+  PrState,
+  ReleaseArtifactType,
+  ReleaseChangeType,
+  ReleaseChannel,
+  ReleaseClassifiedBy,
+  ReleaseImpact,
+  ReleaseKind,
+  ReleaseScheme,
+  ReleaseStatus,
+} from '@cleocode/contracts/provenance';
 import { sql } from 'drizzle-orm';
 import {
   type AnySQLiteColumn,
@@ -84,64 +111,29 @@ export const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low'] as const;
 export const TASK_TYPES = ['epic', 'task', 'subtask'] as const;
 
 /**
- * Task kind axis — orthogonal to {@link TASK_TYPES}, describes the intent of the
- * work rather than its position in the hierarchy.
+ * Union types for the promoted task-axis constants — re-exported here so
+ * existing `import { TaskKind, … } from '@cleocode/core/store/tasks-schema'`
+ * consumers keep working. Canonical declarations live in
+ * `packages/contracts/src/task.ts` (re-routed through `enums.ts` constants).
+ */
+export type { TaskKind, TaskScope, TaskSeverity };
+/**
+ * Task kind, scope, severity, and size axes — promoted to
+ * `@cleocode/contracts/enums` in Phase 0c of the SG-ARCH-SOLID Saga
+ * (T9955). Re-exported here so that Drizzle's `text({ enum: ... })`
+ * row-type narrowing keeps using the same identifier and every
+ * `import * as schema from './tasks-schema.js'` consumer preserves
+ * byte-identical access.
  *
- * Added by T944 as an additive second axis so `type` (hierarchy) and `kind`
- * (intent) can vary independently. Defaults to `'work'` to preserve existing
- * semantics for the ~948 tasks already in production.
- *
- * Note: DB column is named `role`; TypeScript field is `kind` (T9067 deferral).
+ * Docs for each constant live with the canonical declaration in
+ * `packages/contracts/src/enums.ts`.
  *
  * @task T944
  * @task T9072
- */
-export const TASK_KINDS = ['work', 'research', 'experiment', 'bug', 'spike', 'release'] as const;
-
-/** Union type for {@link TASK_KINDS}. Re-exported from `@cleocode/contracts`. */
-export type { TaskKind };
-
-/**
- * Task scope axis — describes the granularity of the work (project-wide vs.
- * feature-scoped vs. unit-scoped). Orthogonal to type and kind.
- *
- * Backfill mapping from legacy `type` during migration:
- * - `type='epic'`    → `scope='project'`
- * - `type='task'`    → `scope='feature'` (also used for NULL legacy rows)
- * - `type='subtask'` → `scope='unit'`
- *
- * @task T944
- */
-export const TASK_SCOPES = ['project', 'feature', 'unit'] as const;
-
-/** Union type for {@link TASK_SCOPES}. Re-exported from `@cleocode/contracts`. */
-export type { TaskScope };
-
-/**
- * Severity axis — applies to ANY task role (not just `role='bug'`).
- *
- * Enforced by a CHECK constraint: `severity IS NULL OR severity IN ('P0','P1','P2','P3')`.
- *
- * The original T944 constraint coupled severity to `role='bug'`. T9073 widened
- * the constraint so that spikes, incidents, research tasks, and any other role
- * can carry a severity level. Priority and severity are fully orthogonal axes —
- * setting severity does NOT auto-map to priority (no SEVERITY_MAP on add/update).
- *
- * OWNER-WRITE-ONLY (T944 / T9073 / owner mandate): severity is set through
- * owner-authenticated paths only (signed attestation via
- * `appendSignedSeverityAttestation`). This prevents a prompt-injection exploit
- * where a compromised agent could mark a P0 task as P3 to force-ship.
- *
- * @task T944
  * @task T9073
+ * @task T9955
  */
-export const TASK_SEVERITIES = ['P0', 'P1', 'P2', 'P3'] as const;
-
-/** Union type for {@link TASK_SEVERITIES}. Re-exported from `@cleocode/contracts`. */
-export type { TaskSeverity };
-
-/** Task size values matching DB CHECK constraint on tasks.size. */
-export const TASK_SIZES = ['small', 'medium', 'large'] as const;
+export { TASK_KINDS, TASK_SCOPES, TASK_SEVERITIES, TASK_SIZES };
 
 /** Canonical lifecycle stage names matching DB CHECK constraint on lifecycle_stages.stage_name. */
 export const LIFECYCLE_STAGE_NAMES = [
@@ -172,56 +164,30 @@ export const TOKEN_USAGE_CONFIDENCE = ['real', 'high', 'estimated', 'coarse'] as
 /** Transport types for token telemetry. */
 export const TOKEN_USAGE_TRANSPORTS = ['cli', 'api', 'agent', 'unknown'] as const;
 
-/** Task relation types matching DB CHECK constraint on task_relations.relation_type. */
-export const TASK_RELATION_TYPES = [
-  'related',
-  'blocks',
-  'duplicates',
-  'absorbs',
-  'fixes',
-  'extends',
-  'supersedes',
-  'groups',
-] as const;
+/**
+ * Task relation types — promoted to `@cleocode/contracts/enums` in
+ * Phase 0c of the SG-ARCH-SOLID Saga (T9955). Re-exported here for the
+ * Drizzle `text({ enum: TASK_RELATION_TYPES })` row-type narrowing and
+ * for existing `import * as schema` consumers.
+ */
+export { TASK_RELATION_TYPES };
 
 /** Lifecycle transition types matching DB CHECK constraint on lifecycle_transitions.transition_type. */
 export const LIFECYCLE_TRANSITION_TYPES = ['automatic', 'manual', 'forced'] as const;
 
 /**
- * Truth-grade archive reason values enforced by a SQLite CHECK constraint on
- * `tasks.archive_reason` (see migration
- * `20260424000000_t1408-archive-reason-enum`).
- *
- * Council 2026-04-24 (FINDING #28 + T1407 follow-through) replaced the legacy
- * unconstrained TEXT column with this 6-value enum. Rows that pre-dated the
- * migration with non-conforming values (`completed`, `deleted`, etc.) were
- * normalized to `'completed-unverified'` before the CHECK was applied, so
- * EVERY existing row satisfies one of these literals (or is `NULL`).
- *
- * Semantics:
- *   - `verified`             — closure passed all gates with audit-grade evidence.
- *   - `reconciled`           — closure derived by reconciliation against an
- *                              external source of truth (e.g. external task tracker).
- *   - `superseded`           — closure because another task subsumes the work.
- *   - `shadowed`             — closure because the task was experiment- or
- *                              proposal-shadowed by a newer plan.
- *   - `cancelled`            — closure via explicit cancellation
- *                              (`status='cancelled'`).
- *   - `completed-unverified` — closure happened but verification was skipped,
- *                              incomplete, or failed; metrics MUST NOT count
- *                              these as quality completions without opt-in.
+ * Truth-grade archive reason values — promoted to
+ * `@cleocode/contracts/enums` in Phase 0c of the SG-ARCH-SOLID Saga
+ * (T9955). Re-exported here so the Drizzle row type narrows from the
+ * same identifier and every existing `import * as schema` consumer
+ * keeps working. Full docs live with the canonical declaration in
+ * `packages/contracts/src/enums.ts`.
  *
  * @task T1408
  * @epic T1407
+ * @task T9955
  */
-export const ARCHIVE_REASONS = [
-  'verified',
-  'reconciled',
-  'superseded',
-  'shadowed',
-  'cancelled',
-  'completed-unverified',
-] as const;
+export { ARCHIVE_REASONS };
 
 /**
  * Union type for {@link ARCHIVE_REASONS}.
@@ -989,8 +955,18 @@ export const BACKGROUND_JOB_STATUSES = [
   'orphaned',
 ] as const;
 
-/** Union type for {@link BACKGROUND_JOB_STATUSES}. */
-export type BackgroundJobStatus = (typeof BACKGROUND_JOB_STATUSES)[number];
+/**
+ * Union type for {@link BACKGROUND_JOB_STATUSES}.
+ *
+ * Promoted to `@cleocode/contracts/jobs` in Phase 0c of the SG-ARCH-SOLID
+ * Saga (T9955). Re-exported here for backward compatibility with every
+ * `import { BackgroundJobStatus } from '@cleocode/core/store/tasks-schema'`
+ * consumer. The contracts-side declaration and the
+ * `(typeof BACKGROUND_JOB_STATUSES)[number]` shape are pinned to remain
+ * structurally identical by a compile-time test in
+ * `packages/contracts/src/__tests__/jobs.test.ts`.
+ */
+export type { BackgroundJobStatus };
 
 /**
  * Durable background job row stored in tasks.db.
@@ -1234,8 +1210,13 @@ export const COMMIT_CONVENTIONAL_TYPES = [
   'breaking',
 ] as const;
 
-/** Union type for {@link COMMIT_CONVENTIONAL_TYPES}. */
-export type CommitConventionalType = (typeof COMMIT_CONVENTIONAL_TYPES)[number];
+/**
+ * Union type for {@link COMMIT_CONVENTIONAL_TYPES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility. Structurally pinned to the `as const`
+ * array above via `packages/contracts/src/__tests__/provenance.test.ts`.
+ */
+export type { CommitConventionalType };
 
 /**
  * Link-kind enum for {@link taskCommits.linkKind}.
@@ -1259,8 +1240,12 @@ export const COMMIT_LINK_KINDS = [
   'reverts',
 ] as const;
 
-/** Union type for {@link COMMIT_LINK_KINDS}. */
-export type CommitLinkKind = (typeof COMMIT_LINK_KINDS)[number];
+/**
+ * Union type for {@link COMMIT_LINK_KINDS}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { CommitLinkKind };
 
 /**
  * Link-source enum for {@link taskCommits.linkSource}.
@@ -1284,8 +1269,12 @@ export const COMMIT_LINK_SOURCES = [
   'manual',
 ] as const;
 
-/** Union type for {@link COMMIT_LINK_SOURCES}. */
-export type CommitLinkSource = (typeof COMMIT_LINK_SOURCES)[number];
+/**
+ * Union type for {@link COMMIT_LINK_SOURCES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { CommitLinkSource };
 
 /**
  * Change-type enum for {@link commitFiles.changeType}.
@@ -1296,8 +1285,12 @@ export type CommitLinkSource = (typeof COMMIT_LINK_SOURCES)[number];
  */
 export const COMMIT_FILE_CHANGE_TYPES = ['A', 'M', 'D', 'R', 'C'] as const;
 
-/** Union type for {@link COMMIT_FILE_CHANGE_TYPES}. */
-export type CommitFileChangeType = (typeof COMMIT_FILE_CHANGE_TYPES)[number];
+/**
+ * Union type for {@link COMMIT_FILE_CHANGE_TYPES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { CommitFileChangeType };
 
 /**
  * `commits` — Every git commit reachable from a release tag.
@@ -1487,8 +1480,12 @@ export const commitFiles = sqliteTable(
  */
 export const PR_STATES = ['open', 'closed', 'merged'] as const;
 
-/** Union type for {@link PR_STATES}. */
-export type PrState = (typeof PR_STATES)[number];
+/**
+ * Union type for {@link PR_STATES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { PrState };
 
 /**
  * Link-source enum for {@link prTasks.linkSource}.
@@ -1510,8 +1507,12 @@ export const PR_LINK_SOURCES = [
   'manual',
 ] as const;
 
-/** Union type for {@link PR_LINK_SOURCES}. */
-export type PrLinkSource = (typeof PR_LINK_SOURCES)[number];
+/**
+ * Union type for {@link PR_LINK_SOURCES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { PrLinkSource };
 
 /**
  * Link-kind enum for {@link prTasks.linkKind}.
@@ -1539,8 +1540,12 @@ export const PR_LINK_KINDS = [
   'tracks',
 ] as const;
 
-/** Union type for {@link PR_LINK_KINDS}. */
-export type PrLinkKind = (typeof PR_LINK_KINDS)[number];
+/**
+ * Union type for {@link PR_LINK_KINDS}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { PrLinkKind };
 
 /**
  * `pull_requests` — PR metadata for the provenance graph.
@@ -1721,8 +1726,12 @@ export const prTasks = sqliteTable(
  */
 export const RELEASE_SCHEMES = ['calver', 'semver', 'calver-suffix'] as const;
 
-/** Union type for {@link RELEASE_SCHEMES}. */
-export type ReleaseScheme = (typeof RELEASE_SCHEMES)[number];
+/**
+ * Union type for {@link RELEASE_SCHEMES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { ReleaseScheme };
 
 /**
  * Release channel enum for {@link releases.channel}.
@@ -1735,8 +1744,12 @@ export type ReleaseScheme = (typeof RELEASE_SCHEMES)[number];
  */
 export const RELEASE_CHANNELS = ['latest', 'beta', 'dev', 'hotfix'] as const;
 
-/** Union type for {@link RELEASE_CHANNELS}. */
-export type ReleaseChannel = (typeof RELEASE_CHANNELS)[number];
+/**
+ * Union type for {@link RELEASE_CHANNELS}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { ReleaseChannel };
 
 /**
  * Release kind enum for {@link releases.releaseKind}.
@@ -1751,8 +1764,12 @@ export type ReleaseChannel = (typeof RELEASE_CHANNELS)[number];
  */
 export const RELEASE_KINDS = ['regular', 'hotfix', 'prerelease'] as const;
 
-/** Union type for {@link RELEASE_KINDS}. */
-export type ReleaseKind = (typeof RELEASE_KINDS)[number];
+/**
+ * Union type for {@link RELEASE_KINDS}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { ReleaseKind };
 
 /**
  * Release status FSM enum for {@link releases.status}.
@@ -1795,8 +1812,13 @@ export const RELEASE_STATUSES = [
   'cancelled',
 ] as const;
 
-/** Union type for {@link RELEASE_STATUSES}. */
-export type ReleaseStatus = (typeof RELEASE_STATUSES)[number];
+/**
+ * Union type for {@link RELEASE_STATUSES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility. Admits BOTH new T9492 pipeline statuses
+ * AND legacy T5580 pipeline statuses (T9686 unification).
+ */
+export type { ReleaseStatus };
 
 /**
  * Release change type enum for {@link releaseChanges.changeType}.
@@ -1825,8 +1847,12 @@ export const RELEASE_CHANGE_TYPES = [
   'infrastructure',
 ] as const;
 
-/** Union type for {@link RELEASE_CHANGE_TYPES}. */
-export type ReleaseChangeType = (typeof RELEASE_CHANGE_TYPES)[number];
+/**
+ * Union type for {@link RELEASE_CHANGE_TYPES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { ReleaseChangeType };
 
 /**
  * Impact level enum for {@link releaseChanges.impact}.
@@ -1841,8 +1867,12 @@ export type ReleaseChangeType = (typeof RELEASE_CHANGE_TYPES)[number];
  */
 export const RELEASE_IMPACTS = ['major', 'minor', 'patch', 'none'] as const;
 
-/** Union type for {@link RELEASE_IMPACTS}. */
-export type ReleaseImpact = (typeof RELEASE_IMPACTS)[number];
+/**
+ * Union type for {@link RELEASE_IMPACTS}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { ReleaseImpact };
 
 /**
  * Classification provenance enum for {@link releaseChanges.classifiedBy}.
@@ -1856,8 +1886,12 @@ export type ReleaseImpact = (typeof RELEASE_IMPACTS)[number];
  */
 export const RELEASE_CLASSIFIED_BY = ['auto', 'manual', 'approved'] as const;
 
-/** Union type for {@link RELEASE_CLASSIFIED_BY}. */
-export type ReleaseClassifiedBy = (typeof RELEASE_CLASSIFIED_BY)[number];
+/**
+ * Union type for {@link RELEASE_CLASSIFIED_BY}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { ReleaseClassifiedBy };
 
 /**
  * `releases` — Canonical release record (ADR-073 / SPEC-T9345 §3.6).
@@ -2247,8 +2281,12 @@ export const RELEASE_ARTIFACT_TYPES = [
   'github-tag',
 ] as const;
 
-/** Union type for {@link RELEASE_ARTIFACT_TYPES}. */
-export type ReleaseArtifactType = (typeof RELEASE_ARTIFACT_TYPES)[number];
+/**
+ * Union type for {@link RELEASE_ARTIFACT_TYPES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { ReleaseArtifactType };
 
 /**
  * Link type enum for {@link brainReleaseLinks.linkType}.
@@ -2269,8 +2307,12 @@ export const BRAIN_RELEASE_LINK_TYPES = [
   'observed-in',
 ] as const;
 
-/** Union type for {@link BRAIN_RELEASE_LINK_TYPES}. */
-export type BrainReleaseLinkType = (typeof BRAIN_RELEASE_LINK_TYPES)[number];
+/**
+ * Union type for {@link BRAIN_RELEASE_LINK_TYPES}. Promoted to
+ * `@cleocode/contracts/provenance` in Phase 0c (T9955); re-exported here
+ * for backward compatibility.
+ */
+export type { BrainReleaseLinkType };
 
 /**
  * `release_artifacts` — Polymorphic artifact registry (ADR-073 / SPEC-T9345 §3.9).
