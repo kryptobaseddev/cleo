@@ -425,13 +425,13 @@ describe("skills commands - additional coverage", () => {
   // INSTALL COMMAND - uncovered lines 350-556
   // ==========================================
   describe("skills install - additional coverage", () => {
-    const marketplaceSkillHit = {
-      name: "demo",
+    const marketplaceSkillHit = fixtures.marketplaceHit("demo", {
+      scopedName: "@alice/demo",
       author: "alice",
       repoFullName: "alice/demo",
       githubUrl: "https://github.com/alice/demo",
       path: "skills/demo/SKILL.md",
-    };
+    });
     const catalogPkgGetSkill = {
       name: "ct-test",
       version: "1.0.0",
