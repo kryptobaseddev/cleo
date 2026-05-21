@@ -290,4 +290,112 @@ describe('docs dispatch — slug/type/project (T9636/T9637/T9638)', () => {
     const fetched = await handler.query('fetch', { attachmentRef: prefix });
     expect(fetched.success).toBe(true);
   });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // T9965 — docs.fetch round-trip: slug + type + kind non-null regression
+  //
+  // Guards against regression where docs.fetch returned all-null payload
+  // ({slug:null, type:null, kind:null}) when resolving by slug or uuid.
+  // ────────────────────────────────────────────────────────────────────────
+
+  it('T9965 RT-1: add → list → fetch by slug: slug/type/kind all non-null in metadata', async () => {
+    const handler = new DocsHandler();
+
+    // AC1/AC2: docs add with slug + type
+    const add = await handler.mutate('add', {
+      ownerId: 'T9965',
+      file: fixtureA,
+      slug: 'sg-arch-solid-session-1-handoff',
+      type: 'handoff',
+    });
+    expect(add.success, `docs.add failed: ${JSON.stringify(add.error)}`).toBe(true);
+    const addData = add.data as { attachmentId: string; slug: string; type: string };
+    expect(addData.slug).toBe('sg-arch-solid-session-1-handoff');
+    expect(addData.type).toBe('handoff');
+
+    // Verify list shows slug + type
+    const list = await handler.query('list', { task: 'T9965' });
+    expect(list.success).toBe(true);
+    const listData = list.data as {
+      attachments: Array<{ id: string; slug?: string; type?: string; kind: string }>;
+    };
+    expect(listData.attachments).toHaveLength(1);
+    const listedRow = listData.attachments[0];
+    expect(listedRow?.slug).toBe('sg-arch-solid-session-1-handoff');
+    expect(listedRow?.type).toBe('handoff');
+    expect(listedRow?.kind).toBe('local-file');
+
+    // AC1: fetch by slug returns populated slug/type/kind
+    const fetchBySlug = await handler.query('fetch', {
+      attachmentRef: 'sg-arch-solid-session-1-handoff',
+    });
+    expect(
+      fetchBySlug.success,
+      `docs.fetch by slug failed: ${JSON.stringify(fetchBySlug.error)}`,
+    ).toBe(true);
+    const slugData = fetchBySlug.data as {
+      metadata: { id: string; slug?: string; type?: string; kind: string };
+      sizeBytes: number;
+      inlined: boolean;
+    };
+    expect(slugData.metadata.id).toBe(addData.attachmentId);
+    // Regression assertions: these were null before T9965 fix
+    expect(slugData.metadata.slug, 'metadata.slug must not be null after fetch by slug').toBe(
+      'sg-arch-solid-session-1-handoff',
+    );
+    expect(slugData.metadata.type, 'metadata.type must not be null after fetch by slug').toBe(
+      'handoff',
+    );
+    expect(slugData.metadata.kind, 'metadata.kind must not be null after fetch by slug').toBe(
+      'local-file',
+    );
+    expect(slugData.sizeBytes).toBeGreaterThan(0);
+  });
+
+  it('T9965 RT-2: add → fetch by uuid: slug/type/kind all non-null in metadata', async () => {
+    const handler = new DocsHandler();
+
+    // AC2: docs add with slug + type, then fetch by UUID
+    const add = await handler.mutate('add', {
+      ownerId: 'T9965-uuid',
+      file: fixtureB,
+      slug: 'handoff-for-uuid-test',
+      type: 'handoff',
+    });
+    expect(add.success, `docs.add failed: ${JSON.stringify(add.error)}`).toBe(true);
+    const addData = add.data as {
+      attachmentId: string;
+      sha256: string;
+      slug: string;
+      type: string;
+    };
+    expect(addData.slug).toBe('handoff-for-uuid-test');
+    expect(addData.type).toBe('handoff');
+
+    // AC2: fetch by UUID returns populated slug/type/kind
+    const fetchByUuid = await handler.query('fetch', {
+      attachmentRef: addData.attachmentId,
+    });
+    expect(
+      fetchByUuid.success,
+      `docs.fetch by uuid failed: ${JSON.stringify(fetchByUuid.error)}`,
+    ).toBe(true);
+    const uuidData = fetchByUuid.data as {
+      metadata: { id: string; slug?: string; type?: string; kind: string };
+      sizeBytes: number;
+      inlined: boolean;
+    };
+    expect(uuidData.metadata.id).toBe(addData.attachmentId);
+    // Regression assertions: these were null before T9965 fix
+    expect(uuidData.metadata.slug, 'metadata.slug must not be null after fetch by uuid').toBe(
+      'handoff-for-uuid-test',
+    );
+    expect(uuidData.metadata.type, 'metadata.type must not be null after fetch by uuid').toBe(
+      'handoff',
+    );
+    expect(uuidData.metadata.kind, 'metadata.kind must not be null after fetch by uuid').toBe(
+      'local-file',
+    );
+    expect(uuidData.sizeBytes).toBeGreaterThan(0);
+  });
 });
