@@ -17,223 +17,57 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { BrainObservationType } from '@cleocode/contracts';
-import type { NextDirectives } from '../mvi-helpers.js';
+import type {
+  BrainCompactHit,
+  BrainObservationType,
+  BrainSourceConfidence,
+  BudgetedEntry,
+  BudgetedResult,
+  BudgetedRetrievalOptions,
+  FetchBrainEntriesParams,
+  FetchBrainEntriesResult,
+  FetchedBrainEntry,
+  ObserveBrainParams,
+  ObserveBrainResult,
+  SearchBrainCompactParams,
+  SearchBrainCompactResult,
+  TimelineBrainParams,
+  TimelineBrainResult,
+} from '@cleocode/contracts';
 import { memoryFindHitNext } from '../mvi-helpers.js';
 import { sessionExistsInTasksDb } from '../store/cross-db-cleanup.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
-import type {
-  BRAIN_OBSERVATION_SOURCE_TYPES,
-  BrainMemoryTier,
-  BrainSourceConfidence,
-} from '../store/memory-schema.js';
+import type { BrainMemoryTier } from '../store/memory-schema.js';
 import { getDb } from '../store/sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
-import type {
-  BrainAnchor,
-  BrainNarrativeRow,
-  BrainTimelineNeighborRow,
-} from './brain-row-types.js';
+import type { BrainNarrativeRow, BrainTimelineNeighborRow } from './brain-row-types.js';
 import { hybridSearch, searchBrain } from './brain-search.js';
 import { searchSimilar } from './brain-similarity.js';
 import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
 import { computeObservationQuality } from './quality-scoring.js';
 
 // ============================================================================
-// Types
+// Re-exports — wire shapes promoted to @cleocode/contracts/memory in T9956
+// (Phase 0e of SG-ARCH-SOLID). Existing `from './brain-retrieval.js'` imports
+// continue to resolve so no downstream consumer needs to change its import.
 // ============================================================================
 
-/** Compact search hit — minimal fields for index-level results. */
-export interface BrainCompactHit {
-  id: string;
-  type: 'decision' | 'pattern' | 'learning' | 'observation';
-  title: string;
-  date: string;
-  relevance?: number;
-  /**
-   * RRF-fused score: sum of 1/(rank+60) across all retrieval sources.
-   * Present only when the RRF path is used (useRRF=true, default).
-   * Higher = stronger match. Comparable across results in the same query.
-   */
-  rrfScore?: number;
-  /**
-   * BM25-derived score, min-max normalized to [0, 1] across the result set.
-   * 1.0 = best BM25 rank in this query, 0.0 = worst (or not found via FTS).
-   * Present only when the RRF path is used and at least one FTS result exists.
-   */
-  bm25Score?: number;
-  /** Progressive disclosure directives for follow-up operations. */
-  _next?: NextDirectives;
-}
-
-/** Parameters for searchBrainCompact. */
-export interface SearchBrainCompactParams {
-  query: string;
-  limit?: number;
-  tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>;
-  dateStart?: string;
-  dateEnd?: string;
-  /** T418: filter results to observations produced by a specific agent (Wave 8 mental models). */
-  agent?: string;
-  /**
-   * When true (default), use Reciprocal Rank Fusion to combine FTS5 and
-   * vector search results for higher recall and better ranking.
-   * When false, fall back to FTS5-only search (faster, no embeddings needed).
-   */
-  useRRF?: boolean;
-  /**
-   * T1085: Peer ID filter for CANT agent memory isolation (PSYCHE Wave 2).
-   *
-   * When provided, search results are scoped to entries where:
-   *   `peer_id = peerId OR peer_id = 'global'`
-   *
-   * When omitted, all entries are returned — backward-compatible behavior.
-   */
-  peerId?: string;
-  /**
-   * T1085: When true (default when peerId is provided), include entries with
-   * `peer_id = 'global'` alongside the peer-specific entries.
-   *
-   * Set to false for strict per-peer isolation (no global pool bleed-through).
-   */
-  includeGlobal?: boolean;
-  /**
-   * T1900: ranking mode.
-   *
-   * - `recency`  — ORDER BY created_at DESC, no BM25/RRF contribution.
-   *                Use for recentObservations / recentLearnings where
-   *                chronological freshness matters more than textual match.
-   * - `lexical`  — FTS5 BM25 only (useRRF=false legacy path).
-   * - `hybrid`   — Reciprocal Rank Fusion (default, useRRF=true path).
-   *
-   * @default 'hybrid'
-   */
-  mode?: 'recency' | 'lexical' | 'hybrid';
-  /**
-   * T1900: ISO 8601 timestamp lower-bound filter (inclusive).
-   *
-   * When provided, only rows with `created_at >= since` are returned.
-   * Applies to all modes including recency. Useful with `mode=hybrid`
-   * (e.g., `since=<30d>`) to limit pattern staleness.
-   *
-   * When omitted, no lower-bound date filter is applied.
-   */
-  since?: string;
-}
-
-/** Result from searchBrainCompact. */
-export interface SearchBrainCompactResult {
-  results: BrainCompactHit[];
-  total: number;
-  tokensEstimated: number;
-}
-
-/** Parameters for timelineBrain. */
-export interface TimelineBrainParams {
-  anchor: string;
-  depthBefore?: number;
-  depthAfter?: number;
-}
-
-/** Timeline entry — compact id/type/date tuple. */
-export interface TimelineNeighbor {
-  id: string;
-  type: string;
-  date: string;
-}
-
-/** Result from timelineBrain. */
-export interface TimelineBrainResult {
-  anchor: BrainAnchor | null;
-  before: TimelineNeighbor[];
-  after: TimelineNeighbor[];
-}
-
-/** Parameters for fetchBrainEntries. */
-export interface FetchBrainEntriesParams {
-  ids: string[];
-}
-
-/** Fetched entry with full data. */
-export interface FetchedBrainEntry {
-  id: string;
-  type: string;
-  data: unknown;
-}
-
-/** Result from fetchBrainEntries. */
-export interface FetchBrainEntriesResult {
-  results: FetchedBrainEntry[];
-  notFound: string[];
-  tokensEstimated: number;
-}
-
-/** Observation source type from schema. */
-export type BrainObservationSourceType = (typeof BRAIN_OBSERVATION_SOURCE_TYPES)[number];
-
-/** Parameters for observeBrain. */
-export interface ObserveBrainParams {
-  text: string;
-  title?: string;
-  type?: BrainObservationType;
-  project?: string;
-  sourceSessionId?: string;
-  sourceType?: BrainObservationSourceType;
-  /** T417: agent provenance — the name of the spawned agent producing this observation. */
-  agent?: string;
-  /**
-   * T549 Wave 1-A: source reliability level.
-   * Overrides the default routing. If omitted, routing is determined automatically:
-   * - sourceType 'manual' → 'owner'
-   * - sourceType 'session-debrief' → 'task-outcome'
-   * - otherwise → 'agent'
-   */
-  sourceConfidence?: BrainSourceConfidence;
-  /**
-   * T794 BRAIN-05: cross-references to other memory entries or external IDs.
-   * When this array has ≥1 entry, the observation is auto-promoted from
-   * 'short' to 'medium' tier at write time to protect it from soft-eviction.
-   */
-  crossRef?: string[];
-  /**
-   * T799: SHA-256 refs of attachments to link to this observation.
-   *
-   * Stored as a JSON-encoded string in the `attachments_json` column.
-   * Each entry must be a 64-char hex SHA-256 from the tasks.db attachment store.
-   */
-  attachmentRefs?: string[];
-  /**
-   * T1897: Producer pipeline that created this observation.
-   * - `manual`           — typed directly by owner
-   * - `auto-extract`     — from fulfillPromotionLog / LLM extraction
-   * - `transcript-ingest`— imported from raw session transcript
-   * - `session-debrief`  — synthesized at session end
-   * - `test`             — inserted by test code
-   *
-   * Null on legacy rows and when not specified.
-   */
-  origin?: string | null;
-  /**
-   * T1897: JSON array of source brain_observations.id values this row was derived from.
-   * Null for directly-observed rows.
-   */
-  provenanceChain?: string[] | null;
-  /**
-   * T992: Internal flag — when true, bypasses the verifyAndStore gate.
-   * Set only by storeVerifiedCandidate in extraction-gate.ts to avoid
-   * infinite recursion (gate → storeVerifiedCandidate → observeBrain → gate).
-   * External callers MUST NOT set this flag.
-   */
-  _skipGate?: boolean;
-}
-
-/** Result from observeBrain. */
-export interface ObserveBrainResult {
-  id: string;
-  type: string;
-  createdAt: string;
-}
+export type {
+  BrainAnchor,
+  BrainCompactHit,
+  BrainObservationSourceType,
+  FetchBrainEntriesParams,
+  FetchBrainEntriesResult,
+  FetchedBrainEntry,
+  ObserveBrainParams,
+  ObserveBrainResult,
+  SearchBrainCompactParams,
+  SearchBrainCompactResult,
+  TimelineBrainParams,
+  TimelineBrainResult,
+  TimelineNeighbor,
+} from '@cleocode/contracts';
 
 // ============================================================================
 // Layer 1: Compact Search
@@ -1302,42 +1136,14 @@ export async function populateEmbeddings(
 // Budget-Aware Retrieval (T549 Wave 3-A)
 // ============================================================================
 
-/** Options for budget-aware retrieval. */
-export interface BudgetedRetrievalOptions {
-  /** Filter by cognitive types (semantic / episodic / procedural). */
-  types?: Array<'semantic' | 'episodic' | 'procedural'>;
-  /** Filter by memory tiers (short / medium / long). */
-  tiers?: Array<'short' | 'medium' | 'long'>;
-  /** When true, only return verified entries. Default: false. */
-  verified?: boolean;
-}
-
-/** A single entry returned by budget-aware retrieval. */
-export interface BudgetedEntry {
-  id: string;
-  type: string;
-  title: string;
-  text: string;
-  /** Fused relevance score: FTS50% + vector40% + graph10% × qualityScore. */
-  score: number;
-  /** Estimated token cost for this entry (~chars/4). */
-  tokensEstimated: number;
-  /** Memory tier for this entry. */
-  memoryTier?: string;
-  /** Cognitive type for this entry. */
-  memoryType?: string;
-}
-
-/** Result from retrieveWithBudget. */
-export interface BudgetedResult {
-  entries: BudgetedEntry[];
-  /** Total tokens consumed by returned entries. */
-  tokensUsed: number;
-  /** Tokens remaining from the original budget. */
-  tokensRemaining: number;
-  /** Number of entries excluded due to budget constraints. */
-  excluded: number;
-}
+// Wire shapes promoted to @cleocode/contracts/memory/budgeted in T9956
+// (Phase 0e of SG-ARCH-SOLID). Re-exported here so existing callers keep
+// working without changing import paths.
+export type {
+  BudgetedEntry,
+  BudgetedResult,
+  BudgetedRetrievalOptions,
+} from '@cleocode/contracts';
 
 /**
  * Budget-aware hybrid retrieval combining FTS5, vector KNN, and graph neighbor scores.

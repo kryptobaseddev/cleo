@@ -9,14 +9,18 @@
  * @task T5127
  */
 
-// Import canonical type aliases from contracts — T1715 deduplication.
-// The local const arrays (BRAIN_MEMORY_TIERS, etc.) are kept because Drizzle
-// requires runtime values for { enum: ... } column constraints.
 import type {
   BrainCognitiveType,
   BrainMemoryTier,
   BrainSourceConfidence,
 } from '@cleocode/contracts';
+// Import canonical type aliases from contracts — T1715 deduplication.
+// The local const arrays (BRAIN_MEMORY_TIERS, etc.) are kept because Drizzle
+// requires runtime values for { enum: ... } column constraints. The
+// BRAIN_OBSERVATION_SOURCE_TYPES const is re-exported from contracts so the
+// derived `BrainObservationSourceType` union has a single source of truth
+// (T9956 — Phase 0e of SG-ARCH-SOLID).
+import { BRAIN_OBSERVATION_SOURCE_TYPES } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import {
   type AnySQLiteColumn,
@@ -29,6 +33,10 @@ import {
 } from 'drizzle-orm/sqlite-core';
 
 export type { BrainCognitiveType, BrainMemoryTier, BrainSourceConfidence };
+// Re-export BRAIN_OBSERVATION_SOURCE_TYPES from contracts so any existing
+// `from '../store/memory-schema.js'` imports keep working unchanged.
+// Canonical home: @cleocode/contracts/memory/observe (T9956).
+export { BRAIN_OBSERVATION_SOURCE_TYPES };
 
 // === ENUM CONSTANTS ===
 
@@ -128,14 +136,6 @@ export const BRAIN_OBSERVATION_TYPES = [
   'refactor',
   'diary',
   'session-summary',
-] as const;
-
-/** Source types for observations (how the observation was created). */
-export const BRAIN_OBSERVATION_SOURCE_TYPES = [
-  'agent',
-  'session-debrief',
-  'claude-mem',
-  'manual',
 ] as const;
 
 /** Memory entity types for the links table. */
