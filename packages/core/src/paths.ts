@@ -265,6 +265,11 @@ export function getCleoDir(cwd?: string): string {
  * @param cwd - Optional anchor for project-root resolution; if omitted, uses
  *   the canonical {@link getProjectRoot} chain (worktreeScope > CLEO_ROOT >
  *   CLEO_DIR absolute > gitlink walk > ancestor walk).
+ * @param opts.bootstrap - When `true`, fall back to a cwd-relative `.cleo`
+ *   resolution if {@link getProjectRoot} throws. ONLY for `cleo init` callers
+ *   that CREATE the project root and therefore cannot rely on ancestor walk.
+ *   Defaults to `false` — every other caller MUST resolve through an existing
+ *   project root or the error propagates. See council verdict D009 (T9803).
  * @returns Absolute path to the project's `.cleo` directory
  *
  * @remarks
@@ -282,27 +287,81 @@ export function getCleoDir(cwd?: string): string {
  *    T9550/T9580 orphan-`.cleo/` bug class.
  * 3. If `cwd` is omitted, resolution runs against `getProjectRoot()` directly.
  *
+ * **Root-cause fix (T9803 · council verdict D009)**: when `getProjectRoot()`
+ * throws (no project root in scope), the previous implementation silently
+ * fell back to `<cwd>/.cleo` — which synthesized orphan `.cleo/` directories
+ * inside git worktrees that any subsequent `mkdirSync` call would
+ * materialize. The 25+ leaked `.cleo/` directories inside
+ * `.claude/worktrees/*` documented in the T9801 forensic audit were created
+ * via this path. The fix re-throws unless the caller explicitly passes
+ * `{ bootstrap: true }`, which only `initProject()` (line 737, init.ts)
+ * legitimately needs.
+ *
  * @example
  * ```typescript
  * // Project root → /repo
  * getCleoDirAbsolute();                  // "/repo/.cleo"
  * getCleoDirAbsolute('/repo/packages/x'); // "/repo/.cleo"  (was "/repo/packages/x/.cleo" before T9685)
+ *
+ * // Worktree without a project — THROWS (was silent orphan synthesis pre-T9803)
+ * getCleoDirAbsolute('/tmp/random-dir'); // throws E_NOT_FOUND
+ *
+ * // Bootstrap (cleo init creating a new project)
+ * getCleoDirAbsolute('/tmp/new-project', { bootstrap: true }); // "/tmp/new-project/.cleo"
  * ```
  */
-export function getCleoDirAbsolute(cwd?: string): string {
+export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean }): string {
   const cleoDir = getCleoDir();
   if (isAbsolutePath(cleoDir)) {
     return cleoDir;
   }
   // SSoT (T9685): route through getProjectRoot so callers anywhere in a
   // worktree or monorepo subdir resolve to the canonical project root, not
-  // their cwd. Fall back to literal cwd-relative resolution only when no
-  // project root exists yet (the `cleo init` bootstrap case, which CREATES
-  // the project root and explicitly cannot rely on ancestor walk).
+  // their cwd.
   try {
     return resolve(getProjectRoot(cwd), cleoDir);
-  } catch {
+  } catch (err) {
+    // T9803 · council verdict D009: SURGICAL fallback policy —
+    //   1. Explicit `{ bootstrap: true }` always allows the fallback (cleo init).
+    //   2. When the cwd (or any ancestor) contains `.git` as a FILE — a worktree
+    //      gitlink marker — REFUSE the fallback. Creating a `.cleo/` inside a
+    //      worktree is the exact bug class T9550/T9580/T9801 catalogued.
+    //   3. When no `.git` exists anywhere in ancestors — a clean-slate dir
+    //      (typical test fixture or pre-init scaffold) — allow the fallback.
+    //      No worktree contamination is possible in that geometry.
+    if (opts?.bootstrap) {
+      return resolve(cwd ?? process.cwd(), cleoDir);
+    }
+    if (_cwdHasWorktreeGitlinkAncestor(cwd)) {
+      throw err;
+    }
     return resolve(cwd ?? process.cwd(), cleoDir);
+  }
+}
+
+/**
+ * Walk the ancestor chain looking for `.git` as a FILE (gitlink) — a marker
+ * that the cwd is inside a `git worktree add`-created worktree. A FILE `.git`
+ * is the worktree-orphan-prone geometry; a DIRECTORY `.git` is a canonical
+ * project root (safe).
+ *
+ * @internal
+ */
+function _cwdHasWorktreeGitlinkAncestor(cwd?: string): boolean {
+  const start = resolve(cwd ?? process.cwd());
+  let current = start;
+  while (true) {
+    const gitMarker = join(current, '.git');
+    try {
+      if (existsSync(gitMarker)) {
+        return statSync(gitMarker).isFile();
+      }
+    } catch {
+      /* unreadable — treat as not present */
+    }
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
   }
 }
 
