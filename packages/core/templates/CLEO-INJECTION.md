@@ -62,6 +62,16 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 
 `--acceptance` required for ALL tasks. `cleo bug`/`--role` removed — use `cleo add --kind bug --severity Px --acceptance "..."`. Axes: `--type {epic|task|subtask}`, `--kind {work|research|experiment|bug|spike|release}`, `--severity {P0-P3}` (orthogonal to `--priority`; triggers Ed25519 attestation).
 
+| Goal | Command |
+|------|---------|
+| Create a single task | `cleo add --type task --parent <epicId> --title "..." --acceptance "..."` |
+| Create N tasks atomically | `cleo add-batch --file tasks.json --parent <epicId>` |
+| Preview batch before inserting | `cleo add-batch --file tasks.json --parent <epicId> --dry-run` |
+| Batch from stdin | `echo '[...]' \| cleo add-batch --file - --parent <epicId>` |
+
+`cleo add-batch` inserts all tasks in a single transaction — ANY failure rolls back ALL inserts.
+See `ct-cleo` skill section "Decomposing an epic into N tasks" for the JSON schema and rollback semantic.
+
 ### Sagas — above-Epic grouping (ADR-073)
 
 A **Saga** (`SG-`) is a multi-release theme grouping multiple Epics. It is a labeled top-level
