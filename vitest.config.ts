@@ -96,6 +96,18 @@ export default defineConfig({
       '$lib': new URL('./packages/studio/src/lib', import.meta.url).pathname,
       '@cleocode/caamp': new URL('./packages/caamp/src/index.ts', import.meta.url).pathname,
       '@cleocode/cant': new URL('./packages/cant/src/index.ts', import.meta.url).pathname,
+      // T9955: explicit subpath aliases for provenance/jobs/enums modules.
+      // These MUST appear BEFORE the bare `@cleocode/contracts` alias so
+      // vitest matches the longer prefix first; otherwise the broader alias
+      // rewrites the path to `index.ts/<subpath>` and Node errors with ENOTDIR.
+      '@cleocode/contracts/enums': new URL('./packages/contracts/src/enums.ts', import.meta.url)
+        .pathname,
+      '@cleocode/contracts/jobs': new URL('./packages/contracts/src/jobs.ts', import.meta.url)
+        .pathname,
+      '@cleocode/contracts/provenance': new URL(
+        './packages/contracts/src/provenance.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
       '@cleocode/core/internal': new URL('./packages/core/src/internal.ts', import.meta.url).pathname,
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).
