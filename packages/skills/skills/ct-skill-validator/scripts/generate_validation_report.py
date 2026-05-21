@@ -254,7 +254,7 @@ def generate_html(
 
     eco_html = _ecosystem_section(ecosystem) if ecosystem else '<div class="tier-section pending"><div class="tier-header">CLEO Ecosystem Compliance — Not yet run</div><div class="no-issues">Run: python check_ecosystem.py &lt;skill-dir&gt; | ecosystem-checker agent | save to ecosystem-check.json</div></div>'
 
-    grading_html = _grading_section(grading) if grading else '<div class="tier-section pending"><div class="tier-header" style="background:#3a2a5a">Quality Eval — Grading not yet run</div><div class="no-issues">Run A/B eval using ct-skill-creator agents/grader.md then pass --grading grading.json</div></div>'
+    grading_html = _grading_section(grading) if grading else '<div class="tier-section pending"><div class="tier-header" style="background:#3a2a5a">Quality Eval — Grading not yet run</div><div class="no-issues">Run: <code>python scripts/run_quality_eval.py &lt;skill-dir&gt;</code> (dispatches dynamically to skill-evaluator), then pass --grading grading.json</div></div>'
 
     comparison_html = _comparison_section(comparison) if comparison else ""
 

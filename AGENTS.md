@@ -61,6 +61,80 @@ If you genuinely need a doc-kind not yet listed:
 2. Add a routing entry to `.cleo/canon.yml`.
 3. Re-run `pnpm --filter @cleocode/cleo run build` and the gate stays green.
 
+## Skill Maintenance Discipline (Saga T9799 · Epic T9960)
+
+Canonical `ct-*` skills under `packages/skills/skills/` describe how CLEO
+works to every spawned agent. When core systems change but the skill text
+does not, agents act on stale instructions. The T9540 release-system
+rewrite is the canonical example — `ct-release-orchestrator` still
+described the deleted `cleo release ship` monolith for weeks.
+
+**Rule**: when you edit a path declared in the coverage map, you MUST
+update the corresponding skill in the same PR — or acknowledge the
+deferral explicitly.
+
+### Coverage map (internal-only — never ships)
+
+`packages/skills/internal/skill-coverage.yml` maps each canonical skill
+to the code paths it documents. The file is listed in
+`packages/skills/.npmignore` so it never lands in the published
+`@cleocode/skills` bundle. Sibling tooling under `packages/skills/internal/`
+(drift-check.mjs, the git-hook runners) is excluded the same way.
+
+### Shipped per-skill metadata (in SKILL.md frontmatter)
+
+Every canonical SKILL.md MUST carry a `metadata:` block. These fields
+DO ship — they are documentation, not enforcement, and they let
+consumers and the curator daemon reason about freshness:
+
+```yaml
+metadata:
+  version: 2.0.0           # bump on every material change
+  lastReviewed: 2026-05-21 # ISO date — set by the human/agent who reviewed
+  stability: stable        # experimental | stable | deprecated
+```
+
+### Enforcement (T9960 — in progress)
+
+- **Pre-commit hook**: regenerates `packages/skills/skills.json` from
+  SKILL.md frontmatter. Drift between frontmatter and `skills.json` fails
+  the hook.
+- **CI gate `Skill Drift Check`**: scans the PR diff against the coverage
+  map. If a covered path is touched but the matching SKILL.md is not, the
+  PR fails with `E_SKILL_DRIFT_UNACKNOWLEDGED`.
+- **Trailer override**: a commit trailer
+  `Skill-Drift-Acknowledged: <reason>` bypasses the gate AND auto-files a
+  sentient follow-up task for retroactive skill update.
+- **Tier-0 skills get NO override** — `ct-cleo`, `ct-orchestrator`,
+  `ct-task-executor`, `ct-dev-workflow`, `ct-documentor`, and
+  `CLEO-INJECTION.md` must be kept current in the same PR. The trailer
+  is rejected for these.
+
+### Tier-0 core skills (strict — no drift tolerated)
+
+These define the agent protocol surface. Edit the matching code path,
+edit the skill in the same PR. Period.
+
+- `ct-cleo` — CLI protocol + session lifecycle
+- `ct-orchestrator` — spawn/delegation contract
+- `ct-task-executor` — worker contract
+- `ct-dev-workflow` — commit / branch / release flow
+- `ct-documentor` — docs SSoT routing
+- `CLEO-INJECTION.md` (template, not a skill folder) — protocol injected
+  into every spawn prompt
+
+### Tier-1 LOOM-stage skills (trailer override permitted)
+
+One per LOOM stage in `packages/core/src/validation/protocols/`. Same
+rule applies; trailer override is allowed for non-blocking deferrals.
+
+### Internal-only validator
+
+`ct-skill-validator` ships with `disable-model-invocation: true` and is
+listed in `packages/skills/.npmignore` so it never reaches consumers.
+It is the developer-side toolchain that drives the drift check, depth
+audit, and quality evals.
+
 ## Worktree Location (ADR-055 · Saga T9800 · Decision D009)
 
 ALL git worktrees provisioned for agent tasks MUST live under the canonical

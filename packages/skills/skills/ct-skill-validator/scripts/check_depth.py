@@ -33,6 +33,7 @@ import sys
 import re
 import json
 import argparse
+import datetime
 from pathlib import Path
 
 
@@ -42,14 +43,28 @@ MIN_BODY_LINES = 100
 MIN_REF_FILES = 3
 GOLD_STANDARDS = ("ct-orchestrator", "ct-skill-creator")
 
+# Cadence for the allowlist audit — entries older than this are flagged stale.
+ALLOWLIST_STALE_DAYS = 30
+LAST_REVIEWED_RE = re.compile(r"last_reviewed:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+
 # Allowlist — pre-existing stub skills exempted at T9567 (E-SKILLS-DEPTH-BACKFILL).
-# Each entry MUST have a follow-up task ID. Remove the entry once that task lands
-# a depth backfill. New entries require owner approval — do not add silently.
+# Each entry MUST have a follow-up task ID. Remove the entry once that task
+# lands a depth backfill. New entries require owner approval — do not add
+# silently.
+#
+# AUDIT CADENCE: review every release cycle (or every 30 days, whichever
+# comes first). Each entry below carries `last_reviewed` — if that timestamp
+# is older than the cadence, run `python check_depth.py <skill-dir>` for each
+# allowlisted skill, decide keep / remove, and bump `last_reviewed` to a
+# fresh `date '+%Y-%m-%d %H:%M:%S'` value. See ALLOWLIST_STALE_DAYS above
+# for the actual threshold the audit enforces.
+#
+# Format: skill-name -> "task-id: rationale | last_reviewed: YYYY-MM-DD HH:MM:SS"
 ALLOWLIST: dict[str, str] = {
-    "ct-codebase-mapper": "T9567-followup: pre-existing; depth-backfill deferred",
-    "ct-master-tac": "T9567-followup: pre-existing; depth-backfill deferred",
-    "ct-memory": "T9567-followup: pre-existing; depth-backfill deferred",
-    "ct-stickynote": "T9567-followup: ephemeral note skill; minimal-by-design",
+    "ct-codebase-mapper": "T9567-followup: pre-existing; depth-backfill deferred | last_reviewed: 2026-05-21 14:00:18",
+    "ct-master-tac":      "T9567-followup: pre-existing; depth-backfill deferred | last_reviewed: 2026-05-21 14:00:18",
+    "ct-memory":          "T9567-followup: pre-existing; depth-backfill deferred | last_reviewed: 2026-05-21 14:00:18",
+    "ct-stickynote":      "T9567-followup: ephemeral note skill; minimal-by-design | last_reviewed: 2026-05-21 14:00:18",
 }
 
 
@@ -218,6 +233,60 @@ def _print_report(report: dict) -> None:
             print(f"       * {r}")
 
 
+def audit_allowlist(
+    *,
+    now: datetime.datetime | None = None,
+    stale_days: int = ALLOWLIST_STALE_DAYS,
+) -> list[dict]:
+    """Audit the ALLOWLIST for malformed or stale `last_reviewed` stamps.
+
+    Returns a list of finding dicts: each has `skill`, `severity` (WARN),
+    `message`, and (when parseable) `age_days`. An empty list means every
+    allowlist entry has a well-formed, fresh stamp.
+
+    `last_reviewed:` must match `YYYY-MM-DD HH:MM:SS`. Stamps older than
+    `stale_days` are flagged for re-audit.
+    """
+    now = now or datetime.datetime.now()
+    findings: list[dict] = []
+    for skill, rationale in ALLOWLIST.items():
+        m = LAST_REVIEWED_RE.search(rationale)
+        if not m:
+            findings.append({
+                "skill": skill, "severity": "WARN",
+                "message": "missing or malformed 'last_reviewed: YYYY-MM-DD HH:MM:SS' stamp",
+            })
+            continue
+        stamp = m.group(1)
+        try:
+            ts = datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
+        except ValueError as e:
+            findings.append({
+                "skill": skill, "severity": "WARN",
+                "message": f"invalid timestamp '{stamp}': {e}",
+            })
+            continue
+        age_days = (now - ts).days
+        if age_days > stale_days:
+            findings.append({
+                "skill": skill, "severity": "WARN", "age_days": age_days,
+                "message": (
+                    f"stale: last_reviewed was {age_days}d ago "
+                    f"(cadence: {stale_days}d). Audit and bump the stamp."
+                ),
+            })
+    return findings
+
+
+def _print_allowlist_audit(findings: list[dict], *, stream=sys.stderr) -> None:
+    if not findings:
+        return
+    print("=== allowlist audit ===", file=stream)
+    for f in findings:
+        print(f"  ⚠️  {f['skill']}: {f['message']}", file=stream)
+    print(file=stream)
+
+
 def walk_all_skills(root: Path) -> list[Path]:
     """Find all skill directories under packages/skills/skills/.
     Skips manifest.json, _shared/, and any dir without SKILL.md."""
@@ -246,7 +315,41 @@ def main() -> int:
         help="Walk every skill under packages/skills/skills/",
     )
     parser.add_argument("--json", action="store_true", help="Output JSON instead of text")
+    parser.add_argument(
+        "--audit-allowlist", action="store_true",
+        help=(
+            "Audit ALLOWLIST entries for malformed or stale `last_reviewed` "
+            "stamps and exit. Exits 1 if any finding is reported."
+        ),
+    )
     args = parser.parse_args()
+
+    # Standalone audit mode — for CI / cron use.
+    if args.audit_allowlist:
+        findings = audit_allowlist()
+        if args.json:
+            print(json.dumps({
+                "stale_days_cadence": ALLOWLIST_STALE_DAYS,
+                "findings": findings,
+                "passed": len(findings) == 0,
+            }, indent=2))
+        else:
+            if findings:
+                _print_allowlist_audit(findings, stream=sys.stdout)
+                print(f"=== SUMMARY ===\nFindings: {len(findings)}\nResult: FAIL",
+                      file=sys.stdout)
+            else:
+                print("=== allowlist audit ===", file=sys.stdout)
+                print(f"  ✅ all {len(ALLOWLIST)} entries have fresh stamps "
+                      f"(cadence: {ALLOWLIST_STALE_DAYS}d)", file=sys.stdout)
+                print(f"\n=== SUMMARY ===\nFindings: 0\nResult: PASS",
+                      file=sys.stdout)
+        return 1 if findings else 0
+
+    # Background audit — runs on every invocation, silent when clean, emits
+    # to stderr so --json output on stdout stays parseable.
+    if not args.json:
+        _print_allowlist_audit(audit_allowlist())
 
     arg_path = Path(args.skill_dir).resolve()
     manifest = Path(args.manifest).resolve() if args.manifest else None
