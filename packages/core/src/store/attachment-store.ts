@@ -593,24 +593,50 @@ export function createAttachmentStore(): AttachmentStore {
             await db.update(attachments).set(updates).where(eq(attachments.id, attachmentId)).run();
           }
 
-          // Insert ref.
-          await db
-            .insert(attachmentRefs)
-            .values({
-              attachmentId,
-              ownerType: assertOwnerType(ownerType),
-              ownerId,
-              attachedAt: new Date().toISOString(),
-              attachedBy: attachedBy ?? null,
-            })
-            .run();
+          // Insert ref. The (attachment_id, owner_type, owner_id) tuple is the
+          // composite PK on `attachment_refs`, so a re-put of the same blob
+          // for the same owner would otherwise trip the UNIQUE constraint.
+          // We pre-check + skip the insert + refCount bump so the call
+          // remains idempotent on (sha, owner). This mirrors the slug
+          // pre-check above — same rationale: friendly noop instead of an
+          // opaque SQLite error in callers that legitimately re-attach.
+          //
+          // T9791 — uncovered by `cleo docs import` when an agent-output
+          // had already been attached to its task via a pre-T9791 `cleo
+          // docs add` call. The legacy ref already exists; the import path
+          // must apply slug + type to the existing row WITHOUT crashing.
+          const ownerTypeChecked = assertOwnerType(ownerType);
+          const refExisting = await db
+            .select()
+            .from(attachmentRefs)
+            .where(
+              and(
+                eq(attachmentRefs.attachmentId, attachmentId),
+                eq(attachmentRefs.ownerType, ownerTypeChecked),
+                eq(attachmentRefs.ownerId, ownerId),
+              ),
+            )
+            .get();
 
-          // Use SQL arithmetic to avoid TOCTOU: ref_count = ref_count + 1
-          await db
-            .update(attachments)
-            .set({ refCount: sql`ref_count + 1` })
-            .where(eq(attachments.id, attachmentId))
-            .run();
+          if (!refExisting) {
+            await db
+              .insert(attachmentRefs)
+              .values({
+                attachmentId,
+                ownerType: ownerTypeChecked,
+                ownerId,
+                attachedAt: new Date().toISOString(),
+                attachedBy: attachedBy ?? null,
+              })
+              .run();
+
+            // Use SQL arithmetic to avoid TOCTOU: ref_count = ref_count + 1
+            await db
+              .update(attachments)
+              .set({ refCount: sql`ref_count + 1` })
+              .where(eq(attachments.id, attachmentId))
+              .run();
+          }
 
           nativeDb.prepare('COMMIT').run();
 

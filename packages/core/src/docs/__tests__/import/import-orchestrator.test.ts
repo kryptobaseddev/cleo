@@ -241,4 +241,37 @@ describe('runDocsImport', () => {
     const slugs = result.entries.map((e) => e.slug).sort();
     expect(slugs).toEqual(['foo', 'foo-2']);
   });
+
+  // T9791 — benchmark fixtures (gsd/.claude/commands/gsd/import.md) ship
+  // files whose basename slugifies to `import`, a RESERVED_SLUG. Prior to
+  // T9791 the importer recorded these as errors and aborted; the orchestrator
+  // now falls back to a parent-dir-prefixed slug so the bytes still make it
+  // into the docs SSoT.
+  it('falls back to parent-dir prefix when basename slugifies to a reserved word', async () => {
+    await seed('nested/gsd/workflows/import.md', '# import doc\n');
+    const accessor = new FakeDocsAccessor();
+    const auditDir = join(root, '_audit');
+    const result = await runDocsImport({ root, accessor, auditDir });
+    expect(result.counters).toEqual({
+      scanCount: 1,
+      importCount: 1,
+      noopCount: 0,
+      errorCount: 0,
+    });
+    expect(result.entries[0]?.slug).toBeDefined();
+    expect(result.entries[0]?.slug).not.toBe('import');
+    // Slug must contain a parent-dir segment so it's traceable.
+    expect(result.entries[0]?.slug).toMatch(/workflows|gsd|nested|imported/);
+  });
+
+  it('still errors when a reserved-slug basename has no usable parent context', async () => {
+    await seed('import.md', '# top-level reserved\n');
+    const accessor = new FakeDocsAccessor();
+    const auditDir = join(root, '_audit');
+    const result = await runDocsImport({ root, accessor, auditDir });
+    // Top-level reserved name → fallback to `imported-import` slug, succeeds.
+    expect(result.counters.errorCount).toBe(0);
+    expect(result.counters.importCount).toBe(1);
+    expect(result.entries[0]?.slug).toBe('imported-import');
+  });
 });

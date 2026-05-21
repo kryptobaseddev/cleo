@@ -1,0 +1,62 @@
+{
+  "startedAt": "2026-05-21T00:28:13.764Z",
+  "completedAt": "2026-05-21T00:28:13.970Z",
+  "root": "/mnt/projects/cleocode/.cleo/research",
+  "dryRun": false,
+  "counters": {
+    "scanCount": 6,
+    "importCount": 0,
+    "noopCount": 6,
+    "errorCount": 0
+  },
+  "entries": [
+    {
+      "file": "JSON-STREAM-HYGIENE-AUDIT.md",
+      "slug": "json-stream-hygiene-audit-2",
+      "type": "research",
+      "action": "noop",
+      "sha": "4a8c8144da250d1d5b3a32f46136e9fde4866a511e113b6b97ef18669a6acf31",
+      "ts": "2026-05-21T00:28:13.970Z"
+    },
+    {
+      "file": "SG-CLEO-DOCS-CANON-plan.md",
+      "slug": "sg-cleo-docs-canon-plan-2",
+      "type": "research",
+      "action": "noop",
+      "sha": "44fb90ac9f672282a11549db2a2bf8c83bfc7b25764b226a65b7b327de71db20",
+      "ts": "2026-05-21T00:28:13.970Z"
+    },
+    {
+      "file": "SG-CLEO-SKILLS-architecture-v3.md",
+      "slug": "sg-cleo-skills-architecture-v3-2",
+      "type": "research",
+      "action": "noop",
+      "sha": "a0b09f5bd608c93a2a9d8380f924a970d3f706f8bcec4504a870b92e3c2e00a3",
+      "ts": "2026-05-21T00:28:13.970Z"
+    },
+    {
+      "file": "SG-CLEO-SKILLS-orchestrator-state.md",
+      "slug": "sg-cleo-skills-orchestrator-state-2",
+      "type": "research",
+      "action": "noop",
+      "sha": "9dfb1226173444952326ae59d17bd3ed90e3f912873a8cd7a43b764deb5cefb3",
+      "ts": "2026-05-21T00:28:13.970Z"
+    },
+    {
+      "file": "SKILLS-CLEANUP-AUDIT.md",
+      "slug": "skills-cleanup-audit-2",
+      "type": "research",
+      "action": "noop",
+      "sha": "7bdbd941425700537adc1098d6227ecb65870d16aac29f0c8359204e32ece8d9",
+      "ts": "2026-05-21T00:28:13.970Z"
+    },
+    {
+      "file": "T9154-consensus.md",
+      "slug": "t9154-consensus-2",
+      "type": "research",
+      "action": "noop",
+      "sha": "5d542643412c4ad9c0f30e3511274649662720a1e05a1e6596bde963c5a8d407",
+      "ts": "2026-05-21T00:28:13.970Z"
+    }
+  ]
+}

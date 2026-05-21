@@ -1,0 +1,646 @@
+{
+  "startedAt": "2026-05-21T00:28:47.253Z",
+  "completedAt": "2026-05-21T00:28:48.479Z",
+  "root": "/mnt/projects/cleocode/.cleo/adrs",
+  "dryRun": false,
+  "counters": {
+    "scanCount": 79,
+    "importCount": 0,
+    "noopCount": 79,
+    "errorCount": 0
+  },
+  "entries": [
+    {
+      "file": "ADR-003-mcp-engine-unification.md",
+      "slug": "adr-003-mcp-engine-unification-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "1c3b56cb8f151eae3c61f1da346ddf9fbe5a1db5d0f73aebbaa1a315068600e4",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-004-typescript-first-architecture.md",
+      "slug": "adr-004-typescript-first-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "dd43b2ffd80948813090487ca03f924d92be72cf6ea70583d6f8db31608311a4",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-005-migration-safety.md",
+      "slug": "adr-005-migration-safety-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "f116ce1e8e3e3662ca7c306335de6f4b336a29bf8ffe3718282ebb84092c4476",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-006-canonical-sqlite-storage.md",
+      "slug": "adr-006-canonical-sqlite-storage-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "25f99e1eb7b2209e3e2fe0cac954951ed6aed51b01732f3c72a4fac98e86865b",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-007-domain-consolidation.md",
+      "slug": "adr-007-domain-consolidation-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "19c9f08bccc82af469cd578f407e301b34c1b6a0004fe9a5faa1f02b102c9e58",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-008-CLEO-CANONICAL-ARCHITECTURE.md",
+      "slug": "adr-008-cleo-canonical-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "3f499db0cf16fd2575efd949ce9e5e6ebcf0ba7159d32867213e103c40213969",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-009-BRAIN-cognitive-architecture.md",
+      "slug": "adr-009-brain-cognitive-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "abf39f4c81ca84e178b58dc77b6d6a99b3720943e54eb9a28af62982e5d0df79",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-010-node-sqlite-engine-choice.md",
+      "slug": "adr-010-node-sqlite-engine-choice-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "7872b70842e36f6e338ed5395c69bccc6fea4bc3015cfdfe581d867dbdc8ee0c",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-011-project-configuration-architecture.md",
+      "slug": "adr-011-project-configuration-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "9fe20bf0775122f9d4903900a1319282747262a4b437ece553037bbe9ab27c0c",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-012-drizzle-kit-migration-system.md",
+      "slug": "adr-012-drizzle-kit-migration-system-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "4576576a6bcaad62e5064c14aff2d2d4bcd281f38d1fd8f16276778c2e86d209",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-013-data-integrity-checkpoint-architecture.md",
+      "slug": "adr-013-data-integrity-checkpoint-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "55d0f8400f89b42fa3d05492de80828b7cafe6b0f0a15e42fa7d631ea91a49d7",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-014-rcasd-rename-and-protocol-validation.md",
+      "slug": "adr-014-rcasd-rename-and-protocol-validation-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "07a28fca1ef9cd99a9460c63206fef94e0270a7b932fea299d4d32339f411983",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-015-multi-contributor-architecture.md",
+      "slug": "adr-015-multi-contributor-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "ca8e3c5c9dc90614d5a563f3661bae9e56f51e16badd624b450899f48d335ad1",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-016-installation-channels-and-dev-runtime-isolation.md",
+      "slug": "adr-016-installation-channels-and-dev-runtime-isolation-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "7ffe47dde686f71b92f74c48b3463cae6c0d8037dd2a183fb50cd69c5b3d25f4",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-017-verb-and-naming-standards.md",
+      "slug": "adr-017-verb-and-naming-standards-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "7820000f6f5ce63533002b63620a995fa7274f46fe2b50ec7079df312f8a0dea",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-018-unified-status-registry.md",
+      "slug": "adr-018-unified-status-registry-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "5ffbbccc210a8c68431e3145f210c967c636daaed521d9e715711486844a9c4a",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-019-canonical-logging-architecture.md",
+      "slug": "adr-019-canonical-logging-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "2f64c395cdce34da37e7574fd8113c4617f7dd7a261177d72976a953a869c270",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-020-session-architecture-cleanup.md",
+      "slug": "adr-020-session-architecture-cleanup-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "54bcaa569429831692b1fa2fe5ce3e038090f2467e501502321392cc03b48187",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-021-memory-domain-refactor.md",
+      "slug": "adr-021-memory-domain-refactor-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "2f73b305c37a274487fb7985d76222f105c38c98aa2352b50a929d220991fca4",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-022-task-completion-hardening.md",
+      "slug": "adr-022-task-completion-hardening-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "9e85fa729160f37344c68b3de267faa88f21c640c3be531f0f525f9e6c97e076",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-023-protocol-validation-dispatch.md",
+      "slug": "adr-023-protocol-validation-dispatch-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "462f2a6af0c84bd8cc60cf72eb7d08431a3e3d91564c7c93e3d4959e525bfece",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-024-multi-store-canonical-logging.md",
+      "slug": "adr-024-multi-store-canonical-logging-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "13aae86f153ab5574a8f849c1351af8cb1d82cd5f1270fbc7ebcd858a0247f9d",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-025-warp-protocol-chains.md",
+      "slug": "adr-025-warp-protocol-chains-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "1b294dcb302a79c54f1cee2893b43589b6f0ba4fa3e2dd9162e1332008c4699d",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-026-release-system-consolidation.md",
+      "slug": "adr-026-release-system-consolidation-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "fb0a62f09ea1fd6fcf2c3596c952340e613ebe850bf1dc46b4a5174cd72d5d24",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-027-manifest-sqlite-migration.md",
+      "slug": "adr-027-manifest-sqlite-migration-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "28e89cda439641649d3002715b6a77b1ff3c13aadc4db44ffd236ba2f922581b",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-028-changelog-generation-model.md",
+      "slug": "adr-028-changelog-generation-model-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "95c6acdc140defc5838471d33871849253e15b338a7e30ab5af66621b8c6f2d8",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-029-contributor-project-dev-channel-detection.md",
+      "slug": "adr-029-contributor-project-dev-channel-detection-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "05bef9e33735f79e11cf0d3813069b9b68d334ea404444ef47e270f9655d7893",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-030-operation-model-rationalization.md",
+      "slug": "adr-030-operation-model-rationalization-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "1d4eea84cdd0d3433240f852c965a4f084d2cdcc5ebd9a62bb86207d7bd93343",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-031-provider-adapter-architecture.md",
+      "slug": "adr-031-provider-adapter-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "a16f6b77182adb634a518fcd35046e4d0830613a5d910148327eef7237f7ebf4",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-032-provider-agnostic-memory-bridge.md",
+      "slug": "adr-032-provider-agnostic-memory-bridge-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "baded4bdd50102d263879a1b697ed6b082cbc7e8e85f03235566455cf3701420",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-033-provider-adapter-architecture.md",
+      "slug": "adr-033-provider-adapter-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "6d0aec0fe6a48628b0747c2133130e390a238a3c8dd09acd89bb0df0ec1c6769",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-034-provider-agnostic-memory-bridge.md",
+      "slug": "adr-034-provider-agnostic-memory-bridge-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "cb5fd3bdbb29040f9b870be43902b6bd299016b5e0ccb3faaf3eb54fac1207ee",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-035-pi-v2-v3-harness.md",
+      "slug": "adr-035-pi-v2-v3-harness-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "d75109cd219402846c81fd4b1753611d9a3d64cbc9d7abefcd3b60a6db9f861f",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-036-cleoos-database-topology.md",
+      "slug": "adr-036-cleoos-database-topology-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "1fb4e27d1221eac93e1bafb139bb6fc71da1b0467e367eb0a8eeaf211dee1a1e",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-037-conduit-signaldock-separation.md",
+      "slug": "adr-037-conduit-signaldock-separation-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "0047f89bbae08a42295fcf3368ad9af4300fd8dacdac683d64dcd7f6d2ad9dbd",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-038-backup-portability.md",
+      "slug": "adr-038-backup-portability-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "0bc5f299ede9a005baa7d9187e90a5d48e433968c40b8baaf6001e2b255683d0",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-039-lafs-envelope-unification.md",
+      "slug": "adr-039-lafs-envelope-unification-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "711c23b100fbd6c38a18bbb931ad64027c9fd6980f29ca3371a33fc039405ca9",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-041-worktree-handle-spawn-contract.md",
+      "slug": "adr-041-worktree-handle-spawn-contract-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "12ed8549e093f979447b34ab06c2331c214ee6852436f0ff456041a62fca1ad3",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-042-cli-system-integrity-conduit-alignment.md",
+      "slug": "adr-042-cli-system-integrity-conduit-alignment-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "0ec1b7bd3459b036ffd708159b66b99e4362536eaf1be3679745cba173bc6cf5",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-043-native-citty-command-migration.md",
+      "slug": "adr-043-native-citty-command-migration-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "c8a992249df34d94218afaf9a9e39f2d1d43c51a9ce35b2fabde6cbf875d30dc",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-044-canon-reconciliation.md",
+      "slug": "adr-044-canon-reconciliation-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "b94988741e964204f0c6a33424414ecf83793d8864aaf8ce4224cddbde33e729",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-045-cleo-scaffolding-ssot.md",
+      "slug": "adr-045-cleo-scaffolding-ssot-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "747d781b62c5cc9289e6ecec2bdde966a5e662c6aff1387c2de83ee903e95d8b",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-046-stdp-phase-5-implementation.md",
+      "slug": "adr-046-stdp-phase-5-implementation-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "5f3f394e773147cd6616b6072ade995247a78e1e871c595589493fa6dd37db3e",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-047-autonomous-gc-and-disk-safety.md",
+      "slug": "adr-047-autonomous-gc-and-disk-safety-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "958daf2aef0b0bc8d0fc46b560b7143ad6ce573964ed42e79501ba3b8cdd440f",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-048-memory-extraction-pipeline.md",
+      "slug": "adr-048-memory-extraction-pipeline-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "fe8e9b6eedd36bd9e67169f04491cd6bb55eccce20dffa810099b07863663112",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-049-harness-sovereignty.md",
+      "slug": "adr-049-harness-sovereignty-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "f94e3ed9633aad4eb72a4a4cdbec158fa74bdb342d73afad71059e9931ee2f99",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-050-cleoos-sovereign-harness.md",
+      "slug": "adr-050-cleoos-sovereign-harness-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "7850378e8f7c69c13405a861f9abbd48bc472b8ade494743dfe3172cf9e12aa6",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-051-override-patterns.md",
+      "slug": "adr-051-override-patterns-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "cca796c26e33d926af467afa0daf503f4b894e9eaa87e4e3c67c241c97b618bf",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-051-programmatic-gate-integrity.md",
+      "slug": "adr-051-programmatic-gate-integrity-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "88fef39a80442ad22af45077d5373c16443eb89d0025359f6b84038397acce9d",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-051-worktree-extension.md",
+      "slug": "adr-051-worktree-extension-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "6a63832cd896e9aa42babf10d35d4a075e1cef85626bde59328da6f511728eda",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-052-caamp-keeps-commander.md",
+      "slug": "adr-052-caamp-keeps-commander-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "87e6300fe2464b364d63f709cf4fe876380e9550a67bb273322a55d6eb62fb3a",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-052-sdk-consolidation.md",
+      "slug": "adr-052-sdk-consolidation-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "8572746de018adb6437d9906104477cfb7b7e3c20dfc7be8fd5467af123dff24",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-053-playbook-runtime.md",
+      "slug": "adr-053-playbook-runtime-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "5fde3e699438a4c3da9acac9ea3296090c07545e07f1ac66f6a52b5dd20d20dc",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-053-project-agnostic-release-pipeline.md",
+      "slug": "adr-053-project-agnostic-release-pipeline-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "1a4f4c4cd8a2a64af65fd6449d7a4202c45870f869b1a9292a66e4f1238a300e",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-054-manifest-unification.md",
+      "slug": "adr-054-manifest-unification-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "a0580cfef0728721e742917e0f59ef609054685999b527cc4df275dc08207ff9",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-054-migration-system-hybrid-path-a-plus.md",
+      "slug": "adr-054-migration-system-hybrid-path-a-plus-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "9865ec17cefa323c0638c06e9950b0e27270d2312ce3ec87c6fe4a2b17037714",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-055-agents-architecture-and-meta-agents.md",
+      "slug": "adr-055-agents-architecture-and-meta-agents-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "d2cf81fa0d305c3490a50e07fd884da02aed8c3462f94f8aa71dc690b755f51e",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-056-db-ssot-and-release-completion-invariant.md",
+      "slug": "adr-056-db-ssot-and-release-completion-invariant-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "97e66a3766439db02c92bbbf603b1dc0225f04cdad7790a9fa8233c2f6ea957b",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-057-contracts-core-ssot.md",
+      "slug": "adr-057-contracts-core-ssot-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "a2fda7c4c58650f2beba86980e063a0155f56b3e93e3eea5965fb33961f62f5f",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-058-dispatch-type-inference.md",
+      "slug": "adr-058-dispatch-type-inference-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "cb3f5944ff5236a59b7a58b7d6b6dd2a608784425cd31676eb3152a043d6f686",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-059-override-pumps.md",
+      "slug": "adr-059-override-pumps-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "eab67f17e360605dec7bc2415082977d07bd0399578efa423f0b92f898d40810",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-061-project-agnostic-verify-tools.md",
+      "slug": "adr-061-project-agnostic-verify-tools-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "9d1b703f0fdf285b8c4df72709d73292d499597c5f2279706906224dc2e248c1",
+      "ts": "2026-05-21T00:28:48.478Z"
+    },
+    {
+      "file": "ADR-062-worktree-merge-not-cherry-pick.md",
+      "slug": "adr-062-worktree-merge-not-cherry-pick-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "9644249ce7e22825047aa10c2358c16c9eca909bdd4f430860f9e8507b93c4a8",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-063-release-pipeline.md",
+      "slug": "adr-063-release-pipeline-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "77b63346e9cd83404baba9f5a777a9cf28ab5c417b86dcb03aa5ce6add0a0165",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-064-caamp-adapters-boundary.md",
+      "slug": "adr-064-caamp-adapters-boundary-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "628c898d6f46278661ffbc49d9dbf62cc4e222afbea8388f0add36f5429537cf",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-065-pr-required-release-flow.md",
+      "slug": "adr-065-pr-required-release-flow-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "e5c0dbdfee38972c72b1ca81e7ad22a252185e2e6b47ee6d8bbaead1635654b7",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-066-task-taxonomy-consolidation.md",
+      "slug": "adr-066-task-taxonomy-consolidation-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "05b21bd018c0350aed65568053120a2317bd0fdb327183369ed46a761a47f48e",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-067-project-root-resolution.md",
+      "slug": "adr-067-project-root-resolution-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "e7a34300070bd6a965e52f48f2847ccb9e900ead068fe8810a97e0345c3d26a7",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-068-canonical-agent-system.md",
+      "slug": "adr-068-canonical-agent-system-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "90c07fc94697c5aa41d48822b8de8c80dec222c4e4454854f0f8f390785696d7",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-068-cleo-database-charter.md",
+      "slug": "adr-068-cleo-database-charter-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "855b7b19a2219a406f0b2745762e02ab547d71f7f76e9101a7c2d1743496e092",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-069-cleo-coordination-layers.md",
+      "slug": "adr-069-cleo-coordination-layers-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "2aec2f7d96f24bc9dd869880acc3d70034e51c2bfa566819719d853162ef08fd",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-070-three-tier-orchestration.md",
+      "slug": "adr-070-three-tier-orchestration-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "a92067a1a370a215f0e5f34a84f221c2881ea4d357b9b4136ab10cf2eb2b4025",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-070-verifier-backed-ac-auditor-loop.md",
+      "slug": "adr-070-verifier-backed-ac-auditor-loop-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "1a9958762a4ed49d465b55d555a6741c690e4feb3179b5768c2d2ae083795372",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-071-cleo-observability-event-bus.md",
+      "slug": "adr-071-cleo-observability-event-bus-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "7c6c3abb51daf15d94666f82400ba3189f67dcb63283250e24250baafb16cf55",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-072-unified-llm-provider-architecture.md",
+      "slug": "adr-072-unified-llm-provider-architecture-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "c28ec017565627cdc701d95a3492b215f97973c6fe68fed6e2298347084af4fe",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-073-above-epic-naming.md",
+      "slug": "adr-073-above-epic-naming-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "d63bd4454e5d718931795cca8b0494a6491e0f69d65e3567aab99a416bf07054",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-074-skills-telemetry-pr-diff-transport.md",
+      "slug": "adr-074-skills-telemetry-pr-diff-transport-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "3ae5e95ed58a56fe7bf66ac3f9c962eae1e43b2f1dfb1b97acca5632dbf9d81d",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "ADR-075-skills-federation-trust-ladder.md",
+      "slug": "adr-075-skills-federation-trust-ladder-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "6aa27db94727eec8e5a4106ffaa81388d2aa0f6d6255a95e731cc79e46b1cf7a",
+      "ts": "2026-05-21T00:28:48.479Z"
+    },
+    {
+      "file": "adr-cleoos-sentient-harness.md",
+      "slug": "adr-cleoos-sentient-harness-2",
+      "type": "adr",
+      "action": "noop",
+      "sha": "78ecb6812e0af28ece168a2053cab9ad56e36bc87f6940f1b277b43aeef1f6e1",
+      "ts": "2026-05-21T00:28:48.479Z"
+    }
+  ]
+}

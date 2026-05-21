@@ -1,0 +1,1422 @@
+{
+  "startedAt": "2026-05-21T00:30:34.850Z",
+  "completedAt": "2026-05-21T00:30:38.747Z",
+  "root": "/mnt/projects/cleocode/docs",
+  "dryRun": false,
+  "counters": {
+    "scanCount": 141,
+    "importCount": 140,
+    "noopCount": 1,
+    "errorCount": 0
+  },
+  "entries": [
+    {
+      "file": "adr/ADR-068-per-worktree-handoff.md",
+      "slug": "adr-068-per-worktree-handoff",
+      "type": "spec",
+      "action": "created",
+      "sha": "71e12a3ef5d6c01d61b831df19aa49b039e931db6dfd29683d3dfca1f7998677",
+      "ts": "2026-05-21T00:30:37.271Z",
+      "backend": "manifest.db",
+      "docId": "71e12a3ef5d6c01d61b831df19aa49b039e931db6dfd29683d3dfca1f7998677"
+    },
+    {
+      "file": "adr/ADR-072-nexus-db-split.md",
+      "slug": "adr-072-nexus-db-split",
+      "type": "spec",
+      "action": "created",
+      "sha": "c8cc2b601db27c4cefd4833c884970ce089c430d620e109ecb657f2b08b659e1",
+      "ts": "2026-05-21T00:30:37.345Z",
+      "backend": "manifest.db",
+      "docId": "c8cc2b601db27c4cefd4833c884970ce089c430d620e109ecb657f2b08b659e1"
+    },
+    {
+      "file": "adr/ARCHIVED.md",
+      "slug": "archived",
+      "type": "spec",
+      "action": "created",
+      "sha": "daf4528863a83b50f774aa25842cc7c13d5a518c141a0f8463367cfeba836901",
+      "ts": "2026-05-21T00:30:37.384Z",
+      "backend": "manifest.db",
+      "docId": "daf4528863a83b50f774aa25842cc7c13d5a518c141a0f8463367cfeba836901"
+    },
+    {
+      "file": "analysis/cleoos-sentient-harness-analysis-corrected.md",
+      "slug": "cleoos-sentient-harness-analysis-corrected",
+      "type": "spec",
+      "action": "created",
+      "sha": "7c9b8b406e613a61401cb1a934f0f5f8c295e6bdc5c2e3feeb5f83de1ac77f67",
+      "ts": "2026-05-21T00:30:37.411Z",
+      "backend": "manifest.db",
+      "docId": "7c9b8b406e613a61401cb1a934f0f5f8c295e6bdc5c2e3feeb5f83de1ac77f67"
+    },
+    {
+      "file": "analysis/cleoos-sentient-harness-analysis.md",
+      "slug": "cleoos-sentient-harness-analysis",
+      "type": "spec",
+      "action": "created",
+      "sha": "12761cfedc9694087c1621a8de1e52e6fcce448c541087e0bea774271b02a0a8",
+      "ts": "2026-05-21T00:30:37.416Z",
+      "backend": "manifest.db",
+      "docId": "12761cfedc9694087c1621a8de1e52e6fcce448c541087e0bea774271b02a0a8"
+    },
+    {
+      "file": "api/CORE-API-AGENT-GUIDE.md",
+      "slug": "core-api-agent-guide",
+      "type": "spec",
+      "action": "created",
+      "sha": "8372129c259c25f2a89c472a4a27c757401c0d0c69030ee840c0b26a9582f519",
+      "ts": "2026-05-21T00:30:37.421Z",
+      "backend": "manifest.db",
+      "docId": "8372129c259c25f2a89c472a4a27c757401c0d0c69030ee840c0b26a9582f519"
+    },
+    {
+      "file": "architecture/config-platform.md",
+      "slug": "config-platform",
+      "type": "spec",
+      "action": "created",
+      "sha": "c40e476374253d972f53ae404c00887146bb06e558dd35a81e5025a792659967",
+      "ts": "2026-05-21T00:30:37.430Z",
+      "backend": "manifest.db",
+      "docId": "c40e476374253d972f53ae404c00887146bb06e558dd35a81e5025a792659967"
+    },
+    {
+      "file": "architecture/DATABASE-ERDS.md",
+      "slug": "database-erds",
+      "type": "spec",
+      "action": "created",
+      "sha": "aa6df632c05b415ef1eda38a378dfc38aa90909c061b21e98d9fd04303a76662",
+      "ts": "2026-05-21T00:30:37.457Z",
+      "backend": "manifest.db",
+      "docId": "aa6df632c05b415ef1eda38a378dfc38aa90909c061b21e98d9fd04303a76662"
+    },
+    {
+      "file": "architecture/erd-brain-db.md",
+      "slug": "erd-brain-db",
+      "type": "spec",
+      "action": "created",
+      "sha": "59077c802889a5adb58e64f49b2a71d5050da0b0d68c3cf6e5681b8c37c37dc2",
+      "ts": "2026-05-21T00:30:37.495Z",
+      "backend": "manifest.db",
+      "docId": "59077c802889a5adb58e64f49b2a71d5050da0b0d68c3cf6e5681b8c37c37dc2"
+    },
+    {
+      "file": "architecture/erd-combined.md",
+      "slug": "erd-combined",
+      "type": "spec",
+      "action": "created",
+      "sha": "7938f29398571f4db82c0b312a622f9cc5ebd4d72255a335411231d2ddcaf13b",
+      "ts": "2026-05-21T00:30:37.520Z",
+      "backend": "manifest.db",
+      "docId": "7938f29398571f4db82c0b312a622f9cc5ebd4d72255a335411231d2ddcaf13b"
+    },
+    {
+      "file": "architecture/erd-tasks-db.md",
+      "slug": "erd-tasks-db",
+      "type": "spec",
+      "action": "created",
+      "sha": "936a6d2cfb2f27832b78bfca58ce9bed686c68c50cabc20cc6e48f2b15e4ed96",
+      "ts": "2026-05-21T00:30:37.540Z",
+      "backend": "manifest.db",
+      "docId": "936a6d2cfb2f27832b78bfca58ce9bed686c68c50cabc20cc6e48f2b15e4ed96"
+    },
+    {
+      "file": "architecture/memory-architecture.md",
+      "slug": "memory-architecture",
+      "type": "spec",
+      "action": "created",
+      "sha": "eb56a3dd4167c0945c1a49e12e101b5f619cca9901130421f2260cb3137c131e",
+      "ts": "2026-05-21T00:30:37.560Z",
+      "backend": "manifest.db",
+      "docId": "eb56a3dd4167c0945c1a49e12e101b5f619cca9901130421f2260cb3137c131e"
+    },
+    {
+      "file": "architecture/orchestration-flow.md",
+      "slug": "orchestration-flow",
+      "type": "spec",
+      "action": "created",
+      "sha": "df428c64bd2269371b61cdd531f75b21e80bbc39a3656177ca342562a954a57a",
+      "ts": "2026-05-21T00:30:37.580Z",
+      "backend": "manifest.db",
+      "docId": "df428c64bd2269371b61cdd531f75b21e80bbc39a3656177ca342562a954a57a"
+    },
+    {
+      "file": "architecture/sdk-tools.md",
+      "slug": "sdk-tools",
+      "type": "spec",
+      "action": "created",
+      "sha": "b63a645cbf87fa5e2c9487e8ff856d1b1db783b7a0112d1140d80ce1e4326985",
+      "ts": "2026-05-21T00:30:37.598Z",
+      "backend": "manifest.db",
+      "docId": "b63a645cbf87fa5e2c9487e8ff856d1b1db783b7a0112d1140d80ce1e4326985"
+    },
+    {
+      "file": "architecture/SG-CLEO-SKILLS-architecture-v3.md",
+      "slug": "sg-cleo-skills-architecture-v3-2",
+      "type": "spec",
+      "action": "noop",
+      "sha": "a0b09f5bd608c93a2a9d8380f924a970d3f706f8bcec4504a870b92e3c2e00a3",
+      "ts": "2026-05-21T00:30:37.620Z"
+    },
+    {
+      "file": "architecture/TYPE-CONTRACTS.md",
+      "slug": "type-contracts",
+      "type": "spec",
+      "action": "created",
+      "sha": "ad89379ff3b0d5dfb50edeff505b7c3bef9aa9b177b6831bdd9b5e6059960b80",
+      "ts": "2026-05-21T00:30:37.620Z",
+      "backend": "manifest.db",
+      "docId": "ad89379ff3b0d5dfb50edeff505b7c3bef9aa9b177b6831bdd9b5e6059960b80"
+    },
+    {
+      "file": "archive/CANT-DSL-IMPLEMENTATION-PLAN.md",
+      "slug": "cant-dsl-implementation-plan",
+      "type": "spec",
+      "action": "created",
+      "sha": "8537d4d8354a20230ada9764e804770e1a180165512672fefea7d7f5175483ae",
+      "ts": "2026-05-21T00:30:37.640Z",
+      "backend": "manifest.db",
+      "docId": "8537d4d8354a20230ada9764e804770e1a180165512672fefea7d7f5175483ae"
+    },
+    {
+      "file": "archive/CLEO-API.md",
+      "slug": "cleo-api",
+      "type": "spec",
+      "action": "created",
+      "sha": "0570f7e023cd427e6ef0f0c2a5ee97b78bb19ef9cb624f0e9929481939de7d95",
+      "ts": "2026-05-21T00:30:37.664Z",
+      "backend": "manifest.db",
+      "docId": "0570f7e023cd427e6ef0f0c2a5ee97b78bb19ef9cb624f0e9929481939de7d95"
+    },
+    {
+      "file": "archive/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md",
+      "slug": "cleo-autonomous-runtime-implementation-map",
+      "type": "spec",
+      "action": "created",
+      "sha": "dcbc5357b558d7e84990a982262c48f9740e13d621d7f3ad898a8b86a598db29",
+      "ts": "2026-05-21T00:30:37.684Z",
+      "backend": "manifest.db",
+      "docId": "dcbc5357b558d7e84990a982262c48f9740e13d621d7f3ad898a8b86a598db29"
+    },
+    {
+      "file": "archive/CLEO-NEXUS-API.md",
+      "slug": "cleo-nexus-api",
+      "type": "spec",
+      "action": "created",
+      "sha": "1396e801f04d061bac2779cc0b33a009c4172a8eb7f4634852c5711024f9324d",
+      "ts": "2026-05-21T00:30:37.706Z",
+      "backend": "manifest.db",
+      "docId": "1396e801f04d061bac2779cc0b33a009c4172a8eb7f4634852c5711024f9324d"
+    },
+    {
+      "file": "archive/CLEO-ORCH-PLAN.md",
+      "slug": "cleo-orch-plan",
+      "type": "spec",
+      "action": "created",
+      "sha": "861f9986bd6b9e904b4594398c1c79deb8a38147739fec71cc539f5f3b635382",
+      "ts": "2026-05-21T00:30:37.733Z",
+      "backend": "manifest.db",
+      "docId": "861f9986bd6b9e904b4594398c1c79deb8a38147739fec71cc539f5f3b635382"
+    },
+    {
+      "file": "archive/README.md",
+      "slug": "readme-4",
+      "type": "spec",
+      "action": "created",
+      "sha": "29f1e76404b08032453ae485e883c047701300f78e471a27bd4ea463ccb6ddf9",
+      "ts": "2026-05-21T00:30:37.752Z",
+      "backend": "manifest.db",
+      "docId": "29f1e76404b08032453ae485e883c047701300f78e471a27bd4ea463ccb6ddf9"
+    },
+    {
+      "file": "archive/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md",
+      "slug": "signaldock-unified-agent-registry",
+      "type": "spec",
+      "action": "created",
+      "sha": "4e44a10c714a38504d818f2153f986a9c462905350fa29c778fb8dd97a7f7798",
+      "ts": "2026-05-21T00:30:37.773Z",
+      "backend": "manifest.db",
+      "docId": "4e44a10c714a38504d818f2153f986a9c462905350fa29c778fb8dd97a7f7798"
+    },
+    {
+      "file": "audits/2026-04-22-false-completion-audit.md",
+      "slug": "2026-04-22-false-completion-audit",
+      "type": "spec",
+      "action": "created",
+      "sha": "24ca6861857f133d2bc1afdda0503d1382e06c075aab2ef3fd8d5a2736829d28",
+      "ts": "2026-05-21T00:30:37.793Z",
+      "backend": "manifest.db",
+      "docId": "24ca6861857f133d2bc1afdda0503d1382e06c075aab2ef3fd8d5a2736829d28"
+    },
+    {
+      "file": "CLEO-DOCUMENTATION-SOP.md",
+      "slug": "cleo-documentation-sop",
+      "type": "spec",
+      "action": "created",
+      "sha": "3a01f5e3034de82d713defee0a716f78e830941c6c3493cb8e7f6cb48f87e993",
+      "ts": "2026-05-21T00:30:37.815Z",
+      "backend": "manifest.db",
+      "docId": "3a01f5e3034de82d713defee0a716f78e830941c6c3493cb8e7f6cb48f87e993"
+    },
+    {
+      "file": "cli-reference/deps.md",
+      "slug": "deps",
+      "type": "spec",
+      "action": "created",
+      "sha": "0d866190ca84b6813247e1d6ec4f125572e5b58f88200b555bb99f9b7ccadc8a",
+      "ts": "2026-05-21T00:30:37.837Z",
+      "backend": "manifest.db",
+      "docId": "0d866190ca84b6813247e1d6ec4f125572e5b58f88200b555bb99f9b7ccadc8a"
+    },
+    {
+      "file": "concepts/CLEO-ARCHITECTURE-GUIDE.md",
+      "slug": "cleo-architecture-guide",
+      "type": "spec",
+      "action": "created",
+      "sha": "72a0c2bd0c54234bbe481f5b93d0ce929665464606ca3e38538854573be5e4d1",
+      "ts": "2026-05-21T00:30:37.864Z",
+      "backend": "manifest.db",
+      "docId": "72a0c2bd0c54234bbe481f5b93d0ce929665464606ca3e38538854573be5e4d1"
+    },
+    {
+      "file": "concepts/CLEO-AWAKENING-STORY.md",
+      "slug": "cleo-awakening-story",
+      "type": "spec",
+      "action": "created",
+      "sha": "726feb597fe2beb00b669ab74478d90df27f12ca3c081cea74f270122825ecf6",
+      "ts": "2026-05-21T00:30:37.892Z",
+      "backend": "manifest.db",
+      "docId": "726feb597fe2beb00b669ab74478d90df27f12ca3c081cea74f270122825ecf6"
+    },
+    {
+      "file": "concepts/CLEO-CANON-INDEX.md",
+      "slug": "cleo-canon-index",
+      "type": "spec",
+      "action": "created",
+      "sha": "2a682a5b041b363ac4604e9c6aa6890411029bd0f782cf60421dc94f15d3b800",
+      "ts": "2026-05-21T00:30:37.912Z",
+      "backend": "manifest.db",
+      "docId": "2a682a5b041b363ac4604e9c6aa6890411029bd0f782cf60421dc94f15d3b800"
+    },
+    {
+      "file": "concepts/CLEO-CANT.md",
+      "slug": "cleo-cant",
+      "type": "spec",
+      "action": "created",
+      "sha": "0467b630f45a4a744ebf1a689d22c38ffacd1a82d4e24342eec99d59e42d2230",
+      "ts": "2026-05-21T00:30:37.935Z",
+      "backend": "manifest.db",
+      "docId": "0467b630f45a4a744ebf1a689d22c38ffacd1a82d4e24342eec99d59e42d2230"
+    },
+    {
+      "file": "concepts/CLEO-FOUNDING-STORY.md",
+      "slug": "cleo-founding-story",
+      "type": "spec",
+      "action": "created",
+      "sha": "fe7341a89a61d0fa714f98f9c977118e592702e0b96fd0ba6ab83b1049436352",
+      "ts": "2026-05-21T00:30:37.963Z",
+      "backend": "manifest.db",
+      "docId": "fe7341a89a61d0fa714f98f9c977118e592702e0b96fd0ba6ab83b1049436352"
+    },
+    {
+      "file": "concepts/CLEO-MANIFESTO.md",
+      "slug": "cleo-manifesto",
+      "type": "spec",
+      "action": "created",
+      "sha": "6e2ec427ca5112691c0aea6bb76f68dac1479e568c89970b303f22092f644222",
+      "ts": "2026-05-21T00:30:37.996Z",
+      "backend": "manifest.db",
+      "docId": "6e2ec427ca5112691c0aea6bb76f68dac1479e568c89970b303f22092f644222"
+    },
+    {
+      "file": "concepts/CLEO-SYSTEM-FLOW-ATLAS.md",
+      "slug": "cleo-system-flow-atlas",
+      "type": "spec",
+      "action": "created",
+      "sha": "361fef4474d8a89ff60b269c8e4451d398af32e40885f9ce0d073f0746e716d1",
+      "ts": "2026-05-21T00:30:38.020Z",
+      "backend": "manifest.db",
+      "docId": "361fef4474d8a89ff60b269c8e4451d398af32e40885f9ce0d073f0746e716d1"
+    },
+    {
+      "file": "concepts/CLEO-VISION.md",
+      "slug": "cleo-vision",
+      "type": "spec",
+      "action": "created",
+      "sha": "96575737ce708d19d71a02f5ae802685130b28ed96944030aa86e653cb91b87e",
+      "ts": "2026-05-21T00:30:38.056Z",
+      "backend": "manifest.db",
+      "docId": "96575737ce708d19d71a02f5ae802685130b28ed96944030aa86e653cb91b87e"
+    },
+    {
+      "file": "concepts/CLEO-WORLD-MAP.md",
+      "slug": "cleo-world-map",
+      "type": "spec",
+      "action": "created",
+      "sha": "297c9c9f3ac862bb7925bc1d25e96648614e8f13c1fd4a8c749940bebd550786",
+      "ts": "2026-05-21T00:30:38.088Z",
+      "backend": "manifest.db",
+      "docId": "297c9c9f3ac862bb7925bc1d25e96648614e8f13c1fd4a8c749940bebd550786"
+    },
+    {
+      "file": "concepts/CLEOOS-VISION.md",
+      "slug": "cleoos-vision",
+      "type": "spec",
+      "action": "created",
+      "sha": "56a835231fa7dea7626cf0318aa01e53c8b39ccd7ac090d9dfed432fd72f3394",
+      "ts": "2026-05-21T00:30:38.125Z",
+      "backend": "manifest.db",
+      "docId": "56a835231fa7dea7626cf0318aa01e53c8b39ccd7ac090d9dfed432fd72f3394"
+    },
+    {
+      "file": "concepts/NEXUS-CORE-ASPECTS.md",
+      "slug": "nexus-core-aspects",
+      "type": "spec",
+      "action": "created",
+      "sha": "b947a4986ba8204d4463caf4cddd06463afe6f0ce40c610023084bb6fbdec312",
+      "ts": "2026-05-21T00:30:38.156Z",
+      "backend": "manifest.db",
+      "docId": "b947a4986ba8204d4463caf4cddd06463afe6f0ce40c610023084bb6fbdec312"
+    },
+    {
+      "file": "design/CLEO-PI-AGENT-TUI-DESIGN.md",
+      "slug": "cleo-pi-agent-tui-design",
+      "type": "spec",
+      "action": "created",
+      "sha": "7f399d93b485153be619273f19012922f234452e937210975541ccca2bc0d687",
+      "ts": "2026-05-21T00:30:38.190Z",
+      "backend": "manifest.db",
+      "docId": "7f399d93b485153be619273f19012922f234452e937210975541ccca2bc0d687"
+    },
+    {
+      "file": "design/CLEO-PI-HARNESS-ARCHITECTURE.md",
+      "slug": "cleo-pi-harness-architecture",
+      "type": "spec",
+      "action": "created",
+      "sha": "1937c0407b311b7048e81367c1d274d728f9ef33a538da96ac8e513e900efa3a",
+      "ts": "2026-05-21T00:30:38.212Z",
+      "backend": "manifest.db",
+      "docId": "1937c0407b311b7048e81367c1d274d728f9ef33a538da96ac8e513e900efa3a"
+    },
+    {
+      "file": "design/CLEO-PI-HARNESS-WIREFRAMES.md",
+      "slug": "cleo-pi-harness-wireframes",
+      "type": "spec",
+      "action": "created",
+      "sha": "df14e061e30eef34f9ac26e365b28e3ff2246a66510e13469a54e1dd490bb51f",
+      "ts": "2026-05-21T00:30:38.236Z",
+      "backend": "manifest.db",
+      "docId": "df14e061e30eef34f9ac26e365b28e3ff2246a66510e13469a54e1dd490bb51f"
+    },
+    {
+      "file": "design/PI-EXTENSION-MAPPING.md",
+      "slug": "pi-extension-mapping",
+      "type": "spec",
+      "action": "created",
+      "sha": "efaddd8f5614a8cfc2b81786d7e35c4ca92ec08f56f701f756b2499677d49008",
+      "ts": "2026-05-21T00:30:38.258Z",
+      "backend": "manifest.db",
+      "docId": "efaddd8f5614a8cfc2b81786d7e35c4ca92ec08f56f701f756b2499677d49008"
+    },
+    {
+      "file": "design/QUICK-REFERENCE.md",
+      "slug": "quick-reference",
+      "type": "spec",
+      "action": "created",
+      "sha": "f49e25fd186afcef53580c1f1950b734875090ccdaf5733bee086918bfc113bc",
+      "ts": "2026-05-21T00:30:38.276Z",
+      "backend": "manifest.db",
+      "docId": "f49e25fd186afcef53580c1f1950b734875090ccdaf5733bee086918bfc113bc"
+    },
+    {
+      "file": "generated/api-reference.md",
+      "slug": "api-reference",
+      "type": "spec",
+      "action": "created",
+      "sha": "7c0d3299d52fea00527ebc49b01343a6fb5482175f9a663e6f7a6822b140e756",
+      "ts": "2026-05-21T00:30:38.291Z",
+      "backend": "manifest.db",
+      "docId": "7c0d3299d52fea00527ebc49b01343a6fb5482175f9a663e6f7a6822b140e756"
+    },
+    {
+      "file": "generated/SKILL-monorepo/references/API-REFERENCE.md",
+      "slug": "api-reference-2",
+      "type": "spec",
+      "action": "created",
+      "sha": "94200080d0a249c49dd13e1213a3cb229c89e61a26a43b4e4fb76dca14bc7c2a",
+      "ts": "2026-05-21T00:30:38.421Z",
+      "backend": "manifest.db",
+      "docId": "94200080d0a249c49dd13e1213a3cb229c89e61a26a43b4e4fb76dca14bc7c2a"
+    },
+    {
+      "file": "generated/SKILL-monorepo/references/CONFIGURATION.md",
+      "slug": "configuration",
+      "type": "spec",
+      "action": "created",
+      "sha": "6203c5a17ea12db9bd44c2861f20ef318bfc4b47e073e839a72b03655a5dc9a1",
+      "ts": "2026-05-21T00:30:38.438Z",
+      "backend": "manifest.db",
+      "docId": "6203c5a17ea12db9bd44c2861f20ef318bfc4b47e073e839a72b03655a5dc9a1"
+    },
+    {
+      "file": "generated/SKILL-monorepo/SKILL.md",
+      "slug": "skill",
+      "type": "spec",
+      "action": "created",
+      "sha": "b48930c05e77345decd2b3b711a990853b42b191983caf77c6089244c7ce8fe7",
+      "ts": "2026-05-21T00:30:38.441Z",
+      "backend": "manifest.db",
+      "docId": "b48930c05e77345decd2b3b711a990853b42b191983caf77c6089244c7ce8fe7"
+    },
+    {
+      "file": "guides/CANT-REFERENCE.md",
+      "slug": "cant-reference",
+      "type": "spec",
+      "action": "created",
+      "sha": "4a776441c201f3e6380b1b05ae0fa7dc0c39a1a868c4e6c52d1cd16699112711",
+      "ts": "2026-05-21T00:30:38.443Z",
+      "backend": "manifest.db",
+      "docId": "4a776441c201f3e6380b1b05ae0fa7dc0c39a1a868c4e6c52d1cd16699112711"
+    },
+    {
+      "file": "guides/CREATING-CUSTOM-AGENTS.md",
+      "slug": "creating-custom-agents",
+      "type": "spec",
+      "action": "created",
+      "sha": "ee97e6f9dae5d21f8beec5dae813693d52f20649789dd878340a1053b9c39ea1",
+      "ts": "2026-05-21T00:30:38.445Z",
+      "backend": "manifest.db",
+      "docId": "ee97e6f9dae5d21f8beec5dae813693d52f20649789dd878340a1053b9c39ea1"
+    },
+    {
+      "file": "guides/LEAD-VS-WORKER-ROLES.md",
+      "slug": "lead-vs-worker-roles",
+      "type": "spec",
+      "action": "created",
+      "sha": "6d903d90871116289e90905afcc92f204f05a0df65801cb25c24f47b76931a88",
+      "ts": "2026-05-21T00:30:38.448Z",
+      "backend": "manifest.db",
+      "docId": "6d903d90871116289e90905afcc92f204f05a0df65801cb25c24f47b76931a88"
+    },
+    {
+      "file": "guides/SUBAGENT-INJECTION-PIPELINE.md",
+      "slug": "subagent-injection-pipeline",
+      "type": "spec",
+      "action": "created",
+      "sha": "715618151b21d7dc957032ac768d1814b3a65c31b146a1aab66c6304de9c779f",
+      "ts": "2026-05-21T00:30:38.450Z",
+      "backend": "manifest.db",
+      "docId": "715618151b21d7dc957032ac768d1814b3a65c31b146a1aab66c6304de9c779f"
+    },
+    {
+      "file": "guides/task-system-hardening.md",
+      "slug": "task-system-hardening",
+      "type": "spec",
+      "action": "created",
+      "sha": "139afc5eb7dc73bc1cdb78ccbaae33bca8833b12b2fd720d8733c08ea5bd9e60",
+      "ts": "2026-05-21T00:30:38.452Z",
+      "backend": "manifest.db",
+      "docId": "139afc5eb7dc73bc1cdb78ccbaae33bca8833b12b2fd720d8733c08ea5bd9e60"
+    },
+    {
+      "file": "guides/TOKEN-REPLACEMENT-CONTRACT.md",
+      "slug": "token-replacement-contract",
+      "type": "spec",
+      "action": "created",
+      "sha": "a1d0c74fba6353a07db8548141b6e975b2458b519cce5565adcb465fab8efd17",
+      "ts": "2026-05-21T00:30:38.454Z",
+      "backend": "manifest.db",
+      "docId": "a1d0c74fba6353a07db8548141b6e975b2458b519cce5565adcb465fab8efd17"
+    },
+    {
+      "file": "meta-agents.md",
+      "slug": "meta-agents",
+      "type": "spec",
+      "action": "created",
+      "sha": "034e4f284167d94c7adbd159e25cbfec3fc5722204b35454e8cc79e7a832a141",
+      "ts": "2026-05-21T00:30:38.455Z",
+      "backend": "manifest.db",
+      "docId": "034e4f284167d94c7adbd159e25cbfec3fc5722204b35454e8cc79e7a832a141"
+    },
+    {
+      "file": "migration/hermes-to-cleo.md",
+      "slug": "hermes-to-cleo",
+      "type": "spec",
+      "action": "created",
+      "sha": "ed450277487e33e3b5f22e5e85a83bba3197fee33d11a9deaa065d2af6efd9c1",
+      "ts": "2026-05-21T00:30:38.457Z",
+      "backend": "manifest.db",
+      "docId": "ed450277487e33e3b5f22e5e85a83bba3197fee33d11a9deaa065d2af6efd9c1"
+    },
+    {
+      "file": "migration/legacy-to-docs.md",
+      "slug": "legacy-to-docs",
+      "type": "spec",
+      "action": "created",
+      "sha": "aff04662162698159955c26141d3a8d5caf129ea0c11433c485ea521683825b8",
+      "ts": "2026-05-21T00:30:38.459Z",
+      "backend": "manifest.db",
+      "docId": "aff04662162698159955c26141d3a8d5caf129ea0c11433c485ea521683825b8"
+    },
+    {
+      "file": "migrations/2026-04-25-audit-columns-backfill.md",
+      "slug": "2026-04-25-audit-columns-backfill",
+      "type": "spec",
+      "action": "created",
+      "sha": "95f79efef56afe6f96981a8db584f29c4e40e38d5e93f43a6f2397bb4987509c",
+      "ts": "2026-05-21T00:30:38.462Z",
+      "backend": "manifest.db",
+      "docId": "95f79efef56afe6f96981a8db584f29c4e40e38d5e93f43a6f2397bb4987509c"
+    },
+    {
+      "file": "owner-ci/skills-pipeline.md",
+      "slug": "skills-pipeline",
+      "type": "spec",
+      "action": "created",
+      "sha": "9251e3e8fff548d556d389e393dd2ad7f6eea5b103595453cf12017486bd5c18",
+      "ts": "2026-05-21T00:30:38.464Z",
+      "backend": "manifest.db",
+      "docId": "9251e3e8fff548d556d389e393dd2ad7f6eea5b103595453cf12017486bd5c18"
+    },
+    {
+      "file": "plans/2026-04-21-agi-self-healing-plan-v2.md",
+      "slug": "2026-04-21-agi-self-healing-plan-v2",
+      "type": "spec",
+      "action": "created",
+      "sha": "4436944ee57caeb02b86165d95ade878e55626894bd168dcc9b172173a1273e5",
+      "ts": "2026-05-21T00:30:38.466Z",
+      "backend": "manifest.db",
+      "docId": "4436944ee57caeb02b86165d95ade878e55626894bd168dcc9b172173a1273e5"
+    },
+    {
+      "file": "plans/2026-04-21-agi-self-healing-plan.md",
+      "slug": "2026-04-21-agi-self-healing-plan",
+      "type": "spec",
+      "action": "created",
+      "sha": "4efd50a2776b666d087fb7d0a4551aa5eab1c0d417cee5bff337464add64196e",
+      "ts": "2026-05-21T00:30:38.469Z",
+      "backend": "manifest.db",
+      "docId": "4efd50a2776b666d087fb7d0a4551aa5eab1c0d417cee5bff337464add64196e"
+    },
+    {
+      "file": "plans/blueprints/verb-001-lint-blueprint.md",
+      "slug": "verb-001-lint-blueprint",
+      "type": "spec",
+      "action": "created",
+      "sha": "72be10393dc0fa792a60e289fc4013f1fc9d451cd6632ff745481254607a8853",
+      "ts": "2026-05-21T00:30:38.471Z",
+      "backend": "manifest.db",
+      "docId": "72be10393dc0fa792a60e289fc4013f1fc9d451cd6632ff745481254607a8853"
+    },
+    {
+      "file": "plans/blueprints/wave-0.5-grammar-blueprint.md",
+      "slug": "wave-0-5-grammar-blueprint",
+      "type": "spec",
+      "action": "created",
+      "sha": "091c0aa93b34c714bbd92d1429ad1865149d201bdd1151109133a3b3115861e9",
+      "ts": "2026-05-21T00:30:38.473Z",
+      "backend": "manifest.db",
+      "docId": "091c0aa93b34c714bbd92d1429ad1865149d201bdd1151109133a3b3115861e9"
+    },
+    {
+      "file": "plans/brain-synaptic-visualization-research.md",
+      "slug": "brain-synaptic-visualization-research",
+      "type": "spec",
+      "action": "created",
+      "sha": "b298793953e569f19d7b4782c4814eef2a56befa4a837ed37f198587ff232f8b",
+      "ts": "2026-05-21T00:30:38.475Z",
+      "backend": "manifest.db",
+      "docId": "b298793953e569f19d7b4782c4814eef2a56befa4a837ed37f198587ff232f8b"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/CLOSEOUT-T1892-MANIFEST.md",
+      "slug": "closeout-t1892-manifest",
+      "type": "spec",
+      "action": "created",
+      "sha": "67b2d320b6a365164bde020c5ec39d8c314bbdeb2e5193d87f05176aaa8fd476",
+      "ts": "2026-05-21T00:30:38.478Z",
+      "backend": "manifest.db",
+      "docId": "67b2d320b6a365164bde020c5ec39d8c314bbdeb2e5193d87f05176aaa8fd476"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/CLOSEOUT-T942-T1007-MANIFEST.md",
+      "slug": "closeout-t942-t1007-manifest",
+      "type": "spec",
+      "action": "created",
+      "sha": "88481ac5a5d451c9c3ebd2218a1c31a1268dedc276d17b38550ecb2afd3f81d4",
+      "ts": "2026-05-21T00:30:38.480Z",
+      "backend": "manifest.db",
+      "docId": "88481ac5a5d451c9c3ebd2218a1c31a1268dedc276d17b38550ecb2afd3f81d4"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/E-PRIME-T01-T02-CI.md",
+      "slug": "e-prime-t01-t02-ci",
+      "type": "spec",
+      "action": "created",
+      "sha": "da19779f36a897c05d02167f0f0d21db9c1b71ec06ff03b7e0449cae706a9317",
+      "ts": "2026-05-21T00:30:38.481Z",
+      "backend": "manifest.db",
+      "docId": "da19779f36a897c05d02167f0f0d21db9c1b71ec06ff03b7e0449cae706a9317"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/E-PRIME-T03-T08a-identity.md",
+      "slug": "e-prime-t03-t08a-identity",
+      "type": "spec",
+      "action": "created",
+      "sha": "40da6a13b38a6518a311146338f2f75d43c4e7d26021f13f95bd20df8115333d",
+      "ts": "2026-05-21T00:30:38.484Z",
+      "backend": "manifest.db",
+      "docId": "40da6a13b38a6518a311146338f2f75d43c4e7d26021f13f95bd20df8115333d"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/E-PRIME-T04-T05-gate-bitemporal.md",
+      "slug": "e-prime-t04-t05-gate-bitemporal",
+      "type": "spec",
+      "action": "created",
+      "sha": "fe14565202b226e4d7397fae41f197a292a3316dea0c92a2d06b940ec9995bfb",
+      "ts": "2026-05-21T00:30:38.486Z",
+      "backend": "manifest.db",
+      "docId": "fe14565202b226e4d7397fae41f197a292a3316dea0c92a2d06b940ec9995bfb"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/E-PRIME-T06-psyche.md",
+      "slug": "e-prime-t06-psyche",
+      "type": "spec",
+      "action": "created",
+      "sha": "91bdb35197c8b6c71e504b53c5287893f70ebac1dd502a1b3dd8d6dd3f530073",
+      "ts": "2026-05-21T00:30:38.489Z",
+      "backend": "manifest.db",
+      "docId": "91bdb35197c8b6c71e504b53c5287893f70ebac1dd502a1b3dd8d6dd3f530073"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/E-PRIME-T07-T08b-T09-integration.md",
+      "slug": "e-prime-t07-t08b-t09-integration",
+      "type": "spec",
+      "action": "created",
+      "sha": "d5b50bfd6798bb5243681e9489a4451f42500bb32bbf18620e6e6e913050bc1e",
+      "ts": "2026-05-21T00:30:38.491Z",
+      "backend": "manifest.db",
+      "docId": "d5b50bfd6798bb5243681e9489a4451f42500bb32bbf18620e6e6e913050bc1e"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/E-PRIME-T10-T11-T12-T13-T14-substrate.md",
+      "slug": "e-prime-t10-t11-t12-t13-t14-substrate",
+      "type": "spec",
+      "action": "created",
+      "sha": "dff98c2c7a2693bf088af1e00c453b818f39cc3a6871b3c21d109e171faad057",
+      "ts": "2026-05-21T00:30:38.493Z",
+      "backend": "manifest.db",
+      "docId": "dff98c2c7a2693bf088af1e00c453b818f39cc3a6871b3c21d109e171faad057"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/HIERARCHY-SHAPE-AUDIT.md",
+      "slug": "hierarchy-shape-audit",
+      "type": "spec",
+      "action": "created",
+      "sha": "c8ed3b3915c132f36a19ea1fc27a07c52285dd3e0d45b4eefdd0985d4cf6dd0a",
+      "ts": "2026-05-21T00:30:38.495Z",
+      "backend": "manifest.db",
+      "docId": "c8ed3b3915c132f36a19ea1fc27a07c52285dd3e0d45b4eefdd0985d4cf6dd0a"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/README.md",
+      "slug": "readme-5",
+      "type": "spec",
+      "action": "created",
+      "sha": "a86debf9cd83619ccef441e528dc4107317e46d3f6c1d307b4ef184e7bc59894",
+      "ts": "2026-05-21T00:30:38.497Z",
+      "backend": "manifest.db",
+      "docId": "a86debf9cd83619ccef441e528dc4107317e46d3f6c1d307b4ef184e7bc59894"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/RECONCILIATION-PLAN.md",
+      "slug": "reconciliation-plan",
+      "type": "spec",
+      "action": "created",
+      "sha": "97b01f6c7ae6bd5cc6d4818dceba56e6b53caa488a596ae724ff9b62a2f1c2a1",
+      "ts": "2026-05-21T00:30:38.499Z",
+      "backend": "manifest.db",
+      "docId": "97b01f6c7ae6bd5cc6d4818dceba56e6b53caa488a596ae724ff9b62a2f1c2a1"
+    },
+    {
+      "file": "plans/cleo-prime-decomposition/T9232-PARTIAL-EXTRACT-MANIFEST.md",
+      "slug": "t9232-partial-extract-manifest",
+      "type": "spec",
+      "action": "created",
+      "sha": "78d5f73b631dde56b7f2f075d99067eedff76bbac8f9886e31c04e59354e7254",
+      "ts": "2026-05-21T00:30:38.501Z",
+      "backend": "manifest.db",
+      "docId": "78d5f73b631dde56b7f2f075d99067eedff76bbac8f9886e31c04e59354e7254"
+    },
+    {
+      "file": "plans/CLEO-PRIME-SENTIENT-MASTERPLAN.md",
+      "slug": "cleo-prime-sentient-masterplan",
+      "type": "spec",
+      "action": "created",
+      "sha": "986d6c670af4888cffc5bc619b382ed13f5b4db8e36806e13b315c539700ab9c",
+      "ts": "2026-05-21T00:30:38.503Z",
+      "backend": "manifest.db",
+      "docId": "986d6c670af4888cffc5bc619b382ed13f5b4db8e36806e13b315c539700ab9c"
+    },
+    {
+      "file": "plans/CLEO-ULTRAPLAN.md",
+      "slug": "cleo-ultraplan",
+      "type": "spec",
+      "action": "created",
+      "sha": "8a341d14ce396d8f610d7fb3e8187bb292d58c4b2bbecb71f51a2ae40a9b98e0",
+      "ts": "2026-05-21T00:30:38.506Z",
+      "backend": "manifest.db",
+      "docId": "8a341d14ce396d8f610d7fb3e8187bb292d58c4b2bbecb71f51a2ae40a9b98e0"
+    },
+    {
+      "file": "plans/CleoCode-Architecture-Harness-Planning.md",
+      "slug": "cleocode-architecture-harness-planning",
+      "type": "spec",
+      "action": "created",
+      "sha": "99f8b3b63d29c4b92b8a666cefa34b6d5f3ca5bcbaba1cf6250fdec4c63b6e72",
+      "ts": "2026-05-21T00:30:38.508Z",
+      "backend": "manifest.db",
+      "docId": "99f8b3b63d29c4b92b8a666cefa34b6d5f3ca5bcbaba1cf6250fdec4c63b6e72"
+    },
+    {
+      "file": "plans/cleoos-v2-execution-log.md",
+      "slug": "cleoos-v2-execution-log",
+      "type": "spec",
+      "action": "created",
+      "sha": "3a5dd8f631e75efc8a74faf56408b9ca7bfb94f07674bfd7a6de8b0d0d07fe67",
+      "ts": "2026-05-21T00:30:38.510Z",
+      "backend": "manifest.db",
+      "docId": "3a5dd8f631e75efc8a74faf56408b9ca7bfb94f07674bfd7a6de8b0d0d07fe67"
+    },
+    {
+      "file": "plans/E-AUDIT-V2-FIXES.md",
+      "slug": "e-audit-v2-fixes",
+      "type": "spec",
+      "action": "created",
+      "sha": "aad001b813cfade640cda27d3a2e9971a1bfcd8618b661f80dcb84d6f376e719",
+      "ts": "2026-05-21T00:30:38.513Z",
+      "backend": "manifest.db",
+      "docId": "aad001b813cfade640cda27d3a2e9971a1bfcd8618b661f80dcb84d6f376e719"
+    },
+    {
+      "file": "plans/E-CLEO-SETUP-V2.md",
+      "slug": "e-cleo-setup-v2",
+      "type": "spec",
+      "action": "created",
+      "sha": "d76e87f3a2c83639c7f4be795e52baf61b502353041ae60b75a268ad5b8b7223",
+      "ts": "2026-05-21T00:30:38.515Z",
+      "backend": "manifest.db",
+      "docId": "d76e87f3a2c83639c7f4be795e52baf61b502353041ae60b75a268ad5b8b7223"
+    },
+    {
+      "file": "plans/E-CONFIG-AUTH-UNIFY.md",
+      "slug": "e-config-auth-unify",
+      "type": "spec",
+      "action": "created",
+      "sha": "a50fdeb1516537ff90e11ed5b22218575239da1bac11a030a2c82a38339888f0",
+      "ts": "2026-05-21T00:30:38.517Z",
+      "backend": "manifest.db",
+      "docId": "a50fdeb1516537ff90e11ed5b22218575239da1bac11a030a2c82a38339888f0"
+    },
+    {
+      "file": "plans/E-CORE-FIRST-ARCH.md",
+      "slug": "e-core-first-arch",
+      "type": "spec",
+      "action": "created",
+      "sha": "24c229996e97037be3fd14e8297f4b1dcc20dfcc4ff4ce9fe488d0cb85a7131b",
+      "ts": "2026-05-21T00:30:38.520Z",
+      "backend": "manifest.db",
+      "docId": "24c229996e97037be3fd14e8297f4b1dcc20dfcc4ff4ce9fe488d0cb85a7131b"
+    },
+    {
+      "file": "plans/E-WORKTREE-IVTR-CLOSEOUT.md",
+      "slug": "e-worktree-ivtr-closeout",
+      "type": "spec",
+      "action": "created",
+      "sha": "70b445f5c9dd2a10c8db27fdfe268570f710df75c1943f798d5371a5a354fa22",
+      "ts": "2026-05-21T00:30:38.522Z",
+      "backend": "manifest.db",
+      "docId": "70b445f5c9dd2a10c8db27fdfe268570f710df75c1943f798d5371a5a354fa22"
+    },
+    {
+      "file": "plans/E-WORKTREE-IVTR.md",
+      "slug": "e-worktree-ivtr",
+      "type": "spec",
+      "action": "created",
+      "sha": "76e196126fe332486e9b4703e0280851a497ca7818de23e04ca6dbfca841d9df",
+      "ts": "2026-05-21T00:30:38.524Z",
+      "backend": "manifest.db",
+      "docId": "76e196126fe332486e9b4703e0280851a497ca7818de23e04ca6dbfca841d9df"
+    },
+    {
+      "file": "plans/PATH-TO-100-PERCENT-COMPLETION.md",
+      "slug": "path-to-100-percent-completion",
+      "type": "spec",
+      "action": "created",
+      "sha": "a9273ad2466edb441231e7d8db451e2597df36aed496124bd10cf9d3e295d67b",
+      "ts": "2026-05-21T00:30:38.526Z",
+      "backend": "manifest.db",
+      "docId": "a9273ad2466edb441231e7d8db451e2597df36aed496124bd10cf9d3e295d67b"
+    },
+    {
+      "file": "plans/README-AUTO-REGEN.md",
+      "slug": "readme-auto-regen",
+      "type": "spec",
+      "action": "created",
+      "sha": "57d7f9a99f8c98e5a25159d5cc38a4f547e6118fb2623459f96680323a2c109b",
+      "ts": "2026-05-21T00:30:38.529Z",
+      "backend": "manifest.db",
+      "docId": "57d7f9a99f8c98e5a25159d5cc38a4f547e6118fb2623459f96680323a2c109b"
+    },
+    {
+      "file": "plans/stdp-feasibility.md",
+      "slug": "stdp-feasibility",
+      "type": "spec",
+      "action": "created",
+      "sha": "564b2d73939ab5b40664cf89c107e850cb39cab6d38566b89ba7dcde10ac3639",
+      "ts": "2026-05-21T00:30:38.531Z",
+      "backend": "manifest.db",
+      "docId": "564b2d73939ab5b40664cf89c107e850cb39cab6d38566b89ba7dcde10ac3639"
+    },
+    {
+      "file": "plans/T-DAEMON-LASTTICKAT-DIAGNOSIS.md",
+      "slug": "t-daemon-lasttickat-diagnosis",
+      "type": "spec",
+      "action": "created",
+      "sha": "deade86e972930ccd4e6e3e680d40d3cd8fbdb6b721f3ec80a18c6c99695974d",
+      "ts": "2026-05-21T00:30:38.533Z",
+      "backend": "manifest.db",
+      "docId": "deade86e972930ccd4e6e3e680d40d3cd8fbdb6b721f3ec80a18c6c99695974d"
+    },
+    {
+      "file": "plans/T-LLM-CRED-CENTRALIZATION.md",
+      "slug": "t-llm-cred-centralization",
+      "type": "spec",
+      "action": "created",
+      "sha": "ea219a4e05374a27efe2c5e4cbbe8658cddb8d19662a3385d54c78d6126e0938",
+      "ts": "2026-05-21T00:30:38.535Z",
+      "backend": "manifest.db",
+      "docId": "ea219a4e05374a27efe2c5e4cbbe8658cddb8d19662a3385d54c78d6126e0938"
+    },
+    {
+      "file": "plans/T662-council-round-table-report.md",
+      "slug": "t662-council-round-table-report",
+      "type": "spec",
+      "action": "created",
+      "sha": "2ed5ccd681c17932937a5a98024389ed77d7de399fb2530d0c83e58a2f7f8718",
+      "ts": "2026-05-21T00:30:38.538Z",
+      "backend": "manifest.db",
+      "docId": "2ed5ccd681c17932937a5a98024389ed77d7de399fb2530d0c83e58a2f7f8718"
+    },
+    {
+      "file": "project-root-conventions.md",
+      "slug": "project-root-conventions",
+      "type": "spec",
+      "action": "created",
+      "sha": "c41368a4ae4385711aa0856f9dbcfda6c0265b3553022277ee36f5b91707dc9e",
+      "ts": "2026-05-21T00:30:38.623Z",
+      "backend": "manifest.db",
+      "docId": "c41368a4ae4385711aa0856f9dbcfda6c0265b3553022277ee36f5b91707dc9e"
+    },
+    {
+      "file": "RECOVERY.md",
+      "slug": "recovery",
+      "type": "spec",
+      "action": "created",
+      "sha": "aba3d334bb95b8850a00f7d2d4cefcc18e739dea791060dd5d473e2aeaea7d77",
+      "ts": "2026-05-21T00:30:38.628Z",
+      "backend": "manifest.db",
+      "docId": "aba3d334bb95b8850a00f7d2d4cefcc18e739dea791060dd5d473e2aeaea7d77"
+    },
+    {
+      "file": "release/branch-protection-setup.md",
+      "slug": "branch-protection-setup",
+      "type": "spec",
+      "action": "created",
+      "sha": "97638b7c9b0ae940b42d94e6bbb7e312409b4637cd92f76e0eca7b333a646462",
+      "ts": "2026-05-21T00:30:38.631Z",
+      "backend": "manifest.db",
+      "docId": "97638b7c9b0ae940b42d94e6bbb7e312409b4637cd92f76e0eca7b333a646462"
+    },
+    {
+      "file": "release/dep-pruning.md",
+      "slug": "dep-pruning",
+      "type": "spec",
+      "action": "created",
+      "sha": "39ff891cfad6411ef381cd9c087c36dd8ddb1cdc77daf279119d7e8027673b85",
+      "ts": "2026-05-21T00:30:38.634Z",
+      "backend": "manifest.db",
+      "docId": "39ff891cfad6411ef381cd9c087c36dd8ddb1cdc77daf279119d7e8027673b85"
+    },
+    {
+      "file": "release/pre-push-reconcile-gate.md",
+      "slug": "pre-push-reconcile-gate",
+      "type": "spec",
+      "action": "created",
+      "sha": "43769c03d2eb0629e40556118593ea31843a0d6608012783e8f8bb29272d54f7",
+      "ts": "2026-05-21T00:30:38.636Z",
+      "backend": "manifest.db",
+      "docId": "43769c03d2eb0629e40556118593ea31843a0d6608012783e8f8bb29272d54f7"
+    },
+    {
+      "file": "RELEASING.md",
+      "slug": "releasing",
+      "type": "spec",
+      "action": "created",
+      "sha": "5b02c6849eb0c5700adb789eb7a638a33080935ca8cf1f04278bca524df111a1",
+      "ts": "2026-05-21T00:30:38.638Z",
+      "backend": "manifest.db",
+      "docId": "5b02c6849eb0c5700adb789eb7a638a33080935ca8cf1f04278bca524df111a1"
+    },
+    {
+      "file": "saga-t9625-handoff.md",
+      "slug": "saga-t9625-handoff",
+      "type": "spec",
+      "action": "created",
+      "sha": "e89cf4dd5a8c437615dbd764b23fc2d62a22fc57d1035c7265ddd93c8cd97648",
+      "ts": "2026-05-21T00:30:38.641Z",
+      "backend": "manifest.db",
+      "docId": "e89cf4dd5a8c437615dbd764b23fc2d62a22fc57d1035c7265ddd93c8cd97648"
+    },
+    {
+      "file": "saga-t9625-llmtxt-upstream-tracker.md",
+      "slug": "saga-t9625-llmtxt-upstream-tracker",
+      "type": "spec",
+      "action": "created",
+      "sha": "7e8ec97f3eb771411f20e2add4cf7df5c5d118969ae67b149d864a371f385c65",
+      "ts": "2026-05-21T00:30:38.644Z",
+      "backend": "manifest.db",
+      "docId": "7e8ec97f3eb771411f20e2add4cf7df5c5d118969ae67b149d864a371f385c65"
+    },
+    {
+      "file": "sentient-loop.md",
+      "slug": "sentient-loop",
+      "type": "spec",
+      "action": "created",
+      "sha": "b561ece016cba62bd01b052cbc579424d09cb5fddb0c1028c9bdfce0e1a0223b",
+      "ts": "2026-05-21T00:30:38.646Z",
+      "backend": "manifest.db",
+      "docId": "b561ece016cba62bd01b052cbc579424d09cb5fddb0c1028c9bdfce0e1a0223b"
+    },
+    {
+      "file": "skills/federation.md",
+      "slug": "federation",
+      "type": "spec",
+      "action": "created",
+      "sha": "744aa7c7249917760b9f31cfb9edec0b67271c05457359d03ce94778c897b016",
+      "ts": "2026-05-21T00:30:38.648Z",
+      "backend": "manifest.db",
+      "docId": "744aa7c7249917760b9f31cfb9edec0b67271c05457359d03ce94778c897b016"
+    },
+    {
+      "file": "skills/loom-coverage-matrix.md",
+      "slug": "loom-coverage-matrix",
+      "type": "spec",
+      "action": "created",
+      "sha": "924c46125c1da2ebf977467bb2478adb220f6cd9ad075105e97720bba38c2b89",
+      "ts": "2026-05-21T00:30:38.651Z",
+      "backend": "manifest.db",
+      "docId": "924c46125c1da2ebf977467bb2478adb220f6cd9ad075105e97720bba38c2b89"
+    },
+    {
+      "file": "spec/worktree-lifecycle.md",
+      "slug": "worktree-lifecycle",
+      "type": "spec",
+      "action": "created",
+      "sha": "4405122107a7e001d3a452cbeddce8d9d1daa3db694bb839ec9a742ae9b852f9",
+      "ts": "2026-05-21T00:30:38.654Z",
+      "backend": "manifest.db",
+      "docId": "4405122107a7e001d3a452cbeddce8d9d1daa3db694bb839ec9a742ae9b852f9"
+    },
+    {
+      "file": "specs/CAAMP-INTEGRATION-SPEC.md",
+      "slug": "caamp-integration-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "f8e61090546abd75aa438dea294426caeb4d08364f2bd72e5c7b31412edbb108",
+      "ts": "2026-05-21T00:30:38.656Z",
+      "backend": "manifest.db",
+      "docId": "f8e61090546abd75aa438dea294426caeb4d08364f2bd72e5c7b31412edbb108"
+    },
+    {
+      "file": "specs/CANT-DSL-SPEC.md",
+      "slug": "cant-dsl-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "250c950e24c04ca69c076af380272290d2bd1f5c4b929edacce064fce7c1a079",
+      "ts": "2026-05-21T00:30:38.658Z",
+      "backend": "manifest.db",
+      "docId": "250c950e24c04ca69c076af380272290d2bd1f5c4b929edacce064fce7c1a079"
+    },
+    {
+      "file": "specs/CANT-EXECUTION-SEMANTICS.md",
+      "slug": "cant-execution-semantics",
+      "type": "spec",
+      "action": "created",
+      "sha": "25c5deadac9c59eb47f411b2c1c30f5af6cf1edd2112db80dd7e10096b1e40b2",
+      "ts": "2026-05-21T00:30:38.661Z",
+      "backend": "manifest.db",
+      "docId": "25c5deadac9c59eb47f411b2c1c30f5af6cf1edd2112db80dd7e10096b1e40b2"
+    },
+    {
+      "file": "specs/CANT-HIERARCHY-SPEC.md",
+      "slug": "cant-hierarchy-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "dd370761af130920c56d675c7bb5b1fb15eb4cc451bde256b4fb768225ea5eef",
+      "ts": "2026-05-21T00:30:38.664Z",
+      "backend": "manifest.db",
+      "docId": "dd370761af130920c56d675c7bb5b1fb15eb4cc451bde256b4fb768225ea5eef"
+    },
+    {
+      "file": "specs/CANT-PERSONA-MVI-SPEC.md",
+      "slug": "cant-persona-mvi-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "80df3666cb6951e51f7f12cb053c490b954e3f4d687dd5ce16263c2fd43b2cee",
+      "ts": "2026-05-21T00:30:38.666Z",
+      "backend": "manifest.db",
+      "docId": "80df3666cb6951e51f7f12cb053c490b954e3f4d687dd5ce16263c2fd43b2cee"
+    },
+    {
+      "file": "specs/CANT-TYPESCRIPT-INTEGRATION.md",
+      "slug": "cant-typescript-integration",
+      "type": "spec",
+      "action": "created",
+      "sha": "205352ed21e5d18c1a8c2b589f658670975b3225538b19605f6efd9fe29c244d",
+      "ts": "2026-05-21T00:30:38.668Z",
+      "backend": "manifest.db",
+      "docId": "205352ed21e5d18c1a8c2b589f658670975b3225538b19605f6efd9fe29c244d"
+    },
+    {
+      "file": "specs/CANTZ-PACKAGE-STANDARD.md",
+      "slug": "cantz-package-standard",
+      "type": "spec",
+      "action": "created",
+      "sha": "06154ba400b56c6f706357f5bf8e455fa0ad63a9b3759f1f21d9f2bf6796aa93",
+      "ts": "2026-05-21T00:30:38.670Z",
+      "backend": "manifest.db",
+      "docId": "06154ba400b56c6f706357f5bf8e455fa0ad63a9b3759f1f21d9f2bf6796aa93"
+    },
+    {
+      "file": "specs/CLEO-API-AUTHORITY.md",
+      "slug": "cleo-api-authority",
+      "type": "spec",
+      "action": "created",
+      "sha": "e245d6737516367527d060dddf0fe4b651e97db9a2b0e2c63151d6c8361c6e80",
+      "ts": "2026-05-21T00:30:38.672Z",
+      "backend": "manifest.db",
+      "docId": "e245d6737516367527d060dddf0fe4b651e97db9a2b0e2c63151d6c8361c6e80"
+    },
+    {
+      "file": "specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md",
+      "slug": "cleo-autonomous-runtime-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "be87fb920a4067022d910d9d058798d8649d4cf81efb1a175bc9b9226378207f",
+      "ts": "2026-05-21T00:30:38.675Z",
+      "backend": "manifest.db",
+      "docId": "be87fb920a4067022d910d9d058798d8649d4cf81efb1a175bc9b9226378207f"
+    },
+    {
+      "file": "specs/CLEO-BRAIN-PACKAGE-SPEC.md",
+      "slug": "cleo-brain-package-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "ba1decb3a89dadb84c72287dc1a3b2031a42e37375f44efb0d1cd0bdfc97f4d6",
+      "ts": "2026-05-21T00:30:38.676Z",
+      "backend": "manifest.db",
+      "docId": "ba1decb3a89dadb84c72287dc1a3b2031a42e37375f44efb0d1cd0bdfc97f4d6"
+    },
+    {
+      "file": "specs/CLEO-CONDUIT-PROTOCOL-SPEC.md",
+      "slug": "cleo-conduit-protocol-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "3d8f273e82fb361981d16065961f79d0b6af500f35d5a9a350fcbcfda81fb1ca",
+      "ts": "2026-05-21T00:30:38.679Z",
+      "backend": "manifest.db",
+      "docId": "3d8f273e82fb361981d16065961f79d0b6af500f35d5a9a350fcbcfda81fb1ca"
+    },
+    {
+      "file": "specs/CLEO-DATA-INTEGRITY-SPEC.md",
+      "slug": "cleo-data-integrity-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "3cdde8e48ff5aba83e9204723c206a9a61935d7892346d1f6a6275546d897cd6",
+      "ts": "2026-05-21T00:30:38.681Z",
+      "backend": "manifest.db",
+      "docId": "3cdde8e48ff5aba83e9204723c206a9a61935d7892346d1f6a6275546d897cd6"
+    },
+    {
+      "file": "specs/CLEO-DISPATCH-ADAPTER-SPEC.md",
+      "slug": "cleo-dispatch-adapter-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "bd91aca49154da8f2a88f06445f0dd5fb786dbcf68466bce057c51ab483de95c",
+      "ts": "2026-05-21T00:30:38.683Z",
+      "backend": "manifest.db",
+      "docId": "bd91aca49154da8f2a88f06445f0dd5fb786dbcf68466bce057c51ab483de95c"
+    },
+    {
+      "file": "specs/CLEO-GRADE-SPEC.md",
+      "slug": "cleo-grade-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "5c81da42fce708ce2fc635d7e58753ddb6ff691fdf2a557bae5f680eee6da1cf",
+      "ts": "2026-05-21T00:30:38.685Z",
+      "backend": "manifest.db",
+      "docId": "5c81da42fce708ce2fc635d7e58753ddb6ff691fdf2a557bae5f680eee6da1cf"
+    },
+    {
+      "file": "specs/CLEO-LOGGING-CONTRACT.md",
+      "slug": "cleo-logging-contract",
+      "type": "spec",
+      "action": "created",
+      "sha": "697612958d602bb1a29a2aa545295f2f71f73c1daac0fa035cfd5968c85e3f61",
+      "ts": "2026-05-21T00:30:38.687Z",
+      "backend": "manifest.db",
+      "docId": "697612958d602bb1a29a2aa545295f2f71f73c1daac0fa035cfd5968c85e3f61"
+    },
+    {
+      "file": "specs/CLEO-MANIFEST-SCHEMA-SPEC.md",
+      "slug": "cleo-manifest-schema-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "cebb6ef707c8d28e32248b240ad2dce21b76d56c2080b0ff6fc42032a31cfe69",
+      "ts": "2026-05-21T00:30:38.689Z",
+      "backend": "manifest.db",
+      "docId": "cebb6ef707c8d28e32248b240ad2dce21b76d56c2080b0ff6fc42032a31cfe69"
+    },
+    {
+      "file": "specs/CLEO-METRICS-VALIDATION-SYSTEM-SPEC.md",
+      "slug": "cleo-metrics-validation-system-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "9fa5148851d4c0195070d0e3233c31ed81c6357bf0584554ec415709afb6014c",
+      "ts": "2026-05-21T00:30:38.691Z",
+      "backend": "manifest.db",
+      "docId": "9fa5148851d4c0195070d0e3233c31ed81c6357bf0584554ec415709afb6014c"
+    },
+    {
+      "file": "specs/CLEO-NEXUS-ARCHITECTURE.md",
+      "slug": "cleo-nexus-architecture",
+      "type": "spec",
+      "action": "created",
+      "sha": "8ad9b1f48fe6b9ee3fbda604ed83e120053445140c4806b426af1dd257e9f20e",
+      "ts": "2026-05-21T00:30:38.693Z",
+      "backend": "manifest.db",
+      "docId": "8ad9b1f48fe6b9ee3fbda604ed83e120053445140c4806b426af1dd257e9f20e"
+    },
+    {
+      "file": "specs/CLEO-OPERATION-CONSTITUTION.md",
+      "slug": "cleo-operation-constitution",
+      "type": "spec",
+      "action": "created",
+      "sha": "e0ca21697587e0f37f6c1f10bcd3c3a0ac59b8e5ca49e88114e557a59a784757",
+      "ts": "2026-05-21T00:30:38.696Z",
+      "backend": "manifest.db",
+      "docId": "e0ca21697587e0f37f6c1f10bcd3c3a0ac59b8e5ca49e88114e557a59a784757"
+    },
+    {
+      "file": "specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md",
+      "slug": "cleo-portable-project-brain-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "a981642f9207c449aa10427a81432b1070f50492bf4986502b727a8d9aeb1ef3",
+      "ts": "2026-05-21T00:30:38.698Z",
+      "backend": "manifest.db",
+      "docId": "a981642f9207c449aa10427a81432b1070f50492bf4986502b727a8d9aeb1ef3"
+    },
+    {
+      "file": "specs/CLEO-RELEASE-PIPELINE-SPEC.md",
+      "slug": "cleo-release-pipeline-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "c25ac2fd16a864de9722c9ea637972e24499a578dc768188da5bdf3b555741a4",
+      "ts": "2026-05-21T00:30:38.701Z",
+      "backend": "manifest.db",
+      "docId": "c25ac2fd16a864de9722c9ea637972e24499a578dc768188da5bdf3b555741a4"
+    },
+    {
+      "file": "specs/cleo-scaffolding-ssot-spec.md",
+      "slug": "cleo-scaffolding-ssot-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "83c082cf54842bdd3225a03cfb29e672ad4cc69c771b643f8e9e6ef9c469189f",
+      "ts": "2026-05-21T00:30:38.702Z",
+      "backend": "manifest.db",
+      "docId": "83c082cf54842bdd3225a03cfb29e672ad4cc69c771b643f8e9e6ef9c469189f"
+    },
+    {
+      "file": "specs/CLEO-STUDIO-HTTP-SPEC.md",
+      "slug": "cleo-studio-http-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "d341e2cde2c1746066c6e8876506edc0827f6803cf1e79b1d1d3fb90b0f7c3e8",
+      "ts": "2026-05-21T00:30:38.705Z",
+      "backend": "manifest.db",
+      "docId": "d341e2cde2c1746066c6e8876506edc0827f6803cf1e79b1d1d3fb90b0f7c3e8"
+    },
+    {
+      "file": "specs/CLEO-TASK-DASHBOARD-SPEC.md",
+      "slug": "cleo-task-dashboard-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "e43f5a67dc88f4738fcab59be362d42ae306fea3d096115295d0c9aef9f34009",
+      "ts": "2026-05-21T00:30:38.707Z",
+      "backend": "manifest.db",
+      "docId": "e43f5a67dc88f4738fcab59be362d42ae306fea3d096115295d0c9aef9f34009"
+    },
+    {
+      "file": "specs/CLEO-TASKS-API-SPEC.md",
+      "slug": "cleo-tasks-api-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "a60dd111f5a2ee0dae62464517e03319497a48cc31155f6d645188f2b30718e3",
+      "ts": "2026-05-21T00:30:38.710Z",
+      "backend": "manifest.db",
+      "docId": "a60dd111f5a2ee0dae62464517e03319497a48cc31155f6d645188f2b30718e3"
+    },
+    {
+      "file": "specs/CLEOCODE-ECOSYSTEM-PLAN.md",
+      "slug": "cleocode-ecosystem-plan",
+      "type": "spec",
+      "action": "created",
+      "sha": "ec598c5ee63d219756d6271f65ea75c72bc49408fe19019a58d431c8a8381351",
+      "ts": "2026-05-21T00:30:38.712Z",
+      "backend": "manifest.db",
+      "docId": "ec598c5ee63d219756d6271f65ea75c72bc49408fe19019a58d431c8a8381351"
+    },
+    {
+      "file": "specs/cloud-sync-postgres-accessor.md",
+      "slug": "cloud-sync-postgres-accessor",
+      "type": "spec",
+      "action": "created",
+      "sha": "eb3374209c392a85cccee3b77f678b17f6c74980ab25c83ee8199f3623f84430",
+      "ts": "2026-05-21T00:30:38.715Z",
+      "backend": "manifest.db",
+      "docId": "eb3374209c392a85cccee3b77f678b17f6c74980ab25c83ee8199f3623f84430"
+    },
+    {
+      "file": "specs/CORE-PACKAGE-SPEC.md",
+      "slug": "core-package-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "dca3012b5bfb57c670a477dddbc6886afe547e05b1ee87264625cb272bf566ba",
+      "ts": "2026-05-21T00:30:38.718Z",
+      "backend": "manifest.db",
+      "docId": "dca3012b5bfb57c670a477dddbc6886afe547e05b1ee87264625cb272bf566ba"
+    },
+    {
+      "file": "specs/DATABASE-ARCHITECTURE.md",
+      "slug": "database-architecture",
+      "type": "spec",
+      "action": "created",
+      "sha": "965ffacd6963ce843c95d6bd4b7a4ddce15aea293edadff7a58e2cab32d7ebfa",
+      "ts": "2026-05-21T00:30:38.720Z",
+      "backend": "manifest.db",
+      "docId": "965ffacd6963ce843c95d6bd4b7a4ddce15aea293edadff7a58e2cab32d7ebfa"
+    },
+    {
+      "file": "specs/GRADE-SCENARIO-PLAYBOOK.md",
+      "slug": "grade-scenario-playbook",
+      "type": "spec",
+      "action": "created",
+      "sha": "38ca9a64077b0cab3c528253f61cfe11f2e11a9d6dc49999340dfb638b017766",
+      "ts": "2026-05-21T00:30:38.722Z",
+      "backend": "manifest.db",
+      "docId": "38ca9a64077b0cab3c528253f61cfe11f2e11a9d6dc49999340dfb638b017766"
+    },
+    {
+      "file": "specs/hermes-agent-llm-provider-architecture.md",
+      "slug": "hermes-agent-llm-provider-architecture",
+      "type": "spec",
+      "action": "created",
+      "sha": "8b6c93c5bc7cf248d90b91946f32118fe986dc4a913cb83bf2f1b9f65e65a70b",
+      "ts": "2026-05-21T00:30:38.725Z",
+      "backend": "manifest.db",
+      "docId": "8b6c93c5bc7cf248d90b91946f32118fe986dc4a913cb83bf2f1b9f65e65a70b"
+    },
+    {
+      "file": "specs/memory-architecture-spec.md",
+      "slug": "memory-architecture-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "ea1f0568a32fb0878bc871807e3c466c09b27b58d4871f93a06f848501a92e53",
+      "ts": "2026-05-21T00:30:38.728Z",
+      "backend": "manifest.db",
+      "docId": "ea1f0568a32fb0878bc871807e3c466c09b27b58d4871f93a06f848501a92e53"
+    },
+    {
+      "file": "specs/SCHEMA-AUTHORITY.md",
+      "slug": "schema-authority",
+      "type": "spec",
+      "action": "created",
+      "sha": "41579827c7af155ba9122032df45e5a71b0bbb5ee98e717a381f51ab2b14d82c",
+      "ts": "2026-05-21T00:30:38.730Z",
+      "backend": "manifest.db",
+      "docId": "41579827c7af155ba9122032df45e5a71b0bbb5ee98e717a381f51ab2b14d82c"
+    },
+    {
+      "file": "specs/stdp-wire-up-spec.md",
+      "slug": "stdp-wire-up-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "86f693c39a9667d4c171361b056bf368ea740dfd113e7ccd0626f13526acbd18",
+      "ts": "2026-05-21T00:30:38.733Z",
+      "backend": "manifest.db",
+      "docId": "86f693c39a9667d4c171361b056bf368ea740dfd113e7ccd0626f13526acbd18"
+    },
+    {
+      "file": "specs/STICKY-NOTES-SPEC.md",
+      "slug": "sticky-notes-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "751078e59963bdc90b6360cbbb83959810ba9ba65923168232737b56e423d892",
+      "ts": "2026-05-21T00:30:38.736Z",
+      "backend": "manifest.db",
+      "docId": "751078e59963bdc90b6360cbbb83959810ba9ba65923168232737b56e423d892"
+    },
+    {
+      "file": "specs/T1096-manifest-unification-spec.md",
+      "slug": "t1096-manifest-unification-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "b33c5c435ca23d135c390d813b4c8b1d302cc8f840731435a738d4dec85f619b",
+      "ts": "2026-05-21T00:30:38.738Z",
+      "backend": "manifest.db",
+      "docId": "b33c5c435ca23d135c390d813b4c8b1d302cc8f840731435a738d4dec85f619b"
+    },
+    {
+      "file": "specs/T832-gate-integrity-spec.md",
+      "slug": "t832-gate-integrity-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "639955d363a51ffbc8c216d334f3025b1825e7449b933601ffa4f3183a80c47d",
+      "ts": "2026-05-21T00:30:38.740Z",
+      "backend": "manifest.db",
+      "docId": "639955d363a51ffbc8c216d334f3025b1825e7449b933601ffa4f3183a80c47d"
+    },
+    {
+      "file": "specs/TASK-RECONCILIATION-SPEC.md",
+      "slug": "task-reconciliation-spec",
+      "type": "spec",
+      "action": "created",
+      "sha": "b4e6a15ce1a2f6da09d746ff30f1cc6ef3fa5daaa01be17184933e3973546cf5",
+      "ts": "2026-05-21T00:30:38.742Z",
+      "backend": "manifest.db",
+      "docId": "b4e6a15ce1a2f6da09d746ff30f1cc6ef3fa5daaa01be17184933e3973546cf5"
+    },
+    {
+      "file": "specs/VERB-STANDARDS.md",
+      "slug": "verb-standards",
+      "type": "spec",
+      "action": "created",
+      "sha": "95b24d4a8189d400cb63b92ea33903f1c0c7f50b6c07662f4bf0fb21580f01d3",
+      "ts": "2026-05-21T00:30:38.745Z",
+      "backend": "manifest.db",
+      "docId": "95b24d4a8189d400cb63b92ea33903f1c0c7f50b6c07662f4bf0fb21580f01d3"
+    }
+  ]
+}
