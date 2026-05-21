@@ -38,7 +38,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'addBatchCommand',
     name: 'add-batch',
-    description: 'Create multiple tasks atomically from a JSON file',
+    description: 'Create multiple tasks in a single atomic transaction from a JSON file',
     load: async () => (await import('../commands/add-batch.js')).addBatchCommand as CommandDef,
   },
   {
