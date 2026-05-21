@@ -1,5 +1,106 @@
 # Changelog
 
+## [2026.5.93] (2026-05-21) — SG-CLEO-DOCS-CANON-CLOSURE (T9787): canonical docs SSoT shipped end-to-end
+
+Closes Saga **SG-CLEO-DOCS-CANON-CLOSURE** (T9787) — the 10-epic
+remediation of T9625's premature closure. All 10 member epics shipped
+and merged to main across Waves 0-3. T9625's original validation gate
+(`cleo docs fetch sg-cleo-docs-canon-plan`) is now CLOSED — the plan
+doc lives in the SSoT and is fetchable by slug.
+
+### Wave 0 — Foundation + critical bugs
+
+- **T9776** (#379) — pretypecheck hook preemits `skill-root.d.ts` stub
+  before `tsc -b`, unblocking the Type Check CI job that had been red
+  on main since T9740 Wave C. Also fixed the env-state-leak in
+  `allowlist.test.ts:294` by draining `pushWarning` queue (T9763
+  migration). Restored CI parity across all PRs.
+- **T9788** (#380) — Canonical **DocKindRegistry** in
+  `@cleocode/contracts/docs-taxonomy.ts`. 10 built-in DocKinds (`adr`,
+  `spec`, `research`, `handoff`, `note`, `llm-readme`, `changeset`,
+  `release-note`, `plan`, `rcasd`) with per-type metadata
+  (`entityIdPattern`, `defaultOwnerKind`, `publishDir`,
+  `requiresEntityId`). Project-level extensions via
+  `.cleo/docs-config.json`. New `cleo docs schema` + `cleo docs list-types`
+  discovery surfaces. Consolidated 3 disconnected enums.
+- **T9789** (#381) — Eliminated the `cliOutput(formatError)` /
+  `cliError(formatError)` double-wrap bug class (8 sites in `docs.ts`).
+  Added `scripts/lint-format-error-misuse.mjs` CI gate so the pattern
+  cannot regress.
+- **T9790** (#378) — `cleo doctor --audit-worktree-orphans` +
+  `--prune-worktree-orphans` (atomic archive-then-prune with audit
+  log). Audit of cleocode found **38 orphan worktree directories**;
+  cleanup execution deferred to T9798.
+
+### Wave 1 — Migration + UX
+
+- **T9791** (#384) — Executed `cleo docs import` against ALL legacy
+  source dirs: **2,388 docs scanned, 1,115 imported, 1,273 noop**.
+  ADR slug derivation now matches the registry's `entityIdPattern`
+  (`adr-NNN-<rest>`). Audit manifests committed under
+  `.cleo/audit/imports/<ts>/`. `cleo docs fetch sg-cleo-docs-canon-plan`
+  works — closing T9625's original validation gate.
+- **T9792** (#383) — `cleo docs list --type X` no longer requires
+  `--project`; project-scoped default + browse hints. New
+  `--limit` / `--orderBy newest|sha|slug` flags.
+- **T9793** (#382) — `changeset` is now a first-class DocKind via
+  SSoT-first dual-write. `cleo changeset add` writes both
+  `.changeset/<slug>.md` AND a docs SSoT blob transactionally.
+  `changesets-aggregator` reads SSoT-first with `.md` fallback;
+  `meta.source: 'ssot' | 'file'` for provenance.
+
+### Wave 2 — Surface enforcement
+
+- **T9794** (#385) — `ct-documentor` SKILL.md went from **0 → 32**
+  `cleo docs *` references. New "Coordinator Pattern: SSoT-First
+  Routing" section. `ct-adr-recorder` audited (11 refs already, no
+  gap). Two new Tier-0 trigger rows in `CLEO-INJECTION.md` enforcing
+  SSoT routing for canonical doc reads/writes.
+- **T9795** (#386) — 11 `@deprecated` TSDoc markers on 4 legacy
+  changelog systems + raw-md write paths. Runtime `W_DEPRECATED`
+  warning via `pushWarning`. `.cleo/deprecations.yml` registry +
+  JSON Schema + `scripts/lint-deprecations.mjs` CI gate.
+
+### Wave 3 — Lockdown + validation
+
+- **T9796** (#387) — `.cleo/canon.yml` registry routes every DocKind
+  to canonical home (`ssot` | `ssot-first` | `rawMdAllowed`). New
+  `cleo check canon docs [--base <ref>]` CI gate that walks the PR
+  diff and rejects raw `.md` additions in `rawMdPaths` where
+  `rawMdAllowed: false`. **ADR-076** supersedes ADR-028. New
+  "Canon Drift Check" CI job. AGENTS.md updated.
+- **T9797** (#388) — End-to-end **REAL-WORLD validation** on cleocode:
+  9-step E2E script (`scripts/saga-T9787-e2e-validation.mjs`) covers
+  fetch-by-slug, list-by-type, similarity search, doc-add, publish-pr,
+  drift detection, canon violation rejection, duplicate-slug
+  E_SLUG_TAKEN with alternatives. Plus
+  `packages/core/src/session/canon-lint.ts` + `cleo session lint`
+  agent-accountability harness (15/15 tests). Multi-agent race test
+  proves two parallel fetches against the same slug return identical
+  bytes without lock contention. Closure report at slug
+  `sg-docs-canon-closure-report`.
+
+### Saga T9787 closure metrics
+
+- 10/10 member Epics merged to main
+- 10 PRs (#378, #379, #380, #381, #382, #383, #384, #385, #386, #387, #388)
+- T9625's validation gate satisfied: `cleo docs fetch sg-cleo-docs-canon-plan` returns 5,731 bytes
+- 1,115 legacy `.md` files imported into the docs SSoT (originals retained — disposal deferred)
+- 38 worktree orphans cataloged for cleanup under T9798
+- New ADR-076 (Canonical Docs SSoT) shipped
+- DocKindRegistry + canon.yml + 4 new CI gates regression-lock the class
+- 4 legacy changelog systems carry `@deprecated` markers with removal target v2026.6.0
+
+### Known follow-ups (filed, not blocking)
+
+- **T9758** SAGA (release-as-product) — `cleo release plan/open` flow
+  has a known gap requiring child task evidence atoms; v2026.5.93
+  shipped via manual fallback per the documented hotfix exception.
+- **T9798** — execute prune on the 38 cataloged worktree orphans + add
+  CI gate for future damage prevention.
+- **T9800** SAGA (SG-WORKTREE-CANON) filed for systemic worktree
+  subsystem unification (separate ownership).
+
 ## [2026.5.92] (2026-05-20) — hotfix: biome formatting on T9775 CI lint script + import-sort fix (v2026.5.91 release workflow rescue)
 
 Hotfix release rescuing the v2026.5.91 ship cycle. The v2026.5.91 tag was
