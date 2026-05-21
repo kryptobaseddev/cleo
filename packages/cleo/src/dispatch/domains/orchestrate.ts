@@ -150,6 +150,8 @@ interface OrchestrateSpawnParams {
   protocolType?: string;
   tier?: 0 | 1 | 2;
   noWorktree?: boolean;
+  /** T9807 — sparse-checkout scope prefix (e.g. `packages/cleo`). */
+  spawnScope?: string;
 }
 
 interface OrchestrateHandoffParams {
@@ -393,6 +395,7 @@ async function orchestrateSpawnOp(params: OrchestrateSpawnParams) {
     getProjectRoot(),
     params.tier,
     params.noWorktree,
+    params.spawnScope,
   );
 }
 
@@ -808,6 +811,7 @@ export class OrchestrateHandler implements DomainHandler {
             protocolType: params.protocolType as string | undefined,
             tier,
             noWorktree: params.noWorktree as boolean | undefined,
+            spawnScope: params.spawnScope as string | undefined,
           };
           return wrapResult(await coreOps.spawn(p), 'mutate', 'orchestrate', operation, startTime);
         }

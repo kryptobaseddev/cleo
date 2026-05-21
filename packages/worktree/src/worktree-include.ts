@@ -22,8 +22,8 @@
  * @task T1161
  */
 
-import { existsSync, readFileSync, symlinkSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, symlinkSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import type { WorktreeIncludePattern } from '@cleocode/contracts';
 
 const INCLUDE_FILE_NAME = 'worktree-include';
@@ -72,6 +72,14 @@ export function loadWorktreeIncludePatterns(projectRoot: string): WorktreeInclud
  * Already-existing paths in the worktree are skipped (not overwritten) — git
  * worktree add may have already created them.
  *
+ * When the target path has a parent directory that does not yet exist in the
+ * worktree (e.g. `.vscode/settings.json` when `.vscode/` was never created),
+ * the parent is created with `mkdirSync({ recursive: true })` before the
+ * `symlinkSync` call. This prevents the `ENOENT` error that was causing
+ * the repeated `[worktree] include-pattern symlink failed` log messages
+ * during every spawn for projects whose `.cleo/worktree-include` lists
+ * nested paths whose parent directories are not checked in (T9807).
+ *
  * @param patterns - Parsed include patterns from {@link loadWorktreeIncludePatterns}.
  * @param projectRoot - Absolute path to the project root (symlink target base).
  * @param worktreePath - Absolute path to the worktree directory.
@@ -96,6 +104,20 @@ export function applyIncludePatterns(
 
     // Skip if a file/dir/symlink already exists at this path in the worktree.
     if (existsSync(targetPath)) continue;
+
+    // T9807 — ensure the parent directory exists in the worktree before calling
+    // symlinkSync. Patterns like `.vscode/settings.json` require `.vscode/` to
+    // exist first; without this step, symlinkSync throws ENOENT for every spawn
+    // on machines where the parent directory was never checked in.
+    const parentDir = dirname(targetPath);
+    try {
+      mkdirSync(parentDir, { recursive: true });
+    } catch {
+      process.stderr.write(
+        `[worktree] include-pattern parent-dir creation failed: ${entry.pattern}\n`,
+      );
+      continue;
+    }
 
     try {
       symlinkSync(sourcePath, targetPath);
