@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
-import { CleoError, formatError, getConfigPath, getProjectRoot, pushWarning } from '@cleocode/core';
+import { CleoError, getConfigPath, getProjectRoot, pushWarning } from '@cleocode/core';
 import { defineCommand } from 'citty';
 // CLI-only: implements local file generation from CHANGELOG.md, not a dispatch operation
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -329,11 +329,21 @@ export const generateChangelogCommand = defineCommand({
         { command: 'generate-changelog' },
       );
     } catch (err) {
+      // T9789: cliError takes a plain string — passing formatError(err)
+      // here double-wraps a serialised LAFS envelope inside cliError's
+      // own envelope. Pass the message directly and let cliError build
+      // the canonical envelope itself.
       if (err instanceof CleoError) {
-        cliError(formatError(err), err.code, { name: 'E_INTERNAL' });
+        cliError(`generate-changelog failed: ${err.message}`, err.code, {
+          name: 'E_GENERATE_CHANGELOG_FAILED',
+        });
         process.exit(err.code);
       }
-      throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(`generate-changelog failed: ${message}`, ExitCode.GENERAL_ERROR, {
+        name: 'E_GENERATE_CHANGELOG_FAILED',
+      });
+      process.exit(ExitCode.GENERAL_ERROR);
     }
   },
 });
