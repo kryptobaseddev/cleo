@@ -188,6 +188,11 @@ function handleCascade(
         cancelledAt: timestamp,
         cancellationReason: 'Parent task cancelled (cascade)',
         updatedAt: timestamp,
+        // T877: DB invariant requires status='cancelled' ↔ pipeline_stage='cancelled'.
+        // Without this, descendants whose pipelineStage was 'research' (or any
+        // non-'cancelled' value) would trip the BEFORE-UPDATE trigger on persist.
+        // T9838 fix: mirror coreTaskCancel's invariant treatment.
+        pipelineStage: 'cancelled' as const,
       };
     }
     return t;
