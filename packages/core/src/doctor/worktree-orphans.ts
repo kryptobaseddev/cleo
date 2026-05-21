@@ -9,6 +9,15 @@
  * archives them to a tarball, appends a JSONL audit-log line per prune,
  * then removes them.
  *
+ * Also provides `auditWorktreeOrphansComprehensive` (T9808) — a broader
+ * scan that reads the live `git worktree list` and checks:
+ *   1. Orphan `.cleo/` dirs inside ANY registered git worktree path.
+ *   2. Worktrees outside the canonical XDG location
+ *      (`<cleoHome>/worktrees/<projectHash>/<taskId>/`).
+ *   3. Rogue `.cleo/worktrees/` DIRECTORY (council D009 — only a `.json`
+ *      sentinel file is permitted there; a full directory is a sign that the
+ *      old in-tree worktrees convention leaked into the project `.cleo/`).
+ *
  * Security model:
  *   - Scan limits depth to 3 (`worktrees/<agent>/[<task>/]/.cleo/`) — see
  *     `MAX_SCAN_DEPTH` below.
@@ -21,10 +30,12 @@
  *   - All paths logged in `.cleo/audit/worktree-prune.jsonl`.
  *
  * @task T9790
+ * @task T9808
  * @epic T9790
+ * @epic T9808
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   type Dirent,
@@ -36,7 +47,14 @@ import {
   statSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import type { OrphanEntry, PruneAuditEntry, PruneResult } from '@cleocode/contracts';
+import type {
+  ComprehensiveAuditResult,
+  OrphanEntry,
+  PruneAuditEntry,
+  PruneResult,
+  WorktreeAnomaly,
+} from '@cleocode/contracts';
+import { computeProjectHash, getCleoWorktreesRoot } from '@cleocode/paths';
 
 /**
  * Maximum directory depth (relative to `.claude/worktrees/`) at which a
@@ -470,5 +488,217 @@ export async function pruneWorktreeOrphans(
     rejected,
     totalSizeBytes: reallyPruned.reduce((sum, e) => sum + e.sizeBytes, 0),
     prunedAt,
+  };
+}
+
+// ============================================================================
+// Comprehensive worktree audit (T9808 — council D009)
+// ============================================================================
+
+/**
+ * Maximum depth inside a git worktree path at which we look for orphan
+ * `.cleo/` directories (relative to the worktree root).
+ *
+ * Depth 1 catches: `<worktree>/.cleo/`
+ * Depth 2 catches: `<worktree>/<task>/.cleo/`  (unlikely but observed)
+ */
+const COMPREHENSIVE_SCAN_DEPTH = 2;
+
+/**
+ * Parse the output of `git worktree list --porcelain` and return the list of
+ * worktree directory paths. Skips the bare-repo entry (no `worktree` prefix)
+ * and entries that don't parse cleanly.
+ *
+ * @param gitDir - The project root (passed to `git -C`).
+ * @returns Array of absolute worktree paths.
+ */
+function listGitWorktrees(gitDir: string): string[] {
+  const result = spawnSync('git', ['-C', gitDir, 'worktree', 'list', '--porcelain'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.status !== 0 || !result.stdout) {
+    return [];
+  }
+  const paths: string[] = [];
+  for (const line of result.stdout.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      const p = line.slice('worktree '.length).trim();
+      if (p) paths.push(p);
+    }
+  }
+  return paths;
+}
+
+/**
+ * Recursively search for `.cleo/` directories under `root`, limited to
+ * `maxDepth` levels. Returns the first hit found at each sub-path (does NOT
+ * recurse into a found `.cleo/`).
+ */
+function findCleoDirsUnder(root: string, maxDepth: number): string[] {
+  const found: string[] = [];
+
+  const walk = (current: string, depth: number): void => {
+    if (depth > maxDepth) return;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const childPath = join(current, entry.name);
+      if (entry.name === '.cleo') {
+        found.push(childPath);
+        // Do not recurse INTO the orphan.
+        continue;
+      }
+      walk(childPath, depth + 1);
+    }
+  };
+
+  walk(root, 0);
+  return found;
+}
+
+/**
+ * Comprehensive worktree anomaly audit (T9808 / council D009).
+ *
+ * Reads `git worktree list` for the given project root and produces a
+ * structured report of three anomaly classes:
+ *
+ *   1. **`orphan-cleo-dir`** — any `.cleo/` directory found inside a git
+ *      worktree path (these should never exist; worktrees are read-only
+ *      consumers of the main project's `.cleo/`).
+ *
+ *   2. **`non-canonical-location`** — a worktree exists at a path that is
+ *      NOT under the canonical XDG root
+ *      (`<cleoHome>/worktrees/<projectHash>/`). The main repo checkout is
+ *      the only accepted non-canonical entry.
+ *
+ *   3. **`rogue-worktrees-directory`** — `<projectRoot>/.cleo/worktrees/`
+ *      exists as a **directory**. Council D009 mandates that only a single
+ *      `.json` sentinel file may live at that path; a directory means the
+ *      old in-tree worktree convention leaked into the project `.cleo/`.
+ *
+ * Returns a {@link ComprehensiveAuditResult} with all anomalies sorted by
+ * `kind` then `path` for stable output. `count > 0` means anomalies were
+ * found; exit code 2 is recommended on non-zero count.
+ *
+ * @param projectRoot - Absolute path to the project root (contains `.git/`).
+ * @returns Audit result.
+ *
+ * @example
+ *   const result = await auditWorktreeOrphansComprehensive('/mnt/projects/cleocode');
+ *   if (result.count > 0) process.exitCode = 2;
+ *
+ * @task T9808
+ */
+export async function auditWorktreeOrphansComprehensive(
+  projectRoot: string,
+): Promise<ComprehensiveAuditResult> {
+  const projectHash = computeProjectHash(projectRoot);
+  const canonicalWorktreesRoot = join(getCleoWorktreesRoot(), projectHash);
+
+  const anomalies: WorktreeAnomaly[] = [];
+
+  // ------------------------------------------------------------------ //
+  // Check 3: rogue .cleo/worktrees/ DIRECTORY (D009)
+  // ------------------------------------------------------------------ //
+  const cleoWorktreesPath = join(projectRoot, '.cleo', 'worktrees');
+  if (existsSync(cleoWorktreesPath)) {
+    let isDir = false;
+    try {
+      isDir = statSync(cleoWorktreesPath).isDirectory();
+    } catch {
+      // ignore
+    }
+    if (isDir) {
+      anomalies.push({
+        kind: 'rogue-worktrees-directory',
+        path: cleoWorktreesPath,
+        description:
+          `Council D009: .cleo/worktrees/ must NOT be a directory. ` +
+          `Only a .json sentinel file is permitted at this path. ` +
+          `Remove the directory or migrate its contents to the canonical XDG location ` +
+          `(${canonicalWorktreesRoot}).`,
+        worktreePath: null,
+      });
+    }
+  }
+
+  // ------------------------------------------------------------------ //
+  // Checks 1 + 2: scan git worktrees list
+  // ------------------------------------------------------------------ //
+  const allWorktrees = listGitWorktrees(projectRoot);
+
+  for (const wt of allWorktrees) {
+    // Check 2: non-canonical location.
+    // The main project checkout is the only worktree we accept outside
+    // the canonical XDG root. We identify it by comparing the resolved
+    // path to the resolved projectRoot.
+    let wtResolved: string;
+    try {
+      wtResolved = realpathSync(wt);
+    } catch {
+      wtResolved = resolve(wt);
+    }
+    let projectRootResolved: string;
+    try {
+      projectRootResolved = realpathSync(projectRoot);
+    } catch {
+      projectRootResolved = resolve(projectRoot);
+    }
+
+    const isMainCheckout = wtResolved === projectRootResolved;
+    const isCanonicalXdg =
+      wtResolved === canonicalWorktreesRoot ||
+      wtResolved.startsWith(canonicalWorktreesRoot + sep) ||
+      wt === canonicalWorktreesRoot ||
+      wt.startsWith(canonicalWorktreesRoot + sep);
+
+    if (!isMainCheckout && !isCanonicalXdg) {
+      anomalies.push({
+        kind: 'non-canonical-location',
+        path: wt,
+        description:
+          `Worktree at ${wt} is outside the canonical XDG location ` +
+          `(${canonicalWorktreesRoot}). ` +
+          `Non-canonical worktrees bypass the git-shim isolation guards ` +
+          `and may produce rogue .cleo/ directories. ` +
+          `Re-provision via \`cleo orchestrate spawn <taskId>\`.`,
+        worktreePath: wt,
+      });
+    }
+
+    // Check 1: orphan .cleo/ dirs inside the worktree.
+    if (!isMainCheckout) {
+      const cleoDirs = findCleoDirsUnder(wt, COMPREHENSIVE_SCAN_DEPTH);
+      for (const cleoDir of cleoDirs) {
+        anomalies.push({
+          kind: 'orphan-cleo-dir',
+          path: cleoDir,
+          description:
+            `Orphan .cleo/ directory found inside worktree ${wt}. ` +
+            `This is a sign of the T9550/T9580 SSoT bug (fixed in v2026.5.83). ` +
+            `Run \`cleo doctor --prune-worktree-orphans\` to archive and remove.`,
+          worktreePath: wt,
+        });
+      }
+    }
+  }
+
+  // Sort anomalies: kind ASC, then path ASC for stable output.
+  anomalies.sort((a, b) => {
+    const kindCmp = a.kind.localeCompare(b.kind);
+    return kindCmp !== 0 ? kindCmp : a.path.localeCompare(b.path);
+  });
+
+  return {
+    projectRoot,
+    canonicalWorktreesRoot,
+    anomalies,
+    count: anomalies.length,
   };
 }

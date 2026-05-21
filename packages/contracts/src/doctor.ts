@@ -5,12 +5,19 @@
  * `<projectRoot>/.claude/worktrees/` by the T9550/T9580 SSoT bug (fixed in
  * v2026.5.83) and the schema for the audit JSONL line written per prune.
  *
+ * Also contains the comprehensive worktree audit types (T9808) covering:
+ *   - Orphan `.cleo/` dirs inside ANY git worktree (not just .claude/worktrees/)
+ *   - Worktrees outside the canonical XDG location
+ *   - Rogue `.cleo/worktrees/` DIRECTORY (council D009 — only .json sentinel allowed)
+ *
  * Consumed by:
  *   - `packages/core/src/doctor/worktree-orphans.ts` (scan + prune primitives)
  *   - `packages/cleo/src/cli/commands/doctor.ts` (CLI flags)
  *
  * @task T9790
+ * @task T9808
  * @epic T9790
+ * @epic T9808
  */
 
 /**
@@ -94,6 +101,61 @@ export interface PruneResult {
 
   /** ISO-8601 timestamp the prune completed. */
   prunedAt: string;
+}
+
+// ============================================================================
+// Comprehensive Worktree Audit (T9808 — council D009)
+// ============================================================================
+
+/**
+ * Anomaly kinds surfaced by {@link auditWorktreeOrphansComprehensive}.
+ *
+ * - `orphan-cleo-dir`: a `.cleo/` directory found inside a git worktree path
+ *   (any worktree, not just those under `.claude/worktrees/`)
+ * - `non-canonical-location`: a worktree exists outside the canonical XDG
+ *   path (`~/.local/share/cleo/worktrees/<projectHash>/<taskId>/`)
+ * - `rogue-worktrees-directory`: `.cleo/worktrees/` exists as a DIRECTORY
+ *   (council D009: only a `.json` sentinel file is permitted there)
+ */
+export type WorktreeAnomalyKind =
+  | 'orphan-cleo-dir'
+  | 'non-canonical-location'
+  | 'rogue-worktrees-directory';
+
+/**
+ * One anomaly surfaced by the comprehensive worktree audit.
+ */
+export interface WorktreeAnomaly {
+  /** Machine-readable anomaly type. */
+  kind: WorktreeAnomalyKind;
+  /**
+   * Absolute path of the affected location.
+   * - For `orphan-cleo-dir`: path to the offending `.cleo/` directory.
+   * - For `non-canonical-location`: path to the non-canonical worktree root.
+   * - For `rogue-worktrees-directory`: path to the `.cleo/worktrees/` directory.
+   */
+  path: string;
+  /** Human-readable description including suggested remediation. */
+  description: string;
+  /**
+   * The git worktree path that triggered this anomaly (from `git worktree list`),
+   * or `null` for anomalies not tied to a specific worktree entry.
+   */
+  worktreePath: string | null;
+}
+
+/**
+ * Result returned by {@link auditWorktreeOrphansComprehensive}.
+ */
+export interface ComprehensiveAuditResult {
+  /** Absolute path to the project root that was audited. */
+  projectRoot: string;
+  /** Canonical XDG worktrees root for this project (expected location). */
+  canonicalWorktreesRoot: string;
+  /** All anomalies detected. Sorted by `kind` then `path`. */
+  anomalies: WorktreeAnomaly[];
+  /** Total anomaly count. Non-zero triggers exit code 2. */
+  count: number;
 }
 
 /**
