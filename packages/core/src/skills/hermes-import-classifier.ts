@@ -140,14 +140,14 @@ function extractOriginKey(sourceUrl: string | null | undefined): string | null {
 
 function isTrustedOrigin(origin: string, extra: ReadonlySet<string> | undefined): boolean {
   if (TRUSTED_REPOS_FOR_IMPORT.has(origin)) return true;
-  if (extra && extra.has(origin)) return true;
+  if (extra?.has(origin)) return true;
   // Tolerate `owner/repo/sub-path` strings — match by the first two
   // segments only.
   const parts = origin.split('/').filter(Boolean);
   if (parts.length >= 2) {
     const repo = `${parts[0]}/${parts[1]}`;
     if (TRUSTED_REPOS_FOR_IMPORT.has(repo)) return true;
-    if (extra && extra.has(repo)) return true;
+    if (extra?.has(repo)) return true;
   }
   return false;
 }
