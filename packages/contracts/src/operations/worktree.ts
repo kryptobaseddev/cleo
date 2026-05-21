@@ -159,6 +159,25 @@ export interface CreateWorktreeOptions {
    * @task T1927
    */
   forceReset?: boolean;
+  /**
+   * Sparse-checkout scope pattern (T9807). When set, `createWorktree` runs
+   * `git sparse-checkout init --cone` followed by
+   * `git sparse-checkout set <spawnScope>` after `git worktree add` completes,
+   * limiting the worktree's checked-out tree to paths matching `<spawnScope>`.
+   *
+   * Exposed on `cleo orchestrate spawn` as the `--scope` flag so callers can
+   * request a lean worktree containing only the paths relevant to a task
+   * (e.g. `packages/cleo` to contain a CLI-only fix).
+   *
+   * Cone mode (`--cone`) is used for maximum checkout performance — the scope
+   * string must be a directory prefix, not an arbitrary glob.
+   *
+   * Failures are silently swallowed (best-effort) — the worktree is returned
+   * in full-checkout mode when sparse-checkout setup fails.
+   *
+   * @task T9807
+   */
+  spawnScope?: string;
 }
 
 /**
