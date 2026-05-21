@@ -35,6 +35,13 @@ export {
   validateTitle,
 } from './add.js';
 export {
+  type AddBatchOptions,
+  type AddBatchResult,
+  type AddBatchTaskSpec,
+  addBatchTasks,
+  tasksAddBatchOp,
+} from './add-batch.js';
+export {
   type ArchiveTasksOptions,
   type ArchiveTasksResult,
   archiveTasks,

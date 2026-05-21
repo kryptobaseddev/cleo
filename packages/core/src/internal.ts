@@ -1748,6 +1748,8 @@ export type {
   Resolution,
 } from './store/restore-json-merge.js';
 export { regenerateAndCompare, regenerateAndCompareAll } from './store/restore-json-merge.js';
+// Batch task creation with single-transaction atomicity (T9814)
+export { tasksAddBatchOp } from './tasks/add-batch.js';
 export { taskArchive } from './tasks/archive.js';
 export {
   completeTaskStrict,
