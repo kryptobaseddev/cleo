@@ -141,7 +141,7 @@ vi.mock('../commands/exists.js', () => ({ existsCommand: {} }));
 vi.mock('../commands/export.js', () => ({ exportCommand: {} }));
 vi.mock('../commands/export-tasks.js', () => ({ exportTasksCommand: {} }));
 vi.mock('../commands/find.js', () => ({ findCommand: {} }));
-vi.mock('../commands/generate-changelog.js', () => ({ generateChangelogCommand: {} }));
+// `generate-changelog.js` removed in T9784 / Saga T9782 — rip-out.
 vi.mock('../commands/grade.js', () => ({ gradeCommand: {} }));
 vi.mock('../commands/history.js', () => ({ historyCommand: {} }));
 vi.mock('../commands/import.js', () => ({ importCommand: {} }));

@@ -15,32 +15,16 @@
 # @saga T9787
 version: 1
 deprecations:
-  - id: changelog-writer-custom-log
-    path: packages/core/src/release/changelog-writer.ts
-    since: v2026.5.93
-    remove: v2026.6.0
-    replacement: cleo changeset add
-    note: >-
-      ADR-028-era [custom-log]...[/custom-log] blocks. Superseded by the
-      CLEO-native task-anchored changesets DSL (T9793 / Saga T9787).
-
-  - id: ui-changelog-label-grouping
-    path: packages/core/src/ui/changelog.ts
-    since: v2026.5.93
-    remove: v2026.6.0
-    replacement: cleo release plan
-    note: >-
-      Label-grouped task→changelog renderer. Superseded by the LLM-driven
-      release-notes composer (T9759) consuming the Release Plan envelope.
-
-  - id: generate-changelog-renderer
-    path: packages/cleo/src/cli/commands/generate-changelog.ts
-    since: v2026.5.93
-    remove: v2026.6.0
-    replacement: cleo changeset add
-    note: >-
-      CHANGELOG.md → platform (Mintlify/Docusaurus/...) renderer chain.
-      Superseded by the task-anchored changesets DSL aggregator (T9793).
+  # T9784 / Saga T9782 — RIP-OUT (no deprecation, no soft-removal):
+  #   - `changelog-writer-custom-log`        → deleted source: packages/core/src/release/changelog-writer.ts (T9784-B)
+  #   - `ui-changelog-label-grouping`        → deleted source: packages/core/src/ui/changelog.ts             (T9784-B)
+  #   - `generate-changelog-renderer`        → deleted source: packages/cleo/src/cli/commands/generate-changelog.ts (T9784-B)
+  #   - `cleo-release-changelog-verb-git-log` → engine-op + verb deleted in T9784-A (#414)
+  # Per the "single canonical CHANGELOG system" directive, the four
+  # competing renderers/writers/verbs were ripped out wholesale instead of
+  # being deprecated. The canonical write surface is `cleo changeset add`
+  # (T9793); the canonical aggregator is `aggregateChangesetsForRelease`
+  # in `packages/core/src/release/changesets-aggregator.ts`.
 
   - id: agent-output-raw-md-write
     path: packages/core/src/tools/adr-backfill-walker.ts
