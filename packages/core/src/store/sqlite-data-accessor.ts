@@ -35,6 +35,7 @@ import {
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
 import * as schema from './tasks-schema.js';
+import { withWriteRetry } from './with-retry.js';
 
 /**
  * Per-process monotonic counter for unique SAVEPOINT names.
@@ -50,6 +51,59 @@ function generateAuditLogId(): string {
   const epoch = Math.floor(Date.now() / 1000);
   const rand = Math.random().toString(36).slice(2, 8);
   return `log-${epoch}-${rand}`;
+}
+
+/**
+ * Native SQLite handle subset used by the BEGIN IMMEDIATE helper.
+ *
+ * Avoids dragging the whole `node:sqlite` `DatabaseSync` typings through
+ * the file when all we need is `.prepare(sql).run()`. The accessor
+ * always retrieves the real handle via `getNativeTasksDb()`.
+ */
+interface ImmediateTxNativeDb {
+  prepare(sql: string): { run: () => unknown };
+}
+
+/**
+ * Run `fn` inside an outermost `BEGIN IMMEDIATE` transaction, wrapped
+ * in {@link withWriteRetry} so SQLITE_BUSY contention is absorbed at the
+ * transaction boundary rather than mid-statement.
+ *
+ * - Acquires a RESERVED lock immediately so concurrent writers queue
+ *   politely (or fall through to retry after `busy_timeout` expires).
+ * - Commits on success; rolls back on any thrown error before
+ *   propagating it. If the thrown error is SQLITE_BUSY,
+ *   {@link withWriteRetry} re-runs the WHOLE function (BEGIN included)
+ *   after backoff — better-sqlite3 / node:sqlite forbids nesting
+ *   `BEGIN IMMEDIATE` inside an open transaction, so retry MUST start
+ *   from this outer boundary.
+ *
+ * DO NOT call this from inside an already-open transaction. For nested
+ * writes use `accessor.transaction()` which uses SAVEPOINTs (T9814).
+ *
+ * @bug gh-391 — SQLITE_BUSY contention on parallel writes.
+ * @task T9839
+ */
+async function runInImmediateTx<T>(
+  nativeDb: ImmediateTxNativeDb,
+  fn: () => T | Promise<T>,
+): Promise<T> {
+  return withWriteRetry(async () => {
+    nativeDb.prepare('BEGIN IMMEDIATE').run();
+    try {
+      const result = await fn();
+      nativeDb.prepare('COMMIT').run();
+      return result;
+    } catch (err) {
+      try {
+        nativeDb.prepare('ROLLBACK').run();
+      } catch {
+        // Secondary rollback failures are non-fatal — propagate the original
+        // error which captures the actual cause.
+      }
+      throw err;
+    }
+  });
 }
 
 // ---- Schema meta helpers ----
@@ -177,14 +231,14 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         .all();
       const validDepIds = new Set([...archiveIds, ...activeRows.map((r) => r.id)]);
 
-      // Wrap all upserts + dependency updates in a single transaction
+      // Wrap all upserts + dependency updates in a single transaction.
+      // Retry on SQLITE_BUSY contention via runInImmediateTx (gh#391).
       const nativeDb = getNativeTasksDb();
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
 
-      nativeDb.prepare('BEGIN IMMEDIATE').run();
-      try {
+      await runInImmediateTx(nativeDb, async () => {
         // Collect dependency data for batch update
         const depBatch: Array<{ taskId: string; deps: string[] }> = [];
 
@@ -211,12 +265,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
         // Single batch operation for all dependency updates
         await batchUpdateDependencies(db, depBatch, validDepIds);
-
-        nativeDb.prepare('COMMIT').run();
-      } catch (err) {
-        nativeDb.prepare('ROLLBACK').run();
-        throw err;
-      }
+      });
     },
 
     // ---- loadSessions ----
@@ -254,19 +303,22 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
     async appendLog(entry: Record<string, unknown>): Promise<void> {
       const db = await getDb(cwd);
-      await db
-        .insert(schema.auditLog)
-        .values({
-          id: (entry.id as string) ?? generateAuditLogId(),
-          timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
-          action: (entry.action as string) ?? (entry.operation as string) ?? 'unknown',
-          taskId: (entry.taskId as string) ?? 'unknown',
-          actor: (entry.actor as string) ?? 'system',
-          detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
-          beforeJson: entry.before ? JSON.stringify(entry.before) : null,
-          afterJson: entry.after ? JSON.stringify(entry.after) : null,
-        })
-        .run();
+      // gh#391: every task mutation appends one audit row; retry on contention.
+      await withWriteRetry(() =>
+        db
+          .insert(schema.auditLog)
+          .values({
+            id: (entry.id as string) ?? generateAuditLogId(),
+            timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
+            action: (entry.action as string) ?? (entry.operation as string) ?? 'unknown',
+            taskId: (entry.taskId as string) ?? 'unknown',
+            actor: (entry.actor as string) ?? 'system',
+            detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
+            beforeJson: entry.before ? JSON.stringify(entry.before) : null,
+            afterJson: entry.after ? JSON.stringify(entry.after) : null,
+          })
+          .run(),
+      );
     },
 
     // ---- Fine-grained task operations (T5034) ----
@@ -274,8 +326,13 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     async upsertSingleTask(task: Task): Promise<void> {
       const db = await getDb(cwd);
       const row = taskToRow(task);
-      await upsertTask(db, row);
-      await updateDependencies(db, task.id, task.depends ?? []);
+      // gh#391: wrap multi-statement write (task row + dependency rows) in
+      // a retry loop. SQLite implicitly auto-commits each statement, but
+      // concurrent writers can still observe SQLITE_BUSY mid-sequence.
+      await withWriteRetry(async () => {
+        await upsertTask(db, row);
+        await updateDependencies(db, task.id, task.depends ?? []);
+      });
     },
 
     async addRelation(
@@ -301,16 +358,19 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           `Invalid relation type: ${relationType}. Valid types: ${validTypes.join(', ')}`,
         );
       }
-      await db
-        .insert(schema.taskRelations)
-        .values({
-          taskId,
-          relatedTo,
-          relationType: relationType as (typeof validTypes)[number],
-          reason: reason ?? null,
-        })
-        .onConflictDoNothing()
-        .run();
+      // gh#391: retry on SQLITE_BUSY contention.
+      await withWriteRetry(() =>
+        db
+          .insert(schema.taskRelations)
+          .values({
+            taskId,
+            relatedTo,
+            relationType: relationType as (typeof validTypes)[number],
+            reason: reason ?? null,
+          })
+          .onConflictDoNothing()
+          .run(),
+      );
     },
 
     async removeRelation(taskId: string, relatedTo: string, relationType?: string): Promise<void> {
@@ -339,10 +399,13 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           eq(schema.taskRelations.relationType, relationType as (typeof validTypes)[number]),
         );
       }
-      await db
-        .delete(schema.taskRelations)
-        .where(and(...conditions))
-        .run();
+      // gh#391: retry on SQLITE_BUSY contention.
+      await withWriteRetry(() =>
+        db
+          .delete(schema.taskRelations)
+          .where(and(...conditions))
+          .run(),
+      );
     },
 
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
@@ -354,32 +417,41 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         .where(eq(schema.tasks.id, taskId))
         .all();
       if (rows.length === 0) return;
-      await db
-        .update(schema.tasks)
-        .set({
-          status: 'archived',
-          archivedAt: fields.archivedAt ?? new Date().toISOString(),
-          archiveReason: fields.archiveReason ?? 'completed',
-          cycleTimeDays: fields.cycleTimeDays ?? null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(schema.tasks.id, taskId))
-        .run();
+      // gh#391: retry on SQLITE_BUSY contention.
+      await withWriteRetry(() =>
+        db
+          .update(schema.tasks)
+          .set({
+            status: 'archived',
+            archivedAt: fields.archivedAt ?? new Date().toISOString(),
+            archiveReason: fields.archiveReason ?? 'completed',
+            cycleTimeDays: fields.cycleTimeDays ?? null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.tasks.id, taskId))
+          .run(),
+      );
     },
 
     async removeSingleTask(taskId: string): Promise<void> {
       const db = await getDb(cwd);
-      // Delete dependencies first (both directions)
-      await db
-        .delete(schema.taskDependencies)
-        .where(eq(schema.taskDependencies.taskId, taskId))
-        .run();
-      await db
-        .delete(schema.taskDependencies)
-        .where(eq(schema.taskDependencies.dependsOn, taskId))
-        .run();
-      // Delete the task itself
-      await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
+      // gh#391: wrap the three-statement delete sequence in one retry
+      // boundary. SQLITE_BUSY mid-sequence would leak dangling task_dependencies
+      // rows; retrying the whole sequence keeps the cleanup atomic at the
+      // application level (foreign-key cascade catches edge cases regardless).
+      await withWriteRetry(async () => {
+        // Delete dependencies first (both directions)
+        await db
+          .delete(schema.taskDependencies)
+          .where(eq(schema.taskDependencies.taskId, taskId))
+          .run();
+        await db
+          .delete(schema.taskDependencies)
+          .where(eq(schema.taskDependencies.dependsOn, taskId))
+          .run();
+        // Delete the task itself
+        await db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
+      });
     },
 
     async loadSingleTask(taskId: string): Promise<Task | null> {
@@ -836,7 +908,12 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         }
       }
 
-      await db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run();
+      // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
+      // Parallel invocations from a single shell used to lose ~50% of writes
+      // to SQLITE_BUSY; withWriteRetry recovers them.
+      await withWriteRetry(() =>
+        db.update(schema.tasks).set(updateRow).where(eq(schema.tasks.id, taskId)).run(),
+      );
     },
 
     async transaction<T>(fn: (tx: TransactionAccessor) => Promise<T>): Promise<T> {
