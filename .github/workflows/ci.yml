@@ -233,6 +233,38 @@ jobs:
       - name: Reject cliOutput(formatError) / cliError(formatError) double-wraps
         run: node scripts/lint-format-error-misuse.mjs
 
+  deprecations-lint:
+    # T9795 / Saga T9787 — guard the deprecation registry. Asserts every
+    # entry in `.cleo/deprecations.yml` points at a real file that
+    # actually carries a TSDoc `@deprecated` tag, and that the YAML
+    # conforms to `.cleo/deprecations.schema.json`. Catches drift the
+    # moment a legacy file is deleted or renamed without the registry
+    # being updated.
+    name: Deprecations Registry Lint (T9795)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Validate .cleo/deprecations.yml against schema + path existence
+        run: pnpm run lint:deprecations
+
   pragma-drift:
     name: SQLite Pragma Drift Guard (T9025 / T9190)
     runs-on: ubuntu-latest

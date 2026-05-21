@@ -191,6 +191,14 @@ const cancelCommand = defineCommand({
  * groups by epic, and produces a structured CHANGELOG entry.
  *
  * @task T820 RELEASE-02
+ *
+ * @deprecated Since v2026.5.93 (T9795 / Saga T9787). Will be removed no
+ *   earlier than v2026.6.0. The git-log scraping path is superseded by
+ *   the changeset-driven `cleo release plan` flow (T9525) — the plan
+ *   envelope already enumerates included tasks via the
+ *   `task_relations`/`releases` graph, and the T9759 LLM composer renders
+ *   the human-readable Markdown. See `.cleo/deprecations.yml` id:
+ *   `cleo-release-changelog-verb-git-log`.
  */
 const changelogCommand = defineCommand({
   meta: {
@@ -211,6 +219,24 @@ const changelogCommand = defineCommand({
     },
   },
   async run({ args }) {
+    // T9795: emit the deprecation warning BEFORE the missing-arg check so
+    // even error envelopes carry the migration hint. JSON callers receive
+    // it in `meta.warnings[]`; human-mode renders it on stderr.
+    pushWarning({
+      code: 'W_DEPRECATED_COMMAND',
+      message:
+        '`cleo release changelog <tag>` is deprecated. Use `cleo release plan <version> --epic <id>` (T9525) plus the T9759 LLM composer.',
+      severity: 'warn',
+      deprecated: 'cleo release changelog',
+      replacement: 'cleo release plan',
+      removeBy: 'v2026.6.0',
+      context: {
+        registryId: 'cleo-release-changelog-verb-git-log',
+        task: 'T9795',
+        saga: 'T9787',
+      },
+    });
+
     // Accept either `cleo release changelog v2026.5.81` (positional, matches
     // pr-status / show / cancel) or the legacy `--since v...` flag. Emit a
     // LAFS envelope on missing input rather than letting citty dump help

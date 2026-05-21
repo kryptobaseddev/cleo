@@ -1,0 +1,62 @@
+# CLEO Deprecation Registry
+#
+# Each entry MUST be unique by `id` and carry:
+#   - path(s) — source file(s) bearing the @deprecated TSDoc
+#   - since   — release version where deprecation landed
+#   - remove  — earliest release version that may drop the code
+#   - replacement — concrete migration command/symbol
+#   - note    — short justification + ADR/task reference
+#
+# Validated by scripts/lint-deprecations.mjs against
+# .cleo/deprecations.schema.json. The lint also asserts every TSDoc
+# `@deprecated` in the listed paths has a corresponding registry entry.
+#
+# @task T9795
+# @saga T9787
+version: 1
+deprecations:
+  - id: changelog-writer-custom-log
+    path: packages/core/src/release/changelog-writer.ts
+    since: v2026.5.93
+    remove: v2026.6.0
+    replacement: cleo changeset add
+    note: >-
+      ADR-028-era [custom-log]...[/custom-log] blocks. Superseded by the
+      CLEO-native task-anchored changesets DSL (T9793 / Saga T9787).
+
+  - id: ui-changelog-label-grouping
+    path: packages/core/src/ui/changelog.ts
+    since: v2026.5.93
+    remove: v2026.6.0
+    replacement: cleo release plan
+    note: >-
+      Label-grouped task→changelog renderer. Superseded by the LLM-driven
+      release-notes composer (T9759) consuming the Release Plan envelope.
+
+  - id: cleo-release-changelog-verb-git-log
+    path: packages/cleo/src/cli/commands/release.ts
+    since: v2026.5.93
+    remove: v2026.6.0
+    replacement: cleo release plan
+    note: >-
+      `cleo release changelog <tag>` git-log scraping path. Superseded by
+      the changeset-driven `cleo release plan` flow (T9525) — the plan
+      envelope enumerates included tasks via the releases graph.
+
+  - id: generate-changelog-renderer
+    path: packages/cleo/src/cli/commands/generate-changelog.ts
+    since: v2026.5.93
+    remove: v2026.6.0
+    replacement: cleo changeset add
+    note: >-
+      CHANGELOG.md → platform (Mintlify/Docusaurus/...) renderer chain.
+      Superseded by the task-anchored changesets DSL aggregator (T9793).
+
+  - id: agent-output-raw-md-write
+    path: packages/core/src/tools/adr-backfill-walker.ts
+    since: v2026.5.93
+    remove: v2026.6.0
+    replacement: cleo docs add --type note
+    note: >-
+      Raw `.md` writes to `.cleo/agent-outputs/` bypass the docs registry
+      SSoT. Migrate to `cleo docs add --type note` (T9788).

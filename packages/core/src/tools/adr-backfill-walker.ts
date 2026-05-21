@@ -542,6 +542,11 @@ export async function runAdrBackfillWalker(
 
 /**
  * Write the backfill report to `.cleo/agent-outputs/T1824-5-backfill-report.md`.
+ *
+ * @deprecated Since v2026.5.93 (T9795 / Saga T9787). Raw `.md` writes to
+ *   `.cleo/agent-outputs/` bypass the docs registry SSoT — migrate to
+ *   `cleo docs add --type note` (T9788). Removal: no earlier than
+ *   v2026.6.0. See `.cleo/deprecations.yml` id:`agent-output-raw-md-write`.
  */
 async function writeReport(
   projectRoot: string,

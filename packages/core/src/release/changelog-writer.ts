@@ -3,10 +3,19 @@
  *
  * @task T5579
  * @epic T5576
+ *
+ * @deprecated Since v2026.5.93 (T9795 / Saga T9787). Will be removed no
+ *   earlier than v2026.6.0. ADR-028-era `[custom-log]…[/custom-log]` blocks
+ *   are superseded by the CLEO-native task-anchored changesets DSL — see
+ *   `cleo changeset add` (T9793). Migrate by emitting `.changeset/*.md`
+ *   entries and running the aggregator instead of editing CHANGELOG.md
+ *   sections directly. See `.cleo/deprecations.yml` (id:
+ *   `changelog-writer-custom-log`) for the migration table.
  */
 
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { pushWarning } from '../output.js';
 import { atomicWrite } from '../store/atomic.js';
 
 // ── Custom-log block parsing ──────────────────────────────────────────
@@ -15,6 +24,9 @@ import { atomicWrite } from '../store/atomic.js';
  * Parse [custom-log]...[/custom-log] blocks from a CHANGELOG section.
  * Returns the extracted block content (tags stripped) and the content
  * with tags+content removed.
+ *
+ * @deprecated Since v2026.5.93. Migrate to `cleo changeset add` (T9793 /
+ *   Saga T9787). Removal: no earlier than v2026.6.0.
  */
 export function parseChangelogBlocks(content: string): {
   customBlocks: string[];
@@ -70,6 +82,10 @@ function buildSection(version: string, generatedContent: string, customBlocks: s
  * - Custom block content (from [custom-log] blocks) is appended after
  *   generated content.
  * - Section header format: '## [VERSION] (YYYY-MM-DD)'
+ *
+ * @deprecated Since v2026.5.93. Migrate to `cleo changeset add` (T9793 /
+ *   Saga T9787). The new aggregator owns CHANGELOG.md composition.
+ *   Removal: no earlier than v2026.6.0.
  */
 export async function writeChangelogSection(
   version: string,
@@ -77,6 +93,24 @@ export async function writeChangelogSection(
   customBlocks: string[],
   changelogPath: string,
 ): Promise<void> {
+  // T9795: emit a structured deprecation warning into the active LAFS
+  // envelope (drained by formatSuccess/formatError). The CLI renderer
+  // surfaces this on stderr ONLY in human mode — JSON output remains
+  // clean. See `.cleo/deprecations.yml` id:`changelog-writer-custom-log`.
+  pushWarning({
+    code: 'W_DEPRECATED',
+    message:
+      'writeChangelogSection (ADR-028 custom-log blocks) is deprecated. Use `cleo changeset add` (T9793).',
+    severity: 'warn',
+    deprecated: 'writeChangelogSection',
+    replacement: 'cleo changeset add',
+    removeBy: 'v2026.6.0',
+    context: {
+      registryId: 'changelog-writer-custom-log',
+      task: 'T9795',
+      saga: 'T9787',
+    },
+  });
   let existing = '';
   if (existsSync(changelogPath)) {
     existing = await readFile(changelogPath, 'utf8');
