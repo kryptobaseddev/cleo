@@ -917,6 +917,8 @@ export {
   push,
   removeRemote,
 } from './remote/index.js';
+export type { CommandGroup } from './routing/build-command-groups.js';
+export { buildCommandGroups, CLI_COMMAND_CATEGORIES } from './routing/build-command-groups.js';
 export type {
   CapabilityReport,
   ExecutionMode,
