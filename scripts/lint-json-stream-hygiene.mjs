@@ -391,6 +391,7 @@ console.error('    Example:');
 console.error('      import { pushWarning } from "@cleocode/core";');
 console.error('      pushWarning({');
 console.error('        code: "W_YOUR_CATEGORY",');
+// biome-ignore lint/suspicious/noTemplateCurlyInString: example code string demonstrating template-literal usage to the operator
 console.error('        message: `Human-readable summary: ${detail}`,');
 console.error('        severity: "warning",   // or "info" / "error"');
 console.error('        meta: { ...structured context... },');
