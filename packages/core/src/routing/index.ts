@@ -6,6 +6,8 @@
  * @task T5706
  */
 
+export type { CommandGroup } from './build-command-groups.js';
+export { buildCommandGroups, CLI_COMMAND_CATEGORIES } from './build-command-groups.js';
 export type {
   CapabilityReport,
   ExecutionMode,

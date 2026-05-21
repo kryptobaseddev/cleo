@@ -5,9 +5,15 @@
  * alias-aware, short-description output. Sub-command help (e.g.
  * `cleo add --help`) still uses citty's built-in renderer.
  *
+ * Command group membership is derived from the CORE capability matrix via
+ * `buildCommandGroups` — do NOT hardcode command names here. Add new commands
+ * to `CLI_COMMAND_CATEGORIES` in `packages/core/src/routing/build-command-groups.ts`.
+ *
+ * @task T9815
  * @module
  */
 
+import { buildCommandGroups } from '@cleocode/core/internal';
 import type { ArgsDef, CommandDef } from 'citty';
 import { showUsage as cittyShowUsage } from 'citty';
 
@@ -34,11 +40,6 @@ const underline = ansi(4, 24);
 // Domain groups
 // ---------------------------------------------------------------------------
 
-interface CommandGroup {
-  name: string;
-  commands: string[];
-}
-
 /**
  * Commands registered as separate subcommand entries but semantically
  * aliases of another command. These are shown as `(alias)` next to the
@@ -47,121 +48,6 @@ interface CommandGroup {
 const IMPLICIT_ALIASES: Record<string, string> = {
   tags: 'labels',
 };
-
-/**
- * Ordered domain groups for the root help display.
- * Commands not listed here appear under "Other" at the bottom.
- */
-const COMMAND_GROUPS: CommandGroup[] = [
-  {
-    name: 'Task Management',
-    commands: [
-      'add',
-      'show',
-      'find',
-      'list',
-      'update',
-      'complete',
-      'delete',
-      'start',
-      'stop',
-      'current',
-      'next',
-      'exists',
-    ],
-  },
-  {
-    name: 'Task Organization',
-    commands: [
-      'archive',
-      'labels',
-      'promote',
-      'relates',
-      'reorder',
-      'reparent',
-      'deps',
-      'tree',
-      'blockers',
-    ],
-  },
-  {
-    name: 'Sessions & Planning',
-    commands: ['session', 'briefing', 'dash', 'plan', 'safestop', 'context'],
-  },
-  {
-    name: 'Phases & Lifecycle',
-    commands: ['phase', 'lifecycle', 'release', 'roadmap'],
-  },
-  {
-    name: 'Memory & Notes',
-    commands: ['memory', 'brain', 'refresh-memory', 'sticky', 'reason'],
-  },
-  {
-    name: 'Analysis & Stats',
-    commands: ['analyze', 'stats', 'history', 'archive-stats'],
-  },
-  {
-    name: 'Validation & Compliance',
-    commands: [
-      'check',
-      'verify',
-      'testing',
-      'compliance',
-      'consensus',
-      'contribution',
-      'decomposition',
-      'backfill',
-    ],
-  },
-  {
-    name: 'Code & Documentation',
-    commands: ['code', 'docs', 'detect-drift', 'map'],
-  },
-  {
-    name: 'Research & Orchestration',
-    commands: ['research', 'orchestrate', 'conduit'],
-  },
-  {
-    name: 'Import / Export',
-    commands: ['export', 'import', 'export-tasks', 'import-tasks', 'snapshot', 'inject'],
-  },
-  {
-    name: 'Collaboration',
-    commands: ['nexus', 'remote', 'push', 'pull', 'checkpoint'],
-  },
-  {
-    name: 'Agents',
-    commands: ['agent', 'grade'],
-  },
-  {
-    name: 'System & Admin',
-    commands: [
-      'version',
-      'init',
-      'config',
-      'admin',
-      'doctor',
-      'upgrade',
-      'self-update',
-      'ops',
-      'schema',
-      'log',
-      'sequence',
-      'adr',
-      'cant',
-      'token',
-      'otel',
-      'migrate',
-      'detect',
-      'generate-changelog',
-      'issue',
-      'skills',
-      'web',
-      'backup',
-      'restore',
-    ],
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -267,9 +153,13 @@ export function renderGroupedHelp(
     cmdAliases.set(primary, existing);
   }
 
+  // Derive command groups from CORE capability SSoT.
+  // Only commands that are actually registered (present in descMap) are included.
+  const commandGroups = buildCommandGroups(new Set(descMap.keys()));
+
   // Compute max display width for column alignment
   let maxCmdWidth = 0;
-  const allGroupedCmds = COMMAND_GROUPS.flatMap((g) => g.commands);
+  const allGroupedCmds = commandGroups.flatMap((g) => g.commands);
   const allCmds = [...new Set([...allGroupedCmds, ...descMap.keys()])];
   for (const cmd of allCmds) {
     if (!descMap.has(cmd) || aliasMap.has(cmd)) continue;
@@ -288,7 +178,7 @@ export function renderGroupedHelp(
 
   const rendered = new Set<string>();
 
-  for (const group of COMMAND_GROUPS) {
+  for (const group of commandGroups) {
     const groupLines: string[] = [];
     for (const cmd of group.commands) {
       if (!descMap.has(cmd)) continue;
