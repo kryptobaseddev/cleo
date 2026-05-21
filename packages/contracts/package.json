@@ -50,6 +50,14 @@
       "types": "./dist/nexus-tasks-bridge-ops.d.ts",
       "import": "./dist/nexus-tasks-bridge-ops.js"
     },
+    "./dispatch/*": {
+      "types": "./dist/dispatch/*.d.ts",
+      "import": "./dist/dispatch/*.js"
+    },
+    "./dispatch/*.js": {
+      "types": "./dist/dispatch/*.d.ts",
+      "import": "./dist/dispatch/*.js"
+    },
     "./operations/*": {
       "types": "./dist/operations/*.d.ts",
       "import": "./dist/operations/*.js"
