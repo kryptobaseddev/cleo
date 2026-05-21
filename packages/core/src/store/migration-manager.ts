@@ -17,6 +17,17 @@ import type { MigrationConfig, MigrationMeta } from 'drizzle-orm/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getLogger } from '../logger.js';
+import { isSqliteBusy } from './with-retry.js';
+
+/**
+ * Re-export {@link isSqliteBusy} from its canonical home so existing
+ * imports like `import { isSqliteBusy } from './migration-manager.js'`
+ * and the public re-export chain `sqlite.ts → migration-manager.ts`
+ * continue to compile unchanged.
+ *
+ * The implementation now lives in `./with-retry.ts` (gh#391).
+ */
+export { isSqliteBusy };
 
 /** Required column definition for ensureColumns(). */
 export interface RequiredColumn {
@@ -38,17 +49,6 @@ export function tableExists(nativeDb: DatabaseSync, tableName: string): boolean 
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
     .get(tableName) as Record<string, unknown> | undefined;
   return !!result;
-}
-
-/**
- * Check if an error is a SQLite BUSY error (database locked by another process).
- * node:sqlite throws native Error with message containing the SQLite error code.
- * @task T5185
- */
-export function isSqliteBusy(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return msg.includes('sqlite_busy') || msg.includes('database is locked');
 }
 
 /**
