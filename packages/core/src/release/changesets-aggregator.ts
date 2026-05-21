@@ -14,9 +14,43 @@
  * @epic T9752
  * @task T9753
  */
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ChangesetEntry, ChangesetKind } from '@cleocode/contracts';
+import { ChangesetEntrySchema } from '@cleocode/contracts';
+import { parse as parseYaml } from 'yaml';
+import { parseChangesetDir } from '../changesets/index.js';
+import { createAttachmentStore } from '../store/attachment-store.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
+
+/**
+ * Provenance label for an aggregated entry — distinguishes whether the bytes
+ * came from the canonical docs SSoT blob store or from a `.changeset/*.md`
+ * file that has not yet been mirrored to SSoT.
+ *
+ * Surfaces under `meta.source` on every {@link AggregatedChangesetEntry}.
+ *
+ * @task T9793
+ */
+export type ChangesetSource = 'ssot' | 'file';
+
+/**
+ * One aggregated changeset entry paired with its provenance.
+ *
+ * Returned by {@link readChangesetsSsotFirst} — wraps the parsed
+ * {@link ChangesetEntry} with the source label so downstream consumers
+ * (release-notes composer, debugging surfaces) can tell at a glance whether
+ * a given entry was sourced from SSoT or a legacy `.changeset/*.md` file.
+ *
+ * @task T9793
+ */
+export interface AggregatedChangesetEntry {
+  /** The parsed changeset entry. */
+  readonly entry: ChangesetEntry;
+  /** Provenance label — `'ssot'` when read from blob store, `'file'` otherwise. */
+  readonly meta: { readonly source: ChangesetSource };
+}
 
 /**
  * Result of aggregating a slice of changeset entries into a release CHANGELOG
@@ -233,4 +267,212 @@ export function aggregateChangesetsForRelease(
     entryCount: entries.length,
     kinds: presentKinds,
   };
+}
+
+// ─── SSoT-first reader (T9793) ───────────────────────────────────────────────
+
+/**
+ * Parse the bytes of a changeset markdown blob (read from SSoT) into a
+ * validated {@link ChangesetEntry}.
+ *
+ * Mirrors {@link parseChangesetFile} but operates on in-memory bytes rather
+ * than reading the filesystem, so the SSoT-first path never re-touches disk
+ * when the canonical content is already addressed by the attachment store.
+ *
+ * Returns `null` on any parse failure — callers fall back to the file
+ * surface for that slug rather than throwing, because aggregation is
+ * advisory metadata and one malformed entry must not block the release plan.
+ *
+ * @internal
+ */
+function parseChangesetMarkdownBytes(bytes: Buffer, expectedSlug: string): ChangesetEntry | null {
+  const raw = bytes.toString('utf-8');
+  const lines = raw.split(/\r?\n/);
+  if (lines[0]?.trim() !== '---') return null;
+  let closingIdx = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i]?.trim() === '---') {
+      closingIdx = i;
+      break;
+    }
+  }
+  if (closingIdx === -1) return null;
+
+  const frontmatter = lines.slice(1, closingIdx).join('\n');
+  const body = lines
+    .slice(closingIdx + 1)
+    .join('\n')
+    .replace(/^\s+/, '')
+    .replace(/\s+$/, '');
+
+  let frontmatterData: unknown;
+  try {
+    frontmatterData = parseYaml(frontmatter);
+  } catch {
+    return null;
+  }
+  if (frontmatterData === null || typeof frontmatterData !== 'object') return null;
+
+  const candidate: Record<string, unknown> = { ...(frontmatterData as Record<string, unknown>) };
+  if (!('notes' in candidate) && body.length > 0) {
+    candidate.notes = body;
+  }
+  const parsed = ChangesetEntrySchema.safeParse(candidate);
+  if (!parsed.success) return null;
+  // Slug cross-check: the SSoT slug column is the canonical address, so its
+  // value must match the entry id embedded in the markdown.
+  if (parsed.data.id !== expectedSlug) return null;
+  return parsed.data;
+}
+
+/**
+ * Read every changeset entry available in the project, preferring SSoT bytes
+ * when present and falling back to `.changeset/*.md` for slugs that have not
+ * yet been mirrored to SSoT.
+ *
+ * Algorithm:
+ *   1. Query the attachment store for every row where `type='changeset'`.
+ *      Each row carries the slug + content sha256 — the canonical address.
+ *   2. Read `.changeset/*.md` from disk for the same project.
+ *   3. Build a slug→source map: SSoT wins on slug-match (sha-dedup happens
+ *      automatically because both surfaces hash the same canonical bytes).
+ *   4. For each unique slug, parse the bytes (from SSoT) or the file (from
+ *      disk), attach a `meta.source` label, and return them.
+ *
+ * Entries that fail validation in EITHER surface are silently skipped —
+ * callers receive only the validated subset. The aggregator is advisory
+ * metadata and one malformed row must not block release planning.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @returns Aggregated entries sorted by id (deterministic for downstream
+ *   diff-friendliness). SSoT-first; file-fallback for unmirrored slugs.
+ *
+ * @example
+ * ```ts
+ * const entries = await readChangesetsSsotFirst('/path/to/repo');
+ * for (const { entry, meta } of entries) {
+ *   console.log(`${entry.id} ← ${meta.source}`);
+ * }
+ * ```
+ *
+ * @task T9793
+ */
+export async function readChangesetsSsotFirst(
+  projectRoot: string,
+): Promise<AggregatedChangesetEntry[]> {
+  // Track which slugs we've resolved so file-fallback never double-counts a
+  // slug that SSoT has already supplied.
+  const bySlug = new Map<string, AggregatedChangesetEntry>();
+
+  // ── 1. SSoT pass — query attachment store for type='changeset' rows. ───
+  // Failures here (DB not yet initialised, schema migrations pending, etc.)
+  // degrade silently to the file path so a fresh checkout still works.
+  try {
+    const store = createAttachmentStore();
+    const rows = await store.listAllInProject(projectRoot, { type: 'changeset' });
+    for (const row of rows) {
+      const slug = row.slug;
+      if (!slug) continue;
+      // We need the raw bytes — fetch by SHA-256.
+      const fetched = await store.get(row.metadata.sha256, projectRoot);
+      if (!fetched) continue;
+      const entry = parseChangesetMarkdownBytes(fetched.bytes, slug);
+      if (!entry) continue;
+      bySlug.set(slug, { entry, meta: { source: 'ssot' } });
+    }
+  } catch {
+    /* SSoT unavailable — fall through to file-only mode. */
+  }
+
+  // ── 2. File pass — fill in slugs SSoT did not cover. ───────────────────
+  const changesetDir = join(projectRoot, '.changeset');
+  if (existsSync(changesetDir)) {
+    let fileEntries: ChangesetEntry[] = [];
+    try {
+      fileEntries = parseChangesetDir(changesetDir);
+    } catch {
+      /* Malformed file in the directory — skip the whole batch; the lint
+       * gate (`scripts/lint-changesets.mjs`) surfaces the parse error
+       * separately at PR-review time. */
+      fileEntries = [];
+    }
+    for (const entry of fileEntries) {
+      if (bySlug.has(entry.id)) continue;
+      bySlug.set(entry.id, { entry, meta: { source: 'file' } });
+    }
+  }
+
+  // ── 3. Sort by id for deterministic output. ────────────────────────────
+  return Array.from(bySlug.values()).sort((a, b) =>
+    a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0,
+  );
+}
+
+/**
+ * Convenience wrapper — strip provenance and return just the entries, for
+ * callers (like `cleo release plan`) that feed the result straight into
+ * {@link aggregateChangesetsForRelease}.
+ *
+ * Reads the entries via {@link readChangesetsSsotFirst} then maps to the
+ * underlying `ChangesetEntry[]`. Loses the `meta.source` label — use the
+ * full reader when provenance is needed.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @returns Validated entries, SSoT-first.
+ *
+ * @task T9793
+ */
+export async function readChangesetEntriesSsotFirst(
+  projectRoot: string,
+): Promise<ChangesetEntry[]> {
+  const aggregated = await readChangesetsSsotFirst(projectRoot);
+  return aggregated.map((a) => a.entry);
+}
+
+/**
+ * Synchronous helper for {@link readChangesetEntries} in `plan.ts` —
+ * the file-only fallback used when `readChangesetEntriesSsotFirst` is not
+ * yet wired into a code path that can `await`.
+ *
+ * Mirrors the legacy behaviour of `parseChangesetDir(.changeset)` — kept
+ * because the release plan pipeline (T9753) calls it synchronously from
+ * `releasePlan()` and the broader async refactor is out of scope here.
+ *
+ * The async {@link readChangesetEntriesSsotFirst} is the preferred surface
+ * for new code.
+ *
+ * @internal
+ * @task T9793
+ */
+export function readChangesetEntriesFileOnly(projectRoot: string): ChangesetEntry[] {
+  const dir = join(projectRoot, '.changeset');
+  if (!existsSync(dir)) return [];
+  try {
+    return parseChangesetDir(dir);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Probe the existence of a `.changeset/<slug>.md` file. Test-helper safety
+ * net used by the unit tests — exposed because the writer's file-write step
+ * uses `tmp-then-rename` which can race in tight test loops.
+ *
+ * @internal
+ */
+export function changesetFileExists(projectRoot: string, slug: string): boolean {
+  return existsSync(join(projectRoot, '.changeset', `${slug}.md`));
+}
+
+/**
+ * Read a `.changeset/<slug>.md` file's raw bytes. Test-helper used by the
+ * aggregator-ssot-first test to verify provenance labels match expectations.
+ *
+ * @internal
+ */
+export function readChangesetFileBytes(projectRoot: string, slug: string): Buffer | null {
+  const path = join(projectRoot, '.changeset', `${slug}.md`);
+  if (!existsSync(path)) return null;
+  return readFileSync(path);
 }
