@@ -42,7 +42,7 @@
       "prompt": "Run the manifest alignment check for ct-skill-validator against the CLEO manifest",
       "expected_output": "Manifest alignment results showing whether ct-skill-validator is registered correctly in manifest.json and dispatch-config.json",
       "expectations": [
-        "Claude passes --manifest to validate.py or check_manifest.py",
+        "Claude passes --manifest to validate.py (Tier 4 check)",
         "The manifest.json path is correctly resolved",
         "The output shows Tier 4 CLEO Integration results",
         "Claude reports whether the skill is found in manifest.json"

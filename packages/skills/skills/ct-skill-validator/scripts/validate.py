@@ -17,16 +17,44 @@ import yaml
 import argparse
 from pathlib import Path
 
-V2_STANDARD = {
-    "name", "description", "argument-hint", "disable-model-invocation",
-    "user-invocable", "allowed-tools", "model", "context", "agent", "hooks",
-    "license",
+# Frontmatter fields allowed directly in SKILL.md.
+#
+# Sources (in order of authority):
+#   1. agentskills.io spec — name, description, license, compatibility,
+#      metadata, allowed-tools
+#      https://agentskills.io/specification.md
+#   2. Claude Code harness extensions — argument-hint, disable-model-invocation,
+#      user-invocable, model, context, agent, hooks
+#      (honored by the runtime but not part of the open spec)
+#
+# Anything in CLEO_ONLY is reserved for manifest-entry.json — the validator
+# rejects those at SKILL.md top level.
+#
+# Per-spec author conventions for `metadata` (sub-keys, all strings):
+#   author, version, last_updated, related, spec
+RECOMMENDED_METADATA_KEYS = {"author", "version", "last_updated"}
+
+# Timestamp keys inside `metadata` whose value should match the precision
+# convention. The agentskills.io spec doesn't pin a format, but we enforce
+# YYYY-MM-DD HH:MM:SS for both `last_updated` (metadata convention) and
+# `last_reviewed` (audit/allowlist convention) so audit trails stay precise.
+TIMESTAMP_METADATA_KEYS = ("last_updated", "last_reviewed")
+TIMESTAMP_FORMAT_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+
+SPEC_FRONTMATTER = {
+    "name", "description", "license", "compatibility", "metadata", "allowed-tools",
 }
+HARNESS_EXTENSIONS = {
+    "argument-hint", "disable-model-invocation", "user-invocable",
+    "model", "context", "agent", "hooks",
+}
+ALLOWED_FRONTMATTER = SPEC_FRONTMATTER | HARNESS_EXTENSIONS
+
 CLEO_ONLY = {
     "version", "tier", "core", "category", "protocol",
-    "dependencies", "sharedResources", "compatibility",
+    "dependencies", "sharedResources",
     "token_budget", "capabilities", "constraints",
-    "metadata", "tags", "triggers", "mvi_scope", "requires_tiers",
+    "tags", "triggers", "mvi_scope", "requires_tiers",
 }
 
 MANIFEST_REQUIRED_FIELDS = [
@@ -213,6 +241,53 @@ def validate_skill(skill_path, manifest_path=None, dispatch_config_path=None, pr
     if hooks_val is not None and not isinstance(hooks_val, dict):
         error(tier, "'hooks' must be a dict")
 
+    # compatibility checks (agentskills.io spec: max 500 chars)
+    compat_val = frontmatter.get("compatibility")
+    if compat_val is not None:
+        if not isinstance(compat_val, str):
+            error(tier, "'compatibility' must be a string")
+        elif len(compat_val) > 500:
+            error(tier, f"'compatibility' exceeds 500 characters (got: {len(compat_val)})")
+        else:
+            ok(tier, "'compatibility' is valid")
+
+    # metadata checks (agentskills.io spec: map from string keys to string values)
+    metadata_val = frontmatter.get("metadata")
+    if metadata_val is not None:
+        if not isinstance(metadata_val, dict):
+            error(tier, "'metadata' must be a dict (map from string keys to string values)")
+        else:
+            non_string_keys = [k for k in metadata_val if not isinstance(k, str)]
+            if non_string_keys:
+                error(tier, f"'metadata' keys must all be strings (got non-string: {non_string_keys[:3]})")
+            non_string_vals = [k for k, v in metadata_val.items() if not isinstance(v, str)]
+            if non_string_vals:
+                warn(tier, (
+                    f"'metadata' values should be strings per agentskills.io spec; "
+                    f"non-string keys: {non_string_vals[:3]} (quote numeric versions: \"1.0\" not 1.0)"
+                ))
+            present_recommended = RECOMMENDED_METADATA_KEYS & set(metadata_val.keys())
+            if not present_recommended:
+                warn(tier, (
+                    "'metadata' present but contains none of the recommended keys "
+                    f"({', '.join(sorted(RECOMMENDED_METADATA_KEYS))}); consider adding for traceability"
+                ))
+            else:
+                ok(tier, f"'metadata' has recommended key(s): {', '.join(sorted(present_recommended))}")
+            # Timestamp format check on convention keys (precision: YYYY-MM-DD HH:MM:SS).
+            # The spec is silent on format; this is our audit-precision convention.
+            for ts_key in TIMESTAMP_METADATA_KEYS:
+                ts_val = metadata_val.get(ts_key)
+                if ts_val is None or not isinstance(ts_val, str):
+                    continue
+                if not TIMESTAMP_FORMAT_RE.match(ts_val):
+                    warn(tier, (
+                        f"'metadata.{ts_key}' should match 'YYYY-MM-DD HH:MM:SS' "
+                        f"(got: {ts_val[:40]!r}); use a value like \"2026-05-21 14:00:18\""
+                    ))
+                else:
+                    ok(tier, f"'metadata.{ts_key}' has valid timestamp format")
+
     # ── Tier 3 — Body Quality ───────────────────────────────────────────
     tier = 3
 
@@ -228,10 +303,13 @@ def validate_skill(skill_path, manifest_path=None, dispatch_config_path=None, pr
         body_lines = body.split("\n")
         line_count = len(body_lines)
 
+        # Thresholds aligned with agentskills.io spec recommendation
+        # ("Keep your main SKILL.md under 500 lines"). 600 is the hard cap;
+        # 500 is the soft cap from the spec.
         if line_count >= 600:
-            error(tier, f"Body is too long: {line_count} lines (max 600)")
-        elif line_count >= 400:
-            warn(tier, f"Body is getting long: {line_count} lines (warn threshold: 400)")
+            error(tier, f"Body is too long: {line_count} lines (hard cap 600)")
+        elif line_count >= 500:
+            warn(tier, f"Body exceeds spec recommendation: {line_count} lines (keep under 500)")
         else:
             ok(tier, f"Body length OK ({line_count} lines)")
 

@@ -34,14 +34,18 @@ python ${CLAUDE_SKILL_DIR}/scripts/validate.py <skill-dir> --json
 # Deep body quality audit (optional, run alongside validate.py):
 python ${CLAUDE_SKILL_DIR}/scripts/audit_body.py <skill-dir>
 
-# Manifest alignment check:
-python ${CLAUDE_SKILL_DIR}/scripts/check_manifest.py <skill-dir> <manifest.json>
+# Manifest alignment check: bundled into validate.py Tier 4. Use:
+#   python validate.py <skill-dir> --manifest <manifest.json> --dispatch-config <dispatch-config.json>
 
 # Progressive-disclosure depth check (T9684 — CI gate):
 python ${CLAUDE_SKILL_DIR}/scripts/check_depth.py <skill-dir>
 
 # Repo-wide depth sweep:
 python ${CLAUDE_SKILL_DIR}/scripts/check_depth.py <repo-root> --all
+
+# Allowlist audit (CI / cron — exit 1 on findings):
+python ${CLAUDE_SKILL_DIR}/scripts/check_depth.py <skill-dir> --audit-allowlist
+python ${CLAUDE_SKILL_DIR}/scripts/check_depth.py <skill-dir> --audit-allowlist --json
 ```
 
 **Depth rule (T9684):** A skill PASSES when ANY of:
@@ -53,6 +57,13 @@ python ${CLAUDE_SKILL_DIR}/scripts/check_depth.py <repo-root> --all
 Pre-existing stubs are allowlisted with follow-up task IDs in
 `scripts/check_depth.py::ALLOWLIST`. Gold-standard skills:
 `ct-orchestrator` (9 refs) and `ct-skill-creator` (7 refs).
+
+**Allowlist hygiene:** every entry carries `last_reviewed: YYYY-MM-DD HH:MM:SS`.
+`check_depth.py` runs a silent background audit on every invocation and emits
+WARNs to stderr for malformed or stale (> 30 days) entries. Use
+`--audit-allowlist` for an explicit pass that exits 1 on any finding —
+suitable for a CI cron job. The threshold is tunable via
+`ALLOWLIST_STALE_DAYS` at the top of `check_depth.py`.
 
 The depth check runs on every PR touching `packages/skills/skills/**`
 via `.github/workflows/skills-depth-check.yml`.
@@ -119,40 +130,68 @@ Repeat until verdict is `PASS` or `PASS_WITH_WARNINGS`. WARN is acceptable; ERRO
 ## Phase 3: Quality A/B Eval
 
 Tests whether the skill actually improves agent output quality vs. no skill context.
-Uses the eval infrastructure from ct-skill-creator.
+Phase 3 is **delegated** — `ct-skill-validator` does static analysis; runtime
+quality evals live in a dedicated skill (`skill-evaluator` preferred,
+`ct-skill-creator` as legacy fallback).
+
+> **Scope boundary:** `ct-skill-validator` is *static* — it checks structure,
+> frontmatter, body, manifest, depth, ecosystem fit. For deep runtime A/B
+> benchmarking, regression detection, and auto-improvement, the dispatcher
+> below routes to `skill-evaluator`, which owns that workflow end-to-end.
+
+The two eval files in `evals/` serve different purposes:
+- `evals/trigger_queries.json` — trigger queries (does the description activate correctly?)
+- `evals/quality_evals.json`   — output-quality scenarios (does the validator produce the right report?)
+
+### Dispatch (no hardcoded cross-skill paths)
+
+`scripts/run_quality_eval.py` uses `_skill_finder.py` to dynamically locate
+the eval skill at runtime. It searches:
+
+1. `$SKILL_FINDER_PATH` (colon-separated override)
+2. Direct sibling of this skill
+3. `<this-skill>/../../skills/<name>/` (CLEO / awesome-skills layouts)
+4. Walk-up ancestors + their project-shaped children (cross-project)
+5. `~/.claude/skills/<name>/`
+
+Show what would be used (without running anything):
+```bash
+python ${CLAUDE_SKILL_DIR}/scripts/run_quality_eval.py --list
+```
 
 **Trigger accuracy** — does the skill description trigger correctly?
 ```bash
-python ${CLAUDE_SKILL_DIR}/../ct-skill-creator/scripts/run_eval.py \
-  --eval-set ${CLAUDE_SKILL_DIR}/evals/eval_set.json \
-  --skill-path ${CLAUDE_SKILL_DIR}
+python ${CLAUDE_SKILL_DIR}/scripts/run_quality_eval.py <skill-dir> \
+  --trigger --evals ${CLAUDE_SKILL_DIR}/evals/trigger_queries.json
 ```
 
-**Optimize description** (if trigger accuracy < 80%):
+**Quality eval** (with/without skill A/B + grading + blind comparison):
 ```bash
-python ${CLAUDE_SKILL_DIR}/../ct-skill-creator/scripts/run_loop.py \
-  --eval-set ${CLAUDE_SKILL_DIR}/evals/eval_set.json \
-  --skill-path ${CLAUDE_SKILL_DIR} \
-  --model claude-sonnet-4-6 \
-  --max-iterations 5
+python ${CLAUDE_SKILL_DIR}/scripts/run_quality_eval.py <skill-dir> \
+  --runs 3 --executor api \
+  --evals ${CLAUDE_SKILL_DIR}/evals/quality_evals.json
 ```
-`run_loop.py` opens a live HTML accuracy report in the browser automatically.
 
-**Quality eval** (with/without skill A/B):
-1. Spawn two agents in the SAME turn: one WITH skill context loaded, one WITHOUT (baseline)
-2. Give both the same task prompt from [evals/evals.json](evals/evals.json)
-3. Grade each with the grader agent → `grading.json`:
-   `${CLAUDE_SKILL_DIR}/../ct-skill-creator/agents/grader.md`
-4. Blind A/B comparison with the comparator agent → `comparison.json`:
-   `${CLAUDE_SKILL_DIR}/../ct-skill-creator/agents/comparator.md`
-5. Post-hoc analysis with the analyzer agent → `analysis.json`:
-   `${CLAUDE_SKILL_DIR}/../ct-skill-creator/agents/analyzer.md`
-6. Serve the full eval review:
-   `python ${CLAUDE_SKILL_DIR}/../ct-skill-creator/eval-viewer/generate_review.py <workspace-dir>`
-   (Opens browser at localhost:3117)
+When `skill-evaluator` is the resolved target, the wrapper drives its full
+loop: generate → run → grade → aggregate → analyze → detect-regression →
+propose. See `skill-evaluator/SKILL.md` for the workflow it actually
+executes.
 
-See [references/validation-rules.md](references/validation-rules.md) and
-`${CLAUDE_SKILL_DIR}/../ct-skill-creator/references/schemas.md` for JSON output schemas.
+When `ct-skill-creator` is the resolved fallback, the wrapper invokes its
+`run_eval.py` with the same arguments translated to its CLI shape.
+
+### Manual A/B (if you want to drive runs yourself)
+
+If you need direct control of how runs are spawned (e.g. inside a real
+Claude Code session with subagent isolation), invoke the resolved eval
+skill's scripts directly — locate them with:
+
+```bash
+EVAL_SKILL=$(python ${CLAUDE_SKILL_DIR}/scripts/_skill_finder.py skill-evaluator)
+```
+
+then drive that skill's documented workflow without any further hardcoded
+paths in this file.
 
 ---
 
