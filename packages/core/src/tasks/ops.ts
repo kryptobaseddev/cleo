@@ -21,6 +21,7 @@
  */
 
 import type {
+  EngineResult,
   TaskKind,
   TaskPriority,
   TaskScope,
@@ -218,7 +219,7 @@ export async function tasksAddOp(
 export async function tasksAddBatchOpNormalized(
   projectRoot: string,
   params: { tasks: AddBatchTaskSpec[]; defaultParent?: string; dryRun?: boolean },
-): Promise<AddBatchResult> {
+): Promise<EngineResult<AddBatchResult>> {
   return tasksAddBatchOp(projectRoot, params);
 }
 
