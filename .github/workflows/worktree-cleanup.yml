@@ -1,0 +1,101 @@
+# Worktree Auto-Cleanup Workflow (T9805 AC1)
+#
+# Triggers on PR merge events and destroys the associated agent worktree.
+# The worktree path is resolved from the task ID encoded in the PR branch name
+# (e.g. `task/T9805` → task ID `T9805`).
+#
+# Council verdict D009 integration: `cleo worktree destroy --pr <num>` calls
+# `destroyWorktree`, which removes the sentinel index entry and appends an
+# audit-log record to `.cleo/audit/worktree-lifecycle.jsonl`.
+#
+# @task T9805
+# @epic T9800
+# @saga SG-WORKTREE-CANON
+name: Worktree Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    name: Destroy merged worktree
+    # Only run when the PR was actually merged (not just closed/abandoned).
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history so `git log` is available for idle-age checks.
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install CLEO CLI
+        # Use pnpm dlx to pull the published @cleocode/cleo package without
+        # needing a full workspace install in CI. Falls back to the local
+        # workspace build when the CLEO_LOCAL_INSTALL env var is set (useful
+        # for testing changes to the CLI itself before publish).
+        run: |
+          if [ "${CLEO_LOCAL_INSTALL:-}" = "1" ]; then
+            pnpm install --frozen-lockfile
+            pnpm --filter @cleocode/cleo exec node build.mjs
+          else
+            pnpm dlx @cleocode/cleo --version 2>/dev/null || true
+          fi
+
+      - name: Initialize CLEO project context
+        # cleo init is idempotent — safe to run even when the project is already
+        # initialized. This ensures `.cleo/` and the audit directory exist.
+        run: |
+          cleo init --yes 2>/dev/null || pnpm dlx @cleocode/cleo init --yes 2>/dev/null || true
+        env:
+          CLEO_PROJECT_ROOT: ${{ github.workspace }}
+
+      - name: Destroy worktree for merged PR
+        # cleo worktree destroy --pr <num> looks up the task branch associated
+        # with the PR and tears down its XDG worktree + audit-logs the action.
+        # Exit 0 even when no worktree is found (idempotent).
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+          echo "PR #${PR_NUMBER} merged (branch: ${PR_BRANCH})"
+
+          # Derive the task ID from the branch name if it follows the
+          # `task/T####` or `feat/T####-*` convention.
+          TASK_ID=$(echo "${PR_BRANCH}" | grep -oP '(?<=/)T\d+' | head -1 || true)
+
+          if [ -z "${TASK_ID}" ]; then
+            echo "No task ID found in branch name '${PR_BRANCH}' — skipping worktree cleanup."
+            exit 0
+          fi
+
+          echo "Destroying worktree for task ${TASK_ID} (PR #${PR_NUMBER})"
+          cleo worktree destroy "${TASK_ID}" --reason "pr-merged" --json 2>/dev/null \
+            || pnpm dlx @cleocode/cleo worktree destroy "${TASK_ID}" --reason "pr-merged" --json 2>/dev/null \
+            || echo "No worktree registered for ${TASK_ID} — nothing to clean up."
+        env:
+          CLEO_PROJECT_ROOT: ${{ github.workspace }}
+          CLEO_AGENT_ID: github-actions
+
+      - name: Run abandonment-timeout sweep (idle > 7 days)
+        # Prune any remaining agent worktrees whose last commit is older than
+        # 7 days. This implements AC2 (abandonment-timeout sweeper) as a
+        # post-merge hook so it runs automatically on every PR merge.
+        # --yes bypasses the interactive TTY prompt in CI.
+        run: |
+          cleo worktree prune --orphaned --idle-days 7 --yes --json 2>/dev/null \
+            || pnpm dlx @cleocode/cleo worktree prune --orphaned --idle-days 7 --yes --json 2>/dev/null \
+            || echo "Idle-days sweep skipped (CLI unavailable or no orphans found)."
+        env:
+          CLEO_PROJECT_ROOT: ${{ github.workspace }}
+          CLEO_AGENT_ID: github-actions

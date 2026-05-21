@@ -247,6 +247,14 @@ export interface DestroyWorktreeOptions {
   force?: boolean;
   /** Declarative hooks to run during destruction lifecycle. */
   hooks?: WorktreeHook[];
+  /**
+   * Free-form reason string appended to the lifecycle audit log (T9805).
+   *
+   * Examples: `'pr-merged'`, `'manual'`, `'idle-timeout'`.
+   *
+   * @default 'manual'
+   */
+  reason?: string;
 }
 
 /**
@@ -332,6 +340,16 @@ export interface PruneWorktreesOptions {
    * @default true
    */
   gitPrune?: boolean;
+  /**
+   * Abandonment-timeout threshold in days (T9805 AC2).
+   *
+   * When set, worktrees whose branch has had no commits for at least this many
+   * days AND which have no open PR associated are eligible for pruning, even
+   * if their task ID is not in a known-stale set.
+   *
+   * @default undefined — disabled; no idle-age check is performed.
+   */
+  idleDays?: number;
 }
 
 /**
@@ -451,6 +469,9 @@ export interface ListWorktreesResult {
 /**
  * Canonical action recorded in `.cleo/audit/worktree-lifecycle.jsonl`.
  *
+ * - `create` — worktree was created via `cleo orchestrate spawn` (T9805).
+ * - `destroy` — worktree was explicitly destroyed (PR-merged cleanup or manual) (T9805).
+ * - `adopt` — an existing worktree directory was attached to a new task ID (T9805).
  * - `prune` — orphaned/merged worktree was removed.
  * - `prune-skip` — orphan was detected but skipped (user said N, or had uncommitted changes).
  * - `force-unlock` — git index.lock removed + `git worktree unlock` ran.
@@ -463,8 +484,12 @@ export interface ListWorktreesResult {
  *
  * @task T9547
  * @task T9548
+ * @task T9805
  */
 export type WorktreeLifecycleAction =
+  | 'create'
+  | 'destroy'
+  | 'adopt'
   | 'prune'
   | 'prune-skip'
   | 'force-unlock'
