@@ -38,9 +38,13 @@
  * @adr ADR-068, ADR-069
  */
 
+import { existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { resolveOrCwd } from '../paths.js';
+import { ExitCode } from '@cleocode/contracts';
+import { CleoError } from '../errors.js';
+import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';
 import { getConduitNativeDb } from './conduit-sqlite.js';
 import { getNexusDb } from './nexus-sqlite.js';
 import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
@@ -127,9 +131,69 @@ function isDatabaseSync(db: unknown): db is DatabaseSync {
 }
 
 /**
+ * Worktree-isolation guard for the DB chokepoint (T9806 / council verdict D009).
+ *
+ * Defense-in-depth on top of T9803's `getCleoDirAbsolute` THROWS-on-orphan
+ * fix. After path resolution, this verifies the resolved `.cleo/`'s parent
+ * directory is the **canonical project root** (i.e. `.git` is a real
+ * directory) rather than a **git worktree** (i.e. `.git` is a gitlink file).
+ *
+ * Refusing worktree-resident opens prevents the residual orphan path where a
+ * leaked `.cleo/` already exists inside a worktree from a pre-T9803 install:
+ * T9803 stops NEW creation, T9806 stops re-use of an OLD leak.
+ *
+ * Kill-switch: `CLEO_ALLOW_WORKTREE_DB_CREATE=1` bypasses the guard. The
+ * override is recorded to stderr (caller may pipe to audit log).
+ *
+ * @throws `CleoError('E_WT_DB_ISOLATION_VIOLATION')` when:
+ *   - The resolved `.cleo/`'s parent directory contains `.git` as a FILE
+ *     (gitlink — worktree marker), AND
+ *   - `CLEO_ALLOW_WORKTREE_DB_CREATE` is not set to `'1'`.
+ *
+ * @internal
+ */
+function assertDbPathIsNotWorktreeResident(role: CleoDbRole, cwd?: string): void {
+  let cleoDir: string;
+  try {
+    cleoDir = getCleoDirAbsolute(cwd);
+  } catch {
+    // T9803 already throws on unresolvable project root. Re-raising here
+    // would lose context; let the underlying opener surface the original
+    // error.
+    return;
+  }
+  const projectRoot = dirname(cleoDir);
+  const projectGit = join(projectRoot, '.git');
+  let isWorktreeGitlink = false;
+  try {
+    isWorktreeGitlink = existsSync(projectGit) && statSync(projectGit).isFile();
+  } catch {
+    /* If `.git` itself is missing, this isn't our concern — T9803 will fire. */
+  }
+  if (!isWorktreeGitlink) {
+    return;
+  }
+  if (process.env['CLEO_ALLOW_WORKTREE_DB_CREATE'] === '1') {
+    process.stderr.write(
+      `[T9806 WT-DB-OVERRIDE] role=${role} path=${cleoDir} reason=CLEO_ALLOW_WORKTREE_DB_CREATE=1\n`,
+    );
+    return;
+  }
+  throw new CleoError(
+    ExitCode.CONFIG_ERROR,
+    `E_WT_DB_ISOLATION_VIOLATION: refusing to open '${role}' DB at ${cleoDir} — parent ${projectRoot} is a git worktree (gitlink). DBs must open against the canonical project root.`,
+    {
+      fix: `Run from the canonical project root, OR delete the leaked .cleo/ inside the worktree, OR set CLEO_ALLOW_WORKTREE_DB_CREATE=1 (emergency override, audited).`,
+    },
+  );
+}
+
+/**
  * Open (or create) a CLEO database by canonical role.
  *
  * Single chokepoint for all DB opens. Applies pragma SSoT at open time.
+ * Enforces the worktree-isolation guard (T9806) on top of T9803's path-layer
+ * THROWS-on-orphan fix.
  */
 export async function openCleoDb(role: CleoDbRole, cwd?: string): Promise<CleoDbHandle> {
   if (role === 'llmtxt') {
@@ -139,6 +203,14 @@ export async function openCleoDb(role: CleoDbRole, cwd?: string): Promise<CleoDb
   const opener = ROLE_OPENERS[role];
   if (!opener) {
     throw new Error(`Unknown CLEO DB role: ${role}`);
+  }
+
+  // T9806/D009: defense-in-depth — refuse opens whose resolved `.cleo/`
+  // resides inside a git worktree (gitlink-file parent). Roles that read
+  // from a global path (signaldock, skills) MAY legitimately open from
+  // anywhere — they don't depend on cwd-resolved project root.
+  if (role !== 'signaldock' && role !== 'skills') {
+    assertDbPathIsNotWorktreeResident(role, cwd);
   }
 
   const openedDb = await opener(cwd);
