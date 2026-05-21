@@ -44,7 +44,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'addCommand',
     name: 'add',
-    description: 'Create a new task (requires active session)',
+    description:
+      'Create a new task (requires active session)\nFor 2+ tasks at once: cleo add-batch --file tasks.json (single transaction, atomic rollback)',
     load: async () => (await import('../commands/add.js')).addCommand as CommandDef,
   },
   {
