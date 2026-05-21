@@ -479,7 +479,7 @@ describe('releasePlan writes CHANGELOG.md (T9838 Fix 3)', () => {
     expect(result.data.changelogPath).toBe(join(testDir, 'CHANGELOG.md'));
 
     const body = readFileSync(result.data.changelogPath, 'utf-8');
-    expect(body).toContain('## [v2026.6.0]');
+    expect(body).toContain('## [2026.6.0]');
     expect(body).toContain('A new capability.');
     // Default header seeded for fresh files.
     expect(body).toContain('# Changelog');
@@ -516,8 +516,8 @@ describe('releasePlan writes CHANGELOG.md (T9838 Fix 3)', () => {
     expect(secondBody).toBe(firstBody);
     expect(second.data.changelogWritten).toBe(false);
 
-    // Exactly one `## [v2026.6.0]` block — no duplication.
-    const matches = secondBody.match(/^## \[v2026\.6\.0\]/gm) ?? [];
+    // Exactly one `## [2026.6.0]` block — no duplication.
+    const matches = secondBody.match(/^## \[2026\.6\.0\]/gm) ?? [];
     expect(matches).toHaveLength(1);
     // Also assert no orphan aggregator `## v2026.6.0 — DATE` line remains
     // (the canonical bracketed header is the SoT).
@@ -566,7 +566,7 @@ describe('releasePlan writes CHANGELOG.md (T9838 Fix 3)', () => {
     expect(body).toContain('A new capability.');
     expect(body).toContain('A sample bug fix.');
     // Still exactly one section header.
-    const matches = body.match(/^## \[v2026\.6\.0\]/gm) ?? [];
+    const matches = body.match(/^## \[2026\.6\.0\]/gm) ?? [];
     expect(matches).toHaveLength(1);
   });
 
@@ -614,7 +614,7 @@ describe('releasePlan writes CHANGELOG.md (T9838 Fix 3)', () => {
     const preExisting = [
       '# Changelog',
       '',
-      '## [v2025.1.0] (2025-01-15)',
+      ## [2025.1.0] (2025-01-15)',
       '',
       '- Older release notes left intact.',
       '',
@@ -634,7 +634,7 @@ describe('releasePlan writes CHANGELOG.md (T9838 Fix 3)', () => {
 
     const body = readFileSync(result.data.changelogPath, 'utf-8');
     // New section inserted FIRST (right after the title).
-    expect(body).toMatch(/# Changelog[\s\S]*## \[v2026\.6\.0\][\s\S]*## \[v2025\.1\.0\]/);
+    expect(body).toMatch(/# Changelog[\s\S]*## \[2026\.6\.0\][\s\S]*## \[2025\.1\.0\]/);
     // Older section content preserved verbatim.
     expect(body).toContain('Older release notes left intact.');
   });
