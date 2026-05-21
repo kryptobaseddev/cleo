@@ -917,10 +917,16 @@ async function writeChangelogSection(args: {
   // sub-headers and bullet content. The canonical bracketed header is what
   // downstream verbs (open, reconcile) and CI grep for.
   const trimmedNotes = stripAggregatorVersionHeader(notesMarkdown, version).trimEnd();
-  const sectionHeader = `## [${version}] (${date})`;
+  // ADR-028 §2.5: canonical CHANGELOG header is `## [VERSION] (YYYY-MM-DD)` with
+  // NO `v` prefix on the version. The plan flow passes `v<version>` for git-tag
+  // purposes; normalize for the header.
+  const versionForHeader = version.startsWith('v') ? version.slice(1) : version;
+  const sectionHeader = `## [${versionForHeader}] (${date})`;
   const sectionBody = `${sectionHeader}\n\n${trimmedNotes}\n`;
 
-  const updated = replaceOrInsertChangelogSection(existing, version, sectionBody);
+  // Search/replace uses the same `## [VERSION] (...)` header shape per ADR-028,
+  // so the regex must look for the v-less form. Pass the normalized version.
+  const updated = replaceOrInsertChangelogSection(existing, versionForHeader, sectionBody);
   if (updated === existing) {
     return { changelogPath, written: false };
   }
