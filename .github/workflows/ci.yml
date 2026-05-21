@@ -181,6 +181,25 @@ jobs:
       - name: Lint project-root anti-pattern in packages/
         run: node scripts/lint-project-root-anti-pattern.mjs --strict
 
+  paths-ssot-lint:
+    # T9802 / E-WT-PATHS-SSOT — enforce `packages/paths/` as the sole source
+    # of worktree + XDG path resolution. Three rules (baseline-gated, not
+    # strict): direct `env-paths` imports, hand-rolled XDG reads, and
+    # hand-rolled worktree path calculations. The baseline records the current
+    # count at T9802 phase-1 ship; CI fails on net-add (regression prevention).
+    # Phase 2 (drive baseline to zero) is tracked in AGENTS.md.
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: Paths SSoT Lint (T9802)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint paths SSoT anti-patterns in packages/
+        run: node scripts/lint-paths-ssot.mjs
+
   json-stream-hygiene-lint:
     # T9775 / T-JH-8 — last task of T9763 (JSON stream hygiene saga).
     # Rejects NEW `process.stderr.write` / `console.warn` / `console.error`
