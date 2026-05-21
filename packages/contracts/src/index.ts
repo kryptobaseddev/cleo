@@ -535,8 +535,36 @@ export type {
 export type { ResolvedCredential } from './llm/resolved-credential.js';
 // === Logger contract (T9766 — centralized from @cleocode/core) ===
 export type { LoggerConfig } from './logger.js';
+// === BRAIN memory wire-shape contracts (T9956 — promoted from @cleocode/core) ===
+export type {
+  BudgetedEntry,
+  BudgetedResult,
+  BudgetedRetrievalOptions,
+} from './memory/budgeted.js';
 // === ContextEngine contract (canonical home — T9304) ===
 export type { CompressedContext, ContextEngine } from './memory/context-engine.js';
+export type {
+  FetchBrainEntriesParams,
+  FetchBrainEntriesResult,
+  FetchedBrainEntry,
+} from './memory/fetch.js';
+export type {
+  BrainObservationSourceType,
+  ObserveBrainParams,
+  ObserveBrainResult,
+} from './memory/observe.js';
+export { BRAIN_OBSERVATION_SOURCE_TYPES } from './memory/observe.js';
+export type {
+  BrainCompactHit,
+  SearchBrainCompactParams,
+  SearchBrainCompactResult,
+} from './memory/search.js';
+export type {
+  BrainAnchor,
+  TimelineBrainParams,
+  TimelineBrainResult,
+  TimelineNeighbor,
+} from './memory/timeline.js';
 export type {
   BridgeDecision,
   BridgeLearning,
