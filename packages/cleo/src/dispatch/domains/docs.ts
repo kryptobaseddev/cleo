@@ -38,6 +38,7 @@ import type {
   DocsFetchResult,
   DocsGenerateParams,
   DocsGenerateResult,
+  DocsListOrderBy,
   DocsListParams,
   DocsListResult,
   DocsRemoveParams,
@@ -65,6 +66,21 @@ import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../ad
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
+
+/**
+ * Local mirror of `DOCS_LIST_DEFAULT_LIMIT` from `@cleocode/contracts`.
+ *
+ * Inlined to avoid promoting the contracts subpath import to runtime — the
+ * cleo package's vitest config aliases only the bare `@cleocode/contracts`
+ * specifier (subpath imports rely on the workspace symlink). Keeping every
+ * cross-package symbol used inside this file type-only side-steps that
+ * resolution path. The value MUST stay in sync with the contracts export
+ * (validated by the docs-list-ux tests asserting `data.limit === 50` in
+ * the default case).
+ *
+ * @task T9792
+ */
+const DOCS_LIST_DEFAULT_LIMIT = 50;
 
 /**
  * Canonical doc-kind registry — single source of truth for the user-facing
@@ -259,6 +275,64 @@ function registeredKindList(): string {
   return registeredKindValues().join('|');
 }
 
+/**
+ * Normalise the orderBy value coming from raw params.
+ *
+ * Accepts the canonical {@link DocsListOrderBy} keys and falls back to
+ * `'newest'` on any other input so an out-of-range value never poisons the
+ * envelope. The CLI flag validation rejects out-of-range values up front, so
+ * this is a defence-in-depth normaliser.
+ *
+ * @task T9792
+ */
+function normaliseOrderBy(raw: unknown): DocsListOrderBy {
+  if (raw === 'sha' || raw === 'slug' || raw === 'newest') return raw;
+  return 'newest';
+}
+
+/**
+ * Resolve the effective row limit for `docs.list`.
+ *
+ * Returns `Number.POSITIVE_INFINITY` when the caller explicitly opted into
+ * "no limit" with `limit <= 0`. This sentinel keeps the slice + truncation
+ * branches unified without per-call special-cases.
+ *
+ * @task T9792
+ */
+function resolveListLimit(raw: unknown): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    if (raw <= 0) return Number.POSITIVE_INFINITY;
+    return Math.floor(raw);
+  }
+  return DOCS_LIST_DEFAULT_LIMIT;
+}
+
+/**
+ * Comparator factories for the supported {@link DocsListOrderBy} keys.
+ *
+ * Each comparator works against the flat wire-format row produced by the
+ * docs.list handler — slug-less rows sort AFTER slug-bearing ones so the
+ * `slug` ordering produces a stable, agent-friendly listing.
+ *
+ * @task T9792
+ */
+function compareByOrderBy(
+  orderBy: DocsListOrderBy,
+): (a: { sha256: string; slug?: string; createdAt: string }, b: typeof a) => number {
+  if (orderBy === 'sha') return (a, b) => a.sha256.localeCompare(b.sha256);
+  if (orderBy === 'slug') {
+    return (a, b) => {
+      const left = a.slug ?? '';
+      const right = b.slug ?? '';
+      if (!left && right) return 1;
+      if (left && !right) return -1;
+      return left.localeCompare(right);
+    };
+  }
+  // newest — descending by createdAt (ISO 8601 lexicographic == chronological)
+  return (a, b) => b.createdAt.localeCompare(a.createdAt);
+}
+
 // ─── Typed inner handler ──────────────────────────────────────────────────────
 
 /**
@@ -279,15 +353,11 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     // SSoT-EXEMPT:dispatch-normalize — docs.list accepts three aliased owner params;
     // normalization to ownerId is a docs-domain concern, not a Core concern.
     const ownerId = params.task ?? params.session ?? params.observation;
-    const isProjectScope = params.project === true;
-
-    if (!ownerId && !isProjectScope) {
-      return lafsError(
-        'E_INVALID_INPUT',
-        'Provide one of --task, --session, --observation, or --project to scope the list.',
-        'list',
-      );
-    }
+    // T9792 — when no owner scope is provided, auto-promote to project scope
+    // (was: E_INVALID_INPUT). The CLI layer surfaces a hint when this default
+    // kicks in so agents notice that a narrower flag may have been intended.
+    const explicitProject = params.project === true;
+    const isProjectScope = explicitProject || !ownerId;
 
     // Validate `--type` filter if provided (T9637).
     let typeFilter: DocsType | undefined;
@@ -302,6 +372,25 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       typeFilter = params.type;
     }
 
+    // T9792 — resolve browsing window + sort key. Both fields are mirrored
+    // into the result envelope so consumers can paginate without re-deriving
+    // the default. `Number.POSITIVE_INFINITY` is the "no limit" sentinel.
+    const effectiveLimit = resolveListLimit(params.limit);
+    const orderBy = normaliseOrderBy(params.orderBy);
+    const comparator = compareByOrderBy(orderBy);
+
+    // T9792 — surface a one-line hint when the auto-promote kicked in or
+    // when the limit truncated the result set, so the JSON envelope tells
+    // agents how to narrow / widen the next call.
+    const autoPromoted = isProjectScope && !explicitProject;
+    const hintParts: string[] = [];
+    if (autoPromoted) {
+      hintParts.push(
+        'no scope set — defaulted to --project. Pass --task <id>, --session <id>, ' +
+          'or --observation <id> for a narrower listing.',
+      );
+    }
+
     const store = createAttachmentStore();
     const backend: AttachmentBackend = await resolveAttachmentBackend();
 
@@ -314,34 +403,61 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         typeFilter !== undefined ? { type: typeFilter } : undefined,
       );
 
+      const projected = rows.map(({ metadata: m, slug, type, ownerId: oid, ownerType: ot }) => ({
+        id: m.id,
+        sha256: `${m.sha256.slice(0, 8)}…`,
+        // T9792 — keep the full sha256 for stable cross-row sorting; the
+        // displayed truncated form is preserved on the wire field above.
+        _sortSha: m.sha256,
+        kind: m.attachment.kind,
+        mime:
+          m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
+            ? m.attachment.mime
+            : ((m.attachment as UrlAttachment).mime ?? '—'),
+        size:
+          m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
+            ? m.attachment.size
+            : undefined,
+        description: m.attachment.description,
+        labels: m.attachment.labels,
+        createdAt: m.createdAt,
+        refCount: m.refCount,
+        ...(slug ? { slug } : {}),
+        ...(type ? { type: type as DocsType } : {}),
+        ownerId: oid,
+        ownerType: ot,
+      }));
+
+      projected.sort((a, b) =>
+        comparator(
+          { sha256: a._sortSha, slug: a.slug, createdAt: a.createdAt },
+          { sha256: b._sortSha, slug: b.slug, createdAt: b.createdAt },
+        ),
+      );
+
+      const totalCount = projected.length;
+      const sliced = Number.isFinite(effectiveLimit)
+        ? projected.slice(0, effectiveLimit)
+        : projected;
+      const truncated = totalCount > sliced.length;
+      if (truncated) {
+        hintParts.push(
+          `showing ${sliced.length} of ${totalCount} — pass --limit <N> to widen or page further.`,
+        );
+      }
+
       return lafsSuccess<DocsListResult>(
         {
           ownerId: '',
           ownerType: 'task',
           project: true,
           ...(typeFilter !== undefined ? { type: typeFilter } : {}),
-          count: rows.length,
-          attachments: rows.map(({ metadata: m, slug, type, ownerId: oid, ownerType: ot }) => ({
-            id: m.id,
-            sha256: `${m.sha256.slice(0, 8)}…`,
-            kind: m.attachment.kind,
-            mime:
-              m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
-                ? m.attachment.mime
-                : ((m.attachment as UrlAttachment).mime ?? '—'),
-            size:
-              m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
-                ? m.attachment.size
-                : undefined,
-            description: m.attachment.description,
-            labels: m.attachment.labels,
-            createdAt: m.createdAt,
-            refCount: m.refCount,
-            ...(slug ? { slug } : {}),
-            ...(type ? { type: type as DocsType } : {}),
-            ownerId: oid,
-            ownerType: ot,
-          })),
+          count: sliced.length,
+          ...(truncated ? { totalCount } : {}),
+          limit: Number.isFinite(effectiveLimit) ? effectiveLimit : 0,
+          orderBy,
+          ...(hintParts.length > 0 ? { hint: hintParts.join(' ') } : {}),
+          attachments: sliced.map(({ _sortSha: _drop, ...row }) => row),
           attachmentBackend: backend as DocsListResult['attachmentBackend'],
         },
         'list',
@@ -373,31 +489,56 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       enriched.push({ meta: m, slug, type });
     }
 
+    const projectedOwner = enriched.map(({ meta: m, slug, type }) => ({
+      id: m.id,
+      sha256: `${m.sha256.slice(0, 8)}…`,
+      _sortSha: m.sha256,
+      kind: m.attachment.kind,
+      mime:
+        m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
+          ? m.attachment.mime
+          : ((m.attachment as UrlAttachment).mime ?? '—'),
+      size:
+        m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
+          ? m.attachment.size
+          : undefined,
+      description: m.attachment.description,
+      labels: m.attachment.labels,
+      createdAt: m.createdAt,
+      refCount: m.refCount,
+      ...(slug ? { slug } : {}),
+      ...(type ? { type: type as DocsType } : {}),
+    }));
+
+    projectedOwner.sort((a, b) =>
+      comparator(
+        { sha256: a._sortSha, slug: a.slug, createdAt: a.createdAt },
+        { sha256: b._sortSha, slug: b.slug, createdAt: b.createdAt },
+      ),
+    );
+
+    const totalCountOwner = projectedOwner.length;
+    const slicedOwner = Number.isFinite(effectiveLimit)
+      ? projectedOwner.slice(0, effectiveLimit)
+      : projectedOwner;
+    const truncatedOwner = totalCountOwner > slicedOwner.length;
+    if (truncatedOwner) {
+      hintParts.push(
+        `showing ${slicedOwner.length} of ${totalCountOwner} — pass --limit <N> to widen or page further.`,
+      );
+    }
+
     return lafsSuccess<DocsListResult>(
       {
         ownerId: scopedOwner,
         ownerType,
         ...(typeFilter !== undefined ? { type: typeFilter } : {}),
-        count: enriched.length,
-        attachments: enriched.map(({ meta: m, slug, type }) => ({
-          id: m.id,
-          sha256: `${m.sha256.slice(0, 8)}…`,
-          kind: m.attachment.kind,
-          mime:
-            m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
-              ? m.attachment.mime
-              : ((m.attachment as UrlAttachment).mime ?? '—'),
-          size:
-            m.attachment.kind === 'local-file' || m.attachment.kind === 'blob'
-              ? m.attachment.size
-              : undefined,
-          description: m.attachment.description,
-          labels: m.attachment.labels,
-          createdAt: m.createdAt,
-          refCount: m.refCount,
-          ...(slug ? { slug } : {}),
-          ...(type ? { type: type as DocsType } : {}),
-        })),
+        count: slicedOwner.length,
+        ...(truncatedOwner ? { totalCount: totalCountOwner } : {}),
+        limit: Number.isFinite(effectiveLimit) ? effectiveLimit : 0,
+        orderBy,
+        ...(hintParts.length > 0 ? { hint: hintParts.join(' ') } : {}),
+        attachments: slicedOwner.map(({ _sortSha: _drop, ...row }) => row),
         // Cast: core returns 'llmtxt'|'legacy'; contracts uses 'legacy'|'llmstxt-v2' (drift T1529)
         attachmentBackend: backend as DocsListResult['attachmentBackend'],
       },
@@ -968,15 +1109,29 @@ function docsEnvelopeToResponse(
 
   // Extract attachmentBackend from data (if present) and lift into meta.
   let attachmentBackend: AttachmentBackend | undefined;
+  // T9792 — also lift `hint` (added by `docs.list` when defaults kick in)
+  // so JSON consumers can read it from `meta.hint` without poking into the
+  // result body.
+  let hint: string | undefined;
   let responseData = envelope.data;
 
   if (responseData !== null && responseData !== undefined && typeof responseData === 'object') {
     const dataObj = responseData as Record<string, unknown>;
-    if ('attachmentBackend' in dataObj && dataObj['attachmentBackend'] !== undefined) {
-      attachmentBackend = dataObj['attachmentBackend'] as AttachmentBackend;
-      // Remove from data so consumers don't see it doubled
-      const { attachmentBackend: _lifted, ...cleanData } = dataObj;
-      responseData = cleanData;
+    let cleanedData: Record<string, unknown> = dataObj;
+    let cleaned = false;
+    if ('attachmentBackend' in cleanedData && cleanedData['attachmentBackend'] !== undefined) {
+      attachmentBackend = cleanedData['attachmentBackend'] as AttachmentBackend;
+      const { attachmentBackend: _lifted, ...rest } = cleanedData;
+      cleanedData = rest;
+      cleaned = true;
+    }
+    if ('hint' in cleanedData && typeof cleanedData['hint'] === 'string') {
+      hint = cleanedData['hint'] as string;
+      // Keep `hint` on the data payload too so direct result consumers see
+      // it; meta.hint is a parallel surface for `--field meta.hint` queries.
+    }
+    if (cleaned) {
+      responseData = cleanedData;
     }
   }
 
@@ -984,6 +1139,7 @@ function docsEnvelopeToResponse(
     meta: {
       ...dispatchMeta(gateway, 'docs', operation, startTime),
       ...(attachmentBackend !== undefined ? { attachmentBackend } : {}),
+      ...(hint !== undefined ? { hint } : {}),
     },
     success: true,
     data: responseData,
