@@ -7863,6 +7863,88 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+  // T9804 — Claude Code Agent isolation:worktree bridge (adopt)
+  {
+    gateway: 'mutate',
+    domain: 'worktree',
+    operation: 'adopt',
+    description:
+      'worktree.adopt (mutate) — register an externally-created worktree (e.g. Claude Code Agent isolation:worktree) in the CLEO SSoT. Writes to .cleo/worktrees.json sentinel index and appends audit entry (T9804).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['worktreePath'],
+    params: [
+      {
+        name: 'worktreePath',
+        type: 'string',
+        required: true,
+        description: 'Absolute or relative path to the worktree directory to adopt',
+      },
+      {
+        name: 'source',
+        type: 'string',
+        required: false,
+        description:
+          'Source classification (claude-agent | manual | adopted). Inferred from path when omitted.',
+      },
+      {
+        name: 'taskId',
+        type: 'string',
+        required: false,
+        description:
+          'Task ID to associate with this worktree. Extracted from branch name when omitted.',
+      },
+      {
+        name: 'actor',
+        type: 'string',
+        required: false,
+        description: 'Override actor name written to the audit log.',
+      },
+    ] satisfies ParamDef[],
+  },
+  // T9805 — Explicit single-worktree destruction with sentinel + audit update
+  {
+    gateway: 'mutate',
+    domain: 'worktree',
+    operation: 'destroy',
+    description:
+      'worktree.destroy (mutate) — explicitly destroy the XDG worktree for a task, remove its sentinel index entry, and append an audit-log row to .cleo/audit/worktree-lifecycle.jsonl (T9805 AC1).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['taskId'],
+    params: [
+      {
+        name: 'taskId',
+        type: 'string',
+        required: true,
+        description: 'Task ID whose XDG worktree should be destroyed (e.g. T9805).',
+        cli: { positional: true },
+      },
+      {
+        name: 'force',
+        type: 'boolean',
+        required: false,
+        description:
+          'Force removal even when the worktree has uncommitted changes. Default: false.',
+      },
+      {
+        name: 'deleteBranch',
+        type: 'boolean',
+        required: false,
+        description:
+          'Delete the task branch (task/T<id>) after removing the worktree. Default: true.',
+      },
+      {
+        name: 'reason',
+        type: 'string',
+        required: false,
+        description:
+          'Free-form reason recorded in the audit log (e.g. pr-merged, manual, idle-timeout). Default: manual.',
+      },
+    ] satisfies ParamDef[],
+  },
 ];
 
 // ---------------------------------------------------------------------------
