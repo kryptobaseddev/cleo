@@ -1210,7 +1210,7 @@ export {
   taskDependencies,
   tasks,
 } from './store/tasks-schema.js';
-export { createTask, getTask } from './store/tasks-sqlite.js';
+export { addRelation, createTask, getTask } from './store/tasks-sqlite.js';
 export { AuditLogInsertSchema } from './store/validation-schemas.js';
 export type {
   AnalyzeArchiveOptions,
