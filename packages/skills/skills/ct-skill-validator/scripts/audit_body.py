@@ -60,9 +60,13 @@ def audit_body(skill_path):
     total_lines = len(body_lines)
 
     # ── Section analysis ────────────────────────────────────────────────
-    h1_headers = re.findall(r"^# .+", body, re.MULTILINE)
-    h2_headers = re.findall(r"^## .+", body, re.MULTILINE)
-    h3_headers = re.findall(r"^### .+", body, re.MULTILINE)
+    # Strip fenced code blocks first — '#' inside bash blocks are comments,
+    # not markdown headings, and matching them produces false positives.
+    body_no_fences = re.sub(r"```[\s\S]*?```", "", body)
+    body_no_fences_lines = body_no_fences.split("\n")
+    h1_headers = re.findall(r"^# .+", body_no_fences, re.MULTILINE)
+    h2_headers = re.findall(r"^## .+", body_no_fences, re.MULTILINE)
+    h3_headers = re.findall(r"^### .+", body_no_fences, re.MULTILINE)
     total_sections = len(h2_headers) + len(h3_headers)
 
     if len(h1_headers) > 1:
@@ -70,7 +74,7 @@ def audit_body(skill_path):
 
     first_h2_line = None
     first_h3_line = None
-    for i, line in enumerate(body_lines):
+    for i, line in enumerate(body_no_fences_lines):
         if first_h2_line is None and line.startswith("## "):
             first_h2_line = i
         if first_h3_line is None and line.startswith("### "):
@@ -146,7 +150,8 @@ def audit_body(skill_path):
         ok("placeholder-scan", "No placeholder text found")
 
     # ── Duplicate headings ──────────────────────────────────────────────
-    all_headings = re.findall(r"^(#{1,6} .+)", body, re.MULTILINE)
+    # Reuse code-fence-stripped body for the same reason as section analysis.
+    all_headings = re.findall(r"^(#{1,6} .+)", body_no_fences, re.MULTILINE)
     seen: dict[str, bool] = {}
     dup_found = False
     for heading in all_headings:
