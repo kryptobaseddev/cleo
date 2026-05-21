@@ -219,7 +219,7 @@ export const briefingCommand = defineCommand({
     'max-next': {
       type: 'string',
       description: 'Maximum next tasks to show',
-      default: '5',
+      default: '3',
     },
     'max-bugs': {
       type: 'string',
@@ -247,6 +247,25 @@ export const briefingCommand = defineCommand({
       type: 'boolean',
       description: 'Exit non-zero when briefing contract violations are detected (T1905)',
       alias: 'x',
+    },
+    /**
+     * T9974: debug mode — surface peerPatterns and other verbose fields
+     * suppressed by default. Passing --debug --with-profile --max-next 5
+     * restores the ~pre-T9974 output shape.
+     */
+    debug: {
+      type: 'boolean',
+      description: 'Include verbose debug fields (peerPatterns etc.) suppressed by default',
+      default: false,
+    },
+    /**
+     * T9974: include cold.userProfile traits in the bundle.
+     * Off by default — large trait dump rarely needed at session start.
+     */
+    'with-profile': {
+      type: 'boolean',
+      description: 'Include user profile traits in the bundle (suppressed by default)',
+      default: false,
     },
   },
   async run({ args, cmd, rawArgs }) {
@@ -279,6 +298,8 @@ export const briefingCommand = defineCommand({
         maxBugs: parseInt(args['max-bugs'], 10),
         maxBlocked: parseInt(args['max-blocked'], 10),
         maxEpics: parseInt(args['max-epics'], 10),
+        debug: args.debug as boolean | undefined,
+        withProfile: args['with-profile'] as boolean | undefined,
       },
       { command: 'briefing' },
     );

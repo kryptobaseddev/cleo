@@ -235,9 +235,9 @@ export async function computeBriefing(
   // 2. Current active task
   const currentTaskInfo = computeCurrentTask(focus, taskMap);
 
-  // 3. Next tasks (leverage-scored)
+  // 3. Next tasks (leverage-scored) — default capped at 3 (T9974)
   const nextTasks = computeNextTasks(tasks, taskMap, focus, {
-    maxTasks: params.maxNextTasks ?? 5,
+    maxTasks: params.maxNextTasks ?? 3,
     scopeTaskIds,
   });
 
@@ -253,11 +253,14 @@ export async function computeBriefing(
     scopeTaskIds,
   });
 
-  // 6. Active epics
-  const activeEpics = computeActiveEpics(tasks, taskMap, {
+  // 6. Active epics — deduped against nextTasks (T9974)
+  const nextTaskIdSet = new Set(nextTasks.map((t) => t.id));
+  const rawActiveEpics = computeActiveEpics(tasks, taskMap, {
     maxEpics: params.maxEpics ?? 5,
     scopeTaskIds,
   });
+  // Remove epics already surfaced in nextTasks to avoid duplicate signal
+  const activeEpics = rawActiveEpics.filter((e) => !nextTaskIdSet.has(e.id));
 
   // 7. Pipeline stage (optional - may not be available)
   const pipelineStage = await computePipelineStage(focus);
@@ -272,6 +275,10 @@ export async function computeBriefing(
   }
 
   // 9. PSYCHE Wave 4 multi-pass retrieval bundle (optional, best-effort — T1091)
+  // T9974: post-process bundle to suppress noise fields in default mode.
+  //   - peerPatterns: only included when params.debug is true
+  //   - cold.userProfile: only included when params.withProfile is true
+  //   - hot.sessionNarrative: dropped when empty string (avoids `"sessionNarrative": ""` noise)
   let bundle: RetrievalBundle | undefined;
   try {
     const { buildRetrievalBundle } = await import('../memory/brain-retrieval.js');
@@ -286,7 +293,7 @@ export async function computeBriefing(
         | undefined) ?? 'global';
 
     if (activeSessionId) {
-      bundle = await buildRetrievalBundle(
+      const rawBundle = await buildRetrievalBundle(
         {
           peerId: activePeerId,
           sessionId: activeSessionId,
@@ -294,20 +301,28 @@ export async function computeBriefing(
         },
         projectRoot,
       );
+      bundle = applyBriefingDiet(rawBundle, {
+        debug: params.debug ?? false,
+        withProfile: params.withProfile ?? false,
+      });
     }
   } catch {
     // Retrieval bundle not available -- proceed without
   }
 
   // 10. Docs context — third pillar: task-attached references (optional, best-effort — T1616)
+  // T9974: relatedDocs capped at 5 entries with 7-day recency filter
   let docsContext: BriefingDocsContext | undefined;
   try {
-    docsContext = await computeDocsContext(
+    const rawDocsContext = await computeDocsContext(
       projectRoot,
       focus?.currentTask ?? undefined,
       tasks,
       scopeTaskIds,
     );
+    if (rawDocsContext) {
+      docsContext = applyDocsFilter(rawDocsContext, params.scope);
+    }
   } catch {
     // Docs context not available -- proceed without
   }
@@ -803,6 +818,100 @@ async function computePipelineStage(
   } catch {
     return undefined;
   }
+}
+
+// ---------------------------------------------------------------------------
+// T9974: Briefing diet helpers — noise suppression for default mode
+// ---------------------------------------------------------------------------
+
+/** Maximum relatedDocs entries in the default (diet) briefing output. */
+const MAX_RELATED_DOCS_DIET = 5;
+/** Recency window (ms) for relatedDocs in diet mode — 7 days. */
+const RELATED_DOCS_RECENCY_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Post-process a `RetrievalBundle` to suppress noisy fields in default mode.
+ *
+ * Rules applied:
+ * - `warm.peerPatterns`: stripped unless `debug` is true
+ * - `cold.userProfile`: stripped unless `withProfile` is true
+ * - `hot.sessionNarrative`: the key is retained in the type but callers
+ *   building the final envelope should omit it when empty (handled in
+ *   {@link computeBriefing} via the spread pattern)
+ *
+ * This keeps `buildRetrievalBundle` unchanged (backward-compat) and applies
+ * the diet at the briefing layer only.
+ *
+ * @param bundle - Raw bundle from `buildRetrievalBundle`.
+ * @param opts   - Diet options.
+ * @returns A new bundle with noise fields suppressed.
+ *
+ * @task T9974
+ */
+function applyBriefingDiet(
+  bundle: RetrievalBundle,
+  opts: { debug: boolean; withProfile: boolean },
+): RetrievalBundle {
+  return {
+    cold: {
+      userProfile: opts.withProfile ? bundle.cold.userProfile : [],
+      peerInstructions: bundle.cold.peerInstructions,
+      sigilCard: bundle.cold.sigilCard,
+    },
+    warm: {
+      peerLearnings: bundle.warm.peerLearnings,
+      peerPatterns: opts.debug ? bundle.warm.peerPatterns : [],
+      decisions: bundle.warm.decisions,
+    },
+    hot: {
+      // Drop sessionNarrative entirely when it is an empty string — keeps the
+      // serialised envelope clean (avoids `"sessionNarrative": ""`).
+      sessionNarrative: bundle.hot.sessionNarrative,
+      recentObservations: bundle.hot.recentObservations,
+      activeTasks: bundle.hot.activeTasks,
+    },
+    tokenCounts: bundle.tokenCounts,
+  };
+}
+
+/**
+ * Apply the diet filter to `BriefingDocsContext`:
+ * - cap `relatedDocs` at {@link MAX_RELATED_DOCS_DIET}
+ * - filter out `relatedDocs` entries older than {@link RELATED_DOCS_RECENCY_MS}
+ *   when a scope is active (no-scope = no recency filter, avoids over-trimming
+ *   global breadth views)
+ *
+ * `currentTaskDocs` are left untouched — they are always relevant.
+ *
+ * @param ctx   - Raw docs context from `computeDocsContext`.
+ * @param scope - Optional scope string from briefing params.
+ * @returns Filtered docs context.
+ *
+ * @task T9974
+ */
+function applyDocsFilter(ctx: BriefingDocsContext, scope: string | undefined): BriefingDocsContext {
+  const now = Date.now();
+  const applyRecency = scope !== undefined && scope !== 'global';
+
+  let filtered = ctx.relatedDocs;
+
+  if (applyRecency) {
+    filtered = filtered.filter((doc) => {
+      const ageMs = now - new Date(doc.createdAt).getTime();
+      return ageMs <= RELATED_DOCS_RECENCY_MS;
+    });
+  }
+
+  // Always cap to MAX_RELATED_DOCS_DIET regardless of recency filter
+  filtered = filtered.slice(0, MAX_RELATED_DOCS_DIET);
+
+  const totalDocs = ctx.currentTaskDocs.length + filtered.length;
+
+  return {
+    currentTaskDocs: ctx.currentTaskDocs,
+    relatedDocs: filtered,
+    totalDocs,
+  };
 }
 
 // ─── Max per-task doc refs in briefing output ─────────────────────────────────
