@@ -15,13 +15,14 @@
  * @spec .cleo/rcasd/T9345/research/SPEC-T9345-release-pipeline-v2.md §4.2
  */
 
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChangesetEntry, EvidenceAtom, Task } from '@cleocode/contracts';
 import {
   E_CHANNEL_MISMATCH,
   E_DIRTY_TREE,
   E_EPIC_EMPTY,
+  E_EPIC_EMPTY_LEAF_NO_EVIDENCE,
   E_EPIC_NOT_FOUND,
   E_EVIDENCE_INSUFFICIENT,
   E_RELEASE_PLAN_INVALID,
@@ -50,6 +51,7 @@ import { parseChangesetDir } from '../changesets/index.js';
 import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
+import { atomicWrite } from '../store/atomic.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDb } from '../store/sqlite.js';
 import {
@@ -63,6 +65,11 @@ import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { runGitWithLockRetry } from './engine-ops.js';
 import { loadReleaseConfig } from './release-config.js';
+
+/** Saga label literal — Epics with this label in `labels[]` are Sagas (ADR-073). */
+const SAGA_LABEL = 'saga' as const;
+/** Relation type linking a Saga to its member Epics (ADR-073 §1.3 / I3). */
+const SAGA_GROUPS_RELATION = 'groups' as const;
 
 const log = getLogger('release:plan');
 
@@ -78,8 +85,30 @@ const log = getLogger('release:plan');
 export interface ReleasePlanOptions {
   /** The candidate version (e.g. `v2026.6.0`). Leading `v` optional — added if absent. */
   version: string;
-  /** Epic task ID whose children are candidates for inclusion (required per R-021). */
-  epicId: string;
+  /**
+   * Epic task ID whose children are candidates for inclusion (required per
+   * R-021 UNLESS `sagaId` is set). Mutually exclusive with `sagaId`.
+   *
+   * Per ADR-073 the leaf-Epic-as-PR pattern is canonical: an Epic with zero
+   * non-cancelled child tasks is valid input. In that case the Epic itself
+   * is treated as the singleton task for evidence aggregation.
+   *
+   * @task T9525
+   * @task T9838 — leaf-Epic-as-Task fallback
+   */
+  epicId?: string;
+  /**
+   * Saga task ID — when supplied, the plan aggregates the member Epics linked
+   * to the Saga via `task_relations.relation_type='groups'` (ADR-073 I3).
+   * Member Epics are aggregated recursively the same way `--epic` does today:
+   * union of children of each member epic, OR for leaf-epics, the epic itself.
+   *
+   * Mutually exclusive with `epicId`. The resulting plan's `plan.epicId` is
+   * set to the Saga ID for traceability.
+   *
+   * @task T9838
+   */
+  sagaId?: string;
   /** Versioning scheme. Default: inferred from `.cleo/release-config.json`. */
   scheme?: ReleaseScheme;
   /** Release channel. Default: `latest`. */
@@ -98,6 +127,15 @@ export interface ReleasePlanOptions {
   projectRoot?: string;
   /** Creator identity for `plan.createdBy`. Defaults to `process.env.USER` or `cleo-agent`. */
   createdBy?: string;
+  /**
+   * When true (default), `cleo release plan` also writes the aggregated
+   * release notes into `CHANGELOG.md` under a `## [<version>] (<date>)` block.
+   * Idempotent on re-run via section-replace. Set to `false` to opt out and
+   * keep the plan envelope as the sole sink for release notes.
+   *
+   * @task T9838 — auto-write CHANGELOG.md (gap 3 of v5.93 manual-ship saga)
+   */
+  writeChangelog?: boolean;
 }
 
 /**
@@ -133,6 +171,23 @@ export interface ReleasePlanResult {
    * @task T9753
    */
   changesetEntryCount: number;
+  /**
+   * True iff `cleo release plan` wrote (or replaced) the `## [<version>]`
+   * section in `CHANGELOG.md`. False when `writeChangelog=false`, when the
+   * aggregated notes are empty, or when the file write was skipped under
+   * `dryRun`.
+   *
+   * @task T9838
+   */
+  changelogWritten: boolean;
+  /**
+   * Absolute path to the CHANGELOG.md the plan flow targeted. Set even when
+   * `changelogWritten=false` so consumers know where the file would have been
+   * written.
+   *
+   * @task T9838
+   */
+  changelogPath: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +204,15 @@ const VERSION_FILE_PATTERNS: readonly string[] = [
   'packages/*/pyproject.toml',
   'CHANGELOG.md',
 ] as const;
+
+/**
+ * Subset of {@link VERSION_FILE_PATTERNS} the plan verb writes itself when
+ * `writeChangelog=true` (T9838). When the only dirty path is one of these,
+ * the clean-tree gate is bypassed so re-runs remain idempotent. The dirty
+ * status is the plan verb's OWN output from a prior invocation — not a stale
+ * manual edit.
+ */
+const PLAN_WRITTEN_FILE_PATTERNS: readonly string[] = ['CHANGELOG.md'] as const;
 
 /** Six canonical gates per ADR-061 (SPEC R-024 / R-310). */
 const RELEASE_GATE_NAMES: readonly ReleaseGateName[] = [
@@ -272,20 +336,52 @@ function validateCleanTree(projectRoot: string): { dirty: string[] } {
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolution outcome of {@link resolveEpicTasks}.
+ *
+ * `isLeafEpic=true` is set when the Epic exists but has no non-cancelled
+ * child tasks. Per ADR-073 the leaf-Epic-as-PR pattern is canonical — the
+ * caller can fall back to the Epic itself as the singleton task list for
+ * evidence + changeset aggregation when this flag is true.
+ *
+ * @internal
+ * @task T9838
+ */
+interface EpicResolution {
+  /** Non-cancelled, non-archived descendants of the Epic (excludes the Epic itself). */
+  tasks: Task[];
+  /** True iff the Epic ID resolves to a row in `tasks`. */
+  epicExists: boolean;
+  /**
+   * The Epic row itself (when `epicExists=true`). Carried out so callers can
+   * extract `verification.evidence` for the leaf-Epic-as-Task path without a
+   * second DB round-trip.
+   */
+  epic: Task | null;
+  /**
+   * True iff `epicExists=true` AND `tasks.length === 0` after status filtering.
+   * Signals to the caller that the Epic should be treated as the singleton
+   * task list per ADR-073 leaf-Epic semantics.
+   */
+  isLeafEpic: boolean;
+}
+
+/**
  * Walk children of `epicId` recursively (depth-first), excluding cancelled
  * and archived tasks. Returns deduplicated tasks ordered by parent-then-position.
  *
+ * Per ADR-073 (T9838): when the Epic exists but has zero non-cancelled
+ * children, `isLeafEpic=true` is set and `tasks=[]`. Callers MUST decide
+ * whether to treat the leaf Epic as a singleton (release-as-PR pattern) or
+ * surface `E_EPIC_EMPTY` (Saga case where zero member Epics is an error).
+ *
  * @internal
  */
-async function resolveEpicTasks(
-  epicId: string,
-  projectRoot: string,
-): Promise<{ tasks: Task[]; epicExists: boolean }> {
+async function resolveEpicTasks(epicId: string, projectRoot: string): Promise<EpicResolution> {
   const accessor = await getTaskAccessor(projectRoot);
   try {
     const epic = await accessor.loadSingleTask(epicId);
     if (!epic) {
-      return { tasks: [], epicExists: false };
+      return { tasks: [], epicExists: false, epic: null, isLeafEpic: false };
     }
     // Use the subtree CTE for an efficient single-pass walk.
     const subtree = await accessor.getSubtree(epicId);
@@ -296,10 +392,154 @@ async function resolveEpicTasks(
       if (t.status === 'archived') return false;
       return true;
     });
-    return { tasks: filtered, epicExists: true };
+    return {
+      tasks: filtered,
+      epicExists: true,
+      epic,
+      isLeafEpic: filtered.length === 0,
+    };
   } finally {
     await accessor.close();
   }
+}
+
+/**
+ * Resolution outcome of {@link resolveSagaTasks}.
+ *
+ * @internal
+ * @task T9838
+ */
+interface SagaResolution {
+  /** Aggregated tasks across all member Epics (excludes cancelled/archived). */
+  tasks: Task[];
+  /** True iff the Saga ID resolves to a task. */
+  sagaExists: boolean;
+  /** True iff the resolved task carries `labels.includes('saga')`. */
+  isSaga: boolean;
+  /** IDs of member Epics linked to the Saga via `relation_type='groups'`. */
+  memberEpicIds: string[];
+  /**
+   * Per-member resolution outcomes — useful to surface a leaf-Epic member's
+   * evidence atoms during aggregation. Indexed by `memberEpicIds`.
+   */
+  memberResolutions: Map<string, EpicResolution>;
+}
+
+/**
+ * Resolve a Saga (ADR-073 labeled Epic) and aggregate its member Epics into
+ * a single task list for `cleo release plan --saga T####`.
+ *
+ * Saga membership lives in `task_relations.relation_type='groups'` rows
+ * sourced from `from_id = sagaId`. This helper:
+ *
+ *  1. Loads the saga task and verifies `labels.includes('saga')`.
+ *  2. Walks `relates[]` (populated by `loadSingleTask`) for `type='groups'` edges.
+ *  3. For each member Epic, runs the same {@link resolveEpicTasks} walk and
+ *     unions the result. Leaf-Epic members contribute the Epic itself.
+ *
+ * Returns `{ sagaExists: false }` when the ID doesn't resolve, `{ isSaga: false }`
+ * when the task exists but lacks `labels.includes('saga')`. The caller maps
+ * these into `E_NOT_FOUND` / `E_INVALID_INPUT` respectively.
+ *
+ * @internal
+ * @task T9838
+ */
+async function resolveSagaTasks(sagaId: string, projectRoot: string): Promise<SagaResolution> {
+  const accessor = await getTaskAccessor(projectRoot);
+  try {
+    const saga = await accessor.loadSingleTask(sagaId);
+    if (!saga) {
+      return {
+        tasks: [],
+        sagaExists: false,
+        isSaga: false,
+        memberEpicIds: [],
+        memberResolutions: new Map(),
+      };
+    }
+    if (!(saga.labels ?? []).includes(SAGA_LABEL)) {
+      return {
+        tasks: [],
+        sagaExists: true,
+        isSaga: false,
+        memberEpicIds: [],
+        memberResolutions: new Map(),
+      };
+    }
+    // Walk groups relations. `loadSingleTask` hydrates `relates[]` from
+    // `task_relations` so we don't need a separate query.
+    const seen = new Set<string>();
+    const memberEpicIds: string[] = [];
+    for (const relation of saga.relates ?? []) {
+      if (relation.type !== SAGA_GROUPS_RELATION) continue;
+      if (seen.has(relation.taskId)) continue;
+      seen.add(relation.taskId);
+      memberEpicIds.push(relation.taskId);
+    }
+
+    // Aggregate each member's task subtree. Leaf-Epic members contribute the
+    // Epic itself so evidence atoms remain reachable.
+    const aggregated: Task[] = [];
+    const memberResolutions = new Map<string, EpicResolution>();
+    const seenTaskIds = new Set<string>();
+    for (const memberId of memberEpicIds) {
+      const resolution = await resolveEpicTasksWithAccessor(memberId, accessor);
+      memberResolutions.set(memberId, resolution);
+      if (!resolution.epicExists) continue;
+      if (resolution.isLeafEpic && resolution.epic) {
+        if (!seenTaskIds.has(resolution.epic.id)) {
+          seenTaskIds.add(resolution.epic.id);
+          aggregated.push(resolution.epic);
+        }
+        continue;
+      }
+      for (const t of resolution.tasks) {
+        if (seenTaskIds.has(t.id)) continue;
+        seenTaskIds.add(t.id);
+        aggregated.push(t);
+      }
+    }
+    return {
+      tasks: aggregated,
+      sagaExists: true,
+      isSaga: true,
+      memberEpicIds,
+      memberResolutions,
+    };
+  } finally {
+    await accessor.close();
+  }
+}
+
+/**
+ * Variant of {@link resolveEpicTasks} that accepts a pre-opened accessor —
+ * used by {@link resolveSagaTasks} to avoid opening one accessor per member
+ * Epic. Mirrors `resolveEpicTasks` semantics exactly.
+ *
+ * @internal
+ * @task T9838
+ */
+async function resolveEpicTasksWithAccessor(
+  epicId: string,
+  accessor: Awaited<ReturnType<typeof getTaskAccessor>>,
+): Promise<EpicResolution> {
+  const epic = await accessor.loadSingleTask(epicId);
+  if (!epic) {
+    return { tasks: [], epicExists: false, epic: null, isLeafEpic: false };
+  }
+  const subtree = await accessor.getSubtree(epicId);
+  const filtered = subtree.filter((t) => {
+    if (t.id === epicId) return false;
+    if (t.status === 'cancelled') return false;
+    if (t.status === 'archived') return false;
+    return true;
+  });
+  return {
+    tasks: filtered,
+    epicExists: true,
+    epic,
+    isLeafEpic: filtered.length === 0,
+  };
 }
 
 /**
@@ -613,6 +853,180 @@ function writePlanFile(plan: ReleasePlan, projectRoot: string): string {
   return finalPath;
 }
 
+// ---------------------------------------------------------------------------
+// Helpers — CHANGELOG.md auto-write (T9838 gap 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default header for a brand-new CHANGELOG.md created by `cleo release plan`.
+ *
+ * @internal
+ * @task T9838
+ */
+const DEFAULT_CHANGELOG_HEADER = '# Changelog\n\nAll notable changes to this project.\n';
+
+/**
+ * Idempotently write (or replace) the `## [<version>] (<date>)` section in
+ * `CHANGELOG.md` with the rendered release notes from
+ * {@link aggregateChangesetsForRelease}.
+ *
+ * Semantics:
+ *  - If `CHANGELOG.md` already contains a `## [<version>] (...)` header, the
+ *    block up to the next `## [` heading (or end of file) is replaced in
+ *    place. Re-running `cleo release plan v<ver>` is therefore a no-op when
+ *    the aggregated notes haven't changed.
+ *  - Otherwise the new section is inserted as the FIRST `## [<version>]`
+ *    block — right after the document title `# ...` if present, else at the
+ *    very top.
+ *  - When the file doesn't exist, a minimal `# Changelog\n\n` header is
+ *    seeded before the new section.
+ *  - Writes are atomic (`atomicWrite` → tmp-then-rename).
+ *
+ * Returns the absolute path to the file and a `written` flag that is `false`
+ * iff the resulting contents matched what was already on disk (no-op case).
+ *
+ * @internal
+ * @task T9838
+ */
+async function writeChangelogSection(args: {
+  changelogPath: string;
+  version: string;
+  date: string;
+  notesMarkdown: string;
+}): Promise<{ changelogPath: string; written: boolean }> {
+  const { changelogPath, version, date, notesMarkdown } = args;
+
+  let existing = '';
+  if (existsSync(changelogPath)) {
+    try {
+      existing = readFileSync(changelogPath, 'utf-8');
+    } catch (err: unknown) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), changelogPath },
+        'failed to read CHANGELOG.md — proceeding with empty existing content',
+      );
+      existing = '';
+    }
+  }
+
+  // The aggregator-emitted markdown already opens with its own
+  // `## <version> — <date>` heading (see changesets-aggregator.ts). To stay
+  // idempotent on re-run AND not double-stack headers, wrap that body with a
+  // canonical `## [<version>] (<date>)` heading FIRST and then strip the
+  // aggregator's own heading line — preserving its `### Features / ### Fixes`
+  // sub-headers and bullet content. The canonical bracketed header is what
+  // downstream verbs (open, reconcile) and CI grep for.
+  const trimmedNotes = stripAggregatorVersionHeader(notesMarkdown, version).trimEnd();
+  const sectionHeader = `## [${version}] (${date})`;
+  const sectionBody = `${sectionHeader}\n\n${trimmedNotes}\n`;
+
+  const updated = replaceOrInsertChangelogSection(existing, version, sectionBody);
+  if (updated === existing) {
+    return { changelogPath, written: false };
+  }
+
+  await atomicWrite(changelogPath, updated);
+  return { changelogPath, written: true };
+}
+
+/**
+ * Strip the aggregator's leading `## <version> — <date>` heading line so the
+ * canonical bracketed header inserted by {@link writeChangelogSection} is the
+ * ONLY top-level section heading for this version. Preserves all sub-headers
+ * (`### Features`, `### Fixes`, etc.) and bullet content verbatim.
+ *
+ * @internal
+ * @task T9838
+ */
+function stripAggregatorVersionHeader(notesMarkdown: string, version: string): string {
+  const escaped = escapeChangelogRegex(version);
+  // Match leading `## <version>` (with optional ` — <anything>` suffix) at
+  // the start of the markdown, plus its trailing newline. Whitespace-only
+  // leading lines are tolerated.
+  const re = new RegExp(`^\\s*## ${escaped}[^\\n]*\\n+`, '');
+  return notesMarkdown.replace(re, '');
+}
+
+/**
+ * Pure-string transform used by {@link writeChangelogSection}. Extracted so
+ * it can be exercised in isolation by the test suite.
+ *
+ * @internal
+ * @task T9838
+ */
+function replaceOrInsertChangelogSection(
+  existing: string,
+  version: string,
+  newSection: string,
+): string {
+  // Normalize newSection so it ends with a single trailing newline AND a
+  // blank line separating it from the next sibling section. This produces
+  // identical output regardless of whether we hit the insert or replace
+  // branch — required for idempotent re-runs (T9838).
+  let normalizedSection = newSection.endsWith('\n') ? newSection : `${newSection}\n`;
+  if (!normalizedSection.endsWith('\n\n')) {
+    normalizedSection = `${normalizedSection}\n`;
+  }
+
+  // Seed a minimal header when the file is empty / missing.
+  const baseline = existing.trim().length === 0 ? DEFAULT_CHANGELOG_HEADER : existing;
+
+  const escapedVersion = escapeChangelogRegex(version);
+  // Match `## [<ver>]` at the start of a line, with optional `(date)` suffix.
+  const sectionStartRe = new RegExp(`^## \\[${escapedVersion}\\][^\\n]*\\n`, 'm');
+  const startMatch = sectionStartRe.exec(baseline);
+
+  if (startMatch) {
+    // Replace existing section: from header up to next `## ` heading OR EOF.
+    // We preserve everything BEFORE the section header and everything AT or
+    // AFTER the next `## ` heading. If there is no next `## ` heading, the
+    // section continues to EOF and is fully replaced.
+    const startIdx = startMatch.index;
+    const fromHeader = baseline.slice(startIdx);
+    const afterHeader = fromHeader.slice(startMatch[0].length);
+    const nextHeaderRe = /^## /m;
+    const nextMatch = nextHeaderRe.exec(afterHeader);
+    const before = baseline.slice(0, startIdx);
+    if (nextMatch) {
+      const after = afterHeader.slice(nextMatch.index);
+      return `${before}${normalizedSection}${after}`;
+    }
+    // No next section — section ran to EOF; replace with the normalized form.
+    return `${before}${normalizedSection}`;
+  }
+
+  // Insert as FIRST `## [` block. Canonical placement: right BEFORE the
+  // existing first `## ` heading (if any), so descriptive baseline content
+  // between the title and the first version section is preserved. If there
+  // is no `## ` heading yet, append at the end of the baseline.
+  const firstHeadingRe = /^## /m;
+  const firstHeadingMatch = firstHeadingRe.exec(baseline);
+  if (firstHeadingMatch) {
+    const before = baseline.slice(0, firstHeadingMatch.index);
+    const after = baseline.slice(firstHeadingMatch.index);
+    // Ensure exactly one blank line separates baseline text from our section.
+    const beforeTrimmed = before.replace(/\n+$/, '\n');
+    return `${beforeTrimmed}\n${normalizedSection}${after}`;
+  }
+
+  // No `## ` heading yet — append our new section at the end. Ensure a
+  // blank-line separator between baseline content and the new section.
+  const baselineTrimmed = baseline.replace(/\n+$/, '\n');
+  return `${baselineTrimmed}\n${normalizedSection}`;
+}
+
+/**
+ * Escape a version string for use in a RegExp source. Versions contain `.`
+ * which is a regex metacharacter and `[`/`]` which must be escaped inside
+ * character class brackets in the surrounding template.
+ *
+ * @internal
+ * @task T9838
+ */
+function escapeChangelogRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * UPSERT the row into the `releases` table (R-031).
  *
@@ -782,17 +1196,26 @@ export async function releasePlan(
   const channel: ReleasePlanChannel = opts.channel ?? 'latest';
   const releaseKind: ReleaseKind = opts.hotfix ? 'hotfix' : 'regular';
   const dryRun = opts.dryRun === true;
+  // T9838: default ON — `cleo release plan` closes the manual-CHANGELOG loop.
+  const writeChangelog = opts.writeChangelog !== false;
 
   // ── R-020: clean-tree gate ────────────────────────────────────────────
+  // T9838: when `writeChangelog=true` the plan verb writes CHANGELOG.md
+  // itself. Re-runs therefore SHOULD ignore CHANGELOG.md dirty state — it's
+  // the plan's own prior output, not a stale manual edit. Any other dirty
+  // version file still blocks the run.
   const { dirty } = validateCleanTree(projectRoot);
-  if (dirty.length > 0) {
+  const blockingDirty = writeChangelog
+    ? dirty.filter((p) => !PLAN_WRITTEN_FILE_PATTERNS.includes(p))
+    : dirty;
+  if (blockingDirty.length > 0) {
     return engineError<ReleasePlanResult>(
       E_DIRTY_TREE,
-      `Working tree has uncommitted changes in version files: ${dirty.join(', ')}`,
+      `Working tree has uncommitted changes in version files: ${blockingDirty.join(', ')}`,
       {
         exitCode: ExitCode.INVALID_PARENT_TYPE, // 13 per SPEC §4.7
         fix: 'git status; commit or stash the listed paths before re-running',
-        details: { dirtyPaths: dirty },
+        details: { dirtyPaths: blockingDirty },
       },
     );
   }
@@ -808,39 +1231,143 @@ export async function releasePlan(
     });
   }
 
-  // ── R-021: epic exists + has children ─────────────────────────────────
-  const { tasks, epicExists } = await resolveEpicTasks(opts.epicId, projectRoot);
-  if (!epicExists) {
+  // ── T9838: --saga / --epic input validation ──────────────────────────
+  // sagaId and epicId are mutually exclusive. At least one MUST be set.
+  if (opts.sagaId && opts.epicId) {
     return engineError<ReleasePlanResult>(
-      E_EPIC_NOT_FOUND,
-      `Epic ${opts.epicId} not found in tasks.db`,
+      'E_INVALID_INPUT',
+      '--saga and --epic are mutually exclusive — pass one or the other',
       {
-        exitCode: ExitCode.PARENT_NOT_FOUND,
-        fix: `cleo exists ${opts.epicId}`,
-        details: { epicId: opts.epicId },
+        exitCode: ExitCode.VALIDATION_ERROR,
+        fix: 'omit --saga to walk a single Epic, OR omit --epic to walk a Saga',
+        details: { sagaId: opts.sagaId, epicId: opts.epicId },
       },
     );
   }
-  if (tasks.length === 0) {
-    return engineError<ReleasePlanResult>(
-      E_EPIC_EMPTY,
-      `Epic ${opts.epicId} has no eligible child tasks (excluding cancelled/archived)`,
-      {
-        exitCode: ExitCode.NOT_FOUND,
-        fix: `cleo show ${opts.epicId} and add children`,
-        details: { epicId: opts.epicId },
-      },
-    );
+  if (!opts.sagaId && !opts.epicId) {
+    return engineError<ReleasePlanResult>('E_INVALID_INPUT', '--saga or --epic is required', {
+      exitCode: ExitCode.VALIDATION_ERROR,
+      fix: 'pass --epic T#### (single Epic) or --saga T#### (Saga walks groups relation)',
+    });
+  }
+
+  // ── R-021 / T9838: resolve tasks for the plan ────────────────────────
+  // Three code paths:
+  //   (a) `--saga T####` walks task_relations.relation_type='groups' and
+  //       aggregates the member Epics' subtrees (or leaf-Epics themselves).
+  //   (b) `--epic T####` with non-cancelled children → existing semantics.
+  //   (c) `--epic T####` leaf-Epic (zero children) → singleton task list with
+  //       the Epic's own evidence atoms (ADR-073 leaf-Epic-as-PR pattern).
+  let tasks: Task[];
+  let resolvedEpicId: string; // The ID that goes into `plan.epicId`
+  let leafEpicMode = false; // True when path (c) is taken
+  if (opts.sagaId) {
+    const sagaRes = await resolveSagaTasks(opts.sagaId, projectRoot);
+    if (!sagaRes.sagaExists) {
+      return engineError<ReleasePlanResult>(
+        'E_NOT_FOUND',
+        `Saga ${opts.sagaId} not found in tasks.db`,
+        {
+          exitCode: ExitCode.NOT_FOUND,
+          fix: `cleo exists ${opts.sagaId} or cleo saga list`,
+          details: { sagaId: opts.sagaId },
+        },
+      );
+    }
+    if (!sagaRes.isSaga) {
+      return engineError<ReleasePlanResult>(
+        'E_INVALID_INPUT',
+        `Task ${opts.sagaId} exists but is not a Saga (missing label='saga')`,
+        {
+          exitCode: ExitCode.VALIDATION_ERROR,
+          fix: `Pass --epic ${opts.sagaId} if this is an Epic, or label the task with 'saga'`,
+          details: { sagaId: opts.sagaId },
+        },
+      );
+    }
+    if (sagaRes.memberEpicIds.length === 0 || sagaRes.tasks.length === 0) {
+      return engineError<ReleasePlanResult>(
+        E_EPIC_EMPTY,
+        `Saga ${opts.sagaId} has no eligible member epics (relation_type='groups')`,
+        {
+          exitCode: ExitCode.NOT_FOUND,
+          fix: `cleo saga members ${opts.sagaId}; cleo saga add ${opts.sagaId} <epicId>`,
+          details: {
+            sagaId: opts.sagaId,
+            memberEpicIds: sagaRes.memberEpicIds,
+          },
+        },
+      );
+    }
+    tasks = sagaRes.tasks;
+    resolvedEpicId = opts.sagaId;
+  } else {
+    // opts.epicId is guaranteed non-null by the input-validation block above.
+    const epicId = opts.epicId as string;
+    const epicRes = await resolveEpicTasks(epicId, projectRoot);
+    if (!epicRes.epicExists) {
+      return engineError<ReleasePlanResult>(
+        E_EPIC_NOT_FOUND,
+        `Epic ${epicId} not found in tasks.db`,
+        {
+          exitCode: ExitCode.PARENT_NOT_FOUND,
+          fix: `cleo exists ${epicId}`,
+          details: { epicId },
+        },
+      );
+    }
+    if (epicRes.isLeafEpic) {
+      // T9838 Fix 2: leaf-Epic-as-Task (ADR-073). Treat the Epic itself as the
+      // singleton task list. Evidence atoms come from the Epic's own
+      // `verification.evidence` blob. If the Epic has zero atoms, surface
+      // E_EPIC_EMPTY_LEAF_NO_EVIDENCE (still need to verify something shipped).
+      if (!epicRes.epic) {
+        // Defensive — `isLeafEpic` implies `epicExists`, which implies `epic`.
+        return engineError<ReleasePlanResult>(
+          E_EPIC_NOT_FOUND,
+          `Epic ${epicId} not found in tasks.db`,
+          {
+            exitCode: ExitCode.PARENT_NOT_FOUND,
+            fix: `cleo exists ${epicId}`,
+            details: { epicId },
+          },
+        );
+      }
+      const epicAtoms = collectEvidenceAtomsForTask(epicRes.epic);
+      if (epicAtoms.length === 0) {
+        return engineError<ReleasePlanResult>(
+          E_EPIC_EMPTY_LEAF_NO_EVIDENCE,
+          `Leaf Epic ${epicId} has zero child tasks AND zero evidence atoms — ` +
+            `nothing to ship.`,
+          {
+            exitCode: ExitCode.LIFECYCLE_TRANSITION_INVALID,
+            fix:
+              `cleo verify ${epicId} --gate implemented --evidence ` +
+              '"commit:<sha>;files:<paths>" (or pr:<num>;state:MERGED post-merge)',
+            details: { epicId, leafEpic: true },
+          },
+        );
+      }
+      tasks = [epicRes.epic];
+      leafEpicMode = true;
+    } else {
+      tasks = epicRes.tasks;
+    }
+    resolvedEpicId = epicId;
   }
 
   // ── R-301 / R-310: evidence-atom completeness ─────────────────────────
-  const planTasks: ReleasePlanTask[] = tasks.map((t) => taskToPlanTask(t, opts.epicId));
+  const planTasks: ReleasePlanTask[] = tasks.map((t) => taskToPlanTask(t, resolvedEpicId));
   const tasksMissingEvidence = planTasks.filter((t) => t.evidenceAtoms.length === 0);
   const evidenceComplete = tasksMissingEvidence.length === 0;
   if (!evidenceComplete) {
+    // Leaf-Epic mode already enforced evidence above — only reachable for the
+    // multi-task subtree paths.
     return engineError<ReleasePlanResult>(
       E_EVIDENCE_INSUFFICIENT,
-      `${tasksMissingEvidence.length} task(s) in epic ${opts.epicId} are missing required evidence atoms`,
+      `${tasksMissingEvidence.length} task(s) in ${
+        opts.sagaId ? `saga ${opts.sagaId}` : `epic ${resolvedEpicId}`
+      } are missing required evidence atoms`,
       {
         exitCode: ExitCode.LIFECYCLE_TRANSITION_INVALID, // 83 per SPEC §4.7
         fix: 'cleo verify <task> --gate implemented --evidence "commit:<sha>;files:<paths>"',
@@ -886,7 +1413,7 @@ export async function releasePlan(
     suffixApplied: false,
     scheme,
     channel,
-    epicId: opts.epicId,
+    epicId: resolvedEpicId,
     releaseKind,
     createdAt,
     createdBy: opts.createdBy ?? process.env['USER'] ?? 'cleo-agent',
@@ -911,6 +1438,9 @@ export async function releasePlan(
       // length to decide whether to append a section.
       releaseNotes: aggregated.markdown,
       changesetEntryCount: aggregated.entryCount,
+      // T9838: track input mode for downstream verbs (open, reconcile).
+      ...(opts.sagaId ? { sagaId: opts.sagaId } : {}),
+      ...(leafEpicMode ? { leafEpicMode: true } : {}),
     },
   };
 
@@ -932,6 +1462,8 @@ export async function releasePlan(
 
   // ── R-030 / R-031: write plan + UPSERT releases row ───────────────────
   let planPath: string;
+  const changelogPath = join(projectRoot, 'CHANGELOG.md');
+  let changelogWritten = false;
   if (dryRun) {
     // In dry-run mode, compute the path but DO NOT touch the filesystem or DB.
     planPath = join(
@@ -956,6 +1488,27 @@ export async function releasePlan(
         'persistReleaseChangesets failed — plan envelope still written',
       );
     }
+    // ── T9838 Fix 3: auto-write CHANGELOG.md ──────────────────────────
+    // Closes the manual-paste loop that v5.91-v5.93 ships were stuck in.
+    // Writes (or replaces) the `## [<version>] (<date>)` block with the
+    // aggregated release notes. Idempotent on re-run. Failure is logged but
+    // NEVER blocks the plan — the plan envelope remains the canonical sink.
+    if (writeChangelog && aggregated.markdown.trim().length > 0) {
+      try {
+        const result = await writeChangelogSection({
+          changelogPath,
+          version: normalizedVersion,
+          date: createdAt.slice(0, 10),
+          notesMarkdown: aggregated.markdown,
+        });
+        changelogWritten = result.written;
+      } catch (err: unknown) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), changelogPath },
+          'writeChangelogSection failed — plan envelope still written, CHANGELOG.md skipped',
+        );
+      }
+    }
   }
 
   // ── Build the data envelope ───────────────────────────────────────────
@@ -976,13 +1529,15 @@ export async function releasePlan(
     resolvedVersion: plan.resolvedVersion,
     suffixApplied: plan.suffixApplied,
     channel,
-    epicId: opts.epicId,
+    epicId: resolvedEpicId,
     planPath,
     taskCount: planTasks.length,
     evidenceComplete,
     preflightWarnings: preflightSummary.preflightWarnings ?? [],
     gateSummary,
     changesetEntryCount: aggregated.entryCount,
+    changelogWritten,
+    changelogPath,
   };
 
   return engineSuccess(result);
@@ -1004,11 +1559,14 @@ export const __test__ = {
   inferTaskKind,
   mapPlanChannelToDbChannel,
   normalizeVersion,
+  replaceOrInsertChangelogSection,
   resolveEpicTasks,
   resolveGatesViaToolResolver,
   resolvePreviousVersion,
+  resolveSagaTasks,
   serializeAtom,
   validateChannelScheme,
   validateCleanTree,
+  writeChangelogSection,
   writePlanFile,
 };
