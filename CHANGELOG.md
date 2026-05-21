@@ -1,5 +1,83 @@
 # Changelog
 
+## [2026.5.96] (2026-05-21)
+
+Ships Saga **T9800 SG-WORKTREE-CANON** end-to-end — 9 epics + 1 council sub-task,
+8 PRs merged, council verdict **D009** (hybrid XDG-external + in-project
+`.cleo/worktrees.json` sentinel index) executed.
+
+### Features
+
+- **Council D009 hybrid**: keep XDG-external worktree checkout location
+  (`~/.local/share/cleo/worktrees/<projectHash>/<taskId>/`); add in-project
+  `<repo>/.cleo/worktrees.json` SENTINEL INDEX (FILE not directory) for
+  discoverability. Verdict 4/5 consensus (Christensen/Drucker/Porter/Taleb/Meadows). (T9812)
+- **`cleo worktree adopt`**: register externally-created worktrees
+  (e.g. Claude Code Agent `isolation:worktree`) in the CLEO SSoT via the
+  sentinel index. `cleo worktree list` is now a multi-source union of
+  `git worktree list --porcelain` + sentinel entries with `source` field
+  (`cleo-spawn` / `claude-agent` / `manual` / `adopted`). (T9804) (#440)
+- **`cleo worktree destroy --pr <num>`** subcommand + `cleo worktree prune
+  --idle-days <N>` flag + `.cleo/audit/worktree-lifecycle.jsonl` audit log
+  + `.github/workflows/worktree-cleanup.yml` GHA workflow that triggers on
+  PR merge events. (T9805) (#437)
+- **`cleo doctor --audit-worktree-orphans`** comprehensive scan: detects
+  `.cleo/` directories inside any worktree path, worktrees outside
+  canonical XDG location, rogue `<repo>/.cleo/worktrees/` directories
+  (council D009 forbids — only `.json` sentinel allowed). (T9808) (#441)
+- **`packages/paths` SSoT**: new `resolveWorktreeIndexPath()` helper
+  returning the canonical sentinel path. `scripts/lint-paths-ssot.mjs`
+  CI gate prevents new env-paths / `process.cwd() + .cleo` /
+  hand-rolled-worktree-path drift via baseline allowlist. (T9802) (#436)
+- **`cleo orchestrate spawn --scope <path>`** flag enables sparse-checkout
+  cone mode — agents check out only the requested subtree (97% disk
+  reduction in the T9807 benchmark for `--scope packages/cleo`). (T9807)
+  (#438)
+
+### Fixes (root-cause)
+
+- **`getCleoDirAbsolute` throws instead of silent orphan synthesis**
+  (Meadows leverage point per council D009). Pre-fix, line 305 of
+  `packages/core/src/paths.ts` caught `getProjectRoot` failures and
+  silently fell back to `<cwd>/.cleo` — synthesizing orphan `.cleo/`
+  directories inside worktrees that any downstream `mkdirSync` would
+  materialize. Surgical refinement (post CI feedback): throws ONLY when
+  cwd has a worktree gitlink ancestor (`.git` as FILE), allowing
+  fallback for clean-slate test fixtures. Closes the 25+ leaked
+  `.cleo/` orphan bug class catalogued in the T9801 forensic audit.
+  (T9803) (#389)
+- **DB chokepoint refuses worktree-resident `.cleo/` opens**:
+  defense-in-depth in `openCleoDb()` — after path resolution, asserts
+  the resolved `.cleo/`'s parent has `.git` as a real DIRECTORY (not a
+  gitlink FILE). Throws `E_WT_DB_ISOLATION_VIOLATION` unless
+  `CLEO_ALLOW_WORKTREE_DB_CREATE=1` is set (audited to stderr).
+  Catches the residual case where a pre-T9803 leaked `.cleo/` already
+  exists inside a worktree. (T9806) (#406)
+- **BAN worktrees outside canonical XDG location**:
+  `assertCanonicalWorktreeLocation()` in `packages/worktree/worktree-create.ts`
+  throws `E_WT_LOCATION_FORBIDDEN` for any path outside
+  `<cleoHome>/worktrees/`. No escape hatch — not even `CLEO_FORCE_LOCATION`
+  env var. `scripts/lint-worktree-location.mjs` CI gate fails on rogue
+  trees at project root, sibling `/mnt/projects/*`, or nested inside
+  another worktree. `scripts/migrate-rogue-worktrees.mjs` dry-runnable +
+  idempotent migration tool with `.cleo/backups/rogue-worktrees-<ts>.tar.gz`
+  archive-before-move. (T9809) (#435)
+- **Bound the include-pattern apply loop** in
+  `packages/worktree/src/worktree-include.ts` — fixes the 60s `cleo
+  orchestrate spawn` `E_TIMEOUT` regression catalogued in the T9801
+  audit appendix B (root cause: unbounded retry on
+  `.vscode/settings.json` symlink failure). (T9807) (#438)
+
+### Audit + closure
+
+- T9801 forensic audit (SSoT slug `sg-t9800-worktree-forensic-audit`):
+  40 worktrees inventoried, 5 creation sites identified, 3 helper drift
+  cases catalogued, GSD-2 reference compared. (T9801)
+- T9808 saga closure report (SSoT slug `sg-worktree-canon-closure-report`):
+  per-epic shipped/deferred matrix, before/after metrics. (T9808) (#441)
+- `scripts/lint-agent-worktree-isolation.mjs` non-blocking warning gate
+  flags `EnterWorktree` invocations in agent transcripts. (T9808) (#441)
+
 ## [2026.5.95] (2026-05-21)
 
 ### BREAKING CHANGES
