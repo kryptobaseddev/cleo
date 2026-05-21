@@ -151,6 +151,13 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   { domain: 'tasks', operation: 'add', gateway: 'mutate', mode: 'native', preferredChannel: 'cli' },
   {
     domain: 'tasks',
+    operation: 'add-batch',
+    gateway: 'mutate',
+    mode: 'native',
+    preferredChannel: 'cli',
+  },
+  {
+    domain: 'tasks',
     operation: 'update',
     gateway: 'mutate',
     mode: 'native',

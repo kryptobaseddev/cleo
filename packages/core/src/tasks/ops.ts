@@ -31,6 +31,7 @@ import type {
   TaskType,
 } from '@cleocode/contracts';
 import { type AddTaskResult, addTask } from './add.js';
+import { type AddBatchResult, type AddBatchTaskSpec, tasksAddBatchOp } from './add-batch.js';
 import { type ArchiveTasksResult, archiveTasks } from './archive.js';
 import { type CompleteTaskResult, completeTask } from './complete.js';
 import { type DeleteTaskResult, deleteTask } from './delete.js';
@@ -199,6 +200,29 @@ export async function tasksAddOp(
     projectRoot,
   );
 }
+
+/**
+ * Normalized wrapper for {@link tasksAddBatchOp}.
+ * ADR-057 D1 shape: (projectRoot: string, params: TasksAddBatchParams)
+ *
+ * Wraps N `addTask` inserts in a single `dataAccessor.transaction()` so
+ * any failure rolls back ALL inserts (true atomic batch).
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param params - Batch operation parameters (wire format — `parent` field).
+ * @returns AddBatchResult with per-task results and aggregate count.
+ * @throws CleoError when any task spec fails validation (all inserts reverted).
+ *
+ * @task T9814
+ */
+export async function tasksAddBatchOpNormalized(
+  projectRoot: string,
+  params: { tasks: AddBatchTaskSpec[]; defaultParent?: string; dryRun?: boolean },
+): Promise<AddBatchResult> {
+  return tasksAddBatchOp(projectRoot, params);
+}
+
+export type { AddBatchResult, AddBatchTaskSpec };
 
 /**
  * Normalized wrapper for {@link updateTask}.
@@ -407,6 +431,7 @@ export declare const tasksCoreOps: {
   readonly 'sync.links': TaskCoreOperation<'sync.links'>;
   // Mutate ops
   readonly add: TaskCoreOperation<'add'>;
+  readonly 'add-batch': TaskCoreOperation<'add-batch'>;
   readonly update: TaskCoreOperation<'update'>;
   readonly complete: TaskCoreOperation<'complete'>;
   readonly cancel: TaskCoreOperation<'cancel'>;
