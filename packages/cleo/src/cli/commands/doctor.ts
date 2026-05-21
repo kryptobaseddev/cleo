@@ -556,19 +556,39 @@ export const doctorCommand = defineCommand({
           process.exitCode = 2;
         }
       } else if (args['audit-worktree-orphans']) {
-        // T9790: read-only — list orphan .cleo/ directories under
-        // <projectRoot>/.claude/worktrees/ with provenance.
-        progress.step(0, 'Scanning for worktree-orphan .cleo/ directories');
-        const { scanWorktreeOrphans } = await import('@cleocode/core/doctor/worktree-orphans.js');
+        // T9808: comprehensive read-only audit —
+        //   1. orphan .cleo/ dirs inside ANY git worktree
+        //   2. worktrees outside the canonical XDG location
+        //   3. rogue .cleo/worktrees/ DIRECTORY (council D009)
+        // Also runs the legacy .claude/worktrees/ orphan scan for full coverage.
+        progress.step(0, 'Comprehensive worktree anomaly audit (T9808 / council D009)');
+        const { auditWorktreeOrphansComprehensive, scanWorktreeOrphans } = await import(
+          '@cleocode/core/doctor/worktree-orphans.js'
+        );
         const projectRoot = getProjectRoot();
-        const orphans = await scanWorktreeOrphans(projectRoot);
-        progress.complete(`Found ${orphans.length} orphan${orphans.length === 1 ? '' : 's'}`);
+
+        // Run both scans in parallel.
+        const [comprehensive, legacyOrphans] = await Promise.all([
+          auditWorktreeOrphansComprehensive(projectRoot),
+          scanWorktreeOrphans(projectRoot),
+        ]);
+
+        const totalAnomalies = comprehensive.count;
+        progress.complete(
+          `Found ${totalAnomalies} anomal${totalAnomalies === 1 ? 'y' : 'ies'}` +
+            (legacyOrphans.length > 0 ? ` (${legacyOrphans.length} legacy orphan(s))` : ''),
+        );
 
         cliOutput(
-          { projectRoot, orphans, count: orphans.length },
+          {
+            projectRoot,
+            comprehensive,
+            legacyOrphans,
+            count: totalAnomalies,
+          },
           { command: 'doctor', operation: 'doctor.audit-worktree-orphans' },
         );
-        if (orphans.length > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
+        if (totalAnomalies > 0 && (process.exitCode === undefined || process.exitCode === 0)) {
           process.exitCode = 2;
         }
       } else if (args['prune-worktree-orphans']) {

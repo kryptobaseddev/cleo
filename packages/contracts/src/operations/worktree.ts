@@ -159,6 +159,25 @@ export interface CreateWorktreeOptions {
    * @task T1927
    */
   forceReset?: boolean;
+  /**
+   * Sparse-checkout scope pattern (T9807). When set, `createWorktree` runs
+   * `git sparse-checkout init --cone` followed by
+   * `git sparse-checkout set <spawnScope>` after `git worktree add` completes,
+   * limiting the worktree's checked-out tree to paths matching `<spawnScope>`.
+   *
+   * Exposed on `cleo orchestrate spawn` as the `--scope` flag so callers can
+   * request a lean worktree containing only the paths relevant to a task
+   * (e.g. `packages/cleo` to contain a CLI-only fix).
+   *
+   * Cone mode (`--cone`) is used for maximum checkout performance — the scope
+   * string must be a directory prefix, not an arbitrary glob.
+   *
+   * Failures are silently swallowed (best-effort) — the worktree is returned
+   * in full-checkout mode when sparse-checkout setup fails.
+   *
+   * @task T9807
+   */
+  spawnScope?: string;
 }
 
 /**
@@ -247,6 +266,14 @@ export interface DestroyWorktreeOptions {
   force?: boolean;
   /** Declarative hooks to run during destruction lifecycle. */
   hooks?: WorktreeHook[];
+  /**
+   * Free-form reason string appended to the lifecycle audit log (T9805).
+   *
+   * Examples: `'pr-merged'`, `'manual'`, `'idle-timeout'`.
+   *
+   * @default 'manual'
+   */
+  reason?: string;
 }
 
 /**
@@ -332,6 +359,16 @@ export interface PruneWorktreesOptions {
    * @default true
    */
   gitPrune?: boolean;
+  /**
+   * Abandonment-timeout threshold in days (T9805 AC2).
+   *
+   * When set, worktrees whose branch has had no commits for at least this many
+   * days AND which have no open PR associated are eligible for pruning, even
+   * if their task ID is not in a known-stale set.
+   *
+   * @default undefined — disabled; no idle-age check is performed.
+   */
+  idleDays?: number;
 }
 
 /**
@@ -483,6 +520,9 @@ export interface ListWorktreesResult {
 /**
  * Canonical action recorded in `.cleo/audit/worktree-lifecycle.jsonl`.
  *
+ * - `create` — worktree was created via `cleo orchestrate spawn` (T9805).
+ * - `destroy` — worktree was explicitly destroyed (PR-merged cleanup or manual) (T9805).
+ * - `adopt` — an existing worktree directory was attached to a new task ID (T9805).
  * - `prune` — orphaned/merged worktree was removed.
  * - `prune-skip` — orphan was detected but skipped (user said N, or had uncommitted changes).
  * - `force-unlock` — git index.lock removed + `git worktree unlock` ran.
@@ -498,8 +538,12 @@ export interface ListWorktreesResult {
  * @task T9547
  * @task T9548
  * @task T9804
+ * @task T9805
  */
 export type WorktreeLifecycleAction =
+  | 'create'
+  | 'destroy'
+  | 'adopt'
   | 'prune'
   | 'prune-skip'
   | 'force-unlock'

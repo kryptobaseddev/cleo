@@ -38,15 +38,58 @@ interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
   };
   /** Glob patterns actually excluded via sparse-checkout (T9226). */
   appliedExcludePatterns: string[];
+  /**
+   * The sparse-checkout scope applied to the worktree (T9807), or `null` when
+   * no scope was requested or the operation failed.
+   */
+  appliedScope: string | null;
 }
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
+import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
 import {
   computeProjectHash,
   resolveTaskWorktreePath,
   resolveWorktreeRootForHash,
 } from './paths.js';
+import { addWorktreeToSentinelIndex, appendWorktreeAuditLog } from './worktree-audit.js';
+
+/**
+ * Assert that `targetPath` sits inside the canonical XDG worktrees root
+ * (`<cleoHome>/worktrees/`). Throws `E_WT_LOCATION_FORBIDDEN` if not.
+ *
+ * Per AC4 / council verdict D009: there is NO escape hatch — not even a
+ * `CLEO_FORCE_LOCATION` env var. Worktrees outside the canonical location
+ * are unconditionally rejected.
+ *
+ * @param targetPath - Absolute path that will be passed to `git worktree add`.
+ * @throws Error with code `E_WT_LOCATION_FORBIDDEN` when outside canonical root.
+ *
+ * @task T9809
+ */
+function assertCanonicalWorktreeLocation(targetPath: string): void {
+  const canonicalRoot = getCleoWorktreesRoot();
+  // Normalise both paths to use forward slashes and ensure the root ends with
+  // a separator so we don't accidentally match a sibling path that shares a
+  // prefix (e.g. `/cleo-home/worktrees-other/` vs `/cleo-home/worktrees/`).
+  const normalRoot = canonicalRoot.endsWith('/') ? canonicalRoot : `${canonicalRoot}/`;
+  const normalTarget = targetPath.replaceAll('\\', '/');
+  const normalRootFwd = normalRoot.replaceAll('\\', '/');
+
+  if (!normalTarget.startsWith(normalRootFwd)) {
+    throw Object.assign(
+      new Error(
+        `E_WT_LOCATION_FORBIDDEN: worktree path "${targetPath}" is outside the ` +
+          `canonical XDG location "${canonicalRoot}". ` +
+          `All worktrees MUST live under <cleoHome>/worktrees/<projectHash>/<taskId>/. ` +
+          `There is no override — see Saga T9800 SG-WORKTREE-CANON and ADR decision D009.`,
+      ),
+      { code: 'E_WT_LOCATION_FORBIDDEN', targetPath, canonicalRoot },
+    );
+  }
+}
+
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
 
@@ -70,6 +113,34 @@ function applySpawnCloneExcludeFilter(
     return [...excludePatterns];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Apply T9807 cone-mode sparse-checkout to limit the worktree to a scope
+ * directory prefix (e.g. `packages/cleo`).
+ *
+ * Uses `git sparse-checkout init --cone` followed by
+ * `git sparse-checkout set <scope>` — cone mode gives the fastest checkout
+ * performance by working at directory granularity instead of arbitrary globs.
+ *
+ * Failures are silently swallowed — the worktree stays in full-checkout mode
+ * when the operation is not supported by the installed git version.
+ *
+ * @param worktreePath - Absolute path to the newly created worktree.
+ * @param scope - Directory prefix to check out (e.g. `packages/cleo`).
+ * @returns The applied scope string, or `null` when the operation failed.
+ *
+ * @task T9807
+ */
+function applySpawnScope(worktreePath: string, scope: string): string | null {
+  if (!scope.trim()) return null;
+  try {
+    gitSilent(['sparse-checkout', 'init', '--cone'], worktreePath);
+    gitSilent(['sparse-checkout', 'set', scope.trim()], worktreePath);
+    return scope.trim();
+  } catch {
+    return null;
   }
 }
 
@@ -141,6 +212,11 @@ export async function createWorktree(
   const branch = options.branchName ?? `task/${taskId}`;
   const baseRef = options.baseRef ?? resolveHeadRef(gitRoot);
   const worktreePath = resolveTaskWorktreePath(projectHash, taskId);
+
+  // AC1 / T9809: reject any path outside the canonical XDG worktrees root.
+  // This check runs BEFORE any filesystem mutation so the error is always clean.
+  // There is NO escape hatch — per council verdict D009 the ban is absolute.
+  assertCanonicalWorktreeLocation(worktreePath);
 
   // Remove stale worktree at this path if it exists (left from a prior run).
   // Dirty worktrees are preserved to avoid losing uncommitted agent work.
@@ -236,6 +312,17 @@ export async function createWorktree(
   const appliedExcludePatterns =
     excludePatterns.length > 0 ? applySpawnCloneExcludeFilter(worktreePath, excludePatterns) : [];
 
+  // T9807 — spawn scope: limit the worktree to a directory prefix via cone-mode
+  // sparse-checkout (e.g. `packages/cleo` for a CLI-only task). Best-effort;
+  // falls back to full checkout when the operation fails or is not supported.
+  // Only applied when no exclude-patterns sparse-checkout is already active to
+  // avoid conflicting sparse-checkout modes.
+  const spawnScope = options.spawnScope ?? null;
+  const appliedScope =
+    spawnScope && appliedExcludePatterns.length === 0
+      ? applySpawnScope(worktreePath, spawnScope)
+      : null;
+
   // Run post-create hooks before returning the handle.
   const postCreateHookResults = await runWorktreeHooks(hooks, 'post-create', worktreePath);
 
@@ -312,6 +399,19 @@ export async function createWorktree(
     '',
   ].join('\n');
 
+  // T9805 AC3: Append audit log entry for every worktree creation.
+  appendWorktreeAuditLog(projectRoot, {
+    action: reused ? 'adopt' : 'create',
+    xdgPath: worktreePath,
+    taskId,
+    branch,
+    reason: reused ? 'branch-reuse' : 'spawn',
+    success: true,
+  });
+
+  // T9805 D009: Register this worktree in the sentinel index.
+  addWorktreeToSentinelIndex(gitRoot, taskId, { path: worktreePath, branch, createdAt });
+
   return {
     path: worktreePath,
     branch,
@@ -326,6 +426,7 @@ export async function createWorktree(
     hookResults: postCreateHookResults,
     appliedPatterns,
     appliedExcludePatterns,
+    appliedScope,
     bootstrap: {
       copiedPaths,
       failedPaths,
