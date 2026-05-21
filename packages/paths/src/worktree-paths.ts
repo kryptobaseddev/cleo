@@ -6,7 +6,13 @@
  *
  * `cleoHome` is resolved via {@link getCleoHome} (env-paths + `CLEO_HOME` override).
  *
+ * Council verdict D009 (T9802 / SG-WORKTREE-CANON) added the hybrid sentinel
+ * index concept: a per-project JSON file at `<projectRoot>/.cleo/worktrees.json`
+ * that acts as the canonical registry of active worktrees for that project.
+ * Use {@link resolveWorktreeIndexPath} to get this path.
+ *
  * @task T1883
+ * @task T9802
  */
 
 import { createHash } from 'node:crypto';
@@ -102,4 +108,46 @@ export function resolveTaskWorktreePath(
  */
 export function getCleoWorktreesRoot(): string {
   return joinSegments(getCleoHome(), WORKTREES_SUBDIR);
+}
+
+/**
+ * Resolve the canonical SENTINEL INDEX path for active worktrees associated
+ * with a project — `<projectRoot>/.cleo/worktrees.json`.
+ *
+ * Council verdict D009 (T9802 / SG-WORKTREE-CANON) introduced the hybrid
+ * worktree-location model: worktree directories themselves live under the XDG
+ * data directory (see {@link resolveWorktreeRootForHash}), while a lightweight
+ * JSON index file lives **inside the project** at
+ * `<projectRoot>/.cleo/worktrees.json`. This sentinel acts as the canonical
+ * registry of active worktrees for that project and is:
+ *
+ * - **Tracked alongside project state** — lives in `.cleo/` (git-ignored),
+ *   survives across `CLEO_HOME` changes and machine migrations.
+ * - **Machine-local** — absolute XDG paths inside the JSON are valid only on
+ *   the machine that created them; consumers must handle stale entries.
+ * - **FILE not DIRECTORY** — the path ends in `.json`, never a directory.
+ *   Create with `JSON.stringify` + `fs.writeFileSync`; read with
+ *   `JSON.parse(fs.readFileSync(...))`.
+ *
+ * Invariant: the returned path is always
+ * `<projectRoot>/.cleo/worktrees.json` regardless of `CLEO_HOME`, XDG
+ * environment variables, or platform. It is the T9805 lifecycle hook's
+ * canonical write target.
+ *
+ * @param projectRoot - Absolute path to the project root (the directory that
+ *   contains the `.cleo/` subdirectory for this project).
+ * @returns Absolute path to `<projectRoot>/.cleo/worktrees.json`.
+ *
+ * @example
+ * ```typescript
+ * import { resolveWorktreeIndexPath } from '@cleocode/paths';
+ *
+ * const indexPath = resolveWorktreeIndexPath('/mnt/projects/cleocode');
+ * // "/mnt/projects/cleocode/.cleo/worktrees.json"
+ * ```
+ *
+ * @public
+ */
+export function resolveWorktreeIndexPath(projectRoot: string): string {
+  return joinSegments(projectRoot, '.cleo', 'worktrees.json');
 }
