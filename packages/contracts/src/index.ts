@@ -367,6 +367,8 @@ export {
   E_PLAN_NOT_FOUND,
   E_RELEASE_PLAN_INVALID,
   E_WORKFLOW_NOT_FOUND,
+  // gh#391 — application-level SQLITE_BUSY retry exhaustion (T9839)
+  E_WRITE_CONTENTION,
   ExitCode,
   getExitCodeName,
   isErrorCode,
