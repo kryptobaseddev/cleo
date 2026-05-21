@@ -10,13 +10,39 @@
  *  2. meta.description references the file-based usage form.
  *  3. Existing command name and basic shape are unchanged.
  *
- * No dispatch, no DB, no process I/O — pure metadata assertion.
+ * Pure metadata assertion — no dispatch, no DB, no process I/O.
+ * Mocks mirror add-description.test.ts to prevent @cleocode/animations
+ * from being resolved transitively through dispatch/adapters/cli.ts.
  *
  * @task T9818
  * @epic T9813
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// ---------------------------------------------------------------------------
+// Mocks — hoisted so they apply before the import of addCommand below.
+// These mirror the pattern used in add-description.test.ts to prevent
+// @cleocode/animations (via animation-bridge → dispatch/adapters/cli.ts)
+// from failing to resolve in the vitest environment.
+// ---------------------------------------------------------------------------
+
+vi.mock('../../../dispatch/adapters/cli.js', () => ({
+  dispatchRaw: vi.fn(),
+  handleRawError: vi.fn(),
+}));
+
+vi.mock('../../renderers/index.js', () => ({
+  cliOutput: vi.fn(),
+  cliError: vi.fn(),
+  humanInfo: vi.fn(),
+  humanWarn: vi.fn(),
+}));
+
+// ---------------------------------------------------------------------------
+// Import command after mocks are registered
+// ---------------------------------------------------------------------------
+
 import { addCommand } from '../add.js';
 
 // ---------------------------------------------------------------------------
@@ -70,7 +96,7 @@ describe('addCommand meta — T9818 add-batch cross-link', () => {
     expect(meta.description?.toLowerCase()).toContain('task');
   });
 
-  it('args block is unchanged — no flag or positional additions', () => {
+  it('args block is unchanged — no flag or positional additions from T9818', () => {
     const args = addCommand.args as Record<string, { type: string }> | undefined;
     // Core flags that must still exist
     expect(args?.['title']).toBeDefined();
