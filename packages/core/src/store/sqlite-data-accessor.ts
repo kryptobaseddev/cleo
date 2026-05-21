@@ -37,8 +37,10 @@ import { TERMINAL_TASK_STATUSES } from './status-registry.js';
 import * as schema from './tasks-schema.js';
 
 /**
- * Per-process monotonic counter for unique SAVEPOINT names.
- * Prevents name collisions when transactions are nested (T9814).
+ * Per-process monotonic counter for unique nested SAVEPOINT names (T9814).
+ * Only used when DataAccessor.transaction() is called from within an
+ * already-open outer transaction (depth > 0). Outer transactions use
+ * BEGIN IMMEDIATE/COMMIT/ROLLBACK (depth = 0).
  */
 let _txSavepointCounter = 0;
 
@@ -109,6 +111,13 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     const rows = await db.select({ id: schema.tasks.id }).from(schema.tasks).all();
     return new Set(rows.map((r) => r.id));
   }
+
+  // Per-accessor transaction nesting depth (T9814).
+  // Tracks how many DataAccessor.transaction() calls are active on this
+  // accessor instance. Used to choose BEGIN IMMEDIATE (outer, depth=0) vs
+  // SAVEPOINT (nested, depth>0) so we preserve BEGIN IMMEDIATE locking
+  // semantics at the outermost level while enabling batch-insert nesting.
+  let _txDepth = 0;
 
   const accessor: DataAccessor = {
     engine: 'sqlite' as const,
@@ -850,13 +859,19 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         throw new Error('Native database not initialized');
       }
 
-      // Use SAVEPOINTs instead of BEGIN IMMEDIATE so this method can be
-      // called from within an existing transaction (T9814 — batch insert).
-      // SQLite SAVEPOINTs nest correctly: a top-level SAVEPOINT implicitly
-      // starts a deferred transaction; nested SAVEPOINTs create logical
-      // checkpoints inside the outer transaction.
-      const spName = `_cleo_tx_${(_txSavepointCounter++).toString(36)}`;
-      nativeDb.prepare(`SAVEPOINT ${spName}`).run();
+      // Nested-transaction support (T9814 — batch insert):
+      // - Outermost call (depth=0): use BEGIN IMMEDIATE — preserves the
+      //   RESERVED lock semantics that callers and tests depend on.
+      // - Nested calls (depth>0): use SAVEPOINT — creates a logical
+      //   checkpoint inside the already-open transaction.
+      const isOuter = _txDepth === 0;
+      const spName = isOuter ? null : `_cleo_tx_${(_txSavepointCounter++).toString(36)}`;
+      if (isOuter) {
+        nativeDb.prepare('BEGIN IMMEDIATE').run();
+      } else {
+        nativeDb.prepare(`SAVEPOINT ${spName}`).run();
+      }
+      _txDepth++;
       try {
         const tx: TransactionAccessor = {
           async upsertSingleTask(task: Task): Promise<void> {
@@ -923,12 +938,22 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         };
 
         const result = await fn(tx);
-        nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+        _txDepth--;
+        if (isOuter) {
+          nativeDb.prepare('COMMIT').run();
+        } else {
+          nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+        }
         return result;
       } catch (err) {
+        _txDepth--;
         try {
-          nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
-          nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+          if (isOuter) {
+            nativeDb.prepare('ROLLBACK').run();
+          } else {
+            nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
+            nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
+          }
         } catch {
           /* ignore secondary rollback errors */
         }
