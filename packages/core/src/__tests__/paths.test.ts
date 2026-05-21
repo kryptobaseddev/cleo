@@ -81,10 +81,18 @@ describe('getCleoDirAbsolute', () => {
     }
   });
 
-  it('resolves relative path against cwd', () => {
+  it('resolves relative path against cwd (bootstrap mode)', () => {
+    // T9803/D009: cwd-relative fallback requires explicit `{ bootstrap: true }`
+    // opt-in. Without it, the chokepoint throws to prevent orphan `.cleo/`
+    // synthesis inside worktrees.
     delete process.env['CLEO_DIR'];
-    const result = getCleoDirAbsolute('/my/project');
+    const result = getCleoDirAbsolute('/my/project', { bootstrap: true });
     expect(result).toBe(resolve('/my/project', '.cleo'));
+  });
+
+  it('throws when called outside a project without bootstrap (T9803)', () => {
+    delete process.env['CLEO_DIR'];
+    expect(() => getCleoDirAbsolute('/my/project')).toThrowError();
   });
 
   it('returns absolute CLEO_DIR as-is', () => {
@@ -199,18 +207,24 @@ describe('path helper functions', () => {
     }
   });
 
+  // T9803/D009: these helpers indirectly call getCleoDirAbsolute which now
+  // requires either an existing project or an absolute CLEO_DIR pin. Pin
+  // CLEO_DIR to the synthesized .cleo path so the chokepoint short-circuits
+  // at the absolute-path branch instead of walking up. This matches how
+  // these helpers are exercised in production (inside a real project where
+  // getProjectRoot resolves correctly).
   it('getTodoPath returns correct path', () => {
-    delete process.env['CLEO_DIR'];
+    process.env['CLEO_DIR'] = resolve('/my/project', '.cleo');
     expect(getTaskPath('/my/project')).toBe(join(resolve('/my/project'), '.cleo', 'tasks.db'));
   });
 
   it('getConfigPath returns correct path', () => {
-    delete process.env['CLEO_DIR'];
+    process.env['CLEO_DIR'] = resolve('/my/project', '.cleo');
     expect(getConfigPath('/my/project')).toBe(join(resolve('/my/project'), '.cleo', 'config.json'));
   });
 
   it('getBackupDir returns correct path', () => {
-    delete process.env['CLEO_DIR'];
+    process.env['CLEO_DIR'] = resolve('/my/project', '.cleo');
     expect(getBackupDir('/my/project')).toBe(
       join(resolve('/my/project'), '.cleo', 'backups', 'operational'),
     );
