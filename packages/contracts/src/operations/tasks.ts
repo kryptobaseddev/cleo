@@ -524,6 +524,7 @@ export interface TasksCancelParams {
  * Result of `tasks.cancel` — cancellation confirmation.
  *
  * @task T1703
+ * @task T9838 (idempotency — `alreadyCancelled` returned when re-cancelling)
  */
 export interface TasksCancelResult {
   /** The task ID that was cancelled. */
@@ -534,6 +535,14 @@ export interface TasksCancelResult {
   reason?: string;
   /** ISO 8601 timestamp of cancellation. */
   cancelledAt: string;
+  /**
+   * True when the task was already cancelled before this call — the
+   * operation is a no-op and the response reflects the pre-existing
+   * cancellation state. Idempotent re-cancellation (T9838).
+   *
+   * @defaultValue undefined
+   */
+  alreadyCancelled?: boolean;
 }
 
 // tasks.restore (with from routing: done → reopen, archived → unarchive)

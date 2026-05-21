@@ -8,7 +8,6 @@
 
 import type { Task } from '@cleocode/contracts';
 import { teardownWorktree } from '../sentient/worktree-dispatch.js';
-import { isTerminalPipelineStage } from './pipeline-stage.js';
 
 /** Result of a cancel operation. */
 export interface CancelResult {
@@ -16,6 +15,13 @@ export interface CancelResult {
   taskId: string;
   reason?: string;
   cancelledAt?: string;
+  /**
+   * True when the task was already cancelled before this call. The cancel
+   * is treated as a no-op success — see T9838 idempotency contract.
+   *
+   * @defaultValue undefined
+   */
+  alreadyCancelled?: boolean;
   error?: { code: string; message: string };
 }
 
@@ -54,6 +60,22 @@ export function cancelTask(
     };
   }
 
+  // T9838: idempotent re-cancel. If the task is already cancelled, return
+  // success with `alreadyCancelled: true` and echo the existing cancelledAt
+  // rather than failing with E_CANNOT_CANCEL.
+  if (task.status === 'cancelled') {
+    return {
+      tasks,
+      result: {
+        success: true,
+        taskId,
+        reason: task.cancellationReason ?? undefined,
+        cancelledAt: task.cancelledAt ?? task.updatedAt ?? undefined,
+        alreadyCancelled: true,
+      },
+    };
+  }
+
   const check = canCancel(task);
   if (!check.allowed) {
     return {
@@ -75,11 +97,12 @@ export function cancelTask(
         cancelledAt: timestamp,
         cancellationReason: reason ?? undefined,
         updatedAt: timestamp,
-        // T871: sync pipelineStage with status. Leave an already-terminal
-        // stage alone (idempotent), otherwise route to the 'cancelled'
-        // terminal marker so Studio Pipeline groups this task under the
-        // CANCELLED column.
-        pipelineStage: isTerminalPipelineStage(t.pipelineStage) ? t.pipelineStage : 'cancelled',
+        // T877: DB invariant requires status='cancelled' ↔ pipeline_stage='cancelled'.
+        // ALWAYS overwrite the stage on cancellation — the prior T871 carve-out
+        // (`isTerminalPipelineStage ? keep : 'cancelled'`) left 'contribution' in
+        // place for cancelled tasks that had finished contribution, tripping the
+        // BEFORE-UPDATE trigger (T9838 repro).
+        pipelineStage: 'cancelled' as const,
       };
     }
     return t;
