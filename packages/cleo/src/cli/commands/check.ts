@@ -137,10 +137,52 @@ const checkChainValidateCommand = defineCommand({
   },
 });
 
+/**
+ * cleo check canon docs — CI gate: detect raw markdown writes against
+ * `.cleo/canon.yml`.
+ *
+ * Walks `git diff --diff-filter=A` between `--base` (default `origin/main`)
+ * and `HEAD`, then blocks any newly-added `*.md` file that lands inside a
+ * `rawMdPaths` directory whose owning DocKind has `rawMdAllowed: false`.
+ *
+ * Exits 0 on pass, 1 on violation (so CI fails the job), 2 on tool error
+ * (invalid canon.yml, etc.).
+ *
+ * @task T9796
+ */
+const checkCanonDocsCommand = defineCommand({
+  meta: {
+    name: 'docs',
+    description: 'CI gate: block raw *.md writes that bypass the docs SSoT (T9796)',
+  },
+  args: {
+    base: {
+      type: 'string',
+      description: 'Git ref to diff against (default: origin/main)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'check',
+      'canon.docs',
+      { baseRef: args.base as string | undefined },
+      { command: 'check', operation: 'check.canon.docs' },
+    );
+  },
+});
+
 /** cleo check canon — CI gate: detect canon drift between docs and live code */
 const checkCanonCommand = defineCommand({
   meta: { name: 'canon', description: 'CI gate: detect canon drift between docs and live code' },
-  async run() {
+  subCommands: {
+    docs: checkCanonDocsCommand,
+  },
+  async run({ cmd, rawArgs }) {
+    // When a recognised subcommand was supplied, citty already dispatched —
+    // bail out so we don't double-fire the legacy code/doc drift check.
+    const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
+    if (firstArg && cmd.subCommands && firstArg in cmd.subCommands) return;
     await dispatchFromCli('query', 'check', 'canon', {}, { command: 'check' });
   },
 });
