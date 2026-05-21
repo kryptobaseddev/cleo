@@ -10,3 +10,11 @@
  */
 
 export { parseChangesetDir, parseChangesetFile } from './parser.js';
+export {
+  renderChangesetMarkdown,
+  type WriteChangesetError,
+  type WriteChangesetOptions,
+  type WriteChangesetOutcome,
+  type WriteChangesetResult,
+  writeChangesetEntry,
+} from './writer.js';

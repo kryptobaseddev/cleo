@@ -94,6 +94,19 @@ export {
   installSkillsGlobally,
   verifyBootstrapComplete,
 } from './bootstrap.js';
+// Changesets — CLEO-native task-anchored DSL (T9738 / T9793 dual-write)
+export type {
+  WriteChangesetError,
+  WriteChangesetOptions,
+  WriteChangesetOutcome,
+  WriteChangesetResult,
+} from './changesets/index.js';
+export {
+  parseChangesetDir,
+  parseChangesetFile,
+  renderChangesetMarkdown,
+  writeChangesetEntry,
+} from './changesets/index.js';
 export type { ViolationLogEntry } from './compliance/protocol-enforcement.js';
 // Compliance
 export { ProtocolEnforcer, protocolEnforcer } from './compliance/protocol-enforcement.js';
