@@ -61,6 +61,40 @@ If you genuinely need a doc-kind not yet listed:
 2. Add a routing entry to `.cleo/canon.yml`.
 3. Re-run `pnpm --filter @cleocode/cleo run build` and the gate stays green.
 
+## Worktree Location (ADR-055 · Saga T9800 · Decision D009)
+
+ALL git worktrees provisioned for agent tasks MUST live under the canonical
+XDG path: `<cleoHome>/worktrees/<projectHash>/<taskId>/`.
+
+- **Linux**: `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/`
+- **macOS**: `~/Library/Application Support/cleo/worktrees/<projectHash>/<taskId>/`
+
+### Banned locations
+
+The following worktree locations are UNCONDITIONALLY FORBIDDEN:
+
+- The project root (`/mnt/projects/cleocode/`)
+- Any sibling path (`/mnt/projects/*`)
+- Inside another worktree (nested worktrees)
+- Inside `.claude/worktrees/` or any `.claude/` subdirectory
+
+There is NO escape hatch — not even `CLEO_FORCE_LOCATION`.
+
+### Enforcement
+
+- **Runtime**: `packages/worktree/src/worktree-create.ts` throws
+  `E_WT_LOCATION_FORBIDDEN` before any `git worktree add` call when the
+  computed path is outside the canonical root.
+- **CI gate**: `scripts/lint-worktree-location.mjs` (job: `Worktree Location Lint`)
+  runs `git worktree list --porcelain` on every PR and fails on any non-primary
+  worktree that is not under `<cleoHome>/worktrees/`. It also rejects a
+  `worktrees/` *directory* under `<repo>/.cleo/` — only the sentinel file
+  `.cleo/worktrees.json` is allowed there (D009 in-project sentinel pattern).
+- **Migration tool**: `scripts/migrate-rogue-worktrees.mjs` detects and moves
+  rogue worktrees. Use `--dry-run` to preview before executing.
+
+See Epic **T9809** (`E-WT-PROVISIONING-LOCATION-GUARDS`) for full context.
+
 ## Quality Gates (MUST PASS BEFORE COMPLETING)
 
 Run these IN ORDER before marking any task complete:
