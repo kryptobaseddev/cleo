@@ -24,7 +24,6 @@ import type { Task } from '@cleocode/contracts';
 import {
   E_CHANNEL_MISMATCH,
   E_DIRTY_TREE,
-  E_EPIC_EMPTY,
   E_EPIC_NOT_FOUND,
   E_EVIDENCE_INSUFFICIENT,
   parseReleasePlan,
@@ -230,11 +229,28 @@ describe('releasePlan — error envelopes', () => {
     expect(result.error.code).toBe(E_EPIC_NOT_FOUND);
   });
 
-  it('returns E_EPIC_EMPTY when the epic has zero children', async () => {
+  it('returns E_EPIC_EMPTY_LEAF_NO_EVIDENCE when the epic has zero children + no evidence (T9838)', async () => {
+    // T9838 Fix 2: leaf-Epic-as-Task (ADR-073) is now a valid input shape.
+    // The plan verb falls back to the Epic's own evidence atoms when the
+    // Epic has no children. When the Epic ALSO has no evidence atoms, the
+    // verb surfaces a dedicated error code so the operator is routed to
+    // `cleo verify` (NOT the legacy "add a child task" advice).
     const accessor = await createSqliteDataAccessor(testDir);
     try {
       await accessor.setMetaValue('schema_version', '2.10.0');
-      await accessor.upsertSingleTask(makeTask({ id: 'T9999', type: 'epic', title: 'Empty Epic' }));
+      await accessor.upsertSingleTask({
+        ...makeTask({ id: 'T9999', type: 'epic', title: 'Empty Epic' }),
+        // Override default evidence with zero atoms.
+        verification: {
+          passed: false,
+          round: 1,
+          gates: {},
+          evidence: {},
+          lastAgent: null,
+          lastUpdated: new Date().toISOString(),
+          failureLog: [],
+        },
+      } as Task);
     } finally {
       await accessor.close();
     }
@@ -247,7 +263,7 @@ describe('releasePlan — error envelopes', () => {
     });
     expect(result.success).toBe(false);
     if (result.success) throw new Error('unreachable');
-    expect(result.error.code).toBe(E_EPIC_EMPTY);
+    expect(result.error.code).toBe('E_EPIC_EMPTY_LEAF_NO_EVIDENCE');
   });
 
   it('returns E_CHANNEL_MISMATCH on channel=latest + pre-release suffix in version', async () => {

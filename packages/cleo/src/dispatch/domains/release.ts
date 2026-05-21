@@ -260,9 +260,13 @@ export class ReleaseHandler implements DomainHandler {
         }
 
         // release.plan — SPEC-T9345 §4.2 (T9525): build canonical Release Plan envelope
+        // T9838: --saga and --no-changelog flags forwarded; epicId no longer
+        // required at the dispatch layer — the core verb validates that
+        // (epicId XOR sagaId) is set.
         case 'plan': {
           const version = typeof params?.version === 'string' ? params.version : undefined;
           const epicId = typeof params?.epicId === 'string' ? params.epicId : undefined;
+          const sagaId = typeof params?.sagaId === 'string' ? params.sagaId : undefined;
           if (!version) {
             return errorResult(
               'mutate',
@@ -273,19 +277,20 @@ export class ReleaseHandler implements DomainHandler {
               startTime,
             );
           }
-          if (!epicId) {
+          if (!epicId && !sagaId) {
             return errorResult(
               'mutate',
               'release',
               operation,
               'E_INVALID_INPUT',
-              'epicId is required',
+              '--saga or --epic is required',
               startTime,
             );
           }
           const typed: ReleasePlanOptions = {
             version,
-            epicId,
+            ...(epicId ? { epicId } : {}),
+            ...(sagaId ? { sagaId } : {}),
             scheme:
               typeof params?.scheme === 'string'
                 ? (params.scheme as ReleasePlanOptions['scheme'])
@@ -296,6 +301,8 @@ export class ReleaseHandler implements DomainHandler {
                 : undefined,
             hotfix: typeof params?.hotfix === 'boolean' ? params.hotfix : false,
             dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
+            writeChangelog:
+              typeof params?.writeChangelog === 'boolean' ? params.writeChangelog : true,
             projectRoot: getProjectRoot(),
           };
           return wrapResult(await releasePlan(typed), 'mutate', 'release', operation, startTime);
