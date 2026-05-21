@@ -24,13 +24,21 @@ import { getPackageRoot, stripCLEOBlocks } from './scaffold.js';
 import { resolveBridgeMode } from './system/bridge-mode.js';
 
 // ── Types ────────────────────────────────────────────────────────────
+//
+// ScaffoldResult is now sourced from `@cleocode/contracts/scaffold-diagnostics`
+// (SG-ARCH-SOLID T9831 · E-CONTRACTS-FOUNDATION T9832 Phase 0a). Re-exported
+// here to preserve the public surface of `@cleocode/core/injection`.
+//
+// InjectionCheckResult remains a locally-scoped distinct type — it is
+// structurally identical to CheckResult, but the `cleo doctor` consumer
+// addresses it by its narrower name. Consolidation with CheckResult is
+// deferred to a follow-up cleanup task.
 
-export interface ScaffoldResult {
-  action: 'created' | 'repaired' | 'skipped';
-  path: string;
-  details?: string;
-}
+import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 
+export type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
+
+/** Structural alias of {@link CheckResult} used by injection health checks. */
 export interface InjectionCheckResult {
   id: string;
   category: string;
