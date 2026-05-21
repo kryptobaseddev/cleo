@@ -31,17 +31,18 @@ import { checkGlobalSchemas as checkGlobalSchemasRaw } from '../../schema-manage
 // ============================================================================
 // Types
 // ============================================================================
+//
+// CheckStatus and CheckResult are now sourced from
+// `@cleocode/contracts/scaffold-diagnostics` (SG-ARCH-SOLID T9831 ·
+// E-CONTRACTS-FOUNDATION T9832 Phase 0a). Re-exported here to preserve
+// the public surface of `@cleocode/core/validation/doctor/checks`.
 
-export type CheckStatus = 'passed' | 'failed' | 'warning' | 'info';
+import type { CheckResult } from '@cleocode/contracts/scaffold-diagnostics';
 
-export interface CheckResult {
-  id: string;
-  category: string;
-  status: CheckStatus;
-  message: string;
-  details: Record<string, unknown>;
-  fix: string | null;
-}
+export type {
+  CheckResult,
+  CheckStatus,
+} from '@cleocode/contracts/scaffold-diagnostics';
 
 // ============================================================================
 // Check 1: CLI Installation

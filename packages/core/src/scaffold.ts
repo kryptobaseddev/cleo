@@ -37,35 +37,20 @@ import { saveJson } from './store/json.js';
 const execFileAsync = promisify(execFile);
 
 // ── Types ────────────────────────────────────────────────────────────
+//
+// ScaffoldResult, CheckStatus, and CheckResult are now sourced from
+// `@cleocode/contracts/scaffold-diagnostics` (SG-ARCH-SOLID T9831 ·
+// E-CONTRACTS-FOUNDATION T9832 Phase 0a). Re-exported here to preserve
+// the public surface of `@cleocode/core` — every consumer that imports
+// these names from `./scaffold.js` continues to work unchanged.
 
-/** Result of an ensure* scaffolding operation. */
-export interface ScaffoldResult {
-  /** What action was taken: created, repaired, or skipped. */
-  action: 'created' | 'repaired' | 'skipped';
-  /** Filesystem path that was operated on. */
-  path: string;
-  /** Human-readable explanation of the result. */
-  details?: string;
-}
+import type { CheckResult, ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 
-/** Status of a check* diagnostic. */
-export type CheckStatus = 'passed' | 'failed' | 'warning' | 'info';
-
-/** Result of a check* diagnostic (compatible with doctor/checks.ts CheckResult). */
-export interface CheckResult {
-  /** Unique check identifier (e.g. "cleo_structure", "sqlite_db"). */
-  id: string;
-  /** Category grouping (e.g. "scaffold", "global"). */
-  category: string;
-  /** Diagnostic outcome: passed, failed, warning, or info. */
-  status: CheckStatus;
-  /** Human-readable description of the check result. */
-  message: string;
-  /** Structured metadata about the check (paths, sizes, missing items). */
-  details: Record<string, unknown>;
-  /** Suggested CLI command to fix the issue, or null if passed. */
-  fix: string | null;
-}
+export type {
+  CheckResult,
+  CheckStatus,
+  ScaffoldResult,
+} from '@cleocode/contracts/scaffold-diagnostics';
 
 // ── Constants ────────────────────────────────────────────────────────
 

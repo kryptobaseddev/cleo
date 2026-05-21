@@ -73,6 +73,14 @@
     "./memory/*.js": {
       "types": "./dist/memory/*.d.ts",
       "import": "./dist/memory/*.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    },
+    "./*.js": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
     }
   },
   "scripts": {

@@ -14,20 +14,18 @@ import { join } from 'node:path';
 import { getPackageRoot } from './scaffold.js';
 
 // ── Types ────────────────────────────────────────────────────────────
+//
+// ScaffoldResult and HookCheckResult are now sourced from
+// `@cleocode/contracts/scaffold-diagnostics` (SG-ARCH-SOLID T9831 ·
+// E-CONTRACTS-FOUNDATION T9832 Phase 0a). Re-exported here to preserve
+// the public surface of `@cleocode/core/hooks`.
 
-export interface ScaffoldResult {
-  action: 'created' | 'repaired' | 'skipped';
-  path: string;
-  details?: string;
-}
+import type { HookCheckResult, ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 
-export interface HookCheckResult {
-  hook: string;
-  installed: boolean;
-  current: boolean;
-  sourcePath: string;
-  installedPath: string;
-}
+export type {
+  HookCheckResult,
+  ScaffoldResult,
+} from '@cleocode/contracts/scaffold-diagnostics';
 
 export interface EnsureGitHooksOptions {
   force?: boolean;
