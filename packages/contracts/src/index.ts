@@ -1121,6 +1121,8 @@ export type {
   ComplianceMetrics,
   ValidateArchiveStatsParams,
   ValidateArchiveStatsResult,
+  ValidateCanonDocsParams,
+  ValidateCanonDocsResult,
   ValidateCanonParams,
   ValidateCanonResult,
   ValidateChainParams,

@@ -233,6 +233,38 @@ jobs:
       - name: Reject cliOutput(formatError) / cliError(formatError) double-wraps
         run: node scripts/lint-format-error-misuse.mjs
 
+  deprecations-lint:
+    # T9795 / Saga T9787 — guard the deprecation registry. Asserts every
+    # entry in `.cleo/deprecations.yml` points at a real file that
+    # actually carries a TSDoc `@deprecated` tag, and that the YAML
+    # conforms to `.cleo/deprecations.schema.json`. Catches drift the
+    # moment a legacy file is deleted or renamed without the registry
+    # being updated.
+    name: Deprecations Registry Lint (T9795)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Validate .cleo/deprecations.yml against schema + path existence
+        run: pnpm run lint:deprecations
+
   pragma-drift:
     name: SQLite Pragma Drift Guard (T9025 / T9190)
     runs-on: ubuntu-latest
@@ -331,6 +363,51 @@ jobs:
         run: pnpm run build
       - name: Run canon drift gate
         run: node packages/cleo/dist/cli/index.js check canon
+
+  canon-check:
+    # T9796 — Docs canon-routing CI gate. Loads `.cleo/canon.yml` and rejects
+    # NEW *.md files (git diff --diff-filter=A vs the PR's base ref) that
+    # land inside a `rawMdPaths` directory whose owning DocKind has
+    # `rawMdAllowed: false`. Existing legacy files (migrated by T9791) are
+    # never flagged — the gate only fires on ADDITIONS. Saga T9787.
+    name: Canon Drift Check (T9796)
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Install ripgrep (required for T1605 callsite-coverage validator)
+        uses: ./.github/actions/install-ripgrep
+      - name: Build monorepo (cleo + all workspace deps)
+        run: pnpm run build
+      - name: Run docs canon gate
+        run: |
+          # On PRs, diff against the base branch — origin/${{ github.base_ref }}
+          # — so non-main PR targets (release branches, stacked PRs, etc.) work.
+          # On push events, fall back to origin/main.
+          base_ref="origin/${{ github.base_ref || 'main' }}"
+          echo "canon-check: diffing against $base_ref"
+          node packages/cleo/dist/cli/index.js check canon docs --base "$base_ref"
 
   docs-drift:
     # T9645: gate published docs SSoT vs the on-disk git files.
