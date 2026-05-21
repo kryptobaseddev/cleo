@@ -2168,7 +2168,9 @@ export const OPERATIONS: OperationDef[] = [
     description:
       'tasks.cancel (mutate) — cancel task (soft terminal state; reversible via tasks.restore)',
     tier: 1,
-    idempotent: false,
+    // T9838: re-cancel returns `alreadyCancelled: true` instead of failing,
+    // so the operation is idempotent at the registry level.
+    idempotent: true,
     sessionRequired: false,
     requiredParams: ['taskId'],
     params: [
@@ -2178,6 +2180,15 @@ export const OPERATIONS: OperationDef[] = [
         required: true,
         description: 'taskId parameter',
         cli: { positional: true },
+      },
+      {
+        // T9838: reason was implicitly accepted by the dispatch handler but
+        // missing from the registry schema, so dispatch tooling treated it
+        // as an unknown param.
+        name: 'reason',
+        type: 'string',
+        required: false,
+        description: 'Optional human-readable cancellation reason stored on the task',
       },
     ] satisfies ParamDef[],
   },

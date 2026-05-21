@@ -154,11 +154,40 @@ describe('cancelTask pipelineStage sync (T871)', () => {
     expect(updated[0].pipelineStage).toBe('cancelled');
   });
 
-  it('leaves already-terminal pipelineStage alone (idempotent)', () => {
+  it('forces pipelineStage to cancelled even when prior stage is contribution (T877 invariant fix)', () => {
+    // T9838: prior to this fix the carve-out left 'contribution' in place,
+    // tripping the T877 BEFORE-UPDATE trigger
+    // (`status=cancelled` MUST imply `pipeline_stage='cancelled'`).
     const tasks = [makeTask({ id: 'T001', status: 'pending', pipelineStage: 'contribution' })];
     const { tasks: updated } = cancelTask('T001', tasks);
     expect(updated[0].status).toBe('cancelled');
-    // contribution is a terminal marker; cancelTask must not overwrite it.
-    expect(updated[0].pipelineStage).toBe('contribution');
+    expect(updated[0].pipelineStage).toBe('cancelled');
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T9838 — idempotent re-cancel
+// ----------------------------------------------------------------------------
+
+describe('cancelTask idempotency (T9838)', () => {
+  it('re-cancelling a cancelled task returns success with alreadyCancelled', () => {
+    const existingCancelledAt = '2026-05-01T00:00:00.000Z';
+    const tasks = [
+      makeTask({
+        id: 'T001',
+        status: 'cancelled',
+        cancelledAt: existingCancelledAt,
+        cancellationReason: 'original reason',
+        pipelineStage: 'cancelled',
+      }),
+    ];
+    const { tasks: updated, result } = cancelTask('T001', tasks, 'ignored');
+    expect(result.success).toBe(true);
+    expect(result.alreadyCancelled).toBe(true);
+    expect(result.cancelledAt).toBe(existingCancelledAt);
+    expect(result.reason).toBe('original reason');
+    // Task state is unchanged (idempotent — no UPDATE issued).
+    expect(updated[0].cancelledAt).toBe(existingCancelledAt);
+    expect(updated[0].cancellationReason).toBe('original reason');
   });
 });

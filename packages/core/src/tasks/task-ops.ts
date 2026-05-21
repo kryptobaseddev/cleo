@@ -44,7 +44,6 @@ import {
   validateDependencies,
 } from './dependency-check.js';
 import { depsReady } from './deps-ready.js';
-import { isTerminalPipelineStage } from './pipeline-stage.js';
 import {
   discoverRelated,
   removeRelation as relatesRemoveRelation,
@@ -1035,12 +1034,22 @@ export async function coreTaskRestore(
  * @param taskId - The task ID to cancel
  * @param params - Optional cancel options
  * @param params.reason - Human-readable cancellation reason stored on the task
- * @returns Confirmation with cancelled flag and timestamp
+ * @returns Confirmation with cancelled flag and timestamp. When the task is
+ *          already cancelled, the response includes `alreadyCancelled: true`
+ *          and echoes the existing `cancelledAt` (idempotent — T9838).
  *
  * @remarks
  * Cancellation is a soft terminal state -- the task remains in the database and
  * can be restored via {@link coreTaskRestore}. Not all statuses are cancellable;
  * the `canCancel` guard determines eligibility.
+ *
+ * The T877 DB trigger enforces an invariant: when `status='cancelled'`, the
+ * `pipeline_stage` MUST equal `'cancelled'`. This function therefore always
+ * forces `pipelineStage='cancelled'` on a successful cancel, overriding any
+ * prior terminal value such as `'contribution'`. The previous T871 carve-out
+ * (skip overwrite when stage was already terminal) caused
+ * `T877_INVARIANT_VIOLATION` for tasks that had reached the `'contribution'`
+ * terminal stage before cancellation — see T9838 repro.
  *
  * @example
  * ```typescript
@@ -1049,21 +1058,43 @@ export async function coreTaskRestore(
  * ```
  *
  * @task T4529
+ * @task T9838 (T877 invariant fix + idempotent re-cancel)
  */
 export async function coreTaskCancel(
   projectRoot: string,
   taskId: string,
   params?: { reason?: string },
-): Promise<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }> {
+): Promise<{
+  task: string;
+  cancelled: boolean;
+  reason?: string;
+  cancelledAt: string;
+  alreadyCancelled?: boolean;
+}> {
   const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(taskId);
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
   }
 
+  // Idempotent: re-cancelling an already-cancelled task returns success with
+  // `alreadyCancelled: true` and echoes the existing cancelledAt. T9838.
+  if (task.status === 'cancelled') {
+    return {
+      task: taskId,
+      cancelled: true,
+      reason: task.cancellationReason ?? undefined,
+      cancelledAt: task.cancelledAt ?? task.updatedAt ?? new Date().toISOString(),
+      alreadyCancelled: true,
+    };
+  }
+
   const check = canCancel(task);
   if (!check.allowed) {
-    throw new Error(check.reason!);
+    // Reject with a sentinel that the dispatch layer (taskCancel in
+    // packages/core/src/tasks/task-ops.ts::taskCancel) maps to E_INVALID_STATE
+    // rather than the catch-all E_NOT_FOUND.
+    throw new Error(`E_INVALID_STATE: ${check.reason!}`);
   }
 
   const cancelledAt = new Date().toISOString();
@@ -1071,13 +1102,11 @@ export async function coreTaskCancel(
   task.cancelledAt = cancelledAt;
   task.cancellationReason = params?.reason ?? undefined;
   task.updatedAt = cancelledAt;
-  // T871: keep status and pipelineStage in lock-step. Cancelled tasks must
-  // leave the active RCASD-IVTR+C chain so Studio Pipeline routes them to
-  // the dedicated CANCELLED column instead of lingering in research/
-  // implementation/release.
-  if (!isTerminalPipelineStage(task.pipelineStage)) {
-    task.pipelineStage = 'cancelled';
-  }
+  // T877: DB invariant requires status='cancelled' ↔ pipeline_stage='cancelled'.
+  // ALWAYS force the stage to 'cancelled' on a successful cancel — the prior
+  // T871 carve-out (skip when already terminal) would leave 'contribution'
+  // in place and trip the BEFORE-UPDATE trigger. T9838 repro.
+  task.pipelineStage = 'cancelled';
   await accessor.upsertSingleTask(task);
 
   // Best-effort worktree cleanup when cancelling a task.
@@ -2841,14 +2870,31 @@ export async function taskCancel(
   taskId: string,
   reason?: string,
 ): Promise<
-  EngineResult<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }>
+  EngineResult<{
+    task: string;
+    cancelled: boolean;
+    reason?: string;
+    cancelledAt: string;
+    alreadyCancelled?: boolean;
+  }>
 > {
   try {
     const result = await coreTaskCancel(projectRoot, taskId, { reason });
     return engineSuccess(result);
   } catch (err: unknown) {
+    // T9838: distinguish "task missing" from "task exists but cannot be
+    // cancelled" from underlying engine/DB failures. Prior to this fix
+    // every error mapped to E_NOT_FOUND, including T877_INVARIANT_VIOLATION
+    // and E_CANNOT_CANCEL — masking real bugs as missing tasks.
     const e = err as { message?: string };
-    return engineError('E_NOT_FOUND', e?.message ?? 'Failed to cancel task');
+    const message = e?.message ?? 'Failed to cancel task';
+    if (message.startsWith('E_INVALID_STATE:')) {
+      return engineError('E_INVALID_STATE', message.replace(/^E_INVALID_STATE:\s*/, ''));
+    }
+    if (message.includes(' not found')) {
+      return engineError('E_NOT_FOUND', message);
+    }
+    return engineError('E_INTERNAL', message);
   }
 }
 
