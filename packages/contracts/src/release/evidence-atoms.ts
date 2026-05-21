@@ -28,7 +28,14 @@ import { z } from 'zod';
  * "pr:357"`. The number is restricted to positive integers because
  * GitHub PR numbers cannot be zero or negative.
  *
+ * T9838 introduced the optional explicit-form modifier
+ * `pr:<num>;state:MERGED`. The `state` modifier is intent-documenting
+ * (the resolver always demands state === 'MERGED') and is consumed at
+ * parse time without being emitted as a separate atom. See
+ * {@link prEvidenceStateModifierSchema}.
+ *
  * @task T9764
+ * @task T9838
  */
 export interface ParsedPrEvidenceAtom {
   /** Discriminant — always `'pr'`. */
@@ -50,6 +57,37 @@ export const parsedPrEvidenceAtomSchema = z.object({
   kind: z.literal('pr'),
   prNumber: z.number().int().positive(),
 }) satisfies z.ZodType<ParsedPrEvidenceAtom>;
+
+/**
+ * Zod schema for the optional `state:MERGED` modifier that may follow a
+ * `pr:<num>` atom in the evidence string (T9838).
+ *
+ * The modifier is intent-documenting: the resolver always demands
+ * `state === 'MERGED'`, so emitting `state:MERGED` explicitly is a
+ * no-op assertion that proves the caller knows the contract. Only the
+ * literal string `"MERGED"` is accepted — `OPEN`, `CLOSED`, or any other
+ * value is rejected at parse time because no other state can satisfy any
+ * gate the `pr:` atom is allowed to back.
+ *
+ * The parser consumes the modifier in-place (it does NOT emit a separate
+ * atom) so downstream code never sees a free-standing `state` atom. The
+ * schema exists so external producers (e.g. a future provenance importer)
+ * can validate the literal payload before passing it to `parseEvidence`.
+ *
+ * @task T9838
+ */
+export const prEvidenceStateModifierSchema = z.object({
+  kind: z.literal('state'),
+  value: z.literal('MERGED'),
+});
+
+/**
+ * Inferred type for the explicit `state:MERGED` modifier emitted alongside
+ * a `pr:<num>` atom. See {@link prEvidenceStateModifierSchema}.
+ *
+ * @task T9838
+ */
+export type PrEvidenceStateModifier = z.infer<typeof prEvidenceStateModifierSchema>;
 
 /**
  * Raw shape returned by `gh pr view <num> --json
