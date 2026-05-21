@@ -43,7 +43,7 @@ import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js
 export const addCommand = defineCommand({
   meta: {
     name: 'add',
-    description: 'Create a new task (requires active session)',
+    description: `Create a new task (requires active session)\nFor 2+ tasks at once: cleo add-batch --file tasks.json (single transaction, atomic rollback)`,
   },
   args: {
     title: {
