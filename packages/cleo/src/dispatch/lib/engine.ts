@@ -261,6 +261,7 @@ export {
   taskSyncLinks,
   taskSyncLinksRemove,
   taskSyncReconcile,
+  tasksAddBatchOp,
   taskTree,
   taskUnarchive,
   taskUnclaim,
