@@ -57,7 +57,10 @@ function makeEpic(id: string, title: string, origin?: string | null) {
     id,
     title,
     type: 'epic',
-    status: 'pending',
+    // Use 'active' so these epics don't appear in nextTasks (which only surfaces
+    // pending tasks). Using 'active' here ensures the origin-filter tests remain
+    // independent of the T9974 dedup-against-nextTasks logic.
+    status: 'active',
     priority: 'medium',
     description: null,
     origin: origin ?? null,
