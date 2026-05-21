@@ -277,6 +277,39 @@ export interface ValidateCanonResult {
   assertions: Array<{ passed: boolean }>;
 }
 
+/**
+ * Params for `check.canon.docs` — the T9796 docs-routing CI gate.
+ *
+ * `baseRef` defaults to `origin/main` and is overridden in CI to
+ * `origin/${{ github.base_ref }}` so PRs targeting any branch work.
+ * `candidateFiles` is a test seam — when supplied, bypasses `git diff`
+ * and treats the list as the candidate set.
+ *
+ * @task T9796 — E-DOCS-CANON-LOCKDOWN
+ */
+export interface ValidateCanonDocsParams {
+  baseRef?: string;
+  candidateFiles?: ReadonlyArray<string>;
+}
+
+/**
+ * Result envelope returned by `check.canon.docs`.
+ *
+ * @task T9796
+ */
+export interface ValidateCanonDocsResult {
+  passed: boolean;
+  baseRef: string;
+  scanned: number;
+  violations: ReadonlyArray<{
+    file: string;
+    kind: string;
+    matchedPath: string;
+    fix: string;
+  }>;
+  mode: 'enforced' | 'no-canon';
+}
+
 export interface ValidateWorkflowComplianceParams {
   since?: string;
 }
@@ -350,6 +383,7 @@ export type CheckOps = {
   readonly grade: readonly [ValidateGradeParams, ValidateGradeResult];
   readonly 'grade.list': readonly [ValidateGradeListParams, ValidateGradeListResult];
   readonly canon: readonly [ValidateCanonParams, ValidateCanonResult];
+  readonly 'canon.docs': readonly [ValidateCanonDocsParams, ValidateCanonDocsResult];
   readonly 'workflow.compliance': readonly [
     ValidateWorkflowComplianceParams,
     ValidateWorkflowComplianceResult,

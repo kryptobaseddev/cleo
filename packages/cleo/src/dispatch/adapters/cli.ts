@@ -55,6 +55,9 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
   E_MISSING_PARAMS: 2,
   E_NO_HANDLER: 1,
   E_INTERNAL: 1,
+  // T9796 — docs canon CI gate: violation = fail-build, invalid = tool-error.
+  E_CANON_VIOLATION: 1,
+  E_CANON_INVALID: 2,
 };
 
 // ---------------------------------------------------------------------------

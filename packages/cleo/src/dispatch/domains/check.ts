@@ -18,6 +18,7 @@
 import type {
   CheckOps,
   ValidateArchiveStatsParams,
+  ValidateCanonDocsParams,
   ValidateCanonParams,
   ValidateChainParams,
   ValidateCoherenceParams,
@@ -532,6 +533,40 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     return lafsSuccess(result, 'canon');
   },
 
+  'canon.docs': async (params: ValidateCanonDocsParams) => {
+    const projectRoot = getProjectRoot();
+    const { runCanonDocsCheck } = await import('./check/canon-docs.js');
+    try {
+      const result = runCanonDocsCheck({
+        projectRoot,
+        ...(params.baseRef !== undefined ? { baseRef: params.baseRef } : {}),
+        ...(params.candidateFiles !== undefined ? { candidateFiles: params.candidateFiles } : {}),
+      });
+      // Surface violations as an error envelope so the CLI exits non-zero
+      // — that's what makes `cleo check canon docs` a CI gate. The full
+      // structured `result` (including the violations array) is forwarded
+      // via `details` so tooling can grep / parse it on stdout.
+      if (!result.passed) {
+        const firstFix = result.violations[0]?.fix ?? 'cleo docs add ...';
+        const fileList = result.violations.map((v) => `${v.file} (kind=${v.kind})`).join(', ');
+        return lafsError(
+          'E_CANON_VIOLATION',
+          `Docs canon violation: ${result.violations.length} raw *.md addition(s) bypass the SSoT — ${fileList}`,
+          'canon.docs',
+          `Route through SSoT instead: ${firstFix}`,
+          { result: result as unknown as Record<string, unknown> },
+        );
+      }
+      return lafsSuccess(result, 'canon.docs');
+    } catch (err) {
+      return lafsError(
+        'E_CANON_INVALID',
+        err instanceof Error ? err.message : String(err),
+        'canon.docs',
+      );
+    }
+  },
+
   'workflow.compliance': async (params: ValidateWorkflowComplianceParams) => {
     const projectRoot = getProjectRoot();
     try {
@@ -676,6 +711,8 @@ export class CheckHandler implements DomainHandler {
       );
       // T1434: normalize the LAFS error shape (`code: string | number`)
       // to the DispatchError shape (`code: string`).
+      // T9796: preserve `fix` / `details` so the CI gate envelope can carry
+      // the structured violations alongside the human-readable message.
       return {
         meta: dispatchMeta('query', 'check', operation, startTime),
         success: envelope.success,
@@ -686,6 +723,10 @@ export class CheckHandler implements DomainHandler {
                 code:
                   envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
                 message: envelope.error?.message ?? 'Unknown error',
+                ...(envelope.error?.fix !== undefined ? { fix: envelope.error.fix } : {}),
+                ...(envelope.error?.details !== undefined
+                  ? { details: envelope.error.details as Record<string, unknown> }
+                  : {}),
               },
             }),
       };
@@ -751,6 +792,7 @@ export class CheckHandler implements DomainHandler {
         'grade.list',
         'chain.validate',
         'canon',
+        'canon.docs',
         'verify.explain',
       ],
       mutate: ['compliance.record', 'compliance.sync', 'test.run', 'gate.set'],

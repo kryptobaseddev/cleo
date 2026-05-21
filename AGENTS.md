@@ -36,6 +36,31 @@ These rules are NON-NEGOTIABLE. Every agent, subagent, and orchestrator MUST fol
 - **ALWAYS** update existing documentation — NEVER create new docs unless absolutely necessary
 - **ALWAYS** validate with `forge-ts` when available
 
+## Canonical Docs Routing (ADR-076 · T9796)
+
+Every canonical document type (ADR, spec, research, handoff, note,
+release-note, plan) MUST be created via `cleo docs add` — NOT a raw
+`Write` to `.cleo/adrs/`, `.cleo/agent-outputs/`, or `.cleo/research/`.
+
+The routing registry lives at `.cleo/canon.yml` (schema:
+`.cleo/canon.schema.json`). It declares for each DocKind:
+
+- `canonicalHome` — `ssot` (blob-store only) or `ssot-first` (dual-write
+  via a dedicated `cleo` verb such as `cleo changeset add`).
+- `publishMirror` — the human-reviewable copy written by `cleo docs publish`.
+- `rawMdAllowed` — when `false`, raw `.md` additions under any
+  `rawMdPaths` directory are blocked at PR-time by the CI gate.
+
+The CI gate is `cleo check canon docs` (job: `Canon Drift Check (T9796)`).
+It walks `git diff --diff-filter=A` between the PR base and `HEAD`,
+flagging any NEW `*.md` that bypasses the SSoT. Existing legacy files
+imported by T9791 are NEVER flagged — the gate is forward-only.
+
+If you genuinely need a doc-kind not yet listed:
+1. Add it to `packages/contracts/src/docs-taxonomy.ts` (`BUILTIN_DOC_KINDS`).
+2. Add a routing entry to `.cleo/canon.yml`.
+3. Re-run `pnpm --filter @cleocode/cleo run build` and the gate stays green.
+
 ## Quality Gates (MUST PASS BEFORE COMPLETING)
 
 Run these IN ORDER before marking any task complete:

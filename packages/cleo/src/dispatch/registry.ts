@@ -1369,6 +1369,26 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
+  // T9796: Docs canon-routing CI gate — block raw *.md writes that bypass SSoT
+  {
+    gateway: 'query',
+    domain: 'check',
+    operation: 'canon.docs',
+    description:
+      'check.canon.docs (query) — CI gate: rejects new *.md files that bypass the docs SSoT (.cleo/canon.yml routing). Scans git diff additions against rawMdPaths whose owning DocKind has rawMdAllowed:false.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'baseRef',
+        type: 'string',
+        required: false,
+        description: 'Git revision to diff against (default: origin/main)',
+      },
+    ],
+  },
   // T065: Agent workflow compliance telemetry
   {
     gateway: 'query',

@@ -357,6 +357,9 @@ export function lafsSuccess<T>(
  * @param _operation - Operation name (accepted for parity; not persisted on
  *   the CLI envelope variant — it is written by the gateway middleware).
  * @param fix - Optional copy-paste fix hint for the caller.
+ * @param details - Optional structured payload forwarded onto the envelope's
+ *   `error.details` field (e.g. for CI gates that need to surface a list of
+ *   per-file violations alongside the human-readable message — T9796).
  * @returns A `LafsError` envelope. Typed as `LafsEnvelope<never>` so it
  *   composes with any `LafsEnvelope<T>` return type.
  *
@@ -370,9 +373,11 @@ export function lafsError(
   message: string,
   _operation: string,
   fix?: string,
+  details?: Record<string, unknown>,
 ): LafsEnvelope<never> {
   const error: LafsError['error'] = { code, message };
   if (fix !== undefined) error.fix = fix;
+  if (details !== undefined) error.details = details;
   return {
     success: false,
     error,
