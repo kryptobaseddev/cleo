@@ -122,9 +122,17 @@ export const GATE_EVIDENCE_MINIMUMS: Record<VerificationGate, EvidenceAtom['kind
     // Decision-only tasks with no research file: a brain_decisions row + note
     // satisfies the implemented gate.
     ['decision', 'note'],
+    // pr atom (T9838) — a merged PR with a real mergeCommitSha IS the proof
+    // that the implementation landed on main. The resolver only succeeds
+    // when state === 'MERGED' and mergeCommitSha is non-null, so the merged
+    // PR's merge commit is the canonical landing commit. Eliminates the
+    // manual `commit:<sha>;files:...` backfill ritual that
+    // v5.91 - v5.93 ships were stuck in.
+    ['pr'],
   ],
   // pr atom (T9764) — a merged PR with all required-workflow checks green
   // satisfies BOTH testsPassed and qaPassed simultaneously.
+  // T9838 extends the same atom to satisfy `implemented` (see above).
   testsPassed: [['test-run'], ['tool'], ['pr']],
   qaPassed: [['tool'], ['pr']],
   documented: [['files'], ['url']],
@@ -383,12 +391,47 @@ export function parseEvidence(raw: string): ParsedEvidence {
         atoms.push({ kind: 'pr', prNumber });
         break;
       }
+      case 'state': {
+        // T9838: optional explicit-form modifier for the preceding pr: atom.
+        // Format: pr:<num>;state:MERGED  (only "MERGED" is currently meaningful).
+        // The resolver ALWAYS requires state === 'MERGED' regardless, so this
+        // modifier is intent-documenting — it asserts the caller knows the
+        // contract, and rejects nonsensical pairings early.
+        if (payload !== 'MERGED') {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `state atom only accepts "MERGED", got "${payload}" in "${chunk}"`,
+            {
+              fix: 'Use format: pr:<num>;state:MERGED (state is only meaningful paired with a pr: atom)',
+            },
+          );
+        }
+        // Must follow a pr: atom in the same evidence string. Locate the
+        // most recent pr: atom and tag it as explicitly-asserted-MERGED.
+        // Since the resolver already enforces state === 'MERGED', no extra
+        // runtime check is needed — we just validate the pairing here.
+        const lastPrIdx = atoms.length - 1;
+        const lastAtom = atoms[lastPrIdx];
+        if (!lastAtom || lastAtom.kind !== 'pr') {
+          throw new CleoError(
+            ExitCode.VALIDATION_ERROR,
+            `state:MERGED must immediately follow a pr:<num> atom in the same evidence string ` +
+              `(got "${chunk}" with no preceding pr: atom)`,
+            {
+              fix: 'Use format: --evidence "pr:357;state:MERGED" (state modifier requires a pr: predecessor)',
+            },
+          );
+        }
+        // Modifier consumed — no new atom emitted. The pr: atom already carries
+        // the prNumber; the merge-state assertion is handled by the resolver.
+        break;
+      }
       default:
         throw new CleoError(
           ExitCode.VALIDATION_ERROR,
           `Unknown evidence kind: "${kind}" in atom "${chunk}"`,
           {
-            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage, decision, pr',
+            fix: 'Valid kinds: commit, files, test-run, tool, url, note, loc-drop, callsite-coverage, decision, pr, state',
           },
         );
     }

@@ -563,7 +563,7 @@ describe('evaluateRollup', () => {
 // Gate evidence minimums
 // ---------------------------------------------------------------------------
 
-describe('checkGateEvidenceMinimum — pr atom satisfies testsPassed + qaPassed', () => {
+describe('checkGateEvidenceMinimum — pr atom satisfies testsPassed + qaPassed + implemented (T9838)', () => {
   const prAtom: EvidenceAtom = {
     kind: 'pr',
     prNumber: 357,
@@ -581,9 +581,146 @@ describe('checkGateEvidenceMinimum — pr atom satisfies testsPassed + qaPassed'
     expect(checkGateEvidenceMinimum('qaPassed', [prAtom])).toBeNull();
   });
 
-  it('does not auto-satisfy implemented gate (still needs commit+files)', () => {
-    const result = checkGateEvidenceMinimum('implemented', [prAtom]);
-    expect(result).not.toBeNull();
+  it('T9838: accepts pr atom for implemented gate (merged PR IS the landing commit)', () => {
+    // T9838: a merged PR with a real mergeCommitSha IS the proof that the
+    // implementation landed on main. Eliminates the manual
+    // `commit:<sha>;files:...` backfill ritual that v5.91-v5.93 ships
+    // were stuck in.
+    expect(checkGateEvidenceMinimum('implemented', [prAtom])).toBeNull();
+  });
+
+  it('T9838: pr atom satisfies all three release-time gates simultaneously', () => {
+    // The motivating use case: after merging a PR, one `pr:<num>` atom
+    // should cover implemented + testsPassed + qaPassed in a single
+    // verify invocation.
+    expect(checkGateEvidenceMinimum('implemented', [prAtom])).toBeNull();
+    expect(checkGateEvidenceMinimum('testsPassed', [prAtom])).toBeNull();
+    expect(checkGateEvidenceMinimum('qaPassed', [prAtom])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T9838 — explicit-form parsing (pr:<num>;state:MERGED)
+// ---------------------------------------------------------------------------
+
+describe('parseEvidence — explicit-form pr atom (T9838)', () => {
+  it('parses pr:<num>;state:MERGED as a single pr atom (state modifier consumed in-place)', () => {
+    const r = parseEvidence('pr:357;state:MERGED');
+    expect(r.atoms).toHaveLength(1);
+    expect(r.atoms[0]).toEqual({ kind: 'pr', prNumber: 357 });
+  });
+
+  it('treats bare pr:<num> equivalently to pr:<num>;state:MERGED (backward compat)', () => {
+    const bare = parseEvidence('pr:357');
+    const explicit = parseEvidence('pr:357;state:MERGED');
+    expect(explicit.atoms).toEqual(bare.atoms);
+  });
+
+  it('rejects state:OPEN (only MERGED is meaningful)', () => {
+    expect(() => parseEvidence('pr:357;state:OPEN')).toThrow(/only accepts "MERGED"/);
+  });
+
+  it('rejects state:CLOSED', () => {
+    expect(() => parseEvidence('pr:357;state:CLOSED')).toThrow(/only accepts "MERGED"/);
+  });
+
+  it('rejects free-standing state:MERGED with no preceding pr: atom', () => {
+    expect(() => parseEvidence('state:MERGED')).toThrow(/must immediately follow a pr:<num> atom/);
+  });
+
+  it('rejects state:MERGED preceded by a non-pr atom', () => {
+    expect(() => parseEvidence('commit:abc1234;state:MERGED')).toThrow(
+      /must immediately follow a pr:<num> atom/,
+    );
+  });
+
+  it('explicit form composes with other atoms', () => {
+    const r = parseEvidence('pr:357;state:MERGED;note:explicit form used');
+    expect(r.atoms).toHaveLength(2);
+    expect(r.atoms[0]).toEqual({ kind: 'pr', prNumber: 357 });
+    expect(r.atoms[1]).toEqual({ kind: 'note', note: 'explicit form used' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T9838 — resolver behavior on implemented gate
+// ---------------------------------------------------------------------------
+
+describe('resolvePrEvidenceAtom — implemented gate semantics (T9838)', () => {
+  it('happy path: merged PR with passing CI satisfies all three gates', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
+    const r = await resolvePrEvidenceAtom(357, projectRoot, {
+      fetchGhPrPayload: mockFetch,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+
+    // The resolver returned a valid atom — wire it through the gate engine.
+    const atom: EvidenceAtom = {
+      kind: 'pr',
+      prNumber: r.prNumber,
+      mergeCommitSha: r.mergeCommitSha,
+      mergedAt: r.mergedAt,
+      successCount: r.successCount,
+      totalChecks: r.totalChecks,
+    };
+    expect(checkGateEvidenceMinimum('implemented', [atom])).toBeNull();
+    expect(checkGateEvidenceMinimum('testsPassed', [atom])).toBeNull();
+    expect(checkGateEvidenceMinimum('qaPassed', [atom])).toBeNull();
+  });
+
+  it('non-merged (state=OPEN) PR yields no atom — gates remain unsatisfied', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      payload: makePrPayload({ state: 'OPEN', mergedAt: null }),
+    });
+    const r = await resolvePrEvidenceAtom(357, projectRoot, {
+      fetchGhPrPayload: mockFetch,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.codeName).toBe('E_EVIDENCE_INSUFFICIENT');
+    expect(r.reason).toMatch(/state.*OPEN/);
+
+    // With no successful atom the gate engine MUST refuse implemented as well.
+    expect(checkGateEvidenceMinimum('implemented', [])).not.toBeNull();
+  });
+
+  it('merged PR with required-CI failure preserves T9764 testsPassed/qaPassed rejection', async () => {
+    // Sanity: T9838 only EXTENDS the gate list — it must not weaken the
+    // existing T9764 CI-failure rejection on testsPassed/qaPassed.
+    const payload = makePrPayload({
+      statusCheckRollup: [
+        {
+          __typename: 'CheckRun',
+          name: 'Build & Verify (ubuntu-latest)',
+          workflowName: 'CI',
+          conclusion: 'SUCCESS',
+          status: 'COMPLETED',
+        },
+        {
+          __typename: 'CheckRun',
+          name: 'Verify pnpm-lock.yaml consistency',
+          workflowName: 'Lockfile Check',
+          conclusion: 'SUCCESS',
+          status: 'COMPLETED',
+        },
+        {
+          __typename: 'CheckRun',
+          name: 'Contracts Dep Lint',
+          workflowName: 'Contracts Dep Lint',
+          conclusion: 'FAILURE',
+          status: 'COMPLETED',
+        },
+      ],
+    });
+    fetchSpy.mockResolvedValue({ ok: true, payload });
+    const r = await resolvePrEvidenceAtom(357, projectRoot, {
+      fetchGhPrPayload: mockFetch,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
   });
 });
 
