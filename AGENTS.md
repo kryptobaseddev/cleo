@@ -92,6 +92,31 @@ If ANY gate fails, FIX IT before completing. Do NOT mark a task done with failin
 - Adding imports without checking if they break circular dependencies
 - Modifying test expectations to match broken code instead of fixing the code
 
+## Paths SSoT (T9802 / SG-WORKTREE-CANON)
+
+`packages/paths/` is the **ONLY** source of worktree and `.cleo` XDG path
+resolution per Council verdict D009. Three patterns are CI-gated by
+`scripts/lint-paths-ssot.mjs` (job `paths-ssot-lint`):
+
+| Anti-pattern | Replacement |
+|---|---|
+| `import envPaths from 'env-paths'` outside `packages/paths/` | `getCleoHome()` / `getCleoPlatformPaths()` from `@cleocode/paths` |
+| `process.env['XDG_DATA_HOME'] ?? join(...)` | `getCleoHome()` from `@cleocode/paths` |
+| Hand-rolled `'/cleo/worktrees'` string | `resolveWorktreeRootForHash()` / `getCleoWorktreesRoot()` from `@cleocode/paths` |
+
+Sentinel index path (D009 hybrid verdict): `resolveWorktreeIndexPath(projectRoot)`
+returns `<projectRoot>/.cleo/worktrees.json` — the canonical per-project worktree
+registry consumed by T9805 lifecycle hooks.
+
+**Phase 1 (T9802 PR, current):** lint baseline established at 17 existing violations
+(all `hand-rolled-xdg-read`, zero new). CI fails on net-add. Allowlisted legacy:
+`packages/paths/src/platform-paths.ts` (SSoT itself) and
+`packages/cleo-os/src/postinstall.ts` (bootstrap, runs before `@cleocode/paths` installs).
+
+**Phase 2 (follow-up):** sweep all 17 baseline violations to zero across
+`packages/cleo-os`, `packages/core`, `packages/adapters`, `packages/cant`, and
+`packages/cleo`. Track as a follow-up child of T9802.
+
 ## Package-Boundary Check (MANDATORY)
 
 Before creating or relocating ANY source file, verify the correct package by the
