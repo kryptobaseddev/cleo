@@ -21,12 +21,20 @@ import type {
   SessionEndParams,
   SessionGcParams,
   SessionHandoffShowParams,
+  SessionLintParams,
+  SessionLintResult,
   SessionResumeParams,
   SessionShowParams,
   SessionStartParams,
   SessionSuspendParams,
 } from '@cleocode/contracts';
-import { getDb, getLogger, getProjectRoot, sessions } from '@cleocode/core/internal';
+import {
+  getDb,
+  getLogger,
+  getProjectRoot,
+  lintSessionForCanonViolations,
+  sessions,
+} from '@cleocode/core/internal';
 import { eq } from 'drizzle-orm';
 import {
   defineTypedHandler,
@@ -135,6 +143,58 @@ async function sessionRecordAssumptionOp(params: Parameters<typeof sessionRecord
   return sessionRecordAssumption(getProjectRoot(), params);
 }
 
+/**
+ * Session lint op — agent-accountability harness (T9797).
+ *
+ * Delegates to the SDK-level `lintSessionForCanonViolations` and wraps the
+ * result in the `EngineResult` shape the dispatch layer expects. Validates
+ * that `transcript` was supplied because the engine signature requires an
+ * absolute path.
+ */
+async function sessionLintOp(params: SessionLintParams) {
+  if (!params.transcript) {
+    return {
+      success: false as const,
+      error: { code: 'E_INVALID_INPUT', message: 'transcript is required' },
+    };
+  }
+  try {
+    const result = lintSessionForCanonViolations({
+      transcriptPath: params.transcript,
+      projectRoot: getProjectRoot(),
+    });
+    const wireResult: SessionLintResult = {
+      transcriptPath: result.transcriptPath,
+      sessionId: result.sessionId,
+      passed: result.passed,
+      scanned: result.scanned,
+      // Clone to drop readonly modifiers for the wire shape.
+      violations: result.violations.map((v) => ({
+        sessionId: v.sessionId,
+        toolUseId: v.toolUseId,
+        tool: v.tool,
+        path: v.path,
+        docKind: v.docKind,
+        matchedPath: v.matchedPath,
+        kind: v.kind,
+        evidence: v.evidence,
+        fix: v.fix,
+      })),
+      warnings: [...result.warnings],
+      mode: result.mode,
+    };
+    return { success: true as const, data: wireResult };
+  } catch (err) {
+    return {
+      success: false as const,
+      error: {
+        code: 'E_CANON_INVALID',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
 const coreOps = {
   status: sessionStatusOp,
   list: sessionListOp,
@@ -151,6 +211,7 @@ const coreOps = {
   gc: sessionGcOp,
   'record.decision': sessionRecordDecisionOp,
   'record.assumption': sessionRecordAssumptionOp,
+  lint: sessionLintOp,
 } as const;
 
 type SessionOps = OpsFromCore<typeof coreOps>;
@@ -409,6 +470,24 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     }
     return wrapCoreResult(result, 'record.assumption');
   },
+
+  // T9797 — agent-accountability harness. Returns a LAFS envelope whose
+  // `data` is a SessionLintResult; `error` is set on E_INVALID_INPUT
+  // (missing transcript) or E_CANON_INVALID (malformed canon.yml).
+  lint: async (params: SessionOps['lint'][0]) => {
+    const result = await coreOps.lint(params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'lint',
+      );
+    }
+    if (!result.data) {
+      return lafsError('E_INTERNAL', 'session.lint returned no data', 'lint');
+    }
+    return lafsSuccess(result.data, 'lint');
+  },
 });
 
 // ---------------------------------------------------------------------------
@@ -424,6 +503,7 @@ const QUERY_OPS = new Set<string>([
   'context.drift',
   'handoff.show',
   'briefing.show',
+  'lint',
 ]);
 
 const MUTATE_OPS = new Set<string>([

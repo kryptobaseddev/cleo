@@ -1649,6 +1649,17 @@ export {
   VALID_LIFECYCLE_STAGE_STATUSES,
   VALID_MANIFEST_STATUSES,
 } from './security/input-sanitization.js';
+// Session — canon-lint agent-accountability harness (T9797)
+export {
+  type CanonKindEntry as CanonLintKindEntry,
+  type CanonLintResult,
+  type CanonLintViolation,
+  type CanonLintViolationKind,
+  type CanonRegistry as CanonLintRegistry,
+  type LintSessionParams,
+  lintSessionForCanonViolations,
+  loadCanonRegistry as loadCanonRegistryForLint,
+} from './session/canon-lint.js';
 // Session engine ops — EngineResult-wrapped session functions (ENG-MIG-6 / T1573)
 export {
   sessionArchive,
