@@ -55,6 +55,7 @@ const TIER_0_QUICKSTART = [
   'query tasks.current \u2014 check active task (~100 tokens)',
   'query tasks.next \u2014 get suggestion (~300 tokens)',
   'query tasks.find {query} \u2014 search tasks (~200 tokens)',
+  'mutate tasks.add-batch {tasks:[...]} \u2014 bulk-create N tasks atomically (epic decomposition: 1 call instead of N) (~300 tokens)',
   'mutate tasks.start {taskId} \u2014 begin work (~100 tokens)',
   'mutate tasks.complete {taskId} \u2014 finish task (~200 tokens)',
 ];
