@@ -421,149 +421,95 @@ describe("skills commands - additional coverage", () => {
   // INSTALL COMMAND - uncovered lines 350-556
   // ==========================================
   describe("skills install - additional coverage", () => {
+    const marketplaceSkillHit = {
+      name: "demo",
+      author: "alice",
+      repoFullName: "alice/demo",
+      githubUrl: "https://github.com/alice/demo",
+      path: "skills/demo/SKILL.md",
+    };
+    const catalogPkgGetSkill = {
+      name: "ct-test",
+      version: "1.0.0",
+      category: "test",
+      core: false,
+      description: "test",
+    };
+
     it("format conflict exits when both --json and --human passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "some-source", "--all", "--json", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await expectFormatConflict(registerSkillsInstall, ["install", "some-source", "--all"]);
     });
 
     it("handles install failure (success=false) in JSON mode", async () => {
       mocks.parseSource.mockReturnValue({ type: "local", inferredName: "demo", value: "/tmp/demo" });
-      mocks.installSkill.mockResolvedValue({
-        success: false,
-        canonicalPath: "",
-        linkedAgents: [],
-        errors: ["cannot link", "permission denied"],
-      });
+      mocks.installSkill.mockResolvedValue(fixtures.installFailure());
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsInstall,
+        ["install", "/tmp/demo", "--all", "--json"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "/tmp/demo", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = JSON.parse(String(errorSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStderr() as { result: { count: { failed: number } } };
       expect(output.result.count.failed).toBe(1);
-      expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
     it("handles install failure (success=false) in human mode", async () => {
       mocks.parseSource.mockReturnValue({ type: "local", inferredName: "demo", value: "/tmp/demo" });
-      mocks.installSkill.mockResolvedValue({
-        success: false,
-        canonicalPath: "",
-        linkedAgents: [],
-        errors: ["cannot link", "permission denied"],
-      });
+      mocks.installSkill.mockResolvedValue(fixtures.installFailure());
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsInstall,
+        ["install", "/tmp/demo", "--all", "--human"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "/tmp/demo", "--all", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Failed to install");
       expect(output).toContain("cannot link");
-      expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
     it("handles missing localPath after source resolution", async () => {
-      // Simulate a scenario where parseSource returns a type that doesn't result in a localPath
       mocks.parseSource.mockReturnValue({ type: "url", inferredName: "demo", value: "http://example.com" });
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "http://example.com", "--all"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "http://example.com", "--all"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles GitHub clone failure in JSON mode", async () => {
       mocks.parseSource.mockReturnValue({ type: "github", owner: "org", repo: "skill", ref: "main", inferredName: "skill", value: "org/skill" });
       mocks.cloneRepo.mockRejectedValue(new Error("network timeout"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "org/skill", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "org/skill", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles GitLab clone failure in JSON mode", async () => {
       mocks.parseSource.mockReturnValue({ type: "gitlab", owner: "group", repo: "skill", ref: "main", inferredName: "skill", value: "gitlab.com/group/skill" });
       mocks.cloneGitLabRepo.mockRejectedValue(new Error("network timeout"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "gitlab.com/group/skill", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "gitlab.com/group/skill", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles catalog not available for package type in JSON mode", async () => {
       mocks.parseSource.mockReturnValue({ type: "package", inferredName: "ct-test", value: "ct-test" });
       mocks.isCatalogAvailable.mockReturnValue(false);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "ct-test", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "ct-test", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles skill not found in catalog in JSON mode", async () => {
@@ -572,60 +518,38 @@ describe("skills commands - additional coverage", () => {
       mocks.getSkill.mockReturnValue(undefined);
       mocks.listSkills.mockReturnValue(["ct-a", "ct-b"]);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "ct-missing", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "ct-missing", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("installs successfully in JSON mode", async () => {
       mocks.parseSource.mockReturnValue({ type: "local", inferredName: "demo", value: "/tmp/demo" });
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/demo",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess());
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
+      const inv = await runCli(registerSkillsInstall, ["install", "/tmp/demo", "--all", "--json"]);
 
-      await program.parseAsync(["node", "test", "install", "/tmp/demo", "--all", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as {
+        $schema: string;
+        result: { count: { installed: number } };
+      };
       expect(output.$schema).toBe("https://lafs.dev/schemas/v1/envelope.schema.json");
       expect(output.result.count.installed).toBe(1);
     });
 
     it("installs successfully in human mode with warnings", async () => {
       mocks.parseSource.mockReturnValue({ type: "local", inferredName: "demo", value: "/tmp/demo" });
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/demo",
-        linkedAgents: ["claude-code"],
-        errors: ["symlink fallback used"],
-      });
+      mocks.installSkill.mockResolvedValue(
+        fixtures.installSuccess({ errors: ["symlink fallback used"] }),
+      );
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
+      const inv = await runCli(registerSkillsInstall, ["install", "/tmp/demo", "--all", "--human"]);
 
-      await program.parseAsync(["node", "test", "install", "/tmp/demo", "--all", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Installed");
       expect(output).toContain("Warnings");
       expect(output).toContain("symlink fallback used");
@@ -634,20 +558,11 @@ describe("skills commands - additional coverage", () => {
     it("uses default provider resolution (no --all or --agent) to install", async () => {
       mocks.getInstalledProviders.mockReturnValue([mockProvider]);
       mocks.parseSource.mockReturnValue({ type: "local", inferredName: "demo", value: "/tmp/demo" });
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/demo",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess());
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
-
       // No --all, no --agent flags -> uses default getInstalledProviders
-      await program.parseAsync(["node", "test", "install", "/tmp/demo"]);
+      await runCli(registerSkillsInstall, ["install", "/tmp/demo"]);
 
       expect(mocks.getInstalledProviders).toHaveBeenCalled();
       expect(mocks.installSkill).toHaveBeenCalled();
@@ -656,160 +571,86 @@ describe("skills commands - additional coverage", () => {
     it("uses --agent flag to filter providers", async () => {
       mocks.getProvider.mockReturnValue(mockProvider);
       mocks.parseSource.mockReturnValue({ type: "local", inferredName: "demo", value: "/tmp/demo" });
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/demo",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess());
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await program.parseAsync(["node", "test", "install", "/tmp/demo", "--agent", "claude-code"]);
+      await runCli(registerSkillsInstall, ["install", "/tmp/demo", "--agent", "claude-code"]);
 
       expect(mocks.getProvider).toHaveBeenCalledWith("claude-code");
       expect(mocks.installSkill).toHaveBeenCalled();
     });
 
     it("handles missing source and no profile with JSON error", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles marketplace source lookup failure in JSON mode", async () => {
       mocks.isMarketplaceScoped.mockReturnValue(true);
       mocks.marketplaceGetSkill.mockRejectedValue(new Error("network down"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "@alice/skill", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "@alice/skill", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles marketplace skill not found in JSON mode", async () => {
       mocks.isMarketplaceScoped.mockReturnValue(true);
       mocks.marketplaceGetSkill.mockResolvedValue(null);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "@alice/nonexistent", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "@alice/nonexistent", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles marketplace source that resolves to non-GitHub in JSON mode", async () => {
       mocks.isMarketplaceScoped.mockReturnValue(true);
       mocks.marketplaceGetSkill.mockResolvedValue({
-        name: "demo",
-        author: "alice",
-        repoFullName: "alice/demo",
+        ...marketplaceSkillHit,
         githubUrl: "https://example.com/alice/demo",
-        path: "skills/demo/SKILL.md",
       });
       mocks.parseSource.mockReturnValue({ type: "local", value: "https://example.com/alice/demo" });
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "@alice/demo", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "@alice/demo", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles marketplace clone failure in JSON mode", async () => {
       mocks.isMarketplaceScoped.mockReturnValue(true);
-      mocks.marketplaceGetSkill.mockResolvedValue({
-        name: "demo",
-        author: "alice",
-        repoFullName: "alice/demo",
-        githubUrl: "https://github.com/alice/demo",
-        path: "skills/demo/SKILL.md",
-      });
+      mocks.marketplaceGetSkill.mockResolvedValue(marketplaceSkillHit);
       mocks.parseSource.mockReturnValue({ type: "github", owner: "alice", repo: "demo", ref: "main" });
       mocks.buildSkillSubPathCandidates.mockReturnValue(["skills/demo"]);
       mocks.cloneRepo.mockRejectedValue(new Error("clone failed"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "@alice/demo", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "@alice/demo", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles marketplace install in human mode with found message", async () => {
       mocks.isMarketplaceScoped.mockReturnValue(true);
-      mocks.marketplaceGetSkill.mockResolvedValue({
-        name: "demo",
-        author: "alice",
-        repoFullName: "alice/demo",
-        githubUrl: "https://github.com/alice/demo",
-        path: "skills/demo/SKILL.md",
-      });
+      mocks.marketplaceGetSkill.mockResolvedValue(marketplaceSkillHit);
       mocks.parseSource.mockReturnValue({ type: "github", owner: "alice", repo: "demo", ref: "main" });
       mocks.buildSkillSubPathCandidates.mockReturnValue([undefined]);
-      mocks.cloneRepo.mockResolvedValue({ localPath: "/tmp/repo", cleanup: async () => {} });
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/demo",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.cloneRepo.mockResolvedValue(fixtures.clonedRepo({ localPath: "/tmp/repo" }));
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess());
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
+      const inv = await runCli(registerSkillsInstall, ["install", "@alice/demo", "--all", "--human"]);
 
-      await program.parseAsync(["node", "test", "install", "@alice/demo", "--all", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Searching marketplace");
       expect(output).toContain("Found:");
       expect(output).toContain("Installed");
@@ -819,21 +660,15 @@ describe("skills commands - additional coverage", () => {
       mocks.isCatalogAvailable.mockReturnValue(true);
       mocks.resolveProfile.mockReturnValue(["skill-a", "skill-b"]);
       mocks.getSkillDir.mockImplementation((name: string) => `/tmp/${name}`);
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess({ canonicalPath: "/tmp/canonical" }));
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
+      const inv = await runCli(
+        registerSkillsInstall,
+        ["install", "--profile", "core", "--all", "--human"],
+      );
 
-      await program.parseAsync(["node", "test", "install", "--profile", "core", "--all", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Installing profile");
       expect(output).toContain("2 installed");
     });
@@ -843,33 +678,17 @@ describe("skills commands - additional coverage", () => {
       mocks.resolveProfile.mockReturnValue(["good-skill", "bad-skill"]);
       mocks.getSkillDir.mockImplementation((name: string) => `/tmp/${name}`);
       mocks.installSkill
-        .mockResolvedValueOnce({
-          success: true,
-          canonicalPath: "/tmp/canonical",
-          linkedAgents: ["claude-code"],
-          errors: [],
-        })
-        .mockResolvedValueOnce({
-          success: false,
-          canonicalPath: "",
-          linkedAgents: [],
-          errors: ["link failed"],
-        });
+        .mockResolvedValueOnce(fixtures.installSuccess({ canonicalPath: "/tmp/canonical" }))
+        .mockResolvedValueOnce(fixtures.installFailure(["link failed"]));
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsInstall,
+        ["install", "--profile", "core", "--all", "--human"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "--profile", "core", "--all", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("1 installed");
       expect(output).toContain("1 failed");
     });
@@ -878,21 +697,18 @@ describe("skills commands - additional coverage", () => {
       mocks.isCatalogAvailable.mockReturnValue(true);
       mocks.resolveProfile.mockReturnValue(["skill-a"]);
       mocks.getSkillDir.mockReturnValue("/tmp/skill-a");
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess({ canonicalPath: "/tmp/canonical" }));
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
+      const inv = await runCli(
+        registerSkillsInstall,
+        ["install", "--profile", "core", "--all", "--json"],
+      );
 
-      await program.parseAsync(["node", "test", "install", "--profile", "core", "--all", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as {
+        $schema: string;
+        result: { count: { installed: number } };
+      };
       expect(output.$schema).toBe("https://lafs.dev/schemas/v1/envelope.schema.json");
       expect(output.result.count.installed).toBe(1);
     });
@@ -900,19 +716,11 @@ describe("skills commands - additional coverage", () => {
     it("handles profile catalog not available in human mode", async () => {
       mocks.isCatalogAvailable.mockReturnValue(false);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "--profile", "core", "--all", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "--profile", "core", "--all", "--human"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles profile not found in human mode", async () => {
@@ -920,67 +728,39 @@ describe("skills commands - additional coverage", () => {
       mocks.resolveProfile.mockReturnValue([]);
       mocks.listProfiles.mockReturnValue(["minimal", "core", "full"]);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsInstall,
+        ["install", "--profile", "unknown", "--all", "--human"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "--profile", "unknown", "--all", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Available profiles");
     });
 
     it("handles no providers in human mode", async () => {
       mocks.getInstalledProviders.mockReturnValue([]);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "/tmp/demo", "--all", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "/tmp/demo", "--all", "--human"],
+        { expectExit: 1 },
+      );
     });
 
     it("installs from catalog package type in human mode", async () => {
       mocks.parseSource.mockReturnValue({ type: "package", inferredName: "ct-test", value: "ct-test" });
       mocks.isCatalogAvailable.mockReturnValue(true);
-      mocks.getSkill.mockReturnValue({
-        name: "ct-test",
-        version: "1.0.0",
-        category: "test",
-        core: false,
-        description: "test",
-      });
+      mocks.getSkill.mockReturnValue(catalogPkgGetSkill);
       mocks.getSkillDir.mockReturnValue("/tmp/ct-test");
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/ct-test",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.installSkill.mockResolvedValue(
+        fixtures.installSuccess({ canonicalPath: "/tmp/canonical/ct-test" }),
+      );
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
+      const inv = await runCli(registerSkillsInstall, ["install", "ct-test", "--all", "--human"]);
 
-      await program.parseAsync(["node", "test", "install", "ct-test", "--all", "--human"]);
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Found in catalog");
       expect(output).toContain("Installed");
     });
@@ -988,54 +768,32 @@ describe("skills commands - additional coverage", () => {
     it("cleanup is called on successful install from github", async () => {
       const cleanupFn = vi.fn();
       mocks.parseSource.mockReturnValue({ type: "github", owner: "org", repo: "skill", ref: "main", inferredName: "skill", value: "org/skill" });
-      mocks.cloneRepo.mockResolvedValue({ localPath: "/tmp/repo", cleanup: cleanupFn });
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/skill",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.cloneRepo.mockResolvedValue(fixtures.clonedRepo({ localPath: "/tmp/repo", cleanup: cleanupFn }));
+      mocks.installSkill.mockResolvedValue(
+        fixtures.installSuccess({ canonicalPath: "/tmp/canonical/skill" }),
+      );
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await program.parseAsync(["node", "test", "install", "org/skill", "--all"]);
+      await runCli(registerSkillsInstall, ["install", "org/skill", "--all"]);
 
       expect(cleanupFn).toHaveBeenCalled();
     });
 
     it("handles marketplace subpath candidates with existsSync false for first candidate", async () => {
       mocks.isMarketplaceScoped.mockReturnValue(true);
-      mocks.marketplaceGetSkill.mockResolvedValue({
-        name: "demo",
-        author: "alice",
-        repoFullName: "alice/demo",
-        githubUrl: "https://github.com/alice/demo",
-        path: "skills/demo/SKILL.md",
-      });
+      mocks.marketplaceGetSkill.mockResolvedValue(marketplaceSkillHit);
       mocks.parseSource.mockReturnValue({ type: "github", owner: "alice", repo: "demo", ref: "main", path: ".claude/skills/demo" });
       mocks.buildSkillSubPathCandidates.mockReturnValue(["skills/demo", ".claude/skills/demo"]);
       mocks.cloneRepo
-        .mockResolvedValueOnce({ localPath: "/tmp/repo/skills/demo", cleanup: vi.fn() })
-        .mockResolvedValueOnce({ localPath: "/tmp/repo/.claude/skills/demo", cleanup: async () => {} });
+        .mockResolvedValueOnce(fixtures.clonedRepo({ localPath: "/tmp/repo/skills/demo", cleanup: vi.fn() }))
+        .mockResolvedValueOnce(fixtures.clonedRepo({ localPath: "/tmp/repo/.claude/skills/demo" }));
       mocks.existsSync
-        .mockReturnValueOnce(false)  // first subpath doesn't exist
-        .mockReturnValueOnce(true);  // second subpath exists
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/demo",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+        .mockReturnValueOnce(false) // first subpath doesn't exist
+        .mockReturnValueOnce(true); // second subpath exists
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess());
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await program.parseAsync(["node", "test", "install", "@alice/demo", "--all"]);
+      await runCli(registerSkillsInstall, ["install", "@alice/demo", "--all"]);
 
       expect(mocks.cloneRepo).toHaveBeenCalledTimes(2);
       expect(mocks.installSkill).toHaveBeenCalled();
@@ -1043,75 +801,38 @@ describe("skills commands - additional coverage", () => {
 
     it("handles marketplace where all subpath candidates fail to clone", async () => {
       mocks.isMarketplaceScoped.mockReturnValue(true);
-      mocks.marketplaceGetSkill.mockResolvedValue({
-        name: "demo",
-        author: "alice",
-        repoFullName: "alice/demo",
-        githubUrl: "https://github.com/alice/demo",
-        path: "skills/demo/SKILL.md",
-      });
+      mocks.marketplaceGetSkill.mockResolvedValue(marketplaceSkillHit);
       mocks.parseSource.mockReturnValue({ type: "github", owner: "alice", repo: "demo", ref: "main" });
       mocks.buildSkillSubPathCandidates.mockReturnValue(["skills/demo"]);
       mocks.cloneRepo.mockRejectedValue(new Error("clone failed"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "@alice/demo", "--all"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "@alice/demo", "--all"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles marketplace where no subpath candidates succeed (empty list)", async () => {
       mocks.isMarketplaceScoped.mockReturnValue(true);
-      mocks.marketplaceGetSkill.mockResolvedValue({
-        name: "demo",
-        author: "alice",
-        repoFullName: "alice/demo",
-        githubUrl: "https://github.com/alice/demo",
-        path: "skills/demo/SKILL.md",
-      });
+      mocks.marketplaceGetSkill.mockResolvedValue(marketplaceSkillHit);
       mocks.parseSource.mockReturnValue({ type: "github", owner: "alice", repo: "demo", ref: "main" });
       mocks.buildSkillSubPathCandidates.mockReturnValue([]);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "@alice/demo", "--all"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "@alice/demo", "--all"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles local source discovery returning null", async () => {
       mocks.parseSource.mockReturnValue({ type: "local", inferredName: "demo", value: "/tmp/demo" });
       mocks.discoverSkill.mockResolvedValue(null);
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/demo",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.installSkill.mockResolvedValue(fixtures.installSuccess());
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await program.parseAsync(["node", "test", "install", "/tmp/demo", "--all"]);
+      await runCli(registerSkillsInstall, ["install", "/tmp/demo", "--all"]);
 
       expect(mocks.installSkill).toHaveBeenCalled();
     });
@@ -1119,26 +840,14 @@ describe("skills commands - additional coverage", () => {
     it("sets isGlobal to true for library/package sourceType", async () => {
       mocks.parseSource.mockReturnValue({ type: "package", inferredName: "ct-test", value: "ct-test" });
       mocks.isCatalogAvailable.mockReturnValue(true);
-      mocks.getSkill.mockReturnValue({
-        name: "ct-test",
-        version: "1.0.0",
-        category: "test",
-        core: false,
-        description: "test",
-      });
+      mocks.getSkill.mockReturnValue(catalogPkgGetSkill);
       mocks.getSkillDir.mockReturnValue("/tmp/ct-test");
-      mocks.installSkill.mockResolvedValue({
-        success: true,
-        canonicalPath: "/tmp/canonical/ct-test",
-        linkedAgents: ["claude-code"],
-        errors: [],
-      });
+      mocks.installSkill.mockResolvedValue(
+        fixtures.installSuccess({ canonicalPath: "/tmp/canonical/ct-test" }),
+      );
       mocks.recordSkillInstall.mockResolvedValue(undefined);
 
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await program.parseAsync(["node", "test", "install", "ct-test", "--all"]);
+      await runCli(registerSkillsInstall, ["install", "ct-test", "--all"]);
 
       // recordSkillInstall should be called with isGlobal = true for library type
       expect(mocks.recordSkillInstall).toHaveBeenCalledWith(
@@ -1154,39 +863,14 @@ describe("skills commands - additional coverage", () => {
 
     it("handles no localPath resolved (defensive check at line 244-251)", async () => {
       // Create a scenario where handleMarketplaceSource returns success:true but no localPath
-      mocks.isMarketplaceScoped.mockReturnValue(true);
-      mocks.marketplaceGetSkill.mockResolvedValue({
-        name: "demo",
-        author: "alice",
-        repoFullName: "alice/demo",
-        githubUrl: "https://github.com/alice/demo",
-        path: "skills/demo/SKILL.md",
-      });
-      mocks.parseSource.mockReturnValue({ type: "github", owner: "alice", repo: "demo", ref: "main" });
-      mocks.buildSkillSubPathCandidates.mockReturnValue(["skills/demo"]);
-      // cloneRepo resolves but localPath won't be set because existsSync returns false for the cloned path
-      // and the SKILL.md discovery finds nothing
-      mocks.cloneRepo.mockResolvedValue({ localPath: "/tmp/repo/skills/demo", cleanup: async () => {} });
-      // existsSync returns false for join(localPath, 'SKILL.md') inside handleMarketplaceSource
-      // This makes the function return success:true but localPath as the base path
-      // However, for the !localPath branch, we need localPath to remain undefined
-      // Let's use a different approach - mock parseSource to return an unrecognized type
       mocks.isMarketplaceScoped.mockReturnValue(false);
       mocks.parseSource.mockReturnValue({ type: "wellknown", inferredName: "demo", value: "/.well-known/demo" });
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "/.well-known/demo", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "/.well-known/demo", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles profile install with thrown error in human mode", async () => {
@@ -1195,19 +879,13 @@ describe("skills commands - additional coverage", () => {
       mocks.getSkillDir.mockReturnValue("/tmp/throw-skill");
       mocks.installSkill.mockRejectedValue(new Error("unexpected install error"));
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsInstall,
+        ["install", "--profile", "core", "--all", "--human"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "--profile", "core", "--all", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("throw-skill");
       expect(output).toContain("unexpected install error");
     });
@@ -1218,36 +896,21 @@ describe("skills commands - additional coverage", () => {
       mocks.getSkillDir.mockReturnValue("/tmp/throw-skill");
       mocks.installSkill.mockRejectedValue(new Error("unexpected install error"));
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "--profile", "core", "--all", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await runCli(
+        registerSkillsInstall,
+        ["install", "--profile", "core", "--all", "--json"],
+        { expectExit: 1 },
+      );
     });
 
     it("handles missing source in human mode", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsInstall,
+        ["install", "--all", "--human"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsInstall(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "install", "--all", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = logSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("Usage:");
     });
   });
