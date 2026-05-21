@@ -2126,6 +2126,37 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tasks',
+    operation: 'add-batch',
+    description:
+      'tasks.add-batch (mutate) — bulk-create N tasks atomically in a single transaction (epic decomposition: 1 call instead of N)',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['tasks'],
+    params: [
+      {
+        name: 'tasks',
+        type: 'array',
+        required: true,
+        description: 'Array of task specs to insert atomically (each must have a title)',
+      },
+      {
+        name: 'defaultParent',
+        type: 'string',
+        required: false,
+        description: 'Optional default parent task ID applied when a task spec omits parent',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Validate and predict IDs without writing to the database',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tasks',
     operation: 'update',
     description: 'tasks.update (mutate)',
     tier: 0,
