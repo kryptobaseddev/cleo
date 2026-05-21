@@ -83,6 +83,12 @@
 !canon.yml
 !canon.schema.json
 
+# Step 13: Allow deprecation registry + schema (T9795 / Saga T9787) — the
+# source-of-truth listing legacy code paths bearing TSDoc @deprecated
+# markers. Validated by scripts/lint-deprecations.mjs in CI.
+!deprecations.yml
+!deprecations.schema.json
+
 # =============================================================================
 # EXPLICIT DENY — safety net that overrides allow rules above
 # =============================================================================
