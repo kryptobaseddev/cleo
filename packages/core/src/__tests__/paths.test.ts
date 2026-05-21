@@ -90,9 +90,18 @@ describe('getCleoDirAbsolute', () => {
     expect(result).toBe(resolve('/my/project', '.cleo'));
   });
 
-  it('throws when called outside a project without bootstrap (T9803)', () => {
+  it('throws when called from inside a worktree without bootstrap (T9803)', () => {
+    // T9803/D009: surgical fix — throws ONLY when cwd has a worktree gitlink
+    // ancestor (`.git` as FILE). Clean-slate temp dirs still allow fallback.
     delete process.env['CLEO_DIR'];
-    expect(() => getCleoDirAbsolute('/my/project')).toThrowError();
+    const fixtureDir = join(tmpdir(), `cleo-t9803-throw-${Date.now()}`);
+    mkdirSync(fixtureDir, { recursive: true });
+    writeFileSync(join(fixtureDir, '.git'), 'gitdir: /tmp/some-main/.git/worktrees/foo\n');
+    try {
+      expect(() => getCleoDirAbsolute(fixtureDir)).toThrowError();
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 
   it('returns absolute CLEO_DIR as-is', () => {
