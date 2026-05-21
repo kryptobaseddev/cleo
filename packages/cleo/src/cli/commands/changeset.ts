@@ -1,28 +1,28 @@
 /**
- * CLI `cleo changeset` command — author task-anchored changeset entries that
- * dual-write to both `.changeset/<slug>.md` (file surface, preserved for git
- * PR review) AND the canonical docs SSoT blob store.
- *
- * Today CLEO ships 12 hand-authored `.changeset/*.md` files. This command
- * elevates the directory from "parallel system" to "first-class DocKind"
- * backed by the SSoT, while keeping the file surface for backward compat.
+ * CLI `cleo changeset` command — the canonical author + reader surface for
+ * task-anchored changeset entries. Every write goes through the dual-write
+ * pipeline so the bytes always land in BOTH `.changeset/<slug>.md` (the
+ * human-reviewable file mirror) AND the docs SSoT blob store.
  *
  * Subcommands:
- *   - `cleo changeset add` — author and dual-write a new entry
+ *   - `cleo changeset add` — author and dual-write a new entry (T9793)
+ *   - `cleo changeset list` — list entries via the same parser the aggregator
+ *     consumes; LAFS envelope on JSON, aligned table on `--human` (T9785)
  *
  * The aggregator (`changesets-aggregator.ts`) reads SSoT-first and falls back
  * to `.changeset/*.md` for slugs that have not yet been mirrored, so the
- * existing workflow (hand-author a `.md` file) continues to work unchanged.
+ * file surface remains the source of truth for review while the SSoT
+ * unlocks search, dedup, and provenance.
  *
- * Future Wave 6 (T9791) will batch-import the 12 existing files into SSoT.
- *
- * @epic T9793 (E-DOCS-CHANGESET-INTEGRATION)
- * @task T9793
+ * @epic T9785 (Saga T9782 — single canonical changesets system)
+ * @task T9785
  * @see ADR-068 — DB Charter: changeset bytes live in manifest.db blob store
  * @see packages/core/src/changesets/writer.ts — dual-write transaction
  * @see packages/core/src/release/changesets-aggregator.ts — SSoT-first reader
  */
 
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   CHANGESET_KINDS,
   type ChangesetEntry,
@@ -31,7 +31,8 @@ import {
 } from '@cleocode/contracts';
 import { changesets, getProjectRoot } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
-import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
+import { dataTable } from '../renderers/format-helpers.js';
+import { cliError, cliOutput, humanInfo, humanLine, isHumanOutput } from '../renderers/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -210,23 +211,121 @@ const addCommand = defineCommand({
   },
 });
 
+// ─── cleo changeset list ─────────────────────────────────────────────────────
+
+/**
+ * `cleo changeset list`
+ *
+ * Read-only verb that lists every entry under `.changeset/*.md` by routing
+ * through the SAME {@link changesets.parseChangesetDir} the release-plan
+ * aggregator uses — no duplicate parsing logic, no separate code path.
+ *
+ * Output surfaces:
+ * - JSON (default — agent mode): emits a LAFS envelope whose `data.entries`
+ *   array carries the full parsed records (`id`, `tasks`, `kind`, `summary`,
+ *   `prs`, `notes`, `breaking`).
+ * - Human (`--human`): renders an aligned `dataTable` (SLUG · KIND · TASKS ·
+ *   PR · SUMMARY) ordered by filename (alphabetical, matching the parser's
+ *   deterministic sort).
+ *
+ * The lookup is project-local: `getProjectRoot()` + `.changeset/`. When the
+ * directory is missing (fresh repo, no entries yet), the verb returns an
+ * empty `entries` array with a `note` rather than erroring — operators and
+ * agents alike can rely on it for idempotent "is there anything queued?"
+ * checks.
+ *
+ * @task T9785
+ */
+const listCommand = defineCommand({
+  meta: {
+    name: 'list',
+    description:
+      'List every changeset entry under .changeset/*.md using the same parser ' +
+      'the release-plan aggregator consumes. JSON envelope by default, ' +
+      'aligned table on --human.',
+  },
+  args: {},
+  async run() {
+    const projectRoot = getProjectRoot();
+    const dir = join(projectRoot, '.changeset');
+
+    // Empty-state path: missing directory is a perfectly valid "nothing
+    // queued" answer — return an envelope rather than erroring so scripts
+    // can poll without try/catch noise.
+    if (!existsSync(dir)) {
+      const empty = { entries: [] as ChangesetEntry[], count: 0, dir, note: 'no .changeset/ dir' };
+      if (isHumanOutput()) {
+        humanLine('No changeset entries found (.changeset/ directory absent).');
+      }
+      cliOutput(empty, { command: 'changeset list', operation: 'changeset.list' });
+      return;
+    }
+
+    // Re-use the canonical parser the aggregator/lint script share — keeps
+    // this verb and CI lockstep, so a `list` that succeeds implies the lint
+    // gate would also pass.
+    let entries: ChangesetEntry[];
+    try {
+      entries = changesets.parseChangesetDir(dir);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      cliError(`Failed to parse .changeset directory: ${msg}`, ExitCode.VALIDATION_ERROR, {
+        name: 'E_VALIDATION',
+        fix: 'run `node scripts/lint-changesets.mjs` to surface every offending entry',
+      });
+      process.exit(ExitCode.VALIDATION_ERROR);
+    }
+
+    // Human surface: aligned table. Empty list still emits a friendly line.
+    if (isHumanOutput()) {
+      if (entries.length === 0) {
+        humanLine('No changeset entries found (.changeset/ has no *.md files).');
+      } else {
+        const rendered = dataTable<ChangesetEntry>(entries, [
+          { header: 'SLUG', get: (e) => e.id, maxWidth: 40 },
+          { header: 'KIND', get: (e) => e.kind, maxWidth: 10 },
+          { header: 'TASKS', get: (e) => e.tasks.join(','), maxWidth: 22 },
+          {
+            header: 'PR',
+            get: (e) => (e.prs && e.prs.length > 0 ? `#${e.prs.join(',#')}` : '-'),
+            maxWidth: 10,
+          },
+          { header: 'SUMMARY', get: (e) => e.summary },
+        ]);
+        humanLine(rendered);
+      }
+    }
+
+    cliOutput(
+      { entries, count: entries.length, dir },
+      { command: 'changeset list', operation: 'changeset.list' },
+    );
+  },
+});
+
 // ─── Root command group ──────────────────────────────────────────────────────
 
 /**
- * Root `cleo changeset` command group.
+ * Root `cleo changeset` command group — the canonical surface for the
+ * task-anchored changesets DSL.
  *
- * Currently exposes only `add` — future subcommands (list, fetch, lint) will
- * land on top of the same dual-write foundation introduced by T9793.
+ * Subcommands:
+ *   - `add`  — author + dual-write (file + SSoT) per T9793
+ *   - `list` — read-only listing via the shared aggregator parser (T9785)
+ *
+ * Future read verbs (fetch, lint) can land on the same foundation without
+ * forking the dual-write transaction or duplicating the parser path.
  */
 export const changesetCommand = defineCommand({
   meta: {
     name: 'changeset',
     description:
-      'Author task-anchored changeset entries that dual-write to ' +
-      '.changeset/*.md AND the docs SSoT blob store (T9793).',
+      'Author + list task-anchored changeset entries — dual-writes go to ' +
+      '.changeset/*.md AND the docs SSoT blob store (Saga T9782).',
   },
   subCommands: {
     add: addCommand,
+    list: listCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
