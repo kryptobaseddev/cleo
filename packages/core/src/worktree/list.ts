@@ -15,6 +15,16 @@
  *  - `owningAgent` (best-effort from `.git/worktree.json` if present).
  *  - `statusCategory` — one of `locked|orphan|merged|stale|active`, resolved
  *    by precedence in {@link classifyStatus}.
+ *  - `source` — origin of the worktree: `cleo-spawn`, `claude-agent`, `manual`,
+ *                or `adopted`. Set by consulting the sentinel index at
+ *                `<projectRoot>/.cleo/worktrees.json` (T9804).
+ *
+ * Multi-source listing (T9804): After enumerating git-native worktrees the
+ * function reads the sentinel index and appends any entries whose `path` is
+ * NOT already present in the porcelain output. This ensures that worktrees
+ * created by Claude Code Agent `isolation:worktree` (and subsequently adopted
+ * via `cleo worktree adopt`) appear in `cleo worktree list` alongside the
+ * canonical CLEO-spawned worktrees.
  *
  * All git invocations are bounded by an explicit 60-second supervisor
  * timeout, matching the {@link runGitWithLockRetry} discipline used elsewhere
@@ -23,6 +33,7 @@
  * `.git/index.lock`, so the retry/backoff dance would be pure overhead.
  *
  * @task T9546
+ * @task T9804 — multi-source listing (sentinel index union)
  * @adr ADR-068 — DB chokepoint (openCleoDb)
  * @adr ADR-062 — git merge-no-ff integration semantics
  */
@@ -38,10 +49,12 @@ import {
   type ListWorktreesOpts,
   type ListWorktreesResult,
   type WorktreeInfo,
+  type WorktreeSource,
   type WorktreeStatusCategory,
 } from '@cleocode/contracts';
 import { resolveOrCwd } from '../paths.js';
 import { openCleoDb } from '../store/open-cleo-db.js';
+import { readSentinelIndex } from './sentinel-index.js';
 
 /** Default staleness threshold — branches/worktrees idle longer than this are stale candidates. */
 const DEFAULT_STALE_DAYS = 7;
@@ -99,12 +112,28 @@ export async function listWorktrees(
     );
   }
 
+  // --- T9804: Load sentinel index to resolve source labels and union entries ---
+  // Read the sentinel index (`.cleo/worktrees.json`) for adopted/claude-agent
+  // worktrees. We build a path → source map so each git-native entry can be
+  // labelled accurately, and we track which sentinel paths are NOT in the
+  // porcelain output so we can append them as sentinel-only entries below.
+  const sentinelEntries = readSentinelIndex(projectRoot);
+  const sentinelByPath = new Map(sentinelEntries.map((e) => [e.path, e]));
+  // Track paths from porcelain so we can detect sentinel-only entries later.
+  const porcelainPaths = new Set(porcelainEntries.map((e) => e.path));
+
   // Resolve unique task IDs once, then batch-load their statuses through the
   // ADR-068 chokepoint. We open the tasks DB read-only via openCleoDb so the
   // command picks up the SSoT pragma set (T9189) — never via raw DatabaseSync.
   const branchToTaskId = new Map<string, string | null>();
   for (const entry of porcelainEntries) {
     branchToTaskId.set(entry.branch, taskIdFromBranch(entry.branch));
+  }
+  // Also seed task IDs for sentinel-only entries so they can be batch-loaded.
+  for (const sentinel of sentinelEntries) {
+    if (!porcelainPaths.has(sentinel.path)) {
+      branchToTaskId.set(sentinel.branch, sentinel.taskId ?? taskIdFromBranch(sentinel.branch));
+    }
   }
   const taskIds = Array.from(branchToTaskId.values()).filter((id): id is string => id !== null);
   const taskStatusByid = await loadOwningTaskStatuses(taskIds, projectRoot);
@@ -121,6 +150,7 @@ export async function listWorktrees(
   // project root.
   const primaryWorktreePath = resolvePrimaryWorktreePath(projectRoot);
 
+  // --- Build WorktreeInfo entries from git-native porcelain output ---
   const worktrees: WorktreeInfo[] = porcelainEntries.map((entry) => {
     const taskId = branchToTaskId.get(entry.branch) ?? null;
     const lastActivityMs =
@@ -149,6 +179,12 @@ export async function listWorktrees(
       isStale,
     });
 
+    // T9804: look up source from sentinel index. A git-native entry whose path
+    // is present in the sentinel index was adopted (or registered externally);
+    // entries absent from the index are canonical CLEO-spawned worktrees.
+    const sentinelSource = sentinelByPath.get(entry.path)?.source;
+    const source: WorktreeSource = sentinelSource ?? 'cleo-spawn';
+
     return {
       path: entry.path,
       branch: entry.branch,
@@ -160,8 +196,50 @@ export async function listWorktrees(
       isMerged,
       owningTaskStatus,
       statusCategory,
+      source,
     };
   });
+
+  // --- T9804: Append sentinel-only entries (not in git porcelain output) ---
+  // These are worktrees that exist in the index but whose directories may have
+  // been removed or are NOT known to git (e.g. adopted entries for stale
+  // agent worktrees that have already been cleaned up by git gc). We include
+  // them so callers know they exist in the registry and can clean them up.
+  for (const sentinel of sentinelEntries) {
+    if (porcelainPaths.has(sentinel.path)) continue; // Already in git output.
+
+    const taskId = sentinel.taskId ?? taskIdFromBranch(sentinel.branch);
+    const owningTaskStatus = taskId ? (taskStatusByid.get(taskId) ?? null) : null;
+    const lastActivityMs = mtimeMs(sentinel.path);
+    const lastActivity = new Date(lastActivityMs).toISOString();
+    const ownerTerminal = owningTaskStatus === 'done' || owningTaskStatus === 'cancelled';
+    const idleMs = nowMs - lastActivityMs;
+    const isStale = idleMs > staleThresholdMs && (ownerTerminal || true);
+    const isOrphan =
+      owningTaskStatus === 'cancelled' || (taskId !== null && owningTaskStatus === null);
+
+    const statusCategory = classifyStatus({
+      isPrimary: false,
+      isLocked: false,
+      isOrphan,
+      isMerged: false,
+      isStale,
+    });
+
+    worktrees.push({
+      path: sentinel.path,
+      branch: sentinel.branch,
+      taskId,
+      owningAgent: null,
+      lastActivity,
+      isLocked: false,
+      isStale,
+      isMerged: false,
+      owningTaskStatus,
+      statusCategory,
+      source: sentinel.source,
+    });
+  }
 
   const filtered =
     opts.statusFilter && opts.statusFilter.length > 0

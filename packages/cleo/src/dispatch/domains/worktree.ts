@@ -6,8 +6,12 @@
  * QUERY operations:
  *   list — structured enumeration of every git worktree attached to the
  *          project with status classification (active|stale|merged|orphan|locked).
+ *          Includes sentinel-index entries (T9804 — Claude Code Agent bridge).
  *
  * MUTATE operations:
+ *   adopt       — register an externally-created worktree (e.g. Claude Code
+ *                 Agent `isolation:worktree`) in the CLEO SSoT. Writes to
+ *                 `.cleo/worktrees.json` sentinel index (T9804 / D009).
  *   destroy     — explicitly destroy a single agent worktree + update audit log
  *                 + remove sentinel index entry (T9805 AC1).
  *   prune       — remove orphaned + merged worktrees (T9547). Non-interactive;
@@ -18,17 +22,20 @@
  *                 `git worktree unlock`) for a single task ID (T9547).
  *
  * All mutate ops route through SDK primitives in
- * `packages/core/src/worktree/{prune,force-unlock}.ts` and append
+ * `packages/core/src/worktree/{prune,force-unlock,worktree-adopt}.ts` and append
  * audit entries to `.cleo/audit/worktree-lifecycle.jsonl`.
  *
  * @task T9546
  * @task T9547
+ * @task T9804
  * @task T9805
  * @epic T9515 — worktree-lifecycle bug-fix epic
- * @epic T9800 — SG-WORKTREE-CANON saga
+ * @saga T9800 — SG-WORKTREE-CANON
  */
 
 import type {
+  AdoptWorktreeOpts,
+  AdoptWorktreeResult,
   DestroyWorktreeOptions,
   DestroyWorktreeResult,
   ForceUnlockWorktreeOpts,
@@ -37,9 +44,11 @@ import type {
   ListWorktreesResult,
   PruneOrphanedWorktreesOpts,
   PruneOrphanedWorktreesResult,
+  WorktreeSource,
   WorktreeStatusCategory,
 } from '@cleocode/contracts';
 import {
+  adoptWorktree,
   forceUnlockWorktree,
   getLogger,
   getProjectRoot,
@@ -154,6 +163,9 @@ export class WorktreeHandler implements DomainHandler {
    * Handle worktree mutations.
    *
    * Supported operations:
+   *  - `adopt` — register an externally-created worktree in the SSoT. Params:
+   *              `{ worktreePath, source?, taskId?, actor? }`. Returns an
+   *              {@link AdoptWorktreeResult} envelope. (T9804)
    *  - `destroy` — explicitly destroy a single agent worktree. Params:
    *                `{ taskId, force?, deleteBranch?, reason? }`. Returns a
    *                {@link DestroyWorktreeResult} envelope (T9805).
@@ -164,12 +176,56 @@ export class WorktreeHandler implements DomainHandler {
    *              `{ taskId, actor? }`. Returns a {@link ForceUnlockWorktreeResult}.
    *
    * @task T9547
+   * @task T9804
    * @task T9805
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
     try {
       switch (operation) {
+        case 'adopt': {
+          const worktreePath = params?.['worktreePath'];
+          if (typeof worktreePath !== 'string' || worktreePath.length === 0) {
+            return errorResult(
+              'mutate',
+              'worktree',
+              operation,
+              'E_VALIDATION',
+              'Missing required param: worktreePath (pass the path to the worktree directory).',
+              startTime,
+            );
+          }
+          const rawSource = params?.['source'];
+          const validSources: WorktreeSource[] = ['claude-agent', 'manual', 'adopted'];
+          const source: WorktreeSource | undefined =
+            typeof rawSource === 'string' && (validSources as string[]).includes(rawSource)
+              ? (rawSource as WorktreeSource)
+              : undefined;
+          const rawTaskId = params?.['taskId'];
+          const taskId: string | null | undefined =
+            rawTaskId === null
+              ? null
+              : typeof rawTaskId === 'string' && rawTaskId.length > 0
+                ? rawTaskId
+                : undefined;
+          const opts: AdoptWorktreeOpts = {
+            projectRoot: getProjectRoot(),
+            worktreePath,
+            ...(source !== undefined ? { source } : {}),
+            ...(taskId !== undefined ? { taskId } : {}),
+            ...(typeof params?.['actor'] === 'string' && params['actor'].length > 0
+              ? { actor: params['actor'] as string }
+              : {}),
+          };
+          const result = await adoptWorktree(opts);
+          return wrapResult(
+            result as Parameters<typeof wrapResult>[0],
+            'mutate',
+            'worktree',
+            operation,
+            startTime,
+          );
+        }
         case 'destroy': {
           const taskId = params?.['taskId'];
           if (typeof taskId !== 'string' || taskId.length === 0) {
@@ -191,8 +247,6 @@ export class WorktreeHandler implements DomainHandler {
               : {}),
           };
           const result = await destroyWorktree(getProjectRoot(), opts);
-          // Wrap result in a success envelope. destroyWorktree never throws — it
-          // captures errors in the result's `error` field.
           const engineResult =
             result.error !== undefined
               ? {
@@ -284,7 +338,7 @@ export class WorktreeHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['list'],
-      mutate: ['destroy', 'prune', 'forceUnlock'],
+      mutate: ['adopt', 'destroy', 'prune', 'forceUnlock'],
     };
   }
 }
@@ -292,6 +346,7 @@ export class WorktreeHandler implements DomainHandler {
 // Re-export the result types so dispatch callers that import the handler don't
 // also have to reach into @cleocode/contracts.
 export type {
+  AdoptWorktreeResult,
   DestroyWorktreeResult,
   ForceUnlockWorktreeResult,
   ListWorktreesResult,
