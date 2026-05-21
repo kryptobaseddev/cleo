@@ -76,6 +76,13 @@
 !audit/imports/
 !audit/imports/**
 
+# Step 12: Allow canonical doc-routing registry + JSON Schema (T9796 / ADR-076).
+# `cleo check canon docs` reads canon.yml at PR-time to decide whether a new
+# *.md file under a `rawMdPaths` directory is allowed. Both files must be
+# git-tracked so the CI gate sees the same registry every reviewer does.
+!canon.yml
+!canon.schema.json
+
 # =============================================================================
 # EXPLICIT DENY — safety net that overrides allow rules above
 # =============================================================================
