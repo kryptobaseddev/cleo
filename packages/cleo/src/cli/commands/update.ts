@@ -19,7 +19,7 @@
  * @epic T4454
  */
 
-import { appendSignedSeverityAttestation } from '@cleocode/core';
+import { appendSignedSeverityAttestation, parseAcceptanceCriteria } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { cliError } from '../renderers/index.js';
@@ -265,11 +265,9 @@ export const updateCommand = defineCommand({
     }
     if (args.notes !== undefined) params['notes'] = args.notes;
     if (args.note !== undefined) params['notes'] = params['notes'] ?? args.note;
-    if (args.acceptance)
-      params['acceptance'] = (args.acceptance as string)
-        .split('|')
-        .map((s) => s.trim())
-        .filter(Boolean);
+    // T9839/gh-409: route through bracket+quote-aware parser to preserve
+    // criteria containing `ENUM (a|b|c)` or quoted unions like `'a'|'b'`.
+    if (args.acceptance) params['acceptance'] = parseAcceptanceCriteria(args.acceptance as string);
     if (args.files) params['files'] = (args.files as string).split(',').map((s) => s.trim());
     if (args['add-files'])
       params['addFiles'] = (args['add-files'] as string).split(',').map((s) => s.trim());
