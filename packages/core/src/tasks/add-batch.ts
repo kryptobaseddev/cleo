@@ -2,15 +2,21 @@
  * Batch task creation with TRUE single-transaction atomicity.
  *
  * All N `addTask` inserts are wrapped in a SINGLE `dataAccessor.transaction()`
- * call. This works because both `DataAccessor.transaction()` and
- * `allocateNextTaskId()` now use SQLite SAVEPOINTs instead of `BEGIN IMMEDIATE`
- * (T9814 — sqlite-data-accessor.ts + sequence/index.ts). SAVEPOINTs nest
- * correctly: a top-level SAVEPOINT starts a deferred transaction; a nested
- * SAVEPOINT creates a logical checkpoint inside the outer one.
+ * call. This works via two coordinated changes in the store layer (T9814):
  *
- * If ANY `addTask` call throws inside the batch transaction, the outer
- * SAVEPOINT is rolled back — reverting ALL inserts atomically. No intermediate
- * state is ever visible to concurrent readers.
+ * 1. `DataAccessor.transaction()` in sqlite-data-accessor.ts tracks nesting
+ *    depth: outer call (depth=0) uses `BEGIN IMMEDIATE` (preserves RESERVED
+ *    lock semantics); nested calls (depth>0) use `SAVEPOINT _cleo_tx_<n>`
+ *    which nests inside the already-open outer transaction.
+ *
+ * 2. `allocateNextTaskId()` in sequence/index.ts uses `SAVEPOINT` instead of
+ *    `BEGIN IMMEDIATE`, so it nests correctly inside the outer batch transaction
+ *    when called during an `addBatchTasks` run, and works standalone otherwise.
+ *
+ * When `addBatchTasks` opens the outer `dataAccessor.transaction()` (BEGIN
+ * IMMEDIATE), all `addTask` calls within it share the same SQLite transaction.
+ * If ANY call throws, the outer BEGIN IMMEDIATE transaction is rolled back,
+ * reverting ALL inserts. No intermediate state is ever visible.
  *
  * Closes the CORE gap exposed by T9813: the CLI `add-batch` command was a
  * for-loop calling `tasks.add` N times with NO rollback on failure.
