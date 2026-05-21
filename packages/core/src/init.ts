@@ -734,7 +734,12 @@ export async function updateDocs(): Promise<InitResult> {
  * @task T4707
  */
 export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
-  const cleoDir = getCleoDirAbsolute();
+  // T9803/D009: `cleo init` is the ONLY caller permitted to bootstrap a
+  // missing project root. Passing `{ bootstrap: true }` opts into the
+  // cwd-relative fallback; every other caller must resolve through an
+  // existing root or throw to prevent orphan-`.cleo/` synthesis inside
+  // worktrees.
+  const cleoDir = getCleoDirAbsolute(undefined, { bootstrap: true });
   // `cleo init` CREATES the project root, so we cannot call getProjectRoot()
   // here — that walks up looking for an existing `.cleo/` sentinel and throws
   // `E_NOT_FOUND` when none is present (the whole point of `init` is that

@@ -265,6 +265,11 @@ export function getCleoDir(cwd?: string): string {
  * @param cwd - Optional anchor for project-root resolution; if omitted, uses
  *   the canonical {@link getProjectRoot} chain (worktreeScope > CLEO_ROOT >
  *   CLEO_DIR absolute > gitlink walk > ancestor walk).
+ * @param opts.bootstrap - When `true`, fall back to a cwd-relative `.cleo`
+ *   resolution if {@link getProjectRoot} throws. ONLY for `cleo init` callers
+ *   that CREATE the project root and therefore cannot rely on ancestor walk.
+ *   Defaults to `false` — every other caller MUST resolve through an existing
+ *   project root or the error propagates. See council verdict D009 (T9803).
  * @returns Absolute path to the project's `.cleo` directory
  *
  * @remarks
@@ -282,27 +287,49 @@ export function getCleoDir(cwd?: string): string {
  *    T9550/T9580 orphan-`.cleo/` bug class.
  * 3. If `cwd` is omitted, resolution runs against `getProjectRoot()` directly.
  *
+ * **Root-cause fix (T9803 · council verdict D009)**: when `getProjectRoot()`
+ * throws (no project root in scope), the previous implementation silently
+ * fell back to `<cwd>/.cleo` — which synthesized orphan `.cleo/` directories
+ * inside git worktrees that any subsequent `mkdirSync` call would
+ * materialize. The 25+ leaked `.cleo/` directories inside
+ * `.claude/worktrees/*` documented in the T9801 forensic audit were created
+ * via this path. The fix re-throws unless the caller explicitly passes
+ * `{ bootstrap: true }`, which only `initProject()` (line 737, init.ts)
+ * legitimately needs.
+ *
  * @example
  * ```typescript
  * // Project root → /repo
  * getCleoDirAbsolute();                  // "/repo/.cleo"
  * getCleoDirAbsolute('/repo/packages/x'); // "/repo/.cleo"  (was "/repo/packages/x/.cleo" before T9685)
+ *
+ * // Worktree without a project — THROWS (was silent orphan synthesis pre-T9803)
+ * getCleoDirAbsolute('/tmp/random-dir'); // throws E_NOT_FOUND
+ *
+ * // Bootstrap (cleo init creating a new project)
+ * getCleoDirAbsolute('/tmp/new-project', { bootstrap: true }); // "/tmp/new-project/.cleo"
  * ```
  */
-export function getCleoDirAbsolute(cwd?: string): string {
+export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean }): string {
   const cleoDir = getCleoDir();
   if (isAbsolutePath(cleoDir)) {
     return cleoDir;
   }
   // SSoT (T9685): route through getProjectRoot so callers anywhere in a
   // worktree or monorepo subdir resolve to the canonical project root, not
-  // their cwd. Fall back to literal cwd-relative resolution only when no
-  // project root exists yet (the `cleo init` bootstrap case, which CREATES
-  // the project root and explicitly cannot rely on ancestor walk).
+  // their cwd.
   try {
     return resolve(getProjectRoot(cwd), cleoDir);
-  } catch {
-    return resolve(cwd ?? process.cwd(), cleoDir);
+  } catch (err) {
+    // T9803 · council verdict D009: in bootstrap mode (`cleo init`), the
+    // project root does not exist yet and getProjectRoot legitimately throws —
+    // fall back to cwd-relative so init can CREATE the root. In every other
+    // mode, re-throw to prevent silent orphan-`.cleo/` synthesis inside
+    // worktrees (root cause of the T9550/T9580/T9801 orphan bug class).
+    if (opts?.bootstrap) {
+      return resolve(cwd ?? process.cwd(), cleoDir);
+    }
+    throw err;
   }
 }
 
