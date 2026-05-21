@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleocode.io/schemas/deprecations.schema.json",
+  "title": "CLEO Deprecation Registry",
+  "description": "Source-of-truth for legacy code paths marked @deprecated. Validated by scripts/lint-deprecations.mjs. T9795 / Saga T9787.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "deprecations"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Registry schema version. Bump when the entry shape changes."
+    },
+    "deprecations": {
+      "type": "array",
+      "minItems": 0,
+      "items": { "$ref": "#/definitions/DeprecationEntry" }
+    }
+  },
+  "definitions": {
+    "DeprecationEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "since", "remove", "replacement", "note"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
+          "description": "Unique kebab-case identifier."
+        },
+        "path": {
+          "type": "string",
+          "description": "Single source file bearing the @deprecated TSDoc. Either `path` or `paths` MUST be set.",
+          "minLength": 1
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Multiple source files (or globs) sharing this deprecation. Either `path` or `paths` MUST be set."
+        },
+        "since": {
+          "type": "string",
+          "pattern": "^v\\d{4}\\.\\d+\\.\\d+$",
+          "description": "CalVer release tag where deprecation landed (e.g. v2026.5.93)."
+        },
+        "remove": {
+          "type": "string",
+          "pattern": "^v\\d{4}\\.\\d+\\.\\d+$",
+          "description": "Earliest CalVer tag that MAY remove the deprecated code."
+        },
+        "replacement": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Concrete migration target (CLI command, symbol, or doc URL)."
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short prose explaining the supersession + ADR/task refs."
+        }
+      },
+      "oneOf": [
+        { "required": ["path"], "not": { "required": ["paths"] } },
+        { "required": ["paths"], "not": { "required": ["path"] } }
+      ]
+    }
+  }
+}

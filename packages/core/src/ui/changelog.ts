@@ -7,10 +7,18 @@
  *
  * @task T4454
  * @epic T4454
+ *
+ * @deprecated Since v2026.5.93 (T9795 / Saga T9787). Will be removed no
+ *   earlier than v2026.6.0. Label-grouped task→changelog rendering is
+ *   superseded by the LLM-driven release-notes composer (T9759) which
+ *   consumes the canonical Release Plan envelope produced by
+ *   `cleo release plan`. See `.cleo/deprecations.yml` (id:
+ *   `ui-changelog-label-grouping`) for the migration table.
  */
 
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Task } from '@cleocode/contracts';
+import { pushWarning } from '../output.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 
@@ -46,6 +54,10 @@ interface ChangelogTask {
 /**
  * Discover task IDs for a release from completed tasks.
  * Optionally filtered by date range or specific task IDs.
+ *
+ * @deprecated Since v2026.5.93. Migrate to the Release Plan envelope from
+ *   `cleo release plan` + the T9759 LLM composer. Removal: no earlier than
+ *   v2026.6.0.
  */
 export async function discoverReleaseTasks(
   options: {
@@ -205,6 +217,10 @@ export function appendToChangelog(filePath: string, newContent: string): void {
 
 /**
  * Full changelog generation: discover tasks, group, generate, write.
+ *
+ * @deprecated Since v2026.5.93. Use `cleo release plan` + the T9759 LLM
+ *   composer instead. Removal: no earlier than v2026.6.0. Tracked in
+ *   `.cleo/deprecations.yml` id:`ui-changelog-label-grouping`.
  */
 export async function generateChangelog(
   version: string,
@@ -218,6 +234,24 @@ export async function generateChangelog(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
+  // T9795: structured deprecation warning on the LAFS envelope; surfaces
+  // on stderr only when the CLI is in human mode (renderer respects the
+  // format flag — pure JSON callers stay parseable).
+  pushWarning({
+    code: 'W_DEPRECATED',
+    message:
+      'generateChangelog (label-grouping renderer) is deprecated. Use `cleo release plan` + T9759 LLM composer.',
+    severity: 'warn',
+    deprecated: 'generateChangelog',
+    replacement: 'cleo release plan',
+    removeBy: 'v2026.6.0',
+    context: {
+      registryId: 'ui-changelog-label-grouping',
+      task: 'T9795',
+      saga: 'T9787',
+    },
+  });
+
   const date = new Date().toISOString().split('T')[0]!;
   const tasks = await discoverReleaseTasks(
     { since: options.since, until: options.until, taskIds: options.taskIds },
