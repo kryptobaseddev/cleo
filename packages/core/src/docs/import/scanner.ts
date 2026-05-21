@@ -76,10 +76,19 @@ export const DEFAULT_EXCLUDE_DIRS: ReadonlySet<string> = new Set([
  * .cleo/adrs/         → adr
  * .cleo/research/     → research
  * .cleo/agent-outputs → note
+ * .cleo/rcasd/        → research   (T9791 — added so rcasd dirs classify
+ *                                   when the scan root is the project root)
  * docs/specs/         → spec
  * docs/               → spec (catch-all)
  * *                   → note (default)
  * ```
+ *
+ * NOTE: This function expects {@link relPath} to start with the source-dir
+ * prefix (e.g. `.cleo/adrs/`). When the scanner is invoked with a scan root
+ * INSIDE one of these source dirs (e.g. `scanRoot = .cleo/adrs/`), every
+ * file's relPath will be missing that prefix and default to `note`. Callers
+ * SHOULD pass a {@link makeClassifierForScanRoot} closure to recover the
+ * correct classification in that scenario.
  *
  * @param relPath - Path relative to the scan root.
  * @returns Classified import type.
@@ -90,9 +99,81 @@ export function classifyByRelPath(relPath: string): DocImportType {
   if (path.startsWith('.cleo/adrs/')) return 'adr';
   if (path.startsWith('.cleo/research/')) return 'research';
   if (path.startsWith('.cleo/agent-outputs/')) return 'note';
+  if (path.startsWith('.cleo/rcasd/')) return 'research';
   if (path.startsWith('docs/specs/')) return 'spec';
   if (path.startsWith('docs/')) return 'spec';
   return 'note';
+}
+
+/**
+ * Map a canonical source-dir name to its {@link DocImportType}.
+ *
+ * Source-dir aware classification: when `cleo docs import .cleo/adrs` is run,
+ * the scanner sees relPaths like `ADR-001.md` (no `.cleo/adrs/` prefix) so
+ * {@link classifyByRelPath} would fall through to `note`. This map records
+ * the canonical mapping by source-dir name so the CLI can pre-resolve the
+ * classification before scanning.
+ *
+ * Keys are project-relative POSIX paths without trailing slash.
+ *
+ * @task T9791
+ */
+export const SOURCE_DIR_TO_TYPE: ReadonlyMap<string, DocImportType> = new Map([
+  ['.cleo/adrs', 'adr'],
+  ['.cleo/research', 'research'],
+  ['.cleo/rcasd', 'research'],
+  ['.cleo/agent-outputs', 'note'],
+  ['docs/specs', 'spec'],
+  ['docs', 'spec'],
+]);
+
+/**
+ * Detect the source-dir for an absolute or project-relative scan root and
+ * build a classifier closure that returns the matching {@link DocImportType}
+ * for every file it sees.
+ *
+ * When the scan root does not match any canonical source-dir the returned
+ * closure falls back to {@link classifyByRelPath} so callers retain the
+ * pre-T9791 behaviour.
+ *
+ * @param scanRoot   - Absolute (or project-relative) path passed to the scanner.
+ * @param projectRoot - Absolute project root for resolving the project-relative
+ *                      form of {@link scanRoot}.
+ * @returns A classifier that resolves the type for any scanned file under
+ *          {@link scanRoot}.
+ *
+ * @task T9791
+ */
+export function makeClassifierForScanRoot(
+  scanRoot: string,
+  projectRoot: string,
+): (relPath: string) => DocImportType {
+  const normalize = (p: string): string => p.split('\\').join('/').replace(/\/+$/, '');
+  const scan = normalize(scanRoot);
+  const project = normalize(projectRoot);
+
+  // Resolve a canonical project-relative source-dir suffix from scanRoot.
+  let candidate: string | null = null;
+  if (scan.startsWith(project)) {
+    candidate = scan.slice(project.length).replace(/^\/+/, '');
+  } else if (!scan.includes('/') || !scan.startsWith('/')) {
+    // Already project-relative (e.g. ".cleo/adrs").
+    candidate = scan.replace(/^\.\//, '');
+  }
+
+  if (candidate && SOURCE_DIR_TO_TYPE.has(candidate)) {
+    const t = SOURCE_DIR_TO_TYPE.get(candidate);
+    if (t !== undefined) {
+      return () => t;
+    }
+  }
+
+  // Special-case docs/ — anything under it that is not docs/specs is still spec.
+  if (candidate === 'docs') {
+    return () => 'spec';
+  }
+
+  return classifyByRelPath;
 }
 
 /**
