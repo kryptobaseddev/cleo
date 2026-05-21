@@ -50,6 +50,15 @@ export {
   legacyResolveWorktreeRoot,
 } from './compat.js';
 export { copyPathsWithReflock } from './copy-on-write.js';
+export type { WorktreeAuditPayload } from './worktree-audit.js';
+export {
+  addWorktreeToSentinelIndex,
+  appendWorktreeAuditLog,
+  removeWorktreeFromSentinelIndex,
+  resolveWorktreeIndexPath,
+  WORKTREE_INDEX_RELATIVE_PATH,
+  WORKTREE_LIFECYCLE_AUDIT_FILE,
+} from './worktree-audit.js';
 export { createWorktree } from './worktree-create.js';
 export { destroyWorktree } from './worktree-destroy.js';
 export { runWorktreeHooks } from './worktree-hooks.js';
