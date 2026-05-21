@@ -29,7 +29,7 @@ import {
   type ChangesetKind,
   ExitCode,
 } from '@cleocode/contracts';
-import { getProjectRoot, writeChangesetEntry } from '@cleocode/core/internal';
+import { changesets, getProjectRoot } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 
@@ -182,7 +182,7 @@ const addCommand = defineCommand({
 
     // ── 4. Dispatch to the dual-write transaction. ──────────────────────────
     const projectRoot = getProjectRoot();
-    const outcome = await writeChangesetEntry(entry, {
+    const outcome = await changesets.writeChangesetEntry(entry, {
       projectRoot,
       ...(typeof args['attached-by'] === 'string' && args['attached-by'].length > 0
         ? { attachedBy: args['attached-by'] }
