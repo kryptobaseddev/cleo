@@ -10,6 +10,20 @@
  * @epic T1566
  */
 
+// T9797 — agent-accountability harness.
+// Exports the canon-lint surface so the CLI dispatch layer (and external
+// session-audit tools) can reuse the same SDK-level routing engine the
+// `cleo check canon docs` CI gate uses.
+export {
+  type CanonKindEntry,
+  type CanonLintResult,
+  type CanonLintViolation,
+  type CanonLintViolationKind,
+  type CanonRegistry,
+  type LintSessionParams,
+  lintSessionForCanonViolations,
+  loadCanonRegistry,
+} from './canon-lint.js';
 export {
   sessionArchive,
   sessionBriefing,

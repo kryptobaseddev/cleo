@@ -459,6 +459,25 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query',
+    domain: 'session',
+    operation: 'lint',
+    description:
+      'session.lint (query) — agent-accountability harness: flag raw-md writes to canonical doc paths in a transcript (T9797)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['transcript'],
+    params: [
+      {
+        name: 'transcript',
+        type: 'string',
+        required: true,
+        description: 'Absolute path to the *.jsonl session transcript to lint',
+      },
+    ],
+  },
+  {
+    gateway: 'query',
     domain: 'orchestrate',
     operation: 'status',
     description: 'orchestrate.status (query)',
