@@ -83,6 +83,40 @@ describe('ensureArray', () => {
   it('supports a custom separator', () => {
     expect(ensureArray('a|b|c', '|')).toEqual(['a', 'b', 'c']);
   });
+
+  // T9854 regression: object arrays must NOT be String()-coerced to "[object Object]"
+  it('passes through an array of objects unmodified (T9854)', () => {
+    const tasks = [
+      { title: 'Task A', acceptance: ['a'] },
+      { title: 'Task B', parent: 'T100', acceptance: ['b'] },
+    ];
+    const result = ensureArray(tasks);
+    expect(result).toHaveLength(2);
+    expect(result?.[0]).toStrictEqual({ title: 'Task A', acceptance: ['a'] });
+    expect(result?.[1]).toStrictEqual({ title: 'Task B', parent: 'T100', acceptance: ['b'] });
+  });
+
+  it('does NOT produce "[object Object]" strings for object array items (T9854)', () => {
+    const result = ensureArray([{ title: 'Smoke' }, { title: 'Test' }]);
+    // Items must be objects, not the string literal "[object Object]" (the original bug)
+    expect(result?.every((item) => typeof item !== 'string')).toBe(true);
+    // Verify items are NOT stored as the string "[object Object]" — the pre-fix behaviour
+    expect(result?.some((item) => item === '[object Object]')).toBe(false);
+  });
+
+  it('passes through a mixed array of objects and strings unmodified (T9854)', () => {
+    const mixed = [{ title: 'Task' }, 'raw-string-label'];
+    const result = ensureArray(mixed);
+    expect(result?.[0]).toStrictEqual({ title: 'Task' });
+    expect(result?.[1]).toBe('raw-string-label');
+  });
+
+  it('trims strings within an array but does not touch non-string items (T9854)', () => {
+    const result = ensureArray(['  label-a  ', { key: 'val' }, '  label-b  ']);
+    expect(result?.[0]).toBe('label-a');
+    expect(result?.[1]).toStrictEqual({ key: 'val' });
+    expect(result?.[2]).toBe('label-b');
+  });
 });
 
 describe('sanitizeParams array normalization', () => {
@@ -104,6 +138,38 @@ describe('sanitizeParams array normalization', () => {
   it('normalizes comma-separated depends string to array', () => {
     const result = sanitizeParams({ depends: 'T001,T002' });
     expect(result?.['depends']).toEqual(['T001', 'T002']);
+  });
+
+  // T9854 regression: `tasks` param with array of objects must survive sanitizer intact
+  it('preserves tasks array-of-objects through sanitizeParams (T9854)', () => {
+    const taskSpecs = [
+      { title: 'Smoke A', acceptance: ['x'] },
+      { title: 'Smoke B', parent: 'T100', acceptance: ['y'] },
+    ];
+    const result = sanitizeParams({ tasks: taskSpecs });
+    const sanitizedTasks = result?.['tasks'];
+    expect(Array.isArray(sanitizedTasks)).toBe(true);
+    const arr = sanitizedTasks as unknown[];
+    expect(arr).toHaveLength(2);
+    expect(arr[0]).toStrictEqual({ title: 'Smoke A', acceptance: ['x'] });
+    expect(arr[1]).toStrictEqual({ title: 'Smoke B', parent: 'T100', acceptance: ['y'] });
+  });
+
+  it('does NOT convert task objects to "[object Object]" strings (T9854)', () => {
+    const result = sanitizeParams({
+      tasks: [
+        { title: 'Task A', acceptance: ['a'] },
+        { title: 'Task B', acceptance: ['b'] },
+      ],
+    });
+    const arr = result?.['tasks'] as unknown[];
+    expect(arr.every((item) => item !== '[object Object]')).toBe(true);
+    expect(arr.every((item) => typeof item === 'object' && item !== null)).toBe(true);
+  });
+
+  it('still normalizes string-array params like labels (T9854 non-regression)', () => {
+    const result = sanitizeParams({ labels: 'bug,feature,p1' });
+    expect(result?.['labels']).toEqual(['bug', 'feature', 'p1']);
   });
 });
 

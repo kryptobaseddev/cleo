@@ -317,17 +317,32 @@ const ARRAY_PARAMS = new Set([
 ]);
 
 /**
- * Normalize a value to an array of strings.
- * Handles external clients sending comma-separated strings where arrays are expected.
+ * Normalize a value to an array, preserving item types.
+ *
+ * - `undefined` / `null` → `undefined`
+ * - Array input → returned as-is (items are NOT coerced; objects, numbers, etc. survive)
+ * - String input → split on `separator`, trimmed, empty segments dropped (CSV expansion)
+ * - Any other scalar → wrapped in a single-element array as a string (e.g. a bare number)
+ *
+ * String-array CSV expansion (e.g. `--labels foo,bar` → `["foo","bar"]`) is preserved.
+ * Object-array params (e.g. `tasks.add-batch` `tasks: [{title,...}, ...]`) are NOT
+ * String()-coerced — the previous behaviour corrupted objects to `"[object Object]"`.
+ * Downstream typed validators (CORE) own per-param type enforcement.
+ *
+ * @task T9854
  */
-export function ensureArray(value: unknown, separator = ','): string[] | undefined {
+export function ensureArray(value: unknown, separator = ','): unknown[] | undefined {
   if (value === undefined || value === null) return undefined;
-  if (Array.isArray(value)) return value.map((v) => (typeof v === 'string' ? v.trim() : String(v)));
+  if (Array.isArray(value)) {
+    // Preserve item types — callers' typed validators enforce string[] vs object[] constraints
+    return value.map((v) => (typeof v === 'string' ? v.trim() : v));
+  }
   if (typeof value === 'string')
     return value
       .split(separator)
       .map((s) => s.trim())
       .filter(Boolean);
+  // Scalar non-string (e.g. bare number from CLI arg) → wrap as string for backward compat
   return [String(value)];
 }
 
