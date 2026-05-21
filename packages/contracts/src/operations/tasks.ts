@@ -35,6 +35,7 @@ import type {
   TaskTreeNode,
   TaskView,
 } from '../tasks.js';
+import type { DocsType } from './docs.js';
 
 export type { TaskPriority, TaskStatus };
 
@@ -146,17 +147,56 @@ export interface TasksShowParams {
   /** When true, include IVTR phase history. */
   ivtrHistory?: boolean;
 }
+
+/**
+ * Minimal attachment entry surfaced in the `tasks.show` envelope.
+ *
+ * A lightweight projection of a docs attachment — enough to identify and
+ * navigate to the full attachment via `cleo docs fetch <slug|id>`, without
+ * the full byte payload.
+ *
+ * Fields are a subset of {@link import('./docs.js').DocsAttachmentRow}:
+ *   - `attachmentId` — store ID (att_* or UUID)
+ *   - `slug`         — human-friendly name (present when set on `cleo docs add`)
+ *   - `type`         — taxonomy classification (e.g. 'adr', 'research')
+ *   - `kind`         — storage kind ('local-file', 'url', 'blob', etc.)
+ *
+ * @task T9966
+ * @epic T9964
+ */
+export interface TaskShowAttachmentEntry {
+  /** Attachment identifier (att_* or UUID). */
+  attachmentId: string;
+  /** Human-friendly slug, unique per project. Present when assigned at add time. */
+  slug?: string;
+  /** Taxonomy classification. Present when assigned at add time. */
+  type?: DocsType;
+  /** Storage kind — discriminant for the full attachment variant. */
+  kind: string;
+}
+
 /**
  * Result of `tasks.show` — the full task record plus its canonical view
  * projection. `view` is null when the task has no lifecycle pipeline.
  *
  * @task T1703
+ * @task T9966 — attachments[] always present (empty array when none)
  */
 export interface TasksShowResult {
   /** Full task record (string-widened for dispatch layer serialization). */
   task: TaskRecord;
   /** Canonical task view projection produced by `computeTaskView`. Null when unavailable. */
   view: TaskView | null;
+  /**
+   * Attachments linked to this task via the docs store.
+   *
+   * Always an array — empty (`[]`) when no attachments exist. Never `null`.
+   * Each entry carries enough context to navigate to the full attachment
+   * via `cleo docs fetch <slug|attachmentId>`.
+   *
+   * @task T9966
+   */
+  attachments: TaskShowAttachmentEntry[];
 }
 
 // tasks.tree dispatch params (with optional withBlockers flag — dispatch alias)

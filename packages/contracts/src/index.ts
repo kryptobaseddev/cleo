@@ -1091,6 +1091,7 @@ export type {
   DepGraphIssue,
   DepsTreeEdge,
   DepsTreeNode,
+  TaskShowAttachmentEntry,
   TasksAddBatchParams,
   TasksAddBatchResult,
   TasksAddParams,

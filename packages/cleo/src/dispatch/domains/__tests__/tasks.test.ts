@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Mock @cleocode/core/internal — createAttachmentStore added by T9966
+vi.mock('@cleocode/core/internal', () => ({
+  createAttachmentStore: () => ({
+    listByOwner: vi.fn().mockResolvedValue([]),
+    getExtras: vi.fn().mockResolvedValue(null),
+  }),
+}));
+
 // Mock engine functions before importing the handler
 vi.mock('../../lib/engine.js', () => ({
   taskShow: vi.fn(),
@@ -154,23 +162,26 @@ describe('TasksHandler', () => {
 
   describe('query', () => {
     it('show - delegates to taskShow', async () => {
-      const mockData = {
-        task: {
-          id: 'T001',
-          title: 'Test',
-          description: 'test',
-          status: 'pending',
-          priority: 'medium',
-          createdAt: '2026-01-01',
-          updatedAt: null,
-        },
+      const mockTask = {
+        id: 'T001',
+        title: 'Test',
+        description: 'test',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: '2026-01-01',
+        updatedAt: null,
       };
-      vi.mocked(taskShow).mockResolvedValue({ success: true, data: mockData });
+      // T9966: taskShow core result shape must include view (may be null)
+      vi.mocked(taskShow).mockResolvedValue({
+        success: true,
+        data: { task: mockTask, view: null },
+      });
 
       const result = await handler.query('show', { taskId: 'T001' });
 
       expect(result.success).toBe(true);
-      expect(result.data).toEqual(mockData);
+      // T9966: result now includes attachments: [] alongside task+view
+      expect(result.data).toMatchObject({ task: mockTask, view: null, attachments: [] });
       expect(taskShow).toHaveBeenCalledWith('/mock/project', 'T001');
     });
 

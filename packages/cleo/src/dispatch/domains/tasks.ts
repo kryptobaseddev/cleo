@@ -21,9 +21,10 @@
  * @task T1445 — OpsFromCore inference migration
  */
 
-import type { LafsEnvelope } from '@cleocode/contracts';
+import type { LafsEnvelope, TaskShowAttachmentEntry, TasksShowResult } from '@cleocode/contracts';
 import type { tasks as coreTasks } from '@cleocode/core';
 import { getLogger, getProjectRoot } from '@cleocode/core';
+import { createAttachmentStore } from '@cleocode/core/internal';
 import {
   defineTypedHandler,
   lafsError,
@@ -98,6 +99,51 @@ import {
 type TasksOps = OpsFromCore<typeof coreTasks.tasksCoreOps>;
 
 // ---------------------------------------------------------------------------
+// Attachment helper (T9966 — surface docs attachments in tasks.show envelope)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all attachments linked to a task from the docs store and project them
+ * into the minimal {@link TaskShowAttachmentEntry} shape.
+ *
+ * Always resolves to an array — empty (`[]`) when no attachments exist or when
+ * the store cannot be reached. Failures are silently swallowed so a missing
+ * attachment DB never blocks `cleo show`.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId      - Task identifier (e.g. `"T9831"`).
+ * @returns Resolved array of attachment entries, never rejects.
+ *
+ * @task T9966
+ * @epic T9964
+ */
+async function fetchTaskAttachments(
+  projectRoot: string,
+  taskId: string,
+): Promise<TaskShowAttachmentEntry[]> {
+  try {
+    const store = createAttachmentStore();
+    const metas = await store.listByOwner('task', taskId, projectRoot);
+    const entries: TaskShowAttachmentEntry[] = [];
+    for (const meta of metas) {
+      const extras = await store.getExtras(meta.id, projectRoot);
+      const entry: TaskShowAttachmentEntry = {
+        attachmentId: meta.id,
+        kind: meta.attachment.kind,
+        ...(extras?.slug != null ? { slug: extras.slug } : {}),
+        ...(extras?.type != null ? { type: extras.type as TaskShowAttachmentEntry['type'] } : {}),
+      };
+      entries.push(entry);
+    }
+    return entries;
+  } catch {
+    // Attachment store not initialised or DB missing — return empty array
+    // so tasks.show always includes `attachments: []` (T9966 AC2).
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Typed inner handler (T1425 / T1445 — typed-dispatch + OpsFromCore migration)
 //
 // The typed handler holds all per-op logic with fully-narrowed params.
@@ -118,7 +164,20 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     if (params.history) {
       return wrapCoreResult(await taskShowWithHistory(projectRoot, params.taskId, true), 'show');
     }
-    return wrapCoreResult(await taskShow(projectRoot, params.taskId), 'show');
+    // Standard show: fetch task + attachments in parallel (T9966 — AC1: attachments[] always present)
+    const [coreResult, attachments] = await Promise.all([
+      taskShow(projectRoot, params.taskId),
+      fetchTaskAttachments(projectRoot, params.taskId),
+    ]);
+    if (!coreResult.success) {
+      return wrapCoreResult(coreResult, 'show');
+    }
+    const showResult: TasksShowResult = {
+      task: coreResult.data!.task,
+      view: coreResult.data!.view,
+      attachments,
+    };
+    return { success: true as const, data: showResult };
   },
 
   list: async (params) => {
