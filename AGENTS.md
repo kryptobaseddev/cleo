@@ -321,3 +321,52 @@ NEVER run `git add .cleo/tasks.db`, `.cleo/brain.db`, `.cleo/config.json`,
 or `.cleo/project-info.json` — the root and nested `.gitignore` files
 are configured to block this, but manual overrides will re-open the
 T5158 data-loss vector.
+
+## Worktree Subsystem (T9800 Saga — ADR-055 / D009)
+
+CLEO manages agent worktrees through two complementary mechanisms:
+
+### Canonical CLEO-spawned worktrees
+
+Created by `cleo orchestrate spawn` via `packages/worktree/` SSoT. These
+live under `~/.local/share/cleo/worktrees/<projectHash>/<taskId>/` (XDG
+canonical layout, D029). They are automatically listed, classified, and
+cleaned up via `cleo worktree list|prune`.
+
+### External worktrees (Claude Code Agent `isolation:worktree`)
+
+Claude Code Agent tool spawns with `isolation:worktree` create directories
+under `.claude/worktrees/<sessionId>/` **outside** the CLEO SSoT. These
+bypass `cleo orchestrate spawn` entirely.
+
+**Solution: Option B (Adopt)**  
+CLEO cannot modify the Claude Code harness directly. Instead, external
+worktrees are registered post-hoc using `cleo worktree adopt`.
+
+#### Adopt command
+
+```bash
+# Register a Claude Code Agent worktree in the CLEO SSoT
+cleo worktree adopt .claude/worktrees/<sessionId>
+
+# With explicit source classification
+cleo worktree adopt .claude/worktrees/<sessionId> --source claude-agent
+
+# With explicit task ID association
+cleo worktree adopt /path/to/worktree --source manual --task-id T9804
+```
+
+After adoption:
+- The worktree appears in `cleo worktree list` tagged with `source: claude-agent`.
+- An audit entry is appended to `.cleo/audit/worktree-lifecycle.jsonl`.
+- The worktree is subject to the same auto-cleanup rules as CLEO-spawned worktrees.
+
+#### Sentinel index
+
+Adopted worktrees are tracked in `.cleo/worktrees.json` (council D009 hybrid
+pattern). This file is gitignored and advisory — integrity does not depend on it.
+
+**IMPORTANT**: Agents that use `isolation:worktree` MUST call `cleo worktree adopt`
+immediately after the worktree is created if they want the worktree to surface in
+`cleo worktree list` and receive lifecycle cleanup hooks. AC4 and AC5 validation
+(real-world 5-agent test + `.claude/worktrees/` depopulation) are handled by T9808.

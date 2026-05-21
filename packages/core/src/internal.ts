@@ -2242,6 +2242,17 @@ export { forceUnlockWorktree } from './worktree/force-unlock.js';
 // Worktree listing — structured enumeration with status classification (T9546 / T9515)
 export { listWorktrees } from './worktree/list.js';
 export { pruneOrphanedWorktreesByStatus } from './worktree/prune.js';
+export type { SentinelWorktreeEntry, SentinelWorktreeSource } from './worktree/sentinel-index.js';
+// Worktree sentinel index — in-project worktrees.json tracking (T9804 / D009)
+export {
+  readSentinelIndex,
+  resolveWorktreeIndexPath,
+  upsertSentinelEntry,
+  WORKTREE_SENTINEL_INDEX_PATH,
+  writeSentinelIndex,
+} from './worktree/sentinel-index.js';
+// Worktree adopt — Claude Code Agent isolation:worktree bridge (T9804 / T9800)
+export { adoptWorktree } from './worktree/worktree-adopt.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers (used by cleo test files)

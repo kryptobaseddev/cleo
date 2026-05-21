@@ -678,7 +678,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'reqCommand',
     name: 'req',
-    description: 'Manage REQ-ID-addressable acceptance gates on tasks',
+    description:
+      'Manage REQ-ID-addressable acceptance gates on tasks (in-task gates only). For cross-task dependency edges, use ',
     load: async () => (await import('../commands/req.js')).reqCommand as CommandDef,
   },
   {
@@ -851,7 +852,8 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'updateCommand',
     name: 'update',
-    description: 'Update a task',
+    description:
+      'Update a task. Safe under concurrent invocation — retries on SQLITE_BUSY up to 4 attempts (gh#391).',
     load: async () => (await import('../commands/update.js')).updateCommand as CommandDef,
   },
   {
