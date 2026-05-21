@@ -14,6 +14,7 @@ import { existsSync, rmSync } from 'node:fs';
 import type { DestroyWorktreeOptions, DestroyWorktreeResult } from '@cleocode/contracts';
 import { getGitRoot, gitSilent, gitSync } from './git.js';
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
+import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
 import { runWorktreeHooks } from './worktree-hooks.js';
 
 /**
@@ -145,6 +146,24 @@ export async function destroyWorktree(
         error = `Post-destroy hook failed: ${message}`;
       }
     }
+  }
+
+  const destroySucceeded = worktreeRemoved && !error;
+
+  // T9805 AC3: Append audit log entry for every destroy attempt.
+  appendWorktreeAuditLog(projectRoot, {
+    action: 'destroy',
+    xdgPath: worktreePath,
+    taskId,
+    branch,
+    reason: options.reason ?? 'manual',
+    success: destroySucceeded,
+    ...(error !== undefined ? { error } : {}),
+  });
+
+  // T9805 D009: Remove the entry from the sentinel index when destruction succeeded.
+  if (destroySucceeded) {
+    removeWorktreeFromSentinelIndex(gitRoot, taskId);
   }
 
   return { taskId, worktreeRemoved, branchDeleted, error, dirty, force, hookResults };

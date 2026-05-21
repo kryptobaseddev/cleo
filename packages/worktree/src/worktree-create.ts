@@ -53,6 +53,7 @@ import {
   resolveTaskWorktreePath,
   resolveWorktreeRootForHash,
 } from './paths.js';
+import { addWorktreeToSentinelIndex, appendWorktreeAuditLog } from './worktree-audit.js';
 
 /**
  * Assert that `targetPath` sits inside the canonical XDG worktrees root
@@ -397,6 +398,19 @@ export async function createWorktree(
     'All your commits must land on YOUR branch only.',
     '',
   ].join('\n');
+
+  // T9805 AC3: Append audit log entry for every worktree creation.
+  appendWorktreeAuditLog(projectRoot, {
+    action: reused ? 'adopt' : 'create',
+    xdgPath: worktreePath,
+    taskId,
+    branch,
+    reason: reused ? 'branch-reuse' : 'spawn',
+    success: true,
+  });
+
+  // T9805 D009: Register this worktree in the sentinel index.
+  addWorktreeToSentinelIndex(gitRoot, taskId, { path: worktreePath, branch, createdAt });
 
   return {
     path: worktreePath,
