@@ -74,12 +74,14 @@ export const updateCommand = defineCommand({
     },
     labels: {
       type: 'string',
-      description: 'Set labels (comma-separated)',
+      description:
+        'Set labels (comma-separated; lowercase alphanumeric + hyphens + periods only, e.g. "track-b,wave.1") (gh-392)',
       alias: 'l',
     },
     'add-labels': {
       type: 'string',
-      description: 'Add labels (comma-separated)',
+      description:
+        'Add labels (comma-separated; lowercase alphanumeric + hyphens + periods only, e.g. "track-b,wave.1") (gh-392)',
     },
     'remove-labels': {
       type: 'string',
@@ -207,21 +209,32 @@ export const updateCommand = defineCommand({
     'depends-waiver': {
       type: 'string',
       description:
-        'Justification for promoting a task to critical priority without --depends (T1856). Records waiver in task metadata.',
+        'Justification (string) to waive the "--depends required for critical priority" check. Only consulted when the task is being promoted to --priority critical AND no existing or new --depends are declared. Stored verbatim in task metadata as audit trail; ignored for non-critical updates. (gh-405 / T1856)',
     },
     /**
      * Related tasks — semantic relationships (non-dependency).
-     * Comma-separated task IDs with optional type suffix (e.g. "T001:blocks,T002").
-     * Default type is 'related'. Replaces existing relates list.
+     *
+     * Direction convention (gh-403):
+     *   `cleo update <fromId> --add-relates <toId>:<type>`
+     * creates a directed edge FROM `<fromId>` TO `<toId>` with the given type.
+     * Example: `cleo update T127 --add-relates T123:blocks` means
+     * "T127 blocks T123" (the task being updated is the source).
+     *
+     * For dependency edges (T127 must complete before T128 can start), prefer
+     * `--add-depends T128` on T127 — `depends` is the canonical dep primitive
+     * and is what `cleo orchestrate ready`/`waves` walks. `--add-relates` is for
+     * semantic relationships (blocks/supersedes/groups/related) that don't
+     * affect wave-order scheduling.
      */
     relates: {
       type: 'string',
-      description: 'Set related tasks (comma-separated, optional type suffix: "T001:blocks,T002")',
+      description:
+        'Set related tasks (comma-separated, optional type suffix: "T001:blocks,T002"). Direction: <current task> → <relate>. For dep edges, prefer --add-depends. (gh-403)',
     },
     'add-relates': {
       type: 'string',
       description:
-        'Add related tasks without overwriting existing (comma-separated, optional type suffix)',
+        'Add related tasks without overwriting (comma-separated, optional type suffix: "T001:blocks"). Direction: <current task> → <relate>. For dep edges, prefer --add-depends. (gh-403)',
     },
     'remove-relates': {
       type: 'string',
