@@ -249,13 +249,24 @@ const addCommand = defineCommand({
 
 // ── cleo docs list ───────────────────────────────────────────────────────────
 
-/** cleo docs list [--task T###] [--session ses_*] [--observation O###] [--project] [--type TYPE] — list attachments. */
+/**
+ * `cleo docs list [--task | --session | --observation | --project] [--type TYPE]
+ *  [--limit N] [--orderBy newest|sha|slug]` — list attachments.
+ *
+ * T9792 — UX cleanup: omitting every scope flag now defaults to project
+ * scope (was: `E_VALIDATION`). The dispatch layer attaches a one-line hint
+ * when the default kicks in so agents notice the wider scope. Mutual
+ * exclusivity between explicit owner scopes is preserved.
+ */
 const listCommand = defineCommand({
   meta: {
     name: 'list',
     description:
-      'List attachments. Provide exactly one of --task, --session, --observation, or --project. ' +
-      '--type filters across any scope (T9637/T9638).',
+      'List attachments. With no scope flag, defaults to project scope and surfaces ' +
+      'a hint to narrow with --task, --session, or --observation. ' +
+      '--type filters across any scope (T9637/T9638). ' +
+      '--limit <N> (default 50) and --orderBy <newest|sha|slug> (default newest) ' +
+      'control the browsing window (T9792).',
   },
   args: {
     task: {
@@ -273,11 +284,24 @@ const listCommand = defineCommand({
     project: {
       type: 'boolean',
       description:
-        'List ALL attachments in the project (T9638). Mutually exclusive with --task/--session/--observation.',
+        'List ALL attachments in the project (T9638). Mutually exclusive with ' +
+        '--task/--session/--observation. Implicit default when no scope is set (T9792).',
     },
     type: {
       type: 'string',
       description: 'Filter by classification: spec|adr|research|handoff|note|llm-readme (T9637)',
+    },
+    limit: {
+      type: 'string',
+      description:
+        'Maximum number of rows to return (default 50, <=0 for unlimited). ' +
+        'When the limit truncates the result set the response carries a hint + totalCount (T9792).',
+    },
+    orderBy: {
+      type: 'string',
+      description:
+        'Sort key: newest (default — most recent first), sha (ascending hex), ' +
+        'slug (alphabetical, slug-less rows last) (T9792).',
     },
   },
   async run({ args }) {
@@ -286,19 +310,44 @@ const listCommand = defineCommand({
     const observation = args.observation ?? undefined;
     const project = args.project === true;
     const type = args.type ?? undefined;
+    const limitRaw = args.limit ?? undefined;
+    const orderByRaw = args.orderBy ?? undefined;
 
-    const scopeCount = [task, session, observation].filter(Boolean).length + (project ? 1 : 0);
-    if (scopeCount === 0) {
-      cliError('provide one of --task <id>, --session <id>, --observation <id>, or --project', 6, {
-        name: 'E_VALIDATION',
-      });
-      process.exit(6);
-    }
-    if (scopeCount > 1) {
+    // T9792 — mutual exclusivity between OWNER scopes stays unchanged.
+    // We no longer error when scopeCount === 0; the dispatch layer
+    // auto-promotes to project scope and attaches a hint to the envelope.
+    const ownerCount = [task, session, observation].filter(Boolean).length;
+    if (ownerCount + (project ? 1 : 0) > 1) {
       cliError('--task, --session, --observation, and --project are mutually exclusive', 6, {
         name: 'E_VALIDATION',
       });
       process.exit(6);
+    }
+
+    // Validate --limit shape locally so a bad value doesn't reach dispatch.
+    let limit: number | undefined;
+    if (limitRaw !== undefined) {
+      const parsed = Number.parseInt(String(limitRaw), 10);
+      if (Number.isNaN(parsed)) {
+        cliError(`--limit must be an integer — got '${String(limitRaw)}'`, 6, {
+          name: 'E_VALIDATION',
+        });
+        process.exit(6);
+      }
+      limit = parsed;
+    }
+
+    // Validate --orderBy against the closed set; reject anything else.
+    let orderBy: 'newest' | 'sha' | 'slug' | undefined;
+    if (orderByRaw !== undefined) {
+      const candidate = String(orderByRaw);
+      if (candidate !== 'newest' && candidate !== 'sha' && candidate !== 'slug') {
+        cliError(`--orderBy must be one of: newest|sha|slug — got '${candidate}'`, 6, {
+          name: 'E_VALIDATION',
+        });
+        process.exit(6);
+      }
+      orderBy = candidate;
     }
 
     await dispatchFromCli(
@@ -311,6 +360,8 @@ const listCommand = defineCommand({
         ...(observation ? { observation } : {}),
         ...(project ? { project: true } : {}),
         ...(type ? { type } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+        ...(orderBy !== undefined ? { orderBy } : {}),
       },
       { command: 'docs list' },
     );
