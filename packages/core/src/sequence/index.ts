@@ -292,14 +292,22 @@ const MAX_ALLOC_RETRIES = 3;
 /**
  * Atomically allocate the next task ID via SQLite.
  *
- * Uses BEGIN IMMEDIATE to guarantee no two concurrent callers
- * receive the same ID, even across processes (WAL mode).
+ * Uses a SAVEPOINT (instead of BEGIN IMMEDIATE) so that this function
+ * can be called from within an outer transaction without causing
+ * "cannot start a transaction within a transaction" errors (T9814).
+ *
+ * SQLite SAVEPOINTs nest correctly:
+ * - Called outside a transaction: the SAVEPOINT implicitly begins one.
+ * - Called inside a transaction (e.g., addBatchTasks outer tx):
+ *   the SAVEPOINT creates a logical checkpoint within the outer tx.
+ *   RELEASE commits the savepoint; ROLLBACK TO reverts only to it.
  *
  * Falls back to repair+retry if the sequence counter is behind
  * the actual max task ID (e.g., stale counter from installations
  * that never incremented it).
  *
  * @task T5184
+ * @task T9814 — SAVEPOINT for nestability inside batch-insert outer transaction
  */
 export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<string> {
   // Ensure DB is initialized (triggers migrations, seeds sequence counter)
@@ -313,8 +321,11 @@ export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<
     );
   }
 
-  // Atomic transaction: increment counter and read new value
-  nativeDb.prepare('BEGIN IMMEDIATE').run();
+  // Use a SAVEPOINT so this can nest inside an outer transaction.
+  // The name includes a timestamp + retry count to guarantee uniqueness
+  // across concurrent calls within the same process.
+  const spName = `_cleo_seq_alloc_${Date.now()}_${retryCount}`;
+  nativeDb.prepare(`SAVEPOINT ${spName}`).run();
   try {
     // Increment counter atomically
     nativeDb
@@ -349,8 +360,9 @@ export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<
       | undefined;
 
     if (existing) {
-      // Counter was behind actual data — rollback, repair, and retry
-      nativeDb.prepare('ROLLBACK').run();
+      // Counter was behind actual data — rollback to savepoint, repair, retry.
+      nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
+      nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
 
       if (retryCount >= MAX_ALLOC_RETRIES) {
         throw new CleoError(
@@ -363,12 +375,13 @@ export async function allocateNextTaskId(cwd?: string, retryCount = 0): Promise<
       return allocateNextTaskId(cwd, retryCount + 1);
     }
 
-    nativeDb.prepare('COMMIT').run();
+    nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
     return newId;
   } catch (err) {
-    // Ensure transaction is rolled back on any error
+    // Ensure savepoint is rolled back on any error
     try {
-      nativeDb.prepare('ROLLBACK').run();
+      nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
+      nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
     } catch {
       /* ignore rollback errors */
     }
