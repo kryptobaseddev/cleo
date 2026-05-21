@@ -129,7 +129,11 @@ const migrateCommand = defineCommand({
  * ```
  */
 export const reqCommand = defineCommand({
-  meta: { name: 'req', description: 'Manage REQ-ID-addressable acceptance gates on tasks' },
+  meta: {
+    name: 'req',
+    description:
+      'Manage REQ-ID-addressable acceptance gates on tasks (in-task gates only). For cross-task dependency edges, use `cleo update <id> --add-depends <ids>` or `cleo update <id> --add-relates <id>:blocks` (gh-394).',
+  },
   subCommands: {
     add: addCommand,
     list: listCommand,

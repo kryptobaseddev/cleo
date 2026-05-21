@@ -86,7 +86,7 @@ describe('coreTaskDepends transitive hints', () => {
 
     const withHint = await coreTaskDepends('/mock', 'T003');
     expect(withHint.hint).toBeDefined();
-    expect(withHint.hint).toContain('ct deps show');
+    expect(withHint.hint).toContain('cleo deps show');
 
     // All deps resolved
     const resolvedTasks = [
