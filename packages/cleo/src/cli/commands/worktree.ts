@@ -1,15 +1,22 @@
 /**
  * CLI worktree command group — structured worktree enumeration + lifecycle
- * mutations (T9546, T9547).
+ * mutations (T9546, T9547, T9804).
  *
  * Thin CLI wrapper delegating to the worktree dispatch domain. Implements
  * the read-only listing (T9546) plus the lifecycle mutations (T9547) for
- * the T9515 worktree-lifecycle bug-fix epic.
+ * the T9515 worktree-lifecycle bug-fix epic, and the Claude Code Agent
+ * isolation:worktree bridge (T9804 / Saga T9800).
  *
  * Commands:
  *   cleo worktree list [--status <category>] [--json] [--days <n>]
  *     — list every worktree attached to the current project with status
- *       classification.
+ *       classification. Includes adopted sentinel-index entries (T9804).
+ *
+ *   cleo worktree adopt <path> [--source <source>] [--task-id <id>] [--json]
+ *     — register an externally-created worktree (e.g. Claude Code Agent
+ *       `isolation:worktree`) in the CLEO SSoT so it surfaces in
+ *       `cleo worktree list`. Writes to `.cleo/worktrees.json` (sentinel
+ *       index, council D009) and appends an audit-log entry. (T9804)
  *
  *   cleo worktree prune --orphaned [--yes] [--dry-run] [--json]
  *     — detect orphan/merged worktrees + remove them. Per-orphan TTY Y/N
@@ -21,12 +28,15 @@
  *
  * Dispatch equivalents:
  *   query({ domain: 'worktree', operation: 'list', params: { statusFilter?, staleDays? } })
+ *   mutate({ domain: 'worktree', operation: 'adopt', params: { worktreePath, source?, taskId?, actor? } })
  *   mutate({ domain: 'worktree', operation: 'prune', params: { dryRun?, paths?, actor? } })
  *   mutate({ domain: 'worktree', operation: 'forceUnlock', params: { taskId, actor? } })
  *
  * @task T9546
  * @task T9547
+ * @task T9804
  * @epic T9515
+ * @saga T9800
  */
 
 import readline from 'node:readline';
@@ -336,12 +346,101 @@ const forceUnlockCommand = defineCommand({
   },
 });
 
+/** Recognised `--source` values for the adopt subcommand. */
+const VALID_ADOPT_SOURCES = ['claude-agent', 'manual', 'adopted'] as const;
+
+/**
+ * `cleo worktree adopt <path>` — register an externally-created worktree in
+ * the CLEO SSoT (T9804 — Claude Code Agent isolation:worktree bridge).
+ *
+ * This command is the CLI surface for Option B (Adopt) — the only feasible
+ * approach since CLEO cannot modify the Claude Code Agent harness directly.
+ * After adoption the worktree surfaces in `cleo worktree list` tagged with
+ * `source: claude-agent` and inherits the same auto-cleanup lifecycle as
+ * canonical CLEO-spawned worktrees.
+ *
+ * @example
+ * ```sh
+ * cleo worktree adopt .claude/worktrees/session-abc
+ * cleo worktree adopt .claude/worktrees/session-abc --source claude-agent
+ * cleo worktree adopt /tmp/my-manual-worktree --source manual --task-id T9804
+ * cleo worktree adopt .claude/worktrees/session-abc --json
+ * ```
+ *
+ * @task T9804
+ * @saga T9800
+ */
+const adoptCommand = defineCommand({
+  meta: {
+    name: 'adopt',
+    description:
+      'Register an externally-created worktree (e.g. Claude Code Agent isolation:worktree) ' +
+      'in the CLEO SSoT so it surfaces in `cleo worktree list`.',
+  },
+  args: {
+    path: {
+      type: 'positional',
+      description:
+        'Absolute or relative path to the worktree directory to adopt. ' +
+        'For Claude Code Agent worktrees this is typically `.claude/worktrees/<sessionId>/`.',
+      required: true,
+    },
+    source: {
+      type: 'string',
+      description:
+        `Source classification for this worktree (${VALID_ADOPT_SOURCES.join('|')}). ` +
+        'Defaults to `claude-agent` for paths under `.claude/worktrees/`, else `manual`.',
+    },
+    'task-id': {
+      type: 'string',
+      description:
+        'Optional task ID to associate with this worktree. ' +
+        'When omitted the command attempts to extract it from the branch name.',
+    },
+    actor: {
+      type: 'string',
+      description: 'Override actor name written to the audit log.',
+    },
+  },
+  async run({ args }) {
+    const rawPath = typeof args['path'] === 'string' ? args['path'] : '';
+    if (rawPath.length === 0) {
+      cliError('Missing required positional: <path>.', 2);
+      process.exit(2);
+      return;
+    }
+
+    const rawSource = typeof args['source'] === 'string' ? args['source'] : undefined;
+    const source =
+      rawSource !== undefined && (VALID_ADOPT_SOURCES as readonly string[]).includes(rawSource)
+        ? (rawSource as (typeof VALID_ADOPT_SOURCES)[number])
+        : undefined;
+
+    const rawTaskId = typeof args['task-id'] === 'string' ? args['task-id'] : undefined;
+    const rawActor = typeof args['actor'] === 'string' ? args['actor'] : undefined;
+
+    await dispatchFromCli(
+      'mutate',
+      'worktree',
+      'adopt',
+      {
+        worktreePath: rawPath,
+        ...(source !== undefined ? { source } : {}),
+        ...(rawTaskId !== undefined ? { taskId: rawTaskId } : {}),
+        ...(rawActor !== undefined ? { actor: rawActor } : {}),
+      },
+      { command: 'worktree-adopt', operation: 'worktree.adopt' },
+    );
+  },
+});
+
 /**
  * Root `cleo worktree` command group — read-only listing plus T9547
- * lifecycle mutations (prune + force-unlock).
+ * lifecycle mutations (prune + force-unlock) and T9804 adopt.
  *
  * @task T9546
  * @task T9547
+ * @task T9804
  */
 export const worktreeCommand = defineCommand({
   meta: {
@@ -352,6 +451,7 @@ export const worktreeCommand = defineCommand({
   },
   subCommands: {
     list: listCommand,
+    adopt: adoptCommand,
     prune: pruneCommand,
     'force-unlock': forceUnlockCommand,
   },

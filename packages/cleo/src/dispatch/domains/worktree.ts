@@ -6,8 +6,12 @@
  * QUERY operations:
  *   list — structured enumeration of every git worktree attached to the
  *          project with status classification (active|stale|merged|orphan|locked).
+ *          Includes sentinel-index entries (T9804 — Claude Code Agent bridge).
  *
  * MUTATE operations:
+ *   adopt       — register an externally-created worktree (e.g. Claude Code
+ *                 Agent `isolation:worktree`) in the CLEO SSoT. Writes to
+ *                 `.cleo/worktrees.json` sentinel index (T9804 / D009).
  *   prune       — remove orphaned + merged worktrees (T9547). Non-interactive;
  *                 the CLI handles per-orphan Y/N prompts and passes the
  *                 confirmed `paths` subset through `params`.
@@ -15,24 +19,30 @@
  *                 `git worktree unlock`) for a single task ID (T9547).
  *
  * All mutate ops route through SDK primitives in
- * `packages/core/src/worktree/{prune,force-unlock}.ts` and append
+ * `packages/core/src/worktree/{prune,force-unlock,worktree-adopt}.ts` and append
  * audit entries to `.cleo/audit/worktree-lifecycle.jsonl`.
  *
  * @task T9546
  * @task T9547
+ * @task T9804
  * @epic T9515 — worktree-lifecycle bug-fix epic
+ * @saga T9800
  */
 
 import type {
+  AdoptWorktreeOpts,
+  AdoptWorktreeResult,
   ForceUnlockWorktreeOpts,
   ForceUnlockWorktreeResult,
   ListWorktreesOpts,
   ListWorktreesResult,
   PruneOrphanedWorktreesOpts,
   PruneOrphanedWorktreesResult,
+  WorktreeSource,
   WorktreeStatusCategory,
 } from '@cleocode/contracts';
 import {
+  adoptWorktree,
   forceUnlockWorktree,
   getLogger,
   getProjectRoot,
@@ -146,6 +156,9 @@ export class WorktreeHandler implements DomainHandler {
    * Handle worktree mutations.
    *
    * Supported operations:
+   *  - `adopt` — register an externally-created worktree in the SSoT. Params:
+   *              `{ worktreePath, source?, taskId?, actor? }`. Returns an
+   *              {@link AdoptWorktreeResult} envelope. (T9804)
    *  - `prune` — remove orphan/merged worktrees. Params:
    *              `{ dryRun?, staleDays?, paths?, actor? }`. Returns a
    *              {@link PruneOrphanedWorktreesResult} envelope.
@@ -153,11 +166,55 @@ export class WorktreeHandler implements DomainHandler {
    *              `{ taskId, actor? }`. Returns a {@link ForceUnlockWorktreeResult}.
    *
    * @task T9547
+   * @task T9804
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
     try {
       switch (operation) {
+        case 'adopt': {
+          const worktreePath = params?.['worktreePath'];
+          if (typeof worktreePath !== 'string' || worktreePath.length === 0) {
+            return errorResult(
+              'mutate',
+              'worktree',
+              operation,
+              'E_VALIDATION',
+              'Missing required param: worktreePath (pass the path to the worktree directory).',
+              startTime,
+            );
+          }
+          const rawSource = params?.['source'];
+          const validSources: WorktreeSource[] = ['claude-agent', 'manual', 'adopted'];
+          const source: WorktreeSource | undefined =
+            typeof rawSource === 'string' && (validSources as string[]).includes(rawSource)
+              ? (rawSource as WorktreeSource)
+              : undefined;
+          const rawTaskId = params?.['taskId'];
+          const taskId: string | null | undefined =
+            rawTaskId === null
+              ? null
+              : typeof rawTaskId === 'string' && rawTaskId.length > 0
+                ? rawTaskId
+                : undefined;
+          const opts: AdoptWorktreeOpts = {
+            projectRoot: getProjectRoot(),
+            worktreePath,
+            ...(source !== undefined ? { source } : {}),
+            ...(taskId !== undefined ? { taskId } : {}),
+            ...(typeof params?.['actor'] === 'string' && params['actor'].length > 0
+              ? { actor: params['actor'] as string }
+              : {}),
+          };
+          const result = await adoptWorktree(opts);
+          return wrapResult(
+            result as Parameters<typeof wrapResult>[0],
+            'mutate',
+            'worktree',
+            operation,
+            startTime,
+          );
+        }
         case 'prune': {
           const opts: PruneOrphanedWorktreesOpts = {
             projectRoot: getProjectRoot(),
@@ -227,11 +284,16 @@ export class WorktreeHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['list'],
-      mutate: ['prune', 'forceUnlock'],
+      mutate: ['adopt', 'prune', 'forceUnlock'],
     };
   }
 }
 
 // Re-export the result types so dispatch callers that import the handler don't
 // also have to reach into @cleocode/contracts.
-export type { ForceUnlockWorktreeResult, ListWorktreesResult, PruneOrphanedWorktreesResult };
+export type {
+  AdoptWorktreeResult,
+  ForceUnlockWorktreeResult,
+  ListWorktreesResult,
+  PruneOrphanedWorktreesResult,
+};
