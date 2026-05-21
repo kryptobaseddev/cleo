@@ -152,7 +152,6 @@ vi.mock('../../lib/engine.js', () => ({
   // LIFECYCLE_STAGES removed — import from core/lifecycle/ instead
   // Release engine
   releasePrepare: vi.fn(() => ({ success: true, data: {} })),
-  releaseChangelog: vi.fn(() => ({ success: true, data: {} })),
   releaseList: vi.fn(() => ({ success: true, data: [] })),
   releaseShow: vi.fn(() => ({ success: true, data: {} })),
   releaseCommit: vi.fn(() => ({ success: true, data: {} })),

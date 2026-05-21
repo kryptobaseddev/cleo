@@ -79,8 +79,6 @@ export {
   IVTR_DECOUPLED_AUDIT_FILE,
   IVTR_DECOUPLED_SENTINEL_FILE,
   releaseCancel,
-  releaseChangelog,
-  releaseChangelogSince,
   releaseCommit,
   releaseGateCheck,
   releaseGatesRun,
@@ -196,7 +194,6 @@ export type {
 export {
   cancelRelease,
   commitRelease,
-  generateReleaseChangelog,
   listReleases,
   markReleasePushed,
   migrateReleasesJsonToSqlite,

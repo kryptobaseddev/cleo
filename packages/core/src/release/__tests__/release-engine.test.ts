@@ -11,7 +11,6 @@ import { tmpdir } from 'node:os';
 import type { Task } from '@cleocode/contracts';
 import {
   createSqliteDataAccessor,
-  releaseChangelog,
   releaseCommit,
   releaseGatesRun,
   releaseList,
@@ -115,24 +114,6 @@ describe('Release Engine', () => {
     });
   });
 
-  describe('releaseChangelog', () => {
-    it('should generate changelog', async () => {
-      await releasePrepare('v1.0.0', ['T001', 'T002'], undefined, TEST_ROOT);
-      const result = await releaseChangelog('v1.0.0', TEST_ROOT);
-      expect(result.success).toBe(true);
-      const data = result.data as any;
-      expect(data.changelog).toContain('v1.0.0');
-      expect(data.sections.features).toBe(1);
-      expect(data.sections.fixes).toBe(1);
-    });
-
-    it('should return error for missing release', async () => {
-      const result = await releaseChangelog('v9.9.9', TEST_ROOT);
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_NOT_FOUND');
-    });
-  });
-
   describe('releaseList', () => {
     it('should list releases', async () => {
       await releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
@@ -210,7 +191,6 @@ describe('Release Engine', () => {
   describe('releaseGatesRun', () => {
     it('should run release gates', async () => {
       await releasePrepare('v1.0.0', ['T001', 'T002'], undefined, TEST_ROOT);
-      await releaseChangelog('v1.0.0', TEST_ROOT);
 
       const result = await releaseGatesRun('v1.0.0', TEST_ROOT);
       expect(result.success).toBe(true);

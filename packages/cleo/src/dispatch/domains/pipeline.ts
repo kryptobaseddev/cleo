@@ -74,7 +74,6 @@ import {
   pipelineManifestShow,
   pipelineManifestStats,
   releaseCancel,
-  releaseChangelogSince,
   releaseList,
   releasePrStatus,
   releaseRollback,
@@ -111,7 +110,6 @@ type StageGateFailParams = { taskId: string; gateName: string; reason?: string }
 type ReleaseListParams = { status?: ReleaseListOptions['status']; limit?: number; offset?: number };
 type ReleaseShowParams = { version: string };
 type ReleaseChannelShowParams = Record<string, never>;
-type ReleaseChangelogSinceParams = { sinceTag: string };
 // ReleaseShipParams + releaseShipOp removed in T9540 (Phase 6 of T9499) —
 // the legacy `releaseShip` monolith was deleted; `cleo release ship` now
 // forwards to `release.plan` + `release.open` (handled by the release
@@ -263,10 +261,6 @@ async function releaseChannelShowOp(_params: ReleaseChannelShowParams) {
   };
 }
 
-async function releaseChangelogSinceOp(params: ReleaseChangelogSinceParams) {
-  return releaseChangelogSince(params.sinceTag, getProjectRoot());
-}
-
 /** T9095 — poll CI check status for in-progress release PR. */
 async function releasePrStatusOp(params: ReleasePrStatusParams) {
   return releasePrStatus(params.version, getProjectRoot());
@@ -407,7 +401,6 @@ const coreOps = {
   'release.list': releaseListOp,
   'release.show': releaseShowOp,
   'release.channel.show': releaseChannelShowOp,
-  'release.changelog.since': releaseChangelogSinceOp,
   'release.pr-status': releasePrStatusOp,
   'release.cancel': releaseCancelOp,
   'release.rollback': releaseRollbackOp,
@@ -577,16 +570,6 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
   // Always succeeds (git branch detection falls back to 'unknown') — no error path.
   'release.channel.show': async (_params: PipelineOps['release.channel.show'][0]) =>
     lafsSuccess((await coreOps['release.channel.show'](_params)).data, 'release.channel.show'),
-
-  'release.changelog.since': async (params: PipelineOps['release.changelog.since'][0]) => {
-    if (!params.sinceTag) {
-      return lafsError('E_INVALID_INPUT', 'sinceTag is required', 'release.changelog.since');
-    }
-    return wrapCoreResult(
-      await coreOps['release.changelog.since'](params),
-      'release.changelog.since',
-    );
-  },
 
   // -------------------------------------------------------------------------
   // Release mutations
@@ -888,7 +871,6 @@ export class PipelineHandler implements DomainHandler {
       'release.list',
       'release.show',
       'release.channel.show',
-      'release.changelog.since',
       'release.pr-status',
       'phase.show',
       'phase.list',
@@ -1018,7 +1000,6 @@ export class PipelineHandler implements DomainHandler {
         'release.list',
         'release.show',
         'release.channel.show',
-        'release.changelog.since',
         'phase.show',
         'phase.list',
         'chain.show',

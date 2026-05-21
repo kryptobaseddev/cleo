@@ -170,8 +170,6 @@ export {
   queryHookProviders,
   readManifestEntries,
   releaseCancel,
-  releaseChangelog,
-  releaseChangelogSince,
   releaseCommit,
   releaseGateCheck,
   releaseGatesRun,
