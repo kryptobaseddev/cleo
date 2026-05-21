@@ -60,13 +60,7 @@
  * @see packages/paths/src/cleo-paths.ts     — canonical SSoT
  */
 
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, posix, relative, sep } from 'node:path';
 
 // ============================================================================
@@ -308,9 +302,7 @@ if (STRICT) {
     console.info('lint-paths-ssot: STRICT OK (zero violations)');
     process.exit(0);
   }
-  console.error(
-    `lint-paths-ssot: STRICT FAIL — ${totalViolations} violation(s):\n`,
-  );
+  console.error(`lint-paths-ssot: STRICT FAIL — ${totalViolations} violation(s):\n`);
   for (const v of violations) {
     console.error(`  [${v.ruleId}] ${v.file}:${v.line}`);
     console.error(`    ${v.snippet}`);
@@ -434,7 +426,7 @@ console.error(
     '    with `getCleoHome()` from `@cleocode/paths`.\n' +
     '  • Rule `hand-rolled-worktree-path`: replace hand-rolled worktree paths with\n' +
     '    `resolveWorktreeRootForHash()` / `getCleoWorktreesRoot()` from `@cleocode/paths`.\n' +
-    "  • Per-line opt-out: append `// env-paths-ok: <reason>`, `// xdg-raw-ok: <reason>`,\n" +
+    '  • Per-line opt-out: append `// env-paths-ok: <reason>`, `// xdg-raw-ok: <reason>`,\n' +
     '    or `// worktree-path-ok: <reason>` for genuinely justified exceptions.\n' +
     '  • See packages/paths/src/worktree-paths.ts and cleo-paths.ts for the canonical API.\n',
 );
