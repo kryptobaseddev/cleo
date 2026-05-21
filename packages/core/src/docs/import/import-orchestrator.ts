@@ -28,7 +28,13 @@ import {
 } from './audit.js';
 import { decideDedupAction } from './dedup.js';
 import { type DocImportType, scanDirectory } from './scanner.js';
-import { generateSlug, type SlugResult, stripMdExtension } from './slug.js';
+import {
+  generateSlug,
+  RESERVED_SLUGS,
+  type SlugResult,
+  slugify,
+  stripMdExtension,
+} from './slug.js';
 
 /**
  * Map the CLI-level {@link DocImportType} onto the underlying
@@ -71,6 +77,18 @@ export interface RunDocsImportOptions {
   readonly auditDir?: string;
   /** Inject a clock for deterministic tests. */
   readonly now?: () => Date;
+  /**
+   * Custom classifier override forwarded to {@link scanDirectory}. When the
+   * scan root is one of the canonical source dirs (`.cleo/adrs`, `.cleo/rcasd`,
+   * `docs/`, ...), the relPath of every scanned file lacks the source-dir
+   * prefix and the default classifier falls back to `note`. Callers that
+   * already know the source dir SHOULD pass a closure (typically from
+   * {@link import('./scanner.js').makeClassifierForScanRoot}) so files
+   * receive their correct {@link DocImportType}.
+   *
+   * @task T9791
+   */
+  readonly classify?: (relPath: string) => import('./scanner.js').DocImportType;
 }
 
 /** Thrown when the counter-integrity invariant fails (T9709 AC). */
@@ -98,7 +116,10 @@ export async function runDocsImport(options: RunDocsImportOptions): Promise<RunD
   const now = options.now ?? (() => new Date());
   const startedAt = now().toISOString();
 
-  const scanned = await scanDirectory({ root: options.root });
+  const scanned = await scanDirectory({
+    root: options.root,
+    ...(options.classify ? { classify: options.classify } : {}),
+  });
   const counters = createCounters();
   counters.scanCount = scanned.length;
 
@@ -123,24 +144,66 @@ export async function runDocsImport(options: RunDocsImportOptions): Promise<RunD
   for (const file of scanned) {
     const ts = now().toISOString();
 
-    // 1. Slug — failure here is an error row, not a hard abort.
+    // 1. Slug — failure here is an error row, not a hard abort. When the
+    //    basename slugifies to a reserved value (`import`, `list`, etc.)
+    //    we prepend the parent dir to disambiguate before giving up
+    //    (T9791 — uncovered by benchmark fixtures that ship their own
+    //    `import.md` files under nested dirs).
     let slugResult: SlugResult;
+    const baseName = stripMdExtension(file.relPath.split('/').pop() ?? file.relPath);
     try {
-      slugResult = generateSlug({
-        source: stripMdExtension(file.relPath.split('/').pop() ?? file.relPath),
-        existing: usedSlugs,
-      });
+      slugResult = generateSlug({ source: baseName, existing: usedSlugs });
     } catch (err) {
-      counters.errorCount++;
-      entries.push({
-        file: file.relPath,
-        type: file.suggestedType,
-        action: 'error',
-        sha: file.contentSha,
-        ts,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      continue;
+      if (
+        err instanceof Error &&
+        err.name === 'SlugReservedError' &&
+        RESERVED_SLUGS.has(slugify(baseName))
+      ) {
+        // Build a fallback slug by chaining parent dir segments until the
+        // result no longer slugifies to a reserved word. Falls back to
+        // `imported-<basename>` when no parent context is available.
+        const segments = file.relPath.split('/').slice(0, -1).filter(Boolean);
+        const candidates = [
+          ...segments
+            .map((_, i) => `${segments.slice(i).join('-')}-${baseName}`)
+            .filter((s) => s.length > 0),
+          `imported-${baseName}`,
+        ];
+        let fallback: SlugResult | undefined;
+        for (const c of candidates) {
+          try {
+            fallback = generateSlug({ source: c, existing: usedSlugs });
+            break;
+          } catch {
+            // try the next candidate
+          }
+        }
+        if (fallback) {
+          slugResult = fallback;
+        } else {
+          counters.errorCount++;
+          entries.push({
+            file: file.relPath,
+            type: file.suggestedType,
+            action: 'error',
+            sha: file.contentSha,
+            ts,
+            error: err.message,
+          });
+          continue;
+        }
+      } else {
+        counters.errorCount++;
+        entries.push({
+          file: file.relPath,
+          type: file.suggestedType,
+          action: 'error',
+          sha: file.contentSha,
+          ts,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        continue;
+      }
     }
     usedSlugs.add(slugResult.slug);
 

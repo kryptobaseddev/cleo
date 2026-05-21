@@ -68,6 +68,14 @@
 # --strict and this file is deleted.)
 !project-root-baseline.json
 
+# Step 11: Allow docs import audit manifests (T9791) — each `cleo docs
+# import` run writes one JSON manifest per source dir under
+# .cleo/audit/imports/<ts>/. The audit trail is git-tracked so retroactive
+# verification of the ADR-051 evidence ritual stays possible.
+!audit/
+!audit/imports/
+!audit/imports/**
+
 # =============================================================================
 # EXPLICIT DENY — safety net that overrides allow rules above
 # =============================================================================

@@ -52,6 +52,14 @@ export { exportDocument } from './export-document.js';
 
 // ── T9639 — cleo docs import (legacy .md migration) ─────────────────────────
 
+// T9791 — AttachmentStore-backed DocsAccessor for the production import path.
+export {
+  AttachmentStoreDocsAccessor,
+  createAttachmentStoreDocsAccessor,
+  IMPORT_OWNER_TYPE,
+  IMPORT_PROJECT_OWNER_ID,
+  inferOwnerIdFromPath,
+} from './import/attachment-store-accessor.js';
 export type {
   ImportAction,
   ImportCounters,
@@ -80,6 +88,8 @@ export type {
 export {
   classifyByRelPath,
   DEFAULT_EXCLUDE_DIRS,
+  makeClassifierForScanRoot,
+  SOURCE_DIR_TO_TYPE,
   scanDirectory,
 } from './import/scanner.js';
 export type { GenerateSlugOptions, SlugResult } from './import/slug.js';
