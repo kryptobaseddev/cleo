@@ -23,12 +23,12 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-vi.mock('../changelog-writer.js', () => ({
-  writeChangelogSection: vi.fn().mockResolvedValue(undefined),
-  parseChangelogBlocks: vi.fn().mockReturnValue({ customBlocks: [], strippedContent: '' }),
-}));
+// T9784 / Saga T9782: the previous `vi.mock('../changelog-writer.js', ...)`
+// stub was deleted alongside the changelog-writer module itself.
+// `release-manifest.ts` no longer imports from changelog-writer, so the
+// mock became dead weight (and would now fail module resolution).
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as {

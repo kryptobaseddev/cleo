@@ -34,8 +34,12 @@ export {
   saveCheckpoint as backfillSaveCheckpoint,
   synthesizePlanFromTag,
 } from './backfill.js';
-// Changelog writing
-export { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
+// Changelog writing: DELETED (T9784 / Saga T9782)
+// The ADR-028 `[custom-log]` block writer (`release/changelog-writer.ts`)
+// was one of three competing CHANGELOG systems. Per the "single canonical
+// system" rip-out directive, all three are deleted. The canonical write
+// surface is `cleo changeset add` (T9793); the canonical aggregator is
+// `aggregateChangesetsForRelease` (re-exported below).
 // CLEO-native changesets aggregator (T9753 / T9793 SSoT-first reader)
 export type {
   AggregateChangesetsOptions,

@@ -22,8 +22,13 @@ import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 import { drainWarnings, pushWarning } from '../output.js';
-import { writeChangelogSection } from '../release/changelog-writer.js';
-import { generateChangelog } from '../ui/changelog.js';
+
+// T9784 / Saga T9782: `release/changelog-writer.ts` and `ui/changelog.ts`
+// were deleted in the "single canonical CHANGELOG system" rip-out. The
+// runtime W_DEPRECATED emission tests for those modules are removed below
+// (subject is gone). The registry coverage tests for the YAML+schema still
+// apply — they now operate on the remaining `cleo-release-changelog-verb-
+// git-log` and `agent-output-raw-md-write` entries.
 
 // ─── Locate registry + schema relative to the monorepo root ────────────────
 
@@ -129,36 +134,8 @@ describe('T9795: Runtime W_DEPRECATED warning emission', () => {
     expect(drained?.[0]?.code).toBe('W_DEPRECATED');
   });
 
-  it('writeChangelogSection emits W_DEPRECATED (changelog-writer-custom-log)', async () => {
-    drainWarnings();
-    // The function writes via atomicWrite — give it a path inside /tmp so
-    // we don't pollute the repo. We only care about the warning side-effect.
-    const { tmpdir } = await import('node:os');
-    const { join } = await import('node:path');
-    const tmpPath = join(tmpdir(), `T9795-changelog-${Date.now()}.md`);
-    await writeChangelogSection('v0.0.0-test', '- entry', [], tmpPath);
-    const drained = drainWarnings();
-    const codes = (drained ?? []).map((w) => w.code);
-    expect(codes).toContain('W_DEPRECATED');
-    const ctx = (drained ?? []).find((w) => w.code === 'W_DEPRECATED')?.context as
-      | { registryId?: string }
-      | undefined;
-    expect(ctx?.registryId).toBe('changelog-writer-custom-log');
-  });
-
-  it('generateChangelog emits W_DEPRECATED (ui-changelog-label-grouping)', async () => {
-    drainWarnings();
-    // Pass an accessor stub that returns no tasks so the function short-
-    // circuits without touching the filesystem.
-    const stubAccessor = {
-      queryTasks: async () => ({ tasks: [] }),
-      loadArchive: async () => ({ archivedTasks: [] }),
-    } as unknown as Parameters<typeof generateChangelog>[3];
-    await generateChangelog('v0.0.0-test', {}, undefined, stubAccessor);
-    const drained = drainWarnings();
-    const dep = (drained ?? []).find((w) => w.code === 'W_DEPRECATED');
-    expect(dep).toBeDefined();
-    const ctx = dep?.context as { registryId?: string } | undefined;
-    expect(ctx?.registryId).toBe('ui-changelog-label-grouping');
-  });
+  // T9784 / Saga T9782: the two W_DEPRECATED firing tests below were
+  // deleted alongside their subjects (writeChangelogSection in
+  // changelog-writer.ts; generateChangelog in ui/changelog.ts). Both
+  // source files are gone — there is no live deprecation to assert.
 });
