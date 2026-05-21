@@ -294,8 +294,15 @@ export {
   DocKindConfigError,
   DocKindRegistry,
 } from './docs-taxonomy.js';
-// === Doctor: Worktree-Orphan Audit + Prune Types (T9790) ===
-export type { OrphanEntry, PruneAuditEntry, PruneResult } from './doctor.js';
+// === Doctor: Worktree-Orphan Audit + Prune Types (T9790, T9808) ===
+export type {
+  ComprehensiveAuditResult,
+  OrphanEntry,
+  PruneAuditEntry,
+  PruneResult,
+  WorktreeAnomaly,
+  WorktreeAnomalyKind,
+} from './doctor.js';
 export type {
   EngineErrorPayload,
   EngineFailure,
