@@ -322,6 +322,15 @@ export {
   engineSuccess,
   unwrap,
 } from './engine-result.js';
+// === Task-Axis Enum Constants (T9955 — promoted from core/store/tasks-schema.ts) ===
+export {
+  ARCHIVE_REASONS,
+  TASK_KINDS,
+  TASK_RELATION_TYPES,
+  TASK_SCOPES,
+  TASK_SEVERITIES,
+  TASK_SIZES,
+} from './enums.js';
 // === Error Utilities ===
 export {
   ClassifierUnregisteredAgentError,
@@ -449,6 +458,8 @@ export {
 } from './graph.js';
 export type { AdapterHookProvider } from './hooks.js';
 export type { AdapterInstallProvider, InstallOptions, InstallResult } from './install.js';
+// === Background Job Status (T9955 — promoted from core/store/tasks-schema.ts) ===
+export type { BackgroundJobStatus } from './jobs.js';
 export type {
   CleoResponse,
   ConformanceReport,
@@ -1316,6 +1327,30 @@ export type {
   ProjectType,
   TestFramework,
 } from './project-context.js';
+// === Provenance Graph Unions (T9955 — promoted from core/store/tasks-schema.ts) ===
+// Note: ReleaseChannel/ReleaseKind/ReleaseScheme/ReleaseStatus collide with the
+// existing `./release/channel.js` + `./release/plan.js` + `./task.js` exports
+// (different domains, different value sets). The colliding 4 are re-exported
+// here under `Provenance…`-qualified aliases. The other 12 keep their natural
+// names — they are unique across the package.
+export type {
+  BrainReleaseLinkType,
+  CommitConventionalType,
+  CommitFileChangeType,
+  CommitLinkKind,
+  CommitLinkSource,
+  PrLinkKind,
+  PrLinkSource,
+  PrState,
+  ReleaseArtifactType,
+  ReleaseChangeType,
+  ReleaseChannel as ProvenanceReleaseChannel,
+  ReleaseClassifiedBy,
+  ReleaseImpact,
+  ReleaseKind as ProvenanceReleaseKind,
+  ReleaseScheme as ProvenanceReleaseScheme,
+  ReleaseStatus as ProvenanceReleaseStatus,
+} from './provenance.js';
 export type { AdapterPathProvider } from './provider-paths.js';
 // === Release Channel ===
 export type { ChannelValidationResult, ReleaseChannel } from './release/channel.js';

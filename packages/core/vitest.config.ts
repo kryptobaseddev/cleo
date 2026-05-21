@@ -52,6 +52,22 @@ export default defineConfig({
     ],
     // Path aliases matching the root tsconfig.
     alias: {
+      // T9955: explicit subpath aliases for provenance/jobs/enums modules.
+      // These MUST appear BEFORE the bare `@cleocode/contracts` alias so
+      // vitest matches the longer prefix first; otherwise the broader alias
+      // rewrites the path to `index.ts/<subpath>` and Node errors with ENOTDIR.
+      '@cleocode/contracts/enums': new URL(
+        '../../packages/contracts/src/enums.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/provenance': new URL(
+        '../../packages/contracts/src/provenance.ts',
+        import.meta.url,
+      ).pathname,
+      '@cleocode/contracts/jobs': new URL(
+        '../../packages/contracts/src/jobs.ts',
+        import.meta.url,
+      ).pathname,
       '@cleocode/contracts': new URL('../../packages/contracts/src/index.ts', import.meta.url)
         .pathname,
       '@cleocode/core/internal': new URL('./src/internal.ts', import.meta.url).pathname,
