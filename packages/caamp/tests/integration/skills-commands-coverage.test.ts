@@ -5,6 +5,11 @@
 
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  expectFormatConflict,
+  fixtures,
+  runCli,
+} from "./helpers/index.js";
 
 const mocks = vi.hoisted(() => ({
   existsSync: vi.fn(),
@@ -229,82 +234,55 @@ describe("skills commands - additional coverage", () => {
   // ==========================================
   describe("skills audit - additional coverage", () => {
     it("format conflict exits when both --json and --human passed", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
-
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "audit", "/path", "--json", "--human"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      await expectFormatConflict(registerSkillsAudit, ["audit", "/path"]);
     });
 
     it("outputs SARIF error when path not found and --sarif is set", async () => {
       mocks.existsSync.mockReturnValue(false);
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsAudit,
+        ["audit", "/nonexistent", "--sarif"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "audit", "/nonexistent", "--sarif"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = JSON.parse(String(errorSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStderr() as {
+        version: string;
+        runs: Array<{ invocations: Array<{ executionSuccessful: boolean }> }>;
+      };
       expect(output.version).toBe("2.1.0");
       expect(output.runs[0].invocations[0].executionSuccessful).toBe(false);
-      expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
     it("outputs SARIF error when scan throws and format is sarif", async () => {
       mocks.statSync.mockReturnValue({ isFile: () => true });
       mocks.scanFile.mockRejectedValue(new Error("scan failed"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsAudit,
+        ["audit", "/path/to/SKILL.md", "--sarif"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "audit", "/path/to/SKILL.md", "--sarif"]),
-      ).rejects.toThrow("process-exit");
-
-      const output = JSON.parse(String(errorSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStderr() as {
+        version: string;
+        runs: Array<{ invocations: Array<{ exitCodeDescription: string }> }>;
+      };
       expect(output.version).toBe("2.1.0");
       expect(output.runs[0].invocations[0].exitCodeDescription).toBe("scan failed");
-      expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
     it("outputs LAFS JSON error when scan throws and format is json", async () => {
       mocks.statSync.mockReturnValue({ isFile: () => true });
       mocks.scanFile.mockRejectedValue(new Error("scan broke"));
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsAudit,
+        ["audit", "/path/to/SKILL.md", "--json"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "audit", "/path/to/SKILL.md", "--json"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(errorSpy).toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(inv.stderr.length).toBeGreaterThan(0);
     });
 
     it("outputs SARIF for empty results with --sarif", async () => {
@@ -312,14 +290,10 @@ describe("skills commands - additional coverage", () => {
       mocks.scanDirectory.mockResolvedValue([]);
       mocks.toSarif.mockReturnValue({ version: "2.1.0", runs: [] });
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await program.parseAsync(["node", "test", "audit", "/empty", "--sarif"]);
+      const inv = await runCli(registerSkillsAudit, ["audit", "/empty", "--sarif"]);
 
       expect(mocks.toSarif).toHaveBeenCalledWith([]);
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as { version: string };
       expect(output.version).toBe("2.1.0");
     });
 
@@ -327,21 +301,18 @@ describe("skills commands - additional coverage", () => {
       mocks.statSync.mockReturnValue({ isFile: () => false });
       mocks.scanDirectory.mockResolvedValue([]);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsAudit(program);
+      const inv = await runCli(registerSkillsAudit, ["audit", "/empty", "--json"]);
 
-      await program.parseAsync(["node", "test", "audit", "/empty", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as {
+        $schema: string;
+        result: { scanned: number };
+      };
       expect(output.$schema).toBe("https://lafs.dev/schemas/v1/envelope.schema.json");
       expect(output.result.scanned).toBe(0);
     });
 
     it("outputs SARIF for results with findings and exits 1 when not all passed", async () => {
-      const findings = [
-        { rule: { id: "CI001", severity: "critical", name: "Command Injection", description: "Dangerous command" }, line: 5, context: "rm -rf /" },
-      ];
+      const findings = [fixtures.scanFinding("critical")];
       mocks.statSync.mockReturnValue({ isFile: () => true });
       mocks.scanFile.mockResolvedValue({
         file: "test.md",
@@ -351,96 +322,77 @@ describe("skills commands - additional coverage", () => {
       });
       mocks.toSarif.mockReturnValue({ version: "2.1.0", runs: [{ results: findings }] });
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
-
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await program.parseAsync(["node", "test", "audit", "test.md", "--sarif"]);
+      const inv = await runCli(
+        registerSkillsAudit,
+        ["audit", "test.md", "--sarif"],
+        { expectExit: "any" },
+      );
 
       expect(mocks.toSarif).toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(inv.exitCode).toBe(1);
     });
 
     it("outputs JSON for results with findings and exits 1 when not all passed", async () => {
       mocks.statSync.mockReturnValue({ isFile: () => true });
       mocks.scanFile.mockResolvedValue({
         file: "test.md",
-        findings: [
-          { rule: { id: "CI001", severity: "critical", name: "Command Injection", description: "Dangerous" }, line: 5, context: "rm -rf /" },
-        ],
+        findings: [fixtures.scanFinding("critical")],
         score: 70,
         passed: false,
       });
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+      const inv = await runCli(
+        registerSkillsAudit,
+        ["audit", "test.md", "--json"],
+        { expectExit: "any" },
+      );
 
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await program.parseAsync(["node", "test", "audit", "test.md", "--json"]);
-
-      const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"));
+      const output = inv.jsonStdout() as { result: { findings: number } };
       expect(output.result.findings).toBe(1);
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(inv.exitCode).toBe(1);
     });
 
     it("human output shows severity colors for all levels and file details", async () => {
       mocks.statSync.mockReturnValue({ isFile: () => false });
       mocks.scanDirectory.mockResolvedValue([
-        {
-          file: "/skills/good/SKILL.md",
-          findings: [],
-          score: 100,
-          passed: true,
-        },
+        fixtures.passingAuditResult(),
         {
           file: "/skills/bad/SKILL.md",
           findings: [
-            { rule: { id: "CI001", severity: "critical", name: "Command Injection", description: "Dangerous" }, line: 5, context: "rm -rf /" },
-            { rule: { id: "H001", severity: "high", name: "High Risk", description: "High risk issue" }, line: 10, context: "sudo" },
-            { rule: { id: "M001", severity: "medium", name: "Medium Risk", description: "Medium risk" }, line: 15, context: "eval" },
-            { rule: { id: "L001", severity: "low", name: "Low Risk", description: "Low risk" }, line: 20, context: "info" },
+            fixtures.scanFinding("critical"),
+            fixtures.scanFinding("high"),
+            fixtures.scanFinding("medium"),
+            fixtures.scanFinding("low"),
           ],
           score: 50,
           passed: false,
         },
       ]);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+      const inv = await runCli(
+        registerSkillsAudit,
+        ["audit", "/skills", "--human"],
+        { expectExit: "any" },
+      );
 
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await program.parseAsync(["node", "test", "audit", "/skills", "--human"]);
-
-      const output = logSpy.mock.calls.map((call) => String(call[0] ?? "")).join("\n");
+      const output = inv.humanStdout();
       expect(output).toContain("No issues found");
       expect(output).toContain("file(s) scanned");
       expect(output).toContain("finding(s)");
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(inv.exitCode).toBe(1);
     });
 
     it("handles non-Error thrown from scan", async () => {
       mocks.statSync.mockReturnValue({ isFile: () => true });
       mocks.scanFile.mockRejectedValue("string error");
 
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-        throw new Error("process-exit");
-      }) as never);
+      const inv = await runCli(
+        registerSkillsAudit,
+        ["audit", "/path/to/SKILL.md"],
+        { expectExit: 1 },
+      );
 
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await expect(
-        program.parseAsync(["node", "test", "audit", "/path/to/SKILL.md"]),
-      ).rejects.toThrow("process-exit");
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(inv.exitCode).toBe(1);
     });
 
     it("handles format resolution error", async () => {
@@ -459,11 +411,7 @@ describe("skills commands - additional coverage", () => {
       });
       mocks.toSarif.mockReturnValue({ version: "2.1.0", runs: [] });
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const program = new Command();
-      registerSkillsAudit(program);
-
-      await program.parseAsync(["node", "test", "audit", "test.md", "--sarif"]);
+      await runCli(registerSkillsAudit, ["audit", "test.md", "--sarif"]);
 
       expect(mocks.toSarif).toHaveBeenCalled();
     });
