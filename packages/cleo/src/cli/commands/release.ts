@@ -12,7 +12,7 @@
  *                          removed the `--workflow=false` legacy fallback)
  *
  * Read-only helpers:
- *   cleo release list / show / cancel / changelog / pr-status / channel
+ *   cleo release list / show / cancel / pr-status / channel
  *
  * @task T4467
  * @task T820
@@ -21,6 +21,10 @@
  *               + `--workflow=false` escape hatch (their backing functions
  *               in pipeline.ts and releaseShip in engine-ops.ts were
  *               deleted alongside this change)
+ * @task T9784 — rip out `release changelog` verb + release.changelog.* engine
+ *               ops in favor of the canonical `cleo changeset add` +
+ *               `cleo release plan` flow (Saga T9782 — single canonical
+ *               system, no deprecation window)
  * @epic T9498 — release v2 cutover
  * @epic T9499 — Phase 6 cleanup epic
  */
@@ -179,89 +183,6 @@ const cancelCommand = defineCommand({
       'pipeline',
       'release.cancel',
       { version: args.version },
-      { command: 'release' },
-    );
-  },
-});
-
-/**
- * cleo release changelog — generate CHANGELOG from git log since a given tag.
- *
- * Parses epic/task IDs from commit messages (T\d+ patterns),
- * groups by epic, and produces a structured CHANGELOG entry.
- *
- * @task T820 RELEASE-02
- *
- * @deprecated Since v2026.5.93 (T9795 / Saga T9787). Will be removed no
- *   earlier than v2026.6.0. The git-log scraping path is superseded by
- *   the changeset-driven `cleo release plan` flow (T9525) — the plan
- *   envelope already enumerates included tasks via the
- *   `task_relations`/`releases` graph, and the T9759 LLM composer renders
- *   the human-readable Markdown. See `.cleo/deprecations.yml` id:
- *   `cleo-release-changelog-verb-git-log`.
- */
-const changelogCommand = defineCommand({
-  meta: {
-    name: 'changelog',
-    description: 'Generate CHANGELOG from git log since a given tag, with task/epic grouping',
-  },
-  args: {
-    sinceTag: {
-      type: 'positional',
-      description: 'Git tag or ref to generate changelog from (e.g. v2026.4.75)',
-      required: false,
-    },
-    since: {
-      type: 'string',
-      description:
-        'Git tag or ref to generate changelog from (e.g. v2026.4.75). Alias for the positional argument.',
-      required: false,
-    },
-  },
-  async run({ args }) {
-    // T9795: emit the deprecation warning BEFORE the missing-arg check so
-    // even error envelopes carry the migration hint. JSON callers receive
-    // it in `meta.warnings[]`; human-mode renders it on stderr.
-    pushWarning({
-      code: 'W_DEPRECATED_COMMAND',
-      message:
-        '`cleo release changelog <tag>` is deprecated. Use `cleo release plan <version> --epic <id>` (T9525) plus the T9759 LLM composer.',
-      severity: 'warn',
-      deprecated: 'cleo release changelog',
-      replacement: 'cleo release plan',
-      removeBy: 'v2026.6.0',
-      context: {
-        registryId: 'cleo-release-changelog-verb-git-log',
-        task: 'T9795',
-        saga: 'T9787',
-      },
-    });
-
-    // Accept either `cleo release changelog v2026.5.81` (positional, matches
-    // pr-status / show / cancel) or the legacy `--since v...` flag. Emit a
-    // LAFS envelope on missing input rather than letting citty dump help
-    // text to stderr (T9686-A bug A2).
-    const sinceTag =
-      typeof args['sinceTag'] === 'string' && args['sinceTag'].length > 0
-        ? args['sinceTag']
-        : typeof args['since'] === 'string' && args['since'].length > 0
-          ? args['since']
-          : undefined;
-    if (sinceTag === undefined) {
-      cliError(
-        'Missing required argument: <sinceTag> (or --since)',
-        2,
-        { name: 'E_MISSING_ARGUMENT', fix: 'Run: cleo release changelog <tag>' },
-        { operation: 'release.changelog.since' },
-      );
-      process.exit(2);
-      return;
-    }
-    await dispatchFromCli(
-      'query',
-      'pipeline',
-      'release.changelog.since',
-      { sinceTag },
       { command: 'release' },
     );
   },
@@ -607,7 +528,6 @@ export const releaseCommand = defineCommand({
     list: listCommand,
     show: showCommand,
     cancel: cancelCommand,
-    changelog: changelogCommand,
     'pr-status': prStatusCommand,
     channel: channelCommand,
     'rollback-full': rollbackFullCommand,

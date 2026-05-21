@@ -883,7 +883,6 @@ export type { ReleaseListOptions, ReleaseTaskRecord } from './release/release-ma
 export {
   cancelRelease,
   commitRelease,
-  generateReleaseChangelog,
   listReleases,
   markReleasePushed,
   prepareRelease,
@@ -1624,8 +1623,6 @@ export {
   IVTR_DECOUPLED_AUDIT_FILE,
   IVTR_DECOUPLED_SENTINEL_FILE,
   releaseCancel,
-  releaseChangelog,
-  releaseChangelogSince,
   releaseCommit,
   releaseGateCheck,
   releaseGatesRun,

@@ -3823,25 +3823,6 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'pipeline',
-    operation: 'release.changelog.since',
-    description:
-      'Generate CHANGELOG from git log since a given tag — parses T\\d+ task/epic IDs and groups by epic (T820 RELEASE-02)',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: ['sinceTag'],
-    params: [
-      {
-        name: 'sinceTag',
-        type: 'string',
-        required: true,
-        description: 'sinceTag parameter',
-      },
-    ] satisfies ParamDef[],
-  },
-  {
-    gateway: 'query',
-    domain: 'pipeline',
     operation: 'release.pr-status',
     description:
       'Poll GitHub CI check statuses for the open release PR matching release/v<version> (T9095)',
