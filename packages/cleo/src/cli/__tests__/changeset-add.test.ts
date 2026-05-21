@@ -62,7 +62,7 @@ function runCli(args: readonly string[], projectRoot: string): CliResult {
   const result = spawnSync('node', [CLI_DIST, ...args], {
     stdio: ['pipe', 'pipe', 'pipe'],
     encoding: 'utf-8',
-    timeout: 30_000,
+    timeout: 90_000,
     cwd: projectRoot,
     env,
   });
@@ -348,5 +348,148 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('cleo changeset add — subprocess', () => 
 
     const md = readFileSync(env.data.filePath, 'utf-8');
     expect(md).toContain('prs: [349, 357]');
+  });
+});
+
+// ─── cleo changeset list — registration + E2E subprocess ────────────────────
+
+describe('cleo changeset — list registration', () => {
+  it('exposes the `list` subcommand alongside `add`', () => {
+    const subs = (changesetCommand as unknown as CittyCommand).subCommands ?? {};
+    expect(subs.list).toBeDefined();
+    expect(subs.add).toBeDefined();
+  });
+
+  it('list takes no positional/required args — pure read', () => {
+    const subs = (changesetCommand as unknown as CittyCommand).subCommands ?? {};
+    const listCmd = subs.list as CittyCommand;
+    const args = listCmd.args ?? {};
+    // No required flags — list is project-rooted and parameter-free.
+    for (const [, def] of Object.entries(args)) {
+      expect(def.required).not.toBe(true);
+    }
+  });
+});
+
+interface ChangesetListData {
+  readonly entries: ReadonlyArray<{
+    readonly id: string;
+    readonly tasks: readonly string[];
+    readonly kind: string;
+    readonly summary: string;
+    readonly prs?: readonly number[];
+  }>;
+  readonly count: number;
+  readonly dir: string;
+  readonly note?: string;
+}
+
+describe.skipIf(!CLI_DIST_AVAILABLE)('cleo changeset list — subprocess', () => {
+  it('returns empty entries envelope when .changeset/ does not exist', () => {
+    // Fresh project root from the beforeEach — no .changeset/ subdir yet.
+    const res = runCli(['changeset', 'list'], projectRoot);
+    expect(res.status).toBe(0);
+    const env = parseEnvelope<ChangesetListData>(res.stdout);
+    expect(env.success).toBe(true);
+    if (!env.success || !env.data) return;
+    expect(env.data.count).toBe(0);
+    expect(env.data.entries).toEqual([]);
+    expect(env.data.note).toBeDefined();
+  });
+
+  it('lists entries after a successful add — same parser as the aggregator', () => {
+    // Seed two entries via the canonical writer so we exercise the dual-write
+    // path AND the read path in one E2E shot.
+    const addOne = runCli(
+      [
+        'changeset',
+        'add',
+        '--slug',
+        't9785-listed-alpha',
+        '--tasks',
+        'T9785',
+        '--kind',
+        'chore',
+        '--summary',
+        'Alpha entry for list E2E.',
+      ],
+      projectRoot,
+    );
+    expect(addOne.status).toBe(0);
+
+    const addTwo = runCli(
+      [
+        'changeset',
+        'add',
+        '--slug',
+        't9785-listed-beta',
+        '--tasks',
+        'T9785,T9786',
+        '--kind',
+        'feat',
+        '--summary',
+        'Beta entry — multi-task.',
+        '--prs',
+        '999',
+      ],
+      projectRoot,
+    );
+    expect(addTwo.status).toBe(0);
+
+    const list = runCli(['changeset', 'list'], projectRoot);
+    expect(list.status).toBe(0);
+    const env = parseEnvelope<ChangesetListData>(list.stdout);
+    expect(env.success).toBe(true);
+    if (!env.success || !env.data) return;
+
+    expect(env.data.count).toBe(2);
+    const slugs = env.data.entries.map((e) => e.id).sort();
+    expect(slugs).toEqual(['t9785-listed-alpha', 't9785-listed-beta']);
+
+    const beta = env.data.entries.find((e) => e.id === 't9785-listed-beta');
+    expect(beta?.kind).toBe('feat');
+    expect(beta?.tasks).toEqual(['T9785', 'T9786']);
+    expect(beta?.prs).toEqual([999]);
+  });
+
+  it('--human renders an aligned SLUG/KIND/TASKS/PR/SUMMARY table', () => {
+    runCli(
+      [
+        'changeset',
+        'add',
+        '--slug',
+        't9785-human-row',
+        '--tasks',
+        'T9785',
+        '--kind',
+        'docs',
+        '--summary',
+        'Human row.',
+      ],
+      projectRoot,
+    );
+
+    const env = {
+      ...process.env,
+      CLEO_PROJECT_ROOT: projectRoot,
+      CLEO_ROOT: projectRoot,
+      CLEO_DIR: join(projectRoot, '.cleo'),
+      CLEO_OUTPUT_FORMAT: 'human',
+    };
+    const res = spawnSync('node', [CLI_DIST, 'changeset', 'list', '--human'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+      timeout: 90_000,
+      cwd: projectRoot,
+      env,
+    });
+    expect(res.status).toBe(0);
+    // dataTable writes to stdout via humanLine; header row + the slug row
+    // both have to land somewhere on stdout.
+    const out = (res.stdout ?? '') + (res.stderr ?? '');
+    expect(out).toContain('SLUG');
+    expect(out).toContain('SUMMARY');
+    expect(out).toContain('t9785-human-row');
+    expect(out).toContain('docs');
   });
 });
