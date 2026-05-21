@@ -295,6 +295,20 @@ export interface SessionBriefingShowParams {
   scope?: string;
   /** When true, exit non-zero if any contract violation is detected (T1905). */
   strict?: boolean;
+  /**
+   * When true, include `peerPatterns` in the warm bundle and other verbose
+   * debug fields that are suppressed by default to reduce token count.
+   *
+   * @task T9974
+   */
+  debug?: boolean;
+  /**
+   * When true, include `cold.userProfile` traits in the bundle.
+   * Suppressed by default (large trait dump rarely needed at session start).
+   *
+   * @task T9974
+   */
+  withProfile?: boolean;
 }
 
 /** Compact task entry in a session briefing's next-tasks list. */
