@@ -395,25 +395,29 @@ describe("skills commands - additional coverage", () => {
       expect(inv.exitCode).toBe(1);
     });
 
-    it("handles format resolution error", async () => {
-      // Both --json and --human together should trigger format conflict (if resolveFormat throws)
-      // We need to test what happens when resolveFormat throws. The actual function might not throw
-      // for both flags, but the command handles it. Let's test a scenario where path exists and
-      // format is resolved.
-
-      // Test that SARIF format is set correctly when --sarif is used
+    it("single-file SARIF success path exits cleanly when all passed", async () => {
+      // Coverage anchor for audit.ts line 243 (post-allPassed SARIF return).
+      // Distinct from "outputs SARIF for empty results" which exercises
+      // scanDirectory; this exercises scanFile (single-file path) on success.
       mocks.statSync.mockReturnValue({ isFile: () => true });
-      mocks.scanFile.mockResolvedValue({
-        file: "test.md",
-        findings: [],
-        score: 100,
-        passed: true,
-      });
+      mocks.scanFile.mockResolvedValue(fixtures.passingAuditResult({ file: "test.md" }));
       mocks.toSarif.mockReturnValue({ version: "2.1.0", runs: [] });
 
       await runCli(registerSkillsAudit, ["audit", "test.md", "--sarif"]);
 
       expect(mocks.toSarif).toHaveBeenCalled();
+    });
+
+    it("single-file JSON success path exits cleanly when all passed", async () => {
+      // Coverage anchor for audit.ts line 252 (post-allPassed JSON return).
+      mocks.statSync.mockReturnValue({ isFile: () => true });
+      mocks.scanFile.mockResolvedValue(fixtures.passingAuditResult({ file: "test.md" }));
+
+      const inv = await runCli(registerSkillsAudit, ["audit", "test.md", "--json"]);
+
+      const output = inv.jsonStdout() as { result: { scanned: number; findings: number } };
+      expect(output.result.scanned).toBe(1);
+      expect(output.result.findings).toBe(0);
     });
   });
 
