@@ -36,6 +36,21 @@ export {
 } from './backfill.js';
 // Changelog writing
 export { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
+// CLEO-native changesets aggregator (T9753 / T9793 SSoT-first reader)
+export type {
+  AggregateChangesetsOptions,
+  AggregatedChangesetEntry,
+  AggregatedChangesetSection,
+  ChangesetSource,
+} from './changesets-aggregator.js';
+export {
+  aggregateChangesetsForRelease,
+  changesetFileExists,
+  readChangesetEntriesFileOnly,
+  readChangesetEntriesSsotFirst,
+  readChangesetFileBytes,
+  readChangesetsSsotFirst,
+} from './changesets-aggregator.js';
 // Channel resolution
 export type { ChannelValidationResult, ReleaseChannel } from './channel.js';
 // Note: getDefaultChannelConfig is exported from both channel.ts and release-config.ts

@@ -169,6 +169,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/chain.js')).chainCommand as CommandDef,
   },
   {
+    exportName: 'changesetCommand',
+    name: 'changeset',
+    description: 'Author task-anchored changeset entries that dual-write to ',
+    load: async () => (await import('../commands/changeset.js')).changesetCommand as CommandDef,
+  },
+  {
     exportName: 'checkCommand',
     name: 'check',
     description: 'Validation and compliance checks',
