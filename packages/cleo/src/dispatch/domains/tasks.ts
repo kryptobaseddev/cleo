@@ -71,6 +71,7 @@ import {
   taskSyncLinks,
   taskSyncLinksRemove,
   taskSyncReconcile,
+  tasksAddBatchOp,
   taskTree,
   taskUnarchive,
   taskUnclaim,
@@ -290,6 +291,18 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
   // -------------------------------------------------------------------------
   // Mutate ops
   // -------------------------------------------------------------------------
+
+  'add-batch': async (params) => {
+    const projectRoot = getProjectRoot();
+    return wrapCoreResult(
+      await tasksAddBatchOp(projectRoot, {
+        tasks: (params.tasks ?? []) as Parameters<typeof tasksAddBatchOp>[1]['tasks'],
+        defaultParent: typeof params.defaultParent === 'string' ? params.defaultParent : undefined,
+        dryRun: typeof params.dryRun === 'boolean' ? params.dryRun : undefined,
+      }),
+      'add-batch',
+    );
+  },
 
   add: async (params) => {
     const projectRoot = getProjectRoot();
@@ -560,6 +573,7 @@ const QUERY_OPS = new Set<string>([
 
 const MUTATE_OPS = new Set<string>([
   'add',
+  'add-batch',
   'update',
   'complete',
   'cancel',

@@ -653,6 +653,63 @@ export interface TasksRelatesRemoveResult {
   removed: boolean;
 }
 
+// tasks.add-batch (atomic multi-task insert)
+/**
+ * Parameters for `tasks.add-batch`.
+ *
+ * Wraps N `tasks.add` inserts in a single transaction; any failure rolls
+ * back ALL inserts. Closes the partial-batch bug in the CLI `add-batch`
+ * command (T9813 / T9814).
+ *
+ * @task T9814
+ */
+export interface TasksAddBatchParams {
+  /**
+   * Array of task specs to insert. Must be non-empty.
+   * Each spec accepts the same fields as `tasks.add` (except `dryRun`
+   * which is hoisted to the batch level).
+   */
+  tasks: Array<{
+    title: string;
+    description?: string;
+    parent?: string;
+    depends?: string[];
+    priority?: string;
+    labels?: string[];
+    type?: string; // SSoT-EXEMPT:kind≠type — 'type' is hierarchy(epic|task|subtask), 'kind' is intent(work|bug|...) — separate axes T944
+    acceptance?: string[];
+    phase?: string;
+    size?: string;
+    notes?: string;
+    files?: string[];
+    kind?: string;
+    scope?: string;
+    severity?: string;
+    forceDuplicate?: boolean;
+  }>;
+  /** Optional default parent ID applied when a task spec omits `parent`. */
+  defaultParent?: string;
+  /**
+   * Dry-run mode: validate each spec and return predicted IDs without
+   * writing to the database. Created count is always 0 in dry-run.
+   */
+  dryRun?: boolean;
+}
+
+/**
+ * Result of `tasks.add-batch`.
+ *
+ * @task T9814
+ */
+export interface TasksAddBatchResult {
+  /** Number of tasks actually created (0 on rollback or dry-run). */
+  created: number;
+  /** Per-task results in input order. */
+  tasks: TasksAddResult[];
+  /** Whether this was a dry run. */
+  dryRun?: boolean;
+}
+
 // tasks.add (dispatch-level params — extends TasksCreateParams)
 export interface TasksAddParams {
   title: string;
@@ -1043,6 +1100,7 @@ export type TasksOps = {
   readonly 'sync.links': readonly [TasksSyncLinksParams, TasksSyncLinksResult];
   // Mutate ops
   readonly add: readonly [TasksAddParams, TasksAddResult];
+  readonly 'add-batch': readonly [TasksAddBatchParams, TasksAddBatchResult];
   readonly update: readonly [TasksUpdateQueryParams, TasksUpdateQueryResult];
   readonly complete: readonly [TasksCompleteQueryParams, TasksCompleteQueryResult];
   readonly cancel: readonly [TasksCancelParams, TasksCancelResult];
