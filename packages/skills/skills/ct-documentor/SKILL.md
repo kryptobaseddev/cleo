@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
-description: Documentation creation, editing, and review with CLEO style guide compliance. Coordinates specialized skills for lookup, writing, and review. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.0.0
+description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
+version: 3.1.0
 tier: 3
 core: false
 category: specialist
@@ -10,6 +10,8 @@ dependencies:
   - ct-docs-lookup
   - ct-docs-write
   - ct-docs-review
+  - ct-spec-writer
+  - ct-adr-recorder
 sharedResources:
   - subagent-protocol-base
   - task-system-integration
@@ -39,9 +41,100 @@ Context injection for documentation tasks spawned via cleo-subagent. Orchestrate
 
 | Skill | Purpose | Invoke When |
 |-------|---------|-------------|
-| `ct-docs-lookup` | Query existing docs, find references | Discovery phase, checking what exists |
-| `ct-docs-write` | Create/edit docs with CLEO style | Writing or updating content |
-| `ct-docs-review` | Check compliance with style guide | Quality validation before completion |
+| `ct-docs-lookup` | Query existing docs, find references via `cleo docs fetch`/`list` | Discovery phase, checking what exists |
+| `ct-docs-write` | Create/edit docs via `cleo docs add` with CLEO style | Writing or updating content |
+| `ct-docs-review` | Check compliance with style guide, read through `cleo docs fetch` | Quality validation before completion |
+| `ct-spec-writer` | Author specs (REQ-XXX requirements) via `cleo docs add --type spec` | Formal specification work |
+| `ct-adr-recorder` | Author ADRs via `cleo docs add --type adr --slug adr-NNN-...` | Architecture decisions promoted from consensus |
+
+The coordinator never writes content itself — it routes the work to the
+specialist skill that owns the doc type, and every specialist routes its
+filesystem write through the docs SSoT (see "Coordinator Pattern" below).
+
+---
+
+## Coordinator Pattern: SSoT-First Routing
+
+ct-documentor is a router. It dispatches each doc-type to its owning skill,
+and every owner writes through `cleo docs add` — not raw filesystem writes.
+
+| Doc Type | Owner Skill | SSoT Command |
+|----------|-------------|--------------|
+| `spec` (REQ-XXX requirements) | `ct-spec-writer` | `cleo docs add <ownerId> <path> --type spec --slug spec-<feature>` |
+| `adr` (architecture decisions) | `ct-adr-recorder` | `cleo docs add <ownerId> <path> --type adr --slug adr-<NNN>-<rest>` |
+| `research` (multi-source investigation) | `ct-research-agent` | `cleo docs add <ownerId> <path> --type research --slug research-<topic>` |
+| `handoff` (session/agent transition) | `ct-documentor` (this skill) | `cleo docs add <ownerId> <path> --type handoff --slug handoff-<context>` |
+| `note` (conversational prose) | `ct-docs-write` | `cleo docs add <ownerId> <path> --type note --slug <kebab-topic>` |
+| `llm-readme` (agent-facing) | `ct-docs-write` | `cleo docs add <ownerId> <path> --type llm-readme --slug <kebab-topic>` |
+
+Hard rule: EVERY canonical-type write goes through the SSoT. The coordinator
+rejects any subagent return that wrote raw markdown into `.cleo/adrs/`,
+`.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` without first
+materializing through `cleo docs add` + (optionally) `cleo docs publish`.
+
+---
+
+## Through SDK (preferred)
+
+Documentation work flows through the docs SSoT in three steps —
+add, publish, fetch. Use the slug-based contract so downstream consumers
+can retrieve docs without grepping the filesystem.
+
+### Add a doc attached to a task
+
+```bash
+cleo docs add T1234 docs/drafts/feature-x.md \
+  --type note \
+  --slug feature-x-overview \
+  --desc "Conversational overview — pre-review"
+```
+
+- `--type` MUST be one of `spec | adr | research | handoff | note | llm-readme`.
+  Pick the type by the document's purpose, not its filename.
+- `--slug` is the human-friendly retrieval handle (kebab-case). If taken the
+  CLI returns `E_SLUG_TAKEN` with 3 alternatives — pick one, do not overwrite.
+- The owner ID (`T1234` above) auto-classifies the attachment by prefix:
+  `T###` → task, `ses_*` → session, `O-*` → observation.
+
+### Publish to a git-tracked path (when the doc must live on disk)
+
+```bash
+cleo docs publish --for T1234 --to docs/feature-x.md
+```
+
+Atomic tmp-then-rename. The published file ships in the next commit; the
+SSoT blob remains canonical and continues to track future versions.
+
+### Fetch the doc back by slug
+
+```bash
+cleo docs fetch feature-x-overview         # latest version
+cleo docs versions --for T1234             # list every SHA version
+```
+
+Slug-based fetch is the contract used by reviewers, downstream skills, and
+the docs graph — never grep the filesystem for the file you just wrote.
+
+### List + sync
+
+```bash
+cleo docs list --type spec --project       # every spec in this project
+cleo docs list --task T1234                # everything attached to a task
+cleo docs sync --from docs/legacy.md --for T1234 --type note --slug legacy-doc
+```
+
+`cleo docs sync` back-fills an existing on-disk file into the SSoT.
+
+---
+
+## Deprecated: Direct filesystem
+
+The legacy "write straight to `.cleo/adrs/`, `.cleo/research/`,
+`.cleo/agent-outputs/`, or `docs/` and commit" pattern is deprecated.
+The drift between the working file and the docs SSoT is real: published
+files go stale, types are inferred ad-hoc from path, and slug-based
+retrieval becomes impossible. Migrate every doc-type write to
+`cleo docs add --type X --slug Y`.
 
 ---
 
@@ -61,16 +154,19 @@ BEFORE creating ANY new file, you MUST:
 
 ### Phase 1: Discovery (MANDATORY)
 
-Before writing anything, discover what exists:
+Before writing anything, discover what exists. Prefer the SSoT over `Glob`/`Grep`
+when scanning canonical docs — `cleo docs list` returns slug + owner + type
+without forcing a filesystem walk.
 
 ```bash
-# List documentation structure
+# SSoT-first discovery (preferred)
+cleo docs list --project                       # all docs for this project
+cleo docs list --type {TYPE} --project         # docs filtered by canonical type
+cleo docs fetch {SUSPECTED_SLUG}               # check if a slug exists
+
+# Filesystem fallback (only for un-migrated content)
 Glob: pattern="docs/**/*.md"
-
-# Search for existing content on topic
 Grep: pattern="{TOPIC_KEYWORDS}" path="docs/"
-
-# Check for related files
 Grep: pattern="{RELATED_TERMS}" path="docs/" output_mode="files_with_matches"
 ```
 
@@ -131,12 +227,14 @@ Checklist:
 
 Before completing, verify:
 
-- [ ] Searched for existing docs on this topic
+- [ ] Searched for existing docs on this topic via `cleo docs list` first
 - [ ] Did NOT create a file that duplicates existing content
 - [ ] Updated existing file if one existed
 - [ ] Added deprecation notice if consolidating
 - [ ] Cross-references are updated
 - [ ] No orphaned documentation created
+- [ ] Every canonical-type write went through `cleo docs add --type X --slug Y`
+- [ ] Slug retrieval verified via `cleo docs fetch <slug>` before declaring done
 
 ---
 
@@ -221,9 +319,13 @@ Append ONE line to `{{MANIFEST_PATH}}`:
 
 ## Completion Requirements
 
-- [ ] Discovery phase completed (searched existing docs)
+- [ ] Discovery phase completed (searched existing docs via `cleo docs list`)
 - [ ] Core principle followed (maintain, don't duplicate)
-- [ ] `/ct-docs-write` invoked for content creation
+- [ ] Coordinator pattern followed: every doc-type routed to its owning skill
+- [ ] Every canonical-type write went through `cleo docs add --type X --slug Y`
+- [ ] `/ct-docs-write` invoked for `note`/`llm-readme` content
+- [ ] `/ct-spec-writer` invoked when writing specs (REQ-XXX requirements)
+- [ ] `/ct-adr-recorder` invoked when promoting consensus → ADR
 - [ ] `/ct-docs-review` invoked for quality validation
 - [ ] Anti-duplication checklist verified
 - [ ] Output file written with "Files NOT Created" section
