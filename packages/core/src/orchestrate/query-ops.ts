@@ -20,11 +20,13 @@ import { estimateContext } from '../orchestration/context.js';
 import { analyzeEpic, getNextTask, getReadyTasks } from '../orchestration/index.js';
 import { computeEpicStatus, computeOverallStatus } from '../orchestration/status.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
+import type { EnrichedWave } from '../orchestration/waves.js';
 import { getEnrichedWaves } from '../orchestration/waves.js';
 import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
+import { SAGA_GROUPS_RELATION, SAGA_LABEL } from '../tasks/list.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -92,6 +94,79 @@ export function appendDepsValidateBypassAudit(
 }
 
 export type { EngineResult };
+
+// ---------------------------------------------------------------------------
+// Saga traversal (gh-390 / ADR-073)
+// ---------------------------------------------------------------------------
+
+/**
+ * Traversal mode for {@link orchestrateReady} and {@link orchestrateWaves}.
+ *
+ * Sagas (Epics with `labels.includes('saga')`) hold their member Epics via
+ * `task_relations.type='groups'` edges instead of the `parentId` column
+ * (ADR-073). The query-ops historically walked only `parentId`, so sagas
+ * appeared childless.
+ *
+ * - `'parent'` — legacy behaviour: walk `parentId` only (sagas return empty).
+ * - `'saga'`   — walk `relates[type='groups']` only (regular epics return empty).
+ * - `'both'`   — auto-detect: walk groups when the target is saga-labeled,
+ *                otherwise walk `parentId`. Default for callers that don't
+ *                care which storage shape the epic uses.
+ *
+ * @bug gh-390
+ * @adr ADR-073
+ * @task T9839
+ */
+export type OrchestrateTraversal = 'parent' | 'saga' | 'both';
+
+/**
+ * Single source of truth for the saga-shaped-epic check (ADR-073).
+ *
+ * A task is a saga when its `labels` array contains `'saga'` AND its `type`
+ * is `'epic'`. Sagas are top-level grouping nodes whose members are linked
+ * via `task_relations.type='groups'` rather than `parentId`.
+ *
+ * @param task - The task to inspect. Pass either a fully-loaded {@link Task}
+ *               (with `labels` populated by `loadSingleTask` / `queryTasks`)
+ *               or `null`/`undefined` (returns `false`).
+ * @returns `true` when `task` is a saga-labeled epic.
+ *
+ * @bug gh-390
+ * @adr ADR-073
+ * @task T9839
+ */
+export function isSagaEpic(task: Pick<Task, 'type' | 'labels'> | null | undefined): boolean {
+  if (!task) return false;
+  if (task.type !== 'epic') return false;
+  return (task.labels ?? []).includes(SAGA_LABEL);
+}
+
+/**
+ * Extract member-Epic IDs from a saga's `relates` array.
+ *
+ * Walks {@link Task.relates} and returns the `taskId` of every entry whose
+ * `type === 'groups'`. Order is preserved (insertion order from the
+ * data-accessor) and duplicates are removed. Non-saga tasks return an empty
+ * array — callers MUST gate on {@link isSagaEpic} first.
+ *
+ * @param sagaTask - A saga-labeled epic with `relates` populated.
+ * @returns Deduplicated list of member Epic IDs in stable order.
+ *
+ * @bug gh-390
+ * @adr ADR-073
+ * @task T9839
+ */
+export function resolveSagaMembers(sagaTask: Pick<Task, 'relates'>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const relation of sagaTask.relates ?? []) {
+    if (relation.type !== SAGA_GROUPS_RELATION) continue;
+    if (seen.has(relation.taskId)) continue;
+    seen.add(relation.taskId);
+    out.push(relation.taskId);
+  }
+  return out;
+}
 
 /**
  * Load all tasks from task data.
@@ -217,6 +292,24 @@ export interface OrchestrateReadyOptions {
    * at the call-site closest to the source of truth.
    */
   ignoreDepsValidate?: boolean;
+
+  /**
+   * Traversal mode for resolving the epic's children (ADR-073 / gh-390).
+   *
+   * - `'parent'` — walk only the `parentId` column (legacy behaviour).
+   * - `'saga'`   — walk only `task_relations.type='groups'` edges.
+   * - `'both'`   — auto-detect saga-labeled epics and walk the groups edge,
+   *                otherwise fall back to the `parentId` walk. Default.
+   *
+   * Saga members (themselves Epics) are recursed into per-member; the result
+   * is the deduplicated union of ready tasks across all members. A guard
+   * prevents infinite recursion if a member is itself saga-labeled.
+   *
+   * @bug gh-390
+   * @adr ADR-073
+   * @task T9839
+   */
+  via?: OrchestrateTraversal;
 }
 
 /**
@@ -259,7 +352,7 @@ export async function orchestrateReady(
     }
 
     // ---------------------------------------------------------------------------
-    // T1858: dep-graph validation pre-step
+    // T1858: dep-graph validation pre-step (shared between parent + saga modes)
     // ---------------------------------------------------------------------------
     const config = await loadConfig(root);
     const lifecycleMode = config.lifecycle?.mode ?? 'strict';
@@ -320,7 +413,111 @@ export async function orchestrateReady(
     // mode === 'off': skip validation entirely
     // ---------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // gh-390 / ADR-073: saga-aware traversal
+    //
+    // A saga (Epic with labels='saga') holds its members via
+    // task_relations.type='groups', NOT via parentId. The legacy ready-walk
+    // only inspected getChildren(parentId), so sagas returned empty. We now
+    // detect the saga shape and aggregate ready-sets across member epics.
+    // -------------------------------------------------------------------------
+    const via: OrchestrateTraversal = opts?.via ?? 'both';
+    const sagaShaped = isSagaEpic(epic);
+    const useSagaWalk = via === 'saga' || (via === 'both' && sagaShaped);
+
     const accessor = await getTaskAccessor(root);
+
+    type ReadyTaskOut = {
+      id: string;
+      title: string;
+      priority: string;
+      depends: string[];
+    };
+
+    if (useSagaWalk) {
+      // We need the saga's `relates` populated. `tasks` from queryTasks does
+      // not include relations by default — pull the saga via loadSingleTask.
+      const sagaWithRelates = await accessor.loadSingleTask(epicId);
+      const members = sagaWithRelates ? resolveSagaMembers(sagaWithRelates) : [];
+
+      const seenIds = new Set<string>();
+      const aggregated: ReadyTaskOut[] = [];
+      let aggregatedAllCount = 0;
+      let aggregatedBlockedCount = 0;
+      const skippedNested: string[] = [];
+
+      for (const memberId of members) {
+        // Recursion safety: sagas SHOULD NOT nest (ADR-073). If a member is
+        // itself saga-labeled, skip it and surface the anomaly in meta rather
+        // than recursing — preserves O(N) aggregation.
+        const memberTask = tasks.find((t) => t.id === memberId);
+        if (memberTask && isSagaEpic(memberTask)) {
+          skippedNested.push(memberId);
+          continue;
+        }
+
+        const memberReady = await getReadyTasks(memberId, root, accessor);
+        aggregatedAllCount += memberReady.length;
+        aggregatedBlockedCount += memberReady.filter(
+          (t) => !t.ready && t.blockers.length > 0,
+        ).length;
+
+        for (const t of memberReady) {
+          if (!t.ready) continue;
+          if (seenIds.has(t.taskId)) continue;
+          seenIds.add(t.taskId);
+          aggregated.push({
+            id: t.taskId,
+            title: t.title,
+            priority: t.priority,
+            depends: t.depends,
+          });
+        }
+      }
+
+      // Preserve priority ordering (critical → high → medium → low) then ID.
+      const priorityWeight: Record<string, number> = {
+        critical: 4,
+        high: 3,
+        medium: 2,
+        low: 1,
+      };
+      aggregated.sort((a, b) => {
+        const wa = priorityWeight[a.priority] ?? 0;
+        const wb = priorityWeight[b.priority] ?? 0;
+        if (wa !== wb) return wb - wa;
+        return a.id.localeCompare(b.id);
+      });
+
+      let reason: string | undefined;
+      if (aggregated.length === 0) {
+        if (members.length === 0) {
+          reason = 'saga has no member epics';
+        } else if (aggregatedAllCount === 0) {
+          reason = 'saga members have no children';
+        } else if (aggregatedBlockedCount === aggregatedAllCount) {
+          reason = 'all saga-member tasks have unmet dependencies';
+        } else {
+          reason = 'no saga-member tasks with unmet dependencies found';
+        }
+      }
+
+      return {
+        success: true,
+        data: {
+          epicId,
+          readyTasks: aggregated,
+          total: aggregated.length,
+          via: 'saga',
+          sagaMembers: members,
+          ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
+          ...(reason !== undefined && { reason }),
+          ...(depsWarning !== undefined && { depsWarning }),
+        },
+      };
+    }
+
+    // Default / via='parent': legacy parentId-walk.
     const readyTasks = await getReadyTasks(epicId, root, accessor);
     const ready = readyTasks.filter((t) => t.ready);
 
@@ -350,6 +547,7 @@ export async function orchestrateReady(
           depends: t.depends,
         })),
         total: ready.length,
+        via: 'parent' as const,
         ...(reason !== undefined && { reason }),
         ...(depsWarning !== undefined && { depsWarning }),
       },
@@ -411,16 +609,46 @@ export async function orchestrateNext(epicId: string, projectRoot?: string): Pro
 }
 
 /**
+ * Options for {@link orchestrateWaves}.
+ *
+ * @bug gh-390
+ * @adr ADR-073
+ * @task T9839
+ */
+export interface OrchestrateWavesOptions {
+  /**
+   * Traversal mode for resolving the epic's children — see
+   * {@link OrchestrateTraversal}. Default `'both'`.
+   *
+   * @bug gh-390
+   * @adr ADR-073
+   * @task T9839
+   */
+  via?: OrchestrateTraversal;
+}
+
+/**
  * orchestrate.waves - Compute dependency waves
+ *
+ * For regular epics the wave plan is `getEnrichedWaves(epicId)`. For sagas
+ * (Epics labeled `'saga'`, ADR-073), per-member wave plans are computed and
+ * merged by wave index: wave N across all members becomes one unified wave N.
+ * Members of unequal depth contribute to the trailing waves (longest tail
+ * wins). Task IDs are deduplicated; per-wave order preserves the per-member
+ * sort.
  *
  * @param epicId - Epic to compute waves for.
  * @param projectRoot - Optional project root path.
+ * @param opts - Optional traversal flag ({@link OrchestrateWavesOptions}).
  * @returns Engine result with wave data.
  * @task T4478
+ * @bug gh-390
+ * @adr ADR-073
  */
 export async function orchestrateWaves(
   epicId: string,
   projectRoot?: string,
+  opts?: OrchestrateWavesOptions,
 ): Promise<EngineResult> {
   if (!epicId) {
     return engineError('E_INVALID_INPUT', 'epicId is required');
@@ -429,8 +657,97 @@ export async function orchestrateWaves(
   try {
     const root = getProjectRoot(projectRoot);
     const accessor = await getTaskAccessor(root);
-    const result = await getEnrichedWaves(epicId, root, accessor);
-    return { success: true, data: result };
+
+    // gh-390 / ADR-073: detect saga shape so we walk the groups relation.
+    const epic = await accessor.loadSingleTask(epicId);
+    if (!epic) {
+      return engineError('E_NOT_FOUND', `Epic ${epicId} not found`);
+    }
+
+    const via: OrchestrateTraversal = opts?.via ?? 'both';
+    const sagaShaped = isSagaEpic(epic);
+    const useSagaWalk = via === 'saga' || (via === 'both' && sagaShaped);
+
+    if (!useSagaWalk) {
+      const result = await getEnrichedWaves(epicId, root, accessor);
+      return {
+        success: true,
+        data: { ...result, via: 'parent' as const },
+      };
+    }
+
+    // Saga walk: compute per-member waves and merge by index.
+    const members = resolveSagaMembers(epic);
+    const skippedNested: string[] = [];
+    const perMemberWaves: EnrichedWave[][] = [];
+    let totalChildren = 0;
+
+    for (const memberId of members) {
+      const memberTask = await accessor.loadSingleTask(memberId);
+      if (memberTask && isSagaEpic(memberTask)) {
+        skippedNested.push(memberId);
+        continue;
+      }
+      const memberResult = await getEnrichedWaves(memberId, root, accessor);
+      perMemberWaves.push(memberResult.waves);
+      totalChildren += memberResult.totalTasks;
+    }
+
+    const maxWaves = perMemberWaves.reduce((m, w) => Math.max(m, w.length), 0);
+    const mergedWaves: EnrichedWave[] = [];
+
+    for (let i = 0; i < maxWaves; i++) {
+      const seen = new Set<string>();
+      const mergedTasks: EnrichedWave['tasks'] = [];
+      let anyInProgress = false;
+      let allCompleted = true;
+      let latestCompletedAt: string | undefined;
+
+      for (const memberWaves of perMemberWaves) {
+        const wave = memberWaves[i];
+        if (!wave) continue;
+        if (wave.status === 'in_progress') anyInProgress = true;
+        if (wave.status !== 'completed') allCompleted = false;
+        if (wave.completedAt && (!latestCompletedAt || wave.completedAt > latestCompletedAt)) {
+          latestCompletedAt = wave.completedAt;
+        }
+        for (const t of wave.tasks) {
+          if (seen.has(t.id)) continue;
+          seen.add(t.id);
+          mergedTasks.push(t);
+        }
+      }
+
+      const mergedStatus: EnrichedWave['status'] = allCompleted
+        ? 'completed'
+        : anyInProgress
+          ? 'in_progress'
+          : 'pending';
+
+      const merged: EnrichedWave = {
+        waveNumber: i + 1,
+        status: mergedStatus,
+        tasks: mergedTasks,
+        taskIds: mergedTasks.map((t) => t.id),
+      };
+      if (mergedStatus === 'completed' && latestCompletedAt) {
+        merged.completedAt = latestCompletedAt;
+      }
+      mergedWaves.push(merged);
+    }
+
+    return {
+      success: true,
+      data: {
+        epicId,
+        waves: mergedWaves,
+        totalWaves: mergedWaves.length,
+        totalTasks: totalChildren,
+        via: 'saga' as const,
+        sagaMembers: members,
+        ...(skippedNested.length > 0 && { sagaNestedSkipped: skippedNested }),
+      },
+    };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
     return engineError(code, (err as Error).message);
