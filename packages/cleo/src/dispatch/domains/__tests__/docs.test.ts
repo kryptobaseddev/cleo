@@ -142,15 +142,53 @@ describe('DocsHandler parameter validation', () => {
   });
 
   describe('docs.list', () => {
-    it('returns E_INVALID_INPUT when no owner filter is provided', async () => {
-      const result = await handler.query('list', {});
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    // T9792 — auto-promote to project scope when no owner filter is set.
+    // Previously this returned E_INVALID_INPUT; now it succeeds with the
+    // project-wide listing and a hint encouraging narrower flags. The
+    // dispatch hits the real attachment store, so the test isolates
+    // `CLEO_DIR` to a tmpdir for the duration of the case.
+    it('auto-promotes to project scope when no owner filter is provided (T9792)', async () => {
+      const { mkdtemp, rm } = await import('node:fs/promises');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const tempDir = await mkdtemp(join(tmpdir(), 'cleo-docs-list-t9792-'));
+      const prevCleoDir = process.env['CLEO_DIR'];
+      process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+      try {
+        const result = await handler.query('list', {});
+        expect(result.success).toBe(true);
+        const data = result.data as { project?: boolean; hint?: string };
+        expect(data.project).toBe(true);
+        expect(data.hint).toBeDefined();
+      } finally {
+        const { closeDb } = await import('@cleocode/core/internal');
+        closeDb();
+        if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+        else process.env['CLEO_DIR'] = prevCleoDir;
+        await rm(tempDir, { recursive: true, force: true });
+      }
     });
 
     it('does not return E_INVALID_OPERATION', async () => {
-      const result = await handler.query('list', {});
-      expect(result.error?.code).not.toBe('E_INVALID_OPERATION');
+      // Sanity: even without owner filter the error code is not the legacy
+      // "operation not found" code — we either succeed (T9792 auto-promote)
+      // or fail with a different shape, but never E_INVALID_OPERATION.
+      const { mkdtemp, rm } = await import('node:fs/promises');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const tempDir = await mkdtemp(join(tmpdir(), 'cleo-docs-list-t9792-op-'));
+      const prevCleoDir = process.env['CLEO_DIR'];
+      process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+      try {
+        const result = await handler.query('list', {});
+        expect(result.error?.code).not.toBe('E_INVALID_OPERATION');
+      } finally {
+        const { closeDb } = await import('@cleocode/core/internal');
+        closeDb();
+        if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+        else process.env['CLEO_DIR'] = prevCleoDir;
+        await rm(tempDir, { recursive: true, force: true });
+      }
     });
   });
 

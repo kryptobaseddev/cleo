@@ -226,12 +226,22 @@ describe('docs dispatch — slug/type/project (T9636/T9637/T9638)', () => {
     for (const a of data.attachments) expect(a.type).toBe('spec');
   });
 
-  it('docs.list with no scope returns E_INVALID_INPUT', async () => {
+  it('docs.list with no scope auto-promotes to --project + emits a hint (T9792)', async () => {
     const handler = new DocsHandler();
 
+    // Seed at least one row so we can confirm the auto-promote returns data,
+    // not just a hint.
+    await handler.mutate('add', { ownerId: 'T9792-A', file: fixtureA });
+
     const resp = await handler.query('list', {});
-    expect(resp.success).toBe(false);
-    expect(resp.error?.code).toBe('E_INVALID_INPUT');
+    expect(resp.success).toBe(true);
+    const data = resp.data as { project?: boolean; count: number; hint?: string };
+    expect(data.project).toBe(true);
+    expect(data.count).toBeGreaterThanOrEqual(1);
+    expect(data.hint).toBeDefined();
+    expect(data.hint).toMatch(/--project|--task|narrower/i);
+    // Hint should also be lifted into meta for `--field meta.hint`.
+    expect(resp.meta['hint']).toBeDefined();
   });
 
   // ────────────────────────────────────────────────────────────────────────
