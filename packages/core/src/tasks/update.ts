@@ -18,7 +18,7 @@ import type {
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts';
 import { loadConfig } from '../config.js';
-import { type EngineResult, engineSuccess } from '../engine-result.js';
+import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -248,6 +248,19 @@ export async function updateTask(
     }
     if (options.status === 'cancelled' && oldStatus !== 'cancelled') {
       task.cancelledAt = now;
+      // T9838-D: keep pipelineStage in lock-step with status=cancelled to
+      // satisfy the T877 invariant trigger (`status=cancelled requires
+      // pipeline_stage=cancelled`). The DB invariant (Part B of T877) is
+      // stricter than the in-memory cancel-ops sync — it requires the
+      // pipeline_stage to be EXACTLY 'cancelled' once status flips, even
+      // if the task previously reached the 'contribution' terminal stage.
+      // Route every cancellation to the 'cancelled' marker so Studio
+      // Pipeline groups the task under CANCELLED and the DB trigger
+      // accepts the write.
+      if (task.pipelineStage !== 'cancelled') {
+        task.pipelineStage = 'cancelled';
+        if (!changes.includes('pipelineStage')) changes.push('pipelineStage');
+      }
     }
   }
 
@@ -676,10 +689,20 @@ export async function taskUpdate(
     );
     return engineSuccess({ task: taskToRecord(result.task), changes: result.changes });
   } catch (err: unknown) {
+    // T9838-D: surface real error codes instead of mis-labelling everything
+    // as `E_NOT_INITIALIZED`. CleoErrors carry their own LAFS code via
+    // `toLAFSError()`; non-CleoErrors (DB invariant triggers, unexpected
+    // runtime issues) fall through to `E_INTERNAL`.
+    if (err instanceof CleoError) {
+      const lafs = err.toLAFSError();
+      return engineError(lafs.code, err.message, {
+        exitCode: err.code,
+        ...(err.fix !== undefined ? { fix: err.fix } : {}),
+        ...(err.alternatives !== undefined ? { alternatives: err.alternatives } : {}),
+        ...(err.details !== undefined ? { details: err.details } : {}),
+      });
+    }
     const e = err as { message?: string };
-    return {
-      success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: e?.message ?? 'Task database not initialized' },
-    };
+    return engineError('E_INTERNAL', e?.message ?? 'Failed to update task');
   }
 }
