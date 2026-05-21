@@ -491,6 +491,12 @@ export async function prepareRelease(
   };
 }
 
+// T9784-A (#414): `generateReleaseChangelog` was deleted alongside the
+// legacy `release.changelog` engine-op + the `cleo release changelog` verb.
+// The canonical write surface is `cleo changeset add` (T9793); the
+// canonical aggregator is `aggregateChangesetsForRelease` in
+// `release/changesets-aggregator.ts`.
+
 /**
  * List all releases from the canonical `releases` table (T9686-B2 unified).
  *

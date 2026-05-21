@@ -20,17 +20,12 @@ export {
   injectAliases,
   removeAliases,
 } from './aliases.js';
-export type { ChangelogSection } from './changelog.js';
-// Changelog generation
-export {
-  appendToChangelog,
-  discoverReleaseTasks,
-  formatChangelogJson,
-  generateChangelog,
-  generateChangelogMarkdown,
-  groupTasksIntoSections,
-  writeChangelogFile,
-} from './changelog.js';
+// Changelog generation: DELETED (T9784 / Saga T9782)
+// The label-grouped task→CHANGELOG renderer (`ui/changelog.ts`) was one of
+// three competing CHANGELOG systems. Per the "single canonical system" rip-
+// out directive, all three are deleted. The canonical write surface is
+// `cleo changeset add` (T9793) and the canonical aggregator is
+// `aggregateChangesetsForRelease` in `release/changesets-aggregator.ts`.
 export type { CommandMeta } from './command-registry.js';
 // Command registry
 export {

@@ -398,13 +398,6 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/gc.js')).gcCommand as CommandDef,
   },
   {
-    exportName: 'generateChangelogCommand',
-    name: 'generate-changelog',
-    description: 'Generate platform-specific changelog from CHANGELOG.md',
-    load: async () =>
-      (await import('../commands/generate-changelog.js')).generateChangelogCommand as CommandDef,
-  },
-  {
     exportName: 'gradeCommand',
     name: 'grade',
     description: 'Grade agent behavior for a session (requires --grade flag on session start)',
