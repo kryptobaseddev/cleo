@@ -263,6 +263,26 @@ exceptional cases (e.g. non-CLEO-metadata graph DBs like nexus per-project files
 | `packages/studio/src/lib/server/db/connections.ts` | Per-project ProjectContext-driven opens |
 | Test files (`__tests__/`, `.test.ts`, `.spec.ts`) | May open raw for seeding |
 
+## Contracts Fan-Out Lint (T10074 / E-SSOT-ENFORCEMENT)
+
+`scripts/lint-contracts-fan-out.mjs` (CI job: `Contracts Fan-Out Lint (T10074)`) detects
+`export interface` and `export type` declarations in `packages/cleo/src/` or
+`packages/core/src/` that are imported by **more than 2 other packages** (fan-out > 2).
+High-fan-out types belong in `packages/contracts/` so consumers pull a leaf package
+instead of the full cleo/core dependency graph.
+
+**Baseline mode (default):** CI reads `scripts/.lint-contracts-fan-out-baseline.json` and
+fails only when the finding count **increases** (regression prevention). Improvements
+(count drops) are always accepted. Run `node scripts/lint-contracts-fan-out.mjs --baseline`
+after reducing violations to lock in progress.
+
+**Strict mode:** `--strict` exits 1 on any finding (zero-tolerance gate).
+
+**Opt-out:** append `// fan-out-ok: <reason>` on the export declaration line to exempt
+a specific type (e.g. intentional CLI-only or core-only shape).
+
+**Threshold:** defaults to fan-out > 2. Override with `--threshold N`.
+
 ## Package-Boundary Check (MANDATORY)
 
 Before creating or relocating ANY source file, verify the correct package by the
