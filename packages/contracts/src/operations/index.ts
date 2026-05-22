@@ -10,6 +10,7 @@ export * from './brain.js';
 export * from './conduit.js';
 export * from './dialectic.js';
 export * from './docs.js';
+export * from './focus.js';
 export * from './intelligence.js';
 export * from './issues.js';
 export * from './lifecycle.js';

@@ -7934,6 +7934,31 @@ export const OPERATIONS: OperationDef[] = [
       },
     ] satisfies ParamDef[],
   },
+
+  // ---------------------------------------------------------------------------
+  // T9973 — focus domain: single-envelope task orientation (8 calls → 1)
+  // ---------------------------------------------------------------------------
+  {
+    gateway: 'query' as const,
+    domain: 'focus',
+    operation: 'show',
+    description:
+      'focus.show (query) — single-envelope orientation for a task, epic, or saga. ' +
+      'Aggregates identity + scope + members + blockers + readyWave + attachedDocs + ' +
+      'recentActivity + brainContext into ≤ 1 500 tokens.',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['id'],
+    params: [
+      {
+        name: 'id',
+        type: 'string' as const,
+        required: true,
+        description: 'Task, Epic, or Saga ID to orient on (e.g. T9973, T9831)',
+      },
+    ] satisfies ParamDef[],
+  },
 ];
 
 // ---------------------------------------------------------------------------
