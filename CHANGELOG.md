@@ -1,5 +1,26 @@
 # Changelog
 
+## [2026.5.101] (2026-05-22)
+
+### Saga T9977 SG-WORKTRUNK-OWN — COMPLETE
+
+Full layered rewrite of worktree provisioning across 10 epics, 10 PRs (#483-#492). Pure-CleoCode-owned Rust core via napi-rs, strict layering, RIP-and-replace of legacy code paths.
+
+- **E1-AUDIT** (T9978): Catalog of all 17+ crates + JS consumers + napi-rs vs WASM leverage analysis (#483)
+- **E2-RUST-194** (T9979): Rust 1.94 toolchain pinned across all crates, napi-rs CI matrix updated (#484)
+- **E3-WORKTRUNK-CORE** (T9980): crates/worktrunk-core vendored as CleoCode-owned, zero attribution — parallel rayon copy + reflink + .worktreeinclude parser + git worktree primitives (#485)
+- **E4-WORKTREE-NAPI** (T9981): crates/worktree-napi binding exposes provision/destroy/copy/list, prebuilt binaries Linux x64/arm64 + macOS x64/arm64 + Windows x64 (#486)
+- **E5-TS-WORKTREE-REWIRE** (T9982): packages/worktree calls napi exclusively — copy-on-write.ts + worktree-include.ts deleted, **hardcoded `node_modules` block removed entirely** (#487)
+- **E6-WORKTREEINCLUDE-MIGRATION** (T9983): `.worktreeinclude` at repo root is canonical (industry standard); legacy `.cleo/worktree-include` reader retained one cycle with deprecation warning (#488)
+- **E7-CORE-LAYERING** (T9984): packages/core/ consumes packages/worktree exclusively; lint-no-raw-git-worktree.mjs CI gate enforces (#489)
+- **E8-CLI-LAYERING** (T9985): packages/cleo/ is dispatch-only thin wrapper; business logic relocated to core (#490)
+- **E9-RIP-LEGACY** (T9986): All superseded worktree code deleted — packages/cant/src/worktree.ts legacy createWorktree, copy-on-write.ts, inline git-worktree-add invocations (#491)
+- **VALIDATION CLOSURE** (T9987): Benchmark p50=12.9 ms on small fixture (390× under 5000 ms target); 5-agent parallel run 5/5 success at canonical XDG path; multi-language smoke (Rust + Python + Node) all PASS (#492)
+
+### Headline payoff
+
+`cleo orchestrate spawn` is unblocked. The 60s timeout from the pre-T9982 hardcoded copy-paths block is dead. Saga T9977 closure report at slug `sg-worktrunk-own-closure-report`.
+
 ## [2026.5.100] (2026-05-22)
 
 ### Saga T9831 SG-ARCH-SOLID — COMPLETE
