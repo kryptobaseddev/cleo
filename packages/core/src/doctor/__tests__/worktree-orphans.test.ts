@@ -32,7 +32,11 @@ import {
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { pruneWorktreeOrphans, scanWorktreeOrphans } from '../worktree-orphans.js';
+import {
+  pruneWorktreeOrphans,
+  scanWorktreeOrphans,
+  scanWorktreeOrphansBudgeted,
+} from '../worktree-orphans.js';
 
 let tmpRoot: string;
 let projectRoot: string;
@@ -286,6 +290,121 @@ describe('pruneWorktreeOrphans — symlinked parent (macOS /var → /private/var
     expect(second.pruned).toEqual([]);
     expect(second.rejected.length).toBe(1);
     expect(second.rejected[0]?.reason).toBe('path-not-found');
+  });
+});
+
+// ============================================================================
+// T9962: Width budget tests
+// ============================================================================
+
+describe('scanWorktreeOrphansBudgeted — width budget', () => {
+  /**
+   * Hard-stop: 501 subdirs under worktreesRoot exceeds the default 500 cap.
+   * Expect isPartial=true, partialReason='overflow'.
+   */
+  it('returns isPartial+overflow when top-level entries exceed maxEntriesPerLevel', async () => {
+    // Create 501 subdirectories under worktreesRoot.
+    for (let i = 0; i < 501; i++) {
+      mkdirSync(join(worktreesRoot, `agent-overflow-${i}`), { recursive: true });
+    }
+
+    const result = await scanWorktreeOrphansBudgeted(projectRoot, {
+      maxEntriesPerLevel: 500,
+    });
+
+    expect(result.isPartial).toBe(true);
+    expect(result.partialReason).toBe('overflow');
+  });
+
+  /**
+   * Soft-warn: 101 subdirs crosses the default 100 soft-warn threshold but
+   * stays under 500. The scan should complete (isPartial=false) and
+   * softWarnMessage should be set.
+   */
+  it('completes with softWarnMessage when entries exceed softWarnEntriesPerLevel but stay under hard stop', async () => {
+    // Create 101 subdirectories (crosses soft-warn default of 100).
+    for (let i = 0; i < 101; i++) {
+      mkdirSync(join(worktreesRoot, `agent-soft-${i}`), { recursive: true });
+    }
+
+    const result = await scanWorktreeOrphansBudgeted(projectRoot, {
+      maxEntriesPerLevel: 500,
+      softWarnEntriesPerLevel: 100,
+    });
+
+    // Scan should complete fully.
+    expect(result.isPartial).toBe(false);
+    // But a soft warning should be present.
+    expect(result.softWarnMessage).toBeDefined();
+    expect(typeof result.softWarnMessage).toBe('string');
+    expect(result.softWarnMessage!.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Normal operation: small corpus returns results with isPartial=false.
+   */
+  it('returns isPartial=false for a normal small corpus', async () => {
+    seedOrphans();
+
+    const result = await scanWorktreeOrphansBudgeted(projectRoot);
+
+    expect(result.isPartial).toBe(false);
+    expect(result.partialReason).toBeUndefined();
+    expect(result.orphans.length).toBeGreaterThanOrEqual(3);
+  });
+
+  /**
+   * Empty root: returns isPartial=false with empty orphan list.
+   */
+  it('returns isPartial=false with empty orphans when worktreesRoot does not exist', async () => {
+    rmSync(worktreesRoot, { recursive: true, force: true });
+
+    const result = await scanWorktreeOrphansBudgeted(projectRoot);
+
+    expect(result.isPartial).toBe(false);
+    expect(result.orphans).toEqual([]);
+  });
+});
+
+// ============================================================================
+// T9962: Timeout tests
+// ============================================================================
+
+describe('scanWorktreeOrphansBudgeted — timeout', () => {
+  /**
+   * Timeout: use a negative timeoutMs (-1) so that
+   * `Date.now() - startTime > timeoutMs` evaluates to `true` immediately
+   * (since `Date.now() - startTime` is always >= 0, and 0 > -1 is always
+   * true). This avoids the flakiness of relying on wall-clock elapsed time
+   * on fast CI machines where 1ms might elapse before the first check.
+   */
+  it('returns isPartial+timeout when timeoutMs is exceeded', async () => {
+    // Seed at least one directory so the walker actually enters the loop.
+    const dir = join(worktreesRoot, 'agent-timeout-0');
+    mkdirSync(join(dir, '.cleo'), { recursive: true });
+    writeFileSync(join(dir, '.cleo', 'tasks.db'), 'fake');
+
+    const result = await scanWorktreeOrphansBudgeted(projectRoot, {
+      timeoutMs: -1, // Always expired: Date.now() - start (>=0) > -1 is always true
+    });
+
+    // Must be partial due to timeout.
+    expect(result.isPartial).toBe(true);
+    expect(result.partialReason).toBe('timeout');
+  });
+
+  /**
+   * Adequate timeout: generous budget should not trigger partial.
+   */
+  it('completes without partial when timeout is generous', async () => {
+    seedOrphans();
+
+    const result = await scanWorktreeOrphansBudgeted(projectRoot, {
+      timeoutMs: 30_000, // 30s — plenty of time for 3 orphans
+    });
+
+    expect(result.isPartial).toBe(false);
+    expect(result.orphans.length).toBeGreaterThanOrEqual(3);
   });
 });
 

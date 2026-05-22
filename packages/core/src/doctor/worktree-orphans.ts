@@ -50,6 +50,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import type {
   ComprehensiveAuditResult,
   OrphanEntry,
+  OrphanScanResult,
   PruneAuditEntry,
   PruneResult,
   WorktreeAnomaly,
@@ -97,7 +98,21 @@ const FULL_DUPLICATE_MARKERS = new Set([
 ]);
 
 /**
- * Options for {@link scanWorktreeOrphans}.
+ * Default soft-warn threshold: emit a warning when a single directory
+ * level contains more than this many entries (but scan continues).
+ */
+const DEFAULT_SOFT_WARN_ENTRIES = 100;
+
+/**
+ * Default hard-stop threshold: abort the scan with `isPartial: true` /
+ * `partialReason: 'overflow'` when a single level has more entries than
+ * this. Prevents the 194-orphan / 60s+ hang class (T9962).
+ */
+const DEFAULT_MAX_ENTRIES_PER_LEVEL = 500;
+
+/**
+ * Options for {@link scanWorktreeOrphans} and
+ * {@link scanWorktreeOrphansBudgeted}.
  */
 export interface ScanOptions {
   /**
@@ -105,6 +120,33 @@ export interface ScanOptions {
    * Mainly for tests.
    */
   worktreesRoot?: string;
+  /**
+   * Per-level fan-out hard-stop. When the number of entries in a single
+   * directory level reaches this limit the scan aborts and returns with
+   * `isPartial: true, partialReason: 'overflow'`.
+   *
+   * Default: 500. Set to `Infinity` to disable.
+   * Only honoured by {@link scanWorktreeOrphansBudgeted}.
+   */
+  maxEntriesPerLevel?: number;
+  /**
+   * Per-level soft-warn threshold. When entries in a level exceed this value
+   * a warning message is added to the result but the scan continues (up to
+   * `maxEntriesPerLevel`).
+   *
+   * Default: 100. Set to `Infinity` to disable.
+   * Only honoured by {@link scanWorktreeOrphansBudgeted}.
+   */
+  softWarnEntriesPerLevel?: number;
+  /**
+   * Maximum wall-clock milliseconds for the entire scan. When exceeded the
+   * scan aborts and returns with `isPartial: true, partialReason: 'timeout'`.
+   *
+   * Default: `undefined` (no timeout). Typically set to `30_000` (30 s) by
+   * the CLI.
+   * Only honoured by {@link scanWorktreeOrphansBudgeted}.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -278,6 +320,157 @@ export async function scanWorktreeOrphans(
 
   orphans.sort((a, b) => a.orphanPath.localeCompare(b.orphanPath));
   return orphans;
+}
+
+/**
+ * Width-budgeted wrapper around {@link scanWorktreeOrphans}.
+ *
+ * Adds three safety valves (T9962):
+ *   - **Hard stop** at `maxEntriesPerLevel` entries per directory level
+ *     (default 500). Aborts immediately and returns
+ *     `isPartial: true, partialReason: 'overflow'`.
+ *   - **Soft warn** at `softWarnEntriesPerLevel` (default 100). Scan
+ *     continues but `softWarnMessage` is set in the result.
+ *   - **Timeout** at `timeoutMs` milliseconds. Aborts and returns
+ *     `isPartial: true, partialReason: 'timeout'`.
+ *
+ * Existing callers of `scanWorktreeOrphans` keep their original behaviour
+ * unchanged. New code (e.g. the CLI) should call this function instead.
+ *
+ * NOTE: This code is scheduled for replacement by the Rust worktrunk-core
+ * rewrite in T9977/T9986. Do NOT over-engineer.
+ *
+ * @param projectRoot - The project root that owns `.claude/worktrees/`.
+ * @param opts - See {@link ScanOptions}.
+ * @returns {@link OrphanScanResult} wrapping the discovered orphans.
+ *
+ * @task T9962
+ */
+export async function scanWorktreeOrphansBudgeted(
+  projectRoot: string,
+  opts: ScanOptions = {},
+): Promise<OrphanScanResult> {
+  const maxEntriesPerLevel = opts.maxEntriesPerLevel ?? DEFAULT_MAX_ENTRIES_PER_LEVEL;
+  const softWarnEntriesPerLevel = opts.softWarnEntriesPerLevel ?? DEFAULT_SOFT_WARN_ENTRIES;
+  const worktreesRoot = opts.worktreesRoot ?? join(projectRoot, '.claude', 'worktrees');
+
+  if (!existsSync(worktreesRoot)) {
+    return { orphans: [], isPartial: false };
+  }
+
+  const startTime = Date.now();
+  const { timeoutMs } = opts;
+
+  const orphans: OrphanEntry[] = [];
+  const now = startTime;
+  let isPartial = false;
+  let partialReason: 'timeout' | 'overflow' | undefined;
+  let softWarnMessage: string | undefined;
+
+  const checkTimeout = (): boolean => {
+    if (timeoutMs !== undefined && Date.now() - startTime > timeoutMs) {
+      isPartial = true;
+      partialReason = 'timeout';
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * Recursive walker — mirrors the one in `scanWorktreeOrphans` but checks
+   * per-level entry counts and the wall-clock budget on each iteration.
+   */
+  const walk = (current: string, depth: number, worktreePath: string): boolean => {
+    if (depth > MAX_SCAN_DEPTH) return false;
+    if (checkTimeout()) return true;
+
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+
+    const dirEntries = entries.filter((e) => e.isDirectory());
+
+    // Soft-warn check (only emitted once, on the first level that crosses).
+    if (softWarnMessage === undefined && dirEntries.length > softWarnEntriesPerLevel) {
+      softWarnMessage =
+        `Warning: ${dirEntries.length} entries found at depth ${depth} under ${current} ` +
+        `(soft-warn threshold: ${softWarnEntriesPerLevel}). ` +
+        `Scan continues but may be slow. Run \`cleo doctor --prune-worktree-orphans\` ` +
+        `or reduce orphan count to avoid this warning.`;
+    }
+
+    // Hard-stop overflow check.
+    if (dirEntries.length > maxEntriesPerLevel) {
+      isPartial = true;
+      partialReason = 'overflow';
+      return true;
+    }
+
+    for (const entry of dirEntries) {
+      if (checkTimeout()) return true;
+
+      const childPath = join(current, entry.name);
+
+      if (entry.name === '.cleo') {
+        const meta = collectOrphanMetadata(childPath);
+        const lastModifiedMs = meta.lastModifiedMs > 0 ? meta.lastModifiedMs : now;
+        orphans.push({
+          worktreePath,
+          orphanPath: childPath,
+          dbFiles: meta.dbFiles,
+          sizeBytes: meta.sizeBytes,
+          lastModifiedAt: new Date(lastModifiedMs).toISOString(),
+          ageSeconds: Math.max(0, Math.floor((now - lastModifiedMs) / 1000)),
+          isFullDuplicate: meta.isFullDuplicate,
+        });
+        continue;
+      }
+
+      if (walk(childPath, depth + 1, worktreePath)) return true;
+    }
+    return false;
+  };
+
+  let topLevel: Dirent[];
+  try {
+    topLevel = readdirSync(worktreesRoot, { withFileTypes: true });
+  } catch {
+    return { orphans: [], isPartial: false };
+  }
+
+  // Check the top-level width budget first.
+  const topLevelDirs = topLevel.filter((e) => e.isDirectory());
+
+  if (topLevelDirs.length > maxEntriesPerLevel) {
+    isPartial = true;
+    partialReason = 'overflow';
+    return { orphans, isPartial, partialReason, softWarnMessage };
+  }
+
+  if (softWarnMessage === undefined && topLevelDirs.length > softWarnEntriesPerLevel) {
+    softWarnMessage =
+      `Warning: ${topLevelDirs.length} entries found at the top-level under ${worktreesRoot} ` +
+      `(soft-warn threshold: ${softWarnEntriesPerLevel}). ` +
+      `Scan continues but may be slow. Run \`cleo doctor --prune-worktree-orphans\` ` +
+      `or reduce orphan count to avoid this warning.`;
+  }
+
+  for (const entry of topLevelDirs) {
+    if (checkTimeout()) break;
+    const worktreePath = join(worktreesRoot, entry.name);
+    if (walk(worktreePath, 1, worktreePath)) break;
+  }
+
+  orphans.sort((a, b) => a.orphanPath.localeCompare(b.orphanPath));
+
+  if (!isPartial) {
+    return { orphans, isPartial: false, softWarnMessage };
+  }
+
+  return { orphans, isPartial, partialReason, softWarnMessage };
 }
 
 /**

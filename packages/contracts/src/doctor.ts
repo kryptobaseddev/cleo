@@ -156,6 +156,50 @@ export interface ComprehensiveAuditResult {
   anomalies: WorktreeAnomaly[];
   /** Total anomaly count. Non-zero triggers exit code 2. */
   count: number;
+  /**
+   * `true` when the audit was aborted early due to a width budget overflow
+   * or a timeout. The `anomalies` list reflects only the entries scanned
+   * before the abort — results may be incomplete.
+   */
+  isPartial?: boolean;
+  /**
+   * Machine-readable reason the scan was cut short.
+   * - `'timeout'`: the configured `timeoutMs` was exceeded.
+   * - `'overflow'`: a per-level entry count exceeded `maxEntriesPerLevel`.
+   */
+  partialReason?: 'timeout' | 'overflow';
+}
+
+/**
+ * Result shape returned by the budgeted orphan scanner
+ * ({@link scanWorktreeOrphansBudgeted}).
+ *
+ * Wraps the bare `OrphanEntry[]` from `scanWorktreeOrphans` with optional
+ * partial-result metadata so callers can surface incomplete scans to the
+ * operator without changing the existing `OrphanEntry[]` return type.
+ */
+export interface OrphanScanResult {
+  /** Discovered orphan entries (may be incomplete when `isPartial` is `true`). */
+  orphans: OrphanEntry[];
+  /**
+   * `true` when the scan was aborted before completion due to a budget
+   * overflow or timeout. The `orphans` list reflects only entries found
+   * before the abort.
+   */
+  isPartial: boolean;
+  /**
+   * Machine-readable reason the scan was cut short.
+   * - `'timeout'`: the configured `timeoutMs` was exceeded.
+   * - `'overflow'`: a per-level entry count exceeded `maxEntriesPerLevel`.
+   * `undefined` when `isPartial` is `false`.
+   */
+  partialReason?: 'timeout' | 'overflow';
+  /**
+   * Human-readable warning message produced when the soft-warn threshold
+   * was crossed (entries per level exceeded `softWarnEntriesPerLevel` but
+   * stayed under the hard stop). `undefined` when no warning was triggered.
+   */
+  softWarnMessage?: string;
 }
 
 /**
