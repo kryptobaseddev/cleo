@@ -1751,6 +1751,12 @@ export type {
   CriticalPathNode,
   CriticalPathResult,
 } from './tools/compute-critical-path.js';
+export type {
+  SchemaColumn,
+  SchemaDescriptor,
+  SchemaIndex,
+  SchemaTableDescriptor,
+} from './tools/describe-schema.js';
 export type { RenderTaskTreeInput } from './tools/render-task-tree.js';
 export type {
   ScoreFactor,
