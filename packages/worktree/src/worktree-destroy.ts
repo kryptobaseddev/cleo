@@ -12,8 +12,8 @@
 
 import { existsSync, rmSync } from 'node:fs';
 import type { DestroyWorktreeOptions, DestroyWorktreeResult } from '@cleocode/contracts';
-import { destroyWorktree as napiDestroyWorktree } from '@cleocode/worktree-napi';
 import { getGitRoot, gitSilent, gitSync } from './git.js';
+import { destroyWorktree as napiDestroyWorktree } from './napi-binding.js';
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
 import { runWorktreeHooks } from './worktree-hooks.js';

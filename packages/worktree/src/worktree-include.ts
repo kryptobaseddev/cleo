@@ -28,7 +28,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { WorktreeIncludePattern } from '@cleocode/contracts';
-import { readWorktreeInclude as napiReadWorktreeInclude } from '@cleocode/worktree-napi';
+import { readWorktreeInclude as napiReadWorktreeInclude } from './napi-binding.js';
 
 const CANONICAL_INCLUDE_FILE = '.worktreeinclude';
 const LEGACY_INCLUDE_FILE_DIR = '.cleo';

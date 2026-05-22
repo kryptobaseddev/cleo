@@ -15,7 +15,7 @@
  * @task T1161
  */
 
-import { type CopyResult, copyPathsParallel } from '@cleocode/worktree-napi';
+import { type CopyResultNapi, copyPathsParallel } from './napi-binding.js';
 
 /**
  * Optional knobs for {@link copyPathsWithReflock}.
@@ -72,7 +72,7 @@ export async function copyPathsWithReflock(
 ): Promise<{ copied: string[]; failed: string[] }> {
   if (paths.length === 0) return { copied: [], failed: [] };
 
-  let result: CopyResult;
+  let result: CopyResultNapi;
   try {
     result = copyPathsParallel(sourceDir, targetDir, paths, {
       force: options.force ?? false,
