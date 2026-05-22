@@ -2094,9 +2094,6 @@ export class MemoryHandler implements DomainHandler {
                   // The mental-model queue is only entered when `agent` is set + type is in
                   // MENTAL_MODEL_TYPES. Using 'manual' bypasses this path entirely.
                   sourceType: 'manual',
-                  origin: 'auto-extract',
-                  // Skip extraction gate — structured payload, unique per attachment.
-                  _skipGate: true,
                 },
                 projectRoot,
               ).catch(() => {

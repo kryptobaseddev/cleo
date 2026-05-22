@@ -385,8 +385,6 @@ function emitDocAttachmentObservation(
       title,
       type: 'feature',
       sourceType: 'manual',
-      origin: 'auto-extract',
-      _skipGate: true,
     },
     projectRoot,
   ).catch(() => {
