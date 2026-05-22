@@ -222,6 +222,24 @@ jobs:
       - name: Lint paths SSoT anti-patterns in packages/
         run: node scripts/lint-paths-ssot.mjs
 
+  raw-git-worktree-lint:
+    # T9984 / E7-CORE-LAYERING — enforce `@cleocode/worktree` as the sole
+    # source of `git worktree` shell-outs in the workspace. Strict gate: any
+    # raw `git worktree <verb>` invocation under `packages/` that is NOT in
+    # the allowlist fails CI. Comments and test files are intentionally
+    # excluded (test fixtures legitimately construct on-disk git worktrees).
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: Raw Git Worktree Lint (T9984)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint raw git-worktree shell-outs in packages/
+        run: node scripts/lint-no-raw-git-worktree.mjs
+
   json-stream-hygiene-lint:
     # T9775 / T-JH-8 — last task of T9763 (JSON stream hygiene saga).
     # Rejects NEW `process.stderr.write` / `console.warn` / `console.error`

@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { BUILTIN_DOC_KIND_VALUES, DocKindRegistry } from '@cleocode/contracts';
+import { addTransientWorktree, removeTransientWorktree } from '@cleocode/worktree';
 
 const execFileAsync = promisify(execFile);
 
@@ -351,12 +352,25 @@ export async function provisionPublishPrWorktree(opts: {
   }
 
   // Provision the worktree on the appropriate ref.
+  //
+  // T9984: route the raw `git worktree add` through `@cleocode/worktree`'s
+  // `addTransientWorktree` helper. The transient helper is the legitimate
+  // escape hatch for non-canonical worktree locations (docs-PR temp tree
+  // in tmpdir, NOT the XDG agent-worktree root). Keeping the call inside
+  // `@cleocode/worktree` lets the lint gate (`lint-no-raw-git-worktree.mjs`)
+  // reject inline `git worktree` shell-outs everywhere else.
+  //
+  // The injected `runGit` runner is still consulted for the `gh` runner
+  // bound in {@link pickRunner}; only the bare provisioning call moves out.
   try {
-    if (remoteHasBranch) {
-      await runGit(['worktree', 'add', '-B', branch, worktreeDir, `origin/${branch}`], projectRoot);
-    } else {
-      await runGit(['worktree', 'add', '-B', branch, worktreeDir, `origin/${base}`], projectRoot);
-    }
+    const baseSpec = remoteHasBranch ? `origin/${branch}` : `origin/${base}`;
+    await addTransientWorktree({
+      projectRoot,
+      worktreePath: worktreeDir,
+      branch,
+      baseRef: baseSpec,
+      resetBranch: true,
+    });
   } catch (e) {
     return {
       ok: false,
@@ -367,6 +381,11 @@ export async function provisionPublishPrWorktree(opts: {
       ),
     };
   }
+
+  // `runGit` is no longer needed for provisioning, but is retained as a
+  // function parameter for backward compatibility with callers that still
+  // pass it. Reference it once so TS doesn't flag an unused binding.
+  void runGit;
 
   return { ok: true, remoteHasBranch };
 }
@@ -384,12 +403,16 @@ export async function teardownPublishPrWorktree(opts: {
   runGit: (args: readonly string[], cwd: string) => Promise<{ stdout: string; stderr: string }>;
 }): Promise<void> {
   const { projectRoot, worktreeDir, runGit } = opts;
+  // T9984: route through `@cleocode/worktree`'s transient helper so the
+  // lint gate can keep `git worktree` shell-outs out of `packages/core/`.
   try {
-    await runGit(['worktree', 'remove', '--force', worktreeDir], projectRoot);
+    await removeTransientWorktree(projectRoot, worktreeDir);
   } catch {
     // Worktree removal may fail if the dir was already cleaned up — fall
     // through to fs cleanup.
   }
+  // `runGit` is retained on the signature for backward compatibility.
+  void runGit;
   try {
     await rm(worktreeDir, { recursive: true, force: true });
   } catch {

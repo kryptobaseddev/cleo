@@ -122,3 +122,72 @@ export function resolveHeadRef(gitRoot: string, fallback = 'main'): string {
     return fallback;
   }
 }
+
+/**
+ * Options for {@link addTransientWorktree}.
+ *
+ * @task T9984
+ */
+export interface AddTransientWorktreeOptions {
+  /** Absolute project root the worktree is added to. */
+  projectRoot: string;
+  /** Absolute path where the worktree directory will be created. */
+  worktreePath: string;
+  /** Branch name (created or reused if already present). */
+  branch: string;
+  /** Ref to branch from (e.g. `origin/main`, `origin/<branch>`). */
+  baseRef: string;
+  /**
+   * When true, pass `-B` (force-reset the branch ref). Otherwise `-b` is used
+   * (fail if the branch already exists locally).
+   *
+   * @default true
+   */
+  resetBranch?: boolean;
+}
+
+/**
+ * Add a **transient** (non-canonical-location) worktree via `git worktree add`.
+ *
+ * This is the legitimate escape hatch for callers that need a worktree
+ * OUTSIDE the canonical XDG agent-worktree root — for example the
+ * `cleo docs publish-pr` flow which provisions a temporary worktree in the
+ * OS tmpdir to produce a doc-PR commit/push.
+ *
+ * Routing through this helper keeps the raw `git worktree add` shell-out
+ * confined to `@cleocode/worktree` (the legitimate owner) so the lint gate
+ * introduced in T9984 can reject inline `git worktree` calls everywhere
+ * else.
+ *
+ * For AGENT worktrees (under XDG canonical root) use {@link createWorktree}
+ * from `@cleocode/worktree/worktree-create.js` instead — it adds locking,
+ * include-patterns, hook lifecycle, and sentinel-index registration.
+ *
+ * @param options - Provisioning options.
+ * @throws Error if `git worktree add` exits non-zero.
+ *
+ * @task T9984
+ */
+export async function addTransientWorktree(options: AddTransientWorktreeOptions): Promise<void> {
+  const { projectRoot, worktreePath, branch, baseRef, resetBranch = true } = options;
+  const flag = resetBranch ? '-B' : '-b';
+  await gitAsync(['worktree', 'add', flag, branch, worktreePath, baseRef], projectRoot);
+}
+
+/**
+ * Remove a transient worktree previously created via {@link addTransientWorktree}.
+ *
+ * Best-effort — failures throw, but callers SHOULD swallow in `finally`
+ * blocks so cleanup never masks the underlying error.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param worktreePath - Absolute path to the worktree to remove.
+ *
+ * @task T9984
+ */
+export async function removeTransientWorktree(
+  projectRoot: string,
+  worktreePath: string,
+): Promise<void> {
+  await gitAsync(['worktree', 'remove', '--force', worktreePath], projectRoot);
+}
