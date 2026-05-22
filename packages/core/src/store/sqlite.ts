@@ -32,6 +32,7 @@ import {
 } from './migration-manager.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
+import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
 // node:sqlite access is isolated in the leaf module sqlite-native.ts to prevent
 // TDZ circular-import failures in the agent-resolver → dispatch-trace →
@@ -206,6 +207,11 @@ async function autoRecoverFromBackup(
  */
 export async function getDb(cwd?: string): Promise<NodeSQLiteDatabase<typeof schema>> {
   const requestedPath = getDbPath(cwd);
+
+  // T9961 / T9806: worktree-isolation guard — defense-in-depth for direct
+  // getDb() callers (61 core handlers) that bypass openCleoDb('tasks', cwd).
+  // Fires before any DB file is touched, matching the openCleoDb chokepoint.
+  assertDbPathIsNotWorktreeResident('tasks', cwd);
 
   // T1906: guard against prod-DB writes in test mode
   const { assertTestEnv } = await import('./data-accessor.js');
