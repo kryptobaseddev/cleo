@@ -1,7 +1,9 @@
 ---
-"@cleocode/contracts": minor
-"@cleocode/core": minor
-"@cleocode/cleo": minor
+id: t9804-claude-isolation-bridge
+tasks: [T9804]
+kind: feat
+prs: []
+summary: "cleo worktree adopt + multi-source list (Claude Code Agent isolation bridge)"
 ---
 
 feat(T9804): cleo worktree adopt + multi-source list (Claude Code Agent isolation bridge)

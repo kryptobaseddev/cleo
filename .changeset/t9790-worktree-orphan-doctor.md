@@ -1,7 +1,7 @@
 ---
 id: t9790-worktree-orphan-doctor
 tasks: [T9790]
-kind: feature
+kind: feat
 summary: cleo doctor gains --audit-worktree-orphans and --prune-worktree-orphans for the T9550/T9580 SSoT-bug fallout.
 ---
 

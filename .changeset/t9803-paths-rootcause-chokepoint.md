@@ -3,7 +3,7 @@ id: t9803-paths-rootcause-chokepoint
 tasks: [T9803]
 kind: fix
 prs: []
-summary: Root-cause fix for orphan-`.cleo/` synthesis — `getCleoDirAbsolute` now THROWS when `getProjectRoot` fails unless caller passes `{ bootstrap: true }`.
+summary: "Root-cause fix for orphan-`.cleo/` synthesis — `getCleoDirAbsolute` now THROWS when `getProjectRoot` fails unless caller passes `{ bootstrap: true }`."
 ---
 
 The chokepoint at `packages/core/src/paths.ts:305` previously caught the
