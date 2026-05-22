@@ -16,6 +16,7 @@ members = [
     "crates/signaldock-runtime",
     "crates/signaldock-sdk",
     "crates/signaldock-payments",
+    "crates/worktrunk-core",
     "crates/integration-tests",
 ]
 
@@ -41,6 +42,7 @@ default-members = [
     "crates/lafs-napi",
     "crates/signaldock-core",
     "crates/signaldock-protocol",
+    "crates/worktrunk-core",
     "crates/integration-tests",
 ]
 resolver = "2"
@@ -120,6 +122,7 @@ signaldock-transport = { path = "crates/signaldock-transport" }
 signaldock-runtime = { path = "crates/signaldock-runtime" }
 signaldock-sdk = { path = "crates/signaldock-sdk" }
 signaldock-payments = { path = "crates/signaldock-payments" }
+worktrunk-core = { path = "crates/worktrunk-core" }
 
 [workspace.lints.rust]
 missing_docs = "warn"
