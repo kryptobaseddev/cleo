@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 kryptobaseddev
+#
+# This file is part of crates/worktree-napi in the CleoCode monorepo.
+
+[package]
+name = "worktree-napi"
+version.workspace = true
+edition = "2024"
+rust-version = "1.94"
+description = "napi-rs bindings for worktrunk-core: parallel git-worktree provisioning + .worktreeinclude"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worktrunk-core = { path = "../worktrunk-core" }
+napi = { version = "3", features = ["napi4", "serde-json", "async"] }
+napi-derive = "3"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+napi-build = "1"
+
+[lints]
+workspace = true
