@@ -34,16 +34,22 @@ afterEach(async () => {
   try {
     const { closeBrainDb } = await import('../../store/memory-sqlite.js');
     closeBrainDb();
-  } catch { /* not loaded */ }
+  } catch {
+    /* not loaded */
+  }
   try {
     const { closeNexusDb, resetNexusDbState } = await import('../../store/nexus-sqlite.js');
     closeNexusDb();
     resetNexusDbState();
-  } catch { /* not loaded */ }
+  } catch {
+    /* not loaded */
+  }
   try {
     const { closeDb } = await import('../../store/sqlite.js');
     closeDb();
-  } catch { /* not loaded */ }
+  } catch {
+    /* not loaded */
+  }
 
   delete process.env['CLEO_DIR'];
   delete process.env['CLEO_HOME'];
@@ -78,12 +84,18 @@ function seedObservation(
   // Ensure peer_id column exists (may be added by T1084 migration)
   try {
     db.exec(`ALTER TABLE brain_observations ADD COLUMN peer_id TEXT NOT NULL DEFAULT 'global'`);
-  } catch { /* already exists */ }
+  } catch {
+    /* already exists */
+  }
 
   // Ensure provenance_class column exists (added by T1260 migration)
   try {
-    db.exec(`ALTER TABLE brain_observations ADD COLUMN provenance_class TEXT DEFAULT 'unswept-pre-T1151'`);
-  } catch { /* already exists */ }
+    db.exec(
+      `ALTER TABLE brain_observations ADD COLUMN provenance_class TEXT DEFAULT 'unswept-pre-T1151'`,
+    );
+  } catch {
+    /* already exists */
+  }
 
   try {
     db.prepare(
