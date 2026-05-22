@@ -4,9 +4,17 @@
   "private": false,
   "description": "Linux x86_64 (glibc) prebuilt for @cleocode/worktree-napi",
   "license": "MIT",
-  "os": ["linux"],
-  "cpu": ["x64"],
-  "libc": ["glibc"],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
   "main": "worktree-napi.linux-x64-gnu.node",
-  "files": ["worktree-napi.linux-x64-gnu.node"]
+  "files": [
+    "worktree-napi.linux-x64-gnu.node"
+  ]
 }
