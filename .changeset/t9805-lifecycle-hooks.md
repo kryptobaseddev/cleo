@@ -1,7 +1,9 @@
 ---
-"@cleocode/worktree": minor
-"@cleocode/contracts": minor
-"@cleocode/cleo": minor
+id: t9805-lifecycle-hooks
+tasks: [T9805]
+kind: feat
+prs: []
+summary: "worktree lifecycle audit log + auto-cleanup GHA workflow"
 ---
 
 feat(T9805): worktree lifecycle audit log + auto-cleanup GHA workflow
