@@ -2,7 +2,7 @@
 name = "signaldock-core"
 version.workspace = true
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 description = "Shared domain types for the SignalDock agent messaging platform"
 
 [lib]
