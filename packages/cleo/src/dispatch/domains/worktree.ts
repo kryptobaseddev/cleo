@@ -49,13 +49,13 @@ import type {
 } from '@cleocode/contracts';
 import {
   adoptWorktree,
+  destroyWorktree,
   forceUnlockWorktree,
   getLogger,
   getProjectRoot,
   listWorktrees,
   pruneOrphanedWorktreesByStatus,
 } from '@cleocode/core/internal';
-import { destroyWorktree } from '@cleocode/worktree';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
