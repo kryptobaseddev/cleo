@@ -112,11 +112,15 @@ const SCAN_EXTS = new Set(['.ts', '.tsx', '.mts']);
 
 /**
  * Get lines ADDED in this PR using `git diff --unified=0 --diff-filter=AM`.
- * Returns an empty array when git is unavailable or the diff is empty.
+ *
+ * Returns:
+ *   - `null`  — git is unavailable or the command failed (caller should fall back to full scan)
+ *   - `[]`    — git ran successfully but no TS files were added/modified (clean PR, exit 0)
+ *   - `[...]` — added lines found in the diff
  *
  * @param {string} baseRef - e.g. `origin/main`
  * @param {string} cwd
- * @returns {Array<{file: string, lineNumber: number, content: string}>}
+ * @returns {Array<{file: string, lineNumber: number, content: string}> | null}
  */
 function getAddedLines(baseRef, cwd) {
   const result = spawnSync(
@@ -133,7 +137,12 @@ function getAddedLines(baseRef, cwd) {
     ],
     { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
   );
-  if (result.error || result.status !== 0 || !result.stdout.trim()) {
+  // git unavailable or command failed — signal caller to fall back
+  if (result.error || result.status !== 0) {
+    return null;
+  }
+  // Successfully ran but no TS changes in this PR — empty diff is valid
+  if (!result.stdout.trim()) {
     return [];
   }
   return parseDiffAddedLines(result.stdout);
@@ -374,12 +383,11 @@ const BASE_REF =
 const CLEO_BIN = process.env.CLEO_BIN || 'cleo';
 const CWD = process.cwd();
 
-// Collect lines to lint: prefer PR diff, fall back to full scan.
-let linesToLint = getAddedLines(BASE_REF, CWD);
-const usingDiff = linesToLint.length > 0;
-if (!usingDiff) {
-  linesToLint = scanAllPackageLines(CWD);
-}
+// Collect lines to lint: prefer PR diff, fall back to full scan only on git failure.
+const diffResult = getAddedLines(BASE_REF, CWD);
+// null = git unavailable/failed; [] = clean diff (no TS changes); [...] = added lines
+const usingDiff = diffResult !== null;
+const linesToLint = usingDiff ? diffResult : scanAllPackageLines(CWD);
 
 const violations = lintLines(linesToLint, { strict: STRICT, cleoBin: CLEO_BIN, cwd: CWD });
 
