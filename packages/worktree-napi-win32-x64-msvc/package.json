@@ -1,0 +1,11 @@
+{
+  "name": "@cleocode/worktree-napi-win32-x64-msvc",
+  "version": "0.0.0-prerelease",
+  "private": false,
+  "description": "Windows x86_64 (MSVC) prebuilt for @cleocode/worktree-napi",
+  "license": "MIT",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "main": "worktree-napi.win32-x64-msvc.node",
+  "files": ["worktree-napi.win32-x64-msvc.node"]
+}

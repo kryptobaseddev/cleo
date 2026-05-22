@@ -1,0 +1,12 @@
+{
+  "name": "@cleocode/worktree-napi-linux-arm64-gnu",
+  "version": "0.0.0-prerelease",
+  "private": false,
+  "description": "Linux aarch64 (glibc) prebuilt for @cleocode/worktree-napi",
+  "license": "MIT",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "libc": ["glibc"],
+  "main": "worktree-napi.linux-arm64-gnu.node",
+  "files": ["worktree-napi.linux-arm64-gnu.node"]
+}
