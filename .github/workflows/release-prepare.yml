@@ -131,9 +131,9 @@ jobs:
             updated=$(jq --arg v "$VERSION_BARE" '
               def bump_if_numeric:
                 if . and (test("^[0-9]")) then $v else . end;
-              (.dependencies // {}) |= with_entries(.value |= bump_if_numeric) |
-              (.devDependencies // {}) |= with_entries(.value |= bump_if_numeric) |
-              (.peerDependencies // {}) |= with_entries(.value |= bump_if_numeric)
+              (if has("dependencies") then .dependencies |= with_entries(.value |= bump_if_numeric) else . end) |
+              (if has("devDependencies") then .devDependencies |= with_entries(.value |= bump_if_numeric) else . end) |
+              (if has("peerDependencies") then .peerDependencies |= with_entries(.value |= bump_if_numeric) else . end)
             ' "$PKG_JSON")
             echo "$updated" > "$PKG_JSON"
           done
