@@ -137,6 +137,43 @@ export interface Session {
   gradeMode?: boolean;
   /** ID of the provider adapter used for this session. @defaultValue undefined */
   providerId?: string | null;
+  /**
+   * Human-readable agent handle for multi-agent isolation (T9975).
+   *
+   * Set via `cleo session start --agent <handle>`. Allows concurrent agent
+   * sessions to be distinguished in `cleo session list --all` and enables
+   * `cleo briefing` env-precedence detection when `CLEO_SESSION_ID` is set.
+   *
+   * @defaultValue undefined
+   */
+  agentHandle?: string | null;
+  /**
+   * Denormalised scope type ("global" | "epic") for fast index queries (T9975).
+   *
+   * Derived from `scope.type` at session creation; cached in the DB column
+   * `scope_kind` to avoid JSON parsing in hot paths.
+   *
+   * @defaultValue undefined
+   */
+  scopeKind?: string | null;
+  /**
+   * Denormalised scope target ID (e.g. "T9964") for epic sessions (T9975).
+   *
+   * Derived from `scope.epicId` / `scope.rootTaskId` at session creation.
+   * NULL for global sessions.
+   *
+   * @defaultValue undefined
+   */
+  scopeId?: string | null;
+  /**
+   * ISO 8601 timestamp of the last mutation on this session (T9975).
+   *
+   * Updated on session start, task focus change, and task completion.
+   * Used by the idle auto-end lifecycle hook and `cleo session list --all`.
+   *
+   * @defaultValue undefined
+   */
+  lastActivity?: string | null;
 }
 
 /**

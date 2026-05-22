@@ -185,6 +185,7 @@ export {
   releaseRollbackFull,
   releaseShow,
   releaseTag,
+  sessionAdopt,
   sessionArchive,
   sessionBriefing,
   sessionChainShow,

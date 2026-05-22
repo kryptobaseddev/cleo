@@ -25,6 +25,7 @@ export {
   loadCanonRegistry,
 } from './canon-lint.js';
 export {
+  sessionAdopt,
   sessionArchive,
   sessionBriefing,
   sessionChainShow,

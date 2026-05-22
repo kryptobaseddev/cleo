@@ -283,9 +283,20 @@ export async function computeBriefing(
   try {
     const { buildRetrievalBundle } = await import('../memory/brain-retrieval.js');
 
-    // Resolve active session ID and peer ID from session state.
-    // Peer ID defaults to 'global' when no CANT agent is active.
-    const activeSessionObj = await accessor.getActiveSession();
+    // T9975: Resolve active session ID via explicit param → most-recent active.
+    // The env-precedence (CLEO_SESSION_ID → CLAUDE_SESSION_ID → AIDER_SESSION_ID)
+    // is resolved in the engine layer before calling computeBriefing; here we
+    // honour whatever `params.activeSessionId` was passed down.
+    let activeSessionObj = params.activeSessionId
+      ? await (async () => {
+          const sessions = await accessor.loadSessions();
+          return sessions.find((s) => s.id === params.activeSessionId) ?? null;
+        })()
+      : await accessor.getActiveSession();
+    // Fallback: if the pinned session is ended/missing, revert to most-recent active.
+    if (!activeSessionObj || activeSessionObj.status !== 'active') {
+      activeSessionObj = await accessor.getActiveSession();
+    }
     const activeSessionId = activeSessionObj?.id ?? '';
     const activePeerId =
       ((activeSessionObj as Record<string, unknown> | null)?.['activePeerId'] as

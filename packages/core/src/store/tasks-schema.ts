@@ -420,6 +420,15 @@ export const sessions = sqliteTable(
     gradeMode: integer('grade_mode'),
     // Owner-auth HMAC token for L4a override authentication (T1118)
     ownerAuthToken: text('owner_auth_token'),
+    // T9975 — per-agent session isolation columns
+    /** Human-readable agent tag (e.g. "agent-A") for multi-agent isolation. */
+    agentHandle: text('agent_handle'),
+    /** Denormalised scope type ("global" | "epic") — avoids JSON parsing in hot paths. */
+    scopeKind: text('scope_kind'),
+    /** Denormalised scope target ID (e.g. "T9964" for epic sessions). NULL for global. */
+    scopeId: text('scope_id'),
+    /** ISO 8601 timestamp of the last mutation — used by idle auto-end hook. */
+    lastActivity: text('last_activity'),
   },
   (table) => [
     index('idx_sessions_status').on(table.status),
@@ -428,6 +437,9 @@ export const sessions = sqliteTable(
     index('idx_sessions_started_at').on(table.startedAt),
     // T033 composite index: getActiveSession hot path
     index('idx_sessions_status_started_at').on(table.status, table.startedAt),
+    // T9975 — per-agent session isolation indexes
+    index('idx_sessions_agent_handle').on(table.agentHandle),
+    index('idx_sessions_scope_kind_id').on(table.scopeKind, table.scopeId),
   ],
 );
 

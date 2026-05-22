@@ -605,6 +605,8 @@ export type { ContextDriftResult } from './session-drift.js';
 export { getContextDrift } from './session-drift.js';
 export type { SessionHistoryEntry, SessionHistoryParams } from './session-history.js';
 export { getSessionHistory } from './session-history.js';
+// T9975 — env-precedence session resolution
+export { resolveSessionIdFromEnv } from './session-id.js';
 export type { SessionBridgeData, SessionBridgeResult } from './session-memory-bridge.js';
 export { bridgeSessionToMemory } from './session-memory-bridge.js';
 // Re-export extended session modules (engine-compatible)

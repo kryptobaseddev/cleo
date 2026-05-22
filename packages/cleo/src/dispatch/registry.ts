@@ -2660,6 +2660,26 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
+  // T9975 — per-agent session isolation: adopt rebinds env to a specific session.
+  {
+    gateway: 'mutate',
+    domain: 'session',
+    operation: 'adopt',
+    description:
+      'session.adopt — rebind env to a specific session for multi-agent isolation (T9975)',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'sessionId',
+        type: 'string',
+        required: true,
+        description: 'Session ID to adopt',
+      },
+    ],
+  },
   // session.context.inject moved to admin.context.inject (T5615)
   {
     gateway: 'mutate',

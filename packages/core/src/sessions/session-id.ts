@@ -78,6 +78,32 @@ export function extractSessionTimestamp(id: string): Date | null {
   return null;
 }
 
+/**
+ * Resolve the active session ID via environment-variable precedence (T9975).
+ *
+ * Priority order (first defined wins):
+ * 1. `CLEO_SESSION_ID`   — explicitly set by `cleo session start` or `cleo session adopt`
+ * 2. `CLAUDE_SESSION_ID` — injected by the Claude Code harness
+ * 3. `AIDER_SESSION_ID`  — injected by the Aider harness
+ *
+ * Returns `null` when none of the three variables are set, signalling that
+ * the caller should fall back to `getActiveSession()` (most-recent active row).
+ *
+ * This function NEVER reads the database — it is synchronous and safe to call
+ * in hot paths. Database fallback is the caller's responsibility.
+ *
+ * @returns The session ID string when an env var is set, otherwise `null`.
+ *
+ * @task T9975
+ */
+export function resolveSessionIdFromEnv(): string | null {
+  return (
+    (process.env['CLEO_SESSION_ID'] ?? null) ||
+    (process.env['CLAUDE_SESSION_ID'] ?? null) ||
+    (process.env['AIDER_SESSION_ID'] ?? null)
+  );
+}
+
 function parseCompactTimestamp(ts: string): Date | null {
   if (ts.length !== 14) return null;
   const year = ts.substring(0, 4);
