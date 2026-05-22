@@ -429,3 +429,87 @@ pub fn list_worktrees(opts: ListOpts) -> napi::Result<Vec<WorktreeInfoNapi>> {
     let infos = core_list_worktrees(&repo_root).map_err(napi_err)?;
     Ok(infos.into_iter().map(Into::into).collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_worktree_include_returns_empty_for_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let result = read_worktree_include(tmp.path().to_string_lossy().to_string());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn read_worktree_include_parses_negation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let include_path = tmp.path().join(".worktreeinclude");
+        std::fs::write(&include_path, "*.log\n!important.log\n").unwrap();
+        let result = read_worktree_include(tmp.path().to_string_lossy().to_string()).unwrap();
+        assert!(!result.is_empty(), "expected patterns; got empty");
+        // Verify at least: one pattern with is_negation=false ("*.log"),
+        // and one with is_negation=true ("important.log").
+        let has_negation = result.iter().any(|p| p.is_negation);
+        let has_non_negation = result.iter().any(|p| !p.is_negation);
+        assert!(has_negation, "expected at least one negation pattern");
+        assert!(
+            has_non_negation,
+            "expected at least one non-negation pattern"
+        );
+    }
+
+    #[test]
+    fn list_worktrees_returns_at_least_the_main_worktree() {
+        let cwd = std::env::current_dir().unwrap();
+        let opts = ListOpts {
+            repo_root: cwd.to_string_lossy().to_string(),
+        };
+        let result = list_worktrees(opts);
+        assert!(result.is_ok(), "list_worktrees errored: {:?}", result.err());
+        let worktrees = result.unwrap();
+        assert!(
+            !worktrees.is_empty(),
+            "expected at least the primary worktree"
+        );
+    }
+
+    #[test]
+    fn destroy_worktree_errors_on_nonexistent_path() {
+        let opts = DestroyOpts {
+            repo_root: std::env::current_dir()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
+            worktree_path: "/tmp/definitely-does-not-exist-T10018".to_string(),
+            force: false,
+        };
+        let result = destroy_worktree(opts);
+        assert!(
+            result.is_err(),
+            "destroy_worktree should fail on missing path"
+        );
+    }
+
+    #[test]
+    fn copy_paths_parallel_handles_empty_paths() {
+        let src = tempfile::tempdir().unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        let opts = CopyOpts {
+            force: false,
+            root_guard: None,
+            include_symlinks: false,
+        };
+        let result = copy_paths_parallel(
+            src.path().to_string_lossy().to_string(),
+            dest.path().to_string_lossy().to_string(),
+            vec![],
+            opts,
+        );
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.copied_count, 0);
+        assert_eq!(r.skipped_count, 0);
+    }
+}
