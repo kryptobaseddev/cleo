@@ -303,6 +303,47 @@ a specific type (e.g. intentional CLI-only or core-only shape).
 
 **Threshold:** defaults to fan-out > 2. Override with `--threshold N`.
 
+## SSoT-EXEMPT Escape-Hatch Policy (T10075 / Epic T9837 / Saga T9831)
+
+`SSoT-EXEMPT` is a controlled escape-hatch comment for code that legitimately
+deviates from the Architectural SSoT contracts established by Saga T9831
+SG-ARCH-SOLID. Every NEW `SSoT-EXEMPT` comment added in a PR is gated by
+`scripts/lint-no-ssot-exempt.mjs` (CI job `ssot-exempt-lint`).
+
+### Rules
+
+| Mode | Behaviour |
+|------|-----------|
+| `--strict` (CI default) | Zero new `SSoT-EXEMPT` comments allowed — gate fails regardless of task linkage |
+| `--baseline` (local default) | New `SSoT-EXEMPT` comments without a linked open `T####` task fail |
+
+### Valid comment formats
+
+```ts
+// SSoT-EXEMPT:<reason> (T####)
+// SSoT-EXEMPT: reason T####
+// SSoT-EXEMPT:reason — tracked in T####
+```
+
+The `T####` MUST reference a task that is **not** in a terminal state
+(`completed`, `cancelled`, or `deleted`).
+
+### Per-line opt-out (use sparingly)
+
+```ts
+// SSoT-EXEMPT:reason (T####) // ssot-exempt-ok: genuinely irreducible
+```
+
+Adding `// ssot-exempt-ok: <reason>` as a trailing comment suppresses the linter
+for that specific line. Reserve for cases where the exemption is provably permanent.
+
+### How to add a legitimate exemption
+
+1. File a follow-up task: `cleo add --type task --title "Remove SSoT-EXEMPT in <file>" --acceptance "..."`
+2. Use the task ID in the comment: `// SSoT-EXEMPT: <reason> (T####)`
+3. In CI the gate runs `--strict` — getting a legitimate exemption merged requires
+   team discussion and a temporary relaxation of the CI gate (tracked separately).
+
 ## Package-Boundary Check (MANDATORY)
 
 Before creating or relocating ANY source file, verify the correct package by the
