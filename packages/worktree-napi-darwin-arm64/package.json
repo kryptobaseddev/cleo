@@ -4,8 +4,14 @@
   "private": false,
   "description": "macOS aarch64 (Apple Silicon) prebuilt for @cleocode/worktree-napi",
   "license": "MIT",
-  "os": ["darwin"],
-  "cpu": ["arm64"],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
   "main": "worktree-napi.darwin-arm64.node",
-  "files": ["worktree-napi.darwin-arm64.node"]
+  "files": [
+    "worktree-napi.darwin-arm64.node"
+  ]
 }
