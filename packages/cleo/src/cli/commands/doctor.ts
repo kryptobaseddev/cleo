@@ -616,7 +616,7 @@ export const doctorCommand = defineCommand({
           pushWarning({
             code: 'W_DOCTOR_SCAN_SOFT_WARN',
             message: legacyScanResult.softWarnMessage,
-            severity: 'warning',
+            severity: 'warn',
           });
         }
 
@@ -629,8 +629,8 @@ export const doctorCommand = defineCommand({
           pushWarning({
             code: 'W_DOCTOR_SCAN_PARTIAL',
             message: `legacy orphan scan is PARTIAL — ${reason}. Results may be incomplete.`,
-            severity: 'warning',
-            meta: {
+            severity: 'warn',
+            context: {
               partialReason: legacyScanResult.partialReason,
               timeoutSecs,
               maxEntriesPerLevel,
@@ -692,7 +692,7 @@ export const doctorCommand = defineCommand({
           pushWarning({
             code: 'W_DOCTOR_SCAN_SOFT_WARN',
             message: scanResult.softWarnMessage,
-            severity: 'warning',
+            severity: 'warn',
           });
         }
         if (scanResult.isPartial) {
@@ -703,8 +703,8 @@ export const doctorCommand = defineCommand({
           pushWarning({
             code: 'W_DOCTOR_SCAN_PARTIAL',
             message: `orphan scan is PARTIAL — ${reason}. Only orphans found before abort will be pruned.`,
-            severity: 'warning',
-            meta: {
+            severity: 'warn',
+            context: {
               partialReason: scanResult.partialReason,
               timeoutSecs,
               maxEntriesPerLevel,
