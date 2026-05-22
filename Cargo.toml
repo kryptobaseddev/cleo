@@ -47,7 +47,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "2026.5.97"
+version = "2026.5.98"
 rust-version = "1.88"
 
 [workspace.dependencies]
@@ -148,7 +148,7 @@ expect_used = "deny"
 
 [package]
 name = "cleocode-workspace"
-version = "2026.5.97"
+version = "2026.5.98"
 edition = "2024"
 rust-version = "1.88"
 
