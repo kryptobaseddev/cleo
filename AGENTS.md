@@ -225,6 +225,44 @@ registry consumed by T9805 lifecycle hooks.
 `packages/cleo-os`, `packages/core`, `packages/adapters`, `packages/cant`, and
 `packages/cleo`. Track as a follow-up child of T9802.
 
+## DB Open Guard (T10073 / Saga T9831 SG-ARCH-SOLID)
+
+All SQLite database opens MUST flow through `openCleoDb(role, cwd)` (or
+`openCleoDbSnapshot()` for read-only snapshot opens) from
+`packages/core/src/store/open-cleo-db.ts`. Raw `new DatabaseSync(` and
+`new Database(` calls outside the canonical allowlist are rejected by the
+`DB Open Guard` CI job (`scripts/lint-no-direct-db-open.mjs`).
+
+**Why**: bypassing the chokepoint causes pragma drift (missing SSoT from
+`specs/sqlite-pragmas.json`), WAL/lock contention between processes, and
+topology opacity (`cleo health` cannot enumerate the handle).
+
+**Modes:**
+- Default (baseline): `node scripts/lint-no-direct-db-open.mjs` — fails on net-add vs baseline
+- Strict: `node scripts/lint-no-direct-db-open.mjs --strict` — fails on ANY violation
+- Update baseline: `node scripts/lint-no-direct-db-open.mjs --update-baseline`
+
+**Per-line opt-out:** append `// db-open-allowed: <reason>` for genuinely
+exceptional cases (e.g. non-CLEO-metadata graph DBs like nexus per-project files).
+
+**Canonical allowlist** (all other locations are violations):
+
+| Location | Reason |
+|---|---|
+| `packages/core/src/store/**` | The chokepoint itself |
+| `packages/core/src/migration/**` | Schema bootstrapping |
+| `packages/core/src/memory/claude-mem-migration.ts` | One-shot memory migration |
+| `packages/core/src/memory/graph-memory-bridge.ts` | Hot-path conduit open |
+| `packages/core/src/conduit/**` | Core-owned conduit infrastructure |
+| `packages/core/src/upgrade.ts` | One-shot signaldock migration |
+| `packages/core/src/init.ts` | Bootstrap before chokepoint is available |
+| `packages/core/src/agents/seed-install.ts` | One-shot global install |
+| `packages/core/src/orchestration/classify.ts` | JSDoc @example blocks only |
+| `packages/core/src/nexus/**` | Per-project graph DBs (non-CLEO metadata) |
+| `packages/brain/src/db-connections.ts` | Package-boundary constraint (no core dep) |
+| `packages/studio/src/lib/server/db/connections.ts` | Per-project ProjectContext-driven opens |
+| Test files (`__tests__/`, `.test.ts`, `.spec.ts`) | May open raw for seeding |
+
 ## Package-Boundary Check (MANDATORY)
 
 Before creating or relocating ANY source file, verify the correct package by the

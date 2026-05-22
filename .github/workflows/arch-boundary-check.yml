@@ -1,0 +1,27 @@
+name: Arch Boundary Check
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  db-open-guard:
+    name: DB Open Guard (T10073)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run lint-no-direct-db-open (baseline mode)
+        run: node scripts/lint-no-direct-db-open.mjs
