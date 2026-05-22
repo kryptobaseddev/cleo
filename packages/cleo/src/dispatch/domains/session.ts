@@ -46,6 +46,7 @@ import {
 } from '../adapters/typed.js';
 import { bindSession, unbindSession } from '../context/session-context.js';
 import {
+  sessionAdopt,
   sessionBriefing,
   sessionComputeDebrief,
   sessionComputeHandoff,
@@ -151,6 +152,17 @@ async function sessionRecordAssumptionOp(params: Parameters<typeof sessionRecord
  * that `transcript` was supplied because the engine signature requires an
  * absolute path.
  */
+/**
+ * session.adopt op — rebind env to a specific session (T9975).
+ *
+ * Returns a shell export command that the caller should eval to set
+ * `CLEO_SESSION_ID` in its shell environment, enabling subsequent
+ * `cleo briefing` and focus operations to target the adopted session.
+ */
+async function sessionAdoptOp(params: { sessionId: string }) {
+  return sessionAdopt(getProjectRoot(), params.sessionId);
+}
+
 async function sessionLintOp(params: SessionLintParams) {
   if (!params.transcript) {
     return {
@@ -212,6 +224,8 @@ const coreOps = {
   'record.decision': sessionRecordDecisionOp,
   'record.assumption': sessionRecordAssumptionOp,
   lint: sessionLintOp,
+  // T9975 — per-agent session isolation
+  adopt: sessionAdoptOp,
 } as const;
 
 type SessionOps = OpsFromCore<typeof coreOps>;
@@ -488,6 +502,25 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     }
     return lafsSuccess(result.data, 'lint');
   },
+
+  // T9975 — per-agent session isolation: adopt rebinds env to a specific session.
+  adopt: async (params: SessionOps['adopt'][0]) => {
+    if (!params.sessionId) {
+      return lafsError('E_INVALID_INPUT', 'sessionId is required', 'adopt');
+    }
+    const result = await coreOps.adopt(params);
+    if (!result.success) {
+      return lafsError(
+        String(result.error?.code ?? 'E_INTERNAL'),
+        result.error?.message ?? 'Unknown error',
+        'adopt',
+      );
+    }
+    if (!result.data) {
+      return lafsError('E_INTERNAL', 'session.adopt returned no data', 'adopt');
+    }
+    return lafsSuccess(result.data, 'adopt');
+  },
 });
 
 // ---------------------------------------------------------------------------
@@ -514,6 +547,8 @@ const MUTATE_OPS = new Set<string>([
   'gc',
   'record.decision',
   'record.assumption',
+  // T9975 — per-agent session isolation
+  'adopt',
 ]);
 
 // ---------------------------------------------------------------------------

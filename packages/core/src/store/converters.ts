@@ -164,5 +164,10 @@ export function rowToSession(row: SessionRow): Session {
     stats: row.statsJson ? safeParseJson<SessionStats>(row.statsJson) : undefined,
     resumeCount: row.resumeCount ?? undefined,
     gradeMode: row.gradeMode ? Boolean(row.gradeMode) : undefined,
+    // T9975 — per-agent session isolation fields
+    agentHandle: row.agentHandle ?? null,
+    scopeKind: row.scopeKind ?? null,
+    scopeId: row.scopeId ?? null,
+    lastActivity: row.lastActivity ?? null,
   };
 }

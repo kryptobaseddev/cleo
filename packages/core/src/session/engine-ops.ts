@@ -43,7 +43,7 @@ import {
   suspendSession,
   switchSession,
 } from '../sessions/index.js';
-import { generateSessionId } from '../sessions/session-id.js';
+import { generateSessionId, resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { appendSessionJournalEntry } from '../sessions/session-journal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
@@ -145,6 +145,54 @@ export async function sessionStatus(projectRoot: string): Promise<
 }
 
 /**
+ * Rebind the calling shell's env to a specific session (T9975).
+ *
+ * Returns a shell export command that the caller should eval in its shell.
+ * This is the recommended approach for multi-agent handoffs: agent B calls
+ * `cleo session adopt <id>` to start working in the context of agent A's
+ * session without restarting it.
+ *
+ * The session must exist and be active. The caller is responsible for
+ * printing and evaluating the returned `exportCommand`.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param sessionId - Session ID to adopt
+ * @returns EngineResult with exportCommand and sessionId
+ *
+ * @task T9975
+ */
+export async function sessionAdopt(
+  projectRoot: string,
+  sessionId: string,
+): Promise<EngineResult<{ sessionId: string; exportCommand: string; envVar: 'CLEO_SESSION_ID' }>> {
+  try {
+    const accessor = await getTaskAccessor(projectRoot);
+    const sessions = await accessor.loadSessions();
+    const session = sessions.find((s: Session) => s.id === sessionId);
+
+    if (!session) {
+      return engineError(
+        'E_NOT_FOUND',
+        `Session '${sessionId}' not found. Use 'cleo session list --all' to see available sessions.`,
+      );
+    }
+
+    if (session.status !== 'active') {
+      return engineError(
+        'E_SESSION_NOT_FOUND',
+        `Session '${sessionId}' is ${session.status}, not active. Only active sessions can be adopted.`,
+        { details: { sessionId, status: session.status } },
+      );
+    }
+
+    const exportCommand = `export CLEO_SESSION_ID=${sessionId}`;
+    return engineSuccess({ sessionId, exportCommand, envVar: 'CLEO_SESSION_ID' as const });
+  } catch (err: unknown) {
+    return toEngineError(err, 'E_INTERNAL', 'Failed to adopt session');
+  }
+}
+
+/**
  * List sessions with budget enforcement.
  *
  * Defaults to 10 results when no explicit limit is provided to protect
@@ -159,7 +207,7 @@ export async function sessionStatus(projectRoot: string): Promise<
  */
 export async function sessionList(
   projectRoot: string,
-  params?: { active?: boolean; status?: string; limit?: number; offset?: number },
+  params?: { active?: boolean; status?: string; limit?: number; offset?: number; all?: boolean },
 ): Promise<
   EngineResult<{
     sessions: Session[];
@@ -358,6 +406,15 @@ export async function sessionStart(
     startTask?: string;
     /** Enable full query+mutation audit logging for behavioral grading. */
     grade?: boolean;
+    /**
+     * Human-readable agent handle for multi-agent isolation (T9975).
+     *
+     * When provided, the conflict check is scoped to sessions sharing the same
+     * agent handle: a new session is allowed if no active session with this
+     * exact handle exists. This enables N concurrent agents to run in parallel
+     * without briefing surface collisions.
+     */
+    agentHandle?: string;
   },
 ): Promise<EngineResult<Session>> {
   try {
@@ -379,17 +436,31 @@ export async function sessionStart(
       }
     }
 
-    // Guard: reject if an active session already exists (no silent auto-end)
+    // T9975: Guard — reject if an active session already exists for the same agent handle.
+    // When --agent <handle> is provided, the conflict is scoped per-handle so that N
+    // concurrent worktree agents can each have their own active session.
+    // When no handle is provided, fall back to the original single-session guard.
     const existingActive = await accessor.getActiveSession();
     if (existingActive) {
-      return engineError(
-        'E_SESSION_CONFLICT',
-        `An active session already exists (${existingActive.id}). End it first with 'cleo session end'.`,
-        {
-          fix: "Run 'cleo session end' before starting a new session.",
-          details: { activeSessionId: existingActive.id },
-        },
-      );
+      const conflictsByHandle = params.agentHandle
+        ? // Per-handle conflict: only block if the same handle already has an active session
+          (await accessor.loadSessions()).filter(
+            (s: Session) => s.status === 'active' && s.agentHandle === params.agentHandle,
+          )
+        : [existingActive];
+
+      if (conflictsByHandle.length > 0) {
+        const conflictId = conflictsByHandle[0]!.id;
+        const handleSuffix = params.agentHandle ? ` for agent '${params.agentHandle}'` : '';
+        return engineError(
+          'E_SESSION_CONFLICT',
+          `An active session already exists${handleSuffix} (${conflictId}). End it first with 'cleo session end'.`,
+          {
+            fix: "Run 'cleo session end' before starting a new session.",
+            details: { activeSessionId: conflictId },
+          },
+        );
+      }
     }
 
     const now = new Date().toISOString();
@@ -424,6 +495,10 @@ export async function sessionStart(
     const rootTaskId = scope.type !== 'global' ? scope.rootTaskId : undefined;
     const startingTaskId = params.startTask ?? (params.autoStart && rootTaskId ? rootTaskId : null);
 
+    // T9975: Derive denormalised scope columns for fast index queries.
+    const scopeKind = scope.type;
+    const scopeId = scope.type !== 'global' ? (scope.rootTaskId ?? null) : null;
+
     const newSession: Session = {
       id: sessionId,
       status: 'active',
@@ -437,8 +512,12 @@ export async function sessionStart(
         setAt: now,
       },
       startedAt: now,
+      lastActivity: now,
       resumeCount: 0,
       ...(params.grade ? { gradeMode: true } : {}),
+      ...(params.agentHandle ? { agentHandle: params.agentHandle } : {}),
+      scopeKind,
+      scopeId,
       stats: {
         tasksCompleted: 0,
         tasksCreated: 0,
@@ -1197,10 +1276,26 @@ export async function sessionBriefing(
     maxBlocked?: number;
     maxEpics?: number;
     scope?: string;
+    /**
+     * Explicit session ID to scope the briefing to (T9975).
+     *
+     * When provided, the briefing is scoped to this specific session
+     * rather than the most-recent active session. Used by agents that
+     * have their own `CLEO_SESSION_ID` env var set.
+     */
+    sessionId?: string;
   },
 ): Promise<EngineResult<SessionBriefing>> {
   try {
-    const briefing = await computeBriefing(projectRoot, options);
+    // T9975: Env-precedence session resolution.
+    // CLEO_SESSION_ID → CLAUDE_SESSION_ID → AIDER_SESSION_ID → most-recent active.
+    // The explicit `sessionId` option takes highest priority (internal callers only).
+    const resolvedSessionId = options?.sessionId ?? resolveSessionIdFromEnv() ?? undefined;
+
+    const briefing = await computeBriefing(projectRoot, {
+      ...options,
+      ...(resolvedSessionId ? { activeSessionId: resolvedSessionId } : {}),
+    });
     return engineSuccess(briefing);
   } catch (err: unknown) {
     return toEngineError(err, 'E_INTERNAL', 'Failed to compute briefing');

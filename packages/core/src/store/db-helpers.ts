@@ -160,6 +160,11 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     statsJson: session.stats ? JSON.stringify(session.stats) : null,
     resumeCount: session.resumeCount ?? null,
     gradeMode: session.gradeMode ? 1 : null,
+    // T9975 — per-agent session isolation fields
+    agentHandle: session.agentHandle ?? null,
+    scopeKind: session.scopeKind ?? null,
+    scopeId: session.scopeId ?? null,
+    lastActivity: session.lastActivity ?? null,
   };
   const { id: _id, ...setFields } = values;
   await db
