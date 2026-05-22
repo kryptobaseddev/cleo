@@ -76,6 +76,10 @@
 !audit/imports/
 !audit/imports/**
 
+# Step 11b: Allow defineCommand SSoT boundary baseline (T10072 / Epic T9837 / Saga T9831).
+# Tracks the 139 legacy raw-citty imports; shrinks to zero as the migration lands.
+!define-command-ssot-baseline.json
+
 # Step 12: Allow canonical doc-routing registry + JSON Schema (T9796 / ADR-076).
 # `cleo check canon docs` reads canon.yml at PR-time to decide whether a new
 # *.md file under a `rawMdPaths` directory is allowed. Both files must be

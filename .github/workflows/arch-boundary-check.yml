@@ -25,3 +25,28 @@ jobs:
 
       - name: Run lint-no-direct-db-open (baseline mode)
         run: node scripts/lint-no-direct-db-open.mjs
+
+  define-command-ssot:
+    # T10072 · Epic T9837 · Saga T9831 SG-ARCH-SOLID
+    #
+    # Enforces that `defineCommand` from 'citty' is only imported through the
+    # canonical SSoT wrapper (packages/cleo/src/cli/lib/define-cli-command.ts).
+    # Runs in --check (baseline) mode: fails only when NEW violations are added
+    # above the committed baseline count. Existing debt is tracked but not
+    # blocked — it will be swept in follow-up tasks under Epic T9837.
+    #
+    # To update the baseline after a migration wave:
+    #   node scripts/lint-no-raw-define-command.mjs --baseline
+    #   git add .cleo/define-command-ssot-baseline.json && git commit
+    #
+    # Pure static analysis of checked-in source — no untrusted user input.
+    name: Architectural Boundary Check (SG-ARCH-SOLID)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lint defineCommand SSoT boundary
+        run: node scripts/lint-no-raw-define-command.mjs --check
