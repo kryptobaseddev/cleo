@@ -1,5 +1,22 @@
 # Changelog
 
+## [2026.5.100] (2026-05-22)
+
+### Saga T9831 SG-ARCH-SOLID — COMPLETE
+
+Architecture restoration across 6 epics, 17 sub-task PRs (#462-#478): CLI=wrapper, core=SDK, contracts=types.
+
+- **E-CONTRACTS-FOUNDATION**: ScaffoldResult/CheckResult/OperationDef/Resolution/Gateway/Tier/CanonicalDomain + 17 provenance unions + 15 memory wire-shapes + 6 enum const arrays promoted to @cleocode/contracts
+- **E-CLI-BOUNDARY**: handler-toolkit foundation (5 SDK primitives) + OPERATIONS data (7479 LOC) relocated to contracts behind defineOp/defineDomain builders + 8 fat handlers extracted to core/ + 3 SSoT-EXEMPT comments retired in nexus.ts + T9621 getDb chokepoint closed (#463, #467, #471, #473)
+- **E-CORE-DECOMP**: 4 god-modules decomposed — task-ops (3408 LOC), tasks-schema (2485 LOC incl 1190-LOC provenance), scaffold (2445 LOC), brain-retrieval (2348 LOC) — into ~36 cohesive single-concern files behind barrels. drizzle-kit dry-run verified empty DDL diff (#464, #465, #468, #469)
+- **E-CORE-TOOLS**: 13 first-class SDK tools — TaskTools (4), ProjectTools (3), BrainTools (5), describe-schema. Pure-functional, contracts-typed, vitest-covered (#462, #466, #470, #472)
+- **E-TEST-HELPERS**: tests/integration/helpers/ + skills-coverage 2726→1817 LOC
+- **E-SSOT-ENFORCEMENT**: 5 CI lint gates — no-raw-define-command, no-direct-db-open, contracts-fan-out, no-ssot-exempt, cli-package-boundary — plus `cleo check arch` CLI emitting LAFS envelope (#474, #475, #476, #477, #478)
+
+### Fixed
+
+- Hotfix: release-prepare.yml inadvertently bumped external dependencies (tree-sitter, drizzle-orm, @aflsolutions/graphology-communities-leiden, simple-git, @biomejs/biome, @forge-ts/cli, @types/node, typedoc) to the workspace version, blocking npm publish. External deps restored to v5.98 known-good values (#480, #481). Follow-up: P0 fix release-prepare.yml to only bump workspace versions.
+
 ## [2026.5.99] (2026-05-22)
 
 ### BREAKING CHANGES
