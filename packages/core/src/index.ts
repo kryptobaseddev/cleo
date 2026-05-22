@@ -605,3 +605,37 @@ export {
 } from './tasks/severity-attestation.js';
 export { showTask } from './tasks/show.js';
 export { updateTask } from './tasks/update.js';
+
+// ---------------------------------------------------------------------------
+// T9985 (E8-CLI-LAYERING) — public SDK surface for CLI thin wrappers
+// ---------------------------------------------------------------------------
+//
+// These primitives were extracted from packages/cleo per the AGENTS.md
+// Package-Boundary Check. Exported from the PUBLIC barrel so CLI commands
+// can import them without violating lint-core-first RULE-3 (which bans
+// `@cleocode/core/internal` from CLI command files).
+
+// Setup wizard `--config-json` merger
+export { mergeConfigJson, WIZARD_SECTION_IDS } from './setup/config-json-merge.js';
+// Backup bundle inspect primitives (tar parser, encryption detect, byte fmt)
+export {
+  CLEO_ENC_MAGIC,
+  detectEncryption,
+  ENC_MIN_LENGTH,
+  ENC_VERSION_OFFSET,
+  ENC_VERSION_SUPPORTED,
+  extractManifestFromTar,
+  fmtBytes,
+  verifyManifestHash,
+} from './store/backup-inspect.js';
+// Restore conflict-report markdown parser (sister to writeConflictReport)
+export type {
+  ParsedResolution,
+  RestoreConflictFilename,
+} from './store/restore-conflict-parser.js';
+export {
+  parseConflictReport,
+  parseMarkdownValue,
+  RESTORE_VALID_JSON_FILENAMES,
+  setAtPath,
+} from './store/restore-conflict-parser.js';

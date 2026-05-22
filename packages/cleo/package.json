@@ -28,7 +28,6 @@
     "@cleocode/cant": "workspace:*",
     "@cleocode/contracts": "workspace:*",
     "@cleocode/lafs": "workspace:*",
-    "@cleocode/worktree": "workspace:*",
     "@cleocode/nexus": "workspace:*",
     "@cleocode/paths": "workspace:*",
     "@cleocode/playbooks": "workspace:*",
