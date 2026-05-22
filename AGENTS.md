@@ -169,6 +169,40 @@ There is NO escape hatch — not even `CLEO_FORCE_LOCATION`.
 
 See Epic **T9809** (`E-WT-PROVISIONING-LOCATION-GUARDS`) for full context.
 
+## Worktree Include File (T9983 · Saga T9977 SG-WORKTRUNK-OWN)
+
+CLEO reads a per-project file that lists which working-tree files should be
+copied into agent worktrees on provisioning (gitignored-but-required env
+files, IDE settings, lockfiles, dependency caches, etc.).
+
+**Canonical location**: `<projectRoot>/.worktreeinclude` — matches Claude
+Code Desktop, `worktrunk-core`, and the broader git-worktree-tooling
+convention. The reader is implemented in
+`packages/worktree/src/worktree-include.ts` and delegates pattern parsing
+to `@cleocode/worktree-napi` (real `ignore::gitignore` matching).
+
+**Legacy location**: `<projectRoot>/.cleo/worktree-include` — read for ONE
+deprecation cycle (post-T9983 / Saga T9977) with a one-time
+`process.emitWarning('DeprecationWarning', 'CLEO_WORKTREE_INCLUDE_LEGACY')`.
+Removed no earlier than the next major release.
+
+**Migration**:
+
+```bash
+# Preview what would change.
+cleo doctor --migrate-worktree-include --dry-run
+
+# Apply the migration. Backs the legacy file up to
+# .cleo/backups/worktree-include-<iso8601>.bak before removing it.
+cleo doctor --migrate-worktree-include
+```
+
+`cleo init` (and `cleo upgrade`'s scaffold sweep) writes
+`<projectRoot>/.worktreeinclude` from the shipped template at
+`packages/core/templates/worktreeinclude`. When only the legacy file is
+present, the scaffolder skips it rather than auto-rewriting — the
+migration is always explicit.
+
 ## Quality Gates (MUST PASS BEFORE COMPLETING)
 
 Run these IN ORDER before marking any task complete:
