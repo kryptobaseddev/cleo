@@ -37,6 +37,11 @@ export type {
 } from '@cleocode/contracts';
 export type { CopyPathsOptions } from './copy-on-write.js';
 export { copyPathsWithReflock } from './copy-on-write.js';
+export {
+  type AddTransientWorktreeOptions,
+  addTransientWorktree,
+  removeTransientWorktree,
+} from './git.js';
 export type { WorktreeAuditPayload } from './worktree-audit.js';
 export {
   addWorktreeToSentinelIndex,

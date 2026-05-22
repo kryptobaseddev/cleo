@@ -20,7 +20,6 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
@@ -34,7 +33,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir, platform } from 'node:os';
+import { platform } from 'node:os';
 import { join } from 'node:path';
 
 import type {
@@ -45,6 +44,7 @@ import type {
   WorktreeMergeResult,
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
+import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -89,19 +89,28 @@ function gitSilent(args: string[], cwd: string): boolean {
 /**
  * Resolve the worktree root directory for a project.
  *
- * Uses `$XDG_DATA_HOME/cleo/worktrees/<projectHash>/` per ULTRAPLAN §14.3,
- * falling back to `~/.local/share/cleo/worktrees/<projectHash>/`.
+ * Delegates to the canonical paths-SSoT helpers in `@cleocode/paths`. The
+ * resolved directory follows the XDG canonical layout per D029:
+ *
+ *   Linux:   ~/.local/share/cleo/worktrees/<projectHash>/
+ *   macOS:   ~/Library/Application Support/cleo/worktrees/<projectHash>/
+ *   Windows: %LOCALAPPDATA%\cleo\Data\worktrees\<projectHash>\
+ *
+ * T9984: previously hand-rolled `createHash('sha256').update(projectRoot)` +
+ * `process.env['XDG_DATA_HOME']` — both violations of the paths-SSoT lint
+ * (`packages/paths/` is the only legitimate source of these computations).
+ * Now routes through `computeProjectHash` and `resolveWorktreeRootForHash`.
  *
  * @param projectRoot - Absolute path to the project root.
  * @returns Absolute path to the worktree root directory.
  *
  * @task T1118
  * @task T1120
+ * @task T9984
  */
 export function resolveAgentWorktreeRoot(projectRoot: string): string {
-  const projectHash = createHash('sha256').update(projectRoot).digest('hex').slice(0, 16);
-  const xdgData = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-  return join(xdgData, 'cleo', 'worktrees', projectHash);
+  const projectHash = computeProjectHash(projectRoot);
+  return resolveWorktreeRootForHash(projectHash);
 }
 
 /**
@@ -170,7 +179,8 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
     gitSilent(['worktree', 'lock', worktreePath], gitRoot);
   }
 
-  const projectHash = createHash('sha256').update(projectRoot).digest('hex').slice(0, 16);
+  // T9984: route projectHash through @cleocode/paths SSoT.
+  const projectHash = computeProjectHash(projectRoot);
   return {
     path: worktreePath,
     branch,
