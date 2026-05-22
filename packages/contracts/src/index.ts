@@ -299,10 +299,11 @@ export {
   DocKindConfigError,
   DocKindRegistry,
 } from './docs-taxonomy.js';
-// === Doctor: Worktree-Orphan Audit + Prune Types (T9790, T9808) ===
+// === Doctor: Worktree-Orphan Audit + Prune Types (T9790, T9808, T9962) ===
 export type {
   ComprehensiveAuditResult,
   OrphanEntry,
+  OrphanScanResult,
   PruneAuditEntry,
   PruneResult,
   WorktreeAnomaly,

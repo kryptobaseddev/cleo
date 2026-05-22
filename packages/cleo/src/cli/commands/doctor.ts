@@ -264,6 +264,27 @@ export const doctorCommand = defineCommand({
         'List orphan .cleo/ directories under .claude/worktrees/ (T9790, fallout from T9550/T9580)',
     },
     /**
+     * T9962: timeout in seconds for --audit-worktree-orphans and
+     * --prune-worktree-orphans. On expiry the scan returns a partial result.
+     * Default: 30 seconds.
+     */
+    timeout: {
+      type: 'string',
+      description:
+        'Timeout in seconds for worktree-orphan audit/prune scan (default: 30). ' +
+        'Partial results are returned on expiry.',
+    },
+    /**
+     * T9962: per-level fan-out cap for --audit-worktree-orphans.
+     * Default: 500.
+     */
+    'max-entries-per-level': {
+      type: 'string',
+      description:
+        'Per-level entry hard-stop for worktree-orphan scan (default: 500). ' +
+        'Scan aborts with partial result when exceeded.',
+    },
+    /**
      * T9790: archive then remove every orphan reported by
      * `--audit-worktree-orphans`. Combine with `--dry-run` to preview
      * without touching the filesystem.
@@ -561,22 +582,56 @@ export const doctorCommand = defineCommand({
         //   2. worktrees outside the canonical XDG location
         //   3. rogue .cleo/worktrees/ DIRECTORY (council D009)
         // Also runs the legacy .claude/worktrees/ orphan scan for full coverage.
+        // T9962: budgeted scan with configurable timeout + per-level fan-out cap.
         progress.step(0, 'Comprehensive worktree anomaly audit (T9808 / council D009)');
-        const { auditWorktreeOrphansComprehensive, scanWorktreeOrphans } = await import(
+        const { auditWorktreeOrphansComprehensive, scanWorktreeOrphansBudgeted } = await import(
           '@cleocode/core/doctor/worktree-orphans.js'
         );
         const projectRoot = getProjectRoot();
 
+        // Parse optional budget overrides from CLI flags (T9962).
+        const timeoutSecs =
+          args['timeout'] !== undefined ? Number.parseInt(String(args['timeout']), 10) : 30;
+        const timeoutMs =
+          Number.isFinite(timeoutSecs) && timeoutSecs > 0 ? timeoutSecs * 1000 : 30_000;
+        const maxEntriesPerLevel =
+          args['max-entries-per-level'] !== undefined
+            ? Number.parseInt(String(args['max-entries-per-level']), 10)
+            : 500;
+
         // Run both scans in parallel.
-        const [comprehensive, legacyOrphans] = await Promise.all([
+        const [comprehensive, legacyScanResult] = await Promise.all([
           auditWorktreeOrphansComprehensive(projectRoot),
-          scanWorktreeOrphans(projectRoot),
+          scanWorktreeOrphansBudgeted(projectRoot, {
+            timeoutMs,
+            maxEntriesPerLevel: Number.isFinite(maxEntriesPerLevel) ? maxEntriesPerLevel : 500,
+          }),
         ]);
 
+        const legacyOrphans = legacyScanResult.orphans;
         const totalAnomalies = comprehensive.count;
+
+        // Emit soft-warn message to stderr if triggered.
+        if (legacyScanResult.softWarnMessage) {
+          process.stderr.write(`[cleo doctor] ${legacyScanResult.softWarnMessage}\n`);
+        }
+
+        // Emit partial-result warning to stderr if the scan was aborted.
+        if (legacyScanResult.isPartial) {
+          const reason =
+            legacyScanResult.partialReason === 'timeout'
+              ? `timed out after ${timeoutSecs}s (use --timeout <seconds> to adjust)`
+              : `per-level entry cap of ${maxEntriesPerLevel} exceeded (use --max-entries-per-level <n> to adjust)`;
+          process.stderr.write(
+            `[cleo doctor] WARNING: legacy orphan scan is PARTIAL — ${reason}. ` +
+              `Results may be incomplete.\n`,
+          );
+        }
+
         progress.complete(
           `Found ${totalAnomalies} anomal${totalAnomalies === 1 ? 'y' : 'ies'}` +
-            (legacyOrphans.length > 0 ? ` (${legacyOrphans.length} legacy orphan(s))` : ''),
+            (legacyOrphans.length > 0 ? ` (${legacyOrphans.length} legacy orphan(s))` : '') +
+            (legacyScanResult.isPartial ? ' [PARTIAL]' : ''),
         );
 
         cliOutput(
@@ -584,6 +639,8 @@ export const doctorCommand = defineCommand({
             projectRoot,
             comprehensive,
             legacyOrphans,
+            legacyScanPartial: legacyScanResult.isPartial,
+            legacyScanPartialReason: legacyScanResult.partialReason,
             count: totalAnomalies,
           },
           { command: 'doctor', operation: 'doctor.audit-worktree-orphans' },
@@ -594,19 +651,53 @@ export const doctorCommand = defineCommand({
       } else if (args['prune-worktree-orphans']) {
         // T9790: archive + remove orphan .cleo/ directories. Always writes
         // a tarball + audit-log line BEFORE removing anything.
+        // T9962: budgeted scan with configurable timeout + per-level fan-out cap.
         const isDryRun = args['dry-run'] === true;
         progress.step(
           0,
           `${isDryRun ? '[DRY RUN] ' : ''}Scanning + pruning worktree-orphan .cleo/ directories`,
         );
-        const { pruneWorktreeOrphans, scanWorktreeOrphans } = await import(
+        const { pruneWorktreeOrphans, scanWorktreeOrphansBudgeted } = await import(
           '@cleocode/core/doctor/worktree-orphans.js'
         );
         const projectRoot = getProjectRoot();
-        const orphans = await scanWorktreeOrphans(projectRoot);
+
+        // Parse optional budget overrides from CLI flags (T9962).
+        const timeoutSecs =
+          args['timeout'] !== undefined ? Number.parseInt(String(args['timeout']), 10) : 30;
+        const timeoutMs =
+          Number.isFinite(timeoutSecs) && timeoutSecs > 0 ? timeoutSecs * 1000 : 30_000;
+        const maxEntriesPerLevel =
+          args['max-entries-per-level'] !== undefined
+            ? Number.parseInt(String(args['max-entries-per-level']), 10)
+            : 500;
+
+        const scanResult = await scanWorktreeOrphansBudgeted(projectRoot, {
+          timeoutMs,
+          maxEntriesPerLevel: Number.isFinite(maxEntriesPerLevel) ? maxEntriesPerLevel : 500,
+        });
+
+        // Emit partial-result warning to stderr if the scan was aborted.
+        if (scanResult.softWarnMessage) {
+          process.stderr.write(`[cleo doctor] ${scanResult.softWarnMessage}\n`);
+        }
+        if (scanResult.isPartial) {
+          const reason =
+            scanResult.partialReason === 'timeout'
+              ? `timed out after ${timeoutSecs}s (use --timeout <seconds> to adjust)`
+              : `per-level entry cap of ${maxEntriesPerLevel} exceeded (use --max-entries-per-level <n> to adjust)`;
+          process.stderr.write(
+            `[cleo doctor] WARNING: orphan scan is PARTIAL — ${reason}. ` +
+              `Only orphans found before abort will be pruned.\n`,
+          );
+        }
+
+        const orphans = scanResult.orphans;
 
         if (orphans.length === 0) {
-          progress.complete('No worktree orphans found — nothing to prune');
+          progress.complete(
+            `No worktree orphans found — nothing to prune${scanResult.isPartial ? ' [PARTIAL SCAN]' : ''}`,
+          );
           cliOutput(
             {
               projectRoot,
@@ -615,6 +706,8 @@ export const doctorCommand = defineCommand({
               pruned: [],
               rejected: [],
               totalSizeBytes: 0,
+              scanPartial: scanResult.isPartial,
+              scanPartialReason: scanResult.partialReason,
             },
             { command: 'doctor', operation: 'doctor.prune-worktree-orphans' },
           );
@@ -634,11 +727,17 @@ export const doctorCommand = defineCommand({
         const verb = isDryRun ? 'Would prune' : 'Pruned';
         progress.complete(
           `${verb} ${result.pruned.length} orphan${result.pruned.length === 1 ? '' : 's'}` +
-            `${result.rejected.length > 0 ? `, ${result.rejected.length} rejected` : ''}`,
+            `${result.rejected.length > 0 ? `, ${result.rejected.length} rejected` : ''}` +
+            `${scanResult.isPartial ? ' [PARTIAL SCAN]' : ''}`,
         );
 
         cliOutput(
-          { projectRoot, ...result },
+          {
+            projectRoot,
+            ...result,
+            scanPartial: scanResult.isPartial,
+            scanPartialReason: scanResult.partialReason,
+          },
           { command: 'doctor', operation: 'doctor.prune-worktree-orphans' },
         );
         if (result.rejected.length > 0) {
