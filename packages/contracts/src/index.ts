@@ -1719,6 +1719,24 @@ export type {
   TesseraTemplate,
   TesseraVariable,
 } from './tessera.js';
+// === Task SDK Tool Contracts (T10068 / T9835) ===
+export type {
+  BuildTaskTreeInput,
+  BuildTaskTreeOptions,
+  BuildTaskTreeResult,
+} from './tools/build-task-tree.js';
+export type {
+  CriticalPathEdge,
+  CriticalPathNode,
+  CriticalPathResult,
+} from './tools/compute-critical-path.js';
+export type { RenderTaskTreeInput } from './tools/render-task-tree.js';
+export type {
+  ScoreFactor,
+  ScoreTaskContext,
+  ScoreTaskInput,
+  ScoreTaskResult,
+} from './tools/score-task-priority.js';
 // === Transport (low-level wire protocol) ===
 export type {
   AdapterTransportProvider,
