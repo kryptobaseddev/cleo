@@ -97,41 +97,65 @@ export function checkGitignore(projectRoot: string): CheckResult {
 }
 
 /**
- * Verify .cleo/worktree-include exists and matches template.
+ * Verify the worktree-include file exists and matches the shipped template.
+ *
+ * Resolution order (T9983):
+ * 1. Canonical `<projectRoot>/.worktreeinclude` — matches Claude Code Desktop
+ *    + worktrunk-core convention.
+ * 2. Legacy `<projectRoot>/.cleo/worktree-include` — read for one
+ *    deprecation cycle. When only the legacy file exists, the check
+ *    reports `warning` with a fix hint that points at
+ *    `cleo doctor --migrate-worktree-include`.
  *
  * @param projectRoot - Absolute path to the project root directory (defaults to cwd)
  * @returns Check result indicating whether the worktree-include matches the template
+ *
+ * @task T9983
  */
 export function checkWorktreeInclude(projectRoot?: string): CheckResult {
   const root = resolveOrCwd(projectRoot);
-  const cleoDir = getCleoDirAbsolute(root);
-  const worktreeIncludePath = join(cleoDir, 'worktree-include');
+  const canonicalPath = join(root, '.worktreeinclude');
+  const legacyPath = join(getCleoDirAbsolute(root), 'worktree-include');
 
-  if (!existsSync(worktreeIncludePath)) {
+  // Canonical path — preferred.
+  if (existsSync(canonicalPath)) {
+    const installed = readFileSync(canonicalPath, 'utf-8');
+    const template = getWorktreeIncludeContent();
+    const normalize = (s: string) => s.trim().replace(/\r\n/g, '\n');
+    const matches = normalize(installed) === normalize(template);
+
+    return {
+      id: 'cleo_worktree_include',
+      category: 'scaffold',
+      status: matches ? 'passed' : 'warning',
+      message: matches
+        ? '.worktreeinclude matches template'
+        : '.worktreeinclude has drifted from template',
+      details: { path: canonicalPath, matchesTemplate: matches, location: 'canonical' },
+      fix: matches ? null : 'cleo upgrade',
+    };
+  }
+
+  // Legacy fallback — preserved during the 1-cycle deprecation window.
+  if (existsSync(legacyPath)) {
     return {
       id: 'cleo_worktree_include',
       category: 'scaffold',
       status: 'warning',
-      message: '.cleo/worktree-include not found',
-      details: { path: worktreeIncludePath, exists: false },
-      fix: 'cleo init --force',
+      message:
+        'legacy .cleo/worktree-include found — run `cleo doctor --migrate-worktree-include` to migrate to .worktreeinclude',
+      details: { path: legacyPath, exists: true, location: 'legacy' },
+      fix: 'cleo doctor --migrate-worktree-include',
     };
   }
-
-  const installed = readFileSync(worktreeIncludePath, 'utf-8');
-  const template = getWorktreeIncludeContent();
-  const normalize = (s: string) => s.trim().replace(/\r\n/g, '\n');
-  const matches = normalize(installed) === normalize(template);
 
   return {
     id: 'cleo_worktree_include',
     category: 'scaffold',
-    status: matches ? 'passed' : 'warning',
-    message: matches
-      ? '.cleo/worktree-include matches template'
-      : '.cleo/worktree-include has drifted from template',
-    details: { path: worktreeIncludePath, matchesTemplate: matches },
-    fix: matches ? null : 'cleo upgrade',
+    status: 'warning',
+    message: '.worktreeinclude not found',
+    details: { path: canonicalPath, exists: false, location: 'canonical' },
+    fix: 'cleo init --force',
   };
 }
 

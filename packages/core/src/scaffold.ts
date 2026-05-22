@@ -53,6 +53,10 @@ export {
   removeCleoFromRootGitignore,
   stripCLEOBlocks,
 } from './scaffold/init.js';
+export {
+  type MigrateWorktreeIncludeResult,
+  migrateWorktreeIncludeFile,
+} from './scaffold/migrate-worktree-include.js';
 
 export {
   checkBrainDb,
