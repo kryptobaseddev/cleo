@@ -2,7 +2,7 @@
 name = "cant-runtime"
 version.workspace = true
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 description = "CANT DSL runtime - pipeline executor"
 
 [lib]
