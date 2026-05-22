@@ -267,6 +267,18 @@ export const briefingCommand = defineCommand({
       description: 'Include user profile traits in the bundle (suppressed by default)',
       default: false,
     },
+    /**
+     * T9964: restore full text fields on peerLearnings and decisions.
+     * By default these are truncated to 80-char previews with a `_next.fetch`
+     * hint. Pass --memory-detail to restore the full `insight` and `decision`
+     * body fields (equivalent to pre-T9964 output for those fields).
+     */
+    'memory-detail': {
+      type: 'boolean',
+      description:
+        'Restore full peerLearnings/decisions body text (suppressed by default for token budget)',
+      default: false,
+    },
   },
   async run({ args, cmd, rawArgs }) {
     // Citty does not route to subcommands within lazy-loaded top-level commands.
@@ -300,6 +312,7 @@ export const briefingCommand = defineCommand({
         maxEpics: parseInt(args['max-epics'], 10),
         debug: args.debug as boolean | undefined,
         withProfile: args['with-profile'] as boolean | undefined,
+        memoryDetail: args['memory-detail'] as boolean | undefined,
       },
       { command: 'briefing' },
     );

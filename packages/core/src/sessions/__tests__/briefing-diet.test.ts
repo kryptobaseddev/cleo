@@ -34,9 +34,14 @@ vi.mock('../../lifecycle/pipeline.js', () => ({
 
 // Mock attachment store
 const mockListByOwner = vi.fn().mockResolvedValue([]);
+// T9964: getExtras returns a slug by default so entries survive the slug-filter
+// in applyDocsFilter. Tests that need to exercise slug-less behaviour can
+// override this mock in the individual test.
+const mockGetExtras = vi.fn().mockResolvedValue({ slug: 'test-slug', type: null });
 vi.mock('../../store/attachment-store.js', () => ({
   createAttachmentStore: vi.fn(() => ({
     listByOwner: mockListByOwner,
+    getExtras: mockGetExtras,
     put: vi.fn(),
     get: vi.fn(),
     getMetadata: vi.fn(),
@@ -201,6 +206,8 @@ describe('briefing diet (T9974)', () => {
     vi.clearAllMocks();
     mockBuildRetrievalBundle.mockResolvedValue(makeMockBundle());
     mockListByOwner.mockResolvedValue([]);
+    // Default: getExtras returns a slug so docs survive the slug-filter
+    mockGetExtras.mockResolvedValue({ slug: 'test-slug', type: null });
   });
 
   // ── AC1 / AC2: peerPatterns suppressed by default, present with --debug ──
@@ -519,5 +526,165 @@ describe('briefing diet (T9974)', () => {
         "nextTasksUpTo5": true,
       }
     `);
+  });
+
+  // ── T9964 Part 1: REAL briefing diet additional assertions ──────────────────
+
+  // assert default tokenCounts.total ≤ 1000 for a project with ≥10 peerLearnings + ≥10 decisions
+  it('T9964: default token count ≤ 1000 with 10 peerLearnings + 10 decisions', async () => {
+    setupMockAccessor();
+
+    // Build a bundle with 10 full-prose learnings and 10 full-prose decisions
+    const heavyBundle = {
+      cold: {
+        userProfile: [],
+        peerInstructions: '',
+        sigilCard: null,
+      },
+      warm: {
+        peerLearnings: Array.from({ length: 10 }, (_, i) => ({
+          id: `L${i}`,
+          insight: `This is a very detailed learning insight with lots of prose text that would normally consume many tokens in a briefing response. Learning #${i} explains an architectural decision about the distributed system components and how they interact with each other in complex ways.`,
+          createdAt: '2026-05-01T00:00:00Z',
+        })),
+        peerPatterns: [],
+        decisions: Array.from({ length: 10 }, (_, i) => ({
+          id: `D${i}`,
+          decision: `This is a very detailed decision record with lots of prose text that would normally consume many tokens in a briefing response. Decision #${i} covers the architectural choice about distributed system components and the trade-offs considered.`,
+          createdAt: '2026-05-01T00:00:00Z',
+        })),
+      },
+      hot: {
+        sessionNarrative: '',
+        recentObservations: [],
+        activeTasks: [],
+      },
+      tokenCounts: { cold: 0, warm: 5000, hot: 0, total: 5000 },
+    };
+    mockBuildRetrievalBundle.mockResolvedValue(heavyBundle);
+
+    const briefing = await computeBriefing('/fake/project', {});
+
+    const total = briefing.bundle?.tokenCounts.total ?? 0;
+    expect(total).toBeLessThanOrEqual(1000);
+    // Confirm we have diet-capped entries (≤3 learnings, ≤3 decisions)
+    expect(briefing.bundle?.warm.peerLearnings.length).toBeLessThanOrEqual(3);
+    expect(briefing.bundle?.warm.decisions.length).toBeLessThanOrEqual(3);
+  });
+
+  // assert --memory-detail preserves full text fields
+  it('T9964: --memory-detail preserves full peerLearnings insight text', async () => {
+    setupMockAccessor();
+
+    const fullInsight =
+      'Full detailed insight text that should not be truncated when memoryDetail=true — this text is definitely longer than 80 characters.';
+    const bundle = {
+      ...makeMockBundle(),
+      warm: {
+        ...makeMockBundle().warm,
+        peerLearnings: [{ id: 'L1', insight: fullInsight, createdAt: '2026-05-01T00:00:00Z' }],
+        decisions: [{ id: 'D1', decision: fullInsight, createdAt: '2026-05-01T00:00:00Z' }],
+      },
+    };
+    mockBuildRetrievalBundle.mockResolvedValue(bundle);
+
+    const briefing = await computeBriefing('/fake/project', { memoryDetail: true });
+
+    expect(briefing.bundle?.warm.peerLearnings[0]?.insight).toBe(fullInsight);
+    expect(briefing.bundle?.warm.decisions[0]?.decision).toBe(fullInsight);
+  });
+
+  // assert default mode truncates peerLearnings insight to 80 chars
+  it('T9964: default mode truncates peerLearnings insight to 80 chars', async () => {
+    setupMockAccessor();
+
+    const fullInsight = 'A'.repeat(200); // 200-char insight that should be truncated
+    const bundle = {
+      ...makeMockBundle(),
+      warm: {
+        ...makeMockBundle().warm,
+        peerLearnings: [{ id: 'L1', insight: fullInsight, createdAt: '2026-05-01T00:00:00Z' }],
+        decisions: [],
+      },
+    };
+    mockBuildRetrievalBundle.mockResolvedValue(bundle);
+
+    const briefing = await computeBriefing('/fake/project', {});
+
+    const insight = briefing.bundle?.warm.peerLearnings[0]?.insight ?? '';
+    expect(insight.length).toBeLessThanOrEqual(80);
+  });
+
+  // assert peerLearnings[i].insight is undefined on diet (no _next field in base type,
+  // but insight should be truncated, not absent)
+  it('T9964: diet mode adds _next.fetch hint to peerLearnings entries', async () => {
+    setupMockAccessor();
+
+    const bundle = {
+      ...makeMockBundle(),
+      warm: {
+        ...makeMockBundle().warm,
+        peerLearnings: [{ id: 'L42', insight: 'Some insight', createdAt: '2026-05-01T00:00:00Z' }],
+        decisions: [],
+      },
+    };
+    mockBuildRetrievalBundle.mockResolvedValue(bundle);
+
+    const briefing = await computeBriefing('/fake/project', {});
+
+    const learning = briefing.bundle?.warm.peerLearnings[0] as Record<string, unknown> | undefined;
+    expect(learning).toBeDefined();
+    // _next hint is attached at runtime (not in the static type but present in JSON)
+    expect((learning as Record<string, unknown>)?.['_next']).toEqual({
+      fetch: 'cleo memory fetch L42',
+    });
+  });
+
+  // assert relatedDocs entries without slug are dropped
+  it('T9964: relatedDocs entries without slug are dropped from diet output', async () => {
+    const tasks = makeTasks();
+    vi.mocked(getTaskAccessor).mockResolvedValue({
+      loadSessions: vi.fn().mockResolvedValue([]),
+      getActiveSession: vi.fn().mockResolvedValue({ id: 'sess-001', activePeerId: 'global' }),
+      queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
+      getMetaValue: vi.fn().mockImplementation((key: string) => {
+        if (key === 'focus_state')
+          return Promise.resolve({ currentTask: 'T11', currentPhase: null });
+        return Promise.resolve(null);
+      }),
+      setMetaValue: vi.fn().mockResolvedValue(undefined),
+      loadArchive: vi.fn().mockResolvedValue(null),
+      saveArchive: vi.fn().mockResolvedValue(undefined),
+      appendLog: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      engine: 'sqlite' as const,
+    });
+
+    const now = new Date().toISOString();
+    mockListByOwner.mockImplementation(async (_ownerType: string, taskId: string) => {
+      if (taskId === 'T11') return [];
+      if (taskId === 'T12') return [makeAttachmentMeta('doc-with-slug', now)];
+      if (taskId === 'T13') return [makeAttachmentMeta('doc-without-slug', now)];
+      return [];
+    });
+
+    // T12 gets a slug, T13 does not
+    mockGetExtras.mockImplementation(async (id: string) => {
+      if (id === 'doc-with-slug') return { slug: 'my-doc-slug', type: 'adr' };
+      return { slug: null, type: null }; // no slug — should be dropped
+    });
+
+    const briefing = await computeBriefing('/fake/project', {});
+
+    const relatedIds = briefing.docsContext?.relatedDocs.map((d) => d.attachmentId) ?? [];
+    // Only the entry with a slug should survive
+    expect(relatedIds).toContain('doc-with-slug');
+    expect(relatedIds).not.toContain('doc-without-slug');
+    // The slug and type should be populated
+    const docWithSlug = briefing.docsContext?.relatedDocs.find(
+      (d) => d.attachmentId === 'doc-with-slug',
+    );
+    expect(docWithSlug?.slug).toBe('my-doc-slug');
+    expect(docWithSlug?.type).toBe('adr');
   });
 });
