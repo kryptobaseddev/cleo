@@ -2,7 +2,7 @@
 name = "conduit-core"
 version.workspace = true
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 description = "Canonical Conduit wire types for CLEO ecosystem"
 
 [lib]
