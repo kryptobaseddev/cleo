@@ -255,6 +255,30 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-dep.mjs
 
+  contracts-fan-out-lint:
+    # T10074 / E-SSOT-ENFORCEMENT (T9837) — Saga T9831 SG-ARCH-SOLID:
+    # Detects `export interface` and `export type` declarations in
+    # packages/cleo/src/ and packages/core/src/ that are imported by more
+    # than 2 other packages (fan-out > 2). High-fan-out types should live in
+    # packages/contracts/ so consumers import a leaf package rather than the
+    # full cleo/core dependency graph.
+    #
+    # Baseline mode: CI compares against scripts/.lint-contracts-fan-out-baseline.json
+    # and fails only when the count INCREASES (regression prevention). A count
+    # decrease means progress and is always accepted.
+    #
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: Contracts Fan-Out Lint (T10074)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Detect high-fan-out types that should be in packages/contracts
+        run: node scripts/lint-contracts-fan-out.mjs
+
   format-error-misuse-lint:
     # T9789 / E-DOCS-FORMATERR-FIX — guard against
     # `cliOutput(formatError(...))` and `cliError(formatError(...))`
