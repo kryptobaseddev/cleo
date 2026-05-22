@@ -18,7 +18,10 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { getProjectRoot } from '@cleocode/core';
-import { generateGexf, getSymbolImpact } from '@cleocode/core/nexus';
+import { getSymbolImpact } from '@cleocode/core/nexus';
+import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
+import { exportNexusGraph } from '@cleocode/core/nexus/export.js';
+import { runNexusWiki } from '@cleocode/core/nexus/wiki-orchestrator.js';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { buildNexusMetaExtensions } from '../../dispatch/nexus-decorator.js';
@@ -980,128 +983,44 @@ const analyzeCommand = defineCommand({
     const projectIdOverride = args['project-id'] as string | undefined;
     const isIncremental = !!args.incremental;
     const ctx = getFormatContext();
-
-    // Resolve target path
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
 
     humanInfo(`[nexus] Analyzing: ${repoPath}${isIncremental ? ' (incremental)' : ''}`);
+    if (!isIncremental) humanInfo('[nexus] Clearing existing index for project...');
 
     try {
-      // SSoT-EXEMPT:pipeline-progress — runPipeline requires a progress callback
-      // (CLI-only rendering concern) and direct DB handle access. No dispatch op
-      // can expose this without introducing CLI rendering concerns into the dispatch
-      // layer. The full analyze pipeline is fundamentally CLI-side-orchestrated.
-      // Lazy imports to avoid loading heavy dependencies until needed
-      const [{ getNexusDb, nexusSchema }, { runPipeline }, { eq }] = await Promise.all([
-        import('@cleocode/core/store/nexus-sqlite' as string),
-        import('@cleocode/nexus/pipeline' as string),
-        import('drizzle-orm' as string),
-      ]);
-
-      // Determine project ID — use override or derive from path
-      const projectId =
-        projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
-
-      // Get DB and table references
-      const db = await getNexusDb();
-      const tables = {
-        nexusNodes: nexusSchema.nexusNodes,
-        nexusRelations: nexusSchema.nexusRelations,
-      };
-
-      // For full (non-incremental) runs: delete existing index first.
-      // NodeSQLiteDatabase uses sync Drizzle — no await, wrap in try-catch.
-      if (!isIncremental) {
-        humanInfo('[nexus] Clearing existing index for project...');
-        try {
-          db.delete(nexusSchema.nexusNodes)
-            .where(eq(nexusSchema.nexusNodes.projectId, projectId))
-            .run();
-        } catch {
-          // Table may not have rows — ignore
-        }
-        try {
-          db.delete(nexusSchema.nexusRelations)
-            .where(eq(nexusSchema.nexusRelations.projectId, projectId))
-            .run();
-        } catch {
-          // Table may not have rows — ignore
-        }
-      }
-
-      // Run the pipeline (full or incremental)
-      const result = await runPipeline(
+      const result = await runNexusAnalysis({
         repoPath,
-        projectId,
-        db,
-        tables,
-        ctx.format === 'json'
-          ? undefined
-          : (current: number, total: number, filePath: string) => {
-              if (current % 50 === 0 || current === total) {
-                const pct = total > 0 ? Math.round((current / total) * 100) : 100;
-                humanInfo(`[nexus] Progress: ${current}/${total} files (${pct}%) — ${filePath}`);
-              }
-            },
-        { incremental: isIncremental },
-      );
+        projectIdOverride,
+        incremental: isIncremental,
+        onProgress:
+          ctx.format === 'json'
+            ? undefined
+            : (current, total, filePath) => {
+                if (current % 50 === 0 || current === total) {
+                  const pct = total > 0 ? Math.round((current / total) * 100) : 100;
+                  humanInfo(`[nexus] Progress: ${current}/${total} files (${pct}%) — ${filePath}`);
+                }
+              },
+      });
 
-      const durationMs = Date.now() - startTime;
-
-      // Write nexus-bridge.md after a successful pipeline run (best-effort)
-      try {
-        const { refreshNexusBridge } = await import('@cleocode/core/internal' as string);
-        await refreshNexusBridge(repoPath, projectId);
-        humanInfo(`[nexus] nexus-bridge.md refreshed at ${repoPath}/.cleo/nexus-bridge.md`);
-      } catch {
-        // Non-fatal — bridge refresh failure should not fail the analyze command
-      }
-
-      // Auto-register project and update index stats in the multi-project registry (best-effort)
-      try {
-        const { nexusUpdateIndexStats } = await import('@cleocode/core/internal' as string);
-        await nexusUpdateIndexStats(repoPath, {
-          nodeCount: result.nodeCount,
-          relationCount: result.relationCount,
-          fileCount: result.fileCount,
-        });
-        humanInfo('[nexus] Project registered/updated in multi-project registry.');
-      } catch {
-        // Non-fatal — registry update must never fail the analyze command
-      }
-
-      // Post-hook: sweep git log and link task IDs to symbols (best-effort, idempotent)
-      try {
-        const { runGitLogTaskLinker } = await import('@cleocode/core/nexus' as string);
-        const sweeperResult = await runGitLogTaskLinker(repoPath);
-        // Diagnostic stderr message — emit unconditionally regardless of
-        // ctx.format. Stderr does NOT pollute --json stdout (separate stream)
-        // and sandbox/CI assertions parse the combined stdout+stderr stream.
-        // Removing this conditional preserves pre-W4 behavior the
-        // living-brain-e2e scenario depends on.
-        if (sweeperResult.commitsProcessed > 0) {
-          process.stderr.write(
-            `[nexus] Task-symbol sweep: ${sweeperResult.commitsProcessed} commit(s), ${sweeperResult.tasksFound} task(s), ${sweeperResult.linked} edge(s) linked.\n`,
-          );
-        }
-      } catch {
-        // Non-fatal — task sweeper failure must never fail the analyze command
-      }
+      humanInfo(`[nexus] nexus-bridge.md refreshed at ${repoPath}/.cleo/nexus-bridge.md`);
+      humanInfo('[nexus] Project registered/updated in multi-project registry.');
 
       cliOutput(
         {
-          projectId,
+          projectId: result.projectId,
           repoPath,
           incremental: isIncremental,
           nodeCount: result.nodeCount,
           relationCount: result.relationCount,
           fileCount: result.fileCount,
-          durationMs,
+          durationMs: result.durationMs,
         },
         {
           command: 'nexus-analyze',
           operation: 'nexus.analyze',
-          extensions: { duration_ms: durationMs },
+          extensions: { duration_ms: result.durationMs },
         },
       );
     } catch (err) {
@@ -1630,83 +1549,17 @@ const exportCommand = defineCommand({
     const projectFilter = args.project as string | undefined;
 
     try {
-      // SSoT-EXEMPT:file-serialization — GEXF/JSON graph export writes raw bytes
-      // to stdout/file; requires direct nexus.db access for node/relation queries.
-      // Cannot be a standard LAFS dispatch envelope without binary data concerns.
-      const { getNexusDb, nexusSchema } = await import(
-        '@cleocode/core/store/nexus-sqlite' as string
-      );
-      const db = await getNexusDb();
-
-      // Load all nodes and relations
-      let allNodes: Array<Record<string, unknown>> = [];
-      let allRelations: Array<Record<string, unknown>> = [];
-      try {
-        allNodes = db.select().from(nexusSchema.nexusNodes).all() as Array<Record<string, unknown>>;
-        allRelations = db.select().from(nexusSchema.nexusRelations).all() as Array<
-          Record<string, unknown>
-        >;
-      } catch {
-        // DB may be empty
-      }
-
-      // Filter by project if specified
-      const nodes = projectFilter
-        ? allNodes.filter((n) => n['projectId'] === projectFilter)
-        : allNodes;
-      const relations = projectFilter
-        ? allRelations.filter((r) => r['projectId'] === projectFilter)
-        : allRelations;
-
-      let output = '';
-
-      if (format === 'json') {
-        output = JSON.stringify(
-          {
-            nodes: nodes.map((n) => ({
-              id: n['id'],
-              kind: n['kind'],
-              label: n['label'],
-              name: n['name'],
-              filePath: n['filePath'],
-              language: n['language'],
-              isExported: n['isExported'],
-              startLine: n['startLine'],
-              endLine: n['endLine'],
-              projectId: n['projectId'],
-            })),
-            edges: relations.map((r) => ({
-              id: r['id'],
-              source: r['sourceId'],
-              target: r['targetId'],
-              type: r['type'],
-              confidence: r['confidence'],
-              reason: r['reason'],
-            })),
-          },
-          null,
-          2,
-        );
-      } else if (format === 'gexf') {
-        // GEXF format (Gephi standard)
-        output = generateGexf(nodes, relations);
-      } else {
-        cliError(
-          `Unknown format '${format}'. Supported: gexf, json`,
-          1,
-          { name: 'E_INVALID_INPUT' },
-          { operation: 'nexus.export' },
-        );
-        process.exitCode = 1;
-        return;
-      }
+      const result = await exportNexusGraph({
+        format: format as 'gexf' | 'json',
+        projectFilter,
+      });
 
       if (outputFile) {
         const { writeFileSync } = await import('node:fs');
-        writeFileSync(outputFile, output, 'utf-8');
+        writeFileSync(outputFile, result.content, 'utf-8');
         const durationMs = Date.now() - startTime;
         cliOutput(
-          { outputFile, nodeCount: nodes.length, edgeCount: relations.length },
+          { outputFile, nodeCount: result.nodeCount, edgeCount: result.edgeCount },
           {
             command: 'nexus-export',
             operation: 'nexus.export',
@@ -1718,12 +1571,16 @@ const exportCommand = defineCommand({
         // Raw file output — write directly to stdout (binary/text graph data).
         // Intentionally NOT routed through humanLine — this IS the command's
         // primary stdout payload (the exported graph file content).
-        process.stdout.write(output);
-        if (!output.endsWith('\n')) process.stdout.write('\n');
+        process.stdout.write(result.content);
+        if (!result.content.endsWith('\n')) process.stdout.write('\n');
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      cliError(msg, 1, { name: 'E_EXPORT_FAILED' }, { operation: 'nexus.export' });
+      if (msg.includes('Unknown format')) {
+        cliError(msg, 1, { name: 'E_INVALID_INPUT' }, { operation: 'nexus.export' });
+      } else {
+        cliError(msg, 1, { name: 'E_EXPORT_FAILED' }, { operation: 'nexus.export' });
+      }
       process.exitCode = 1;
     }
   },
@@ -2629,65 +2486,21 @@ const wikiCommand = defineCommand({
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
-    const outputDir =
-      (args.output as string | undefined) ?? path.join(getProjectRoot(), '.cleo', 'wiki');
+    const outputDir = (args.output as string | undefined) ?? undefined;
     const communityFilter = (args.community as string | undefined) ?? undefined;
     const isIncremental = !!(args.incremental as boolean | undefined);
 
-    // SSoT-EXEMPT:loom-provider — LLM backend resolution for wiki generation requires
-    // CLI-side async provider wiring that cannot be passed through the dispatch layer.
-    // The dispatch 'wiki' op always uses loomProvider=null (scaffold mode). CLI-side
-    // wiring enables real LLM narratives when a backend is available.
-    // Resolve LOOM provider via the existing LLM backend resolver (warm tier).
-    // Falls back gracefully — null means scaffold mode.
-    // The 'ai' package lives in @cleocode/core's deps; we load it transitively.
-    let loomProvider: ((prompt: string) => Promise<string>) | null = null;
     try {
-      const { resolveLlmBackend } = await import('@cleocode/core/memory/llm-backend-resolver.js');
-      const backend = await resolveLlmBackend('warm');
-      if (backend !== null && backend.name !== 'transformers') {
-        // Wire as a simple text-completion function using the 'ai' package
-        // loaded via @cleocode/core's node_modules (avoids duplicate dep in cleo).
-        loomProvider = async (prompt: string): Promise<string> => {
-          // Dynamic import at call time to avoid top-level resolution in cleo
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-          const aiMod = await import('ai' as string);
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-          const generateTextFn = aiMod.generateText as (opts: {
-            model: unknown;
-            prompt: string;
-            maxTokens: number;
-          }) => Promise<{ text: string }>;
-          const { text } = await generateTextFn({
-            model: backend.model,
-            prompt,
-            maxTokens: 256,
-          });
-          return text;
-        };
-      }
-    } catch {
-      // LOOM unavailable — scaffold mode (logged inside generateNexusWikiIndex)
-      loomProvider = null;
-    }
-
-    try {
-      // SSoT-EXEMPT:loom-provider — must call generateNexusWikiIndex directly to pass
-      // loomProvider. The dispatch 'wiki' op does not accept a loomProvider param.
-      const { generateNexusWikiIndex } = await import(
-        '@cleocode/core/nexus/wiki-index.js' as string
-      );
-      const result = await generateNexusWikiIndex(outputDir, getProjectRoot(), {
+      const result = await runNexusWiki({
+        projectRoot: getProjectRoot(),
+        outputDir,
         communityFilter,
         incremental: isIncremental,
-        loomProvider,
-        projectRoot: getProjectRoot(),
       });
-      const durationMs = Date.now() - startTime;
 
       if (!result.success) {
         cliError(
-          `wiki generation failed: ${result.error}`,
+          `wiki generation failed: ${result.error ?? 'unknown'}`,
           1,
           { name: 'E_WIKI_GENERATION_FAILED' },
           { operation: 'nexus.wiki' },
@@ -2697,8 +2510,12 @@ const wikiCommand = defineCommand({
       }
 
       cliOutput(
-        { ...result, _outputDir: outputDir, _durationMs: durationMs },
-        { command: 'nexus-wiki', operation: 'nexus.wiki', extensions: { duration_ms: durationMs } },
+        { ...result, _outputDir: result.outputDir, _durationMs: result.durationMs },
+        {
+          command: 'nexus-wiki',
+          operation: 'nexus.wiki',
+          extensions: { duration_ms: result.durationMs },
+        },
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
