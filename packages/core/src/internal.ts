@@ -1129,6 +1129,17 @@ export {
 } from './store/attachment-store-v2.js';
 // Store
 export { createBackup, listBackups, restoreFromBackup } from './store/backup.js';
+// Backup portability — bundle inspect primitives (T363 / T311 / T9985)
+export {
+  CLEO_ENC_MAGIC,
+  detectEncryption,
+  ENC_MIN_LENGTH,
+  ENC_VERSION_OFFSET,
+  ENC_VERSION_SUPPORTED,
+  extractManifestFromTar,
+  fmtBytes,
+  verifyManifestHash,
+} from './store/backup-inspect.js';
 // Backup portability — bundle packer (T311 / T347)
 export type { PackBundleInput, PackBundleResult } from './store/backup-pack.js';
 export { packBundle } from './store/backup-pack.js';
@@ -1729,6 +1740,17 @@ export {
   regenerateProjectContextJson,
   regenerateProjectInfoJson,
 } from './store/regenerators.js';
+// Conflict report PARSER — sister to the formatter (T9985 / E8-CLI-LAYERING)
+export type {
+  ParsedResolution,
+  RestoreConflictFilename,
+} from './store/restore-conflict-parser.js';
+export {
+  parseConflictReport,
+  parseMarkdownValue,
+  RESTORE_VALID_JSON_FILENAMES,
+  setAtPath,
+} from './store/restore-conflict-parser.js';
 // Conflict report formatter (T357)
 export type {
   BuildConflictReportInput,
@@ -1819,6 +1841,9 @@ export { taskUpdate } from './tasks/update.js';
 // Additional flat exports (required by @cleocode/cleo)
 // ---------------------------------------------------------------------------
 
+// Worktree destroy — re-export from @cleocode/worktree so the cleo CLI funnels
+// through core per the AGENTS.md Package-Boundary Check (T9985 / E8-CLI-LAYERING).
+export { destroyWorktree } from '@cleocode/worktree';
 export type {
   AgentExecutionEvent,
   AgentExecutionOutcome,

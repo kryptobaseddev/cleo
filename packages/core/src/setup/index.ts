@@ -26,6 +26,8 @@ import { createTelemetrySection } from './sections/telemetry.js';
 import { createVerificationSection } from './sections/verification.js';
 import { WizardRunner, type WizardSectionRunner } from './wizard.js';
 
+// Per-section `--config-json` → WizardOptions merger (T9985 / E8-CLI-LAYERING).
+export { mergeConfigJson, WIZARD_SECTION_IDS } from './config-json-merge.js';
 export { createBrainSection } from './sections/brain.js';
 export { createHarnessSection } from './sections/harness.js';
 export { createIdentitySection } from './sections/identity.js';

@@ -291,9 +291,6 @@ importers:
       '@cleocode/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@cleocode/worktree':
-        specifier: workspace:*
-        version: link:../worktree
       check-disk-space:
         specifier: ^3.4.0
         version: 3.4.0
