@@ -395,6 +395,36 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-core-first.mjs --check
 
+  ssot-exempt-lint:
+    # T10075 / Epic T9837 / Saga T9831 SG-ARCH-SOLID — guard the SSoT-EXEMPT
+    # escape-hatch. Every NEW SSoT-EXEMPT comment added in a PR must:
+    #   (a) include a linked T#### task ID, AND
+    #   (b) point at a task that is NOT in a terminal state (completed/cancelled/deleted).
+    # Runs in --strict mode: zero new SSoT-EXEMPT comments allowed regardless of
+    # task linkage. If a genuine architectural escape-hatch is needed, the team
+    # must first file an open follow-up task and explicitly relax this gate.
+    # Pure static analysis of checked-in source — no untrusted input.
+    name: SSoT-EXEMPT Lint (T10075 / T9837)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Fetch base branch for diff
+        run: git fetch origin main --depth=1
+      - name: Lint SSoT-EXEMPT comments in PR diff (strict — no new exemptions)
+        # Diffs newly added lines in this PR against origin/main.
+        # --strict: any new SSoT-EXEMPT comment fails the gate.
+        # --base: the ref to diff against (defaults to origin/main).
+        # CLEO_BIN is not set — task-ID verification is skipped in CI since
+        # the cleo CLI requires a live database. The strict mode does not
+        # need task verification (it blocks everything unconditionally).
+        run: node scripts/lint-no-ssot-exempt.mjs --strict --base origin/main
+
   canon-drift:
     name: Canon Drift Check
     needs: [biome]
