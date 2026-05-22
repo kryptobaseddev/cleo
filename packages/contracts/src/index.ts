@@ -275,7 +275,7 @@ export { CANONICAL_DOMAINS } from './dispatch/identity.js';
 // === Dispatch OperationDef + Resolution (T9954 — Phase 0b of SG-ARCH-SOLID / E-CONTRACTS-FOUNDATION) ===
 export type { OperationDef, Resolution } from './dispatch/operation-def.js';
 // === Dispatch OPERATIONS data + builder helpers (T10061 — T9833b / E-CLI-BOUNDARY / SG-ARCH-SOLID) ===
-export { OPERATIONS, defineOp, defineDomain } from './dispatch/operations-registry.js';
+export { defineDomain, defineOp, OPERATIONS } from './dispatch/operations-registry.js';
 // === DocsAccessor Contracts (T9063) ===
 export type {
   DocExportFormat,
@@ -1741,6 +1741,12 @@ export type {
   CriticalPathNode,
   CriticalPathResult,
 } from './tools/compute-critical-path.js';
+export type {
+  SchemaColumn,
+  SchemaDescriptor,
+  SchemaIndex,
+  SchemaTableDescriptor,
+} from './tools/describe-schema.js';
 export type { RenderTaskTreeInput } from './tools/render-task-tree.js';
 export type {
   ScoreFactor,
