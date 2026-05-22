@@ -52,4 +52,10 @@ if (existsSync(localPath)) {
   }
 }
 
+// Static named-export re-binding so Node.js can detect the export shape
+// when this CJS module is imported from an ESM consumer (e.g. compiled
+// @cleocode/worktree under "type": "module"). Without this, ESM named
+// imports like `import { copyPathsParallel } from '@cleocode/worktree-napi'`
+// throw "does not provide an export named ..." at module link time.
 module.exports = nativeBinding;
+

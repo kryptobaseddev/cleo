@@ -808,7 +808,7 @@ importers:
         version: 4.12.12
       llmtxt:
         specifier: '*'
-        version: 2026.4.13(@cleocode/lafs@2026.5.95)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
+        version: 2026.4.13(@cleocode/lafs@2026.5.100)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
       loro-crdt:
         specifier: '*'
         version: 1.11.0
@@ -864,6 +864,9 @@ importers:
       '@cleocode/paths':
         specifier: workspace:*
         version: link:../paths
+      '@cleocode/worktree-napi':
+        specifier: file:../../crates/worktree-napi
+        version: file:crates/worktree-napi
     devDependencies:
       '@cleocode/core':
         specifier: workspace:*
@@ -1374,10 +1377,13 @@ packages:
     engines: {node: '>=22.0.0'}
     hasBin: true
 
-  '@cleocode/lafs@2026.5.95':
-    resolution: {integrity: sha512-flv8wUP10/zHWuhwFlnq++9f5r4KMc/yIMETMhBj8GOFN6+fpLFXvAU1FvB1q4S2dilgCXh2xIVb34jZ/wDRGg==}
+  '@cleocode/lafs@2026.5.100':
+    resolution: {integrity: sha512-4pDK2xBH8U+fNcxHiynpyL7uxRT1Cy1YiJj5FshamRG1mAAuFuQ27MDijQuYbIfkP5VUccC4LKoz9l4KU0ZQUg==}
     engines: {node: '>=22.0.0'}
     hasBin: true
+
+  '@cleocode/worktree-napi@file:crates/worktree-napi':
+    resolution: {directory: crates/worktree-napi, type: directory}
 
   '@codluv/versionguard@1.2.0':
     resolution: {integrity: sha512-iVyEiPp54DqiFa/gf2Tf6mwvlHx90UXTQ8A0EEx6ArLuPeNn7lhvn7JnG+rXzBybW+HOdmnOXxSSfg5sTHxLZQ==}
@@ -7000,7 +7006,7 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
 
-  '@cleocode/lafs@2026.5.95':
+  '@cleocode/lafs@2026.5.100':
     dependencies:
       '@a2a-js/sdk': 0.3.13(express@5.2.1)
       ajv: 8.18.0
@@ -7011,6 +7017,8 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
     optional: true
+
+  '@cleocode/worktree-napi@file:crates/worktree-napi': {}
 
   '@codluv/versionguard@1.2.0':
     dependencies:
@@ -10029,7 +10037,7 @@ snapshots:
     dependencies:
       uc.micro: 2.1.0
 
-  llmtxt@2026.4.13(@cleocode/lafs@2026.5.95)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
+  llmtxt@2026.4.13(@cleocode/lafs@2026.5.100)(better-sqlite3@12.9.0)(drizzle-orm@1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
     dependencies:
       '@noble/ed25519': 3.1.0
       '@noble/hashes': 2.2.0
@@ -10038,7 +10046,7 @@ snapshots:
       yjs: 13.6.30
       zod: 4.3.6
     optionalDependencies:
-      '@cleocode/lafs': 2026.5.95
+      '@cleocode/lafs': 2026.5.100
       better-sqlite3: 12.9.0
       drizzle-orm: 1.0.0-beta.22-ec7b61d(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(zod@4.3.6)
       onnxruntime-node: 1.24.3
