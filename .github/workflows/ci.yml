@@ -753,31 +753,12 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        uses: ./.github/actions/install-ripgrep
-      - name: Build cant-napi native addon for CANT tests
-        if: runner.os != 'Linux'
-        shell: bash
-        run: |
-          cargo build --release -p cant-napi
-          case "${{ runner.os }}" in
-            macOS)
-              triple="darwin-x64"
-              if [[ "$(uname -m)" == "arm64" ]]; then
-                triple="darwin-arm64"
-              fi
-              cp target/release/libcant_napi.dylib "crates/cant-napi/cant-napi.${triple}.node"
-              ;;
-            Windows)
-              triple="win32-x64-msvc"
-              if [[ "${PROCESSOR_ARCHITECTURE:-}" == "ARM64" ]]; then
-                triple="win32-arm64-msvc"
-              fi
-              cp target/release/cant_napi.dll "crates/cant-napi/cant-napi.${triple}.node"
-              ;;
-          esac
-      - name: Build worktree-napi native addon for @cleocode/worktree tests (T9982)
+      - name: Build worktree-napi native addon BEFORE pnpm install (T9982)
+        # Must run before `pnpm install --frozen-lockfile` so that the file:
+        # link to crates/worktree-napi picks up the .node binary into the
+        # pnpm-managed copy under node_modules/.pnpm/@cleocode+worktree-napi@*.
+        # The crate's package.json declares "files": ["worktree-napi.*.node"]
+        # so pnpm only copies in artifacts that exist at install time.
         shell: bash
         run: |
           cargo build --release -p worktree-napi
@@ -802,6 +783,30 @@ jobs:
                 triple="win32-arm64-msvc"
               fi
               cp target/release/worktree_napi.dll "crates/worktree-napi/worktree-napi.${triple}.node"
+              ;;
+          esac
+      - run: pnpm install --frozen-lockfile
+      - name: Install ripgrep (required for T1605 callsite-coverage validator)
+        uses: ./.github/actions/install-ripgrep
+      - name: Build cant-napi native addon for CANT tests
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          cargo build --release -p cant-napi
+          case "${{ runner.os }}" in
+            macOS)
+              triple="darwin-x64"
+              if [[ "$(uname -m)" == "arm64" ]]; then
+                triple="darwin-arm64"
+              fi
+              cp target/release/libcant_napi.dylib "crates/cant-napi/cant-napi.${triple}.node"
+              ;;
+            Windows)
+              triple="win32-x64-msvc"
+              if [[ "${PROCESSOR_ARCHITECTURE:-}" == "ARM64" ]]; then
+                triple="win32-arm64-msvc"
+              fi
+              cp target/release/cant_napi.dll "crates/cant-napi/cant-napi.${triple}.node"
               ;;
           esac
       - name: Build packages (required for cross-package imports)
@@ -931,6 +936,35 @@ jobs:
       # actions/cache. If someone reorders build.mjs incorrectly again,
       # this step fails and blocks the merge.
       # ──────────────────────────────────────────────────────────────────
+      - name: Build worktree-napi native addon BEFORE pnpm install (T9982)
+        # Must run before `pnpm install` so the file:link to crates/worktree-napi
+        # picks up the .node binary. See ci.yml unit-tests job for context.
+        shell: bash
+        run: |
+          cargo build --release -p worktree-napi
+          case "${{ runner.os }}" in
+            Linux)
+              triple="linux-x64-gnu"
+              if [[ "$(uname -m)" == "aarch64" ]]; then
+                triple="linux-arm64-gnu"
+              fi
+              cp target/release/libworktree_napi.so "crates/worktree-napi/worktree-napi.${triple}.node"
+              ;;
+            macOS)
+              triple="darwin-x64"
+              if [[ "$(uname -m)" == "arm64" ]]; then
+                triple="darwin-arm64"
+              fi
+              cp target/release/libworktree_napi.dylib "crates/worktree-napi/worktree-napi.${triple}.node"
+              ;;
+            Windows)
+              triple="win32-x64-msvc"
+              if [[ "${PROCESSOR_ARCHITECTURE:-}" == "ARM64" ]]; then
+                triple="win32-arm64-msvc"
+              fi
+              cp target/release/worktree_napi.dll "crates/worktree-napi/worktree-napi.${triple}.node"
+              ;;
+          esac
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
         uses: ./.github/actions/install-ripgrep
@@ -1025,6 +1059,11 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
+      - name: Build worktree-napi native addon BEFORE pnpm install (T9982)
+        shell: bash
+        run: |
+          cargo build --release -p worktree-napi
+          cp target/release/libworktree_napi.so crates/worktree-napi/worktree-napi.linux-x64-gnu.node
       - name: Install dependencies and build
         run: pnpm install --frozen-lockfile && node build.mjs
       - name: Test global link (simulates global install)
