@@ -16,6 +16,7 @@ members = [
     "crates/signaldock-runtime",
     "crates/signaldock-sdk",
     "crates/signaldock-payments",
+    "crates/worktree-napi",
     "crates/worktrunk-core",
     "crates/integration-tests",
 ]
@@ -42,6 +43,7 @@ default-members = [
     "crates/lafs-napi",
     "crates/signaldock-core",
     "crates/signaldock-protocol",
+    "crates/worktree-napi",
     "crates/worktrunk-core",
     "crates/integration-tests",
 ]
