@@ -777,6 +777,33 @@ jobs:
               cp target/release/cant_napi.dll "crates/cant-napi/cant-napi.${triple}.node"
               ;;
           esac
+      - name: Build worktree-napi native addon for @cleocode/worktree tests (T9982)
+        shell: bash
+        run: |
+          cargo build --release -p worktree-napi
+          case "${{ runner.os }}" in
+            Linux)
+              triple="linux-x64-gnu"
+              if [[ "$(uname -m)" == "aarch64" ]]; then
+                triple="linux-arm64-gnu"
+              fi
+              cp target/release/libworktree_napi.so "crates/worktree-napi/worktree-napi.${triple}.node"
+              ;;
+            macOS)
+              triple="darwin-x64"
+              if [[ "$(uname -m)" == "arm64" ]]; then
+                triple="darwin-arm64"
+              fi
+              cp target/release/libworktree_napi.dylib "crates/worktree-napi/worktree-napi.${triple}.node"
+              ;;
+            Windows)
+              triple="win32-x64-msvc"
+              if [[ "${PROCESSOR_ARCHITECTURE:-}" == "ARM64" ]]; then
+                triple="win32-arm64-msvc"
+              fi
+              cp target/release/worktree_napi.dll "crates/worktree-napi/worktree-napi.${triple}.node"
+              ;;
+          esac
       - name: Build packages (required for cross-package imports)
         run: pnpm run build
       - name: Generate SvelteKit type stubs (required for studio tests)

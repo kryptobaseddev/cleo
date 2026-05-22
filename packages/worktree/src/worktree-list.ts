@@ -21,8 +21,8 @@ import {
   getCleoWorktreesRoot,
   resolveWorktreeRootForHash,
 } from '@cleocode/paths';
-import { listWorktrees as napiListWorktrees, type WorktreeInfoNapi } from '@cleocode/worktree-napi';
 import { getGitRoot } from './git.js';
+import { listWorktrees as napiListWorktrees, type WorktreeInfoNapi } from './napi-binding.js';
 
 /**
  * Resolve the worktree root directory for a given project hash.
