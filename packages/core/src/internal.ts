@@ -1661,6 +1661,7 @@ export {
 } from './session/canon-lint.js';
 // Session engine ops — EngineResult-wrapped session functions (ENG-MIG-6 / T1573)
 export {
+  sessionAdopt,
   sessionArchive,
   sessionBriefing,
   sessionChainShow,

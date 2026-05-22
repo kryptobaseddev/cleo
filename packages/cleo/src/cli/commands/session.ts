@@ -99,6 +99,8 @@ const startCommand = defineCommand({
         startTask: (args['start-task'] ?? args.focus) as string | undefined,
         grade: args.grade as boolean | undefined,
         ownerAuthToken,
+        // T9975: per-agent handle for multi-agent isolation
+        agentHandle: args.agent as string | undefined,
       },
       { command: 'session', operation: 'session.start' },
     );
@@ -423,6 +425,16 @@ const listCommand = defineCommand({
       type: 'string',
       description: 'Skip first n results',
     },
+    /**
+     * T9975: surface all per-agent columns (agent, scope, lastActivity).
+     * When set, the result includes agentHandle, scopeKind, scopeId, and
+     * lastActivity for each session — useful for multi-agent dashboards.
+     */
+    all: {
+      type: 'boolean',
+      description:
+        'Show all columns including per-agent fields (agent, scope, lastActivity) — T9975',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -433,6 +445,7 @@ const listCommand = defineCommand({
         status: args.status as string | undefined,
         limit: args.limit ? Number.parseInt(args.limit, 10) : undefined,
         offset: args.offset ? Number.parseInt(args.offset, 10) : undefined,
+        all: args.all as boolean | undefined,
       },
       { command: 'session', operation: 'session.list' },
     );
@@ -687,6 +700,57 @@ const decisionLogCommand = defineCommand({
 });
 
 /**
+ * cleo session adopt — rebind env to a specific session (T9975).
+ *
+ * In multi-agent setups, an agent may need to work within the context of
+ * another agent's session (e.g. handoff between worktree agents).  This
+ * command prints the shell export command required to set `CLEO_SESSION_ID`,
+ * which the caller can eval to bind subsequent `cleo briefing` and focus
+ * operations to the target session.
+ *
+ * Usage:
+ *   eval $(cleo session adopt <id>)
+ *
+ * After eval, `CLEO_SESSION_ID` is set in the calling shell and all cleo
+ * commands that honour env-precedence (briefing, focus, etc.) will use the
+ * adopted session.
+ *
+ * @task T9975
+ */
+const adoptCommand = defineCommand({
+  meta: {
+    name: 'adopt',
+    description: 'Rebind env to a specific session — prints export command to eval (T9975)',
+  },
+  args: {
+    sessionId: {
+      type: 'positional',
+      description: 'Session ID to adopt',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const response = await dispatchRaw('mutate', 'session', 'adopt', {
+      sessionId: args.sessionId,
+    });
+
+    if (!response.success) {
+      handleRawError(response, { command: 'session adopt', operation: 'session.adopt' });
+      return;
+    }
+
+    const data = response.data as { sessionId: string; exportCommand: string } | null;
+    if (data?.exportCommand) {
+      // Output ONLY the export command so the caller can eval it:
+      //   eval $(cleo session adopt <id>)
+      process.stdout.write(`${data.exportCommand}\n`);
+    } else {
+      cliOutput(data ?? {}, { command: 'session adopt', operation: 'session.adopt' });
+    }
+  },
+});
+
+/**
  * cleo session lint — agent-accountability harness (T9797).
  *
  * Scans a Claude Code-style session transcript (`*.jsonl`) for `Write` /
@@ -752,6 +816,8 @@ export const sessionCommand = defineCommand({
     'record-decision': recordDecisionCommand,
     'decision-log': decisionLogCommand,
     lint: lintCommand,
+    // T9975 — per-agent session isolation
+    adopt: adoptCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

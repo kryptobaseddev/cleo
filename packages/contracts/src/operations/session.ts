@@ -65,6 +65,11 @@ export interface SessionListParams {
   status?: string;
   limit?: number;
   offset?: number;
+  /**
+   * When true, surface all columns including per-agent fields added in T9975
+   * (agentHandle, scopeKind, scopeId, lastActivity).
+   */
+  all?: boolean;
 }
 /** Result of `session.list`. */
 export interface SessionListResult {
@@ -296,6 +301,13 @@ export interface SessionBriefingShowParams {
   /** When true, exit non-zero if any contract violation is detected (T1905). */
   strict?: boolean;
   /**
+   * Explicit session ID to scope the briefing to (T9975).
+   *
+   * When provided, the briefing resolution uses this session ID instead of
+   * inferring from env vars or most-recent active session. Internal use only.
+   */
+  activeSessionId?: string;
+  /**
    * When true, include `peerPatterns` in the warm bundle and other verbose
    * debug fields that are suppressed by default to reduce token count.
    *
@@ -518,6 +530,34 @@ export interface SessionStartParams {
    * and validated on every `CLEO_OWNER_OVERRIDE` call.
    */
   ownerAuthToken?: string;
+  /**
+   * Human-readable agent handle for multi-agent isolation (T9975).
+   *
+   * When provided, the conflict check is scoped per-agent-handle: multiple
+   * sessions with different handles may be active simultaneously, enabling
+   * N-agent parallel execution without briefing surface collisions.
+   *
+   * Stored in `sessions.agent_handle`. Surfaced in `cleo session list --all`.
+   *
+   * @example "agent-A", "worker-T9975", "ct-task-executor"
+   */
+  agentHandle?: string;
+}
+
+// session.adopt
+/** Parameters for `session.adopt`. */
+export interface SessionAdoptParams {
+  /** Session ID to rebind the current env to. */
+  sessionId: string;
+}
+/** Result of `session.adopt`. */
+export interface SessionAdoptResult {
+  /** The session being adopted. */
+  sessionId: string;
+  /** Shell export command to rebind env — print and eval in the calling shell. */
+  exportCommand: string;
+  /** Name of the env variable set. */
+  envVar: 'CLEO_SESSION_ID';
 }
 // session.end
 /** Parameters for `session.end`. */
@@ -704,4 +744,6 @@ export type SessionOps = {
     SessionRecordAssumptionResult,
   ];
   readonly lint: readonly [SessionLintParams, SessionLintResult];
+  /** Rebind env to a specific session (T9975). */
+  readonly adopt: readonly [SessionAdoptParams, SessionAdoptResult];
 };
