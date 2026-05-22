@@ -1730,7 +1730,17 @@ export type {
   TesseraTemplate,
   TesseraVariable,
 } from './tessera.js';
-// === Task SDK Tool Contracts (T10068 / T9835) ===
+export type { FetchBrainEntriesInput, FetchBrainEntriesOutput } from './tools/brain-fetch.js';
+export type { ObserveBrainInput, ObserveBrainOutput } from './tools/brain-observe.js';
+// === SDK Tool Contracts (T10068 / T10070 / T9835) ===
+// BrainTools (T10070 / T9835c)
+export type { SearchBrainInput, SearchBrainOutput } from './tools/brain-search.js';
+export type { TimelineBrainInput, TimelineBrainOutput } from './tools/brain-timeline.js';
+export type {
+  BuildRetrievalBundleInput,
+  BuildRetrievalBundleOutput,
+} from './tools/build-retrieval-bundle.js';
+// TaskTools (T10068 / T9835b)
 export type {
   BuildTaskTreeInput,
   BuildTaskTreeOptions,

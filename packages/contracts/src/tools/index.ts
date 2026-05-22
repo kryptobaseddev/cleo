@@ -1,11 +1,23 @@
 /**
- * Task SDK tool contract types.
+ * SDK Tool contract types.
  *
- * @arch Contracts barrel for Category B SDK Tools in packages/core/src/tools/task-tools/
+ * @arch Contracts barrel for Category B SDK Tools in packages/core/src/tools/
  * @task T10068
+ * @task T10070
  * @epic T9835
  */
 
+export type { FetchBrainEntriesInput, FetchBrainEntriesOutput } from './brain-fetch.js';
+export type { ObserveBrainInput, ObserveBrainOutput } from './brain-observe.js';
+// === BrainTools (T10070 / T9835c) ===
+export type { SearchBrainInput, SearchBrainOutput } from './brain-search.js';
+export type { TimelineBrainInput, TimelineBrainOutput } from './brain-timeline.js';
+export type {
+  BuildRetrievalBundleInput,
+  BuildRetrievalBundleOutput,
+} from './build-retrieval-bundle.js';
+
+// === TaskTools (T10068 / T9835b) ===
 export type {
   BuildTaskTreeInput,
   BuildTaskTreeOptions,
