@@ -139,3 +139,38 @@ export interface ObserveBrainResult {
   /** ISO 8601 creation timestamp. */
   createdAt: string;
 }
+
+// ── DocAttachmentObservationPayload ─────────────────────────────────
+
+/**
+ * Structured payload stored in the `narrative` of a doc-attachment memory
+ * observation emitted by `cleo docs add` (T9976).
+ *
+ * The observation title is `"Doc attached: <slug>"` (or
+ * `"Doc attached: <attachmentId>"` when no slug is set) so
+ * `cleo memory find '<slug>'` reliably surfaces the entry via FTS.
+ *
+ * The payload is serialised as JSON and embedded in the observation
+ * `narrative` field so it can be recovered by `cleo memory verify`
+ * for round-trip attachment-existence checks.
+ *
+ * @task T9976
+ */
+export interface DocAttachmentObservationPayload {
+  /** Slug recorded for this attachment (optional — omitted when none set). */
+  slug?: string;
+  /** Owner entity ID (task, session, observation, …). */
+  ownerId: string;
+  /** Taxonomy type classification (optional). */
+  type?: string;
+  /** Attachment ID assigned by the store. */
+  attachmentId: string;
+  /** ISO 8601 timestamp when the attachment was added. */
+  addedAt: string;
+  /**
+   * Observation kind discriminator — always `"doc-attachment"`.
+   * Used by `cleo memory verify` to identify doc-attachment observations
+   * and perform round-trip checks against the docs store.
+   */
+  kind: 'doc-attachment';
+}
