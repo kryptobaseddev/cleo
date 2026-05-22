@@ -40,10 +40,6 @@
  * @epic T4763 T627
  */
 
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { getProjectRoot } from '@cleocode/core';
 import {
   getBrainDb,
@@ -54,90 +50,14 @@ import {
   setEntryTier,
   triggerManualDream,
 } from '@cleocode/core/memory';
+import { importMemoryFiles } from '@cleocode/core/memory/import-from-provider.js';
+import { streamMemoryWatchEvents } from '@cleocode/core/memory/watch-stream.js';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON } from '../paths.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
-// ---------------------------------------------------------------------------
-// Memory import helpers (T629 — provider-agnostic migration)
-// ---------------------------------------------------------------------------
-
-/**
- * Parse YAML frontmatter from a markdown string.
- * Supports simple `key: value` pairs only (no nested YAML).
- *
- * @param raw - Raw file content
- * @returns Extracted frontmatter fields and body text
- */
-function parseMemoryFileFrontmatter(raw: string): {
-  name?: string;
-  description?: string;
-  type?: string;
-  body: string;
-} {
-  const lines = raw.split('\n');
-  if (!lines[0]?.trim().startsWith('---')) {
-    return { body: raw.trim() };
-  }
-
-  const endIdx = lines.slice(1).findIndex((l) => /^---\s*$/.test(l));
-  if (endIdx === -1) {
-    return { body: raw.trim() };
-  }
-
-  const fmLines = lines.slice(1, endIdx + 1);
-  const body = lines
-    .slice(endIdx + 2)
-    .join('\n')
-    .trim();
-
-  const fm: Record<string, string> = {};
-  for (const line of fmLines) {
-    const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) continue;
-    const key = line.slice(0, colonIdx).trim();
-    const value = line.slice(colonIdx + 1).trim();
-    if (key && value) fm[key] = value;
-  }
-
-  return {
-    name: fm['name'],
-    description: fm['description'],
-    type: fm['type'],
-    body,
-  };
-}
-
-/**
- * Compute a 16-char hex content fingerprint for dedup.
- *
- * @param title - Entry title
- * @param body - Entry body text
- * @returns 16-char hex prefix of SHA-256 hash
- */
-function memoryContentHash(title: string, body: string): string {
-  return createHash('sha256').update(`${title}\n${body}`).digest('hex').slice(0, 16);
-}
-
-/** Load set of already-imported content hashes from the dedup state file. */
-function loadImportHashes(stateFile: string): Set<string> {
-  try {
-    if (!existsSync(stateFile)) return new Set();
-    const raw = readFileSync(stateFile, 'utf-8');
-    const parsed = JSON.parse(raw) as { hashes: string[] };
-    return new Set(parsed.hashes);
-  } catch {
-    return new Set();
-  }
-}
-
-/** Persist updated set of imported hashes to the dedup state file. */
-function saveImportHashes(stateFile: string, hashes: Set<string>): void {
-  const dir = stateFile.slice(0, stateFile.lastIndexOf('/'));
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(stateFile, JSON.stringify({ hashes: [...hashes] }, null, 2), 'utf-8');
-}
+// Memory import helpers moved to packages/core/src/memory/import-from-provider.ts (T10062 T9833c)
 
 // ---------------------------------------------------------------------------
 // Subcommands
@@ -1283,128 +1203,40 @@ const importCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const sourceDir =
-      args.from ?? join(homedir(), '.claude', 'projects', '-mnt-projects-cleocode', 'memory');
+    const sourceDir = args.from as string | undefined;
     const isDryRun = !!args['dry-run'];
     const projectRoot = getProjectRoot();
-    const stateFile = join(projectRoot, CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON);
 
-    if (!existsSync(sourceDir)) {
-      cliError(`Source directory not found: ${sourceDir}`, 'E_NOT_FOUND', { name: 'E_NOT_FOUND' });
-      process.exit(1);
-      return;
-    }
-
-    const files = readdirSync(sourceDir)
-      .filter((f) => f.endsWith('.md') && f !== 'MEMORY.md')
-      .map((f) => join(sourceDir, f));
-
-    const importedHashes = isDryRun ? new Set<string>() : loadImportHashes(stateFile);
-    const stats = { total: files.length, imported: 0, skipped: 0, errors: 0 };
-    const importedEntries: Array<{ file: string; type: string; title: string }> = [];
-    const skippedEntries: Array<{ file: string; reason: string }> = [];
-    const errorEntries: Array<{ file: string; error: string }> = [];
-
-    for (const filePath of files) {
-      const fileName = filePath.split('/').pop() ?? filePath;
-      try {
-        const raw = readFileSync(filePath, 'utf-8');
-        if (!raw.trim()) {
-          stats.skipped++;
-          skippedEntries.push({ file: fileName, reason: 'empty file' });
-          continue;
-        }
-
-        const { name, description, type, body } = parseMemoryFileFrontmatter(raw);
-        const title = name ?? fileName.replace(/\.md$/, '').replace(/-/g, ' ');
-        const bodyParts = [description, body].filter(Boolean);
-        const fullText = bodyParts.join('\n\n').trim();
-
-        if (!fullText) {
-          stats.skipped++;
-          skippedEntries.push({ file: fileName, reason: 'empty body' });
-          continue;
-        }
-
-        const hash = memoryContentHash(title, fullText);
-
-        if (!isDryRun && importedHashes.has(hash)) {
-          stats.skipped++;
-          skippedEntries.push({ file: fileName, reason: `already imported (hash: ${hash})` });
-          continue;
-        }
-
-        const entryType = type ?? 'project';
-
-        if (!isDryRun) {
-          // Route by frontmatter type
-          if (entryType === 'feedback') {
-            // Feedback → learning
-            await dispatchFromCli(
-              'mutate',
-              'memory',
-              'learning.store',
-              {
-                insight: `[MIGRATED] ${title}: ${fullText}`,
-                source: 'manual',
-                confidence: 0.8,
-                actionable: false,
-              },
-              { command: 'memory', operation: 'memory.learning.store' },
-            );
-          } else {
-            // project | reference | user | default → observation
-            const observeType =
-              entryType === 'project'
-                ? 'feature'
-                : entryType === 'reference'
-                  ? 'discovery'
-                  : entryType === 'user'
-                    ? 'change'
-                    : 'discovery';
-
-            await dispatchFromCli(
-              'mutate',
-              'memory',
-              'observe',
-              {
-                text: `[MIGRATED] ${title}: ${fullText}`,
-                title: `[MIGRATED] ${title}`,
-                type: observeType,
-                sourceType: 'manual',
-              },
-              { command: 'memory', operation: 'memory.observe' },
-            );
-          }
-
-          importedHashes.add(hash);
-        }
-
-        stats.imported++;
-        importedEntries.push({ file: fileName, type: entryType, title });
-      } catch (err) {
-        stats.errors++;
-        const message = err instanceof Error ? err.message : String(err);
-        errorEntries.push({ file: fileName, error: message });
-      }
-    }
-
-    if (!isDryRun) {
-      saveImportHashes(stateFile, importedHashes);
-    }
-
-    cliOutput(
-      {
-        ...stats,
+    try {
+      const result = await importMemoryFiles({
+        sourceDir,
         dryRun: isDryRun,
-        imported: importedEntries,
-        skipped: skippedEntries,
-        errors: errorEntries,
-      },
-      { command: 'memory-import', operation: 'memory.import' },
-    );
+        projectRoot,
+        cleoDirName: CLEO_DIR_NAME,
+        hasheFileName: MIGRATE_MEMORY_HASHES_JSON,
+        dispatch: dispatchFromCli,
+      });
 
-    if (stats.errors > 0) process.exit(1);
+      cliOutput(
+        {
+          total: result.total,
+          imported: result.imported,
+          skipped: result.skipped,
+          errors: result.errors,
+          dryRun: isDryRun,
+          importedEntries: result.importedEntries,
+          skippedEntries: result.skippedEntries,
+          errorEntries: result.errorEntries,
+        },
+        { command: 'memory-import', operation: 'memory.import' },
+      );
+
+      if (result.errors > 0) process.exit(1);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(message, 'E_NOT_FOUND', { name: 'E_NOT_FOUND' });
+      process.exit(1);
+    }
   },
 });
 
@@ -2170,60 +2002,36 @@ const watchCommand = defineCommand({
       return;
     }
 
-    // Follow mode: SSE-style stdout stream. Emit a `ping` event, then poll
-    // `memory.watch` every interval, emitting each event as
-    // `event: observation\ndata: <json>\n\n`. Graceful shutdown on SIGINT.
-    const intervalMs = args.interval !== undefined ? parseInt(args.interval as string, 10) : 1000;
-    let cursor = args.cursor as string | undefined;
-    let running = true;
+    // Follow mode: SSE-style stdout stream via AsyncIterable from core.
+    const abortController = new AbortController();
 
-    const onSignal = (): void => {
-      running = false;
-    };
+    const onSignal = (): void => abortController.abort();
     process.once('SIGINT', onSignal);
     process.once('SIGTERM', onSignal);
 
-    // Initial ping so downstream EventSource-like clients see the stream open.
-    process.stdout.write(
-      `event: ping\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`,
-    );
+    const stream = streamMemoryWatchEvents({
+      cursor: args.cursor as string | undefined,
+      limit: args.limit !== undefined ? parseInt(args.limit as string, 10) : undefined,
+      intervalMs: args.interval !== undefined ? parseInt(args.interval as string, 10) : 1000,
+      dispatchRaw,
+      signal: abortController.signal,
+    });
 
-    while (running) {
-      const response = await dispatchRaw('query', 'memory', 'watch', buildParams(cursor));
-      if (!response.success) {
-        handleRawError(response, { command: 'memory-watch', operation: 'memory.watch' });
-        return; // handleRawError calls process.exit on failure
+    for await (const item of stream) {
+      if (item.kind === 'ping') {
+        process.stdout.write(`event: ping\ndata: ${JSON.stringify({ ts: item.ts })}\n\n`);
+      } else if (item.kind === 'events') {
+        for (const event of item.events) {
+          process.stdout.write(`event: observation\ndata: ${JSON.stringify(event)}\n\n`);
+        }
+      } else if (item.kind === 'error') {
+        cliError(item.message, 1, { name: item.code }, { operation: 'memory.watch' });
+        process.exit(1);
+        return;
+      } else if (item.kind === 'close') {
+        process.stdout.write(`event: close\ndata: ${JSON.stringify({ ts: item.ts })}\n\n`);
       }
-
-      const data = response.data as {
-        events?: Array<{ created_at?: string } & Record<string, unknown>>;
-        nextCursor?: string | null;
-      };
-
-      const events = data.events ?? [];
-      for (const event of events) {
-        process.stdout.write(`event: observation\ndata: ${JSON.stringify(event)}\n\n`);
-      }
-
-      if (typeof data.nextCursor === 'string') {
-        cursor = data.nextCursor;
-      }
-
-      if (!running) break;
-
-      // Fixed-interval sleep between polls. Resolves early on SIGINT because
-      // `running` is re-checked on the next loop pass.
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, intervalMs);
-        // Allow the process to exit cleanly even if the timer is outstanding.
-        timer.unref?.();
-      });
     }
-
-    // Graceful stream close marker.
-    process.stdout.write(
-      `event: close\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`,
-    );
   },
 });
 

@@ -43,6 +43,18 @@ import {
   getHealthReport,
   STALE_THRESHOLD_MS,
 } from '@cleocode/core/agents';
+import {
+  cleanupInstallTempDir,
+  resolveAgentCantPath,
+} from '@cleocode/core/agents/install-pipeline.js';
+import {
+  inferTierFromRole,
+  scaffoldAgent,
+  validateName,
+  validateRole,
+  validateTier,
+} from '@cleocode/core/agents/scaffold.js';
+import { startWorkLoop } from '@cleocode/core/agents/work-loop.js';
 import { defineCommand, showUsage } from 'citty';
 import { AGENTS_SUBDIR, CANT_AGENTS_SUBDIR, CLEO_DIR_NAME } from '../paths.js';
 import { cliError, cliOutput, humanLine, humanWarn } from '../renderers/index.js';
@@ -958,9 +970,6 @@ const workCommand = defineCommand({
       const { createRuntime } = await import('@cleocode/runtime');
       const { existsSync } = await import('node:fs');
       const { join } = await import('node:path');
-      const { execFile } = await import('node:child_process');
-      const { promisify } = await import('node:util');
-      const execFileAsync = promisify(execFile);
       await getDb();
       const registry = new AgentRegistryAccessor(getProjectRoot());
       const credential = await registry.get(args.agentId);
@@ -1003,105 +1012,25 @@ const workCommand = defineCommand({
         { command: 'agent work' },
       );
 
-      // Parse LAFS envelope from CLI stdout (handles both minimal and full shapes)
-      const parseLafs = <T = unknown>(raw: string): T | undefined => {
-        const lines = raw.trim().split('\n');
-        const envLine = [...lines].reverse().find((l) => l.startsWith('{'));
-        if (!envLine) return undefined;
-        try {
-          const env = JSON.parse(envLine) as {
-            ok?: boolean;
-            r?: T;
-            success?: boolean;
-            result?: T;
-            data?: T;
-          };
-          if (env.ok === true) return env.r;
-          if (env.success === true) return (env.result ?? env.data) as T | undefined;
-          return undefined;
-        } catch {
-          return undefined;
-        }
-      };
-
-      const runCleo = async (cleoArgs: string[], timeoutMs = 15000): Promise<string> => {
-        const { stdout } = await execFileAsync('cleo', cleoArgs, {
-          encoding: 'utf-8',
-          timeout: timeoutMs,
-        });
-        return stdout;
-      };
-
       const taskInterval = Number.parseInt(args['poll-interval'], 10);
-      let inFlight = false;
-      let iterations = 0;
-      const workLoop = setInterval(async () => {
-        if (inFlight) return;
-        inFlight = true;
-        iterations += 1;
-        try {
-          const currentRaw = await runCleo(['current']).catch(() => '');
-          if (currentRaw.trim()) {
-            // A task is already in progress — skip
-            return;
-          }
-
-          // Resolve next ready task (respect epic restriction when set)
-          const nextArgs = epicRestrict ? ['orchestrate', 'next', epicRestrict] : ['next'];
-          const nextRaw = await runCleo(nextArgs).catch(() => '');
-          if (!nextRaw.trim()) return;
-
-          const nextData = parseLafs<{
-            nextTask?: { id?: string; title?: string } | null;
-            id?: string;
-            title?: string;
-          }>(nextRaw);
-          const taskId =
-            nextData?.nextTask?.id ?? (typeof nextData?.id === 'string' ? nextData.id : undefined);
-
-          if (!taskId) return;
-
-          if (!executeMode) {
-            // Watch-only legacy behaviour: advertise availability
-            humanLine(
-              `[${args.agentId}] Task available: ${taskId}. Pass --execute to run autonomously.`,
-            );
-            return;
-          }
-
-          // Phase 3 Conductor Loop: actually execute via orchestrate.spawn.execute
-          const spawnArgs = ['orchestrate', 'spawn', taskId];
-          if (adapterRestrict) {
-            spawnArgs.push('--adapter', adapterRestrict);
-          }
-          const spawnRaw = await runCleo(spawnArgs, 60000).catch((e) => {
-            humanWarn(`[${args.agentId}] conductor-loop: spawn failed for ${taskId}: ${String(e)}`);
-            return '';
-          });
-          const spawnData = parseLafs<{
-            instanceId?: string;
-            taskId?: string;
-            status?: string;
-          }>(spawnRaw);
-          if (spawnData?.instanceId) {
-            humanLine(
-              `[${args.agentId}] conductor-loop spawned task=${taskId} instance=${spawnData.instanceId} status=${spawnData.status ?? 'unknown'}`,
-            );
-          }
-        } catch {
-          /* non-fatal — loop continues */
-        } finally {
-          inFlight = false;
-        }
-      }, taskInterval);
+      const loop = startWorkLoop(
+        {
+          agentId: args.agentId,
+          pollIntervalMs: taskInterval,
+          executeMode,
+          epicRestrict,
+          adapterRestrict,
+        },
+        {
+          onInfo: (msg) => humanLine(msg),
+          onWarn: (msg) => humanWarn(msg),
+        },
+      );
 
       const shutdown = () => {
-        clearInterval(workLoop);
+        loop.stop();
         runtime.stop();
         void registry.update(args.agentId, { isActive: false }).catch(() => {});
-        if (executeMode) {
-          humanLine(`[${args.agentId}] conductor-loop shutdown after ${iterations} iterations.`);
-        }
         process.exit(0);
       };
       process.on('SIGINT', shutdown);
@@ -2039,11 +1968,8 @@ const installCommand = defineCommand({
   async run({ args }) {
     let tempDir: string | null = null;
     try {
-      const { existsSync, mkdirSync, statSync, readdirSync, copyFileSync } = await import(
-        'node:fs'
-      );
-      const { join, basename, resolve, extname } = await import('node:path');
-      const { tmpdir } = await import('node:os');
+      const { existsSync } = await import('node:fs');
+      const { basename, resolve } = await import('node:path');
 
       const resolvedPath = resolve(args.path);
 
@@ -2062,119 +1988,23 @@ const installCommand = defineCommand({
         return;
       }
 
-      // Resolve the eventual `.cant` path that will be handed to the install
-      // pipeline. Three input shapes are accepted:
-      //   1. <id>.cant           — used as-is.
-      //   2. <pkg>.cantz         — extracted; persona.cant inside is renamed
-      //                            to `<agentId>.cant` in the temp tree.
-      //   3. <dir>/persona.cant  — same flow as .cantz; rename into tmp.
-      let cantPath: string;
-      const stat = statSync(resolvedPath);
-      const ext = extname(resolvedPath);
-
-      if (stat.isFile() && ext === '.cant') {
-        cantPath = resolvedPath;
-      } else if (stat.isFile() && ext === '.cantz') {
-        const { execFileSync } = await import('node:child_process');
-        tempDir = join(tmpdir(), `cleo-agent-install-${Date.now()}`);
-        mkdirSync(tempDir, { recursive: true });
-        try {
-          execFileSync('unzip', ['-o', '-q', resolvedPath, '-d', tempDir], {
-            encoding: 'utf-8',
-            timeout: 30_000,
-          });
-        } catch (unzipErr) {
-          cliOutput(
-            {
-              success: false,
-              error: {
-                code: 'E_VALIDATION',
-                message: `Failed to extract .cantz archive: ${String(unzipErr)}`,
-              },
-            },
-            { command: 'agent install' },
-          );
-          process.exitCode = 6;
-          return;
-        }
-        const topLevel = readdirSync(tempDir).filter((entry) =>
-          statSync(join(tempDir as string, entry)).isDirectory(),
-        );
-        if (topLevel.length !== 1) {
-          cliOutput(
-            {
-              success: false,
-              error: {
-                code: 'E_VALIDATION',
-                message: `Archive must contain exactly one top-level directory, found ${topLevel.length}`,
-              },
-            },
-            { command: 'agent install' },
-          );
-          process.exitCode = 6;
-          return;
-        }
-        const agentName = topLevel[0];
-        const personaPath = join(tempDir, agentName, 'persona.cant');
-        if (!existsSync(personaPath)) {
-          cliOutput(
-            {
-              success: false,
-              error: {
-                code: 'E_VALIDATION',
-                message: `Archive must contain persona.cant: ${personaPath}`,
-              },
-            },
-            { command: 'agent install' },
-          );
-          process.exitCode = 6;
-          return;
-        }
-        // The pipeline requires filename base === agent name; materialize a
-        // renamed copy into the temp dir so the check passes.
-        cantPath = join(tempDir, `${agentName}.cant`);
-        copyFileSync(personaPath, cantPath);
-      } else if (stat.isDirectory()) {
-        const agentName = basename(resolvedPath);
-        const personaPath = join(resolvedPath, 'persona.cant');
-        if (!existsSync(personaPath)) {
-          cliOutput(
-            {
-              success: false,
-              error: {
-                code: 'E_VALIDATION',
-                message: `Agent directory must contain persona.cant: ${personaPath}`,
-              },
-            },
-            { command: 'agent install' },
-          );
-          process.exitCode = 6;
-          return;
-        }
-        tempDir = join(tmpdir(), `cleo-agent-install-${Date.now()}`);
-        mkdirSync(tempDir, { recursive: true });
-        cantPath = join(tempDir, `${agentName}.cant`);
-        copyFileSync(personaPath, cantPath);
-      } else {
+      let resolved: Awaited<ReturnType<typeof resolveAgentCantPath>>;
+      try {
+        resolved = resolveAgentCantPath({ resolvedPath });
+      } catch (resolveErr) {
+        const message = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
         cliOutput(
-          {
-            success: false,
-            error: {
-              code: 'E_VALIDATION',
-              message: `Path must be a .cant, .cantz, or agent directory: ${resolvedPath}`,
-            },
-          },
+          { success: false, error: { code: 'E_VALIDATION', message } },
           { command: 'agent install' },
         );
         process.exitCode = 6;
         return;
       }
+      const { cantPath, tempDir: resolvedTempDir } = resolved;
+      tempDir = resolvedTempDir;
 
-      // Lazy-import the core facade so test mocks can intercept these symbols.
       const { installAgentFromCant, attachAgentToProject } = await import('@cleocode/core/agents');
       const { openCleoDb } = await import('@cleocode/core/store/open-cleo-db');
-
-      // Open via chokepoint — applies pragma SSoT (T9047, T9189)
       const { db: _sdDb } = await openCleoDb('signaldock');
       const db = _sdDb as import('node:sqlite').DatabaseSync;
 
@@ -2183,10 +2013,6 @@ const installCommand = defineCommand({
       const projectRoot = getProjectRoot();
 
       try {
-        // `--resync`: drop+reinstall the registry row but preserve the
-        // on-disk `.cant`. Implementation: delete the existing row BEFORE
-        // calling the pipeline, then let the pipeline handle it as a fresh
-        // insert. The file copy over itself is still atomic.
         if (args.resync) {
           const parsedName = basename(cantPath, '.cant');
           const row = db.prepare('SELECT id FROM agents WHERE agent_id = ?').get(parsedName) as
@@ -2266,14 +2092,7 @@ const installCommand = defineCommand({
       cliOutput({ success: false, error: { code, message } }, { command: 'agent install' });
       process.exitCode = 1;
     } finally {
-      if (tempDir) {
-        try {
-          const { rmSync } = await import('node:fs');
-          rmSync(tempDir, { recursive: true, force: true });
-        } catch {
-          // best-effort cleanup — don't mask the primary error
-        }
-      }
+      cleanupInstallTempDir(tempDir);
     }
   },
 });
@@ -2466,10 +2285,6 @@ const createCommand = defineCommand({
   },
   async run({ args }) {
     try {
-      const { existsSync, mkdirSync, writeFileSync } = await import('node:fs');
-      const { join } = await import('node:path');
-      const { homedir } = await import('node:os');
-
       const name = args.name;
       const role = args.role;
       const tier = args.tier ?? inferTierFromRole(role);
@@ -2479,15 +2294,15 @@ const createCommand = defineCommand({
       const seedBrain = args['seed-brain'] === true;
       const parent = args.parent as string | undefined;
 
-      // Validate role
-      const validRoles = ['orchestrator', 'lead', 'worker', 'docs-worker'];
-      if (!validRoles.includes(role)) {
+      try {
+        validateRole(role);
+      } catch (e) {
         cliOutput(
           {
             success: false,
             error: {
               code: 'E_VALIDATION',
-              message: `Invalid role "${role}". Must be one of: ${validRoles.join(', ')}`,
+              message: String(e instanceof Error ? e.message : e),
               fix: `cleo agent create --name ${name} --role worker`,
             },
           },
@@ -2497,15 +2312,15 @@ const createCommand = defineCommand({
         return;
       }
 
-      // Validate tier
-      const validTiers = ['low', 'mid', 'high'];
-      if (!validTiers.includes(tier)) {
+      try {
+        validateTier(tier);
+      } catch (e) {
         cliOutput(
           {
             success: false,
             error: {
               code: 'E_VALIDATION',
-              message: `Invalid tier "${tier}". Must be one of: ${validTiers.join(', ')}`,
+              message: String(e instanceof Error ? e.message : e),
               fix: `cleo agent create --name ${name} --role ${role} --tier mid`,
             },
           },
@@ -2515,14 +2330,15 @@ const createCommand = defineCommand({
         return;
       }
 
-      // Validate name is kebab-case
-      if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name)) {
+      try {
+        validateName(name);
+      } catch (e) {
         cliOutput(
           {
             success: false,
             error: {
               code: 'E_VALIDATION',
-              message: `Agent name must be kebab-case: "${name}"`,
+              message: String(e instanceof Error ? e.message : e),
               fix: 'Use lowercase letters, numbers, and hyphens. Must start with a letter.',
             },
           },
@@ -2532,26 +2348,28 @@ const createCommand = defineCommand({
         return;
       }
 
-      // Determine target directory
-      let targetRoot: string;
-      if (isGlobal) {
-        const home = homedir();
-        const xdgData = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
-        targetRoot = join(xdgData, 'cleo', 'cant', 'agents');
-      } else {
-        targetRoot = join(getProjectRoot(), CLEO_DIR_NAME, CANT_AGENTS_SUBDIR);
-      }
-
-      const agentDir = join(targetRoot, name);
-
-      // Check if agent directory already exists
-      if (existsSync(agentDir)) {
+      let scaffoldResult: Awaited<ReturnType<typeof scaffoldAgent>>;
+      try {
+        scaffoldResult = scaffoldAgent({
+          name,
+          role,
+          tier,
+          team,
+          domain,
+          parent,
+          global: isGlobal,
+          seedBrain,
+          projectRoot: isGlobal ? undefined : getProjectRoot(),
+          cleoDirName: CLEO_DIR_NAME,
+          cantAgentsSubdir: CANT_AGENTS_SUBDIR,
+        });
+      } catch (e) {
         cliOutput(
           {
             success: false,
             error: {
               code: 'E_VALIDATION',
-              message: `Agent directory already exists: ${agentDir}`,
+              message: String(e instanceof Error ? e.message : e),
               fix: 'Remove the existing directory or choose a different name.',
             },
           },
@@ -2561,50 +2379,8 @@ const createCommand = defineCommand({
         return;
       }
 
-      // Create directory structure
-      mkdirSync(agentDir, { recursive: true });
-
-      // Generate persona.cant from role template
-      const personaContent = generatePersonaCant({
-        name,
-        role,
-        tier,
-        team,
-        domain,
-        parent,
-      });
-      writeFileSync(join(agentDir, 'persona.cant'), personaContent, 'utf-8');
-
-      // Generate manifest.json
-      const manifest = generateManifest({ name, role, tier, domain });
-      writeFileSync(
-        join(agentDir, 'manifest.json'),
-        `${JSON.stringify(manifest, null, 2)}\n`,
-        'utf-8',
-      );
-
-      // Track created files for summary
-      const createdFiles: string[] = [
-        join(agentDir, 'persona.cant'),
-        join(agentDir, 'manifest.json'),
-      ];
-
-      // Generate team config if team specified
-      if (team) {
-        const teamConfigContent = generateTeamConfig(name, role, team);
-        writeFileSync(join(agentDir, 'team-config.cant'), teamConfigContent, 'utf-8');
-        createdFiles.push(join(agentDir, 'team-config.cant'));
-      }
-
-      // Seed brain expertise if requested
+      // Best-effort BRAIN observation via CLI when --seed-brain
       if (seedBrain) {
-        const expertiseDir = join(agentDir, 'expertise');
-        mkdirSync(expertiseDir, { recursive: true });
-        const seedContent = generateMentalModelSeed(name, role, domain);
-        writeFileSync(join(expertiseDir, 'mental-model-seed.md'), seedContent, 'utf-8');
-        createdFiles.push(join(expertiseDir, 'mental-model-seed.md'));
-
-        // Best-effort BRAIN observation via CLI
         try {
           const { execFile } = await import('node:child_process');
           const { promisify } = await import('node:util');
@@ -2636,12 +2412,9 @@ const createCommand = defineCommand({
         const existing = await registry.get(name);
 
         if (!existing) {
-          const descMatch = personaContent.match(/description:\s*"([^"]+)"/);
-          const displayName = descMatch?.[1] ?? name;
-
           await registry.register({
             agentId: name,
-            displayName,
+            displayName: name,
             apiKey: 'local-created',
             apiBaseUrl: 'local',
             classification: role,
@@ -2662,14 +2435,8 @@ const createCommand = defineCommand({
         {
           success: true,
           data: {
-            agent: name,
-            role,
-            tier,
-            directory: agentDir,
-            scope: isGlobal ? 'global' : 'project',
-            files: createdFiles,
+            ...scaffoldResult,
             registered,
-            brainSeeded: seedBrain,
           },
         },
         { command: 'agent create' },
@@ -3014,523 +2781,4 @@ export const agentCommand = defineCommand({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Agent create template helpers
-// ---------------------------------------------------------------------------
-
-/** Agent role type for template generation. */
-type AgentRole = 'orchestrator' | 'lead' | 'worker' | 'docs-worker';
-
-/** Parameters for persona.cant generation. */
-interface PersonaParams {
-  name: string;
-  role: string;
-  tier: string;
-  team?: string;
-  domain?: string;
-  parent?: string;
-}
-
-/** Parameters for manifest.json generation. */
-interface ManifestParams {
-  name: string;
-  role: string;
-  tier: string;
-  domain?: string;
-}
-
-/**
- * Infer the default tier from the agent role.
- *
- * - orchestrator -> high
- * - lead -> mid
- * - worker -> mid
- * - docs-worker -> mid
- *
- * @param role - The agent role string.
- * @returns The inferred tier string.
- */
-function inferTierFromRole(role: string): string {
-  if (role === 'orchestrator') return 'high';
-  return 'mid';
-}
-
-/**
- * Generate a `persona.cant` file from role-based templates.
- *
- * Templates are derived from the canonical starter-bundle agents at
- * `packages/cleo-os/starter-bundle/agents/`. Each role maps to a
- * specific set of tools, permissions, context sources, and behavioral
- * hooks.
- *
- * @param params - Agent persona parameters.
- * @returns The complete persona.cant file content.
- *
- * @see packages/agents/templates/project-orchestrator.cant
- * @see packages/agents/templates/project-dev-lead.cant
- * @see packages/agents/templates/project-code-worker.cant
- * @see packages/agents/templates/project-docs-worker.cant
- */
-function generatePersonaCant(params: PersonaParams): string {
-  const { name, role, tier, team, domain, parent } = params;
-
-  switch (role as AgentRole) {
-    case 'orchestrator':
-      return generateOrchestratorPersona(name, tier, team, parent);
-    case 'lead':
-      return generateLeadPersona(name, tier, team, domain, parent);
-    case 'worker':
-      return generateWorkerPersona(name, tier, team, domain, parent);
-    case 'docs-worker':
-      return generateDocsWorkerPersona(name, tier, team, domain, parent);
-    default:
-      return generateWorkerPersona(name, tier, team, domain, parent);
-  }
-}
-
-/**
- * Generate an orchestrator persona.cant.
- *
- * Orchestrators coordinate work but do not execute code. They hold
- * read-only core tools (Read, Grep, Glob) plus dispatch tools for
- * routing work to leads and workers.
- *
- * @param name - Agent name (kebab-case).
- * @param tier - Agent tier.
- * @param team - Optional team name.
- * @param parent - Optional parent agent.
- * @returns The persona.cant content string.
- */
-function generateOrchestratorPersona(
-  name: string,
-  tier: string,
-  team?: string,
-  parent?: string,
-): string {
-  const parentLine = parent ? `\n  parent: ${parent}` : '';
-  const teamComment = team ? `\n# Team: ${team}` : '';
-
-  return `---
-kind: agent
-version: "1"
----
-
-# ${name} — orchestrator agent.${teamComment}
-# Coordinates the team, classifies work, dispatches to leads/workers.
-
-agent ${name}:
-  role: orchestrator${parentLine}
-  tier: ${tier}
-  description: "Orchestrator agent. Reads task context, classifies work, dispatches to leads, and synthesizes results. Does not execute code — coordinates."
-  consult-when: "Cross-team decisions, scope changes, human-in-the-loop escalation, or when a lead reports a blocking ambiguity"
-
-  context_sources:
-    - source: decisions
-      query: "recent architectural and project decisions"
-      max_entries: 5
-    - source: patterns
-      query: "project conventions and established patterns"
-      max_entries: 3
-  on_overflow: escalate_tier
-
-  mental_model:
-    scope: project
-    max_tokens: 2000
-    on_load:
-      validate: true
-
-  permissions:
-    tasks: read, write
-    session: read, write
-    memory: read, write
-
-  skills:
-    - ct-cleo
-    - ct-task-executor
-
-  tools:
-    core: [Read, Grep, Glob]
-    dispatch: [dispatch_worker, report_to_user]
-
-  on SessionStart:
-    session "Read active tasks and recent decisions to build situational awareness"
-      context: [active-tasks, memory-bridge, recent-decisions]
-
-  on TaskCompleted:
-    if **the completed task unblocks downstream work**:
-      session "Reassess task queue and dispatch next work"
-`;
-}
-
-/**
- * Generate a lead persona.cant.
- *
- * Leads decide HOW to build and dispatch work to workers. They hold
- * read-only tools per TEAM-002 / ULTRAPLAN 10.3 — no Edit, Write, or
- * Bash access.
- *
- * @param name - Agent name (kebab-case).
- * @param tier - Agent tier.
- * @param team - Optional team name.
- * @param domain - Optional domain description.
- * @param parent - Optional parent agent.
- * @returns The persona.cant content string.
- */
-function generateLeadPersona(
-  name: string,
-  tier: string,
-  team?: string,
-  domain?: string,
-  parent?: string,
-): string {
-  const parentLine = parent ? `\n  parent: ${parent}` : '\n  parent: project-orchestrator';
-  const teamComment = team ? `\n# Team: ${team}` : '';
-  const domainDesc = domain ? ` Specializes in ${domain}.` : '';
-
-  return `---
-kind: agent
-version: "1"
----
-
-# ${name} — lead agent.${teamComment}
-# Decomposes tasks, reviews worker output, decides technical approach.
-# MUST NOT hold Edit/Write/Bash tools (TEAM-002 / ULTRAPLAN 10.3).
-
-agent ${name}:
-  role: lead${parentLine}
-  tier: ${tier}
-  description: "Development lead.${domainDesc} Decomposes tasks into concrete implementation steps, reviews worker output, and decides technical approach. Does not write code directly."
-  consult-when: "Implementation strategy, code architecture, refactoring direction, task decomposition, or when workers need clarification"
-
-  context_sources:
-    - source: patterns
-      query: "codebase conventions and architecture patterns"
-      max_entries: 5
-    - source: decisions
-      query: "technical decisions affecting implementation"
-      max_entries: 3
-  on_overflow: escalate_tier
-
-  mental_model:
-    scope: project
-    max_tokens: 1000
-    on_load:
-      validate: true
-
-  permissions:
-    files:
-      read: ["**/*"]
-
-  skills:
-    - ct-cleo
-    - ct-dev-workflow
-    - ct-task-executor
-
-  tools:
-    core: [Read, Grep, Glob]
-    dispatch: [dispatch_worker, report_to_orchestrator]
-
-  on SessionStart:
-    session "Review current task assignments and worker availability"
-      context: [active-tasks, memory-bridge]
-
-  on TaskCompleted:
-    if **the completed task introduced new code**:
-      session "Review worker output for quality and completeness before reporting to orchestrator"
-`;
-}
-
-/**
- * Generate a worker persona.cant.
- *
- * Workers execute code changes within declared file globs. They hold
- * the full tool set (Read, Edit, Write, Bash, Glob, Grep) and operate
- * within file permission boundaries derived from the `--domain` flag.
- *
- * @param name - Agent name (kebab-case).
- * @param tier - Agent tier.
- * @param team - Optional team name.
- * @param domain - Optional domain description for file permissions.
- * @param parent - Optional parent agent.
- * @returns The persona.cant content string.
- */
-function generateWorkerPersona(
-  name: string,
-  tier: string,
-  team?: string,
-  domain?: string,
-  parent?: string,
-): string {
-  const parentLine = parent ? `\n  parent: ${parent}` : '\n  parent: dev-lead';
-  const teamComment = team ? `\n# Team: ${team}` : '';
-  const domainDesc = domain ? ` Specializes in ${domain}.` : '';
-  const writeGlobs = deriveWriteGlobs(domain);
-
-  return `---
-kind: agent
-version: "1"
----
-
-# ${name} — worker agent.${teamComment}
-# Executes code changes within declared file globs.
-
-agent ${name}:
-  role: worker${parentLine}
-  tier: ${tier}
-  description: "Code worker.${domainDesc} Reads requirements, writes code, runs tests, and validates changes. Operates within declared file permission globs."
-  consult-when: "Writing code, fixing bugs, running tests, formatting, or any file modification task"
-
-  context_sources:
-    - source: patterns
-      query: "coding conventions and testing patterns"
-      max_entries: 5
-    - source: learnings
-      query: "past implementation mistakes and fixes"
-      max_entries: 3
-  on_overflow: escalate_tier
-
-  mental_model:
-    scope: project
-    max_tokens: 1000
-    on_load:
-      validate: true
-
-  permissions:
-    files:
-      write: ${JSON.stringify(writeGlobs)}
-      read: ["**/*"]
-      delete: ${JSON.stringify(writeGlobs)}
-
-  skills:
-    - ct-cleo
-    - ct-dev-workflow
-    - ct-task-executor
-
-  tools:
-    core: [Read, Edit, Write, Bash, Glob, Grep]
-
-  on SessionStart:
-    session "Check assigned task and read relevant source files before starting work"
-      context: [active-tasks, memory-bridge]
-
-  on PostToolUse:
-    if tool.name == "Write" or tool.name == "Edit":
-      session "Verify the change compiles and passes lint before proceeding"
-`;
-}
-
-/**
- * Generate a docs-worker persona.cant.
- *
- * Documentation workers write and maintain documentation within declared
- * documentation file globs. They carry documentation-specific skills and
- * context sources.
- *
- * @param name - Agent name (kebab-case).
- * @param tier - Agent tier.
- * @param team - Optional team name.
- * @param domain - Optional domain description.
- * @param parent - Optional parent agent.
- * @returns The persona.cant content string.
- */
-function generateDocsWorkerPersona(
-  name: string,
-  tier: string,
-  team?: string,
-  domain?: string,
-  parent?: string,
-): string {
-  const parentLine = parent ? `\n  parent: ${parent}` : '\n  parent: dev-lead';
-  const teamComment = team ? `\n# Team: ${team}` : '';
-  const domainDesc = domain ? ` Specializes in ${domain} documentation.` : '';
-
-  return `---
-kind: agent
-version: "1"
----
-
-# ${name} — documentation worker agent.${teamComment}
-# Writes and maintains documentation within declared globs.
-
-agent ${name}:
-  role: worker${parentLine}
-  tier: ${tier}
-  description: "Documentation worker.${domainDesc} Writes READMEs, updates guides, adds TSDoc comments, and maintains project documentation. Operates within declared documentation file globs."
-  consult-when: "Writing documentation, updating READMEs, adding TSDoc comments, or improving existing docs"
-
-  context_sources:
-    - source: patterns
-      query: "documentation conventions and style patterns"
-      max_entries: 3
-    - source: decisions
-      query: "architectural decisions needing documentation"
-      max_entries: 3
-  on_overflow: escalate_tier
-
-  mental_model:
-    scope: project
-    max_tokens: 1000
-    on_load:
-      validate: true
-
-  permissions:
-    files:
-      write: ["docs/**", "**/*.md", "**/*.mdx"]
-      read: ["**/*"]
-      delete: ["docs/**"]
-
-  skills:
-    - ct-cleo
-    - ct-documentor
-    - ct-docs-write
-
-  tools:
-    core: [Read, Edit, Write, Bash, Glob, Grep]
-
-  on SessionStart:
-    session "Check assigned documentation task and review existing docs for context"
-      context: [active-tasks, memory-bridge]
-
-  on PostToolUse:
-    if tool.name == "Write" or tool.name == "Edit":
-      session "Verify markdown renders correctly and follows project style conventions"
-`;
-}
-
-/**
- * Derive file write globs from a domain description string.
- *
- * Maps common domain keywords to appropriate file glob patterns.
- * Falls back to the default `["src/**", "packages/**"]` when no
- * domain is specified or no keywords match.
- *
- * @param domain - Optional domain description string.
- * @returns Array of glob pattern strings for file write permissions.
- */
-function deriveWriteGlobs(domain?: string): string[] {
-  const defaults = ['src/**', 'packages/**', 'lib/**', 'test/**', 'tests/**'];
-  if (!domain) return defaults;
-
-  const lower = domain.toLowerCase();
-
-  // Domain-specific glob mappings
-  if (lower.includes('frontend') || lower.includes('ui') || lower.includes('component')) {
-    return ['src/**', 'packages/**', 'components/**', 'styles/**', 'public/**', 'test/**'];
-  }
-  if (lower.includes('backend') || lower.includes('api') || lower.includes('server')) {
-    return ['src/**', 'packages/**', 'lib/**', 'api/**', 'test/**', 'tests/**'];
-  }
-  if (lower.includes('infra') || lower.includes('deploy') || lower.includes('ci')) {
-    return ['.github/**', 'infra/**', 'deploy/**', 'scripts/**', 'Dockerfile*'];
-  }
-  if (lower.includes('test') || lower.includes('qa') || lower.includes('quality')) {
-    return ['test/**', 'tests/**', 'src/**/*.test.*', 'src/**/*.spec.*', 'packages/**/*.test.*'];
-  }
-  if (lower.includes('rust') || lower.includes('crate')) {
-    return ['crates/**', 'src/**', 'Cargo.toml', 'test/**'];
-  }
-  if (lower.includes('doc')) {
-    return ['docs/**', '**/*.md', '**/*.mdx'];
-  }
-
-  return defaults;
-}
-
-/**
- * Generate a `manifest.json` object for the agent package.
- *
- * Conforms to the CANTZ-PACKAGE-STANDARD.md Section 2.3 schema.
- *
- * @param params - Manifest generation parameters.
- * @returns A plain object ready for JSON serialization.
- */
-function generateManifest(params: ManifestParams): Record<string, unknown> {
-  return {
-    name: params.name,
-    version: '1.0.0',
-    description: `${capitalizeFirst(params.role)} agent${params.domain ? ` for ${params.domain}` : ''}`,
-    cant: {
-      minVersion: '1',
-      tier: params.tier,
-      role: params.role === 'docs-worker' ? 'worker' : params.role,
-    },
-    createdAt: new Date().toISOString(),
-  };
-}
-
-/**
- * Generate a team configuration CANT file fragment.
- *
- * Creates a minimal team-config.cant that declares the agent's
- * membership in a named team.
- *
- * @param name - Agent name.
- * @param role - Agent role.
- * @param team - Team name.
- * @returns The team-config.cant content string.
- */
-function generateTeamConfig(name: string, role: string, team: string): string {
-  return `---
-kind: team-config
-version: "1"
----
-
-# Team membership for ${name}
-
-team ${team}:
-  member ${name}:
-    role: ${role}
-    status: active
-`;
-}
-
-/**
- * Generate a mental model seed markdown file.
- *
- * Creates an initial expertise document with placeholder sections
- * for the agent to populate as it learns about the project domain.
- *
- * @param name - Agent name.
- * @param role - Agent role.
- * @param domain - Optional domain description.
- * @returns The mental-model-seed.md content string.
- */
-function generateMentalModelSeed(name: string, role: string, domain?: string): string {
-  const domainSection = domain
-    ? `## Domain\n\n${domain}\n`
-    : `## Domain\n\nTODO: Describe the domain this agent specializes in.\n`;
-
-  return `# Mental Model Seed: ${name}
-
-> Auto-generated at ${new Date().toISOString()}
-> Role: ${role}
-
-${domainSection}
-## Key Patterns
-
-TODO: Document recurring patterns this agent should recognize.
-
-## Known Pitfalls
-
-TODO: Document common mistakes or anti-patterns in this domain.
-
-## Decision History
-
-TODO: Track important decisions and their rationale.
-
-## Learning Log
-
-TODO: Record discoveries and insights as the agent operates.
-`;
-}
-
-/**
- * Capitalize the first letter of a string.
- *
- * @param str - Input string.
- * @returns String with the first character uppercased.
- */
-function capitalizeFirst(str: string): string {
-  if (str.length === 0) return str;
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
+// Template helpers have moved to packages/core/src/agents/scaffold.ts (T10062 T9833c)
