@@ -17,7 +17,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HookMatrixResult } from '@cleocode/core';
-import { getProjectRoot } from '@cleocode/core';
+import { getProjectRoot, pushWarning } from '@cleocode/core';
 import {
   quarantineRogueCleoDir,
   scanRogueCleoDirs,
@@ -611,21 +611,31 @@ export const doctorCommand = defineCommand({
         const legacyOrphans = legacyScanResult.orphans;
         const totalAnomalies = comprehensive.count;
 
-        // Emit soft-warn message to stderr if triggered.
+        // Queue soft-warn through pushWarning so it lands in envelope.meta.warnings (T9763/T9772).
         if (legacyScanResult.softWarnMessage) {
-          process.stderr.write(`[cleo doctor] ${legacyScanResult.softWarnMessage}\n`);
+          pushWarning({
+            code: 'W_DOCTOR_SCAN_SOFT_WARN',
+            message: legacyScanResult.softWarnMessage,
+            severity: 'warning',
+          });
         }
 
-        // Emit partial-result warning to stderr if the scan was aborted.
+        // Queue partial-result warning if the scan was aborted.
         if (legacyScanResult.isPartial) {
           const reason =
             legacyScanResult.partialReason === 'timeout'
               ? `timed out after ${timeoutSecs}s (use --timeout <seconds> to adjust)`
               : `per-level entry cap of ${maxEntriesPerLevel} exceeded (use --max-entries-per-level <n> to adjust)`;
-          process.stderr.write(
-            `[cleo doctor] WARNING: legacy orphan scan is PARTIAL — ${reason}. ` +
-              `Results may be incomplete.\n`,
-          );
+          pushWarning({
+            code: 'W_DOCTOR_SCAN_PARTIAL',
+            message: `legacy orphan scan is PARTIAL — ${reason}. Results may be incomplete.`,
+            severity: 'warning',
+            meta: {
+              partialReason: legacyScanResult.partialReason,
+              timeoutSecs,
+              maxEntriesPerLevel,
+            },
+          });
         }
 
         progress.complete(
@@ -677,19 +687,29 @@ export const doctorCommand = defineCommand({
           maxEntriesPerLevel: Number.isFinite(maxEntriesPerLevel) ? maxEntriesPerLevel : 500,
         });
 
-        // Emit partial-result warning to stderr if the scan was aborted.
+        // Queue partial-result warning through pushWarning if the scan was aborted.
         if (scanResult.softWarnMessage) {
-          process.stderr.write(`[cleo doctor] ${scanResult.softWarnMessage}\n`);
+          pushWarning({
+            code: 'W_DOCTOR_SCAN_SOFT_WARN',
+            message: scanResult.softWarnMessage,
+            severity: 'warning',
+          });
         }
         if (scanResult.isPartial) {
           const reason =
             scanResult.partialReason === 'timeout'
               ? `timed out after ${timeoutSecs}s (use --timeout <seconds> to adjust)`
               : `per-level entry cap of ${maxEntriesPerLevel} exceeded (use --max-entries-per-level <n> to adjust)`;
-          process.stderr.write(
-            `[cleo doctor] WARNING: orphan scan is PARTIAL — ${reason}. ` +
-              `Only orphans found before abort will be pruned.\n`,
-          );
+          pushWarning({
+            code: 'W_DOCTOR_SCAN_PARTIAL',
+            message: `orphan scan is PARTIAL — ${reason}. Only orphans found before abort will be pruned.`,
+            severity: 'warning',
+            meta: {
+              partialReason: scanResult.partialReason,
+              timeoutSecs,
+              maxEntriesPerLevel,
+            },
+          });
         }
 
         const orphans = scanResult.orphans;
