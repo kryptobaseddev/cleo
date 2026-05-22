@@ -25,7 +25,6 @@ export {
   getWorktreeIncludeContent,
   WORKTREE_INCLUDE_FALLBACK,
 } from './ensure-config.js';
-
 // ensure-dirs.ts
 export {
   ensureBrainDb,
@@ -56,6 +55,11 @@ export {
   removeCleoFromRootGitignore,
   stripCLEOBlocks,
 } from './init.js';
+// migrate-worktree-include.ts (T9983)
+export {
+  type MigrateWorktreeIncludeResult,
+  migrateWorktreeIncludeFile,
+} from './migrate-worktree-include.js';
 
 // project-detection.ts
 export {

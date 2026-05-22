@@ -154,23 +154,33 @@ describe('characterization: ensureWorktreeInclude', () => {
     else delete process.env['CLEO_DIR'];
   });
 
-  it('creates worktree-include when missing with action=created', async () => {
+  it('creates .worktreeinclude at the project root when missing (T9983)', async () => {
     const result = await ensureWorktreeInclude(tmpDir);
     expect(result.action).toBe('created');
-    expect(existsSync(join(tmpDir, '.cleo', 'worktree-include'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.worktreeinclude'))).toBe(true);
   });
 
-  it('returns action=skipped when content matches template', async () => {
+  it('returns action=skipped when canonical content matches template', async () => {
     const template = getWorktreeIncludeContent();
-    writeFileSync(join(tmpDir, '.cleo', 'worktree-include'), template);
+    writeFileSync(join(tmpDir, '.worktreeinclude'), template);
     const result = await ensureWorktreeInclude(tmpDir);
     expect(result.action).toBe('skipped');
   });
 
-  it('returns action=repaired when content has drifted', async () => {
-    writeFileSync(join(tmpDir, '.cleo', 'worktree-include'), 'old content');
+  it('returns action=repaired when canonical content has drifted', async () => {
+    writeFileSync(join(tmpDir, '.worktreeinclude'), 'old content');
     const result = await ensureWorktreeInclude(tmpDir);
     expect(result.action).toBe('repaired');
+  });
+
+  it('returns action=skipped when only the legacy .cleo/worktree-include exists (T9983 — no in-place overwrite)', async () => {
+    writeFileSync(join(tmpDir, '.cleo', 'worktree-include'), 'legacy content');
+    const result = await ensureWorktreeInclude(tmpDir);
+    expect(result.action).toBe('skipped');
+    // Canonical file MUST NOT be auto-created here — migration is explicit.
+    expect(existsSync(join(tmpDir, '.worktreeinclude'))).toBe(false);
+    // Legacy file MUST be preserved verbatim.
+    expect(existsSync(join(tmpDir, '.cleo', 'worktree-include'))).toBe(true);
   });
 });
 

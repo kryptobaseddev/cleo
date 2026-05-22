@@ -850,15 +850,18 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     }
   }
 
-  // Create .cleo/worktree-include (after gitignore so it is also tracked)
+  // Create canonical .worktreeinclude at the project root (T9983).
+  // The legacy .cleo/worktree-include is read for one deprecation cycle by
+  // `@cleocode/worktree` and migrated explicitly via
+  // `cleo doctor --migrate-worktree-include`.
   try {
     const worktreeIncludeResult = await ensureWorktreeInclude(projRoot);
     if (worktreeIncludeResult.action !== 'skipped') {
-      created.push('worktree-include');
+      created.push('.worktreeinclude');
     }
   } catch (err) {
     warnings.push(
-      `Worktree-include creation failed: ${err instanceof Error ? err.message : String(err)}`,
+      `.worktreeinclude creation failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

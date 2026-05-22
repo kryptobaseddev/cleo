@@ -57,7 +57,7 @@ export type { ScaffoldProjectOptions, ScaffoldProjectResult, ScaffoldProjectStep
  * 3. `sqlite-db`           — `.cleo/tasks.db`
  * 4. `brain-db`            — `.cleo/brain.db`
  * 5. `gitignore`           — `.cleo/.gitignore`
- * 6. `worktree-include`    — `.cleo/worktree-include`
+ * 6. `worktreeinclude`     — `.worktreeinclude` (T9983 canonical; legacy `.cleo/worktree-include` is migrated via `cleo doctor --migrate-worktree-include`)
  * 7. `cleo-git-repo`       — `.cleo/.git` (isolated checkpoint)
  * 8. `initial-commit`      — empty initial commit when HEAD is unborn
  * 9. `project-info`        — `.cleo/project-info.json`
@@ -97,7 +97,7 @@ export async function scaffoldProject(
   await run('sqlite-db', () => ensureSqliteDb(projectRoot));
   await run('brain-db', () => ensureBrainDb(projectRoot));
   await run('gitignore', () => ensureGitignore(projectRoot));
-  await run('worktree-include', () => ensureWorktreeInclude(projectRoot));
+  await run('worktreeinclude', () => ensureWorktreeInclude(projectRoot));
   await run('cleo-git-repo', () => ensureCleoGitRepo(projectRoot));
   await run('initial-commit', () => ensureProjectGitInitialCommit(projectRoot));
   await run('project-info', () => ensureProjectInfo(projectRoot, { force }));

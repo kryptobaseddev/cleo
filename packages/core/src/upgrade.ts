@@ -731,14 +731,16 @@ export async function runUpgrade(
       /* best-effort */
     }
 
-    // Ensure .cleo/worktree-include exists and matches template
+    // Ensure canonical `.worktreeinclude` at project root (T9983).
+    // Legacy `.cleo/worktree-include` is preserved if present — `cleo doctor
+    // --migrate-worktree-include` is the explicit migration verb.
     try {
       const worktreeResult = await ensureWorktreeInclude(projectRootForMaint);
       if (worktreeResult.action !== 'skipped') {
         actions.push({
-          action: 'worktree_include',
+          action: 'worktreeinclude',
           status: 'applied',
-          details: worktreeResult.details ?? 'Created or updated worktree-include',
+          details: worktreeResult.details ?? 'Created or updated .worktreeinclude',
         });
       }
     } catch {

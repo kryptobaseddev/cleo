@@ -370,6 +370,8 @@ export {
   fileExists,
   getCleoVersion,
   getPackageRoot,
+  type MigrateWorktreeIncludeResult,
+  migrateWorktreeIncludeFile,
 } from './scaffold.js';
 
 // ---------------------------------------------------------------------------

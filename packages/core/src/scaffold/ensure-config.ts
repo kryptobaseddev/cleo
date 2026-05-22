@@ -70,18 +70,20 @@ session-journals/
 `;
 
 /**
- * Embedded fallback for .cleo/worktree-include content.
+ * Embedded fallback for `.worktreeinclude` (canonical) content.
+ *
+ * The canonical location (T9983) is `<projectRoot>/.worktreeinclude` —
+ * matches Claude Code Desktop + worktrunk-core. The legacy location
+ * `<projectRoot>/.cleo/worktree-include` is still read for one deprecation
+ * cycle; `cleo doctor --migrate-worktree-include` auto-migrates.
+ *
+ * @task T9983
  */
-export const WORKTREE_INCLUDE_FALLBACK = `# .cleo/worktree-include — Files to propagate into git worktrees
-# When \`cleo orchestrate spawn\` creates an isolated git worktree, this file
-# lists additional paths that should be copied from the main worktree into
-# the new one.
+export const WORKTREE_INCLUDE_FALLBACK = `# .worktreeinclude — files to copy into agent worktrees on provisioning.
 #
-# FORMAT: One path pattern per line (same syntax as .gitignore).
-#   - Comments start with #
-#   - Blank lines are ignored
-#   - Patterns are relative to the project root
-
+# Syntax: gitignore-style globs (parsed by ignore::gitignore via
+# @cleocode/worktree-napi). Lines starting with \`!\` are negations.
+#
 # Local environment overrides (gitignored but required for dev)
 .env.local
 .env.development.local
@@ -124,17 +126,30 @@ export function getGitignoreContent(): string {
 }
 
 /**
- * Load the worktree-include template from the package's templates/ directory.
- * Falls back to embedded content if file not found.
+ * Load the `.worktreeinclude` template from the package's templates/
+ * directory.
  *
- * @returns The .cleo/worktree-include template content string
+ * Resolution order (T9983):
+ *  1. `templates/worktreeinclude` — canonical (matches the file name we
+ *     write at the project root).
+ *  2. `templates/worktree-include` — legacy template kept for one
+ *     deprecation cycle so partially-updated installations keep working.
+ *  3. {@link WORKTREE_INCLUDE_FALLBACK} embedded constant.
+ *
+ * @returns The `.worktreeinclude` template content string
+ *
+ * @task T9983
  */
 export function getWorktreeIncludeContent(): string {
   try {
     const packageRoot = getPackageRoot();
-    const templatePath = join(packageRoot, 'templates', 'worktree-include');
-    if (existsSync(templatePath)) {
-      return readFileSync(templatePath, 'utf-8');
+    const canonicalTemplatePath = join(packageRoot, 'templates', 'worktreeinclude');
+    if (existsSync(canonicalTemplatePath)) {
+      return readFileSync(canonicalTemplatePath, 'utf-8');
+    }
+    const legacyTemplatePath = join(packageRoot, 'templates', 'worktree-include');
+    if (existsSync(legacyTemplatePath)) {
+      return readFileSync(legacyTemplatePath, 'utf-8');
     }
   } catch {
     // fallback
@@ -230,29 +245,53 @@ export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResu
 }
 
 /**
- * Create or repair .cleo/worktree-include from template.
- * Idempotent: skips if file already exists with correct content.
+ * Create or repair `.worktreeinclude` (canonical, at project root) from the
+ * shipped template. Idempotent — skips when the existing file already
+ * matches the template byte-for-byte (after CR-LF + trim normalisation).
+ *
+ * Resolution rules (T9983):
+ * - If `<projectRoot>/.worktreeinclude` already exists → keep + compare to
+ *   the template; repair if drifted.
+ * - Else if legacy `<projectRoot>/.cleo/worktree-include` exists → SKIP
+ *   (do not overwrite the legacy file in place; `cleo doctor
+ *   --migrate-worktree-include` is the explicit migration path).
+ * - Else → write the canonical template.
  *
  * @param projectRoot - Absolute path to the project root directory
- * @returns Scaffold result indicating whether the worktree-include was created, repaired, or skipped
+ * @returns Scaffold result indicating whether `.worktreeinclude` was
+ *          created, repaired, or skipped.
+ *
+ * @task T9983
  */
 export async function ensureWorktreeInclude(projectRoot: string): Promise<ScaffoldResult> {
-  const cleoDir = getCleoDirAbsolute(projectRoot);
-  const worktreeIncludePath = join(cleoDir, 'worktree-include');
+  const canonicalPath = join(projectRoot, '.worktreeinclude');
+  const legacyPath = join(getCleoDirAbsolute(projectRoot), 'worktree-include');
   const templateContent = getWorktreeIncludeContent();
 
-  if (existsSync(worktreeIncludePath)) {
-    const existing = readFileSync(worktreeIncludePath, 'utf-8');
+  if (existsSync(canonicalPath)) {
+    const existing = readFileSync(canonicalPath, 'utf-8');
     const normalize = (s: string) => s.trim().replace(/\r\n/g, '\n');
     if (normalize(existing) === normalize(templateContent)) {
-      return { action: 'skipped', path: worktreeIncludePath, details: 'Already matches template' };
+      return { action: 'skipped', path: canonicalPath, details: 'Already matches template' };
     }
-    await writeFile(worktreeIncludePath, templateContent);
-    return { action: 'repaired', path: worktreeIncludePath, details: 'Updated to match template' };
+    await writeFile(canonicalPath, templateContent);
+    return { action: 'repaired', path: canonicalPath, details: 'Updated to match template' };
   }
 
-  await writeFile(worktreeIncludePath, templateContent);
-  return { action: 'created', path: worktreeIncludePath };
+  // T9983: when only the legacy file exists, leave it in place. The reader
+  // honours it under a one-cycle deprecation warning. Users opt-in to the
+  // migration via `cleo doctor --migrate-worktree-include`.
+  if (existsSync(legacyPath)) {
+    return {
+      action: 'skipped',
+      path: legacyPath,
+      details:
+        'Legacy .cleo/worktree-include present — run `cleo doctor --migrate-worktree-include` to move to .worktreeinclude',
+    };
+  }
+
+  await writeFile(canonicalPath, templateContent);
+  return { action: 'created', path: canonicalPath };
 }
 
 /**
