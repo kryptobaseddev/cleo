@@ -14,6 +14,8 @@
  * @epic T1566
  */
 
+// BrainTools (Category B) — pure-functional BRAIN retrieval SDK tools (T10070 / T9835)
+export * from './brain-tools/index.js';
 export type { DoctorProjectOptions, DoctorProjectResult } from './doctor-project.js';
 // ProjectTools SDK Tools (Category B) — scaffold + doctor primitives (T10069 / T9835b)
 export { doctorProject } from './doctor-project.js';
