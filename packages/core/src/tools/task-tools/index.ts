@@ -18,6 +18,7 @@
 
 export { buildTaskTree } from './build-task-tree.js';
 export { computeCriticalPath } from './compute-critical-path.js';
+export { describeSchema, describeSchemaRegistered } from './describe-schema.js';
 export { renderTaskTreeMermaid, renderTaskTreeText } from './render-task-tree.js';
 export { scoreTask } from './score-task-priority.js';
 export type { JsonSchema, RegisteredSdkTool, SdkToolSpec } from './sdk-tool.js';
