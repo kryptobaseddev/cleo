@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.5.98] (2026-05-22)
+
+### Fixes
+
+- Route getDb() through worktree-isolation guard (defense-in-depth for ~61 direct core callers) (T9961)
+- Add width-budget + timeout to doctor worktree-orphan audit to prevent 60s+ hang on large corpora (T9962)
+
 ## [2026.5.97] (2026-05-22)
 
 ### BREAKING CHANGES
