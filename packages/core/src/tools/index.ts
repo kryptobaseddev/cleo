@@ -14,6 +14,9 @@
  * @epic T1566
  */
 
+export type { DoctorProjectOptions, DoctorProjectResult } from './doctor-project.js';
+// ProjectTools SDK Tools (Category B) — scaffold + doctor primitives (T10069 / T9835b)
+export { doctorProject } from './doctor-project.js';
 // Engine operations — tools domain (ENG-MIG-8 / T1575)
 export {
   toolsAdapterActivate,
@@ -46,5 +49,13 @@ export {
   toolsSkillUninstall,
   toolsSkillVerify,
 } from './engine-ops.js';
+export type { ScaffoldGlobalResult } from './scaffold-global.js';
+export { scaffoldGlobal } from './scaffold-global.js';
+export type {
+  ScaffoldProjectOptions,
+  ScaffoldProjectResult,
+  ScaffoldProjectStep,
+} from './scaffold-project.js';
+export { scaffoldProject } from './scaffold-project.js';
 // SDK Tools (Category B) — harness-agnostic infrastructure (T1768 / ADR-064)
 export * from './sdk/index.js';

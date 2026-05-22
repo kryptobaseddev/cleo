@@ -1330,6 +1330,15 @@ export type {
   ProjectType,
   TestFramework,
 } from './project-context.js';
+// === ProjectTools Contracts (scaffold-project, doctor-project, scaffold-global — T10069 / T9835b) ===
+export type {
+  DoctorProjectOptions,
+  DoctorProjectResult,
+  ScaffoldGlobalResult,
+  ScaffoldProjectOptions,
+  ScaffoldProjectResult,
+  ScaffoldProjectStep,
+} from './project-tools.js';
 // === Provenance Graph Unions (T9955 — promoted from core/store/tasks-schema.ts) ===
 // Note: ReleaseChannel/ReleaseKind/ReleaseScheme/ReleaseStatus collide with the
 // existing `./release/channel.js` + `./release/plan.js` + `./task.js` exports
