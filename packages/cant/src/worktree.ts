@@ -1,19 +1,35 @@
 /**
- * Git worktree manager for multi-agent isolation.
+ * Type-only deprecation shim for the legacy cant worktree API.
  *
- * Implements ULTRAPLAN §14: each spawned agent gets its own git
- * worktree so parallel workers cannot conflict. The orchestrator
- * stays on its current branch.
+ * @remarks
+ * This file was 298 LOC of runtime worktree logic (the "2nd creation site"
+ * flagged by the T9801 audit). Per T9986 / E9-RIP-LEGACY, the runtime has
+ * been removed — all callers now route through `@cleocode/worktree` (the
+ * canonical napi-backed SSoT).
+ *
+ * Two downstream consumers (`@cleocode/caamp`) still import
+ * {@link WorktreeHandle} as a TYPE for their `SpawnOptions.worktree` and
+ * `SubagentSpawnOptions.worktree` fields. To avoid a breaking change to
+ * the spawn-adapter contract in the same release that rips the legacy
+ * runtime, the type definitions are preserved here as a one-cycle
+ * deprecation shim. The runtime functions (`createWorktree`,
+ * `mergeWorktree`, `listWorktrees`, `resolveWorktreeRoot`) had ZERO
+ * production consumers and have been deleted.
+ *
+ * Removal target: the next minor cycle after caamp migrates to
+ * `@cleocode/worktree`'s `CreateWorktreeResult` shape directly.
  *
  * @packageDocumentation
+ * @deprecated Import worktree primitives from `@cleocode/worktree` instead.
+ *   This module retains only type shims for one deprecation cycle.
+ * @task T9986
  */
 
-import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { isAbsolute, join, relative } from 'node:path';
-
-/** Request payload for creating a new git worktree. */
+/**
+ * Request payload for creating a new git worktree.
+ *
+ * @deprecated Use `CreateWorktreeOptions` from `@cleocode/worktree` instead.
+ */
 export interface WorktreeRequest {
   /** The base ref to branch from (e.g. "main", "develop", a SHA). */
   baseRef: string;
@@ -33,7 +49,11 @@ export interface WorktreeRequest {
  * `CLEO_PROJECT_HASH` in spawned subagent environments without threading
  * {@link WorktreeConfig} through every call site.
  *
+ * Still consumed (as a type) by `@cleocode/caamp` for its
+ * `SpawnOptions.worktree` and `SubagentSpawnOptions.worktree` fields.
+ *
  * @task T380
+ * @deprecated Migrate to `CreateWorktreeResult` from `@cleocode/worktree`.
  */
 export interface WorktreeHandle {
   /** Absolute path to the worktree directory. */
@@ -59,7 +79,12 @@ export interface WorktreeHandle {
   cleanup(deleteBranch?: boolean): void;
 }
 
-/** Configuration for worktree path resolution and git operations. */
+/**
+ * Configuration for worktree path resolution and git operations.
+ *
+ * @deprecated `@cleocode/worktree` derives paths from `@cleocode/paths`
+ *   directly; configuration is no longer threaded through call sites.
+ */
 export interface WorktreeConfig {
   /** Root directory for worktrees. Defaults to $XDG_DATA_HOME/cleo/worktrees/<projectHash>/ */
   worktreeRoot?: string;
@@ -69,7 +94,11 @@ export interface WorktreeConfig {
   gitRoot: string;
 }
 
-/** Result of a merge operation. */
+/**
+ * Result of a merge operation.
+ *
+ * @deprecated Use `WorktreeMergeResult` from `@cleocode/contracts` instead.
+ */
 export interface MergeResult {
   /** Whether the merge succeeded. */
   success: boolean;
@@ -77,222 +106,14 @@ export interface MergeResult {
   error?: string;
 }
 
-/** Entry in the list of active worktrees. */
+/**
+ * Entry in the list of active worktrees.
+ *
+ * @deprecated Use `WorktreeListEntry` from `@cleocode/contracts` instead.
+ */
 export interface WorktreeEntry {
   /** Absolute path to the worktree directory. */
   path: string;
   /** Branch checked out in this worktree. */
   branch: string;
-}
-
-/**
- * Resolve the worktree root directory.
- *
- * Uses `$XDG_DATA_HOME/cleo/worktrees/<projectHash>/` per ULTRAPLAN §14.3.
- * Falls back to `~/.local/share/cleo/worktrees/<projectHash>/` when
- * `XDG_DATA_HOME` is not set.
- *
- * @param config - Worktree configuration containing optional override and project hash.
- * @returns Absolute path to the worktree root directory.
- */
-export function resolveWorktreeRoot(config: WorktreeConfig): string {
-  if (config.worktreeRoot) return config.worktreeRoot;
-  const xdgData = process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share');
-  return join(xdgData, 'cleo', 'worktrees', config.projectHash);
-}
-
-/**
- * Create a git worktree for an agent.
- *
- * Runs `git worktree add <path> -b <branch> <baseRef>` from the
- * project's git root. Branch naming convention: `cleo/<taskId>-<shortId>`.
- *
- * If a worktree already exists at the target path (stale from a prior run),
- * it is removed before creating the new one.
- *
- * @param request - The worktree request specifying task, base ref, and optional branch name.
- * @param config - Project-level worktree configuration.
- * @returns A handle for the created worktree with cleanup capability.
- * @throws Error if the git worktree add command fails.
- */
-export function createWorktree(request: WorktreeRequest, config: WorktreeConfig): WorktreeHandle {
-  const root = resolveWorktreeRoot(config);
-  mkdirSync(root, { recursive: true });
-
-  const shortId = Math.random().toString(36).slice(2, 8);
-  const branch = request.branchName ?? `cleo/${request.taskId}-${shortId}`;
-  const worktreePath = join(root, request.taskId);
-
-  // Remove existing worktree at this path if it exists (stale from prior run)
-  if (existsSync(worktreePath)) {
-    try {
-      execSync(`git worktree remove "${worktreePath}" --force`, {
-        cwd: config.gitRoot,
-        stdio: 'pipe',
-      });
-    } catch {
-      // Best-effort cleanup — directory may not be a valid worktree
-      rmSync(worktreePath, { recursive: true, force: true });
-    }
-  }
-
-  // Create the worktree
-  execSync(`git worktree add "${worktreePath}" -b "${branch}" "${request.baseRef}"`, {
-    cwd: config.gitRoot,
-    stdio: 'pipe',
-  });
-
-  return buildHandle(
-    worktreePath,
-    branch,
-    request.baseRef,
-    request.taskId,
-    config.gitRoot,
-    config.projectHash,
-  );
-}
-
-/**
- * Merge a worktree's branch back into the current branch.
- *
- * On success the worktree is cleaned up (directory removed, branch deleted).
- * On failure the worktree is retained for forensic inspection.
- *
- * @param handle - The worktree handle returned from {@link createWorktree}.
- * @param config - Project-level worktree configuration.
- * @param options - Merge strategy options (defaults to fast-forward only).
- * @returns A result object indicating success or failure with an error message.
- */
-export function mergeWorktree(
-  handle: WorktreeHandle,
-  config: WorktreeConfig,
-  options: { strategy?: 'ff-only' | 'no-ff' } = {},
-): MergeResult {
-  const strategy = options.strategy ?? 'ff-only';
-  const mergeFlag = strategy === 'ff-only' ? '--ff-only' : '--no-ff';
-
-  try {
-    execSync(`git merge ${mergeFlag} "${handle.branch}"`, {
-      cwd: config.gitRoot,
-      stdio: 'pipe',
-    });
-    // Success: clean up worktree
-    handle.cleanup(true);
-    return { success: true };
-  } catch (err) {
-    // Failure: retain worktree for forensics
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      success: false,
-      error: `Merge failed: ${message}. Worktree retained at ${handle.path} for forensics.`,
-    };
-  }
-}
-
-/**
- * List active worktrees scoped to the current project.
- *
- * Parses `git worktree list --porcelain` and filters entries whose path
- * falls under the project's worktree root directory.
- *
- * @param config - Project-level worktree configuration.
- * @returns Array of worktree entries with their paths and branch names.
- */
-export function listWorktrees(config: WorktreeConfig): WorktreeEntry[] {
-  try {
-    const output = execSync('git worktree list --porcelain', {
-      cwd: config.gitRoot,
-      encoding: 'utf-8',
-    });
-    const entries: WorktreeEntry[] = [];
-    const root = resolveWorktreeRoot(config);
-    const canonicalRoot = canonicalPath(root);
-    let currentPath = '';
-    let currentBranch = '';
-    for (const line of output.split('\n')) {
-      if (line.startsWith('worktree ')) {
-        currentPath = line.slice('worktree '.length);
-      } else if (line.startsWith('branch ')) {
-        currentBranch = line.slice('branch refs/heads/'.length);
-      } else if (line === '') {
-        const canonicalCurrent = canonicalPath(currentPath);
-        const relativeToRoot = relative(canonicalRoot, canonicalCurrent);
-        if (
-          relativeToRoot.length > 0 &&
-          !relativeToRoot.startsWith('..') &&
-          !isAbsolute(relativeToRoot)
-        ) {
-          entries.push({ path: join(root, relativeToRoot), branch: currentBranch });
-        }
-        currentPath = '';
-        currentBranch = '';
-      }
-    }
-    return entries;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Return a filesystem-canonical path when possible.
- *
- * macOS reports temporary git worktrees via `/private/var/...` even when the
- * test/config path was created under `/var/...`. Canonicalizing both sides for
- * filtering prevents managed worktrees from being dropped, while callers still
- * receive paths rooted at the configured spelling.
- */
-function canonicalPath(path: string): string {
-  try {
-    return realpathSync.native(path);
-  } catch {
-    return path;
-  }
-}
-
-/**
- * Build a WorktreeHandle with a cleanup closure.
- *
- * @remarks
- * The `projectHash` parameter was added in T380/ADR-041 and is stored on the
- * returned handle so spawn adapters can populate `CLEO_PROJECT_HASH` without
- * re-threading {@link WorktreeConfig}.
- *
- * @internal
- */
-function buildHandle(
-  worktreePath: string,
-  branch: string,
-  baseRef: string,
-  taskId: string,
-  gitRoot: string,
-  projectHash: string,
-): WorktreeHandle {
-  return {
-    path: worktreePath,
-    branch,
-    baseRef,
-    taskId,
-    projectHash,
-    cleanup(deleteBranch = false) {
-      try {
-        execSync(`git worktree remove "${worktreePath}" --force`, {
-          cwd: gitRoot,
-          stdio: 'pipe',
-        });
-      } catch {
-        rmSync(worktreePath, { recursive: true, force: true });
-      }
-      if (deleteBranch) {
-        try {
-          execSync(`git branch -D "${branch}"`, {
-            cwd: gitRoot,
-            stdio: 'pipe',
-          });
-        } catch {
-          // Branch may already be deleted
-        }
-      }
-    },
-  };
 }

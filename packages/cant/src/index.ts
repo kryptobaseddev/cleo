@@ -126,17 +126,15 @@ export type {
   DirectiveType,
 } from './types';
 export { isCantAgentV3 } from './types';
+// Worktree type shims (T9986 — runtime moved to @cleocode/worktree).
+// Only the `WorktreeHandle` type is still consumed (by @cleocode/caamp's
+// spawn-adapter and subagent SpawnOptions). Runtime functions
+// (createWorktree, mergeWorktree, listWorktrees, resolveWorktreeRoot)
+// had zero production consumers and have been deleted.
 export type {
   MergeResult,
   WorktreeConfig,
   WorktreeEntry,
   WorktreeHandle,
   WorktreeRequest,
-} from './worktree.js';
-// Worktree isolation (ULTRAPLAN Wave 9)
-export {
-  createWorktree,
-  listWorktrees,
-  mergeWorktree,
-  resolveWorktreeRoot,
 } from './worktree.js';
