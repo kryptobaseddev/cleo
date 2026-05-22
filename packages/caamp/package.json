@@ -70,7 +70,7 @@
     "js-yaml": "^4.1.0",
     "jsonc-parser": "^3.3.1",
     "picocolors": "^1.1.1",
-    "simple-git": "2026.5.101"
+    "simple-git": "3.33.0"
   },
   "peerDependencies": {
     "@cleocode/core": "workspace:*"
@@ -81,15 +81,15 @@
     }
   },
   "devDependencies": {
-    "@biomejs/biome": "2026.5.101",
-    "@forge-ts/cli": "2026.5.101",
+    "@biomejs/biome": "2.4.11",
+    "@forge-ts/cli": "0.23.0",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "2026.5.101",
+    "@types/node": "25.5.0",
     "@vitest/coverage-v8": "^4.1.4",
     "env-paths": "^4.0.0",
     "tsup": "^8.5.0",
     "tsx": "^4.21.0",
-    "typedoc": "2026.5.101",
+    "typedoc": "0.28.17",
     "typescript": "^6.0.2",
     "vitest": "^4.1.4"
   },
