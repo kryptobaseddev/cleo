@@ -2,7 +2,7 @@
 name = "cant-lsp"
 version.workspace = true
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 description = "Language Server Protocol implementation for CANT DSL"
 
 [[bin]]

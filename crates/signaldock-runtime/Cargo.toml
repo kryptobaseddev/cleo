@@ -2,7 +2,7 @@
 name = "signaldock-runtime"
 version.workspace = true
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 description = "Universal agent connector for SignalDock — 2-step install for any agent on any platform"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/CleoAgent/signaldock-runtime"

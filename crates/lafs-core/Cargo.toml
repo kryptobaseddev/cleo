@@ -2,7 +2,7 @@
 name = "lafs-core"
 version.workspace = true
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 description = "Canonical LAFS envelope types and validation for CLEO ecosystem"
 
 [lib]

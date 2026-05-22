@@ -48,7 +48,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 version = "2026.5.99"
-rust-version = "1.88"
+rust-version = "1.94"
 
 [workspace.dependencies]
 # Async runtime
@@ -150,7 +150,7 @@ expect_used = "deny"
 name = "cleocode-workspace"
 version = "2026.5.99"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 
 [lints.rustdoc]
 broken_intra_doc_links = "deny"

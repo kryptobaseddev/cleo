@@ -2,7 +2,7 @@
 name = "cleo-llm-native"
 version.workspace = true
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 description = "napi-rs bindings for CLEO LLM hot-path operations (think-scrubber, rate-limit-guard)"
 
 [lib]

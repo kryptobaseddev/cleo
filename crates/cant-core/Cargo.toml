@@ -2,7 +2,7 @@
 name = "cant-core"
 version.workspace = true
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 description = "Canonical CANT grammar parser for CLEO ecosystem"
 
 [lib]
