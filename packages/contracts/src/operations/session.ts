@@ -321,6 +321,17 @@ export interface SessionBriefingShowParams {
    * @task T9974
    */
   withProfile?: boolean;
+  /**
+   * When true, restore full text fields on peerLearnings and decisions
+   * (the `insight` and `decision` body fields respectively). By default
+   * these are stripped and only `{id, title, createdAt, _next}` is emitted
+   * to reduce token consumption (T9964 Part 1 follow-up).
+   *
+   * Alias: `--memory-detail` on the CLI.
+   *
+   * @task T9964
+   */
+  memoryDetail?: boolean;
 }
 
 /** Compact task entry in a session briefing's next-tasks list. */

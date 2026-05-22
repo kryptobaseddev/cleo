@@ -99,6 +99,21 @@ export interface BriefingDocRef {
   labels?: string[];
   /** ISO 8601 creation timestamp. */
   createdAt: string;
+  /**
+   * Human-readable kebab-case slug for this attachment (when set).
+   * Only entries with a slug are surfaced in the default briefing diet;
+   * entries without a slug are dropped as they cannot be fetched by name.
+   *
+   * @task T9964
+   */
+  slug?: string;
+  /**
+   * Document type classification (e.g. "adr", "spec", "handoff", "research").
+   * Set when the attachment was created with an explicit type annotation.
+   *
+   * @task T9964
+   */
+  type?: string;
 }
 
 /**
@@ -247,17 +262,19 @@ export async function computeBriefing(
     scopeTaskIds,
   });
 
-  // 5. Blocked tasks
+  // 5. Blocked tasks — default diet cap of 3 (T9964)
   const blockedTasks = computeBlockedTasks(tasks, taskMap, {
-    maxBlocked: params.maxBlocked ?? 10,
+    maxBlocked: params.maxBlocked ?? MAX_BLOCKED_TASKS_DIET,
     scopeTaskIds,
+    truncateTitles: true,
   });
 
-  // 6. Active epics — deduped against nextTasks (T9974)
+  // 6. Active epics — deduped against nextTasks (T9974), diet cap of 3 (T9964)
   const nextTaskIdSet = new Set(nextTasks.map((t) => t.id));
   const rawActiveEpics = computeActiveEpics(tasks, taskMap, {
-    maxEpics: params.maxEpics ?? 5,
+    maxEpics: params.maxEpics ?? MAX_ACTIVE_EPICS_DIET,
     scopeTaskIds,
+    truncateTitles: true,
   });
   // Remove epics already surfaced in nextTasks to avoid duplicate signal
   const activeEpics = rawActiveEpics.filter((e) => !nextTaskIdSet.has(e.id));
@@ -266,10 +283,26 @@ export async function computeBriefing(
   const pipelineStage = await computePipelineStage(focus);
 
   // 8. Brain memory context (optional, best-effort)
+  // T9964: truncate title fields to MAX_MEMORY_TITLE_LEN_DIET in default mode.
   let memoryContext: SessionMemoryContext | undefined;
   try {
     const { getSessionMemoryContext } = await import('../memory/session-memory.js');
-    memoryContext = await getSessionMemoryContext(projectRoot, scopeFilter);
+    const rawMemoryContext = await getSessionMemoryContext(projectRoot, scopeFilter);
+    if (!params.memoryDetail) {
+      // Truncate title fields to 80 chars to reduce token count.
+      // BrainCompactHit has a `title` string field — we map over arrays.
+      const truncHits = <T extends { title: string }>(hits: T[]): T[] =>
+        hits.map((h) => ({ ...h, title: truncate(h.title, MAX_MEMORY_TITLE_LEN_DIET) }));
+      memoryContext = {
+        ...rawMemoryContext,
+        recentLearnings: truncHits(rawMemoryContext.recentLearnings),
+        recentObservations: truncHits(rawMemoryContext.recentObservations),
+        relevantPatterns: truncHits(rawMemoryContext.relevantPatterns),
+        recentDecisions: truncHits(rawMemoryContext.recentDecisions),
+      };
+    } else {
+      memoryContext = rawMemoryContext;
+    }
   } catch {
     // Brain memory not available -- proceed without
   }
@@ -315,6 +348,7 @@ export async function computeBriefing(
       bundle = applyBriefingDiet(rawBundle, {
         debug: params.debug ?? false,
         withProfile: params.withProfile ?? false,
+        memoryDetail: params.memoryDetail ?? false,
       });
     }
   } catch {
@@ -340,6 +374,16 @@ export async function computeBriefing(
     // Docs context not available -- proceed without
   }
 
+  // T9964: Strip empty arrays from lastSession.handoff to reduce token noise.
+  // Empty `tasksCompleted`, `tasksCreated`, `nextSuggested`, `openBlockers`,
+  // `openBugs` add JSON weight without actionable content.
+  const cleanedLastSession: LastSessionInfo | null = lastSession
+    ? {
+        ...lastSession,
+        handoff: cleanHandoff(lastSession.handoff),
+      }
+    : null;
+
   // Compute warnings
   const warnings: string[] = [];
   if (currentTaskInfo?.blockedBy?.length) {
@@ -350,7 +394,7 @@ export async function computeBriefing(
 
   // Build partial briefing for contract assertion
   const partialBriefing: SessionBriefing = {
-    lastSession,
+    lastSession: cleanedLastSession,
     currentTask: currentTaskInfo,
     nextTasks,
     openBugs,
@@ -758,7 +802,7 @@ function computeOpenBugs(
 function computeBlockedTasks(
   tasks: unknown[],
   taskMap: Map<string, unknown>,
-  options: { maxBlocked: number; scopeTaskIds?: Set<string> },
+  options: { maxBlocked: number; scopeTaskIds?: Set<string>; truncateTitles?: boolean },
 ): BriefingBlockedTask[] {
   const blocked: BriefingBlockedTask[] = [];
 
@@ -795,7 +839,7 @@ function computeBlockedTasks(
     if (blockedBy.length > 0) {
       blocked.push({
         id: t.id,
-        title: t.title,
+        title: options.truncateTitles ? truncate(t.title, MAX_TITLE_LEN_DIET) : t.title,
         blockedBy,
       });
     }
@@ -836,7 +880,7 @@ function isTestFixtureEpic(id: string, title: string): boolean {
 function computeActiveEpics(
   tasks: unknown[],
   taskMap: Map<string, unknown>,
-  options: { maxEpics: number; scopeTaskIds?: Set<string> },
+  options: { maxEpics: number; scopeTaskIds?: Set<string>; truncateTitles?: boolean },
 ): BriefingEpic[] {
   const epics: BriefingEpic[] = [];
 
@@ -868,7 +912,7 @@ function computeActiveEpics(
     const completionPercent = calculateEpicCompletion(t.id, taskMap);
     epics.push({
       id: t.id,
-      title: t.title,
+      title: options.truncateTitles ? truncate(t.title, MAX_TITLE_LEN_DIET) : t.title,
       completionPercent,
     });
   }
@@ -929,7 +973,7 @@ async function computePipelineStage(
 }
 
 // ---------------------------------------------------------------------------
-// T9974: Briefing diet helpers — noise suppression for default mode
+// T9974 / T9964: Briefing diet helpers — noise suppression for default mode
 // ---------------------------------------------------------------------------
 
 /** Maximum relatedDocs entries in the default (diet) briefing output. */
@@ -937,15 +981,76 @@ const MAX_RELATED_DOCS_DIET = 5;
 /** Recency window (ms) for relatedDocs in diet mode — 7 days. */
 const RELATED_DOCS_RECENCY_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** Maximum peerLearnings entries in the default (diet) briefing output. */
+const MAX_PEER_LEARNINGS_DIET = 3;
+/** Maximum decisions entries in the default (diet) briefing output. */
+const MAX_DECISIONS_DIET = 3;
+/** Maximum blockedTasks entries in the default (diet) briefing output. */
+const MAX_BLOCKED_TASKS_DIET = 3;
+/** Maximum activeEpics entries in the default (diet) briefing output. */
+const MAX_ACTIVE_EPICS_DIET = 3;
+/** Maximum title length (chars) for blockedTasks/activeEpics entries in diet mode. */
+const MAX_TITLE_LEN_DIET = 60;
+/** Maximum memoryContext title length (chars) in diet mode. */
+const MAX_MEMORY_TITLE_LEN_DIET = 80;
+
+/**
+ * Truncate a string to the given max length, appending `…` when truncated.
+ */
+function truncate(str: string, maxLen: number): string {
+  return str.length > maxLen ? `${str.slice(0, maxLen - 1)}…` : str;
+}
+
+/**
+ * Strip empty arrays from a handoff data object.
+ *
+ * Empty `tasksCompleted`, `tasksCreated`, `nextSuggested`, `openBlockers`,
+ * and `openBugs` arrays add JSON weight without actionable content for a new
+ * orchestrator session. This function removes only the zero-length arrays;
+ * non-empty ones are preserved as-is.
+ *
+ * @param handoff - Raw handoff data from the last session.
+ * @returns Handoff with empty array fields omitted.
+ *
+ * @task T9964
+ */
+function cleanHandoff(handoff: HandoffData): HandoffData {
+  // Build a mutable copy. We cast to a plain record to permit `delete` on
+  // optional array fields — `HandoffData` keys are all declared non-optional
+  // but the runtime intent is to drop zero-length arrays before serialisation.
+  const cleaned = { ...handoff } as unknown as Record<string, unknown>;
+  const arrayKeys: ReadonlyArray<keyof HandoffData> = [
+    'tasksCompleted',
+    'tasksCreated',
+    'nextSuggested',
+    'openBlockers',
+    'openBugs',
+  ];
+  for (const key of arrayKeys) {
+    const val = cleaned[key];
+    if (Array.isArray(val) && val.length === 0) {
+      delete cleaned[key];
+    }
+  }
+  return cleaned as unknown as HandoffData;
+}
+
 /**
  * Post-process a `RetrievalBundle` to suppress noisy fields in default mode.
  *
- * Rules applied:
+ * Rules applied (T9974 / T9964):
  * - `warm.peerPatterns`: stripped unless `debug` is true
  * - `cold.userProfile`: stripped unless `withProfile` is true
+ * - `warm.peerLearnings`: stripped to `{id, insight_title, createdAt, _next}`
+ *   unless `memoryDetail` is true. Capped at {@link MAX_PEER_LEARNINGS_DIET}.
+ *   The `insight` body field is renamed to `insight_title` and is a truncated
+ *   preview (first 80 chars) for orientation. Full text via `--memory-detail`.
+ * - `warm.decisions`: stripped to `{id, decision_title, createdAt, _next}`
+ *   unless `memoryDetail` is true. Capped at {@link MAX_DECISIONS_DIET}.
  * - `hot.sessionNarrative`: the key is retained in the type but callers
- *   building the final envelope should omit it when empty (handled in
- *   {@link computeBriefing} via the spread pattern)
+ *   building the final envelope should omit it when empty.
+ * - Token counts are recomputed from the diet output so consumers see the
+ *   actual post-diet token estimate.
  *
  * This keeps `buildRetrievalBundle` unchanged (backward-compat) and applies
  * the diet at the briefing layer only.
@@ -955,21 +1060,61 @@ const RELATED_DOCS_RECENCY_MS = 7 * 24 * 60 * 60 * 1000;
  * @returns A new bundle with noise fields suppressed.
  *
  * @task T9974
+ * @task T9964
  */
 function applyBriefingDiet(
   bundle: RetrievalBundle,
-  opts: { debug: boolean; withProfile: boolean },
+  opts: { debug: boolean; withProfile: boolean; memoryDetail: boolean },
 ): RetrievalBundle {
-  return {
+  // peerLearnings: in diet mode emit {id, insight (80-char preview), createdAt}
+  // with a _next hint for fetching full text. Full insight is preserved when memoryDetail=true.
+  // RetrievalLearning does not declare _next — cast to include the extension field.
+  type DietLearning = import('@cleocode/contracts').RetrievalLearning & {
+    _next?: Record<string, string>;
+  };
+  const peerLearnings: DietLearning[] = opts.memoryDetail
+    ? bundle.warm.peerLearnings
+    : bundle.warm.peerLearnings.slice(0, MAX_PEER_LEARNINGS_DIET).map(
+        (l): DietLearning => ({
+          id: l.id,
+          insight: truncate(l.insight, MAX_MEMORY_TITLE_LEN_DIET),
+          createdAt: l.createdAt,
+          ...(l.provenanceClass !== undefined ? { provenanceClass: l.provenanceClass } : {}),
+          _next: { fetch: `cleo memory fetch ${l.id}` },
+        }),
+      );
+
+  // decisions: in diet mode emit {id, decision (80-char preview), createdAt}
+  // with a _next hint for fetching full text. Full body preserved when memoryDetail=true.
+  // RetrievalDecision does not declare _next — cast to include the extension field.
+  type DietDecision = import('@cleocode/contracts').RetrievalDecision & {
+    _next?: Record<string, string>;
+  };
+  const decisions: DietDecision[] = opts.memoryDetail
+    ? bundle.warm.decisions
+    : bundle.warm.decisions.slice(0, MAX_DECISIONS_DIET).map(
+        (d): DietDecision => ({
+          id: d.id,
+          decision: truncate(d.decision, MAX_MEMORY_TITLE_LEN_DIET),
+          createdAt: d.createdAt,
+          ...(d.provenanceClass !== undefined ? { provenanceClass: d.provenanceClass } : {}),
+          _next: { fetch: `cleo memory fetch ${d.id}` },
+        }),
+      );
+
+  // RetrievalBundle.warm expects the base types; DietLearning/DietDecision are
+  // structural supertypes so the cast is safe — the extra `_next` field is
+  // present at runtime and surfaced in JSON serialisation.
+  const dietBundle: RetrievalBundle = {
     cold: {
       userProfile: opts.withProfile ? bundle.cold.userProfile : [],
       peerInstructions: bundle.cold.peerInstructions,
       sigilCard: bundle.cold.sigilCard,
     },
     warm: {
-      peerLearnings: bundle.warm.peerLearnings,
+      peerLearnings: peerLearnings as import('@cleocode/contracts').RetrievalLearning[],
       peerPatterns: opts.debug ? bundle.warm.peerPatterns : [],
-      decisions: bundle.warm.decisions,
+      decisions: decisions as import('@cleocode/contracts').RetrievalDecision[],
     },
     hot: {
       // Drop sessionNarrative entirely when it is an empty string — keeps the
@@ -980,10 +1125,36 @@ function applyBriefingDiet(
     },
     tokenCounts: bundle.tokenCounts,
   };
+
+  // Recompute token estimates after diet so consumers see post-diet cost.
+  // Simple heuristic: 1 token ≈ 4 chars (conservative, consistent with
+  // the estimateTokens() function in brain-retrieval.ts).
+  const estimate = (s: string): number => Math.ceil(s.length / 4);
+  let warmTokens = 0;
+  for (const l of dietBundle.warm.peerLearnings) warmTokens += estimate(l.insight);
+  for (const p of dietBundle.warm.peerPatterns) warmTokens += estimate(p.pattern);
+  for (const d of dietBundle.warm.decisions) warmTokens += estimate(d.decision);
+  let coldTokens = 0;
+  for (const t of dietBundle.cold.userProfile)
+    coldTokens += estimate(`${t.traitKey}:${t.traitValue}`);
+  coldTokens += estimate(dietBundle.cold.peerInstructions);
+  let hotTokens = estimate(dietBundle.hot.sessionNarrative);
+  for (const o of dietBundle.hot.recentObservations) hotTokens += estimate(o.narrative || o.title);
+  for (const t of dietBundle.hot.activeTasks) hotTokens += estimate(`${t.id} ${t.title}`);
+
+  dietBundle.tokenCounts = {
+    cold: coldTokens,
+    warm: warmTokens,
+    hot: hotTokens,
+    total: coldTokens + warmTokens + hotTokens,
+  };
+
+  return dietBundle;
 }
 
 /**
  * Apply the diet filter to `BriefingDocsContext`:
+ * - drop `relatedDocs` entries that have no `slug` (cannot be fetched by name)
  * - cap `relatedDocs` at {@link MAX_RELATED_DOCS_DIET}
  * - filter out `relatedDocs` entries older than {@link RELATED_DOCS_RECENCY_MS}
  *   when a scope is active (no-scope = no recency filter, avoids over-trimming
@@ -996,12 +1167,15 @@ function applyBriefingDiet(
  * @returns Filtered docs context.
  *
  * @task T9974
+ * @task T9964
  */
 function applyDocsFilter(ctx: BriefingDocsContext, scope: string | undefined): BriefingDocsContext {
   const now = Date.now();
   const applyRecency = scope !== undefined && scope !== 'global';
 
-  let filtered = ctx.relatedDocs;
+  // T9964: drop entries without a slug — useless to a fresh agent that cannot
+  // fetch the doc by name (only attachmentId would remain, which is opaque).
+  let filtered = ctx.relatedDocs.filter((doc) => Boolean(doc.slug));
 
   if (applyRecency) {
     filtered = filtered.filter((doc) => {
@@ -1068,10 +1242,15 @@ async function computeDocsContext(
 
   /**
    * Convert one AttachmentMetadata record into a BriefingDocRef.
+   *
+   * T9964: Also fetches slug + type from the extras column so consumers can
+   * identify documents by name (not just opaque attachmentId). Entries without
+   * a slug are returned with slug=undefined so callers can drop them when the
+   * identifier is required for a `cleo docs fetch` operation.
    */
-  function toDocRef(taskId: string, meta: AttachmentMetadata): BriefingDocRef {
+  async function toDocRef(taskId: string, meta: AttachmentMetadata): Promise<BriefingDocRef> {
     const att = meta.attachment;
-    return {
+    const base: BriefingDocRef = {
       taskId,
       attachmentId: meta.id,
       kind: att.kind,
@@ -1079,6 +1258,15 @@ async function computeDocsContext(
       ...(att.labels?.length ? { labels: att.labels } : {}),
       createdAt: meta.createdAt,
     };
+    // Best-effort: fetch slug + type extras; failure is non-fatal.
+    try {
+      const extras = await store.getExtras(meta.id, projectRoot);
+      if (extras?.slug) base.slug = extras.slug;
+      if (extras?.type) base.type = extras.type;
+    } catch {
+      // extras unavailable — proceed without slug/type
+    }
+    return base;
   }
 
   // 1. Fetch attachments for the currently focused task.
@@ -1087,7 +1275,7 @@ async function computeDocsContext(
     try {
       const metas = await store.listByOwner('task', currentTaskId, projectRoot);
       for (const meta of metas.slice(0, MAX_DOCS_PER_TASK)) {
-        currentTaskDocs.push(toDocRef(currentTaskId, meta));
+        currentTaskDocs.push(await toDocRef(currentTaskId, meta));
       }
     } catch {
       // Attachment store unavailable for this task — proceed without
@@ -1119,7 +1307,7 @@ async function computeDocsContext(
       const metas = await store.listByOwner('task', task.id, projectRoot);
       for (const meta of metas.slice(0, MAX_DOCS_PER_TASK)) {
         if (relatedDocs.length >= MAX_RELATED_DOCS) break;
-        relatedDocs.push(toDocRef(task.id, meta));
+        relatedDocs.push(await toDocRef(task.id, meta));
       }
     } catch {
       // Attachment store unavailable for this task — proceed without
