@@ -1,7 +1,9 @@
 ---
-'@cleocode/cleo': minor
-'@cleocode/core': minor
-'@cleocode/contracts': minor
+id: t9808-validation-closure
+tasks: [T9808]
+kind: feat
+prs: []
+summary: "cleo doctor --audit-worktree-orphans comprehensive scan + isolation lint + saga closure report"
 ---
 
 feat(T9808): cleo doctor --audit-worktree-orphans comprehensive scan + isolation lint + saga closure report

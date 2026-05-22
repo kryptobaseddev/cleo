@@ -1,8 +1,9 @@
 ---
-'@cleocode/worktree': patch
-'@cleocode/contracts': patch
-'@cleocode/core': patch
-'@cleocode/cleo': patch
+id: t9807-provisioning-perf
+tasks: [T9807]
+kind: fix
+prs: []
+summary: "bound worktree include-pattern apply loop + optional sparse-checkout scope"
 ---
 
 fix(T9807): bound worktree include-pattern apply loop + optional sparse-checkout scope
