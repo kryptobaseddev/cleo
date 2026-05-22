@@ -4215,6 +4215,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "worktree-napi"
+version = "2026.5.99"
+dependencies = [
+ "anyhow",
+ "napi",
+ "napi-build 1.2.1",
+ "napi-derive",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "worktrunk-core",
+]
+
+[[package]]
 name = "worktrunk-core"
 version = "2026.5.99"
 dependencies = [
