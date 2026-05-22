@@ -312,6 +312,7 @@ export async function computeBriefing(
 
   // 10. Docs context — third pillar: task-attached references (optional, best-effort — T1616)
   // T9974: relatedDocs capped at 5 entries with 7-day recency filter
+  // T9967: relatedDocs ranked so scope-relevant docs surface first before the cap.
   let docsContext: BriefingDocsContext | undefined;
   try {
     const rawDocsContext = await computeDocsContext(
@@ -319,6 +320,7 @@ export async function computeBriefing(
       focus?.currentTask ?? undefined,
       tasks,
       scopeTaskIds,
+      scopeFilter,
     );
     if (rawDocsContext) {
       docsContext = applyDocsFilter(rawDocsContext, params.scope);
@@ -451,6 +453,15 @@ function getScopeTaskIdSet(
 
 /**
  * Compute last session info with handoff data.
+ *
+ * Resolution order:
+ * 1. `getLastHandoff` — looks for a session whose stored scope matches the
+ *    requested scope (fastest path, zero extra I/O when found).
+ * 2. Docs-based fallback (T9967) — when scope is set but no matching session
+ *    exists, query the attachment store for the most recent doc with
+ *    `type='handoff'` attached to any task in the scope. Synthesises a
+ *    minimal `HandoffData` so callers never receive `lastSession = null`
+ *    when scope-specific handoff docs exist.
  */
 async function computeLastSession(
   projectRoot: string,
@@ -460,28 +471,114 @@ async function computeLastSession(
     const scope = scopeFilter ? { type: scopeFilter.type, epicId: scopeFilter.epicId } : undefined;
 
     const handoffResult = await getLastHandoff(projectRoot, scope);
-    if (!handoffResult) return null;
+    if (handoffResult) {
+      const { sessionId, handoff } = handoffResult;
 
-    const { sessionId, handoff } = handoffResult;
+      // Load sessions to get endedAt
+      const accessor = await getTaskAccessor(projectRoot);
+      const allSessions = await accessor.loadSessions();
 
-    // Load sessions to get endedAt
-    const accessor = await getTaskAccessor(projectRoot);
-    const allSessions = await accessor.loadSessions();
+      const session = allSessions.find((s) => s.id === sessionId);
+      if (!session?.endedAt) return null;
 
-    const session = allSessions.find((s) => s.id === sessionId);
-    if (!session?.endedAt) return null;
+      // Calculate duration if startedAt is available
+      let duration = 0;
+      if (session.startedAt) {
+        duration = Math.round(
+          (new Date(session.endedAt).getTime() - new Date(session.startedAt).getTime()) / 60000,
+        );
+      }
 
-    // Calculate duration if startedAt is available
-    let duration = 0;
-    if (session.startedAt) {
-      duration = Math.round(
-        (new Date(session.endedAt).getTime() - new Date(session.startedAt).getTime()) / 60000,
-      );
+      return {
+        endedAt: session.endedAt,
+        duration,
+        handoff,
+      };
     }
 
+    // ── T9967: Docs-based handoff fallback ──────────────────────────────────
+    // When no matching session exists for the requested scope, look for a
+    // handoff-type doc attached to a task in scope. This covers the case where
+    // the orchestrator wrote a handoff via `cleo docs add` but did not end a
+    // session with a matching scope.
+    if (scope?.type === 'epic' && scope.epicId) {
+      return await resolveHandoffFromDocs(projectRoot, scope.epicId);
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Synthesise a `LastSessionInfo` from the most recent handoff-type doc
+ * attached to any task that is a descendant of `epicId`.
+ *
+ * Returns `null` when no such doc exists or the attachment store is
+ * unavailable.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param epicId      - Root task ID of the scope (e.g., `"T9831"`).
+ *
+ * @task T9967
+ */
+async function resolveHandoffFromDocs(
+  projectRoot: string,
+  epicId: string,
+): Promise<LastSessionInfo | null> {
+  try {
+    const { createAttachmentStore } = await import('../store/attachment-store.js');
+    const store = createAttachmentStore();
+
+    // Load all handoff-type docs in the project.
+    const allHandoffDocs = await store.listAllInProject(projectRoot, { type: 'handoff' });
+    if (allHandoffDocs.length === 0) return null;
+
+    // Build the set of task IDs in scope (epic root + all descendants).
+    const accessor = await getTaskAccessor(projectRoot);
+    const { tasks } = await accessor.queryTasks({});
+    const scopeTaskIds = new Set<string>();
+    const addDescendants = (taskId: string): void => {
+      scopeTaskIds.add(taskId);
+      for (const t of tasks) {
+        if (t.parentId === taskId) {
+          addDescendants(t.id);
+        }
+      }
+    };
+    addDescendants(epicId);
+
+    // Filter to docs owned by a task in scope.
+    const scopedDocs = allHandoffDocs.filter(
+      (row) => row.ownerType === 'task' && scopeTaskIds.has(row.ownerId),
+    );
+    if (scopedDocs.length === 0) return null;
+
+    // Pick the most recent doc (sort by createdAt DESC).
+    scopedDocs.sort(
+      (a, b) => new Date(b.metadata.createdAt).getTime() - new Date(a.metadata.createdAt).getTime(),
+    );
+    const latest = scopedDocs[0];
+    if (!latest) return null;
+
+    const att = latest.metadata.attachment;
+    const description = att.description ?? `${att.kind} handoff doc`;
+
+    const handoff: import('./handoff.js').HandoffData = {
+      lastTask: latest.ownerId,
+      tasksCompleted: [],
+      tasksCreated: [],
+      decisionsRecorded: 0,
+      nextSuggested: [],
+      openBlockers: [],
+      openBugs: [],
+      note: description,
+    };
+
     return {
-      endedAt: session.endedAt,
-      duration,
+      endedAt: latest.metadata.createdAt,
+      duration: 0,
       handoff,
     };
   } catch {
@@ -927,13 +1024,20 @@ const MAX_RELATED_DOCS = 20;
  * - Attachments on any in-scope task that has at least one attachment,
  *   up to {@link MAX_RELATED_DOCS} entries total.
  *
+ * When a `scopeFilter` is provided, `relatedDocs` are ranked so that
+ * docs owned by tasks that fall within the scope appear before unrelated
+ * docs (T9967). Within each group the ordering is `createdAt DESC` so the
+ * most-recent scope-relevant doc wins when the 5-entry cap is applied by
+ * {@link applyDocsFilter}.
+ *
  * All queries are best-effort: individual task failures are swallowed so
  * that a corrupt attachment ref never blocks the briefing.
  *
- * @param projectRoot  - Absolute path to the project root.
+ * @param projectRoot   - Absolute path to the project root.
  * @param currentTaskId - ID of the currently focused task (may be undefined).
- * @param tasks        - All tasks loaded by computeBriefing.
- * @param scopeTaskIds - Optional set of in-scope task IDs (undefined = all).
+ * @param tasks         - All tasks loaded by computeBriefing.
+ * @param scopeTaskIds  - Optional set of in-scope task IDs (undefined = all).
+ * @param scopeFilter   - Optional scope filter used to rank relatedDocs (T9967).
  * @returns Docs context with current-task refs and related refs, or undefined
  *          when no attachments exist.
  *
@@ -945,6 +1049,7 @@ async function computeDocsContext(
   currentTaskId: string | undefined,
   tasks: unknown[],
   scopeTaskIds: Set<string> | undefined,
+  scopeFilter?: { type: 'global' | 'epic'; epicId?: string },
 ): Promise<BriefingDocsContext | undefined> {
   // Dynamically import the attachment store to avoid mandatory hard deps.
   const { createAttachmentStore } = await import('../store/attachment-store.js');
@@ -1008,6 +1113,46 @@ async function computeDocsContext(
     } catch {
       // Attachment store unavailable for this task — proceed without
     }
+  }
+
+  // ── T9967: Rank relatedDocs so scope-relevant docs surface first ────────────
+  // When a scope is active (auto-detected or explicit), docs owned by tasks in
+  // that scope are ranked above unrelated docs. Within each group, entries are
+  // ordered by createdAt DESC so the most-recent doc wins when applyDocsFilter
+  // applies the 5-entry cap.
+  //
+  // This ranking happens before the cap so that scope-relevant docs are not
+  // accidentally pushed out by older unrelated docs that happen to sort earlier
+  // in the task iteration order.
+  if (scopeFilter?.type === 'epic' && scopeFilter.epicId) {
+    // Build a ranking scope that includes the epic root and all its descendants.
+    // When scopeTaskIds is already set it covers exactly this set — reuse it.
+    // When scopeTaskIds is undefined (global mode but auto-detected epic scope),
+    // build the ranking set on the fly without modifying the filter.
+    const rankingScope: Set<string> =
+      scopeTaskIds ??
+      (() => {
+        const ids = new Set<string>();
+        const addDescendants = (tid: string): void => {
+          ids.add(tid);
+          for (const t of tasks) {
+            const task = t as { id?: string; parentId?: string };
+            if (task.parentId === tid && task.id) {
+              addDescendants(task.id);
+            }
+          }
+        };
+        addDescendants(scopeFilter.epicId!);
+        return ids;
+      })();
+
+    relatedDocs.sort((a, b) => {
+      const aInScope = rankingScope.has(a.taskId) ? 0 : 1;
+      const bInScope = rankingScope.has(b.taskId) ? 0 : 1;
+      if (aInScope !== bInScope) return aInScope - bInScope;
+      // Within the same group, sort by createdAt DESC (most recent first).
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
   }
 
   const totalDocs = currentTaskDocs.length + relatedDocs.length;
