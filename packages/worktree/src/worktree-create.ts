@@ -13,15 +13,13 @@
  * @task T1161
  */
 
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   CreateWorktreeOptions,
   CreateWorktreeResult,
   WorktreeHookResult,
-  WorktreeIncludePattern,
 } from '@cleocode/contracts';
-import { copyPathsWithReflock } from './copy-on-write.js';
 
 /**
  * Extended result type including the bootstrap field.
@@ -144,28 +142,6 @@ function applySpawnScope(worktreePath: string, scope: string): string | null {
   }
 }
 
-function isPathSpecifiedInInclude(
-  patterns: readonly WorktreeIncludePattern[],
-  targetPath: string,
-): boolean {
-  return patterns.some((p) => {
-    if (p.negated) return false;
-    if (p.pattern === targetPath) return true;
-    if (p.pattern.startsWith(`${targetPath}/`)) return true;
-    if (targetPath.startsWith(`${p.pattern}/`)) return true;
-    return false;
-  });
-}
-
-function isPackagesDistSpecifiedInInclude(patterns: readonly WorktreeIncludePattern[]): boolean {
-  return patterns.some((p) => {
-    if (p.negated) return false;
-    if (p.pattern === 'packages/*/dist') return true;
-    if (p.pattern.startsWith('packages/') && p.pattern.includes('/dist')) return true;
-    return false;
-  });
-}
-
 /**
  * Create a git worktree for an agent task.
  *
@@ -177,9 +153,11 @@ function isPackagesDistSpecifiedInInclude(patterns: readonly WorktreeIncludePatt
  *    Otherwise create a new branch via `git worktree add -b <branch> <path> <baseRef>`.
  * 4. Optionally apply `git worktree lock` to prevent pruning.
  * 5. Run declarative `post-create` hooks.
- * 6. Apply `.cleo/worktree-include` glob patterns (symlinks).
- * 7. Copy `node_modules` and `packages/ * /dist` via copy-on-write when not already
- *    covered by worktree-include patterns.
+ * 6. Apply `.worktreeinclude` (or legacy `.cleo/worktree-include`) glob patterns —
+ *    real ignore::gitignore matching is delegated to `@cleocode/worktree-napi`.
+ * 7. NO hardcoded bootstrap copy (T9982). Projects that need node_modules /
+ *    packages/* /dist mirrored into the worktree MUST declare them in
+ *    `.worktreeinclude` — the multi-language native include file.
  * 8. Run declarative `post-start` hooks.
  * 9. Build and return the {@link CreateWorktreeResult}.
  *
@@ -326,41 +304,27 @@ export async function createWorktree(
   // Run post-create hooks before returning the handle.
   const postCreateHookResults = await runWorktreeHooks(hooks, 'post-create', worktreePath);
 
-  // Apply .cleo/worktree-include patterns.
+  // Apply .worktreeinclude (or legacy .cleo/worktree-include) patterns.
+  // The matcher in @cleocode/worktree-napi uses real ignore::gitignore
+  // semantics — the prior existsSync-on-literal-pattern bug is gone.
+  //
+  // T9982 — REMOVED: hardcoded ['node_modules', 'packages/*/dist'] copy block.
+  // Projects MUST declare the paths they want mirrored into worktrees via
+  // .worktreeinclude. The default with no file is: copy nothing. This avoids
+  // the pnpm-monorepo-only 1.9 GB / 69k-file blast radius the hardcoded list
+  // imposed on every spawn (the 60s timeout root cause).
   let appliedPatterns: ReturnType<typeof applyIncludePatterns> = [];
   if (applyInclude) {
     const patterns = loadWorktreeIncludePatterns(projectRoot);
     appliedPatterns = applyIncludePatterns(patterns, projectRoot, worktreePath);
   }
 
-  // Copy-on-write bootstrap: node_modules and packages/*/dist when not already
-  // specified in .cleo/worktree-include.
-  const pathsToCopy: string[] = [];
-
-  const includePatterns = applyInclude ? loadWorktreeIncludePatterns(projectRoot) : [];
-
-  if (!isPathSpecifiedInInclude(includePatterns, 'node_modules')) {
-    pathsToCopy.push('node_modules');
-  }
-
-  if (!isPackagesDistSpecifiedInInclude(includePatterns)) {
-    const packagesDir = join(projectRoot, 'packages');
-    if (existsSync(packagesDir)) {
-      for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const distRel = join('packages', entry.name, 'dist');
-        if (existsSync(join(projectRoot, distRel))) {
-          pathsToCopy.push(distRel);
-        }
-      }
-    }
-  }
-
-  const { copied: copiedPaths, failed: failedPaths } = await copyPathsWithReflock(
-    pathsToCopy,
-    projectRoot,
-    worktreePath,
-  );
+  // Bootstrap fields preserved for envelope compatibility — populated by the
+  // include-pattern symlink phase above. The copy-on-write hot path is no
+  // longer auto-invoked from createWorktree; callers that need explicit
+  // copying should call copyPathsWithReflock directly.
+  const copiedPaths: string[] = [];
+  const failedPaths: string[] = [];
 
   // Run post-start hooks after copy-on-write bootstrap.
   const postStartHookResults = await runWorktreeHooks(hooks, 'post-start', worktreePath);

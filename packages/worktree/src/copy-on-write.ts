@@ -1,150 +1,96 @@
 /**
  * Copy-on-write file utility for `@cleocode/worktree`.
  *
- * Provides efficient path copying using filesystem-level copy-on-write
- * (reflink / clonefile) when available, falling back to regular recursive copy.
+ * Thin TS wrapper around `@cleocode/worktree-napi`'s parallel reflink-aware
+ * copy primitive ({@link copyPathsParallel}). Replaces the prior 150-LOC
+ * sequential `execFile('cp')` loop — the worktree bootstrap is now a single
+ * Rust call backed by a 4-thread rayon pool with reflink probing.
  *
- * Platform support:
- * - macOS (darwin): APFS clonefile via `cp -cR`
- * - Linux: btrfs / xfs / zfs reflink via `cp -R --reflink=auto`
- * - Windows: `fs.copyFile` with `COPYFILE_FICLONE` (Node 24+) for files,
- *   regular recursive copy for directories
+ * Platform support inherited from `worktrunk-core::copy::copy_leaf`:
+ * - macOS (darwin): APFS clonefile via `cp -c`
+ * - Linux: btrfs / xfs / zfs reflink via `cp --reflink=auto`
+ * - Windows: regular copyFile with FICLONE on supported FS
  *
+ * @task T9982
  * @task T1161
  */
 
-import { execFile } from 'node:child_process';
-import { constants, existsSync, promises as fs, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { promisify } from 'node:util';
-import { DEFAULT_GIT_TIMEOUT_MS } from './git.js';
-
-const execFileAsync = promisify(execFile);
+import { type CopyResult, copyPathsParallel } from '@cleocode/worktree-napi';
 
 /**
- * Default per-copy subprocess timeout in milliseconds (T9545).
+ * Optional knobs for {@link copyPathsWithReflock}.
  *
- * Reuses {@link DEFAULT_GIT_TIMEOUT_MS} so spawn-pipeline subprocess budgets
- * stay aligned across git and `cp` invocations.
+ * Mirrors the napi `CopyOpts` shape with TS-friendly defaults. The `rootGuard`
+ * option keeps every destination resolution inside the supplied root — the
+ * canonical XDG worktree path is the recommended value for production callers.
+ *
+ * @task T9982
  */
-const DEFAULT_COPY_TIMEOUT_MS = DEFAULT_GIT_TIMEOUT_MS;
+export interface CopyPathsOptions {
+  /** Overwrite existing entries at the destination. Default `false`. */
+  force?: boolean;
+  /**
+   * When set, every destination must resolve inside this root. Used as a
+   * safety belt against path traversal in the supplied `paths` list.
+   */
+  rootGuard?: string;
+  /**
+   * Reserved for future use — symlinks are always followed by the underlying
+   * `worktrunk_core::copy::copy_leaf` today. Default `true`.
+   */
+  includeSymlinks?: boolean;
+}
 
 /**
  * Copy multiple paths from a source directory to a target directory using
- * copy-on-write when available.
+ * copy-on-write when available, in parallel via the Rust binding.
  *
- * Each path in `paths` is treated as relative to `sourceDir` and copied to
- * the corresponding location under `targetDir`.
+ * Each entry in `paths` is treated as relative to `sourceDir` and copied to
+ * the corresponding location under `targetDir`. Missing source paths or paths
+ * that already exist at the destination are silently skipped by
+ * `worktrunk-core` — see the {@link CopyPathsResult.failed} list for true
+ * failures.
  *
- * Missing source paths are skipped with a warning written to `stderr`.
- * Existing target paths are skipped without overwriting.
- *
- * If a copy-on-write attempt fails, a regular recursive copy is attempted
- * as fallback. If that also fails, the path is recorded in `failed`.
+ * The synchronous-looking call boundary hides 4-thread parallelism behind the
+ * napi layer; the `Promise` wrapper preserves the legacy async signature for
+ * existing TS callers.
  *
  * @param paths - Array of relative paths to copy.
  * @param sourceDir - Absolute path to the source directory.
  * @param targetDir - Absolute path to the target directory.
+ * @param options - Optional copy-options forwarded to the napi layer.
  * @returns Object with arrays of successfully copied and failed paths.
+ *
+ * @task T9982
+ * @task T1161
  */
 export async function copyPathsWithReflock(
   paths: string[],
   sourceDir: string,
   targetDir: string,
+  options: CopyPathsOptions = {},
 ): Promise<{ copied: string[]; failed: string[] }> {
-  const copied: string[] = [];
-  const failed: string[] = [];
+  if (paths.length === 0) return { copied: [], failed: [] };
 
-  for (const relativePath of paths) {
-    const sourcePath = join(sourceDir, relativePath);
-    const targetPath = join(targetDir, relativePath);
-
-    if (!existsSync(sourcePath)) {
-      process.stderr.write(`[copy-on-write] skipping missing source: ${sourcePath}\n`);
-      continue;
-    }
-
-    if (existsSync(targetPath)) {
-      continue;
-    }
-
-    try {
-      mkdirSync(dirname(targetPath), { recursive: true });
-    } catch {
-      process.stderr.write(
-        `[copy-on-write] failed to create parent directory for: ${targetPath}\n`,
-      );
-      failed.push(relativePath);
-      continue;
-    }
-
-    try {
-      await copyWithReflock(sourcePath, targetPath);
-      copied.push(relativePath);
-    } catch {
-      try {
-        await copyRegular(sourcePath, targetPath);
-        copied.push(relativePath);
-      } catch {
-        failed.push(relativePath);
-      }
-    }
+  let result: CopyResult;
+  try {
+    result = copyPathsParallel(sourceDir, targetDir, paths, {
+      force: options.force ?? false,
+      ...(options.rootGuard !== undefined ? { rootGuard: options.rootGuard } : {}),
+      includeSymlinks: options.includeSymlinks ?? true,
+    });
+  } catch (err) {
+    // A whole-batch failure (matcher / IO error before any leaf was tried)
+    // reports every path as failed so callers can recover or audit.
+    process.stderr.write(
+      `[copy-on-write] napi.copyPathsParallel failed: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return { copied: [], failed: [...paths] };
   }
+
+  const failedSet = new Set(result.failedPaths);
+  const copied = paths.filter((p) => !failedSet.has(p));
+  const failed = paths.filter((p) => failedSet.has(p));
 
   return { copied, failed };
-}
-
-/**
- * Attempt a copy-on-write copy from source to target.
- *
- * @param sourcePath - Absolute path to the source file or directory.
- * @param targetPath - Absolute path to the target location.
- * @throws Error if the copy operation fails or the platform is unsupported.
- */
-async function copyWithReflock(sourcePath: string, targetPath: string): Promise<void> {
-  const platform = process.platform;
-
-  if (platform === 'darwin') {
-    // T9545 — bound cp -cR with a default timeout to keep the spawn pipeline
-    // safe against runaway / wedged subprocesses.
-    await execFileAsync('cp', ['-cR', sourcePath, targetPath], {
-      timeout: DEFAULT_COPY_TIMEOUT_MS,
-    });
-    return;
-  }
-
-  if (platform === 'linux') {
-    // T9545 — bound cp --reflink with a default timeout.
-    await execFileAsync('cp', ['-R', '--reflink=auto', sourcePath, targetPath], {
-      timeout: DEFAULT_COPY_TIMEOUT_MS,
-    });
-    return;
-  }
-
-  if (platform === 'win32') {
-    const stat = await fs.stat(sourcePath);
-    if (stat.isDirectory()) {
-      throw new Error('Windows directories do not support copy-on-write');
-    }
-    await fs.copyFile(sourcePath, targetPath, constants.COPYFILE_FICLONE);
-    return;
-  }
-
-  throw new Error(`Unsupported platform: ${platform}`);
-}
-
-/**
- * Perform a regular recursive copy as fallback.
- *
- * @param sourcePath - Absolute path to the source file or directory.
- * @param targetPath - Absolute path to the target location.
- * @throws Error if the copy operation fails.
- */
-async function copyRegular(sourcePath: string, targetPath: string): Promise<void> {
-  const stat = await fs.stat(sourcePath);
-  if (stat.isDirectory()) {
-    await fs.cp(sourcePath, targetPath, { recursive: true });
-  } else {
-    await fs.copyFile(sourcePath, targetPath);
-  }
 }
