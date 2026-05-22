@@ -12,6 +12,7 @@
 
 import { existsSync, rmSync } from 'node:fs';
 import type { DestroyWorktreeOptions, DestroyWorktreeResult } from '@cleocode/contracts';
+import { destroyWorktree as napiDestroyWorktree } from '@cleocode/worktree-napi';
 import { getGitRoot, gitSilent, gitSync } from './git.js';
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
@@ -99,18 +100,28 @@ export async function destroyWorktree(
     }
   }
 
-  // Step 3: Unlock + remove the worktree.
+  // Step 3: Unlock + remove the worktree (T9982 — git plumbing routed through
+  // @cleocode/worktree-napi → worktrunk-core::git_wt::destroy_worktree).
+  // The TS layer still owns the unlock + filesystem-rm fallback so a locked or
+  // partially-removed worktree can be force-cleaned without a second napi call.
   if (existsSync(worktreePath)) {
     gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-    if (gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot)) {
-      worktreeRemoved = true;
-    } else {
+    try {
+      const result = napiDestroyWorktree({
+        repoRoot: gitRoot,
+        worktreePath,
+        force: true,
+      });
+      worktreeRemoved = result.removed;
+    } catch (err) {
+      // napi reported failure — fall back to filesystem rm so the audit log
+      // still captures the cleanup attempt.
       try {
         rmSync(worktreePath, { recursive: true, force: true });
         worktreeRemoved = true;
       } catch (err2) {
         if (!error) {
-          error = `Failed to remove worktree: ${err2 instanceof Error ? err2.message : String(err2)}`;
+          error = `Failed to remove worktree: napi=${err instanceof Error ? err.message : String(err)}; fs=${err2 instanceof Error ? err2.message : String(err2)}`;
         }
       }
     }

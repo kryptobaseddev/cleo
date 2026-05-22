@@ -1,6 +1,11 @@
 /**
- * Tests for .cleo/worktree-include pattern loading and application.
+ * Tests for `.worktreeinclude` (canonical) + `.cleo/worktree-include` (legacy)
+ * pattern loading and application.
  *
+ * Post-T9982: the reader routes through `@cleocode/worktree-napi`'s
+ * `readWorktreeInclude` which uses `ignore::gitignore` for real glob matching.
+ *
+ * @task T9982
  * @task T1161
  */
 
@@ -16,15 +21,64 @@ function makeTmpDir(prefix: string): string {
   return dir;
 }
 
-describe('loadWorktreeIncludePatterns', () => {
-  it('returns empty array when .cleo/worktree-include does not exist', () => {
+describe('loadWorktreeIncludePatterns — canonical .worktreeinclude (T9982)', () => {
+  it('returns empty array when no include file exists at all', () => {
     const dir = makeTmpDir('no-include');
     const patterns = loadWorktreeIncludePatterns(dir);
     expect(patterns).toEqual([]);
     rmSync(dir, { recursive: true });
   });
 
-  it('parses simple patterns', () => {
+  it('parses simple patterns from .worktreeinclude', () => {
+    const dir = makeTmpDir('canonical-simple');
+    writeFileSync(join(dir, '.worktreeinclude'), 'node_modules/.pnpm\n.env.local\n');
+    const patterns = loadWorktreeIncludePatterns(dir);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toEqual({ pattern: 'node_modules/.pnpm', negated: false });
+    expect(patterns[1]).toEqual({ pattern: '.env.local', negated: false });
+    rmSync(dir, { recursive: true });
+  });
+
+  it('strips comments and blank lines from .worktreeinclude', () => {
+    const dir = makeTmpDir('canonical-comments');
+    writeFileSync(
+      join(dir, '.worktreeinclude'),
+      '# This is a comment\n\nnode_modules/.pnpm\n  \n# Another comment\n.env\n',
+    );
+    const patterns = loadWorktreeIncludePatterns(dir);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0].pattern).toBe('node_modules/.pnpm');
+    expect(patterns[1].pattern).toBe('.env');
+    rmSync(dir, { recursive: true });
+  });
+
+  it('parses negated patterns from .worktreeinclude', () => {
+    const dir = makeTmpDir('canonical-negated');
+    writeFileSync(join(dir, '.worktreeinclude'), 'node_modules\n!node_modules/.cache\n');
+    const patterns = loadWorktreeIncludePatterns(dir);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toEqual({ pattern: 'node_modules', negated: false });
+    expect(patterns[1]).toEqual({ pattern: 'node_modules/.cache', negated: true });
+    rmSync(dir, { recursive: true });
+  });
+
+  it('prefers .worktreeinclude over legacy .cleo/worktree-include when both exist', () => {
+    const dir = makeTmpDir('canonical-vs-legacy');
+    // legacy file with one entry
+    mkdirSync(join(dir, '.cleo'), { recursive: true });
+    writeFileSync(join(dir, '.cleo', 'worktree-include'), 'legacy-only.txt\n');
+    // canonical file with a different entry
+    writeFileSync(join(dir, '.worktreeinclude'), 'canonical-only.txt\n');
+
+    const patterns = loadWorktreeIncludePatterns(dir);
+    expect(patterns).toHaveLength(1);
+    expect(patterns[0].pattern).toBe('canonical-only.txt');
+    rmSync(dir, { recursive: true });
+  });
+});
+
+describe('loadWorktreeIncludePatterns — legacy .cleo/worktree-include', () => {
+  it('parses simple patterns from legacy path', () => {
     const dir = makeTmpDir('simple-patterns');
     mkdirSync(join(dir, '.cleo'), { recursive: true });
     writeFileSync(join(dir, '.cleo', 'worktree-include'), 'node_modules/.pnpm\n.env.local\n');
@@ -35,7 +89,7 @@ describe('loadWorktreeIncludePatterns', () => {
     rmSync(dir, { recursive: true });
   });
 
-  it('strips comments and blank lines', () => {
+  it('strips comments and blank lines from legacy path', () => {
     const dir = makeTmpDir('comments');
     mkdirSync(join(dir, '.cleo'), { recursive: true });
     writeFileSync(
@@ -49,7 +103,7 @@ describe('loadWorktreeIncludePatterns', () => {
     rmSync(dir, { recursive: true });
   });
 
-  it('parses negated patterns', () => {
+  it('parses negated patterns from legacy path', () => {
     const dir = makeTmpDir('negated');
     mkdirSync(join(dir, '.cleo'), { recursive: true });
     writeFileSync(join(dir, '.cleo', 'worktree-include'), 'node_modules\n!node_modules/.cache\n');

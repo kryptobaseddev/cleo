@@ -35,20 +35,7 @@ export type {
   WorktreeIncludePattern,
   WorktreeListEntry,
 } from '@cleocode/contracts';
-// Backward-compatibility shim for callers of packages/cant/src/worktree.ts
-export type {
-  LegacyMergeResult,
-  LegacyWorktreeConfig,
-  LegacyWorktreeEntry,
-  LegacyWorktreeHandle,
-  LegacyWorktreeRequest,
-} from './compat.js';
-export {
-  legacyCreateWorktree,
-  legacyListWorktrees,
-  legacyMergeWorktree,
-  legacyResolveWorktreeRoot,
-} from './compat.js';
+export type { CopyPathsOptions } from './copy-on-write.js';
 export { copyPathsWithReflock } from './copy-on-write.js';
 export type { WorktreeAuditPayload } from './worktree-audit.js';
 export {

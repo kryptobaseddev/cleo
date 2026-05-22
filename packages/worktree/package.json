@@ -36,7 +36,8 @@
   "license": "MIT",
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
-    "@cleocode/paths": "workspace:*"
+    "@cleocode/paths": "workspace:*",
+    "@cleocode/worktree-napi": "workspace:*"
   },
   "devDependencies": {
     "@cleocode/core": "workspace:*",
