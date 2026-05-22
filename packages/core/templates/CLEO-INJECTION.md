@@ -15,8 +15,9 @@ act on false information. They contain redirect stubs — not state.
 
 The ONLY canonical sources of session state are:
 - `cleo briefing` — structured handoff + next tasks + BRAIN context
+- `cleo focus <id>` — **primary orient surface** — single call replacing 8: identity, scope, blockers, ready wave, docs, git activity, brain context (≤ 1 500 tokens)
 - `cleo memory find "<query>"` — BRAIN memory lookup
-- `cleo show <taskId>` — individual task detail
+- `cleo show <taskId>` — individual task detail (use when you need the raw task record)
 
 If you find yourself reading a markdown file for orientation, STOP. Run `cleo briefing`.
 
@@ -28,15 +29,16 @@ If you find yourself reading a markdown file for orientation, STOP. Run `cleo br
 2. `cleo session status` — resume existing? (~200 tokens)
 3. `cleo current` — active task? (~100 tokens)
 4. `cleo next` — what to work on (~300 tokens)
-5. `cleo show {id}` — full details for chosen task (~400 tokens)
-6. `cleo orchestrate start --epic TXXX` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
+5. `cleo focus {id}` — **preferred orient call** — single envelope with identity + scope + blockers + ready wave + docs + brain context (≤ 1 500 tokens, replaces 8 calls)
+6. `cleo show {id}` — full task record details when you need the raw record (~400 tokens)
+7. `cleo orchestrate start --epic TXXX` — for epics with ≥ 5 children (~300 tokens, auto-inits LOOM)
 <!-- /CLEO-INJECTION:section=session-start -->
 
 <!-- CLEO-INJECTION:section=work-loop -->
 ## Work Loop
 
 1. `cleo current` or `cleo next` → pick task
-2. `cleo show {id}` → read requirements
+2. `cleo focus {id}` → orient: identity + blockers + ready wave + docs + brain context (1 call ≤ 1 500 tokens)
 3. Do the work (code, test, document)
 4. `cleo complete {id}` → mark done
 5. `cleo next` → continue or end session
@@ -95,12 +97,13 @@ untouched under each member Epic. Use Sagas for release themes that span multipl
 <!-- CLEO-INJECTION:section=task-discovery -->
 ## Task Discovery
 
-**Use `cleo find` for discovery. NEVER `cleo list` for browsing.**
+**Use `cleo focus` to orient on a task. Use `cleo find` for discovery. NEVER `cleo list` for browsing.**
 
 | Command | ~Tokens | Use |
 |---------|---------|-----|
+| `cleo focus <id>` | ≤ 1 500 | **Primary orient surface** — identity + scope + blockers + ready wave + docs + brain context in ONE call |
 | `cleo find "query"` | 200-400 | Search tasks (default) |
-| `cleo show <id>` | 300-600 | Full details for one task |
+| `cleo show <id>` | 300-600 | Raw task record (fallback when focus envelope is not sufficient) |
 | `cleo list --parent <id>` | 1000-5000 | Direct children only |
 <!-- /CLEO-INJECTION:section=task-discovery -->
 

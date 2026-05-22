@@ -14,6 +14,7 @@ import { CheckHandler } from './check.js';
 import { ConduitHandler } from './conduit.js';
 import { DiagnosticsHandler } from './diagnostics.js';
 import { DocsHandler } from './docs.js';
+import { FocusHandler } from './focus.js';
 import { IntelligenceHandler } from './intelligence.js';
 import { LlmHandler } from './llm/index.js';
 import { MemoryHandler } from './memory.js';
@@ -37,6 +38,7 @@ export {
   ConduitHandler,
   DiagnosticsHandler,
   DocsHandler,
+  FocusHandler,
   IntelligenceHandler,
   LlmHandler,
   MemoryHandler,
@@ -74,6 +76,8 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('sticky', new StickyHandler());
   handlers.set('diagnostics', new DiagnosticsHandler());
   handlers.set('docs', new DocsHandler());
+  // T9973: focus domain — single-envelope task orientation (8 calls → 1)
+  handlers.set('focus', new FocusHandler());
   // T935: HITL playbook runtime + approvals surface
   handlers.set('playbook', new PlaybookHandler());
   // T964: conduit promoted to first-class canonical domain
