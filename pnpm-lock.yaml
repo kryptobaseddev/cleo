@@ -103,8 +103,6 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.15)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@22.19.15)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
-  crates/worktree-napi: {}
-
   packages/adapters:
     dependencies:
       '@ai-sdk/anthropic':
@@ -867,8 +865,8 @@ importers:
         specifier: workspace:*
         version: link:../paths
       '@cleocode/worktree-napi':
-        specifier: workspace:*
-        version: link:../../crates/worktree-napi
+        specifier: file:../../crates/worktree-napi
+        version: file:crates/worktree-napi
     devDependencies:
       '@cleocode/core':
         specifier: workspace:*
@@ -1383,6 +1381,9 @@ packages:
     resolution: {integrity: sha512-4pDK2xBH8U+fNcxHiynpyL7uxRT1Cy1YiJj5FshamRG1mAAuFuQ27MDijQuYbIfkP5VUccC4LKoz9l4KU0ZQUg==}
     engines: {node: '>=22.0.0'}
     hasBin: true
+
+  '@cleocode/worktree-napi@file:crates/worktree-napi':
+    resolution: {directory: crates/worktree-napi, type: directory}
 
   '@codluv/versionguard@1.2.0':
     resolution: {integrity: sha512-iVyEiPp54DqiFa/gf2Tf6mwvlHx90UXTQ8A0EEx6ArLuPeNn7lhvn7JnG+rXzBybW+HOdmnOXxSSfg5sTHxLZQ==}
@@ -7016,6 +7017,8 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
     optional: true
+
+  '@cleocode/worktree-napi@file:crates/worktree-napi': {}
 
   '@codluv/versionguard@1.2.0':
     dependencies:

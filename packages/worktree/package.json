@@ -37,7 +37,7 @@
   "dependencies": {
     "@cleocode/contracts": "workspace:*",
     "@cleocode/paths": "workspace:*",
-    "@cleocode/worktree-napi": "workspace:*"
+    "@cleocode/worktree-napi": "file:../../crates/worktree-napi"
   },
   "devDependencies": {
     "@cleocode/core": "workspace:*",
