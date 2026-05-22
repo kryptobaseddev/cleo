@@ -425,6 +425,26 @@ jobs:
         # need task verification (it blocks everything unconditionally).
         run: node scripts/lint-no-ssot-exempt.mjs --strict --base origin/main
 
+  cli-boundary-lint:
+    # T10076 / Epic T9837 / Saga T9831 SG-ARCH-SOLID — CLI package boundary gate.
+    # Flags non-dispatch helper functions > 30 LOC in packages/cleo/src/cli/commands/.
+    # These belong in packages/core/.
+    #
+    # Running in --check mode: fails only when the violation COUNT INCREASES
+    # above the committed baseline in scripts/.lint-cli-boundary-baseline.json.
+    # Count decreases (i.e. helpers migrated to core) always pass.
+    name: CLI Boundary Lint (T10076 / T9837)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: CLI package boundary gate (baseline mode — T9837e)
+        # No untrusted input used — pure static analysis of checked-in source files.
+        run: node scripts/lint-cli-package-boundary.mjs --check
+
   canon-drift:
     name: Canon Drift Check
     needs: [biome]

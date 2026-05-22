@@ -344,6 +344,99 @@ for that specific line. Reserve for cases where the exemption is provably perman
 3. In CI the gate runs `--strict` — getting a legitimate exemption merged requires
    team discussion and a temporary relaxation of the CI gate (tracked separately).
 
+## Architectural Boundary Check (SG-ARCH-SOLID · T9837)
+
+Five CI gates enforce the SG-ARCH-SOLID architectural invariants. Run all five at once with:
+
+```bash
+cleo check arch          # baseline mode — fails only on regressions
+cleo check arch --strict # zero-tolerance — fails on any violation
+```
+
+All five scripts are also wired into the `Architectural Boundary Check (SG-ARCH-SOLID T9837)`
+CI job in `.github/workflows/ci.yml` (baseline mode by default).
+
+### Gate 1 — No `defineCommand()` outside `cli/lib` factory (T9837a)
+
+Script: `scripts/lint-no-raw-define-command.mjs`
+
+Any `defineCommand()` call outside `packages/cleo/src/cli/lib/define-cli-command.ts` is a
+violation. The factory wrapper is the canonical extension point.
+
+**Example violation:**
+```ts
+// packages/cleo/src/cli/commands/foo.ts
+import { defineCommand } from 'citty'; // VIOLATION — must use lib factory
+```
+
+**Remediation:** Replace with the factory import from `../lib/define-cli-command.js`.
+
+### Gate 2 — No `DatabaseSync` outside `core/store` (T9837b)
+
+Script: `scripts/lint-no-direct-db-open.mjs`
+
+`new DatabaseSync(` or `new Database(` outside `packages/core/src/store/` are blocked.
+All DB opens must flow through `openCleoDb(role, cwd)` (ADR-068).
+
+**Remediation:** Use `openCleoDb(role, cwd)` from `@cleocode/core/store/open-cleo-db`.
+
+### Gate 3 — No inline types imported by >2 files (T9837c)
+
+Script: `scripts/lint-contracts-fan-out.mjs`
+
+An `export interface` or `export type` declared inline in `packages/cleo/` or
+`packages/core/` that is imported by more than 2 other files must move to
+`packages/contracts/src/`.
+
+**Remediation:** Promote the type to `packages/contracts/src/<domain>/` and
+re-export it from the contracts barrel.
+
+### Gate 4 — No `SSoT-EXEMPT` without a linked task ID (T9837d)
+
+Script: `scripts/lint-no-ssot-exempt.mjs`
+
+Every `// SSoT-EXEMPT` comment must be followed by a task ID (e.g. `T1234`) on the
+same line or the next line. Bare exemptions with no follow-up are rejected.
+
+**Example violation:**
+```ts
+const db = new Database(path); // SSoT-EXEMPT  ← missing task ID
+```
+
+**Remediation:** Add the tracking task ID: `// SSoT-EXEMPT: T1234`.
+
+### Gate 5 — No business-logic helper > 30 LOC in CLI commands (T9837e)
+
+Script: `scripts/lint-cli-package-boundary.mjs`
+Baseline: `scripts/.lint-cli-boundary-baseline.json`
+
+Any standalone named function (`function foo(...)`) inside
+`packages/cleo/src/cli/commands/**/*.ts` that spans > 30 lines is a violation.
+Such helpers must live in `packages/core/` where they can be unit-tested and
+reused without CLI framework coupling.
+
+**Exempt by convention:**
+- Functions named `*Command` or `make*Command` (citty factory helpers)
+- Functions annotated with `// cli-boundary-ok: <reason>` on the declaration line
+- Files annotated with `// cli-boundary-file-ok: <reason>` in the first 20 lines
+
+**Example violation:**
+```ts
+// packages/cleo/src/cli/commands/release.ts
+async function buildChangelogSection(tasks: Task[]): Promise<string> {
+  // 87 lines of business logic — VIOLATION
+}
+```
+
+**Remediation:**
+1. Move `buildChangelogSection` to `packages/core/src/release/changelog.ts`
+2. Export it from the core barrel
+3. Import via `@cleocode/core`
+4. Update the baseline: `node scripts/lint-cli-package-boundary.mjs --baseline`
+
+**Current mode:** baseline (fails on increase; count decreases always pass).
+Flip to `--strict` after E-CLI-BOUNDARY (T9833) fully closes.
+
 ## Package-Boundary Check (MANDATORY)
 
 Before creating or relocating ANY source file, verify the correct package by the

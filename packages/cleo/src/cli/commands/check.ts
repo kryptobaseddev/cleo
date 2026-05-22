@@ -460,6 +460,197 @@ const checkProvenanceCommand = defineCommand({
 });
 
 /**
+ * cleo check arch — run all 5 SG-ARCH-SOLID architectural lint gates and
+ * emit a LAFS-compliant summary envelope.
+ *
+ * Gates (Saga T9831 · Epic T9837):
+ *   Gate 1 (T9837a): lint-no-raw-define-command.mjs   — no defineCommand() outside lib factory
+ *   Gate 2 (T9837b): lint-no-direct-db-open.mjs       — no DatabaseSync outside core/store
+ *   Gate 3 (T9837c): lint-contracts-fan-out.mjs        — no inline types imported by >2 files
+ *   Gate 4 (T9837d): lint-no-ssot-exempt.mjs           — no SSoT-EXEMPT without task ID
+ *   Gate 5 (T9837e): lint-cli-package-boundary.mjs     — no helper > 30 LOC in CLI commands
+ *
+ * Each gate is run in --check mode (baseline tolerance). A gate whose script
+ * does not yet exist on disk is reported as "skipped" (non-blocking) to allow
+ * incremental rollout as sibling tasks land.
+ *
+ * Exit codes:
+ *   0 — all present gates passed (skipped gates are non-blocking)
+ *   1 — one or more gates failed
+ *
+ * @task T10076
+ * @epic T9837
+ * @saga T9831
+ */
+const checkArchCommand = defineCommand({
+  meta: {
+    name: 'arch',
+    description:
+      'Run all 5 SG-ARCH-SOLID architectural lint gates and emit a LAFS envelope (T9837)',
+  },
+  args: {
+    strict: {
+      type: 'boolean',
+      description: 'Fail even if gates are in baseline mode (passes --strict to each script)',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Emit JSON envelope only (no human output)',
+    },
+  },
+  async run({ args }) {
+    const { spawnSync } = await import('node:child_process');
+    const { existsSync } = await import('node:fs');
+    const { join, resolve } = await import('node:path');
+
+    const strict = Boolean(args.strict);
+    const jsonOnly = Boolean(args.json);
+    const repoRoot = resolve(process.cwd());
+
+    /** The 5 SG-ARCH-SOLID gates in order. */
+    const gates = [
+      {
+        id: 'gate-1',
+        task: 'T9837a',
+        script: 'scripts/lint-no-raw-define-command.mjs',
+        description: 'No defineCommand() outside cli/lib factory',
+      },
+      {
+        id: 'gate-2',
+        task: 'T9837b',
+        script: 'scripts/lint-no-direct-db-open.mjs',
+        description: 'No DatabaseSync outside core/store',
+      },
+      {
+        id: 'gate-3',
+        task: 'T9837c',
+        script: 'scripts/lint-contracts-fan-out.mjs',
+        description: 'No inline types imported by >2 files',
+      },
+      {
+        id: 'gate-4',
+        task: 'T9837d',
+        script: 'scripts/lint-no-ssot-exempt.mjs',
+        description: 'No SSoT-EXEMPT without linked task ID',
+      },
+      {
+        id: 'gate-5',
+        task: 'T9837e',
+        script: 'scripts/lint-cli-package-boundary.mjs',
+        description: 'No business-logic helper > 30 LOC in CLI commands',
+      },
+    ] as const;
+
+    const scriptArgs = strict ? ['--strict'] : ['--check'];
+
+    type GateStatus = 'pass' | 'fail' | 'skipped';
+
+    interface GateResult {
+      id: string;
+      task: string;
+      script: string;
+      description: string;
+      status: GateStatus;
+      exitCode: number | null;
+      stdout: string;
+      stderr: string;
+    }
+
+    const results: GateResult[] = [];
+    let anyFailed = false;
+
+    for (const gate of gates) {
+      const scriptPath = join(repoRoot, gate.script);
+
+      if (!existsSync(scriptPath)) {
+        results.push({
+          id: gate.id,
+          task: gate.task,
+          script: gate.script,
+          description: gate.description,
+          status: 'skipped',
+          exitCode: null,
+          stdout: '',
+          stderr: `Script not yet created (task ${gate.task} pending).`,
+        });
+        continue;
+      }
+
+      const result = spawnSync('node', [scriptPath, ...scriptArgs], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        cwd: repoRoot,
+      });
+
+      const passed = result.status === 0;
+      if (!passed) anyFailed = true;
+
+      results.push({
+        id: gate.id,
+        task: gate.task,
+        script: gate.script,
+        description: gate.description,
+        status: passed ? 'pass' : 'fail',
+        exitCode: result.status,
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+      });
+    }
+
+    const passCount = results.filter((r) => r.status === 'pass').length;
+    const failCount = results.filter((r) => r.status === 'fail').length;
+    const skipCount = results.filter((r) => r.status === 'skipped').length;
+
+    const envelope = {
+      success: !anyFailed,
+      data: {
+        saga: 'T9831',
+        epic: 'T9837',
+        mode: strict ? 'strict' : 'baseline',
+        summary: { pass: passCount, fail: failCount, skipped: skipCount, total: gates.length },
+        gates: results,
+        passed: !anyFailed,
+      },
+      meta: {
+        operation: 'check.arch',
+        timestamp: new Date().toISOString(),
+      },
+    };
+
+    if (jsonOnly) {
+      process.stdout.write(`${JSON.stringify(envelope)}\n`);
+    } else {
+      process.stdout.write(`${JSON.stringify(envelope)}\n`);
+
+      // Human-readable summary to stderr so JSON envelope stays clean on stdout
+      process.stderr.write(`\n`);
+      process.stderr.write(`SG-ARCH-SOLID Architectural Boundary Check (T9837)\n`);
+      process.stderr.write(`${'─'.repeat(52)}\n`);
+      for (const r of results) {
+        const icon = r.status === 'pass' ? 'PASS' : r.status === 'fail' ? 'FAIL' : 'SKIP';
+        process.stderr.write(`  [${icon}] ${r.id} (${r.task}) — ${r.description}\n`);
+        if (r.status === 'fail' && r.stderr.trim()) {
+          const lines = r.stderr.trim().split('\n').slice(0, 3);
+          for (const line of lines) {
+            process.stderr.write(`         ${line}\n`);
+          }
+        }
+        if (r.status === 'skipped') {
+          process.stderr.write(`         ${r.stderr.trim()}\n`);
+        }
+      }
+      process.stderr.write(`${'─'.repeat(52)}\n`);
+      process.stderr.write(
+        `  Result: ${passCount} passed, ${failCount} failed, ${skipCount} skipped\n`,
+      );
+      process.stderr.write(`\n`);
+    }
+
+    if (anyFailed) process.exit(1);
+  },
+});
+
+/**
  * Root check command group — validation and compliance checks.
  *
  * Dispatches to the check domain. Supports schema validation, coherence,
@@ -477,6 +668,7 @@ export const checkCommand = defineCommand({
     canon: checkCanonCommand,
     protocol: checkProtocolCommand,
     provenance: checkProvenanceCommand,
+    arch: checkArchCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
