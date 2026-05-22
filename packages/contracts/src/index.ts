@@ -561,6 +561,7 @@ export type {
 } from './memory/fetch.js';
 export type {
   BrainObservationSourceType,
+  DocAttachmentObservationPayload,
   ObserveBrainParams,
   ObserveBrainResult,
 } from './memory/observe.js';

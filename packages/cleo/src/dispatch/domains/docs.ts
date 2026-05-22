@@ -30,6 +30,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import type { DocAttachmentObservationPayload } from '@cleocode/contracts';
 import { DocKindRegistry } from '@cleocode/contracts';
 import type {
   DocsAddParams,
@@ -59,6 +60,7 @@ import {
   generateDocsLlmsTxt,
   getCleoDirAbsolute,
   getProjectRoot,
+  memoryObserve,
   resolveAttachmentBackend,
   SlugCollisionError,
 } from '@cleocode/core/internal';
@@ -331,6 +333,65 @@ function compareByOrderBy(
   }
   // newest — descending by createdAt (ISO 8601 lexicographic == chronological)
   return (a, b) => b.createdAt.localeCompare(a.createdAt);
+}
+
+// ─── Doc-attachment memory observation helper (T9976) ─────────────────────────
+
+/**
+ * Build the observation title for a doc-attachment memory entry.
+ *
+ * Uses the slug when available (human-readable, FTS-searchable) or falls
+ * back to the attachment ID so the entry is always addressable.
+ *
+ * @param slug         - Slug recorded for the attachment, if any.
+ * @param attachmentId - Fallback attachment ID.
+ */
+function docObservationTitle(slug: string | undefined, attachmentId: string): string {
+  return `Doc attached: ${slug ?? attachmentId}`;
+}
+
+/**
+ * Emit a memory observation for a successful `docs.add` operation.
+ *
+ * The observation is fire-and-forget — a failure to write to brain.db
+ * MUST NOT fail the docs add operation. The structured payload stored
+ * in the narrative allows `cleo memory verify` to round-trip against
+ * the docs store.
+ *
+ * The title `"Doc attached: <slug|attachmentId>"` lands in the FTS
+ * index so `cleo memory find '<slug>'` surfaces the entry.
+ *
+ * @param payload - Structured doc-attachment payload (T9976).
+ * @param projectRoot - Project root path for brain.db resolution.
+ *
+ * @task T9976
+ */
+function emitDocAttachmentObservation(
+  payload: DocAttachmentObservationPayload,
+  projectRoot: string,
+): void {
+  const title = docObservationTitle(payload.slug, payload.attachmentId);
+  const narrative = JSON.stringify(payload);
+  // Fire-and-forget — never await, never throw from the caller.
+  // `_skipGate: true` bypasses the dedup extraction-gate (unique structured payload).
+  // `sourceType: 'manual'` is intentional: avoids the mental-model queue (which
+  // has a 5-second flush interval) by NOT setting `agent`. The mental-model queue
+  // is only entered when `isMentalModelObservation` returns true, which requires
+  // both a recognized type (feature/discovery/etc.) AND an agent name. Using
+  // `sourceType: 'manual'` writes synchronously via `observeBrain`.
+  memoryObserve(
+    {
+      text: narrative,
+      title,
+      type: 'feature',
+      sourceType: 'manual',
+      origin: 'auto-extract',
+      _skipGate: true,
+    },
+    projectRoot,
+  ).catch(() => {
+    /* Best-effort — never fail docs add on brain.db write errors. */
+  });
 }
 
 // ─── Typed inner handler ──────────────────────────────────────────────────────
@@ -910,6 +971,17 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           /* Graph population is best-effort — never fail docs add. */
         });
 
+      // T9976 — emit structured memory observation for docs.add (fire-and-forget).
+      const filePayload: DocAttachmentObservationPayload = {
+        kind: 'doc-attachment',
+        attachmentId: meta.id,
+        ownerId,
+        addedAt: new Date().toISOString(),
+        ...(slug !== undefined ? { slug } : {}),
+        ...(type !== undefined ? { type } : {}),
+      };
+      emitDocAttachmentObservation(filePayload, getProjectRoot());
+
       return lafsSuccess<DocsAddResult>(
         {
           attachmentId: meta.id,
@@ -975,6 +1047,17 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
       // URL writes stay legacy-only; v2 focuses on local-file / blob kinds.
       const backend: AttachmentBackend = 'legacy';
+
+      // T9976 — emit structured memory observation for docs.add URL path (fire-and-forget).
+      const urlPayload: DocAttachmentObservationPayload = {
+        kind: 'doc-attachment',
+        attachmentId: meta.id,
+        ownerId,
+        addedAt: new Date().toISOString(),
+        ...(slug !== undefined ? { slug } : {}),
+        ...(type !== undefined ? { type } : {}),
+      };
+      emitDocAttachmentObservation(urlPayload, getProjectRoot());
 
       return lafsSuccess<DocsAddResult>(
         {

@@ -11,8 +11,10 @@
  * @epic T5149
  */
 
+import type { DocAttachmentObservationPayload } from '@cleocode/contracts';
 import { getLogger, getProjectRoot } from '@cleocode/core';
 import {
+  createAttachmentStore,
   generateMemoryBridgeContent,
   getBrainDb,
   getBrainNativeDb,
@@ -1750,18 +1752,26 @@ export class MemoryHandler implements DomainHandler {
             let foundTable = '';
             let alreadyVerified = false;
 
+            // T9976 — track narrative for doc-attachment round-trip check.
+            let foundNarrative: string | null = null;
+
             for (const tbl of tables) {
               try {
-                const row = nativeDb
-                  .prepare(
-                    `SELECT id, verified FROM ${tbl} WHERE id = ? AND invalid_at IS NULL LIMIT 1`,
-                  )
-                  .get(entryId) as { id: string; verified: number } | undefined;
+                // For brain_observations, also fetch narrative so we can detect
+                // doc-attachment entries and round-trip against the docs store.
+                const selectSql =
+                  tbl === 'brain_observations'
+                    ? `SELECT id, verified, narrative FROM ${tbl} WHERE id = ? AND invalid_at IS NULL LIMIT 1`
+                    : `SELECT id, verified FROM ${tbl} WHERE id = ? AND invalid_at IS NULL LIMIT 1`;
+                const row = nativeDb.prepare(selectSql).get(entryId) as
+                  | { id: string; verified: number; narrative?: string | null }
+                  | undefined;
 
                 if (row) {
                   found = true;
                   foundTable = tbl;
                   alreadyVerified = row.verified === 1;
+                  foundNarrative = row.narrative ?? null;
 
                   if (!alreadyVerified) {
                     if (tbl === 'brain_observations') {
@@ -1802,6 +1812,28 @@ export class MemoryHandler implements DomainHandler {
               );
             }
 
+            // T9976 — doc-attachment round-trip check.
+            // When the verified entry is a doc-attachment observation, confirm
+            // the attachment still exists in the docs store. If it has been
+            // removed, surface a warning without blocking the verify.
+            let attachmentMissing: boolean | undefined;
+            let attachmentId: string | undefined;
+            if (foundTable === 'brain_observations' && foundNarrative) {
+              try {
+                const payload = JSON.parse(
+                  foundNarrative,
+                ) as Partial<DocAttachmentObservationPayload>;
+                if (payload.kind === 'doc-attachment' && typeof payload.attachmentId === 'string') {
+                  attachmentId = payload.attachmentId;
+                  const store = createAttachmentStore();
+                  const meta = await store.getMetadata(payload.attachmentId);
+                  attachmentMissing = meta === null;
+                }
+              } catch {
+                // Narrative is not a doc-attachment JSON — skip round-trip check.
+              }
+            }
+
             return wrapResult(
               {
                 success: true,
@@ -1811,6 +1843,14 @@ export class MemoryHandler implements DomainHandler {
                   verified: true,
                   alreadyVerified,
                   verifiedAt: alreadyVerified ? null : now,
+                  // T9976 — doc-attachment round-trip fields (only present when applicable).
+                  ...(attachmentId !== undefined ? { attachmentId } : {}),
+                  ...(attachmentMissing !== undefined ? { attachmentMissing } : {}),
+                  ...(attachmentMissing === true
+                    ? {
+                        warning: `Attachment '${attachmentId}' referenced by this observation no longer exists in the docs store. The doc may have been removed.`,
+                      }
+                    : {}),
                 },
               },
               'mutate',
@@ -1981,6 +2021,116 @@ export class MemoryHandler implements DomainHandler {
         case 'sweep':
           return this.query(operation, params);
 
+        // T9976 — backfill: emit memory observations for existing doc attachments
+        // that do not yet have a corresponding brain observation.
+        case 'backfill-docs': {
+          try {
+            const store = createAttachmentStore();
+            const allAttachments = await store.listAllInProject();
+
+            // Collect existing doc-attachment observation narratives to avoid
+            // duplicates. We search for existing entries by fetching the native
+            // brain DB and scanning narratives that contain `"kind":"doc-attachment"`.
+            await getBrainDb(projectRoot);
+            const nativeDb = getBrainNativeDb();
+
+            const existingAttachmentIds = new Set<string>();
+            if (nativeDb) {
+              try {
+                const existing = nativeDb
+                  .prepare(
+                    `SELECT narrative FROM brain_observations
+                     WHERE narrative LIKE '%"kind":"doc-attachment"%'
+                       AND invalid_at IS NULL`,
+                  )
+                  .all() as Array<{ narrative: string | null }>;
+                for (const row of existing) {
+                  if (!row.narrative) continue;
+                  try {
+                    const p = JSON.parse(row.narrative) as Partial<DocAttachmentObservationPayload>;
+                    if (p.kind === 'doc-attachment' && typeof p.attachmentId === 'string') {
+                      existingAttachmentIds.add(p.attachmentId);
+                    }
+                  } catch {
+                    /* malformed JSON — skip */
+                  }
+                }
+              } catch {
+                /* brain_observations query failed — proceed with backfill */
+              }
+            }
+
+            let emitted = 0;
+            let skipped = 0;
+            const emittedIds: string[] = [];
+
+            for (const item of allAttachments) {
+              const attId = item.metadata.id;
+              if (existingAttachmentIds.has(attId)) {
+                skipped++;
+                continue;
+              }
+
+              const extras = await store.getExtras(attId);
+              const slug = extras?.slug ?? undefined;
+              const type = extras?.type ?? undefined;
+
+              const payload: DocAttachmentObservationPayload = {
+                kind: 'doc-attachment',
+                attachmentId: attId,
+                ownerId: item.ownerId,
+                addedAt: item.metadata.createdAt,
+                ...(slug !== undefined ? { slug } : {}),
+                ...(type !== undefined ? { type } : {}),
+              };
+
+              const { memoryObserve: brainObserve } = await import('@cleocode/core/internal');
+              await brainObserve(
+                {
+                  text: JSON.stringify(payload),
+                  title: `Doc attached: ${slug ?? attId}`,
+                  type: 'feature',
+                  // sourceType: 'manual' avoids the mental-model queue (5s flush interval).
+                  // The mental-model queue is only entered when `agent` is set + type is in
+                  // MENTAL_MODEL_TYPES. Using 'manual' bypasses this path entirely.
+                  sourceType: 'manual',
+                  origin: 'auto-extract',
+                  // Skip extraction gate — structured payload, unique per attachment.
+                  _skipGate: true,
+                },
+                projectRoot,
+              ).catch(() => {
+                /* best-effort — skip on failure */
+              });
+
+              emittedIds.push(attId);
+              emitted++;
+            }
+
+            return wrapResult(
+              {
+                success: true,
+                data: {
+                  total: allAttachments.length,
+                  emitted,
+                  skipped,
+                  emittedAttachmentIds: emittedIds,
+                  hint:
+                    emitted === 0
+                      ? 'All existing attachments already have memory observations — nothing to backfill.'
+                      : `Emitted ${emitted} new doc-attachment observations. Use 'cleo memory find <slug>' to verify.`,
+                },
+              },
+              'mutate',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (backfillErr) {
+            return handleErrorResult('mutate', 'memory', operation, backfillErr, startTime);
+          }
+        }
+
         default:
           return unsupportedOp('mutate', 'memory', operation, startTime);
       }
@@ -2065,6 +2215,8 @@ export class MemoryHandler implements DomainHandler {
         'backfill.run',
         'backfill.approve',
         'backfill.rollback',
+        // T9976 — emit memory observations for existing doc attachments
+        'backfill-docs',
       ],
     };
   }
