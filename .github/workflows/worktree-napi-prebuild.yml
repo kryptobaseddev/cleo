@@ -75,9 +75,14 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ matrix.cross }}" = "true" ]; then
-            pnpm dlx @napi-rs/cli@3 build --release --target ${{ matrix.target }} --use-cross
+            pnpm --package=@napi-rs/cli@3 dlx napi build --release --target ${{ matrix.target }} --use-cross
           else
-            pnpm dlx @napi-rs/cli@3 build --release --target ${{ matrix.target }}
+            pnpm --package=@napi-rs/cli@3 dlx napi build --release --target ${{ matrix.target }}
+          fi
+          # napi build writes worktree-napi.node — rename to triple-suffixed name
+          # expected by the loader (`worktree-napi.<triple>.node`).
+          if [ -f worktree-napi.node ]; then
+            mv worktree-napi.node "worktree-napi.${{ matrix.triple }}.node"
           fi
           ls -la *.node
 
