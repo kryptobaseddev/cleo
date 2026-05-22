@@ -31,9 +31,13 @@ vi.mock('../../lifecycle/pipeline.js', () => ({
 
 // Mock attachment store — the docs pillar uses createAttachmentStore
 const mockListByOwner = vi.fn().mockResolvedValue([]);
+// T9964: getExtras returns a slug by default so docs survive the slug-filter
+// in applyDocsFilter (entries without a slug are dropped in diet mode).
+const mockGetExtras = vi.fn().mockResolvedValue({ slug: 'test-slug', type: null });
 vi.mock('../../store/attachment-store.js', () => ({
   createAttachmentStore: vi.fn(() => ({
     listByOwner: mockListByOwner,
+    getExtras: mockGetExtras,
     put: vi.fn(),
     get: vi.fn(),
     getMetadata: vi.fn(),

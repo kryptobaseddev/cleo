@@ -5,4 +5,30 @@ resolver = "2"
 [package]
 name = "release-test-rust-crate"
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.88"
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+invalid_html_tags = "deny"
+missing_crate_level_docs = "warn"
+bare_urls = "warn"
+redundant_explicit_links = "warn"
+unescaped_backticks = "warn"
+private_intra_doc_links = "warn"
+
+[lints.clippy]
+missing_safety_doc = "deny"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+empty_docs = "warn"
+doc_markdown = "warn"
+needless_doctest_main = "warn"
+suspicious_doc_comments = "warn"
+too_long_first_doc_paragraph = "warn"
+unwrap_used = "deny"
+expect_used = "deny"
