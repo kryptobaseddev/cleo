@@ -200,6 +200,26 @@ If ANY gate fails, FIX IT before completing. Do NOT mark a task done with failin
 - Adding imports without checking if they break circular dependencies
 - Modifying test expectations to match broken code instead of fixing the code
 
+## SSoT Enforcement — `defineCommand` Factory (T10072 · Epic T9837 · Saga T9831)
+
+`packages/cleo/src/cli/lib/define-cli-command.ts` is the **ONLY** allowed
+import source for `defineCommand` within `packages/cleo/src/`. Raw imports
+directly from `'citty'` are forbidden outside that SSoT file.
+
+| Anti-pattern | Replacement |
+|---|---|
+| `import { defineCommand } from 'citty'` in any `packages/cleo/src/` file | `import { defineCommand } from '../lib/define-cli-command.js'` (adjust relative path) |
+
+**CI gate**: `scripts/lint-no-raw-define-command.mjs` (job: `Architectural Boundary Check (SG-ARCH-SOLID)`) runs in `--check` (baseline) mode on every PR. It fails when the number of raw citty imports **increases** above the committed baseline.
+
+**Baseline file**: `.cleo/define-command-ssot-baseline.json` — committed and tracks the 139 legacy violations that pre-date this gate. Update it after each migration wave:
+```bash
+node scripts/lint-no-raw-define-command.mjs --baseline
+git add .cleo/define-command-ssot-baseline.json
+```
+
+**Opt-out**: append `// define-command-ssot-allowed` with a justification comment on the import line for genuinely exceptional cases.
+
 ## Paths SSoT (T9802 / SG-WORKTREE-CANON)
 
 `packages/paths/` is the **ONLY** source of worktree and `.cleo` XDG path
