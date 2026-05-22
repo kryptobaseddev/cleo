@@ -55,6 +55,7 @@ import {
   validateTier,
 } from '@cleocode/core/agents/scaffold.js';
 import { startWorkLoop } from '@cleocode/core/agents/work-loop.js';
+import { openCleoDb } from '@cleocode/core/store/open-cleo-db';
 import { defineCommand, showUsage } from 'citty';
 import { AGENTS_SUBDIR, CANT_AGENTS_SUBDIR, CLEO_DIR_NAME } from '../paths.js';
 import { cliError, cliOutput, humanLine, humanWarn } from '../renderers/index.js';
@@ -100,8 +101,7 @@ const registerCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const agentId = args.id;
@@ -226,8 +226,7 @@ const signinCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       // Look up the credential
@@ -342,12 +341,11 @@ const startCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
       const { createRuntime } = await import('@cleocode/runtime');
       const { existsSync, readFileSync } = await import('node:fs');
       const { join } = await import('node:path');
 
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       // 1. Look up credential
@@ -500,8 +498,7 @@ const stopCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const credential = await registry.get(args.agentId);
@@ -566,8 +563,7 @@ const statusCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       if (args.agentId) {
@@ -645,8 +641,7 @@ const assignCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const active = await registry.getActive();
@@ -705,8 +700,7 @@ const wakeCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const active = await registry.getActive();
@@ -774,8 +768,7 @@ const spawnCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const role = args.role;
@@ -845,8 +838,7 @@ const reassignCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
       const active = await registry.getActive();
       if (!active) {
@@ -889,8 +881,7 @@ const stopAllCommand = defineCommand({
   async run() {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
       const agents = await registry.list({ active: true });
       let stopped = 0;
@@ -966,11 +957,10 @@ const workCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
       const { createRuntime } = await import('@cleocode/runtime');
       const { existsSync } = await import('node:fs');
       const { join } = await import('node:path');
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
       const credential = await registry.get(args.agentId);
       if (!credential) {
@@ -1081,8 +1071,7 @@ const listCommand = defineCommand({
   async run({ args }) {
     try {
       const { listAgentsForProject } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
 
       const includeGlobal = args.global === true;
       const includeDisabled = args['include-disabled'] === true;
@@ -1152,8 +1141,7 @@ const getCommand = defineCommand({
   async run({ args }) {
     try {
       const { lookupAgent } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
 
       const includeGlobal = args.global === true;
       const agent = lookupAgent(getProjectRoot(), args.agentId, { includeGlobal });
@@ -1237,8 +1225,7 @@ const attachCommand = defineCommand({
       const { AgentRegistryAccessor, attachAgentToProject, lookupAgent } = await import(
         '@cleocode/core/agents'
       );
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const projectRoot = getProjectRoot();
 
       // Ensure both DBs initialised before any cross-DB operation
@@ -1310,8 +1297,7 @@ const detachCommand = defineCommand({
       const { AgentRegistryAccessor, detachAgentFromProject, getProjectAgentRef } = await import(
         '@cleocode/core/agents'
       );
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const projectRoot = getProjectRoot();
 
       // Ensure both DBs initialised
@@ -1389,8 +1375,7 @@ const removeCommand = defineCommand({
       const { AgentRegistryAccessor, detachAgentFromProject, getProjectAgentRef } = await import(
         '@cleocode/core/agents'
       );
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const projectRoot = getProjectRoot();
 
       if (!args.global) {
@@ -1493,8 +1478,7 @@ const rotateKeyCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const result = await registry.rotateKey(args.agentId);
@@ -1535,8 +1519,7 @@ const claimCodeCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const credential = await registry.get(args.agentId);
@@ -1618,9 +1601,8 @@ const watchCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
       const { createRuntime } = await import('@cleocode/runtime');
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const groupIds = args.group ? args.group.split(',').map((s) => s.trim()) : undefined;
@@ -1711,8 +1693,7 @@ const pollCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const agentId = args.agent as string | undefined;
@@ -1768,8 +1749,7 @@ const sendCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-      await getDb();
+      await openCleoDb('tasks');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
       const agentId = args.agent as string | undefined;
@@ -2406,8 +2386,7 @@ const createCommand = defineCommand({
       let registered = false;
       try {
         const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-        const { getDb } = await import('@cleocode/core/internal'); // core-first-allowed: infrastructure — TODO T9621 promote getDb
-        await getDb();
+        await openCleoDb('tasks');
         const registry = new AgentRegistryAccessor(getProjectRoot());
         const existing = await registry.get(name);
 

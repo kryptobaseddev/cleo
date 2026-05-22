@@ -161,9 +161,6 @@ const statusCommand = defineCommand({
     const startTime = Date.now();
 
     try {
-      // SSoT-EXEMPT:status-index-stats — getIndexStats requires direct pipeline access
-      // with db handle + table refs; no dispatch op exposes this level of detail.
-      // Dispatch 'nexus.status' is used as fallback on error (see catch block).
       const [{ getNexusDb, nexusSchema }, { getIndexStats }] = await Promise.all([
         import('@cleocode/core/store/nexus-sqlite' as string),
         import('@cleocode/nexus/pipeline' as string),
@@ -339,8 +336,6 @@ const setupCommand = defineCommand({
   args: {},
   async run() {
     try {
-      // SSoT-EXEMPT:cli-install — installs filesystem hook, not a domain operation.
-      // Hook installation writes shell scripts to disk and cannot be a LAFS dispatch op.
       const { homedir } = await import('node:os');
       const { installNexusAugmentHook } = await import('@cleocode/core/internal');
 
@@ -910,9 +905,6 @@ const impactCommand = defineCommand({
     const maxDepth = Math.min(parseInt(args.depth as string, 10), 5);
     const symbolName = args.symbol as string;
     try {
-      // SSoT-EXEMPT:shape-mismatch — core NexusImpactResult (targetName/impactByDepth)
-      // differs from contracts NexusImpactResult (targetNodeId/affected); routing through
-      // dispatch.impact would require changing the output format. Tracked in T1510.
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,
