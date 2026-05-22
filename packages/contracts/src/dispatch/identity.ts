@@ -94,6 +94,8 @@ export const CANONICAL_DOMAINS = [
   'upgrade',
   // T9546/T9547: 'cleo worktree list/prune/force-unlock' — worktree lifecycle.
   'worktree',
+  // T9973: 'cleo focus <id>' — single-envelope task orientation (8 calls → 1).
+  'focus',
 ] as const;
 
 /**

@@ -393,6 +393,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/find.js')).findCommand as CommandDef,
   },
   {
+    exportName: 'focusCommand',
+    name: 'focus',
+    description:
+      'Single-envelope orientation for a task, epic, or saga — replaces 8 separate calls with one',
+    load: async () => (await import('../commands/focus.js')).focusCommand as CommandDef,
+  },
+  {
     exportName: 'gcCommand',
     name: 'gc',
     description: 'Transcript garbage collection: manual trigger and status',
