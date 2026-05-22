@@ -298,6 +298,19 @@ export const doctorCommand = defineCommand({
       description:
         'Audit orphaned CLEO-generated temp directories and report what cleo gc --temp would remove (T9043)',
     },
+    /**
+     * T9983: migrate the worktree-include file location from
+     * `<root>/.cleo/worktree-include` (legacy) to `<root>/.worktreeinclude`
+     * (canonical, matches Claude Code Desktop + worktrunk-core). Backs the
+     * legacy file up to `.cleo/backups/worktree-include-<iso>.bak` before
+     * removing it from the legacy path. Combine with `--dry-run` to preview.
+     */
+    'migrate-worktree-include': {
+      type: 'boolean',
+      description:
+        'Migrate <root>/.cleo/worktree-include (legacy) → <root>/.worktreeinclude (canonical, T9983). ' +
+        'Combine with --dry-run to preview.',
+    },
     'dry-run': {
       type: 'boolean',
       description:
@@ -763,6 +776,19 @@ export const doctorCommand = defineCommand({
         if (result.rejected.length > 0) {
           process.exitCode = 1;
         }
+      } else if (args['migrate-worktree-include']) {
+        // T9983: legacy → canonical worktree-include migration.
+        const isDryRun = args['dry-run'] === true;
+        progress.step(
+          0,
+          `${isDryRun ? '[DRY RUN] ' : ''}Migrating .cleo/worktree-include → .worktreeinclude`,
+        );
+        const { migrateWorktreeIncludeFile } = await import('@cleocode/core');
+        const projectRoot = getProjectRoot();
+        const result = await migrateWorktreeIncludeFile(projectRoot, { dryRun: isDryRun });
+        progress.complete(`Migration ${result.action}`);
+
+        cliOutput(result, { command: 'doctor', operation: 'doctor.migrate-worktree-include' });
       } else if (args['audit-temp']) {
         progress.step(0, 'Auditing orphaned CLEO temp directories');
         const { auditOrphanTempDirs } = await import('@cleocode/core/gc/index.js');
