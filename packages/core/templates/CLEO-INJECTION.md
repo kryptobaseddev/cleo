@@ -214,7 +214,6 @@ Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantb
 | List task attachments | `cleo docs list --task <id>` |
 | Generate llms.txt summary | `cleo docs generate --for <taskId>` |
 <!-- /CLEO-INJECTION:section=documents -->
-
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)
 Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` ∈ `tree | table | list | grouped-list | section | single | generic` — agents route on `kind`. Render logic in `packages/core/src/render/`, primitives in `packages/animations/render/`, icon enums in `@cleocode/contracts/render/icon.ts`. Families self-register via `registerRenderer(command, kind, fn)`. Commands: `cleo show T<id>` (typed), `cleo show T<id> --human` (force), `cleo tree T<id>` (generic walk of parent + `groups` edges). Full: `cleo docs fetch adr-077-human-render-contract`.
