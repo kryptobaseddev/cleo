@@ -14,7 +14,7 @@ crate-type = ["rlib"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-lafs-core = { path = "../lafs-core", version = "2026.5.99" }
+lafs-core = { workspace = true }
 
 [dev-dependencies]
 criterion = "0.5"
