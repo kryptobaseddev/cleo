@@ -46,10 +46,27 @@ export {
   progressBars,
   renderProgressBar,
 } from './progress.js';
-
+// === Static UI primitives (T10128 — tree, table, section, badge, legend) ===
+export {
+  type LegendItem,
+  type RenderBadgeOptions,
+  type RenderLegendInput,
+  type RenderSectionInput,
+  type RenderSummaryInput,
+  type RenderTableOptions,
+  type RenderTreeViewOptions,
+  renderBadge,
+  renderLegend,
+  renderSection,
+  renderStatusBadge,
+  renderSummary,
+  renderTable,
+  renderTree,
+  type StatusBadgeName,
+  type SummaryCount,
+} from './render/index.js';
 // === Sparks (one-shot accents) ===
 export { type Spark, type SparkName, sparkDurationMs, sparks } from './spark.js';
-
 // === Spinner handle (canonical owner of \r writes) ===
 export {
   createSpinnerHandle,
