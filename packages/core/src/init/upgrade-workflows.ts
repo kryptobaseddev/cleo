@@ -130,7 +130,7 @@ export interface UpgradeWorkflowsOptions {
   /**
    * Absolute path to the directory containing the `*.yml.tmpl` files —
    * usually the `templates/workflows/` directory of an installed
-   * `@cleocode/cleo` package. Exposed as an option so tests can point at
+   * `@cleocode/core` package. Exposed as an option so tests can point at
    * a fixture tree.
    */
   templatesDir: string;
@@ -445,7 +445,7 @@ async function readIfExists(path: string): Promise<string | null> {
  * // --check semantics — exit 1 when any drift is detected.
  * const result = await upgradeWorkflows({
  *   projectRoot: '/path/to/my-project',
- *   templatesDir: '/path/to/@cleocode/cleo/templates/workflows',
+ *   templatesDir: '/path/to/@cleocode/core/templates/workflows',
  * });
  * if (result.hasDrift) process.exit(1);
  * ```

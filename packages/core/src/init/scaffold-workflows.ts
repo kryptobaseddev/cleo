@@ -1,7 +1,7 @@
 /**
  * GitHub Actions workflow scaffolder for `cleo init --workflows`.
  *
- * Renders the `*.yml.tmpl` templates shipped with `@cleocode/cleo` into a
+ * Renders the `*.yml.tmpl` templates shipped with `@cleocode/core` into a
  * consuming project's `.github/workflows/` directory. Placeholder
  * substitution draws from three sources, in precedence order:
  *
@@ -24,7 +24,7 @@
  * Implementation notes:
  *
  *   - Substitution is deterministic regex `s/{{NAME}}/value/g` per
- *     `packages/cleo/templates/workflows/README.md` — no Mustache /
+ *     `packages/core/templates/workflows/README.md` — no Mustache /
  *     Handlebars / nested templating. A re-render against the same
  *     inputs MUST produce a byte-identical output (idempotence).
  *   - Writes are atomic via tmp-then-rename so partial files cannot leak
@@ -45,7 +45,8 @@
 
 import type { Dirent } from 'node:fs';
 import { appendFile, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
 
@@ -86,7 +87,7 @@ export interface ResolvedToolPlaceholders {
  * Inputs read from `.cleo/release-config.json` that influence
  * substitution. All fields are optional — missing fields fall back to
  * hard-coded defaults documented in
- * `packages/cleo/templates/workflows/README.md`.
+ * `packages/core/templates/workflows/README.md`.
  */
 export interface ScaffoldReleaseConfig {
   /**
@@ -131,7 +132,7 @@ export interface ScaffoldWorkflowsOptions {
   projectRoot: string;
   /**
    * Absolute path to the directory containing `*.yml.tmpl` files. In
-   * normal usage the CLI resolves this against the `@cleocode/cleo`
+   * normal usage the CLI resolves this against the `@cleocode/core`
    * package root. Exposed as an input so the unit test can point at a
    * fixture tree without depending on package layout.
    */
@@ -277,7 +278,7 @@ function resolveToolLine(
  * The "install" tool is NOT part of the ADR-061 canonical tool list — it
  * comes from `release-config.json#installCmd` (when present) and
  * otherwise from {@link DEFAULT_INSTALL_CMD}. This mirrors the contract
- * stated in `packages/cleo/templates/workflows/README.md`.
+ * stated in `packages/core/templates/workflows/README.md`.
  */
 function resolvePlaceholders(
   projectRoot: string,
@@ -314,7 +315,7 @@ function renderTemplate(template: string, substitutions: ReadonlyMap<string, str
 /**
  * Construct the placeholder Map for the given template name. Each
  * template draws from the same vocabulary documented in
- * `packages/cleo/templates/workflows/README.md`; unused entries are
+ * `packages/core/templates/workflows/README.md`; unused entries are
  * simply ignored (no replacement happens).
  *
  * @internal
@@ -431,7 +432,7 @@ async function readIfExists(path: string): Promise<string | null> {
  * ```ts
  * const result = await scaffoldWorkflows({
  *   projectRoot: '/path/to/my-project',
- *   templatesDir: '/path/to/@cleocode/cleo/templates/workflows',
+ *   templatesDir: '/path/to/@cleocode/core/templates/workflows',
  * });
  * for (const o of result.outcomes) {
  *   console.log(`${o.status}: ${o.targetPath}`);
@@ -518,6 +519,42 @@ export async function scaffoldWorkflows(
  *
  * @task T9531
  */
+/**
+ * Resolve the absolute path to `@cleocode/core`'s shipped
+ * `templates/workflows/` directory. Works both in the monorepo source
+ * layout (`packages/core/templates/workflows/`) and in the installed
+ * npm package layout (`node_modules/@cleocode/core/templates/workflows/`).
+ *
+ * Replaces the per-CLI `getWorkflowTemplatesDir()` helpers introduced in
+ * T9531/T9536 — those resolved against `packages/cleo/templates/`, which
+ * violated the Package-Boundary Check now that templates live in core
+ * (T9858).
+ *
+ * @returns Absolute path to the workflows template directory.
+ * @task T9858
+ */
+export function getWorkflowTemplatesDir(): string {
+  // This module compiles to `packages/core/dist/init/scaffold-workflows.js`
+  // in dev and `node_modules/@cleocode/core/dist/init/scaffold-workflows.js`
+  // once installed. Both layouts share the `dist/init → ../../templates`
+  // relationship.
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolve(here, '..', '..', 'templates', 'workflows');
+}
+
+/**
+ * Resolve the absolute path to `@cleocode/core`'s shipped
+ * `templates/git-hooks/` directory. Mirrors {@link getWorkflowTemplatesDir}
+ * for the git-hook installer surface (T1588 / T1608).
+ *
+ * @returns Absolute path to the git-hooks template directory.
+ * @task T9858
+ */
+export function getGitHookTemplatesDir(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolve(here, '..', '..', 'templates', 'git-hooks');
+}
+
 export async function listAvailableWorkflowTemplates(
   templatesDir: string,
 ): Promise<WorkflowName[]> {

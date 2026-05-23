@@ -27,9 +27,7 @@
  * @epic T9497
  */
 
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { getLogger, getProjectRoot } from '@cleocode/core';
+import { getLogger, getProjectRoot, getWorkflowTemplatesDir } from '@cleocode/core';
 import { type UpgradeWorkflowsResult, upgradeWorkflows } from '@cleocode/core/internal';
 
 import type { DispatchResponse, DomainHandler } from '../types.js';
@@ -39,25 +37,15 @@ import { dispatchMeta } from './_meta.js';
 const log = getLogger('domain:upgrade');
 
 /**
- * Resolve the absolute path to the `@cleocode/cleo` package's
- * `templates/workflows/` directory from THIS file's location. Works in
- * both monorepo development (`packages/cleo/dist/dispatch/domains/...`)
- * and installed npm package (`node_modules/@cleocode/cleo/dist/...`)
- * layouts.
- *
- * Mirrors `getWorkflowTemplatesDir` in
- * `packages/cleo/src/cli/commands/init.ts` — that helper is the
- * CLI-layer source, this is the dispatch-layer source. They MUST stay
- * in sync; see T9536 acceptance criteria.
+ * Resolve the absolute path to the `@cleocode/core` package's
+ * `templates/workflows/` directory. Delegates to the SSoT in
+ * `@cleocode/core/init/scaffold-workflows.ts` so the resolver lives
+ * with the templates (T9858 moved them packages/cleo → packages/core).
  *
  * @internal
  */
 function resolveTemplatesDir(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  // here = packages/cleo/dist/dispatch/domains   (after esbuild emit)
-  //      = packages/cleo/src/dispatch/domains    (in dev)
-  // Either way, up 3 levels lands at packages/cleo and templates/workflows is the target.
-  return resolve(here, '..', '..', '..', 'templates', 'workflows');
+  return getWorkflowTemplatesDir();
 }
 
 /**

@@ -1,10 +1,17 @@
 #!/bin/sh
 # CLEO_MANAGED_HOOK v1
 # T1588 — project-agnostic T-ID enforcement for every commit subject.
+# T1608 — diff-scope validation: warn when staged files drift from task scope.
 #
 # Rule: subject MUST contain `T<digits>` somewhere, OR be a merge/revert
 # (which preserves the git merge --no-ff path established in T1587 and the
 # stock `git revert` flow).
+#
+# Diff-scope check (T1608): if `cleo` is on the PATH and the referenced task
+# has a non-empty files[] array, compare the staged diff against that scope.
+# If >50 % of staged files fall outside the task's declared scope, emit a
+# WARNING on stderr — but still exit 0 (hard-block is intentionally omitted
+# to avoid rejecting valid refactors; the warning feeds audit tooling).
 #
 # Override: `git commit --no-verify` bypasses (standard git behaviour).
 # A best-effort audit of `--no-verify` lives in the git shim (see T1591) —
@@ -13,6 +20,7 @@
 # This script is POSIX `/bin/sh` only (no bash/zsh-isms). It MUST work in
 # any environment cleo init runs in: node-less projects, Rust, Python,
 # bare repos, etc. Do not introduce node/pnpm dependencies here.
+# The diff-scope check degrades gracefully when cleo or python3 is absent.
 set -e
 
 MSG_FILE="$1"
@@ -50,11 +58,8 @@ esac
 
 # Match `T` followed by 1+ digits anywhere in the subject.
 # POSIX BRE — `[0-9][0-9]*` is `\d+` equivalent.
-if printf '%s' "$SUBJECT" | grep -Eq 'T[0-9]+'; then
-  exit 0
-fi
-
-cat >&2 <<EOF
+if ! printf '%s' "$SUBJECT" | grep -Eq 'T[0-9]+'; then
+  cat >&2 <<EOF
 cleo commit-msg hook: commit subject is missing a task ID.
 
   subject: $SUBJECT
@@ -70,4 +75,139 @@ Override (audited via git shim — see T1591):
   git commit --no-verify
 
 EOF
-exit 1
+  exit 1
+fi
+
+# -----------------------------------------------------------------------
+# T1608: diff-scope validation (warning-only — exits 0 on all paths below)
+# -----------------------------------------------------------------------
+# Extract the first T-ID from the subject (e.g. "feat(T1608): ..." → T1608).
+TASK_ID=$(printf '%s' "$SUBJECT" | grep -Eo 'T[0-9]+' | head -n 1)
+
+# Resolve cleo binary: prefer explicit CLEO_BIN env, then PATH lookup.
+CLEO_BIN="${CLEO_BIN:-}"
+if [ -z "$CLEO_BIN" ]; then
+  CLEO_BIN=$(command -v cleo 2>/dev/null || true)
+fi
+
+if [ -z "$CLEO_BIN" ] || [ ! -x "$CLEO_BIN" ] || [ -z "$TASK_ID" ]; then
+  # cleo not available or no T-ID extracted — skip diff-scope check.
+  exit 0
+fi
+
+# Resolve python3 (used for JSON parsing — lightweight, no npm required).
+PYTHON3_BIN=$(command -v python3 2>/dev/null || true)
+if [ -z "$PYTHON3_BIN" ]; then
+  # python3 unavailable — skip diff-scope check gracefully.
+  exit 0
+fi
+
+# Fetch task.files[] via cleo show. Suppress errors (task may not exist
+# in cleo DB for the target project; non-zero cleo exit → skip silently).
+TASK_JSON=$("$CLEO_BIN" show "$TASK_ID" 2>/dev/null) || true
+if [ -z "$TASK_JSON" ]; then
+  exit 0
+fi
+
+# Extract the files[] array as one path per line via python3 -c.
+# Using -c avoids the stdin-conflict that arises with heredoc + pipe.
+TASK_FILES=$("$PYTHON3_BIN" -c "
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+    files = d.get('data', {}).get('task', {}).get('files', [])
+    print('\n'.join(f for f in files if f))
+except Exception:
+    pass
+" "$TASK_JSON" 2>/dev/null) || true
+
+if [ -z "$TASK_FILES" ]; then
+  # Task has no files[] scope declared — nothing to validate against.
+  exit 0
+fi
+
+# Get staged file list (diff-scope is only meaningful for staged changes).
+# git diff --cached exits 0 even when empty, so this is always safe.
+STAGED_FILES=$(git diff --cached --name-only 2>/dev/null) || true
+
+if [ -z "$STAGED_FILES" ]; then
+  # No staged files (e.g. amend of message only) — skip check.
+  exit 0
+fi
+
+# Count staged files and how many are in-scope (path prefix or exact match).
+# A staged file is "in-scope" when it matches any task file path OR any
+# task file path is a path-prefix of the staged file (directory scope).
+# We delegate the maths to python3 to avoid shell integer-division quirks.
+# Both TASK_FILES and STAGED_FILES are passed as argv to avoid stdin conflict.
+DRIFT_RESULT=$("$PYTHON3_BIN" -c "
+import sys
+
+# argv[1] = newline-separated task files; argv[2] = newline-separated staged files
+task_files = [f.strip() for f in sys.argv[1].splitlines() if f.strip()]
+staged = [f.strip() for f in sys.argv[2].splitlines() if f.strip()]
+
+def in_scope(staged_path, task_files):
+    for tf in task_files:
+        # Exact match.
+        if staged_path == tf:
+            return True
+        # task file is a directory prefix of the staged file.
+        if staged_path.startswith(tf.rstrip('/') + '/'):
+            return True
+        # staged file is a directory prefix of a task file (task file
+        # is deeper; e.g. task scope is src/foo.ts, staged is src/).
+        if tf.startswith(staged_path.rstrip('/') + '/'):
+            return True
+    return False
+
+if not staged or not task_files:
+    print('SKIP')
+    sys.exit(0)
+
+out_of_scope = [f for f in staged if not in_scope(f, task_files)]
+total = len(staged)
+drift_count = len(out_of_scope)
+drift_pct = (drift_count * 100) // total if total > 0 else 0
+
+print('TOTAL=' + str(total))
+print('DRIFT_COUNT=' + str(drift_count))
+print('DRIFT_PCT=' + str(drift_pct))
+for f in out_of_scope:
+    print('OUT=' + f)
+" "$TASK_FILES" "$STAGED_FILES" 2>/dev/null) || true
+
+# Parse drift result.
+if [ -z "$DRIFT_RESULT" ] || printf '%s' "$DRIFT_RESULT" | grep -q '^SKIP$'; then
+  exit 0
+fi
+
+DRIFT_PCT=$(printf '%s' "$DRIFT_RESULT" | grep '^DRIFT_PCT=' | sed 's/^DRIFT_PCT=//')
+TOTAL=$(printf '%s' "$DRIFT_RESULT" | grep '^TOTAL=' | sed 's/^TOTAL=//')
+DRIFT_COUNT=$(printf '%s' "$DRIFT_RESULT" | grep '^DRIFT_COUNT=' | sed 's/^DRIFT_COUNT=//')
+OUT_FILES=$(printf '%s' "$DRIFT_RESULT" | grep '^OUT=' | sed 's/^OUT=//')
+
+# Threshold: warn when drift exceeds 50 % (i.e. drift_pct > 50).
+THRESHOLD=50
+if [ -n "$DRIFT_PCT" ] && [ "$DRIFT_PCT" -gt "$THRESHOLD" ] 2>/dev/null; then
+  cat >&2 <<EOF
+cleo commit-msg hook [T1608]: diff-scope drift WARNING
+
+  Task   : $TASK_ID
+  Staged : $TOTAL file(s) — $DRIFT_COUNT ($DRIFT_PCT%) are outside $TASK_ID scope
+
+  Out-of-scope staged files:
+$(printf '%s' "$OUT_FILES" | sed 's/^/    /')
+
+  Task scope (files[]):
+$(printf '%s' "$TASK_FILES" | sed 's/^/    /')
+
+  This is a WARNING, not a hard block. The commit will proceed.
+  To silence: ensure staged files align with the task scope,
+  or add the files to the task via \`cleo update $TASK_ID --files ...\`.
+
+EOF
+  # Exit 0 — warning only.
+fi
+
+exit 0

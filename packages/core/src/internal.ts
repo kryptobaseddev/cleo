@@ -280,8 +280,9 @@ export { isProviderHookEvent } from './hooks/types.js';
 // Init engine-ops (ENG-MIG-14 / T1581) — EngineResult wrappers for init operations
 export { ensureInitialized, getVersion, initProject } from './init/engine-ops.js';
 // Init — workflow scaffolder (T9531, Phase 3 of T9494). Renders
-// packages/cleo/templates/workflows/*.yml.tmpl into a consuming project's
+// packages/core/templates/workflows/*.yml.tmpl into a consuming project's
 // .github/workflows/ via ADR-061 tool resolver + .cleo/release-config.json.
+// T9858 relocated templates packages/cleo → packages/core (Package-Boundary).
 export type {
   ResolvedToolPlaceholders,
   ScaffoldReleaseConfig,
@@ -292,6 +293,8 @@ export type {
 } from './init/scaffold-workflows.js';
 export {
   DEFAULT_WORKFLOW_TEMPLATES,
+  getGitHookTemplatesDir,
+  getWorkflowTemplatesDir,
   listAvailableWorkflowTemplates,
   scaffoldWorkflows,
 } from './init/scaffold-workflows.js';
