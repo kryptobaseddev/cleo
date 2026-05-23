@@ -188,6 +188,56 @@ T10366 establishes the registry contract; T10367 (docs add) and T10368
 allocator — callers should continue invoking the existing writers
 (`cleo docs add` dispatch handler, `writeChangesetEntry`) directly.
 
+### Slug similarity warn (T10361 · closes T10167)
+
+`cleo docs add` runs a fuzzy-match check against existing slugs for the
+SAME DocKind at write-time. If the proposed `--slug` is close to an
+existing one (default threshold: normalised Levenshtein score ≥ `0.85`,
+< `1.0`), the CLI surfaces "did you mean: `cleo docs update <slug>`?"
+so an agent does not fork a near-duplicate when an update is the
+intent. Exact (`1.0`) matches fall through to the slug-collision path
+(`E_SLUG_TAKEN`) — they are NOT covered by this check.
+
+```bash
+# Near-duplicate slug — warn mode is the project default.
+$ cleo docs add T123 file.md --slug cant-spec --type spec
+INFO Similar to 'cantspec' (score 0.89) — did you mean: cleo docs update cantspec? Pass --allow-similar to bypass.
+# (write proceeds because mode=warn)
+
+# Same input under `mode: block` (configured in .cleo/canon.yml) — exits 6.
+$ cleo docs add T123 file.md --slug cant-spec --type spec
+{
+  "success": false,
+  "error": {
+    "code": 6,
+    "codeName": "E_SLUG_SIMILARITY",
+    "message": "Similar to 'cantspec' (score 0.89) — did you mean: cleo docs update cantspec? Pass --allow-similar to bypass.",
+    "fix": "Use `cleo docs update cantspec` if updating, or pass --allow-similar to add as a new doc.",
+    "alternatives": [
+      { "action": "update 'cantspec' instead", "command": "cleo docs update cantspec" },
+      { "action": "bypass the similarity check", "command": "cleo docs add T123 file.md --slug cant-spec --type spec --allow-similar" }
+    ]
+  }
+}
+
+# Intentional add (true near-twin, not an update) — bypass + audit-log.
+$ cleo docs add T123 file.md --slug cant-spec --type spec --allow-similar
+# appends one JSONL line to .cleo/audit/similar-bypass.jsonl
+```
+
+Project-level overrides live in `.cleo/canon.yml`:
+
+```yaml
+similarity:
+  warnThreshold: 0.85   # 0..1 — score above this triggers the hint
+  mode: warn            # 'warn' (default) | 'block'
+```
+
+`mode: block` is recommended for CI agents — it surfaces the intent
+mismatch as an exit code rather than a silently-printed warning that
+non-TTY callers ignore. The `--allow-similar` flag is ALWAYS the
+escape hatch and ALWAYS logged.
+
 ### Publish to a git-tracked path (when the doc must live on disk)
 
 ```bash
