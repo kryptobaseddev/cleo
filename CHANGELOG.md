@@ -1,42 +1,66 @@
 # Changelog
 
-## [2026.5.101] (2026-05-22)
+## [2026.5.102] (2026-05-23)
 
-### Saga T9977 SG-WORKTRUNK-OWN — COMPLETE
+### BREAKING CHANGES
 
-Full layered rewrite of worktree provisioning across 10 epics, 10 PRs (#483-#492). Pure-CleoCode-owned Rust core via napi-rs, strict layering, RIP-and-replace of legacy code paths.
+- Unify releases tables — drop release_manifests + releases_view, hard-rename to canonical "releases". (T9686-B2) (#328)
 
-- **E1-AUDIT** (T9978): Catalog of all 17+ crates + JS consumers + napi-rs vs WASM leverage analysis (#483)
-- **E2-RUST-194** (T9979): Rust 1.94 toolchain pinned across all crates, napi-rs CI matrix updated (#484)
-- **E3-WORKTRUNK-CORE** (T9980): crates/worktrunk-core vendored as CleoCode-owned, zero attribution — parallel rayon copy + reflink + .worktreeinclude parser + git worktree primitives (#485)
-- **E4-WORKTREE-NAPI** (T9981): crates/worktree-napi binding exposes provision/destroy/copy/list, prebuilt binaries Linux x64/arm64 + macOS x64/arm64 + Windows x64 (#486)
-- **E5-TS-WORKTREE-REWIRE** (T9982): packages/worktree calls napi exclusively — copy-on-write.ts + worktree-include.ts deleted, **hardcoded `node_modules` block removed entirely** (#487)
-- **E6-WORKTREEINCLUDE-MIGRATION** (T9983): `.worktreeinclude` at repo root is canonical (industry standard); legacy `.cleo/worktree-include` reader retained one cycle with deprecation warning (#488)
-- **E7-CORE-LAYERING** (T9984): packages/core/ consumes packages/worktree exclusively; lint-no-raw-git-worktree.mjs CI gate enforces (#489)
-- **E8-CLI-LAYERING** (T9985): packages/cleo/ is dispatch-only thin wrapper; business logic relocated to core (#490)
-- **E9-RIP-LEGACY** (T9986): All superseded worktree code deleted — packages/cant/src/worktree.ts legacy createWorktree, copy-on-write.ts, inline git-worktree-add invocations (#491)
-- **VALIDATION CLOSURE** (T9987): Benchmark p50=12.9 ms on small fixture (390× under 5000 ms target); 5-agent parallel run 5/5 success at canonical XDG path; multi-language smoke (Rust + Python + Node) all PASS (#492)
+  Migration:
 
-### Headline payoff
+  `release_manifests` is dropped and `releases_view` is removed. Readers that
+  previously queried either name must switch to the canonical `releases`
+  table. The migration handles the data move in-place; consumers that touch
+  the SQLite schema directly (e.g. raw queries outside the DataAccessor) need
+  to update their statements.
 
-`cleo orchestrate spawn` is unblocked. The 60s timeout from the pre-T9982 hardcoded copy-paths block is dead. Saga T9977 closure report at slug `sg-worktrunk-own-closure-report`.
+### Features
 
-## [2026.5.100] (2026-05-22)
+- Agent unification + Conduit architecture — unified cleo agent CLI, AgentRegistry with encrypted credentials, Conduit transport layer. (T170)
+- WASM bindings for the CANT ecosystem — cant-core, lafs-core, conduit-core, signaldock-core compile to WASM with TypeScript SDK integration. (T9738)
+- Saga T10180: delete 7 signaldock-* crates from cleocode workspace (-17k LOC). SignalDock cloud server now lives at signaldock repo. (T10187) (T10181) (#514) (#501)
+- cleo doctor gains --audit-worktree-orphans and --prune-worktree-orphans for the T9550/T9580 SSoT-bug fallout. (T9790)
+- Execute cleo docs import across all 5 legacy doc sources (2388 files) — closes T9625 validation gate. (T9791)
+- cleo docs list defaults to project scope, supports --limit + --orderBy, and surfaces a narrowing hint. (T9792)
+- Saga T9787 closing Epic — 9-step E2E real-world validation + agent-accountability harness (canon-lint). (T9797)
+- Paths SSoT CI gate (lint-paths-ssot.mjs) + resolveWorktreeIndexPath helper (D009 sentinel) (T9802)
+- cleo worktree adopt + multi-source list (Claude Code Agent isolation bridge) (T9804)
+- worktree lifecycle audit log + auto-cleanup GHA workflow (T9805)
+- DB chokepoint refuses opens when the resolved `.cleo/` resides inside a git worktree — defense-in-depth on top of T9803. (T9806)
+- cleo doctor --audit-worktree-orphans comprehensive scan + isolation lint + saga closure report (T9808)
+- Ban worktrees outside canonical XDG location + CI lint gate + migration tool. (T9809)
+- Saga SG-ARCH-SOLID complete: SOLID/DRY architecture restoration across 6 epics, 17 sub-task PRs (T9831) (T9832) (T9833) (T9834) (T9835) (T9836) (T9837) (T10060) (T10061) (T10062) (T10063) (T10064) (T10065) (T10066) (T10067) (T10068) (T10069) (T10070) (T10071) (T10072) (T10073) (T10074) (T10075) (T10076) (#462) (#463) (#464) (#465) (#466) (#467) (#468) (#469) (#470) (#471) (#472) (#473) (#474) (#475) (#476) (#477) (#478)
+- E-ORIENT-V2: multi-agent orientation surface — docs fetch/show fixes, briefing diet + scope, focus macro, per-agent sessions, worktree destroy dispatch, auto-emit memory observation (T9965) (T9966) (T9967) (T9968) (T9973) (T9974) (T9975) (T9976)
 
-### Saga T9831 SG-ARCH-SOLID — COMPLETE
+### Fixes
 
-Architecture restoration across 6 epics, 17 sub-task PRs (#462-#478): CLI=wrapper, core=SDK, contracts=types.
+- Four dispatch/envelope bugs in the release pipeline — worktree help text, pr-status routing, reconcile double-wrap, changelog envelope. (T9686-A) (#324)
+- releaseShow + releaseList read from releases_view SSoT — eliminates dual-table split between releases and release_manifests. (T9686-B) (#323)
+- Provenance backfill — tag enumeration, --since empty handling, foreign-key insertion order. (T9686-C) (#325)
+- Root-cause fix for orphan-`.cleo/` synthesis — `getCleoDirAbsolute` now THROWS when `getProjectRoot` fails unless caller passes `{ bootstrap: true }`. (T9803)
+- bound worktree include-pattern apply loop + optional sparse-checkout scope (T9807)
+- orchestrate ready/waves traverse saga 'groups' relation (+ --via flag) (T9852) (T9839) (#422)
+- SQLITE_BUSY retry on parallel task writes (CORE SDK with-retry primitive) (T9852) (T9839) (#413)
+- RCA + persist severity/kind/scope on task UPDATE (T9852) (T9839) (#425)
+- cleo issue diagnostics reads CLEO version from package.json SSoT (T9852) (T9839) (#411)
+- Bracket+quote-aware acceptance tokenizer + DRY collapse of 3 duplicate split impls (T9852) (T9839) (#412)
+- Route getDb() through worktree-isolation guard (defense-in-depth for ~61 direct core callers) (T9961)
+- Add width-budget + timeout to doctor worktree-orphan audit to prevent 60s+ hang on large corpora (T9962)
 
-- **E-CONTRACTS-FOUNDATION**: ScaffoldResult/CheckResult/OperationDef/Resolution/Gateway/Tier/CanonicalDomain + 17 provenance unions + 15 memory wire-shapes + 6 enum const arrays promoted to @cleocode/contracts
-- **E-CLI-BOUNDARY**: handler-toolkit foundation (5 SDK primitives) + OPERATIONS data (7479 LOC) relocated to contracts behind defineOp/defineDomain builders + 8 fat handlers extracted to core/ + 3 SSoT-EXEMPT comments retired in nexus.ts + T9621 getDb chokepoint closed (#463, #467, #471, #473)
-- **E-CORE-DECOMP**: 4 god-modules decomposed — task-ops (3408 LOC), tasks-schema (2485 LOC incl 1190-LOC provenance), scaffold (2445 LOC), brain-retrieval (2348 LOC) — into ~36 cohesive single-concern files behind barrels. drizzle-kit dry-run verified empty DDL diff (#464, #465, #468, #469)
-- **E-CORE-TOOLS**: 13 first-class SDK tools — TaskTools (4), ProjectTools (3), BrainTools (5), describe-schema. Pure-functional, contracts-typed, vitest-covered (#462, #466, #470, #472)
-- **E-TEST-HELPERS**: tests/integration/helpers/ + skills-coverage 2726→1817 LOC
-- **E-SSOT-ENFORCEMENT**: 5 CI lint gates — no-raw-define-command, no-direct-db-open, contracts-fan-out, no-ssot-exempt, cli-package-boundary — plus `cleo check arch` CLI emitting LAFS envelope (#474, #475, #476, #477, #478)
+### Refactors
 
-### Fixed
+- Promote 17 provenance/job unions + 6 task-axis enum constants from core/store/tasks-schema.ts to @cleocode/contracts (Phase 0c · T9832). (T9955)
+- Promote 15 BRAIN memory wire-shapes from `@cleocode/core` to `@cleocode/contracts/memory` (Phase 0e of SG-ARCH-SOLID). (T9956)
 
-- Hotfix: release-prepare.yml inadvertently bumped external dependencies (tree-sitter, drizzle-orm, @aflsolutions/graphology-communities-leiden, simple-git, @biomejs/biome, @forge-ts/cli, @types/node, typedoc) to the workspace version, blocking npm publish. External deps restored to v5.98 known-good values (#480, #481). Follow-up: P0 fix release-prepare.yml to only bump workspace versions.
+### Documentation
+
+- Worktree prune main-dir protection + AGENTS.md release docs aligned to SPEC-T9345 4-verb pipeline. (T9686-D) (T9686-E) (#320)
+- CLI help-text hardening bundle (gh-392 (T9852) (T9839) (#426)
+
+### Chores
+
+- cleo changeset list verb + README pointing at canonical writer (T9785)
+- biome lint hotfixes — unblock CI after T9797 saga-T9787 file landed (T9852) (T9839) (#427)
 
 ## [2026.5.99] (2026-05-22)
 
