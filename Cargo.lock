@@ -164,7 +164,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cant-core"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "conduit-core",
  "criterion",
@@ -175,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "cant-lsp"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "cant-core",
  "serde",
@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "cant-napi"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "cant-core",
  "cant-router",
@@ -201,7 +201,7 @@ dependencies = [
 
 [[package]]
 name = "cant-router"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "criterion",
  "serde",
@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "cant-runtime"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "cant-core",
  "criterion",
@@ -311,11 +311,11 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cleocode-workspace"
-version = "2026.5.99"
+version = "2026.5.104"
 
 [[package]]
 name = "conduit-core"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "criterion",
  "lafs-core",
@@ -1004,7 +1004,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "cant-core",
  "cant-router",
@@ -1092,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "lafs-core"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "chrono",
  "criterion",
@@ -1104,7 +1104,7 @@ dependencies = [
 
 [[package]]
 name = "lafs-napi"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "lafs-core",
  "napi",
@@ -2527,7 +2527,7 @@ dependencies = [
 
 [[package]]
 name = "worktree-napi"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "anyhow",
  "napi",
@@ -2542,7 +2542,7 @@ dependencies = [
 
 [[package]]
 name = "worktrunk-core"
-version = "2026.5.99"
+version = "2026.5.104"
 dependencies = [
  "anyhow",
  "ignore",

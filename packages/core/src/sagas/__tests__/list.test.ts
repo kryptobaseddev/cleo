@@ -200,6 +200,35 @@ describe('sagaList (T10117)', () => {
     expect(result.data.total).toBe(0);
     expect(result.data.warnings).toBeUndefined();
   });
+
+  it('returns more than the default taskList limit (10) when many sagas exist (T10236)', async () => {
+    // Seed 25 well-formed sagas to exceed the historical default limit of 10
+    // that was silently truncating sagaList output in production (T10236).
+    const now = new Date().toISOString();
+    const manySagas = Array.from({ length: 25 }, (_, idx) => ({
+      id: `T${20000 + idx}`,
+      title: `Bulk saga ${idx}`,
+      status: 'active' as const,
+      priority: 'high' as const,
+      type: 'epic' as const,
+      labels: ['saga'],
+      createdAt: now,
+    }));
+    await seedTasks(accessor, manySagas);
+
+    const result = await sagaList(env.tempDir);
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    // The bug was: total=10 (silent default-limit truncation). Fix returns all 25.
+    expect(result.data.total).toBe(25);
+    expect(result.data.sagas).toHaveLength(25);
+    const seededIds = new Set(manySagas.map((s) => s.id));
+    const returnedIds = new Set(result.data.sagas.map((s) => s.id));
+    for (const id of seededIds) {
+      expect(returnedIds.has(id)).toBe(true);
+    }
+  });
 });
 
 describe('repairSaga (T10117) — AC3', () => {
