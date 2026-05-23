@@ -26,11 +26,13 @@ import type { tasks as coreTasks } from '@cleocode/core';
 import { getLogger, getProjectRoot } from '@cleocode/core';
 import { createAttachmentStore } from '@cleocode/core/internal';
 // Saga core ops — pure business logic moved out of dispatch in T10124.
+// T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
 import {
   sagaAdd as coreSagaAdd,
   sagaCreate as coreSagaCreate,
   sagaList as coreSagaList,
   sagaMembers as coreSagaMembers,
+  repairSaga as coreSagaRepair,
   sagaRollup as coreSagaRollup,
 } from '@cleocode/core/sagas';
 import {
@@ -660,6 +662,8 @@ const MUTATE_OPS = new Set<string>([
   // Saga sub-domain (ADR-073)
   'saga.create',
   'saga.add',
+  // T10117 — repair an I5-violating saga (detach parentId, write groups edge).
+  'saga.repair',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -705,6 +709,19 @@ async function sagaMembers(params: Record<string, unknown>): Promise<LafsEnvelop
 async function sagaRollup(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
   const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
   return wrapCoreResult(await coreSagaRollup(getProjectRoot(), { sagaId }), 'saga.rollup');
+}
+
+/**
+ * saga.repair — detach an I5-violating `parentId` from a saga and re-attach
+ * the former parent via `task_relations.type='groups'`. Idempotent.
+ *
+ * See `core/sagas/repair.ts`.
+ *
+ * @task T10117
+ */
+async function sagaRepair(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
+  const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
+  return wrapCoreResult(await coreSagaRepair(getProjectRoot(), { sagaId }), 'saga.repair');
 }
 
 // ---------------------------------------------------------------------------
@@ -836,6 +853,16 @@ export class TasksHandler implements DomainHandler {
           startTime,
         );
       }
+      if (operation === 'saga.repair') {
+        const envelope = await sagaRepair(params ?? {});
+        return wrapResult(
+          envelopeToEngineResult(envelope),
+          'mutate',
+          'tasks',
+          operation,
+          startTime,
+        );
+      }
     } catch (error) {
       getLogger('domain:tasks').error(
         { gateway: 'mutate', domain: 'tasks', operation, err: error },
@@ -915,6 +942,8 @@ export class TasksHandler implements DomainHandler {
         // Saga sub-domain (ADR-073)
         'saga.create',
         'saga.add',
+        // T10117 — repair an I5-violating saga.
+        'saga.repair',
       ],
     };
   }

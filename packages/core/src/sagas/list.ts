@@ -1,35 +1,89 @@
 /**
  * saga.list — list all Sagas (labeled top-level Epics).
  *
- * Filters for `type='epic'` + `label='saga'` and excludes rows with a
- * `parentId` so only top-level Sagas surface.
+ * Returns every row with `type='epic'` + `label='saga'`, INCLUDING any rows
+ * that carry a non-null `parentId` (which is itself an invariant-I5 violation
+ * per ADR-073 §1.2). The historical `!parentId` filter silently hid those
+ * rows; that bug is fixed here under T10117.
  *
- * NOTE — the `!parentId` filter has a known bug (T10117 — Sagas with a
- * non-null parentId are silently dropped). T10117 fixes it in a separate
- * PR; this extraction MUST preserve the existing behavior so snapshot
- * tests do not change.
+ * Behaviour:
+ * - All saga-labeled rows are returned in `data.sagas`.
+ * - For each row with `parentId != null`, a structured
+ *   `E_SAGA_INVARIANT_VIOLATION_I5` warning is appended to the result
+ *   payload (`data.warnings`) AND pushed onto the active LAFS
+ *   `WarningCollector` so the dispatch layer surfaces it via
+ *   `_meta.warnings[]` on the envelope.
+ * - When no row has a `parentId`, the `warnings` array is omitted entirely
+ *   (no zero-length array), preserving the pre-T10117 envelope shape for
+ *   the well-formed case (AC5).
  *
  * Moved from `packages/cleo/src/dispatch/domains/tasks.ts::sagaList` per
  * AGENTS.md Package-Boundary Check (Saga T10113 / Epic T10208).
  *
+ * @task T10117 — sagaList loud-filter + I5 warnings
  * @task T10124
  * @task T10120
  * @epic T10208
- * @see ADR-073-above-epic-naming.md §1
+ * @saga T10113
+ * @see ADR-073-above-epic-naming.md §1 — Task Hierarchy Charter
+ * @see ADR-073-above-epic-naming.md §1.2 — invariant I5
  */
 
 import type { TaskRecord } from '@cleocode/contracts';
+import { pushWarning } from '@cleocode/lafs';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { type CompactTask, taskList } from '../tasks/list.js';
+import { E_SAGA_INVARIANT_VIOLATION_I5 } from './enforcement.js';
+
+/**
+ * Single I5-violation warning entry attached to `SagaListResult.warnings`.
+ *
+ * The shape is intentionally narrow: `code` is fixed, `sagaId` is the saga
+ * that broke the invariant, and `offendingParentId` is the non-null
+ * `parentId` value that should have lived in a `task_relations.type='groups'`
+ * edge instead.
+ *
+ * @task T10117
+ */
+export interface SagaInvariantI5Warning {
+  /** Fixed warning code — `'E_SAGA_INVARIANT_VIOLATION_I5'`. */
+  code: typeof E_SAGA_INVARIANT_VIOLATION_I5;
+  /** The saga task ID whose `parentId` violates invariant I5. */
+  sagaId: string;
+  /** The non-null `parentId` value found on the saga row. */
+  offendingParentId: string;
+}
 
 /** Result payload for {@link sagaList}. */
 export interface SagaListResult {
+  /** Every saga-labeled row, regardless of `parentId`. */
   sagas: Array<TaskRecord | CompactTask>;
+  /** Total count — always equal to `sagas.length`. */
   total: number;
+  /**
+   * One entry per saga with a non-null `parentId`. Omitted entirely when no
+   * violations were observed, so the envelope shape for a well-formed
+   * dataset matches the pre-T10117 contract.
+   */
+  warnings?: SagaInvariantI5Warning[];
 }
 
 /**
- * List all top-level Sagas (Epics with `label='saga'` and no parentId).
+ * Extract a `parentId` value from a saga task record without leaning on the
+ * raw `TaskRecord` shape (which keeps `parentId` optional). Centralised so
+ * the filter and warning paths stay in sync.
+ *
+ * @param task - A saga row from `taskList`.
+ * @returns The non-empty `parentId` string, or `null` if absent.
+ */
+function readParentId(task: TaskRecord | CompactTask): string | null {
+  const parentId = (task as { parentId?: string | null }).parentId;
+  return parentId ? parentId : null;
+}
+
+/**
+ * List every top-level Saga, including rows whose `parentId` is non-null
+ * (a known invariant-I5 violation surfaced as a structured warning).
  *
  * @param projectRoot - Absolute path to the project root.
  */
@@ -39,11 +93,35 @@ export async function sagaList(projectRoot: string): Promise<EngineResult<SagaLi
     return engineError('E_GENERAL', result.error?.message ?? 'Failed to list Sagas');
   }
   const tasks = result.data?.tasks ?? [];
-  // Filter to top-level only (no parent). This preserves the historical
-  // behavior; the bug is fixed under T10117.
-  const topLevel = tasks.filter((t) => {
-    const parentId = (t as { parentId?: string | null }).parentId;
-    return !parentId;
-  });
-  return engineSuccess({ sagas: topLevel, total: topLevel.length });
+
+  // T10117: loud-include — every saga-labeled row surfaces, with one warning
+  // per I5 violator. We collect warnings inline rather than filtering them
+  // out so consumers see what's wrong without a second round trip.
+  const warnings: SagaInvariantI5Warning[] = [];
+  for (const task of tasks) {
+    const offendingParentId = readParentId(task);
+    if (offendingParentId === null) continue;
+    const warning: SagaInvariantI5Warning = {
+      code: E_SAGA_INVARIANT_VIOLATION_I5,
+      sagaId: task.id,
+      offendingParentId,
+    };
+    warnings.push(warning);
+    // Also surface through the LAFS WarningCollector so the dispatch
+    // adapter attaches it to `_meta.warnings[]`. Falls back to a no-op
+    // when no collector is bound (test harness, SDK consumers, etc.).
+    pushWarning({
+      code: E_SAGA_INVARIANT_VIOLATION_I5,
+      message: `Saga ${task.id} has non-null parentId='${offendingParentId}' (ADR-073 §1.2 invariant I5). Run \`cleo saga repair ${task.id}\` to detach and re-attach via task_relations.type='groups'.`,
+      severity: 'warn',
+      context: { sagaId: task.id, offendingParentId },
+    });
+  }
+
+  const payload: SagaListResult = {
+    sagas: tasks,
+    total: tasks.length,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
+  return engineSuccess(payload);
 }
