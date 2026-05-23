@@ -82,13 +82,40 @@ function readParentId(task: TaskRecord | CompactTask): string | null {
 }
 
 /**
+ * Hard cap passed to the underlying `taskList` call.
+ *
+ * The default `taskList` limit is 10, which silently truncates `cleo saga
+ * list` once the repo grows past ~10 saga-labeled Epics. We bump the cap to
+ * 1000 here so the loud-include path (T10117) actually surfaces every saga
+ * the database holds. If a project ever exceeds 1000 sagas, the call still
+ * returns successfully but a `truncated` warning is appended to
+ * `data.warnings` AND the LAFS `WarningCollector` so consumers know the
+ * envelope is incomplete. The 1000-row ceiling guards against accidental
+ * unbounded reads on pathological databases.
+ *
+ * @task T10236 — sagaList default-limit truncation fix (Saga T10113 closeout)
+ */
+const SAGA_LIST_HARD_LIMIT = 1000;
+
+/**
  * List every top-level Saga, including rows whose `parentId` is non-null
  * (a known invariant-I5 violation surfaced as a structured warning).
+ *
+ * Passes `limit: ${SAGA_LIST_HARD_LIMIT}` to the underlying `taskList` call.
+ * The default `taskList` limit is 10 — small enough that a 19-saga repo
+ * silently dropped 9 rows from the loud-include result that T10117 was
+ * meant to expose. T10236 raised the cap so `cleo saga list` returns the
+ * full set. If the cap is hit, a `truncated` warning is surfaced via
+ * `pushWarning()` so consumers see the envelope is incomplete.
  *
  * @param projectRoot - Absolute path to the project root.
  */
 export async function sagaList(projectRoot: string): Promise<EngineResult<SagaListResult>> {
-  const result = await taskList(projectRoot, { type: 'epic', label: 'saga' });
+  const result = await taskList(projectRoot, {
+    type: 'epic',
+    label: 'saga',
+    limit: SAGA_LIST_HARD_LIMIT,
+  });
   if (!result.success) {
     return engineError('E_GENERAL', result.error?.message ?? 'Failed to list Sagas');
   }
