@@ -1,5 +1,8 @@
 ---
-"@cleocode/contracts": minor
+id: t10197-boundary-registry-data
+tasks: [T10197]
+kind: feat
+summary: "populate BOUNDARY_REGISTRY with all 19 crates + 20 packages (SAGA T10176)"
 ---
 
 feat(T10197): populate BOUNDARY_REGISTRY with all 19 crates + 20 packages (SAGA T10176)

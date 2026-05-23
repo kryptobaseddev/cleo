@@ -3,7 +3,7 @@ id: t9956-memory-wire-shapes
 tasks: [T9956]
 kind: refactor
 prs: []
-summary: Promote 15 BRAIN memory wire-shapes from `@cleocode/core` to `@cleocode/contracts/memory` (Phase 0e of SG-ARCH-SOLID).
+summary: "Promote 15 BRAIN memory wire-shapes from `@cleocode/core` to `@cleocode/contracts/memory` (Phase 0e of SG-ARCH-SOLID)."
 ---
 
 Phase 0e of [Saga SG-ARCH-SOLID (T9831)](https://github.com/kryptobaseddev/cleo)

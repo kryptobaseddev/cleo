@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t9979-rust-194-toolchain-bump
+tasks: [T9979]
+kind: feat
+summary: "bump Rust toolchain to 1.94 workspace-wide"
 ---
 
 chore(T9979): bump Rust toolchain to 1.94 workspace-wide

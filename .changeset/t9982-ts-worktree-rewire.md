@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": minor
+id: t9982-ts-worktree-rewire
+tasks: [T9982]
+kind: feat
+summary: "packages/worktree rewired to @cleocode/worktree-napi"
 ---
 
 feat(T9982): packages/worktree rewired to @cleocode/worktree-napi

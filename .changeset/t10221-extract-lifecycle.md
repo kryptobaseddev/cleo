@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10221-extract-lifecycle
+tasks: [T10221]
+kind: feat
+summary: "extract lifecycle SDK primitives into worktrunk-core (SAGA T10176, T10218)"
 ---
 
 feat(T10221): extract lifecycle SDK primitives into worktrunk-core (SAGA T10176, T10218)

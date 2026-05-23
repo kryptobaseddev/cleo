@@ -3,7 +3,7 @@ id: t9809-location-guards
 tasks: [T9809]
 kind: feat
 prs: []
-summary: Ban worktrees outside canonical XDG location + CI lint gate + migration tool.
+summary: "Ban worktrees outside canonical XDG location + CI lint gate + migration tool."
 ---
 
 Implements the worktree location enforcement layer for Saga T9800 SG-WORKTREE-CANON,

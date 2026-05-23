@@ -1,7 +1,8 @@
 ---
-"@cleocode/cleo": minor
-"@cleocode/core": minor
-"@cleocode/contracts": minor
+id: t9546-worktree-list
+tasks: [T9546]
+kind: feat
+summary: "cleo worktree list — structured JSON for all CLEO-managed worktrees (SAGA T10176)"
 ---
 
 feat(T9546): cleo worktree list — structured JSON for all CLEO-managed worktrees (SAGA T10176)

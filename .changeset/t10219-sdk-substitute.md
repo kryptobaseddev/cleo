@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10219-sdk-substitute
+tasks: [T10219]
+kind: feat
+summary: "worktrunk SDK substitute surface in worktrunk-core (hybrid DTO + git2 wrapper, SAGA T10176)"
 ---
 
 feat(T10219): worktrunk SDK substitute surface in worktrunk-core (hybrid DTO + git2 wrapper, SAGA T10176)

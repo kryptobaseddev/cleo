@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10222-parity-tests
+tasks: [T10222]
+kind: feat
+summary: "parity test suite for worktrunk-core SDK primitives (SAGA T10176, T10218)"
 ---
 
 test(T10222): parity test suite for worktrunk-core SDK primitives (SAGA T10176, T10218)

@@ -3,7 +3,7 @@ id: t9686-de-classification
 tasks: [T9686-D, T9686-E]
 kind: docs
 prs: [320]
-summary: Worktree prune main-dir protection + AGENTS.md release docs aligned to SPEC-T9345 4-verb pipeline.
+summary: "Worktree prune main-dir protection + AGENTS.md release docs aligned to SPEC-T9345 4-verb pipeline."
 ---
 
 Shipped on `main` via PR #320 (merge commit `a953d653d`).

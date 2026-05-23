@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10191-orchestrate-saga-trim
+tasks: [T10191]
+kind: feat
+summary: "remove dead cleo-find fallback from /orchestrate-saga slash command (SAGA T10176)"
 ---
 
 chore(T10191): remove dead cleo-find fallback from /orchestrate-saga slash command (SAGA T10176)

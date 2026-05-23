@@ -3,7 +3,7 @@ id: t9686-b2-unification
 tasks: [T9686-B2]
 kind: breaking
 prs: [328]
-summary: Unify releases tables — drop release_manifests + releases_view, hard-rename to canonical "releases".
+summary: "Unify releases tables — drop release_manifests + releases_view, hard-rename to canonical 'releases'."
 breaking: |
   `release_manifests` is dropped and `releases_view` is removed. Readers that
   previously queried either name must switch to the canonical `releases`

@@ -3,7 +3,7 @@ id: t9686-b-band-aid
 tasks: [T9686-B]
 kind: fix
 prs: [323]
-summary: releaseShow + releaseList read from releases_view SSoT — eliminates dual-table split between releases and release_manifests.
+summary: "releaseShow + releaseList read from releases_view SSoT — eliminates dual-table split between releases and release_manifests."
 ---
 
 Shipped on `main` via PR #323 (merge commit `69e58e332`).

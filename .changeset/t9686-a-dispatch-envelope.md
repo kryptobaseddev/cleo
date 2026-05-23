@@ -3,7 +3,7 @@ id: t9686-a-dispatch-envelope
 tasks: [T9686-A]
 kind: fix
 prs: [324]
-summary: Four dispatch/envelope bugs in the release pipeline — worktree help text, pr-status routing, reconcile double-wrap, changelog envelope.
+summary: "Four dispatch/envelope bugs in the release pipeline — worktree help text, pr-status routing, reconcile double-wrap, changelog envelope."
 ---
 
 Shipped on `main` via PR #324 (merge commit `dd241ea39`).

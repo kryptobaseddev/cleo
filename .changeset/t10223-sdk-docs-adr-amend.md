@@ -1,6 +1,8 @@
 ---
-"@cleocode/cleo": patch
-"@cleocode/contracts": patch
+id: t10223-sdk-docs-adr-amend
+tasks: [T10223]
+kind: feat
+summary: "worktrunk-core public API doc + ADR-078 amendment (SAGA T10176, closes E3-PREREQ)"
 ---
 
 docs(T10223): worktrunk-core public API doc + ADR-078 amendment (SAGA T10176, closes E3-PREREQ)

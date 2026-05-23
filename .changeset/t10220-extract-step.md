@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10220-extract-step
+tasks: [T10220]
+kind: feat
+summary: "extract step/* SDK primitives into worktrunk-core (SAGA T10176, T10218)"
 ---
 
 feat(T10220): extract step/* SDK primitives into worktrunk-core (SAGA T10176, T10218)

@@ -2,7 +2,7 @@
 id: t9792-docs-list-ux
 tasks: [T9792]
 kind: feat
-summary: cleo docs list defaults to project scope, supports --limit + --orderBy, and surfaces a narrowing hint.
+summary: "cleo docs list defaults to project scope, supports --limit + --orderBy, and surfaces a narrowing hint."
 ---
 
 `cleo docs list` now works WITHOUT requiring an explicit scope flag.

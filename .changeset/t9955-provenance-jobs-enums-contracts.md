@@ -3,7 +3,7 @@ id: t9955-provenance-jobs-enums-contracts
 tasks: [T9955]
 kind: refactor
 prs: []
-summary: Promote 17 provenance/job unions + 6 task-axis enum constants from core/store/tasks-schema.ts to @cleocode/contracts (Phase 0c · T9832).
+summary: "Promote 17 provenance/job unions + 6 task-axis enum constants from core/store/tasks-schema.ts to @cleocode/contracts (Phase 0c · T9832)."
 ---
 
 Phase 0c of [Saga SG-ARCH-SOLID (T9831)](../) · Epic

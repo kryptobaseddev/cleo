@@ -2,7 +2,7 @@
 id: t9791-docs-migrate-execute
 tasks: [T9791]
 kind: feat
-summary: Execute cleo docs import across all 5 legacy doc sources (2388 files) — closes T9625 validation gate.
+summary: "Execute cleo docs import across all 5 legacy doc sources (2388 files) — closes T9625 validation gate."
 ---
 
 Shipped on `main` via the T9791 Epic (E-DOCS-MIGRATE-EXECUTE).

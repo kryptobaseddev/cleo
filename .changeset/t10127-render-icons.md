@@ -1,5 +1,8 @@
 ---
-"@cleocode/contracts": minor
+id: t10127-render-icons
+tasks: [T10127]
+kind: feat
+summary: "typed icon enums (B2) — StatusIcon, KindIcon, BadgeIcon, RelationIcon with ASCII fallback"
 ---
 
 feat(T10127): typed icon enums (B2) — StatusIcon, KindIcon, BadgeIcon, RelationIcon with ASCII fallback

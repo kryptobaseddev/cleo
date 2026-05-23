@@ -2,7 +2,7 @@
 id: t9797-real-world-validation
 tasks: [T9797]
 kind: feat
-summary: Saga T9787 closing Epic — 9-step E2E real-world validation + agent-accountability harness (canon-lint).
+summary: "Saga T9787 closing Epic — 9-step E2E real-world validation + agent-accountability harness (canon-lint)."
 ---
 
 The closing Epic of Saga T9787 (SG-DOCS-CANON-CLOSURE). Three deliverables:

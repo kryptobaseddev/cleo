@@ -1,6 +1,8 @@
 ---
-"@cleocode/core": patch
-"@cleocode/cleo": patch
+id: t10205-delete-cleo-llm-native
+tasks: [T10205]
+kind: feat
+summary: "delete verified-dead cleo-llm-native crate + JS loader (SAGA T10176)"
 ---
 
 chore(T10205): delete verified-dead cleo-llm-native crate + JS loader (SAGA T10176)

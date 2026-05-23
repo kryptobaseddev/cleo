@@ -1,6 +1,8 @@
 ---
-"@cleocode/core": patch
-"@cleocode/cleo": patch
+id: t9545-spawn-supervisor
+tasks: [T9545]
+kind: feat
+summary: "orchestrate spawn supervisor — bounded timeout + auto-cleanup (SAGA T10176)"
 ---
 
 fix(T9545): orchestrate spawn supervisor — bounded timeout + auto-cleanup (SAGA T10176)

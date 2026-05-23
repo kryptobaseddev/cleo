@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10198-lint-boundary-registry
+tasks: [T10198]
+kind: feat
+summary: "boundary-registry CI gate (SAGA T10176, ADR-078)"
 ---
 
 feat(T10198): boundary-registry CI gate (SAGA T10176, ADR-078)

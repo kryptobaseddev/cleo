@@ -2,7 +2,7 @@
 id: t9852-gh-409-acceptance-tokenizer
 tasks: [T9852, T9839]
 kind: fix
-summary: Bracket+quote-aware acceptance tokenizer + DRY collapse of 3 duplicate split impls
+summary: "Bracket+quote-aware acceptance tokenizer + DRY collapse of 3 duplicate split impls"
 prs: [412]
 ---
 

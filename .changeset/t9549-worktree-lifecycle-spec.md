@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t9549-worktree-lifecycle-spec
+tasks: [T9549]
+kind: feat
+summary: "worktree-lifecycle spec — closes E1 chain (SAGA T10176)"
 ---
 
 docs(T9549): worktree-lifecycle spec — closes E1 chain (SAGA T10176)

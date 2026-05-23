@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t10179-executor-probe
+tasks: [T10179]
+kind: feat
+summary: "Executor npm-pack probe (SAGA T10176)"
 ---
 
 chore(T10179): Executor npm-pack probe (SAGA T10176)

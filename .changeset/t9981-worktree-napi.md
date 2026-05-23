@@ -1,5 +1,8 @@
 ---
-"@cleocode/cleo": patch
+id: t9981-worktree-napi
+tasks: [T9981]
+kind: feat
+summary: "crates/worktree-napi — napi-rs binding for worktrunk-core"
 ---
 
 feat(T9981): crates/worktree-napi — napi-rs binding for worktrunk-core

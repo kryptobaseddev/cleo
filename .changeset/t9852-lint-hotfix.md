@@ -2,7 +2,7 @@
 id: t9852-lint-hotfix
 tasks: [T9852, T9839]
 kind: chore
-summary: biome lint hotfixes — unblock CI after T9797 saga-T9787 file landed
+summary: "biome lint hotfixes — unblock CI after T9797 saga-T9787 file landed"
 prs: [427]
 ---
 
