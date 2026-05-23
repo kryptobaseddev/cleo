@@ -1,11 +1,18 @@
 ---
-"@cleocode/cleo": minor
-"@cleocode/core": minor
-"@cleocode/animations": patch
+id: t10134-generic-cleo-tree
+tasks: [T10134]
+kind: feat
+summary: "B9 generic cleo tree — walks parent + groups edges to full depth, KindIcon + ⊂ relation prefix"
+prs: [563]
 ---
 
-feat(T10134): generic `cleo tree <id>` — walks parent + groups edges to full depth, KindIcon + RelationIcon prefixes (B9)
-
-`cleo tree T9855` now shows the full saga membership tree (12 members + their subtrees), not just the 2 parent-edge children. Walks `task_relations.relation_type='groups'` AND `parent_id` edges recursively to full depth. Shows ancestor chain upward from root. KindIcon (🌲/📋/•/◦) before each node, RelationIcon.GROUPS (⊂) prefix on saga members. Derives from typed `TreeResponse<T>` contract; uses `renderTree` primitive from `@cleocode/animations/render`. NO `--root`/`--depth`/`--kinds` flags. `--withDeps` and `--blockers` preserved.
-
-Closes T10134. Epic: T10114. ADR: adr-077-human-render-contract.
+`cleo tree <id>` now walks BOTH `parent_id` AND
+`task_relations.relation_type='groups'` edges from any root, recursively
+to full depth. `cleo tree T9855` shows all 12 saga members + their
+subtree (109 nodes total), not just 2 parent-edge children. Shows
+ancestor chain upward from the root for context. `KindIcon` prefix
+(🌲/📋/•/◦) per node; `RelationIcon.GROUPS` (⊂) prefix for
+saga-membership edges. Derives from typed `TreeResponse<T>` (B1.1) and
+uses the `renderTree` primitive from `@cleocode/animations/render` (B3).
+Removes `--root`/`--depth`/`--kinds` flags; preserves
+`--withDeps`/`--blockers`.
