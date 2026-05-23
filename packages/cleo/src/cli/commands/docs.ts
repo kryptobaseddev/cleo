@@ -27,7 +27,10 @@ import {
   buildDocsGraph,
   CleoError,
   CounterMismatchError,
+  checkSlugSimilarity,
   createAttachmentStoreDocsAccessor,
+  DEFAULT_SIMILARITY_MODE,
+  DEFAULT_SIMILARITY_THRESHOLD,
   exportDocument,
   getAgentOutputsAbsolute,
   getProjectRoot,
@@ -47,6 +50,7 @@ import {
 } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { loadCanonRegistry } from '../../dispatch/domains/check/canon-docs.js';
 import { assertKnownFlags, UnknownFlagError } from '../lib/strict-args.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 import { docsViewerSubcommands } from './docs-viewer.js';
@@ -247,6 +251,13 @@ const addCommand = defineCommand({
       description:
         'Taxonomy classification — run `cleo docs list-types` to enumerate registered kinds (T9637 / T9788)',
     },
+    'allow-similar': {
+      type: 'boolean',
+      description:
+        'Bypass the T10361 slug-similarity check. Use when you really do mean to ' +
+        'add a new doc with a near-duplicate slug (e.g. intentional fork). ' +
+        'Every bypass is logged to .cleo/audit/similar-bypass.jsonl.',
+    },
   },
   async run({ args, rawArgs }) {
     // T10359 — pre-parse strict flag validation. citty's underlying
@@ -270,6 +281,7 @@ const addCommand = defineCommand({
     const ownerId = args['owner-id'];
     const fileArg = args.file ?? undefined;
     const url = args.url ?? undefined;
+    const allowSimilar = args['allow-similar'] === true;
 
     if (!fileArg && !url) {
       cliError('provide a file path (positional argument) or --url <url>', 6, {
@@ -277,6 +289,104 @@ const addCommand = defineCommand({
         fix: 'Example: cleo docs add T123 docs/rfc.md --desc "RFC draft" — or — cleo docs add T123 --url https://example.com/spec',
       });
       process.exit(6);
+    }
+
+    // T10361 — slug similarity check. Fires only when BOTH --slug and
+    // --type are supplied AND the proposed slug fuzzy-matches an existing
+    // slug for the same kind (score >= threshold, < 1.0). Exact collisions
+    // fall through to the AttachmentStore's slug-collision path.
+    if (args.slug && args.type) {
+      const projectRoot = await getProjectRoot();
+      let warnThreshold = DEFAULT_SIMILARITY_THRESHOLD;
+      let mode: 'warn' | 'block' = DEFAULT_SIMILARITY_MODE;
+      try {
+        const canon = loadCanonRegistry(projectRoot);
+        if (canon?.similarity) {
+          warnThreshold = canon.similarity.warnThreshold;
+          mode = canon.similarity.mode;
+        }
+      } catch {
+        // canon.yml malformed — proceed with defaults rather than blocking
+        // the user-requested action. `cleo check canon docs` will surface
+        // the real diagnostic separately.
+      }
+
+      try {
+        const sim = await checkSlugSimilarity({
+          slug: args.slug,
+          type: args.type,
+          projectRoot,
+          threshold: warnThreshold,
+        });
+        if (sim.mostSimilarSlug !== null) {
+          const scoreFixed = sim.score.toFixed(2);
+          const hint =
+            `Similar to '${sim.mostSimilarSlug}' (score ${scoreFixed}) — ` +
+            `did you mean: cleo docs update ${sim.mostSimilarSlug}? ` +
+            `Pass --allow-similar to bypass.`;
+
+          if (mode === 'block' && !allowSimilar) {
+            cliError(hint, ExitCode.VALIDATION_ERROR, {
+              name: 'E_SLUG_SIMILARITY',
+              fix: `Use \`cleo docs update ${sim.mostSimilarSlug}\` if updating, or pass --allow-similar to add as a new doc.`,
+              alternatives: [
+                {
+                  action: `update '${sim.mostSimilarSlug}' instead`,
+                  command: `cleo docs update ${sim.mostSimilarSlug}`,
+                },
+                {
+                  action: 'bypass the similarity check',
+                  command: `cleo docs add ${ownerId} ${fileArg ?? `--url ${url}`} --slug ${args.slug} --type ${args.type} --allow-similar`,
+                },
+              ],
+              details: {
+                proposedSlug: args.slug,
+                mostSimilarSlug: sim.mostSimilarSlug,
+                score: sim.score,
+                threshold: warnThreshold,
+                kind: args.type,
+              },
+            });
+            process.exit(ExitCode.VALIDATION_ERROR);
+          }
+
+          // warn mode OR --allow-similar — print the hint, continue.
+          humanInfo(hint);
+
+          if (allowSimilar) {
+            // Audit-log the bypass (best-effort — never blocks the write).
+            const auditLine = `${JSON.stringify({
+              ts: new Date().toISOString(),
+              reason: 'allow-similar-bypass',
+              proposedSlug: args.slug,
+              mostSimilarSlug: sim.mostSimilarSlug,
+              score: sim.score,
+              threshold: warnThreshold,
+              kind: args.type,
+              ownerId,
+            })}\n`;
+            try {
+              await mkdir(join(projectRoot, '.cleo', 'audit'), { recursive: true });
+              await appendFile(
+                join(projectRoot, '.cleo', 'audit', 'similar-bypass.jsonl'),
+                auditLine,
+                'utf-8',
+              );
+            } catch {
+              // Audit log is best-effort — never block the user-requested action.
+            }
+          }
+        }
+      } catch (err) {
+        // Similarity check is a soft gate — DB-open failures, missing
+        // tables, etc. must NEVER block a docs add. Surface a debug hint
+        // and continue.
+        if (process.env['CLEO_DEBUG']) {
+          humanInfo(
+            `similarity check skipped: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
     }
 
     await dispatchFromCli(

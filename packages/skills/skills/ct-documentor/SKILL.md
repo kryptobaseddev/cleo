@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.2.0
+version: 3.3.0
 tier: 3
 core: false
 category: specialist
@@ -150,6 +150,56 @@ Slugs share a GLOBAL namespace across all DocKinds — `reserveSlug('changeset',
 'foo')` followed by `reserveSlug('research', 'foo')` collides (decision
 T10390 / E1.5). Matches the `uniq_attachments_slug` partial UNIQUE INDEX in
 migration `20260519000001`.
+
+### Slug similarity warn (T10361 · closes T10167)
+
+`cleo docs add` runs a fuzzy-match check against existing slugs for the
+SAME DocKind at write-time. If the proposed `--slug` is close to an
+existing one (default threshold: normalised Levenshtein score ≥ `0.85`,
+< `1.0`), the CLI surfaces "did you mean: `cleo docs update <slug>`?"
+so an agent does not fork a near-duplicate when an update is the
+intent. Exact (`1.0`) matches fall through to the slug-collision path
+(`E_SLUG_TAKEN`) — they are NOT covered by this check.
+
+```bash
+# Near-duplicate slug — warn mode is the project default.
+$ cleo docs add T123 file.md --slug cant-spec --type spec
+INFO Similar to 'cantspec' (score 0.89) — did you mean: cleo docs update cantspec? Pass --allow-similar to bypass.
+# (write proceeds because mode=warn)
+
+# Same input under `mode: block` (configured in .cleo/canon.yml) — exits 6.
+$ cleo docs add T123 file.md --slug cant-spec --type spec
+{
+  "success": false,
+  "error": {
+    "code": 6,
+    "codeName": "E_SLUG_SIMILARITY",
+    "message": "Similar to 'cantspec' (score 0.89) — did you mean: cleo docs update cantspec? Pass --allow-similar to bypass.",
+    "fix": "Use `cleo docs update cantspec` if updating, or pass --allow-similar to add as a new doc.",
+    "alternatives": [
+      { "action": "update 'cantspec' instead", "command": "cleo docs update cantspec" },
+      { "action": "bypass the similarity check", "command": "cleo docs add T123 file.md --slug cant-spec --type spec --allow-similar" }
+    ]
+  }
+}
+
+# Intentional add (true near-twin, not an update) — bypass + audit-log.
+$ cleo docs add T123 file.md --slug cant-spec --type spec --allow-similar
+# appends one JSONL line to .cleo/audit/similar-bypass.jsonl
+```
+
+Project-level overrides live in `.cleo/canon.yml`:
+
+```yaml
+similarity:
+  warnThreshold: 0.85   # 0..1 — score above this triggers the hint
+  mode: warn            # 'warn' (default) | 'block'
+```
+
+`mode: block` is recommended for CI agents — it surfaces the intent
+mismatch as an exit code rather than a silently-printed warning that
+non-TTY callers ignore. The `--allow-similar` flag is ALWAYS the
+escape hatch and ALWAYS logged.
 
 ### Publish to a git-tracked path (when the doc must live on disk)
 

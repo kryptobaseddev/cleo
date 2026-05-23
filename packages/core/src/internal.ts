@@ -263,6 +263,19 @@ export {
   releaseReservedSlug,
   reserveSlug,
 } from './docs/slug-allocator.js';
+// Docs slug-similarity check (T10361 — closes T10167)
+export type {
+  CheckSlugSimilarityOptions,
+  SimilarityCheckResult,
+  SimilarityConfig,
+  SimilarityMode,
+} from './docs/similarity-check.js';
+export {
+  checkSlugSimilarity,
+  DEFAULT_SIMILARITY_MODE,
+  DEFAULT_SIMILARITY_THRESHOLD,
+  parseSimilarityConfig,
+} from './docs/similarity-check.js';
 // Git hooks (T1588) — project-agnostic POSIX commit-msg + pre-push T-ID enforcement
 export type {
   CleoHookName,
