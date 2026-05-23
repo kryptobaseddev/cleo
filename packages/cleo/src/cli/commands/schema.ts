@@ -65,7 +65,7 @@ function resolveOperationDef(operationArg: string): OperationDef | null {
  * pure metadata over the registry and does not require a live session or DB.
  *
  * Human rendering is delegated to `renderSchemaCommand` in
- * `packages/cleo/src/cli/renderers/system.ts` (registered under `'schema'`
+ * `packages/core/src/render/session/schema.ts` (registered under `'schema'`
  * in the renderer registry). JSON output follows the standard LAFS envelope
  * via `cliOutput`.
  */
