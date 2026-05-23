@@ -217,26 +217,7 @@ Starter playbooks ship with `@cleocode/playbooks`: `rcasd.cantbook`, `ivtr.cantb
 
 <!-- CLEO-INJECTION:section=human-render -->
 ## Human Render Contract (ADR-077)
-
-Every CLI command emits a typed `RenderableEnvelope<T>` from `@cleocode/contracts`:
-
-- `kind: 'tree' | 'table' | 'list' | 'grouped-list' | 'section' | 'single' | 'generic'`
-- Render path: `cliOutput` → `renderEnvelopeForHuman(envelope, command, ctx)` → registry-routed renderer
-- All rendering logic lives in `packages/core/src/render/` (NOT `packages/cleo/`)
-- Static UI primitives in `packages/animations/render/` (Tree, Table, Section, Badge, Legend)
-- Typed icon enums in `@cleocode/contracts/render/icon.ts` (`StatusIcon`, `KindIcon`, `BadgeIcon`, `RelationIcon`)
-- Family renderers self-register at module load via `registerRenderer(command, kind, fn)` — importing `@cleocode/core/render` populates every slot via side-effect re-exports
-
-Canonical agent patterns:
-
-| Goal | Command |
-|------|---------|
-| Show one task (typed envelope; human render via core registry) | `cleo show T<id>` |
-| Force human render when JSON is the default | `cleo show T<id> --human` |
-| Generic tree from any root (walks parent + `groups` edges, full depth) | `cleo tree T<id>` |
-
-Agents can route their own rendering off `envelope.data.kind` without re-parsing
-the payload shape. Full architecture: `cleo docs fetch adr-077-human-render-contract`.
+Typed `RenderableEnvelope<T>` from `@cleocode/contracts`. `envelope.data.kind` ∈ `tree | table | list | grouped-list | section | single | generic` — agents route on `kind`. Render logic in `packages/core/src/render/`, primitives in `packages/animations/render/`, icon enums in `@cleocode/contracts/render/icon.ts`. Families self-register via `registerRenderer(command, kind, fn)`. Commands: `cleo show T<id>` (typed), `cleo show T<id> --human` (force), `cleo tree T<id>` (generic walk of parent + `groups` edges). Full: `cleo docs fetch adr-077-human-render-contract`.
 <!-- /CLEO-INJECTION:section=human-render -->
 
 <!-- CLEO-INJECTION:section=error-handling -->
