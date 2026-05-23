@@ -35,6 +35,20 @@
 # Removing a `rawMdPaths` entry:
 #   Drop the path here. Any future raw additions will be blocked.
 #
+# Optional `similarity:` block (T10361 — closes T10167):
+#   Controls the `cleo docs add` slug-similarity check that fires when a
+#   proposed `--slug` is fuzzy-close to an existing slug for the same
+#   DocKind. Score is a normalised Levenshtein in [0, 1]; exact (1.0)
+#   matches fall through to the collision path instead.
+#
+#     similarity:
+#       warnThreshold: 0.85   # 0..1 — scores >= this trigger the hint
+#       mode: warn            # 'warn' (default) | 'block'
+#
+#   When omitted: warnThreshold=0.85, mode=warn (project default).
+#   `mode: block` requires `--allow-similar` to override; bypass is
+#   audit-logged to `.cleo/audit/similar-bypass.jsonl`.
+#
 # See ADR-076 (Canonical Docs SSoT) for the lockdown rationale.
 # Pre-state: T9788 (DocKindRegistry), T9791 (1,427 docs imported), T9793
 # (changeset dual-write), T9794 (agent triggers), T9795 (deprecations.yml).

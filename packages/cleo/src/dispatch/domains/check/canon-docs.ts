@@ -54,6 +54,21 @@ export interface CanonKindEntry {
 }
 
 /**
+ * Optional `similarity:` block parsed from `.cleo/canon.yml`. Mirrors the
+ * shape of `core/docs/similarity-check.ts:SimilarityConfig` so the CLI can
+ * surface project-level overrides for the docs-add slug similarity check
+ * without taking a core dependency at the canon-loader layer (T10361).
+ *
+ * @see packages/core/src/docs/similarity-check.ts
+ */
+export interface CanonSimilarityConfig {
+  /** Score above this triggers the warn/block. Defaults to `0.85`. */
+  readonly warnThreshold: number;
+  /** `'warn'` (print + continue) or `'block'` (exit unless `--allow-similar`). */
+  readonly mode: 'warn' | 'block';
+}
+
+/**
  * Parsed shape of `.cleo/canon.yml`.
  *
  * Validated at runtime by {@link loadCanonRegistry}; callers receive the
@@ -64,6 +79,8 @@ export interface CanonRegistry {
   readonly version: number;
   /** Map of DocKind id (e.g. `'adr'`, `'changeset'`) to its routing entry. */
   readonly kinds: Readonly<Record<string, CanonKindEntry>>;
+  /** Optional similarity-check overrides (T10361). */
+  readonly similarity?: CanonSimilarityConfig;
 }
 
 /** One violation surfaced by the docs canon gate. */
@@ -179,7 +196,54 @@ function validateCanonRegistry(raw: unknown, source: string): CanonRegistry {
   for (const [kindId, entryRaw] of Object.entries(kindsRaw as Record<string, unknown>)) {
     kinds[kindId] = validateKindEntry(kindId, entryRaw, source);
   }
-  return { version, kinds };
+  // T10361 — optional `similarity:` block. Absent => downstream consumers
+  // fall back to DEFAULT_SIMILARITY_THRESHOLD / DEFAULT_SIMILARITY_MODE.
+  const similarity = validateSimilarity(obj['similarity'], source);
+  return similarity !== undefined ? { version, kinds, similarity } : { version, kinds };
+}
+
+/**
+ * Validate the optional top-level `similarity:` block. Returns `undefined`
+ * when omitted (defaults applied by the caller). Throws on structural
+ * defects so the canon-load surface emits a clear `E_CANON_INVALID`.
+ *
+ * @internal
+ * @task T10361
+ */
+function validateSimilarity(raw: unknown, source: string): CanonSimilarityConfig | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`${source}: 'similarity' must be an object`);
+  }
+  const obj = raw as Record<string, unknown>;
+  const warnThresholdRaw = obj['warnThreshold'];
+  let warnThreshold = 0.85;
+  if (warnThresholdRaw !== undefined) {
+    if (
+      typeof warnThresholdRaw !== 'number' ||
+      Number.isNaN(warnThresholdRaw) ||
+      warnThresholdRaw < 0 ||
+      warnThresholdRaw > 1
+    ) {
+      throw new Error(
+        `${source}: 'similarity.warnThreshold' must be a number in [0, 1] (got ${String(warnThresholdRaw)})`,
+      );
+    }
+    warnThreshold = warnThresholdRaw;
+  }
+  const modeRaw = obj['mode'];
+  let mode: 'warn' | 'block' = 'warn';
+  if (modeRaw !== undefined) {
+    if (modeRaw !== 'warn' && modeRaw !== 'block') {
+      throw new Error(
+        `${source}: 'similarity.mode' must be 'warn' or 'block' (got ${String(modeRaw)})`,
+      );
+    }
+    mode = modeRaw;
+  }
+  return { warnThreshold, mode };
 }
 
 /** @internal */
