@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
+import { getLogger } from '../logger.js';
 import { getCleoDirAbsolute } from '../paths.js';
 import * as brainSchema from './memory-schema.js';
 import {
@@ -26,6 +27,7 @@ import {
   reconcileJournal,
   tableExists,
 } from './migration-manager.js';
+import { recoverMalformedBrainDb } from './recover-brain-db.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 // Import openNativeDatabase directly from the leaf module (sqlite-native.ts) to
 // avoid any static import from sqlite.ts that could re-enter the circular chain
@@ -610,6 +612,103 @@ async function initEmbeddingProvider(cwd?: string): Promise<void> {
 }
 
 /**
+ * Run a fast malformation probe against an open native handle.
+ *
+ * Uses `PRAGMA quick_check` rather than `integrity_check` — quick_check
+ * skips index-sort and out-of-order rowid scans, returning in milliseconds
+ * on a healthy DB. A live malformed schema (the T10260/T10265 incident
+ * pattern) surfaces here as either a throw from `prepare()` or a non-`ok`
+ * return value.
+ *
+ * @returns `true` when the DB passes quick_check, `false` otherwise.
+ * @task T10303
+ * @internal
+ */
+function probeBrainDbIntegrity(db: DatabaseSync): boolean {
+  try {
+    const row = db.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
+    return row?.quick_check === 'ok';
+  } catch {
+    // prepare() threw — schema is malformed (the T10260/T10265 signature).
+    return false;
+  }
+}
+
+/**
+ * Detect whether an open-time exception matches the brain.db malformation
+ * signature `ERR_SQLITE_ERROR errcode=11` (SQLITE_CORRUPT) — the live
+ * failure pattern that triggered Saga T10281.
+ *
+ * @internal
+ */
+function isMalformationError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as Error & { code?: string; errcode?: number }).code;
+  const errcode = (err as Error & { errcode?: number }).errcode;
+  if (code === 'ERR_SQLITE_ERROR' && errcode === 11) return true;
+  const msg = err.message ?? '';
+  // Belt-and-suspenders: some node:sqlite versions stringify "malformed
+  // database schema" into the message even when errcode is unset.
+  return /malformed/i.test(msg);
+}
+
+/**
+ * Open the brain.db with auto-recovery on malformation.
+ *
+ * Synchronous by design — recovery runs on the open-blocking critical path.
+ * The alternative is silent broken cognition (T10260, T10265).
+ *
+ * Recovery flow:
+ *  1. Try `openNativeDatabase()`. If it throws with the malformation
+ *     signature, run recovery and re-attempt once.
+ *  2. If the open succeeded, run `PRAGMA quick_check`. If it fails (schema
+ *     malformation that survives the open), close the handle, run recovery,
+ *     and re-attempt.
+ *
+ * @internal
+ * @task T10303
+ */
+function openBrainDbWithRecovery(dbPath: string, cwd: string | undefined): DatabaseSync {
+  const tryOpen = (): DatabaseSync => openNativeDatabase(dbPath, { allowExtension: true });
+
+  const runRecovery = (): void => {
+    const cleoDir = getCleoDirAbsolute(cwd);
+    recoverMalformedBrainDb({
+      corruptPath: dbPath,
+      snapshotDir: join(cleoDir, 'backups', 'snapshot'),
+      vacuumSnapshotDir: join(cleoDir, 'backups', 'sqlite'),
+      legacyArtifactDir: cleoDir,
+      quarantineRoot: join(cleoDir, 'quarantine'),
+      logger: getLogger('brain-recover'),
+    });
+  };
+
+  let nativeDb: DatabaseSync;
+  try {
+    nativeDb = tryOpen();
+  } catch (err) {
+    if (!isMalformationError(err)) throw err;
+    runRecovery();
+    nativeDb = tryOpen();
+  }
+
+  if (!probeBrainDbIntegrity(nativeDb)) {
+    try {
+      nativeDb.close();
+    } catch {
+      // close errors are non-fatal — handle terminal anyway
+    }
+    runRecovery();
+    nativeDb = tryOpen();
+    // One final check — if recovery couldn't produce a clean DB, we still
+    // return the handle. The downstream migration path will surface the
+    // failure with full context rather than silently degrading.
+  }
+
+  return nativeDb;
+}
+
+/**
  * Initialize the brain.db SQLite database (lazy, singleton).
  * Creates the database file and tables if they don't exist.
  * Returns the drizzle ORM instance (async via sqlite-proxy).
@@ -643,7 +742,14 @@ export async function getBrainDb(cwd?: string): Promise<NodeSQLiteDatabase<typeo
 
     // Open file-backed SQLite via node:sqlite with WAL mode.
     // allowExtension: true enables sqlite-vec extension loading.
-    const nativeDb = openNativeDatabase(dbPath, { allowExtension: true });
+    //
+    // T10303 (Saga T10281 / Epic T10286): wrap the open in malformation
+    // detection + auto-recovery. Catches both `ERR_SQLITE_ERROR errcode=11`
+    // (raised by the open itself or by the post-open quick_check probe)
+    // and silent schema corruption that surfaces during the first prepare()
+    // call. On detection, the corrupt DB is quarantined and the freshest
+    // validated snapshot is restored; we then re-attempt the open ONCE.
+    const nativeDb = openBrainDbWithRecovery(dbPath, cwd);
     _nativeDb = nativeDb;
 
     // Load sqlite-vec extension for vector similarity search (T5157).
