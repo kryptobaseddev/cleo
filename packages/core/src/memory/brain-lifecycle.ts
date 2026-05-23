@@ -855,6 +855,18 @@ export interface RunConsolidationResult {
     edgesPruned: number;
   };
   /**
+   * Retention prune result from step 9d (T10348).
+   * Counts rows deleted from brain_plasticity_events and brain_weight_history.
+   * Populated when retention pruning ran. `skipped:true` indicates the
+   * operator-override env var (`CLEO_BRAIN_HISTORY_RETENTION_DAYS=0`)
+   * disabled the step.
+   */
+  historyRetention?: {
+    plasticityEventsDeleted: number;
+    weightHistoryDeleted: number;
+    skipped: boolean;
+  };
+  /**
    * Outcome correlation result from Step 9a.5 (T994).
    * Populated when correlateOutcomes ran during consolidation.
    */
@@ -905,6 +917,7 @@ export interface RunConsolidationResult {
  *   9a.5. Outcome correlation — correlateOutcomes quality adjustments (T994)
  *   9b. STDP timing-dependent plasticity — apply Δw using reward_signal (T679)
  *   9c. Homeostatic decay — synaptic scaling + pruning (T690)
+ *   9d. History retention — prune brain_plasticity_events + brain_weight_history (T10348)
  *   9e. Consolidation event log — INSERT into brain_consolidation_events (T694)
  *   9f. Hard-sweeper — DELETE prune_candidate=1 + quality<0.2 + citations=0 + age>30d (T995)
  *
@@ -1120,6 +1133,21 @@ export async function runConsolidation(
     result.homeostaticDecay = decayResult;
   } catch (err) {
     console.warn('[consolidation] Step 9c homeostatic decay failed:', err);
+  }
+
+  // Step 9d: History retention — bound brain_plasticity_events + brain_weight_history (T10348)
+  // Prevents unbounded growth of STDP-driven append-only event logs that, per the
+  // T10301 RCA, grew 19K → 3.57M rows (182×) in 19 days and pushed brain.db to 1.7 GB.
+  // Two-stage prune: (1) age-based (rows older than retentionDays), (2) row-cap fallback
+  // if the table is still over its hard cap. Operator-overridable via
+  // CLEO_BRAIN_HISTORY_RETENTION_DAYS=0 (disable) or any positive integer (override window).
+  // Best-effort — never blocks the pipeline.
+  try {
+    const { pruneStaleHistory } = await import('./brain-stdp.js');
+    const retentionResult = await pruneStaleHistory(projectRoot);
+    result.historyRetention = retentionResult;
+  } catch (err) {
+    console.warn('[consolidation] Step 9d history retention failed:', err);
   }
 
   // Step 9f: Hard-sweeper — autonomous DELETE for prune candidates (T995)
