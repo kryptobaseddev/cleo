@@ -29,7 +29,13 @@ import {
   type ChangesetKind,
   ExitCode,
 } from '@cleocode/contracts';
-import { changesets, dataTable, getProjectRoot } from '@cleocode/core';
+import {
+  changesets,
+  dataTable,
+  detectStrayCleoDb,
+  getProjectRoot,
+  resolveWorktreeRouting,
+} from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput, humanInfo, humanLine, isHumanOutput } from '../renderers/index.js';
 
@@ -180,8 +186,42 @@ const addCommand = defineCommand({
         : {}),
     };
 
-    // ── 4. Dispatch to the dual-write transaction. ──────────────────────────
-    const projectRoot = getProjectRoot();
+    // ── 4. Worktree-aware routing (T10389 / ADR-068 amendment §3.1). ────────
+    //
+    // When invoked from a git worktree, the canonical project root resolves
+    // to the MAIN repo. The dual-write transaction (writeChangesetEntry)
+    // anchors `.changeset/<slug>.md` to that canonical root — which is the
+    // desired behaviour. We don't need to rewrite the file path here; we
+    // only need to surface the routing and detect stray state.
+    //
+    // Stray `.cleo/tasks.db` inside the worktree would later trip the DB
+    // chokepoint's worktree-isolation guard (T9806) and surface as the
+    // harder-to-act-on `E_WT_DB_ISOLATION_VIOLATION`. Detect it up front
+    // and emit a clean remediation message instead.
+    const routing = resolveWorktreeRouting();
+    const strayDb = detectStrayCleoDb(routing);
+    if (strayDb) {
+      cliError(
+        `stray .cleo/tasks.db detected inside worktree at ${routing.worktreePath}. ` +
+          'This is a leaked CLEO state directory.',
+        ExitCode.VALIDATION_ERROR,
+        {
+          name: 'E_STRAY_WORKTREE_DB',
+          fix: `Remove it with: rm -rf ${routing.worktreePath}/.cleo — then retry. See ADR-068 §3 for the worktree DB isolation rationale.`,
+        },
+      );
+      process.exit(ExitCode.VALIDATION_ERROR);
+    }
+    if (routing.isWorktree && process.env['CLEO_QUIET'] !== '1') {
+      // Pre-dispatch UX: this fires before the writer wraps the call in a
+      // WarningCollector ALS, so `pushWarning` would no-op. Direct stderr
+      // is the correct surface for this routing announcement.
+      const routingLog = `[T10389] routing SSoT write from worktree cwd ${routing.cwd} → canonical project root ${routing.canonicalRoot}\n`;
+      process.stderr.write(routingLog); // json-stream-hygiene-allowed: pre-dispatch routing UX (T10389)
+    }
+
+    // ── 5. Dispatch to the dual-write transaction. ──────────────────────────
+    const projectRoot = routing.canonicalRoot;
     const outcome = await changesets.writeChangesetEntry(entry, {
       projectRoot,
       ...(typeof args['attached-by'] === 'string' && args['attached-by'].length > 0
@@ -189,7 +229,7 @@ const addCommand = defineCommand({
         : {}),
     });
 
-    // ── 5. Render the LAFS envelope. ────────────────────────────────────────
+    // ── 6. Render the LAFS envelope. ────────────────────────────────────────
     if (!outcome.ok) {
       const err = outcome.error;
       const hint =

@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.0.0
+version: 2.1.0
 tier: 2
 core: true
 category: core
@@ -103,6 +103,28 @@ Context injection for implementation tasks spawned via cleo-subagent. Provides d
 2. **Document completion** - Write detailed output file
 3. **Update manifest** - Append summary entry
 4. **Complete task** - Mark task done in task system
+
+---
+
+## Worktree-Aware CLI Routing (T10389 / ADR-068 amendment §3.1)
+
+When you operate inside an agent-spawned worktree (e.g. under
+`~/.local/share/cleo/worktrees/<hash>/<task>/`), `cleo docs add` and
+`cleo changeset add` automatically route their SSoT writes back to the
+canonical project root. You can pass file paths relative to the
+worktree cwd — the verb pre-resolves them against the worktree before
+dispatching to the canonical-root-anchored sanitizer.
+
+Both verbs detect a stray `.cleo/tasks.db` inside the worktree and
+abort with `E_STRAY_WORKTREE_DB` + a clear remediation
+(`rm -rf <worktree>/.cleo`). If you see `E_PATH_TRAVERSAL`,
+`E_FILE_ERROR: Cannot read file`, or `E_WT_DB_ISOLATION_VIOLATION`,
+update to a recent CLEO build that carries the fix-pack closing T10353
+/ T10354 / T10294 / T10365.
+
+The routing prints a one-line info message to stderr (suppress with
+`CLEO_QUIET=1`):
+`[T10389] routing SSoT write from worktree cwd <cwd> → canonical project root <root>`
 
 ---
 
