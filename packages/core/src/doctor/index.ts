@@ -18,6 +18,7 @@
  * @epic T9808
  */
 
+export { auditSagaHierarchy } from './saga-audit.js';
 export type { PruneOptions, ScanOptions } from './worktree-orphans.js';
 export {
   auditWorktreeOrphansComprehensive,
