@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.2.0
+version: 3.3.0
 tier: 3
 core: false
 category: specialist
@@ -150,6 +150,36 @@ Slugs share a GLOBAL namespace across all DocKinds — `reserveSlug('changeset',
 'foo')` followed by `reserveSlug('research', 'foo')` collides (decision
 T10390 / E1.5). Matches the `uniq_attachments_slug` partial UNIQUE INDEX in
 migration `20260519000001`.
+
+#### One writer per DocKind — WriterRegistry SSoT (T10366 · Saga T10288 / Epic T10290)
+
+`packages/core/src/docs/writer-registry.ts:WriterRegistry` is the SSoT for
+"which CLI verb writes which DocKind". Every `BuiltinDocKind` maps to EXACTLY
+ONE writer descriptor — multi-writer regressions trip the registry at build
+time (the slug-collision class root-cause from T10294).
+
+```ts
+import { WriterRegistry } from '@cleocode/core/internal';
+
+const desc = WriterRegistry.for('changeset');
+// → { kind: 'changeset', verb: 'changeset add', dispatchOp: 'changeset.add',
+//     coreFn: 'writeChangesetEntry', mode: 'ssot-first',
+//     sourcePath: 'packages/core/src/changesets/writer.ts' }
+```
+
+Descriptor modes mirror `.cleo/canon.yml`'s `canonicalHome`:
+- `'ssot'` — bytes live in the blob store; published copy is a mirror.
+- `'ssot-first'` — dual-write via a dedicated verb (`changeset` today).
+- `'system-managed'` — tooling-composed (e.g. `llm-readme`, `release-note`).
+
+Test parity: every `ssot-first` descriptor MUST match a kind whose
+`canonicalHome: 'ssot-first'` in `.cleo/canon.yml`, and vice versa.
+
+T10366 establishes the registry contract; T10367 (docs add) and T10368
+(changeset add) wire the actual writer delegation. Until those land,
+`WriterRegistry.write()` returns `E_NOT_IMPLEMENTED` after consulting the
+allocator — callers should continue invoking the existing writers
+(`cleo docs add` dispatch handler, `writeChangesetEntry`) directly.
 
 ### Publish to a git-tracked path (when the doc must live on disk)
 
