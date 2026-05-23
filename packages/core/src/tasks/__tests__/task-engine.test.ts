@@ -154,6 +154,11 @@ function makeCompletableAccessorMock(opts: {
     getDependents: vi.fn().mockResolvedValue([]),
     transaction: vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx)),
     updateTaskFields,
+    // T10116: completeTask now scans the saga catalog via queryTasks to drive
+    // the auto-close branch. The mock returns an empty saga list so the
+    // post-coordination-parent loop is a no-op for these legacy fixtures.
+    queryTasks: vi.fn().mockResolvedValue({ tasks: [], total: 0 }),
+    loadTasks: vi.fn().mockResolvedValue([]),
   };
 }
 

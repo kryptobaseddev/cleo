@@ -43,4 +43,8 @@ export {
 } from './members.js';
 export { type RepairSagaParams, type RepairSagaResult, repairSaga } from './repair.js';
 export { type SagaRollupParams, type SagaRollupResult, sagaRollup } from './rollup.js';
-export { resolveSagaMemberIds } from './storage.js';
+export {
+  buildSagaAutoCloseEvidence,
+  findSagasGroupingTask,
+  resolveSagaMemberIds,
+} from './storage.js';
