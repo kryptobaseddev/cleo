@@ -128,6 +128,16 @@ export type {
   BackupMetadata,
   BackupScope,
 } from './backup-manifest.js';
+// === Boundary Registry (SSoT for Rust/TS layering — ADR-078, Saga T10176) ===
+export type {
+  BoundaryEntry,
+  CanonicalHome,
+  PerfBudget,
+  SafetyBudget,
+  ThroughputThreshold,
+  WorkloadIntent,
+} from './boundary.js';
+export { BOUNDARY_REGISTRY } from './boundary.js';
 // === Brain/Memory Types ===
 export type {
   BrainCognitiveType,
