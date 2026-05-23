@@ -385,17 +385,13 @@ export async function readChangesetsSsotFirst(
   }
 
   // ── 2. File pass — fill in slugs SSoT did not cover. ───────────────────
+  // T10105: parse failures (YAML or schema) propagate to the caller. The
+  // pre-T10105 silent-skip caused the v2026.5.100 ship to drop CHANGELOG
+  // entries for v5.100/v5.101/v5.103. Operators (or CI) get a
+  // ChangesetYamlInvalidError naming the offending file:line.
   const changesetDir = join(projectRoot, '.changeset');
   if (existsSync(changesetDir)) {
-    let fileEntries: ChangesetEntry[] = [];
-    try {
-      fileEntries = parseChangesetDir(changesetDir);
-    } catch {
-      /* Malformed file in the directory — skip the whole batch; the lint
-       * gate (`scripts/lint-changesets.mjs`) surfaces the parse error
-       * separately at PR-review time. */
-      fileEntries = [];
-    }
+    const fileEntries = parseChangesetDir(changesetDir);
     for (const entry of fileEntries) {
       if (bySlug.has(entry.id)) continue;
       bySlug.set(entry.id, { entry, meta: { source: 'file' } });
@@ -447,11 +443,10 @@ export async function readChangesetEntriesSsotFirst(
 export function readChangesetEntriesFileOnly(projectRoot: string): ChangesetEntry[] {
   const dir = join(projectRoot, '.changeset');
   if (!existsSync(dir)) return [];
-  try {
-    return parseChangesetDir(dir);
-  } catch {
-    return [];
-  }
+  // T10105: NO try/catch — ChangesetYamlInvalidError propagates so the
+  // calling release verb aborts with a deterministic error envelope rather
+  // than silently dropping every entry on one malformed file.
+  return parseChangesetDir(dir);
 }
 
 /**

@@ -519,3 +519,74 @@ export function isErrorResult(result: {
 }): result is { success: false; error: string } {
   return !result.success;
 }
+
+/**
+ * Structured details payload attached to {@link ChangesetYamlInvalidError}.
+ *
+ * Carries the offending file path, the 1-based line number where the YAML
+ * parser bailed (when determinable), and an optional snippet of the parsed
+ * region to surface in CLI output and CI logs.
+ *
+ * @task T10105
+ * @epic E-RELEASE-PLAN-CHANGELOG
+ */
+export interface ChangesetYamlInvalidDetails {
+  /** Absolute or process-relative path to the offending `.md` file. */
+  file: string;
+  /** 1-based line number reported by the YAML parser; `null` when unknown. */
+  line: number | null;
+  /** Optional short excerpt around the failure (≤ 120 chars). */
+  snippet?: string;
+  /** Underlying parser message, propagated verbatim for diagnostics. */
+  parserMessage: string;
+}
+
+/**
+ * Thrown when `cleo release plan` (or the lint script) encounters a `.changeset/*.md`
+ * file whose YAML frontmatter cannot be parsed.
+ *
+ * Replaces the pre-T10105 silent-skip behaviour where a single malformed
+ * file (e.g. an unquoted colon in `summary:`) caused the aggregator to
+ * silently drop ALL changeset entries for that release. The v2026.5.100
+ * ship lost the v5.100/v5.101/v5.103 CHANGELOG entries to exactly this
+ * vector — see Saga T10099 SG-RELEASE-AUDIT-V2.
+ *
+ * @remarks
+ * Carries `exitCode` aligned with {@link ExitCode.VALIDATION_ERROR} (6) so
+ * the CLI surfaces a deterministic non-zero exit when invoked from CI.
+ *
+ * @example
+ * ```typescript
+ * throw new ChangesetYamlInvalidError({
+ *   file: '.changeset/bad.md',
+ *   line: 4,
+ *   parserMessage: 'Nested mappings are not allowed in compact mappings',
+ * });
+ * ```
+ *
+ * @task T10105
+ * @epic E-RELEASE-PLAN-CHANGELOG
+ * @saga T10099
+ */
+export class ChangesetYamlInvalidError extends Error {
+  /** Stable LAFS error code string for envelope emission. */
+  readonly code = 'E_CHANGESET_YAML_INVALID';
+  /** Numeric exit code aligned with {@link ExitCode.VALIDATION_ERROR} (6). */
+  readonly exitCode: ExitCode = ExitCode.VALIDATION_ERROR;
+  /** Structured payload describing the offending file + location. */
+  readonly details: ChangesetYamlInvalidDetails;
+
+  /**
+   * @param details - Structured failure context including file path and
+   *   line number. The constructor builds a deterministic human-readable
+   *   message of the form `<file>:<line> invalid YAML frontmatter: <msg>`.
+   */
+  constructor(details: ChangesetYamlInvalidDetails) {
+    const linePart = details.line !== null ? `:${details.line}` : '';
+    super(
+      `E_CHANGESET_YAML_INVALID: ${details.file}${linePart} invalid YAML frontmatter: ${details.parserMessage}`,
+    );
+    this.name = 'ChangesetYamlInvalidError';
+    this.details = details;
+  }
+}

@@ -19,6 +19,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path';
 import type { ChangesetEntry, EvidenceAtom, Task } from '@cleocode/contracts';
 import {
+  ChangesetYamlInvalidError,
+  E_CHANGESET_YAML_INVALID,
   E_CHANNEL_MISMATCH,
   E_DIRTY_TREE,
   E_EPIC_EMPTY,
@@ -862,6 +864,20 @@ function writePlanFile(plan: ReleasePlan, projectRoot: string): string {
 const DEFAULT_CHANGELOG_HEADER = '# Changelog\n\nAll notable changes to this project.\n';
 
 /**
+ * Placeholder body used when `cleo release plan` runs with zero parsed
+ * changeset entries. Per T10105 AC3 the section MUST still be written so the
+ * `## [<version>] (<date>)` header is never absent. Operators can fill in
+ * the body manually (or add a changeset and re-run).
+ *
+ * @internal
+ * @task T10105
+ * @epic E-RELEASE-PLAN-CHANGELOG
+ */
+const EMPTY_CHANGELOG_PLACEHOLDER =
+  '_No changeset entries parsed for this release._\n\n' +
+  '_Add entries under `.changeset/*.md` and re-run `cleo release plan` to populate this section._\n';
+
+/**
  * Idempotently write (or replace) the `## [<version>] (<date>)` section in
  * `CHANGELOG.md` with the rendered release notes from
  * {@link aggregateChangesetsForRelease}.
@@ -1086,28 +1102,26 @@ async function upsertReleasesRow(
 /**
  * Read parsed changeset entries from `<projectRoot>/.changeset/`.
  *
- * Returns an empty array when the directory is missing, when the directory has
- * no `.md` files apart from `README.md`, or when parsing fails — failures are
- * logged at warn level but never propagated, because changeset entries are
- * advisory metadata, not a blocking precondition for the plan verb.
+ * Returns an empty array when the directory is missing OR when the directory
+ * has no `.md` files apart from `README.md`. Parse failures are NO LONGER
+ * silently swallowed — {@link ChangesetYamlInvalidError} propagates so that
+ * `cleo release plan` aborts with `E_CHANGESET_YAML_INVALID` and the
+ * offending `file:line` is surfaced to the operator (T10105).
  *
  * @internal
- * @task T9753
+ * @task T10105
+ * @epic E-RELEASE-PLAN-CHANGELOG
  */
 function readChangesetEntries(projectRoot: string): ChangesetEntry[] {
   const changesetDir = join(projectRoot, '.changeset');
   if (!existsSync(changesetDir)) {
     return [];
   }
-  try {
-    return parseChangesetDir(changesetDir);
-  } catch (err: unknown) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err), dir: changesetDir },
-      'parseChangesetDir failed during release plan — treating as zero entries',
-    );
-    return [];
-  }
+  // T10105: deliberately NO try/catch. ChangesetYamlInvalidError propagates
+  // to releasePlan() which converts it into an EngineResult error envelope
+  // with code=E_CHANGESET_YAML_INVALID. The pre-T10105 silent-skip caused
+  // the v2026.5.100 ship to drop v5.100/v5.101/v5.103 CHANGELOG entries.
+  return parseChangesetDir(changesetDir);
 }
 
 /**
@@ -1394,11 +1408,39 @@ export async function releasePlan(
   // ── R-305 / R-370: platform matrix ────────────────────────────────────
   const platformMatrix = enumeratePlatformMatrix(projectRoot);
 
-  // ── T9753: CLEO-native changesets — read + aggregate ────────────────
+  // ── T10105: CLEO-native changesets — read + aggregate (fail-loud) ─────
   // Reads `.changeset/*.md` and aggregates into a CHANGELOG markdown section
-  // embedded under `meta.releaseNotes`. Failure is non-blocking (warn-and-skip)
-  // because changesets are advisory; the plan itself is built from task data.
-  const changesetEntries = readChangesetEntries(projectRoot);
+  // embedded under `meta.releaseNotes`. Per T10105 (Saga T10099), a YAML
+  // parse failure on ANY entry now aborts the plan with
+  // E_CHANGESET_YAML_INVALID — the pre-T10105 silent-skip caused the
+  // v2026.5.100 ship to drop v5.100/v5.101/v5.103 CHANGELOG entries.
+  let changesetEntries: ChangesetEntry[];
+  try {
+    changesetEntries = readChangesetEntries(projectRoot);
+  } catch (err: unknown) {
+    if (err instanceof ChangesetYamlInvalidError) {
+      return engineError<ReleasePlanResult>(E_CHANGESET_YAML_INVALID, err.message, {
+        exitCode: ExitCode.VALIDATION_ERROR,
+        fix: `Fix the YAML in ${err.details.file} (line ${err.details.line ?? '?'}). Common cause: an unquoted colon in 'summary:'. Wrap the value in quotes — e.g. summary: "feat(T1234): thing".`,
+        details: {
+          file: err.details.file,
+          line: err.details.line,
+          ...(err.details.snippet !== undefined ? { snippet: err.details.snippet } : {}),
+          parserMessage: err.details.parserMessage,
+        },
+      });
+    }
+    // T10105: schema-violation errors (missing fields, wrong enum, etc.)
+    // surface as the same code. The parser's error message already
+    // includes the offending file:line and Zod issue path, so callers
+    // get an actionable error envelope rather than an uncaught throw.
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError<ReleasePlanResult>(E_CHANGESET_YAML_INVALID, message, {
+      exitCode: ExitCode.VALIDATION_ERROR,
+      fix: 'Run `node scripts/lint-changesets.mjs` to surface every offending entry. Common causes: missing required fields (id, tasks, kind, summary), invalid kind enum, or filename slug ≠ id.',
+      details: { parserMessage: message },
+    });
+  }
   const aggregated = aggregateChangesetsForRelease({
     entries: changesetEntries,
     version: normalizedVersion,
@@ -1490,18 +1532,33 @@ export async function releasePlan(
         'persistReleaseChangesets failed — plan envelope still written',
       );
     }
-    // ── T9838 Fix 3: auto-write CHANGELOG.md ──────────────────────────
-    // Closes the manual-paste loop that v5.91-v5.93 ships were stuck in.
-    // Writes (or replaces) the `## [<version>] (<date>)` block with the
-    // aggregated release notes. Idempotent on re-run. Failure is logged but
-    // NEVER blocks the plan — the plan envelope remains the canonical sink.
-    if (writeChangelog && aggregated.markdown.trim().length > 0) {
+    // ── T10105: ALWAYS write the CHANGELOG.md section ───────────────────
+    // Per Saga T10099 AC2: `cleo release plan` MUST always write the
+    // `## [<version>] (<date>)` section. When the aggregator emits no
+    // content (zero parsed entries), insert a placeholder body + emit a
+    // WARN-level log. The pre-T10105 conditional skip (only-write-if-non-empty)
+    // is what caused the v2026.5.100 ship to silently elide CHANGELOG
+    // sections for v5.100/v5.101/v5.103. Failure is logged but NEVER
+    // blocks the plan — the plan envelope remains the canonical sink.
+    if (writeChangelog) {
+      const notesMarkdown =
+        aggregated.markdown.trim().length > 0 ? aggregated.markdown : EMPTY_CHANGELOG_PLACEHOLDER;
+      if (aggregated.markdown.trim().length === 0) {
+        log.warn(
+          {
+            changelogPath,
+            version: normalizedVersion,
+            changesetEntryCount: aggregated.entryCount,
+          },
+          'No changeset entries parsed for this release — writing placeholder CHANGELOG section (T10105)',
+        );
+      }
       try {
         const result = await writeChangelogSection({
           changelogPath,
           version: normalizedVersion,
           date: createdAt.slice(0, 10),
-          notesMarkdown: aggregated.markdown,
+          notesMarkdown,
         });
         changelogWritten = result.written;
       } catch (err: unknown) {
