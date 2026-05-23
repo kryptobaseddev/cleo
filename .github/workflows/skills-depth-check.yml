@@ -1,5 +1,6 @@
 name: Skills Depth Check (T9684)
 
+# @task T9684
 # Gates progressive-disclosure depth on skill definitions.
 # Runs the check_depth.py script against every skill under
 # packages/skills/skills/. Fails on stub skills (SKILL.md too short

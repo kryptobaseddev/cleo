@@ -1,5 +1,8 @@
 name: Arch Boundary Check
 
+# @task T10072
+# Inventoried in docs/release/workflow-inventory.md (T10102).
+
 on:
   push:
     branches: [main, develop]

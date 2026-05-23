@@ -1,5 +1,6 @@
 name: Identity Pollution Check
 
+# @task T9149
 # Server-side gate. Rejects any commit whose author or committer is the
 # polluted test identity `Test <test@example.com>`. Pairs with the local
 # vitest.setup.ts guard added in T9149: tests can no longer leak the

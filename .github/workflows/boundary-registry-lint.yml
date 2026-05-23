@@ -1,5 +1,6 @@
 name: Boundary Registry Lint (T10198)
 
+# @task T10198
 # T10198 · Saga T10176 · ADR-078 · Decision D010
 #
 # Validates packages/contracts/src/boundary.ts → BOUNDARY_REGISTRY against

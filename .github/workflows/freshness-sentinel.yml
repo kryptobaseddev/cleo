@@ -1,5 +1,10 @@
 name: Freshness Sentinel
 
+# @task T10102
+# Owner-CI cron — see docs/release/workflow-inventory.md §7 (T10102) for
+# the known-broken status (failing daily since 2026-05-18). A follow-up
+# task under T10102 will diagnose the cause.
+
 on:
   schedule:
     # Run daily at 06:00 UTC
