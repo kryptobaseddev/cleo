@@ -392,18 +392,28 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     intent: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 10, latency_p99_ms: 100 },
-    safetyBudget: { panic_unwind: 'forbidden', root_escape: 'forbidden', network_egress: 'allowed' },
+    safetyBudget: {
+      panic_unwind: 'forbidden',
+      root_escape: 'forbidden',
+      network_egress: 'allowed',
+    },
     amendments: ['adr-078-boundary-registry'],
-    rationale: 'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-core deleted from cleocode.',
+    rationale:
+      'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-core deleted from cleocode.',
   },
   {
     module: 'signaldock-payments',
     intent: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 50, latency_p99_ms: 1000 },
-    safetyBudget: { panic_unwind: 'forbidden', root_escape: 'forbidden', network_egress: 'allowed' },
+    safetyBudget: {
+      panic_unwind: 'forbidden',
+      root_escape: 'forbidden',
+      network_egress: 'allowed',
+    },
     amendments: ['adr-078-boundary-registry'],
-    rationale: 'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-payments deleted from cleocode.',
+    rationale:
+      'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-payments deleted from cleocode.',
   },
   {
     module: 'signaldock-protocol',
@@ -412,25 +422,36 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     perfBudget: { latency_p50_ms: 10 },
     safetyBudget: { panic_unwind: 'forbidden', root_escape: 'forbidden' },
     amendments: ['adr-078-boundary-registry'],
-    rationale: 'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-protocol deleted from cleocode.',
+    rationale:
+      'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-protocol deleted from cleocode.',
   },
   {
     module: 'signaldock-runtime',
     intent: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock-runtime/' },
     perfBudget: { latency_p50_ms: 50, latency_p99_ms: 1000, startup_max_ms: 500 },
-    safetyBudget: { panic_unwind: 'allowed-with-recovery', root_escape: 'forbidden', network_egress: 'allowed' },
+    safetyBudget: {
+      panic_unwind: 'allowed-with-recovery',
+      root_escape: 'forbidden',
+      network_egress: 'allowed',
+    },
     amendments: ['adr-078-boundary-registry'],
-    rationale: 'Migrated to /mnt/projects/signaldock-runtime/ via Saga T10180 (T10187). crates/signaldock-runtime deleted from cleocode.',
+    rationale:
+      'Migrated to /mnt/projects/signaldock-runtime/ via Saga T10180 (T10187). crates/signaldock-runtime deleted from cleocode.',
   },
   {
     module: 'signaldock-sdk',
     intent: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 50, latency_p99_ms: 1000 },
-    safetyBudget: { panic_unwind: 'forbidden', root_escape: 'forbidden', network_egress: 'allowed' },
+    safetyBudget: {
+      panic_unwind: 'forbidden',
+      root_escape: 'forbidden',
+      network_egress: 'allowed',
+    },
     amendments: ['adr-078-boundary-registry'],
-    rationale: 'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-sdk deleted from cleocode.',
+    rationale:
+      'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-sdk deleted from cleocode.',
   },
   {
     module: 'signaldock-storage',
@@ -439,16 +460,22 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     perfBudget: { latency_p50_ms: 10, latency_p99_ms: 100 },
     safetyBudget: { panic_unwind: 'forbidden', root_escape: 'forbidden' },
     amendments: ['adr-078-boundary-registry'],
-    rationale: 'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-storage deleted from cleocode.',
+    rationale:
+      'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-storage deleted from cleocode.',
   },
   {
     module: 'signaldock-transport',
     intent: 'migrated-out',
     canonicalHome: { external: '/mnt/projects/signaldock/' },
     perfBudget: { latency_p50_ms: 50, latency_p99_ms: 1000 },
-    safetyBudget: { panic_unwind: 'forbidden', root_escape: 'forbidden', network_egress: 'allowed' },
+    safetyBudget: {
+      panic_unwind: 'forbidden',
+      root_escape: 'forbidden',
+      network_egress: 'allowed',
+    },
     amendments: ['adr-078-boundary-registry'],
-    rationale: 'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-transport deleted from cleocode.',
+    rationale:
+      'Migrated to /mnt/projects/signaldock/ via Saga T10180 (T10187). crates/signaldock-transport deleted from cleocode.',
   },
   {
     module: 'worktree-napi',
