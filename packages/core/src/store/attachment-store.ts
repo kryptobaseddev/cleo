@@ -80,6 +80,31 @@ export class SlugCollisionError extends Error {
 }
 
 /**
+ * Error thrown by {@link AttachmentStore.put} when a writer attempts to
+ * assign a slug that was NOT first reserved through the central
+ * {@link import('../docs/slug-allocator.js').reserveSlug} chokepoint.
+ *
+ * This is a PROGRAMMER ERROR — production CLI verbs must always call
+ * `reserveSlug` before `put({ slug })`. Surfacing the bypass at the
+ * write call protects against dual-writer drift (the bug class
+ * described in T10294 RCA and tracked under Saga T10288 / Epic T10289).
+ *
+ * @task T10392
+ * @epic T10289
+ * @saga T10288
+ */
+export class SlugNotReservedByAllocatorError extends Error {
+  constructor(public readonly slug: string) {
+    super(
+      `Slug '${slug}' was passed to attachmentStore.put() without first being reserved by ` +
+        `reserveSlug(). The slug allocator chokepoint MUST be called before any write — ` +
+        `see packages/core/src/docs/slug-allocator.ts (T10392).`,
+    );
+    this.name = 'SlugNotReservedByAllocatorError';
+  }
+}
+
+/**
  * Side-table extension for {@link AttachmentStore.put} carrying optional
  * project-scoped metadata (slug, type) that lives directly on the
  * `attachments` row rather than inside the discriminated-union JSON blob.
@@ -431,6 +456,11 @@ type DrizzleDb = Awaited<ReturnType<typeof getDb>>;
  * found. The lookup is bounded by a maximum of 32 probes per candidate so
  * a pathological dataset can never block the request.
  *
+ * Re-exported under {@link deriveSlugSuggestionsForAllocator} for the
+ * central slug allocator (T10392) so both the late-bound
+ * `SlugCollisionError` path and the early-bound `reserveSlug` path emit
+ * the SAME suggestion shape.
+ *
  * @task T9636
  */
 async function deriveSlugSuggestions(db: DrizzleDb, base: string): Promise<string[]> {
@@ -471,6 +501,30 @@ async function deriveSlugSuggestions(db: DrizzleDb, base: string): Promise<strin
   }
 
   return out.slice(0, 3);
+}
+
+/**
+ * Re-export of {@link deriveSlugSuggestions} for the central slug
+ * allocator (T10392).
+ *
+ * Lives in this module rather than the allocator so the suggestion
+ * algorithm has exactly ONE implementation. Both the late-bound
+ * `SlugCollisionError` path inside `attachmentStore.put` and the
+ * early-bound `reserveSlug` chokepoint use the same helper, so the
+ * suggestion shape is uniform regardless of which layer caught the
+ * conflict.
+ *
+ * Loose typing on `db` matches the internal `DrizzleDb` alias so
+ * cross-package consumers do not have to import drizzle types.
+ *
+ * @task T10392
+ * @internal
+ */
+export async function deriveSlugSuggestionsForAllocator(
+  db: DrizzleDb,
+  base: string,
+): Promise<string[]> {
+  return deriveSlugSuggestions(db, base);
 }
 
 /**
@@ -526,6 +580,28 @@ export function createAttachmentStore(): AttachmentStore {
         const db = await getDb(cwd);
         const nativeDb = getNativeTasksDb();
         if (!nativeDb) throw new Error('Database not initialized');
+
+        // Allocator chokepoint runtime assert (T10392) — every writer with
+        // a slug SHOULD have first called reserveSlug(). The lookup is a
+        // cheap in-process Set; SQLite UNIQUE INDEX remains the
+        // cross-process backstop.
+        //
+        // OPT-IN BEHAVIOUR: this T10392 PR introduces the allocator module
+        // but does NOT yet wire the writers — that lands in T10386 (docs
+        // add) and T10388 (changeset add). Until both wiring PRs merge,
+        // the assert is OPT-IN via the `CLEO_STRICT_SLUG_ALLOCATOR=1` env
+        // var so existing legacy writers continue to work and the wiring
+        // PRs can flip the default to strict in their own commit. The
+        // env var also lets tests exercise the assert path explicitly.
+        if (slug !== undefined && process.env['CLEO_STRICT_SLUG_ALLOCATOR'] === '1') {
+          const { isSlugReserved, consumeReservedSlug } = await import('../docs/slug-allocator.js');
+          if (!isSlugReserved(slug)) {
+            throw new SlugNotReservedByAllocatorError(slug);
+          }
+          // Consume the reservation now so retries do NOT re-trip the
+          // assert and the in-process Set does not grow unbounded.
+          consumeReservedSlug(slug);
+        }
 
         // Pre-check slug collision OUTSIDE the BEGIN IMMEDIATE window so the
         // caller receives SlugCollisionError without leaving a half-written
