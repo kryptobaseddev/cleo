@@ -449,8 +449,38 @@ export interface WorktreeInfo {
   owningAgent: string | null;
   /** ISO-8601 timestamp of last activity (newest commit OR mtime of working tree). */
   lastActivity: string;
+  /**
+   * ISO-8601 timestamp recording when this worktree was first created.
+   *
+   * Resolution order:
+   *  1. For git-native entries — mtime of the per-worktree admin file
+   *     `<gitCommonDir>/worktrees/<basename(path)>/HEAD`. Git writes this once
+   *     at `git worktree add` time and never rewrites it during normal usage,
+   *     making it a faithful proxy for creation time.
+   *  2. For sentinel-only entries — the `adoptedAt` timestamp persisted in
+   *     `.cleo/worktrees.json`.
+   *  3. Fallback — mtime of the worktree directory itself.
+   *
+   * Distinct from {@link lastActivity}, which moves with each new commit on
+   * the branch. The two values diverge for any worktree that has had at least
+   * one commit since creation.
+   *
+   * @task T9546
+   */
+  createdAt: string;
   /** Whether `git worktree list --porcelain` reports the worktree as locked. */
   isLocked: boolean;
+  /**
+   * Lock-state string mirroring {@link isLocked} as a discriminated literal.
+   *
+   * Provided for downstream consumers that want a single human-readable token
+   * rather than a boolean — `'locked'` when porcelain reports the worktree as
+   * locked, `'unlocked'` otherwise. Always equivalent to
+   * `isLocked ? 'locked' : 'unlocked'`.
+   *
+   * @task T9546
+   */
+  lockState: 'locked' | 'unlocked';
   /** Whether the worktree is stale: no activity > N days AND (task done/cancelled OR branch merged). */
   isStale: boolean;
   /** Whether the branch is reachable from `main` (already integrated). */
