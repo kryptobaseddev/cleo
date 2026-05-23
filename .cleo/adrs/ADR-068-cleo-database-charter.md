@@ -1,13 +1,14 @@
-# ADR-068: CLEO Database Charter (9 DBs · ownership · lifecycle · concurrency)
+# ADR-068: CLEO Database Charter (12 DBs · ownership · lifecycle · concurrency)
 
 **Date**: 2026-05-06
 **Status**: accepted
 **Accepted**: 2026-05-06
-**Related Tasks**: T9048, T9047
+**Amended**: 2026-05-23 (T10306, Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282 E1-DB-INVENTORY)
+**Related Tasks**: T9048, T9047, T10305, T10306
 **Related ADRs**: ADR-006, ADR-010, ADR-013, ADR-036, ADR-037, ADR-038, ADR-054
 **Keywords**: database, charter, sqlite, ownership, lifecycle, concurrency, openCleoDb, chokepoint, schema-migration, retention, backup, privacy, ci-gate
 **Topics**: database-architecture, governance, data-safety, concurrency-model
-**Summary**: Authoritative inventory and governance document for ALL CLEO databases. Defines the canonical 9-database topology, per-DB ownership / readers / writers / concurrency / schema versioning / retention / backup / privacy classification, and the lifecycle for adding a new database. Establishes `openCleoDb` as the single chokepoint for `node:sqlite` `DatabaseSync` construction (Decision D003) and a CI gate that any new `.db` path or `DatabaseSync()` outside the chokepoint must update this charter.
+**Summary**: Authoritative inventory and governance document for ALL CLEO databases. Defines the canonical 12-database topology (originally 9 — amended 2026-05-23 to add `global-brain`, `global-tasks`, and `skills` per T10305 audit + flag nested-nexus duplicates as a structural bug), per-DB ownership / readers / writers / concurrency / schema versioning / retention / backup / privacy classification, and the lifecycle for adding a new database. Establishes `openCleoDb` as the single chokepoint for `node:sqlite` `DatabaseSync` construction (Decision D003) and a CI gate that any new `.db` path or `DatabaseSync()` outside the chokepoint must update this charter. The runtime SSoT is `packages/core/src/store/db-inventory.json` (re-exported as `DB_INVENTORY` from `@cleocode/contracts`); this ADR is the governance overlay.
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
 
@@ -29,21 +30,42 @@ ADR-036 is a topology document — it answers "where do databases live?". This c
 
 ## Decision
 
-### Canonical Inventory (9 Databases)
+### Canonical Inventory (12 Databases)
 
 Every CLEO database MUST appear in the table below. Adding a new entry is a charter amendment (see "How to add a new database").
+
+> **Runtime SSoT vs governance overlay**: this ADR's table is the **governance overlay** — narrative, alternatives, RFC-2119 obligations. The **machine-readable SSoT** is `packages/core/src/store/db-inventory.json`, re-exported as `DB_INVENTORY` (typed `readonly DbInventoryEntry[]`) from `@cleocode/contracts`. Tooling (T10307 fleet survey, T10310 pragma drift, T10311 migration coverage, T10312 doctor integrity, T10320 cross-DB invariants) reads the JSON; humans and reviewers consult this table. They MUST stay in lockstep — the forthcoming E1 CI drift gate compares the two and fails on divergence.
+>
+> **Blob + manifest unification**: the owner's mental model historically counted "blob store" and "manifest" as two databases. They are ONE unified file at `<projectRoot>/.cleo/blobs/manifest.db` — blob payloads and manifest index rows colocated under a single `DatabaseSync` handle owned by the `llmtxt/blob` `BlobFsAdapter` contract. Row 7 below is the only entry.
 
 | # | Name | File Location | Tier | Owning Package | Allowed Readers | Allowed Writers | Concurrency | Schema Versioning | Retention / Deletion | Backup | Privacy |
 |---|------|---------------|------|----------------|-----------------|-----------------|-------------|-------------------|----------------------|--------|---------|
 | 1 | `tasks.db` | `<projectRoot>/.cleo/tasks.db` | project | `@cleocode/brain` | core, cleo CLI, sentient | core (task engine), cleo CLI | single-writer (WAL, in-process serialization via openCleoDb) | drizzle migrations under `packages/core/src/store/migrations/tasks/` | retained for project lifetime; `cleo task delete` is logical, hard-delete via cleanup commands | VACUUM INTO via `vacuumIntoBackupAll`; included in backup-pack | local-only; contains task titles which MAY include private project names — never cloud-exported without explicit `cleo backup export` |
 | 2 | `brain.db` | `<projectRoot>/.cleo/brain.db` | project | `@cleocode/brain` | core (memory), sentient, cleo memory commands | core memory pipeline (observer/reflector), cleo memory write paths | single-writer (WAL); writes go through brain ingestion queue | drizzle migrations under `packages/core/src/store/migrations/brain/` | retention tiers (short/medium/long); soft-eviction by sentient consolidator; hard-delete via `cleo memory sweep --approve` | VACUUM INTO via `vacuumIntoBackupAll`; included in backup-pack | local-only; HIGH sensitivity — contains observations, learnings, decisions; PII-class; never cloud-exported |
 | 3 | `conduit.db` | `<projectRoot>/.cleo/conduit.db` | project | `@cleocode/core` (`store/conduit-sqlite.ts`) | core conduit transport, cleo CLI agent commands | core conduit transport | single-writer (WAL); LocalTransport serializes writes | drizzle migrations under `packages/core/src/store/migrations/conduit/` | retained for project lifetime; conduit messages have a TTL field but no automatic purge yet | VACUUM INTO snapshots; included in backup-pack (T306-extended) | local-only; contains agent message payloads which MAY contain prompt content |
-| 4 | `signaldock.db` (project tier) | `<projectRoot>/.cleo/signaldock.db` | project | `@cleocode/core` (`store/signaldock-sqlite.ts`) | core signaldock, cleo CLI agent commands | core signaldock registration paths | single-writer (WAL) | drizzle migrations under `packages/core/src/store/migrations/signaldock/` | retained for project lifetime; agent removal hard-deletes rows | VACUUM INTO snapshots; included in backup-pack | local-only; contains project-scoped agent overrides referencing global agent UUIDs |
+| 4 | `signaldock.db` (project tier) — **historical (post-ADR-037 → conduit.db)** | `<projectRoot>/.cleo/signaldock.db` (no longer created) | project | `@cleocode/core` (`store/signaldock-sqlite.ts`) | — (no live readers; legacy file MAY be detected on disk for migration provenance) | — (no live writers; project-tier signaldock writes were merged into `conduit.db` per ADR-037) | single-writer (WAL) — historical | drizzle migrations under `packages/core/src/store/migrations/signaldock/` — historical schema | row retained for legacy backup detection + migration provenance; new installs do NOT create this file | legacy VACUUM INTO snapshots MAY exist; backup-pack tolerates absence | local-only; project-scoped agent overrides referencing global agent UUIDs — superseded by `conduit.db` tables |
 | 5 | `nexus.db` | `$XDG_DATA_HOME/cleo/nexus.db` | global | `@cleocode/core` (`store/nexus-*`) | core nexus, cleo nexus/dash commands | core nexus ingest pipeline | single-writer (WAL); cross-project ingestion serialized | drizzle migrations under `packages/core/src/store/migrations/nexus/` | retained for user lifetime; cross-project knowledge graph | global VACUUM INTO rotation under `$XDG_DATA_HOME/cleo/backups/sqlite/` | local-only; HIGH sensitivity — cross-project knowledge graph; PII-class |
 | 6 | `telemetry.db` | `$XDG_DATA_HOME/cleo/telemetry.db` | global | `@cleocode/core` (`telemetry/sqlite.ts`) | core telemetry, `cleo diagnostics` | core telemetry middleware | single-writer (WAL); opt-in only — created lazily on first telemetry event when enabled | drizzle migrations under `packages/core/src/telemetry/migrations/` | rolling retention enforced by `cleo diagnostics` (per ADR retention rules); `cleo diagnostics disable` preserves data, `cleo diagnostics purge` deletes | covered by global VACUUM INTO when present | local-only; opt-in; designed to be cloud-exportable via `cleo diagnostics export` if user explicitly opts in |
 | 7 | `manifest.db` | `<projectRoot>/.cleo/blobs/manifest.db` | derived (project) | `@cleocode/core` (`store/llmtxt-blob-adapter.ts`) | core llmtxt blob adapter, attachment-store-v2 | core llmtxt blob adapter | single-writer (WAL); blob writes serialized via adapter | derived index — schema owned by `llmtxt` package's BlobFsAdapter contract; rebuildable from blob contents | rebuildable from `<projectRoot>/.cleo/blobs/` content-addressable store; `cleo backup pack` MAY exclude and rebuild on restore | not separately backed up; rebuilt from blob store | local-only; index of content hashes — no PII unless blob contents include PII |
 | 8 | `llmtxt.db` (reserved) | `<projectRoot>/.cleo/llmtxt.db` | project | `@cleocode/core` + `llmtxt` | core llmtxt session adapter | core llmtxt session adapter | single-writer (WAL) | reserved name for forthcoming AgentSession persistence per `llmtxt/sdk` contract; schema versioning will follow llmtxt package contract | retention follows llmtxt session policy; deleted on `cleo session prune` | included in backup-pack once active | local-only; MAY contain prompt/response content — PII-class |
 | 9 | `signaldock.db` (global tier) | `$XDG_DATA_HOME/cleo/signaldock.db` | global | `@cleocode/core` (`store/signaldock-sqlite.ts`) | core signaldock, cleo CLI agent commands across projects | core signaldock global identity registration | single-writer (WAL); global identity writes serialized | drizzle migrations under `packages/core/src/store/migrations/signaldock-global/` | retained for user lifetime; agent identity removal is rare and logged | global VACUUM INTO rotation under `$XDG_DATA_HOME/cleo/backups/sqlite/` | local-only; canonical agent identity registry; treat credentials referenced here as secrets |
+| 10 | `skills.db` (global tier) | `$XDG_DATA_HOME/cleo/skills.db` | global | `@cleocode/core` (`store/skills-schema.ts`) | core skills catalog, `cleo skill` commands across projects | core skill registration + curator | single-writer (WAL); global catalog writes serialized | drizzle migrations under `packages/core/migrations/drizzle-skills/` | retained for user lifetime; deprecated skills marked but rows retained for provenance | global VACUUM INTO rotation under `$XDG_DATA_HOME/cleo/backups/sqlite/` | local-only; skill metadata + frontmatter — no PII unless skill body contains it. **Added 2026-05-23 per T10306 / T9651 origin; verified live in T10305 audit (`sg-brain-db-resilience-deep-audit-2026-05-23` §1.2 row 4, 73 KB on disk).** |
+| 11 | `global-brain` (`brain.db` global tier) | `$XDG_DATA_HOME/cleo/brain.db` | global | `@cleocode/brain` | UNREGISTERED — no live opener | UNREGISTERED — no live opener | single-writer (WAL) — provenance unclear | reuses project-tier `brain.db` drizzle schema (`packages/core/src/store/memory-schema.ts`) | retention undefined; treat as orphan until T10282/T10307 cleanup decision | global VACUUM INTO rotation MAY pick up if present | local-only PII (defensive classification — file MAY contain memory rows). **Added 2026-05-23 per T10306. Discovered live on disk (`sg-brain-db-resilience-deep-audit-2026-05-23` §1.2 row 3, ~684 KB) but bypasses `openCleoDb`. Likely orphan from a `getCleoHome()`-vs-project-resolution path bug; structural-bug followup tracked under T10282 / T10307.** |
+| 12 | `global-tasks` (`tasks.db` global tier) | `$XDG_DATA_HOME/cleo/tasks.db` | global | `@cleocode/core` | UNREGISTERED — no live opener | UNREGISTERED — no live opener | single-writer (WAL) — provenance unclear | reuses project-tier `tasks.db` drizzle schema (`packages/core/src/store/tasks-schema.ts`) | retention undefined; treat as orphan until T10282/T10307 cleanup decision | global VACUUM INTO rotation MAY pick up if present | local-only — task titles MAY include private project names (defensive classification). **Added 2026-05-23 per T10306. Discovered live on disk (`sg-brain-db-resilience-deep-audit-2026-05-23` §1.2 row 5, ~4 KB) but bypasses `openCleoDb`. Likely orphan from a cwd-cascade bug (T9550 regression class). Structural-bug followup tracked under T10282 / T10307.** |
+
+#### Known structural bugs (flagged for resolution under Saga T10281)
+
+The T10305 deep audit (`sg-brain-db-resilience-deep-audit-2026-05-23` §1.2) surfaced two structural bugs that this charter REGISTERS without resolving. Resolution is owned by Saga T10281 SG-BRAIN-DB-RESILIENCE — specifically Epic T10285 (E4 cross-DB links), tracked task **T10321 (E4-T2 — BAN vs ADOPT ADR)**.
+
+1. **Nested-nexus duplicates** — Two files exist under a nested `nexus/` subdirectory of the global CLEO home and shadow the canonical row-5 `nexus.db` and row-9 `signaldock.db`:
+   - `$XDG_DATA_HOME/cleo/nexus/nexus.db` (~258 KB) — duplicates row 5
+   - `$XDG_DATA_HOME/cleo/nexus/signaldock.db` (~245 KB) — duplicates row 9
+   - Both carry their own `*-pre-cleo.db.bak` sidecars, evidence of a half-completed historical migration. Neither location has a live opener; both are orphans from divergent path resolution.
+   - **Disposition** (pending T10321): authoritative decision between BAN (delete nested files, enforce flat layout) and ADOPT (canonicalize `nexus/<role>.db`, retire flat-layout rows). ADR-068 will be amended again after T10321 lands the chosen ADR. Until then, the duplicates are CHARTER-FLAGGED but not OPENCLEODB-REGISTERED.
+
+2. **Unregistered global-tier orphans (rows 11 + 12)** — `global-brain` and `global-tasks` exist on disk but no production code opens them via `openCleoDb`. The audit could not establish provenance — most likely candidate is a path-resolution bug (T9550 regression class). T10307 fleet survey + T10282 E1 inventory close-out will classify these for cleanup (delete vs. adopt vs. migrate-and-merge).
+
+Any `cleo doctor` or `cleo backup verify` integration MUST surface these bugs as warnings until T10321 closes. The CI charter-drift gate MUST tolerate their presence on disk but flag if NEW files appear at the same nested location.
 
 #### Tier definitions
 
@@ -55,7 +77,7 @@ Every CLEO database MUST appear in the table below. Adding a new entry is a char
 
 All `node:sqlite` `DatabaseSync` construction in CLEO production code MUST go through a single chokepoint named `openCleoDb`. The chokepoint:
 
-1. Accepts a `role` parameter that names which charter row is being opened (one of: `tasks`, `brain`, `conduit`, `signaldock-project`, `nexus`, `telemetry`, `manifest`, `llmtxt`, `signaldock-global`).
+1. Accepts a `role` parameter that names which charter row is being opened (one of: `tasks`, `brain`, `conduit`, `nexus`, `telemetry`, `manifest`, `llmtxt`, `signaldock-global`, `skills`). Notes on amendments (2026-05-23, T10306): `signaldock-project` (row 4) is HISTORICAL post-ADR-037 and is NOT a live role; `skills` is a registered live role; `global-brain` (row 11) and `global-tasks` (row 12) are UNREGISTERED orphans whose disposition is pending T10321 / T10282.
 2. Resolves the canonical absolute path from the role via the SSoT path helpers (`getTasksDbPath`, `getBrainDbPath`, `getConduitDbPath`, `getSignaldockDbPath`, `getNexusDbPath`, `getCleoHome`/`getCleoProjectDir` for derived).
 3. Applies WAL mode and the `busy_timeout` PRAGMA before returning the handle.
 4. Emits a structured log (`subsystem: "openCleoDb"`) recording role + path + caller stack frame for diagnostics.
@@ -105,7 +127,7 @@ A pull request that fails any of steps 1–7 MUST be rejected by the CI gate. St
 
 ### Positive
 
-- **Single source of truth for database governance.** Every CLEO contributor and agent has one document to consult to learn who owns a database, who may read it, who may write it, how it versions, and how it is backed up. The 9-DB inventory eliminates the ambiguity that allowed `manifest.db`, `llmtxt.db`, and `telemetry.db` to ship without governance.
+- **Single source of truth for database governance.** Every CLEO contributor and agent has one document to consult to learn who owns a database, who may read it, who may write it, how it versions, and how it is backed up. The 12-DB inventory (originally 9; amended 2026-05-23 via T10306 to add `skills`, `global-brain`, `global-tasks`) eliminates the ambiguity that allowed `manifest.db`, `llmtxt.db`, `telemetry.db`, and the global-tier orphans to ship without governance.
 - **`openCleoDb` chokepoint creates a refactor target.** Establishing the chokepoint as the canonical contract turns scattered `new DatabaseSync(...)` calls into a finite, enumerable migration list. Each grandfathered call site can be retired one PR at a time.
 - **CI gate prevents charter drift.** The most common failure mode for inventory documents is silent staleness as new code lands without amendments. The gate makes drift visible at PR time.
 - **Privacy classification is now explicit.** PII-bearing databases (brain.db, nexus.db, llmtxt.db) are flagged in the same row as their backup behavior, making cloud-export decisions reviewable at a glance.
@@ -160,3 +182,14 @@ Document the charter but skip the programmatic check.
 - **`packages/brain/src/cleo-home.ts`** — Path SSoT (`getNexusDbPath`, `getBrainDbPath`, `getTasksDbPath`, `getConduitDbPath`, `getSignaldockDbPath`)
 - **`packages/core/src/store/llmtxt-blob-adapter.ts`** — `manifest.db` ownership
 - **`packages/core/src/telemetry/sqlite.ts`** — `telemetry.db` ownership
+- **`packages/core/src/store/db-inventory.json`** — runtime SSoT (12 rows, machine-readable) — added T10305 / Saga T10281
+- **`packages/contracts/src/db-inventory.ts`** — typed re-export (`DB_INVENTORY`, `DbInventoryEntry`) — added T10305 / Saga T10281
+- **`sg-brain-db-resilience-deep-audit-2026-05-23`** (research doc) — verified inventory + structural-bug evidence powering the T10306 amendment
+- **T10282 / E1-DB-INVENTORY** — owning epic for inventory close-out + orphan disposition
+- **T10307 / T10321** — followups (fleet survey + nested-nexus BAN vs ADOPT ADR)
+
+---
+
+## Amendment History
+
+- **2026-05-23 (T10306, Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10282 E1-DB-INVENTORY)**: extended inventory to 12 rows (added `skills`, `global-brain`, `global-tasks`); flagged nested-nexus `~/.local/share/cleo/nexus/{nexus,signaldock}.db` duplicates as a structural bug pending T10321 (E4-T2 BAN vs ADOPT ADR); marked row 4 `signaldock-project` historical (post-ADR-037 → conduit.db); clarified blob+manifest unification as ONE file (row 7); cross-referenced the runtime SSoT (`packages/core/src/store/db-inventory.json` / `DB_INVENTORY` from `@cleocode/contracts`) as the machine-readable counterpart to this governance overlay. Status remains `accepted` (amendment, not supersession).
