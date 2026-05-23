@@ -26,13 +26,13 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDir, getCleoHome } from '../paths.js';
-import { getConduitNativeDb } from './conduit-sqlite.js';
+import { getCleoDir, getCleoHome, resolveOrCwd } from '../paths.js';
+import { ensureConduitDb, getConduitNativeDb } from './conduit-sqlite.js';
 import { getGlobalSaltPath } from './global-salt.js';
-import { getBrainNativeDb } from './memory-sqlite.js';
-import { getNexusNativeDb } from './nexus-sqlite.js';
-import { getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
-import { getNativeDb } from './sqlite.js';
+import { getBrainDb, getBrainNativeDb } from './memory-sqlite.js';
+import { getNexusDb, getNexusNativeDb } from './nexus-sqlite.js';
+import { ensureGlobalSignaldockDb, getGlobalSignaldockNativeDb } from './signaldock-sqlite.js';
+import { getDb, getNativeDb } from './sqlite.js';
 
 /** Maximum number of snapshots retained per database (oldest rotated out). */
 const MAX_SNAPSHOTS = 10;
@@ -46,16 +46,75 @@ const DEBOUNCE_MS = 30_000; // 30 seconds
 const _lastBackupEpoch: Record<string, number> = {};
 
 /**
+ * Minimal shape of the handle used by the snapshot pipeline — only `exec()`
+ * is required to issue `PRAGMA wal_checkpoint(TRUNCATE)` + `VACUUM INTO`.
+ */
+type SnapshotDbHandle = { exec: (sql: string) => void };
+
+/**
  * Registered snapshot target — each one maps a logical key (prefix used in
  * snapshot filenames) to a function returning the live {@link DatabaseSync}
  * handle. `null` means the database has not been initialized in the current
- * process and its snapshot step should be skipped.
+ * process; in that case {@link SnapshotTarget.openDb} (T10316) eagerly opens
+ * the canonical singleton through the per-DB chokepoint so the snapshot
+ * pipeline never silently skips a target.
+ *
+ * @task T10316 — added `openDb` so `vacuumIntoBackupAll` snapshots EVERY
+ *               registered DB even when no caller in this process has
+ *               lazily opened it earlier (brain backup gap, Saga T10281 / E3).
  */
 interface SnapshotTarget {
   /** Canonical name used in snapshot filenames, e.g. `"tasks"` or `"brain"`. */
   prefix: string;
   /** Resolves the live native handle, or `null` if not yet initialized. */
-  getDb: () => { exec: (sql: string) => void } | null;
+  getDb: () => SnapshotDbHandle | null;
+  /**
+   * Eagerly opens the canonical singleton when {@link getDb} returns `null`.
+   * MUST flow through the per-DB chokepoint (ADR-068) — these openers all
+   * live in `packages/core/src/store/**` (the allowlist root) so this is
+   * pragma-consistent and singleton-managed. Returns `null` only when the
+   * underlying opener legitimately has nothing to open (e.g. missing
+   * project context); callers MUST treat `null` as "skip silently".
+   */
+  openDb: (cwd?: string) => Promise<SnapshotDbHandle | null>;
+}
+
+/**
+ * Open the canonical brain.db singleton via {@link getBrainDb} and return its
+ * native handle. Used as the eager-open fallback for the `brain` snapshot
+ * target when no earlier code in this process lazily opened brain.db
+ * (T10316 — fixes the brain backup gap).
+ *
+ * `getBrainDb` is the canonical chokepoint for brain.db opens
+ * (`packages/core/src/store/memory-sqlite.ts`, allowlisted under
+ * `packages/core/src/store/**`). We call it directly rather than via
+ * `openCleoDb('brain', cwd)` because the latter is currently misrouted to
+ * `getTasksDb` — a separate routing bug tracked outside T10316. Calling the
+ * canonical opener guarantees brain.db is actually opened.
+ */
+async function openBrainDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | null> {
+  await getBrainDb(cwd);
+  // After getBrainDb resolves, the native singleton MUST be populated.
+  return getBrainNativeDb();
+}
+
+/**
+ * Open the canonical tasks.db singleton via {@link getDb} and return its
+ * native handle. Mirrors {@link openBrainDbForSnapshot}; same rationale.
+ */
+async function openTasksDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | null> {
+  await getDb(cwd);
+  return getNativeDb();
+}
+
+/**
+ * Open the canonical conduit.db singleton via {@link ensureConduitDb}
+ * (sync) and return its native handle.
+ */
+async function openConduitDbForSnapshot(cwd?: string): Promise<SnapshotDbHandle | null> {
+  // ensureConduitDb requires an absolute project root.
+  ensureConduitDb(resolveOrCwd(cwd));
+  return getConduitNativeDb();
 }
 
 /**
@@ -63,13 +122,19 @@ interface SnapshotTarget {
  * snapshots first (highest-value operational state), then brain.db, then
  * conduit.db (project messaging state).
  *
+ * Every entry MUST provide both `getDb` (fast in-process lookup) and `openDb`
+ * (eager open via chokepoint). The latter closes the T10316 gap where a
+ * session-end snapshot found a `null` handle and silently skipped the DB.
+ *
  * @task T369
+ * @task T10316 — added eager-open openers for every project target
  * @epic T310
  */
 const SNAPSHOT_TARGETS: SnapshotTarget[] = [
-  { prefix: 'tasks', getDb: getNativeDb },
-  { prefix: 'brain', getDb: getBrainNativeDb },
-  { prefix: 'conduit', getDb: getConduitNativeDb }, // Added T369 — project messaging DB
+  { prefix: 'tasks', getDb: getNativeDb, openDb: openTasksDbForSnapshot },
+  { prefix: 'brain', getDb: getBrainNativeDb, openDb: openBrainDbForSnapshot },
+  // Added T369 — project messaging DB. openDb added T10316.
+  { prefix: 'conduit', getDb: getConduitNativeDb, openDb: openConduitDbForSnapshot },
 ];
 
 /**
@@ -141,6 +206,11 @@ export interface VacuumOptions {
  * consistent snapshot, then issues `VACUUM INTO '<dest>'` which SQLite
  * implements as an atomic, fully defragmented clone.
  *
+ * If `target.getDb()` returns `null` (the DB has not been lazily opened
+ * earlier in this process), T10316 added an eager-open fallback via
+ * `target.openDb(cwd)` — the canonical per-DB chokepoint. Only when BOTH
+ * lookups return `null` does the snapshot step skip the target.
+ *
  * Non-fatal: all errors are swallowed via the outer try in
  * {@link vacuumIntoBackupAll}; failures here must never block normal
  * operation.
@@ -148,10 +218,32 @@ export interface VacuumOptions {
  * @param target — snapshot target descriptor (prefix + native DB getter)
  * @param backupDir — absolute path to `.cleo/backups/sqlite/`
  * @param now — reference timestamp for the filename
+ * @param cwd — optional working directory propagated to `target.openDb`
+ *
+ * @task T10316 — eager-open via openCleoDb chokepoint (Saga T10281 / E3)
  */
-function snapshotOne(target: SnapshotTarget, backupDir: string, now: Date): void {
-  const db = target.getDb();
-  if (!db) return; // DB not initialized in this process — skip silently
+async function snapshotOne(
+  target: SnapshotTarget,
+  backupDir: string,
+  now: Date,
+  cwd?: string,
+): Promise<void> {
+  let db = target.getDb();
+  if (!db) {
+    // T10316: eager-open via the canonical per-DB chokepoint so the
+    // session-end backup never silently skips a registered target. This is
+    // the brain backup gap captured live in Saga T10281 / E3 — every
+    // session-end fired with brain.db handle = null in production despite
+    // the mock-based TC-100 unit test passing.
+    try {
+      db = await target.openDb(cwd);
+    } catch {
+      // Non-fatal — opener failure (e.g. missing project context) must
+      // not block snapshots of other registered targets.
+      return;
+    }
+    if (!db) return;
+  }
 
   const dest = join(backupDir, `${target.prefix}-${formatTimestamp(now)}.db`);
 
@@ -201,7 +293,7 @@ export async function vacuumIntoBackup(opts: VacuumOptions = {}): Promise<void> 
     const target = SNAPSHOT_TARGETS.find((t) => t.prefix === prefix);
     if (!target) return;
 
-    snapshotOne(target, backupDir, new Date());
+    await snapshotOne(target, backupDir, new Date(), opts.cwd);
     _lastBackupEpoch[prefix] = Date.now();
   } catch {
     // non-fatal — backup failure must never interrupt normal operation
@@ -238,7 +330,7 @@ export async function vacuumIntoBackupAll(opts: VacuumOptions = {}): Promise<voi
       continue; // debounced — skip this target only
     }
     try {
-      snapshotOne(target, backupDir, now);
+      await snapshotOne(target, backupDir, now, opts.cwd);
       _lastBackupEpoch[target.prefix] = Date.now();
     } catch {
       // non-fatal — continue with remaining targets
@@ -327,15 +419,46 @@ export function listSqliteBackupsAll(
 export type BackupScope = 'project' | 'global';
 
 /**
+ * Open the canonical nexus.db singleton via {@link getNexusDb} and return
+ * its native handle. Symmetric counterpart to {@link openBrainDbForSnapshot}
+ * — eager-open via per-DB chokepoint so global-tier snapshots also work
+ * when the in-process handle cache is empty.
+ *
+ * @task T10316
+ */
+async function openNexusDbForSnapshot(): Promise<SnapshotDbHandle | null> {
+  await getNexusDb();
+  return getNexusNativeDb();
+}
+
+/**
+ * Open the canonical global signaldock.db singleton via
+ * {@link ensureGlobalSignaldockDb} and return its native handle.
+ *
+ * @task T10316
+ */
+async function openSignaldockDbForSnapshot(): Promise<SnapshotDbHandle | null> {
+  await ensureGlobalSignaldockDb();
+  return getGlobalSignaldockNativeDb();
+}
+
+/**
  * Registered global-tier snapshot targets. Both `nexus` and `signaldock` are
- * active as of T369 (epic T310).
+ * active as of T369 (epic T310). T10316 added eager-open `openDb` functions
+ * to mirror the project-tier behaviour and close the same handle-cache gap.
  *
  * @task T369
+ * @task T10316 — eager-open via openCleoDb chokepoint
  * @epic T310
  */
 const GLOBAL_SNAPSHOT_TARGETS: SnapshotTarget[] = [
-  { prefix: 'nexus', getDb: getNexusNativeDb },
-  { prefix: 'signaldock', getDb: getGlobalSignaldockNativeDb }, // Activated T369 — global agent registry
+  { prefix: 'nexus', getDb: getNexusNativeDb, openDb: openNexusDbForSnapshot },
+  // Activated T369 — global agent registry. openDb added T10316.
+  {
+    prefix: 'signaldock',
+    getDb: getGlobalSignaldockNativeDb,
+    openDb: openSignaldockDbForSnapshot,
+  },
 ];
 
 /**
@@ -383,9 +506,19 @@ export async function vacuumIntoGlobalBackup(
     return { snapshotPath: '', rotated: [] };
   }
 
-  const db = target.getDb();
+  // T10316: eager-open via per-DB chokepoint when the in-process singleton
+  // is empty. Mirrors the project-tier fix in `snapshotOne` (Saga T10281 /
+  // E3 — brain backup gap).
+  let db = target.getDb();
   if (!db) {
-    return { snapshotPath: '', rotated: [] };
+    try {
+      db = await target.openDb();
+    } catch {
+      return { snapshotPath: '', rotated: [] };
+    }
+    if (!db) {
+      return { snapshotPath: '', rotated: [] };
+    }
   }
 
   const now = new Date();
