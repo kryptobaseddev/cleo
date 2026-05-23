@@ -27,12 +27,13 @@ export {
   type SagaInvariantDiag,
   SagaInvariantViolationError,
 } from './enforcement.js';
-export { type SagaListResult, sagaList } from './list.js';
+export { type SagaInvariantI5Warning, type SagaListResult, sagaList } from './list.js';
 export {
   type SagaMemberEntry,
   type SagaMembersParams,
   type SagaMembersResult,
   sagaMembers,
 } from './members.js';
+export { type RepairSagaParams, type RepairSagaResult, repairSaga } from './repair.js';
 export { type SagaRollupParams, type SagaRollupResult, sagaRollup } from './rollup.js';
 export { resolveSagaMemberIds } from './storage.js';
