@@ -61,6 +61,8 @@ import {
   getCleoDirAbsolute,
   getProjectRoot,
   memoryObserve,
+  releaseReservedSlug,
+  reserveSlug,
   resolveAttachmentBackend,
   SlugCollisionError,
 } from '@cleocode/core/internal';
@@ -878,6 +880,42 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       }
     }
 
+    // T10386 (Saga T10288 · Epic T10289) — central slug-allocator chokepoint.
+    //
+    // Every writer that intends to attach a slug MUST call reserveSlug()
+    // BEFORE attachmentStore.put. The allocator surfaces a uniform
+    // E_SLUG_RESERVED envelope (with 3 derived suggestions) across both
+    // writers (cleo docs add + cleo changeset add) so the operator sees the
+    // same shape regardless of which CLI verb tripped the collision.
+    //
+    // The `kind` arg to reserveSlug() does NOT partition the namespace
+    // (T10390 / E1.5 decision: global namespace). When --type is omitted we
+    // pass the empty string; the value is reserved for future per-kind
+    // suggestion derivation but does not affect uniqueness today.
+    //
+    // The post-write `E_SLUG_TAKEN` mapping in the catch blocks below
+    // remains as a back-compat alias for ONE release (E_SLUG_TAKEN was the
+    // docs-only error code shipped by T9636/T9637 before the allocator
+    // collapsed both writers onto a single error shape). Downstream
+    // consumers grepping for the legacy code can match
+    // `details.aliases: ['E_SLUG_TAKEN']` until E2 deprecates the alias.
+    if (slug !== undefined) {
+      const reservation = await reserveSlug(type ?? '', slug);
+      if (!reservation.ok) {
+        return {
+          success: false,
+          error: {
+            code: 'E_SLUG_RESERVED',
+            message: `slug '${slug}' is already in use in this project`,
+            details: {
+              suggestions: reservation.suggestions,
+              aliases: ['E_SLUG_TAKEN'],
+            },
+          },
+        };
+      }
+    }
+
     const extras: { slug?: string; type?: string } = {};
     if (slug !== undefined) extras.slug = slug;
     if (type !== undefined) extras.type = type;
@@ -919,16 +957,26 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           extras,
         );
       } catch (err) {
+        // Release any reservation held by the allocator so retries do not
+        // see a stale claim. Safe on any thrown error path because
+        // releaseReservedSlug() is a no-op for un-reserved slugs.
+        if (slug !== undefined) releaseReservedSlug(slug);
         if (err instanceof SlugCollisionError) {
-          // Construct the envelope directly so we can attach `suggestions` to
-          // the error.details payload — `lafsError()` does not accept extra
-          // fields beyond `code/message/fix`.
+          // T10386 — late-bound collision (cross-process race won by another
+          // writer between reserveSlug() and put()). Surface the SAME
+          // E_SLUG_RESERVED envelope as the early-bound chokepoint path so
+          // operators see one uniform shape, with the legacy `E_SLUG_TAKEN`
+          // code retained under `details.aliases` for one release of
+          // back-compat.
           return {
             success: false,
             error: {
-              code: 'E_SLUG_TAKEN',
+              code: 'E_SLUG_RESERVED',
               message: `slug '${err.slug}' is already in use in this project`,
-              details: { suggestions: err.suggestions },
+              details: {
+                suggestions: err.suggestions,
+                aliases: ['E_SLUG_TAKEN'],
+              },
             },
           };
         }
@@ -1020,13 +1068,22 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           extras,
         );
       } catch (err) {
+        // Release any allocator reservation on the failure path (see file
+        // branch above for the rationale).
+        if (slug !== undefined) releaseReservedSlug(slug);
         if (err instanceof SlugCollisionError) {
+          // T10386 — uniform E_SLUG_RESERVED shape across both writers.
+          // Legacy `E_SLUG_TAKEN` is preserved under `details.aliases` for
+          // one release of back-compat.
           return {
             success: false,
             error: {
-              code: 'E_SLUG_TAKEN',
+              code: 'E_SLUG_RESERVED',
               message: `slug '${err.slug}' is already in use in this project`,
-              details: { suggestions: err.suggestions },
+              details: {
+                suggestions: err.suggestions,
+                aliases: ['E_SLUG_TAKEN'],
+              },
             },
           };
         }

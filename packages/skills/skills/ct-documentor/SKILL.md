@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.2.0
+version: 3.3.0
 tier: 3
 core: false
 category: specialist
@@ -143,8 +143,30 @@ invoking `attachmentStore.put({ slug })`. The allocator:
 
 The `attachmentStore.put` chokepoint enforces this via a runtime assert
 (`SlugNotReservedByAllocatorError`) when `CLEO_STRICT_SLUG_ALLOCATOR=1`
-is set. Strict mode becomes default once `cleo docs add` (T10386) and
-`cleo changeset add` (T10388) finish wiring through the allocator.
+is set. Strict mode becomes default once `cleo changeset add` (T10388)
+finishes wiring through the allocator. `cleo docs add` LIVE as of T10386:
+the dispatch layer (`packages/cleo/src/dispatch/domains/docs.ts:add`)
+calls `reserveSlug(type, slug)` BEFORE `attachmentStore.put`. Collisions
+surface the uniform envelope:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "E_SLUG_RESERVED",
+    "message": "slug 'foo' is already in use in this project",
+    "details": {
+      "suggestions": ["foo-2", "foo-3", "foo-4"],
+      "aliases": ["E_SLUG_TAKEN"]
+    }
+  }
+}
+```
+
+`details.aliases` retains the legacy `E_SLUG_TAKEN` code for ONE release of
+back-compat — downstream consumers grepping for the old code can still match
+via the alias array. Removed after T-E1.3 (T10388) lands `cleo changeset add`
+on the same chokepoint.
 
 Slugs share a GLOBAL namespace across all DocKinds — `reserveSlug('changeset',
 'foo')` followed by `reserveSlug('research', 'foo')` collides (decision
