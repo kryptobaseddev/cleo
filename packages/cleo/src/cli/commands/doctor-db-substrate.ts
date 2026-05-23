@@ -45,6 +45,17 @@ const DEFAULT_FLEET_ROOT = '/mnt/projects';
  */
 function pushSubstrateWarnings(result: DbSubstrateAuditResult): void {
   for (const warning of result.warnings) {
+    // Build a base context shared by every warning kind; orphan-project-root
+    // warnings additionally carry `parentWorkspace` (T10308 attribution
+    // for the offending sibling workspace).
+    const context: Record<string, string | number | null> = {
+      kind: warning.kind,
+      path: warning.path,
+      lastWriteMs: warning.lastWriteMs,
+    };
+    if (warning.kind === 'orphan-project-root') {
+      context['parentWorkspace'] = warning.parentWorkspace ?? null;
+    }
     pushWarning({
       code:
         warning.kind === 'orphan-project-root'
@@ -52,14 +63,13 @@ function pushSubstrateWarnings(result: DbSubstrateAuditResult): void {
           : 'W_DB_SUBSTRATE_NESTED_NEXUS_DUPLICATE',
       message:
         warning.kind === 'orphan-project-root'
-          ? `Orphan project-root .cleo/ at ${warning.path} (T9550 regression class — review then remove)`
+          ? `Orphan project-root .cleo/ at ${warning.path} (T9550 regression class — review then remove)` +
+            (warning.parentWorkspace
+              ? ` — attributed to workspace: ${warning.parentWorkspace}`
+              : '')
           : `Nested-nexus duplicate at ${warning.path} (structural duplicate of the canonical flat layout)`,
       severity: 'warn',
-      context: {
-        kind: warning.kind,
-        path: warning.path,
-        lastWriteMs: warning.lastWriteMs,
-      },
+      context,
     });
   }
 }
