@@ -325,8 +325,15 @@ export {
 } from './docs-taxonomy.js';
 // === Doctor: Worktree-Orphan Audit + Prune Types (T9790, T9808, T9962) ===
 // === Doctor: Saga Hierarchy Audit (T10119 — ADR-073 §1.2) ===
+// === Doctor: DB-Substrate Survey (T10307 — Saga T10281 / Epic T10282) ===
 export type {
   ComprehensiveAuditResult,
+  DbSubstrateAuditResult,
+  DbSubstrateEntry,
+  DbSubstrateProjectSurvey,
+  DbSubstrateSummary,
+  DbSubstrateWarning,
+  DbSubstrateWarningKind,
   OrphanEntry,
   OrphanScanResult,
   PruneAuditEntry,
