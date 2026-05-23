@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Coordinates ct-docs-lookup, ct-docs-write, ct-docs-review, ct-spec-writer, and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.2.0
+version: 3.3.0
 tier: 3
 core: false
 category: specialist
@@ -147,9 +147,16 @@ is set. Strict mode becomes default once `cleo docs add` (T10386) and
 `cleo changeset add` (T10388) finish wiring through the allocator.
 
 Slugs share a GLOBAL namespace across all DocKinds — `reserveSlug('changeset',
-'foo')` followed by `reserveSlug('research', 'foo')` collides (decision
-T10390 / E1.5). Matches the `uniq_attachments_slug` partial UNIQUE INDEX in
-migration `20260519000001`.
+'foo')` followed by `reserveSlug('research', 'foo')` collides. The decision
+is recorded in **ADR-076 §6 amendment AMD-001** (slug
+`adr-076-canonical-docs-ssot`, T10390 / E1.5). Three-point evidence (human-memorable
+global lookup, DocKind-distinct prefix conventions, backward-compat cost) and
+the full counterfactual analysis live in that amendment. Matches the
+`uniq_attachments_slug` partial UNIQUE INDEX in migration `20260519000001`.
+
+When choosing a slug, follow the DocKind prefix conventions in the routing
+matrix above (`adr-NNN-*`, `spec-*`, `research-*`, `t<id>-*` for changesets,
+etc.) — this is what makes cross-kind collisions structurally near-impossible.
 
 ### Publish to a git-tracked path (when the doc must live on disk)
 
