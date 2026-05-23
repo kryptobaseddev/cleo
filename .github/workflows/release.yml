@@ -1,5 +1,6 @@
 name: Release
 
+# @task release-pipeline (foundational — see T9540 / Saga T9787 release-system).
 # Triggers:
 #   1. Automatic: push a v* tag (e.g. v2026.3.14, v2026.3.14-beta.1)
 #   2. Manual break-glass: workflow_dispatch with a version input

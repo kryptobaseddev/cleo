@@ -1,5 +1,10 @@
 name: Lockfile Check
 
+# @task T10102
+# Standalone fast-fail gate that runs `pnpm install --frozen-lockfile`
+# before any other CI job. Predates the task-annotation convention; T10102
+# (workflow inventory) classifies this as a defensible singleton.
+
 on:
   pull_request:
   push:

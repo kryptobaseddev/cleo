@@ -1,5 +1,6 @@
 name: Release Pipeline Matrix
 
+# @task T9544
 # T9544 — Release-pipeline integration matrix.
 #
 # Runs the 12 release-pipeline scenarios (S1-S12 — landed in T9543) across the

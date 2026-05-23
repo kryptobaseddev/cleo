@@ -1,5 +1,6 @@
 name: Skills Council (Owner CI)
 
+# @task T9662
 # T9662 (E-SKILLS-OWNER-CI / SG-CLEO-SKILLS Sphere A → owner CI top-N council).
 #
 # Weekly cron that runs the multi-advisor "council" review pass against the

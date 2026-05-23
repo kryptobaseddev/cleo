@@ -1,5 +1,6 @@
 name: Docs Re-ingest (PR merge)
 
+# @task T9645
 # Re-ingest CLEO docs SSoT blobs whenever a PR that touches a published
 # Markdown file is merged into the default branch.
 #

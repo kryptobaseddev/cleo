@@ -1,5 +1,6 @@
 name: Skills Grade (Owner CI)
 
+# @task T9667
 # T9667 (E-SKILLS-OWNER-CI / SG-CLEO-SKILLS Sphere A → owner CI grading pass).
 #
 # Weekly cron that runs the multi-rubric "grade" evaluation pass against
