@@ -33,7 +33,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "2026.5.104"
+version = "2026.5.105"
 rust-version = "1.94"
 
 [workspace.dependencies]
@@ -75,7 +75,7 @@ tower-lsp = "0.20"
 
 # Local workspace crates
 lafs-core = { path = "crates/lafs-core" }
-cleo-conduit-core = { path = "crates/cleo-conduit-core", version = "=2026.5.104" }
+cleo-conduit-core = { path = "crates/cleo-conduit-core", version = "=2026.5.105" }
 cant-core = { path = "crates/cant-core" }
 cant-lsp = { path = "crates/cant-lsp" }
 cant-napi = { path = "crates/cant-napi" }
