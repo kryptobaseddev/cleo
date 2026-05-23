@@ -2501,6 +2501,36 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
   {
+    // T10121 — idempotent cron-safe saga auto-close repair. Re-applies
+    // T10116 logic for sagas whose members reached 100% terminal via paths
+    // OTHER than completeTask (bulk SQL, crash recovery, manual edits).
+    // Supersedes T10098 standalone scope.
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'saga.reconcile',
+    description:
+      'tasks.saga.reconcile (mutate) — idempotent cron-safe saga auto-close repair; per-saga advisory lock + audit log; supersedes T10098',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'sagaId',
+        type: 'string',
+        required: false,
+        description: 'Optional saga task ID. Omit to walk every saga.',
+        cli: { positional: true },
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Report what would happen without mutating rows or writing audit log',
+      },
+    ] satisfies ParamDef[],
+  },
+  {
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'start',

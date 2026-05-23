@@ -13,13 +13,16 @@
  *   cleo saga members <sagaId>
  *   cleo saga rollup <sagaId>
  *   cleo saga repair <sagaId>
+ *   cleo saga reconcile [<sagaId>] [--dry-run]
  *
  * @see ADR-073 — Above-Epic Naming (Saga, prefix SG-)
  * @task T9521
  * @task T10117 — saga repair verb
  * @task T10118 — `detach` verb wired for ADR-073 §1.2 I7 repair
+ * @task T10121 — `reconcile` verb (idempotent cron-safe auto-close)
  * @epic T9518
  * @epic T10209 — E-SAGA-ENFORCEMENT
+ * @epic T10210 — E-SAGA-AUTO-CLOSE
  */
 
 import { parseAcceptanceCriteria } from '@cleocode/core';
@@ -205,6 +208,51 @@ const repairCommand = defineCommand({
   },
 });
 
+/**
+ * cleo saga reconcile [<sagaId>] [--dry-run] — idempotent cron-safe
+ * re-application of the T10116 saga auto-close logic. Walks every saga
+ * (or single sagaId if supplied) and flips `status='done'` for any saga
+ * whose members reached 100% terminal status via paths other than
+ * `completeTask` (bulk SQL repair, crash recovery, manual state edits).
+ *
+ * Per-saga advisory lock + audit log at `.cleo/audit/saga-reconcile.jsonl`.
+ *
+ * Supersedes T10098 standalone scope.
+ *
+ * @task T10121
+ * @see ADR-073-above-epic-naming.md §1.3
+ */
+const reconcileCommand = defineCommand({
+  meta: {
+    name: 'reconcile',
+    description:
+      'Idempotent cron-safe saga auto-close repair — re-applies T10116 logic for state changed outside completeTask',
+  },
+  args: {
+    sagaId: {
+      type: 'positional',
+      description: 'Optional saga task ID. Omit to walk every saga.',
+      required: false,
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Report what would happen without mutating rows or writing audit log',
+      required: false,
+    },
+  },
+  async run({ args }) {
+    const sagaId =
+      typeof args.sagaId === 'string' && args.sagaId.length > 0 ? args.sagaId : undefined;
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'saga.reconcile',
+      { sagaId, dryRun: args['dry-run'] === true },
+      { command: 'saga', operation: 'tasks.saga.reconcile' },
+    );
+  },
+});
+
 /** cleo saga rollup <sagaId> — aggregate status counts across all member Epics */
 const rollupCommand = defineCommand({
   meta: {
@@ -248,6 +296,7 @@ export const sagaCommand = defineCommand({
     members: membersCommand,
     rollup: rollupCommand,
     repair: repairCommand,
+    reconcile: reconcileCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
