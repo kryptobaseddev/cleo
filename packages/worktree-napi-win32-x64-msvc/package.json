@@ -1,7 +1,6 @@
 {
   "name": "@cleocode/worktree-napi-win32-x64-msvc",
-  "version": "0.0.0-prerelease",
-  "private": false,
+  "version": "2026.5.101",
   "description": "Windows x86_64 (MSVC) prebuilt for @cleocode/worktree-napi",
   "license": "MIT",
   "os": [
@@ -13,5 +12,13 @@
   "main": "worktree-napi.win32-x64-msvc.node",
   "files": [
     "worktree-napi.win32-x64-msvc.node"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo",
+    "directory": "packages/worktree-napi-win32-x64-msvc"
+  }
 }

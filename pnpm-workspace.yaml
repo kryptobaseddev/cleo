@@ -1,2 +1,8 @@
 packages:
   - "packages/*"
+  # crates/worktree-napi is the napi-rs Node binding for worktrunk-core.
+  # Adding it as a workspace package so @cleocode/worktree can depend on it
+  # via "workspace:*" (which publishes as a concrete version reference)
+  # instead of "file:../../crates/worktree-napi" (which leaves a broken
+  # relative path in the published tarball — T10178).
+  - "crates/worktree-napi"

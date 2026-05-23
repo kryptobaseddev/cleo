@@ -125,19 +125,13 @@ jobs:
         env:
           VERSION_BARE: ${{ steps.version.outputs.version_bare }}
         run: |
-          # Update any @cleocode/* dep pinned to a specific numeric version
-          # (not workspace:* -- those are handled by pnpm at publish time).
-          for PKG_JSON in packages/*/package.json; do
-            updated=$(jq --arg v "$VERSION_BARE" '
-              def bump_if_numeric:
-                if . and (test("^[0-9]")) then $v else . end;
-              (if has("dependencies") then .dependencies |= with_entries(.value |= bump_if_numeric) else . end) |
-              (if has("devDependencies") then .devDependencies |= with_entries(.value |= bump_if_numeric) else . end) |
-              (if has("peerDependencies") then .peerDependencies |= with_entries(.value |= bump_if_numeric) else . end)
-            ' "$PKG_JSON")
-            echo "$updated" > "$PKG_JSON"
-          done
-          echo "Workspace @cleocode/* numeric dep refs updated"
+          # Only @cleocode/* numeric pins move -- external deps (tree-sitter,
+          # drizzle-orm, @forge-ts/*, @biomejs/*, @types/*, etc.) are NEVER
+          # touched. This is the permanent fix for the v2026.5.100 / v2026.5.101
+          # regression that scoped bumps by "value starts with a digit" instead
+          # of "key starts with @cleocode/". See T10177 / surgical revert
+          # commit d26b76751 / SAGA T10176.
+          node scripts/bump-workspace-deps.mjs --version "$VERSION_BARE"
 
       - name: Bump Cargo.toml workspace version
         env:
