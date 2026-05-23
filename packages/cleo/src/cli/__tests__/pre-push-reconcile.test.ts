@@ -2,7 +2,8 @@
  * T1595 — pre-push reconcile gate tests.
  *
  * Verifies the POSIX shell extension hook at
- * `packages/cleo/templates/hooks/pre-push.t1595-extension.sh`:
+ * `packages/core/templates/git-hooks/pre-push.t1595-extension.sh`
+ * (T9858 relocated cleo → core):
  *
  *  - drift > 0  → exit 1 (push refused), reason printed
  *  - drift == 0 → exit 0 (push allowed)
@@ -34,14 +35,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-/** Absolute path to the extension hook under test. */
+/**
+ * Absolute path to the extension hook under test.
+ *
+ * T9858 relocated the t1595 extension from
+ * `packages/cleo/templates/hooks/` to `packages/core/templates/git-hooks/`
+ * per the Package-Boundary Check.
+ */
 const HOOK_PATH = resolve(
   __dirname,
   '..',
   '..',
   '..',
+  '..',
+  'core',
   'templates',
-  'hooks',
+  'git-hooks',
   'pre-push.t1595-extension.sh',
 );
 

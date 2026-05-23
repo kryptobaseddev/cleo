@@ -1,8 +1,10 @@
 /**
  * Git hook installer (T1588).
  *
- * Copies CLEO's project-agnostic git hooks from the cleo template directory
- * into the target project's `.git/hooks/` (or `core.hooksPath` if set).
+ * Copies CLEO's project-agnostic git hooks from the
+ * `@cleocode/core/templates/git-hooks/` directory (T9858 relocated from
+ * `packages/cleo/templates/hooks/`) into the target project's
+ * `.git/hooks/` (or `core.hooksPath` if set).
  *
  * Project-agnostic: the templates are POSIX `/bin/sh` and have no
  * node/pnpm dependencies, so they install cleanly into Rust, Python,
@@ -28,7 +30,7 @@ export const CLEO_HOOK_SENTINEL = '# CLEO_MANAGED_HOOK v1';
 /**
  * The set of hooks CLEO ships and manages. Order matches the order
  * we iterate them; both names match the on-disk filenames in
- * `packages/cleo/templates/hooks/`.
+ * `packages/core/templates/git-hooks/` (T9858 relocated cleo→core).
  */
 export const CLEO_HOOK_NAMES = ['commit-msg', 'pre-push'] as const;
 export type CleoHookName = (typeof CLEO_HOOK_NAMES)[number];
@@ -37,8 +39,9 @@ export type CleoHookName = (typeof CLEO_HOOK_NAMES)[number];
 export interface InstallCleoHooksOptions {
   /**
    * Override the hook source directory. Defaults to
-   * `<repoRoot>/packages/cleo/templates/hooks` (in-monorepo) or the
-   * resolved package install location at runtime.
+   * `<repoRoot>/packages/core/templates/git-hooks` (in-monorepo) or the
+   * resolved `@cleocode/core` install location at runtime. T9858 relocated
+   * the hook templates packages/cleo → packages/core.
    */
   templatesDir?: string;
   /**
@@ -212,21 +215,32 @@ export function resolveHooksDir(projectRoot: string, gitDir: string): string {
  * Default templates dir resolution.
  *
  * Tries (in order):
- *  1. Sibling to compiled JS:   `<this dir>/../../templates/hooks`
- *     (works once @cleocode/cleo is installed and shipped with templates).
- *  2. Monorepo source layout:   `<repoRoot>/packages/cleo/templates/hooks`
+ *  1. Sibling to compiled JS:   `<this dir>/../../templates/git-hooks`
+ *     (works once @cleocode/core is installed and shipped with templates).
+ *  2. Monorepo source layout:   `<repoRoot>/packages/core/templates/git-hooks`
  *     (used during local dev / tests against repo source).
+ *
+ * T9858 relocated the hook templates packages/cleo → packages/core, so the
+ * canonical layout is now `packages/core/templates/git-hooks/`. We retain
+ * fallback probes for the legacy `packages/cleo/templates/hooks/` path so
+ * old global installs continue to function during the v2026.5.x upgrade
+ * window.
  *
  * Tests should pass `templatesDir` explicitly to bypass resolution.
  */
 export function defaultTemplatesDir(): string {
-  // Walk up from this file looking for `packages/cleo/templates/hooks`.
-  // Works in both ts source (during vitest) and compiled dist.
+  // Walk up from this file looking for the canonical layout first, then
+  // the legacy layout as a fallback. Works in both ts source (during
+  // vitest) and compiled dist.
   const here = fileURLToDirname();
   const candidates: string[] = [];
   let cursor = here;
   // Up to 8 parents — covers nested test runs and dist.
   for (let i = 0; i < 8; i += 1) {
+    // Canonical layout (T9858+).
+    candidates.push(path.join(cursor, 'templates', 'git-hooks'));
+    candidates.push(path.join(cursor, 'packages', 'core', 'templates', 'git-hooks'));
+    // Legacy layout (pre-T9858) — kept for old global installs.
     candidates.push(path.join(cursor, 'templates', 'hooks'));
     candidates.push(path.join(cursor, 'packages', 'cleo', 'templates', 'hooks'));
     const parent = path.dirname(cursor);
@@ -238,7 +252,7 @@ export function defaultTemplatesDir(): string {
   }
   // Final fallback — return the most-likely path so the caller gets a
   // useful error message in `installCleoHooks`.
-  return path.join(here, '..', '..', 'templates', 'hooks');
+  return path.join(here, '..', '..', 'templates', 'git-hooks');
 }
 
 /** Return the directory containing the calling module, ESM-safe. */

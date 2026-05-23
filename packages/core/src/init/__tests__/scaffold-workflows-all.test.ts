@@ -33,7 +33,7 @@ import {
 // ---------------------------------------------------------------------------
 // Fixture templates — minimal inline stand-ins for the four `*.yml.tmpl`
 // files. Each fixture touches the placeholders its real counterpart uses
-// (per packages/cleo/templates/workflows/README.md) so the substitution
+// (per packages/core/templates/workflows/README.md) so the substitution
 // pass is exercised end-to-end without depending on the byte-exact
 // contents of the shipped templates.
 // ---------------------------------------------------------------------------
@@ -253,17 +253,21 @@ describe('scaffoldWorkflows defaults — full four-template set (T9536)', () => 
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the absolute path to `packages/cleo/templates/workflows/` from
+ * Resolve the absolute path to `packages/core/templates/workflows/` from
  * this test file. Walks the directory tree without depending on the
  * package layout (works in both monorepo dev + dist builds).
+ *
+ * T9858 relocated workflow templates packages/cleo → packages/core, so
+ * this resolver now walks UP to `packages/core/` and DOWN into
+ * `templates/workflows/`.
  */
 function resolveRealTemplatesDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   // here = packages/core/src/init/__tests__   (in source)
   //      = packages/core/dist/init/__tests__  (after esbuild emit)
-  // From either anchor, "up" four levels lands at packages/core/, and
-  // "../cleo/templates/workflows" is the target.
-  return resolve(here, '..', '..', '..', '..', 'cleo', 'templates', 'workflows');
+  // From either anchor, "up" three levels lands at packages/core/, and
+  // "templates/workflows" is the target.
+  return resolve(here, '..', '..', '..', 'templates', 'workflows');
 }
 
 describe('scaffoldWorkflows against the real shipped templates (T9536 smoke)', () => {
