@@ -1806,4 +1806,6 @@ export type {
   WarpLink,
   WarpStage,
 } from './warp-chain.js';
+// === Human Render Contract (Epic T10114, ADR-077) ===
+export * from './render/index.js';
 // === WASM SDK (Rust crate bindings) ===
