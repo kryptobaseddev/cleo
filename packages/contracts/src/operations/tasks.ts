@@ -1176,6 +1176,87 @@ export interface TasksSagaRepairResult {
   note?: string;
 }
 
+/**
+ * Per-saga reconciliation action returned by `tasks.saga.reconcile`.
+ *
+ * @task T10121
+ */
+export type TasksSagaReconcileAction = 'close' | 'no-op' | 'blocked' | 'error';
+
+/**
+ * Params for `tasks.saga.reconcile` — idempotent cron-safe saga auto-close
+ * repair. Re-applies the T10116 auto-close logic for sagas whose members
+ * reached 100% terminal status via paths OTHER than `completeTask` (bulk
+ * SQL repair, crash recovery, manual state edits).
+ *
+ * @task T10121
+ * @see ADR-073-above-epic-naming.md §1.3
+ */
+export interface TasksSagaReconcileParams {
+  /**
+   * Optional single saga to reconcile. When omitted, the verb walks every
+   * saga returned by `taskList({ type: 'epic', label: 'saga' })`.
+   */
+  sagaId?: string;
+  /**
+   * When `true`, run in report-only mode — log what would happen without
+   * mutating any rows or writing to the audit log.
+   */
+  dryRun?: boolean;
+}
+
+/**
+ * Per-saga reconciliation outcome surfaced inside
+ * {@link TasksSagaReconcileResult}.
+ *
+ * @task T10121
+ */
+export interface TasksSagaReconcileEntry {
+  /** Saga task ID this entry refers to. */
+  sagaId: string;
+  /** The action the reconciler took for this saga. */
+  action: TasksSagaReconcileAction;
+  /** Member task IDs considered by the closure check. */
+  members: string[];
+  /** Members that satisfied the terminal-status predicate. */
+  terminalMembers: string[];
+  /** Members that did NOT satisfy the terminal-status predicate. */
+  pendingMembers: string[];
+  /** Saga status BEFORE this run. */
+  statusBefore: string;
+  /** Saga status AFTER this run (== `statusBefore` for no-op/blocked/error). */
+  statusAfter: string;
+  /** Free-form human-readable reason recorded for the audit entry. */
+  reason: string;
+  /** ISO 8601 timestamp the decision was recorded. */
+  timestamp: string;
+}
+
+/**
+ * Result of `tasks.saga.reconcile` — aggregate counters + per-saga entries
+ * in stable id order.
+ *
+ * @task T10121
+ */
+export interface TasksSagaReconcileResult {
+  /** Total number of sagas inspected (== `entries.length`). */
+  total: number;
+  /** Number of sagas the run flipped to `status='done'`. */
+  closed: number;
+  /** Number of sagas already in the correct terminal state. */
+  noOp: number;
+  /** Number of sagas blocked behind a concurrent lock holder. */
+  blocked: number;
+  /** Number of sagas with pending non-terminal members (not closed). */
+  pending: number;
+  /** Number of sagas that errored out during reconciliation. */
+  errors: number;
+  /** Whether this run ran in dry-run mode. */
+  dryRun: boolean;
+  /** Detailed per-saga entries in stable id order. */
+  entries: TasksSagaReconcileEntry[];
+}
+
 /** Params for `tasks.saga.rollup` — aggregate member Epic statuses. */
 export interface TasksSagaRollupParams {
   /** Saga task ID. */
@@ -1268,4 +1349,6 @@ export type TasksOps = {
   readonly 'saga.rollup': readonly [TasksSagaRollupParams, TasksSagaRollupResult];
   /** T10117 — repair an I5-violating saga. */
   readonly 'saga.repair': readonly [TasksSagaRepairParams, TasksSagaRepairResult];
+  /** T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope). */
+  readonly 'saga.reconcile': readonly [TasksSagaReconcileParams, TasksSagaReconcileResult];
 };

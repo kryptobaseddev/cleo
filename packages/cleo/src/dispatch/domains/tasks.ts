@@ -7,7 +7,7 @@
  * promote, reorder, relates.add, relates.remove, start, stop,
  * sync.reconcile, sync.links, sync.links.remove,
  * saga.create, saga.add, saga.detach, saga.list, saga.members, saga.rollup,
- * saga.repair.
+ * saga.repair, saga.reconcile.
  *
  * Query operations delegate to task-engine; start/stop/current delegate
  * to session-engine (which hosts task-work functions).
@@ -29,12 +29,14 @@ import { createAttachmentStore } from '@cleocode/core/internal';
 // Saga core ops — pure business logic moved out of dispatch in T10124.
 // T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
 // T10118 adds the `detach` op for repair of nested-saga relations.
+// T10121 adds the `reconcile` op for idempotent cron-safe auto-close repair.
 import {
   sagaAdd as coreSagaAdd,
   sagaCreate as coreSagaCreate,
   detachSagaMember as coreSagaDetach,
   sagaList as coreSagaList,
   sagaMembers as coreSagaMembers,
+  reconcileSaga as coreSagaReconcile,
   repairSaga as coreSagaRepair,
   sagaRollup as coreSagaRollup,
 } from '@cleocode/core/sagas';
@@ -669,6 +671,8 @@ const MUTATE_OPS = new Set<string>([
   'saga.repair',
   // T10118 — repair verb for ADR-073 §1.2 I7 violations (detach saga member).
   'saga.detach',
+  // T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope).
+  'saga.reconcile',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -743,6 +747,28 @@ async function sagaRollup(params: Record<string, unknown>): Promise<LafsEnvelope
 async function sagaRepair(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
   const sagaId = typeof params.sagaId === 'string' ? params.sagaId : '';
   return wrapCoreResult(await coreSagaRepair(getProjectRoot(), { sagaId }), 'saga.repair');
+}
+
+/**
+ * saga.reconcile — idempotent cron-safe re-application of the T10116 saga
+ * auto-close logic for any saga whose members reached 100% terminal status
+ * via mutation paths OTHER than `completeTask` (bulk SQL repair, crash
+ * recovery, manual state edits).
+ *
+ * Per-saga advisory lock + audit log at `.cleo/audit/saga-reconcile.jsonl`.
+ *
+ * Supersedes T10098 standalone scope. See `core/sagas/reconcile.ts`.
+ *
+ * @task T10121
+ */
+async function sagaReconcile(params: Record<string, unknown>): Promise<LafsEnvelope<unknown>> {
+  const sagaId =
+    typeof params.sagaId === 'string' && params.sagaId.length > 0 ? params.sagaId : undefined;
+  const dryRun = params.dryRun === true;
+  return wrapCoreResult(
+    await coreSagaReconcile(getProjectRoot(), { sagaId, dryRun }),
+    'saga.reconcile',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -894,6 +920,16 @@ export class TasksHandler implements DomainHandler {
           startTime,
         );
       }
+      if (operation === 'saga.reconcile') {
+        const envelope = await sagaReconcile(params ?? {});
+        return wrapResult(
+          envelopeToEngineResult(envelope),
+          'mutate',
+          'tasks',
+          operation,
+          startTime,
+        );
+      }
     } catch (error) {
       getLogger('domain:tasks').error(
         { gateway: 'mutate', domain: 'tasks', operation, err: error },
@@ -977,6 +1013,8 @@ export class TasksHandler implements DomainHandler {
         'saga.repair',
         // T10118 — repair verb for ADR-073 §1.2 I7 violations
         'saga.detach',
+        // T10121 — idempotent cron-safe auto-close repair.
+        'saga.reconcile',
       ],
     };
   }
