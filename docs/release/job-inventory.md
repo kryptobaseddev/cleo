@@ -1,11 +1,22 @@
 ---
-title: CI Job Inventory + PR/main Parity Matrix (T10106)
+title: CI Job Inventory + PR/main Parity Matrix (T10106 + T10274)
 task: T10106
+followups: [T10274]
 saga: T10099
 generated: 2026-05-23
+last-updated: 2026-05-23
 ---
 
-# CI Job Inventory + PR/main Parity Matrix (T10106)
+# CI Job Inventory + PR/main Parity Matrix (T10106 + T10274)
+
+> **T10274 update (2026-05-23)** — Parity divergences D2, D3, D4, and D9 noted in this
+> document have been fixed: dead `develop` branch filter dropped from
+> `arch-boundary-check.yml`, `ci.yml`, `dual-implementation-lint.yml`;
+> bare `pull_request:` triggers in `identity-pollution-check.yml` and
+> `lockfile-check.yml` now carry an explicit `branches: [main]` filter;
+> and `release-pipeline-matrix.yml`'s `release-pipeline` label gate
+> (with `types: [labeled, synchronize]`) has been removed in favor of
+> path-only triggers.
 
 Exhaustive matrix of every GitHub Actions workflow in `.github/workflows/`, the jobs each defines, the events that trigger them, and whether each job runs on **PR-to-main** vs **push-to-main** vs **tag-push**.
 
@@ -70,11 +81,11 @@ A check-mark `Y` means **the job's workflow triggers fire for that event AND any
 | 4 | `docs-reingest.yml` | `reingest` | Re-ingest published docs | OTHER (`pull_request: closed`) | N (uses PR-merge event) | N | N | N | 15m | inline (T9645) |
 | 5 | `dual-implementation-lint.yml` | `dual-implementation-lint` | Dual Implementation Lint (T10199) | Y | Y | N | N | N | 5m | inline (T10199) |
 | 6 | `freshness-sentinel.yml` | `check-dream-freshness` | Check BRAIN dream cycle health | N | N | N | Y (daily 06:00 UTC) | Y | 10m | — |
-| 7 | `identity-pollution-check.yml` | `reject-polluted-identity` | Reject `Test <test@example.com>` | Y (bare `pull_request`) | Y | N | N | N | 2m | — |
-| 8 | `lockfile-check.yml` | `lockfile-consistency` | Verify `pnpm-lock.yaml` consistency | Y (bare `pull_request`) | Y | N | N | N | (none) | — |
-| 9 | `release-pipeline-matrix.yml` | `matrix-gate` | Build matrix | paths-y + label `release-pipeline` | paths-y | N | N | N | 5m | — |
-| 9 | `release-pipeline-matrix.yml` | `scenario` | matrix.scenario / matrix.archetype | paths-y + label | paths-y | N | N | N | 15m | — |
-| 9 | `release-pipeline-matrix.yml` | `summarize` | Matrix summary | paths-y + label | paths-y | N | N | N | 3m | — |
+| 7 | `identity-pollution-check.yml` | `reject-polluted-identity` | Reject `Test <test@example.com>` | Y (T10274: now explicit `branches: [main]`) | Y | N | N | N | 2m | — |
+| 8 | `lockfile-check.yml` | `lockfile-consistency` | Verify `pnpm-lock.yaml` consistency | Y (T10274: now explicit `branches: [main]`) | Y | N | N | N | (none) | — |
+| 9 | `release-pipeline-matrix.yml` | `matrix-gate` | Build matrix | paths-y (T10274: label gate removed) | paths-y | N | N | N | 5m | — |
+| 9 | `release-pipeline-matrix.yml` | `scenario` | matrix.scenario / matrix.archetype | paths-y (T10274: label gate removed) | paths-y | N | N | N | 15m | — |
+| 9 | `release-pipeline-matrix.yml` | `summarize` | Matrix summary | paths-y (T10274: label gate removed) | paths-y | N | N | N | 3m | — |
 | 10 | `release-prepare.yml` | `prepare` | Prepare Release Branch | N | N | N | N | Y | 15m | `# @task T9781` |
 | 11 | `release.yml` | `release` | Build & Publish | N | N | Y (`v[0-9]+.[0-9]+.[0-9]+*`) | N | Y | (none) | — |
 | 11 | `release.yml` | `execute-payload` | Post-Deploy Execution Payload | N | N | Y | N | Y | 10m | — |
@@ -85,7 +96,9 @@ A check-mark `Y` means **the job's workflow triggers fire for that event AND any
 | 16 | `worktree-napi-prebuild.yml` | `build` | matrix.triple | paths-y | paths-y, tag-y (`v*`) | Y (paths-y) | N | Y | (none) | — |
 
 Notes:
-- "PR→main" with no `branches:` filter (e.g. `lockfile-check.yml`, `identity-pollution-check.yml`) accepts a PR against any base branch but in practice only `main` is the default base.
+- "PR→main" — after T10274, every workflow that uses a `pull_request:` trigger
+  carries an explicit `branches: [main]` filter (or path-only triggers for the
+  release-pipeline matrix). No bare `pull_request:` triggers remain.
 - "inline" under `# @task` means the workflow's leading comment block references a task ID without using the `# @task` formal annotation. Workflows that use the formal `# @task <id>` header are explicitly noted.
 - `unit-tests` and `build-verify` are matrices — actual job count depends on `os` × `shard` fan-out.
 
@@ -101,17 +114,27 @@ Notes:
 
 **After:** Added `push: branches: [main]` trigger. The `if:` guard on the `cleanup` job now also accepts `github.event_name == 'push'` (skipping the `pull_request.merged` check on push events).
 
-### D2 — `identity-pollution-check.yml`: missing `develop` branch filter (intentional)
+### D2 — `identity-pollution-check.yml`: bare `pull_request:` trigger — FIXED in T10274
 
-`on: pull_request:` (bare) + `on: push: branches: [main]`. The PR filter accepts any base branch (the gate cares about commit identity, not branch); the push filter is `main`-only because there is no other long-lived integration branch on this repo today. **Intentional — documented here.**
+**Status: FIXED in T10274.**
 
-### D3 — `lockfile-check.yml`: missing `develop` branch filter (intentional)
+**Before:** `on: pull_request:` (bare) accepted PRs against any base branch (the gate cares about commit identity, not branch). Push filter was already `main`-only.
 
-Same shape as D2. Lock-file consistency is checked on every PR regardless of base; push gate fires on `main` only. **Intentional — documented here.**
+**After:** `on: pull_request: branches: [main]` — explicit alignment with the push trigger and the rest of the workflow inventory.
 
-### D4 — `arch-boundary-check.yml` + `ci.yml` + `dual-implementation-lint.yml`: include `develop` branch
+### D3 — `lockfile-check.yml`: bare `pull_request:` trigger — FIXED in T10274
 
-These three workflows include `develop` in both `push` and `pull_request` branch filters. The `develop` branch is **not currently active** on this repo (only `main` exists as a long-lived branch). The filters are harmless future-proofing. **Intentional — documented here.**
+**Status: FIXED in T10274.**
+
+Same shape as D2. The trigger was `on: pull_request:` (bare); now `on: pull_request: branches: [main]`. Lockfile consistency is still checked on every PR, but the base-branch is explicit and consistent with the rest of the inventory.
+
+### D4 — `arch-boundary-check.yml` + `ci.yml` + `dual-implementation-lint.yml`: dead `develop` branch filter — FIXED in T10274
+
+**Status: FIXED in T10274.**
+
+**Before:** These three workflows included `develop` in both `push` and `pull_request` branch filters.
+
+**After:** `develop` removed from all three. The branch is not in use on this repo (only `main` exists as a long-lived branch), so the filter was dead. Removing it brings the workflows into line with the simplification trend in T10198+ (boundary-registry-lint) and T10199 (dual-implementation-lint's own README).
 
 ### D5 — `boundary-registry-lint.yml`: `main`-only (no `develop`) — intentional
 
@@ -129,9 +152,15 @@ Newer guard (T10198, 2026-05-22) intentionally omits `develop` since the branch 
 
 Builds prebuilt napi binaries on PR (paths-y), push-main (paths-y), and tag (`v*`) events. Tag triggers exist to publish prebuilt binaries with releases. **Intentional — documented here.**
 
-### D9 — `release-pipeline-matrix.yml`: PR requires `release-pipeline` label
+### D9 — `release-pipeline-matrix.yml`: `release-pipeline` label gate — REMOVED in T10274
 
-`on: pull_request: types: [labeled, synchronize]` means the matrix only runs on a PR after a maintainer applies the `release-pipeline` label. On push-to-main it runs unconditionally (paths-y). **Intentional — heavy 32-job matrix is opt-in for PRs.**
+**Status: FIXED in T10274.**
+
+**Before:** `on: pull_request: types: [labeled, synchronize]` + an `if:` guard on the `matrix-gate` job (`contains(github.event.pull_request.labels.*.name, 'release-pipeline')`). The matrix only ran on a PR after a maintainer applied the `release-pipeline` label.
+
+**After:** `on: pull_request: branches: [main], paths: [...]` — the trigger is path-only, matching the `push: main` trigger exactly. The `if:` label guard on `matrix-gate` is removed. The path filter alone (`packages/cleo/test/fixtures/release-test-**` + `packages/cleo/test/integration/release-pipeline/**`) keeps the heavy 32-job matrix off of unrelated PRs while ensuring every PR that touches the release-pipeline fixtures/scenarios runs the gate without depending on a maintainer remembering to apply a label.
+
+**Why removed:** labels bypass too easily — a PR can ship without the matrix simply because no one noticed to add the label. The path filter is a deterministic admission control. Parity over convenience.
 
 ### D10 — `# @task` annotation header inconsistency
 
@@ -196,20 +225,21 @@ Assuming the owner enables the `AGENTS.md`-declared required set:
 
 No required-only-on-PR mismatches detected at this time.
 
-## Workflow Trigger Patterns (consolidated)
+## Workflow Trigger Patterns (consolidated — post-T10274)
 
 | Pattern | Workflows |
 |---|---|
-| `push: [main, develop]` + `pull_request: [main, develop]` | `arch-boundary-check`, `ci`, `dual-implementation-lint` |
-| `push: [main]` + `pull_request: [main]` | `boundary-registry-lint` |
-| `push: [main]` + bare `pull_request:` | `identity-pollution-check`, `lockfile-check` |
-| `push: [main]` + `pull_request:` (paths-filtered) | `skills-depth-check`, `worktree-napi-prebuild` (+ tags) |
-| `push: [main]` + `pull_request: closed` | `worktree-cleanup` (after this PR — was PR-only before) |
+| `push: [main]` + `pull_request: [main]` | `arch-boundary-check`, `ci`, `dual-implementation-lint`, `boundary-registry-lint`, `identity-pollution-check`, `lockfile-check` |
+| `push: [main]` + `pull_request: [main]` (paths-filtered) | `release-pipeline-matrix` (T10274: label gate removed), `skills-depth-check`, `worktree-napi-prebuild` (+ tags) |
+| `push: [main]` + `pull_request: closed` | `worktree-cleanup` |
 | `pull_request: closed` only | `docs-reingest`, `auto-tag-on-release-merge` (title-filtered) |
-| `pull_request: labeled/synchronize` + `push: [main]` (paths-filtered) | `release-pipeline-matrix` |
 | `workflow_dispatch` only | `release-prepare` |
 | `push: tags: [v*]` + `workflow_dispatch` | `release` |
 | `schedule` + `workflow_dispatch` | `freshness-sentinel`, `skills-council`, `skills-grade` |
+
+After T10274 the inventory collapses to **7 trigger patterns** (down from 10). No
+workflow uses a bare `pull_request:` trigger, no workflow uses the dead
+`develop` branch filter, and no workflow gates its PR run on a label.
 
 ## Duplicate / Overlapping Jobs
 
