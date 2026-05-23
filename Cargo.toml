@@ -74,9 +74,9 @@ napi-build = "1"
 tower-lsp = "0.20"
 
 # Local workspace crates
-lafs-core = { path = "crates/lafs-core" }
+lafs-core = { path = "crates/lafs-core", version = "=2026.5.105" }
 cleo-conduit-core = { path = "crates/cleo-conduit-core", version = "=2026.5.105" }
-cant-core = { path = "crates/cant-core" }
+cant-core = { path = "crates/cant-core", version = "=2026.5.105" }
 cant-lsp = { path = "crates/cant-lsp" }
 cant-napi = { path = "crates/cant-napi" }
 cant-runtime = { path = "crates/cant-runtime" }
